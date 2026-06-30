@@ -535,7 +535,7 @@ a { color: inherit; text-decoration: none; }
           <div class="hl-toprow">
             <div>
               <h3 class="hl-h1">Handstand Ladder</h3>
-              <div class="hl-sub">London Handstand Academy</div>
+              <div class="hl-sub" id="hl-sub">London Handstand Academy</div>
             </div>
             <div class="hl-badge-main" id="hl-levelBadge">BEGINNER</div>
           </div>
@@ -598,6 +598,7 @@ a { color: inherit; text-decoration: none; }
         <h2 style="font-family:var(--font-disp);font-size:27px;font-weight:900;text-transform:uppercase;color:#fff;line-height:1.1;margin-bottom:12px;">Unlock the full ladder</h2>
         <p style="font-size:14px;color:rgba(255,255,255,.6);line-height:1.6;margin-bottom:22px;">Level 1 — Foundations — is free. Join the London Handstand Academy newsletter to unlock Levels 2–4 and the Press to Handstand track. Training tips, drills, and workshop dates. Unsubscribe anytime — no spam.</p>
         <div style="display:flex;flex-direction:column;gap:10px;">
+          <input id="hl-gate-name" type="text" placeholder="Your first name" style="padding:13px 16px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:15px;outline:none;width:100%;"/>
           <input id="hl-gate-email" type="email" placeholder="your@email.com" style="padding:13px 16px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:15px;outline:none;width:100%;"/>
           <button onclick="hlGateSubmit()" style="padding:13px;border-radius:10px;background:#4d877f;color:#fff;font-family:var(--font-disp);font-size:15px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;border:0;">Subscribe &amp; Unlock →</button>
           <div id="hl-gate-msg" style="display:none;font-size:13px;margin-top:4px;font-weight:600;"></div>
@@ -808,8 +809,11 @@ try { rats=JSON.parse(localStorage.getItem('hsr')||'{}'); } catch(e){}
 
 /* ── Email gate: unlocked once they've joined the newsletter ── */
 var GATE_KEY='lha-unlocked';
+var NAME_KEY='lha-name';
 var gateUnlocked=false;
+var userName='';
 try { gateUnlocked=!!localStorage.getItem(GATE_KEY); } catch(e){}
+try { userName=localStorage.getItem(NAME_KEY)||''; } catch(e){}
 var gatePending=null;   /* 'ladder' or 'session' — where to send them after unlock */
 var gatePendingStage='wall-work'; /* stage id to switch to after unlock */
 
@@ -817,7 +821,7 @@ function openGate(source, stageId){
   gatePending=source;
   if(stageId) gatePendingStage=stageId;
   var g=$('hl-gate');
-  if(g){ g.style.display='flex'; var inp=$('hl-gate-email'); if(inp) inp.focus(); }
+  if(g){ g.style.display='flex'; var inp=$('hl-gate-name'); if(inp) inp.focus(); }
 }
 function doUnlock(){
   try{localStorage.setItem(GATE_KEY,'1');}catch(e){}
@@ -832,9 +836,15 @@ function doUnlock(){
   gatePending=null;
 }
 function hlGateSubmit(){
+  var nameInp=$('hl-gate-name');
   var inp=$('hl-gate-email');
   var msg=$('hl-gate-msg');
+  var name=(nameInp?nameInp.value:'').trim();
   var email=(inp?inp.value:'').trim();
+  if(!name){
+    if(msg){msg.style.display='block';msg.style.color='#ffb3b3';msg.textContent='Please enter your first name.';}
+    return;
+  }
   if(!email||email.indexOf('@')<0){
     if(msg){msg.style.display='block';msg.style.color='#ffb3b3';msg.textContent='Please enter a valid email address.';}
     return;
@@ -842,9 +852,14 @@ function hlGateSubmit(){
   if(msg){msg.style.display='block';msg.style.color='rgba(255,255,255,.75)';msg.textContent='Subscribing…';}
   fetch('/.netlify/functions/subscribe',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({email:email,source:'app-intermediate-gate'})
+    body:JSON.stringify({email:email,name:name,source:'app-intermediate-gate'})
   }).then(function(r){
-    if(r.ok){ doUnlock(); }
+    if(r.ok){
+      userName=name;
+      try{localStorage.setItem(NAME_KEY,name);}catch(e){}
+      doUnlock();
+      updateGreeting();
+    }
     else { return r.json().then(function(d){ throw new Error((d&&d.error)||'Something went wrong.'); }); }
   }).catch(function(err){
     if(msg){msg.style.color='#ffb3b3';msg.textContent=err.message+' Please try again.';}
@@ -1130,7 +1145,7 @@ document.addEventListener('keydown',function(e){
     var m=$('hl-modal');if(m&&m.classList.contains('open'))hlCloseModal();
     var g=$('hl-gate');if(g&&g.style.display==='flex')g.style.display='none';
   }
-  if(e.key==='Enter'&&document.activeElement&&document.activeElement.id==='hl-gate-email'){hlGateSubmit();}
+  if(e.key==='Enter'&&document.activeElement&&(document.activeElement.id==='hl-gate-email'||document.activeElement.id==='hl-gate-name')){hlGateSubmit();}
 });
 
 /* ── Onboarding level-finder quiz ──────────────────────────
@@ -1212,7 +1227,11 @@ function hlQuizGo(stageId){
 window.hlQuizStart=hlQuizStart;window.hlQuizSkip=hlQuizSkip;window.hlQuizAnswer=hlQuizAnswer;
 window.renderQuizStep=renderQuizStep;window.hlQuizGo=hlQuizGo;
 
-function init(){buildAll();renderLadder();buildSess(true);maybeShowQuiz();}
+function updateGreeting(){
+  var sub=$('hl-sub');
+  if(sub && userName){ sub.textContent='Hi '+userName+' 👋'; }
+}
+function init(){buildAll();renderLadder();buildSess(true);updateGreeting();maybeShowQuiz();}
 function maybeShowQuiz(){
   var done=false; try{done=!!localStorage.getItem(QUIZ_KEY);}catch(e){}
   if(!done){ setTimeout(hlQuizStart, 600); }
