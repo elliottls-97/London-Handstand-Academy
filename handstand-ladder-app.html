@@ -482,6 +482,13 @@ a { color: inherit; text-decoration: none; }
   /* With the detail panel open, the left ladder goes single-column */
   #lha-app.detail-open .hl-grid { grid-template-columns: 1fr !important; }
   #lha-app.detail-open .hl-mscroll { max-height: calc(100vh - 180px); }
+  /* Pin the video to the top of the panel; the text below it scrolls */
+  #lha-app.detail-open .hl-vbox {
+    position: sticky; top: 0; z-index: 5;
+    margin-left: -20px; margin-right: -20px; /* bleed to panel edges */
+    padding: 0 20px 12px; background: var(--page-bg);
+  }
+  #lha-app.detail-open .hl-mhead { position: sticky; top: 0; background: var(--page-bg); z-index: 6; padding-top: 4px; }
 }
 .hl-mscroll { overflow: auto; padding: 14px 20px 0; }
 @media (min-width: 640px) { .hl-mscroll { padding-top: 20px; } }
@@ -494,7 +501,7 @@ a { color: inherit; text-decoration: none; }
 .hl-tag { padding: 7px 11px; border-radius: 999px; background: var(--fill-soft); border: 1px solid var(--line); font-size: 11px; font-weight: 800; color: var(--text-75); }
 .hl-vbox { display: none; background: #000; border-radius: 16px; overflow: hidden; margin-bottom: 14px; }
 .hl-vbox.show { display: block; }
-.hl-vbox video { width: 100%; display: block; }
+.hl-vbox video { width: 100%; display: block; max-height: 42vh; object-fit: contain; }
 .hl-vfail { padding: 22px 18px; text-align: center; color: rgba(255,255,255,.8); font-size: 13px; line-height: 1.6; }
 .hl-vfail a { color: #4d877f; font-weight: 700; }
 .hl-box { margin-bottom: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 15px; }
@@ -513,6 +520,8 @@ a { color: inherit; text-decoration: none; }
 .hl-rategrid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 10px; }
 .hl-rbtn { padding: 12px 8px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; font-weight: 800; color: var(--text); }
 .hl-rbtn.active.easy { background: #e8f5e8; color: #2d6b30; } .hl-rbtn.active.got-it { background: #e8efff; color: #214d9b; } .hl-rbtn.active.hard { background: #fde6e4; color: #a13426; }
+.hl-ratelabel { font-size: 12px; font-weight: 700; color: var(--text-60); margin-bottom: 8px; }
+.hl-ratelabel span { font-weight: 500; opacity: .7; }
 .hl-hidden { display: none !important; }
 
 @media (max-width: 480px) {
@@ -577,15 +586,13 @@ a { color: inherit; text-decoration: none; }
           </div>
         </div>
         <div class="hl-sbar">
-          <button class="hl-btn green" id="hl-doneBtn" onclick="hlMarkDone()">Mark as Done</button>
-          <div id="hl-afterDone" class="hl-hidden">
-            <div class="hl-rategrid">
-              <button class="hl-rbtn" id="hl-r-easy" onclick="hlRate('easy')">Easy</button>
-              <button class="hl-rbtn" id="hl-r-got-it" onclick="hlRate('got-it')">Got It</button>
-              <button class="hl-rbtn" id="hl-r-hard" onclick="hlRate('hard')">Hard</button>
-            </div>
-            <button class="hl-btn" onclick="hlGoNext()">Next Exercise</button>
+          <div class="hl-ratelabel">How did it feel? <span>(optional)</span></div>
+          <div class="hl-rategrid">
+            <button class="hl-rbtn" id="hl-r-easy" onclick="hlRate('easy')">Easy</button>
+            <button class="hl-rbtn" id="hl-r-got-it" onclick="hlRate('got-it')">Got It</button>
+            <button class="hl-rbtn" id="hl-r-hard" onclick="hlRate('hard')">Hard</button>
           </div>
+          <button class="hl-btn green" onclick="hlDoneNext()">Done &amp; Next →</button>
         </div>
       </div>
     </div>
@@ -859,10 +866,21 @@ function hlGateSubmit(){
       try{localStorage.setItem(NAME_KEY,name);}catch(e){}
       doUnlock();
       updateGreeting();
+      return;
     }
-    else { return r.json().then(function(d){ throw new Error((d&&d.error)||'Something went wrong.'); }); }
+    // Error path — read the body as TEXT first, then try to parse it safely.
+    // This prevents an "unexpected string" crash when the server returns
+    // an HTML error page instead of JSON.
+    return r.text().then(function(body){
+      var errMsg='Something went wrong.';
+      try{ var d=JSON.parse(body); if(d&&d.error) errMsg=d.error; }catch(e){ /* non-JSON response, keep generic message */ }
+      throw new Error(errMsg);
+    });
   }).catch(function(err){
-    if(msg){msg.style.color='#ffb3b3';msg.textContent=err.message+' Please try again.';}
+    if(msg){
+      msg.style.color='#ffb3b3';
+      msg.textContent=(err&&err.message?err.message:'Something went wrong.')+' Please try again, or email info@londonhandstandacademy.com.';
+    }
   });
 }
 
@@ -945,7 +963,14 @@ function hlSetStage(id){
   }
   curStage=id;renderLadder();
 }
-function hlToggleSec(sid){openSecs[sid]=!openSecs[sid];renderLadder();}
+function hlToggleSec(sid){
+  var y=window.pageYOffset||document.documentElement.scrollTop;
+  openSecs[sid]=!openSecs[sid];
+  var wasOpen=!openSecs[sid]; /* true if we just CLOSED it */
+  renderLadder();
+  /* Restore scroll so the page doesn't jump to the top on re-render */
+  window.scrollTo(0,y);
+}
 function hlShowTab(n){
   $('hl-tab0').classList.toggle('active',n===0);
   $('hl-tab1').classList.toggle('active',n===1);
@@ -985,8 +1010,6 @@ function hlOpenEx(id){
     var p=vd.play(); if(p&&p.catch){p.catch(function(){});}
   }
   var isDone=!!prog[item.ex.id];
-  $('hl-doneBtn').classList.toggle('hl-hidden',isDone);
-  $('hl-afterDone').classList.toggle('hl-hidden',!isDone);
   ['easy','got-it','hard'].forEach(function(r){$('hl-r-'+r).className='hl-rbtn'+(rats[item.ex.id]===r?' active '+r:'');});
   var m=$('hl-modal'); m.classList.add('open');
   /* desktop master-detail: dock the panel beside the list */
@@ -1006,9 +1029,13 @@ function hlCloseModal(){
   renderLadder();
   if(selTime)buildSess(true);
 }
-function hlMarkDone(){if(!curEx)return;prog[curEx.ex.id]=true;saveData();$('hl-doneBtn').classList.add('hl-hidden');$('hl-afterDone').classList.remove('hl-hidden');updateProgress();renderLadder();}
+function hlDoneNext(){
+  if(curEx){ prog[curEx.ex.id]=true; saveData(); updateProgress(); }
+  hlGoNext();
+}
 function hlRate(r){if(!curEx)return;rats[curEx.ex.id]=r;saveData();['easy','got-it','hard'].forEach(function(x){$('hl-r-'+x).className='hl-rbtn'+(x===r?' active '+x:'');});if(selTime)buildSess(true);renderLadder();}
 function hlGoNext(){if(!curEx)return;var ids=sessionIds.length?sessionIds:ALL.map(function(x){return x.ex.id;});var idx=ids.indexOf(curEx.ex.id);if(idx>-1&&idx<ids.length-1){hlOpenEx(ids[idx+1]);}else{hlCloseModal();}}
+function hlGoPrev(){if(!curEx)return;var ids=sessionIds.length?sessionIds:ALL.map(function(x){return x.ex.id;});var idx=ids.indexOf(curEx.ex.id);if(idx>0){hlOpenEx(ids[idx-1]);}}
 
 /* ── quick session ── */
 var sessStage='foundations';
@@ -1134,7 +1161,7 @@ function hlStartSess(){if(sessionIds.length)hlOpenEx(sessionIds[0]);}
 /* expose handlers */
 window.hlShowTab=hlShowTab;window.hlSetStage=hlSetStage;window.hlToggleSec=hlToggleSec;
 window.hlSessStage=hlSessStage;
-window.hlOpenEx=hlOpenEx;window.hlCloseModal=hlCloseModal;window.hlMarkDone=hlMarkDone;
+window.hlOpenEx=hlOpenEx;window.hlCloseModal=hlCloseModal;window.hlDoneNext=hlDoneNext;
 window.hlRate=hlRate;window.hlGoNext=hlGoNext;window.hlPickTime=hlPickTime;
 window.hlBuildSess=function(){buildSess(false);};window.hlStartSess=hlStartSess;
 window.hlGateSubmit=hlGateSubmit;window.openGate=openGate;
@@ -1237,8 +1264,33 @@ function maybeShowQuiz(){
   if(!done){ setTimeout(hlQuizStart, 600); }
 }
 
+/* ── Swipe left/right to move between exercises (mobile) ── */
+function setupSwipe(){
+  var sheet=document.querySelector('.hl-sheet');
+  if(!sheet) return;
+  var x0=null, y0=null, t0=0, fromVideo=false;
+  sheet.addEventListener('touchstart',function(e){
+    if(e.touches.length!==1){ x0=null; return; }
+    var t=e.touches[0];
+    x0=t.clientX; y0=t.clientY; t0=Date.now();
+    /* ignore swipes that begin on the video, so its controls still work */
+    fromVideo = !!(e.target.closest && e.target.closest('.hl-vbox'));
+  },{passive:true});
+  sheet.addEventListener('touchend',function(e){
+    if(x0===null||fromVideo){ x0=null; return; }
+    var t=e.changedTouches[0];
+    var dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
+    x0=null;
+    /* horizontal, decisive, mostly-sideways, reasonably quick */
+    if(Math.abs(dx)>60 && Math.abs(dx)>Math.abs(dy)*1.8 && dt<600){
+      if(dx<0) hlGoNext(); else hlGoPrev();
+    }
+  },{passive:true});
+}
+
 /* All drill data is hardcoded above — no external fetch needed */
 init();
+setupSwipe();
 })();
 
 </script>
