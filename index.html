@@ -2317,12 +2317,12 @@ footer {
       <div class="quiz-done">
         <div class="quiz-done-icon">🙌</div>
         <h2>Application sent.</h2>
-        <p>Elliott will review your answers and get back to you within 48 hours. Ready to go now? You can start straight away — just pick how you'd like to train.</p>
+        <p id="doneLead">Elliott will review your answers and get back to you within 48 hours. Ready to go now? You can start straight away — just pick how you'd like to train.</p>
         <div style="margin:20px 0;padding:20px;background:rgba(255,255,255,.09);border-radius:14px;border:1px solid rgba(232,160,122,.35);">
           <div style="font-family:var(--font-disp);font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#e8a07a;margin-bottom:10px;">Start now</div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
-            <a href="https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00" target="_blank" rel="noopener" style="flex:1;min-width:140px;display:block;background:#4d877f;color:#fff;font-family:var(--font-disp);font-size:14px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:13px 16px;border-radius:12px;text-decoration:none;">Online — £100/mo →</a>
-            <a href="https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01" target="_blank" rel="noopener" style="flex:1;min-width:140px;display:block;background:#c2703d;color:#fff;font-family:var(--font-disp);font-size:14px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:13px 16px;border-radius:12px;text-decoration:none;">In-person — £150/mo →</a>
+            <a id="doneOnlineBtn" href="https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00" target="_blank" rel="noopener" style="flex:1;min-width:140px;display:block;background:#4d877f;color:#fff;font-family:var(--font-disp);font-size:14px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:13px 16px;border-radius:12px;text-decoration:none;">Online — £100/mo →</a>
+            <a id="doneInpersonBtn" href="https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01" target="_blank" rel="noopener" style="flex:1;min-width:140px;display:block;background:#c2703d;color:#fff;font-family:var(--font-disp);font-size:14px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:13px 16px;border-radius:12px;text-decoration:none;">In-person — £150/mo →</a>
           </div>
         </div>
         <div style="margin:20px 0;padding:20px;background:rgba(255,255,255,.07);border-radius:14px;border:1px solid rgba(255,255,255,.12);">
@@ -2831,21 +2831,28 @@ function submitQuiz() {
   const sendBtn = document.querySelector('#qStep6 .btn-quiz-next');
   if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
 
-  fetch('/.netlify/functions/coaching-apply', {
+  fetch('https://formspree.io/f/xvzjawjv', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify({
-      name, email, goal, level,
-      format, commitment: commit,
-      injuries, hours, notes
+      _subject: 'Coaching application — ' + name,
+      type: 'Coaching application',
+      name: name, email: email,
+      goal: goal, level: level,
+      format: format, commitment: commit,
+      injuries: injuries, hours: hours, notes: notes
     })
   })
   .then(function(res) {
     if (res.ok) {
+      applyQuizFormatToDone(format);
       showStep('done');
     } else {
-      return res.json().then(function(d) {
-        throw new Error((d && d.error) || 'Something went wrong.');
+      return res.text().then(function(body){
+        var m = 'Something went wrong.';
+        try { var d = JSON.parse(body); if (d && d.error) m = d.error;
+              else if (d && d.errors && d.errors[0] && d.errors[0].message) m = d.errors[0].message; } catch(e){}
+        throw new Error(m);
       });
     }
   })
@@ -2853,6 +2860,31 @@ function submitQuiz() {
     alert("Sorry — your application couldn't be sent (" + err.message + "). Please email info@londonhandstandacademy.com directly.");
     if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send Application →'; }
   });
+}
+
+/* Emphasise the payment option matching the format they chose in Step 3. */
+function applyQuizFormatToDone(format) {
+  var f = (format || '').toLowerCase();
+  var wantsInPerson = f.indexOf('in person') > -1 || f.indexOf('in-person') > -1 || f.indexOf('hybrid') > -1;
+  var wantsOnline   = f.indexOf('online') > -1;
+  var onlineBtn = document.getElementById('doneOnlineBtn');
+  var inpBtn    = document.getElementById('doneInpersonBtn');
+  var lead      = document.getElementById('doneLead');
+  if (!onlineBtn || !inpBtn) return;
+  // reset
+  onlineBtn.style.opacity = '1'; inpBtn.style.opacity = '1';
+  onlineBtn.style.order = '0'; inpBtn.style.order = '0';
+  if (wantsInPerson && !wantsOnline) {
+    inpBtn.style.order = '-1';
+    onlineBtn.style.opacity = '.55';
+    if (lead) lead.textContent = "Elliott will review your answers and get back to you within 48 hours. You picked in-person — start straight away below (or switch to online if you'd prefer).";
+  } else if (wantsOnline) {
+    onlineBtn.style.order = '-1';
+    inpBtn.style.opacity = '.55';
+    if (lead) lead.textContent = "Elliott will review your answers and get back to you within 48 hours. You picked online — start straight away below (or add in-person for £150/mo).";
+  } else {
+    if (lead) lead.textContent = "Elliott will review your answers and get back to you within 48 hours. Ready to go now? Pick how you'd like to train.";
+  }
 }
 
 /* ── Newsletter subscribe (posts to Netlify function → Beehiiv) ── */
