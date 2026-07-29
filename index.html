@@ -508,6 +508,47 @@ h1.hero-h1 em {
   white-space: nowrap;
 }
 @media (max-width: 720px) { #stickyCta { display: flex; } }
+
+/* ── Cookie consent bar (required before any cookie-setting analytics) ── */
+#cookieBar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
+  display: none; align-items: center; justify-content: center; gap: 18px;
+  flex-wrap: wrap;
+  padding: 16px 20px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(31,78,74,.98);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 -8px 30px rgba(0,0,0,.22);
+  transform: translateY(110%); transition: transform .35s ease;
+}
+#cookieBar.show { display: flex; }
+#cookieBar.in { transform: translateY(0); }
+.cb-text { font-size: 13.5px; line-height: 1.55; color: rgba(255,255,255,.85); max-width: 620px; }
+.cb-text a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.cb-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.cb-btn {
+  padding: 11px 22px; border-radius: 999px; border: 0; cursor: pointer;
+  font-family: var(--font-disp); font-size: 13.5px; font-weight: 900;
+  letter-spacing: .5px; text-transform: uppercase; white-space: nowrap;
+  transition: transform .15s ease, background .15s ease;
+}
+.cb-btn:hover { transform: translateY(-1px); }
+.cb-accept { background: #fff; color: #1f4e4a; }
+.cb-decline { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3); }
+.cb-decline:hover { background: rgba(255,255,255,.2); }
+/* While consent is pending the bar owns the bottom of the screen */
+body.cookie-pending #stickyCta { display: none !important; }
+.cookie-settings-link {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font-size: 12px; color: rgba(255,255,255,.35); text-decoration: underline;
+}
+.cookie-settings-link:hover { color: rgba(255,255,255,.6); }
+@media (max-width: 640px) {
+  #cookieBar { justify-content: flex-start; gap: 12px; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+  .cb-text { font-size: 12.5px; }
+  .cb-actions { width: 100%; }
+  .cb-btn { flex: 1; padding: 12px 14px; }
+}
 .btn-main {
   display: inline-flex; align-items: center; gap: 8px;
   background: #4d877f; color: #fff;
@@ -2049,6 +2090,7 @@ footer {
     </div>
     <div class="footer-bottom">
       <span class="footer-copy">© 2026 London Handstand Academy</span>
+      <button class="cookie-settings-link" onclick="LHA.showCookieSettings()">Cookie settings</button>
       <a href="https://www.instagram.com/elliottstaley" target="_blank" style="font-size:12px;color:var(--text-25);">@elliottstaley</a>
     </div>
   </div>
@@ -2945,10 +2987,11 @@ function subscribeNewsletter(emailId, msgId, source, nameId) {
     var fired = false;
     function fire() {
       if (fired || alreadyHandled()) return;
-      /* never talk over the plan-builder or a chooser modal */
+      /* never talk over the plan-builder, a chooser modal, or the cookie bar */
       var q = document.getElementById('quiz-overlay');
       if (q && q.classList.contains('open')) return;
       if (document.querySelector('#coachChoose.open, #wsChoose.open')) return;
+      if (document.body.classList.contains('cookie-pending')) return;
       fired = true; showPopup();
     }
     /* 1. Exit intent — cursor leaves via the top of the viewport (desktop only) */
@@ -3127,6 +3170,81 @@ document.addEventListener('keydown',function(e){
       imgs[i].classList.add('on');
     },3000);
   },600);
+})();
+</script>
+
+<!-- ── Cookie consent bar ── -->
+<div id="cookieBar" role="dialog" aria-live="polite" aria-label="Cookie consent">
+  <p class="cb-text">
+    We'd like to use analytics cookies to understand how people use this site,
+    so we can make it better. They're optional — decline and nothing is stored.
+  </p>
+  <div class="cb-actions">
+    <button class="cb-btn cb-decline" onclick="LHA.setConsent('declined')">Decline</button>
+    <button class="cb-btn cb-accept"  onclick="LHA.setConsent('accepted')">Accept</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     COOKIE CONSENT  ·  gates Microsoft Clarity
+     ───────────────────────────────────────────────────────────────────
+     TO GO LIVE: create a free project at https://clarity.microsoft.com,
+     copy the project ID from Settings → Overview, and paste it below.
+
+     Until CLARITY_ID is filled in, NOTHING loads and no cookies are set,
+     even if a visitor accepts — so it is safe to deploy this as-is.
+     ═══════════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  var CLARITY_ID = 'xu03z2n3k6';             /* Microsoft Clarity project ID */
+  var KEY = 'lha-cookie-consent';            /* 'accepted' | 'declined' */
+
+  function read(){ try { return localStorage.getItem(KEY); } catch(e){ return null; } }
+  function write(v){ try { localStorage.setItem(KEY, v); } catch(e){} }
+
+  var clarityLoaded = false;
+  function loadClarity(){
+    if (clarityLoaded || !CLARITY_ID) return;
+    clarityLoaded = true;
+    /* Microsoft Clarity's official snippet, injected only after consent */
+    (function(c,l,a,r,i,t,y){
+      c[a] = c[a] || function(){ (c[a].q = c[a].q || []).push(arguments); };
+      t = l.createElement(r); t.async = 1; t.src = 'https://www.clarity.ms/tag/' + i;
+      y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+    })(window, document, 'clarity', 'script', CLARITY_ID);
+  }
+
+  var bar = document.getElementById('cookieBar');
+  function showBar(){
+    if (!bar) return;
+    document.body.classList.add('cookie-pending');
+    bar.classList.add('show');
+    requestAnimationFrame(function(){ bar.classList.add('in'); });
+  }
+  function hideBar(){
+    if (!bar) return;
+    bar.classList.remove('in');
+    document.body.classList.remove('cookie-pending');
+    setTimeout(function(){ bar.classList.remove('show'); }, 350);
+  }
+
+  window.LHA = window.LHA || {};
+  window.LHA.consent = read;
+  window.LHA.setConsent = function(choice){
+    write(choice);
+    hideBar();
+    if (choice === 'accepted') loadClarity();
+    if (window.LHA.track) window.LHA.track('cookie_consent', { choice: choice });
+  };
+  /* Lets people change their mind later — the footer link calls this */
+  window.LHA.showCookieSettings = function(){
+    try { localStorage.removeItem(KEY); } catch(e){}
+    showBar();
+  };
+
+  var choice = read();
+  if (choice === 'accepted') loadClarity();
+  else if (choice !== 'declined') showBar();
 })();
 </script>
 
