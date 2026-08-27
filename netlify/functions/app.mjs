@@ -66,6 +66,29 @@ async function verify(token) {
   } catch { return null; }
 }
 
+
+/* ── password login ──────────────────────────────────────────
+   Codes are the better mechanism and the routes above still work,
+   but email delivery has to be trusted before a client depends on
+   it. Passwords get people in today.
+
+   PASSWORDS holds email:hash pairs — PBKDF2-SHA256, 100k rounds,
+   salted with SIGNING_SECRET. The plain password is never stored
+   anywhere on the server, so a leak of this variable doesn't hand
+   anyone an account. Changing SIGNING_SECRET invalidates them all. */
+async function pwHash(plain) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(plain),
+    { name: 'PBKDF2' }, false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: new TextEncoder().encode(process.env.SIGNING_SECRET || ''),
+      iterations: 100000, hash: 'SHA-256' }, key, 256);
+  return Buffer.from(bits).toString('base64');
+}
+const passwords = () => Object.fromEntries(
+  (process.env.PASSWORDS || '').split(',').map(x => x.trim()).filter(Boolean)
+    .map(x => { const i = x.indexOf(':'); return [norm(x.slice(0, i)), x.slice(i + 1)]; })
+);
+
 async function email(to, subject, html) {
   if (!process.env.RESEND_API_KEY) return;
   try {
@@ -115,6 +138,32 @@ export default async (request) => {
       }
     }
     return json({ ok: true });
+  }
+
+
+  /* ── POST /login  {email, password} → {token, client} ── */
+  if (path === '/login' && request.method === 'POST') {
+    const e = norm(body.email);
+    const name = clients()[e];
+    const stored = passwords()[e];
+    const bad = () => json({ error: 'Wrong email or password' }, 401);
+    if (!e || !name || !stored || !body.password) return bad();
+
+    /* slow the guessing down without keeping any per-user state */
+    const rl = (await db.get(`pwrl:${e}`, { type: 'json' })) || { n: 0, at: 0 };
+    const fresh = Date.now() - rl.at < 900000;
+    if (fresh && rl.n >= 10) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
+
+    const got = await pwHash(String(body.password));
+    if (got.length !== stored.length) return bad();
+    let diff = 0;
+    for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ stored.charCodeAt(i);
+    if (diff) {
+      await db.setJSON(`pwrl:${e}`, { n: fresh ? rl.n + 1 : 1, at: fresh ? rl.at : Date.now() });
+      return bad();
+    }
+    await db.delete(`pwrl:${e}`);
+    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }), client: name });
   }
 
   /* ── swap a code for a token ── */
