@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Coach · London Handstand Academy</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+:root{--bg:#f2efe7;--forest:#2f3d2f;--ink:#1c2019;--terra:#c87a56;--sage:#9fb098;
+ --grey:#61655a;--grey2:#8a8d80;--mist:#e8ece3;--line:rgba(28,32,25,.12);
+ --serif:'Instrument Serif',Georgia,serif;--sans:Manrope,system-ui,sans-serif}
+body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink)}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 20px 60px}
+h1{font:400 34px/1 var(--serif);margin:0}
+.kick{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
+.grid{display:grid;grid-template-columns:300px 1fr;gap:18px;margin-top:22px;align-items:start}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:#fff;border-radius:20px;padding:18px;border:1px solid var(--line)}
+.cli{display:flex;align-items:center;gap:12px;padding:13px;border-radius:14px;cursor:pointer;border:none;
+ background:none;width:100%;text-align:left}
+.cli:hover{background:var(--mist)}
+.cli.on{background:var(--forest);color:#fff}
+.cli .av{width:34px;height:34px;border-radius:999px;background:var(--terra);color:#fff;flex:none;
+ display:grid;place-items:center;font:700 13px/1 var(--sans)}
+.cli b{font:600 14.5px/1.2 var(--sans);display:block}
+.cli span{font:500 11.5px/1 var(--sans);color:var(--grey2);display:block;margin-top:5px}
+.cli.on span{color:var(--sage)}
+.dot{margin-left:auto;background:var(--terra);color:#fff;border-radius:999px;padding:3px 8px;
+ font:700 10px/1 var(--sans)}
+.msg{max-width:76%;padding:13px 15px;border-radius:18px;font:400 14.5px/1.5 var(--sans);white-space:pre-wrap}
+.me{margin-left:auto;background:var(--forest);color:var(--bg);border-bottom-right-radius:6px}
+.them{background:var(--mist);border-bottom-left-radius:6px}
+.at{font:500 10.5px/1 var(--sans);color:var(--grey2);margin-top:5px}
+input,textarea{font-family:var(--sans);font-size:15px;border:1px solid var(--line);border-radius:12px;padding:12px;width:100%}
+button.send{border:none;background:var(--terra);color:#fff;border-radius:999px;padding:12px 22px;
+ font:700 13px/1 var(--sans);cursor:pointer}
+.gate{max-width:400px;margin:16vh auto;text-align:center}
+</style></head><body><div id="v" class="wrap"></div>
+<script>
+const API='/api/app/coach';
+let KEY=localStorage.getItem('lha_coach_key')||'';
+let sel=null, clients=[], thread=[];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ago=t=>{ if(!t) return 'no messages'; const m=Math.round((Date.now()-t)/60000);
+  if(m<60) return m+' min ago'; const h=Math.round(m/60);
+  return h<24? h+' hr ago' : Math.round(h/24)+' days ago'; };
+const hdr=()=>({'Content-Type':'application/json','X-Coach-Key':KEY});
+
+function gate(msg){
+  $('#v').innerHTML=`<div class="gate"><h1>Coach</h1>
+    <p style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin:14px 0 18px">
+      Paste your coach key. It stays in this browser.</p>
+    <input id="k" type="password" placeholder="Coach key" value="${esc(KEY)}">
+    ${msg?`<p style="color:var(--terra);font:500 13px/1.5 var(--sans);margin-top:10px">${esc(msg)}</p>`:''}
+    <button class="send" style="margin-top:14px" onclick="saveKey()">Open</button></div>`;
+}
+function saveKey(){ KEY=$('#k').value.trim(); localStorage.setItem('lha_coach_key',KEY); load(); }
+
+function load(){
+  fetch(API+'/clients',{headers:hdr()})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ clients=d.clients||[]; if(!sel&&clients.length) sel=clients[0].email; draw(); if(sel) openThread(sel); })
+    .catch(e=>gate(e===401?'That key was not accepted.':'Could not reach the worker. Is it deployed?'));
+}
+function openThread(email){
+  sel=email; draw();
+  fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.json()).then(d=>{ thread=d.messages||[];
+      const c=clients.find(x=>x.email===email); if(c) c.unread=0;
+      draw(); const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; });
+}
+function reply(){
+  const el=$('#reply'); const text=(el.value||'').trim(); if(!text||!sel) return;
+  el.value='';
+  thread.push({from:'coach',text,at:Date.now()}); draw();
+  fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
+    body:JSON.stringify({text})}).then(()=>openThread(sel));
+}
+function draw(){
+  const list=clients.map(c=>`<button class="cli ${c.email===sel?'on':''}" onclick="openThread('${esc(c.email)}')">
+    <span class="av">${esc((c.name||'?')[0])}</span>
+    <span><b>${esc(c.name)}</b><span>${ago(c.last)}</span></span>
+    ${c.unread?`<span class="dot">${c.unread}</span>`:''}</button>`).join('') ||
+    `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);padding:10px">No clients yet — add them to the CLIENTS variable on the worker.</div>`;
+  const msgs=thread.map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.from==='coach'?'flex-end':'flex-start'}">
+    <div class="msg ${m.from==='coach'?'me':'them'}">${esc(m.text)}</div>
+    <div class="at">${m.from==='coach'?'You':esc((clients.find(c=>c.email===sel)||{}).name||'')} · ${ago(m.at)}</div></div>`).join('')
+    || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;
+  $('#v').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline">
+      <h1>Coach</h1>
+      <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_key');location.reload()">Sign out</button></div>
+    <div class="grid">
+      <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
+      <div class="card">
+        <div class="kick">${esc((clients.find(c=>c.email===sel)||{}).name||'THREAD').toUpperCase()}</div>
+        <div id="pane" style="display:flex;flex-direction:column;gap:14px;margin-top:16px;
+          max-height:56vh;overflow-y:auto;padding-right:4px">${msgs}</div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
+            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()"></textarea>
+          <button class="send" onclick="reply()">Send</button></div>
+        <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
+      </div></div>`;
+}
+KEY?load():gate('');
+</script></body></html>
