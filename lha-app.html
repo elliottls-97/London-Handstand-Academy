@@ -82,7 +82,8 @@ const DATA={"days": [{"id": "1", "title": "Day 1 — Strength & balance A", "lab
 const AUTH = {
   request: '/api/app/code',    // POST {email} → emails a 6-digit code
   verify:  '/api/app/verify',  // POST {email, code} → {token, client}
-  messages:'/api/app/messages' // GET → thread · POST {text} → send
+  messages:'/api/app/messages',// GET → thread · POST {text} → send
+  login:   '/api/app/login'    // POST {email,password} → {token, client}
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -604,32 +605,41 @@ function drawOv(){
    No passwords to reset, no accounts to create — the same mechanism
    lha-worker.js already runs for the masterclass. */
 function screenSignIn(){
-  const sent=st.codeSent;
   return `<div style="min-height:100dvh;background:linear-gradient(180deg,var(--forest),var(--ink));
     padding:calc(env(safe-area-inset-top) + 40px) 26px 30px;color:var(--bg);display:flex;flex-direction:column">
     <div class="kick">LONDON HANDSTAND ACADEMY</div>
-    <div class="h-xl" style="font-size:44px;margin-top:auto">${sent?'Check your email':'Your programme'}</div>
+    <div class="h-xl" style="font-size:44px;margin-top:auto">Your programme</div>
     <div style="font:400 15px/1.55 var(--sans);color:var(--sage);margin-top:14px">
-      ${sent?`We've sent a six-digit code to ${esc(st.email||'')}. It's good for 15 minutes.`
-            :'Enter the email address Elliott set you up with and we’ll send you a code. No password to remember.'}</div>
-    <div style="margin-top:26px;display:flex;flex-direction:column;gap:10px">
-      ${sent?`
-        <input id="codeIn" inputmode="numeric" maxlength="6" placeholder="······" autocomplete="one-time-code"
-          style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;text-align:center;
-          font:400 30px/1 var(--serif);letter-spacing:.35em;color:var(--bg);outline:none">
-        <button class="btn" style="background:var(--bg);color:var(--ink)" onclick="verifyCode()">Sign in</button>
-        <button class="btn" style="background:none;border:1.5px solid rgba(242,239,231,.28);color:var(--bg);font-weight:600"
-          onclick="st.codeSent=false;save();render()">Use a different email</button>`
-      :`
-        <input id="emailIn" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"
-          value="${esc(st.email||'')}"
-          style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
-          font:400 15px/1 var(--sans);color:var(--bg);outline:none">
-        <button class="btn" style="background:var(--bg);color:var(--ink)" onclick="requestCode()">Email me a code</button>`}
+      Sign in with the email and password Elliott sent you.</div>
+    <form onsubmit="doLogin(event)" style="margin-top:26px;display:flex;flex-direction:column;gap:10px">
+      <input id="emailIn" type="email" inputmode="email" autocomplete="username" placeholder="you@example.com"
+        value="${esc(st.email||'')}"
+        style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
+        font:400 15px/1 var(--sans);color:var(--bg);outline:none">
+      <input id="pwIn" type="password" autocomplete="current-password" placeholder="Password"
+        style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
+        font:400 15px/1 var(--sans);color:var(--bg);outline:none">
+      <button class="btn" style="background:var(--bg);color:var(--ink)" type="submit">Sign in</button>
       <div id="authMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--sand);text-align:center;min-height:18px"></div>
-    </div>
+    </form>
     <div style="font:400 12.5px/1.6 var(--sans);color:#7d8b74;margin-top:20px;text-align:center">
-      Not a coaching client? The free Handstand Ladder is coming to this app shortly.</div></div>`;
+      Lost it? Message Elliott and he'll send you a new one.</div></div>`;
+}
+function doLogin(ev){
+  if(ev) ev.preventDefault();
+  const email=(($('#emailIn')||{}).value||'').trim().toLowerCase();
+  const password=($('#pwIn')||{}).value||'';
+  const msg=$('#authMsg');
+  if(!email||!password){ if(msg) msg.textContent='Both fields, please.'; return; }
+  if(msg) msg.textContent='Checking…';
+  fetch(AUTH.login,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email,password})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ st.email=email; st.token=d.token; st.client=d.client; st.in=true;
+               save(); render(); loadThread(); })
+    .catch(code=>{ const m=$('#authMsg');
+      if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
+                                       : 'That email and password did not match.'; });
 }
 function requestCode(){
   const v=($('#emailIn')||{}).value||'';
@@ -904,7 +914,7 @@ function screenCoaching(){
       <div class="card" style="padding:20px">
         <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
       <button class="btn" onclick="post({type:'Coaching enquiry'});alert('Sent — Elliott will be in touch.')">Apply for coaching</button>
-      <button class="btn2" style="width:100%" onclick="st.tab='signin';save();render()">I have a coaching code</button>
+      <button class="btn2" style="width:100%" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
     </div></div>`;
 }
 
@@ -919,7 +929,7 @@ function screenWelcome(){
     <div style="margin-top:26px;display:flex;flex-direction:column;gap:10px">
       <button class="btn" style="background:var(--bg);color:var(--ink)" onclick="startFree()">Start free</button>
       <button class="btn" style="background:none;border:1.5px solid rgba(242,239,231,.28);color:var(--bg);font-weight:600"
-        onclick="st.tab='signin';save();render()">I have a coaching code</button>
+        onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
     </div>
     <div style="font:400 12.5px/1.6 var(--sans);color:#7d8b74;margin-top:20px;text-align:center">
       No account needed to train. Signing in only saves your progress across devices.</div></div>`;
@@ -957,8 +967,8 @@ function render(){
      sand for the free ladder, terracotta for coached */
   document.documentElement.style.setProperty('--accent', st.in?'var(--terra)':'var(--sand)');
   document.body.dataset.tier = st.in?'coached':'free';
-  if(!st.mode && !st.in){ app.innerHTML=screenWelcome(); return; }
   if(st.tab==='signin' && !st.in){ app.innerHTML=screenSignIn(); return; }
+  if(!st.mode && !st.in){ app.innerHTML=screenWelcome(); return; }
   if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ app.innerHTML=screenQuiz(); return; }
   const coached=!!st.in;
   const screens=coached
