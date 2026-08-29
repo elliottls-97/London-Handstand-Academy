@@ -85,6 +85,12 @@ async function pwHash(plain) {
       iterations: 100000, hash: 'SHA-256' }, key, 256);
   return Buffer.from(bits).toString('base64');
 }
+/* PASSWORDS in the environment is the starting point; once someone changes
+   theirs the new hash lives in the blob store and takes precedence. */
+async function hashFor(db, email) {
+  const stored = await db.get(`pw:${email}`, { type: 'json' });
+  return (stored && stored.hash) || passwords()[email] || null;
+}
 const passwords = () => Object.fromEntries(
   (process.env.PASSWORDS || '').split(',').map(x => x.trim()).filter(Boolean)
     .map(x => { const i = x.indexOf(':'); return [norm(x.slice(0, i)), x.slice(i + 1)]; })
@@ -146,7 +152,7 @@ export default async (request) => {
   if (path === '/login' && request.method === 'POST') {
     const e = norm(body.email);
     const name = clients()[e];
-    const stored = passwords()[e];
+    const stored = await hashFor(db, e);
     const bad = () => json({ error: 'Wrong email or password' }, 401);
     if (!e || !name || !stored || !body.password) return bad();
 
@@ -196,6 +202,30 @@ export default async (request) => {
     if (!plan) return json({ error: 'No programme yet' }, 404);
     return json({ client: clients()[who] || plan.client, plan,
                   library: programmes.library });
+  }
+
+  /* ── change your own password ── */
+  if (path === '/password' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+
+    const current = String(body.current || '');
+    const next = String(body.next || '');
+    if (next.length < 8) return json({ error: 'New password must be at least 8 characters' }, 400);
+
+    const stored = await hashFor(db, who);
+    if (!stored || (await pwHash(current)) !== stored) {
+      return json({ error: 'Current password is wrong' }, 401);
+    }
+    await db.setJSON(`pw:${who}`, { hash: await pwHash(next), at: Date.now() });
+
+    /* tell Elliott, so a password changing is never a silent event */
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `${clients()[who] || who} changed their password`,
+      `<p style="font:16px/1.6 system-ui">${clients()[who] || who} (${who}) just changed
+       their app password. No action needed unless this is a surprise.</p>`);
+
+    return json({ ok: true });
   }
 
   if (path === '/messages') {

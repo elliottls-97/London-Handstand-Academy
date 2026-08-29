@@ -67,6 +67,13 @@ video{width:100%;display:block;background:#000}
 .why b{font:700 11.5px/1 var(--sans);color:var(--terra)}
 .why span{font:500 11.5px/1 var(--sans);color:#3f5240}
 input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
+.act{
+  border:1px solid var(--line,rgba(0,0,0,.14)); background:#fff; color:var(--ink);
+  border-radius:999px; padding:11px 17px; cursor:pointer;
+  font:600 13px/1 var(--sans); white-space:nowrap;
+}
+.act:active{transform:translateY(1px)}
+.act:focus-visible{outline:2px solid var(--forest); outline-offset:2px}
 </style></head><body><div id="app"></div>
 <script>
 let DATA={
@@ -91,7 +98,8 @@ const AUTH = {
   verify:  '/api/app/verify',  // POST {email, code} → {token, client}
   messages:'/api/app/messages',// GET → thread · POST {text} → send
   login:   '/api/app/login',   // POST {email,password} → {token, client}
-  programme:'/api/app/programme' // GET → {client, plan, library} for the token
+  programme:'/api/app/programme', // GET → {client, plan, library} for the token
+  password:'/api/app/password'   // POST {current,next}
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -357,8 +365,12 @@ function loadThread(){
   if(!st.token) return;
   fetch(AUTH.messages,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
     if(!d||!d.messages) return;
-    st.msgs=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,time:when(m.at)}));
-    save(); if(st.tab==='ask') render();
+    const next=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,time:when(m.at)}));
+    /* re-rendering rebuilds the input and throws away whatever is half-typed,
+       so only redraw when the thread has actually changed */
+    const same=JSON.stringify(next)===JSON.stringify(st.msgs||[]);
+    st.msgs=next; save();
+    if(st.tab==='ask' && !same) render();
   }).catch(()=>{});
 }
 function when(t){
@@ -369,8 +381,10 @@ function when(t){
   const h=Math.round(m/60);
   return h<24 ? h+' hr ago' : Math.round(h/24)+' days ago';
 }
+let askDraft='';
 function screenAsk(){
-  const msgs=st.msgs||[{from:'e',text:'Watched your tuck clip. Hands are still wider than they need to be — bring them in a thumb-length and push taller. Everything else looked good.',time:'2 days ago'}];
+  /* never invent a message from Elliott — a client would read it as real */
+  const msgs=st.msgs||[];
   const bubbles=msgs.map(m=>{
     const mine=m.from==='me';
     return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'}">
@@ -386,10 +400,15 @@ function screenAsk(){
       <div><div class="h-sm">Elliott</div>
       <div style="font:500 10.5px/1 var(--sans);letter-spacing:.1em;color:var(--sage);margin-top:6px">USUALLY REPLIES WITHIN 48 HOURS</div></div>
     </div>
-    <div style="padding:16px 14px 8px;display:flex;flex-direction:column;gap:14px">${bubbles}</div>
+    <div style="padding:16px 14px 8px;display:flex;flex-direction:column;gap:14px">${
+      msgs.length ? bubbles : `<div style="text-align:center;padding:34px 20px;color:var(--grey2);
+        font:400 14.5px/1.6 var(--sans)">No messages yet.<br>Ask me anything about the training.</div>`
+    }</div>
     <div style="padding:6px 14px 26px">
       <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;align-items:center">
         <input id="askIn" placeholder="Ask about a drill, a niggle, a week off…"
+          value="${esc(askDraft)}" oninput="askDraft=this.value"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();sendAsk();}"
           style="flex:1;border:none;outline:none;background:none;font:400 14px/1.3 var(--sans)">
         <button onclick="sendAsk()" style="flex:none;width:42px;height:42px;border-radius:999px;background:var(--forest);
           border:none;color:var(--bg);font:400 18px/1 var(--serif);cursor:pointer">→</button>
@@ -401,6 +420,7 @@ function screenAsk(){
 function sendAsk(){
   const el=$('#askIn'); if(!el||!el.value.trim()) return;
   const text=el.value.trim();
+  askDraft=''; el.value='';
   st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now'}]); save(); render();
   fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
     .then(r=>{ if(!r.ok) throw 0; setTimeout(loadThread,400); })
@@ -411,7 +431,8 @@ function sendAsk(){
 function screenMore(){
   const all=libraryDrills();
   const cards=all.map((it,i)=>`<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer" onclick="openLib(${i})">
-    ${it.url?`<video src="${it.url}" muted playsinline preload="metadata" style="aspect-ratio:4/3;object-fit:cover"></video>`
+    ${it.url?`<video data-lazy="${it.url}#t=0.6" muted playsinline preload="none"
+              style="aspect-ratio:4/3;object-fit:cover;display:block;width:100%;background:var(--mist)"></video>`
             :`<div style="aspect-ratio:4/3;background:var(--mist);display:grid;place-items:center;
                font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">FILMING SOON</div>`}
     <div style="padding:11px 12px 13px"><div style="font:600 13.5px/1.2 var(--sans)">${esc(it.n)}</div>
@@ -420,15 +441,40 @@ function screenMore(){
     <div style="background:var(--forest);padding:calc(env(safe-area-inset-top) + 10px) 20px 20px;color:var(--bg)">
       <div class="h-md" style="font-size:30px">Library &amp; more</div></div>
     <div style="padding:16px 14px 0">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${cards}</div>
-      <div class="card" style="margin:22px 0 26px;padding:18px">
-        <div class="kick2">ACCOUNT</div>
-        <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-          Signed in as ${esc(st.email||'—')}</div>
-        <button class="btn2" style="width:100%;margin-top:14px" onclick="signOut()">Sign out</button>
+      <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:20px">
+        ${st.in?`<button class="act" onclick="openOv('password')">Change password</button>
+        <button class="act" onclick="signOut()">Sign out</button>`
+        :`<button class="act" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>`}
       </div>
+      ${st.in?`<div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
+        color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>`:''}
+      <div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
+        color:var(--grey2);margin:0 2px 12px">Drill library · ${all.length}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${cards}</div>
+      <div style="height:26px"></div>
     </div></div>`;
 }
+/* 88 thumbnails is 88 video downloads if you let it. Only the ones coming
+   into view get a src, which keeps the library scrollable on mobile data. */
+let lazyObs=null;
+function lazyThumbs(){
+  if(!('IntersectionObserver' in window)){
+    document.querySelectorAll('video[data-lazy]').forEach(v=>{
+      v.src=v.dataset.lazy; v.removeAttribute('data-lazy'); });
+    return;
+  }
+  if(lazyObs) lazyObs.disconnect();
+  lazyObs=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(!e.isIntersecting) return;
+      const v=e.target;
+      if(v.dataset.lazy){ v.src=v.dataset.lazy; v.removeAttribute('data-lazy'); v.load(); }
+      lazyObs.unobserve(v);
+    });
+  },{rootMargin:'400px'});
+  document.querySelectorAll('video[data-lazy]').forEach(v=>lazyObs.observe(v));
+}
+
 function openLib(i){
   const all=libraryDrills();
   st.ovDrill=all[i]; openOv('drill');
@@ -618,6 +664,7 @@ function drawOv(){
   if(st.ov==='hold'){ drawHold(); return; }
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
+           password:'Change password',
            summary:'Session complete',stage:S?S.n:'Stage'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
@@ -630,6 +677,23 @@ function drawOv(){
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
         ${it.cues.map(c=>`<div style="display:flex;gap:10px"><span style="color:var(--terra)">—</span>
           <span style="font:400 14.5px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
+  }
+  if(st.ov==='password'){
+    body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-bottom:20px">
+        Pick something you'll remember. At least 8 characters.</div>
+      <form onsubmit="savePassword(event)" style="display:flex;flex-direction:column;gap:11px">
+        <input id="pwCur" type="password" autocomplete="current-password" placeholder="Current password"
+          style="background:var(--mist);border:none;border-radius:16px;padding:16px;
+          font:400 15px/1 var(--sans);color:var(--ink);outline:none">
+        <input id="pwNew" type="password" autocomplete="new-password" placeholder="New password"
+          style="background:var(--mist);border:none;border-radius:16px;padding:16px;
+          font:400 15px/1 var(--sans);color:var(--ink);outline:none">
+        <button class="btn" type="submit" style="margin-top:4px">Save new password</button>
+        <div id="pwMsg" style="font:500 12.5px/1.5 var(--sans);text-align:center;min-height:18px;
+          color:var(--terra)"></div>
+      </form>
+      <div style="font:400 13px/1.6 var(--sans);color:var(--grey2);margin-top:16px;text-align:center">
+        Forgotten it? Message Elliott and he'll set you a new one.</div>`;
   }
   if(st.ov==='test'){
     body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey)">${esc(DATA.test.blurb)}</div>
@@ -859,6 +923,23 @@ function loadProgramme(){
       if(code===401){ signOut(); return false; }
       loadCachedProgramme(); render(); return false;
     });
+}
+
+function savePassword(ev){
+  if(ev) ev.preventDefault();
+  const cur=($('#pwCur')||{}).value||'', next=($('#pwNew')||{}).value||'';
+  const msg=$('#pwMsg');
+  if(!cur||!next){ if(msg) msg.textContent='Fill in both boxes.'; return; }
+  if(next.length<8){ if(msg) msg.textContent='At least 8 characters, please.'; return; }
+  if(msg) msg.textContent='Saving…';
+  fetch(AUTH.password,{method:'POST',headers:authed(),
+    body:JSON.stringify({current:cur,next:next})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
+    .then(()=>{ const m=$('#pwMsg');
+      if(m){ m.style.color='var(--forest)'; m.textContent='Saved. Use the new one next time.'; }
+      const a=$('#pwCur'), b=$('#pwNew'); if(a) a.value=''; if(b) b.value='';
+    })
+    .catch(e=>{ const m=$('#pwMsg'); if(m) m.textContent=String(e); });
 }
 
 function signOut(){
@@ -1186,6 +1267,7 @@ function render(){
   if(!screens[st.tab]) st.tab=tabs[0][0];
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span></button>`).join('');
   app.innerHTML=screens[st.tab]()+`<nav class="tabbar">${bar}</nav>`;
+  lazyThumbs();
 }
 document.addEventListener('DOMContentLoaded',function(){
   /* cache first so a signed-in client sees their plan instantly, then
