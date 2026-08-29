@@ -134,6 +134,18 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 .p-extend{display:flex;gap:7px}
 .p-extend button{background:var(--mist);border:none;border-radius:999px;padding:8px 13px;
  font:600 12px/1 var(--sans);color:var(--ink);cursor:pointer}
+.p-upblock{margin-top:9px}
+.p-upbtn{width:100%;border:none;cursor:pointer;text-align:left}
+.p-upblock.open .p-uprow{border-radius:16px 16px 0 0}
+.p-upnum{width:26px;height:26px;border-radius:999px;background:var(--mist);color:var(--grey2);
+ font:600 12px/1 var(--sans);display:grid;place-items:center;flex:none}
+.p-upchev{flex:none;color:var(--grey2);font-size:13px;transition:transform .18s}
+.p-upblock.open .p-upchev{transform:rotate(180deg)}
+.p-updetail{display:none;background:#fff;border-radius:0 0 16px 16px;padding:0 14px 16px}
+.p-upblock.open .p-updetail{display:block}
+.p-upvid .vb{margin-bottom:0;border-radius:12px}
+.p-upvid .vb video{object-fit:contain;background:#11150f}
+@media (prefers-reduced-motion:reduce){.p-upchev{transition:none}}
 .p-up{margin-top:22px}
 .p-uphead{font:600 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--grey2)}
 .p-uprow{display:flex;align-items:center;gap:12px;background:#fff;border-radius:16px;
@@ -656,6 +668,53 @@ function paintClock(){
     Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60)+' min';
 }
 
+
+/* what is coming, and tappable — rest is the natural moment to look at
+   the next drill's video and cues rather than being told a name */
+function upNextHTML(){
+  const rest=Q.slice(qi+1, qi+5);
+  if(!rest.length) return `<div class="p-up"><div class="p-uphead">Up next</div>
+    <div class="p-uprow"><span style="font:400 14px/1.4 var(--sans);color:var(--grey)">Last one — that is the session.</span></div></div>`;
+  return `<div class="p-up">
+    <div class="p-uphead">Up next · ${Q.length-qi-1} to go
+      <span style="float:right;font-weight:500;letter-spacing:0;text-transform:none">tap to preview</span></div>
+    ${rest.map((q,i)=>{
+      const it=q.it, cues=it.cues||[];
+      return `<div class="p-upblock" data-up="${i}">
+        <button class="p-uprow p-upbtn" onclick="toggleUp(${i})">
+          <span class="p-upnum">${qi+2+i}</span>
+          ${it.url?`<span class="p-upthumb"><video src="${it.url}#t=0.6" muted playsinline preload="metadata"></video></span>`
+                  :'<span class="p-upthumb"></span>'}
+          <span style="flex:1;min-width:0;text-align:left">
+            <span style="display:block;font:600 14.5px/1.2 var(--sans)">${esc(it.n)}</span>
+            <span style="display:block;font:400 12.5px/1 var(--sans);color:var(--grey2);margin-top:6px">${
+              esc(it.d)}${q.sets>1?' · set '+q.set+' of '+q.sets:''}</span>
+          </span>
+          <span class="p-upchev">▾</span>
+        </button>
+        <div class="p-updetail">
+          ${it.url?`<div class="p-upvid">${vidBlock(it.url,'16/10','contain')}</div>`
+                  :'<div class="p-vfail">Filming soon — the cues are the drill</div>'}
+          ${it.desc?`<p style="font:600 14px/1.5 var(--sans);margin:12px 0 0">${esc(it.desc)}</p>`:''}
+          ${cues.length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px">
+            ${cues.map(c=>`<li style="font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}
+          </ul>`:''}
+        </div></div>`;
+    }).join('')}</div>`;
+}
+function toggleUp(i){
+  const b=document.querySelector(`.p-upblock[data-up="${i}"]`);
+  if(!b) return;
+  const opening=!b.classList.contains('open');
+  b.classList.toggle('open');
+  /* one open at a time, and stop any clip the closing one was playing */
+  document.querySelectorAll('.p-upblock').forEach(x=>{
+    if(x!==b){ x.classList.remove('open');
+      x.querySelectorAll('.p-upvid video').forEach(v=>{try{v.pause()}catch(e){}}); }
+  });
+  if(!opening) b.querySelectorAll('.p-upvid video').forEach(v=>{try{v.pause()}catch(e){}});
+}
+
 function showStep(){
   if(qi>=Q.length) return endPlayer(true);
   const s=Q[qi], it=s.it, resting=phase==='rest';
@@ -681,13 +740,7 @@ function showStep(){
             s.set<s.sets ? 'Next: set '+(s.set+1)+' of '+s.sets+' · '+esc(it.n)
             : nx ? 'Next: '+esc(nx.it.n) : 'Last one done.'}</span></div></div>
       </div>
-      ${n?`<div class="p-up"><div class="p-uphead">Up next · ${Q.length-qi-1} to go</div>
-        <div class="p-uprow">
-          ${n.it.url?`<span class="p-upthumb"><video src="${n.it.url}#t=0.6" muted playsinline preload="metadata"></video></span>`:'<span class="p-upthumb"></span>'}
-          <span style="flex:1;min-width:0">
-            <span style="display:block;font:600 14.5px/1.2 var(--sans)">${esc(n.it.n)}</span>
-            <span style="display:block;font:400 12.5px/1 var(--sans);color:var(--grey2);margin-top:6px">${esc(n.it.d)}</span>
-          </span></div></div>`:''}`;
+      ${upNextHTML()}`;
     $('#p-next').textContent='Skip rest →';
   } else {
     const hold=isHoldDose(it.d);
@@ -772,11 +825,11 @@ function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'
    chrome: tap to play/pause, a scrub line, and a sound toggle. */
 const VB_SPK='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>';
 const VB_MUTED='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
-function vidBlock(url, ratio){
+function vidBlock(url, ratio, fit){
   return `<div class="vb" data-vb style="position:relative;border-radius:22px;overflow:hidden;
     background:#000;margin-bottom:18px;cursor:pointer">
     <video src="${url}#t=0.6" muted loop playsinline preload="metadata" autoplay
-      style="display:block;width:100%;aspect-ratio:${ratio||'4/3'};object-fit:cover"></video>
+      style="display:block;width:100%;aspect-ratio:${ratio||'4/3'};object-fit:${fit||'cover'};background:#11150f"></video>
     <div data-vb-play style="position:absolute;inset:0;display:grid;place-items:center;
       background:rgba(0,0,0,.18);opacity:0;transition:opacity .18s;pointer-events:none">
       <span style="width:58px;height:58px;border-radius:50%;background:rgba(255,255,255,.92);
@@ -830,7 +883,7 @@ function drawOv(){
            summary:'Session complete',stage:S?S.n:'Stage'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
-    body=`${it.url?vidBlock(it.url)
+    body=`${it.url?vidBlock(it.url,'4/3','contain')
       :`<div style="border-radius:22px;background:var(--mist);padding:26px;text-align:center;margin-bottom:18px;
          font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">FILMING SOON — THE CUES ARE THE DRILL</div>`}
       <div class="kick2">DOSE</div><div class="h-md" style="margin-top:8px">${esc(it.d||'')}</div>
