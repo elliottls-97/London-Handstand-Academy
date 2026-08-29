@@ -243,6 +243,8 @@ export default async (request) => {
           actual: Number(body.session.actual) || 0,      // as actually taken
           got: Number(body.session.got) || 0,            // steps completed
           of: Number(body.session.of) || 0,              // steps in the session
+          stoppedAt: String(body.session.stoppedAt || '').slice(0, 60),
+          block: String(body.session.block || '').slice(0, 40),
           at: now
         }]).slice(-200);
       }

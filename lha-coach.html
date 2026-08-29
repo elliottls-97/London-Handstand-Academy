@@ -235,6 +235,113 @@ function lineChart(points,unit){
       stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
 }
 
+
+/* ── month calendar ─────────────────────────────────────────────
+   The heatmap answers "have they been consistent". This answers
+   "what did they actually do on the 14th", which is the question you
+   ask before a check-in. */
+function monthCal(sessions,opens,offset){
+  const now=new Date(); now.setMonth(now.getMonth()-(offset||0));
+  const y=now.getFullYear(), m=now.getMonth();
+  const first=new Date(y,m,1), days=new Date(y,m+1,0).getDate();
+  const lead=(first.getDay()+6)%7;                    /* Monday first */
+  const byDay={};
+  sessions.forEach(function(x){
+    const d=new Date(x.at); if(d.getFullYear()!==y||d.getMonth()!==m) return;
+    const k=d.getDate();
+    byDay[k]=byDay[k]||{mins:0,done:0,part:0,names:[]};
+    byDay[k].mins+=(x.actual||x.mins||0);
+    byDay[k][x.done?'done':'part']++;
+    byDay[k].names.push((x.name||'session')+(x.done?'':' (stopped)'));
+  });
+  const openSet=new Set(opens||[]);
+  const today=new Date(); const isThisMonth=today.getFullYear()===y&&today.getMonth()===m;
+
+  let cells='';
+  for(let i=0;i<lead;i++) cells+='<div style="aspect-ratio:1;min-height:38px"></div>';
+  for(let d=1;d<=days;d++){
+    const e=byDay[d];
+    const key=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const opened=openSet.has(key);
+    const isToday=isThisMonth&&today.getDate()===d;
+    const bg=e?(e.done?'var(--forest)':'rgba(196,122,86,.22)'):opened?'#e4ebe1':'transparent';
+    const fg=e&&e.done?'#fff':'var(--ink)';
+    const title=e?`${e.names.join(', ')} · ${e.mins} min`:opened?'opened the app':'nothing';
+    cells+=`<div title="${esc(title)}" style="aspect-ratio:1;border-radius:9px;background:${bg};
+      border:${isToday?'1.5px solid var(--terra)':'1px solid var(--line)'};
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+      color:${fg};min-height:38px">
+      <span style="font:500 11px/1 var(--sans);opacity:${e?1:.55}">${d}</span>
+      ${e?`<span style="font:600 9px/1 var(--sans);opacity:.85">${e.mins}m</span>`:''}</div>`;
+  }
+  const label=first.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  const total=Object.values(byDay).reduce((t,x)=>t+x.mins,0);
+  const count=Object.values(byDay).reduce((t,x)=>t+x.done,0);
+  return `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <div style="font:500 13px/1 var(--sans)">${label}</div>
+      <div style="font:400 12px/1 var(--sans);color:var(--grey2)">${count} session${count===1?'':'s'} · ${total} min</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:10px">
+      ${['M','T','W','T','F','S','S'].map(d=>`<div style="font:600 9px/1 var(--sans);
+        letter-spacing:.1em;color:var(--grey2);text-align:center;padding-bottom:2px">${d}</div>`).join('')}
+      ${cells}
+    </div>`;
+}
+
+/* which of the three programme days actually gets done */
+function dayBreakdown(sessions){
+  const by={};
+  sessions.forEach(function(x){
+    const k=x.name||('Day '+((x.day||0)+1));
+    by[k]=by[k]||{done:0,part:0};
+    by[k][x.done?'done':'part']++;
+  });
+  const keys=Object.keys(by).sort();
+  if(!keys.length) return '';
+  const max=Math.max(...keys.map(k=>by[k].done+by[k].part));
+  return keys.map(function(k){
+    const v=by[k], tot=v.done+v.part;
+    return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+      <span style="font:400 13px/1 var(--sans);width:66px;flex:none">${esc(k)}</span>
+      <span style="flex:1;height:9px;border-radius:999px;background:var(--mist);overflow:hidden;display:flex">
+        <i style="width:${(v.done/max*100).toFixed(1)}%;background:var(--forest)"></i>
+        <i style="width:${(v.part/max*100).toFixed(1)}%;background:rgba(196,122,86,.5)"></i>
+      </span>
+      <span style="font:400 12px/1 var(--sans);color:var(--grey2);width:64px;text-align:right">
+        ${v.done} done${v.part?` · ${v.part} part`:''}</span>
+    </div>`;
+  }).join('');
+}
+
+/* when in the day they train — tells you when a nudge would land */
+function timeOfDay(sessions){
+  if(!sessions.length) return '';
+  const buckets=[0,0,0,0];   /* early / morning / afternoon / evening */
+  sessions.forEach(function(x){
+    const h=new Date(x.at).getHours();
+    buckets[h<9?0:h<12?1:h<17?2:3]++;
+  });
+  const names=['Before 9','9–12','12–5','After 5'];
+  const max=Math.max(...buckets);
+  return names.map((n,i)=>`<div style="display:flex;align-items:center;gap:10px;margin-top:7px">
+      <span style="font:400 12.5px/1 var(--sans);width:66px;flex:none;color:var(--grey)">${n}</span>
+      <span style="flex:1;height:8px;border-radius:999px;background:var(--mist);overflow:hidden">
+        <i style="display:block;height:100%;width:${max?(buckets[i]/max*100).toFixed(0):0}%;background:var(--sand)"></i></span>
+      <span style="font:400 12px/1 var(--sans);color:var(--grey2);width:22px;text-align:right">${buckets[i]}</span>
+    </div>`).join('');
+}
+
+function longestStreak(opens){
+  if(!opens||!opens.length) return 0;
+  const days=[...new Set(opens)].sort();
+  let best=1, run=1;
+  for(let i=1;i<days.length;i++){
+    const gap=(new Date(days[i]+'T00:00:00')-new Date(days[i-1]+'T00:00:00'))/86400000;
+    run = gap===1 ? run+1 : 1;
+    if(run>best) best=run;
+  }
+  return best;
+}
 function statCard(n,l,tone){
   const c = tone==='bad'?'var(--terra)':tone==='warn'?'#a8792f':'var(--ink)';
   return `<div style="min-width:74px">
@@ -262,6 +369,9 @@ function metricsHTML(email){
     ? Math.round(a.done.filter(x=>x.mins).reduce((t,x)=>t+x.mins,0)/a.done.filter(x=>x.mins).length)
     : null;
 
+  const totalMins=a.done.reduce((t,x)=>t+(x.actual||x.mins||0),0);
+  const stops=a.all.filter(x=>!x.done&&x.stoppedAt);
+
   const toneBg = a.tone==='bad'?'rgba(196,122,86,.13)':a.tone==='warn'?'rgba(168,121,47,.13)':'rgba(47,61,47,.09)';
   const toneFg = a.tone==='bad'?'var(--terra)':a.tone==='warn'?'#8a6524':'var(--forest)';
 
@@ -284,11 +394,24 @@ function metricsHTML(email){
     ${statCard(finishRate===null?'—':finishRate+'%','FINISH RATE', finishRate!==null&&finishRate<70?'warn':'')}
     ${statCard(((p.opens||[]).length),'DAYS ON THE APP')}
   </div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:18px">
+    ${statCard(totalMins>=60?Math.round(totalMins/60)+'h':totalMins+'m','TOTAL TRAINED')}
+    ${statCard(avgActual?avgActual+'m':'—','AVG SESSION')}
+    ${statCard(a.perWeek.length>1?(a.perWeek.reduce((t,v)=>t+v,0)/a.perWeek.length).toFixed(1):'—','AVG PER WEEK')}
+    ${statCard(longestStreak(a.opens),'LONGEST STREAK')}
+  </div>
   <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
     ${a.done.length} of ${a.weeks*a.target} sessions across ${a.weeks} week${a.weeks===1?'':'s'} at ${a.target} a week.
     ${a.abandoned?`${a.abandoned} session${a.abandoned===1?'':'s'} started and not finished.`:''}
     ${avgActual&&avgPlanned?`Averaging ${avgActual} min against ${avgPlanned} planned.`:''}
   </div>
+
+  <div class="kick" style="margin-top:26px">THIS MONTH</div>
+  <div style="margin-top:12px">${monthCal(a.all,a.opens,0)}</div>
+  <details style="margin-top:10px">
+    <summary style="font:500 12px/1 var(--sans);color:var(--grey2);cursor:pointer">Last month</summary>
+    <div style="margin-top:12px">${monthCal(a.all,a.opens,1)}</div>
+  </details>
 
   <div class="kick" style="margin-top:26px">LAST TWELVE WEEKS</div>
   <div style="margin-top:12px">${heatmap(a.opens,a.done)}</div>
@@ -302,6 +425,18 @@ function metricsHTML(email){
     <div style="margin-top:12px">${barChart(a.perWeek,a.target)}</div>
     <div style="font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:4px">
       dotted line is the ${a.target}-a-week target</div>`:''}
+
+  ${a.all.length?`<div class="kick" style="margin-top:26px">WHICH DAY GETS DONE</div>
+    <div style="margin-top:6px">${dayBreakdown(a.all)}</div>`:''}
+
+  ${a.all.length?`<div class="kick" style="margin-top:26px">WHEN THEY TRAIN</div>
+    <div style="margin-top:6px">${timeOfDay(a.all)}</div>`:''}
+
+  ${stops.length?`<div class="kick" style="margin-top:26px">WHERE THEY STOP</div>
+    <div style="display:flex;flex-direction:column;gap:7px;margin-top:10px">
+    ${stops.slice(-4).reverse().map(x=>`<div style="font:400 13px/1.5 var(--sans);color:var(--grey)">
+      Stopped at <b style="color:var(--ink)">${esc(x.stoppedAt)}</b>${x.block?` in ${esc(x.block)}`:''}
+      — ${x.got}/${x.of} through, ${x.actual||0} min in</div>`).join('')}</div>`:''}
 
   ${a.holds.length>1?`<div class="kick" style="margin-top:26px">HOLD OVER TIME</div>
     <div style="margin-top:12px">${lineChart(a.holds,'s')}</div>`:''}
