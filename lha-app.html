@@ -511,9 +511,10 @@ let Q=[],qi=0,left=0,tTotal=0,phase='work',paused=false,tick_=null,lastT=0;
    <video> down and rebuilt it on every tick — the clip never got past its
    first frame. Shell is built once, the step body only when the step changes,
    and the clock is the only thing the timer touches. */
+let sessionStart=0;
 function startPlayer(){
   Q=queue(); if(!Q.length) return;
-  qi=0; phase='work'; paused=false;
+  qi=0; phase='work'; paused=false; sessionStart=Date.now();
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
   showStep();
@@ -617,7 +618,10 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
   $('#player').classList.remove('on'); $('#player').innerHTML='';
   const d=day();
   reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done,
-    drills:Q.length, mins:Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60)}});
+    drills:Q.length,
+    mins:Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60),
+    actual: sessionStart?Math.round((Date.now()-sessionStart)/60000):0,
+    got: done?Q.length:qi, of: Q.length}});
   save(); if(done){ st.ovSummary=true; openOv('summary'); } else render(); }
 function beep(){ try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
   o.frequency.value=660;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.0001,a.currentTime);

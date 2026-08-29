@@ -12,10 +12,12 @@
  --grey:#61655a;--grey2:#8a8d80;--mist:#e8ece3;--line:rgba(28,32,25,.12);
  --serif:'Instrument Serif',Georgia,serif;--sans:Manrope,system-ui,sans-serif}
 body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink)}
-.wrap{max-width:1080px;margin:0 auto;padding:26px 20px 60px}
+.wrap{max-width:1240px;margin:0 auto;padding:26px 20px 60px}
 h1{font:400 34px/1 var(--serif);margin:0}
 .kick{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
-.grid{display:grid;grid-template-columns:300px 1fr;gap:18px;margin-top:22px;align-items:start}
+.grid{display:grid;grid-template-columns:260px minmax(320px,1fr) minmax(340px,1.15fr);
+ gap:18px;margin-top:22px;align-items:start}
+@media(max-width:1120px){.grid{grid-template-columns:250px 1fr}}
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .card{background:#fff;border-radius:20px;padding:18px;border:1px solid var(--line)}
 .cli{display:flex;align-items:center;gap:12px;padding:13px;border-radius:14px;cursor:pointer;border:none;
@@ -86,7 +88,13 @@ function signIn(ev){
 function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ clients=d.clients||[]; if(!sel&&clients.length) sel=clients[0].email; draw(); if(sel) openThread(sel); })
+    .then(d=>{ clients=d.clients||[]; if(!sel&&clients.length) sel=clients[0].email; draw();
+      if(sel) openThread(sel);
+      /* fetch everyone so the list can show who needs chasing */
+      clients.forEach(c=>fetch(API+'/progress?email='+encodeURIComponent(c.email),{headers:hdr()})
+        .then(r=>r.ok?r.json():null)
+        .then(x=>{ if(x){ prog[c.email]=x.progress||{}; draw(); } }).catch(()=>{}));
+    })
     .catch(e=>gate(e===401?'Sign in again — that session has expired.':'Could not reach the server.'));
 }
 function openThread(email){
@@ -130,42 +138,218 @@ function last7(opens){
   if(!opens) return 0; const cut=Date.now()-7*86400000;
   return opens.filter(k=>new Date(k+'T00:00:00Z').getTime()>=cut).length;
 }
+
+/* ── analysis ────────────────────────────────────────────────────
+   Charts are hand-drawn SVG on purpose: no library, no CDN, and the
+   whole page stays one file. */
+const DAY=86400000;
+const iso=t=>new Date(t).toISOString().slice(0,10);
+const dayStart=t=>{const d=new Date(t); d.setHours(0,0,0,0); return d.getTime();};
+
+function analysis(email){
+  const p=prog[email]||{};
+  const done=(p.sessions||[]).filter(x=>x.done);
+  const all=(p.sessions||[]);
+  const opens=(p.opens||[]).slice().sort();
+  const holds=(p.holds||[]).slice().sort((a,b)=>a.at-b.at);
+  const start=all.length?Math.min(...all.map(x=>x.at)) : (opens.length?new Date(opens[0]+'T00:00:00').getTime():Date.now());
+
+  /* weeks since they started, capped at what we can usefully draw */
+  const weeks=Math.max(1,Math.min(12,Math.ceil((Date.now()-start)/(7*DAY))));
+  const perWeek=[...Array(weeks)].map((_,i)=>{
+    const a=start+i*7*DAY, b=a+7*DAY;
+    return done.filter(x=>x.at>=a&&x.at<b).length;
+  });
+  const target=3;
+  const adherence=weeks?Math.round(done.length/(weeks*target)*100):0;
+  const sinceLast=done.length?Math.floor((Date.now()-Math.max(...done.map(x=>x.at)))/DAY):null;
+  const abandoned=all.length-done.length;
+
+  /* status is the thing you want to see before anything else */
+  let status='On track', tone='ok';
+  if(sinceLast===null){ status='Not started'; tone='warn'; }
+  else if(sinceLast>10){ status='At risk'; tone='bad'; }
+  else if(sinceLast>6||adherence<50){ status='Slipping'; tone='warn'; }
+
+  return {p,done,all,opens,holds,start,weeks,perWeek,target,adherence,sinceLast,abandoned,status,tone};
+}
+
+function heatmap(opens,done){
+  const weeks=12; let cols='';
+  const doneDays=new Set(done.map(x=>iso(x.at)));
+  const openDays=new Set(opens);
+  const today=dayStart(Date.now());
+  const startCol=today-(weeks*7-1)*DAY;
+  for(let w=0;w<weeks;w++){
+    let cells='';
+    for(let d=0;d<7;d++){
+      const t=startCol+(w*7+d)*DAY, k=iso(t);
+      const lvl=doneDays.has(k)?2:openDays.has(k)?1:0;
+      const fill=lvl===2?'var(--forest)':lvl===1?'#c9d6c4':'var(--mist)';
+      const title=new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+
+        (lvl===2?' — session':lvl===1?' — opened':' — nothing');
+      cells+=`<rect x="0" y="${d*13}" width="11" height="11" rx="2.5" fill="${fill}"><title>${title}</title></rect>`;
+    }
+    cols+=`<g transform="translate(${w*13},0)">${cells}</g>`;
+  }
+  return `<svg viewBox="0 0 ${weeks*13} 91" width="100%" style="max-width:340px;height:auto" role="img"
+    aria-label="Activity over the last twelve weeks">${cols}</svg>`;
+}
+
+function barChart(vals,target){
+  if(!vals.length) return '';
+  const w=26, gap=8, h=88, max=Math.max(target+1,...vals);
+  const bars=vals.map((v,i)=>{
+    const bh=Math.max(2,Math.round(v/max*h));
+    const x=i*(w+gap);
+    const col=v>=target?'var(--forest)':v>0?'var(--sand)':'var(--mist)';
+    return `<rect x="${x}" y="${h-bh}" width="${w}" height="${bh}" rx="4" fill="${col}">
+        <title>Week ${i+1}: ${v} session${v===1?'':'s'}</title></rect>
+      <text x="${x+w/2}" y="${h+14}" text-anchor="middle" font-size="9"
+        fill="var(--grey2)" font-family="var(--sans)">${i+1}</text>`;
+  }).join('');
+  const ty=h-Math.round(target/max*h);
+  return `<svg viewBox="0 0 ${vals.length*(w+gap)} ${h+20}" width="100%"
+    style="max-width:${vals.length*(w+gap)}px;height:auto" role="img"
+    aria-label="Sessions completed each week against a target of ${target}">
+    <line x1="0" y1="${ty}" x2="${vals.length*(w+gap)}" y2="${ty}"
+      stroke="var(--terra)" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+    ${bars}</svg>`;
+}
+
+function lineChart(points,unit){
+  if(points.length<2) return '';
+  const w=300,h=90,pad=6;
+  const xs=points.map(p=>p.at), ys=points.map(p=>p.s);
+  const x0=Math.min(...xs), x1=Math.max(...xs), y1=Math.max(...ys);
+  const px=t=>pad+((t-x0)/Math.max(1,x1-x0))*(w-pad*2);
+  const py=v=>h-pad-(v/Math.max(1,y1))*(h-pad*2);
+  const d=points.map((p,i)=>(i?'L':'M')+px(p.at).toFixed(1)+' '+py(p.s).toFixed(1)).join(' ');
+  const area=d+` L${px(x1).toFixed(1)} ${h-pad} L${px(x0).toFixed(1)} ${h-pad} Z`;
+  const dots=points.map(p=>`<circle cx="${px(p.at).toFixed(1)}" cy="${py(p.s).toFixed(1)}" r="2.5"
+      fill="var(--forest)"><title>${p.s}${unit} · ${new Date(p.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px;height:auto" role="img"
+    aria-label="Best hold over time, now ${points[points.length-1].s}${unit}">
+    <path d="${area}" fill="var(--forest)" opacity=".08"/>
+    <path d="${d}" fill="none" stroke="var(--forest)" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
+}
+
+function statCard(n,l,tone){
+  const c = tone==='bad'?'var(--terra)':tone==='warn'?'#a8792f':'var(--ink)';
+  return `<div style="min-width:74px">
+    <div style="font:400 27px/1 var(--serif);color:${c}">${n}</div>
+    <div style="font:500 9.5px/1.2 var(--sans);letter-spacing:.13em;color:var(--grey2);margin-top:7px">${l}</div>
+  </div>`;
+}
+
 function metricsHTML(email){
-  const p=prog[email];
-  if(!p) return '<div class="kick" style="margin-top:22px">ACTIVITY</div>'+
-    '<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">Loading…</div>';
-  const done=(p.sessions||[]).filter(s=>s.done);
-  const wk=done.filter(s=>Date.now()-s.at < 7*86400000).length;
+  if(!prog[email]) return `<div class="kick" style="margin-top:22px">ANALYSIS</div>
+    <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">Loading…</div>`;
+
+  const a=analysis(email);
+  const p=a.p;
   const flags=Object.entries(p.flags||{});
-  const stat=(n,l)=>`<div><div style="font:400 26px/1 var(--serif)">${n}</div>
-    <div style="font:500 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-top:6px">${l}</div></div>`;
-  return `<div class="kick" style="margin-top:22px">ACTIVITY</div>
-    <div style="display:flex;gap:22px;margin-top:12px;flex-wrap:wrap">
-      ${stat(daysAgo(p.lastSeen),'LAST OPENED')}
-      ${stat(last7(p.opens)+'/7','DAYS THIS WEEK')}
-      ${stat(streak(p.opens),'DAY STREAK')}
-      ${stat(wk,'SESSIONS THIS WEEK')}
-      ${stat(done.length,'SESSIONS TOTAL')}
-      ${stat(p.bestHold?p.bestHold+'s':'—','BEST HOLD')}
-    </div>
-    ${done.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:14px">
-      Last session: ${esc(done[done.length-1].name||'')} · ${daysAgo(done[done.length-1].at)}</div>`:''}
-    ${flags.length?`<div class="kick" style="margin-top:22px">FLAGGED</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-      ${flags.map(([d,v])=>`<div style="font:400 13.5px/1.5 var(--sans)">
-        <b style="color:${v.rate==='hard'?'var(--terra)':'var(--grey2)'}">${v.rate==='hard'?'TOO HARD':'TOO EASY'}</b>
-        · ${esc(d)}${v.note?` — "${esc(v.note)}"`:''}</div>`).join('')}</div>`:''}
-    ${(p.tests||[]).length?`<div class="kick" style="margin-top:22px">LAST TEST</div>
-      <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:8px">
-      ${Object.entries((p.tests[p.tests.length-1]||{}).vals||{}).map(([k,v])=>esc(k)+': '+esc(v)).join(' · ')||'—'}
-      </div>`:''}`;
+  const hard=flags.filter(([,v])=>v.rate==='hard');
+  const tests=(p.tests||[]);
+
+  /* the completed/abandoned split says whether sessions are too long */
+  const finishRate=a.all.length?Math.round(a.done.length/a.all.length*100):null;
+  const avgActual=a.done.filter(x=>x.actual).length
+    ? Math.round(a.done.filter(x=>x.actual).reduce((t,x)=>t+x.actual,0)/a.done.filter(x=>x.actual).length)
+    : null;
+  const avgPlanned=a.done.filter(x=>x.mins).length
+    ? Math.round(a.done.filter(x=>x.mins).reduce((t,x)=>t+x.mins,0)/a.done.filter(x=>x.mins).length)
+    : null;
+
+  const toneBg = a.tone==='bad'?'rgba(196,122,86,.13)':a.tone==='warn'?'rgba(168,121,47,.13)':'rgba(47,61,47,.09)';
+  const toneFg = a.tone==='bad'?'var(--terra)':a.tone==='warn'?'#8a6524':'var(--forest)';
+
+  return `
+  <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
+    <div class="kick" style="margin:0">ANALYSIS</div>
+    <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;padding:5px 9px;border-radius:4px;
+      background:${toneBg};color:${toneFg}">${a.status.toUpperCase()}</span>
+    <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${
+      a.sinceLast===null?'no sessions yet'
+      : a.sinceLast===0?'trained today'
+      : 'last session '+a.sinceLast+' day'+(a.sinceLast===1?'':'s')+' ago'}</span>
+  </div>
+
+  <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
+    ${statCard(a.adherence+'%','ADHERENCE', a.adherence<50?'warn':'')}
+    ${statCard(a.done.length,'SESSIONS DONE')}
+    ${statCard(a.perWeek[a.perWeek.length-1]??0,'THIS WEEK')}
+    ${statCard(p.bestHold?p.bestHold+'s':'—','BEST HOLD')}
+    ${statCard(finishRate===null?'—':finishRate+'%','FINISH RATE', finishRate!==null&&finishRate<70?'warn':'')}
+    ${statCard(((p.opens||[]).length),'DAYS ON THE APP')}
+  </div>
+  <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+    ${a.done.length} of ${a.weeks*a.target} sessions across ${a.weeks} week${a.weeks===1?'':'s'} at ${a.target} a week.
+    ${a.abandoned?`${a.abandoned} session${a.abandoned===1?'':'s'} started and not finished.`:''}
+    ${avgActual&&avgPlanned?`Averaging ${avgActual} min against ${avgPlanned} planned.`:''}
+  </div>
+
+  <div class="kick" style="margin-top:26px">LAST TWELVE WEEKS</div>
+  <div style="margin-top:12px">${heatmap(a.opens,a.done)}</div>
+  <div style="display:flex;gap:14px;margin-top:8px;font:400 11px/1 var(--sans);color:var(--grey2)">
+    <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--forest);vertical-align:-1px"></i> session</span>
+    <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9d6c4;vertical-align:-1px"></i> opened only</span>
+    <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--mist);vertical-align:-1px"></i> nothing</span>
+  </div>
+
+  ${a.perWeek.length?`<div class="kick" style="margin-top:26px">SESSIONS PER WEEK</div>
+    <div style="margin-top:12px">${barChart(a.perWeek,a.target)}</div>
+    <div style="font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:4px">
+      dotted line is the ${a.target}-a-week target</div>`:''}
+
+  ${a.holds.length>1?`<div class="kick" style="margin-top:26px">HOLD OVER TIME</div>
+    <div style="margin-top:12px">${lineChart(a.holds,'s')}</div>`:''}
+
+  ${flags.length?`<div class="kick" style="margin-top:26px">FLAGGED ${hard.length?`· ${hard.length} TOO HARD`:''}</div>
+    <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
+    ${flags.map(([d,v])=>`<div style="font:400 13.5px/1.5 var(--sans);padding-left:11px;
+      border-left:2px solid ${v.rate==='hard'?'var(--terra)':'var(--mist)'}">
+      <b style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:${v.rate==='hard'?'var(--terra)':'var(--grey2)'}">
+        ${v.rate==='hard'?'TOO HARD':'TOO EASY'}</b>
+      <div style="margin-top:4px">${esc(d)}${v.note?` — <span style="color:var(--grey)">"${esc(v.note)}"</span>`:''}</div>
+    </div>`).join('')}</div>`:''}
+
+  ${tests.length?`<div class="kick" style="margin-top:26px">TEST RESULTS</div>
+    <div style="overflow-x:auto;margin-top:11px">
+    <table style="border-collapse:collapse;font:400 13px/1.4 var(--sans);min-width:100%">
+      <tr><th style="text-align:left;padding:6px 14px 6px 0;font:600 9.5px/1 var(--sans);
+        letter-spacing:.12em;color:var(--grey2)">DRILL</th>
+        ${tests.map(t=>`<th style="text-align:left;padding:6px 14px 6px 0;font:600 9.5px/1 var(--sans);
+          letter-spacing:.12em;color:var(--grey2)">${new Date(t.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</th>`).join('')}
+      </tr>
+      ${[...new Set(tests.flatMap(t=>Object.keys(t.vals||{})))].map(k=>
+        `<tr><td style="padding:6px 14px 6px 0">${esc(k)}</td>
+        ${tests.map(t=>`<td style="padding:6px 14px 6px 0;color:var(--grey)">${esc((t.vals||{})[k]||'—')}</td>`).join('')}</tr>`).join('')}
+    </table></div>`:''}
+
+  ${!a.all.length&&!a.opens.length?`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:18px">
+    Nothing recorded yet. This fills in as they use the app.</div>`:''}
+  `;
 }
 
 function draw(){
-  const list=clients.map(c=>`<button class="cli ${c.email===sel?'on':''}" onclick="openThread('${esc(c.email)}')">
+  const list=clients.map(c=>{
+    const a=prog[c.email]?analysis(c.email):null;
+    const tone=a?a.tone:null;
+    const col=tone==='bad'?'var(--terra)':tone==='warn'?'#c79a4a':tone==='ok'?'var(--forest)':'transparent';
+    const line=a
+      ? (a.sinceLast===null?'no sessions yet'
+        : a.sinceLast===0?'trained today'
+        : a.sinceLast+'d since last · '+a.adherence+'%')
+      : ago(c.last);
+    return `<button class="cli ${c.email===sel?'on':''}" onclick="openThread('${esc(c.email)}')">
     <span class="av">${esc((c.name||'?')[0])}</span>
-    <span><b>${esc(c.name)}</b><span>${ago(c.last)}</span></span>
-    ${c.unread?`<span class="dot">${c.unread}</span>`:''}</button>`).join('') ||
+    <span><b>${esc(c.name)}</b><span>${esc(line)}</span></span>
+    <span style="display:flex;align-items:center;gap:7px;margin-left:auto">
+      ${c.unread?`<span class="dot">${c.unread}</span>`:''}
+      <i style="width:8px;height:8px;border-radius:999px;background:${col};flex:none" title="${a?a.status:''}"></i>
+    </span></button>`;}).join('') ||
     `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);padding:10px">No clients yet — add them to the CLIENTS variable on the worker.</div>`;
   const msgs=thread.map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.from==='coach'?'flex-end':'flex-start'}">
     <div class="msg ${m.from==='coach'?'me':'them'}">${esc(m.text)}</div>
@@ -186,8 +370,9 @@ function draw(){
             onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
           <button class="send" onclick="reply()">Send</button></div>
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
-        ${sel?metricsHTML(sel):''}
-      </div></div>`;
+      </div>
+      ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
+      </div>`;
 }
 TOKEN?load():gate('');
 </script></body></html>

@@ -239,9 +239,12 @@ export default async (request) => {
           name: String(body.session.name || '').slice(0, 60),
           done: !!body.session.done,
           drills: Number(body.session.drills) || 0,
-          mins: Number(body.session.mins) || 0,
+          mins: Number(body.session.mins) || 0,          // as planned
+          actual: Number(body.session.actual) || 0,      // as actually taken
+          got: Number(body.session.got) || 0,            // steps completed
+          of: Number(body.session.of) || 0,              // steps in the session
           at: now
-        }]).slice(-120);
+        }]).slice(-200);
       }
       if (body.flags && typeof body.flags === 'object') {
         p.flags = {};
@@ -255,7 +258,10 @@ export default async (request) => {
       }
       if (body.hold != null) {
         const h = Number(body.hold) || 0;
-        if (h > (p.bestHold || 0)) { p.bestHold = h; p.bestHoldAt = now; }
+        if (h > 0) {
+          p.holds = (p.holds || []).concat([{ s: h, at: now }]).slice(-100);
+          if (h > (p.bestHold || 0)) { p.bestHold = h; p.bestHoldAt = now; }
+        }
       }
       if (body.test && typeof body.test === 'object') {
         p.tests = (p.tests || []).concat([{ vals: body.test, at: now }]).slice(-12);
