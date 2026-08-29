@@ -21,6 +21,7 @@
      CLIENTS          "hannah.mirman@gmail.com:Hannah,marina@x.com:Marina"
    ══════════════════════════════════════════════════════════════ */
 import { getStore } from '@netlify/blobs';
+import programmes from './programmes.mjs';
 
 const CODE_TTL = 15 * 60 * 1000;          // a code lasts 15 minutes
 const TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
@@ -184,6 +185,19 @@ export default async (request) => {
   }
 
   /* ── the client's own thread ── */
+  /* ── the client's own programme ──────────────────────────────────
+     The app used to ship one client's plan baked into the HTML, so a
+     second client signing in saw the first one's drills. The plan is
+     chosen by the token, never by anything the caller sends. */
+  if (path === '/programme' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const plan = programmes.clients[who];
+    if (!plan) return json({ error: 'No programme yet' }, 404);
+    return json({ client: clients()[who] || plan.client, plan,
+                  library: programmes.library });
+  }
+
   if (path === '/messages') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
