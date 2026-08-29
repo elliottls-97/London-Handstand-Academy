@@ -293,6 +293,18 @@ export default async (request) => {
           if (h > (p.bestHold || 0)) { p.bestHold = h; p.bestHoldAt = now; }
         }
       }
+      /* anything the client tells Elliott — why they stopped, a question,
+         a flag — kept alongside the numbers so the dashboard is one place */
+      if (body.feedback && typeof body.feedback === 'object') {
+        p.feedback = (p.feedback || []).concat([{
+          kind: String(body.feedback.kind || 'note').slice(0, 40),
+          reasons: Array.isArray(body.feedback.reasons)
+            ? body.feedback.reasons.slice(0, 12).map(r => String(r).slice(0, 60)) : [],
+          text: String(body.feedback.text || '').slice(0, 1000),
+          context: String(body.feedback.context || '').slice(0, 120),
+          at: now
+        }]).slice(-60);
+      }
       if (body.test && typeof body.test === 'object') {
         p.tests = (p.tests || []).concat([{ vals: body.test, at: now }]).slice(-12);
       }
