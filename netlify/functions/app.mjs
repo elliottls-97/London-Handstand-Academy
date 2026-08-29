@@ -337,6 +337,21 @@ export default async (request) => {
       return json({ ok: true, cleared: e });
     }
 
+    /* the coach's own notes on a client — never shown in the client app */
+    if (path === '/coach/notes') {
+      const e = norm(url.searchParams.get('email') || body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      const k = `note:${e}`;
+      if (request.method === 'GET') {
+        return json((await db.get(k, { type: 'json' })) || { text: '', at: 0 });
+      }
+      if (request.method === 'POST') {
+        const text = String(body.text || '').slice(0, 8000);
+        await db.setJSON(k, { text, at: Date.now() });
+        return json({ ok: true, at: Date.now() });
+      }
+    }
+
     if (path === '/coach/progress') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);

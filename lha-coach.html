@@ -53,6 +53,8 @@ let sel=null, clients=[], thread=[];
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
 let prog={};
+let notes={};
+let noteDrafts={};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ago=t=>{ if(!t) return 'no messages'; const m=Math.round((Date.now()-t)/60000);
@@ -107,6 +109,10 @@ function openThread(email){
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ prog[email]=d.progress||{}; draw(); } })
+    .catch(()=>{});
+  fetch(API+'/notes?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d&&notes[email]===undefined){ notes[email]=d; draw(); } })
     .catch(()=>{});
   fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.json()).then(d=>{
@@ -336,6 +342,79 @@ function timeOfDay(sessions){
     </div>`).join('');
 }
 
+
+/* ── the read ────────────────────────────────────────────────────
+   Everything below this is already on the page as a number. This is
+   the version you can take into a check-in without doing the maths. */
+function summarise(email){
+  const a=analysis(email), p=a.p, out=[];
+  if(!a.all.length&&!a.opens.length) return ['Nothing recorded yet.'];
+
+  const wks=a.weeks;
+  out.push(`${a.done.length} session${a.done.length===1?'':'s'} in ${wks} week${wks===1?'':'s'} — ${a.adherence}% of a ${a.target}-a-week plan.`);
+
+  /* direction of travel matters more than the total */
+  if(a.perWeek.length>=4){
+    const half=Math.floor(a.perWeek.length/2);
+    const early=a.perWeek.slice(0,half).reduce((t,v)=>t+v,0)/half;
+    const late=a.perWeek.slice(half).reduce((t,v)=>t+v,0)/(a.perWeek.length-half);
+    if(late>early+0.4) out.push('Training more than she was a month ago.');
+    else if(early>late+0.4) out.push('Training less than she was a month ago — worth asking why.');
+    else out.push('Holding steady week to week.');
+  }
+
+  /* which session gets avoided is the most actionable thing here */
+  const by={};
+  a.all.forEach(x=>{const k=x.name||('Day '+((x.day||0)+1));
+    by[k]=by[k]||{done:0,part:0}; by[k][x.done?'done':'part']++;});
+  const keys=Object.keys(by);
+  if(keys.length>1){
+    const sorted=keys.slice().sort((x,y)=>by[y].done-by[x].done);
+    const top=sorted[0], bot=sorted[sorted.length-1];
+    if(by[top].done-by[bot].done>=2)
+      out.push(`Does ${top} most (${by[top].done}) and ${bot} least (${by[bot].done}).`);
+  }
+
+  if(a.abandoned){
+    const st=a.all.filter(x=>!x.done&&x.stoppedAt);
+    out.push(`${a.abandoned} session${a.abandoned===1?'':'s'} started and abandoned` +
+      (st.length?` — last one at ${st[st.length-1].stoppedAt}.`:'.'));
+  }
+
+  const avgA=a.done.filter(x=>x.actual).map(x=>x.actual);
+  if(avgA.length>2){
+    const avg=Math.round(avgA.reduce((t,v)=>t+v,0)/avgA.length);
+    const plan=Math.round(a.done.filter(x=>x.mins).reduce((t,x)=>t+x.mins,0)/Math.max(1,a.done.filter(x=>x.mins).length));
+    if(plan&&avg<plan*0.8) out.push(`Sessions run ${avg} min against ${plan} planned — the plan may be too long.`);
+  }
+
+  if(a.holds.length>1){
+    const f=a.holds[0].s, l=a.holds[a.holds.length-1].s;
+    out.push(l>f ? `Hold up from ${f}s to ${l}s.` : l<f ? `Hold down from ${f}s to ${l}s.` : `Hold flat at ${l}s.`);
+  } else if(p.bestHold) out.push(`Best hold ${p.bestHold}s.`);
+
+  const hard=Object.entries(p.flags||{}).filter(([,v])=>v.rate==='hard');
+  if(hard.length) out.push(`Finding ${hard.map(([d])=>d).join(', ')} too hard.`);
+  const easy=Object.entries(p.flags||{}).filter(([,v])=>v.rate==='easy');
+  if(easy.length) out.push(`${easy.map(([d])=>d).join(', ')} marked too easy — room to progress.`);
+
+  if(a.sinceLast!==null&&a.sinceLast>6)
+    out.push(`No session for ${a.sinceLast} days.`);
+  return out;
+}
+
+function saveNote(email){
+  const el=document.getElementById('cnote'); if(!el) return;
+  const msg=document.getElementById('cnoteMsg');
+  if(msg) msg.textContent='Saving…';
+  fetch(API+'/notes?email='+encodeURIComponent(email),{method:'POST',headers:hdr(),
+    body:JSON.stringify({email,text:el.value})})
+    .then(r=>r.ok?r.json():Promise.reject())
+    .then(()=>{ notes[email]={text:el.value,at:Date.now()};
+      if(msg){ msg.textContent='Saved'; setTimeout(()=>{const m=document.getElementById('cnoteMsg'); if(m) m.textContent='';},1800); } })
+    .catch(()=>{ if(msg) msg.textContent='Could not save'; });
+}
+
 function longestStreak(opens){
   if(!opens||!opens.length) return 0;
   const days=[...new Set(opens)].sort();
@@ -389,6 +468,13 @@ function metricsHTML(email){
       a.sinceLast===null?'no sessions yet'
       : a.sinceLast===0?'trained today'
       : 'last session '+a.sinceLast+' day'+(a.sinceLast===1?'':'s')+' ago'}</span>
+  </div>
+
+  <div style="background:var(--mist);border-radius:14px;padding:15px 17px;margin-top:14px">
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">THE READ</div>
+    <ul style="margin:11px 0 0;padding:0 0 0 15px;display:flex;flex-direction:column;gap:6px">
+      ${summarise(email).map(x=>`<li style="font:400 13.5px/1.5 var(--sans)">${esc(x)}</li>`).join('')}
+    </ul>
   </div>
 
   <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
@@ -470,6 +556,22 @@ function metricsHTML(email){
 
   ${!a.all.length&&!a.opens.length?`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:18px">
     Nothing recorded yet. This fills in as they use the app.</div>`:''}
+
+  <div class="kick" style="margin-top:28px">YOUR NOTES</div>
+  <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:5px">
+    Only you see these. Injuries, what you have tried, what to ask next time.</div>
+  <textarea id="cnote" rows="5" oninput="noteDrafts['${esc(email)}']=this.value"
+    placeholder="Hamstring niggle — no kick-ups. Chair hold is the gate; retest in a fortnight."
+    style="width:100%;margin-top:10px;border:1px solid var(--line);border-radius:14px;padding:13px;
+    font:400 13.5px/1.55 var(--sans);color:var(--ink);resize:vertical;background:#fff;
+    outline:none;box-sizing:border-box">${esc(noteDrafts[email]!==undefined?noteDrafts[email]:((notes[email]||{}).text||''))}</textarea>
+  <div style="display:flex;align-items:center;gap:12px;margin-top:9px">
+    <button class="send" onclick="saveNote('${esc(email)}')"
+      style="border-radius:12px;width:auto;height:auto;padding:9px 18px">Save note</button>
+    <span id="cnoteMsg" style="font:500 12px/1 var(--sans);color:var(--grey2)"></span>
+    ${(notes[email]||{}).at?`<span style="font:400 11.5px/1 var(--sans);color:var(--grey2);margin-left:auto">
+      last saved ${ago((notes[email]||{}).at)}</span>`:''}
+  </div>
   `;
 }
 
