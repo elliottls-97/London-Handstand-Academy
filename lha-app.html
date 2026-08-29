@@ -63,7 +63,6 @@ video{width:100%;display:block;background:#000}
 .rt{font:600 10.5px/1 var(--sans);border-radius:999px;padding:6px 10px;cursor:pointer;
  border:1px solid var(--line);background:#fff;color:var(--grey2)}
 .rt.easy.on{background:var(--sage);color:#fff;border-color:transparent}
-.rt.good.on{background:var(--forest);color:#fff;border-color:transparent}
 .rt.hard.on{background:var(--terra);color:#fff;border-color:transparent}
 .why{display:inline-flex;align-items:center;gap:9px;margin-top:10px;background:var(--mist);
  border-radius:999px;padding:8px 13px;cursor:pointer;border:none}
@@ -274,7 +273,6 @@ function screenPlan(){
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--terra)">${esc(it.d)}</span>
               <button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
-              <button class="rt good ${rate==='good'?'on':''}" onclick="rate('${it.v}','good')">Good</button>
               <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>
             </div>
             ${it.nt?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(it.nt)}</div>`:''}
@@ -472,13 +470,17 @@ function lazyThumbs(){
   if(lazyObs) lazyObs.disconnect();
   lazyObs=new IntersectionObserver(function(entries){
     entries.forEach(function(e){
-      if(!e.isIntersecting) return;
       const v=e.target;
-      if(v.dataset.lazy){ v.src=v.dataset.lazy; v.removeAttribute('data-lazy'); v.load(); }
-      lazyObs.unobserve(v);
+      if(e.isIntersecting){
+        if(v.dataset.lazy){ v.src=v.dataset.lazy; v.removeAttribute('data-lazy'); v.load(); }
+      } else if(!v.paused){
+        /* off screen is off — no point burning battery and data on a clip
+           nobody can see */
+        try{ v.pause(); }catch(err){}
+      }
     });
-  },{rootMargin:'400px'});
-  document.querySelectorAll('video[data-lazy]').forEach(v=>lazyObs.observe(v));
+  },{rootMargin:'300px'});
+  document.querySelectorAll('.scroll video').forEach(v=>lazyObs.observe(v));
 }
 
 function openLib(i){
@@ -607,7 +609,8 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden&&tick_){ p
 
 /* ── overlays ── */
 function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on'); }
-function closeOv(){ st.ov=null; save(); $('#ov').classList.remove('on'); $('#ov').innerHTML=''; render(); }
+function closeOv(){
+  document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}}); st.ov=null; save(); $('#ov').classList.remove('on'); $('#ov').innerHTML=''; render(); }
 function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'); }
 
 /* ── video block ───────────────────────────────────────────────────
@@ -983,6 +986,10 @@ function post(payload){
     body:JSON.stringify(Object.assign({client:st.client||'',email:st.email||''},payload))}).catch(()=>{});
 }
 function tick(k){ st.tick[k]=!st.tick[k]; save(); render(); }
+/* 'Good' was doing nothing useful — it is the default state, and it made
+   every drill row carry three buttons. Only the two exceptions are worth
+   a tap. Clear any that were already saved. */
+Object.keys(st.rate||{}).forEach(function(k){ if(st.rate[k]==='good') delete st.rate[k]; });
 function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); render(); }
 function sendFlags(){
   const f=Object.keys(st.rate).filter(v=>st.rate[v]==='easy'||st.rate[v]==='hard');
