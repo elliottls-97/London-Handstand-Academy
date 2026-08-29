@@ -153,9 +153,10 @@ function screenToday(){
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
   const mins=q.reduce((a,s)=>a+work(s.it)+rest(s.it),0);
+  const hGrid=weekGrid(), hWeek=weekNow();
   const weeks=[1,2,3,4,5,6].map(w=>{
     const days=[0,1,2].map(i=>{
-      const doneW = w<3 || (w===3&&i===0);
+      const doneW = hGrid[w-1].length>i;
       return `<i style="flex:1;height:26px;border-radius:5px;background:${doneW?'var(--sand)':'rgba(255,255,255,.16)'}"></i>`;
     }).join('');
     return `<div style="display:flex;flex-direction:column;gap:6px">
@@ -168,14 +169,18 @@ function screenToday(){
   return `<div class="scroll s">
   <div class="hero">
     <div style="display:flex;justify-content:space-between;align-items:center">
-      <span class="kick">BLOCK 1 · WEEK 3 OF SIX</span>
+      <span class="kick">BLOCK 1 · WEEK ${weekNow()} OF SIX</span>
       <button onclick="openOv('account')" aria-label="Your account"
         style="width:34px;height:34px;border-radius:999px;background:var(--terra);border:none;padding:0;
         display:grid;place-items:center;font:700 12px/1 var(--sans);color:#fff;cursor:pointer">${
         esc((st.client||'H')[0].toUpperCase())}</button>
     </div>
     <div class="h-xl" style="margin-top:20px">Good ${greeting()},<br>${esc(st.client||'Hannah')}.</div>
-    <div style="font:400 15px/1.5 var(--sans);color:var(--sage);margin-top:10px">Seven sessions in, eleven to go.</div>
+    <div style="font:400 15px/1.5 var(--sans);color:var(--sage);margin-top:10px">${(()=>{
+      const n=sessionsDone().length, left=Math.max(0,18-n);
+      if(!n) return 'First session whenever you are ready.';
+      return n+' session'+(n===1?'':'s')+' in, '+left+' to go.';
+    })()}</div>
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-top:22px">${weeks}</div>
   </div>
 
@@ -342,10 +347,14 @@ function screenProgress(){
       <div style="height:6px;border-radius:999px;background:var(--mist);margin-top:8px;overflow:hidden">
         <div style="height:100%;width:${pct}%;background:var(--terra);border-radius:999px"></div></div></div>`;
   }).join('');
+  const grid=weekGrid(), thisWeek=weekNow();
   const weeks=[1,2,3,4,5,6].map(w=>`<div style="display:flex;flex-direction:column;gap:5px;text-align:center">
-    ${[0,1,2].map(i=>{const done=w<3||(w===3&&i===0);
-      return `<div style="height:15px;border-radius:5px;background:${done?'var(--forest)':'var(--mist)'}"></div>`;}).join('')}
-    <span style="font:600 9.5px/1 var(--sans);color:var(--grey2);margin-top:3px">W${w}</span></div>`).join('');
+    ${[0,1,2].map(i=>{
+      const done=grid[w-1].length>i;
+      const current=(w===thisWeek)&&!done;
+      return `<div style="height:15px;border-radius:5px;background:${
+        done?'var(--forest)':current?'var(--sand)':'var(--mist)'}"></div>`;}).join('')}
+    <span style="font:600 9.5px/1 var(--sans);color:${w===thisWeek?'var(--ink)':'var(--grey2)'};margin-top:3px">W${w}</span></div>`).join('');
   return `<div class="scroll s">
     <div class="hero"><span class="kick">YOUR NUMBERS</span>
       <div class="h-lg" style="margin-top:16px">Where you are</div></div>
@@ -354,10 +363,16 @@ function screenProgress(){
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
         ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet — the first test opens in a few days.</div>`}</div>
       <div class="card"><div class="kick2">CONSISTENCY</div>
-        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-top:16px">${weeks}</div></div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-top:16px">${weeks}</div>
+        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">${
+          sessionsDone().length
+            ? sessionsDone().length+' session'+(sessionsDone().length===1?'':'s')+' logged. Week '+thisWeek+' of six.'
+            : 'Nothing logged yet. Finish a session and it turns up here.'}</div></div>
       <div class="card"><div class="kick2">PERSONAL BESTS</div>
         <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
-        ${[['Freestanding hold','—'],['Chest to wall','—'],['Sessions done','7']].map(([n,v])=>
+        ${[['Best hold', (st.prog&&st.prog.bestHold)?st.prog.bestHold+'s':'—'],
+            ['Sessions done', String(sessionsDone().length)],
+            ['Days trained', String(((st.prog&&st.prog.opens)||[]).length)]].map(([n,v])=>
           `<div style="display:flex;justify-content:space-between;align-items:baseline">
            <span style="font:400 14px/1.3 var(--sans)">${n}</span>
            <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>
@@ -868,7 +883,7 @@ function doLogin(ev){
       /* a coach signing in here wants the coach view, not a client screen */
       if(d.coach){ location.href='/lha-coach.html'; return; }
       st.email=email; st.token=d.token; st.client=d.client; st.in=true;
-      save(); render(); loadProgramme(); loadThread(); })
+      save(); render(); loadProgramme(); loadProgress(); loadThread(); })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -892,7 +907,7 @@ function verifyCode(){
     body:JSON.stringify({email:st.email,code:c})})
     .then(r=>r.ok?r.json():Promise.reject())
     .then(d=>{ st.token=d.token; st.client=d.client||nameFrom(st.email); st.in=true;
-               save(); render(); loadProgramme(); loadThread(); })
+               save(); render(); loadProgramme(); loadProgress(); loadThread(); })
     .catch(()=>{
       if(c===DEV_CODE){ st.in=true; st.client=nameFrom(st.email); save(); render(); return; }
       const m=$('#authMsg'); if(m) m.textContent='That code did not work. Check it, or send a new one.';
@@ -938,6 +953,37 @@ function loadCachedProgramme(){
   } catch(e){}
   return false;
 }
+/* the app's own copy of what the server has recorded — the Progress screen
+   used to show invented numbers because nothing real was available */
+function loadProgress(){
+  if(!st.token) return Promise.resolve();
+  return fetch(AUTH.progress,{headers:authed()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ st.prog=d; save(); render(); } })
+    .catch(()=>{});
+}
+function sessionsDone(){ return ((st.prog&&st.prog.sessions)||[]).filter(x=>x.done); }
+function blockStart(){
+  const p=st.prog||{};
+  const first=(p.sessions&&p.sessions.length&&p.sessions[0].at)
+    || (p.opens&&p.opens.length&&new Date(p.opens[0]+'T00:00:00').getTime());
+  return first||null;
+}
+function weekNow(){
+  const st0=blockStart(); if(!st0) return 1;
+  return Math.min(6, Math.floor((Date.now()-st0)/(7*86400000))+1);
+}
+/* completed sessions bucketed into the six weeks of a block */
+function weekGrid(){
+  const st0=blockStart(); const out=[[],[],[],[],[],[]];
+  if(!st0) return out;
+  sessionsDone().forEach(function(x){
+    const w=Math.floor((x.at-st0)/(7*86400000));
+    if(w>=0&&w<6) out[w].push(x);
+  });
+  return out;
+}
+
 function loadProgramme(){
   if(!st.token) return Promise.resolve(false);
   return fetch(AUTH.programme,{headers:authed()})
@@ -1336,7 +1382,7 @@ document.addEventListener('DOMContentLoaded',function(){
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
   render();
-  if(st.in && st.token){ loadProgramme(); reportProgress(); }
+  if(st.in && st.token){ loadProgramme(); loadProgress(); reportProgress(); }
 });
 render();
 </script>
