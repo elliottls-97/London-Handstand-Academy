@@ -76,6 +76,70 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 }
 .act:active{transform:translateY(1px)}
 .act:focus-visible{outline:2px solid var(--forest); outline-offset:2px}
+
+/* ── follow-along player ─────────────────────────────────────────
+   Ported from the programme pages, which read better than the dark
+   version this replaced: stone ground, whole video visible rather
+   than cropped, cues on screen while you work. */
+#player{position:fixed;inset:0;z-index:990;background:#f2f0ea;color:var(--ink);
+ display:none;flex-direction:column;overflow:hidden}
+#player.on{display:flex}
+#player.resting{background:#eceee7}
+.p-bar{flex:none;height:calc(52px + env(safe-area-inset-top,0px));
+ padding:env(safe-area-inset-top,0px) 10px 0 16px;display:flex;align-items:center;
+ justify-content:space-between;gap:10px;background:#fff;border-bottom:1px solid rgba(28,32,25,.1)}
+.p-idx{font:700 11.5px/1 var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--grey2)}
+.p-clock{font:400 21px/1 var(--serif);font-variant-numeric:tabular-nums}
+.p-elapsed{font:500 11px/1 var(--sans);color:var(--grey2);font-variant-numeric:tabular-nums}
+.p-ctrls{display:flex;align-items:center;gap:7px}
+.p-x{width:34px;height:34px;border-radius:999px;border:none;background:var(--mist);
+ color:var(--ink);font:600 13px/1 var(--sans);cursor:pointer;display:grid;place-items:center;padding:0}
+.p-track{flex:none;height:3px;background:rgba(28,32,25,.09)}
+.p-track i{display:block;height:100%;background:var(--forest);width:0;transition:width .3s}
+.p-track2{height:2px}
+.p-track2 i{background:var(--terra);transition:none}
+.p-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.p-vwrap{width:100%;max-width:640px;margin:0 auto;aspect-ratio:16/10;background:#11150f}
+.p-vwrap video{width:100%;height:100%;display:block;object-fit:contain;background:#11150f}
+.p-vwrap.novideo{aspect-ratio:auto;background:transparent}
+.p-vfail{padding:26px 20px;text-align:center;font:600 11px/1.5 var(--sans);
+ letter-spacing:.14em;text-transform:uppercase;color:var(--grey2)}
+.p-body{max-width:640px;margin:0 auto;padding:20px 18px 26px}
+.p-phase{display:inline-block;font:700 10px/1 var(--sans);letter-spacing:.18em;text-transform:uppercase;
+ color:var(--forest);background:rgba(47,61,47,.09);border-radius:999px;padding:7px 13px}
+#player.resting .p-phase{color:#8a6524;background:rgba(184,138,58,.16)}
+.p-main{display:flex;gap:18px;margin-top:16px;align-items:flex-start}
+.p-repnum{font:400 clamp(40px,11vw,58px)/.9 var(--serif);color:var(--forest)}
+.p-repnum.small{font-size:clamp(19px,5vw,24px);line-height:1.15}
+#player.resting .p-repnum{color:#8a6524}
+.p-repunit{font:600 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+ color:var(--grey2);margin-top:8px}
+.p-repcol{flex:none;min-width:76px}
+.p-info{flex:1;min-width:0}
+.p-name{font:400 clamp(21px,5.5vw,29px)/1.08 var(--serif)}
+.p-rule{height:1px;background:rgba(28,32,25,.14);margin:13px 0}
+.p-cues{display:flex;flex-direction:column;gap:8px}
+.p-cues b{font:600 14.5px/1.5 var(--sans);color:var(--ink)}
+.p-cues .cl{font:400 14px/1.5 var(--sans);color:var(--grey)}
+.p-foot{flex:none;padding:12px 16px calc(env(safe-area-inset-bottom,0px) + 14px);
+ background:#fff;border-top:1px solid rgba(28,32,25,.1)}
+.p-btns{display:flex;gap:9px}
+.p-btns button{flex:1;padding:17px;border-radius:16px;border:none;cursor:pointer;
+ font:600 14.5px/1 var(--sans)}
+.p-btns .ghost{flex:0 0 96px;background:var(--mist);color:var(--ink)}
+.p-btns .green{background:var(--forest);color:var(--bg)}
+.p-subrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px}
+.p-skip{background:none;border:none;font:500 12.5px/1 var(--sans);color:var(--grey2);
+ cursor:pointer;text-decoration:underline;padding:6px 0}
+.p-extend{display:flex;gap:7px}
+.p-extend button{background:var(--mist);border:none;border-radius:999px;padding:8px 13px;
+ font:600 12px/1 var(--sans);color:var(--ink);cursor:pointer}
+.p-up{margin-top:22px}
+.p-uphead{font:600 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--grey2)}
+.p-uprow{display:flex;align-items:center;gap:12px;background:#fff;border-radius:16px;
+ padding:12px 14px;margin-top:10px}
+.p-upthumb{width:64px;height:44px;border-radius:10px;overflow:hidden;background:#11150f;flex:none}
+.p-upthumb video{width:100%;height:100%;object-fit:cover;display:block}
 </style></head><body><div id="app"></div>
 <script>
 let DATA={
@@ -505,102 +569,165 @@ function openLib(i){
 }
 
 /* ── the guided player ── */
-let Q=[],qi=0,left=0,tTotal=0,phase='work',paused=false,tick_=null,lastT=0;
+let Q=[],qi=0,left=0,tTotal=0,phase='work',paused=false,tick_=null,lastT=0,sessionStart=0;
 
-/* The player used to re-render the whole panel once a second, which tore the
-   <video> down and rebuilt it on every tick — the clip never got past its
-   first frame. Shell is built once, the step body only when the step changes,
-   and the clock is the only thing the timer touches. */
-let sessionStart=0;
+/* always m:ss — a bare '4' on a big clock reads as four minutes */
+function fmtT(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), r=s%60;
+  return m+':'+String(r).padStart(2,'0'); }
+const isHoldDose = d => /max hold|attempts|build to/i.test(String(d||''));
+
+/* the big number is the dose, not a countdown — a set of ten reps should
+   say TEN, not however many seconds we guessed it would take */
+function repOf(it){
+  const d=String(it.d||'');
+  let m=d.match(/^\s*\d+\s*[×x]\s*(\d+)\s*(?:each|per)?/i);   if(m) return {n:m[1],u:'reps'};
+  m=d.match(/(\d+)\s*reps/i);                                  if(m) return {n:m[1],u:'reps'};
+  m=d.match(/(\d+)\s*s\b/);                                    if(m) return {n:m[1],u:'seconds'};
+  m=d.match(/build to\s*(\d+)/i);                              if(m) return {n:m[1],u:'build to'};
+  m=d.match(/^\s*(\d+)\s*$/);                                  if(m) return {n:m[1],u:'reps'};
+  return {n:d||'—',u:'',small:true};
+}
+
 function startPlayer(){
   Q=queue(); if(!Q.length) return;
   qi=0; phase='work'; paused=false; sessionStart=Date.now();
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
+  bindPlayer();
   showStep();
 }
 function playerShell(){
-  return `<div id="p-shell" style="position:fixed;inset:0;display:flex;flex-direction:column;
-    color:#fff;background:var(--forest);transition:background .3s">
-    <div style="padding:calc(env(safe-area-inset-top) + 16px) 20px 0;display:flex;
-      justify-content:space-between;align-items:center;flex:none">
-      <button class="back" style="color:rgba(255,255,255,.6)" onclick="endPlayer(false)">End</button>
-      <span id="p-idx" style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;
-        color:rgba(255,255,255,.6)"></span></div>
-    <div id="p-rails" style="padding:14px 20px 0;display:flex;gap:4px;flex:none"></div>
-    <div id="p-body" style="flex:1;min-height:0;overflow-y:auto;
-      padding:22px 20px;display:flex;flex-direction:column;justify-content:center;gap:20px"></div>
-    <div style="flex:none;padding:0 20px calc(env(safe-area-inset-bottom) + 26px);display:flex;gap:10px">
-      <button id="p-pause" onclick="togglePause()" style="flex:1;padding:17px;border-radius:18px;
-        border:none;background:rgba(255,255,255,.14);font:600 14px/1 var(--sans);color:#fff;
-        cursor:pointer">Pause</button>
-      <button id="p-next" onclick="skip()" style="flex:1;padding:17px;border-radius:18px;border:none;
-        background:#fff;font:600 14px/1 var(--sans);color:var(--ink);cursor:pointer">Done · next</button>
-    </div></div>`;
+  return `<div class="p-bar">
+      <span class="p-idx" id="p-idx"></span>
+      <span class="p-clock" id="p-clock"></span>
+      <span class="p-ctrls">
+        <span class="p-elapsed" id="p-elapsed"></span>
+        <button class="p-x" id="p-pause" title="Pause">II</button>
+        <button class="p-x" id="p-exit" title="End">✕</button>
+      </span>
+    </div>
+    <div class="p-track"><i id="p-fill"></i></div>
+    <div class="p-track p-track2"><i id="p-timefill"></i></div>
+    <div class="p-scroll" id="p-scroll">
+      <div class="p-vwrap" id="p-vwrap"></div>
+      <div class="p-body" id="p-body"></div>
+    </div>
+    <div class="p-foot">
+      <div class="p-btns">
+        <button class="ghost" id="p-prev">Back</button>
+        <button class="green" id="p-next">Done →</button>
+      </div>
+      <div class="p-subrow">
+        <button class="p-skip" id="p-skip">Skip this drill</button>
+        <span class="p-extend">
+          <button data-ext="15">+15s</button><button data-ext="30">+30s</button>
+        </span>
+      </div>
+    </div>`;
 }
-function paintRails(){
-  const r=$('#p-rails'); if(!r) return;
-  r.innerHTML=Q.map((_,i)=>`<i style="flex:1;height:3px;border-radius:2px;background:${
-    i<qi?(st.in?'var(--sand)':'#9fb098'):i===qi?'#fff':'rgba(255,255,255,.2)'}"></i>`).join('');
+function bindPlayer(){
+  $('#p-pause').onclick=togglePause;
+  $('#p-exit').onclick=()=>endPlayer(false);
+  $('#p-next').onclick=()=>{ clearInterval(tick_); tick_=null; advance(); };
+  $('#p-prev').onclick=stepBack;
+  $('#p-skip').onclick=()=>{ clearInterval(tick_); tick_=null; phase='work'; qi++; showStep(); };
+  document.querySelectorAll('.p-extend button').forEach(b=>{
+    b.onclick=()=>{ left+=+b.dataset.ext; tTotal+=+b.dataset.ext; paintClock(); };
+  });
 }
-function paintPause(){ const b=$('#p-pause'); if(b) b.textContent=paused?'Resume':'Pause'; }
-function togglePause(){ paused=!paused; lastT=Date.now(); paintPause();
-  document.querySelectorAll('#player video').forEach(v=>{
-    try{ paused?v.pause():v.play(); }catch(e){} }); }
-function clockText(){ const l=Math.max(0,Math.round(left));
-  return l>=60 ? Math.floor(l/60)+':'+String(l%60).padStart(2,'0') : String(l); }
+function togglePause(){
+  paused=!paused; lastT=Date.now();
+  const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II';
+  document.querySelectorAll('#player video').forEach(v=>{ try{ paused?v.pause():v.play(); }catch(e){} });
+}
+function paintPause(){ const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II'; }
+function stepBack(){
+  clearInterval(tick_); tick_=null;
+  if(phase==='rest'){ phase='work'; }
+  else if(qi>0){ qi--; phase='work'; }
+  showStep();
+}
+function paintClock(){
+  const c=$('#p-clock'); if(c) c.textContent = tTotal>0 ? fmtT(left) : 'Hold';
+  const f=$('#p-timefill');
+  if(f) f.style.width = (tTotal>0 ? (1-left/tTotal)*100 : 0).toFixed(1)+'%';
+  const e=$('#p-elapsed');
+  if(e&&sessionStart) e.textContent = fmtT((Date.now()-sessionStart)/1000)+' / ~'+
+    Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60)+' min';
+}
 
 function showStep(){
   if(qi>=Q.length) return endPlayer(true);
-  const s=Q[qi], n=Q[qi+1], resting=phase==='rest';
-  tTotal=left=resting?rest(s.it):work(s.it);
-  const shell=$('#p-shell');
-  if(shell) shell.style.background=resting?(st.in?'var(--terra)':'#5c6b52'):'var(--forest)';
-  const idx=$('#p-idx'); if(idx) idx.textContent=(qi+1)+' / '+Q.length;
-  paintRails(); paintPause();
+  const s=Q[qi], it=s.it, resting=phase==='rest';
+  document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
+  $('#player').classList.toggle('resting',resting);
+  $('#p-idx').textContent = resting ? 'REST' : 'EXERCISE '+(qi+1)+'/'+Q.length;
 
-  $('#p-body').innerHTML = resting ? `
-      <div style="text-align:center;flex:none">
-        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.18em;color:rgba(255,255,255,.75)">REST</div>
-        <div id="p-clock" style="font:400 72px/.9 var(--serif);margin-top:12px">${clockText()}</div></div>
-      ${n?`<div style="background:rgba(0,0,0,.16);border-radius:24px;padding:18px;flex:none">
-        <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:rgba(255,255,255,.75)">UP NEXT</div>
-        <div style="font:400 24px/1.1 var(--serif);margin-top:8px">${esc(n.it.n)}</div>
-        <div style="font:400 14px/1.45 var(--sans);color:rgba(255,255,255,.8);margin-top:6px">${esc(n.it.d)}</div>
-        ${n.it.url?`<div style="border-radius:14px;overflow:hidden;margin-top:12px;background:#000;
-          max-width:260px">
-          <video src="${n.it.url}#t=0.6" muted playsinline preload="metadata"
-            style="display:block;width:100%;aspect-ratio:16/9;object-fit:cover"></video></div>`:''}
-      </div>`:''}` : `
-      ${s.it.url?`<div style="border-radius:26px;overflow:hidden;background:#000;flex:none">
-        <video src="${s.it.url}" autoplay loop muted playsinline
-          style="display:block;width:100%;aspect-ratio:4/3;object-fit:cover"></video></div>`
-        :`<div style="aspect-ratio:4/3;border-radius:26px;background:rgba(255,255,255,.08);
-           display:grid;place-items:center;font:600 11px/1 var(--sans);letter-spacing:.14em;
-           color:rgba(255,255,255,.6);flex:none">FILMING SOON</div>`}
-      <div style="flex:none">
-        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.18em;color:var(--sage)">
-          ${esc(s.grp.toUpperCase())}${s.sets>1?' · SET '+s.set+' OF '+s.sets:''}</div>
-        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-top:12px">
-          <div style="font:400 34px/1.05 var(--serif);flex:1">${esc(s.it.n)}</div>
-          <div id="p-clock" style="font:400 56px/.85 var(--serif)">${clockText()}</div></div>
-        <div style="font:400 15px/1.5 var(--sans);color:var(--sage);margin-top:12px">${
-          esc(s.it.nt||(s.it.cues||[])[0]||s.it.d)}</div>
+  const vw=$('#p-vwrap'), body=$('#p-body');
+  if(resting){
+    tTotal=left=rest(it);
+    vw.className='p-vwrap novideo'; vw.innerHTML='';
+    /* only preview a genuinely different drill — the line above already
+       names the next set of the current one */
+    const nx=Q[qi+1];
+    const n=(nx && nx.it!==it) ? nx : null;
+    body.innerHTML=`<span class="p-phase">Rest</span>
+      <div class="p-main">
+        <div class="p-repcol"><div class="p-repnum" id="p-repnum">${Math.round(left)}</div>
+          <div class="p-repunit">remaining</div></div>
+        <div class="p-info"><h2 class="p-name">Rest</h2>
+          <div class="p-rule"></div>
+          <div class="p-cues"><span class="cl">${
+            s.set<s.sets ? 'Next: set '+(s.set+1)+' of '+s.sets+' · '+esc(it.n)
+            : nx ? 'Next: '+esc(nx.it.n) : 'Last one done.'}</span></div></div>
+      </div>
+      ${n?`<div class="p-up"><div class="p-uphead">Up next · ${Q.length-qi-1} to go</div>
+        <div class="p-uprow">
+          ${n.it.url?`<span class="p-upthumb"><video src="${n.it.url}#t=0.6" muted playsinline preload="metadata"></video></span>`:'<span class="p-upthumb"></span>'}
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font:600 14.5px/1.2 var(--sans)">${esc(n.it.n)}</span>
+            <span style="display:block;font:400 12.5px/1 var(--sans);color:var(--grey2);margin-top:6px">${esc(n.it.d)}</span>
+          </span></div></div>`:''}`;
+    $('#p-next').textContent='Skip rest →';
+  } else {
+    const hold=isHoldDose(it.d);
+    tTotal=left=hold?0:work(it);
+    if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
+      `<video src="${it.url}" autoplay loop muted playsinline></video>`; }
+    else { vw.className='p-vwrap novideo';
+      vw.innerHTML='<div class="p-vfail">Filming soon — the cues are the drill</div>'; }
+    const rp=repOf(it), cues=it.cues||[];
+    body.innerHTML=`<span class="p-phase">${s.sets>1?'Set '+s.set+' of '+s.sets:esc(s.grp||'Exercise')}</span>
+      <div class="p-main">
+        <div class="p-repcol"><div class="p-repnum${rp.small?' small':''}">${esc(rp.n)}</div>
+          ${rp.u?`<div class="p-repunit">${rp.u}</div>`:''}</div>
+        <div class="p-info"><h2 class="p-name">${esc(it.n)}</h2>
+          <div class="p-rule"></div>
+          <div class="p-cues">
+            ${it.desc?`<b>${esc(it.desc)}</b>`:''}
+            ${cues.map(c=>`<span class="cl">${esc(c)}</span>`).join('')}
+            ${it.nt?`<span class="cl">${esc(it.nt)}</span>`:''}
+          </div></div>
       </div>`;
+    $('#p-next').textContent = s.sets>1 ? 'Set done →' : 'Done →';
+  }
 
-  const nx=$('#p-next'); if(nx) nx.textContent=resting?'Skip rest':'Done · next';
-  $('#p-body').scrollTop=0;
-  clearInterval(tick_); lastT=Date.now(); tick_=setInterval(step,250);
+  $('#p-prev').style.visibility = (qi===0&&phase==='work') ? 'hidden' : '';
+  $('#p-fill').style.width=((qi/Q.length)*100).toFixed(1)+'%';
+  $('#p-scroll').scrollTop=0;
+  paintClock(); paintPause();
+  clearInterval(tick_); tick_=null;
+  if(tTotal>0 && !paused){ lastT=Date.now(); tick_=setInterval(step,250); }
 }
 
-/* wall-clock delta, so a backgrounded tab does not silently lose seconds */
+/* wall-clock delta, so a backgrounded phone does not lose seconds */
 function step(){
   if(paused){ lastT=Date.now(); return; }
   const now=Date.now(); left-=(now-lastT)/1000; lastT=now;
-  const c=$('#p-clock'); if(c) c.textContent=clockText();
+  paintClock();
+  const rn=$('#p-repnum'); if(rn&&phase==='rest') rn.textContent=Math.max(0,Math.round(left));
   if(left>0) return;
-  clearInterval(tick_); tick_=null; beep();
-  advance();
+  clearInterval(tick_); tick_=null; beep(); advance();
 }
 function advance(){
   if(phase==='work'){
@@ -1246,8 +1373,8 @@ function screenLadder(){
 function ladderTick(v){ st.ladderDone=st.ladderDone||{}; st.ladderDone[v]=!st.ladderDone[v]; save(); drawOv(); }
 /* Stages 1-3 are free. Stage 4 onwards is the £5 tier. Kept as one
    constant so the line can move without hunting through the file. */
-const FREE_STAGES = 3;
-const PAID_LINK = '';            /* Stripe payment link for the £5 tier */
+const FREE_STAGES = 4;   /* stages 1-4 free; the Press is the paid one */
+const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
 const isPlus = () => !!(st.plus || st.in);
 const stageLocked = i => i >= FREE_STAGES && !isPlus();
 
@@ -1263,7 +1390,7 @@ function screenUpgradeBody(si){
       <div class="kick2">THE FULL LADDER</div>
       <div style="font:400 26px/1.1 var(--serif);margin-top:10px">£5 a month</div>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:16px">
-        ${['Stages 4 and 5 — take-off, freestanding, and the press',
+        ${['The Press — compress, unroll and press to handstand',
            'Every drill with cues and demo video',
            'Quick sessions built around the time you have',
            'Your progress and holds tracked across devices',
@@ -1273,7 +1400,7 @@ function screenUpgradeBody(si){
       </div>
       <button class="btn" style="width:100%;margin-top:20px" onclick="startUpgrade()">Unlock the full ladder</button>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-        Stages 1 to 3 stay free, always.</div>
+        Stages 1 to 4 stay free, always.</div>
     </div>`;
 }
 function startUpgrade(){
@@ -1308,9 +1435,10 @@ function buildFreeSession(){
     if(round>6) break;
   }
   if(!out.length) out.push({it:pool[0],gi:0,ii:0,set:1,sets:1,grp:s.n});
-  Q=out; qi=0; phase='work'; paused=false;
+  Q=out; qi=0; phase='work'; paused=false; sessionStart=Date.now();
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
+  bindPlayer();
   showStep();
 }
 
