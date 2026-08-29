@@ -191,7 +191,11 @@ const AUTH = {
   login:   '/api/app/login',   // POST {email,password} → {token, client}
   programme:'/api/app/programme', // GET → {client, plan, library} for the token
   password:'/api/app/password',  // POST {current,next}
-  progress:'/api/app/progress'   // POST a summary · GET it back
+  progress:'/api/app/progress',  // POST a summary · GET it back
+  signup:'/api/app/signup',      // POST {email,password?,marketing}
+  me:'/api/app/me',              // GET  {plus, coached, canManage}
+  checkout:'/api/app/checkout',  // POST → Stripe Checkout url
+  portal:'/api/app/portal'       // POST → Stripe billing portal url
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -919,6 +923,13 @@ function drawOv(){
         <div style="font:400 16px/1.4 var(--sans);margin-top:8px;word-break:break-all">${esc(st.email||'—')}</div>
         ${st.client?`<div style="font:400 14px/1.4 var(--sans);color:var(--grey);margin-top:6px">${esc(st.client)}</div>`:''}
       </div>
+      ${st.plus?`<div class="card" style="margin-top:14px;padding:16px">
+        <div class="kick2">SUBSCRIPTION</div>
+        <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">The full ladder — £5 a month.</div>
+        ${st.canManage?`<button class="btn2" style="width:100%;margin-top:12px" onclick="manageSubscription()">
+          Manage or cancel</button>`:`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+          To cancel, message Elliott.</div>`}
+      </div>`:''}
       <button class="btn" style="width:100%;margin-top:16px" onclick="openOv('password')">Change password</button>
       <button class="btn2" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>
       <div style="font:400 13px/1.6 var(--sans);color:var(--grey2);margin-top:18px;text-align:center">
@@ -1121,7 +1132,7 @@ function doLogin(ev){
       /* a coach signing in here wants the coach view, not a client screen */
       if(d.coach){ location.href='/lha-coach.html'; return; }
       st.email=email; st.token=d.token; st.client=d.client; st.in=true;
-      save(); render(); loadProgramme(); loadProgress(); loadThread(); })
+      save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -1145,7 +1156,7 @@ function verifyCode(){
     body:JSON.stringify({email:st.email,code:c})})
     .then(r=>r.ok?r.json():Promise.reject())
     .then(d=>{ st.token=d.token; st.client=d.client||nameFrom(st.email); st.in=true;
-               save(); render(); loadProgramme(); loadProgress(); loadThread(); })
+               save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); })
     .catch(()=>{
       if(c===DEV_CODE){ st.in=true; st.client=nameFrom(st.email); save(); render(); return; }
       const m=$('#authMsg'); if(m) m.textContent='That code did not work. Check it, or send a new one.';
@@ -1549,7 +1560,7 @@ function ladderTick(v){ st.ladderDone=st.ladderDone||{}; st.ladderDone[v]=!st.la
    constant so the line can move without hunting through the file. */
 const FREE_STAGES = 4;   /* stages 1-4 free; the Press is the paid one */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
-const isPlus = () => !!(st.plus || st.in);
+const isPlus = () => !!(st.plus || st.in);   /* st.plus is refreshed from /me */
 const stageLocked = i => i >= FREE_STAGES && !isPlus();
 
 function screenUpgradeBody(si){
@@ -1578,10 +1589,44 @@ function screenUpgradeBody(si){
     </div>`;
 }
 function startUpgrade(){
-  if(PAID_LINK){ location.href=PAID_LINK; return; }
-  post({type:'Wants the £5 tier',email:st.email||''});
   const b=event&&event.target;
-  if(b){ b.textContent='Thanks — I will be in touch'; b.disabled=true; }
+  /* no account, no subscription to attach — send them to sign up first */
+  if(!st.token){
+    if(!st.email){ st.tab='joinFree'; st.quizDone=true; save(); render(); return; }
+    if(b){ b.textContent='Sign in first'; }
+    st.tab='signin'; save(); render(); return;
+  }
+  if(b){ b.textContent='Opening checkout…'; b.disabled=true; }
+  fetch(AUTH.checkout,{method:'POST',headers:authed(),body:'{}'})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start checkout')))
+    .then(d=>{ if(d.url) location.href=d.url; else throw 'No checkout link came back'; })
+    .catch(e=>{
+      /* payments not switched on yet, or Stripe said no — fall back to
+         telling Elliott rather than leaving a dead button */
+      post({type:'Wants the £5 tier',email:st.email||'',text:String(e)});
+      if(b){ b.textContent='Thanks — I will be in touch'; }
+    });
+}
+/* the server is the authority on what has been paid for; local storage
+   is only a cache and must never be what unlocks content */
+function loadEntitlement(){
+  if(!st.token) return Promise.resolve();
+  return fetch(AUTH.me,{headers:authed()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(!d) return;
+      const was=st.plus;
+      st.plus=!!d.plus; st.canManage=!!d.canManage;
+      if(d.name&&!st.client) st.client=d.name;
+      save(); if(was!==st.plus) render(); })
+    .catch(()=>{});
+}
+function manageSubscription(){
+  const b=event&&event.target;
+  if(b){ b.textContent='Opening…'; b.disabled=true; }
+  fetch(AUTH.portal,{method:'POST',headers:authed(),body:'{}'})
+    .then(r=>r.ok?r.json():Promise.reject())
+    .then(d=>{ if(d.url) location.href=d.url; })
+    .catch(()=>{ if(b){ b.textContent='Could not open — message Elliott'; } });
 }
 
 function openStage(i){ st.ovStage=i; openOv('stage'); }
@@ -1705,6 +1750,10 @@ function screenJoin(){
           placeholder="you@example.com"
           style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
           font:400 15px/1 var(--sans);color:var(--bg);outline:none">
+        <input id="joinPw" type="password" autocomplete="new-password" required minlength="8"
+          placeholder="Pick a password (8+ characters)"
+          style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
+          font:400 15px/1 var(--sans);color:var(--bg);outline:none">
         <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:2px 2px 0">
           <input id="joinMk" type="checkbox"
             style="width:19px;height:19px;margin:1px 0 0;accent-color:var(--sand);flex:none">
@@ -1721,14 +1770,24 @@ function screenJoin(){
         Skip for now</button>
     </div></div>`;
 }
+/* never re-render on a validation error — it rebuilds the form and throws
+   away what they typed */
+function joinSay(msg){ joinErr=msg; const m=$('#joinMsg'); if(m) m.textContent=msg; }
 function doJoin(ev){
   if(ev) ev.preventDefault();
   const em=(($('#joinEm')||{}).value||'').trim().toLowerCase();
+  const pw=($('#joinPw')||{}).value||'';
   const mk=!!(($('#joinMk')||{}).checked);
-  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ joinErr='That does not look like an email address.'; render(); return; }
-  joinErr=''; st.email=em; st.marketing=mk; st.tab='ladder'; save(); render();
-  fetch('/api/app/signup',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({email:em,marketing:mk,stage:curStage()})}).catch(()=>{});
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ joinSay('That does not look like an email address.'); return; }
+  if(pw.length<8){ joinSay('Password needs at least 8 characters.'); return; }
+  joinSay('Creating your account…');
+  fetch(AUTH.signup,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:em,password:pw,marketing:mk,stage:curStage()})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
+    .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus;
+      if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
+      st.tab='ladder'; save(); render(); })
+    .catch(e=>{ joinSay(String(e)); });
 }
 /* letting them skip costs one address and keeps the app usable —
    they get asked again when they hit the paid stages */
@@ -1787,6 +1846,7 @@ document.addEventListener('DOMContentLoaded',function(){
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
   render();
+  if(st.token){ loadEntitlement(); }
   if(st.in && st.token){ loadProgramme(); loadProgress(); reportProgress(); }
 });
 render();

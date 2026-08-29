@@ -107,10 +107,98 @@ async function email(to, subject, html) {
   } catch { /* never let a mail failure break the request */ }
 }
 
+/* ── Stripe, over plain fetch ────────────────────────────────────
+   No SDK: a few form-encoded POSTs is less to install and less to
+   go wrong inside a serverless function. */
+const stripeKey = () => process.env.STRIPE_SECRET_KEY || '';
+async function stripe(path, params, method = 'POST') {
+  const res = await fetch('https://api.stripe.com/v1' + path, {
+    method,
+    headers: {
+      Authorization: 'Bearer ' + stripeKey(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params ? new URLSearchParams(params).toString() : undefined,
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((out.error && out.error.message) || 'Stripe error');
+  return out;
+}
+/* Stripe signs the raw body; verify it ourselves rather than trusting
+   a webhook that anyone could POST to. */
+async function stripeSigOK(raw, header, secret) {
+  if (!raw || !header || !secret) return false;
+  const parts = Object.fromEntries(header.split(',').map(x => x.split('=')));
+  if (!parts.t || !parts.v1) return false;
+  if (Math.abs(Date.now() / 1000 - Number(parts.t)) > 300) return false;   // replay window
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(parts.t + '.' + raw));
+  const hex = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, '0')).join('');
+  if (hex.length !== parts.v1.length) return false;
+  let diff = 0;
+  for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ parts.v1.charCodeAt(i);
+  return diff === 0;
+}
+
 export default async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
   const db = store();
+
+  /* ── Stripe tells us what happened ─────────────────────────────
+     Before the JSON parse below, because the signature covers the raw
+     text and reading the body twice is not allowed. */
+  if (path === '/stripe/webhook' && request.method === 'POST') {
+    const raw = await request.text();
+    const ok = await stripeSigOK(raw, request.headers.get('stripe-signature'),
+      process.env.STRIPE_WEBHOOK_SECRET);
+    if (!ok) return json({ error: 'Bad signature' }, 400);
+
+    let ev = {};
+    try { ev = JSON.parse(raw); } catch { return json({ error: 'Bad payload' }, 400); }
+    const obj = (ev.data && ev.data.object) || {};
+    const e = norm(obj.client_reference_id || (obj.customer_details && obj.customer_details.email)
+      || obj.customer_email || '');
+
+    /* find the account either by the address we sent, or by the Stripe
+       customer we stored when they checked out */
+    let key = e ? `acct:${e}` : null;
+    if (!key && obj.customer) {
+      const idx = (await db.get('stripeIdx', { type: 'json' })) || {};
+      if (idx[obj.customer]) key = `acct:${idx[obj.customer]}`;
+    }
+    if (!key) return json({ ok: true, note: 'no account matched' });
+
+    const acct = (await db.get(key, { type: 'json' })) || {};
+    const on  = ['checkout.session.completed', 'customer.subscription.created',
+                 'customer.subscription.updated', 'invoice.paid'];
+    const off = ['customer.subscription.deleted', 'invoice.payment_failed'];
+
+    if (on.includes(ev.type)) {
+      const status = obj.status || 'active';
+      acct.plus = !['canceled', 'unpaid', 'incomplete_expired'].includes(status);
+      if (obj.customer) {
+        acct.stripeCustomer = obj.customer;
+        const idx = (await db.get('stripeIdx', { type: 'json' })) || {};
+        idx[obj.customer] = acct.email || e;
+        await db.setJSON('stripeIdx', idx);
+      }
+    } else if (off.includes(ev.type)) {
+      acct.plus = false;
+    } else {
+      return json({ ok: true, ignored: ev.type });
+    }
+    acct.plusAt = Date.now();
+    await db.setJSON(key, acct);
+
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `${acct.plus ? 'New' : 'Cancelled'} £5 subscriber: ${acct.email || e}`,
+      `<p style="font:16px/1.6 system-ui">${ev.type} — access is now
+       ${acct.plus ? 'on' : 'off'}.</p>`);
+    return json({ ok: true });
+  }
+
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
 
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
@@ -158,8 +246,11 @@ export default async (request) => {
   /* ── POST /login  {email, password} → {token, client} ── */
   if (path === '/login' && request.method === 'POST') {
     const e = norm(body.email);
-    const name = clients()[e];
-    const stored = await hashFor(db, e);
+    /* two kinds of account now: coached clients configured by Elliott, and
+       self-serve ones people create themselves */
+    const acct = (await db.get(`acct:${e}`, { type: 'json' })) || null;
+    const name = clients()[e] || (acct && (acct.name || e.split('@')[0])) || null;
+    const stored = (await hashFor(db, e)) || (acct && acct.hash) || null;
     const bad = () => json({ error: 'Wrong email or password' }, 401);
     if (!e || !name || !stored || !body.password) return bad();
 
@@ -178,7 +269,8 @@ export default async (request) => {
     }
     await db.delete(`pwrl:${e}`);
     return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
-                  client: name, coach: coachList().includes(e) });
+                  client: name, coach: coachList().includes(e),
+                  coached: !!clients()[e], plus: !!(acct && acct.plus) });
   }
 
   /* ── swap a code for a token ── */
@@ -199,32 +291,112 @@ export default async (request) => {
   }
 
   /* ── the client's own thread ── */
-  /* ── free-tier sign-up ───────────────────────────────────────────
-     No password and no account: an address, so progress can be kept and
-     Elliott has a list. Marketing consent is separate and opt-in, which
-     is what UK rules require — a ticked box by default is not consent. */
+  /* ── create an account ───────────────────────────────────────────
+     Self-serve, no coach involved. Marketing consent is separate and
+     opt-in, which is what UK rules require. */
   if (path === '/signup' && request.method === 'POST') {
     const e = norm(body.email);
     if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) {
       return json({ error: 'That does not look like an email address' }, 400);
     }
-    const k = `lead:${e}`;
+    const k = `acct:${e}`;
     const prev = (await db.get(k, { type: 'json' })) || {};
-    await db.setJSON(k, {
+
+    /* a password is optional: the email gate after the quiz just wants
+       the address, and an account can gain a password later */
+    const pw = String(body.password || '');
+    if (pw && pw.length < 8) {
+      return json({ error: 'Password must be at least 8 characters' }, 400);
+    }
+    if (prev.hash && pw && (await pwHash(pw)) !== prev.hash) {
+      return json({ error: 'An account already exists for that address' }, 409);
+    }
+
+    const acct = {
       email: e,
       name: String(body.name || prev.name || '').slice(0, 60),
-      marketing: body.marketing === true,
+      hash: pw ? await pwHash(pw) : (prev.hash || null),
+      marketing: body.marketing === true ? true : !!prev.marketing,
       stage: Number(body.stage) || prev.stage || null,
+      plus: !!prev.plus,
+      stripeCustomer: prev.stripeCustomer || null,
       first: prev.first || Date.now(),
-      last: Date.now()
-    });
+      last: Date.now(),
+    };
+    await db.setJSON(k, acct);
+
     if (!prev.first) {
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `New app sign-up: ${e}`,
         `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
-         Marketing consent: ${body.marketing === true ? 'yes' : 'no'}.</p>`);
+         Marketing consent: ${acct.marketing ? 'yes' : 'no'}.</p>`);
     }
-    return json({ ok: true });
+    return json({
+      ok: true,
+      plus: acct.plus,
+      token: acct.hash ? await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }) : null,
+    });
+  }
+
+  /* ── who am I, and what have I paid for ── */
+  if (path === '/me') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    return json({
+      email: who,
+      name: clients()[who] || acct.name || '',
+      coached: !!clients()[who],
+      coach: coachList().includes(who),
+      plus: !!acct.plus,
+      canManage: !!acct.stripeCustomer,
+    });
+  }
+
+  /* ── start a checkout ─────────────────────────────────────────────
+     A Checkout Session rather than a payment link, because a link
+     cannot tell us which account paid. */
+  if (path === '/checkout' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (!stripeKey() || !process.env.STRIPE_PRICE_PLUS) {
+      return json({ error: 'Payments are not switched on yet' }, 503);
+    }
+    const origin = url.origin;
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'subscription',
+        'line_items[0][price]': process.env.STRIPE_PRICE_PLUS,
+        'line_items[0][quantity]': '1',
+        customer_email: who,
+        client_reference_id: who,
+        allow_promotion_codes: 'true',
+        success_url: `${origin}/lha-app.html?paid=1`,
+        cancel_url: `${origin}/lha-app.html?paid=0`,
+      });
+      return json({ url: sess.url });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
+  }
+
+  /* ── manage or cancel ─────────────────────────────────────────────
+     Stripe hosts this. Cancelling has to be easy, and this is both the
+     simplest and the compliant way to do it. */
+  if (path === '/portal' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    if (!acct.stripeCustomer) return json({ error: 'No subscription to manage' }, 400);
+    try {
+      const sess = await stripe('/billing_portal/sessions', {
+        customer: acct.stripeCustomer,
+        return_url: `${url.origin}/lha-app.html`,
+      });
+      return json({ url: sess.url });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
   }
 
   /* ── the client's own programme ──────────────────────────────────
@@ -401,7 +573,7 @@ export default async (request) => {
 
     if (path === '/coach/leads') {
       const out = [];
-      const listing = await db.list({ prefix: 'lead:' });
+      const listing = await db.list({ prefix: 'acct:' });
       for (const b of (listing.blobs || [])) {
         const v = await db.get(b.key, { type: 'json' });
         if (v) out.push(v);
