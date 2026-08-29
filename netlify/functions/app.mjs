@@ -326,6 +326,15 @@ export default async (request) => {
   if (path.startsWith('/coach/')) {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
 
+    /* wipe a client's activity record — needed for a deletion request,
+       and for clearing test data out of a real client's history */
+    if (path === '/coach/progress/reset' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      await db.delete(`prog:${e}`);
+      return json({ ok: true, cleared: e });
+    }
+
     if (path === '/coach/progress') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
