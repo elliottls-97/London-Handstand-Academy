@@ -199,6 +199,34 @@ export default async (request) => {
   }
 
   /* ── the client's own thread ── */
+  /* ── free-tier sign-up ───────────────────────────────────────────
+     No password and no account: an address, so progress can be kept and
+     Elliott has a list. Marketing consent is separate and opt-in, which
+     is what UK rules require — a ticked box by default is not consent. */
+  if (path === '/signup' && request.method === 'POST') {
+    const e = norm(body.email);
+    if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) {
+      return json({ error: 'That does not look like an email address' }, 400);
+    }
+    const k = `lead:${e}`;
+    const prev = (await db.get(k, { type: 'json' })) || {};
+    await db.setJSON(k, {
+      email: e,
+      name: String(body.name || prev.name || '').slice(0, 60),
+      marketing: body.marketing === true,
+      stage: Number(body.stage) || prev.stage || null,
+      first: prev.first || Date.now(),
+      last: Date.now()
+    });
+    if (!prev.first) {
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+        `New app sign-up: ${e}`,
+        `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
+         Marketing consent: ${body.marketing === true ? 'yes' : 'no'}.</p>`);
+    }
+    return json({ ok: true });
+  }
+
   /* ── the client's own programme ──────────────────────────────────
      The app used to ship one client's plan baked into the HTML, so a
      second client signing in saw the first one's drills. The plan is
@@ -357,6 +385,17 @@ export default async (request) => {
       if (!e) return json({ error: 'Which client?' }, 400);
       return json({ email: e, name: clients()[e] || e,
                     progress: (await db.get(`prog:${e}`, { type: 'json' })) || {} });
+    }
+
+    if (path === '/coach/leads') {
+      const out = [];
+      const listing = await db.list({ prefix: 'lead:' });
+      for (const b of (listing.blobs || [])) {
+        const v = await db.get(b.key, { type: 'json' });
+        if (v) out.push(v);
+      }
+      out.sort((a, b) => (b.last || 0) - (a.last || 0));
+      return json({ leads: out });
     }
 
     if (path === '/coach/clients') {
