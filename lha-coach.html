@@ -45,6 +45,7 @@ let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
+let prog={};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ago=t=>{ if(!t) return 'no messages'; const m=Math.round((Date.now()-t)/60000);
@@ -90,6 +91,10 @@ function load(){
 }
 function openThread(email){
   sel=email; draw();
+  fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ prog[email]=d.progress||{}; draw(); } })
+    .catch(()=>{});
   fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.json()).then(d=>{
       const next=d.messages||[];
@@ -107,6 +112,55 @@ function reply(){
   fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
     body:JSON.stringify({text})}).then(()=>openThread(sel));
 }
+
+/* ── what the numbers mean ──────────────────────────────────────
+   opens is one entry per day the app was opened, so a streak is a real
+   habit rather than a count of taps. */
+function daysAgo(t){ if(!t) return '—'; const d=Math.floor((Date.now()-t)/86400000);
+  return d===0?'today':d===1?'yesterday':d+' days ago'; }
+function streak(opens){
+  if(!opens||!opens.length) return 0;
+  const set=new Set(opens); let n=0; const d=new Date();
+  for(;;){ const k=d.toISOString().slice(0,10);
+    if(set.has(k)) n++; else if(n||k!==new Date().toISOString().slice(0,10)) break;
+    d.setDate(d.getDate()-1); if(n>365) break; }
+  return n;
+}
+function last7(opens){
+  if(!opens) return 0; const cut=Date.now()-7*86400000;
+  return opens.filter(k=>new Date(k+'T00:00:00Z').getTime()>=cut).length;
+}
+function metricsHTML(email){
+  const p=prog[email];
+  if(!p) return '<div class="kick" style="margin-top:22px">ACTIVITY</div>'+
+    '<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">Loading…</div>';
+  const done=(p.sessions||[]).filter(s=>s.done);
+  const wk=done.filter(s=>Date.now()-s.at < 7*86400000).length;
+  const flags=Object.entries(p.flags||{});
+  const stat=(n,l)=>`<div><div style="font:400 26px/1 var(--serif)">${n}</div>
+    <div style="font:500 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-top:6px">${l}</div></div>`;
+  return `<div class="kick" style="margin-top:22px">ACTIVITY</div>
+    <div style="display:flex;gap:22px;margin-top:12px;flex-wrap:wrap">
+      ${stat(daysAgo(p.lastSeen),'LAST OPENED')}
+      ${stat(last7(p.opens)+'/7','DAYS THIS WEEK')}
+      ${stat(streak(p.opens),'DAY STREAK')}
+      ${stat(wk,'SESSIONS THIS WEEK')}
+      ${stat(done.length,'SESSIONS TOTAL')}
+      ${stat(p.bestHold?p.bestHold+'s':'—','BEST HOLD')}
+    </div>
+    ${done.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:14px">
+      Last session: ${esc(done[done.length-1].name||'')} · ${daysAgo(done[done.length-1].at)}</div>`:''}
+    ${flags.length?`<div class="kick" style="margin-top:22px">FLAGGED</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+      ${flags.map(([d,v])=>`<div style="font:400 13.5px/1.5 var(--sans)">
+        <b style="color:${v.rate==='hard'?'var(--terra)':'var(--grey2)'}">${v.rate==='hard'?'TOO HARD':'TOO EASY'}</b>
+        · ${esc(d)}${v.note?` — "${esc(v.note)}"`:''}</div>`).join('')}</div>`:''}
+    ${(p.tests||[]).length?`<div class="kick" style="margin-top:22px">LAST TEST</div>
+      <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:8px">
+      ${Object.entries((p.tests[p.tests.length-1]||{}).vals||{}).map(([k,v])=>esc(k)+': '+esc(v)).join(' · ')||'—'}
+      </div>`:''}`;
+}
+
 function draw(){
   const list=clients.map(c=>`<button class="cli ${c.email===sel?'on':''}" onclick="openThread('${esc(c.email)}')">
     <span class="av">${esc((c.name||'?')[0])}</span>
@@ -132,6 +186,7 @@ function draw(){
             onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
           <button class="send" onclick="reply()">Send</button></div>
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
+        ${sel?metricsHTML(sel):''}
       </div></div>`;
 }
 TOKEN?load():gate('');

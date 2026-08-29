@@ -212,6 +212,59 @@ export default async (request) => {
                   library: programmes.library });
   }
 
+  /* ── what a client is actually doing ─────────────────────────────
+     Written by the app, read by the coach view. Kept as a rolling
+     summary plus a capped event log — enough to see a pattern, not so
+     much that it becomes a surveillance record of someone's training. */
+  if (path === '/progress') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const k = `prog:${who}`;
+
+    if (request.method === 'GET') {
+      return json((await db.get(k, { type: 'json' })) || {});
+    }
+    if (request.method === 'POST') {
+      const p = (await db.get(k, { type: 'json' })) || { opens: [], sessions: [], flags: {}, tests: [] };
+      const now = Date.now();
+
+      /* one "open" per day is all we need to see a habit */
+      const today = new Date(now).toISOString().slice(0, 10);
+      p.opens = (p.opens || []).filter(d => d !== today).concat([today]).slice(-180);
+      p.lastSeen = now;
+
+      if (body.session && body.session.day != null) {
+        p.sessions = (p.sessions || []).concat([{
+          day: body.session.day,
+          name: String(body.session.name || '').slice(0, 60),
+          done: !!body.session.done,
+          drills: Number(body.session.drills) || 0,
+          mins: Number(body.session.mins) || 0,
+          at: now
+        }]).slice(-120);
+      }
+      if (body.flags && typeof body.flags === 'object') {
+        p.flags = {};
+        for (const [drill, v] of Object.entries(body.flags).slice(0, 120)) {
+          if (v && (v.rate === 'easy' || v.rate === 'hard')) {
+            p.flags[String(drill).slice(0, 60)] = {
+              rate: v.rate, note: String(v.note || '').slice(0, 300), at: now
+            };
+          }
+        }
+      }
+      if (body.hold != null) {
+        const h = Number(body.hold) || 0;
+        if (h > (p.bestHold || 0)) { p.bestHold = h; p.bestHoldAt = now; }
+      }
+      if (body.test && typeof body.test === 'object') {
+        p.tests = (p.tests || []).concat([{ vals: body.test, at: now }]).slice(-12);
+      }
+      await db.setJSON(k, p);
+      return json({ ok: true });
+    }
+  }
+
   /* ── change your own password ── */
   if (path === '/password' && request.method === 'POST') {
     const who = await me();
@@ -266,6 +319,13 @@ export default async (request) => {
   /* ── your side ── */
   if (path.startsWith('/coach/')) {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+
+    if (path === '/coach/progress') {
+      const e = norm(url.searchParams.get('email'));
+      if (!e) return json({ error: 'Which client?' }, 400);
+      return json({ email: e, name: clients()[e] || e,
+                    progress: (await db.get(`prog:${e}`, { type: 'json' })) || {} });
+    }
 
     if (path === '/coach/clients') {
       const idx = (await db.get('index', { type: 'json' })) || {};

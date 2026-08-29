@@ -101,7 +101,8 @@ const AUTH = {
   messages:'/api/app/messages',// GET → thread · POST {text} → send
   login:   '/api/app/login',   // POST {email,password} → {token, client}
   programme:'/api/app/programme', // GET → {client, plan, library} for the token
-  password:'/api/app/password'   // POST {current,next}
+  password:'/api/app/password',  // POST {current,next}
+  progress:'/api/app/progress'   // POST a summary · GET it back
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -599,6 +600,9 @@ function skip(){ clearInterval(tick_); tick_=null; advance(); }
 function endPlayer(done){ clearInterval(tick_); tick_=null;
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.remove('on'); $('#player').innerHTML='';
+  const d=day();
+  reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done,
+    drills:Q.length, mins:Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60)}});
   save(); if(done){ st.ovSummary=true; openOv('summary'); } else render(); }
 function beep(){ try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
   o.frequency.value=660;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.0001,a.currentTime);
@@ -965,11 +969,40 @@ function savePassword(ev){
     .catch(e=>{ const m=$('#pwMsg'); if(m) m.textContent=String(e); });
 }
 
+
+/* ── what gets reported back ───────────────────────────────────────
+   Ticks, ratings and hold times already lived in this browser and went
+   nowhere. Elliott can only coach what he can see, so a summary goes to
+   the server. Nothing here is sent for a free-tier user — no token, no
+   report. */
+let progQueued=null;
+function reportProgress(extra){
+  if(!st.in || !st.token) return Promise.resolve();
+  const flags={};
+  Object.keys(st.rate||{}).forEach(function(v){
+    if(st.rate[v]==='easy'||st.rate[v]==='hard')
+      flags[v]={rate:st.rate[v], note:(st.note||{})[v]||''};
+  });
+  const payload=Object.assign({flags:flags, hold:st.bestHold||0}, extra||{});
+  return fetch(AUTH.progress,{method:'POST',headers:authed(),body:JSON.stringify(payload)})
+    .catch(function(){});   /* never let reporting break the session */
+}
+/* one call a minute at most — this is a summary, not a telemetry feed */
+function reportSoon(extra){
+  if(progQueued) clearTimeout(progQueued);
+  progQueued=setTimeout(function(){ progQueued=null; reportProgress(extra); }, 1500);
+}
+
 function signOut(){
   /* clearing the token alone left the old tab on screen, so signing out
      looked like nothing had happened. Drop right back to the free app. */
   if(typeof tick_!=='undefined' && tick_){ clearInterval(tick_); tick_=null; }
   if(typeof stopHold==='function') stopHold();
+  /* this is usually tapped from inside the account overlay, which sits over
+     everything — leave it open and signing out looks like a dead button */
+  st.ov=null;
+  const ov=$('#ov'); if(ov){ ov.classList.remove('on'); ov.innerHTML=''; }
+  document.querySelectorAll('video').forEach(v=>{try{v.pause()}catch(e){}});
   st.in=false; st.codeSent=false; st.token=null;
   st.client=null; st.msgs=null;      // nobody else's name or thread left behind
   try{ localStorage.removeItem('lha_plan'); }catch(e){}
@@ -990,7 +1023,7 @@ function tick(k){ st.tick[k]=!st.tick[k]; save(); render(); }
    every drill row carry three buttons. Only the two exceptions are worth
    a tap. Clear any that were already saved. */
 Object.keys(st.rate||{}).forEach(function(k){ if(st.rate[k]==='good') delete st.rate[k]; });
-function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); render(); }
+function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); reportSoon(); render(); }
 function sendFlags(){
   const f=Object.keys(st.rate).filter(v=>st.rate[v]==='easy'||st.rate[v]==='hard');
   if(!f.length) return;
@@ -1002,7 +1035,8 @@ function sendTest(){
   const vals=st.testDraft||{};
   const lines=DATA.test.items.map(t=>t.n+': '+(vals[t.id]||'not done')+' '+t.u).join('\n');
   post({type:'Two-week test',results:lines});
-  st.tests=(st.tests||[]).concat([vals]); st.testDraft={}; save(); closeOv();
+  st.tests=(st.tests||[]).concat([vals]); st.testDraft={}; save();
+  reportProgress({test:vals}); closeOv();
 }
 
 
@@ -1269,7 +1303,8 @@ function drawHold(){
 }
 function toggleHold(){ if(holdT){ clearInterval(holdT); holdT=null; } else { holdS=0; holdT=setInterval(()=>{holdS++;drawHold();},1000); } drawHold(); }
 function stopHold(){ if(holdT){clearInterval(holdT);holdT=null;} holdS=0; }
-function saveHold(){ if(holdS>(st.bestHold||0)) st.bestHold=holdS; save(); stopHold(); closeOv(); }
+function saveHold(){ if(holdS>(st.bestHold||0)) st.bestHold=holdS;
+  save(); reportProgress({hold:st.bestHold||0}); stopHold(); closeOv(); }
 
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
@@ -1301,7 +1336,7 @@ document.addEventListener('DOMContentLoaded',function(){
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
   render();
-  if(st.in && st.token) loadProgramme();
+  if(st.in && st.token){ loadProgramme(); reportProgress(); }
 });
 render();
 </script>
