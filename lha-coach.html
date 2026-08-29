@@ -40,41 +40,69 @@ button.send{border:none;background:var(--terra);color:#fff;border-radius:999px;p
 </style></head><body><div id="v" class="wrap"></div>
 <script>
 const API='/api/app/coach';
-let KEY=localStorage.getItem('lha_coach_key')||'';
+let TOKEN=localStorage.getItem('lha_coach_token')||'';
+let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
+/* one draft per client, so switching threads never loses what you typed */
+let drafts={};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ago=t=>{ if(!t) return 'no messages'; const m=Math.round((Date.now()-t)/60000);
   if(m<60) return m+' min ago'; const h=Math.round(m/60);
   return h<24? h+' hr ago' : Math.round(h/24)+' days ago'; };
-const hdr=()=>({'Content-Type':'application/json','X-Coach-Key':KEY});
+const hdr=()=>({'Content-Type':'application/json','Authorization':'Bearer '+TOKEN});
 
 function gate(msg){
   $('#v').innerHTML=`<div class="gate"><h1>Coach</h1>
     <p style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin:14px 0 18px">
-      Paste your coach key. It stays in this browser.</p>
-    <input id="k" type="password" placeholder="Coach key" value="${esc(KEY)}">
-    ${msg?`<p style="color:var(--terra);font:500 13px/1.5 var(--sans);margin-top:10px">${esc(msg)}</p>`:''}
-    <button class="send" style="margin-top:14px" onclick="saveKey()">Open</button></div>`;
+      Sign in with your London Handstand Academy account.</p>
+    <form onsubmit="signIn(event)">
+      <input id="em" type="email" autocomplete="username" placeholder="you@londonhandstandacademy.com"
+        value="${esc(WHO)}" style="margin-bottom:10px">
+      <input id="pw" type="password" autocomplete="current-password" placeholder="Password">
+      ${msg?`<p style="color:var(--terra);font:500 13px/1.5 var(--sans);margin-top:10px">${esc(msg)}</p>`:''}
+      <button class="send" style="margin-top:14px" type="submit">Sign in</button>
+    </form></div>`;
 }
-function saveKey(){ KEY=$('#k').value.trim(); localStorage.setItem('lha_coach_key',KEY); load(); }
+function signIn(ev){
+  if(ev) ev.preventDefault();
+  const em=($('#em').value||'').trim().toLowerCase(), pw=$('#pw').value||'';
+  if(!em||!pw) return gate('Both fields, please.');
+  gate('Checking…');
+  fetch('/api/app/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:em,password:pw})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{
+      if(!d.coach) return gate('That account is not a coach account.');
+      TOKEN=d.token; WHO=em;
+      localStorage.setItem('lha_coach_token',TOKEN);
+      localStorage.setItem('lha_coach_email',WHO);
+      load();
+    })
+    .catch(c=>gate(c===429?'Too many tries. Wait a few minutes.':'That email and password did not match.'));
+}
 
 function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[]; if(!sel&&clients.length) sel=clients[0].email; draw(); if(sel) openThread(sel); })
-    .catch(e=>gate(e===401?'That key was not accepted.':'Could not reach the worker. Is it deployed?'));
+    .catch(e=>gate(e===401?'Sign in again — that session has expired.':'Could not reach the server.'));
 }
 function openThread(email){
   sel=email; draw();
   fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
-    .then(r=>r.json()).then(d=>{ thread=d.messages||[];
+    .then(r=>r.json()).then(d=>{
+      const next=d.messages||[];
+      /* redrawing rebuilds the reply box and loses what is half-typed */
+      const same=JSON.stringify(next)===JSON.stringify(thread);
+      thread=next;
       const c=clients.find(x=>x.email===email); if(c) c.unread=0;
-      draw(); const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; });
+      if(!same) draw();
+      const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; });
 }
 function reply(){
   const el=$('#reply'); const text=(el.value||'').trim(); if(!text||!sel) return;
-  el.value='';
+  el.value=''; drafts[sel]='';
   thread.push({from:'coach',text,at:Date.now()}); draw();
   fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
     body:JSON.stringify({text})}).then(()=>openThread(sel));
@@ -91,7 +119,7 @@ function draw(){
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;
   $('#v').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline">
       <h1>Coach</h1>
-      <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_key');location.reload()">Sign out</button></div>
+      <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()">Sign out</button></div>
     <div class="grid">
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       <div class="card">
@@ -100,10 +128,11 @@ function draw(){
           max-height:56vh;overflow-y:auto;padding-right:4px">${msgs}</div>
         <div style="display:flex;gap:10px;margin-top:16px">
           <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
-            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()"></textarea>
+            oninput="drafts[sel]=this.value"
+            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
           <button class="send" onclick="reply()">Send</button></div>
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
       </div></div>`;
 }
-KEY?load():gate('');
+TOKEN?load():gate('');
 </script></body></html>

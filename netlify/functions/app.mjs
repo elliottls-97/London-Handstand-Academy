@@ -114,8 +114,15 @@ export default async (request) => {
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
 
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  const isCoach = () => !!process.env.COACH_KEY &&
-    request.headers.get('x-coach-key') === process.env.COACH_KEY;
+  /* a coach signs in with their own email and password like anyone else;
+     the shared key still works so nothing breaks mid-change */
+  const coachList = () => (process.env.COACH_EMAILS || process.env.COACH_EMAIL || '')
+    .split(',').map(x => norm(x)).filter(Boolean);
+  const isCoach = async () => {
+    if (process.env.COACH_KEY && request.headers.get('x-coach-key') === process.env.COACH_KEY) return true;
+    const who = await me();
+    return !!who && coachList().includes(who);
+  };
   const me = async () => {
     const p = await verify(bearer);
     return p && p.scope === 'app' ? p.email : null;
@@ -170,7 +177,8 @@ export default async (request) => {
       return bad();
     }
     await db.delete(`pwrl:${e}`);
-    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }), client: name });
+    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+                  client: name, coach: coachList().includes(e) });
   }
 
   /* ── swap a code for a token ── */
@@ -257,7 +265,7 @@ export default async (request) => {
 
   /* ── your side ── */
   if (path.startsWith('/coach/')) {
-    if (!isCoach()) return json({ error: 'Nope' }, 401);
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
 
     if (path === '/coach/clients') {
       const idx = (await db.get('index', { type: 'json' })) || {};
