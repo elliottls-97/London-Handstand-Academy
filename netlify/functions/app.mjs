@@ -365,7 +365,7 @@ export default async (request) => {
       coach: coachList().includes(who),
       plus: !!acct.plus,
       canManage: !!acct.stripeCustomer,
-      canCancel: !!acct.sub,
+      canCancel: !!(acct.sub || acct.stripeCustomer),
       cancelAt: acct.cancelAt || 0,
     });
   }
@@ -405,6 +405,24 @@ export default async (request) => {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+
+    /* the id is normally captured from the webhook, but a missed or
+       mis-routed event should not leave someone unable to cancel — ask
+       Stripe which subscription this customer has */
+    if (!acct.sub && acct.stripeCustomer) {
+      try {
+        const list = await stripe(
+          `/subscriptions?customer=${encodeURIComponent(acct.stripeCustomer)}&status=all&limit=10`,
+          null, 'GET');
+        const live = (list.data || []).find(x =>
+          ['active', 'trialing', 'past_due', 'unpaid'].includes(x.status));
+        if (live) {
+          acct.sub = live.id;
+          acct.cancelAt = live.cancel_at_period_end ? (live.current_period_end || 0) * 1000 : 0;
+          await db.setJSON(`acct:${who}`, acct);
+        }
+      } catch { /* fall through to the error below */ }
+    }
     if (!acct.sub) return json({ error: 'No subscription to cancel' }, 400);
     try {
       const sub = body.undo
