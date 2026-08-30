@@ -170,7 +170,16 @@ export default async (request) => {
     }
     if (!key) return json({ ok: true, note: 'no account matched' });
 
-    const acct = (await db.get(key, { type: 'json' })) || {};
+    const acct = await db.get(key, { type: 'json' });
+    /* writing {plus:true} into a key with no account behind it would create a
+       stub with no password and lock the real person out */
+    if (!acct) {
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+        'Stripe webhook could not find an account',
+        `<p style="font:16px/1.6 system-ui">${ev.type} for ${e || obj.customer || 'unknown'}
+         — no matching account, so nothing was changed.</p>`);
+      return json({ ok: true, note: 'no account matched' });
+    }
     const on  = ['checkout.session.completed', 'customer.subscription.created',
                  'customer.subscription.updated', 'invoice.paid'];
     const off = ['customer.subscription.deleted', 'invoice.payment_failed'];
