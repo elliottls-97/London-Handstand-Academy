@@ -50,6 +50,9 @@ const API='/api/app/coach';
 let TOKEN=localStorage.getItem('lha_coach_token')||'';
 let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
+/* replies sent but not yet echoed back by Blobs — see openThread */
+let pendingCoach=[];
+const msgKey=m=>(m.video?'v:'+m.video:'t:'+String(m.text||'').trim());
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
 let prog={};
@@ -117,9 +120,19 @@ function openThread(email){
   fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.json()).then(d=>{
       const next=d.messages||[];
+      /* Blobs takes up to ~15s to propagate, so a read straight after a reply
+         comes back without it. Re-append anything not echoed yet instead of
+         letting a stale read wipe it off the screen. */
+      const seen=new Set(next.map(msgKey));
+      pendingCoach=pendingCoach.filter(p=>Date.now()-p.at<600000
+        && !(p.email===email && seen.has(msgKey(p))));
+      const mine=pendingCoach.filter(p=>p.email===email);
+      const merged=next.concat(mine.map(p=>({from:'coach',text:p.text,
+        ...(p.video?{video:p.video}:{}),at:p.at})));
       /* redrawing rebuilds the reply box and loses what is half-typed */
-      const same=JSON.stringify(next)===JSON.stringify(thread);
-      thread=next;
+      const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'']));
+      const same=shape(merged)===shape(thread);
+      thread=merged;
       const c=clients.find(x=>x.email===email); if(c) c.unread=0;
       if(!same) draw();
       const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; });
@@ -154,6 +167,7 @@ function sendCoachClip(file){
       const el=document.getElementById('reply');
       const text=(el&&el.value||'').trim();
       if(el) el.value=''; drafts[sel]='';
+      pendingCoach.push({email:sel,text,video:uid,at:Date.now()});
       thread.push({from:'coach',text,video:uid,at:Date.now()}); draw();
       return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
         body:JSON.stringify({text,video:uid})});
@@ -165,6 +179,7 @@ function sendCoachClip(file){
 function reply(){
   const el=$('#reply'); const text=(el.value||'').trim(); if(!text||!sel) return;
   el.value=''; drafts[sel]='';
+  pendingCoach.push({email:sel,text,at:Date.now()});
   thread.push({from:'coach',text,at:Date.now()}); draw();
   fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
     body:JSON.stringify({text})}).then(()=>openThread(sel));
@@ -647,7 +662,9 @@ function draw(){
     ${m.video?`<div style="width:min(260px,80%);border-radius:16px;overflow:hidden;background:#11150f;
       margin-bottom:${m.text?'6px':'0'}">
       <iframe src="${streamEmbed(m.video)}" loading="lazy" allow="fullscreen"
-        style="display:block;width:100%;aspect-ratio:4/5;border:0"></iframe></div>`:''}
+        style="display:block;width:100%;aspect-ratio:4/5;border:0"></iframe></div>
+    ${Date.now()-(m.at||0)<180000?`<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:0 0 6px">
+      Just uploaded — Cloudflare is still encoding it. If the player errors, give it a minute and reload.</div>`:''}`:''}
     ${m.text?`<div class="msg ${m.from==='coach'?'me':'them'}">${esc(m.text)}</div>`:''}
     <div class="at">${m.from==='coach'?'You':esc((clients.find(c=>c.email===sel)||{}).name||'')} · ${ago(m.at)}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;

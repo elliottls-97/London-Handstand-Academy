@@ -479,16 +479,30 @@ function screenProgress(){
 
 /* ── Ask ── */
 /* pull the thread from the worker; harmless if it isn't deployed yet */
+/* what we have sent but the server has not echoed back yet. Blobs takes up
+   to ~15s to propagate, so a read a second after a write legitimately comes
+   back without the new message — and replacing the thread with that answer
+   is what made a client's own video disappear out of their chat. */
+let pendingMsgs=[];
+const msgKey=m=>(m.video?'v:'+m.video:'t:'+String(m.text||'').trim());
 function loadThread(){
   if(!st.token) return;
   fetch(AUTH.messages,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
     if(!d||!d.messages) return;
     const next=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,
       ...(m.video?{video:m.video}:{}),time:when(m.at)}));
-    /* re-rendering rebuilds the input and throws away whatever is half-typed,
-       so only redraw when the thread has actually changed */
-    const same=JSON.stringify(next)===JSON.stringify(st.msgs||[]);
-    st.msgs=next; save();
+    /* forget the ones the server has caught up on, keep the rest on screen */
+    const seen=new Set(next.map(msgKey));
+    pendingMsgs=pendingMsgs.filter(p=>!seen.has(msgKey(p)) && Date.now()-p.sentAt<600000);
+    const merged=next.concat(pendingMsgs.map(p=>({from:'me',text:p.text,
+      ...(p.video?{video:p.video}:{}),time:when(p.sentAt)})));
+    /* a redraw rebuilds the input and loses half-typed text, reloads every
+       video iframe and drops the scroll to the top — so only redraw when
+       something was actually said. Relative times change on their own and
+       must not count as a change. */
+    const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'']));
+    const same=shape(merged)===shape(st.msgs);
+    st.msgs=merged; save();
     if(st.tab==='ask' && !same) render();
   }).catch(()=>{});
 }
@@ -542,6 +556,7 @@ function sendClip(file){
       upSay('Sending…');
       const text=(($('#askIn')||{}).value||'').trim();
       askDraft=''; const el=$('#askIn'); if(el) el.value='';
+      pendingMsgs.push({text,video:uid,sentAt:Date.now()});
       st.msgs=(st.msgs||[]).concat([{from:'me',text,video:uid,time:'Just now'}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
@@ -605,6 +620,7 @@ function sendAsk(){
   const el=$('#askIn'); if(!el||!el.value.trim()) return;
   const text=el.value.trim();
   askDraft=''; el.value='';
+  pendingMsgs.push({text,sentAt:Date.now()});
   st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now'}]); save(); render();
   fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
     .then(r=>{ if(!r.ok) throw 0; setTimeout(loadThread,400); })
@@ -2080,15 +2096,24 @@ const TABS={
 function go(t){ st.tab=t; save(); render(); if(t==='ask') loadThread(); }
 function render(){
   const app=$('#app');
+  /* swapping innerHTML throws the scroll container back to the top, which
+     reads as the page jumping to the top mid-tap. Put it back whenever we
+     are redrawing the screen the reader is already on. */
+  const was=app.querySelector('.scroll');
+  const keepTop=(was && app.dataset.screen===st.tab) ? was.scrollTop : 0;
+  const swap=html=>{
+    app.innerHTML=html; app.dataset.screen=st.tab;
+    const now=app.querySelector('.scroll'); if(now && keepTop) now.scrollTop=keepTop;
+  };
   /* accent tells you which product you are in without reading a word:
      sand for the free ladder, terracotta for coached */
   document.documentElement.style.setProperty('--accent', st.in?'var(--terra)':'var(--sand)');
   document.body.dataset.tier = st.in?'coached':'free';
-  if(st.tab==='reset'){ app.innerHTML=screenReset(); return; }
-  if(st.tab==='signin' && !st.in){ app.innerHTML=screenSignIn(); return; }
-  if(!st.mode && !st.in){ app.innerHTML=screenWelcome(); return; }
-  if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ app.innerHTML=screenQuiz(); return; }
-  if(!st.in && st.quizDone && !st.email && !st.joinSkipped){ app.innerHTML=screenJoin(); return; }
+  if(st.tab==='reset'){ swap(screenReset()); return; }
+  if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
+  if(!st.mode && !st.in){ swap(screenWelcome()); return; }
+  if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ swap(screenQuiz()); return; }
+  if(!st.in && st.quizDone && !st.email && !st.joinSkipped){ swap(screenJoin()); return; }
   const coached=!!st.in;
   const screens=coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore}
@@ -2096,7 +2121,7 @@ function render(){
   const tabs=TABS[coached?'coached':'free'];
   if(!screens[st.tab]) st.tab=tabs[0][0];
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span></button>`).join('');
-  app.innerHTML=screens[st.tab]()+`<nav class="tabbar">${bar}</nav>`;
+  swap(screens[st.tab]()+`<nav class="tabbar">${bar}</nav>`);
   lazyThumbs();
 }
 document.addEventListener('DOMContentLoaded',function(){
