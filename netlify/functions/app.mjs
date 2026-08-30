@@ -582,6 +582,36 @@ export default async (request) => {
                   library: programmes.library });
   }
 
+  /* ── a one-time link to upload a clip ────────────────────────────
+     The file goes from the phone straight to Cloudflare. It never passes
+     through this function, which could not carry a 60MB video anyway. */
+  if (path === '/upload' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) {
+      return json({ error: 'Video upload is not switched on yet' }, 503);
+    }
+    try {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/direct_upload`,
+        { method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}`,
+                     'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            maxDurationSeconds: 180,          // a form check, not a documentary
+            expiry: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+            creator: who,                     // so it can be found and deleted later
+            meta: { name: `${who} · ${new Date().toISOString().slice(0, 10)}`,
+                    uploadedBy: who, kind: 'form-check' },
+          }) });
+      const d = await res.json();
+      if (!d.success) return json({ error: (d.errors && d.errors[0] && d.errors[0].message) || 'Stream said no' }, 502);
+      return json({ uploadURL: d.result.uploadURL, uid: d.result.uid });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
+  }
+
   /* ── what a client is actually doing ─────────────────────────────
      Written by the app, read by the coach view. Kept as a rolling
      summary plus a capped event log — enough to see a pattern, not so
@@ -689,9 +719,10 @@ export default async (request) => {
     }
     if (request.method === 'POST') {
       const text = String(body.text || '').slice(0, 4000);
-      if (!text) return json({ error: 'Nothing to send' }, 400);
+      const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+      if (!text && !video) return json({ error: 'Nothing to send' }, 400);
       const thread = (await db.get(k, { type: 'json' })) || [];
-      thread.push({ from: 'client', text, at: Date.now() });
+      thread.push({ from: 'client', text, at: Date.now(), ...(video ? { video } : {}) });
       await db.setJSON(k, thread.slice(-200));
 
       const idx = (await db.get('index', { type: 'json' })) || {};
@@ -804,6 +835,21 @@ export default async (request) => {
       return json({ clients: rows });
     }
 
+    /* remove a clip from Stream — for a deletion request, or when a form
+       check has served its purpose */
+    if (path === '/coach/video/delete' && request.method === 'POST') {
+      const uid = String(body.uid || '').replace(/[^a-zA-Z0-9]/g, '');
+      if (!uid) return json({ error: 'Which video?' }, 400);
+      if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) {
+        return json({ error: 'Video is not switched on' }, 503);
+      }
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}`,
+        { method: 'DELETE',
+          headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } });
+      return json({ ok: res.ok });
+    }
+
     if (path === '/coach/thread') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
@@ -816,10 +862,16 @@ export default async (request) => {
       }
       if (request.method === 'POST') {
         const text = String(body.text || '').slice(0, 4000);
-        if (!text) return json({ error: 'Nothing to send' }, 400);
+        const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+        if (!text && !video) return json({ error: 'Nothing to send' }, 400);
         const thread = (await db.get(k, { type: 'json' })) || [];
-        thread.push({ from: 'coach', text, at: Date.now() });
+        thread.push({ from: 'coach', text, at: Date.now(), ...(video ? { video } : {}) });
         await db.setJSON(k, thread.slice(-200));
+
+        /* a reply is the thing clients are waiting for, so say so */
+        await email(e, 'Elliott has replied',
+          `<p style="font:16px/1.6 system-ui">${text ? text.slice(0, 500) : 'He has sent you a video.'}</p>
+           <p style="font:14px/1.6 system-ui;color:#666">Open the app to see it.</p>`);
         return json({ ok: true });
       }
     }
