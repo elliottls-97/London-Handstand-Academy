@@ -195,7 +195,8 @@ const AUTH = {
   signup:'/api/app/signup',      // POST {email,password?,marketing}
   me:'/api/app/me',              // GET  {plus, coached, canManage}
   checkout:'/api/app/checkout',  // POST → Stripe Checkout url
-  portal:'/api/app/portal'       // POST → Stripe billing portal url
+  portal:'/api/app/portal',      // POST → Stripe billing portal url
+  cancel:'/api/app/cancel'       // POST {undo?} → stop or resume renewal
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -926,9 +927,17 @@ function drawOv(){
       ${st.plus?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">The full ladder — £5 a month.</div>
-        ${st.canManage?`<button class="btn2" style="width:100%;margin-top:12px" onclick="manageSubscription()">
-          Manage or cancel</button>`:`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-          To cancel, message Elliott.</div>`}
+        ${st.cancelAt?`
+          <div style="font:400 13.5px/1.5 var(--sans);color:var(--terra);margin-top:8px">
+            Cancelled. You keep the Press until ${esc(whenEnds())}.</div>
+          <button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
+            Keep it going</button>`
+        :`${st.canCancel?`<button class="btn2" style="width:100%;margin-top:12px" onclick="cancelSub(false)">
+            Cancel subscription</button>`:''}`}
+        ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
+          Update card or see invoices</button>`:''}
+        ${!st.canCancel&&!st.canManage?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+          To cancel, message Elliott.</div>`:''}
       </div>`:''}
       <button class="btn" style="width:100%;margin-top:16px" onclick="openOv('password')">Change password</button>
       <button class="btn2" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>
@@ -1626,12 +1635,30 @@ function loadEntitlement(){
     .then(d=>{ if(!d) return;
       const was=st.plus, wasIn=st.in;
       st.plus=!!d.plus; st.canManage=!!d.canManage;
+      st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
       st.in=!!d.coached;
       if(!st.in && st.token){ st.mode='free'; st.quizDone=true; }
       if(d.name&&!st.client) st.client=d.name;
       save(); if(was!==st.plus || wasIn!==st.in) render(); })
     .catch(()=>{});
 }
+
+/* cancelling stays in the app — sending someone to a Stripe page to leave
+   is the moment they are most likely to get lost and email you instead */
+function cancelSub(undo){
+  const b=event&&event.target;
+  if(!undo && !confirm('Stop your £5 subscription renewing?\n\nYou keep the Press until the end of the month you have paid for.')) return;
+  if(b){ b.textContent=undo?'Restarting…':'Cancelling…'; b.disabled=true; }
+  fetch(AUTH.cancel,{method:'POST',headers:authed(),body:JSON.stringify({undo:!!undo})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
+    .then(d=>{ st.cancelAt=d.cancelAt||0; save(); drawOv(); })
+    .catch(e=>{ if(b){ b.disabled=false; b.textContent=String(e).slice(0,40); } });
+}
+function whenEnds(){
+  if(!st.cancelAt) return '';
+  return new Date(st.cancelAt).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+}
+
 function manageSubscription(){
   const b=event&&event.target;
   if(b){ b.textContent='Opening…'; b.disabled=true; }

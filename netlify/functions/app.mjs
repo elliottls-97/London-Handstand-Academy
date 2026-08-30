@@ -182,11 +182,17 @@ export default async (request) => {
     }
     const on  = ['checkout.session.completed', 'customer.subscription.created',
                  'customer.subscription.updated', 'invoice.paid'];
-    const off = ['customer.subscription.deleted', 'invoice.payment_failed'];
+    const off = ['customer.subscription.deleted', 'customer.subscription.paused',
+                 'invoice.payment_failed'];
 
     if (on.includes(ev.type)) {
       const status = obj.status || 'active';
       acct.plus = !['canceled', 'unpaid', 'incomplete_expired'].includes(status);
+      /* the subscription id is what an in-app cancel needs */
+      if (obj.subscription) acct.sub = obj.subscription;
+      else if (ev.type.startsWith('customer.subscription') && obj.id) acct.sub = obj.id;
+      if (obj.cancel_at_period_end != null) acct.cancelAt = obj.cancel_at_period_end
+        ? (obj.current_period_end || 0) * 1000 : 0;
       if (obj.customer) {
         acct.stripeCustomer = obj.customer;
         const idx = (await db.get('stripeIdx', { type: 'json' })) || {};
@@ -359,6 +365,8 @@ export default async (request) => {
       coach: coachList().includes(who),
       plus: !!acct.plus,
       canManage: !!acct.stripeCustomer,
+      canCancel: !!acct.sub,
+      cancelAt: acct.cancelAt || 0,
     });
   }
 
@@ -384,6 +392,32 @@ export default async (request) => {
         cancel_url: `${origin}/lha-app.html?paid=0`,
       });
       return json({ url: sess.url });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
+  }
+
+  /* ── cancel, without leaving the app ─────────────────────────────
+     Stops the renewal but leaves access until the end of the month they
+     have already paid for, which is the fair reading and what the terms
+     will say. */
+  if (path === '/cancel' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    if (!acct.sub) return json({ error: 'No subscription to cancel' }, 400);
+    try {
+      const sub = body.undo
+        ? await stripe(`/subscriptions/${acct.sub}`, { cancel_at_period_end: 'false' })
+        : await stripe(`/subscriptions/${acct.sub}`, { cancel_at_period_end: 'true' });
+      acct.cancelAt = sub.cancel_at_period_end ? (sub.current_period_end || 0) * 1000 : 0;
+      await db.setJSON(`acct:${who}`, acct);
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+        `${who} ${body.undo ? 'resumed' : 'cancelled'} their £5 subscription`,
+        `<p style="font:16px/1.6 system-ui">${body.undo
+          ? 'They turned the renewal back on.'
+          : 'It stops renewing. Access runs to the end of the paid month.'}</p>`);
+      return json({ ok: true, cancelAt: acct.cancelAt });
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
     }
@@ -578,6 +612,36 @@ export default async (request) => {
       if (!e) return json({ error: 'Which client?' }, 400);
       return json({ email: e, name: clients()[e] || e,
                     progress: (await db.get(`prog:${e}`, { type: 'json' })) || {} });
+    }
+
+    /* which Stripe settings actually reached this deploy — booleans only,
+       never the values. Answers "is the secret set in this context" without
+       anyone having to read a key out of a dashboard. */
+    if (path === '/coach/stripe-status') {
+      const k = process.env.STRIPE_SECRET_KEY || '';
+      return json({
+        secretKey: k ? (k.startsWith('rk_') ? 'restricted' : 'standard') + ' · ' +
+          (k.includes('_test_') ? 'TEST' : 'LIVE') : 'missing',
+        priceId: process.env.STRIPE_PRICE_PLUS ? 'set' : 'missing',
+        webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ? 'set' : 'missing',
+        context: process.env.CONTEXT || 'unknown',
+        branch: process.env.BRANCH || 'unknown',
+      });
+    }
+
+    /* switch access on or off by hand — for a webhook that failed, or to
+       comp someone. Everything it does is logged on the account. */
+    if (path === '/coach/grant' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which account?' }, 400);
+      const k = `acct:${e}`;
+      const acct = await db.get(k, { type: 'json' });
+      if (!acct) return json({ error: 'No account with that address' }, 404);
+      acct.plus = body.plus !== false;
+      acct.plusAt = Date.now();
+      acct.grantedByCoach = true;
+      await db.setJSON(k, acct);
+      return json({ ok: true, email: e, plus: acct.plus });
     }
 
     if (path === '/coach/leads') {
