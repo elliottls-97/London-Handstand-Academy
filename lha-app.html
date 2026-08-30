@@ -1131,8 +1131,12 @@ function doLogin(ev){
     .then(d=>{
       /* a coach signing in here wants the coach view, not a client screen */
       if(d.coach){ location.href='/lha-coach.html'; return; }
-      st.email=email; st.token=d.token; st.client=d.client; st.in=true;
-      save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); })
+      st.email=email; st.token=d.token; st.client=d.client;
+      st.in=!!d.coached;            /* coached tier only for actual coaching clients */
+      st.plus=!!d.plus;
+      if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
+      save(); render(); loadEntitlement();
+      if(st.in){ loadProgramme(); loadProgress(); loadThread(); } })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -1590,11 +1594,17 @@ function screenUpgradeBody(si){
 }
 function startUpgrade(){
   const b=event&&event.target;
-  /* no account, no subscription to attach — send them to sign up first */
+  /* no account, no subscription to attach — send them to sign up first.
+     The overlay has to close or it sits on top of wherever we send them,
+     which looks like a dead button. */
   if(!st.token){
-    if(!st.email){ st.tab='joinFree'; st.quizDone=true; save(); render(); return; }
-    if(b){ b.textContent='Sign in first'; }
-    st.tab='signin'; save(); render(); return;
+    st.ov=null;
+    const ov=$('#ov'); if(ov){ ov.classList.remove('on'); ov.innerHTML=''; }
+    document.querySelectorAll('video').forEach(v=>{try{v.pause()}catch(e){}});
+    if(!st.email){ st.tab='joinFree'; st.quizDone=true; }
+    else st.tab='signin';
+    save(); render(); window.scrollTo(0,0);
+    return;
   }
   if(b){ b.textContent='Opening checkout…'; b.disabled=true; }
   fetch(AUTH.checkout,{method:'POST',headers:authed(),body:'{}'})
@@ -1614,10 +1624,12 @@ function loadEntitlement(){
   return fetch(AUTH.me,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const was=st.plus;
+      const was=st.plus, wasIn=st.in;
       st.plus=!!d.plus; st.canManage=!!d.canManage;
+      st.in=!!d.coached;
+      if(!st.in && st.token){ st.mode='free'; st.quizDone=true; }
       if(d.name&&!st.client) st.client=d.name;
-      save(); if(was!==st.plus) render(); })
+      save(); if(was!==st.plus || wasIn!==st.in) render(); })
     .catch(()=>{});
 }
 function manageSubscription(){
@@ -1847,7 +1859,8 @@ document.addEventListener('DOMContentLoaded',function(){
   if(st.in && st.token) loadCachedProgramme();
   render();
   if(st.token){ loadEntitlement(); }
-  if(st.in && st.token){ loadProgramme(); loadProgress(); reportProgress(); }
+  if(st.in && st.token){ loadProgramme(); loadProgress(); }
+  if(st.token) reportProgress();
 });
 render();
 </script>
