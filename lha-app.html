@@ -198,7 +198,8 @@ const AUTH = {
   portal:'/api/app/portal',      // POST → Stripe billing portal url
   cancel:'/api/app/cancel',      // POST {undo?} → stop or resume renewal
   resetReq:'/api/app/reset/request',   // POST {email} → emails a code
-  resetGo:'/api/app/reset/confirm'     // POST {email,code,password}
+  resetGo:'/api/app/reset/confirm',    // POST {email,code,password}
+  subscription:'/api/app/subscription' // GET → live status and dates
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -839,7 +840,8 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden&&tick_){ p
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}}); paintPause(); }});
 
 /* ── overlays ── */
-function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on'); }
+function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
+  if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
 function closeOv(){
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}}); st.ov=null; save(); $('#ov').classList.remove('on'); $('#ov').innerHTML=''; render(); }
 function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'); }
@@ -948,13 +950,39 @@ function drawOv(){
       ${st.plus?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">The full ladder — £5 a month.</div>
-        ${st.cancelAt?`
-          <div style="font:400 13.5px/1.5 var(--sans);color:var(--terra);margin-top:8px">
-            Cancelled. You keep the Press until ${esc(whenEnds())}.</div>
-          <button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
-            Keep it going</button>`
-        :`${st.canCancel?`<button class="btn2" style="width:100%;margin-top:12px" onclick="cancelSub(false)">
-            Cancel subscription</button>`:''}`}
+        ${(()=>{
+          if(!subInfo) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+            Checking with Stripe…</div>`;
+          if(subInfo.none) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+            No subscription found. If you have paid, message Elliott.</div>`;
+          const amt = subInfo.amount!=null
+            ? '£'+subInfo.amount.toFixed(2)+' a '+subInfo.interval : '£5 a month';
+          if(subInfo.willCancel) return `
+            <div style="background:rgba(196,122,86,.1);border-radius:12px;padding:13px 14px;margin-top:10px">
+              <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--terra)">CANCELLED</div>
+              <div style="font:400 14.5px/1.5 var(--sans);margin-top:7px">
+                You will not be charged again. The Press stays unlocked until
+                <b>${esc(niceDate(subInfo.cancelAt||subInfo.renewsAt))}</b>, then the account
+                goes back to free.</div>
+            </div>
+            <button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
+              Resume my subscription</button>`;
+          return `
+            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:10px;
+              font:400 14px/1.5 var(--sans)">
+              <span style="color:var(--grey)">Next payment</span>
+              <span style="font-weight:600;text-align:right">${esc(niceDate(subInfo.renewsAt))}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:4px;
+              font:400 14px/1.5 var(--sans)">
+              <span style="color:var(--grey)">Amount</span>
+              <span style="font-weight:600">${esc(amt)}</span>
+            </div>
+            ${subInfo.status&&subInfo.status!=='active'?`<div style="font:400 13px/1.5 var(--sans);
+              color:var(--terra);margin-top:8px">Status: ${esc(subInfo.status)}</div>`:''}
+            <button class="btn2" style="width:100%;margin-top:14px" onclick="cancelSub(false)">
+              Cancel subscription</button>`;
+        })()}
         ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
         ${!st.canCancel&&!st.canManage?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
@@ -1683,13 +1711,33 @@ function loadEntitlement(){
 
 /* cancelling stays in the app — sending someone to a Stripe page to leave
    is the moment they are most likely to get lost and email you instead */
+
+/* the live picture, fetched when the account screen opens rather than
+   trusted from whatever a webhook last wrote */
+let subInfo=null, subLoading=false;
+function loadSubscription(){
+  if(!st.token || subLoading) return;
+  subLoading=true;
+  fetch(AUTH.subscription,{headers:authed()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ subLoading=false;
+      if(!d||d.error) return;
+      subInfo=d;
+      if(d.plus!=null) st.plus=!!d.plus;
+      st.cancelAt=d.cancelAt||0;
+      save(); if(st.ov==='account') drawOv(); })
+    .catch(()=>{ subLoading=false; });
+}
+const niceDate = t => t ? new Date(t).toLocaleDateString('en-GB',
+  {day:'numeric',month:'long',year:'numeric'}) : '';
+
 function cancelSub(undo){
   const b=event&&event.target;
   if(!undo && !confirm('Stop your £5 subscription renewing?\n\nYou keep the Press until the end of the month you have paid for.')) return;
   if(b){ b.textContent=undo?'Restarting…':'Cancelling…'; b.disabled=true; }
   fetch(AUTH.cancel,{method:'POST',headers:authed(),body:JSON.stringify({undo:!!undo})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
-    .then(d=>{ st.cancelAt=d.cancelAt||0; save(); drawOv(); })
+    .then(d=>{ st.cancelAt=d.cancelAt||0; save(); subInfo=null; drawOv(); loadSubscription(); })
     .catch(e=>{ if(b){ b.disabled=false; b.textContent=String(e).slice(0,40); } });
 }
 function whenEnds(){

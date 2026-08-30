@@ -456,6 +456,56 @@ export default async (request) => {
     }
   }
 
+  /* ── the real state of a subscription ────────────────────────────
+     Read live from Stripe rather than from whatever a webhook last told
+     us. Only called when the account screen opens, so the extra call is
+     cheap and the dates are never stale. */
+  if (path === '/subscription' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    if (!acct.stripeCustomer && !acct.sub) return json({ none: true });
+    if (!stripeKey()) return json({ none: true });
+
+    try {
+      let sub = null;
+      if (acct.sub) {
+        sub = await stripe(`/subscriptions/${acct.sub}`, null, 'GET');
+      } else {
+        const list = await stripe(
+          `/subscriptions?customer=${encodeURIComponent(acct.stripeCustomer)}&status=all&limit=10`,
+          null, 'GET');
+        sub = (list.data || []).find(x =>
+          ['active', 'trialing', 'past_due', 'unpaid'].includes(x.status)) || (list.data || [])[0] || null;
+      }
+      if (!sub) return json({ none: true });
+
+      /* keep what we learned, so cancel does not have to look it up again */
+      const before = JSON.stringify([acct.sub, acct.cancelAt, acct.plus]);
+      acct.sub = sub.id;
+      acct.cancelAt = sub.cancel_at_period_end ? (sub.current_period_end || 0) * 1000 : 0;
+      acct.plus = ['active', 'trialing', 'past_due'].includes(sub.status);
+      if (JSON.stringify([acct.sub, acct.cancelAt, acct.plus]) !== before) {
+        await db.setJSON(`acct:${who}`, acct);
+      }
+
+      const item = (sub.items && sub.items.data && sub.items.data[0]) || {};
+      const price = item.price || {};
+      return json({
+        status: sub.status,
+        renewsAt: (sub.current_period_end || 0) * 1000,
+        cancelAt: acct.cancelAt,
+        willCancel: !!sub.cancel_at_period_end,
+        amount: price.unit_amount != null ? price.unit_amount / 100 : null,
+        currency: (price.currency || 'gbp').toUpperCase(),
+        interval: (price.recurring && price.recurring.interval) || 'month',
+        plus: acct.plus,
+      });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
+  }
+
   /* ── cancel, without leaving the app ─────────────────────────────
      Stops the renewal but leaves access until the end of the month they
      have already paid for, which is the fair reading and what the terms
