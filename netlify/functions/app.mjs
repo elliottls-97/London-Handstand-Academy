@@ -141,6 +141,65 @@ async function stripeSigOK(raw, header, secret) {
   return diff === 0;
 }
 
+/* ── the thread ──────────────────────────────────────────────────
+   Blobs is eventually consistent, so read-modify-write on a single key
+   loses messages. A reply written a second after a client's message can
+   read the thread from before that message landed and write it back
+   without it — and it is gone for good. That is why a shared clip could
+   vanish from the client's chat while the coach could still see it.
+
+   So each message is written as its own blob, which cannot overwrite
+   anything. The thread is the compacted history merged with whatever is
+   still in the queue; compaction folds the queue in and only deletes a
+   queue entry once it is safely part of what was just written. */
+const MSG_CAP = 200;
+const PROPAGATION = 15 * 1000;              // what Blobs takes to settle
+
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+
+async function threadLoad(db, who, { compact = false } = {}) {
+  const base = (await db.get(`thread:${who}`, { type: 'json' })) || [];
+  let blobs = [];
+  try { ({ blobs } = await db.list({ prefix: `mq:${who}:` })); } catch { blobs = []; }
+  const queued = (await Promise.all(
+    blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
+
+  const known = new Set(base.map(m => m && m.id).filter(Boolean));
+  const all = base
+    .concat(queued.filter(m => m.id && !known.has(m.id)))
+    .sort((a, b) => (a.at || 0) - (b.at || 0))
+    .slice(-MSG_CAP);
+
+  if (compact && queued.length) {
+    try {
+      await db.setJSON(`thread:${who}`, all);
+      const kept = new Set(all.map(m => m.id).filter(Boolean));
+      /* leave anything recent alone — the write above has to propagate
+         before the queue copy is safe to throw away */
+      const cutoff = Date.now() - 8 * PROPAGATION;
+      await Promise.all(queued.map(m =>
+        (kept.has(m.id) && (m.at || 0) < cutoff)
+          ? db.delete(`mq:${who}:${m.id}`).catch(() => {})
+          : null));
+    } catch { /* compaction is housekeeping, never needed for correctness */ }
+  }
+  return all;
+}
+
+async function threadAdd(db, who, msg) {
+  const m = { id: newId(), at: Date.now(), ...msg };
+  await db.setJSON(`mq:${who}:${m.id}`, m);   // its own key, so nothing is overwritten
+  return m;
+}
+
+/* ── photos ──────────────────────────────────────────────────────
+   Stream is video only. Photos are shrunk in the browser and kept in
+   Blobs, so there is no second provider and no new credential. The id
+   is random and unguessable — the same posture the drill videos have
+   today, and it becomes signed at the same time they do. */
+const IMG_MAX = 3 * 1024 * 1024;
+const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
+
 export default async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
@@ -612,6 +671,39 @@ export default async (request) => {
     }
   }
 
+  /* ── a photo ─────────────────────────────────────────────────────
+     Small enough to come through the function, unlike a video. The
+     browser shrinks it first; this is the backstop. */
+  if (path === '/image' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const m = IMG_DATA.exec(String(body.data || ''));
+    if (!m) return json({ error: 'That is not a JPEG, PNG or WebP' }, 400);
+    let buf;
+    try { buf = Buffer.from(m[2], 'base64'); }
+    catch { return json({ error: 'Could not read that photo' }, 400); }
+    if (!buf.length) return json({ error: 'That photo is empty' }, 400);
+    if (buf.length > IMG_MAX) return json({ error: 'That photo is too large' }, 413);
+    const id = newId() + Math.random().toString(36).slice(2, 12);
+    await db.set(`img:${id}`, buf,
+      { metadata: { type: m[1], owner: who, at: Date.now() } });
+    return json({ id });
+  }
+
+  if (path.startsWith('/image/') && request.method === 'GET') {
+    const id = path.slice(7).replace(/[^a-zA-Z0-9]/g, '');
+    if (!id) return json({ error: 'Which photo?' }, 400);
+    const got = await db.getWithMetadata(`img:${id}`, { type: 'arrayBuffer' })
+      .catch(() => null);
+    if (!got || !got.data) return json({ error: 'No such photo' }, 404);
+    return new Response(got.data, {
+      headers: {
+        'Content-Type': (got.metadata && got.metadata.type) || 'image/jpeg',
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      },
+    });
+  }
+
   /* ── what a client is actually doing ─────────────────────────────
      Written by the app, read by the coach view. Kept as a rolling
      summary plus a capped event log — enough to see a pattern, not so
@@ -712,26 +804,25 @@ export default async (request) => {
   if (path === '/messages') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const k = `thread:${who}`;
-
     if (request.method === 'GET') {
-      return json({ messages: (await db.get(k, { type: 'json' })) || [] });
+      return json({ messages: await threadLoad(db, who, { compact: true }) });
     }
     if (request.method === 'POST') {
       const text = String(body.text || '').slice(0, 4000);
       const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
-      if (!text && !video) return json({ error: 'Nothing to send' }, 400);
-      const thread = (await db.get(k, { type: 'json' })) || [];
-      thread.push({ from: 'client', text, at: Date.now(), ...(video ? { video } : {}) });
-      await db.setJSON(k, thread.slice(-200));
+      const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+      if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
+      await threadAdd(db, who, { from: 'client', text,
+        ...(video ? { video } : {}), ...(image ? { image } : {}) });
 
       const idx = (await db.get('index', { type: 'json' })) || {};
       idx[who] = { name: clients()[who] || who, last: Date.now(), unread: (idx[who]?.unread || 0) + 1 };
       await db.setJSON('index', idx);
 
+      const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-        `${clients()[who] || who}: ${text.slice(0, 60)}`,
-        `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000)}</p>
+        `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
+        `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
       return json({ ok: true });
     }
@@ -853,24 +944,24 @@ export default async (request) => {
     if (path === '/coach/thread') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
-      const k = `thread:${e}`;
-
       if (request.method === 'GET') {
         const idx = (await db.get('index', { type: 'json' })) || {};
         if (idx[e]) { idx[e].unread = 0; await db.setJSON('index', idx); }
-        return json({ messages: (await db.get(k, { type: 'json' })) || [] });
+        return json({ messages: await threadLoad(db, e, { compact: true }) });
       }
       if (request.method === 'POST') {
         const text = String(body.text || '').slice(0, 4000);
         const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
-        if (!text && !video) return json({ error: 'Nothing to send' }, 400);
-        const thread = (await db.get(k, { type: 'json' })) || [];
-        thread.push({ from: 'coach', text, at: Date.now(), ...(video ? { video } : {}) });
-        await db.setJSON(k, thread.slice(-200));
+        const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+        if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
+        await threadAdd(db, e, { from: 'coach', text,
+          ...(video ? { video } : {}), ...(image ? { image } : {}) });
 
         /* a reply is the thing clients are waiting for, so say so */
+        const sent = video ? 'He has sent you a video.'
+          : image ? 'He has sent you a photo.' : 'He has replied.';
         await email(e, 'Elliott has replied',
-          `<p style="font:16px/1.6 system-ui">${text ? text.slice(0, 500) : 'He has sent you a video.'}</p>
+          `<p style="font:16px/1.6 system-ui">${text ? text.slice(0, 500) : sent}</p>
            <p style="font:14px/1.6 system-ui;color:#666">Open the app to see it.</p>`);
         return json({ ok: true });
       }

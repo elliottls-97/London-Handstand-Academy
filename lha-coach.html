@@ -52,7 +52,7 @@ let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
 /* replies sent but not yet echoed back by Blobs — see openThread */
 let pendingCoach=[];
-const msgKey=m=>(m.video?'v:'+m.video:'t:'+String(m.text||'').trim());
+const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
 let prog={};
@@ -128,9 +128,9 @@ function openThread(email){
         && !(p.email===email && seen.has(msgKey(p))));
       const mine=pendingCoach.filter(p=>p.email===email);
       const merged=next.concat(mine.map(p=>({from:'coach',text:p.text,
-        ...(p.video?{video:p.video}:{}),at:p.at})));
+        ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),at:p.at})));
       /* redrawing rebuilds the reply box and loses what is half-typed */
-      const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'']));
+      const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
       const same=shape(merged)===shape(thread);
       thread=merged;
       const c=clients.find(x=>x.email===email); if(c) c.unread=0;
@@ -143,13 +143,62 @@ const STREAM_SUB='customer-pns1oongdltmkjwa.cloudflarestream.com';
 const streamEmbed = uid => `https://${STREAM_SUB}/${uid}/iframe?preload=metadata`;
 let upBusy=false;
 function coachSay(m){ const el=document.getElementById('upMsg'); if(el) el.textContent=m; }
-function pickCoachClip(){
+function pickCoachClip(){ pickCoachFile('video/*'); }
+function pickCoachPhoto(){ pickCoachFile('image/*'); }
+function pickCoachFile(accept){
   const inp=document.createElement('input');
-  inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  inp.type='file'; inp.accept=accept; inp.style.display='none';
   document.body.appendChild(inp);
-  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(f) sendCoachClip(f); };
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove();
+    if(!f) return;
+    (f.type||'').startsWith('image/') ? sendCoachPhoto(f) : sendCoachClip(f); };
   inp.click();
 }
+/* ── sending a photo ───────────────────────────────────────────────
+   Shrunk here rather than sent whole: a phone photo is 4MB of detail
+   nobody needs to judge a shoulder angle, and small enough to go
+   through the function means no second storage provider. */
+async function shrinkPhoto(file, max=1600, quality=0.82){
+  let src;
+  try{ src=await createImageBitmap(file,{imageOrientation:'from-image'}); }
+  catch(e){
+    src=await new Promise((res,rej)=>{
+      const i=new Image(), u=URL.createObjectURL(file);
+      i.onload=()=>{ URL.revokeObjectURL(u); res(i); };
+      i.onerror=()=>{ URL.revokeObjectURL(u); rej('Could not read that photo'); };
+      i.src=u;
+    });
+  }
+  const w=src.width||src.naturalWidth, h=src.height||src.naturalHeight;
+  if(!w||!h) throw 'Could not read that photo';
+  const s=Math.min(1, max/Math.max(w,h));
+  const c=document.createElement('canvas');
+  c.width=Math.round(w*s); c.height=Math.round(h*s);
+  c.getContext('2d').drawImage(src,0,0,c.width,c.height);
+  if(src.close) src.close();
+  return c.toDataURL('image/jpeg',quality);
+}
+
+function sendCoachPhoto(file){
+  if(upBusy||!sel) return;
+  upBusy=true; coachSay('Preparing the photo…');
+  shrinkPhoto(file)
+    .then(data=>fetch('/api/app/image',{method:'POST',headers:hdr(),
+      body:JSON.stringify({data})})
+      .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that photo'))))
+    .then(d=>{
+      const el=document.getElementById('reply');
+      const text=(el&&el.value||'').trim();
+      if(el) el.value=''; drafts[sel]='';
+      pendingCoach.push({email:sel,text,image:d.id,at:Date.now()});
+      thread.push({from:'coach',text,image:d.id,at:Date.now()}); draw();
+      return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
+        body:JSON.stringify({text,image:d.id})});
+    })
+    .then(()=>{ upBusy=false; coachSay(''); setTimeout(()=>openThread(sel),1200); })
+    .catch(e=>{ upBusy=false; coachSay(String(e)); });
+}
+
 function sendCoachClip(file){
   if(upBusy||!sel) return;
   upBusy=true; coachSay('Getting ready…');
@@ -665,6 +714,11 @@ function draw(){
         style="display:block;width:100%;aspect-ratio:4/5;border:0"></iframe></div>
     ${Date.now()-(m.at||0)<180000?`<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:0 0 6px">
       Just uploaded — Cloudflare is still encoding it. If the player errors, give it a minute and reload.</div>`:''}`:''}
+    ${m.image?`<a href="/api/app/image/${esc(m.image)}" target="_blank" rel="noopener"
+      style="width:min(260px,80%);border-radius:16px;overflow:hidden;background:#11150f;
+      margin-bottom:${m.text?'6px':'0'};display:block">
+      <img src="/api/app/image/${esc(m.image)}" alt="Shared photo" loading="lazy"
+        style="display:block;width:100%;max-height:340px;object-fit:contain"></a>`:''}
     ${m.text?`<div class="msg ${m.from==='coach'?'me':'them'}">${esc(m.text)}</div>`:''}
     <div class="at">${m.from==='coach'?'You':esc((clients.find(c=>c.email===sel)||{}).name||'')} · ${ago(m.at)}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;
@@ -683,6 +737,8 @@ function draw(){
             onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
           <button class="send" onclick="pickCoachClip()" title="Send a video"
             style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Video</button>
+          <button class="send" onclick="pickCoachPhoto()" title="Send a photo"
+            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
           <button class="send" onclick="reply()">Send</button></div>
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
