@@ -353,6 +353,65 @@ export default async (request) => {
     });
   }
 
+  /* ── forgotten password ──────────────────────────────────────────
+     A six digit code by email. The response never says whether the
+     address exists, so this cannot be used to find out who has an
+     account. */
+  if (path === '/reset/request' && request.method === 'POST') {
+    const e = norm(body.email);
+    const ok = json({ ok: true });                 // same answer either way
+    if (!e) return ok;
+
+    const acct = await db.get(`acct:${e}`, { type: 'json' });
+    const isClient = !!clients()[e];
+    if (!acct && !isClient) return ok;
+
+    /* slow down anyone working through a list of addresses */
+    const rl = (await db.get(`rsrl:${e}`, { type: 'json' })) || { n: 0, at: 0 };
+    const fresh = Date.now() - rl.at < 3600000;
+    if (fresh && rl.n >= 5) return ok;
+    await db.setJSON(`rsrl:${e}`, { n: fresh ? rl.n + 1 : 1, at: fresh ? rl.at : Date.now() });
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await db.setJSON(`reset:${e}`, { code, exp: Date.now() + 15 * 60 * 1000, tries: 0 });
+    await email(e, 'Your London Handstand Academy reset code',
+      `<p style="font:16px/1.6 system-ui">Your code is
+       <b style="font-size:22px;letter-spacing:3px">${code}</b></p>
+       <p style="font:14px/1.6 system-ui;color:#666">It works for 15 minutes.
+       If you did not ask for this, ignore it — nothing has changed.</p>`);
+    return ok;
+  }
+
+  if (path === '/reset/confirm' && request.method === 'POST') {
+    const e = norm(body.email);
+    const code = String(body.code || '').trim();
+    const pw = String(body.password || '');
+    if (pw.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
+
+    const rec = await db.get(`reset:${e}`, { type: 'json' });
+    const bad = () => json({ error: 'That code is wrong or has expired' }, 400);
+    if (!rec || Date.now() > rec.exp) return bad();
+    if (rec.tries >= 5) return bad();
+    if (code !== rec.code) {
+      await db.setJSON(`reset:${e}`, { ...rec, tries: rec.tries + 1 });
+      return bad();
+    }
+    await db.delete(`reset:${e}`);
+
+    const hash = await pwHash(pw);
+    const acct = await db.get(`acct:${e}`, { type: 'json' });
+    if (acct) { acct.hash = hash; await db.setJSON(`acct:${e}`, acct); }
+    /* coached clients keep their password in the override store */
+    await db.setJSON(`pw:${e}`, { hash, at: Date.now() });
+    await db.delete(`pwrl:${e}`);
+
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `${e} reset their password`,
+      '<p style="font:16px/1.6 system-ui">Via the forgotten-password flow.</p>');
+    return json({ ok: true,
+      token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }) });
+  }
+
   /* ── who am I, and what have I paid for ── */
   if (path === '/me') {
     const who = await me();
@@ -649,6 +708,20 @@ export default async (request) => {
 
     /* switch access on or off by hand — for a webhook that failed, or to
        comp someone. Everything it does is logged on the account. */
+    /* set someone's password directly — for when they cannot receive the
+       email, or have locked themselves out mid-change */
+    if (path === '/coach/setpw' && request.method === 'POST') {
+      const e = norm(body.email);
+      const pw = String(body.password || '');
+      if (!e || pw.length < 8) return json({ error: 'Need an email and 8+ characters' }, 400);
+      const hash = await pwHash(pw);
+      const acct = await db.get(`acct:${e}`, { type: 'json' });
+      if (acct) { acct.hash = hash; await db.setJSON(`acct:${e}`, acct); }
+      await db.setJSON(`pw:${e}`, { hash, at: Date.now() });
+      await db.delete(`pwrl:${e}`);
+      return json({ ok: true, email: e, hadAccount: !!acct });
+    }
+
     if (path === '/coach/grant' && request.method === 'POST') {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which account?' }, 400);

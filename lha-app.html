@@ -196,7 +196,9 @@ const AUTH = {
   me:'/api/app/me',              // GET  {plus, coached, canManage}
   checkout:'/api/app/checkout',  // POST → Stripe Checkout url
   portal:'/api/app/portal',      // POST → Stripe billing portal url
-  cancel:'/api/app/cancel'       // POST {undo?} → stop or resume renewal
+  cancel:'/api/app/cancel',      // POST {undo?} → stop or resume renewal
+  resetReq:'/api/app/reset/request',   // POST {email} → emails a code
+  resetGo:'/api/app/reset/confirm'     // POST {email,code,password}
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -980,7 +982,7 @@ function drawOv(){
           color:var(--terra)"></div>
       </form>
       <div style="font:400 13px/1.6 var(--sans);color:var(--grey2);margin-top:16px;text-align:center">
-        Forgotten it? Message Elliott and he'll set you a new one.</div>`;
+        Forgotten it? Sign out and use “Forgotten your password?”</div>`;
   }
   if(st.ov==='test'){
     body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey)">${esc(DATA.test.blurb)}</div>
@@ -1131,7 +1133,10 @@ function screenSignIn(){
       <div id="authMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--sand);text-align:center;min-height:18px"></div>
     </form>
     <div style="font:400 12.5px/1.6 var(--sans);color:#7d8b74;margin-top:20px;text-align:center">
-      Lost it? Message Elliott and he'll send you a new one.</div></div>`;
+      <button onclick="st.tab='reset';resetStep=0;resetMsg='';save();render()"
+        style="background:none;border:none;color:var(--sand);font:600 13px/1 var(--sans);
+        text-decoration:underline;cursor:pointer;padding:6px">Forgotten your password?</button>
+      </div></div>`;
 }
 /* let people read what they typed — most sign-in failures here are just a
    fat-fingered password on a phone keyboard */
@@ -1805,6 +1810,71 @@ function screenWelcome(){
    Asked once they have a result to keep, so the address buys them
    something rather than blocking the door. */
 let joinErr='';
+
+/* ── forgotten password ────────────────────────────────────────── */
+let resetStep=0, resetMsg='', resetEmail='';
+function screenReset(){
+  return `<div style="min-height:100dvh;background:linear-gradient(180deg,var(--forest),var(--ink));
+    padding:calc(env(safe-area-inset-top) + 40px) 26px 30px;color:var(--bg);
+    display:flex;flex-direction:column">
+    <button class="back" style="color:rgba(242,239,231,.6);align-self:flex-start"
+      onclick="resetStep=0;resetMsg='';st.tab='signin';save();render()">← Back</button>
+    <div class="h-xl" style="font-size:36px;margin-top:auto">${resetStep?'Check your email':'Forgotten it?'}</div>
+    <div style="font:400 15px/1.55 var(--sans);color:var(--sage);margin-top:12px">${
+      resetStep ? 'I have sent a six digit code to '+esc(resetEmail)+'. It works for 15 minutes.'
+                : 'Pop your email in and I will send you a code to set a new password.'}</div>
+    <form onsubmit="${resetStep?'doResetConfirm':'doResetRequest'}(event)"
+      style="display:flex;flex-direction:column;gap:10px;margin-top:22px">
+      ${resetStep?`
+        <input id="rsCode" inputmode="numeric" autocomplete="one-time-code" required
+          placeholder="Six digit code"
+          style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
+          font:400 18px/1 var(--sans);letter-spacing:.3em;color:var(--bg);outline:none">
+        <input id="rsPw" type="password" autocomplete="new-password" required minlength="8"
+          placeholder="New password (8+ characters)"
+          style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
+          font:400 15px/1 var(--sans);color:var(--bg);outline:none">`
+      :`<input id="rsEm" type="email" inputmode="email" autocomplete="email" required
+          placeholder="you@example.com" value="${esc(st.email||'')}"
+          style="background:rgba(255,255,255,.08);border:none;border-radius:18px;padding:18px;
+          font:400 15px/1 var(--sans);color:var(--bg);outline:none">`}
+      <button class="btn" type="submit" style="background:var(--bg);color:var(--ink);margin-top:4px">
+        ${resetStep?'Set new password':'Send me a code'}</button>
+      <div id="rsMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--sand);
+        text-align:center;min-height:18px">${esc(resetMsg)}</div>
+    </form>
+    ${resetStep?`<button onclick="resetStep=0;resetMsg='';render()"
+      style="width:100%;background:none;border:none;margin-top:6px;font:500 13px/1 var(--sans);
+      color:#7d8b74;cursor:pointer;padding:12px">Use a different email</button>`:''}
+  </div>`;
+}
+function rsSay(m){ resetMsg=m; const el=$('#rsMsg'); if(el) el.textContent=m; }
+function doResetRequest(ev){
+  if(ev) ev.preventDefault();
+  const em=(($('#rsEm')||{}).value||'').trim().toLowerCase();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ rsSay('That does not look like an email address.'); return; }
+  rsSay('Sending…');
+  fetch(AUTH.resetReq,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:em})})
+    .then(()=>{ resetEmail=em; resetStep=1; resetMsg=''; render(); })
+    /* the server answers the same either way, so a failure here is the
+       network rather than a wrong address */
+    .catch(()=>rsSay('Could not reach the server. Try again in a moment.'));
+}
+function doResetConfirm(ev){
+  if(ev) ev.preventDefault();
+  const code=(($('#rsCode')||{}).value||'').trim();
+  const pw=($('#rsPw')||{}).value||'';
+  if(pw.length<8){ rsSay('Password needs at least 8 characters.'); return; }
+  rsSay('Setting it…');
+  fetch(AUTH.resetGo,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:resetEmail,code:code,password:pw})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
+    .then(d=>{ st.email=resetEmail; st.token=d.token||null; resetStep=0; resetMsg='';
+      st.tab='ladder'; save(); render(); loadEntitlement(); })
+    .catch(e=>rsSay(String(e)));
+}
+
 function screenJoin(){
   const s=STAGES[curStage()]||{n:''};
   return `<div style="min-height:100dvh;background:linear-gradient(180deg,var(--forest),var(--ink));
@@ -1899,6 +1969,7 @@ function render(){
      sand for the free ladder, terracotta for coached */
   document.documentElement.style.setProperty('--accent', st.in?'var(--terra)':'var(--sand)');
   document.body.dataset.tier = st.in?'coached':'free';
+  if(st.tab==='reset'){ app.innerHTML=screenReset(); return; }
   if(st.tab==='signin' && !st.in){ app.innerHTML=screenSignIn(); return; }
   if(!st.mode && !st.in){ app.innerHTML=screenWelcome(); return; }
   if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ app.innerHTML=screenQuiz(); return; }
