@@ -159,8 +159,11 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 
 async function threadLoad(db, who, { compact = false } = {}) {
   const base = (await db.get(`thread:${who}`, { type: 'json' })) || [];
-  let blobs = [];
-  try { ({ blobs } = await db.list({ prefix: `mq:${who}:` })); } catch { blobs = []; }
+  /* deliberately not caught: if the queue cannot be listed then the recent
+     messages are not in this answer, and returning the older thread anyway
+     is exactly the silent loss this is here to prevent. Failing lets both
+     front ends keep showing what they already have. */
+  const { blobs } = await db.list({ prefix: `mq:${who}:` });
   const queued = (await Promise.all(
     blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
 

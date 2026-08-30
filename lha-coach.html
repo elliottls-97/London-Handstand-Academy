@@ -118,7 +118,7 @@ function openThread(email){
     .then(d=>{ if(d&&notes[email]===undefined){ notes[email]=d; draw(); } })
     .catch(()=>{});
   fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
-    .then(r=>r.json()).then(d=>{
+    .then(r=>r.ok?r.json():Promise.reject(r.status)).then(d=>{
       const next=d.messages||[];
       /* Blobs takes up to ~15s to propagate, so a read straight after a reply
          comes back without it. Re-append anything not echoed yet instead of
@@ -135,7 +135,9 @@ function openThread(email){
       thread=merged;
       const c=clients.find(x=>x.email===email); if(c) c.unread=0;
       if(!same) draw();
-      const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; });
+      const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; })
+    /* keep whatever is on screen rather than replacing it with nothing */
+    .catch(()=>coachSay('Could not refresh the thread — what you see may be behind.'));
 }
 
 /* ── clips ─────────────────────────────────────────────────────── */
