@@ -133,6 +133,73 @@ const passwords = () => Object.fromEntries(
     .map(x => { const i = x.indexOf(':'); return [norm(x.slice(0, i)), x.slice(i + 1)]; })
 );
 
+/* ── what an email looks like ────────────────────────────────────
+   Tables and inline styles, because mail clients are two decades behind
+   browsers and Outlook still renders HTML through Word. No images and no
+   web fonts either: images are blocked by default in most clients and a
+   missing font is worse than never asking for one.
+
+   Everything here is transactional — a reply, a code, a status. None of
+   it is marketing, so none of it carries an unsubscribe. */
+const SITE = 'https://londonhandstandacademy.com';
+const esc = t => String(t == null ? '' : t)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
+  const F = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+  const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#2c3229">${t}</p>`;
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light"><title>${esc(title)}</title></head>
+<body style="margin:0;padding:0;background:#f2efe7">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(
+  paras[0] ? String(paras[0]).replace(/<[^>]+>/g, '').slice(0, 110) : title)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="background:#f2efe7;padding:28px 14px">
+<tr><td align="center">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+    style="max-width:560px;background:#ffffff;border-radius:18px;
+    border:1px solid #e3e0d6">
+    <tr><td style="padding:30px 32px 0;text-align:center">
+      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#2f3d2f;
+        text-transform:uppercase">London Handstand Academy</div>
+      <div style="height:1px;background:#e8e5db;margin:24px 0 0"></div>
+    </td></tr>
+    <tr><td style="padding:30px 32px 8px">
+      <h1 style="margin:0 0 18px;font:700 27px/1.22 ${F};color:#1c2019;
+        letter-spacing:-.015em">${esc(title)}</h1>
+      ${greeting ? p(`Hi ${esc(greeting)},`) : ''}
+      ${paras.map(p).join('')}
+      ${box ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+        style="background:#f4f6f2;border-radius:12px;margin:6px 0 20px">
+        <tr><td style="padding:19px 22px">
+          ${box.title ? `<div style="font:700 15px/1.3 ${F};color:#1c2019;
+            margin:0 0 12px">${esc(box.title)}</div>` : ''}
+          ${box.items.map((it, i) => `<div style="font:400 15px/1.55 ${F};
+            color:#3d443a;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
+            ${box.numbered ? `<b style="color:#2f3d2f">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
+        </td></tr></table>` : ''}
+      ${cta ? `<table role="presentation" cellpadding="0" cellspacing="0"
+        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#2f3d2f">
+        <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
+          font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
+      </td></tr></table>` : ''}
+      ${signoff ? p(`${esc(signoff.line || 'Talk soon,')}<br>${esc(signoff.name)}`) : ''}
+    </td></tr>
+    <tr><td style="padding:6px 32px 28px">
+      <div style="height:1px;background:#e8e5db;margin:0 0 16px"></div>
+      <div style="font:400 12.5px/1.6 ${F};color:#8a8d80">
+        ${footnote ? esc(footnote) + '<br>' : ''}
+        <a href="${SITE}" style="color:#8a8d80">londonhandstandacademy.com</a>
+        &nbsp;·&nbsp; <a href="mailto:info@londonhandstandacademy.com"
+          style="color:#8a8d80">info@londonhandstandacademy.com</a>
+      </div>
+    </td></tr>
+  </table>
+</td></tr></table></body></html>`;
+}
+
 /* ── who may be emailed ──────────────────────────────────────────
    While the app is being tested against real client records, a test run
    must not land in a real client's inbox. Two env vars, both optional
@@ -546,11 +613,16 @@ export default async (request) => {
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     await db.setJSON(`reset:${e}`, { code, exp: Date.now() + 15 * 60 * 1000, tries: 0 });
-    await email(e, 'Your London Handstand Academy reset code',
-      `<p style="font:16px/1.6 system-ui">Your code is
-       <b style="font-size:22px;letter-spacing:3px">${code}</b></p>
-       <p style="font:14px/1.6 system-ui;color:#666">It works for 15 minutes.
-       If you did not ask for this, ignore it — nothing has changed.</p>`);
+    await email(e, 'Your reset code',
+      mail({
+        title: 'Your reset code.',
+        paras: ['Use this to set a new password. It expires in 15 minutes.',
+          `<span style="display:inline-block;font:700 30px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+           letter-spacing:.24em;color:#1c2019;background:#f4f6f2;border-radius:10px;
+           padding:16px 20px 16px 24px">${esc(code)}</span>`,
+          'If you did not ask for this, ignore it — nothing has changed.'],
+        signoff: { line: 'Thanks,', name: 'London Handstand Academy' },
+      }));
     return ok;
   }
 
@@ -893,6 +965,24 @@ export default async (request) => {
                  last: Date.now(), unread: (idx[who]?.unread || 0) + 1 + clips.length };
     await db.setJSON('index', idx);
 
+    const them = clients()[who] || (acct.name || '').split(' ')[0] || '';
+    const cn = coachName(coachOf(who));
+    await email(who, kind === 'assessment' ? 'Your clip is in' : 'Your test is in',
+      mail({
+        title: kind === 'assessment' ? 'Your clip is in.' : 'Your test is in.',
+        greeting: them,
+        paras: [`Thanks for sending ${clips.length === 1 ? 'that' : 'those'} over.
+          ${esc(cn)} watches every one personally — you will hear back within
+          <b>48 hours</b>.`],
+        box: { title: 'What happens next', numbered: true, items: [
+          `${cn} watches your ${clips.length === 1 ? 'clip' : 'clips'} and picks the one thing holding you back.`,
+          'You get that back in the app, and an email to tell you it has landed.',
+        ] },
+        cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+        signoff: { name: cn },
+        footnote: 'Sit tight — the next email from us is the one with your answer.',
+      }));
+
     await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${clients()[who] || who}: ${label}`,
       `<p style="font:16px/1.6 system-ui">${clips.length} clip${clips.length === 1 ? '' : 's'}
@@ -1221,10 +1311,15 @@ export default async (request) => {
       const replied = thread.some(m => m.from === 'coach' && (m.at || 0) > (rec.at || 0));
       if (!replied) {
         const nm = coachName(asking || coachOf(e));
-        await email(e, `${nm} has looked at your clips`,
-          `<p style="font:16px/1.6 system-ui">${nm} has been through what you sent.
-           Open the app to read it.</p>
-           <p style="font:15px/1.6 system-ui"><a href="https://londonhandstandacademy.com/lha-app.html">Open the app</a></p>`);
+        await email(e, 'Your answer is ready',
+          mail({
+            title: 'Your answer is ready.',
+            greeting: (clients()[e] || '').split(' ')[0] || '',
+            paras: [`${esc(nm)} has been through what you sent and written it up.
+              It is waiting in the app.`],
+            cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
+            signoff: { name: nm },
+          }));
       }
 
       if (body.nextBlock) {
@@ -1289,8 +1384,13 @@ export default async (request) => {
         const sent = video ? `${who2} has sent you a video.`
           : image ? `${who2} has sent you a photo.` : `${who2} has replied.`;
         await email(e, `${who2} has replied`,
-          `<p style="font:16px/1.6 system-ui">${text ? text.slice(0, 500) : sent}</p>
-           <p style="font:14px/1.6 system-ui;color:#666">Open the app to see it.</p>`);
+          mail({
+            title: `${who2} has replied.`,
+            greeting: (clients()[e] || '').split(' ')[0] || '',
+            paras: [text ? esc(text.slice(0, 600)) : esc(sent)],
+            cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            signoff: { name: who2 },
+          }));
         return json({ ok: true });
       }
     }

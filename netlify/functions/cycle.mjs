@@ -45,6 +45,73 @@ const coaches = () => {
 const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_EMAIL || '');
 const coachNameOf = e => coaches()[norm(e)] || 'Your coach';
 
+/* ── what an email looks like ────────────────────────────────────
+   Tables and inline styles, because mail clients are two decades behind
+   browsers and Outlook still renders HTML through Word. No images and no
+   web fonts either: images are blocked by default in most clients and a
+   missing font is worse than never asking for one.
+
+   Everything here is transactional — a reply, a code, a status. None of
+   it is marketing, so none of it carries an unsubscribe. */
+const SITE = 'https://londonhandstandacademy.com';
+const esc = t => String(t == null ? '' : t)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
+  const F = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+  const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#2c3229">${t}</p>`;
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light"><title>${esc(title)}</title></head>
+<body style="margin:0;padding:0;background:#f2efe7">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(
+  paras[0] ? String(paras[0]).replace(/<[^>]+>/g, '').slice(0, 110) : title)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+  style="background:#f2efe7;padding:28px 14px">
+<tr><td align="center">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+    style="max-width:560px;background:#ffffff;border-radius:18px;
+    border:1px solid #e3e0d6">
+    <tr><td style="padding:30px 32px 0;text-align:center">
+      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#2f3d2f;
+        text-transform:uppercase">London Handstand Academy</div>
+      <div style="height:1px;background:#e8e5db;margin:24px 0 0"></div>
+    </td></tr>
+    <tr><td style="padding:30px 32px 8px">
+      <h1 style="margin:0 0 18px;font:700 27px/1.22 ${F};color:#1c2019;
+        letter-spacing:-.015em">${esc(title)}</h1>
+      ${greeting ? p(`Hi ${esc(greeting)},`) : ''}
+      ${paras.map(p).join('')}
+      ${box ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+        style="background:#f4f6f2;border-radius:12px;margin:6px 0 20px">
+        <tr><td style="padding:19px 22px">
+          ${box.title ? `<div style="font:700 15px/1.3 ${F};color:#1c2019;
+            margin:0 0 12px">${esc(box.title)}</div>` : ''}
+          ${box.items.map((it, i) => `<div style="font:400 15px/1.55 ${F};
+            color:#3d443a;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
+            ${box.numbered ? `<b style="color:#2f3d2f">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
+        </td></tr></table>` : ''}
+      ${cta ? `<table role="presentation" cellpadding="0" cellspacing="0"
+        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#2f3d2f">
+        <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
+          font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
+      </td></tr></table>` : ''}
+      ${signoff ? p(`${esc(signoff.line || 'Talk soon,')}<br>${esc(signoff.name)}`) : ''}
+    </td></tr>
+    <tr><td style="padding:6px 32px 28px">
+      <div style="height:1px;background:#e8e5db;margin:0 0 16px"></div>
+      <div style="font:400 12.5px/1.6 ${F};color:#8a8d80">
+        ${footnote ? esc(footnote) + '<br>' : ''}
+        <a href="${SITE}" style="color:#8a8d80">londonhandstandacademy.com</a>
+        &nbsp;·&nbsp; <a href="mailto:info@londonhandstandacademy.com"
+          style="color:#8a8d80">info@londonhandstandacademy.com</a>
+      </div>
+    </td></tr>
+  </table>
+</td></tr></table></body></html>`;
+}
+
 /* the same guard the app function uses — a daily job that mails a real
    client during a test run is exactly the thing to avoid. See app.mjs. */
 const mailList = v => (process.env[v] || '').split(',')
@@ -133,12 +200,17 @@ export default async () => {
       if (stage >= 0 && !(sent.cycle === cycle.n && sent.stage >= stage)) {
         const ok = await email(c.email,
           overdueDays === 0 ? 'Time to film your test' : 'Still waiting on your clips',
-          `<p style="font:16px/1.6 system-ui">Hi ${c.name}, you are ${days} days into this block —
-           time to run the test drills and film them.</p>
-           <p style="font:16px/1.6 system-ui">Numbers and clips go in together from the app, and
-           ${coachNameOf(coach)} comes back within ${REVIEW_HOURS} hours.</p>
-           <p style="font:15px/1.6 system-ui"><a href="https://londonhandstandacademy.com/lha-app.html">Open the app</a></p>
-           <p style="font:13px/1.5 system-ui;color:#666">One clean attempt at each is plenty.</p>`);
+          mail({
+            title: overdueDays === 0 ? 'Time to film your test.' : 'Still waiting on your clips.',
+            greeting: (c.name || '').split(' ')[0],
+            paras: [`You are ${days} days into this block, which is the point where
+              the test drills tell us what to change.`,
+              `Numbers and clips go in together from the app, and ${esc(coachNameOf(coach))}
+               comes back within <b>${REVIEW_HOURS} hours</b>.`],
+            cta: { href: `${SITE}/lha-app.html`, label: 'Film your test' },
+            signoff: { name: coachNameOf(coach) },
+            footnote: 'One clean attempt at each is plenty — five scrappy ones tell us less.',
+          }));
         if (ok) {
           await db.setJSON(`rem:${c.email}`, { cycle: cycle.n, stage, at: now });
           done.reminded.push(c.email);
@@ -155,10 +227,12 @@ export default async () => {
       const hrs = Math.round((now - s.at) / 3600000);
       const ok = await email(coach,
         `${c.name} has been waiting ${hrs} hours`,
-        `<p style="font:16px/1.6 system-ui">${c.name} sent ${s.clips.length}
-         clip${s.clips.length === 1 ? '' : 's'} ${hrs} hours ago and it is still unreviewed.
-         The promise is ${REVIEW_HOURS} hours.</p>
-         <p style="font:15px/1.6 system-ui"><a href="https://londonhandstandacademy.com/lha-coach.html">Open the coach view</a></p>`);
+        mail({
+          title: `${esc(c.name)} is still waiting.`,
+          paras: [`${esc(c.name)} sent ${s.clips.length} clip${s.clips.length === 1 ? '' : 's'}
+            ${hrs} hours ago and nobody has marked it reviewed. The promise is ${REVIEW_HOURS} hours.`],
+          cta: { href: `${SITE}/lha-coach.html`, label: 'Open the coach view' },
+        }));
       if (ok) { await db.setJSON(key, { at: now }); done.chased.push(c.email); }
     }
   }
