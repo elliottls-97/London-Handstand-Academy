@@ -25,6 +25,10 @@ h1{font:400 34px/1 var(--serif);margin:0}
 }
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .card{background:#fff;border-radius:20px;padding:18px;border:1px solid var(--line);min-width:0}
+/* the activity panels are shared verbatim with the app, where they are
+   their own cards. Nested in here they should read as sections. */
+.card .card{border:none;border-radius:0;padding:0 0 16px;background:none}
+.card .card + .card{border-top:1px solid var(--line);padding-top:16px}
 .cli{display:flex;align-items:center;gap:12px;padding:13px;border-radius:14px;cursor:pointer;border:none;
  background:none;width:100%;text-align:left}
 .cli:hover{background:var(--mist)}
@@ -50,8 +54,14 @@ const API='/api/app/coach';
 let TOKEN=localStorage.getItem('lha_coach_token')||'';
 let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
+/* which coaches appear in the list at all — only worth labelling when there is more than one */
+const COACHES=new Set();
+/* replies sent but not yet echoed back by Blobs — see openThread */
+let pendingCoach=[];
+const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
+let subs={};      /* what each client has sent for review */
 let prog={};
 let notes={};
 let noteDrafts={};
@@ -95,7 +105,9 @@ function signIn(ev){
 function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ clients=d.clients||[]; if(!sel&&clients.length) sel=clients[0].email; draw();
+    .then(d=>{ clients=d.clients||[];
+      COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
+      if(!sel&&clients.length) sel=clients[0].email; draw();
       if(sel) openThread(sel);
       /* fetch everyone so the list can show who needs chasing */
       clients.forEach(c=>fetch(API+'/progress?email='+encodeURIComponent(c.email),{headers:hdr()})
@@ -110,19 +122,92 @@ function openThread(email){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ prog[email]=d.progress||{}; draw(); } })
     .catch(()=>{});
+  fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ subs[email]=d.submissions||[]; draw(); } })
+    .catch(()=>{});
   fetch(API+'/notes?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d&&notes[email]===undefined){ notes[email]=d; draw(); } })
     .catch(()=>{});
   fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
-    .then(r=>r.json()).then(d=>{
+    .then(r=>r.ok?r.json():Promise.reject(r.status)).then(d=>{
       const next=d.messages||[];
+      /* Blobs takes up to ~15s to propagate, so a read straight after a reply
+         comes back without it. Re-append anything not echoed yet instead of
+         letting a stale read wipe it off the screen. */
+      const seen=new Set(next.map(msgKey));
+      pendingCoach=pendingCoach.filter(p=>Date.now()-p.at<600000
+        && !(p.email===email && seen.has(msgKey(p))));
+      const mine=pendingCoach.filter(p=>p.email===email);
+      const merged=next.concat(mine.map(p=>({from:'coach',text:p.text,
+        ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),at:p.at})));
       /* redrawing rebuilds the reply box and loses what is half-typed */
-      const same=JSON.stringify(next)===JSON.stringify(thread);
-      thread=next;
+      const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
+      const same=shape(merged)===shape(thread);
+      thread=merged;
       const c=clients.find(x=>x.email===email); if(c) c.unread=0;
       if(!same) draw();
-      const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; });
+      const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; })
+    /* keep whatever is on screen rather than replacing it with nothing */
+    .catch(()=>coachSay('Could not refresh the thread — what you see may be behind.'));
+}
+
+/* ── what is waiting to be reviewed ────────────────────────────────
+   The clips already appear in the thread. What was missing was the other
+   end of the loop: without this the client's "with your coach now" never
+   clears and the cycle never advances to the next block. */
+function subsHTML(email){
+  const list=(subs[email]||[]);
+  const open=list.filter(s=>s.status==='submitted');
+  if(!open.length){
+    const last=list.find(s=>s.status==='reviewed');
+    return last?`<div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin:0 0 14px">
+      Last review ${esc(ago(last.reviewedAt))} · block ${last.cycle||1}</div>`:'';
+  }
+  return open.map(s=>{
+    const hrs=Math.round((Date.now()-(s.at||0))/3600000);
+    const late=hrs>=48;
+    const nums=Object.entries(s.numbers||{})
+      .filter(([k])=>k!=='photo')
+      .map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px;
+        font:400 13px/1.5 var(--sans);padding:3px 0">
+        <span style="color:var(--grey)">${esc(k)}</span><b>${esc(v)}</b></div>`).join('')
+      || `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2)">No numbers sent.</div>`;
+    return `<div style="border:1.5px solid ${late?'var(--terra)':'var(--forest)'};border-radius:14px;
+      padding:15px 16px;margin:0 0 14px">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <span style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+          color:${late?'var(--terra)':'var(--forest)'}">
+          ${s.kind==='assessment'?'FREE ASSESSMENT':'TWO-WEEK TEST · BLOCK '+(s.cycle||1)}</span>
+        <span style="font:400 12px/1 var(--sans);color:${late?'var(--terra)':'var(--grey2)'}">
+          ${hrs}h ago${late?' · past the 48 you promise':''}</span>
+      </div>
+      <div style="margin-top:11px">${nums}</div>
+      <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
+        ${s.clips.length} clip${s.clips.length===1?'':'s'} — in the thread below.</div>
+      <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
+        <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+          onclick="markReviewed('${esc(email)}','${esc(s.id)}',false)">Mark reviewed</button>
+        <button class="send" style="width:auto;padding:0 14px;font-size:12.5px;
+          background:var(--mist);color:var(--ink)"
+          onclick="markReviewed('${esc(email)}','${esc(s.id)}',true)">Reviewed &amp; start next block</button>
+      </div></div>`;
+  }).join('');
+}
+
+function markReviewed(email,id,nextBlock){
+  if(nextBlock && !confirm('Mark reviewed and start the next block? '
+    + 'That resets their two-week clock from today.')) return;
+  fetch(API+'/submission/reviewed',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email,id,nextBlock:!!nextBlock})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not save that')))
+    .then(()=>{
+      subs[email]=(subs[email]||[]).map(s=>s.id===id
+        ? {...s,status:'reviewed',reviewedAt:Date.now()} : s);
+      draw();
+    })
+    .catch(e=>alert(String(e)));
 }
 
 /* ── clips ─────────────────────────────────────────────────────── */
@@ -130,13 +215,62 @@ const STREAM_SUB='customer-pns1oongdltmkjwa.cloudflarestream.com';
 const streamEmbed = uid => `https://${STREAM_SUB}/${uid}/iframe?preload=metadata`;
 let upBusy=false;
 function coachSay(m){ const el=document.getElementById('upMsg'); if(el) el.textContent=m; }
-function pickCoachClip(){
+function pickCoachClip(){ pickCoachFile('video/*'); }
+function pickCoachPhoto(){ pickCoachFile('image/*'); }
+function pickCoachFile(accept){
   const inp=document.createElement('input');
-  inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  inp.type='file'; inp.accept=accept; inp.style.display='none';
   document.body.appendChild(inp);
-  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(f) sendCoachClip(f); };
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove();
+    if(!f) return;
+    (f.type||'').startsWith('image/') ? sendCoachPhoto(f) : sendCoachClip(f); };
   inp.click();
 }
+/* ── sending a photo ───────────────────────────────────────────────
+   Shrunk here rather than sent whole: a phone photo is 4MB of detail
+   nobody needs to judge a shoulder angle, and small enough to go
+   through the function means no second storage provider. */
+async function shrinkPhoto(file, max=1600, quality=0.82){
+  let src;
+  try{ src=await createImageBitmap(file,{imageOrientation:'from-image'}); }
+  catch(e){
+    src=await new Promise((res,rej)=>{
+      const i=new Image(), u=URL.createObjectURL(file);
+      i.onload=()=>{ URL.revokeObjectURL(u); res(i); };
+      i.onerror=()=>{ URL.revokeObjectURL(u); rej('Could not read that photo'); };
+      i.src=u;
+    });
+  }
+  const w=src.width||src.naturalWidth, h=src.height||src.naturalHeight;
+  if(!w||!h) throw 'Could not read that photo';
+  const s=Math.min(1, max/Math.max(w,h));
+  const c=document.createElement('canvas');
+  c.width=Math.round(w*s); c.height=Math.round(h*s);
+  c.getContext('2d').drawImage(src,0,0,c.width,c.height);
+  if(src.close) src.close();
+  return c.toDataURL('image/jpeg',quality);
+}
+
+function sendCoachPhoto(file){
+  if(upBusy||!sel) return;
+  upBusy=true; coachSay('Preparing the photo…');
+  shrinkPhoto(file)
+    .then(data=>fetch('/api/app/image',{method:'POST',headers:hdr(),
+      body:JSON.stringify({data})})
+      .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that photo'))))
+    .then(d=>{
+      const el=document.getElementById('reply');
+      const text=(el&&el.value||'').trim();
+      if(el) el.value=''; drafts[sel]='';
+      pendingCoach.push({email:sel,text,image:d.id,at:Date.now()});
+      thread.push({from:'coach',text,image:d.id,at:Date.now()}); draw();
+      return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
+        body:JSON.stringify({text,image:d.id})});
+    })
+    .then(()=>{ upBusy=false; coachSay(''); setTimeout(()=>openThread(sel),1200); })
+    .catch(e=>{ upBusy=false; coachSay(String(e)); });
+}
+
 function sendCoachClip(file){
   if(upBusy||!sel) return;
   upBusy=true; coachSay('Getting ready…');
@@ -154,6 +288,7 @@ function sendCoachClip(file){
       const el=document.getElementById('reply');
       const text=(el&&el.value||'').trim();
       if(el) el.value=''; drafts[sel]='';
+      pendingCoach.push({email:sel,text,video:uid,at:Date.now()});
       thread.push({from:'coach',text,video:uid,at:Date.now()}); draw();
       return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
         body:JSON.stringify({text,video:uid})});
@@ -165,6 +300,7 @@ function sendCoachClip(file){
 function reply(){
   const el=$('#reply'); const text=(el.value||'').trim(); if(!text||!sel) return;
   el.value=''; drafts[sel]='';
+  pendingCoach.push({email:sel,text,at:Date.now()});
   thread.push({from:'coach',text,at:Date.now()}); draw();
   fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
     body:JSON.stringify({text})}).then(()=>openThread(sel));
@@ -472,6 +608,93 @@ function statCard(n,l,tone){
   </div>`;
 }
 
+/* ── activity, from what is already recorded ───────────────────────
+   opens[] is one ISO date per active day, kept for 180 days. sessions[]
+   holds up to 200, each with planned and actual minutes. Neither needed
+   any new instrumentation — the app has been collecting both all along
+   and showing three numbers. */
+function dayKey(d){ return new Date(d).toISOString().slice(0,10); }
+
+function panelMonth(p){
+  const opens=new Set(((p&&p.opens)||[]));
+  const today=new Date(); today.setHours(12,0,0,0);
+  /* start on the Monday 4 weeks back so the columns line up under M-S */
+  const start=new Date(today); start.setDate(start.getDate()-27);
+  start.setDate(start.getDate()-((start.getDay()+6)%7));
+  const cells=[]; let active=0, prior=0;
+  const d=new Date(start);
+  while(d<=today || cells.length%7){
+    const k=dayKey(d), on=opens.has(k), future=d>today;
+    if(on) active++;
+    cells.push(`<div style="aspect-ratio:1;display:grid;place-items:center">
+      <span style="width:29px;height:29px;border-radius:999px;display:grid;place-items:center;
+        font:${on?'700':'400'} 12px/1 var(--sans);
+        background:${on?'var(--forest)':'transparent'};
+        color:${on?'var(--bg)':future?'#c9cec3':'var(--grey2)'}">${d.getDate()}</span></div>`);
+    d.setDate(d.getDate()+1);
+    if(cells.length>42) break;
+  }
+  const cut=dayKey(new Date(Date.now()-28*864e5));
+  const cut2=dayKey(new Date(Date.now()-56*864e5));
+  opens.forEach(k=>{ if(k<cut && k>=cut2) prior++; });
+  const delta=active-prior;
+  const head=['M','T','W','T','F','S','S'].map(x=>
+    `<div style="text-align:center;font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${x}</div>`).join('');
+  return `<div class="card"><div class="kick2">PAST 4 WEEKS</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin:14px 0 6px">${head}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${cells.join('')}</div>
+    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(28,32,25,.08)">
+      ${[['Active days',String(active),''],
+         ['vs prior 4wk',(delta>0?'+':'')+delta, delta>0?'var(--forest)':delta<0?'var(--terra)':''],
+        ].map(([n,v,c])=>`<div style="flex:1">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${n.toUpperCase()}</div>
+        <div class="h-sm" style="font-size:19px;margin-top:5px;${c?'color:'+c:''}">${v}</div></div>`).join('')}
+    </div></div>`;
+}
+
+function panelWeek(p){
+  const ss=((p&&p.sessions)||[]).filter(x=>x&&x.at);
+  const now=new Date(); now.setHours(23,59,59,999);
+  const mins=[], labels=[];
+  let thisWk=0, lastWk=0, drills=0, drillsLast=0;
+  for(let i=6;i>=0;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    const k=dayKey(d);
+    const m=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.actual||x.mins||0),0);
+    mins.push(m); thisWk+=m;
+    drills+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.drills||0),0);
+    labels.push(i===0?'TOD':['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()]);
+  }
+  for(let i=13;i>=7;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    const k=dayKey(d);
+    lastWk+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.actual||x.mins||0),0);
+    drillsLast+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.drills||0),0);
+  }
+  const peak=Math.max(30,...mins);
+  const bars=mins.map((m,i)=>`<div style="flex:1;display:flex;flex-direction:column;
+      align-items:center;justify-content:flex-end;gap:7px">
+    <div style="width:100%;height:78px;display:flex;align-items:flex-end">
+      <div title="${m} min" style="width:100%;border-radius:6px 6px 3px 3px;
+        height:${Math.max(m?7:3,Math.round(m/peak*78))}px;
+        background:${m?(i===6?'var(--forest)':'var(--sage)'):'rgba(28,32,25,.07)'}"></div></div>
+    <span style="font:600 9px/1 var(--sans);letter-spacing:.06em;
+      color:${i===6?'var(--forest)':'var(--grey2)'}">${labels[i]}</span></div>`).join('');
+  const dm=thisWk-lastWk, dd=drills-drillsLast;
+  const hrs=n=>n>=60?(n/60).toFixed(1)+'h':n+'m';
+  return `<div class="card"><div class="kick2">THIS WEEK</div>
+    <div style="display:flex;gap:5px;align-items:flex-end;margin-top:16px">${bars}</div>
+    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(28,32,25,.08)">
+      ${[['Time',hrs(thisWk)],['Drills',String(drills)],
+         ['vs last week',(dm>0?'+':'')+hrs(Math.abs(dm)).replace('-','')+' · '+(dd>0?'+':'')+dd]]
+        .map(([n,v])=>`<div style="flex:1">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${n.toUpperCase()}</div>
+        <div class="h-sm" style="font-size:19px;margin-top:5px">${v}</div></div>`).join('')}
+    </div>
+    ${thisWk?'':`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
+      Nothing logged this week yet. Finish a session and it turns up here.</div>`}</div>`;
+}
+
 function metricsHTML(email){
   if(!prog[email]) return `<div class="kick" style="margin-top:22px">ANALYSIS</div>
     <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">Loading…</div>`;
@@ -498,6 +721,8 @@ function metricsHTML(email){
   const toneFg = a.tone==='bad'?'var(--terra)':a.tone==='warn'?'#8a6524':'var(--forest)';
 
   return `
+  ${panelMonth(p)}
+  ${panelWeek(p)}
   <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
     <div class="kick" style="margin:0">ANALYSIS</div>
     <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;padding:5px 9px;border-radius:4px;
@@ -639,6 +864,12 @@ function draw(){
     <span class="av">${esc((c.name||'?')[0])}</span>
     <span><b>${esc(c.name)}</b><span>${esc(line)}</span></span>
     <span style="display:flex;align-items:center;gap:7px;margin-left:auto">
+      ${c.coach&&COACHES.size>1?`<span title="Coached by ${esc(c.coach)}"
+        style="font:600 9px/1 var(--sans);letter-spacing:.08em;padding:4px 6px;border-radius:4px;
+        background:var(--mist);color:var(--grey)">${esc((c.coach.split('@')[0]||'').slice(0,8).toUpperCase())}</span>`:''}
+    ${c.coached===false?`<span title="Not a coaching client — free account"
+        style="font:600 9px/1 var(--sans);letter-spacing:.11em;padding:4px 6px;border-radius:4px;
+        background:var(--mist);color:var(--grey)">ENQUIRY</span>`:''}
       ${c.unread?`<span class="dot">${c.unread}</span>`:''}
       <i style="width:8px;height:8px;border-radius:999px;background:${col};flex:none" title="${a?a.status:''}"></i>
     </span></button>`;}).join('') ||
@@ -647,7 +878,14 @@ function draw(){
     ${m.video?`<div style="width:min(260px,80%);border-radius:16px;overflow:hidden;background:#11150f;
       margin-bottom:${m.text?'6px':'0'}">
       <iframe src="${streamEmbed(m.video)}" loading="lazy" allow="fullscreen"
-        style="display:block;width:100%;aspect-ratio:4/5;border:0"></iframe></div>`:''}
+        style="display:block;width:100%;aspect-ratio:4/5;border:0"></iframe></div>
+    ${Date.now()-(m.at||0)<180000?`<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:0 0 6px">
+      Just uploaded — Cloudflare is still encoding it. If the player errors, give it a minute and reload.</div>`:''}`:''}
+    ${m.image?`<a href="/api/app/image/${esc(m.image)}" target="_blank" rel="noopener"
+      style="width:min(260px,80%);border-radius:16px;overflow:hidden;background:#11150f;
+      margin-bottom:${m.text?'6px':'0'};display:block">
+      <img src="/api/app/image/${esc(m.image)}" alt="Shared photo" loading="lazy"
+        style="display:block;width:100%;max-height:340px;object-fit:contain"></a>`:''}
     ${m.text?`<div class="msg ${m.from==='coach'?'me':'them'}">${esc(m.text)}</div>`:''}
     <div class="at">${m.from==='coach'?'You':esc((clients.find(c=>c.email===sel)||{}).name||'')} · ${ago(m.at)}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;
@@ -658,7 +896,8 @@ function draw(){
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       <div class="card">
         <div class="kick">${esc((clients.find(c=>c.email===sel)||{}).name||'THREAD').toUpperCase()}</div>
-        <div id="pane" style="display:flex;flex-direction:column;gap:14px;margin-top:16px;
+        <div style="margin-top:16px">${sel?subsHTML(sel):''}</div>
+        <div id="pane" style="display:flex;flex-direction:column;gap:14px;
           max-height:56vh;overflow-y:auto;padding-right:4px">${msgs}</div>
         <div style="display:flex;gap:10px;margin-top:16px">
           <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
@@ -666,6 +905,8 @@ function draw(){
             onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
           <button class="send" onclick="pickCoachClip()" title="Send a video"
             style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Video</button>
+          <button class="send" onclick="pickCoachPhoto()" title="Send a photo"
+            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
           <button class="send" onclick="reply()">Send</button></div>
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>

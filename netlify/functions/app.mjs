@@ -34,10 +34,47 @@ const json = (data, status = 200) =>
   });
 
 const norm = e => String(e || '').trim().toLowerCase();
-const clients = () => Object.fromEntries(
-  (process.env.CLIENTS || '').split(',').map(p => p.trim()).filter(Boolean)
-    .map(p => { const i = p.lastIndexOf(':'); return [norm(p.slice(0, i)), p.slice(i + 1)]; })
-);
+
+/* ── who coaches whom ─────────────────────────────────────────────
+   CLIENTS is "email:Name" or "email:Name:coachEmail". The third field
+   is optional and says who coaches them; without it they belong to the
+   primary coach, so every entry written before this keeps working.
+
+   COACHES is "email:Name" — the roster, and where a coach's display
+   name comes from. COACH_EMAILS and COACH_EMAIL still grant access, so
+   nothing has to be reconfigured for the site to keep running. */
+const parseClients = () => (process.env.CLIENTS || '')
+  .split(',').map(p => p.trim()).filter(Boolean)
+  .map(p => {
+    const bits = p.split(':').map(x => x.trim());
+    const email = norm(bits[0]);
+    const tail = bits.length > 2 ? norm(bits[bits.length - 1]) : '';
+    const coach = tail.includes('@') ? tail : '';
+    const name = bits.slice(1, coach ? bits.length - 1 : bits.length).join(':');
+    return { email, name: name || email, coach };
+  })
+  .filter(c => c.email);
+
+const clients = () => Object.fromEntries(parseClients().map(c => [c.email, c.name]));
+
+const coaches = () => {
+  const out = {};
+  for (const p of (process.env.COACHES || '').split(',').map(x => x.trim()).filter(Boolean)) {
+    const i = p.indexOf(':');
+    if (i < 0) { out[norm(p)] = ''; continue; }
+    out[norm(p.slice(0, i))] = p.slice(i + 1).trim();
+  }
+  for (const e of (process.env.COACH_EMAILS || process.env.COACH_EMAIL || '')
+    .split(',').map(x => norm(x)).filter(Boolean)) if (!(e in out)) out[e] = '';
+  return out;
+};
+
+const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_EMAIL || '');
+const coachOf = e => {
+  const c = parseClients().find(x => x.email === norm(e));
+  return (c && c.coach) || primaryCoach();
+};
+const coachName = e => coaches()[norm(e)] || 'your coach';
 
 /* ── HMAC tokens, no dependencies ── */
 const b64url = buf => Buffer.from(buf).toString('base64')
@@ -141,6 +178,98 @@ async function stripeSigOK(raw, header, secret) {
   return diff === 0;
 }
 
+/* ── the thread ──────────────────────────────────────────────────
+   Blobs is eventually consistent, so read-modify-write on a single key
+   loses messages. A reply written a second after a client's message can
+   read the thread from before that message landed and write it back
+   without it — and it is gone for good. That is why a shared clip could
+   vanish from the client's chat while the coach could still see it.
+
+   So each message is written as its own blob, which cannot overwrite
+   anything. The thread is the compacted history merged with whatever is
+   still in the queue; compaction folds the queue in and only deletes a
+   queue entry once it is safely part of what was just written. */
+const MSG_CAP = 200;
+const PROPAGATION = 15 * 1000;              // what Blobs takes to settle
+
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+
+async function threadLoad(db, who, { compact = false } = {}) {
+  const base = (await db.get(`thread:${who}`, { type: 'json' })) || [];
+  /* deliberately not caught: if the queue cannot be listed then the recent
+     messages are not in this answer, and returning the older thread anyway
+     is exactly the silent loss this is here to prevent. Failing lets both
+     front ends keep showing what they already have. */
+  const { blobs } = await db.list({ prefix: `mq:${who}:` });
+  const queued = (await Promise.all(
+    blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
+
+  const known = new Set(base.map(m => m && m.id).filter(Boolean));
+  const all = base
+    .concat(queued.filter(m => m.id && !known.has(m.id)))
+    .sort((a, b) => (a.at || 0) - (b.at || 0))
+    .slice(-MSG_CAP);
+
+  if (compact && queued.length) {
+    try {
+      await db.setJSON(`thread:${who}`, all);
+      const kept = new Set(all.map(m => m.id).filter(Boolean));
+      /* leave anything recent alone — the write above has to propagate
+         before the queue copy is safe to throw away */
+      const cutoff = Date.now() - 8 * PROPAGATION;
+      await Promise.all(queued.map(m =>
+        (kept.has(m.id) && (m.at || 0) < cutoff)
+          ? db.delete(`mq:${who}:${m.id}`).catch(() => {})
+          : null));
+    } catch { /* compaction is housekeeping, never needed for correctness */ }
+  }
+  return all;
+}
+
+async function threadAdd(db, who, msg) {
+  const m = { id: newId(), at: Date.now(), ...msg };
+  await db.setJSON(`mq:${who}:${m.id}`, m);   // its own key, so nothing is overwritten
+  return m;
+}
+
+/* ── the coaching cycle ──────────────────────────────────────────
+   Bachmann's model, and the one the specs were already written for: a
+   block runs, then footage and numbers come in together, then the coach
+   reviews and the next block starts. Nothing here invents a schedule —
+   testDelayDays already lives in each client's spec.
+
+   A cycle starts the first time a client opens their programme, because
+   that is the first moment the block is genuinely underway. */
+const DAY = 24 * 60 * 60 * 1000;
+const REVIEW_HOURS = 48;
+
+async function cycleGet(db, who, plan) {
+  const k = `cycle:${who}`;
+  let c = await db.get(k, { type: 'json' });
+  if (!c) {
+    c = { start: Date.now(), n: 1 };
+    await db.setJSON(k, c);
+  }
+  const days = (plan && Number(plan.testDelayDays)) || 14;
+  return { ...c, days, dueAt: c.start + days * DAY };
+}
+
+async function subsFor(db, who) {
+  let blobs = [];
+  try { ({ blobs } = await db.list({ prefix: `sub:${who}:` })); } catch { blobs = []; }
+  const out = (await Promise.all(
+    blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
+  return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+
+/* ── photos ──────────────────────────────────────────────────────
+   Stream is video only. Photos are shrunk in the browser and kept in
+   Blobs, so there is no second provider and no new credential. The id
+   is random and unguessable — the same posture the drill videos have
+   today, and it becomes signed at the same time they do. */
+const IMG_MAX = 3 * 1024 * 1024;
+const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
+
 export default async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
@@ -219,8 +348,7 @@ export default async (request) => {
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   /* a coach signs in with their own email and password like anyone else;
      the shared key still works so nothing breaks mid-change */
-  const coachList = () => (process.env.COACH_EMAILS || process.env.COACH_EMAIL || '')
-    .split(',').map(x => norm(x)).filter(Boolean);
+  const coachList = () => Object.keys(coaches());
   const isCoach = async () => {
     if (process.env.COACH_KEY && request.headers.get('x-coach-key') === process.env.COACH_KEY) return true;
     const who = await me();
@@ -422,10 +550,15 @@ export default async (request) => {
       name: clients()[who] || acct.name || '',
       coached: !!clients()[who],
       coach: coachList().includes(who),
+      coachName: clients()[who] ? coachName(coachOf(who)) : '',
       plus: !!acct.plus,
       canManage: !!acct.stripeCustomer,
       canCancel: !!(acct.sub || acct.stripeCustomer),
       cancelAt: acct.cancelAt || 0,
+      /* the one free form check. Its own key, because nothing else writes
+         it — folding it into acct would put it in the path of every other
+         account write. */
+      freeCheckUsed: !!(await db.get(`fc:${who}`, { type: 'json' })),
     });
   }
 
@@ -578,7 +711,8 @@ export default async (request) => {
     if (!who) return json({ error: 'Sign in first' }, 401);
     const plan = programmes.clients[who];
     if (!plan) return json({ error: 'No programme yet' }, 404);
-    return json({ client: clients()[who] || plan.client, plan,
+    const cycle = await cycleGet(db, who, plan);
+    return json({ client: clients()[who] || plan.client, plan, cycle,
                   library: programmes.library });
   }
 
@@ -610,6 +744,123 @@ export default async (request) => {
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
     }
+  }
+
+  /* ── a photo ─────────────────────────────────────────────────────
+     Small enough to come through the function, unlike a video. The
+     browser shrinks it first; this is the backstop. */
+  if (path === '/image' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const m = IMG_DATA.exec(String(body.data || ''));
+    if (!m) return json({ error: 'That is not a JPEG, PNG or WebP' }, 400);
+    let buf;
+    try { buf = Buffer.from(m[2], 'base64'); }
+    catch { return json({ error: 'Could not read that photo' }, 400); }
+    if (!buf.length) return json({ error: 'That photo is empty' }, 400);
+    if (buf.length > IMG_MAX) return json({ error: 'That photo is too large' }, 413);
+    const id = newId() + Math.random().toString(36).slice(2, 12);
+    await db.set(`img:${id}`, buf,
+      { metadata: { type: m[1], owner: who, at: Date.now() } });
+    return json({ id });
+  }
+
+  if (path.startsWith('/image/') && request.method === 'GET') {
+    const id = path.slice(7).replace(/[^a-zA-Z0-9]/g, '');
+    if (!id) return json({ error: 'Which photo?' }, 400);
+    const got = await db.getWithMetadata(`img:${id}`, { type: 'arrayBuffer' })
+      .catch(() => null);
+    if (!got || !got.data) return json({ error: 'No such photo' }, 404);
+    return new Response(got.data, {
+      headers: {
+        'Content-Type': (got.metadata && got.metadata.type) || 'image/jpeg',
+        'Cache-Control': 'private, max-age=31536000, immutable',
+      },
+    });
+  }
+
+  /* ── where the client is in the cycle, and what they owe ────────── */
+  if (path === '/cycle' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const plan = programmes.clients[who];
+    const cycle = await cycleGet(db, who, plan);
+    const subs = await subsFor(db, who);
+    const current = subs.find(s => s.cycle === cycle.n) || null;
+    return json({
+      ...cycle,
+      due: Date.now() >= cycle.dueAt,
+      daysLeft: Math.ceil((cycle.dueAt - Date.now()) / DAY),
+      submission: current,
+      awaiting: !!(current && current.status === 'submitted'),
+      reviewHours: REVIEW_HOURS,
+    });
+  }
+
+  /* numbers and footage arrive together — that pairing is the whole
+     point, because a number without the clip is a claim you cannot check */
+  if (path === '/submission' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    /* A free account has one assessment in it. The gate lives here as well
+       as on /messages — footage can reach a coach by either road, and a
+       limit enforced on only one of them is not a limit. */
+    const coached = !!clients()[who];
+    const kind = coached && body.kind !== 'assessment' ? 'test' : 'assessment';
+    if (!coached) {
+      if (await db.get(`fc:${who}`, { type: 'json' })) {
+        return json({ error: 'Your free assessment has already been used. '
+          + 'Coaching includes unlimited form checks.', gated: true }, 402);
+      }
+    }
+    const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};
+    const clips = Array.isArray(body.clips) ? body.clips.slice(0, 12).map(c => ({
+      drill: String((c && c.drill) || '').slice(0, 64),
+      name: String((c && c.name) || '').slice(0, 80),
+      uid: String((c && c.uid) || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64),
+    })).filter(c => c.uid) : [];
+    if (!clips.length && !Object.keys(numbers).length) {
+      return json({ error: 'Nothing to send' }, 400);
+    }
+
+    const plan = programmes.clients[who];
+    const cycle = await cycleGet(db, who, plan);
+    const id = newId();
+    const rec = { id, kind, cycle: cycle.n, at: Date.now(), status: 'submitted',
+                  numbers, clips, reviewedAt: 0 };
+    await db.setJSON(`sub:${who}:${id}`, rec);
+    if (!coached) await db.setJSON(`fc:${who}`, { at: Date.now(), sub: id });
+
+    /* it lands in the thread too, so the coach reads it where they
+       already reply rather than in a second inbox */
+    const label = kind === 'assessment' ? 'Baseline assessment' : `Two-week test · cycle ${cycle.n}`;
+    const lines = Object.entries(numbers).map(([k2, v]) => `${k2}: ${v}`).join(', ');
+    await threadAdd(db, who, { from: 'client',
+      text: `${label}${lines ? ' — ' + lines : ''}`, sub: id });
+    for (const c of clips) {
+      await threadAdd(db, who, { from: 'client', text: c.name || c.drill, video: c.uid, sub: id });
+    }
+
+    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    const idx = (await db.get('index', { type: 'json' })) || {};
+    idx[who] = { name: clients()[who] || acct.name || who, coached: !!clients()[who],
+                 last: Date.now(), unread: (idx[who]?.unread || 0) + 1 + clips.length };
+    await db.setJSON('index', idx);
+
+    await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `${clients()[who] || who}: ${label}`,
+      `<p style="font:16px/1.6 system-ui">${clips.length} clip${clips.length === 1 ? '' : 's'}
+       and ${Object.keys(numbers).length} number${Object.keys(numbers).length === 1 ? '' : 's'}.</p>
+       <p style="font:15px/1.6 system-ui">${lines || 'No numbers given.'}</p>
+       <p style="font:13px/1.5 system-ui;color:#666">Review in the coach view within ${REVIEW_HOURS} hours.</p>`);
+
+    return json({ ok: true, id });
+  }
+
+  if (path === '/submissions' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    return json({ submissions: await subsFor(db, who) });
   }
 
   /* ── what a client is actually doing ─────────────────────────────
@@ -712,26 +963,40 @@ export default async (request) => {
   if (path === '/messages') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const k = `thread:${who}`;
-
     if (request.method === 'GET') {
-      return json({ messages: (await db.get(k, { type: 'json' })) || [] });
+      return json({ messages: await threadLoad(db, who, { compact: true }) });
     }
     if (request.method === 'POST') {
       const text = String(body.text || '').slice(0, 4000);
       const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
-      if (!text && !video) return json({ error: 'Nothing to send' }, 400);
-      const thread = (await db.get(k, { type: 'json' })) || [];
-      thread.push({ from: 'client', text, at: Date.now(), ...(video ? { video } : {}) });
-      await db.setJSON(k, thread.slice(-200));
+      const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+      if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
 
+      /* Anyone signed in may ask a question — that is the way in to
+         coaching. Footage is the thing that costs time to review, so a
+         free account gets exactly one, and coaching gets the rest. */
+      const coached = !!clients()[who];
+      if ((video || image) && !coached) {
+        if (await db.get(`fc:${who}`, { type: 'json' })) {
+          return json({ error: 'Your free form check has already been used. '
+            + 'Form checks come with coaching.', gated: true }, 402);
+        }
+        await db.setJSON(`fc:${who}`, { at: Date.now(), video: video || null, image: image || null });
+      }
+
+      await threadAdd(db, who, { from: 'client', text,
+        ...(video ? { video } : {}), ...(image ? { image } : {}) });
+
+      const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
       const idx = (await db.get('index', { type: 'json' })) || {};
-      idx[who] = { name: clients()[who] || who, last: Date.now(), unread: (idx[who]?.unread || 0) + 1 };
+      idx[who] = { name: clients()[who] || acct.name || who, coached,
+                   last: Date.now(), unread: (idx[who]?.unread || 0) + 1 };
       await db.setJSON('index', idx);
 
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-        `${clients()[who] || who}: ${text.slice(0, 60)}`,
-        `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000)}</p>
+      const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
+      await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+        `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
+        `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
       return json({ ok: true });
     }
@@ -741,11 +1006,21 @@ export default async (request) => {
   if (path.startsWith('/coach/')) {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
 
+    /* Who is asking. Null means the legacy shared key, which has no
+       identity and therefore still sees everything.
+
+       A coach sees their own clients. Enquiries from free accounts are
+       nobody's yet, so every coach sees them — an unrouted question going
+       unanswered is worse than one being seen twice. */
+    const asking = await me();
+    const owns = e => !asking || !clients()[norm(e)] || coachOf(e) === asking;
+
     /* wipe a client's activity record — needed for a deletion request,
        and for clearing test data out of a real client's history */
     if (path === '/coach/progress/reset' && request.method === 'POST') {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       await db.delete(`prog:${e}`);
       return json({ ok: true, cleared: e });
     }
@@ -754,6 +1029,7 @@ export default async (request) => {
     if (path === '/coach/notes') {
       const e = norm(url.searchParams.get('email') || body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       const k = `note:${e}`;
       if (request.method === 'GET') {
         return json((await db.get(k, { type: 'json' })) || { text: '', at: 0 });
@@ -768,6 +1044,7 @@ export default async (request) => {
     if (path === '/coach/progress') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       return json({ email: e, name: clients()[e] || e,
                     progress: (await db.get(`prog:${e}`, { type: 'json' })) || {} });
     }
@@ -827,12 +1104,50 @@ export default async (request) => {
       return json({ leads: out });
     }
 
+    if (path === '/coach/submissions') {
+      const e = norm(url.searchParams.get('email'));
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      return json({ submissions: await subsFor(db, e) });
+    }
+
+    /* marking a review done is what starts the next block — the cycle
+       advances here and nowhere else */
+    if (path === '/coach/submission/reviewed' && request.method === 'POST') {
+      const e = norm(body.email);
+      const id = String(body.id || '').replace(/[^a-zA-Z0-9]/g, '');
+      if (!e || !id) return json({ error: 'Which submission?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const k = `sub:${e}:${id}`;
+      const rec = await db.get(k, { type: 'json' });
+      if (!rec) return json({ error: 'No such submission' }, 404);
+      rec.status = 'reviewed'; rec.reviewedAt = Date.now();
+      rec.reviewedBy = asking || primaryCoach();
+      await db.setJSON(k, rec);
+
+      if (body.nextBlock) {
+        await db.setJSON(`cycle:${e}`, { start: Date.now(), n: (rec.cycle || 1) + 1 });
+      }
+      return json({ ok: true, cycle: rec.cycle, nextBlock: !!body.nextBlock });
+    }
+
     if (path === '/coach/clients') {
       const idx = (await db.get('index', { type: 'json' })) || {};
-      const rows = Object.entries(clients()).map(([e, name]) => ({
-        email: e, name, last: idx[e]?.last || 0, unread: idx[e]?.unread || 0,
-      })).sort((a, b) => b.last - a.last);
-      return json({ clients: rows });
+      /* CLIENTS alone was not enough: a free account can now send a form
+         check and ask about coaching, and one that never appeared here
+         would be a question nobody answered. */
+      const rows = new Map();
+      for (const [e, name] of Object.entries(clients())) {
+        if (!owns(e)) continue;
+        rows.set(e, { email: e, name, coached: true, coach: coachOf(e),
+          last: idx[e]?.last || 0, unread: idx[e]?.unread || 0 });
+      }
+      for (const [e, v] of Object.entries(idx)) {
+        if (rows.has(e)) continue;
+        rows.set(e, { email: e, name: (v && v.name) || e, coached: false,
+          last: (v && v.last) || 0, unread: (v && v.unread) || 0 });
+      }
+      return json({ clients: [...rows.values()].sort((a, b) => b.last - a.last) });
     }
 
     /* remove a clip from Stream — for a deletion request, or when a form
@@ -853,24 +1168,26 @@ export default async (request) => {
     if (path === '/coach/thread') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
-      const k = `thread:${e}`;
-
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       if (request.method === 'GET') {
         const idx = (await db.get('index', { type: 'json' })) || {};
         if (idx[e]) { idx[e].unread = 0; await db.setJSON('index', idx); }
-        return json({ messages: (await db.get(k, { type: 'json' })) || [] });
+        return json({ messages: await threadLoad(db, e, { compact: true }) });
       }
       if (request.method === 'POST') {
         const text = String(body.text || '').slice(0, 4000);
         const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
-        if (!text && !video) return json({ error: 'Nothing to send' }, 400);
-        const thread = (await db.get(k, { type: 'json' })) || [];
-        thread.push({ from: 'coach', text, at: Date.now(), ...(video ? { video } : {}) });
-        await db.setJSON(k, thread.slice(-200));
+        const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+        if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
+        await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
+          ...(video ? { video } : {}), ...(image ? { image } : {}) });
 
         /* a reply is the thing clients are waiting for, so say so */
-        await email(e, 'Elliott has replied',
-          `<p style="font:16px/1.6 system-ui">${text ? text.slice(0, 500) : 'He has sent you a video.'}</p>
+        const who2 = coachName(asking || coachOf(e));
+        const sent = video ? `${who2} has sent you a video.`
+          : image ? `${who2} has sent you a photo.` : `${who2} has replied.`;
+        await email(e, `${who2} has replied`,
+          `<p style="font:16px/1.6 system-ui">${text ? text.slice(0, 500) : sent}</p>
            <p style="font:14px/1.6 system-ui;color:#666">Open the app to see it.</p>`);
         return json({ ok: true });
       }
