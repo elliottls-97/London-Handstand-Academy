@@ -64,6 +64,7 @@ let drafts={};
 let subs={};      /* what each client has sent for review */
 let queue=[];     /* everything waiting on a review, whoever it came from */
 let view='clients';
+let mailguard=null;   /* null until loaded; {suppress, clients} after */
 let prog={};
 let notes={};
 let noteDrafts={};
@@ -108,7 +109,7 @@ function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[];
-      loadQueue();
+      loadQueue(); if(mailguard===null) loadMailguard();
       COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
       if(!sel&&clients.length) sel=clients[0].email; draw();
       if(sel) openThread(sel);
@@ -154,6 +155,38 @@ function openThread(email){
       const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; })
     /* keep whatever is on screen rather than replacing it with nothing */
     .catch(()=>coachSay('Could not refresh the thread — what you see may be behind.'));
+}
+
+function loadMailguard(set){
+  fetch(API+'/mailguard',set===undefined?{headers:hdr()}
+    :{method:'POST',headers:hdr(),body:JSON.stringify({suppress:set})})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ mailguard=d; draw(); } })
+    .catch(()=>{});
+}
+
+/* Deliberately loud. The failure mode is forgetting it is on and wondering
+   for a week why a client never hears back. */
+function mailguardHTML(){
+  if(!mailguard || !mailguard.clients) return '';
+  const off=mailguard.suppress;
+  return `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+    background:${off?'rgba(200,122,86,.12)':'var(--mist)'};
+    border:1.5px solid ${off?'var(--terra)':'transparent'};
+    border-radius:14px;padding:12px 15px;margin-top:16px">
+    <span style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+      color:${off?'var(--terra)':'var(--grey2)'}">
+      ${off?'CLIENT EMAIL OFF':'CLIENT EMAIL ON'}</span>
+    <span style="flex:1;min-width:200px;font:400 13px/1.5 var(--sans);color:var(--grey)">
+      ${off
+        ? `Nothing is being emailed to your ${mailguard.clients} coaching client${mailguard.clients===1?'':'s'}. Everyone else — you, testers, form checks — is unaffected.`
+        : `Your ${mailguard.clients} coaching client${mailguard.clients===1?'':'s'} will receive email normally.`}
+    </span>
+    <button onclick="loadMailguard(${off?'false':'true'})" class="send"
+      style="width:auto;padding:0 15px;font-size:12.5px;
+      background:${off?'var(--forest)':'var(--mist)'};color:${off?'#fff':'var(--ink)'}">
+      ${off?'Turn client email on':'Turn it off'}</button>
+  </div>`;
 }
 
 function loadQueue(){
@@ -247,6 +280,15 @@ function subsHTML(email){
           onclick="markReviewed('${esc(email)}','${esc(s.id)}',true)">Reviewed &amp; start next block</button>
       </div></div>`;
   }).join('');
+}
+
+function resetFormCheck(email){
+  if(!confirm('Give '+email+' their free form check back?')) return;
+  fetch(API+'/formcheck/reset',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not reset it')))
+    .then(()=>alert('Done — they can send another free form check.'))
+    .catch(e=>alert(String(e)));
 }
 
 function markReviewed(email,id,nextBlock){
@@ -946,6 +988,7 @@ function draw(){
   $('#v').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline">
       <h1>Coach</h1>
       <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()">Sign out</button></div>
+    ${mailguardHTML()}
     <div style="display:flex;gap:8px;margin-top:18px">
       ${[['clients','Clients'],
          ['free','Form checks'+(freeQ().length?' · '+freeQ().length:'')],
@@ -973,6 +1016,9 @@ function draw(){
             style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
           <button class="send" onclick="reply()">Send</button></div>
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
+        ${sel?`<button onclick="resetFormCheck('${esc(sel)}')" style="background:none;border:none;cursor:pointer;
+          padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+          text-underline-offset:3px">Reset their free form check</button>`:''}
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
       </div>
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}

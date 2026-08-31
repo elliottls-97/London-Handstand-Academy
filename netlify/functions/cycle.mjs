@@ -45,8 +45,34 @@ const coaches = () => {
 const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_EMAIL || '');
 const coachNameOf = e => coaches()[norm(e)] || 'Your coach';
 
+/* the same guard the app function uses — a daily job that mails a real
+   client during a test run is exactly the thing to avoid. See app.mjs. */
+const mailList = v => (process.env[v] || '').split(',')
+  .map(x => String(x).trim().toLowerCase()).filter(Boolean);
+function mayEmail(to) {
+  const t = String(to || '').trim().toLowerCase();
+  if (!t) return false;
+  if (mailList('EMAIL_BLOCK').includes(t)) return false;
+  const only = mailList('EMAIL_ONLY');
+  if (only.length && !only.includes(t)) return false;
+  return true;
+}
+
+/* same switch as app.mjs, same default: a real client is not mailed
+   unless somebody has explicitly turned it back on */
+async function clientMailAllowed(to) {
+  const t = norm(to);
+  if (!parseClients().some(c => c.email === t)) return true;
+  try {
+    const g = await store().get('mailguard', { type: 'json' });
+    return g ? !g.suppress : false;
+  } catch { return false; }
+}
+
 async function email(to, subject, html) {
   if (!process.env.RESEND_API_KEY || !to) return false;
+  if (!mayEmail(to)) return false;
+  if (!(await clientMailAllowed(to))) return false;
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',

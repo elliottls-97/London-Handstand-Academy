@@ -133,8 +133,52 @@ const passwords = () => Object.fromEntries(
     .map(x => { const i = x.indexOf(':'); return [norm(x.slice(0, i)), x.slice(i + 1)]; })
 );
 
+/* ── who may be emailed ──────────────────────────────────────────
+   While the app is being tested against real client records, a test run
+   must not land in a real client's inbox. Two env vars, both optional
+   and both off by default:
+
+     EMAIL_ONLY   if set, mail goes to these addresses and nobody else.
+                  The safe one during testing — it fails closed, so an
+                  address nobody thought about is silent rather than sent.
+     EMAIL_BLOCK  never mail these, whatever else is set.
+
+   Addresses live in Netlify, not in this file: the repo is public. */
+const mailList = v => (process.env[v] || '').split(',')
+  .map(x => String(x).trim().toLowerCase()).filter(Boolean);
+
+function mayEmail(to) {
+  const t = String(to || '').trim().toLowerCase();
+  if (!t) return false;
+  if (mailList('EMAIL_BLOCK').includes(t)) return false;
+  const only = mailList('EMAIL_ONLY');
+  if (only.length && !only.includes(t)) return false;
+  return true;
+}
+
+/* The switch that actually gets used. Env vars need a redeploy to take
+   effect, which is no good for something you flip while testing — so this
+   lives in Blobs and the coach view toggles it in one click.
+
+   It only ever affects real coaching clients. Everyone else — you, a
+   tester, someone who sent a form check — is mailed normally either way.
+
+   Default is SUPPRESSED: if the switch has never been set, or cannot be
+   read, a real client is not mailed. Being silent is recoverable; sending
+   a test email to a paying client is not. */
+async function clientMailAllowed(to) {
+  const t = norm(to);
+  if (!clients()[t]) return true;
+  try {
+    const g = await store().get('mailguard', { type: 'json' });
+    return g ? !g.suppress : false;
+  } catch { return false; }
+}
+
 async function email(to, subject, html) {
   if (!process.env.RESEND_API_KEY) return;
+  if (!mayEmail(to)) return;                 // suppressed on purpose, not a failure
+  if (!(await clientMailAllowed(to))) return;
   try {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -1109,6 +1153,27 @@ export default async (request) => {
     /* everything waiting on a review, across everyone this coach has.
        Without it a one-off form check from someone who is not yet a client
        only surfaces if you happen to notice them in the list and click in. */
+    /* give someone their free assessment back — for a test run, or when a
+       clip was unusable and it would be mean to spend their one on it */
+    /* the email switch, read and written from the dashboard */
+    if (path === '/coach/mailguard') {
+      if (request.method === 'POST') {
+        await db.setJSON('mailguard', { suppress: body.suppress !== false,
+          at: Date.now(), by: asking || primaryCoach() });
+      }
+      const g = await db.get('mailguard', { type: 'json' });
+      return json({ suppress: g ? !!g.suppress : true,
+                    clients: Object.keys(clients()).length });
+    }
+
+    if (path === '/coach/formcheck/reset' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which person?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      await db.delete(`fc:${e}`).catch(() => {});
+      return json({ ok: true, email: e });
+    }
+
     if (path === '/coach/queue') {
       const idx = (await db.get('index', { type: 'json' })) || {};
       const people = new Set([...Object.keys(clients()), ...Object.keys(idx)]);
