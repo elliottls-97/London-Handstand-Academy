@@ -25,6 +25,10 @@ h1{font:400 34px/1 var(--serif);margin:0}
 }
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
 .card{background:#fff;border-radius:20px;padding:18px;border:1px solid var(--line);min-width:0}
+/* the activity panels are shared verbatim with the app, where they are
+   their own cards. Nested in here they should read as sections. */
+.card .card{border:none;border-radius:0;padding:0 0 16px;background:none}
+.card .card + .card{border-top:1px solid var(--line);padding-top:16px}
 .cli{display:flex;align-items:center;gap:12px;padding:13px;border-radius:14px;cursor:pointer;border:none;
  background:none;width:100%;text-align:left}
 .cli:hover{background:var(--mist)}
@@ -542,6 +546,93 @@ function statCard(n,l,tone){
   </div>`;
 }
 
+/* ── activity, from what is already recorded ───────────────────────
+   opens[] is one ISO date per active day, kept for 180 days. sessions[]
+   holds up to 200, each with planned and actual minutes. Neither needed
+   any new instrumentation — the app has been collecting both all along
+   and showing three numbers. */
+function dayKey(d){ return new Date(d).toISOString().slice(0,10); }
+
+function panelMonth(p){
+  const opens=new Set(((p&&p.opens)||[]));
+  const today=new Date(); today.setHours(12,0,0,0);
+  /* start on the Monday 4 weeks back so the columns line up under M-S */
+  const start=new Date(today); start.setDate(start.getDate()-27);
+  start.setDate(start.getDate()-((start.getDay()+6)%7));
+  const cells=[]; let active=0, prior=0;
+  const d=new Date(start);
+  while(d<=today || cells.length%7){
+    const k=dayKey(d), on=opens.has(k), future=d>today;
+    if(on) active++;
+    cells.push(`<div style="aspect-ratio:1;display:grid;place-items:center">
+      <span style="width:29px;height:29px;border-radius:999px;display:grid;place-items:center;
+        font:${on?'700':'400'} 12px/1 var(--sans);
+        background:${on?'var(--forest)':'transparent'};
+        color:${on?'var(--bg)':future?'#c9cec3':'var(--grey2)'}">${d.getDate()}</span></div>`);
+    d.setDate(d.getDate()+1);
+    if(cells.length>42) break;
+  }
+  const cut=dayKey(new Date(Date.now()-28*864e5));
+  const cut2=dayKey(new Date(Date.now()-56*864e5));
+  opens.forEach(k=>{ if(k<cut && k>=cut2) prior++; });
+  const delta=active-prior;
+  const head=['M','T','W','T','F','S','S'].map(x=>
+    `<div style="text-align:center;font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${x}</div>`).join('');
+  return `<div class="card"><div class="kick2">PAST 4 WEEKS</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin:14px 0 6px">${head}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${cells.join('')}</div>
+    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(28,32,25,.08)">
+      ${[['Active days',String(active),''],
+         ['vs prior 4wk',(delta>0?'+':'')+delta, delta>0?'var(--forest)':delta<0?'var(--terra)':''],
+        ].map(([n,v,c])=>`<div style="flex:1">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${n.toUpperCase()}</div>
+        <div class="h-sm" style="font-size:19px;margin-top:5px;${c?'color:'+c:''}">${v}</div></div>`).join('')}
+    </div></div>`;
+}
+
+function panelWeek(p){
+  const ss=((p&&p.sessions)||[]).filter(x=>x&&x.at);
+  const now=new Date(); now.setHours(23,59,59,999);
+  const mins=[], labels=[];
+  let thisWk=0, lastWk=0, drills=0, drillsLast=0;
+  for(let i=6;i>=0;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    const k=dayKey(d);
+    const m=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.actual||x.mins||0),0);
+    mins.push(m); thisWk+=m;
+    drills+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.drills||0),0);
+    labels.push(i===0?'TOD':['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()]);
+  }
+  for(let i=13;i>=7;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    const k=dayKey(d);
+    lastWk+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.actual||x.mins||0),0);
+    drillsLast+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.drills||0),0);
+  }
+  const peak=Math.max(30,...mins);
+  const bars=mins.map((m,i)=>`<div style="flex:1;display:flex;flex-direction:column;
+      align-items:center;justify-content:flex-end;gap:7px">
+    <div style="width:100%;height:78px;display:flex;align-items:flex-end">
+      <div title="${m} min" style="width:100%;border-radius:6px 6px 3px 3px;
+        height:${Math.max(m?7:3,Math.round(m/peak*78))}px;
+        background:${m?(i===6?'var(--forest)':'var(--sage)'):'rgba(28,32,25,.07)'}"></div></div>
+    <span style="font:600 9px/1 var(--sans);letter-spacing:.06em;
+      color:${i===6?'var(--forest)':'var(--grey2)'}">${labels[i]}</span></div>`).join('');
+  const dm=thisWk-lastWk, dd=drills-drillsLast;
+  const hrs=n=>n>=60?(n/60).toFixed(1)+'h':n+'m';
+  return `<div class="card"><div class="kick2">THIS WEEK</div>
+    <div style="display:flex;gap:5px;align-items:flex-end;margin-top:16px">${bars}</div>
+    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(28,32,25,.08)">
+      ${[['Time',hrs(thisWk)],['Drills',String(drills)],
+         ['vs last week',(dm>0?'+':'')+hrs(Math.abs(dm)).replace('-','')+' · '+(dd>0?'+':'')+dd]]
+        .map(([n,v])=>`<div style="flex:1">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${n.toUpperCase()}</div>
+        <div class="h-sm" style="font-size:19px;margin-top:5px">${v}</div></div>`).join('')}
+    </div>
+    ${thisWk?'':`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
+      Nothing logged this week yet. Finish a session and it turns up here.</div>`}</div>`;
+}
+
 function metricsHTML(email){
   if(!prog[email]) return `<div class="kick" style="margin-top:22px">ANALYSIS</div>
     <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">Loading…</div>`;
@@ -568,6 +659,8 @@ function metricsHTML(email){
   const toneFg = a.tone==='bad'?'var(--terra)':a.tone==='warn'?'#8a6524':'var(--forest)';
 
   return `
+  ${panelMonth(p)}
+  ${panelWeek(p)}
   <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
     <div class="kick" style="margin:0">ANALYSIS</div>
     <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;padding:5px 9px;border-radius:4px;
