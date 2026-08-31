@@ -166,14 +166,21 @@ function openFromQueue(email){ view='clients'; openThread(email); }
 
 /* the inbox: one-off form checks and two-week tests, oldest first, because
    the oldest is the one closest to breaking the 48 hours we promise */
-function queueHTML(){
-  if(!queue.length) return `<div class="card">
-    <div class="kick">TO REVIEW</div>
+const freeQ = () => queue.filter(q=>q.kind==='assessment');
+const paidQ = () => queue.filter(q=>q.kind!=='assessment');
+
+function queueHTML(which){
+  const rows = which==='free' ? freeQ() : paidQ();
+  const title = which==='free' ? 'FREE FORM CHECKS' : 'CLIENT REVIEWS';
+  if(!rows.length) return `<div class="card">
+    <div class="kick">${title}</div>
     <div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
-      Nothing waiting. Everything sent in has been reviewed.</div></div>`;
-  return `<div class="card"><div class="kick">TO REVIEW · ${queue.length}</div>
+      ${which==='free'
+        ? 'No form checks waiting. These come from people who are not clients yet — the fastest way to lose one is to leave it sitting.'
+        : 'Nothing from a coaching client waiting. Every block test sent in has been reviewed.'}</div></div>`;
+  return `<div class="card"><div class="kick">${title} · ${rows.length}</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
-    ${queue.map(q=>{
+    ${rows.map(q=>{
       const hrs=Math.round((Date.now()-(q.at||0))/3600000);
       const late=hrs>=48;
       const nums=Object.entries(q.numbers||{}).filter(([k])=>k!=='photo')
@@ -940,13 +947,15 @@ function draw(){
       <h1>Coach</h1>
       <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()">Sign out</button></div>
     <div style="display:flex;gap:8px;margin-top:18px">
-      ${[['clients','Clients'],['queue','To review'+(queue.length?' · '+queue.length:'')]].map(([id,label])=>
+      ${[['clients','Clients'],
+         ['free','Form checks'+(freeQ().length?' · '+freeQ().length:'')],
+         ['paid','Client reviews'+(paidQ().length?' · '+paidQ().length:'')]].map(([id,label])=>
         `<button onclick="view='${id}';draw()" style="cursor:pointer;border-radius:999px;padding:9px 16px;
           font:600 12.5px/1 var(--sans);border:1.5px solid ${view===id?'var(--forest)':'var(--line)'};
           background:${view===id?'var(--forest)':'#fff'};color:${view===id?'#fff':'var(--ink)'}">
           ${label}</button>`).join('')}
     </div>
-    ${view==='queue'?`<div style="margin-top:16px">${queueHTML()}</div>`:`
+    ${view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>`:`
     <div class="grid">
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       <div class="card">
