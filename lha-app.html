@@ -551,10 +551,18 @@ function screenProgress(){
       <div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
         ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet — the first test opens in a few days.</div>`}</div>
-      ${st.awaitingReview?`<div class="card" style="border:1.5px solid var(--terra);padding:18px">
-        <div class="kick2" style="color:var(--terra)">WITH ELLIOTT NOW</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-          Sent ${esc(when(st.awaitingReview))} — a reply lands within 48 hours.</div></div>`:''}
+      ${st.awaitingReview
+        ? `<div class="card" style="border:1.5px solid var(--terra);padding:18px">
+            <div class="kick2" style="color:var(--terra)">IN REVIEW</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+              Sent ${esc(when(st.awaitingReview))} — an answer lands within 48 hours.</div></div>`
+        : (st.lastReview && st.lastReview > (st.seenReview||0))
+        ? `<div class="card" style="border:1.5px solid var(--forest);padding:18px;cursor:pointer"
+            onclick="st.seenReview=st.lastReview;save();go('${st.in?'ask':'coaching'}')">
+            <div class="kick2" style="color:var(--forest)">ANSWERED</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+              Your answer is back — tap to read it.</div></div>`
+        : ''}
       ${panelMonth(st.prog)}
       ${panelWeek(st.prog)}
       <div class="card"><div class="kick2">CONSISTENCY</div>
@@ -2192,13 +2200,46 @@ function screenCoaching(){
           onclick="st.tab='signin';save();render()">Create an account to send it</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
           Takes a second — it's just so the answer has somewhere to land.</div></div>`
-    : awaiting
-    ? `<div class="card" style="padding:22px;border:1.5px solid var(--terra)">
-        <div class="kick2" style="color:var(--terra)">WITH ME NOW</div>
-        <div class="h-md" style="font-size:22px;margin-top:8px">Got it — I'm on it.</div>
-        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Sent ${esc(when(st.awaitingReview))}. I'll come back to you within 48 hours,
-          and my reply lands in the chat below.</div></div>`
+    : awaiting || (st.lastReview && st.lastReview > (st.seenReview||0))
+    ? (function(){
+        /* three states, one line each, so it is obvious where the thing is:
+           it went, someone has it, the answer is back. Silence after
+           uploading is what makes people think it vanished. */
+        const done = !awaiting;
+        const steps = [
+          ['Uploaded', 'Your clip is in.', true],
+          ['With Elliott', done
+            ? 'Watched.'
+            : "He's watching it and picking the one thing to change.", true],
+          ['Answer ready', done
+            ? 'It\'s in the chat below.'
+            : 'Within 48 hours. You\'ll get an email the moment it lands.', done],
+        ];
+        return `<div class="card" style="padding:22px;border:1.5px solid ${done?'var(--forest)':'var(--terra)'}">
+          <div class="kick2" style="color:${done?'var(--forest)':'var(--terra)'}">
+            ${done?'ANSWERED':'IN REVIEW'}</div>
+          <div class="h-md" style="font-size:22px;margin-top:8px">
+            ${done?'Your answer is back.':'Hang tight.'}</div>
+          <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+            Sent ${esc(when(awaiting?st.awaitingReview:st.lastReview))}.</div>
+          <div style="margin-top:18px">
+          ${steps.map(([t,d,on],i)=>`<div style="display:flex;gap:13px">
+            <div style="flex:none;display:flex;flex-direction:column;align-items:center;width:20px">
+              <span style="width:20px;height:20px;border-radius:999px;display:grid;place-items:center;
+                background:${on?'var(--forest)':'transparent'};
+                border:${on?'none':'2px solid rgba(28,32,25,.18)'};
+                color:var(--bg);font:700 10px/1 var(--sans)">${on?(i===1&&!done?'&bull;':'&check;'):''}</span>
+              ${i<2?`<span style="flex:1;width:2px;min-height:26px;background:rgba(28,32,25,.12)"></span>`:''}
+            </div>
+            <div style="padding-bottom:${i<2?'14px':'0'}">
+              <div style="font:600 14.5px/1.3 var(--sans);color:${on?'var(--ink)':'var(--grey2)'}">${t}</div>
+              <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${d}</div>
+            </div></div>`).join('')}
+          </div>
+          ${done?`<button class="btn" style="width:100%;margin-top:16px"
+            onclick="st.seenReview=st.lastReview;save();go('${st.in?'ask':'coaching'}')">Read the answer</button>`:''}
+        </div>`;
+      })()
     : used
     ? `<div class="card" style="padding:22px">
         <div class="kick2">FREE ASSESSMENT · USED</div>

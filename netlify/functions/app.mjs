@@ -1104,6 +1104,27 @@ export default async (request) => {
       return json({ leads: out });
     }
 
+    /* everything waiting on a review, across everyone this coach has.
+       Without it a one-off form check from someone who is not yet a client
+       only surfaces if you happen to notice them in the list and click in. */
+    if (path === '/coach/queue') {
+      const idx = (await db.get('index', { type: 'json' })) || {};
+      const people = new Set([...Object.keys(clients()), ...Object.keys(idx)]);
+      const out = [];
+      for (const e of people) {
+        if (!owns(e)) continue;
+        for (const s of await subsFor(db, e)) {
+          if (s.status !== 'submitted') continue;
+          out.push({ email: e, name: clients()[e] || (idx[e] && idx[e].name) || e,
+            coached: !!clients()[e], id: s.id, kind: s.kind, cycle: s.cycle,
+            at: s.at, clips: (s.clips || []).length, numbers: s.numbers || {} });
+        }
+      }
+      /* oldest first: the one closest to breaking the 48-hour promise */
+      out.sort((a, b) => (a.at || 0) - (b.at || 0));
+      return json({ queue: out });
+    }
+
     if (path === '/coach/submissions') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
