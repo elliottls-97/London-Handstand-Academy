@@ -48,6 +48,7 @@ DEMO_PROG_JS = """(function(){
 })()"""
 
 SHIM = """
+<meta name="robots" content="noindex,nofollow">
 <script>
 /* ── PREVIEW SHIM ──────────────────────────────────────────────────
    Seeds a signed-in coached client and answers every request locally.
@@ -78,25 +79,29 @@ SHIM = """
     const u = String((url && url.url) || url || '');
     if(!/\\/api\\/app\\//.test(u)) return real(url, opts);
     const post = (opts && opts.method === 'POST');
-    let sent = {}; try{ sent = JSON.parse((opts&&opts.body)||'{}'); }catch(e){}
+    /* match the path exactly, the way the real function routes. Substring
+       matching is a trap here: '/messages' contains '/me'. */
+    const path = u.replace(/^.*\/api\/app/, '').split('?')[0].replace(/\/$/,'') || '/';
 
-    if(u.includes('/programme')) return mode==='coached'
+    if(path === '/programme') return mode==='coached'
       ? reply({client:'Demo', plan:DEMO_PLAN, cycle:{start:Date.now()-9*864e5,n:1,days:14},
                library:(window.LIBRARY||[])})
       : reply({error:'No programme yet'}, 404);
-    if(u.includes('/me')) return reply({email:'demo@example.com', name:'Demo',
+    if(path === '/me') return reply({email:'demo@example.com', name:'Demo',
       coached: mode==='coached', coach:false, plus: mode==='plus',
       coachName: mode==='coached'?'Elliott':'', canManage:false, canCancel:false,
       cancelAt:0, freeCheckUsed:false});
-    if(u.includes('/messages')) return post ? reply({ok:true})
+    if(path === '/messages') return post ? reply({ok:true})
       : reply({messages: mode==='coached' ? DEMO_MSGS : []});
-    if(u.includes('/submissions')) return reply({submissions:[]});
-    if(u.includes('/submission')) { alert('Preview — nothing was sent.'); return reply({ok:true,id:'preview'}); }
-    if(u.includes('/cycle')) return reply({start:Date.now()-9*864e5,n:1,days:14,
+    if(path === '/submissions') return reply({submissions:[]});
+    if(path === '/submission'){ alert('Preview — nothing was sent.'); return reply({ok:true,id:'preview'}); }
+    if(path === '/cycle') return reply({start:Date.now()-9*864e5,n:1,days:14,
       dueAt:Date.now()+5*864e5, due:false, daysLeft:5, submission:null, awaiting:false, reviewHours:48});
-    if(u.includes('/progress')) return post ? reply({ok:true}) : reply({progress:DEMO_PROG});
-    if(u.includes('/upload')) { alert('Preview — uploads are switched off here.'); return reply({error:'Preview'},503); }
-    if(u.includes('/image'))  { alert('Preview — uploads are switched off here.'); return reply({error:'Preview'},503); }
+    /* the client route answers with the record itself; only the coach one
+       wraps it in {progress}. The app does st.prog = d. */
+    if(path === '/progress') return post ? reply({ok:true}) : reply(DEMO_PROG);
+    if(path === '/upload' || path.startsWith('/image')){
+      alert('Preview — uploads are switched off here.'); return reply({error:'Preview'},503); }
     return reply({ok:true});
   };
 
