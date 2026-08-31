@@ -22,6 +22,7 @@
    ══════════════════════════════════════════════════════════════ */
 import { getStore } from '@netlify/blobs';
 import programmes from './programmes.mjs';
+import * as supa from './supa.mjs';
 
 const CODE_TTL = 15 * 60 * 1000;          // a code lasts 15 minutes
 const TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
@@ -1246,6 +1247,13 @@ export default async (request) => {
     /* give someone their free assessment back — for a test run, or when a
        clip was unusable and it would be mean to spend their one on it */
     /* the email switch, read and written from the dashboard */
+    /* Is the database reachable, and is it the right key? Mirrors
+       /coach/stripe-status: reports what the running deploy can see
+       without ever revealing a secret. */
+    if (path === '/coach/dbcheck') {
+      return json(await supa.ping());
+    }
+
     if (path === '/coach/mailguard') {
       if (request.method === 'POST') {
         await db.setJSON('mailguard', { suppress: body.suppress !== false,
