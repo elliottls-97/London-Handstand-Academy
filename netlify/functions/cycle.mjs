@@ -72,21 +72,32 @@ export default async () => {
   const now = Date.now();
   const done = { reminded: [], chased: [], skipped: 0 };
 
-  for (const c of parseClients()) {
+  /* Anyone who has sent something, not only the coaching roster. A one-off
+     form check comes from someone who is not a client yet — which makes it
+     the worst one to let go quiet. */
+  const idx = (await db.get('index', { type: 'json' })) || {};
+  const roster = parseClients();
+  const known = new Set(roster.map(c => c.email));
+  const everyone = roster.concat(
+    Object.entries(idx)
+      .filter(([e]) => !known.has(e))
+      .map(([e, v]) => ({ email: e, name: (v && v.name) || e, coach: '', lead: true })));
+
+  for (const c of everyone) {
     const cycle = await db.get(`cycle:${c.email}`, { type: 'json' });
-    /* no cycle means they have never opened their programme — there is
-       nothing to remind them about yet */
-    if (!cycle) { done.skipped++; continue; }
+    /* no cycle means no block underway — nothing to remind them about.
+       Their submissions still need chasing, so fall through to that. */
+    if (!cycle && !c.lead) { done.skipped++; continue; }
 
     const plan = programmes.clients[c.email];
     const days = (plan && Number(plan.testDelayDays)) || 14;
-    const dueAt = cycle.start + days * DAY;
+    const dueAt = (cycle ? cycle.start : now) + days * DAY;
     const subs = await subsFor(db, c.email);
-    const mine = subs.filter(s => s.cycle === cycle.n);
+    const mine = c.lead ? subs : subs.filter(s => s.cycle === cycle.n);
     const coach = c.coach || primaryCoach();
 
     /* 1 — footage is due and has not arrived */
-    if (!mine.length && now >= dueAt) {
+    if (!c.lead && !mine.length && now >= dueAt) {
       const overdueDays = Math.floor((now - dueAt) / DAY);
       /* how many nudges are owed by now. Counting rather than matching the
          exact day means a missed run catches up instead of losing the

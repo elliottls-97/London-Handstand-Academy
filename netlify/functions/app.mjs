@@ -818,7 +818,8 @@ export default async (request) => {
       drill: String((c && c.drill) || '').slice(0, 64),
       name: String((c && c.name) || '').slice(0, 80),
       uid: String((c && c.uid) || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64),
-    })).filter(c => c.uid) : [];
+      image: String((c && c.image) || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64),
+    })).filter(c => c.uid || c.image) : [];
     if (!clips.length && !Object.keys(numbers).length) {
       return json({ error: 'Nothing to send' }, 400);
     }
@@ -838,7 +839,8 @@ export default async (request) => {
     await threadAdd(db, who, { from: 'client',
       text: `${label}${lines ? ' — ' + lines : ''}`, sub: id });
     for (const c of clips) {
-      await threadAdd(db, who, { from: 'client', text: c.name || c.drill, video: c.uid, sub: id });
+      await threadAdd(db, who, { from: 'client', text: c.name || c.drill, sub: id,
+        ...(c.uid ? { video: c.uid } : {}), ...(c.image ? { image: c.image } : {}) });
     }
 
     const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
@@ -1145,6 +1147,20 @@ export default async (request) => {
       rec.status = 'reviewed'; rec.reviewedAt = Date.now();
       rec.reviewedBy = asking || primaryCoach();
       await db.setJSON(k, rec);
+
+      /* If they already replied in the thread, the client has been emailed
+         already and a second one is noise. If this was marked reviewed
+         without a reply, nothing has told them — and the app says an email
+         lands the moment it does. */
+      const thread = await threadLoad(db, e);
+      const replied = thread.some(m => m.from === 'coach' && (m.at || 0) > (rec.at || 0));
+      if (!replied) {
+        const nm = coachName(asking || coachOf(e));
+        await email(e, `${nm} has looked at your clips`,
+          `<p style="font:16px/1.6 system-ui">${nm} has been through what you sent.
+           Open the app to read it.</p>
+           <p style="font:15px/1.6 system-ui"><a href="https://londonhandstandacademy.com/lha-app.html">Open the app</a></p>`);
+      }
 
       if (body.nextBlock) {
         await db.setJSON(`cycle:${e}`, { start: Date.now(), n: (rec.cycle || 1) + 1 });
