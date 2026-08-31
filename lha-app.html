@@ -504,7 +504,7 @@ function loadThread(){
     const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
     const same=shape(merged)===shape(st.msgs);
     st.msgs=merged; save();
-    if(st.tab==='ask' && !same) render();
+    if((st.tab==='ask'||st.tab==='coaching') && !same) render();
   }).catch(()=>{});
 }
 function when(t){
@@ -562,6 +562,18 @@ async function shrinkPhoto(file, max=1600, quality=0.82){
   return c.toDataURL('image/jpeg',quality);
 }
 
+/* the server is what rations the free form check; the app only reports it */
+function gateCheck(r){
+  if(r.ok) return r;
+  return r.json().catch(()=>({})).then(d=>{
+    if(d && d.gated){
+      st.freeCheckUsed=true;
+      pendingMsgs.pop(); st.msgs=(st.msgs||[]).slice(0,-1); save(); render();
+    }
+    return Promise.reject((d&&d.error)||'Could not send that');
+  });
+}
+
 function sendPhoto(file){
   if(upBusy) return;
   upBusy=true; upSay('Preparing the photo…');
@@ -577,9 +589,9 @@ function sendPhoto(file){
       st.msgs=(st.msgs||[]).concat([{from:'me',text,image:d.id,time:'Just now'}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,image:d.id})});
+        body:JSON.stringify({text,image:d.id})}).then(gateCheck);
     })
-    .then(()=>{ upBusy=false; upSay(''); setTimeout(loadThread,1200); })
+    .then(()=>{ upBusy=false; upSay(''); loadEntitlement(); setTimeout(loadThread,1200); })
     .catch(e=>{ upBusy=false; upSay(String(e)); });
 }
 
@@ -611,9 +623,9 @@ function sendClip(file){
       st.msgs=(st.msgs||[]).concat([{from:'me',text,video:uid,time:'Just now'}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,video:uid})});
+        body:JSON.stringify({text,video:uid})}).then(gateCheck);
     })
-    .then(()=>{ upBusy=false; upSay(''); setTimeout(loadThread,1200); })
+    .then(()=>{ upBusy=false; upSay(''); loadEntitlement(); setTimeout(loadThread,1200); })
     .catch(e=>{ upBusy=false; upSay(String(e)); });
 }
 
@@ -1647,7 +1659,7 @@ const QUIZ=[
 const TIERS=[['The five-stage ladder','✓','✓'],['Level-finder quiz','✓','—'],['Quick session builder','✓','✓'],
  ['Guided follow-along player','✓','✓'],['Drill library','Stage-gated','All drills'],['Max hold timer','✓','✓'],
  ['Offline use','✓','✓'],['Programme written for you','—','✓'],["Coach's read on the block",'—','✓'],
- ['Too easy / too hard flags','Self only','To Elliott'],['Chat with Elliott','—','✓'],
+ ['Too easy / too hard flags','Self only','To Elliott'],['Chat with Elliott','About coaching','Anything'],
  ['Form check on your footage','One free','Unlimited'],['Two-week test reviewed','Self-scored','By Elliott'],
  ['Session summary to coach','—','✓'],['Workshops','Book','Member price']];
 
@@ -1855,7 +1867,7 @@ function loadEntitlement(){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
       const was=st.plus, wasIn=st.in;
-      st.plus=!!d.plus; st.canManage=!!d.canManage;
+      st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
       st.in=!!d.coached;
       if(!st.in && st.token){ st.mode='free'; st.quizDone=true; }
@@ -1943,6 +1955,83 @@ function buildFreeSession(){
 
 /* ── coaching pitch (free tier's 4th tab) ── */
 function screenCoaching(){
+  /* the free form check, for real this time. It used to fire an email and
+     relabel its own button — no upload, no account, no limit, under copy
+     that promised one free check. */
+  const signedIn=!!st.token;
+  const used=!!st.freeCheckUsed;
+  const checkCard = !signedIn
+    ? `<div class="card" style="padding:20px">
+        <div class="kick2">YOUR FREE FORM CHECK</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:12px">
+          Save your progress with an email and a password first, so the answer
+          has somewhere to land.</div>
+        <button class="btn" style="width:100%;margin-top:14px"
+          onclick="st.tab='signin';save();render()">Create an account</button></div>`
+    : used
+    ? `<div class="card" style="padding:20px">
+        <div class="kick2">FREE FORM CHECK · USED</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:12px">
+          You have had your one. Coaching includes unlimited form checks —
+          send footage as often as you train and I will come back on it.</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+          Ask me anything below in the meantime.</div></div>`
+    : `<div class="card" style="padding:20px">
+        <div class="kick2">YOUR FREE FORM CHECK</div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button onclick="pickClip()" style="flex:1;border:1.5px dashed rgba(28,32,25,.2);background:none;
+            border-radius:20px;padding:24px 12px;text-align:center;cursor:pointer">
+            <div class="h-sm">Film a clip</div>
+            <div style="font:400 12px/1.45 var(--sans);color:var(--grey);margin-top:6px">Up to 3 min</div></button>
+          <button onclick="pickPhoto()" style="flex:1;border:1.5px dashed rgba(28,32,25,.2);background:none;
+            border-radius:20px;padding:24px 12px;text-align:center;cursor:pointer">
+            <div class="h-sm">Send a photo</div>
+            <div style="font:400 12px/1.45 var(--sans);color:var(--grey);margin-top:6px">Held position</div></button>
+        </div>
+        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
+          Side on, phone vertical, whole body in frame. Don't crop the hands out.
+          One clean attempt is more use than five scrappy ones.</div></div>`;
+
+  /* the same thread the coached app uses, so a question here reaches the
+     same place a client's does */
+  const thread=(st.msgs||[]).map(m=>{
+    const mine=m.from==='me';
+    return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};gap:0">
+      ${m.video?`<div style="max-width:86%;border-radius:16px;overflow:hidden;background:#11150f;margin-bottom:${m.text?'6px':'0'}">
+        <iframe src="${streamEmbed(m.video)}" loading="lazy" allow="fullscreen"
+          style="display:block;width:100%;aspect-ratio:4/5;max-height:46vh;border:0"></iframe></div>`:''}
+      ${m.image?`<a href="${AUTH.image}/${esc(m.image)}" target="_blank" rel="noopener"
+        style="max-width:86%;border-radius:16px;overflow:hidden;background:#11150f;display:block;
+        margin-bottom:${m.text?'6px':'0'}">
+        <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" loading="lazy"
+          style="display:block;width:100%;max-height:46vh;object-fit:contain"></a>`:''}
+      ${m.text?`<div style="max-width:86%;border-radius:${mine?'18px 18px 5px 18px':'18px 18px 18px 5px'};
+        padding:12px 14px;background:${mine?'var(--forest)':'#fff'};color:${mine?'var(--bg)':'var(--ink)'};
+        font:400 14px/1.5 var(--sans)">${esc(m.text)}</div>`:''}
+      <div style="font:500 10px/1 var(--sans);color:var(--grey2);margin:6px 0 0">${esc(m.time||'')}</div></div>`;
+  }).join('');
+
+  const askCard = signedIn
+    ? `<div class="card" style="padding:20px">
+        <div class="kick2">ASK ELLIOTT ABOUT COACHING</div>
+        ${st.msgs&&st.msgs.length
+          ? `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${thread}</div>`
+          : `<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+             Not sure which tier fits, or whether a niggle rules you out? Ask here —
+             it comes straight to me.</div>`}
+        <div style="background:var(--mist);border-radius:18px;padding:8px 8px 8px 15px;
+          display:flex;gap:8px;align-items:center;margin-top:14px">
+          <input id="askIn" placeholder="Ask about coaching…" value="${esc(askDraft)}"
+            oninput="askDraft=this.value"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();sendAsk();}"
+            style="flex:1;border:none;outline:none;background:none;font:400 14px/1.3 var(--sans)">
+          <button onclick="sendAsk()" style="flex:none;width:38px;height:38px;border-radius:999px;
+            background:var(--forest);border:none;color:var(--bg);font:400 17px/1 var(--serif);
+            cursor:pointer">&rarr;</button></div>
+        <div id="askMsg" style="font:500 11.5px/1.5 var(--sans);color:var(--terra);
+          text-align:center;margin-top:8px;min-height:16px"></div></div>`
+    : '';
+
   const rows=TIERS.map(([n,f,c])=>`<div style="background:#fff;padding:11px 13px;display:flex;align-items:center;gap:8px">
     <span style="flex:1;font:500 12.5px/1.3 var(--sans)">${esc(n)}</span>
     <span style="flex:none;width:62px;text-align:center;font:500 11px/1.2 var(--sans);color:${f==='—'?'#c2c5b9':'var(--grey)'}">${f}</span>
@@ -1965,17 +2054,8 @@ function screenCoaching(){
       <div style="font:400 14px/1.5 var(--sans);color:var(--sage);margin-top:10px">
         One filmed attempt, one written answer. Free once — after that it comes with coaching.</div></div>
     <div style="padding:16px 16px 30px;display:flex;flex-direction:column;gap:11px">
-      <div class="card" style="padding:20px">
-        <div class="kick2">YOUR FREE FORM CHECK</div>
-        <button onclick="post({type:'Free form check'});this.textContent='Sent — I\\'ll be in touch'"
-          style="width:100%;border:1.5px dashed rgba(28,32,25,.2);background:none;border-radius:20px;padding:30px;
-          text-align:center;margin-top:14px;cursor:pointer">
-          <div class="h-md">Film or upload</div>
-          <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:8px">
-            Side on, phone vertical, whole body in frame. Don't crop the hands out.</div></button>
-        <div style="font:500 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">
-          One clean attempt is more use than five scrappy ones.</div>
-      </div>
+      ${checkCard}
+      ${askCard}
       <div class="card" style="padding:20px">
         <div class="kick2">WHAT EACH TIER GETS</div>
         <div style="margin-top:14px;border-radius:16px;overflow:hidden;border:1px solid rgba(28,32,25,.08)">
@@ -2169,7 +2249,8 @@ const TABS={
   coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask'],['more','More']],
   free:[['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
 };
-function go(t){ st.tab=t; save(); render(); if(t==='ask') loadThread(); }
+function go(t){ st.tab=t; save(); render();
+  if(t==='ask'||t==='coaching'){ loadThread(); loadEntitlement(); } }
 function render(){
   const app=$('#app');
   /* swapping innerHTML throws the scroll container back to the top, which

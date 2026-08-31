@@ -488,6 +488,10 @@ export default async (request) => {
       canManage: !!acct.stripeCustomer,
       canCancel: !!(acct.sub || acct.stripeCustomer),
       cancelAt: acct.cancelAt || 0,
+      /* the one free form check. Its own key, because nothing else writes
+         it — folding it into acct would put it in the path of every other
+         account write. */
+      freeCheckUsed: !!(await db.get(`fc:${who}`, { type: 'json' })),
     });
   }
 
@@ -815,11 +819,26 @@ export default async (request) => {
       const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
       const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
       if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
+
+      /* Anyone signed in may ask a question — that is the way in to
+         coaching. Footage is the thing that costs time to review, so a
+         free account gets exactly one, and coaching gets the rest. */
+      const coached = !!clients()[who];
+      if ((video || image) && !coached) {
+        if (await db.get(`fc:${who}`, { type: 'json' })) {
+          return json({ error: 'Your free form check has already been used. '
+            + 'Form checks come with coaching.', gated: true }, 402);
+        }
+        await db.setJSON(`fc:${who}`, { at: Date.now(), video: video || null, image: image || null });
+      }
+
       await threadAdd(db, who, { from: 'client', text,
         ...(video ? { video } : {}), ...(image ? { image } : {}) });
 
+      const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
       const idx = (await db.get('index', { type: 'json' })) || {};
-      idx[who] = { name: clients()[who] || who, last: Date.now(), unread: (idx[who]?.unread || 0) + 1 };
+      idx[who] = { name: clients()[who] || acct.name || who, coached,
+                   last: Date.now(), unread: (idx[who]?.unread || 0) + 1 };
       await db.setJSON('index', idx);
 
       const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
@@ -923,10 +942,20 @@ export default async (request) => {
 
     if (path === '/coach/clients') {
       const idx = (await db.get('index', { type: 'json' })) || {};
-      const rows = Object.entries(clients()).map(([e, name]) => ({
-        email: e, name, last: idx[e]?.last || 0, unread: idx[e]?.unread || 0,
-      })).sort((a, b) => b.last - a.last);
-      return json({ clients: rows });
+      /* CLIENTS alone was not enough: a free account can now send a form
+         check and ask about coaching, and one that never appeared here
+         would be a question nobody answered. */
+      const rows = new Map();
+      for (const [e, name] of Object.entries(clients())) {
+        rows.set(e, { email: e, name, coached: true,
+          last: idx[e]?.last || 0, unread: idx[e]?.unread || 0 });
+      }
+      for (const [e, v] of Object.entries(idx)) {
+        if (rows.has(e)) continue;
+        rows.set(e, { email: e, name: (v && v.name) || e, coached: false,
+          last: (v && v.last) || 0, unread: (v && v.unread) || 0 });
+      }
+      return json({ clients: [...rows.values()].sort((a, b) => b.last - a.last) });
     }
 
     /* remove a clip from Stream — for a deletion request, or when a form
