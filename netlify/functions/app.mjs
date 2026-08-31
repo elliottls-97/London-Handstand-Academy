@@ -802,7 +802,17 @@ export default async (request) => {
   if (path === '/submission' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const kind = body.kind === 'assessment' ? 'assessment' : 'test';
+    /* A free account has one assessment in it. The gate lives here as well
+       as on /messages — footage can reach a coach by either road, and a
+       limit enforced on only one of them is not a limit. */
+    const coached = !!clients()[who];
+    const kind = coached && body.kind !== 'assessment' ? 'test' : 'assessment';
+    if (!coached) {
+      if (await db.get(`fc:${who}`, { type: 'json' })) {
+        return json({ error: 'Your free assessment has already been used. '
+          + 'Coaching includes unlimited form checks.', gated: true }, 402);
+      }
+    }
     const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};
     const clips = Array.isArray(body.clips) ? body.clips.slice(0, 12).map(c => ({
       drill: String((c && c.drill) || '').slice(0, 64),
@@ -819,6 +829,7 @@ export default async (request) => {
     const rec = { id, kind, cycle: cycle.n, at: Date.now(), status: 'submitted',
                   numbers, clips, reviewedAt: 0 };
     await db.setJSON(`sub:${who}:${id}`, rec);
+    if (!coached) await db.setJSON(`fc:${who}`, { at: Date.now(), sub: id });
 
     /* it lands in the thread too, so the coach reads it where they
        already reply rather than in a second inbox */

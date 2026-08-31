@@ -201,7 +201,10 @@ const AUTH = {
   resetGo:'/api/app/reset/confirm',    // POST {email,code,password}
   subscription:'/api/app/subscription',// GET → live status and dates
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
-  image:'/api/app/image'               // POST a data URL → {id}; GET /image/{id} serves it
+  image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
+  submission:'/api/app/submission',    // POST numbers + clips as one review
+  submissions:'/api/app/submissions',  // GET → what has been sent, and its status
+  cycle:'/api/app/cycle'               // GET → where the client is in the block
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 const DEV_CODE = '123456';
@@ -435,6 +438,93 @@ const purpose=n=>PURPOSE[n]||'Why this is here';
 const why=n=>WHY[n]||'';
 
 /* ── Progress ── */
+/* ── activity, from what is already recorded ───────────────────────
+   opens[] is one ISO date per active day, kept for 180 days. sessions[]
+   holds up to 200, each with planned and actual minutes. Neither needed
+   any new instrumentation — the app has been collecting both all along
+   and showing three numbers. */
+function dayKey(d){ return new Date(d).toISOString().slice(0,10); }
+
+function panelMonth(){
+  const opens=new Set(((st.prog&&st.prog.opens)||[]));
+  const today=new Date(); today.setHours(12,0,0,0);
+  /* start on the Monday 4 weeks back so the columns line up under M-S */
+  const start=new Date(today); start.setDate(start.getDate()-27);
+  start.setDate(start.getDate()-((start.getDay()+6)%7));
+  const cells=[]; let active=0, prior=0;
+  const d=new Date(start);
+  while(d<=today || cells.length%7){
+    const k=dayKey(d), on=opens.has(k), future=d>today;
+    if(on) active++;
+    cells.push(`<div style="aspect-ratio:1;display:grid;place-items:center">
+      <span style="width:29px;height:29px;border-radius:999px;display:grid;place-items:center;
+        font:${on?'700':'400'} 12px/1 var(--sans);
+        background:${on?'var(--forest)':'transparent'};
+        color:${on?'var(--bg)':future?'#c9cec3':'var(--grey2)'}">${d.getDate()}</span></div>`);
+    d.setDate(d.getDate()+1);
+    if(cells.length>42) break;
+  }
+  const cut=dayKey(new Date(Date.now()-28*864e5));
+  const cut2=dayKey(new Date(Date.now()-56*864e5));
+  opens.forEach(k=>{ if(k<cut && k>=cut2) prior++; });
+  const delta=active-prior;
+  const head=['M','T','W','T','F','S','S'].map(x=>
+    `<div style="text-align:center;font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${x}</div>`).join('');
+  return `<div class="card"><div class="kick2">PAST 4 WEEKS</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin:14px 0 6px">${head}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${cells.join('')}</div>
+    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(28,32,25,.08)">
+      ${[['Active days',String(active),''],
+         ['vs prior 4wk',(delta>0?'+':'')+delta, delta>0?'var(--forest)':delta<0?'var(--terra)':''],
+        ].map(([n,v,c])=>`<div style="flex:1">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${n.toUpperCase()}</div>
+        <div class="h-sm" style="font-size:19px;margin-top:5px;${c?'color:'+c:''}">${v}</div></div>`).join('')}
+    </div></div>`;
+}
+
+function panelWeek(){
+  const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
+  const now=new Date(); now.setHours(23,59,59,999);
+  const mins=[], labels=[];
+  let thisWk=0, lastWk=0, drills=0, drillsLast=0;
+  for(let i=6;i>=0;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    const k=dayKey(d);
+    const m=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.actual||x.mins||0),0);
+    mins.push(m); thisWk+=m;
+    drills+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.drills||0),0);
+    labels.push(i===0?'TOD':['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()]);
+  }
+  for(let i=13;i>=7;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    const k=dayKey(d);
+    lastWk+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.actual||x.mins||0),0);
+    drillsLast+=ss.filter(x=>dayKey(x.at)===k).reduce((a,x)=>a+(x.drills||0),0);
+  }
+  const peak=Math.max(30,...mins);
+  const bars=mins.map((m,i)=>`<div style="flex:1;display:flex;flex-direction:column;
+      align-items:center;justify-content:flex-end;gap:7px">
+    <div style="width:100%;height:78px;display:flex;align-items:flex-end">
+      <div title="${m} min" style="width:100%;border-radius:6px 6px 3px 3px;
+        height:${Math.max(m?7:3,Math.round(m/peak*78))}px;
+        background:${m?(i===6?'var(--forest)':'var(--sage)'):'rgba(28,32,25,.07)'}"></div></div>
+    <span style="font:600 9px/1 var(--sans);letter-spacing:.06em;
+      color:${i===6?'var(--forest)':'var(--grey2)'}">${labels[i]}</span></div>`).join('');
+  const dm=thisWk-lastWk, dd=drills-drillsLast;
+  const hrs=n=>n>=60?(n/60).toFixed(1)+'h':n+'m';
+  return `<div class="card"><div class="kick2">THIS WEEK</div>
+    <div style="display:flex;gap:5px;align-items:flex-end;margin-top:16px">${bars}</div>
+    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(28,32,25,.08)">
+      ${[['Time',hrs(thisWk)],['Drills',String(drills)],
+         ['vs last week',(dm>0?'+':'')+hrs(Math.abs(dm)).replace('-','')+' · '+(dd>0?'+':'')+dd]]
+        .map(([n,v])=>`<div style="flex:1">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${n.toUpperCase()}</div>
+        <div class="h-sm" style="font-size:19px;margin-top:5px">${v}</div></div>`).join('')}
+    </div>
+    ${thisWk?'':`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
+      Nothing logged this week yet. Finish a session and it turns up here.</div>`}</div>`;
+}
+
 function screenProgress(){
   const t=st.tests||[];
   const rows=DATA.test.items.map((it,i)=>{
@@ -461,6 +551,12 @@ function screenProgress(){
       <div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
         ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet — the first test opens in a few days.</div>`}</div>
+      ${st.awaitingReview?`<div class="card" style="border:1.5px solid var(--terra);padding:18px">
+        <div class="kick2" style="color:var(--terra)">WITH ELLIOTT NOW</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+          Sent ${esc(when(st.awaitingReview))} — a reply lands within 48 hours.</div></div>`:''}
+      ${panelMonth()}
+      ${panelWeek()}
       <div class="card"><div class="kick2">CONSISTENCY</div>
         <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-top:16px">${weeks}</div>
         <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">${
@@ -565,13 +661,84 @@ async function shrinkPhoto(file, max=1600, quality=0.82){
   return c.toDataURL('image/jpeg',quality);
 }
 
+/* one uploader, three callers: the chat, the free assessment, and the
+   two-week test. The file goes phone → Cloudflare directly either way. */
+function uploadClip(file, say){
+  say=say||upSay;
+  if(file.size > 220*1024*1024) return Promise.reject('That file is very large. Trim it to under three minutes.');
+  say('Getting ready…');
+  return fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
+    .then(d=>new Promise((resolve,reject)=>{
+      const fd=new FormData(); fd.append('file',file);
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST',d.uploadURL);
+      xhr.upload.onprogress=e=>{ if(e.lengthComputable)
+        say('Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };
+      xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid)
+                    : reject('Upload failed ('+xhr.status+')');
+      xhr.onerror=()=>reject('Upload failed — check your signal');
+      xhr.send(fd);
+    }));
+}
+
+/* ── the free assessment ───────────────────────────────────────────
+   One clip of the thing you are stuck on, watched by a person, answered
+   within 48 hours. It goes in as a submission rather than a loose
+   message, so it carries a status and chases itself up. */
+function pickAssessment(){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*,image/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(f) sendAssessment(f); };
+  inp.click();
+}
+function sendAssessment(file){
+  if(upBusy) return;
+  upBusy=true;
+  const photo=(file.type||'').startsWith('image/');
+  const go = photo
+    ? shrinkPhoto(file).then(data=>{ upSay('Sending…');
+        return fetch(AUTH.image,{method:'POST',headers:authed(),body:JSON.stringify({data})})
+          .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that photo')))
+          .then(d=>({image:d.id})); })
+    : uploadClip(file).then(uid=>({uid}));
+
+  go.then(got=>{
+    upSay('Sending…');
+    return fetch(AUTH.submission,{method:'POST',headers:authed(),
+      body:JSON.stringify({kind:'assessment',
+        clips: got.uid?[{uid:got.uid,name:'Assessment clip'}]:[],
+        numbers: got.image?{photo:got.image}:{}})})
+      .then(gateCheck);
+  })
+  .then(()=>{ upBusy=false; upSay(''); st.freeCheckUsed=true; st.awaitingReview=Date.now();
+              save(); loadSubmissions(); loadThread(); render(); })
+  .catch(e=>{ upBusy=false; upSay(String(e)); });
+}
+
+/* has anything been sent that is still waiting on a reply */
+function loadSubmissions(){
+  if(!st.token) return;
+  fetch(AUTH.submissions,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
+    if(!d||!d.submissions) return;
+    const open=d.submissions.find(s=>s.status==='submitted');
+    const was=st.awaitingReview;
+    st.awaitingReview = open ? open.at : 0;
+    st.lastReview = (d.submissions.find(s=>s.status==='reviewed')||{}).reviewedAt||0;
+    save(); if(was!==st.awaitingReview && (st.tab==='coaching'||st.tab==='progress')) render();
+  }).catch(()=>{});
+}
+
 /* the server is what rations the free form check; the app only reports it */
 function gateCheck(r){
   if(r.ok) return r;
   return r.json().catch(()=>({})).then(d=>{
     if(d && d.gated){
       st.freeCheckUsed=true;
-      pendingMsgs.pop(); st.msgs=(st.msgs||[]).slice(0,-1); save(); render();
+      /* only roll back an optimistic chat bubble if one was actually added */
+      if(pendingMsgs.length){ pendingMsgs.pop(); st.msgs=(st.msgs||[]).slice(0,-1); }
+      save(); render();
     }
     return Promise.reject((d&&d.error)||'Could not send that');
   });
@@ -1185,7 +1352,9 @@ function drawOv(){
   if(st.ov==='test'){
     body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey)">${esc(DATA.test.blurb)}</div>
       <div style="margin-top:18px;display:flex;flex-direction:column;gap:14px">
-      ${DATA.test.items.map(t=>`<div class="card" style="padding:18px">
+      ${DATA.test.items.map(t=>{
+        const filmed=(st.testClips||{})[t.id];
+        return `<div class="card" style="padding:18px">
         <div style="font:600 15px/1.2 var(--sans)">${esc(t.n)}</div>
         <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:6px">${esc(t.q)}</div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
@@ -1193,8 +1362,18 @@ function drawOv(){
             oninput="st.testDraft=st.testDraft||{};st.testDraft['${t.id}']=this.value;save()"
             style="width:96px;border:1px solid var(--line);border-radius:12px;padding:11px;font:700 17px/1 var(--sans)">
           <span style="font:600 10.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">${esc(t.u.toUpperCase())}</span>
-        </div></div>`).join('')}
-      <button class="btn" onclick="sendTest()">Send my numbers</button></div>`;
+          <button onclick="filmTest('${t.id}','${esc(t.n)}')" style="margin-left:auto;flex:none;border:none;cursor:pointer;
+            border-radius:999px;padding:10px 14px;font:600 12px/1 var(--sans);
+            background:${filmed?'var(--forest)':'var(--mist)'};color:${filmed?'var(--bg)':'var(--ink)'}">
+            ${filmed?'&check; Filmed':'Film it'}</button>
+        </div>
+        <div id="tc-${t.id}" style="font:500 11.5px/1.4 var(--sans);color:var(--terra);margin-top:7px;min-height:15px"></div>
+        </div>`;}).join('')}
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:2px 2px 0">
+        ${esc((DATA.filming&&DATA.filming[0])||'Side on, phone vertical, whole body in frame.')}
+        A number without the clip is a claim I can't check — send both if you can.</div>
+      <div id="testMsg" style="font:500 12px/1.5 var(--sans);color:var(--terra);text-align:center;min-height:16px"></div>
+      <button class="btn" onclick="sendTest()">Send my test</button></div>`;
   }
   if(st.ov==='adjust'){
     body=`<div style="display:flex;flex-direction:column;gap:11px">
@@ -1618,12 +1797,41 @@ function sendFlags(){
   post({type:'Drill flags',flags:f.map(v=>st.rate[v].toUpperCase()+' — '+(names[v]||v)+(st.note[v]?' ("'+st.note[v]+'")':'')).join('\n')});
   st.flagSent=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'}); save(); render();
 }
+function filmTest(id,name){
+  if(upBusy) return;
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{
+    const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    const say=m=>{ const el=$('#tc-'+id); if(el) el.textContent=m; };
+    upBusy=true;
+    uploadClip(f,say)
+      .then(uid=>{ st.testClips=st.testClips||{}; st.testClips[id]={uid,name}; save();
+                   upBusy=false; say(''); drawOv(); })
+      .catch(e=>{ upBusy=false; say(String(e)); });
+  };
+  inp.click();
+}
+
+/* numbers and clips go together — that pairing is the review */
 function sendTest(){
   const vals=st.testDraft||{};
-  const lines=DATA.test.items.map(t=>t.n+': '+(vals[t.id]||'not done')+' '+t.u).join('\n');
-  post({type:'Two-week test',results:lines});
-  st.tests=(st.tests||[]).concat([vals]); st.testDraft={}; save();
-  reportProgress({test:vals}); closeOv();
+  const clips=Object.entries(st.testClips||{}).map(([id,c])=>({drill:id,name:c.name,uid:c.uid}));
+  const named={}; DATA.test.items.forEach(t=>{ if(vals[t.id]) named[t.n]=vals[t.id]+' '+t.u; });
+  if(!clips.length && !Object.keys(named).length){
+    const m=$('#testMsg'); if(m) m.textContent='Add a number or a clip first.'; return;
+  }
+  const m=$('#testMsg'); if(m) m.textContent='Sending…';
+  fetch(AUTH.submission,{method:'POST',headers:authed(),
+    body:JSON.stringify({kind:'test',numbers:named,clips})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
+    .then(()=>{
+      st.tests=(st.tests||[]).concat([vals]); st.testDraft={}; st.testClips={};
+      st.awaitingReview=Date.now(); save();
+      reportProgress({test:vals}); closeOv(); loadThread(); render();
+    })
+    .catch(e=>{ const el=$('#testMsg'); if(el) el.textContent=String(e); });
 }
 
 
@@ -1964,37 +2172,55 @@ function screenCoaching(){
      that promised one free check. */
   const signedIn=!!st.token;
   const used=!!st.freeCheckUsed;
+  const awaiting = !!st.awaitingReview;
+  const tick = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:9px">
+      <span style="flex:none;width:16px;height:16px;border-radius:999px;background:var(--forest);
+        color:var(--bg);display:grid;place-items:center;font:700 9px/1 var(--sans);margin-top:2px">&check;</span>
+      <span style="font:400 13.5px/1.45 var(--sans);color:var(--grey)">${t}</span></div>`;
+
   const checkCard = !signedIn
-    ? `<div class="card" style="padding:20px">
-        <div class="kick2">YOUR FREE FORM CHECK</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:12px">
-          Save your progress with an email and a password first, so the answer
-          has somewhere to land.</div>
-        <button class="btn" style="width:100%;margin-top:14px"
-          onclick="st.tab='signin';save();render()">Create an account</button></div>`
+    ? `<div class="card" style="padding:22px">
+        <div class="kick2">FREE ASSESSMENT</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">Find out what's holding you back.</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+          One clip of the skill you're stuck on. I'll watch it and tell you the
+          one thing to change.</div>
+        ${tick('Watched by me, not a bot')}
+        ${tick('A reply within 48 hours')}
+        ${tick('Free. No card, nothing to cancel')}
+        <button class="btn" style="width:100%;margin-top:16px"
+          onclick="st.tab='signin';save();render()">Create an account to send it</button>
+        <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+          Takes a second — it's just so the answer has somewhere to land.</div></div>`
+    : awaiting
+    ? `<div class="card" style="padding:22px;border:1.5px solid var(--terra)">
+        <div class="kick2" style="color:var(--terra)">WITH ME NOW</div>
+        <div class="h-md" style="font-size:22px;margin-top:8px">Got it — I'm on it.</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+          Sent ${esc(when(st.awaitingReview))}. I'll come back to you within 48 hours,
+          and my reply lands in the chat below.</div></div>`
     : used
-    ? `<div class="card" style="padding:20px">
-        <div class="kick2">FREE FORM CHECK · USED</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:12px">
-          You have had your one. Coaching includes unlimited form checks —
-          send footage as often as you train and I will come back on it.</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Ask me anything below in the meantime.</div></div>`
-    : `<div class="card" style="padding:20px">
-        <div class="kick2">YOUR FREE FORM CHECK</div>
-        <div style="display:flex;gap:10px;margin-top:14px">
-          <button onclick="pickClip()" style="flex:1;border:1.5px dashed rgba(28,32,25,.2);background:none;
-            border-radius:20px;padding:24px 12px;text-align:center;cursor:pointer">
-            <div class="h-sm">Film a clip</div>
-            <div style="font:400 12px/1.45 var(--sans);color:var(--grey);margin-top:6px">Up to 3 min</div></button>
-          <button onclick="pickPhoto()" style="flex:1;border:1.5px dashed rgba(28,32,25,.2);background:none;
-            border-radius:20px;padding:24px 12px;text-align:center;cursor:pointer">
-            <div class="h-sm">Send a photo</div>
-            <div style="font:400 12px/1.45 var(--sans);color:var(--grey);margin-top:6px">Held position</div></button>
-        </div>
-        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
-          Side on, phone vertical, whole body in frame. Don't crop the hands out.
-          One clean attempt is more use than five scrappy ones.</div></div>`;
+    ? `<div class="card" style="padding:22px">
+        <div class="kick2">FREE ASSESSMENT · USED</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+          You've had your one. Coaching includes unlimited form checks — send
+          footage as often as you train and I'll come back on every one.</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+          Anything you want to ask in the meantime, use the box below.</div></div>`
+    : `<div class="card" style="padding:22px">
+        <div class="kick2">FREE ASSESSMENT</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">Find out what's holding you back.</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+          One clip of the skill you're stuck on. Side on, phone vertical, whole
+          body in frame — don't crop the hands out.</div>
+        ${tick('Watched by me, not a bot')}
+        ${tick('A reply within 48 hours')}
+        ${tick('Free. No card, nothing to cancel')}
+        <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
+          Send your clip</button>
+        <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+          One clean attempt is worth more than five scrappy ones. A photo of a held
+          position works too.</div></div>`;
 
   /* the same thread the coached app uses, so a question here reaches the
      same place a client's does */
@@ -2254,7 +2480,8 @@ const TABS={
   free:[['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
 };
 function go(t){ st.tab=t; save(); render();
-  if(t==='ask'||t==='coaching'){ loadThread(); loadEntitlement(); } }
+  if(t==='ask'||t==='coaching'){ loadThread(); loadEntitlement(); loadSubmissions(); }
+  if(t==='progress') loadSubmissions(); }
 function render(){
   const app=$('#app');
   /* swapping innerHTML throws the scroll container back to the top, which
@@ -2290,7 +2517,7 @@ document.addEventListener('DOMContentLoaded',function(){
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
   render();
-  if(st.token){ loadEntitlement(); }
+  if(st.token){ loadEntitlement(); loadSubmissions(); }
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
   if(st.token) reportProgress();
 });
