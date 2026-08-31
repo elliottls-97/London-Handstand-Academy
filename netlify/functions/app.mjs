@@ -232,6 +232,36 @@ async function threadAdd(db, who, msg) {
   return m;
 }
 
+/* ── the coaching cycle ──────────────────────────────────────────
+   Bachmann's model, and the one the specs were already written for: a
+   block runs, then footage and numbers come in together, then the coach
+   reviews and the next block starts. Nothing here invents a schedule —
+   testDelayDays already lives in each client's spec.
+
+   A cycle starts the first time a client opens their programme, because
+   that is the first moment the block is genuinely underway. */
+const DAY = 24 * 60 * 60 * 1000;
+const REVIEW_HOURS = 48;
+
+async function cycleGet(db, who, plan) {
+  const k = `cycle:${who}`;
+  let c = await db.get(k, { type: 'json' });
+  if (!c) {
+    c = { start: Date.now(), n: 1 };
+    await db.setJSON(k, c);
+  }
+  const days = (plan && Number(plan.testDelayDays)) || 14;
+  return { ...c, days, dueAt: c.start + days * DAY };
+}
+
+async function subsFor(db, who) {
+  let blobs = [];
+  try { ({ blobs } = await db.list({ prefix: `sub:${who}:` })); } catch { blobs = []; }
+  const out = (await Promise.all(
+    blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
+  return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+
 /* ── photos ──────────────────────────────────────────────────────
    Stream is video only. Photos are shrunk in the browser and kept in
    Blobs, so there is no second provider and no new credential. The id
@@ -681,7 +711,8 @@ export default async (request) => {
     if (!who) return json({ error: 'Sign in first' }, 401);
     const plan = programmes.clients[who];
     if (!plan) return json({ error: 'No programme yet' }, 404);
-    return json({ client: clients()[who] || plan.client, plan,
+    const cycle = await cycleGet(db, who, plan);
+    return json({ client: clients()[who] || plan.client, plan, cycle,
                   library: programmes.library });
   }
 
@@ -746,6 +777,79 @@ export default async (request) => {
         'Cache-Control': 'private, max-age=31536000, immutable',
       },
     });
+  }
+
+  /* ── where the client is in the cycle, and what they owe ────────── */
+  if (path === '/cycle' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const plan = programmes.clients[who];
+    const cycle = await cycleGet(db, who, plan);
+    const subs = await subsFor(db, who);
+    const current = subs.find(s => s.cycle === cycle.n) || null;
+    return json({
+      ...cycle,
+      due: Date.now() >= cycle.dueAt,
+      daysLeft: Math.ceil((cycle.dueAt - Date.now()) / DAY),
+      submission: current,
+      awaiting: !!(current && current.status === 'submitted'),
+      reviewHours: REVIEW_HOURS,
+    });
+  }
+
+  /* numbers and footage arrive together — that pairing is the whole
+     point, because a number without the clip is a claim you cannot check */
+  if (path === '/submission' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const kind = body.kind === 'assessment' ? 'assessment' : 'test';
+    const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};
+    const clips = Array.isArray(body.clips) ? body.clips.slice(0, 12).map(c => ({
+      drill: String((c && c.drill) || '').slice(0, 64),
+      name: String((c && c.name) || '').slice(0, 80),
+      uid: String((c && c.uid) || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64),
+    })).filter(c => c.uid) : [];
+    if (!clips.length && !Object.keys(numbers).length) {
+      return json({ error: 'Nothing to send' }, 400);
+    }
+
+    const plan = programmes.clients[who];
+    const cycle = await cycleGet(db, who, plan);
+    const id = newId();
+    const rec = { id, kind, cycle: cycle.n, at: Date.now(), status: 'submitted',
+                  numbers, clips, reviewedAt: 0 };
+    await db.setJSON(`sub:${who}:${id}`, rec);
+
+    /* it lands in the thread too, so the coach reads it where they
+       already reply rather than in a second inbox */
+    const label = kind === 'assessment' ? 'Baseline assessment' : `Two-week test · cycle ${cycle.n}`;
+    const lines = Object.entries(numbers).map(([k2, v]) => `${k2}: ${v}`).join(', ');
+    await threadAdd(db, who, { from: 'client',
+      text: `${label}${lines ? ' — ' + lines : ''}`, sub: id });
+    for (const c of clips) {
+      await threadAdd(db, who, { from: 'client', text: c.name || c.drill, video: c.uid, sub: id });
+    }
+
+    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    const idx = (await db.get('index', { type: 'json' })) || {};
+    idx[who] = { name: clients()[who] || acct.name || who, coached: !!clients()[who],
+                 last: Date.now(), unread: (idx[who]?.unread || 0) + 1 + clips.length };
+    await db.setJSON('index', idx);
+
+    await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `${clients()[who] || who}: ${label}`,
+      `<p style="font:16px/1.6 system-ui">${clips.length} clip${clips.length === 1 ? '' : 's'}
+       and ${Object.keys(numbers).length} number${Object.keys(numbers).length === 1 ? '' : 's'}.</p>
+       <p style="font:15px/1.6 system-ui">${lines || 'No numbers given.'}</p>
+       <p style="font:13px/1.5 system-ui;color:#666">Review in the coach view within ${REVIEW_HOURS} hours.</p>`);
+
+    return json({ ok: true, id });
+  }
+
+  if (path === '/submissions' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    return json({ submissions: await subsFor(db, who) });
   }
 
   /* ── what a client is actually doing ─────────────────────────────
@@ -987,6 +1091,33 @@ export default async (request) => {
       }
       out.sort((a, b) => (b.last || 0) - (a.last || 0));
       return json({ leads: out });
+    }
+
+    if (path === '/coach/submissions') {
+      const e = norm(url.searchParams.get('email'));
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      return json({ submissions: await subsFor(db, e) });
+    }
+
+    /* marking a review done is what starts the next block — the cycle
+       advances here and nowhere else */
+    if (path === '/coach/submission/reviewed' && request.method === 'POST') {
+      const e = norm(body.email);
+      const id = String(body.id || '').replace(/[^a-zA-Z0-9]/g, '');
+      if (!e || !id) return json({ error: 'Which submission?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const k = `sub:${e}:${id}`;
+      const rec = await db.get(k, { type: 'json' });
+      if (!rec) return json({ error: 'No such submission' }, 404);
+      rec.status = 'reviewed'; rec.reviewedAt = Date.now();
+      rec.reviewedBy = asking || primaryCoach();
+      await db.setJSON(k, rec);
+
+      if (body.nextBlock) {
+        await db.setJSON(`cycle:${e}`, { start: Date.now(), n: (rec.cycle || 1) + 1 });
+      }
+      return json({ ok: true, cycle: rec.cycle, nextBlock: !!body.nextBlock });
     }
 
     if (path === '/coach/clients') {
