@@ -50,6 +50,8 @@ const API='/api/app/coach';
 let TOKEN=localStorage.getItem('lha_coach_token')||'';
 let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
+/* which coaches appear in the list at all — only worth labelling when there is more than one */
+const COACHES=new Set();
 /* replies sent but not yet echoed back by Blobs — see openThread */
 let pendingCoach=[];
 const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
@@ -98,7 +100,9 @@ function signIn(ev){
 function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ clients=d.clients||[]; if(!sel&&clients.length) sel=clients[0].email; draw();
+    .then(d=>{ clients=d.clients||[];
+      COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
+      if(!sel&&clients.length) sel=clients[0].email; draw();
       if(sel) openThread(sel);
       /* fetch everyone so the list can show who needs chasing */
       clients.forEach(c=>fetch(API+'/progress?email='+encodeURIComponent(c.email),{headers:hdr()})
@@ -705,7 +709,10 @@ function draw(){
     <span class="av">${esc((c.name||'?')[0])}</span>
     <span><b>${esc(c.name)}</b><span>${esc(line)}</span></span>
     <span style="display:flex;align-items:center;gap:7px;margin-left:auto">
-      ${c.coached===false?`<span title="Not a coaching client — free account"
+      ${c.coach&&COACHES.size>1?`<span title="Coached by ${esc(c.coach)}"
+        style="font:600 9px/1 var(--sans);letter-spacing:.08em;padding:4px 6px;border-radius:4px;
+        background:var(--mist);color:var(--grey)">${esc((c.coach.split('@')[0]||'').slice(0,8).toUpperCase())}</span>`:''}
+    ${c.coached===false?`<span title="Not a coaching client — free account"
         style="font:600 9px/1 var(--sans);letter-spacing:.11em;padding:4px 6px;border-radius:4px;
         background:var(--mist);color:var(--grey)">ENQUIRY</span>`:''}
       ${c.unread?`<span class="dot">${c.unread}</span>`:''}

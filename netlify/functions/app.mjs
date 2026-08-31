@@ -34,10 +34,47 @@ const json = (data, status = 200) =>
   });
 
 const norm = e => String(e || '').trim().toLowerCase();
-const clients = () => Object.fromEntries(
-  (process.env.CLIENTS || '').split(',').map(p => p.trim()).filter(Boolean)
-    .map(p => { const i = p.lastIndexOf(':'); return [norm(p.slice(0, i)), p.slice(i + 1)]; })
-);
+
+/* ── who coaches whom ─────────────────────────────────────────────
+   CLIENTS is "email:Name" or "email:Name:coachEmail". The third field
+   is optional and says who coaches them; without it they belong to the
+   primary coach, so every entry written before this keeps working.
+
+   COACHES is "email:Name" — the roster, and where a coach's display
+   name comes from. COACH_EMAILS and COACH_EMAIL still grant access, so
+   nothing has to be reconfigured for the site to keep running. */
+const parseClients = () => (process.env.CLIENTS || '')
+  .split(',').map(p => p.trim()).filter(Boolean)
+  .map(p => {
+    const bits = p.split(':').map(x => x.trim());
+    const email = norm(bits[0]);
+    const tail = bits.length > 2 ? norm(bits[bits.length - 1]) : '';
+    const coach = tail.includes('@') ? tail : '';
+    const name = bits.slice(1, coach ? bits.length - 1 : bits.length).join(':');
+    return { email, name: name || email, coach };
+  })
+  .filter(c => c.email);
+
+const clients = () => Object.fromEntries(parseClients().map(c => [c.email, c.name]));
+
+const coaches = () => {
+  const out = {};
+  for (const p of (process.env.COACHES || '').split(',').map(x => x.trim()).filter(Boolean)) {
+    const i = p.indexOf(':');
+    if (i < 0) { out[norm(p)] = ''; continue; }
+    out[norm(p.slice(0, i))] = p.slice(i + 1).trim();
+  }
+  for (const e of (process.env.COACH_EMAILS || process.env.COACH_EMAIL || '')
+    .split(',').map(x => norm(x)).filter(Boolean)) if (!(e in out)) out[e] = '';
+  return out;
+};
+
+const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_EMAIL || '');
+const coachOf = e => {
+  const c = parseClients().find(x => x.email === norm(e));
+  return (c && c.coach) || primaryCoach();
+};
+const coachName = e => coaches()[norm(e)] || 'your coach';
 
 /* ── HMAC tokens, no dependencies ── */
 const b64url = buf => Buffer.from(buf).toString('base64')
@@ -281,8 +318,7 @@ export default async (request) => {
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   /* a coach signs in with their own email and password like anyone else;
      the shared key still works so nothing breaks mid-change */
-  const coachList = () => (process.env.COACH_EMAILS || process.env.COACH_EMAIL || '')
-    .split(',').map(x => norm(x)).filter(Boolean);
+  const coachList = () => Object.keys(coaches());
   const isCoach = async () => {
     if (process.env.COACH_KEY && request.headers.get('x-coach-key') === process.env.COACH_KEY) return true;
     const who = await me();
@@ -484,6 +520,7 @@ export default async (request) => {
       name: clients()[who] || acct.name || '',
       coached: !!clients()[who],
       coach: coachList().includes(who),
+      coachName: clients()[who] ? coachName(coachOf(who)) : '',
       plus: !!acct.plus,
       canManage: !!acct.stripeCustomer,
       canCancel: !!(acct.sub || acct.stripeCustomer),
@@ -842,7 +879,7 @@ export default async (request) => {
       await db.setJSON('index', idx);
 
       const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
         `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
@@ -854,11 +891,21 @@ export default async (request) => {
   if (path.startsWith('/coach/')) {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
 
+    /* Who is asking. Null means the legacy shared key, which has no
+       identity and therefore still sees everything.
+
+       A coach sees their own clients. Enquiries from free accounts are
+       nobody's yet, so every coach sees them — an unrouted question going
+       unanswered is worse than one being seen twice. */
+    const asking = await me();
+    const owns = e => !asking || !clients()[norm(e)] || coachOf(e) === asking;
+
     /* wipe a client's activity record — needed for a deletion request,
        and for clearing test data out of a real client's history */
     if (path === '/coach/progress/reset' && request.method === 'POST') {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       await db.delete(`prog:${e}`);
       return json({ ok: true, cleared: e });
     }
@@ -867,6 +914,7 @@ export default async (request) => {
     if (path === '/coach/notes') {
       const e = norm(url.searchParams.get('email') || body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       const k = `note:${e}`;
       if (request.method === 'GET') {
         return json((await db.get(k, { type: 'json' })) || { text: '', at: 0 });
@@ -881,6 +929,7 @@ export default async (request) => {
     if (path === '/coach/progress') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       return json({ email: e, name: clients()[e] || e,
                     progress: (await db.get(`prog:${e}`, { type: 'json' })) || {} });
     }
@@ -947,7 +996,8 @@ export default async (request) => {
          would be a question nobody answered. */
       const rows = new Map();
       for (const [e, name] of Object.entries(clients())) {
-        rows.set(e, { email: e, name, coached: true,
+        if (!owns(e)) continue;
+        rows.set(e, { email: e, name, coached: true, coach: coachOf(e),
           last: idx[e]?.last || 0, unread: idx[e]?.unread || 0 });
       }
       for (const [e, v] of Object.entries(idx)) {
@@ -976,6 +1026,7 @@ export default async (request) => {
     if (path === '/coach/thread') {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
       if (request.method === 'GET') {
         const idx = (await db.get('index', { type: 'json' })) || {};
         if (idx[e]) { idx[e].unread = 0; await db.setJSON('index', idx); }
@@ -986,13 +1037,14 @@ export default async (request) => {
         const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
         const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
         if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
-        await threadAdd(db, e, { from: 'coach', text,
+        await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
           ...(video ? { video } : {}), ...(image ? { image } : {}) });
 
         /* a reply is the thing clients are waiting for, so say so */
-        const sent = video ? 'He has sent you a video.'
-          : image ? 'He has sent you a photo.' : 'He has replied.';
-        await email(e, 'Elliott has replied',
+        const who2 = coachName(asking || coachOf(e));
+        const sent = video ? `${who2} has sent you a video.`
+          : image ? `${who2} has sent you a photo.` : `${who2} has replied.`;
+        await email(e, `${who2} has replied`,
           `<p style="font:16px/1.6 system-ui">${text ? text.slice(0, 500) : sent}</p>
            <p style="font:14px/1.6 system-ui;color:#666">Open the app to see it.</p>`);
         return json({ ok: true });
