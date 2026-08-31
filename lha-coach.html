@@ -61,6 +61,7 @@ let pendingCoach=[];
 const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
+let subs={};      /* what each client has sent for review */
 let prog={};
 let notes={};
 let noteDrafts={};
@@ -121,6 +122,10 @@ function openThread(email){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ prog[email]=d.progress||{}; draw(); } })
     .catch(()=>{});
+  fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ subs[email]=d.submissions||[]; draw(); } })
+    .catch(()=>{});
   fetch(API+'/notes?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d&&notes[email]===undefined){ notes[email]=d; draw(); } })
@@ -146,6 +151,63 @@ function openThread(email){
       const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; })
     /* keep whatever is on screen rather than replacing it with nothing */
     .catch(()=>coachSay('Could not refresh the thread — what you see may be behind.'));
+}
+
+/* ── what is waiting to be reviewed ────────────────────────────────
+   The clips already appear in the thread. What was missing was the other
+   end of the loop: without this the client's "with your coach now" never
+   clears and the cycle never advances to the next block. */
+function subsHTML(email){
+  const list=(subs[email]||[]);
+  const open=list.filter(s=>s.status==='submitted');
+  if(!open.length){
+    const last=list.find(s=>s.status==='reviewed');
+    return last?`<div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin:0 0 14px">
+      Last review ${esc(ago(last.reviewedAt))} · block ${last.cycle||1}</div>`:'';
+  }
+  return open.map(s=>{
+    const hrs=Math.round((Date.now()-(s.at||0))/3600000);
+    const late=hrs>=48;
+    const nums=Object.entries(s.numbers||{})
+      .filter(([k])=>k!=='photo')
+      .map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px;
+        font:400 13px/1.5 var(--sans);padding:3px 0">
+        <span style="color:var(--grey)">${esc(k)}</span><b>${esc(v)}</b></div>`).join('')
+      || `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2)">No numbers sent.</div>`;
+    return `<div style="border:1.5px solid ${late?'var(--terra)':'var(--forest)'};border-radius:14px;
+      padding:15px 16px;margin:0 0 14px">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <span style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+          color:${late?'var(--terra)':'var(--forest)'}">
+          ${s.kind==='assessment'?'FREE ASSESSMENT':'TWO-WEEK TEST · BLOCK '+(s.cycle||1)}</span>
+        <span style="font:400 12px/1 var(--sans);color:${late?'var(--terra)':'var(--grey2)'}">
+          ${hrs}h ago${late?' · past the 48 you promise':''}</span>
+      </div>
+      <div style="margin-top:11px">${nums}</div>
+      <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
+        ${s.clips.length} clip${s.clips.length===1?'':'s'} — in the thread below.</div>
+      <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
+        <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+          onclick="markReviewed('${esc(email)}','${esc(s.id)}',false)">Mark reviewed</button>
+        <button class="send" style="width:auto;padding:0 14px;font-size:12.5px;
+          background:var(--mist);color:var(--ink)"
+          onclick="markReviewed('${esc(email)}','${esc(s.id)}',true)">Reviewed &amp; start next block</button>
+      </div></div>`;
+  }).join('');
+}
+
+function markReviewed(email,id,nextBlock){
+  if(nextBlock && !confirm('Mark reviewed and start the next block? '
+    + 'That resets their two-week clock from today.')) return;
+  fetch(API+'/submission/reviewed',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email,id,nextBlock:!!nextBlock})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not save that')))
+    .then(()=>{
+      subs[email]=(subs[email]||[]).map(s=>s.id===id
+        ? {...s,status:'reviewed',reviewedAt:Date.now()} : s);
+      draw();
+    })
+    .catch(e=>alert(String(e)));
 }
 
 /* ── clips ─────────────────────────────────────────────────────── */
@@ -834,7 +896,8 @@ function draw(){
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       <div class="card">
         <div class="kick">${esc((clients.find(c=>c.email===sel)||{}).name||'THREAD').toUpperCase()}</div>
-        <div id="pane" style="display:flex;flex-direction:column;gap:14px;margin-top:16px;
+        <div style="margin-top:16px">${sel?subsHTML(sel):''}</div>
+        <div id="pane" style="display:flex;flex-direction:column;gap:14px;
           max-height:56vh;overflow-y:auto;padding-right:4px">${msgs}</div>
         <div style="display:flex;gap:10px;margin-top:16px">
           <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
