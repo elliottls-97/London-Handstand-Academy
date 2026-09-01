@@ -960,6 +960,62 @@ export default async (request) => {
     }
   }
 
+  /* ── applying for coaching ───────────────────────────────────────
+     The most valuable thing anyone does in this app used to fire a
+     Formspree email and an alert: no record, no status, no way to see it
+     again. It is a row now, and it shows up in the dashboard like
+     anything else that needs answering. */
+  if (path === '/application' && request.method === 'POST') {
+    const who = await me();
+    const e = norm(who || body.email);
+    if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) {
+      return json({ error: 'We need an email address to reply to' }, 400);
+    }
+    /* an open endpoint, so cap it — five a day per address is generous
+       for something you only do once */
+    if ((await rateHit(`apply:${e}`, 86400000)) > 5) {
+      return json({ error: 'That has been sent already. Check your email.' }, 429);
+    }
+
+    const pick = (k, max = 200) => String((body.answers || {})[k] || '').slice(0, max);
+    const answers = {
+      goal: pick('goal'), level: pick('level'), format: pick('format'),
+      days: pick('days'), injuries: pick('injuries', 1200),
+      notes: pick('notes', 1200), location: pick('location'),
+    };
+    const name = String(body.name || '').slice(0, 60);
+
+    await ensureAcct(e, name);
+    if (name) await saveAcct({ email: e, name });
+    const [row] = await supa.insert('applications', { email: e, name, answers });
+
+    const lines = Object.entries(answers).filter(([, v]) => v)
+      .map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>');
+    await email(coachOf(e) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `Coaching application: ${name || e}`,
+      mail({
+        title: 'Someone wants coaching.',
+        paras: [`<b>${esc(name || e)}</b> — ${esc(e)}`, lines || 'No answers given.'],
+        cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
+        signoff: { name: 'London Handstand Academy' },
+      }));
+
+    /* tell them it landed, because silence after applying is what makes
+       people assume it did not */
+    await email(e, 'Your coaching application',
+      mail({
+        title: 'Got it.',
+        greeting: (name || '').split(' ')[0] || '',
+        paras: ['Your application is with me. I read every one myself and '
+          + 'come back within 48 hours with whether I think it is a fit, '
+          + 'and what I would start you on.',
+          'If anything changes in the meantime, just reply to this.'],
+        signoff: { name: coachName(coachOf(e)) },
+      }));
+
+    return json({ ok: true, id: row.id });
+  }
+
   /* ── a photo ─────────────────────────────────────────────────────
      Small enough to come through the function, unlike a video. The
      browser shrinks it first; this is the backstop. */
@@ -1543,6 +1599,22 @@ export default async (request) => {
       const n = Array.isArray(gone) ? gone.length : 0;
       return json({ ok: true, email: e, cleared: n,
         note: n ? 'They can send another.' : 'They had not used theirs — nothing to clear.' });
+    }
+
+    if (path === '/coach/applications') {
+      const rows = await supa.rows('applications', 'select=*&order=created_at.desc');
+      return json({ applications: (rows || []).map(a => ({
+        id: a.id, email: a.email, name: a.name || '', answers: a.answers || {},
+        status: a.status, at: ms(a.created_at) })) });
+    }
+
+    if (path === '/coach/application/status' && request.method === 'POST') {
+      const id = String(body.id || '').trim();
+      const status = ['new', 'replied', 'accepted', 'declined'].includes(body.status)
+        ? body.status : null;
+      if (!id || !status) return json({ error: 'Which application, and what status?' }, 400);
+      await supa.update('applications', `id=eq.${enc(id)}`, { status });
+      return json({ ok: true, id, status });
     }
 
     if (path === '/coach/queue') {

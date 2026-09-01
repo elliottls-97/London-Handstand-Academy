@@ -202,6 +202,7 @@ const AUTH = {
   subscription:'/api/app/subscription',// GET → live status and dates
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
+  application:'/api/app/application',  // POST a coaching application
   submission:'/api/app/submission',    // POST numbers + clips as one review
   submissions:'/api/app/submissions',  // GET → what has been sent, and its status
   cycle:'/api/app/cycle'               // GET → where the client is in the block
@@ -741,6 +742,22 @@ function loadSubmissions(){
   }).catch(()=>{});
 }
 
+function sendApplication(){
+  const a=st.applyDraft||{};
+  const say=m=>{ const el=$('#applyMsg'); if(el) el.textContent=m; };
+  const em=(st.email||a.email||'').trim();
+  if(!em){ say('I need an email address to reply to.'); return; }
+  if(!a.goal||!a.level){ say('Pick a goal and where you are now.'); return; }
+  say('Sending…');
+  fetch(AUTH.application,{method:'POST',headers:authed(),
+    body:JSON.stringify({email:em,name:a.name||'',
+      answers:{goal:a.goal,level:a.level,format:a.format||'',days:a.days||'',
+               injuries:a.injuries||'',notes:a.notes||''}})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
+    .then(()=>{ st.applyDraft={}; st.applied=Date.now(); save(); closeOv(); render(); })
+    .catch(e=>say(String(e)));
+}
+
 /* the server is what rations the free form check; the app only reports it */
 function gateCheck(r){
   if(r.ok) return r;
@@ -1255,7 +1272,7 @@ function drawOv(){
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
            password:'Change password', account:'Your account',
-           why:'Why are you stopping?',
+           why:'Why are you stopping?',apply:'Apply for coaching',
            summary:'Session complete',stage:S?S.n:'Stage'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
@@ -1385,6 +1402,51 @@ function drawOv(){
         A number without the clip is a claim I can't check — send both if you can.</div>
       <div id="testMsg" style="font:500 12px/1.5 var(--sans);color:var(--terra);text-align:center;min-height:16px"></div>
       <button class="btn" onclick="sendTest()">Send my test</button></div>`;
+  }
+  if(st.ov==='apply'){
+    const a=st.applyDraft||{};
+    const set=(k)=>`oninput="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']=this.value;save()"`;
+    const opts=(k,list)=>`<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:9px">
+      ${list.map(o=>`<button onclick="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']='${esc(o)}';save();drawOv()"
+        style="border:1.5px solid ${a[k]===o?'var(--forest)':'rgba(28,32,25,.16)'};
+        background:${a[k]===o?'var(--forest)':'#fff'};color:${a[k]===o?'var(--bg)':'var(--ink)'};
+        border-radius:999px;padding:9px 14px;font:500 13px/1 var(--sans);cursor:pointer">
+        ${esc(o)}</button>`).join('')}</div>`;
+    const label=t=>`<div style="font:600 10px/1 var(--sans);letter-spacing:.13em;
+      text-transform:uppercase;color:var(--grey2);margin:20px 0 0">${t}</div>`;
+    const box=(k,ph,rows)=>`<textarea ${set(k)} rows="${rows}" placeholder="${ph}"
+      style="width:100%;margin-top:9px;border:1px solid rgba(28,32,25,.16);border-radius:14px;
+      padding:12px;font:400 14px/1.5 var(--sans);resize:vertical;box-sizing:border-box;
+      outline:none">${esc(a[k]||'')}</textarea>`;
+
+    body=`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">
+        I read every one of these myself and come back within 48 hours.</div>
+      ${st.token?'':`${label('Your email')}
+        <input ${set('email')} type="email" inputmode="email" placeholder="you@example.com"
+          value="${esc(a.email||'')}" style="width:100%;margin-top:9px;border:1px solid rgba(28,32,25,.16);
+          border-radius:14px;padding:13px;font:400 14px/1 var(--sans);box-sizing:border-box;outline:none">`}
+      ${label('Your name')}
+      <input ${set('name')} placeholder="First name is fine" value="${esc(a.name||'')}"
+        style="width:100%;margin-top:9px;border:1px solid rgba(28,32,25,.16);border-radius:14px;
+        padding:13px;font:400 14px/1 var(--sans);box-sizing:border-box;outline:none">
+      ${label('What do you want')}
+      ${opts('goal',['A freestanding handstand','A longer, cleaner hold','Press to handstand','One arm','Something else'])}
+      ${label('Where you are now')}
+      ${opts('level',['Not been upside down','Chest to wall','Kicking up, no balance','A few seconds free','10 seconds or more'])}
+      ${label('How you would train')}
+      ${opts('format',['Online only','In person in London','Either'])}
+      ${label('Days a week you can train')}
+      ${opts('days',['1–2','3','4','5+'])}
+      ${label('Injuries or anything I should know')}
+      ${box('injuries','Wrists, shoulders, back, anything recent or ongoing. Be honest — it shapes the plan.',3)}
+      ${label('Anything else')}
+      ${box('notes','Optional.',2)}
+      <div id="applyMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--terra);
+        text-align:center;margin-top:14px;min-height:18px"></div>
+      <button class="btn" style="width:100%;margin-top:4px" onclick="sendApplication()">Send it</button>
+      <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:10px">
+        By sending this you agree to our
+        <a href="/privacy" target="_blank" rel="noopener" style="color:var(--grey)">Privacy Policy</a>.</div>`;
   }
   if(st.ov==='adjust'){
     body=`<div style="display:flex;flex-direction:column;gap:11px">
@@ -2348,7 +2410,13 @@ function screenCoaching(){
       </div>
       <div class="card" style="padding:20px">
         <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
-      <button class="btn" onclick="post({type:'Coaching enquiry'});alert('Sent — Elliott will be in touch.')">Apply for coaching</button>
+      ${st.applied
+        ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
+            <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+              Sent ${esc(when(st.applied))}. Elliott reads every one himself and comes
+              back within 48 hours.</div></div>`
+        : `<button class="btn" onclick="openOv('apply')">Apply for coaching</button>`}
       <button class="btn2" style="width:100%" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
     </div></div>`;
 }
