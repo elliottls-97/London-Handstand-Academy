@@ -1631,10 +1631,26 @@ export default async (request) => {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which person?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      /* both directions: hand it back, or spend it on their behalf when a
+         form check happened somewhere other than the app */
+      if (body.used === true) {
+        await ensureAcct(e);
+        const won = await supa.insertIfAbsent('free_checks', { email: e }, 'email');
+        return json({ ok: true, email: e, used: true,
+          note: won ? 'Marked as used.' : 'It was already used.' });
+      }
       const gone = await supa.remove('free_checks', `email=eq.${enc(e)}`);
       const n = Array.isArray(gone) ? gone.length : 0;
       return json({ ok: true, email: e, cleared: n,
         note: n ? 'They can send another.' : 'They had not used theirs — nothing to clear.' });
+    }
+
+    if (path === '/coach/formcheck' && request.method === 'GET') {
+      const e = norm(url.searchParams.get('email'));
+      if (!e) return json({ error: 'Which person?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const row = await supa.row('free_checks', `email=eq.${enc(e)}&select=used_at`);
+      return json({ email: e, used: !!row, at: row ? ms(row.used_at) : 0 });
     }
 
     if (path === '/coach/applications') {
