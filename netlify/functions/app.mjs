@@ -368,12 +368,21 @@ const markRead = who => supa.update('messages',
 
 /* ── submissions ── */
 async function subsFor(db, who) {
-  const rows = await supa.rows('submissions',
-    `email=eq.${enc(who)}&select=*&order=created_at.desc`);
+  const [rows, replies] = await Promise.all([
+    supa.rows('submissions', `email=eq.${enc(who)}&select=*&order=created_at.desc`),
+    supa.rows('messages',
+      `email=eq.${enc(who)}&sender=eq.coach&submission=not.is.null&select=submission,body,video,created_at`),
+  ]);
+  const answerFor = {};
+  for (const m of (replies || [])) {
+    if (!answerFor[m.submission]) answerFor[m.submission] =
+      { text: m.body || '', video: m.video || null, at: ms(m.created_at) };
+  }
   return (rows || []).map(s => ({
     id: s.id, kind: s.kind, cycle: s.cycle, at: ms(s.created_at),
     status: s.status, numbers: s.numbers || {}, clips: s.clips || [],
     reviewedAt: ms(s.reviewed_at), reviewedBy: s.reviewed_by || '',
+    answer: answerFor[s.id] || null,
   }));
 }
 
@@ -1643,8 +1652,19 @@ export default async (request) => {
         const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
         const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
         if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
+        /* answering and marking answered were two separate acts, which is one
+           too many — the half that gets forgotten is the one the client is
+           waiting on. A reply can carry the submission it answers. */
+        const answers = String(body.answers || '').trim();
         await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
-          ...(video ? { video } : {}), ...(image ? { image } : {}) });
+          ...(video ? { video } : {}), ...(image ? { image } : {}),
+          ...(answers ? { sub: answers } : {}) });
+        if (answers) {
+          await supa.update('submissions', `id=eq.${enc(answers)}&email=eq.${enc(e)}`, {
+            status: 'reviewed', reviewed_at: nowISO(),
+            reviewed_by: asking || primaryCoach(),
+          });
+        }
 
         /* a reply is the thing clients are waiting for, so say so */
         const who2 = coachName(asking || coachOf(e));

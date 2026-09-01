@@ -508,13 +508,24 @@ function sendCoachClip(file){
     .catch(e=>{ upBusy=false; coachSay(String(e)); });
 }
 
-function reply(){
+/* the oldest thing they are waiting on, if anything */
+function openSub(email){
+  return ((subs[email]||[]).filter(s=>s.status==='submitted')
+    .sort((a,b)=>(a.at||0)-(b.at||0)))[0]||null;
+}
+
+function reply(answers){
   const el=$('#reply'); const text=(el.value||'').trim(); if(!text||!sel) return;
   el.value=''; drafts[sel]='';
+  const sub=answers?openSub(sel):null;
   pendingCoach.push({email:sel,text,at:Date.now()});
-  thread.push({from:'coach',text,at:Date.now()}); draw();
+  thread.push({from:'coach',text,at:Date.now()}); 
+  if(sub){ subs[sel]=(subs[sel]||[]).map(s=>s.id===sub.id
+    ? {...s,status:'reviewed',reviewedAt:Date.now()} : s);
+    queue=queue.filter(q=>q.id!==sub.id); }
+  draw();
   fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
-    body:JSON.stringify({text})}).then(()=>openThread(sel));
+    body:JSON.stringify({text, ...(sub?{answers:sub.id}:{})})}).then(()=>openThread(sel));
 }
 
 /* ── what the numbers mean ──────────────────────────────────────
@@ -1071,18 +1082,24 @@ function threadCardHTML(msgs){
         <div style="display:flex;gap:10px;margin-top:16px">
           <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
             oninput="drafts[sel]=this.value"
-            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
+            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply(!!openSub(sel))">${esc(drafts[sel]||'')}</textarea>
           <button class="send" onclick="pickCoachClip()" title="Send a video"
             style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Video</button>
           <button class="send" onclick="pickCoachPhoto()" title="Send a photo"
             style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
-          <button class="send" onclick="reply()">Send</button></div>
+          ${sel&&openSub(sel)
+            ? `<button class="send" onclick="reply(true)" title="Sends your reply and marks their form check answered"
+                 style="width:auto;padding:0 16px">Send &amp; close</button>
+               <button class="send" onclick="reply(false)" title="Reply without closing it"
+                 style="background:var(--mist);color:var(--ink);width:auto;padding:0 14px">Reply only</button>`
+            : `<button class="send" onclick="reply()">Send</button>`}</div>
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
         ${sel?mailRowHTML(sel):''}
         ${sel?`<button onclick="resetFormCheck('${esc(sel)}')" style="background:none;border:none;cursor:pointer;
           padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
           text-underline-offset:3px">Reset their free form check</button>`:''}
-        <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
+        <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">
+          ⌘+Enter sends${sel&&openSub(sel)?' · “Send &amp; close” answers their form check and tells them it is ready':''}</div>
       </div>`;
 }
 
