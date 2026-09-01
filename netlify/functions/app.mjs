@@ -1250,6 +1250,154 @@ export default async (request) => {
     /* Is the database reachable, and is it the right key? Mirrors
        /coach/stripe-status: reports what the running deploy can see
        without ever revealing a secret. */
+    /* ── Blobs → Supabase ──────────────────────────────────────────
+       Idempotent: every write is an upsert keyed on what makes the row
+       unique, so running it twice changes nothing and running it again
+       later picks up whatever has been written since.
+
+       Accounts go first — everything else references them.
+
+       Deliberately not migrated: login codes, reset codes, rate-limit
+       counters and sent-nudge markers. All are short-lived, all rebuild
+       themselves within a day, and carrying them over risks importing a
+       stale lockout. ?dry=1 reports what it would do and writes nothing. */
+    if (path === '/coach/migrate' && request.method === 'POST') {
+      if (!supa.configured()) return json({ error: 'Supabase is not configured' }, 503);
+      const dry = url.searchParams.get('dry') === '1';
+      const t0 = Date.now();
+      const n = { accounts: 0, messages: 0, progress: 0, notes: 0,
+                  cycles: 0, submissions: 0, freeChecks: 0, settings: 0 };
+      const problems = [];
+
+      const iso = v => (v ? new Date(Number(v) || v).toISOString() : null);
+      const listKeys = async prefix => {
+        try { return (await db.list({ prefix })).blobs.map(b => b.key); }
+        catch { return []; }
+      };
+
+      /* who exists at all: an account blob, or a thread, or progress */
+      const emails = new Set();
+      for (const pre of ['acct:', 'thread:', 'prog:']) {
+        for (const k of await listKeys(pre)) emails.add(k.slice(pre.length));
+      }
+
+      for (const e of emails) {
+        if (!e) continue;
+        try {
+          const acct = (await db.get(`acct:${e}`, { type: 'json' })) || {};
+          const pw = await db.get(`pw:${e}`, { type: 'json' });
+          const rowAcct = {
+            email: e,
+            name: acct.name || clients()[e] || '',
+            hash: (pw && pw.hash) || acct.hash || null,
+            marketing: !!acct.marketing,
+            stage: acct.stage || null,
+            plus: !!acct.plus,
+            plus_at: iso(acct.plusAt),
+            stripe_customer: acct.stripeCustomer || null,
+            subscription: acct.sub || null,
+            cancel_at: iso(acct.cancelAt),
+            first_seen: iso(acct.first) || new Date().toISOString(),
+            last_seen: iso(acct.last) || iso(acct.lastSeen) || new Date().toISOString(),
+          };
+          if (!dry) await supa.upsert('accounts', rowAcct, 'email');
+          n.accounts++;
+
+          /* the thread, compacted plus anything still queued */
+          const base = (await db.get(`thread:${e}`, { type: 'json' })) || [];
+          const queued = [];
+          for (const k of await listKeys(`mq:${e}:`)) {
+            const m = await db.get(k, { type: 'json' });
+            if (m) queued.push(m);
+          }
+          const seen = new Set(base.map(m => m && m.id).filter(Boolean));
+          const all = base.concat(queued.filter(m => m.id && !seen.has(m.id)))
+            .sort((a, b) => (a.at || 0) - (b.at || 0));
+          for (const m of all) {
+            if (!m) continue;
+            const rowMsg = {
+              email: e,
+              sender: m.from === 'coach' ? 'coach' : 'client',
+              body: m.text || '',
+              video: m.video || null,
+              image: m.image || null,
+              submission: m.sub || null,
+              created_at: iso(m.at) || new Date().toISOString(),
+            };
+            /* no natural key on Blobs messages, so skip anything already
+               carried over rather than duplicating the thread */
+            if (!dry) {
+              const dupe = await supa.row('messages',
+                `email=eq.${encodeURIComponent(e)}&created_at=eq.${encodeURIComponent(rowMsg.created_at)}&select=id`);
+              if (!dupe) { await supa.insert('messages', rowMsg); n.messages++; }
+            } else n.messages++;
+          }
+
+          const prog = await db.get(`prog:${e}`, { type: 'json' });
+          if (prog) {
+            if (!dry) await supa.upsert('progress', {
+              email: e,
+              opens: prog.opens || [], sessions: prog.sessions || [],
+              holds: prog.holds || [], flags: prog.flags || {},
+              tests: prog.tests || [], feedback: prog.feedback || [],
+              best_hold: prog.bestHold || null, last_seen: iso(prog.lastSeen),
+            }, 'email');
+            n.progress++;
+          }
+
+          const note = await db.get(`note:${e}`, { type: 'json' });
+          if (note && note.text) {
+            if (!dry) await supa.upsert('coach_notes',
+              { email: e, body: note.text, updated_at: iso(note.at) || new Date().toISOString() }, 'email');
+            n.notes++;
+          }
+
+          const cyc = await db.get(`cycle:${e}`, { type: 'json' });
+          if (cyc) {
+            if (!dry) await supa.upsert('cycles',
+              { email: e, n: cyc.n || 1, started_at: iso(cyc.start) || new Date().toISOString() }, 'email');
+            n.cycles++;
+          }
+
+          for (const k of await listKeys(`sub:${e}:`)) {
+            const sub = await db.get(k, { type: 'json' });
+            if (!sub) continue;
+            if (!dry) {
+              const dupe = await supa.row('submissions',
+                `email=eq.${encodeURIComponent(e)}&created_at=eq.${encodeURIComponent(iso(sub.at))}&select=id`);
+              if (!dupe) await supa.insert('submissions', {
+                email: e, kind: sub.kind === 'assessment' ? 'assessment' : 'test',
+                cycle: sub.cycle || 1, numbers: sub.numbers || {}, clips: sub.clips || [],
+                status: sub.status === 'reviewed' ? 'reviewed' : 'submitted',
+                reviewed_at: iso(sub.reviewedAt), reviewed_by: sub.reviewedBy || null,
+                created_at: iso(sub.at) || new Date().toISOString(),
+              });
+            }
+            n.submissions++;
+          }
+
+          const fc = await db.get(`fc:${e}`, { type: 'json' });
+          if (fc) {
+            if (!dry) await supa.upsert('free_checks',
+              { email: e, used_at: iso(fc.at) || new Date().toISOString() }, 'email');
+            n.freeChecks++;
+          }
+        } catch (err) {
+          problems.push(`${e}: ${String(err.message || err).slice(0, 200)}`);
+        }
+      }
+
+      const guard = await db.get('mailguard', { type: 'json' });
+      if (guard) {
+        if (!dry) await supa.upsert('settings',
+          { key: 'mailguard', value: guard, updated_at: new Date().toISOString() }, 'key');
+        n.settings++;
+      }
+
+      return json({ dry, people: emails.size, copied: n, problems,
+                    seconds: Math.round((Date.now() - t0) / 100) / 10 });
+    }
+
     if (path === '/coach/dbcheck') {
       return json(await supa.ping());
     }

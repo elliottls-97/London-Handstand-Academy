@@ -66,6 +66,7 @@ let queue=[];     /* everything waiting on a review, whoever it came from */
 let view='clients';
 let mailguard=null;   /* null until loaded; {suppress, clients} after */
 let dbstate=null;
+let migstate=null;
 let prog={};
 let notes={};
 let noteDrafts={};
@@ -167,6 +168,48 @@ function checkDB(){
     .then(d=>{ dbstate=d; draw(); })
     .catch(e=>{ dbstate={ok:false,why:String(e)}; draw(); });
 }
+/* Dry run first, always. It reports exactly what a real run would copy
+   without writing anything, which is the cheapest way to find out that
+   something is shaped differently than expected. */
+function runMigrate(dry){
+  if(!dry && !confirm('Copy everything from Blobs into Supabase?\n\n'
+    + 'Safe to run more than once — it updates rather than duplicates. '
+    + 'Nothing in Blobs is touched or deleted.')) return;
+  migstate={running:true,dry}; draw();
+  fetch(API+'/migrate'+(dry?'?dry=1':''),{method:'POST',headers:hdr()})
+    .then(r=>r.json())
+    .then(d=>{ migstate=d; draw(); })
+    .catch(e=>{ migstate={error:String(e)}; draw(); });
+}
+function migHTML(){
+  if(!dbstate||!dbstate.ok) return '';
+  const m=migstate;
+  const btns=`<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+    <button class="send" style="width:auto;padding:0 14px;font-size:12.5px;background:var(--mist);color:var(--ink)"
+      onclick="runMigrate(true)">Dry run</button>
+    <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+      onclick="runMigrate(false)">Copy the data across</button></div>`;
+  if(!m) return `<div style="margin-top:10px">
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">MIGRATION</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:7px">
+      Nothing has been copied yet. Start with a dry run.</div>${btns}</div>`;
+  if(m.running) return `<div style="font:500 12px/1.5 var(--sans);color:var(--grey2);padding:10px 0">
+    ${m.dry?'Dry run':'Copying'}… this can take a while.</div>`;
+  if(m.error) return `<div style="font:500 13px/1.6 var(--sans);color:var(--terra);padding:10px 0">
+    ${esc(m.error)}</div>${btns}`;
+  const c=m.copied||{};
+  return `<div style="margin-top:10px">
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+      color:${m.problems&&m.problems.length?'var(--terra)':'var(--grey2)'}">
+      ${m.dry?'DRY RUN — NOTHING WRITTEN':'COPIED'} · ${m.seconds}s</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:7px">
+      ${m.people} ${m.people===1?'person':'people'} ·
+      ${Object.entries(c).filter(([,v])=>v).map(([k,v])=>v+' '+k).join(' · ')||'nothing to copy'}
+      ${m.problems&&m.problems.length?'<br><b style="color:var(--terra)">'+m.problems.length
+        +' problem'+(m.problems.length===1?'':'s')+':</b><br>'+m.problems.map(esc).join('<br>'):''}
+    </div>${btns}</div>`;
+}
+
 function dbHTML(){
   if(!dbstate) return `<button onclick="checkDB()" style="background:none;border:none;cursor:pointer;
     padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
@@ -189,7 +232,8 @@ function dbHTML(){
     </div>
     <button onclick="checkDB()" style="background:none;border:none;cursor:pointer;padding:8px 0 0;
       font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
-      text-underline-offset:3px">Check again</button></div>`;
+      text-underline-offset:3px">Check again</button>
+    ${migHTML()}</div>`;
 }
 
 function loadMailguard(set){
