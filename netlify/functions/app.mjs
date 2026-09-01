@@ -433,21 +433,33 @@ const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
    every message and easy to get out of step. It is two queries now: who
    exists, and what has not been read. */
 async function rosterRows() {
-  const [accounts, unread] = await Promise.all([
+  const [accounts, msgs, subs] = await Promise.all([
     supa.rows('accounts', 'select=email,name,last_seen&order=last_seen.desc'),
-    supa.rows('messages', 'select=email,created_at&sender=eq.client&read_at=is.null'),
+    supa.rows('messages', 'select=email,created_at,sender,read_at'),
+    supa.rows('submissions', 'select=email'),
   ]);
+
+  /* Signing up is not the same as getting in touch. A free account that
+     has never sent anything is a lead for the mailing list, not a row
+     that should sit in a queue looking like it needs answering — it was
+     burying the people who actually wrote to you. */
+  const active = new Set();
   const counts = {}; const latest = {};
-  for (const m of (unread || [])) {
-    counts[m.email] = (counts[m.email] || 0) + 1;
+  for (const m of (msgs || [])) {
+    active.add(m.email);
     latest[m.email] = Math.max(latest[m.email] || 0, ms(m.created_at));
+    if (m.sender === 'client' && !m.read_at) counts[m.email] = (counts[m.email] || 0) + 1;
   }
+  for (const s of (subs || [])) active.add(s.email);
+
   const byEmail = {};
   for (const a of (accounts || [])) {
+    if (!active.has(a.email) && !clients()[a.email]) continue;
     byEmail[a.email] = { email: a.email, name: a.name || a.email.split('@')[0],
       last: Math.max(ms(a.last_seen), latest[a.email] || 0),
       unread: counts[a.email] || 0 };
   }
+  /* a coaching client always belongs here, even before they say anything */
   for (const e of Object.keys(clients())) {
     byEmail[e] = byEmail[e] || { email: e, name: clients()[e], last: 0, unread: 0 };
     byEmail[e].name = clients()[e];
@@ -1503,8 +1515,10 @@ export default async (request) => {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which person?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
-      await supa.remove('free_checks', `email=eq.${enc(e)}`).catch(() => {});
-      return json({ ok: true, email: e });
+      const gone = await supa.remove('free_checks', `email=eq.${enc(e)}`);
+      const n = Array.isArray(gone) ? gone.length : 0;
+      return json({ ok: true, email: e, cleared: n,
+        note: n ? 'They can send another.' : 'They had not used theirs — nothing to clear.' });
     }
 
     if (path === '/coach/queue') {

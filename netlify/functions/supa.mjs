@@ -73,8 +73,11 @@ export async function insertIfAbsent(table, body, onConflict) {
 export const update = (table, query, body) =>
   rest(`${table}?${query}`, { method: 'PATCH', body, prefer: 'return=representation' });
 
+/* returns the rows it deleted, so a caller can tell "removed nothing"
+   apart from "removed something" — a delete that quietly matched no rows
+   looks identical to success otherwise */
 export const remove = (table, query) =>
-  rest(`${table}?${query}`, { method: 'DELETE' });
+  rest(`${table}?${query}`, { method: 'DELETE', prefer: 'return=representation' });
 
 export const count = async (table, query = '') => {
   const r = await rows(table, `select=email${query ? '&' + query : ''}`);
