@@ -1207,10 +1207,11 @@ export default async (request) => {
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {});
     }
     if (request.method === 'POST') {
-      const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
-    const p = stored ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
-  flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
-  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) }
+    const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
+    const p = stored
+      ? { opens: stored.opens || [], sessions: stored.sessions || [], holds: stored.holds || [],
+          flags: stored.flags || {}, tests: stored.tests || [], feedback: stored.feedback || [],
+          bestHold: stored.best_hold || 0, lastSeen: ms(stored.last_seen) }
       : { opens: [], sessions: [], holds: [], flags: {}, tests: [], feedback: [] };
       const now = Date.now();
 

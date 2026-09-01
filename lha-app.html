@@ -23,6 +23,14 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink);
 .s::-webkit-scrollbar{display:none}.s{scrollbar-width:none}
 #app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;
  background:var(--bg);overflow:hidden}
+.burst{position:absolute;inset:0;pointer-events:none}
+.burst i{position:absolute;left:50%;top:34%;width:7px;height:7px;border-radius:2px;
+  opacity:0;transform:rotate(var(--a)) translateY(0);
+  animation:pop 900ms cubic-bezier(.2,.7,.3,1) var(--t) 1 both}
+@keyframes pop{0%{opacity:0;transform:rotate(var(--a)) translateY(0) scale(.4)}
+  15%{opacity:1}
+  100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--d)*-1)) scale(1) }}
+@media(prefers-reduced-motion:reduce){.burst{display:none}}
 .scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .hero{padding:calc(env(safe-area-inset-top) + 14px) 22px 26px;
  background:linear-gradient(180deg,var(--forest),var(--forest-d));color:var(--bg);border-radius:0 0 30px 30px}
@@ -1297,6 +1305,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
     /* where they stopped is the useful half of an abandoned session */
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
+  st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
   save();
   if(done){ st.ovSummary=true; openOv('summary'); }
   else if(partWay){ render(); openOv('why'); }
@@ -1637,15 +1646,34 @@ function drawOv(){
     }
   }
   if(st.ov==='summary'){
-    const q=queue();
-    body=`<div style="text-align:center;padding:20px 0">
-      <div class="h-xl" style="font-size:64px;color:var(--terra)">${q.length}</div>
-      <div class="kick2" style="margin-top:10px">SETS DONE</div>
-      <div class="h-lg" style="margin-top:22px">That's ${esc(day().label)} done</div></div>
-      <div class="kick2" style="margin-top:10px">HOW DID IT FEEL?</div>
+    const q=queue(), d=day();
+    const drills=allItems(d).length;
+    const mins=st.lastSessionMins||0;
+    const stat=(v,l)=>`<div style="flex:1;text-align:center">
+      <div class="h-sm" style="font-size:26px">${v}</div>
+      <div style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2);
+        margin-top:6px">${l}</div></div>`;
+    /* the moment a session ends is the one moment worth making a fuss of */
+    body=`<div style="position:relative;text-align:center;padding:26px 0 6px;overflow:hidden">
+      <div class="burst">${Array.from({length:18},(_,i)=>
+        `<i style="--a:${(i*20)}deg;--d:${60+(i%5)*22}px;--t:${(i%6)*90}ms;
+          background:${['var(--terra)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
+      <div class="h-xl" style="font-size:58px;color:var(--terra);position:relative">${q.length}</div>
+      <div class="kick2" style="margin-top:8px">SETS DONE</div>
+      <div class="h-lg" style="margin-top:20px">That's ${esc(d.label)} done.</div>
+      <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
+        Logged. ${st.in?'Elliott can see it.':'It is on your Progress screen.'}</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;padding:16px 0;
+      border-top:1px solid rgba(28,32,25,.09);border-bottom:1px solid rgba(28,32,25,.09)">
+      ${stat(drills,'DRILLS')}${stat(mins?mins+'m':'—','TIME')}${stat(q.length,'SETS')}
+    </div>
+      <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
       <div style="display:flex;gap:9px;margin-top:12px">
       ${['Too easy','About right','Too hard'].map(f=>`<button class="btn2" style="flex:1"
-        onclick="post({type:'Session feel',feel:'${f}'});closeOv()">${f}</button>`).join('')}</div>`;
+        onclick="post({type:'Session feel',feel:'${f}'});closeOv()">${f}</button>`).join('')}</div>
+      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
+        Telling me how it felt is what changes the next block.</div>`;
   }
   $('#ov').innerHTML=`<div class="ovhead"><button class="back" onclick="closeOv()">← Back</button>
     <div class="h-lg" style="margin-top:16px">${esc(T[st.ov]||'')}</div></div>
