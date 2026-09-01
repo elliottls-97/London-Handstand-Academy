@@ -488,6 +488,18 @@ const STREAM_SUB='customer-pns1oongdltmkjwa.cloudflarestream.com';
 const streamEmbed = uid => `https://${STREAM_SUB}/${uid}/iframe?preload=metadata`;
 let upBusy=false;
 function coachSay(m){ const el=document.getElementById('upMsg'); if(el) el.textContent=m; }
+
+/* The optimistic push means a clip appears in the coach's own thread the
+   moment it uploads, whether or not the server accepted it. Without this
+   a rejected send looks identical to a delivered one — which is how a
+   photo could reach the coach's screen and never reach the client. */
+function sendOK(r){
+  if(r.ok) return r;
+  return r.json().catch(()=>({})).then(d=>{
+    const why=(d && d.error) || ('the server said '+r.status);
+    throw new Error('Not delivered — '+why);
+  });
+}
 function pickCoachClip(){ pickCoachFile('video/*'); }
 function pickCoachPhoto(){ pickCoachFile('image/*'); }
 function pickCoachFile(accept){
@@ -538,7 +550,7 @@ function sendCoachPhoto(file){
       pendingCoach.push({email:sel,text,image:d.id,at:Date.now()});
       thread.push({from:'coach',text,image:d.id,at:Date.now()}); draw();
       return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
-        body:JSON.stringify({text,image:d.id})});
+        body:JSON.stringify({text,image:d.id})}).then(sendOK);
     })
     .then(()=>{ upBusy=false; coachSay(''); setTimeout(()=>openThread(sel),1200); })
     .catch(e=>{ upBusy=false; coachSay(String(e)); });
@@ -564,7 +576,7 @@ function sendCoachClip(file){
       pendingCoach.push({email:sel,text,video:uid,at:Date.now()});
       thread.push({from:'coach',text,video:uid,at:Date.now()}); draw();
       return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
-        body:JSON.stringify({text,video:uid})});
+        body:JSON.stringify({text,video:uid})}).then(sendOK);
     })
     .then(()=>{ upBusy=false; coachSay(''); setTimeout(()=>openThread(sel),1200); })
     .catch(e=>{ upBusy=false; coachSay(String(e)); });
@@ -587,7 +599,9 @@ function reply(answers){
     queue=queue.filter(q=>q.id!==sub.id); }
   draw();
   fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
-    body:JSON.stringify({text, ...(sub?{answers:sub.id}:{})})}).then(()=>openThread(sel));
+    body:JSON.stringify({text, ...(sub?{answers:sub.id}:{})})})
+    .then(sendOK).then(()=>openThread(sel))
+    .catch(e=>coachSay(String(e.message||e)));
 }
 
 /* ── what the numbers mean ──────────────────────────────────────
