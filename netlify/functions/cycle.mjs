@@ -9,15 +9,16 @@
    It never writes to a thread and never emails twice for the same
    thing — a reminder that arrives daily stops being a reminder.
    ══════════════════════════════════════════════════════════════ */
-import { getStore } from '@netlify/blobs';
 import programmes from './programmes.mjs';
+import * as supa from './supa.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
 const REVIEW_HOURS = 48;
 const NUDGE_AFTER = [0, 3];        // days past due — once on the day, once 3 days later
 
 const norm = e => String(e || '').trim().toLowerCase();
-const store = () => getStore('lha-app');
+const enc = encodeURIComponent;
+const ms = v => (v ? new Date(v).getTime() : 0);
 
 const parseClients = () => (process.env.CLIENTS || '')
   .split(',').map(p => p.trim()).filter(Boolean)
@@ -131,8 +132,8 @@ async function clientMailAllowed(to) {
   const t = norm(to);
   if (!parseClients().some(c => c.email === t)) return true;
   try {
-    const g = await store().get('mailguard', { type: 'json' });
-    return g ? !g.suppress : false;
+    const r = await supa.row('settings', `key=eq.mailguard&select=value`);
+    return r && r.value ? !r.value.suppress : false;
   } catch { return false; }
 }
 
@@ -153,31 +154,31 @@ async function email(to, subject, html) {
   } catch { return false; }
 }
 
-async function subsFor(db, who) {
-  let blobs = [];
-  try { ({ blobs } = await db.list({ prefix: `sub:${who}:` })); } catch { return []; }
-  return (await Promise.all(
-    blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
+async function subsFor(who) {
+  const rows = await supa.rows('submissions',
+    `email=eq.${enc(who)}&select=*&order=created_at.desc`).catch(() => []);
+  return (rows || []).map(s => ({ id: s.id, kind: s.kind, cycle: s.cycle,
+    at: ms(s.created_at), status: s.status, clips: s.clips || [] }));
 }
 
 export default async () => {
-  const db = store();
   const now = Date.now();
   const done = { reminded: [], chased: [], skipped: 0 };
 
   /* Anyone who has sent something, not only the coaching roster. A one-off
      form check comes from someone who is not a client yet — which makes it
      the worst one to let go quiet. */
-  const idx = (await db.get('index', { type: 'json' })) || {};
+  const accounts = (await supa.rows('accounts', 'select=email,name')) || [];
   const roster = parseClients();
   const known = new Set(roster.map(c => c.email));
   const everyone = roster.concat(
-    Object.entries(idx)
-      .filter(([e]) => !known.has(e))
-      .map(([e, v]) => ({ email: e, name: (v && v.name) || e, coach: '', lead: true })));
+    accounts.filter(a => !known.has(a.email))
+      .map(a => ({ email: a.email, name: a.name || a.email, coach: '', lead: true })));
 
   for (const c of everyone) {
-    const cycle = await db.get(`cycle:${c.email}`, { type: 'json' });
+    const cyc = await supa.row('cycles', `email=eq.${enc(c.email)}&select=*`)
+      .catch(() => null);
+    const cycle = cyc ? { n: cyc.n || 1, start: ms(cyc.started_at) } : null;
     /* no cycle means no block underway — nothing to remind them about.
        Their submissions still need chasing, so fall through to that. */
     if (!cycle && !c.lead) { done.skipped++; continue; }
@@ -185,7 +186,7 @@ export default async () => {
     const plan = programmes.clients[c.email];
     const days = (plan && Number(plan.testDelayDays)) || 14;
     const dueAt = (cycle ? cycle.start : now) + days * DAY;
-    const subs = await subsFor(db, c.email);
+    const subs = await subsFor(c.email);
     const mine = c.lead ? subs : subs.filter(s => s.cycle === cycle.n);
     const coach = c.coach || primaryCoach();
 
@@ -196,8 +197,9 @@ export default async () => {
          exact day means a missed run catches up instead of losing the
          reminder for good. */
       const stage = NUDGE_AFTER.filter(d => overdueDays >= d).length - 1;
-      const sent = (await db.get(`rem:${c.email}`, { type: 'json' })) || {};
-      if (stage >= 0 && !(sent.cycle === cycle.n && sent.stage >= stage)) {
+      const key = `remind:${c.email}:${cycle.n}`;
+      const sent = await supa.row('nudges', `key=eq.${enc(key)}&select=*`).catch(() => null);
+      if (stage >= 0 && !(sent && sent.stage >= stage)) {
         const ok = await email(c.email,
           overdueDays === 0 ? 'Time to film your test' : 'Still waiting on your clips',
           mail({
@@ -212,7 +214,8 @@ export default async () => {
             footnote: 'One clean attempt at each is plenty — five scrappy ones tell us less.',
           }));
         if (ok) {
-          await db.setJSON(`rem:${c.email}`, { cycle: cycle.n, stage, at: now });
+          await supa.upsert('nudges',
+            { key, stage, sent_at: new Date().toISOString() }, 'key');
           done.reminded.push(c.email);
         }
       }
@@ -222,8 +225,8 @@ export default async () => {
     for (const s of mine) {
       if (s.status !== 'submitted') continue;
       if (now - (s.at || 0) < REVIEW_HOURS * 60 * 60 * 1000) continue;
-      const key = `chase:${c.email}:${s.id}`;
-      if (await db.get(key, { type: 'json' })) continue;
+      const ckey = `chase:${s.id}`;
+      if (await supa.row('nudges', `key=eq.${enc(ckey)}&select=key`).catch(() => null)) continue;
       const hrs = Math.round((now - s.at) / 3600000);
       const ok = await email(coach,
         `${c.name} has been waiting ${hrs} hours`,
@@ -233,7 +236,10 @@ export default async () => {
             ${hrs} hours ago and nobody has marked it reviewed. The promise is ${REVIEW_HOURS} hours.`],
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the coach view' },
         }));
-      if (ok) { await db.setJSON(key, { at: now }); done.chased.push(c.email); }
+      if (ok) {
+        await supa.upsert('nudges', { key: ckey, sent_at: new Date().toISOString() }, 'key');
+        done.chased.push(c.email);
+      }
     }
   }
 

@@ -124,10 +124,10 @@ async function pwHash(plain) {
   return Buffer.from(bits).toString('base64');
 }
 /* PASSWORDS in the environment is the starting point; once someone changes
-   theirs the new hash lives in the blob store and takes precedence. */
+   theirs the new hash lives on their account row and takes precedence. */
 async function hashFor(db, email) {
-  const stored = await db.get(`pw:${email}`, { type: 'json' });
-  return (stored && stored.hash) || passwords()[email] || null;
+  const acct = await getAcct(email);
+  return (acct && acct.hash) || passwords()[email] || null;
 }
 const passwords = () => Object.fromEntries(
   (process.env.PASSWORDS || '').split(',').map(x => x.trim()).filter(Boolean)
@@ -290,89 +290,131 @@ async function stripeSigOK(raw, header, secret) {
   return diff === 0;
 }
 
-/* ── the thread ──────────────────────────────────────────────────
-   Blobs is eventually consistent, so read-modify-write on a single key
-   loses messages. A reply written a second after a client's message can
-   read the thread from before that message landed and write it back
-   without it — and it is gone for good. That is why a shared clip could
-   vanish from the client's chat while the coach could still see it.
+/* ── the data layer ──────────────────────────────────────────────
+   Everything below talks to Postgres. The machinery this replaces is
+   worth naming, because it existed only to work around the store:
 
-   So each message is written as its own blob, which cannot overwrite
-   anything. The thread is the compacted history merged with whatever is
-   still in the queue; compaction folds the queue in and only deletes a
-   queue entry once it is safely part of what was just written. */
-const MSG_CAP = 200;
-const PROPAGATION = 15 * 1000;              // what Blobs takes to settle
+     - a thread was one Blobs value, so two writes seconds apart could
+       lose one of them for good. Messages are rows now; they cannot.
+     - each message was written to its own key and later folded back in,
+       with a compaction pass and a propagation delay to respect. Gone.
+     - the 200-message cap existed because the whole thread was rewritten
+       on every reply. Gone.
+     - one free form check was a read-then-write that could race. It is
+       a primary key now, so the database enforces it.
 
-const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+   Reads are strongly consistent, so the "wait 15 seconds before
+   concluding a write failed" rule no longer applies. */
 
-async function threadLoad(db, who, { compact = false } = {}) {
-  const base = (await db.get(`thread:${who}`, { type: 'json' })) || [];
-  /* deliberately not caught: if the queue cannot be listed then the recent
-     messages are not in this answer, and returning the older thread anyway
-     is exactly the silent loss this is here to prevent. Failing lets both
-     front ends keep showing what they already have. */
-  const { blobs } = await db.list({ prefix: `mq:${who}:` });
-  const queued = (await Promise.all(
-    blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
+const enc = encodeURIComponent;
+const nowISO = () => new Date().toISOString();
+const iso = v => (v ? new Date(Number(v) || v).toISOString() : null);
+const ms = v => (v ? new Date(v).getTime() : 0);
 
-  const known = new Set(base.map(m => m && m.id).filter(Boolean));
-  const all = base
-    .concat(queued.filter(m => m.id && !known.has(m.id)))
-    .sort((a, b) => (a.at || 0) - (b.at || 0))
-    .slice(-MSG_CAP);
+/* ── accounts ── */
+const getAcct = e => supa.row('accounts', `email=eq.${enc(e)}&select=*`);
 
-  if (compact && queued.length) {
-    try {
-      await db.setJSON(`thread:${who}`, all);
-      const kept = new Set(all.map(m => m.id).filter(Boolean));
-      /* leave anything recent alone — the write above has to propagate
-         before the queue copy is safe to throw away */
-      const cutoff = Date.now() - 8 * PROPAGATION;
-      await Promise.all(queued.map(m =>
-        (kept.has(m.id) && (m.at || 0) < cutoff)
-          ? db.delete(`mq:${who}:${m.id}`).catch(() => {})
-          : null));
-    } catch { /* compaction is housekeeping, never needed for correctness */ }
-  }
-  return all;
+async function saveAcct(patch) {
+  const row = { ...patch, last_seen: nowISO() };
+  return supa.upsert('accounts', row, 'email');
+}
+
+/* an account has to exist before a message or a submission can point at
+   it — every one of those tables has a foreign key onto this */
+async function ensureAcct(e, name) {
+  const got = await getAcct(e);
+  if (got) return got;
+  const [made] = await supa.upsert('accounts',
+    { email: e, name: name || clients()[e] || '' }, 'email');
+  return made;
+}
+
+/* ── the thread ── */
+async function threadLoad(db, who) {
+  const rows = await supa.rows('messages',
+    `email=eq.${enc(who)}&select=*&order=created_at.asc`);
+  return (rows || []).map(m => ({
+    id: m.id, from: m.sender, text: m.body || '', at: ms(m.created_at),
+    ...(m.video ? { video: m.video } : {}),
+    ...(m.image ? { image: m.image } : {}),
+    ...(m.submission ? { sub: m.submission } : {}),
+  }));
 }
 
 async function threadAdd(db, who, msg) {
-  const m = { id: newId(), at: Date.now(), ...msg };
-  await db.setJSON(`mq:${who}:${m.id}`, m);   // its own key, so nothing is overwritten
-  return m;
+  await ensureAcct(who);
+  const [row] = await supa.insert('messages', {
+    email: who,
+    sender: msg.from === 'coach' ? 'coach' : 'client',
+    body: msg.text || '',
+    video: msg.video || null,
+    image: msg.image || null,
+    submission: msg.sub || null,
+  });
+  return row;
 }
 
-/* ── the coaching cycle ──────────────────────────────────────────
-   Bachmann's model, and the one the specs were already written for: a
-   block runs, then footage and numbers come in together, then the coach
-   reviews and the next block starts. Nothing here invents a schedule —
-   testDelayDays already lives in each client's spec.
+const unreadCount = async who => (await supa.rows('messages',
+  `email=eq.${enc(who)}&sender=eq.client&read_at=is.null&select=id`) || []).length;
 
-   A cycle starts the first time a client opens their programme, because
-   that is the first moment the block is genuinely underway. */
+const markRead = who => supa.update('messages',
+  `email=eq.${enc(who)}&sender=eq.client&read_at=is.null`, { read_at: nowISO() });
+
+/* ── submissions ── */
+async function subsFor(db, who) {
+  const rows = await supa.rows('submissions',
+    `email=eq.${enc(who)}&select=*&order=created_at.desc`);
+  return (rows || []).map(s => ({
+    id: s.id, kind: s.kind, cycle: s.cycle, at: ms(s.created_at),
+    status: s.status, numbers: s.numbers || {}, clips: s.clips || [],
+    reviewedAt: ms(s.reviewed_at), reviewedBy: s.reviewed_by || '',
+  }));
+}
+
+/* ── the coaching cycle ── */
 const DAY = 24 * 60 * 60 * 1000;
 const REVIEW_HOURS = 48;
 
 async function cycleGet(db, who, plan) {
-  const k = `cycle:${who}`;
-  let c = await db.get(k, { type: 'json' });
-  if (!c) {
-    c = { start: Date.now(), n: 1 };
-    await db.setJSON(k, c);
+  let row = await supa.row('cycles', `email=eq.${enc(who)}&select=*`);
+  if (!row) {
+    await ensureAcct(who);
+    const [made] = await supa.upsert('cycles', { email: who, n: 1 }, 'email');
+    row = made;
   }
   const days = (plan && Number(plan.testDelayDays)) || 14;
-  return { ...c, days, dueAt: c.start + days * DAY };
+  const start = ms(row.started_at);
+  return { start, n: row.n || 1, days, dueAt: start + days * DAY };
 }
 
-async function subsFor(db, who) {
-  let blobs = [];
-  try { ({ blobs } = await db.list({ prefix: `sub:${who}:` })); } catch { blobs = []; }
-  const out = (await Promise.all(
-    blobs.map(b => db.get(b.key, { type: 'json' }).catch(() => null)))).filter(Boolean);
-  return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+/* ── short-lived odds and ends ── */
+const getSetting = async k => {
+  const r = await supa.row('settings', `key=eq.${enc(k)}&select=value`);
+  return r ? r.value : null;
+};
+const setSetting = (k, value) =>
+  supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
+
+const getCode = (e, kind) =>
+  supa.row('codes', `email=eq.${enc(e)}&kind=eq.${kind}&select=*`);
+const setCode = (e, kind, row) =>
+  supa.upsert('codes', { email: e, kind, ...row }, 'email,kind');
+const clearCode = (e, kind) =>
+  supa.remove('codes', `email=eq.${enc(e)}&kind=eq.${kind}`);
+
+/* rate limits: one row per key, window kept as a timestamp */
+async function rateHit(key, windowMs) {
+  const r = await supa.row('rate_limits', `key=eq.${enc(key)}&select=*`);
+  const fresh = r && (Date.now() - ms(r.window_at)) < windowMs;
+  const n = fresh ? (r.n || 0) + 1 : 1;
+  await supa.upsert('rate_limits',
+    { key, n, window_at: fresh ? r.window_at : nowISO() }, 'key');
+  return n;
 }
+
+const nudgeSent = k => supa.row('nudges', `key=eq.${enc(k)}&select=*`);
+const nudgeMark = (k, stage = 0) =>
+  supa.upsert('nudges', { key: k, stage, sent_at: nowISO() }, 'key');
 
 /* ── photos ──────────────────────────────────────────────────────
    Stream is video only. Photos are shrunk in the browser and kept in
@@ -381,6 +423,32 @@ async function subsFor(db, who) {
    today, and it becomes signed at the same time they do. */
 const IMG_MAX = 3 * 1024 * 1024;
 const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
+
+/* The client list used to be a hand-maintained 'index' blob, updated on
+   every message and easy to get out of step. It is two queries now: who
+   exists, and what has not been read. */
+async function rosterRows() {
+  const [accounts, unread] = await Promise.all([
+    supa.rows('accounts', 'select=email,name,last_seen&order=last_seen.desc'),
+    supa.rows('messages', 'select=email,created_at&sender=eq.client&read_at=is.null'),
+  ]);
+  const counts = {}; const latest = {};
+  for (const m of (unread || [])) {
+    counts[m.email] = (counts[m.email] || 0) + 1;
+    latest[m.email] = Math.max(latest[m.email] || 0, ms(m.created_at));
+  }
+  const byEmail = {};
+  for (const a of (accounts || [])) {
+    byEmail[a.email] = { email: a.email, name: a.name || '',
+      last: Math.max(ms(a.last_seen), latest[a.email] || 0),
+      unread: counts[a.email] || 0 };
+  }
+  for (const e of Object.keys(clients())) {
+    byEmail[e] = byEmail[e] || { email: e, name: clients()[e], last: 0, unread: 0 };
+    byEmail[e].name = clients()[e];
+  }
+  return byEmail;
+}
 
 export default async (request) => {
   const url = new URL(request.url);
@@ -404,14 +472,13 @@ export default async (request) => {
 
     /* find the account either by the address we sent, or by the Stripe
        customer we stored when they checked out */
-    let key = e ? `acct:${e}` : null;
-    if (!key && obj.customer) {
-      const idx = (await db.get('stripeIdx', { type: 'json' })) || {};
-      if (idx[obj.customer]) key = `acct:${idx[obj.customer]}`;
+    /* stripeIdx used to be a hand-kept map from customer to email. It is a
+       column with an index on it now, so the lookup is a query. */
+    let acct = e ? await getAcct(e) : null;
+    if (!acct && obj.customer) {
+      acct = await supa.row('accounts',
+        `stripe_customer=eq.${enc(obj.customer)}&select=*`);
     }
-    if (!key) return json({ ok: true, note: 'no account matched' });
-
-    const acct = await db.get(key, { type: 'json' });
     /* writing {plus:true} into a key with no account behind it would create a
        stub with no password and lock the real person out */
     if (!acct) {
@@ -430,23 +497,19 @@ export default async (request) => {
       const status = obj.status || 'active';
       acct.plus = !['canceled', 'unpaid', 'incomplete_expired'].includes(status);
       /* the subscription id is what an in-app cancel needs */
-      if (obj.subscription) acct.sub = obj.subscription;
-      else if (ev.type.startsWith('customer.subscription') && obj.id) acct.sub = obj.id;
-      if (obj.cancel_at_period_end != null) acct.cancelAt = obj.cancel_at_period_end
-        ? (obj.current_period_end || 0) * 1000 : 0;
-      if (obj.customer) {
-        acct.stripeCustomer = obj.customer;
-        const idx = (await db.get('stripeIdx', { type: 'json' })) || {};
-        idx[obj.customer] = acct.email || e;
-        await db.setJSON('stripeIdx', idx);
-      }
+      if (obj.subscription) acct.subscription = obj.subscription;
+      else if (ev.type.startsWith('customer.subscription') && obj.id) acct.subscription = obj.id;
+      if (obj.cancel_at_period_end != null) acct.cancel_at = obj.cancel_at_period_end
+        ? iso((obj.current_period_end || 0) * 1000) : null;
+      if (obj.customer) acct.stripe_customer = obj.customer;
     } else if (off.includes(ev.type)) {
       acct.plus = false;
     } else {
       return json({ ok: true, ignored: ev.type });
     }
-    acct.plusAt = Date.now();
-    await db.setJSON(key, acct);
+    await saveAcct({ email: acct.email, plus: acct.plus, plus_at: nowISO(),
+      subscription: acct.subscription || null, cancel_at: acct.cancel_at || null,
+      stripe_customer: acct.stripe_customer || null });
 
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${acct.plus ? 'New' : 'Cancelled'} £5 subscriber: ${acct.email || e}`,
@@ -480,12 +543,11 @@ export default async (request) => {
     /* Always the same answer. Confirming whether an address is one of your
        clients would let anyone map your client list by typing addresses. */
     if (name) {
-      const rl = (await db.get(`rl:${e}`, { type: 'json' })) || { n: 0, at: 0 };
-      const fresh = Date.now() - rl.at < 3600000;
-      if (!(fresh && rl.n >= 5)) {
-        await db.setJSON(`rl:${e}`, { n: fresh ? rl.n + 1 : 1, at: fresh ? rl.at : Date.now() });
+      const hits = await rateHit(`code:${e}`, 3600000);
+      if (hits <= 5) {
         const code = String(Math.floor(100000 + Math.random() * 900000));
-        await db.setJSON(`code:${e}`, { code, tries: 0, exp: Date.now() + CODE_TTL });
+        await setCode(e, 'login',
+          { code, tries: 0, expires_at: iso(Date.now() + CODE_TTL) });
         await email(e, `${code} is your London Handstand Academy code`,
           `<p style="font:16px/1.5 system-ui">Hi ${name},</p>
            <p style="font:16px/1.5 system-ui">Your code is</p>
@@ -503,26 +565,27 @@ export default async (request) => {
     const e = norm(body.email);
     /* two kinds of account now: coached clients configured by Elliott, and
        self-serve ones people create themselves */
-    const acct = (await db.get(`acct:${e}`, { type: 'json' })) || null;
+    const acct = await getAcct(e);
     const name = clients()[e] || (acct && (acct.name || e.split('@')[0])) || null;
     const stored = (await hashFor(db, e)) || (acct && acct.hash) || null;
     const bad = () => json({ error: 'Wrong email or password' }, 401);
     if (!e || !name || !stored || !body.password) return bad();
 
-    /* slow the guessing down without keeping any per-user state */
-    const rl = (await db.get(`pwrl:${e}`, { type: 'json' })) || { n: 0, at: 0 };
-    const fresh = Date.now() - rl.at < 900000;
-    if (fresh && rl.n >= 10) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
+    /* slow the guessing down */
+    const existing = await supa.row('rate_limits', `key=eq.${enc('pw:' + e)}&select=*`);
+    if (existing && (Date.now() - ms(existing.window_at)) < 900000 && existing.n >= 10) {
+      return json({ error: 'Too many attempts. Try again shortly.' }, 429);
+    }
 
     const got = await pwHash(String(body.password));
     if (got.length !== stored.length) return bad();
     let diff = 0;
     for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ stored.charCodeAt(i);
     if (diff) {
-      await db.setJSON(`pwrl:${e}`, { n: fresh ? rl.n + 1 : 1, at: fresh ? rl.at : Date.now() });
+      await rateHit(`pw:${e}`, 900000);
       return bad();
     }
-    await db.delete(`pwrl:${e}`);
+    await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
     return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
                   client: name, coach: coachList().includes(e),
                   coached: !!clients()[e], plus: !!(acct && acct.plus) });
@@ -535,13 +598,16 @@ export default async (request) => {
     const bad = () => json({ error: 'Wrong code' }, 401);
     if (!e || !name) return bad();
 
-    const rec = await db.get(`code:${e}`, { type: 'json' });
-    if (!rec || Date.now() > rec.exp || rec.tries >= 5) { await db.delete(`code:${e}`); return bad(); }
+    const rec = await getCode(e, 'login');
+    if (!rec || Date.now() > ms(rec.expires_at) || rec.tries >= 5) {
+      await clearCode(e, 'login'); return bad();
+    }
     if (String(body.code || '').trim() !== rec.code) {
-      await db.setJSON(`code:${e}`, { ...rec, tries: rec.tries + 1 });
+      await setCode(e, 'login', { code: rec.code, tries: rec.tries + 1,
+        expires_at: rec.expires_at });
       return bad();
     }
-    await db.delete(`code:${e}`);
+    await clearCode(e, 'login');
     return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }), client: name });
   }
 
@@ -554,8 +620,7 @@ export default async (request) => {
     if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) {
       return json({ error: 'That does not look like an email address' }, 400);
     }
-    const k = `acct:${e}`;
-    const prev = (await db.get(k, { type: 'json' })) || {};
+    const prev = (await getAcct(e)) || {};
 
     /* a password is optional: the email gate after the quiz just wants
        the address, and an account can gain a password later */
@@ -574,13 +639,11 @@ export default async (request) => {
       marketing: body.marketing === true ? true : !!prev.marketing,
       stage: Number(body.stage) || prev.stage || null,
       plus: !!prev.plus,
-      stripeCustomer: prev.stripeCustomer || null,
-      first: prev.first || Date.now(),
-      last: Date.now(),
+      stripe_customer: prev.stripe_customer || null,
     };
-    await db.setJSON(k, acct);
+    await saveAcct(acct);
 
-    if (!prev.first) {
+    if (!prev.email) {
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `New app sign-up: ${e}`,
         `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
@@ -602,18 +665,17 @@ export default async (request) => {
     const ok = json({ ok: true });                 // same answer either way
     if (!e) return ok;
 
-    const acct = await db.get(`acct:${e}`, { type: 'json' });
+    const acct = await getAcct(e);
     const isClient = !!clients()[e];
     if (!acct && !isClient) return ok;
 
     /* slow down anyone working through a list of addresses */
-    const rl = (await db.get(`rsrl:${e}`, { type: 'json' })) || { n: 0, at: 0 };
-    const fresh = Date.now() - rl.at < 3600000;
-    if (fresh && rl.n >= 5) return ok;
-    await db.setJSON(`rsrl:${e}`, { n: fresh ? rl.n + 1 : 1, at: fresh ? rl.at : Date.now() });
+    if ((await rateHit(`reset:${e}`, 3600000)) > 5) return ok;
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
-    await db.setJSON(`reset:${e}`, { code, exp: Date.now() + 15 * 60 * 1000, tries: 0 });
+    await ensureAcct(e);
+    await setCode(e, 'reset',
+      { code, tries: 0, expires_at: iso(Date.now() + 15 * 60 * 1000) });
     await email(e, 'Your reset code',
       mail({
         title: 'Your reset code.',
@@ -633,22 +695,22 @@ export default async (request) => {
     const pw = String(body.password || '');
     if (pw.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
 
-    const rec = await db.get(`reset:${e}`, { type: 'json' });
+    const rec = await getCode(e, 'reset');
     const bad = () => json({ error: 'That code is wrong or has expired' }, 400);
-    if (!rec || Date.now() > rec.exp) return bad();
+    if (!rec || Date.now() > ms(rec.expires_at)) return bad();
     if (rec.tries >= 5) return bad();
     if (code !== rec.code) {
-      await db.setJSON(`reset:${e}`, { ...rec, tries: rec.tries + 1 });
+      await setCode(e, 'reset', { code: rec.code, tries: rec.tries + 1,
+        expires_at: rec.expires_at });
       return bad();
     }
-    await db.delete(`reset:${e}`);
+    await clearCode(e, 'reset');
 
-    const hash = await pwHash(pw);
-    const acct = await db.get(`acct:${e}`, { type: 'json' });
-    if (acct) { acct.hash = hash; await db.setJSON(`acct:${e}`, acct); }
-    /* coached clients keep their password in the override store */
-    await db.setJSON(`pw:${e}`, { hash, at: Date.now() });
-    await db.delete(`pwrl:${e}`);
+    /* one hash, on the account row. There is no separate override store
+       any more — a coached client and a self-serve one are the same row. */
+    await ensureAcct(e);
+    await saveAcct({ email: e, hash: await pwHash(pw) });
+    await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
 
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${e} reset their password`,
@@ -661,7 +723,7 @@ export default async (request) => {
   if (path === '/me') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    const acct = (await getAcct(who)) || {};
     return json({
       email: who,
       name: clients()[who] || acct.name || '',
@@ -669,13 +731,13 @@ export default async (request) => {
       coach: coachList().includes(who),
       coachName: clients()[who] ? coachName(coachOf(who)) : '',
       plus: !!acct.plus,
-      canManage: !!acct.stripeCustomer,
-      canCancel: !!(acct.sub || acct.stripeCustomer),
-      cancelAt: acct.cancelAt || 0,
+      canManage: !!acct.stripe_customer,
+      canCancel: !!(acct.subscription || acct.stripe_customer),
+      cancelAt: acct.cancel_at || 0,
       /* the one free form check. Its own key, because nothing else writes
          it — folding it into acct would put it in the path of every other
          account write. */
-      freeCheckUsed: !!(await db.get(`fc:${who}`, { type: 'json' })),
+      freeCheckUsed: !!(await supa.row('free_checks', `email=eq.${enc(who)}&select=email`)),
     });
   }
 
@@ -713,17 +775,17 @@ export default async (request) => {
   if (path === '/subscription' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
-    if (!acct.stripeCustomer && !acct.sub) return json({ none: true });
+    const acct = (await getAcct(who)) || {};
+    if (!acct.stripe_customer && !acct.subscription) return json({ none: true });
     if (!stripeKey()) return json({ none: true });
 
     try {
       let sub = null;
-      if (acct.sub) {
-        sub = await stripe(`/subscriptions/${acct.sub}`, null, 'GET');
+      if (acct.subscription) {
+        sub = await stripe(`/subscriptions/${acct.subscription}`, null, 'GET');
       } else {
         const list = await stripe(
-          `/subscriptions?customer=${encodeURIComponent(acct.stripeCustomer)}&status=all&limit=10`,
+          `/subscriptions?customer=${encodeURIComponent(acct.stripe_customer)}&status=all&limit=10`,
           null, 'GET');
         sub = (list.data || []).find(x =>
           ['active', 'trialing', 'past_due', 'unpaid'].includes(x.status)) || (list.data || [])[0] || null;
@@ -731,12 +793,13 @@ export default async (request) => {
       if (!sub) return json({ none: true });
 
       /* keep what we learned, so cancel does not have to look it up again */
-      const before = JSON.stringify([acct.sub, acct.cancelAt, acct.plus]);
-      acct.sub = sub.id;
-      acct.cancelAt = sub.cancel_at_period_end ? (sub.current_period_end || 0) * 1000 : 0;
+      const before = JSON.stringify([acct.subscription, acct.cancel_at, acct.plus]);
+      acct.subscription = sub.id;
+      acct.cancel_at = sub.cancel_at_period_end ? iso((sub.current_period_end || 0) * 1000) : null;
       acct.plus = ['active', 'trialing', 'past_due'].includes(sub.status);
-      if (JSON.stringify([acct.sub, acct.cancelAt, acct.plus]) !== before) {
-        await db.setJSON(`acct:${who}`, acct);
+      if (JSON.stringify([acct.subscription, acct.cancel_at, acct.plus]) !== before) {
+        await saveAcct({ email: who, subscription: acct.subscription,
+          cancel_at: acct.cancel_at, plus: acct.plus });
       }
 
       const item = (sub.items && sub.items.data && sub.items.data[0]) || {};
@@ -744,7 +807,7 @@ export default async (request) => {
       return json({
         status: sub.status,
         renewsAt: (sub.current_period_end || 0) * 1000,
-        cancelAt: acct.cancelAt,
+        cancelAt: acct.cancel_at,
         willCancel: !!sub.cancel_at_period_end,
         amount: price.unit_amount != null ? price.unit_amount / 100 : null,
         currency: (price.currency || 'gbp').toUpperCase(),
@@ -763,38 +826,40 @@ export default async (request) => {
   if (path === '/cancel' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
+    const acct = (await getAcct(who)) || {};
 
     /* the id is normally captured from the webhook, but a missed or
        mis-routed event should not leave someone unable to cancel — ask
        Stripe which subscription this customer has */
-    if (!acct.sub && acct.stripeCustomer) {
+    if (!acct.subscription && acct.stripe_customer) {
       try {
         const list = await stripe(
-          `/subscriptions?customer=${encodeURIComponent(acct.stripeCustomer)}&status=all&limit=10`,
+          `/subscriptions?customer=${encodeURIComponent(acct.stripe_customer)}&status=all&limit=10`,
           null, 'GET');
         const live = (list.data || []).find(x =>
           ['active', 'trialing', 'past_due', 'unpaid'].includes(x.status));
         if (live) {
-          acct.sub = live.id;
-          acct.cancelAt = live.cancel_at_period_end ? (live.current_period_end || 0) * 1000 : 0;
-          await db.setJSON(`acct:${who}`, acct);
+          acct.subscription = live.id;
+          acct.cancel_at = live.cancel_at_period_end ? iso((live.current_period_end || 0) * 1000) : null;
+          await saveAcct({ email: who, subscription: acct.subscription,
+          cancel_at: acct.cancel_at, plus: acct.plus });
         }
       } catch { /* fall through to the error below */ }
     }
-    if (!acct.sub) return json({ error: 'No subscription to cancel' }, 400);
+    if (!acct.subscription) return json({ error: 'No subscription to cancel' }, 400);
     try {
       const sub = body.undo
-        ? await stripe(`/subscriptions/${acct.sub}`, { cancel_at_period_end: 'false' })
-        : await stripe(`/subscriptions/${acct.sub}`, { cancel_at_period_end: 'true' });
-      acct.cancelAt = sub.cancel_at_period_end ? (sub.current_period_end || 0) * 1000 : 0;
-      await db.setJSON(`acct:${who}`, acct);
+        ? await stripe(`/subscriptions/${acct.subscription}`, { cancel_at_period_end: 'false' })
+        : await stripe(`/subscriptions/${acct.subscription}`, { cancel_at_period_end: 'true' });
+      acct.cancel_at = sub.cancel_at_period_end ? iso((sub.current_period_end || 0) * 1000) : null;
+      await saveAcct({ email: who, subscription: acct.subscription,
+          cancel_at: acct.cancel_at, plus: acct.plus });
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `${who} ${body.undo ? 'resumed' : 'cancelled'} their £5 subscription`,
         `<p style="font:16px/1.6 system-ui">${body.undo
           ? 'They turned the renewal back on.'
           : 'It stops renewing. Access runs to the end of the paid month.'}</p>`);
-      return json({ ok: true, cancelAt: acct.cancelAt });
+      return json({ ok: true, cancelAt: acct.cancel_at });
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
     }
@@ -806,11 +871,11 @@ export default async (request) => {
   if (path === '/portal' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
-    if (!acct.stripeCustomer) return json({ error: 'No subscription to manage' }, 400);
+    const acct = (await getAcct(who)) || {};
+    if (!acct.stripe_customer) return json({ error: 'No subscription to manage' }, 400);
     try {
       const sess = await stripe('/billing_portal/sessions', {
-        customer: acct.stripeCustomer,
+        customer: acct.stripe_customer,
         return_url: `${url.origin}/lha-app.html`,
       });
       return json({ url: sess.url });
@@ -925,7 +990,7 @@ export default async (request) => {
     const coached = !!clients()[who];
     const kind = coached && body.kind !== 'assessment' ? 'test' : 'assessment';
     if (!coached) {
-      if (await db.get(`fc:${who}`, { type: 'json' })) {
+      if (await supa.row('free_checks', `email=eq.${enc(who)}&select=email`)) {
         return json({ error: 'Your free assessment has already been used. '
           + 'Coaching includes unlimited form checks.', gated: true }, 402);
       }
@@ -943,11 +1008,20 @@ export default async (request) => {
 
     const plan = programmes.clients[who];
     const cycle = await cycleGet(db, who, plan);
-    const id = newId();
-    const rec = { id, kind, cycle: cycle.n, at: Date.now(), status: 'submitted',
-                  numbers, clips, reviewedAt: 0 };
-    await db.setJSON(`sub:${who}:${id}`, rec);
-    if (!coached) await db.setJSON(`fc:${who}`, { at: Date.now(), sub: id });
+    await ensureAcct(who);
+    const [saved] = await supa.insert('submissions',
+      { email: who, kind, cycle: cycle.n, numbers, clips, status: 'submitted' });
+    const id = saved.id;
+    /* the primary key is the limit — two requests racing cannot both win */
+    if (!coached) {
+      const won = await supa.insertIfAbsent('free_checks',
+        { email: who, submission: id }, 'email');
+      if (!won) {
+        await supa.remove('submissions', `id=eq.${enc(id)}`);
+        return json({ error: 'Your free assessment has already been used. '
+          + 'Coaching includes unlimited form checks.', gated: true }, 402);
+      }
+    }
 
     /* it lands in the thread too, so the coach reads it where they
        already reply rather than in a second inbox */
@@ -959,12 +1033,6 @@ export default async (request) => {
       await threadAdd(db, who, { from: 'client', text: c.name || c.drill, sub: id,
         ...(c.uid ? { video: c.uid } : {}), ...(c.image ? { image: c.image } : {}) });
     }
-
-    const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
-    const idx = (await db.get('index', { type: 'json' })) || {};
-    idx[who] = { name: clients()[who] || acct.name || who, coached: !!clients()[who],
-                 last: Date.now(), unread: (idx[who]?.unread || 0) + 1 + clips.length };
-    await db.setJSON('index', idx);
 
     const them = clients()[who] || (acct.name || '').split(' ')[0] || '';
     const cn = coachName(coachOf(who));
@@ -1010,10 +1078,17 @@ export default async (request) => {
     const k = `prog:${who}`;
 
     if (request.method === 'GET') {
-      return json((await db.get(k, { type: 'json' })) || {});
+      const prog = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
+    return json(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
+  flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
+  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {});
     }
     if (request.method === 'POST') {
-      const p = (await db.get(k, { type: 'json' })) || { opens: [], sessions: [], flags: {}, tests: [] };
+      const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
+    const p = stored ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
+  flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
+  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) }
+      : { opens: [], sessions: [], holds: [], flags: {}, tests: [], feedback: [] };
       const now = Date.now();
 
       /* one "open" per day is all we need to see a habit */
@@ -1068,7 +1143,12 @@ export default async (request) => {
       if (body.test && typeof body.test === 'object') {
         p.tests = (p.tests || []).concat([{ vals: body.test, at: now }]).slice(-12);
       }
-      await db.setJSON(k, p);
+      await ensureAcct(who);
+    await supa.upsert('progress', {
+      email: who, opens: p.opens || [], sessions: p.sessions || [], holds: p.holds || [],
+      flags: p.flags || {}, tests: p.tests || [], feedback: p.feedback || [],
+      best_hold: p.bestHold || null, last_seen: iso(p.lastSeen) || nowISO(),
+    }, 'email');
       return json({ ok: true });
     }
   }
@@ -1086,7 +1166,7 @@ export default async (request) => {
     if (!stored || (await pwHash(current)) !== stored) {
       return json({ error: 'Current password is wrong' }, 401);
     }
-    await db.setJSON(`pw:${who}`, { hash: await pwHash(next), at: Date.now() });
+    await saveAcct({ email: who, hash: await pwHash(next) });
 
     /* tell Elliott, so a password changing is never a silent event */
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
@@ -1101,7 +1181,7 @@ export default async (request) => {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     if (request.method === 'GET') {
-      return json({ messages: await threadLoad(db, who, { compact: true }) });
+      return json({ messages: await threadLoad(db, who) });
     }
     if (request.method === 'POST') {
       const text = String(body.text || '').slice(0, 4000);
@@ -1114,21 +1194,15 @@ export default async (request) => {
          free account gets exactly one, and coaching gets the rest. */
       const coached = !!clients()[who];
       if ((video || image) && !coached) {
-        if (await db.get(`fc:${who}`, { type: 'json' })) {
+        const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
+        if (!won) {
           return json({ error: 'Your free form check has already been used. '
             + 'Form checks come with coaching.', gated: true }, 402);
         }
-        await db.setJSON(`fc:${who}`, { at: Date.now(), video: video || null, image: image || null });
       }
 
       await threadAdd(db, who, { from: 'client', text,
         ...(video ? { video } : {}), ...(image ? { image } : {}) });
-
-      const acct = (await db.get(`acct:${who}`, { type: 'json' })) || {};
-      const idx = (await db.get('index', { type: 'json' })) || {};
-      idx[who] = { name: clients()[who] || acct.name || who, coached,
-                   last: Date.now(), unread: (idx[who]?.unread || 0) + 1 };
-      await db.setJSON('index', idx);
 
       const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
@@ -1158,7 +1232,7 @@ export default async (request) => {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
-      await db.delete(`prog:${e}`);
+      await supa.remove('progress', `email=eq.${enc(e)}`);
       return json({ ok: true, cleared: e });
     }
 
@@ -1169,11 +1243,14 @@ export default async (request) => {
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       const k = `note:${e}`;
       if (request.method === 'GET') {
-        return json((await db.get(k, { type: 'json' })) || { text: '', at: 0 });
+        const note = await supa.row('coach_notes', `email=eq.${enc(e)}&select=*`);
+        return json(note ? { text: note.body || '', at: ms(note.updated_at) } : { text: '', at: 0 });
       }
       if (request.method === 'POST') {
         const text = String(body.text || '').slice(0, 8000);
-        await db.setJSON(k, { text, at: Date.now() });
+        await ensureAcct(e);
+        await supa.upsert('coach_notes',
+          { email: e, body: text, updated_at: nowISO() }, 'email');
         return json({ ok: true, at: Date.now() });
       }
     }
@@ -1183,7 +1260,12 @@ export default async (request) => {
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       return json({ email: e, name: clients()[e] || e,
-                    progress: (await db.get(`prog:${e}`, { type: 'json' })) || {} });
+                    progress: (await (async () => {
+          const prog = await supa.row('progress', `email=eq.${enc(e)}&select=*`);
+          return prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
+  flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
+  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {};
+        })()) });
     }
 
     /* which Stripe settings actually reached this deploy — booleans only,
@@ -1210,35 +1292,30 @@ export default async (request) => {
       const pw = String(body.password || '');
       if (!e || pw.length < 8) return json({ error: 'Need an email and 8+ characters' }, 400);
       const hash = await pwHash(pw);
-      const acct = await db.get(`acct:${e}`, { type: 'json' });
-      if (acct) { acct.hash = hash; await db.setJSON(`acct:${e}`, acct); }
-      await db.setJSON(`pw:${e}`, { hash, at: Date.now() });
-      await db.delete(`pwrl:${e}`);
+      const acct = await getAcct(e);
+      await ensureAcct(e);
+      await saveAcct({ email: e, hash });
+      await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
       return json({ ok: true, email: e, hadAccount: !!acct });
     }
 
     if (path === '/coach/grant' && request.method === 'POST') {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which account?' }, 400);
-      const k = `acct:${e}`;
-      const acct = await db.get(k, { type: 'json' });
+      const acct = await getAcct(e);
       if (!acct) return json({ error: 'No account with that address' }, 404);
-      acct.plus = body.plus !== false;
-      acct.plusAt = Date.now();
-      acct.grantedByCoach = true;
-      await db.setJSON(k, acct);
-      return json({ ok: true, email: e, plus: acct.plus });
+      const plus = body.plus !== false;
+      await saveAcct({ email: e, plus, plus_at: nowISO() });
+      return json({ ok: true, email: e, plus });
     }
 
     if (path === '/coach/leads') {
-      const out = [];
-      const listing = await db.list({ prefix: 'acct:' });
-      for (const b of (listing.blobs || [])) {
-        const v = await db.get(b.key, { type: 'json' });
-        if (v) out.push(v);
-      }
-      out.sort((a, b) => (b.last || 0) - (a.last || 0));
-      return json({ leads: out });
+      /* one query, ordered by the database — this used to be a full
+         listing plus a fetch per account */
+      const out = (await supa.rows('accounts',
+        'select=*&order=last_seen.desc')) || [];
+      return json({ leads: out.map(a => ({ ...a, last: ms(a.last_seen),
+        first: ms(a.first_seen), stripeCustomer: a.stripe_customer })) });
     }
 
     /* everything waiting on a review, across everyone this coach has.
@@ -1284,6 +1361,9 @@ export default async (request) => {
       for (const e of emails) {
         if (!e) continue;
         try {
+          /* Blobs, deliberately — this route reads the OLD store. A blanket
+             rename briefly pointed it at Supabase, which would have made it
+             copy Postgres onto itself and report success having moved nothing. */
           const acct = (await db.get(`acct:${e}`, { type: 'json' })) || {};
           const pw = await db.get(`pw:${e}`, { type: 'json' });
           const rowAcct = {
@@ -1294,6 +1374,8 @@ export default async (request) => {
             stage: acct.stage || null,
             plus: !!acct.plus,
             plus_at: iso(acct.plusAt),
+            /* blob field names on the right, column names on the left —
+               the old store called these stripeCustomer, sub and cancelAt */
             stripe_customer: acct.stripeCustomer || null,
             subscription: acct.sub || null,
             cancel_at: iso(acct.cancelAt),
@@ -1404,10 +1486,10 @@ export default async (request) => {
 
     if (path === '/coach/mailguard') {
       if (request.method === 'POST') {
-        await db.setJSON('mailguard', { suppress: body.suppress !== false,
+        await setSetting('mailguard', { suppress: body.suppress !== false,
           at: Date.now(), by: asking || primaryCoach() });
       }
-      const g = await db.get('mailguard', { type: 'json' });
+      const g = await getSetting('mailguard');
       return json({ suppress: g ? !!g.suppress : true,
                     clients: Object.keys(clients()).length });
     }
@@ -1416,19 +1498,18 @@ export default async (request) => {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which person?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
-      await db.delete(`fc:${e}`).catch(() => {});
+      await supa.remove('free_checks', `email=eq.${enc(e)}`).catch(() => {});
       return json({ ok: true, email: e });
     }
 
     if (path === '/coach/queue') {
-      const idx = (await db.get('index', { type: 'json' })) || {};
-      const people = new Set([...Object.keys(clients()), ...Object.keys(idx)]);
+      const roster = await rosterRows();
       const out = [];
-      for (const e of people) {
+      for (const e of Object.keys(roster)) {
         if (!owns(e)) continue;
         for (const s of await subsFor(db, e)) {
           if (s.status !== 'submitted') continue;
-          out.push({ email: e, name: clients()[e] || (idx[e] && idx[e].name) || e,
+          out.push({ email: e, name: clients()[e] || roster[e].name || e,
             coached: !!clients()[e], id: s.id, kind: s.kind, cycle: s.cycle,
             at: s.at, clips: (s.clips || []).length, numbers: s.numbers || {} });
         }
@@ -1452,12 +1533,14 @@ export default async (request) => {
       const id = String(body.id || '').replace(/[^a-zA-Z0-9]/g, '');
       if (!e || !id) return json({ error: 'Which submission?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
-      const k = `sub:${e}:${id}`;
-      const rec = await db.get(k, { type: 'json' });
+      const rec = await supa.row('submissions',
+        `id=eq.${enc(id)}&email=eq.${enc(e)}&select=*`);
       if (!rec) return json({ error: 'No such submission' }, 404);
-      rec.status = 'reviewed'; rec.reviewedAt = Date.now();
-      rec.reviewedBy = asking || primaryCoach();
-      await db.setJSON(k, rec);
+      await supa.update('submissions', `id=eq.${enc(id)}`, {
+        status: 'reviewed', reviewed_at: nowISO(),
+        reviewed_by: asking || primaryCoach(),
+      });
+      rec.at = ms(rec.created_at);
 
       /* If they already replied in the thread, the client has been emailed
          already and a second one is noise. If this was marked reviewed
@@ -1479,28 +1562,22 @@ export default async (request) => {
       }
 
       if (body.nextBlock) {
-        await db.setJSON(`cycle:${e}`, { start: Date.now(), n: (rec.cycle || 1) + 1 });
+        await supa.upsert('cycles',
+          { email: e, n: (rec.cycle || 1) + 1, started_at: nowISO() }, 'email');
       }
       return json({ ok: true, cycle: rec.cycle, nextBlock: !!body.nextBlock });
     }
 
     if (path === '/coach/clients') {
-      const idx = (await db.get('index', { type: 'json' })) || {};
       /* CLIENTS alone was not enough: a free account can now send a form
          check and ask about coaching, and one that never appeared here
          would be a question nobody answered. */
-      const rows = new Map();
-      for (const [e, name] of Object.entries(clients())) {
-        if (!owns(e)) continue;
-        rows.set(e, { email: e, name, coached: true, coach: coachOf(e),
-          last: idx[e]?.last || 0, unread: idx[e]?.unread || 0 });
-      }
-      for (const [e, v] of Object.entries(idx)) {
-        if (rows.has(e)) continue;
-        rows.set(e, { email: e, name: (v && v.name) || e, coached: false,
-          last: (v && v.last) || 0, unread: (v && v.unread) || 0 });
-      }
-      return json({ clients: [...rows.values()].sort((a, b) => b.last - a.last) });
+      const roster = await rosterRows();
+      const rows = Object.values(roster)
+        .filter(r => owns(r.email))
+        .map(r => ({ ...r, coached: !!clients()[r.email],
+          ...(clients()[r.email] ? { coach: coachOf(r.email) } : {}) }));
+      return json({ clients: rows.sort((a, b) => b.last - a.last) });
     }
 
     /* remove a clip from Stream — for a deletion request, or when a form
@@ -1523,9 +1600,9 @@ export default async (request) => {
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       if (request.method === 'GET') {
-        const idx = (await db.get('index', { type: 'json' })) || {};
-        if (idx[e]) { idx[e].unread = 0; await db.setJSON('index', idx); }
-        return json({ messages: await threadLoad(db, e, { compact: true }) });
+        /* opening the thread is what marks it read */
+        await markRead(e);
+        return json({ messages: await threadLoad(db, e) });
       }
       if (request.method === 'POST') {
         const text = String(body.text || '').slice(0, 4000);
