@@ -65,6 +65,7 @@ let subs={};      /* what each client has sent for review */
 let queue=[];     /* everything waiting on a review, whoever it came from */
 let view='clients';
 let mailguard=null;   /* null until loaded; {suppress, clients} after */
+let dbstate=null;
 let prog={};
 let notes={};
 let noteDrafts={};
@@ -157,6 +158,40 @@ function openThread(email){
     .catch(()=>coachSay('Could not refresh the thread — what you see may be behind.'));
 }
 
+/* These routes need the bearer token, so pasting the URL into a browser
+   tab can only ever answer "Nope" — it arrives with no auth at all. */
+function checkDB(){
+  dbstate={checking:true}; draw();
+  fetch(API+'/dbcheck',{headers:hdr()})
+    .then(r=>r.json())
+    .then(d=>{ dbstate=d; draw(); })
+    .catch(e=>{ dbstate={ok:false,why:String(e)}; draw(); });
+}
+function dbHTML(){
+  if(!dbstate) return `<button onclick="checkDB()" style="background:none;border:none;cursor:pointer;
+    padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+    text-underline-offset:3px">Check the database connection</button>`;
+  if(dbstate.checking) return `<div style="font:500 12px/1.5 var(--sans);color:var(--grey2);padding:8px 0">Checking…</div>`;
+  const bad=Object.entries(dbstate.tables||{}).filter(([,v])=>v!=='ok');
+  return `<div style="background:${dbstate.ok?'var(--mist)':'rgba(200,122,86,.12)'};
+    border:1.5px solid ${dbstate.ok?'transparent':'var(--terra)'};border-radius:14px;
+    padding:13px 15px;margin-top:12px">
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+      color:${dbstate.ok?'var(--grey2)':'var(--terra)'}">
+      ${dbstate.ok?'DATABASE REACHABLE':'DATABASE PROBLEM'}</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:8px">
+      ${dbstate.why?esc(dbstate.why)+'<br>':''}
+      ${dbstate.host?'Host '+esc(dbstate.host)+'<br>':''}
+      ${dbstate.keyKind?esc(dbstate.keyKind)+'<br>':''}
+      ${dbstate.tables?`${Object.keys(dbstate.tables).length-bad.length} of
+        ${Object.keys(dbstate.tables).length} tables reachable.`:''}
+      ${bad.length?'<br>'+bad.map(([t,v])=>'<b>'+esc(t)+'</b>: '+esc(v)).join('<br>'):''}
+    </div>
+    <button onclick="checkDB()" style="background:none;border:none;cursor:pointer;padding:8px 0 0;
+      font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+      text-underline-offset:3px">Check again</button></div>`;
+}
+
 function loadMailguard(set){
   fetch(API+'/mailguard',set===undefined?{headers:hdr()}
     :{method:'POST',headers:hdr(),body:JSON.stringify({suppress:set})})
@@ -195,7 +230,9 @@ function loadQueue(){
     .then(d=>{ if(d){ queue=d.queue||[]; draw(); } })
     .catch(()=>{});
 }
-function openFromQueue(email){ view='clients'; openThread(email); }
+/* stay in the tab you are working through — bouncing back to Clients
+   loses your place in the queue */
+function openFromQueue(email){ openThread(email); }
 
 /* the inbox: one-off form checks and two-week tests, oldest first, because
    the oldest is the one closest to breaking the 48 hours we promise */
@@ -946,6 +983,30 @@ function metricsHTML(email){
   `;
 }
 
+function threadCardHTML(msgs){
+  return `
+      <div class="card">
+        <div class="kick">${esc((clients.find(c=>c.email===sel)||{}).name||'THREAD').toUpperCase()}</div>
+        <div style="margin-top:16px">${sel?subsHTML(sel):''}</div>
+        <div id="pane" style="display:flex;flex-direction:column;gap:14px;
+          max-height:56vh;overflow-y:auto;padding-right:4px">${msgs}</div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
+            oninput="drafts[sel]=this.value"
+            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
+          <button class="send" onclick="pickCoachClip()" title="Send a video"
+            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Video</button>
+          <button class="send" onclick="pickCoachPhoto()" title="Send a photo"
+            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
+          <button class="send" onclick="reply()">Send</button></div>
+        <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
+        ${sel?`<button onclick="resetFormCheck('${esc(sel)}')" style="background:none;border:none;cursor:pointer;
+          padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+          text-underline-offset:3px">Reset their free form check</button>`:''}
+        <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
+      </div>`;
+}
+
 function draw(){
   const list=clients.map(c=>{
     const a=prog[c.email]?analysis(c.email):null;
@@ -989,6 +1050,7 @@ function draw(){
       <h1>Coach</h1>
       <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()">Sign out</button></div>
     ${mailguardHTML()}
+    ${dbHTML()}
     <div style="display:flex;gap:8px;margin-top:18px">
       ${[['clients','Clients'],
          ['free','Form checks'+(freeQ().length?' · '+freeQ().length:'')],
@@ -998,29 +1060,11 @@ function draw(){
           background:${view===id?'var(--forest)':'#fff'};color:${view===id?'#fff':'var(--ink)'}">
           ${label}</button>`).join('')}
     </div>
-    ${view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>`:`
+    ${view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>
+      ${sel?`<div style="margin-top:14px">${threadCardHTML(msgs)}</div>`:''}`:`
     <div class="grid">
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
-      <div class="card">
-        <div class="kick">${esc((clients.find(c=>c.email===sel)||{}).name||'THREAD').toUpperCase()}</div>
-        <div style="margin-top:16px">${sel?subsHTML(sel):''}</div>
-        <div id="pane" style="display:flex;flex-direction:column;gap:14px;
-          max-height:56vh;overflow-y:auto;padding-right:4px">${msgs}</div>
-        <div style="display:flex;gap:10px;margin-top:16px">
-          <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
-            oninput="drafts[sel]=this.value"
-            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply()">${esc(drafts[sel]||'')}</textarea>
-          <button class="send" onclick="pickCoachClip()" title="Send a video"
-            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Video</button>
-          <button class="send" onclick="pickCoachPhoto()" title="Send a photo"
-            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
-          <button class="send" onclick="reply()">Send</button></div>
-        <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
-        ${sel?`<button onclick="resetFormCheck('${esc(sel)}')" style="background:none;border:none;cursor:pointer;
-          padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
-          text-underline-offset:3px">Reset their free form check</button>`:''}
-        <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">⌘+Enter sends</div>
-      </div>
+      ${threadCardHTML(msgs)}
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
       </div>`}`;
 }
