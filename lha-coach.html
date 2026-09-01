@@ -12,7 +12,30 @@
  --grey:#61655a;--grey2:#8a8d80;--mist:#e8ece3;--line:rgba(28,32,25,.12);
  --serif:'Instrument Serif',Georgia,serif;--sans:Manrope,system-ui,sans-serif}
 body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink)}
-.wrap{max-width:1240px;margin:0 auto;padding:26px 20px 60px}
+/* Ambient ground from the design canvas: three slow washes under everything,
+   so the glass surfaces have something to refract. */
+.amb{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0;background:var(--bg)}
+.amb i{position:absolute;border-radius:50%;display:block}
+.amb i:nth-child(1){width:62vw;height:62vw;left:-14vw;top:-18vw;filter:blur(18px);
+  background:radial-gradient(circle at 40% 40%,rgba(159,176,152,.62),rgba(159,176,152,0) 68%);
+  animation:drift 28s ease-in-out infinite}
+.amb i:nth-child(2){width:48vw;height:48vw;right:-10vw;top:6vw;filter:blur(22px);
+  background:radial-gradient(circle at 50% 50%,rgba(200,122,86,.44),rgba(200,122,86,0) 66%);
+  animation:driftB 34s ease-in-out infinite}
+.amb i:nth-child(3){width:54vw;height:54vw;left:24vw;bottom:-24vw;filter:blur(26px);
+  background:radial-gradient(circle at 50% 50%,rgba(47,61,47,.30),rgba(47,61,47,0) 70%);
+  animation:drift 40s ease-in-out infinite}
+@keyframes drift{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(3%,-4%,0) scale(1.08)}}
+@keyframes driftB{0%,100%{transform:translate3d(0,0,0) scale(1.05)}50%{transform:translate3d(-4%,3%,0) scale(1)}}
+@keyframes sheen{0%{transform:translateX(-120%)}100%{transform:translateX(220%)}}
+@media(prefers-reduced-motion:reduce){.amb i,.sheen{animation:none}}
+.glass{background:rgba(255,255,255,.44);backdrop-filter:blur(26px) saturate(1.6);
+  -webkit-backdrop-filter:blur(26px) saturate(1.6);border:1px solid rgba(255,255,255,.72);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 22px 48px -28px rgba(28,32,25,.5)}
+.sheen{position:absolute;top:0;left:0;width:30%;height:100%;pointer-events:none;
+  background:linear-gradient(100deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.5) 50%,rgba(255,255,255,0) 100%);
+  animation:sheen 9s ease-in-out infinite}
+.wrap{max-width:1240px;margin:0 auto;padding:26px 20px 60px;position:relative;z-index:1}
 h1{font:400 34px/1 var(--serif);margin:0}
 .kick{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
 .grid{display:grid;grid-template-columns:260px minmax(320px,1fr) minmax(340px,1.15fr);
@@ -48,7 +71,7 @@ input,textarea{font-family:var(--sans);font-size:15px;border:1px solid var(--lin
 button.send{border:none;background:var(--terra);color:#fff;border-radius:999px;padding:12px 22px;
  font:700 13px/1 var(--sans);cursor:pointer}
 .gate{max-width:400px;margin:16vh auto;text-align:center}
-</style></head><body><div id="v" class="wrap"></div>
+</style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
 <script>
 const API='/api/app/coach';
 let TOKEN=localStorage.getItem('lha_coach_token')||'';
@@ -301,6 +324,65 @@ function mailRowHTML(email){
       font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
       text-underline-offset:3px">Follow the global setting</button>`:''}
   </div>`;
+}
+
+/* The design's answer to "nothing shows the promise as a clock": a conic
+   ring that fills as the 48 hours run down, hours in the middle. Fill,
+   number and label all carry it, so it never rests on hue alone. */
+const PROMISE_H=48;
+function ringFor(hrs){
+  const pct=Math.max(0,Math.min(1,hrs/PROMISE_H));
+  const ring = hrs>=PROMISE_H ? '#b0522c' : hrs>=PROMISE_H*0.6 ? '#c79a4a' : '#2f3d2f';
+  return {pct:Math.round(pct*100)+'%', ring,
+    state: hrs>=PROMISE_H?'OVERDUE':hrs>=PROMISE_H*0.6?'DUE SOON':'IN TIME'};
+}
+function urgentHTML(){
+  const items=queue.map(q=>({...q,hrs:Math.round((Date.now()-(q.at||0))/3600000)}))
+    .sort((a,b)=>b.hrs-a.hrs);
+  const over=items.filter(x=>x.hrs>=PROMISE_H).length;
+  const line = !items.length ? 'Nothing waiting.'
+    : over ? over+' past the 48 hours you promise'
+    : 'All inside the 48 hours';
+  return `<div class="glass" style="position:relative;padding:16px 18px;border-radius:24px;
+    margin-top:18px;overflow:hidden">
+    ${items.length?'<div class="sheen"></div>':''}
+    <div style="position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+      <div style="display:flex;flex-direction:column;gap:3px;min-width:148px">
+        <span style="font:700 10px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;
+          color:rgba(28,32,25,.5)">Needs you now</span>
+        <span style="font:400 34px/1 var(--serif)">${items.length} waiting</span>
+        <span style="font:400 12px/1.4 var(--sans);color:${over?'var(--terra)':'rgba(28,32,25,.6)'}">${esc(line)}</span>
+      </div>
+      <div style="display:flex;gap:12px;flex:1;flex-wrap:wrap">
+        ${items.slice(0,3).map(u=>{
+          const r=ringFor(u.hrs);
+          return `<button onclick="openFromQueue('${esc(u.email)}')"
+            style="flex:1 1 250px;text-align:left;cursor:pointer;display:flex;align-items:center;
+            gap:14px;padding:12px 14px;border-radius:18px;background:rgba(255,255,255,.55);
+            border:1px solid rgba(255,255,255,.8);
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.85),0 10px 26px -20px rgba(28,32,25,.6)">
+            <span style="position:relative;width:50px;height:50px;flex:0 0 50px;border-radius:50%;
+              display:grid;place-items:center;
+              background:conic-gradient(from -90deg,${r.ring} ${r.pct},rgba(47,61,47,.13) 0)">
+              <span style="width:39px;height:39px;border-radius:50%;display:flex;flex-direction:column;
+                align-items:center;justify-content:center;line-height:1;background:rgba(255,255,255,.92)">
+                <b style="font:800 14px/1 var(--sans);color:${r.ring}">${u.hrs}</b>
+                <span style="font:700 7.5px/1 var(--sans);letter-spacing:.1em;color:rgba(28,32,25,.45)">HRS</span>
+              </span></span>
+            <span style="min-width:0;flex:1">
+              <span style="display:block;font:700 14px/1.3 var(--sans);white-space:nowrap;
+                overflow:hidden;text-overflow:ellipsis">${esc(u.name)}</span>
+              <span style="display:block;font:400 11.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">
+                ${u.kind==='assessment'?'Form check':'Block '+(u.cycle||1)+' test'} ·
+                ${u.clips} clip${u.clips===1?'':'s'}</span>
+              <span style="display:inline-block;font:800 8.5px/1 var(--sans);letter-spacing:.12em;
+                padding:3px 6px;border-radius:5px;margin-top:6px;
+                background:${r.ring};color:#fff">${r.state}</span>
+            </span></button>`;}).join('')}
+        ${items.length?'':`<div style="flex:1;font:400 13.5px/1.6 var(--sans);color:var(--grey);
+          align-self:center">Everything sent in has been answered.</div>`}
+      </div>
+    </div></div>`;
 }
 
 function loadQueue(){
@@ -1340,6 +1422,7 @@ function draw(){
       <h1>Coach</h1>
       <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()">Sign out</button></div>
 
+    ${urgentHTML()}
     <div style="display:flex;gap:8px;margin-top:18px">
       ${[['clients','Clients'],
          ['free','Form checks'+(freeQ().length?' · '+freeQ().length:'')],
