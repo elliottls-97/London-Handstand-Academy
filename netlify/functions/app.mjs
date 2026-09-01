@@ -421,6 +421,11 @@ const nudgeMark = (k, stage = 0) =>
    Blobs, so there is no second provider and no new credential. The id
    is random and unguessable — the same posture the drill videos have
    today, and it becomes signed at the same time they do. */
+/* image keys. Lost when the old thread machinery was deleted, which took
+   /image down with it — video was unaffected because it uploads straight
+   to Cloudflare and never comes through here. */
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+
 const IMG_MAX = 3 * 1024 * 1024;
 const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
 
@@ -439,7 +444,7 @@ async function rosterRows() {
   }
   const byEmail = {};
   for (const a of (accounts || [])) {
-    byEmail[a.email] = { email: a.email, name: a.name || '',
+    byEmail[a.email] = { email: a.email, name: a.name || a.email.split('@')[0],
       last: Math.max(ms(a.last_seen), latest[a.email] || 0),
       unread: counts[a.email] || 0 };
   }

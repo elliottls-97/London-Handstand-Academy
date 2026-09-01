@@ -1051,8 +1051,7 @@ function threadCardHTML(msgs){
       </div>`;
 }
 
-function draw(){
-  const list=clients.map(c=>{
+function clientRow(c){
     const a=prog[c.email]?analysis(c.email):null;
     const tone=a?a.tone:null;
     const col=tone==='bad'?'var(--terra)':tone==='warn'?'#c79a4a':tone==='ok'?'var(--forest)':'transparent';
@@ -1073,8 +1072,27 @@ function draw(){
         background:var(--mist);color:var(--grey)">ENQUIRY</span>`:''}
       ${c.unread?`<span class="dot">${c.unread}</span>`:''}
       <i style="width:8px;height:8px;border-radius:999px;background:${col};flex:none" title="${a?a.status:''}"></i>
-    </span></button>`;}).join('') ||
-    `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);padding:10px">No clients yet — add them to the CLIENTS variable on the worker.</div>`;
+    </span></button>`;
+}
+
+/* Coaching clients and enquiries were one undifferentiated list, which is
+   no use when the two need different things from you. */
+function clientList(){
+  if(!clients.length) return `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);padding:10px">
+    Nobody yet.</div>`;
+  const coached=clients.filter(c=>c.coached!==false);
+  const leads=clients.filter(c=>c.coached===false);
+  const unread=a=>a.reduce((t,c)=>t+(c.unread||0),0);
+  const group=(label,arr)=>arr.length?`
+    <div style="display:flex;align-items:baseline;gap:8px;margin:14px 2px 8px">
+      <span class="kick">${label} · ${arr.length}</span>
+      ${unread(arr)?`<span class="dot" title="unread">${unread(arr)}</span>`:''}
+    </div>${arr.map(clientRow).join('')}`:'';
+  return group('COACHING',coached)+group('ENQUIRIES',leads);
+}
+
+function draw(){
+  const list=clientList();
   const msgs=thread.map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.from==='coach'?'flex-end':'flex-start'}">
     ${m.video?`<div style="width:min(260px,80%);border-radius:16px;overflow:hidden;background:#11150f;
       margin-bottom:${m.text?'6px':'0'}">
