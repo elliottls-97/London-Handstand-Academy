@@ -236,9 +236,15 @@ function mayEmail(to) {
    a test email to a paying client is not. */
 async function clientMailAllowed(to) {
   const t = norm(to);
-  if (!clients()[t]) return true;
   try {
-    const g = await store().get('mailguard', { type: 'json' });
+    /* a per-person setting beats the global one in both directions, so a
+       single client can be silenced while the rest carry on, or allowed
+       through while everyone else is held */
+    const off = (await getSetting('mailoff')) || {};
+    if (off[t] === true) return false;
+    if (off[t] === false) return true;
+    if (!clients()[t]) return true;
+    const g = await getSetting('mailguard');
     return g ? !g.suppress : false;
   } catch { return false; }
 }
@@ -1503,12 +1509,21 @@ export default async (request) => {
 
     if (path === '/coach/mailguard') {
       if (request.method === 'POST') {
-        await setSetting('mailguard', { suppress: body.suppress !== false,
-          at: Date.now(), by: asking || primaryCoach() });
+        if (body.email) {
+          /* one person, on or off, independent of the global switch */
+          const e2 = norm(body.email);
+          const off = (await getSetting('mailoff')) || {};
+          if (body.off === null) delete off[e2]; else off[e2] = body.off !== false;
+          await setSetting('mailoff', off);
+        } else {
+          await setSetting('mailguard', { suppress: body.suppress !== false,
+            at: Date.now(), by: asking || primaryCoach() });
+        }
       }
       const g = await getSetting('mailguard');
+      const off = (await getSetting('mailoff')) || {};
       return json({ suppress: g ? !!g.suppress : true,
-                    clients: Object.keys(clients()).length });
+                    clients: Object.keys(clients()).length, off });
     }
 
     if (path === '/coach/formcheck/reset' && request.method === 'POST') {

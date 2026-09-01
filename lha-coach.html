@@ -236,9 +236,10 @@ function dbHTML(){
     ${migHTML()}</div>`;
 }
 
-function loadMailguard(set){
-  fetch(API+'/mailguard',set===undefined?{headers:hdr()}
-    :{method:'POST',headers:hdr(),body:JSON.stringify({suppress:set})})
+function loadMailguard(set,email){
+  const body = email!==undefined ? {email,off:set} : {suppress:set};
+  fetch(API+'/mailguard',set===undefined&&email===undefined?{headers:hdr()}
+    :{method:'POST',headers:hdr(),body:JSON.stringify(body)})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ mailguard=d; draw(); } })
     .catch(()=>{});
@@ -265,6 +266,38 @@ function mailguardHTML(){
       style="width:auto;padding:0 15px;font-size:12.5px;
       background:${off?'var(--forest)':'var(--mist)'};color:${off?'#fff':'var(--ink)'}">
       ${off?'Turn client email on':'Turn it off'}</button>
+  </div>`;
+}
+
+/* The global switch covers coaching clients as a group. This says what is
+   true for the person on screen, and lets you change just them — useful
+   when one client is real and the rest are test accounts. */
+function mailFor(email){
+  const off=(mailguard&&mailguard.off)||{};
+  if(off[email]===true) return {on:false,why:'Email off for them specifically'};
+  if(off[email]===false) return {on:true,why:'Email on for them specifically'};
+  const isClient=(clients.find(c=>c.email===email)||{}).coached!==false;
+  if(isClient && mailguard && mailguard.suppress)
+    return {on:false,why:'Off — client email is switched off globally'};
+  return {on:true,why:isClient?'On — via the global switch':'Not a coaching client, always reachable'};
+}
+function mailRowHTML(email){
+  if(!mailguard) return '';
+  const m=mailFor(email);
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;
+    padding-top:10px;border-top:1px solid var(--line)">
+    <span style="width:8px;height:8px;border-radius:999px;flex:none;
+      background:${m.on?'var(--forest)':'var(--terra)'}"></span>
+    <span style="font:400 12.5px/1.4 var(--sans);color:var(--grey);flex:1;min-width:150px">
+      ${esc(m.why)}</span>
+    <button onclick="loadMailguard(${m.on?'true':'false'},'${esc(email)}')"
+      style="background:none;border:none;cursor:pointer;padding:4px 0;
+      font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+      text-underline-offset:3px">${m.on?'Stop emailing them':'Start emailing them'}</button>
+    ${((mailguard.off||{})[email]!==undefined)?`<button onclick="loadMailguard(null,'${esc(email)}')"
+      style="background:none;border:none;cursor:pointer;padding:4px 0;
+      font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+      text-underline-offset:3px">Follow the global setting</button>`:''}
   </div>`;
 }
 
@@ -1045,6 +1078,7 @@ function threadCardHTML(msgs){
             style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
           <button class="send" onclick="reply()">Send</button></div>
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
+        ${sel?mailRowHTML(sel):''}
         ${sel?`<button onclick="resetFormCheck('${esc(sel)}')" style="background:none;border:none;cursor:pointer;
           padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
           text-underline-offset:3px">Reset their free form check</button>`:''}
