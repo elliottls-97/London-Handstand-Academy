@@ -355,6 +355,58 @@ const greeting=()=>{const h=new Date().getHours();return h<12?'morning':h<18?'af
 const today=()=>new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
 
 /* ── Plan ── */
+/* ── the coaching that was only ever on the standalone page ────────
+   read, priority, honest, filming and the Q&A were written into every
+   spec and then thrown away at build time, so the app showed a bare
+   drill list while the page Marina and Hannah actually use carried the
+   coaching. Moving them onto the app was a downgrade until now. */
+function planExtras(){
+  const D=DATA||{};
+  const para=t=>`<p style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin:0 0 10px">${esc(t)}</p>`;
+  const out=[];
+
+  if(D.priority) out.push(`<div class="card" style="padding:20px">
+    <div class="kick2">THE PRIORITY</div>
+    <div style="font:400 15px/1.55 var(--sans);margin-top:9px">${esc(D.priority)}</div></div>`);
+
+  if(D.honest&&D.honest.t) out.push(`<div class="card" style="padding:20px;border-left:3px solid var(--terra)">
+    <div class="kick2" style="color:var(--terra)">THE HONEST BIT</div>
+    <div class="h-sm" style="font-size:18px;margin-top:8px">${esc(D.honest.t)}</div>
+    <div style="margin-top:10px">${(D.honest.p||[]).map(para).join('')}</div></div>`);
+
+  if((D.answers||[]).length) out.push(`<div class="card" style="padding:20px">
+    <div class="kick2">QUESTIONS I GET ASKED</div>
+    <div style="margin-top:6px">${D.answers.map((a,i)=>{
+      const open=(st.qa||{})[i];
+      return `<div style="border-top:1px solid rgba(28,32,25,.08);padding:13px 0">
+        <div onclick="st.qa=st.qa||{};st.qa[${i}]=!st.qa[${i}];save();render()"
+          style="display:flex;gap:10px;justify-content:space-between;cursor:pointer">
+          <span style="font:500 14.5px/1.35 var(--sans)">${esc(a.q||'')}</span>
+          <span style="font:400 15px/1 var(--serif);color:var(--terra);flex:none">${open?'−':'+'}</span></div>
+        ${open?`${a.a?`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:9px">${esc(a.a)}</div>`:''}
+          ${qaVideo(a)}`:''}
+      </div>`;}).join('')}</div></div>`);
+
+  if((D.filming||[]).length) out.push(`<div class="card" style="padding:20px">
+    <div class="kick2">HOW TO FILM</div>
+    ${D.formcheck?`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">${esc(D.formcheck)}</div>`:''}
+    <ul style="margin:11px 0 0;padding-left:18px">${D.filming.map(f=>
+      `<li style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-bottom:5px">${esc(f)}</li>`).join('')}</ul>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="openOv('test')">Film the test</button></div>`);
+
+  return out.join('');
+}
+
+/* Explainer clips are not drills and are not in the library — they sit in
+   their own R2 bucket, named by filename, which is what the spec stores.
+   These never moved to Cloudflare Stream with the rest. */
+const EXPLAINERS='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/explainer-videos/';
+function qaVideo(a){
+  if(!a.v) return '';
+  return `<video src="${EXPLAINERS}${encodeURIComponent(a.v)}" controls playsinline preload="none"
+    style="width:100%;border-radius:14px;margin-top:11px;background:#11150f;display:block"></video>`;
+}
+
 function screenPlan(){
   const d=day();
   const total=allItems(d).length;
@@ -422,7 +474,9 @@ function screenPlan(){
         <div style="height:100%;width:${total?Math.round(ticked/total*100):0}%;background:var(--sand);border-radius:999px"></div></div>
       <div style="display:flex;gap:7px;margin-top:13px">${tabs}</div>
     </div>
-    ${groups}<div style="height:26px"></div></div>`;
+    ${groups}
+    <div style="padding:22px 12px 0;display:flex;flex-direction:column;gap:11px">${planExtras()}</div>
+    <div style="height:26px"></div></div>`;
 }
 const PURPOSE={'Warm-up':'Wrists and shoulders','Entries — build to 6':'The position, every time',
  'Shape changes':'Awareness while upside down','Tuck':'This is press training',
@@ -961,7 +1015,20 @@ function screenMore(){
         :`<button class="act" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>`}
       </div>
       ${st.in?`<div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
-        color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>`:''}
+        color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>
+      <div class="card" style="padding:16px 18px;margin-bottom:16px">
+        <div class="kick2">WHICH APP</div>
+        <div style="display:flex;gap:8px;margin-top:11px">
+          ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>
+            `<button onclick="switchView(${f})" style="flex:1;cursor:pointer;border-radius:14px;
+              padding:12px 8px;font:500 13.5px/1 var(--sans);
+              border:1.5px solid ${(!!st.asFree)===f?'var(--forest)':'rgba(28,32,25,.16)'};
+              background:${(!!st.asFree)===f?'var(--forest)':'#fff'};
+              color:${(!!st.asFree)===f?'var(--bg)':'var(--ink)'}">${l}</button>`).join('')}
+        </div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
+          Your programme is always here. The ladder is the free five-stage
+          version — some people like having both.</div></div>`:''}
       <div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
         color:var(--grey2);margin:0 2px 12px">Drill library · ${all.length}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${cards}</div>
@@ -2637,6 +2704,15 @@ const TABS={
   coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask'],['more','More']],
   free:[['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
 };
+/* A coaching client is still a person who might want the ladder. The tab
+   set follows the view they have chosen rather than what they pay for. */
+function coachedView(){ return !!st.in && !st.asFree; }
+function switchView(toFree){
+  st.asFree=!!toFree;
+  st.tab = toFree ? 'ladder' : 'today';
+  save(); render();
+}
+
 function go(t){ st.tab=t; save(); render();
   if(t==='ask'||t==='coaching'){ loadThread(); loadEntitlement(); loadSubmissions(); }
   if(t==='progress') loadSubmissions(); }
@@ -2660,7 +2736,7 @@ function render(){
   if(!st.mode && !st.in){ swap(screenWelcome()); return; }
   if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ swap(screenQuiz()); return; }
   if(!st.in && st.quizDone && !st.email && !st.joinSkipped){ swap(screenJoin()); return; }
-  const coached=!!st.in;
+  const coached=coachedView();
   const screens=coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore}
     : {ladder:screenLadder,progress:screenProgress,coaching:screenCoaching,more:screenMore};
