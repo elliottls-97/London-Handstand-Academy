@@ -964,7 +964,11 @@ function coachCalendar(email){
     const done=(byDay[k]||[]).some(x=>x.done);
     const isSel=calDay===k;
     const future=new Date(y,m,dnum)>new Date();
-    cells.push(`<button onclick="calDay=${isSel?'null':`'${k}'`};draw()"
+    const tip = done ? 'Finished a session — click for what they did'
+      : did ? 'Started a session but stopped — click to see where'
+      : on ? 'Opened the app, no session logged'
+      : future ? '' : 'Nothing';
+    cells.push(`<button onclick="calDay=${isSel?'null':`'${k}'`};draw()" title="${esc(tip)}"
       style="aspect-ratio:1;border:none;cursor:${(on||did)?'pointer':'default'};padding:0;
       background:none;display:grid;place-items:center">
       <span style="width:30px;height:30px;border-radius:999px;display:grid;place-items:center;
@@ -992,9 +996,16 @@ function coachCalendar(email){
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin:11px 0 5px">${head}</div>
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${cells.join('')}</div>
-    <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px">
+      ${[['var(--forest)','Finished'],['#8aa583','Stopped early'],['var(--mist)','Opened only']]
+        .map(([c,l])=>`<span style="display:flex;align-items:center;gap:6px;
+          font:400 11.5px/1 var(--sans);color:var(--grey2)">
+          <span style="width:11px;height:11px;border-radius:999px;background:${c};
+            flex:none"></span>${l}</span>`).join('')}
+    </div>
+    <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:9px">
       ${monthOpens.length} day${monthOpens.length===1?'':'s'} opened ·
-      ${monthSess.length} with a session logged</div>
+      ${monthSess.length} with a session logged. Click any day for detail.</div>
     ${calDay?dayDetail(email,byDay[calDay]||[],calDay,p):''}`;
 }
 
@@ -1033,42 +1044,8 @@ function dayDetail(email,list,k,p){
   </div>`;
 }
 
-function panelMonth(p){
-  const opens=new Set(((p&&p.opens)||[]));
-  const today=new Date(); today.setHours(12,0,0,0);
-  /* start on the Monday 4 weeks back so the columns line up under M-S */
-  const start=new Date(today); start.setDate(start.getDate()-27);
-  start.setDate(start.getDate()-((start.getDay()+6)%7));
-  const cells=[]; let active=0, prior=0;
-  const d=new Date(start);
-  while(d<=today || cells.length%7){
-    const k=dayKey(d), on=opens.has(k), future=d>today;
-    if(on) active++;
-    cells.push(`<div style="aspect-ratio:1;display:grid;place-items:center">
-      <span style="width:29px;height:29px;border-radius:999px;display:grid;place-items:center;
-        font:${on?'700':'400'} 12px/1 var(--sans);
-        background:${on?'var(--forest)':'transparent'};
-        color:${on?'var(--bg)':future?'#c9cec3':'var(--grey2)'}">${d.getDate()}</span></div>`);
-    d.setDate(d.getDate()+1);
-    if(cells.length>42) break;
-  }
-  const cut=dayKey(new Date(Date.now()-28*864e5));
-  const cut2=dayKey(new Date(Date.now()-56*864e5));
-  opens.forEach(k=>{ if(k<cut && k>=cut2) prior++; });
-  const delta=active-prior;
-  const head=['M','T','W','T','F','S','S'].map(x=>
-    `<div style="text-align:center;font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${x}</div>`).join('');
-  return `<div class="card"><div class="kick2">PAST 4 WEEKS</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin:14px 0 6px">${head}</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${cells.join('')}</div>
-    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(28,32,25,.08)">
-      ${[['Active days',String(active),''],
-         ['vs prior 4wk',(delta>0?'+':'')+delta, delta>0?'var(--forest)':delta<0?'var(--terra)':''],
-        ].map(([n,v,c])=>`<div style="flex:1">
-        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${n.toUpperCase()}</div>
-        <div class="h-sm" style="font-size:19px;margin-top:5px;${c?'color:'+c:''}">${v}</div></div>`).join('')}
-    </div></div>`;
-}
+/* panelMonth lived here. coachCalendar replaced it — a coach needs to
+   page back through months, which the client's fixed four weeks cannot. */
 
 function panelWeek(p){
   const ss=((p&&p.sessions)||[]).filter(x=>x&&x.at);
@@ -1320,8 +1297,9 @@ function clientRow(c){
     ${c.coached===false?`<span title="Not a coaching client — free account"
         style="font:600 9px/1 var(--sans);letter-spacing:.11em;padding:4px 6px;border-radius:4px;
         background:var(--mist);color:var(--grey)">ENQUIRY</span>`:''}
-      ${c.unread?`<span class="dot">${c.unread}</span>`:''}
-      <i style="width:8px;height:8px;border-radius:999px;background:${col};flex:none" title="${a?a.status:''}"></i>
+      ${c.unread?`<span class="dot" title="${c.unread} unread message${c.unread===1?'':'s'} from them">${c.unread}</span>`:''}
+      <i style="width:8px;height:8px;border-radius:999px;background:${col};flex:none"
+        title="${a?esc(a.status)+' — based on how recently and how consistently they have trained':'No activity recorded yet'}"></i>
     </span></button>`;
 }
 
@@ -1361,19 +1339,26 @@ function draw(){
   $('#v').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline">
       <h1>Coach</h1>
       <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()">Sign out</button></div>
-    ${mailguardHTML()}
-    ${dbHTML()}
+
     <div style="display:flex;gap:8px;margin-top:18px">
       ${[['clients','Clients'],
          ['free','Form checks'+(freeQ().length?' · '+freeQ().length:'')],
          ['paid','Client reviews'+(paidQ().length?' · '+paidQ().length:'')],
-         ['apps','Applications'+(newApps().length?' · '+newApps().length:'')]].map(([id,label])=>
+         ['apps','Applications'+(newApps().length?' · '+newApps().length:'')],
+         ['setup','Settings']].map(([id,label])=>
         `<button onclick="view='${id}';draw()" style="cursor:pointer;border-radius:999px;padding:9px 16px;
           font:600 12.5px/1 var(--sans);border:1.5px solid ${view===id?'var(--forest)':'var(--line)'};
           background:${view===id?'var(--forest)':'#fff'};color:${view===id?'#fff':'var(--ink)'}">
           ${label}</button>`).join('')}
     </div>
-    ${view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
+    ${view==='setup'?`<div style="margin-top:16px">
+        ${mailguardHTML()}${dbHTML()}
+        <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px;max-width:60ch">
+          The database check and the copy are one-time setup. The copy reads the
+          old Blobs store, so running it now would push stale data over live
+          records — leave it alone unless something has gone wrong.</div>
+      </div>`:
+      view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
       view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>
       ${sel?`<div style="margin-top:14px">${threadCardHTML(msgs)}</div>`:''}`:`
     <div class="grid">
