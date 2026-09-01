@@ -249,10 +249,22 @@ async function clientMailAllowed(to) {
   } catch { return false; }
 }
 
-async function email(to, subject, html) {
+/* What someone has chosen to hear about. An email with no kind is one you
+   cannot opt out of — a password reset, a receipt, confirmation that
+   something they sent arrived. Everything else is theirs to turn off. */
+async function wantsEmail(to, kind) {
+  if (!kind) return true;
+  try {
+    const p = await getSetting(`prefs:${norm(to)}`);
+    return !p || p[kind] !== false;
+  } catch { return true; }
+}
+
+async function email(to, subject, html, kind) {
   if (!process.env.RESEND_API_KEY) return;
   if (!mayEmail(to)) return;                 // suppressed on purpose, not a failure
   if (!(await clientMailAllowed(to))) return;
+  if (!(await wantsEmail(to, kind))) return;
   try {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -958,6 +970,29 @@ export default async (request) => {
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
     }
+  }
+
+  /* ── what they want to hear about ────────────────────────────── */
+  if (path === '/prefs') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (request.method === 'POST') {
+      const cur = (await getSetting(`prefs:${who}`)) || {};
+      for (const k of ['replies', 'reminders', 'marketing']) {
+        if (body[k] !== undefined) cur[k] = body[k] !== false;
+      }
+      await setSetting(`prefs:${who}`, cur);
+      if (body.marketing !== undefined) {
+        await saveAcct({ email: who, marketing: body.marketing !== false });
+      }
+    }
+    const p = (await getSetting(`prefs:${who}`)) || {};
+    const acct = (await getAcct(who)) || {};
+    return json({
+      replies: p.replies !== false,
+      reminders: p.reminders !== false,
+      marketing: p.marketing !== undefined ? p.marketing !== false : !!acct.marketing,
+    });
   }
 
   /* ── applying for coaching ───────────────────────────────────────
@@ -1673,7 +1708,7 @@ export default async (request) => {
               It is waiting in the app.`],
             cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
             signoff: { name: nm },
-          }));
+          }), 'replies');
       }
 
       if (body.nextBlock) {
@@ -1749,7 +1784,7 @@ export default async (request) => {
             paras: [text ? esc(text.slice(0, 600)) : esc(sent)],
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: who2 },
-          }));
+          }), 'replies');
         return json({ ok: true });
       }
     }

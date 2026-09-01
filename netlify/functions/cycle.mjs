@@ -137,8 +137,19 @@ async function clientMailAllowed(to) {
   } catch { return false; }
 }
 
-async function email(to, subject, html) {
+/* same opt-outs the app function honours — a reminder nobody asked for
+   is the fastest way to get an app's email marked as spam */
+async function wantsEmail(to, kind) {
+  if (!kind) return true;
+  try {
+    const p = await supa.row('settings', `key=eq.${enc('prefs:' + norm(to))}&select=value`);
+    return !p || !p.value || p.value[kind] !== false;
+  } catch { return true; }
+}
+
+async function email(to, subject, html, kind) {
   if (!process.env.RESEND_API_KEY || !to) return false;
+  if (!(await wantsEmail(to, kind))) return false;
   if (!mayEmail(to)) return false;
   if (!(await clientMailAllowed(to))) return false;
   try {
@@ -212,7 +223,7 @@ export default async () => {
             cta: { href: `${SITE}/lha-app.html`, label: 'Film your test' },
             signoff: { name: coachNameOf(coach) },
             footnote: 'One clean attempt at each is plenty — five scrappy ones tell us less.',
-          }));
+          }), 'reminders');
         if (ok) {
           await supa.upsert('nudges',
             { key, stage, sent_at: new Date().toISOString() }, 'key');

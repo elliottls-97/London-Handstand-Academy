@@ -202,6 +202,7 @@ const AUTH = {
   subscription:'/api/app/subscription',// GET → live status and dates
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
+  prefs:'/api/app/prefs',              // GET|POST what they want emailing about
   application:'/api/app/application',  // POST a coaching application
   submission:'/api/app/submission',    // POST numbers + clips as one review
   submissions:'/api/app/submissions',  // GET → what has been sent, and its status
@@ -728,6 +729,42 @@ function sendAssessment(file){
 }
 
 /* has anything been sent that is still waiting on a reply */
+/* People should be able to turn off anything that is not essential. A
+   password reset or a receipt still goes; a nudge does not have to. */
+function loadPrefs(){
+  if(!st.token) return;
+  fetch(AUTH.prefs,{headers:authed()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ st.prefs=d; save(); if(st.ov==='account') drawOv(); } })
+    .catch(()=>{});
+}
+function setPref(k,v){
+  st.prefs=Object.assign({},st.prefs,{[k]:v}); save(); drawOv();
+  fetch(AUTH.prefs,{method:'POST',headers:authed(),body:JSON.stringify({[k]:v})})
+    .then(r=>r.ok?r.json():null).then(d=>{ if(d){ st.prefs=d; save(); drawOv(); } })
+    .catch(()=>{});
+}
+function prefsHTML(){
+  const p=st.prefs||{};
+  const row=(k,t,d)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:11px 0;
+    border-top:1px solid rgba(28,32,25,.08)">
+    <div style="flex:1">
+      <div style="font:500 14px/1.3 var(--sans)">${t}</div>
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${d}</div></div>
+    <button onclick="setPref('${k}',${p[k]===false?'true':'false'})" aria-pressed="${p[k]!==false}"
+      style="flex:none;width:46px;height:27px;border-radius:999px;border:none;cursor:pointer;padding:3px;
+      background:${p[k]!==false?'var(--forest)':'rgba(28,32,25,.18)'};display:flex;
+      justify-content:${p[k]!==false?'flex-end':'flex-start'}">
+      <span style="width:21px;height:21px;border-radius:999px;background:#fff;display:block"></span>
+    </button></div>`;
+  return `<div class="card" style="padding:18px;margin-top:14px">
+    <div class="kick2">EMAILS</div>
+    ${row('replies','Replies and answers','When Elliott replies, or your form check is ready.')}
+    ${row('reminders','Training reminders','When your two-week test is due.')}
+    ${row('marketing','Tips and workshops','No more than twice a month.')}
+    <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
+      Password resets and receipts always send — those cannot be turned off.</div></div>`;
+}
+
 function loadSubmissions(){
   if(!st.token) return;
   fetch(AUTH.submissions,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
@@ -1293,6 +1330,7 @@ function drawOv(){
     const tier = st.in ? {n:'Coaching', d:'Your own programme, written by Elliott.', c:'var(--terra)'}
       : st.plus ? {n:'Full ladder', d:'£5 a month. Every stage including the Press.', c:'var(--terra)'}
       : {n:'Free', d:'Stages 1 to 4. The Press is £5 a month.', c:'var(--sand)'};
+    if(!st.prefs) loadPrefs();
     body=`<div class="card" style="padding:18px">
         <div style="display:flex;align-items:center;gap:11px">
           <span style="width:42px;height:42px;border-radius:999px;background:${tier.c};flex:none;
@@ -1312,6 +1350,7 @@ function drawOv(){
           <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${tier.d}</div>
         </div>
       </div>
+      ${prefsHTML()}
       ${st.plus?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">The full ladder — £5 a month.</div>
