@@ -1015,6 +1015,36 @@ export default async (request) => {
     return json({ ok: true });
   }
 
+  /* ── questions ───────────────────────────────────────────────────
+     A question is not a chat message. It has one job, it either has an
+     answer or it does not, and it should be findable months later next to
+     the answer it got — which a thread cannot do. */
+  if (path === '/questions') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (request.method === 'POST') {
+      const body2 = String(body.body || '').trim().slice(0, 1200);
+      if (!body2) return json({ error: 'Ask something first' }, 400);
+      if ((await rateHit(`ask:${who}`, 3600000)) > 10) {
+        return json({ error: 'That is a lot of questions at once. Try again shortly.' }, 429);
+      }
+      await ensureAcct(who);
+      await supa.insert('questions', { email: who, body: body2 });
+      await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+        `Question from ${clients()[who] || who}`,
+        mail({ title: 'A question came in.',
+          paras: [esc(body2)],
+          cta: { href: `${SITE}/lha-coach.html`, label: 'Answer it' },
+          signoff: { name: 'London Handstand Academy' } }));
+      return json({ ok: true });
+    }
+    const rows = await supa.rows('questions',
+      `email=eq.${enc(who)}&select=*&order=created_at.desc`);
+    return json({ questions: (rows || []).map(q => ({
+      id: q.id, body: q.body, answer: q.answer || '', status: q.status,
+      at: ms(q.created_at), answeredAt: ms(q.answered_at) })) });
+  }
+
   /* ── applying for coaching ───────────────────────────────────────
      The most valuable thing anyone does in this app used to fire a
      Formspree email and an alert: no record, no status, no way to see it
@@ -1684,6 +1714,39 @@ export default async (request) => {
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       const row = await supa.row('free_checks', `email=eq.${enc(e)}&select=used_at`);
       return json({ email: e, used: !!row, at: row ? ms(row.used_at) : 0 });
+    }
+
+    if (path === '/coach/questions') {
+      const rows = await supa.rows('questions', 'select=*&order=created_at.desc');
+      const out = [];
+      for (const q of (rows || [])) {
+        if (!owns(q.email)) continue;
+        out.push({ id: q.id, email: q.email, name: clients()[q.email] || q.email.split('@')[0],
+          body: q.body, answer: q.answer || '', status: q.status,
+          at: ms(q.created_at), answeredAt: ms(q.answered_at) });
+      }
+      return json({ questions: out });
+    }
+
+    if (path === '/coach/question/answer' && request.method === 'POST') {
+      const id = String(body.id || '').trim();
+      const answer = String(body.answer || '').trim().slice(0, 4000);
+      if (!id || !answer) return json({ error: 'Which question, and what answer?' }, 400);
+      const q = await supa.row('questions', `id=eq.${enc(id)}&select=*`);
+      if (!q) return json({ error: 'No such question' }, 404);
+      if (!owns(q.email)) return json({ error: 'Not your client' }, 403);
+      await supa.update('questions', `id=eq.${enc(id)}`, {
+        answer, status: 'answered', answered_at: nowISO(),
+        answered_by: asking || primaryCoach() });
+
+      const nm = coachName(asking || coachOf(q.email));
+      await email(q.email, `${nm} answered your question`,
+        mail({ title: 'Your question has an answer.',
+          greeting: (clients()[q.email] || '').split(' ')[0] || '',
+          paras: [`<b>You asked:</b> ${esc(q.body)}`, esc(answer)],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: nm } }), 'replies');
+      return json({ ok: true });
     }
 
     if (path === '/coach/applications') {

@@ -211,6 +211,7 @@ const AUTH = {
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
   prefs:'/api/app/prefs',              // GET|POST what they want emailing about
+  questions:'/api/app/questions',      // GET yours, POST a new one
   intake:'/api/app/intake',            // POST the quiz answers so the coach can see them
   application:'/api/app/application',  // POST a coaching application
   submission:'/api/app/submission',    // POST numbers + clips as one review
@@ -1322,6 +1323,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
+  if(done && !st.in) advanceDay();
   save();
   if(done){ st.ovSummary=true; openOv('summary'); }
   else if(partWay){ render(); openOv('why'); }
@@ -2273,6 +2275,56 @@ STAGES.forEach(x=>{ x.drills=(x.drillIds||[]).length; });
 const curStage=()=>st.stage==null?1:st.stage;
 
 
+/* ── asking a question ─────────────────────────────────────────────
+   Separate from the chat on purpose: a question has one job, it either
+   has an answer or it does not, and it should still be findable next to
+   its answer months later — which a thread cannot do. */
+function loadQuestions(){
+  if(!st.token) return;
+  fetch(AUTH.questions,{headers:authed()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d&&d.questions){ st.qs=d.questions; save();
+      if(st.tab==='home'||st.tab==='more') render(); } }).catch(()=>{});
+}
+function askQuestion(){
+  const el=$('#askQ'); const t=((el&&el.value)||'').trim();
+  const say=m=>{ const e2=$('#askQMsg'); if(e2) e2.textContent=m; };
+  if(!t){ say('Type your question first.'); return; }
+  if(!st.token){ say('Create an account and I can answer you.'); return; }
+  say('Sending…');
+  fetch(AUTH.questions,{method:'POST',headers:authed(),body:JSON.stringify({body:t})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
+    .then(()=>{ if(el) el.value=''; st.askDraft=''; save(); loadQuestions();
+                say('Sent. I answer these myself, usually within 48 hours.'); })
+    .catch(e=>say(String(e)));
+}
+function questionsCard(){
+  const qs=st.qs||[];
+  const answered=qs.filter(q=>q.status==='answered');
+  const open=qs.filter(q=>q.status!=='answered');
+  return `<div class="card" style="padding:20px">
+    <div class="kick2">ASK A QUESTION</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+      Anything about the training. I answer them myself.</div>
+    <textarea id="askQ" rows="2" placeholder="Why do my wrists hurt after the wall work?"
+      oninput="st.askDraft=this.value"
+      style="width:100%;margin-top:11px;border:1px solid rgba(28,32,25,.16);border-radius:14px;
+      padding:12px;font:400 14px/1.5 var(--sans);resize:vertical;box-sizing:border-box;
+      outline:none">${esc(st.askDraft||'')}</textarea>
+    <div id="askQMsg" style="font:500 12px/1.5 var(--sans);color:var(--terra);
+      min-height:17px;margin-top:6px"></div>
+    <button class="btn" style="width:100%" onclick="askQuestion()">Send it</button>
+    ${open.length?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
+      ${open.length} waiting on an answer.</div>`:''}
+    ${answered.length?`<div style="margin-top:14px;border-top:1px solid rgba(28,32,25,.08);padding-top:12px">
+      <div class="kick2">ANSWERED</div>
+      ${answered.slice(0,4).map(q=>`<div style="margin-top:11px">
+        <div style="font:600 13.5px/1.4 var(--sans)">${esc(q.body)}</div>
+        <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:5px;
+          padding-left:11px;border-left:2px solid var(--sage)">${esc(q.answer)}</div>
+      </div>`).join('')}</div>`:''}
+  </div>`;
+}
+
 /* ── where you landed ─────────────────────────────────────────────
    The screen that used to be missing. Someone finishing the quiz was
    dropped onto a ladder of five cards with no explanation of what a
@@ -2466,21 +2518,51 @@ function screenHome(){
 
     <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
 
-      <div class="card" style="padding:20px">
-        <div class="kick2">${didToday?'ALREADY DONE TODAY':"TODAY'S SESSION"}</div>
-        <div class="h-md" style="font-size:26px;margin-top:10px">${esc(S.n)}</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
-          ${esc(S.intro||S.goal||'')}</div>
+      ${(function(){
+        const plan=weekPlan(), idx=nextDayIdx();
+        const dayDef=plan?plan[idx]:null;
+        const title=dayDef?dayDef.n:S.n;
+        const sub=dayDef?dayDef.sub:(S.intro||S.goal||'');
+        const count=(dayDef?dayDef.drills:(S.drillIds||[])).length;
+        return `<div class="card" style="padding:20px">
+        <div class="kick2">${didToday?'ALREADY DONE TODAY':"TODAY'S SESSION"}${
+          plan?` · ${idx+1} OF ${plan.length}`:''}</div>
+        <div class="h-md" style="font-size:26px;margin-top:10px">${esc(title)}</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">${esc(sub)}</div>
         <div style="display:flex;gap:22px;margin-top:16px">
-          ${[[String(st.time||30),'MINUTES'],[String(S.drillIds?S.drillIds.length:0),'DRILLS']]
+          ${[[String(st.time||30),'MINUTES'],[String(count),'DRILLS']]
             .map(([v,l])=>`<div><div class="h-sm" style="font-size:24px">${v}</div>
               <div style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2);
                 margin-top:5px">${l}</div></div>`).join('')}
         </div>
         <button class="btn" style="width:100%;margin-top:16px" onclick="buildFreeSession()">
           ${didToday?'Go again':'Start the session'}</button>
+        ${plan?`<button class="btn2" style="width:100%;margin-top:8px" onclick="buildFreeSession(true)">
+          Short wrist and mobility day instead</button>`:''}
         <button class="btn2" style="width:100%;margin-top:8px" onclick="go('ladder')">See the whole ladder</button>
       </div>
+      ${plan?`<div class="card" style="padding:18px 20px">
+        <div class="kick2">YOUR WEEK</div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-top:12px">
+          ${plan.map((dd,i)=>`<div style="display:flex;gap:11px;align-items:center;
+            font:400 13.5px/1.4 var(--sans);opacity:${i===idx?1:.62}">
+            <span style="flex:none;width:20px;height:20px;border-radius:999px;display:grid;
+              place-items:center;font:700 10px/1 var(--sans);
+              background:${i===idx?'var(--forest)':'var(--mist)'};
+              color:${i===idx?'var(--bg)':'var(--grey2)'}">${i+1}</span>
+            <span style="flex:1"><b style="font-weight:${i===idx?600:400}">${esc(dd.n)}</b>
+              <span style="color:var(--grey2)"> · ${esc(dd.sub)}</span></span>
+            ${i===idx?`<span style="font:700 9px/1 var(--sans);letter-spacing:.1em;
+              color:var(--terra)">NEXT</span>`:''}
+          </div>`).join('')}
+          <div style="display:flex;gap:11px;align-items:center;font:400 13.5px/1.4 var(--sans);
+            opacity:.62;padding-top:7px;border-top:1px solid rgba(28,32,25,.08)">
+            <span style="flex:none;width:20px;height:20px;border-radius:999px;display:grid;
+              place-items:center;font:700 10px/1 var(--sans);background:var(--mist);
+              color:var(--grey2)">+</span>
+            <span style="flex:1">Two short wrist days
+              <span style="color:var(--grey2)"> · between the sessions</span></span></div>
+        </div></div>`:''}`;})()}
 
       <div class="card" style="padding:20px">
         <div class="kick2">TODAY'S EXPLAINER</div>
@@ -2494,9 +2576,31 @@ function screenHome(){
                Save your progress with an email and the rest of the answers open up.</div>
              <button class="btn" style="width:100%;margin-top:12px"
                onclick="st.tab='joinFree';save();render()">Create an account</button>`}
-        <button class="btn2" style="width:100%;margin-top:8px" onclick="go('more')">All the questions</button>
+        <div style="margin-top:16px;border-top:1px solid rgba(28,32,25,.08);padding-top:13px">
+          <div class="kick2">ALL THE EXPLAINERS</div>
+          <div style="display:flex;flex-direction:column;gap:2px;margin-top:9px">
+          ${FAQS.map((q,i)=>{
+            const open=explainerOpen(i), showing=(st.exOpen===i);
+            return `<div style="border-top:${i?'1px solid rgba(28,32,25,.07)':'none'};padding:11px 0">
+              <div onclick="${open?`st.exOpen=${showing?'null':i};save();render()`
+                                  :`st.tab='joinFree';save();render()`}"
+                style="display:flex;gap:10px;justify-content:space-between;cursor:pointer;
+                align-items:baseline">
+                <span style="font:${open?500:400} 14px/1.4 var(--sans);
+                  color:${open?'var(--ink)':'var(--grey2)'}">${esc(q.q)}</span>
+                <span style="flex:none;font:400 14px/1 var(--serif);color:var(--terra)">
+                  ${open?(showing?'−':'+'):'🔒'}</span></div>
+              ${open&&showing?(q.v?qaVideo(q)
+                :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+                   Not filmed yet — it lands here when it is.</div>`):''}
+            </div>`;}).join('')}
+          </div>
+          ${st.token?'':`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
+            The first ${FREE_EXPLAINERS} are open. An account opens the rest.</div>`}
+        </div>
       </div>
 
+      ${questionsCard()}
       ${nextStageCard()}
     </div></div>`;
 }
@@ -2736,6 +2840,39 @@ function manageSubscription(){
 
 function openStage(i){ st.ovStage=i; openOv('stage'); }
 
+/* ── the week, for Foundations ─────────────────────────────────────
+   Until now every free session drew from the whole stage pool, so three
+   sessions a week were three shuffles of the same bag. A week should have
+   a shape: get upside down, build the shapes, then the assisted work —
+   plus two short wrist days, which is where the tissue actually adapts.
+
+   Only Foundations has a written week so far. Other stages fall back to
+   the whole pool, which is what they did before. */
+const WEEK = {
+  0: [
+    {n:'Getting upside down', sub:'Kick ups and the wall',
+     drills:['wall-kick-ups','chest-to-wall-handstand','chest-to-wall-bailouts','kick-up-bounces','wall-walks']},
+    {n:'Shapes and strength', sub:'The pushing underneath it',
+     drills:['chaturganga-push-ups','p-pike-pushups-knees','dd-float-drills','p-dd-toe-taps','palm-lifts-table-top']},
+    {n:'Assisted work', sub:'Chair and wall, learning the line',
+     drills:['p-l-handstand','chair-assisted-knee-lifts','chair-assisted-step-ups','wall-walks','chest-to-wall-handstand']},
+  ],
+};
+const WRIST_DAY = {n:'Wrists and mobility', sub:'Short — this is the one that keeps you training',
+  drills:['forearm-massage','wrist-circles-mob','dd-wrist-taps','palm-lifts-table-top',
+          'shoulder-circles','heart-melting-pose']};
+
+const weekPlan = () => WEEK[curStage()] || null;
+/* which session is next: they rotate, and finishing one advances it */
+function nextDayIdx(){
+  const plan=weekPlan(); if(!plan) return 0;
+  return ((st.planDay|0) % plan.length + plan.length) % plan.length;
+}
+function advanceDay(){
+  const plan=weekPlan(); if(!plan) return;
+  st.planDay=((st.planDay|0)+1)%plan.length; save();
+}
+
 /* ── how a session is ordered ──────────────────────────────────────
    Every session used to be the stage's drill list round-robined, which
    meant a wrist drill, then a wall walk, then back to a wrist drill —
@@ -2774,10 +2911,13 @@ function warmupFor(budgetSecs){
 }
 
 /* a session built from the current stage's drills, to fit the time chosen */
-function buildFreeSession(){
+function buildFreeSession(wristDay){
   const mins=st.time||30, s=STAGES[curStage()];
   /* prep drills belong in the warm-up, not scattered through the skill work */
-  const pool=s.drillIds.filter(v=>RAMP_ALL.indexOf(v)<0).map(drillById).filter(Boolean)
+  const plan=weekPlan();
+  const dayDef = wristDay ? WRIST_DAY : (plan ? plan[nextDayIdx()] : null);
+  const ids = dayDef ? dayDef.drills : s.drillIds;
+  const pool=ids.filter(v=>RAMP_ALL.indexOf(v)<0).map(drillById).filter(Boolean)
     .map(d=>Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'3 × 8'}));
   if(!pool.length){ alert('Nothing filmed for this stage yet.'); return; }
 
@@ -2796,7 +2936,7 @@ function buildFreeSession(){
       const n=sets(it.d); if(round>=n) continue;
       const t=work(it)+rest(it);
       if(secs+t>budget){ added=false; break; }
-      out.push({it,gi:0,ii:out.length,set:round+1,sets:n,grp:s.n});
+      out.push({it,gi:0,ii:out.length,set:round+1,sets:n,grp:(dayDef&&dayDef.n)||s.n});
       secs+=t; added=true;
     }
     round++;
@@ -3184,6 +3324,7 @@ function switchView(toFree){
 }
 
 function go(t){ st.tab=t; save(); render();
+  if(t==='home') loadQuestions();
   if(t==='ask'||t==='coaching'){ loadThread(); loadEntitlement(); loadSubmissions(); }
   if(t==='progress') loadSubmissions(); }
 function render(){
@@ -3225,7 +3366,7 @@ document.addEventListener('DOMContentLoaded',function(){
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
   render();
-  if(st.token){ loadEntitlement(); loadSubmissions(); }
+  if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); }
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
   if(st.token) reportProgress();
 });
