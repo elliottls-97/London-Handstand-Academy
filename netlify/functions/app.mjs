@@ -1404,7 +1404,8 @@ export default async (request) => {
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       return json({ email: e, name: clients()[e] || e,
-                    progress: (await (async () => {
+                    intake: (await getSetting(`intake:${e}`)) || null,
+        progress: (await (async () => {
           const prog = await supa.row('progress', `email=eq.${enc(e)}&select=*`);
           return prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],

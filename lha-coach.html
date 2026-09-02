@@ -95,6 +95,7 @@ let mailguard=null;   /* null until loaded; {suppress, clients} after */
 let dbstate=null;
 let migstate=null;
 let prog={};
+let intakes={};   /* what they said about themselves at signup */
 let notes={};
 let noteDrafts={};
 const $=s=>document.querySelector(s);
@@ -153,7 +154,7 @@ function openThread(email){
   sel=email; draw();
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ prog[email]=d.progress||{}; draw(); } })
+    .then(d=>{ if(d){ prog[email]=d.progress||{}; intakes[email]=d.intake||null; draw(); } })
     .catch(()=>{});
   if(!fcState[email]) loadFormCheck(email);
   fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
@@ -750,7 +751,10 @@ function analysis(email){
     const a=start+i*7*DAY, b=a+7*DAY;
     return done.filter(x=>x.at>=a&&x.at<b).length;
   });
-  const target=3;
+  /* they pick their own frequency at signup — measuring everyone against
+     three made a 2-a-week beginner look like they were failing and a
+     5-a-week client look better than they were */
+  const target=(intakes[email]&&Number(intakes[email].days))||3;
   const adherence=weeks?Math.round(done.length/(weeks*target)*100):0;
   const sinceLast=done.length?Math.floor((Date.now()-Math.max(...done.map(x=>x.at)))/DAY):null;
   const abandoned=all.length-done.length;
@@ -1176,6 +1180,46 @@ function panelWeek(p){
       Nothing logged this week yet. Finish a session and it turns up here.</div>`}</div>`;
 }
 
+/* ── what they told us ────────────────────────────────────────────
+   The quiz answers were reaching the database and stopping there. Goal,
+   level, what hurts and how often they said they would train — none of
+   it was visible to the person writing their programme. The injuries
+   line is the one that matters: someone declares a bad wrist and the
+   coach could not see it. */
+const GOAL_LABEL={learn:'Learn to handstand',hold:'Hold a freestanding handstand',
+  improve:'Improve my handstand',advanced:'Advanced skills — press, one-arm'};
+const LEVEL_LABEL=['Never done handstands',"Stuck at the wall",
+  'Can briefly balance','Can hold ten seconds or more'];
+
+function intakeHTML(email){
+  const a=intakes[email];
+  if(!a) return `<div class="kick" style="margin-top:24px">WHAT THEY SAID</div>
+    <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">
+      They joined before the intake existed, or have not finished it.</div>`;
+  const rows=[
+    ['Goal', GOAL_LABEL[a.goal]||a.goal||'—'],
+    ['Level at signup', (a.level!=null?LEVEL_LABEL[a.level]:null)||'—'],
+    ['Said they would train', a.days?`${a.days}× a week, ${a.mins||'?'} min`:'—'],
+  ];
+  const hurts=(a.niggles||[]).filter(x=>x&&x!=='Nothing right now');
+  return `<div class="kick" style="margin-top:24px">WHAT THEY SAID</div>
+    <div style="margin-top:10px">
+      ${rows.map(([k,v])=>`<div style="display:flex;gap:12px;padding:5px 0;
+        font:400 13.5px/1.6 var(--sans)">
+        <span style="flex:none;width:118px;color:var(--grey2)">${k}</span>
+        <span style="flex:1">${esc(v)}</span></div>`).join('')}
+      ${hurts.length
+        ? `<div style="display:flex;gap:12px;padding:9px 12px;margin-top:8px;border-radius:12px;
+             background:rgba(200,122,86,.12);border-left:3px solid var(--terra);
+             font:400 13.5px/1.5 var(--sans)">
+             <span style="flex:none;width:106px;font-weight:700;color:var(--terra)">Told us hurts</span>
+             <span style="flex:1">${hurts.map(esc).join(', ')}</span></div>`
+        : `<div style="display:flex;gap:12px;padding:5px 0;font:400 13.5px/1.6 var(--sans)">
+             <span style="flex:none;width:118px;color:var(--grey2)">Injuries</span>
+             <span style="flex:1;color:var(--grey)">Nothing declared</span></div>`}
+    </div>`;
+}
+
 function metricsHTML(email){
   if(!prog[email]) return `<div class="kick" style="margin-top:22px">ANALYSIS</div>
     <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">Loading…</div>`;
@@ -1204,6 +1248,7 @@ function metricsHTML(email){
   return `
   <div class="card"><div class="kick">ACTIVITY</div>${coachCalendar(email)}</div>
   ${panelWeek(p)}
+  ${intakeHTML(email)}
   <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
     <div class="kick" style="margin:0">ANALYSIS</div>
     <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;padding:5px 9px;border-radius:4px;
