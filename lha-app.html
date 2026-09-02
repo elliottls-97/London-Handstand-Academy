@@ -2344,16 +2344,60 @@ function manageSubscription(){
 
 function openStage(i){ st.ovStage=i; openOv('stage'); }
 
+/* ── how a session is ordered ──────────────────────────────────────
+   Every session used to be the stage's drill list round-robined, which
+   meant a wrist drill, then a wall walk, then back to a wrist drill —
+   and stages 2 to 5 carry no prep drills at all, so they opened cold on
+   shoulder shrugs or knees-on-box.
+
+   Marina's and Hannah's programmes are built the way a session actually
+   runs: wrists, then shoulders and general mobility, then the skill work
+   with the easier drills first. That order is now the app's too, for the
+   free ladder as well as a written plan. */
+const RAMP = {
+  wrists:    ['forearm-massage','wrist-circles-mob','wrist-flexion-ext',
+              'wrist-weight-shift','plank-fingertip-lifts'],
+  shoulders: ['shoulder-circles','scapula-shrugs','heart-melting-pose',
+              'wall-shoulder-opener','downward-dog-pulses'],
+  general:   ['upward-dog-to-plank','plank-pose','dolphin-lean-forwards',
+              'downward-dog-elbow-lowers'],
+};
+const RAMP_ALL = [].concat(RAMP.wrists, RAMP.shoulders, RAMP.general);
+
+/* wrists always, then two from the shoulder and general pools. Kept to
+   one set each and about a fifth of the session, so choosing 10 minutes
+   still leaves time for the thing they came to train. */
+function warmupFor(budgetSecs){
+  const take=(list,n)=>list.map(drillById).filter(Boolean).slice(0,n);
+  const picks=[].concat(take(RAMP.wrists,2), take(RAMP.shoulders,2), take(RAMP.general,1));
+  const cap=budgetSecs*0.22;
+  const out=[]; let secs=0;
+  for(const d of picks){
+    const it=Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'1 × 30s'});
+    const t=work(it)+rest(it);
+    if(out.length && secs+t>cap) break;
+    out.push(it); secs+=t;
+  }
+  return {items:out, secs};
+}
+
 /* a session built from the current stage's drills, to fit the time chosen */
 function buildFreeSession(){
   const mins=st.time||30, s=STAGES[curStage()];
-  const pool=s.drillIds.map(drillById).filter(Boolean)
+  /* prep drills belong in the warm-up, not scattered through the skill work */
+  const pool=s.drillIds.filter(v=>RAMP_ALL.indexOf(v)<0).map(drillById).filter(Boolean)
     .map(d=>Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'3 × 8'}));
   if(!pool.length){ alert('Nothing filmed for this stage yet.'); return; }
-  /* Expand each drill into its sets, then fill the time chosen — one set
-     from each drill in turn, so a short session still covers the stage
-     rather than doing three sets of the first thing and stopping. */
-  const budget=mins*60; const out=[]; let secs=0, round=0, added=true;
+
+  const budget=mins*60;
+  const warm=warmupFor(budget);
+  const out=warm.items.map((it,i)=>({it,gi:0,ii:i,set:1,sets:1,grp:'Warm-up'}));
+  let secs=warm.secs;
+
+  /* Then the skill work, easiest first — one set from each in turn, so a
+     short session still covers the stage rather than three sets of the
+     first thing and nothing else. */
+  let round=0, added=true;
   while(added && secs<budget){
     added=false;
     for(const it of pool){
