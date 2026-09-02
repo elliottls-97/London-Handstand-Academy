@@ -1031,6 +1031,17 @@ let calDay=null;   /* the ISO date being inspected */
 /* The shared four-week panel is right for a client looking at their own
    habit. A coach needs to go back through the block and ask what happened
    on a particular day, which is a different question. */
+/* "11 sessions · 5h 52m" — the header line from the design */
+function monthStats(byDay,y,m){
+  const pre=`${y}-${String(m+1).padStart(2,'0')}`;
+  const days=Object.keys(byDay).filter(k=>k.slice(0,7)===pre);
+  const n=days.reduce((t,k)=>t+byDay[k].length,0);
+  const mins=days.reduce((t,k)=>t+byDay[k].reduce((a,x)=>a+(x.actual||x.mins||0),0),0);
+  if(!n) return 'Nothing logged';
+  const h=Math.floor(mins/60), mm=mins%60;
+  return `${n} session${n===1?'':'s'} · ${h?h+'h ':''}${mm}m`;
+}
+
 function coachCalendar(email){
   const p=prog[email]||{};
   const opens=new Set(p.opens||[]);
@@ -1058,14 +1069,23 @@ function coachCalendar(email){
       : did ? 'Started a session but stopped — click to see where'
       : on ? 'Opened the app, no session logged'
       : future ? '' : 'Nothing';
+    /* the design's squares: shading says what kind of day it was, the bar
+       inside says how long — two facts in one cell without a legend for
+       the second */
+    const mins=(byDay[k]||[]).reduce((t,x)=>t+(x.actual||x.mins||0),0);
+    const bar=Math.max(0,Math.min(1,mins/45));
+    const bg = done?'var(--forest)' : did?'var(--terra)' : on?'rgba(255,255,255,.7)' : 'transparent';
+    const fg = (done||did)?'#fff' : future?'#c9cec3' : 'var(--grey)';
     cells.push(`<button onclick="calDay=${isSel?'null':`'${k}'`};draw()" title="${esc(tip)}"
-      style="aspect-ratio:1;border:none;cursor:${(on||did)?'pointer':'default'};padding:0;
-      background:none;display:grid;place-items:center">
-      <span style="width:30px;height:30px;border-radius:999px;display:grid;place-items:center;
-        font:${(on||did)?'700':'400'} 12px/1 var(--sans);
-        outline:${isSel?'2px solid var(--ink)':'none'};outline-offset:1px;
-        background:${done?'var(--forest)':did?'#8aa583':on?'var(--mist)':'transparent'};
-        color:${(done||did)?'#fff':future?'#c9cec3':'var(--grey)'}">${dnum}</span></button>`);
+      style="aspect-ratio:1;cursor:${(on||did)?'pointer':'default'};padding:0;border-radius:12px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+      background:${bg};border:1px solid ${isSel?'var(--ink)':(on||did)?'transparent':'rgba(28,32,25,.07)'}">
+      <span style="font:${(on||did)?'700':'400'} 12.5px/1 var(--sans);color:${fg}">${dnum}</span>
+      ${(on||did)?`<span style="width:16px;height:4px;border-radius:2px;overflow:hidden;
+        background:${(done||did)?'rgba(255,255,255,.32)':'rgba(28,32,25,.12)'}">
+        <i style="display:block;height:100%;width:${Math.round(bar*100)}%;
+          background:${(done||did)?'#fff':'var(--grey2)'}"></i></span>`:''}
+    </button>`);
   }
 
   const head=['M','T','W','T','F','S','S'].map(x=>
@@ -1073,12 +1093,16 @@ function coachCalendar(email){
       color:var(--grey2)">${x}</div>`).join('');
 
   const monthSess=Object.keys(byDay).filter(k=>k.slice(0,7)===`${y}-${String(m+1).padStart(2,'0')}`);
+  void monthSess;
   const monthOpens=[...opens].filter(k=>k.slice(0,7)===`${y}-${String(m+1).padStart(2,'0')}`);
 
   return `<div style="display:flex;align-items:center;gap:10px;margin-top:14px">
       <button onclick="calOff++;calDay=null;draw()" style="border:none;background:var(--mist);
         cursor:pointer;border-radius:9px;width:30px;height:30px;font:600 14px/1 var(--sans)">‹</button>
-      <span style="flex:1;text-align:center;font:600 13px/1 var(--sans)">${esc(title)}</span>
+      <span style="flex:1;text-align:center">
+        <span style="display:block;font:600 13px/1 var(--sans)">${esc(title)}</span>
+        <span style="display:block;font:400 11px/1 var(--sans);color:var(--grey2);margin-top:4px">
+          ${monthStats(byDay,y,m)}</span></span>
       <button onclick="if(calOff>0){calOff--;calDay=null;draw()}" style="border:none;
         background:${calOff>0?'var(--mist)':'transparent'};color:${calOff>0?'var(--ink)':'var(--grey2)'};
         cursor:${calOff>0?'pointer':'default'};border-radius:9px;width:30px;height:30px;
@@ -1087,7 +1111,7 @@ function coachCalendar(email){
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin:11px 0 5px">${head}</div>
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">${cells.join('')}</div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px">
-      ${[['var(--forest)','Finished'],['#8aa583','Stopped early'],['var(--mist)','Opened only']]
+      ${[['var(--forest)','Finished'],['var(--terra)','Stopped early'],['rgba(255,255,255,.7)','Opened only']]
         .map(([c,l])=>`<span style="display:flex;align-items:center;gap:6px;
           font:400 11.5px/1 var(--sans);color:var(--grey2)">
           <span style="width:11px;height:11px;border-radius:999px;background:${c};
@@ -1219,6 +1243,72 @@ function intakeHTML(email){
              <span style="flex:1;color:var(--grey)">Nothing declared</span></div>`}
     </div>`;
 }
+
+/* ── the read, three rails ─────────────────────────────────────────
+   From the design: Momentum, Friction, Do next. The first two are
+   derived; the third is a judgement no amount of data produces, so it
+   is the coach's own note promoted to where it will actually be read
+   rather than buried at the bottom of the column. */
+function readRails(email){
+  const lines=summarise(email);
+  const isFriction=x=>/too hard|flagged|stopped|abandon|stalled|no sessions|not started/i.test(x);
+  const momentum=lines.filter(x=>!isFriction(x));
+  const friction=lines.filter(isFriction);
+  const note=((notes[email]||{}).text||'').trim();
+
+  const rail=(kicker,text,accent,bg)=>`<div style="display:flex;gap:12px;padding:12px 14px;
+    border-radius:16px;background:${bg};border-left:3px solid ${accent};margin-bottom:9px">
+    <span style="font:800 9.5px/1.5 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+      width:74px;flex:0 0 74px;color:${accent}">${kicker}</span>
+    <span style="font:400 13.5px/1.55 var(--sans);color:#23281f">${text}</span></div>`;
+
+  return `<div style="margin-top:11px">
+    ${momentum.length?rail('Momentum', momentum.map(esc).join(' '), '#3c5236','rgba(159,176,152,.22)'):''}
+    ${friction.length?rail('Friction', friction.map(esc).join(' '), '#8f3f1e','rgba(200,122,86,.14)'):''}
+    ${rail('Do next',
+      note ? esc(note)
+           : `<span style="color:var(--grey2)">Nothing written yet — this is where your call on
+              their next block goes. <button onclick="focusNote()" style="background:none;border:none;
+              padding:0;cursor:pointer;font:inherit;color:var(--forest);text-decoration:underline;
+              text-underline-offset:2px">Write it</button></span>`,
+      '#2f3d2f','rgba(232,236,227,.75)')}
+  </div>`;
+}
+function focusNote(){ const el=$('#cnote'); if(el){ el.scrollIntoView({block:'center'}); el.focus(); } }
+
+/* ── where it is hard, where it is easy ────────────────────────────
+   The flags with the client's own words next to them. The quote is the
+   useful half — "shoulders burn out before the time is up" tells you
+   what to change; a count does not. */
+function frictionHTML(email){
+  const p=prog[email]||{};
+  const rows=Object.entries(p.flags||{})
+    .map(([v,f])=>({v, rate:f.rate, note:(f.note||'').trim(),
+                    n:(drillName(v)||v), times:f.times||f.count||0}))
+    .filter(r=>r.rate==='hard'||r.rate==='easy')
+    .sort((a,b)=>(a.rate===b.rate?0:a.rate==='hard'?-1:1));
+  if(!rows.length) return '';
+  return `<div class="kick" style="margin-top:26px">WHERE IT IS HARD, WHERE IT IS EASY</div>
+    <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
+    ${rows.map(r=>{
+      const hard=r.rate==='hard';
+      return `<div style="padding:13px 15px;border-radius:16px;
+        background:${hard?'rgba(200,122,86,.12)':'rgba(159,176,152,.20)'};
+        border:1px solid ${hard?'rgba(200,122,86,.30)':'rgba(159,176,152,.42)'}">
+        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+          <span style="font:800 9px/1 var(--sans);letter-spacing:.11em;padding:4px 7px;border-radius:6px;
+            background:${hard?'rgba(200,122,86,.30)':'rgba(159,176,152,.45)'};
+            color:${hard?'#8f3f1e':'#3c5236'}">${hard?'TOO HARD':'TOO EASY'}</span>
+          <b style="font:600 14.5px/1.3 var(--sans)">${esc(r.n)}</b>
+          ${r.times?`<span style="margin-left:auto;font:400 12px/1 var(--sans);
+            color:var(--grey2)">Flagged ${r.times}×</span>`:''}
+        </div>
+        ${r.note?`<div style="font:italic 400 13px/1.55 var(--sans);color:var(--grey);margin-top:7px">
+          &ldquo;${esc(r.note)}&rdquo;</div>`:''}
+      </div>`;}).join('')}
+    </div>`;
+}
+const drillName=v=>String(v||'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 
 let openSess=null;   /* which session row is expanded */
 
@@ -1357,20 +1447,7 @@ function metricsHTML(email){
 
   <div style="background:var(--mist);border-radius:14px;padding:15px 17px;margin-top:14px">
     <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">THE READ</div>
-    <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
-      ${summarise(email).map((x,i)=>{
-        /* the first line is always the adherence summary; anything after it is
-           a specific observation, so they should not read as one list */
-        const kick=i===0?'Overall':/hold|second/i.test(x)?'Holds'
-          :/hard|easy|flag/i.test(x)?'Flags':/stop|abandon/i.test(x)?'Stopping':'Note';
-        const accent=i===0?'#2f3d2f':/hard|stop|abandon/i.test(x)?'var(--terra)':'#7d8f78';
-        return `<div style="display:flex;gap:12px;padding:11px 13px;border-radius:16px;
-          background:rgba(232,236,227,.72);border-left:3px solid ${accent}">
-          <span style="font:800 9.5px/1.5 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-            width:64px;flex:0 0 64px;color:${accent}">${kick}</span>
-          <span style="font:400 13.5px/1.55 var(--sans);color:#23281f">${esc(x)}</span></div>`;
-      }).join('')}
-    </div>
+    ${readRails(email)}
   </div>
 
   <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
@@ -1408,6 +1485,7 @@ function metricsHTML(email){
     <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--mist);vertical-align:-1px"></i> nothing</span>
   </div>
 
+  ${frictionHTML(email)}
   ${sessionsHTML(email)}
   ${a.perWeek.length?`<div class="kick" style="margin-top:26px">SESSIONS PER WEEK</div>
     <div style="margin-top:12px">${barChart(a.perWeek,a.target)}</div>
