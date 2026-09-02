@@ -78,6 +78,10 @@ h1{font:400 34px/1 var(--serif);margin:0}
 input,textarea{font-family:var(--sans);font-size:15px;border:1px solid var(--line);border-radius:12px;padding:12px;width:100%}
 button.send{border:none;background:var(--terra);color:#fff;border-radius:999px;padding:12px 22px;
  font:700 13px/1 var(--sans);cursor:pointer}
+/* secondary actions: same shape, a third of the presence */
+button.quiet{border:1px solid rgba(28,32,25,.14);background:rgba(255,255,255,.7);color:var(--ink);
+ border-radius:999px;padding:9px 15px;font:600 12.5px/1 var(--sans);cursor:pointer}
+button.quiet:hover{background:#fff}
 .gate{max-width:400px;margin:16vh auto;text-align:center}
 </style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
 <script>
@@ -101,6 +105,17 @@ let dbstate=null;
 let migstate=null;
 let prog={};
 let intakes={};   /* what they said about themselves at signup */
+/* names fall back to the address, so a placeholder could read
+   "Reply to elliottstaley…" and truncate mid-handle */
+const firstName=e=>{
+  const c=clients.find(x=>x.email===e)||{};
+  const n=(c.name||'').trim();
+  /* the roster falls back to the address's local part when there is no
+     name, so "elliottstaley" is not a name — it is the handle wearing one */
+  const handle=String(e||'').split('@')[0];
+  if(!n || n===handle || n.indexOf('@')>=0) return '';
+  return n.split(' ')[0];
+};
 let notes={};
 let noteDrafts={};
 const $=s=>document.querySelector(s);
@@ -1644,19 +1659,21 @@ function threadCardHTML(msgs){
           background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8);
           box-shadow:inset 0 1px 0 rgba(255,255,255,.95)">
         ${sel?snippetsHTML():''}
-        <div style="display:flex;gap:10px">
-          <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
-            oninput="drafts[sel]=this.value"
-            onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply(!!openSub(sel))">${esc(drafts[sel]||'')}</textarea>
-          <button class="send" onclick="pickCoachClip()" title="Send a video"
-            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Video</button>
-          <button class="send" onclick="pickCoachPhoto()" title="Send a photo"
-            style="background:var(--mist);color:var(--ink);width:auto;padding:0 16px">Photo</button>
+        <!-- Was one flex row: the box and up to four buttons competing for the
+             same width, and the buttons stretching to the box's height. Writing
+             the reply is the job, so it gets the width and the actions sit under
+             it — attachments quiet on the left, sending loud on the right. -->
+        <textarea id="reply" rows="3" placeholder="Reply${sel?' to '+esc(firstName(sel)):''}…"
+          oninput="drafts[sel]=this.value"
+          onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply(!!openSub(sel))"
+          style="resize:vertical;min-height:84px;line-height:1.5">${esc(drafts[sel]||'')}</textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap">
+          <button class="quiet" onclick="pickCoachClip()" title="Attach a video">Video</button>
+          <button class="quiet" onclick="pickCoachPhoto()" title="Attach a photo">Photo</button>
+          <span style="flex:1"></span>
           ${sel&&openSub(sel)
-            ? `<button class="send" onclick="reply(true)" title="Sends your reply and marks their form check answered"
-                 style="width:auto;padding:0 16px">Send &amp; close</button>
-               <button class="send" onclick="reply(false)" title="Reply without closing it"
-                 style="background:var(--mist);color:var(--ink);width:auto;padding:0 14px">Reply only</button>`
+            ? `<button class="quiet" onclick="reply(false)" title="Reply without closing their form check">Reply only</button>
+               <button class="send" onclick="reply(true)" title="Sends your reply and marks their form check answered">Send &amp; close</button>`
             : `<button class="send" onclick="reply()">Send</button>`}</div>
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
         ${sel?mailRowHTML(sel):''}
