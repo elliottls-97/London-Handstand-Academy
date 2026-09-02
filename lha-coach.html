@@ -47,7 +47,10 @@ h1{font:400 34px/1 var(--serif);margin:0}
  .grid > :nth-child(3){grid-column:1 / -1}
 }
 @media(max-width:760px){.grid{grid-template-columns:1fr}}
-.card{background:#fff;border-radius:20px;padding:18px;border:1px solid var(--line);min-width:0}
+.card{border-radius:24px;padding:18px;min-width:0;
+  background:rgba(255,255,255,.5);backdrop-filter:blur(26px) saturate(1.6);
+  -webkit-backdrop-filter:blur(26px) saturate(1.6);border:1px solid rgba(255,255,255,.72);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 22px 48px -30px rgba(28,32,25,.5)}
 /* the activity panels are shared verbatim with the app, where they are
    their own cards. Nested in here they should read as sections. */
 .card .card{border:none;border-radius:0;padding:0 0 16px;background:none}
@@ -1017,6 +1020,7 @@ function statCard(n,l,tone){
    and showing three numbers. */
 function dayKey(d){ return new Date(d).toISOString().slice(0,10); }
 
+let rosterFilter='all';
 let calOff=0;      /* months back from this one */
 let calDay=null;   /* the ISO date being inspected */
 
@@ -1212,9 +1216,20 @@ function metricsHTML(email){
 
   <div style="background:var(--mist);border-radius:14px;padding:15px 17px;margin-top:14px">
     <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">THE READ</div>
-    <ul style="margin:11px 0 0;padding:0 0 0 15px;display:flex;flex-direction:column;gap:6px">
-      ${summarise(email).map(x=>`<li style="font:400 13.5px/1.5 var(--sans)">${esc(x)}</li>`).join('')}
-    </ul>
+    <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
+      ${summarise(email).map((x,i)=>{
+        /* the first line is always the adherence summary; anything after it is
+           a specific observation, so they should not read as one list */
+        const kick=i===0?'Overall':/hold|second/i.test(x)?'Holds'
+          :/hard|easy|flag/i.test(x)?'Flags':/stop|abandon/i.test(x)?'Stopping':'Note';
+        const accent=i===0?'#2f3d2f':/hard|stop|abandon/i.test(x)?'var(--terra)':'#7d8f78';
+        return `<div style="display:flex;gap:12px;padding:11px 13px;border-radius:16px;
+          background:rgba(232,236,227,.72);border-left:3px solid ${accent}">
+          <span style="font:800 9.5px/1.5 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+            width:64px;flex:0 0 64px;color:${accent}">${kick}</span>
+          <span style="font:400 13.5px/1.55 var(--sans);color:#23281f">${esc(x)}</span></div>`;
+      }).join('')}
+    </div>
   </div>
 
   <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
@@ -1327,6 +1342,36 @@ function metricsHTML(email){
   `;
 }
 
+/* Snippets. The design calls for canned replies with no data behind them, so
+   these are the openings actually worth having: the ones written fresh every
+   time and always roughly the same. They drop into the box to be edited,
+   never sent as-is — a reply that reads as a template is worse than a slow
+   one, which is why each one ends mid-sentence. */
+const SNIPPETS=[
+  ['Got it', "Got your clips — watching them today, I'll come back with the one thing to change."],
+  ['One change', "One thing to change this block: "],
+  ['Looking better', "This is better than last time — specifically, "],
+  ['Re-film', "I can't see enough to call it. Could you re-film side on, whole body in frame, hands not cropped?"],
+  ['Ease off', "Back off the volume this week. "],
+];
+function useSnippet(i){
+  const el=$('#reply'); if(!el) return;
+  const t=SNIPPETS[i][1];
+  el.value = el.value ? (el.value.replace(/\s*$/,'') + ' ' + t) : t;
+  drafts[sel]=el.value; el.focus();
+  try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){}
+}
+function snippetsHTML(){
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+    <span style="font:800 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+      color:rgba(28,32,25,.42);margin-right:2px">Snippets</span>
+    ${SNIPPETS.map((sn,i)=>`<button onclick="useSnippet(${i})" title="${esc(sn[1])}"
+      style="cursor:pointer;padding:6px 11px;border-radius:999px;font:700 11.5px/1 var(--sans);
+      border:1px solid rgba(28,32,25,.12);background:rgba(255,255,255,.72);color:var(--ink)">
+      ${esc(sn[0])}</button>`).join('')}
+  </div>`;
+}
+
 function threadCardHTML(msgs){
   return `
       <div class="card">
@@ -1335,7 +1380,11 @@ function threadCardHTML(msgs){
         <div style="margin-top:16px">${sel?subsHTML(sel):''}</div>
         <div id="pane" style="display:flex;flex-direction:column;gap:14px;
           max-height:56vh;overflow-y:auto;padding-right:4px">${msgs}</div>
-        <div style="display:flex;gap:10px;margin-top:16px">
+        <div style="margin-top:16px;padding:14px;border-radius:20px;
+          background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.8);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.95)">
+        ${sel?snippetsHTML():''}
+        <div style="display:flex;gap:10px">
           <textarea id="reply" rows="2" placeholder="Reply to ${esc((clients.find(c=>c.email===sel)||{}).name||'')}…"
             oninput="drafts[sel]=this.value"
             onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))reply(!!openSub(sel))">${esc(drafts[sel]||'')}</textarea>
@@ -1354,6 +1403,7 @@ function threadCardHTML(msgs){
         ${sel?formCheckHTML(sel):''}
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">
           ⌘+Enter sends${sel&&openSub(sel)?' · “Send &amp; close” answers their form check and tells them it is ready':''}</div>
+        </div>
       </div>`;
 }
 
@@ -1366,6 +1416,9 @@ function clientRow(c){
         : a.sinceLast===0?'trained today'
         : a.sinceLast+'d since last · '+a.adherence+'%')
       : ago(c.last);
+    const wait=(queue.find(q=>q.email===c.email)||null);
+    const wh=wait?Math.round((Date.now()-(wait.at||0))/3600000):0;
+    const wr=wait?ringFor(wh):null;
     return `<button class="cli ${c.email===sel?'on':''}" onclick="openThread('${esc(c.email)}')">
     <span class="av">${esc((c.name||'?')[0])}</span>
     <span style="min-width:0"><b>${esc(c.name)}</b>
@@ -1379,6 +1432,9 @@ function clientRow(c){
     ${c.coached===false?`<span title="Not a coaching client — free account"
         style="font:600 9px/1 var(--sans);letter-spacing:.11em;padding:4px 6px;border-radius:4px;
         background:var(--mist);color:var(--grey)">ENQUIRY</span>`:''}
+      ${wait?`<span title="Waiting ${wh} hours — the promise is 48"
+        style="font:800 9px/1 var(--sans);letter-spacing:.08em;padding:3px 6px;border-radius:6px;
+        background:${wr.ring};color:#fff">${wh}H</span>`:''}
       ${c.unread?`<span class="dot" title="${c.unread} unread message${c.unread===1?'':'s'} from them">${c.unread}</span>`:''}
       <i style="width:8px;height:8px;border-radius:999px;background:${col};flex:none"
         title="${a?esc(a.status)+' — based on how recently and how consistently they have trained':'No activity recorded yet'}"></i>
@@ -1398,7 +1454,19 @@ function clientList(){
       <span class="kick">${label} · ${arr.length}</span>
       ${unread(arr)?`<span class="dot" title="unread">${unread(arr)}</span>`:''}
     </div>${arr.map(clientRow).join('')}`:'';
-  return group('COACHING',coached)+group('ENQUIRIES',leads);
+  const f=rosterFilter;
+  const keep=a=>f==='waiting'?a.filter(c=>queue.some(q=>q.email===c.email))
+    :f==='unread'?a.filter(c=>c.unread):a;
+  const chips=[['all','All'],['waiting','Waiting'],['unread','Unread']].map(([id,l])=>
+    `<button onclick="rosterFilter='${id}';draw()" style="cursor:pointer;padding:6px 11px;
+      border-radius:999px;font:700 11px/1 var(--sans);
+      border:1px solid ${f===id?'transparent':'rgba(28,32,25,.14)'};
+      background:${f===id?'var(--forest)':'rgba(255,255,255,.6)'};
+      color:${f===id?'#fff':'var(--ink)'}">${l}</button>`).join('');
+  const body=group('COACHING',keep(coached))+group('ENQUIRIES',keep(leads));
+  return `<div style="display:flex;gap:6px;padding:0 2px 4px">${chips}</div>`
+    + (body||`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);padding:12px 4px">
+        Nobody matches that filter.</div>`);
 }
 
 function draw(){
@@ -1415,7 +1483,13 @@ function draw(){
       margin-bottom:${m.text?'6px':'0'};display:block">
       <img src="/api/app/image/${esc(m.image)}" alt="Shared photo" loading="lazy"
         style="display:block;width:100%;max-height:340px;object-fit:contain"></a>`:''}
-    ${m.text?`<div class="msg ${m.from==='coach'?'me':'them'}">${esc(m.text)}</div>`:''}
+    ${m.text?`<div style="max-width:76%;padding:11px 15px;border-radius:18px;
+      font:400 14px/1.5 var(--sans);
+      background:${m.from==='coach'?'var(--forest)':'rgba(255,255,255,.82)'};
+      color:${m.from==='coach'?'#fff':'var(--ink)'};
+      border:1px solid ${m.from==='coach'?'transparent':'rgba(255,255,255,.9)'};
+      box-shadow:inset 0 1px 0 rgba(255,255,255,${m.from==='coach'?'.14':'.6'}),
+        0 8px 18px -16px rgba(28,32,25,.6)">${esc(m.text)}</div>`:''}
     <div class="at">${m.from==='coach'?'You':esc((clients.find(c=>c.email===sel)||{}).name||'')} · ${ago(m.at)}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;
   $('#v').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline">
