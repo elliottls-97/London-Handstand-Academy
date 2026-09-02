@@ -211,6 +211,7 @@ const AUTH = {
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
   prefs:'/api/app/prefs',              // GET|POST what they want emailing about
+  intake:'/api/app/intake',            // POST the quiz answers so the coach can see them
   application:'/api/app/application',  // POST a coaching application
   submission:'/api/app/submission',    // POST numbers + clips as one review
   submissions:'/api/app/submissions',  // GET → what has been sent, and its status
@@ -2070,10 +2071,157 @@ const STAGES=[
   intro:'The press is strength, compression and patience in one skill. Part of the Press Masterclass.',
   ch:'Chest-to-wall press',chSub:'One clean press attempt from the wall. Compress, unroll, hold.',
   drillIds:['press-walks','p-pancake','knees-on-box','p-bench-zombies','chest-to-wall-toe-taps']}];
-const QUIZ=[
- {q:'Can you hold a chest-to-wall handstand for 15 seconds?',opts:['Not yet — still building up to it','Just about, not consistently','Yes, comfortably']},
- {q:'Do you feel stuck at the wall?',opts:["Yes — I can't get off it yet",'Tapping a foot off, but no balance','No — I can balance away from it']},
- {q:'Can you kick up and balance freestanding on your own?',opts:['Not yet','Sometimes, briefly','Yes — refining entries and shapes']}];
+/* ── intake ────────────────────────────────────────────────────────
+   Four screens. Level is the only one that places anyone — goal never
+   touches the stage, because someone who has never been upside down and
+   wants a one-arm is still a beginner, and that is exactly the person a
+   goal-driven placement would break. Goal earns its place by reframing
+   the work ("a one-arm is a handstand you can hold without thinking, so
+   that is what we build first") and by ordering the explainers. */
+const GOALS=[
+  {v:'learn',    t:'Learn to handstand',        d:"I'm starting from the beginning."},
+  {v:'hold',     t:'Hold a freestanding handstand', d:"I can get upside down, but can't balance consistently."},
+  {v:'improve',  t:'Improve my handstand',      d:'I want a better line, control and technique.'},
+  {v:'advanced', t:'Learn advanced skills',     d:'Presses, shapes, one-arm and beyond.'},
+];
+
+/* Four rungs. Wrist tissue adapts slower than everything else, which is
+   why the cap is physiology rather than a judgement about them — and why
+   the copy says so. */
+const LEVELS=[
+  {v:0, t:'I have never done handstands', d:'Never been upside down.',        days:[2,3],   def:2},
+  {v:1, t:"I'm stuck at the wall",        d:"I can kick up, but can't balance.", days:[2,3], def:3},
+  {v:2, t:'I can briefly balance',        d:'A few seconds, but not consistently.', days:[3,4], def:3},
+  {v:3, t:'I can hold it',                d:'Ten seconds or more.',           days:[3,4,5], def:4},
+];
+
+const NIGGLES=['Wrists','Shoulders','Neck or back','Elbows','Something else','Nothing right now'];
+const MINS=[[15,'Short and focused'],[30,'A proper session'],[45,"I'm ready to put the work in"],[60,'Handstands are a priority']];
+
+const intake = () => (st.intake=st.intake||{});
+const levelDef = () => LEVELS.find(l=>l.v===intake().level) || LEVELS[0];
+
+/* "How well we know you", never "how far along you are" — a training bar
+   that starts above zero is a lie, and one that drops when we add a
+   question later is worse than none. */
+function profilePct(){
+  const a=intake(); let n=20;                 /* opening the app is the first rung */
+  if(a.goal) n+=15; if(a.level!=null) n+=20;
+  if(a.niggles) n+=15; if(a.mins&&a.days) n+=15;
+  if(a.baseline) n+=15;
+  return Math.min(100,n);
+}
+
+const INTAKE_STEPS=[
+  {id:'goal',  kick:'WHAT YOU WANT',  q:'What are you here to achieve?',
+   sub:'This shapes how I explain things — not where you start.'},
+  {id:'level', kick:'WHERE YOU ARE',  q:'Tell us about your handstand.',
+   sub:'This is the one that sets your stage.'},
+  {id:'niggles',kick:'ANYTHING SORE', q:'Anything I should know about?',
+   sub:'Pick any that apply. It changes what you get given, not whether you can start.'},
+  {id:'train', kick:'YOUR WEEK',      q:'How do you want to train?',
+   sub:"Nothing binding — it just tells me what's realistic."},
+];
+
+function screenQuiz(){
+  const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
+  const rails=INTAKE_STEPS.map((_,n)=>`<i style="flex:1;height:4px;border-radius:2px;
+    background:${n<=i?'var(--sand)':'rgba(255,255,255,.2)'}"></i>`).join('');
+  const card=(on,body,click)=>`<button onclick="${click}" style="background:${on?'rgba(255,255,255,.20)':'rgba(255,255,255,.08)'};
+    border:1.5px solid ${on?'var(--sand)':'transparent'};border-radius:18px;padding:16px 18px;
+    color:var(--bg);cursor:pointer;text-align:left;width:100%">${body}</button>`;
+  const two=(t,d)=>`<div style="font:600 15px/1.3 var(--sans)">${esc(t)}</div>
+    <div style="font:400 13px/1.45 var(--sans);color:var(--sage);margin-top:4px">${esc(d)}</div>`;
+
+  let body='';
+  if(step.id==='goal') body=GOALS.map(g=>
+    card(a.goal===g.v, two(g.t,g.d), `pickIntake('goal','${g.v}')`)).join('');
+
+  if(step.id==='level') body=LEVELS.map(l=>
+    card(a.level===l.v, two(l.t,l.d), `pickIntake('level',${l.v})`)).join('');
+
+  if(step.id==='niggles'){
+    const sel=a.niggles||[];
+    body=`<div style="display:flex;flex-wrap:wrap;gap:9px">${NIGGLES.map(x=>{
+      const on=sel.indexOf(x)>=0;
+      return `<button onclick="toggleNiggle('${esc(x)}')" style="background:${on?'var(--sand)':'rgba(255,255,255,.08)'};
+        color:${on?'var(--ink)':'var(--bg)'};border:none;border-radius:999px;padding:12px 16px;
+        font:600 13.5px/1 var(--sans);cursor:pointer">${esc(x)}</button>`;}).join('')}</div>
+      <button class="btn" style="width:100%;margin-top:18px;background:var(--bg);color:var(--ink)"
+        onclick="nextIntake()">${sel.length?'Continue':'Nothing to flag'}</button>`;
+  }
+
+  if(step.id==='train'){
+    const L=levelDef();
+    body=`<div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--sage)">HOW LONG</div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:10px">
+        ${MINS.map(([m,d])=>card(a.mins===m, two(m+' minutes',d), `pickIntake('mins',${m})`)).join('')}</div>
+      <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--sage);margin-top:20px">HOW OFTEN</div>
+      <div style="display:flex;gap:9px;margin-top:10px;flex-wrap:wrap">
+        ${L.days.map(n=>`<button onclick="pickIntake('days',${n})" style="flex:1;min-width:74px;
+          background:${a.days===n?'var(--sand)':'rgba(255,255,255,.08)'};
+          color:${a.days===n?'var(--ink)':'var(--bg)'};border:none;border-radius:16px;padding:16px 8px;
+          font:700 16px/1 var(--sans);cursor:pointer">${n}×</button>`).join('')}</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);margin-top:12px">
+        Plus two short wrist and mobility days. ${esc(capLine())}</div>
+      ${a.mins&&a.days?`<button class="btn" style="width:100%;margin-top:18px;background:var(--bg);color:var(--ink)"
+        onclick="finishIntake()">See where you land</button>`:''}`;
+  }
+
+  return `<div style="min-height:100dvh;background:var(--forest);
+    padding:calc(env(safe-area-inset-top) + 22px) 24px 34px;color:var(--bg);
+    display:flex;flex-direction:column">
+    <div style="display:flex;gap:5px">${rails}</div>
+    <div class="kick" style="margin-top:26px">${step.kick} · ${i+1} OF ${INTAKE_STEPS.length}</div>
+    <div class="h-lg" style="margin-top:14px">${esc(step.q)}</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--sage);margin-top:9px">${esc(step.sub)}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:24px">${body}</div>
+    ${i>0?`<button onclick="st.quizStep=${i-1};save();render()" style="background:none;border:none;
+      color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:22px;padding:10px">← Back</button>`:''}
+    </div>`;
+}
+
+/* the cap, explained as physiology rather than as a verdict on them */
+function capLine(){
+  const L=levelDef(), max=L.days[L.days.length-1];
+  return max<=3
+    ? 'Three handstand sessions is the most that helps at this stage — wrists adapt slower than everything else.'
+    : 'More than five stops helping and starts costing you wrists.';
+}
+
+function pickIntake(k,v){
+  intake()[k]=v; save();
+  if(k==='goal'||k==='level'){ nextIntake(); return; }
+  /* changing level can invalidate a frequency that is no longer offered */
+  if(k==='mins'||k==='days'){ const L=levelDef(); if(L.days.indexOf(intake().days)<0) delete intake().days; }
+  render();
+}
+function toggleNiggle(x){
+  const a=intake(); let s2=a.niggles||[];
+  if(x==='Nothing right now') s2=s2.indexOf(x)>=0?[]:[x];
+  else { s2=s2.filter(y=>y!=='Nothing right now');
+         s2 = s2.indexOf(x)>=0 ? s2.filter(y=>y!==x) : s2.concat([x]); }
+  a.niggles=s2; save(); render();
+}
+function nextIntake(){
+  const a=intake();
+  if(!a.niggles && (st.quizStep|0)===2) a.niggles=[];
+  st.quizStep=Math.min((st.quizStep|0)+1, INTAKE_STEPS.length-1); save(); render();
+}
+function finishIntake(){
+  const a=intake(), L=levelDef();
+  st.stage=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
+  st.quizDone=true; st.oriented=false;
+  st.tab = st.email ? 'ladder' : 'joinFree';
+  save(); sendIntake(); render();
+}
+/* the answers are worth having on the coach's side, not just in a browser */
+function sendIntake(){
+  if(!st.token) return;
+  fetch(AUTH.intake,{method:'POST',headers:authed(),
+    body:JSON.stringify({intake:st.intake||{},stage:st.stage})}).catch(()=>{});
+}
+
 const TIERS=[['The five-stage ladder','✓','✓'],['Level-finder quiz','✓','—'],['Quick session builder','✓','✓'],
  ['Guided follow-along player','✓','✓'],['Drill library','Stage-gated','All drills'],['Max hold timer','✓','✓'],
  ['Offline use','✓','✓'],['Programme written for you','—','✓'],["Coach's read on the block",'—','✓'],
@@ -2122,12 +2270,82 @@ function answerQuiz(oi){
   st.quizDone=true; st.tab = st.email ? 'ladder' : 'joinFree'; save(); render();
 }
 
+/* ── where you landed ─────────────────────────────────────────────
+   The screen that used to be missing. Someone finishing the quiz was
+   dropped onto a ladder of five cards with no explanation of what a
+   ladder is or what to do first. The words do the orienting; the video
+   is optional and deepens it, because a video in front of someone who
+   has just answered four questions is a wall at the moment they are
+   keenest. It works with the slot empty, and gets better when it is not. */
+const LADDER_INTRO_VIDEO = '';   /* drop the Stream URL in when it is filmed */
+
+function screenOriented(){
+  const S=STAGES[curStage()]||STAGES[0];
+  const a=intake();
+  const goal=(GOALS.find(g=>g.v===a.goal)||{}).t||'';
+  /* the goal never moved them — it explains why this is the road to it */
+  const bridge = a.goal==='advanced'
+      ? 'You said presses and one-arm. Those are a handstand you can hold without thinking, so that is what we build first.'
+    : a.goal==='improve'
+      ? 'You want a better line. Line comes from the shapes below, not from more time upside down.'
+    : a.goal==='hold'
+      ? 'You want to hold it freestanding. Everything here is aimed at exactly that.'
+      : 'Everything here starts from the beginning. No experience assumed.';
+  const per=st.perWeek||levelDef().def, mins=st.time||30;
+  const row=(n,t,d)=>`<div style="display:flex;gap:13px;padding:13px 0;border-top:1px solid rgba(255,255,255,.12)">
+    <span style="flex:none;width:20px;font:700 12px/1.5 var(--sans);color:var(--sand)">${n}</span>
+    <span><b style="font:600 14.5px/1.4 var(--sans)">${t}</b>
+    <span style="display:block;font:400 13.5px/1.5 var(--sans);color:var(--sage);margin-top:3px">${d}</span></span></div>`;
+
+  return `<div class="scroll s" style="background:var(--forest);color:var(--bg);min-height:100dvh">
+    <div style="padding:calc(env(safe-area-inset-top) + 30px) 24px 34px">
+      <div class="kick">YOU'VE LANDED HERE</div>
+      <div class="h-xl" style="font-size:38px;margin-top:12px">${esc(S.n)}</div>
+      <div style="font:400 15px/1.55 var(--sans);color:var(--sage);margin-top:10px">
+        Stage ${curStage()+1} of 5 — ${esc(levelDef().d.toLowerCase())}</div>
+      <div style="font:400 15px/1.6 var(--sans);margin-top:16px">${esc(bridge)}</div>
+
+      <div style="background:rgba(255,255,255,.07);border-radius:22px;padding:6px 18px 16px;margin-top:24px">
+        ${row('1','The ladder is five stages',
+          'You move up when you hit the marker for the one you are on. Yours is '+esc(S.hold)+' — '+esc((S.goal||'').toLowerCase()))}
+        ${row('2','Your first session is ready',
+          mins+' minutes, '+per+'× a week, plus two short wrist and mobility days.')}
+        ${row('3','Questions get answered below',
+          'Every explainer is there whenever you want it. I will suggest one a day.')}
+      </div>
+
+      <button class="btn" style="width:100%;margin-top:22px;background:var(--bg);color:var(--ink)"
+        onclick="st.oriented=true;save();go('ladder')">Start your first session</button>
+
+      ${LADDER_INTRO_VIDEO
+        ? `<video src="${LADDER_INTRO_VIDEO}" controls playsinline preload="none"
+             style="width:100%;border-radius:18px;margin-top:16px;background:#11150f;display:block"></video>`
+        : `<div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);text-align:center;margin-top:14px">
+             A short walkthrough of how the ladder works is coming here.</div>`}
+
+      <button onclick="st.oriented=true;save();go('ladder')" style="width:100%;background:none;border:none;
+        color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:6px;padding:12px">
+        Skip — take me to the ladder</button>
+    </div></div>`;
+}
+
 /* ── ladder home ── */
 function screenLadder(){
   const s=STAGES[curStage()];
   const best=st.bestHold||0;
   const goal=parseInt(s.hold,10)||30;
   const pct=Math.min(100,Math.round(best/goal*100));
+  const knowPct=profilePct();
+  const profileBar = knowPct>=100 ? '' : `<div style="background:rgba(255,255,255,.08);border-radius:18px;
+    padding:14px 16px;margin-top:16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span style="font:600 11px/1 var(--sans);letter-spacing:.13em;color:var(--sage)">HOW WELL I KNOW YOU</span>
+      <span style="font:700 13px/1 var(--sans)">${knowPct}%</span></div>
+    <div style="height:6px;border-radius:3px;background:rgba(255,255,255,.14);margin-top:10px;overflow:hidden">
+      <i style="display:block;height:100%;width:${knowPct}%;background:var(--sand)"></i></div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);margin-top:9px">
+      ${st.intake&&st.intake.baseline?'Answer a few more and the plan gets sharper.'
+        :'Film a baseline clip and I can place you properly rather than taking your word for it.'}</div></div>`;
   const cards=STAGES.map((x,i)=>{
     const state=i<curStage()?'done':i===curStage()?'current':'locked';
     const bg=state==='current'?'#fff':state==='done'?'rgba(255,255,255,.55)':'rgba(255,255,255,.4)';
@@ -2171,6 +2389,7 @@ function screenLadder(){
         <span>${pct}% of this stage</span><span>Best hold ${best}s · goal ${esc(s.hold)}</span></div>
     </div>
     <div class="pad" style="padding-top:18px">
+      ${profileBar}
       <div class="card">
         <div class="kick2">TRAIN NOW</div>
         <div class="h-lg" style="font-size:30px;margin-top:12px">How long have you got?</div>
@@ -2807,6 +3026,9 @@ function render(){
   if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
   if(!st.mode && !st.in){ swap(screenWelcome()); return; }
   if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ swap(screenQuiz()); return; }
+  /* shown once, between finishing the quiz and the ladder */
+  if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null){
+    swap(screenOriented()); return; }
   if(!st.in && st.quizDone && !st.email && !st.joinSkipped){ swap(screenJoin()); return; }
   const coached=coachedView();
   const screens=coached

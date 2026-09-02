@@ -995,6 +995,26 @@ export default async (request) => {
     });
   }
 
+  /* the intake answers, so the coach sees who someone said they were */
+  if (path === '/intake' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const a = (body.intake && typeof body.intake === 'object') ? body.intake : {};
+    const clean = {
+      goal: String(a.goal || '').slice(0, 32),
+      level: Number.isFinite(Number(a.level)) ? Number(a.level) : null,
+      niggles: Array.isArray(a.niggles) ? a.niggles.slice(0, 8).map(x => String(x).slice(0, 40)) : [],
+      mins: Number(a.mins) || null, days: Number(a.days) || null,
+      at: Date.now(),
+    };
+    await ensureAcct(who);
+    await setSetting(`intake:${who}`, clean);
+    if (Number.isFinite(Number(body.stage))) {
+      await saveAcct({ email: who, stage: Number(body.stage) });
+    }
+    return json({ ok: true });
+  }
+
   /* ── applying for coaching ───────────────────────────────────────
      The most valuable thing anyone does in this app used to fire a
      Formspree email and an alert: no record, no status, no way to see it
