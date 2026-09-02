@@ -2247,28 +2247,6 @@ const FREE_DOSE={'wrist-circles-mob':'30s each way','scapula-shrugs':'3 × 10','
  'chest-to-wall-toe-taps':'3 × 8','chest-to-wall-handstand':'3 × 30s'};
 const curStage=()=>st.stage==null?1:st.stage;
 
-/* ── level-finder quiz ── */
-function screenQuiz(){
-  const i=st.quizStep|0, q=QUIZ[i];
-  const rails=QUIZ.map((_,n)=>`<i style="flex:1;height:4px;border-radius:2px;background:${n<=i?'var(--sand)':'rgba(255,255,255,.2)'}"></i>`).join('');
-  return `<div style="min-height:100dvh;background:var(--forest);padding:calc(env(safe-area-inset-top) + 22px) 24px 30px;
-    color:var(--bg);display:flex;flex-direction:column">
-    <div style="display:flex;gap:5px">${rails}</div>
-    <div class="kick" style="margin-top:26px">FIND YOUR LEVEL · ${i+1} OF ${QUIZ.length}</div>
-    <div class="h-lg" style="margin-top:16px">${esc(q.q)}</div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:auto">
-      ${q.opts.map((o,oi)=>`<button onclick="answerQuiz(${oi})" style="background:rgba(255,255,255,.08);border:none;
-        border-radius:18px;padding:18px;font:500 15px/1.3 var(--sans);color:var(--bg);cursor:pointer;text-align:left">
-        ${esc(o)}</button>`).join('')}
-    </div></div>`;
-}
-function answerQuiz(oi){
-  st.quizAns=(st.quizAns||[]).concat([oi]);
-  if(st.quizAns.length<QUIZ.length){ st.quizStep=st.quizAns.length; save(); render(); return; }
-  const score=st.quizAns.reduce((a,b)=>a+b,0);
-  st.stage=score<=1?0:score<=3?1:score<=5?2:3;
-  st.quizDone=true; st.tab = st.email ? 'ladder' : 'joinFree'; save(); render();
-}
 
 /* ── where you landed ─────────────────────────────────────────────
    The screen that used to be missing. Someone finishing the quiz was
@@ -2326,6 +2304,70 @@ function screenOriented(){
       <button onclick="st.oriented=true;save();go('ladder')" style="width:100%;background:none;border:none;
         color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:6px;padding:12px">
         Skip — take me to the ladder</button>
+    </div></div>`;
+}
+
+/* ── moving up ─────────────────────────────────────────────────────
+   st.stage was only ever set by the quiz, so once placed there was no way
+   up the ladder at all — and nothing on screen said what moving up would
+   even take. The marker is the stage's own hold target, which was already
+   written into STAGES and never shown as a thing to aim at. */
+function stageReady(){
+  const s=STAGES[curStage()];
+  const goal=parseInt(s.hold,10)||30;
+  return (st.bestHold||0) >= goal;
+}
+function advanceStage(){
+  const next=curStage()+1;
+  if(next>=STAGES.length){ alert("You're at the top of the ladder."); return; }
+  if(stageLocked(next)){ openOv('stage'); st.ovStage=next; save(); render(); return; }
+  if(!confirm('Move up to '+STAGES[next].n+'?\n\nYou can always drop back down.')) return;
+  st.stage=next; save(); sendIntake(); render();
+}
+function stepBack(){
+  if(curStage()<=0) return;
+  if(!confirm('Drop back to '+STAGES[curStage()-1].n+'?')) return;
+  st.stage=curStage()-1; save(); sendIntake(); render();
+}
+function retakeIntake(){
+  if(!confirm('Retake the questions?\n\nYour training history stays — this only changes where you are placed.')) return;
+  st.quizDone=false; st.oriented=false; st.quizStep=0; save(); st.tab='quiz'; render();
+}
+
+/* what it takes to move up, and the way to do it */
+function nextStageCard(){
+  const s=STAGES[curStage()], next=STAGES[curStage()+1];
+  const goal=parseInt(s.hold,10)||30, best=st.bestHold||0;
+  const pct=Math.min(100,Math.round(best/goal*100));
+  const ready=stageReady();
+  return `<div class="card" style="padding:20px">
+    <div class="kick2">MOVING UP</div>
+    <div class="h-md" style="font-size:20px;margin-top:8px">
+      ${next?'Next: '+esc(next.n):"You're at the top"}</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
+      ${next
+        ? 'The marker for '+esc(s.n)+' is <b>'+esc(s.hold)+'</b> — '+esc((s.goal||'').toLowerCase())
+        : 'Nothing above this one. Keep sharpening what you have.'}</div>
+    ${next?`
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:14px">
+        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">YOUR BEST</span>
+        <span style="font:700 13px/1 var(--sans)">${best}s of ${goal}s</span></div>
+      <div style="height:6px;border-radius:3px;background:var(--mist);margin-top:9px;overflow:hidden">
+        <i style="display:block;height:100%;width:${pct}%;background:${ready?'var(--forest)':'var(--terra)'}"></i></div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+        ${ready ? "You've hit the marker. Move up whenever you're ready."
+                : 'Use the hold timer to log an attempt — that is what fills this bar.'}</div>
+      <button class="btn" style="width:100%;margin-top:14px;${ready?'':'background:var(--mist);color:var(--forest)'}"
+        onclick="advanceStage()">${ready?'Move up to '+esc(next.n):"Move up anyway"}</button>
+      <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+        Nothing is locked by the marker — it is a guide, and you can drop back.</div>`:''}
+    <div style="display:flex;gap:14px;justify-content:center;margin-top:14px;flex-wrap:wrap">
+      ${curStage()>0?`<button onclick="stepBack()" style="background:none;border:none;cursor:pointer;
+        font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+        text-underline-offset:3px;padding:4px">Drop back a stage</button>`:''}
+      <button onclick="retakeIntake()" style="background:none;border:none;cursor:pointer;
+        font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+        text-underline-offset:3px;padding:4px">Retake the questions</button>
     </div></div>`;
 }
 
@@ -2390,6 +2432,7 @@ function screenLadder(){
     </div>
     <div class="pad" style="padding-top:18px">
       ${profileBar}
+      ${nextStageCard()}
       <div class="card">
         <div class="kick2">TRAIN NOW</div>
         <div class="h-lg" style="font-size:30px;margin-top:12px">How long have you got?</div>
