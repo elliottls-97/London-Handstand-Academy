@@ -1252,6 +1252,18 @@ export default async (request) => {
           of: Number(body.session.of) || 0,              // steps in the session
           stoppedAt: String(body.session.stoppedAt || '').slice(0, 60),
           block: String(body.session.block || '').slice(0, 40),
+          /* the drill-by-drill, so an abandoned session says which drill it
+             died on rather than only that it died */
+          items: Array.isArray(body.session.items)
+            ? body.session.items.slice(0, 40).map(x => ({
+                v: String((x && x.v) || '').slice(0, 64),
+                n: String((x && x.n) || '').slice(0, 60),
+                grp: String((x && x.grp) || '').slice(0, 40),
+                got: Number(x && x.got) || 0,
+                of: Number(x && x.of) || 0,
+                rate: ['easy', 'hard'].includes(x && x.rate) ? x.rate : '',
+              }))
+            : [],
           at: now
         }]).slice(-200);
       }

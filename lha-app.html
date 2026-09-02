@@ -1298,7 +1298,22 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
   const d=day();
   const partWay = !done && qi>0 && qi<Q.length-1;
   if(partWay) whyStopContext=(Q[qi]&&Q[qi].it&&Q[qi].it.n)||'';
-  reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done,
+  /* The player has known the drill-by-drill all along — every set in Q
+     carries its drill, its block and its position — and threw it away at
+     the end, reporting only a count. Without it a coach can see that a
+     session was abandoned but not which drill it died on, or how far
+     into it. */
+  const rows=(function(){
+    const m=new Map();
+    Q.forEach((x,idx)=>{
+      const k=(x.it&&x.it.v)||(x.it&&x.it.n)||('#'+idx);
+      if(!m.has(k)) m.set(k,{v:(x.it&&x.it.v)||'',n:(x.it&&x.it.n)||'',grp:x.grp||'',got:0,of:0});
+      const r=m.get(k); r.of++; if(idx<qi||done) r.got++;
+    });
+    return [...m.values()].slice(0,40)
+      .map(r=>Object.assign(r,{rate:(st.rate||{})[r.v]||''}));
+  })();
+  reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done, items:rows,
     drills:Q.length,
     mins:Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60),
     actual: sessionStart?Math.round((Date.now()-sessionStart)/60000):0,

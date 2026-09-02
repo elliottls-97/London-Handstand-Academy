@@ -1220,6 +1220,102 @@ function intakeHTML(email){
     </div>`;
 }
 
+let openSess=null;   /* which session row is expanded */
+
+/* ── sessions, newest first ────────────────────────────────────────
+   From the design. A row per session says what happened; tapping one
+   opens the drill-by-drill. An abandoned session is the interesting
+   case — it names the drill it died on, marks what was never reached,
+   and says whether that drill has been flagged before. */
+function sessionsHTML(email){
+  const p=prog[email]||{};
+  const list=(p.sessions||[]).filter(x=>x&&x.at).slice().sort((a,b)=>b.at-a.at).slice(0,12);
+  const opens=(p.opens||[]);
+  const flags=p.flags||{};
+  if(!list.length) return '';
+  const dayLabel=t=>new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+
+  return `<div class="kick" style="margin-top:26px;display:flex;justify-content:space-between;
+      align-items:baseline;gap:10px">
+      <span>SESSIONS · NEWEST FIRST</span>
+      <span style="font:400 11px/1 var(--sans);text-transform:none;letter-spacing:0;
+        color:var(--grey2)">Tap one for the drill-by-drill</span></div>
+    <div style="display:flex;flex-direction:column;gap:7px;margin-top:11px">
+    ${list.map((x,i)=>{
+      const open=openSess===i;
+      const pct=x.of?Math.round((x.got/x.of)*100):0;
+      const glyph = x.done ? {bg:'var(--forest)',fg:'#fff',ch:'&check;'}
+                           : {bg:'var(--terra)',fg:'#fff',ch:'!'};
+      const summary = x.done
+        ? `${esc(x.name||'Session')} · ${x.items&&x.items.length?x.items.length+' drills, ':''}${
+            x.got===x.of?'all sets completed':x.got+' of '+x.of+' sets'}`
+        : `Stopped in ${esc(x.block||'the session')} — ${esc(x.stoppedAt||'unknown drill')}`;
+      return `<div>
+        <button onclick="openSess=${open?'null':i};draw()" style="width:100%;text-align:left;
+          cursor:pointer;display:flex;align-items:center;gap:14px;padding:13px 15px;border-radius:16px;
+          background:rgba(255,255,255,.72);border:1px solid ${open?'var(--line)':'transparent'}">
+          <span style="flex:none;width:26px;height:26px;border-radius:999px;display:grid;
+            place-items:center;font:700 12px/1 var(--sans);background:${glyph.bg};color:${glyph.fg}">${glyph.ch}</span>
+          <b style="flex:none;font:700 13.5px/1.3 var(--sans);width:54px">${dayLabel(x.at)}</b>
+          <span style="flex:1;min-width:0;font:400 13.5px/1.4 var(--sans);color:var(--grey)">${summary}</span>
+          <span style="flex:none;width:74px;height:6px;border-radius:3px;background:rgba(28,32,25,.1);
+            overflow:hidden"><i style="display:block;height:100%;width:${pct}%;
+            background:${x.done?'var(--forest)':'var(--terra)'}"></i></span>
+          <b style="flex:none;font:700 12.5px/1 var(--sans);width:78px;text-align:right;
+            font-variant-numeric:tabular-nums">${x.actual||0}m / ${x.mins||0}m</b>
+        </button>
+        ${open?sessionDetail(x,flags):''}
+      </div>`;}).join('')}
+    ${opens.length>list.length?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);padding:4px 2px">
+      Days the app was opened without a session logged do not appear here — they are on the calendar.</div>`:''}
+    </div>`;
+}
+
+function sessionDetail(x,flags){
+  const items=x.items||[];
+  if(!items.length) return `<div style="background:var(--mist);border-radius:14px;padding:13px 15px;
+    margin-top:6px;font:400 13px/1.6 var(--sans);color:var(--grey)">
+    No drill-by-drill for this one — it predates the app recording it.</div>`;
+  const blocks=[...new Set(items.map(i=>i.grp).filter(Boolean))];
+  const stopped=!x.done;
+  let hitStop=false;
+  return `<div style="background:var(--mist);border-radius:16px;padding:14px 15px;margin-top:6px">
+    <div class="kick" style="margin:0 0 10px">${esc(blocks.join(' · ').toUpperCase())}${stopped?' (STOPPED)':''}</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+    ${items.map(it=>{
+      const partial = it.got>0 && it.got<it.of;
+      const none = it.got===0;
+      if(partial) hitStop=true;
+      /* where they stopped beats how it felt — for this session that is the
+         thing you need to see, and the rating still shows on the row that
+         was completed elsewhere */
+      const tag = partial ? {t:'STOPPED',bg:'var(--terra)',fg:'#fff'}
+        : none && hitStop ? {t:'SKIPPED',bg:'rgba(28,32,25,.08)',fg:'var(--grey2)'}
+        : it.rate==='hard' ? {t:'HARD',bg:'rgba(200,122,86,.18)',fg:'var(--terra)'}
+        : it.rate==='easy' ? {t:'EASY',bg:'rgba(159,176,152,.28)',fg:'var(--forest)'}
+        : {t:'DONE',bg:'rgba(28,32,25,.08)',fg:'var(--grey)'};
+      return `<div style="display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:11px;
+        background:${partial?'rgba(200,122,86,.10)':'#fff'};
+        border:1px solid ${partial?'rgba(200,122,86,.4)':'transparent'}">
+        <span style="flex:none;width:74px;font:700 9px/1.3 var(--sans);letter-spacing:.1em;
+          text-transform:uppercase;color:var(--grey2)">${esc(it.grp||'')}</span>
+        <span style="flex:1;min-width:0;font:600 13.5px/1.3 var(--sans)">${esc(it.n||it.v)}</span>
+        <span style="flex:none;font:400 12.5px/1 var(--sans);color:var(--grey2);
+          font-variant-numeric:tabular-nums">${none&&hitStop?'not reached':it.got+'/'+it.of+' sets'}</span>
+        <span style="flex:none;font:800 9px/1 var(--sans);letter-spacing:.1em;padding:5px 8px;
+          border-radius:6px;background:${tag.bg};color:${tag.fg}">${tag.t}</span>
+      </div>`;}).join('')}
+    </div>
+    ${stopped?`<div style="margin-top:11px;padding:11px 13px;border-radius:12px;
+      background:rgba(200,122,86,.12);border:1px solid rgba(200,122,86,.35);
+      font:400 13px/1.55 var(--sans);color:#7b3a22">
+      Abandoned at ${esc(x.stoppedAt||'an unknown drill')}, ${x.actual||0} minutes in.${
+      (()=>{ const f=flags[(items.find(i=>i.got>0&&i.got<i.of)||{}).v];
+             return f&&f.rate==='hard' ? ' Same drill they have flagged too hard.' : ''; })()}
+      </div>`:''}
+  </div>`;
+}
+
 function metricsHTML(email){
   if(!prog[email]) return `<div class="kick" style="margin-top:22px">ANALYSIS</div>
     <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">Loading…</div>`;
@@ -1312,6 +1408,7 @@ function metricsHTML(email){
     <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--mist);vertical-align:-1px"></i> nothing</span>
   </div>
 
+  ${sessionsHTML(email)}
   ${a.perWeek.length?`<div class="kick" style="margin-top:26px">SESSIONS PER WEEK</div>
     <div style="margin-top:12px">${barChart(a.perWeek,a.target)}</div>
     <div style="font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:4px">
