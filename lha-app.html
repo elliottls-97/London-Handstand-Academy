@@ -2222,7 +2222,7 @@ function finishIntake(){
   const a=intake(), L=levelDef();
   st.stage=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
   st.quizDone=true; st.oriented=false;
-  st.tab = st.email ? 'ladder' : 'joinFree';
+  st.tab = st.email ? 'home' : 'joinFree';
   save(); sendIntake(); render();
 }
 /* the answers are worth having on the coach's side, not just in a browser */
@@ -2303,7 +2303,7 @@ function screenOriented(){
       </div>
 
       <button class="btn" style="width:100%;margin-top:22px;background:var(--bg);color:var(--ink)"
-        onclick="st.oriented=true;save();go('ladder')">Start your first session</button>
+        onclick="st.oriented=true;save();go('home')">Start your first session</button>
 
       ${LADDER_INTRO_VIDEO
         ? `<video src="${LADDER_INTRO_VIDEO}" controls playsinline preload="none"
@@ -2311,9 +2311,9 @@ function screenOriented(){
         : `<div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);text-align:center;margin-top:14px">
              A short walkthrough of how the ladder works is coming here.</div>`}
 
-      <button onclick="st.oriented=true;save();go('ladder')" style="width:100%;background:none;border:none;
+      <button onclick="st.oriented=true;save();go('home')" style="width:100%;background:none;border:none;
         color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:6px;padding:12px">
-        Skip — take me to the ladder</button>
+        Take me in</button>
     </div></div>`;
 }
 
@@ -2334,7 +2334,9 @@ function advanceStage(){
   if(!confirm('Move up to '+STAGES[next].n+'?\n\nYou can always drop back down.')) return;
   st.stage=next; save(); sendIntake(); render();
 }
-function stepBack(){
+/* not stepBack — the player already owns that name for rewinding a step,
+   and this one being defined later was quietly winning */
+function dropStage(){
   if(curStage()<=0) return;
   if(!confirm('Drop back to '+STAGES[curStage()-1].n+'?')) return;
   st.stage=curStage()-1; save(); sendIntake(); render();
@@ -2372,12 +2374,115 @@ function nextStageCard(){
       <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
         Nothing is locked by the marker — it is a guide, and you can drop back.</div>`:''}
     <div style="display:flex;gap:14px;justify-content:center;margin-top:14px;flex-wrap:wrap">
-      ${curStage()>0?`<button onclick="stepBack()" style="background:none;border:none;cursor:pointer;
+      ${curStage()>0?`<button onclick="dropStage()" style="background:none;border:none;cursor:pointer;
         font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
         text-underline-offset:3px;padding:4px">Drop back a stage</button>`:''}
       <button onclick="retakeIntake()" style="background:none;border:none;cursor:pointer;
         font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
         text-underline-offset:3px;padding:4px">Retake the questions</button>
+    </div></div>`;
+}
+
+/* ── explainers ────────────────────────────────────────────────────
+   The questions that get asked before anyone asks anything else. Three
+   are open to everyone; the rest need an account, because an address is
+   a fair price for the whole library and no price at all for a taste. */
+const FAQS=[
+  {q:'Why do my wrists hurt?',                      v:''},
+  {q:'How often should I practise handstands?',     v:''},
+  {q:'Do I need to be strong to start?',            v:''},
+  {q:'How to safely fall out of a handstand',       v:''},
+  {q:'How long does it take to learn a handstand?', v:''},
+  {q:'What alignment really feels like',            v:''},
+];
+const FREE_EXPLAINERS=3;
+const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token;
+/* v is a filename in the R2 bucket the explainers already live in */
+/* one a day, rotating, so there is a reason to come back rather than a
+   library to binge and forget */
+const explainerToday = () =>
+  FAQS[Math.floor(Date.now()/86400000) % FAQS.length];
+
+/* ── today ─────────────────────────────────────────────────────────
+   Landing on the ladder meant landing on five stage cards and a choice.
+   This is the screen that says what to do now — the ladder is still
+   there to browse, it is just no longer the front door. */
+function weekTarget(){ return st.perWeek || levelDef().def; }
+function sessionsThisWeek(){
+  const wk=Date.now()-7*864e5;
+  return sessionsDone().filter(x=>x.at>wk).length;
+}
+function trainedToday(){
+  const k=new Date().toISOString().slice(0,10);
+  return sessionsDone().some(x=>new Date(x.at).toISOString().slice(0,10)===k);
+}
+
+function screenHome(){
+  const S=STAGES[curStage()]||STAGES[0];
+  const done=sessionsThisWeek(), target=weekTarget();
+  const didToday=trainedToday();
+  const ex=explainerToday();
+  const exIdx=FAQS.indexOf(ex);
+  const hour=new Date().getHours();
+  const hello = hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
+  const name=(st.client||'').split(' ')[0]||'';
+
+  const pips=Array.from({length:target},(_,i)=>
+    `<i style="flex:1;height:5px;border-radius:3px;background:${i<done?'var(--sand)':'rgba(255,255,255,.22)'}"></i>`).join('');
+
+  return `<div class="scroll s">
+    <div class="hero">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="kick">${esc(S.n.toUpperCase())} · STAGE ${curStage()+1} OF 5</span>
+        ${st.token?`<button onclick="openOv('account')" aria-label="Your account"
+          style="border:none;background:none;padding:0;cursor:pointer">
+          <span style="width:32px;height:32px;border-radius:999px;background:var(--sand);display:grid;
+            place-items:center;font:700 12px/1 var(--sans);color:var(--ink)">${esc(((st.client||st.email||'?')[0]||'?').toUpperCase())}</span>
+        </button>`:''}
+      </div>
+      <div class="h-lg" style="margin-top:14px">${hello}${name?', '+esc(name):''}.</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--sage);margin-top:8px">
+        ${didToday?"That's today done. Rest, or do the wrist routine."
+                  :'Your session is ready when you are.'}</div>
+      <div style="display:flex;gap:5px;margin-top:16px">${pips}</div>
+      <div style="font:500 11px/1 var(--sans);letter-spacing:.1em;color:var(--sage);margin-top:9px">
+        ${done} OF ${target} THIS WEEK · PLUS TWO WRIST DAYS</div>
+    </div>
+
+    <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
+
+      <div class="card" style="padding:20px">
+        <div class="kick2">${didToday?'ALREADY DONE TODAY':"TODAY'S SESSION"}</div>
+        <div class="h-md" style="font-size:26px;margin-top:10px">${esc(S.n)}</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
+          ${esc(S.intro||S.goal||'')}</div>
+        <div style="display:flex;gap:22px;margin-top:16px">
+          ${[[String(st.time||30),'MINUTES'],[String(S.drillIds?S.drillIds.length:0),'DRILLS']]
+            .map(([v,l])=>`<div><div class="h-sm" style="font-size:24px">${v}</div>
+              <div style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2);
+                margin-top:5px">${l}</div></div>`).join('')}
+        </div>
+        <button class="btn" style="width:100%;margin-top:16px" onclick="buildFreeSession()">
+          ${didToday?'Go again':'Start the session'}</button>
+        <button class="btn2" style="width:100%;margin-top:8px" onclick="go('ladder')">See the whole ladder</button>
+      </div>
+
+      <div class="card" style="padding:20px">
+        <div class="kick2">TODAY'S EXPLAINER</div>
+        <div class="h-md" style="font-size:19px;margin-top:9px">${esc(ex.q)}</div>
+        ${explainerOpen(exIdx)
+          ? (ex.v
+              ? qaVideo(ex)
+              : `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
+                   Filming this one shortly.</div>`)
+          : `<div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+               Save your progress with an email and the rest of the answers open up.</div>
+             <button class="btn" style="width:100%;margin-top:12px"
+               onclick="st.tab='joinFree';save();render()">Create an account</button>`}
+        <button class="btn2" style="width:100%;margin-top:8px" onclick="go('more')">All the questions</button>
+      </div>
+
+      ${nextStageCard()}
     </div></div>`;
 }
 
@@ -2968,7 +3073,9 @@ function screenJoin(){
 
     <div style="margin-top:auto;padding-top:30px">
       <div style="font:400 15px/1.55 var(--sans);color:var(--sage);margin-bottom:14px">
-        Pop your email in to save this and keep your progress across devices.</div>
+        ${emailOptional()
+          ? 'Optional. It saves your progress, opens the rest of the explainers, and I send tips and new videos as they land.'
+          : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
       <form onsubmit="doJoin(event)" style="display:flex;flex-direction:column;gap:10px">
         <input id="joinEm" type="email" inputmode="email" autocomplete="email" required
           placeholder="you@example.com"
@@ -2993,9 +3100,9 @@ function screenJoin(){
         <div id="joinMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--sand);
           text-align:center;min-height:18px">${esc(joinErr)}</div>
       </form>
-      <button onclick="skipJoin()" style="width:100%;background:none;border:none;margin-top:6px;
+      ${emailOptional()?`<button onclick="skipJoin()" style="width:100%;background:none;border:none;margin-top:6px;
         font:500 13px/1 var(--sans);color:#7d8b74;cursor:pointer;padding:12px">
-        Skip for now</button>
+        Skip for now — I'll do it later</button>`:''}
     </div></div>`;
 }
 /* never re-render on a validation error — it rebuilds the form and throws
@@ -3019,9 +3126,13 @@ function doJoin(ev){
 }
 /* letting them skip costs one address and keeps the app usable —
    they get asked again when they hit the paid stages */
-function skipJoin(){ st.joinSkipped=true; st.tab='ladder'; save(); render(); }
+/* A beginner can get going without giving us anything — three explainers
+   and the ladder are enough to be useful. From stage 2 up we ask, because
+   by then the app is tracking something worth not losing. */
+const emailOptional = () => curStage() === 0;
+function skipJoin(){ st.joinSkipped=true; st.tab='home'; save(); render(); }
 
-function startFree(){ st.mode='free'; st.tab=st.quizDone?'ladder':'quiz'; st.quizStep=0; st.quizAns=[]; save(); render(); }
+function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizStep=0; st.quizAns=[]; save(); render(); }
 
 /* ── max hold timer (free tier) ── */
 let holdT=null,holdS=0;
@@ -3046,7 +3157,7 @@ function saveHold(){ if(holdS>(st.bestHold||0)) st.bestHold=holdS;
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
   coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask'],['more','More']],
-  free:[['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
+  free:[['home','Today'],['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
 };
 /* A coaching client is still a person who might want the ladder. The tab
    set follows the view they have chosen rather than what they pay for. */
@@ -3082,11 +3193,12 @@ function render(){
   /* shown once, between finishing the quiz and the ladder */
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null){
     swap(screenOriented()); return; }
-  if(!st.in && st.quizDone && !st.email && !st.joinSkipped){ swap(screenJoin()); return; }
+  if(!st.in && st.quizDone && !st.email && !(st.joinSkipped && emailOptional())){
+    swap(screenJoin()); return; }
   const coached=coachedView();
   const screens=coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore}
-    : {ladder:screenLadder,progress:screenProgress,coaching:screenCoaching,more:screenMore};
+    : {home:screenHome,ladder:screenLadder,progress:screenProgress,coaching:screenCoaching,more:screenMore};
   const tabs=TABS[coached?'coached':'free'];
   if(!screens[st.tab]) st.tab=tabs[0][0];
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span></button>`).join('');
