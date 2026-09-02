@@ -2089,10 +2089,14 @@ const GOALS=[
    why the cap is physiology rather than a judgement about them — and why
    the copy says so. */
 const LEVELS=[
-  {v:0, t:'I have never done handstands', d:'Never been upside down.',        days:[2,3],   def:2},
-  {v:1, t:"I'm stuck at the wall",        d:"I can kick up, but can't balance.", days:[2,3], def:3},
-  {v:2, t:'I can briefly balance',        d:'A few seconds, but not consistently.', days:[3,4], def:3},
-  {v:3, t:'I can hold it',                d:'Ten seconds or more.',           days:[3,4,5], def:4},
+  {v:0, t:'I have never done handstands', d:'Never been upside down.',
+   days:[2,3],   def:2, mins:[15,30,45]},
+  {v:1, t:"I'm stuck at the wall",        d:"I can kick up, but can't balance.",
+   days:[2,3],   def:3, mins:[15,30,45]},
+  {v:2, t:'I can briefly balance',        d:'A few seconds, but not consistently.',
+   days:[3,4],   def:3, mins:[15,30,45,60]},
+  {v:3, t:'I can hold it',                d:'Ten seconds or more.',
+   days:[3,4,5], def:4, mins:[15,30,45,60]},
 ];
 
 const NIGGLES=['Wrists','Shoulders','Neck or back','Elbows','Something else','Nothing right now'];
@@ -2155,7 +2159,8 @@ function screenQuiz(){
     const L=levelDef();
     body=`<div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--sage)">HOW LONG</div>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:10px">
-        ${MINS.map(([m,d])=>card(a.mins===m, two(m+' minutes',d), `pickIntake('mins',${m})`)).join('')}</div>
+        ${MINS.filter(([m])=>L.mins.indexOf(m)>=0)
+          .map(([m,d])=>card(a.mins===m, two(m+' minutes',d), `pickIntake('mins',${m})`)).join('')}</div>
       <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--sage);margin-top:20px">HOW OFTEN</div>
       <div style="display:flex;gap:9px;margin-top:10px;flex-wrap:wrap">
         ${L.days.map(n=>`<button onclick="pickIntake('days',${n})" style="flex:1;min-width:74px;
@@ -2168,8 +2173,11 @@ function screenQuiz(){
         onclick="finishIntake()">See where you land</button>`:''}`;
   }
 
-  return `<div style="min-height:100dvh;background:var(--forest);
-    padding:calc(env(safe-area-inset-top) + 22px) 24px 34px;color:var(--bg);
+  /* .scroll, because #app is a fixed-height flex column with overflow
+     hidden — without it the last step runs past the fold and the button
+     that finishes the quiz cannot be reached. */
+  return `<div class="scroll s" style="background:var(--forest);color:var(--bg)">
+    <div style="min-height:100%;padding:calc(env(safe-area-inset-top) + 22px) 24px 34px;
     display:flex;flex-direction:column">
     <div style="display:flex;gap:5px">${rails}</div>
     <div class="kick" style="margin-top:26px">${step.kick} · ${i+1} OF ${INTAKE_STEPS.length}</div>
@@ -2178,14 +2186,14 @@ function screenQuiz(){
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:24px">${body}</div>
     ${i>0?`<button onclick="st.quizStep=${i-1};save();render()" style="background:none;border:none;
       color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:22px;padding:10px">← Back</button>`:''}
-    </div>`;
+    </div></div>`;
 }
 
 /* the cap, explained as physiology rather than as a verdict on them */
 function capLine(){
   const L=levelDef(), max=L.days[L.days.length-1];
   return max<=3
-    ? 'Three handstand sessions is the most that helps at this stage — wrists adapt slower than everything else.'
+    ? 'Three sessions of up to 45 minutes is the most that helps at this stage — wrists adapt slower than everything else.'
     : 'More than five stops helping and starts costing you wrists.';
 }
 
@@ -2193,7 +2201,9 @@ function pickIntake(k,v){
   intake()[k]=v; save();
   if(k==='goal'||k==='level'){ nextIntake(); return; }
   /* changing level can invalidate a frequency that is no longer offered */
-  if(k==='mins'||k==='days'){ const L=levelDef(); if(L.days.indexOf(intake().days)<0) delete intake().days; }
+  const L=levelDef();
+  if(L.days.indexOf(intake().days)<0) delete intake().days;
+  if(L.mins.indexOf(intake().mins)<0) delete intake().mins;
   render();
 }
 function toggleNiggle(x){
