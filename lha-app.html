@@ -1616,6 +1616,8 @@ function drawOv(){
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:-6px 0 14px">
           Tap a time to change it before you start.</div>`:''}
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
+      ${mode==='work'&&repsAreLocal()?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);
+        text-align:center;margin-top:12px">Reps stay on this device until you have an account.</div>`:''}
       ${mode==='prep'
         ? `<button class="btn" style="width:100%;margin-top:14px"
              onclick="closeOv();startQueue(0)">Start follow along</button>`
@@ -2179,7 +2181,14 @@ function loadProgress(){
   if(!st.token) return Promise.resolve();
   return fetch(AUTH.progress,{headers:authed()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.prog=d; save(); render(); } })
+    .then(d=>{ if(d){
+      st.prog=d;
+      /* the account holds the rep history, derived from its own sessions, so
+         it follows the client to a new phone. The local copy is only what has
+         not reached the server yet. */
+      if(d.repsLog) st.repsLog=d.repsLog;
+      save(); render();
+    } })
     .catch(()=>{});
 }
 function sessionsDone(){ return ((st.prog&&st.prog.sessions)||[]).filter(x=>x.done); }
@@ -3593,6 +3602,9 @@ function startQueue(from){
    newest first, capped so the record cannot grow without end. */
 const REPS_KEPT=8;
 function repsHistory(v){ return (st.repsLog&&st.repsLog[v])||[]; }
+/* signed out there is no account to hold this, so the local copy is all there
+   is — worth saying rather than pretending it syncs */
+function repsAreLocal(){ return !st.token; }
 function lastReps(v){ const h=repsHistory(v); return h.length?h[0]:null; }
 function logReps(){
   st.repsLog=st.repsLog||{};

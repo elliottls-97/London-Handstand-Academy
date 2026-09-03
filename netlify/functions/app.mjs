@@ -1245,6 +1245,24 @@ export default async (request) => {
      Written by the app, read by the coach view. Kept as a rolling
      summary plus a capped event log — enough to see a pattern, not so
      much that it becomes a surveillance record of someone's training. */
+  /* What was done on each drill, newest first, read back out of the sessions
+     the account already holds. Derived rather than stored a second time — two
+     copies of the same fact drift, and this one has to survive a new phone. */
+  function repsLogFrom(sessions) {
+    const log = {};
+    for (const s of (Array.isArray(sessions) ? sessions : [])) {
+      for (const it of (Array.isArray(s.items) ? s.items : [])) {
+        const v = it && it.v, n = Number(it && it.reps) || 0;
+        if (!v || !n) continue;
+        (log[v] = log[v] || []).push({ at: Number(s.at) || 0, reps: n, secs: 0 });
+      }
+    }
+    for (const v of Object.keys(log)) {
+      log[v] = log[v].sort((a, b) => b.at - a.at).slice(0, 8);
+    }
+    return log;
+  }
+
   if (path === '/progress') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -1254,7 +1272,8 @@ export default async (request) => {
       const prog = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
     return json(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
-  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {});
+  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen),
+  repsLog: repsLogFrom(prog.sessions) } : {});
     }
     if (request.method === 'POST') {
     const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
