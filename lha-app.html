@@ -124,7 +124,14 @@ body[data-tier=free] .tab.on i{background:var(--sand)}
  border-radius:28px 28px 0 0;padding:12px 18px calc(env(safe-area-inset-bottom) + 28px);
  animation:sheetUp .45s cubic-bezier(.2,.9,.2,1) both}
 .grab{width:38px;height:4px;border-radius:99px;background:rgba(17,17,17,.18);margin:0 auto 16px}
-.sheet h2.st{margin:0;font:400 24px/1.05 var(--serif);color:var(--ink)}
+.sheet.drag{transition:none}
+.ov.full{align-items:stretch}
+.ov.full .sheet{max-height:100%;height:100%;border-radius:0;
+ padding-top:calc(env(safe-area-inset-top) + 10px);animation:fade .25s both}
+.fsbtn{position:absolute;top:10px;right:12px;border:none;background:rgba(17,17,17,.06);
+ border-radius:999px;padding:7px 12px;font:600 11px/1 var(--sans);color:var(--grey);cursor:pointer}
+.sheet{position:relative}
+.sheet h2.st{margin:0;padding-right:110px;font:400 24px/1.05 var(--serif);color:var(--ink)}
 @media (prefers-reduced-motion:reduce){.ov.on,.sheet{animation:none!important}}
 .ovhead{background:var(--forest);padding:calc(env(safe-area-inset-top) + 18px) 22px 22px;color:var(--bg)}
 .back{font:500 13px/1 var(--sans);color:var(--sage);cursor:pointer;background:none;border:none;padding:0}
@@ -1408,10 +1415,14 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden&&tick_){ p
 
 /* ── overlays ── */
 function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
+  $('#ov').classList.toggle('full', !!st.ovFull);
   if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
 function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
 function closeOv(){
-  document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}}); st.ov=null; save(); $('#ov').classList.remove('on'); $('#ov').innerHTML=''; render(); }
+  document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
+  st.ov=null; st.ovFull=false; save();
+  $('#ov').classList.remove('on'); $('#ov').classList.remove('full');
+  $('#ov').innerHTML=''; render(); }
 function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'); }
 
 /* ── video block ───────────────────────────────────────────────────
@@ -1512,10 +1523,10 @@ function drawOv(){
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
         ${st.time||30} min · ${n} drill${n===1?'':'s'} · pick how you want it</div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        ${opt('buildFreeSession()','play','Follow along','Timer runs itself, drill by drill')}
-        ${opt('buildFreeSession(false,true)','list','See every drill','The full list, work at your own pace')}
-        ${_plan?opt('buildFreeSession(true)','hand','Wrist and mobility day instead',
-          'Short, and kinder on a tired week'):''}
+        ${opt("buildFreeSession(false,'prep')",'play','Follow along','Set your times, then the timer runs itself')}
+        ${opt("buildFreeSession(false,'work')",'list','See every drill','The full list, work at your own pace')}
+        ${opt("buildFreeSession(true,'prep')",'hand','Wrist and mobility day instead',
+          'Short, and kinder on a tired week')}
       </div></div>`;
   }
   if(st.ov==='list'){
@@ -1526,13 +1537,18 @@ function drawOv(){
        demo. Follow-along is still one tap away for anyone who wants it. */
     const rows=(Q||[]).map((q,i)=>{
       const it=q.it, k='q'+i;
+      const mode=st.listMode||'work';
       const on=(st.qTick||{})[k], rate=(st.rate||{})[it.v]||'', openD=(st.open||{})[k];
+      const reps=(st.reps||{})[k]||0;
       const editing=st.ovRow===i;
       const flagged=rate==='easy'||rate==='hard';
       return `<div style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
         border-radius:16px;padding:13px 14px">
         <div style="display:flex;gap:13px;align-items:flex-start">
-          <div class="box ${on?'on':''}" id="box-${k}" onclick="qTick('${k}',this)">✓</div>
+          ${mode==='work'?`<div class="box ${on?'on':''}" id="box-${k}"
+            onclick="qTick('${k}',this)">✓</div>`
+            :`<span style="flex:none;width:22px;font:600 11px/1.3 var(--sans);color:var(--grey2);
+              padding-top:2px">${String(i+1).padStart(2,'0')}</span>`}
           <div style="flex:1;min-width:0">
             <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
               <div id="name-${k}" style="font:600 15px/1.25 var(--sans);${
@@ -1546,21 +1562,26 @@ function drawOv(){
               <button onclick="toggleStep('${k}')" id="dose-${k}"
                 style="border:none;background:none;cursor:pointer;padding:0;
                 font:700 13px/1 var(--sans);color:var(--forest);text-decoration:underline;
-                text-underline-offset:3px">${work(it)}s</button>
+                text-underline-offset:3px">${mode==='work'
+                  ? (reps?reps+' done':'Log reps')
+                  : work(it)+'s'}</button>
               <button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
               <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>
             </div>
             <div id="step-${k}" ${editing?'':'hidden'}
               style="display:flex;align-items:center;gap:10px;margin-top:11px">
-              <button onclick="adjustSecs('${esc(it.v||'')}',-10,'${k}')" style="width:34px;height:34px;
+              <button onclick="${mode==='work'?`adjustReps('${k}',-1)`:`adjustSecs('${esc(it.v||'')}',-10,'${k}')`}"
+                style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">−</button>
               <span id="secs-${k}" style="min-width:52px;text-align:center;font:400 20px/1 var(--serif);
-                color:var(--forest)">${work(it)}s</span>
-              <button onclick="adjustSecs('${esc(it.v||'')}',10,'${k}')" style="width:34px;height:34px;
+                color:var(--forest)">${mode==='work'?reps:work(it)+'s'}</span>
+              <button onclick="${mode==='work'?`adjustReps('${k}',1)`:`adjustSecs('${esc(it.v||'')}',10,'${k}')`}"
+                style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">+</button>
-              <button class="rt" style="margin-left:auto" onclick="closeOv();startQueue(${i})">Start here</button>
+              <span style="margin-left:auto;font:600 10px/1 var(--sans);letter-spacing:.12em;
+                color:var(--grey2)">${mode==='work'?'REPS DONE':'SECONDS'}</span>
             </div>
             ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
               esc(it.desc)}</div>`:''}
@@ -1578,13 +1599,22 @@ function drawOv(){
       </div>`;}).join('');
     const mins=Math.round((Q||[]).reduce((a,q)=>a+work(q.it)+rest(q.it),0)/60);
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
-    body=`<div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
-        ${(Q||[]).length} drills · ${mins} minutes${ticked?' · '+ticked+' done':''}</div>
+    const mode=st.listMode||'work';
+    body=`<button class="fsbtn" onclick="toggleFull()">${st.ovFull?'Shrink':'Full screen'}</button>
+      <div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
+        ${(Q||[]).length} drills · ${mins} minutes${mode==='work'&&ticked?' · '+ticked+' done':''}</div>
+      ${mode==='prep'?`<button class="btn" style="width:100%;margin-bottom:14px"
+        onclick="closeOv();startQueue(0)">Start follow along</button>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:-6px 0 14px">
+          Tap a time to change it before you start.</div>`:''}
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
-      <button class="btn2" style="width:100%;margin-top:14px"
-        onclick="closeOv();startQueue(0)">Follow along instead</button>
-      <button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:9px"
-        onclick="finishChecklist()">Done for today</button>`;
+      ${mode==='prep'
+        ? `<button class="btn" style="width:100%;margin-top:14px"
+             onclick="closeOv();startQueue(0)">Start follow along</button>`
+        : `<button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:14px"
+             onclick="finishChecklist()">Done for today</button>
+           <button class="btn2" style="width:100%;margin-top:9px"
+             onclick="closeOv();buildFreeSession(st.ovList,'prep')">Follow along instead</button>`}`;
   }
   if(st.ov==='explainer'){
     const q=FAQS[st.exOpen]||FAQS[0];
@@ -1942,6 +1972,49 @@ function drawOv(){
     <div style="padding-top:14px">${body}</div></div>`;
   const sheet=$('#ov').querySelector('.sheet');
   if(sheet && sheetTop) sheet.scrollTop=sheetTop;
+  if(sheet) bindSheetDrag(sheet);
+}
+
+/* Drag the sheet down to dismiss it. Only starts when the sheet is already
+   scrolled to the top, so a downward swipe through a long list still scrolls
+   the list rather than throwing it away. */
+function bindSheetDrag(sheet){
+  let y0=null, dy=0, live=false;
+  const start=e=>{
+    if(sheet.scrollTop>0) return;
+    y0=e.touches?e.touches[0].clientY:e.clientY; dy=0; live=true;
+    sheet.classList.add('drag');
+  };
+  const move=e=>{
+    if(!live||y0==null) return;
+    const y=e.touches?e.touches[0].clientY:e.clientY;
+    dy=y-y0;
+    if(dy<=0){ sheet.style.transform=''; return; }
+    if(e.cancelable) e.preventDefault();
+    sheet.style.transform='translateY('+dy+'px)';
+    sheet.style.opacity=String(Math.max(.4, 1-dy/500));
+  };
+  const end=()=>{
+    if(!live) return;
+    live=false; sheet.classList.remove('drag');
+    sheet.style.transform=''; sheet.style.opacity='';
+    if(dy>110) closeOv();
+    y0=null; dy=0;
+  };
+  sheet.addEventListener('touchstart',start,{passive:true});
+  sheet.addEventListener('touchmove',move,{passive:false});
+  sheet.addEventListener('touchend',end);
+  sheet.addEventListener('touchcancel',end);
+  sheet.addEventListener('mousedown',start);
+  window.addEventListener('mousemove',move);
+  window.addEventListener('mouseup',end);
+}
+
+/* a sheet that is really a screen — the drill list, mostly */
+function toggleFull(){
+  st.ovFull=!st.ovFull;
+  $('#ov').classList.toggle('full', !!st.ovFull);
+  drawOv();
 }
 
 /* ── sign in: passwordless email code ─────────────────────────
@@ -2314,11 +2387,12 @@ function finishChecklist(){
     day:st.day, name:((Q[0]&&Q[0].grp)||''), done, mode:'list',
     drills:Q.length, mins, actual:0, got:ticked, of:Q.length,
     items:(Q||[]).map((q,i)=>({v:q.it.v, n:q.it.n, of:1,
-      got:(st.qTick||{})['q'+i]?1:0, rate:(st.rate||{})[q.it.v]||''})).slice(0,40)
+      got:(st.qTick||{})['q'+i]?1:0, reps:(st.reps||{})['q'+i]||0,
+      rate:(st.rate||{})[q.it.v]||''})).slice(0,40)
   }});
   st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
   st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
-  st.qTick={}; save(); closeOv(); openOv('summary');
+  st.qTick={}; st.reps={}; save(); closeOv(); openOv('summary');
 }
 
 function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); reportSoon(); render(); }
@@ -2972,7 +3046,7 @@ function screenHome(){
               scroll-snap-type:x mandatory;padding:2px 0;-webkit-overflow-scrolling:touch">
             ${cells.map((dd,n)=>{
               const on=n===idx, past=n<idx;
-              const rest=/wrist|mobility|rest/i.test(dd.n+' '+(dd.sub||''));
+              const rest=!!dd.wrist||/wrist|mobility|rest/i.test(dd.n+' '+(dd.sub||''));
               const wd=dayFor(n);
               return `<div style="flex:none;width:138px;scroll-snap-align:start;padding:13px;
                 border-radius:18px;border:1px solid ${on?'transparent':'rgba(17,17,17,.1)'};
@@ -2989,7 +3063,7 @@ function screenHome(){
                     style="border:none;background:none;cursor:pointer;padding:0 4px;font:600 13px/1 var(--sans);
                     color:${on?'rgba(236,231,226,.7)':'var(--grey2)'}">›</button>
                 </div>
-                <div onclick="buildFreeSession(${rest},true,${plan?n:null})" style="cursor:pointer">
+                <div onclick="openWorkout(${n})" style="cursor:pointer">
                   <p style="margin:8px 0 0;font:400 16px/1.18 var(--serif);
                     color:${on?'var(--on-primary)':rest?'var(--grey2)':'var(--ink)'}">${esc(dd.n)}</p>
                   <span style="display:block;margin-top:7px;font:500 12px/1.3 var(--sans);
@@ -3367,8 +3441,14 @@ const DAYL=['MON','TUE','WED','THU','FRI','SAT','SUN'];
 function weekCells(){
   const plan=weekPlan();
   if(plan) return plan;
+  /* the training days, then the two short wrist and mobility days that sit
+     between them — they are part of the week, so they belong on it. */
   const n=weekTarget(), st1=STAGES[curStage()]||{};
-  return Array.from({length:n},(_,i)=>({n:st1.n||'Session',sub:'Session '+(i+1)+' of '+n}));
+  const days=Array.from({length:n},(_,i)=>({n:st1.n||'Session',sub:'Session '+(i+1)+' of '+n}));
+  return days.concat([
+    {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true},
+    {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true}
+  ]);
 }
 
 /* Which weekday each session sits on. Spread evenly to begin with, then
@@ -3381,6 +3461,13 @@ function dayFor(i){
 }
 /* Moving one session onto a day another already holds swaps the two, so the
    week never quietly loses a session. */
+/* open the workout a given day of the week holds */
+function openWorkout(i){
+  const cells=weekCells(), c=cells[i]||{};
+  const wrist=!!c.wrist||/wrist|mobility|rest/i.test((c.n||'')+' '+(c.sub||''));
+  buildFreeSession(wrist, true, weekPlan()?i:null);
+}
+
 function moveWorkout(i,by){
   const cells=weekCells(), m=Object.assign({},st.dayMap||{});
   cells.forEach((_,k)=>{ if(m[k]==null) m[k]=defaultDay(k,cells.length); });
@@ -3474,7 +3561,12 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   }
   if(!out.length) out.push({it:pool[0],gi:0,ii:0,set:1,sets:1,grp:s.n});
   Q=out;
-  if(listOnly){ st.ovList=!!wristDay; openOv('list'); return; }
+  if(listOnly){
+    st.ovList=!!wristDay;
+    st.listMode = (listOnly===true) ? 'work' : listOnly;
+    st.ovFull = st.listMode==='work';
+    openOv('list'); return;
+  }
   startQueue(0);
 }
 
@@ -3485,6 +3577,17 @@ function startQueue(from){
   $('#player').innerHTML=playerShell();
   bindPlayer();
   showStep();
+}
+
+/* in the working list the number is what you have actually done, not what the
+   session asks for — logged per drill for the session record. */
+function adjustReps(k,by){
+  st.reps=st.reps||{};
+  const next=Math.max(0,(st.reps[k]||0)+by);
+  st.reps[k]=next; save();
+  const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);
+  if(a) a.textContent=String(next);
+  if(b) b.textContent=next?next+' done':'Log reps';
 }
 
 function adjustSecs(v,by,k){
