@@ -36,6 +36,20 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink);
 .burst i{position:absolute;left:50%;top:34%;width:7px;height:7px;border-radius:2px;
   opacity:0;transform:rotate(var(--a)) translateY(0);
   animation:pop 900ms cubic-bezier(.2,.7,.3,1) var(--t) 1 both}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes riseB{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.btn,.btn2{transition:background .3s,transform .3s cubic-bezier(.2,.8,.2,1),box-shadow .3s}
+.btn:active,.btn2:active{transform:scale(.98)}
+.card{transition:box-shadow .4s,transform .4s cubic-bezier(.2,.8,.2,1)}
+@media (hover:hover){
+ .btn:hover{background:#007a75}
+ .btn2:hover{background:rgba(0,102,99,.05)}
+ .rail>div:hover{transform:translateY(-3px)}
+}
+.rail>div{transition:transform .4s cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion:reduce){
+ *{animation:none!important;transition:none!important}
+}
 @keyframes shimmer{0%{transform:translateX(-120%)}100%{transform:translateX(220%)}}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes riseB{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -54,8 +68,13 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink);
   100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--d)*-1)) scale(1) }}
 @media(prefers-reduced-motion:reduce){.burst{display:none}}
 .scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:8px}
-.hero{padding:calc(env(safe-area-inset-top) + 62px) 22px 26px;
- background:linear-gradient(180deg,var(--forest),var(--forest-d));color:var(--bg);border-radius:0 0 30px 30px}
+.hero{position:relative;overflow:hidden;
+ padding:calc(env(safe-area-inset-top) + 62px) 22px 26px;
+ background:linear-gradient(178deg,#0a7b74,#046e68);color:var(--bg);border-radius:0 0 30px 30px}
+.hero::before{content:'';position:absolute;top:-120px;right:-90px;width:280px;height:280px;
+ border-radius:50%;pointer-events:none;
+ background:radial-gradient(circle,rgba(143,190,202,.22),transparent 70%)}
+.hero>*{position:relative}
 body[data-tier=free] .hero{background:linear-gradient(180deg,#0a7b74,#006663)}
 body[data-tier=free] .btn{background:#0a7b74}
 .kick{font:600 10px/1 var(--sans);letter-spacing:.2em;color:var(--sage)}
@@ -92,10 +111,18 @@ h1,h2,h3{margin:0;font-family:var(--serif);font-weight:400}
 body[data-tier=free] .tab.on i{background:var(--sand)}
 .tab span{font:500 11.5px/1 var(--sans);color:var(--grey2)}
 .tab.on span{font-weight:700;color:var(--ink)}
-.ov{position:fixed;inset:0;z-index:60;background:var(--bg);overflow-y:auto;display:none}
-.ov.on{display:block;animation:fade .3s both}
-.ov.on>*{animation:sheetUp .45s cubic-bezier(.2,.9,.2,1) both}
-@media (prefers-reduced-motion:reduce){.ov.on,.ov.on>*{animation:none!important}}
+.ov{position:fixed;inset:0;z-index:60;display:none;background:rgba(0,30,28,.45);
+ backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+ align-items:flex-end;justify-content:center}
+.ov.on{display:flex;animation:fade .3s both}
+.sheet{width:100%;max-width:440px;max-height:88vh;overflow-y:auto;
+ background:rgba(250,248,246,.94);backdrop-filter:blur(28px) saturate(180%);
+ -webkit-backdrop-filter:blur(28px) saturate(180%);
+ border-radius:28px 28px 0 0;padding:12px 18px calc(env(safe-area-inset-bottom) + 28px);
+ animation:sheetUp .45s cubic-bezier(.2,.9,.2,1) both}
+.grab{width:38px;height:4px;border-radius:99px;background:rgba(17,17,17,.18);margin:0 auto 16px}
+.sheet h2.st{margin:0;font:400 24px/1.05 var(--serif);color:var(--ink)}
+@media (prefers-reduced-motion:reduce){.ov.on,.sheet{animation:none!important}}
 .ovhead{background:var(--forest);padding:calc(env(safe-area-inset-top) + 18px) 22px 22px;color:var(--bg)}
 .back{font:500 13px/1 var(--sans);color:var(--sage);cursor:pointer;background:none;border:none;padding:0}
 video{width:100%;display:block;background:#000}
@@ -355,6 +382,7 @@ function sets(dose){
   return 1;
 }
 function work(it){
+  const ov=st.secs&&it.v?st.secs[it.v]:0; if(ov) return ov;
   const d=it.d.toLowerCase(), n=it.n.toLowerCase();
   let m=/(\d+)\s*s\b/.exec(d); if(m) return +m[1];
   if(n.includes('entries')&&/^\s*\d+\s*reps/.test(d)) return 150;
@@ -1455,6 +1483,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden&&tick_){ p
 /* ── overlays ── */
 function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
   if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
+function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
 function closeOv(){
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}}); st.ov=null; save(); $('#ov').classList.remove('on'); $('#ov').innerHTML=''; render(); }
 function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'); }
@@ -1521,7 +1550,8 @@ function drawOv(){
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
            password:'Change password', account:'Your account',
            why:'Why are you stopping?',apply:'Apply for coaching',
-           summary:'Session complete',stage:S?S.n:'Stage'};
+           summary:'Session complete',stage:S?S.n:'Stage',
+           mode:'Start the session',list:'Every drill',explainer:'Explainer'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
     body=`${it.url?vidBlock(it.url,'4/3','contain')
@@ -1557,10 +1587,60 @@ function drawOv(){
         ${st.time||30} min · ${n} drill${n===1?'':'s'} · pick how you want it</div>
       <div style="display:flex;flex-direction:column;gap:10px">
         ${opt('buildFreeSession()','play','Follow along','Timer runs itself, drill by drill')}
-        ${opt("go('ladder')",'list','See every drill','The full list, work at your own pace')}
+        ${opt('buildFreeSession(false,true)','list','See every drill','The full list, work at your own pace')}
         ${_plan?opt('buildFreeSession(true)','hand','Wrist and mobility day instead',
           'Short, and kinder on a tired week'):''}
       </div></div>`;
+  }
+  if(st.ov==='list'){
+    /* one row per drill in the built session. Opening a row shows what it is
+       and lets you change how long it runs before you start. */
+    const rows=(Q||[]).map((q,i)=>{
+      const it=q.it, open=st.ovRow===i;
+      return `<div style="border-radius:16px;background:#fff;border:1px solid rgba(17,17,17,.07);
+        overflow:hidden">
+        <div onclick="st.ovRow=${open?'null':i};save();drawOv()" style="display:flex;align-items:center;
+          gap:12px;padding:13px 14px;cursor:pointer">
+          <span style="flex:none;width:22px;font:600 11px/1.3 var(--sans);color:var(--grey2)">${
+            String(i+1).padStart(2,'0')}</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font:500 15px/1.3 var(--sans)">${esc(it.n)}</span>
+            <span style="display:block;margin-top:4px;font:500 12.5px/1 var(--sans);
+              color:var(--grey)">${esc(q.grp||'')}</span></span>
+          <span style="flex:none;display:flex;align-items:center;gap:9px">
+            <span style="font:600 13px/1 var(--sans);color:var(--forest)">${work(it)}s</span>
+            <span style="font:400 13px/1 var(--sans);color:var(--grey2);
+              transform:rotate(${open?180:0}deg)">⌄</span></span>
+        </div>
+        ${open?`<div style="padding:0 14px 14px">
+          ${it.url?`<video src="${it.url}" controls playsinline preload="none"
+             style="width:100%;border-radius:12px;background:#11150f;display:block"></video>`
+            :videoPlaceholder(q.grp||'Drill','')}
+          ${it.desc?`<p style="margin:11px 0 0;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
+            esc(it.desc)}</p>`:''}
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px">
+            <span style="font:600 10px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">SECONDS</span>
+            <div style="display:flex;align-items:center;gap:10px">
+              <button onclick="adjustSecs('${esc(it.v||'')}',-10)" style="width:34px;height:34px;
+                border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
+                font:500 16px/1 var(--sans)">−</button>
+              <span style="min-width:52px;text-align:center;font:400 20px/1 var(--serif);
+                color:var(--forest)">${work(it)}s</span>
+              <button onclick="adjustSecs('${esc(it.v||'')}',10)" style="width:34px;height:34px;
+                border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
+                font:500 16px/1 var(--sans)">+</button>
+            </div>
+          </div>
+          <button class="btn" style="width:100%;margin-top:12px"
+            onclick="closeOv();startQueue(${i})">Start from here</button>
+        </div>`:''}
+      </div>`;}).join('');
+    const mins=Math.round((Q||[]).reduce((a,q)=>a+work(q.it)+rest(q.it),0)/60);
+    body=`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
+        ${(Q||[]).length} drills · ${mins} minutes</div>
+      <button class="btn" style="width:100%;margin-bottom:16px"
+        onclick="closeOv();startQueue(0)">Start the session</button>
+      <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>`;
   }
   if(st.ov==='explainer'){
     const q=FAQS[st.exOpen]||FAQS[0];
@@ -1844,9 +1924,12 @@ function drawOv(){
       <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
         Telling me how it felt is what changes the next block.</div>`;
   }
-  $('#ov').innerHTML=`<div class="ovhead"><button class="back" onclick="closeOv()">← Back</button>
-    <div class="h-lg" style="margin-top:16px">${esc(T[st.ov]||'')}</div></div>
-    <div style="padding:22px 18px 40px">${body}</div>`;
+  /* tapping the scrim closes it, the way a sheet should; the panel swallows
+     its own clicks so a tap inside does not shut it */
+  $('#ov').innerHTML=`<div class="sheet" onclick="event.stopPropagation()">
+    <div class="grab"></div>
+    <h2 class="st">${esc(T[st.ov]||'')}</h2>
+    <div style="padding-top:14px">${body}</div></div>`;
 }
 
 /* ── sign in: passwordless email code ─────────────────────────
@@ -2348,7 +2431,8 @@ function screenQuiz(){
      that finishes the quiz cannot be reached. */
   return `<div class="scroll s" style="background:#F2EFEB;color:var(--ink)">
     <div style="min-height:100%;padding:calc(env(safe-area-inset-top) + 22px) 24px 34px;
-    display:flex;flex-direction:column">
+    display:flex;flex-direction:column;
+    animation:${i%2?'riseB':'rise'} .5s cubic-bezier(.2,.8,.2,1) both">
     <div style="display:flex;gap:5px">${rails}</div>
     <div style="margin-top:22px;font:600 10.5px/1 var(--sans);letter-spacing:.16em;
       color:var(--grey2)">${step.kick} · ${i+1} OF ${INTAKE_STEPS.length}</div>
@@ -3205,7 +3289,7 @@ function warmupFor(budgetSecs){
 }
 
 /* a session built from the current stage's drills, to fit the time chosen */
-function buildFreeSession(wristDay){
+function buildFreeSession(wristDay,listOnly){
   const mins=st.time||30, s=STAGES[curStage()];
   /* prep drills belong in the warm-up, not scattered through the skill work */
   const plan=weekPlan();
@@ -3237,11 +3321,26 @@ function buildFreeSession(wristDay){
     if(round>6) break;
   }
   if(!out.length) out.push({it:pool[0],gi:0,ii:0,set:1,sets:1,grp:s.n});
-  Q=out; qi=0; phase='work'; paused=false; sessionStart=Date.now();
+  Q=out;
+  if(listOnly){ st.ovList=!!wristDay; openOv('list'); return; }
+  startQueue(0);
+}
+
+/* the same session, started at whichever drill you picked */
+function startQueue(from){
+  qi=from||0; phase='work'; paused=false; sessionStart=Date.now();
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
   bindPlayer();
   showStep();
+}
+
+function adjustSecs(v,by){
+  st.secs=st.secs||{};
+  const cur=st.secs[v]||0;
+  st.secs[v]=Math.max(10,Math.min(300,(cur||30)+by));
+  save();
+  buildFreeSession(st.ovList,true);
 }
 
 /* ── coaching pitch (free tier's 4th tab) ── */
@@ -3773,5 +3872,5 @@ document.addEventListener('DOMContentLoaded',function(){
 render();
 </script>
 <div id="player"></div>
-<div id="ov" class="ov s"></div>
+<div id="ov" class="ov s" onclick="ovScrim(event)"></div>
 </body></html>
