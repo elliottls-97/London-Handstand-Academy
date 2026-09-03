@@ -36,6 +36,7 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink);
 .burst i{position:absolute;left:50%;top:34%;width:7px;height:7px;border-radius:2px;
   opacity:0;transform:rotate(var(--a)) translateY(0);
   animation:pop 900ms cubic-bezier(.2,.7,.3,1) var(--t) 1 both}
+@keyframes shimmer{0%{transform:translateX(-120%)}100%{transform:translateX(220%)}}
 @keyframes pop{0%{opacity:0;transform:rotate(var(--a)) translateY(0) scale(.4)}
   15%{opacity:1}
   100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--d)*-1)) scale(1) }}
@@ -1508,15 +1509,37 @@ function drawOv(){
           <span style="font:400 14.5px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
+  if(st.ov==='mode'){
+    const _plan=weekPlan(), _idx=nextDayIdx(), _day=_plan?_plan[_idx]:null;
+    const S=STAGES[curStage()]||STAGES[0];
+    const n=(_day?_day.drills:(S.drillIds||[])).length;
+    const opt=(click,glyph,t,d)=>`<div onclick="closeOv();${click}" style="display:flex;align-items:center;
+      gap:13px;padding:15px;border-radius:16px;cursor:pointer;background:${glyph==='play'?'var(--forest)':'#fff'};
+      ${glyph==='play'?'color:var(--on-primary)':'border:1px solid rgba(17,17,17,.1)'}">
+      <span style="width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;
+        background:${glyph==='play'?'rgba(236,231,226,.18)':'rgba(0,102,99,.07)'};
+        color:${glyph==='play'?'var(--on-primary)':'var(--forest)'};font:500 13px/1 var(--sans)">${
+        glyph==='play'?'▶':glyph==='list'?'☰':'✋'}</span>
+      <span style="flex:1">
+        <span style="display:block;font:600 15.5px/1.2 var(--sans)">${t}</span>
+        <span style="display:block;margin-top:4px;font:400 13px/1.4 var(--sans);
+          color:${glyph==='play'?'rgba(236,231,226,.72)':'var(--grey)'}">${d}</span></span></div>`;
+    body=`<div style="padding:2px">
+      <div class="h-md" style="font-size:24px">${esc(_day?_day.n:S.n)}</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
+        ${st.time||30} min · ${n} drill${n===1?'':'s'} · pick how you want it</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${opt('buildFreeSession()','play','Follow along','Timer runs itself, drill by drill')}
+        ${opt("go('ladder')",'list','See every drill','The full list, work at your own pace')}
+        ${_plan?opt('buildFreeSession(true)','hand','Wrist and mobility day instead',
+          'Short, and kinder on a tired week'):''}
+      </div></div>`;
+  }
   if(st.ov==='explainer'){
     const q=FAQS[st.exOpen]||FAQS[0];
     body=`<div class="card" style="padding:20px">
       <div class="h-md" style="font-size:21px">${esc(q.q)}</div>
-      ${q.v?qaVideo(q):`<div style="margin-top:12px;aspect-ratio:16/10;border-radius:16px;
-        background:linear-gradient(150deg,var(--sand),var(--sage));display:grid;place-items:center;
-        font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--deep)">FILMING SOON</div>
-        <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:12px">
-          Not filmed yet. It lands here when it is.</div>`}
+      ${q.v?qaVideo(q):videoPlaceholder(q.tag||'Explainer',q.dur)}
     </div>`;
   }
   if(st.ov==='account'){
@@ -2453,20 +2476,22 @@ function screenOriented(){
       ? 'You want to hold it freestanding. Everything here is aimed at exactly that.'
       : 'Everything here starts from the beginning. No experience assumed.';
   const per=st.perWeek||levelDef().def, mins=st.time||30;
-  const row=(n,t,d)=>`<div style="display:flex;gap:13px;padding:13px 0;border-top:1px solid rgba(255,255,255,.12)">
-    <span style="flex:none;width:20px;font:700 12px/1.5 var(--sans);color:var(--sand)">${n}</span>
-    <span><b style="font:600 14.5px/1.4 var(--sans)">${t}</b>
-    <span style="display:block;font:400 13.5px/1.5 var(--sans);color:var(--sage);margin-top:3px">${d}</span></span></div>`;
+  const row=(n,t,d)=>`<div style="display:flex;gap:10px;padding:14px 0;
+    border-top:${n==='1'?'none':'1px solid rgba(17,17,17,.08)'}">
+    <span style="flex:none;width:18px;font:600 11px/1.4 var(--sans);color:#C07A18">${n}</span>
+    <span><b style="font:600 14.5px/1.3 var(--sans);color:var(--ink)">${t}</b>
+    <span style="display:block;font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">${d}</span></span></div>`;
 
-  return `<div class="scroll s" style="background:var(--forest);color:var(--bg);min-height:100dvh">
-    <div style="padding:calc(env(safe-area-inset-top) + 30px) 24px 34px">
-      <div class="kick">YOU'VE LANDED HERE</div>
-      <div class="h-xl" style="font-size:38px;margin-top:12px">${esc(S.n)}</div>
-      <div style="font:400 15px/1.55 var(--sans);color:var(--sage);margin-top:10px">
+  return `<div class="scroll s" style="background:#F2EFEB;color:var(--ink);min-height:100dvh">
+    <div style="padding:calc(env(safe-area-inset-top) + 26px) 20px 40px">
+      <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)">YOU'VE LANDED HERE</div>
+      <div style="font:400 40px/1.02 var(--serif);color:var(--deep);margin-top:10px">${esc(S.n)}</div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:9px">
         Stage ${curStage()+1} of 5 — ${esc(levelDef().d.toLowerCase())}</div>
-      <div style="font:400 15px/1.6 var(--sans);margin-top:16px">${esc(bridge)}</div>
+      <div style="font:400 15.5px/1.5 var(--sans);color:#333;margin-top:16px">${esc(bridge)}</div>
 
-      <div style="background:rgba(255,255,255,.07);border-radius:22px;padding:6px 18px 16px;margin-top:24px">
+      <div style="background:#fff;border:1px solid rgba(17,17,17,.07);border-radius:20px;
+        padding:4px 16px;margin-top:20px;box-shadow:0 1px 2px rgba(17,17,17,.04)">
         ${row('1','The ladder is five stages',
           'You move up when you hit the marker for the one you are on. Yours is '+esc(S.hold)+' — '+esc((S.goal||'').toLowerCase()))}
         ${row('2','Your first session is ready',
@@ -2475,17 +2500,17 @@ function screenOriented(){
           'Every explainer is there whenever you want it. I will suggest one a day.')}
       </div>
 
-      <button class="btn" style="width:100%;margin-top:22px;background:var(--bg);color:var(--ink)"
-        onclick="st.oriented=true;save();go('home')">Start your first session</button>
+      <button onclick="st.oriented=true;save();go('home')" style="width:100%;margin-top:20px;border:0;
+        border-radius:99px;padding:17px;background:var(--forest);color:var(--on-primary);
+        font:600 16px/1 var(--sans);cursor:pointer">Start your first session</button>
 
       ${LADDER_INTRO_VIDEO
         ? `<video src="${LADDER_INTRO_VIDEO}" controls playsinline preload="none"
              style="width:100%;border-radius:18px;margin-top:16px;background:#11150f;display:block"></video>`
-        : `<div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);text-align:center;margin-top:14px">
-             A short walkthrough of how the ladder works is coming here.</div>`}
+        : videoPlaceholder('Intro · how the ladder works','2 min')}
 
       <button onclick="st.oriented=true;save();go('home')" style="width:100%;background:none;border:none;
-        color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:6px;padding:12px">
+        color:var(--grey);font:500 14px/1 var(--sans);cursor:pointer;margin-top:8px;padding:12px">
         Take me in</button>
     </div></div>`;
 }
@@ -2561,12 +2586,12 @@ function nextStageCard(){
    are open to everyone; the rest need an account, because an address is
    a fair price for the whole library and no price at all for a taste. */
 const FAQS=[
-  {q:'Why do my wrists hurt?',                      v:''},
-  {q:'How often should I practise handstands?',     v:''},
-  {q:'Do I need to be strong to start?',            v:''},
-  {q:'How to safely fall out of a handstand',       v:''},
-  {q:'How long does it take to learn a handstand?', v:''},
-  {q:'What alignment really feels like',            v:''},
+  {q:'Why do my wrists hurt?',                      v:'', dur:'3 min', tag:'Wrists'},
+  {q:'How often should I practise handstands?',     v:'', dur:'4 min', tag:'Programming'},
+  {q:'Do I need to be strong to start?',            v:'', dur:'3 min', tag:'Strength'},
+  {q:'How to safely fall out of a handstand',       v:'', dur:'4 min', tag:'Bailing'},
+  {q:'How long does it take to learn a handstand?', v:'', dur:'3 min', tag:'Progress'},
+  {q:'What alignment really feels like',            v:'', dur:'4 min', tag:'Shapes'},
 ];
 const FREE_EXPLAINERS=3;
 const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token;
@@ -2667,21 +2692,27 @@ function screenHome(){
           ${st.time||30} min · ${sessCount} drill${sessCount===1?'':'s'}</span>
       </div>
 
-      <button onclick="buildFreeSession()" style="margin-top:11px;width:100%;border:0;border-radius:14px;
+      <button onclick="openOv('mode')" style="margin-top:11px;width:100%;border:0;border-radius:14px;
         padding:13px;background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans);cursor:pointer">
         ${didToday?'Go again':'Start the session'}</button>
 
-      <button onclick="openOv('why')" style="margin-top:10px;width:100%;display:flex;align-items:center;
-        gap:10px;border:1px solid rgba(236,231,226,${done?0.2:0.4});border-radius:12px;padding:9px 12px;
-        background:rgba(236,231,226,${done?0.05:0.13});cursor:pointer">
+      <button onclick="st.introOpen=!st.introOpen;save();render()" style="margin-top:10px;width:100%;
+        display:flex;align-items:center;gap:10px;border:1px solid rgba(236,231,226,${done?0.2:0.4});
+        border-radius:12px;padding:9px 12px;background:rgba(236,231,226,${done?0.05:0.13});cursor:pointer">
         <span style="width:26px;height:26px;flex:none;border-radius:50%;background:rgba(236,231,226,.9);
           display:grid;place-items:center">
           <svg width="9" height="11" viewBox="0 0 17 19" fill="#00403D"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
         <span style="flex:1;text-align:left;font:600 13.5px/1.2 var(--sans);color:var(--on-primary)">
-          ${done?'How the ladder works':'New here? Start here'}</span>
-        <span style="font:400 12px/1 var(--sans);color:rgba(236,231,226,.6)">Read</span>
+          ${st.introOpen?'Hide the intro':done?'How the ladder works':'New here? Watch this first'}</span>
+        <span style="font:400 12px/1 var(--sans);color:rgba(236,231,226,.6)">2 min</span>
+        <span style="font:400 13px/1 var(--sans);color:rgba(236,231,226,.6);
+          transform:rotate(${st.introOpen?180:0}deg)">⌄</span>
       </button>
+      ${st.introOpen?(LADDER_INTRO_VIDEO
+        ? `<video src="${LADDER_INTRO_VIDEO}" controls playsinline preload="none"
+             style="width:100%;border-radius:16px;margin-top:14px;background:#11150f;display:block"></video>`
+        : videoPlaceholder('How the handstand ladder works','2 min',true)):''}
     </div>
 
     <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
@@ -2742,12 +2773,6 @@ function screenHome(){
             </div></div>`:''}
         </div>`;})()}
 
-      <!-- the two secondary ways in. They were buttons on the old session card;
-           the card is gone but the actions are not. -->
-      <div style="display:flex;gap:9px">
-        ${weekPlan()?`<button class="btn2" style="flex:1" onclick="buildFreeSession(true)">Wrist day</button>`:''}
-        <button class="btn2" style="flex:1" onclick="go('ladder')">The whole ladder</button>
-      </div>
 
     </div>
 
@@ -2785,8 +2810,10 @@ function screenHome(){
             </div>
             <p style="margin:11px 2px 0;font:400 16px/1.25 var(--serif);color:var(--ink)">${esc(q.q)}</p>
             <div style="display:flex;align-items:center;gap:8px;padding:7px 2px 0">
-              <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">
-                ${q.v?'WATCH':'FILMING SOON'}</span>
+              <span style="font:500 12px/1 var(--sans);color:var(--grey)">${esc(q.dur||'')}</span>
+              <span style="width:3px;height:3px;border-radius:99px;background:rgba(17,17,17,.2)"></span>
+              <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;
+                color:var(--grey2)">${esc((q.tag||'').toUpperCase())}</span>
             </div>
           </div>`;}).join('')}
       </div>
@@ -3545,6 +3572,26 @@ function go(t){ st.tab=t; save(); render();
 
    The dot is the app's one attention signal: an answer has come back and
    has not been read. */
+/* the design's placeholder video tile — a shimmering gradient with the label
+   and length on it. Used wherever the real clip is not filmed yet. */
+function videoPlaceholder(label,dur,dark){
+  return `<div style="position:relative;aspect-ratio:16/9;border-radius:16px;overflow:hidden;
+    margin-top:14px;cursor:default;border:1px solid ${dark?'rgba(236,231,226,.22)':'rgba(17,17,17,.06)'};
+    background:${dark?'linear-gradient(150deg,#00706A,#00403D)':'linear-gradient(150deg,#CFE6EC,#5E9DB2)'}">
+    <div style="position:absolute;inset:0;overflow:hidden">
+      <div style="position:absolute;top:0;bottom:0;width:36%;
+        background:linear-gradient(100deg,transparent,rgba(236,231,226,.35),transparent);
+        animation:shimmer 6s ease-in-out infinite"></div></div>
+    <span style="position:absolute;top:12px;left:14px;font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+      text-transform:uppercase;color:${dark?'rgba(236,231,226,.6)':'rgba(17,17,17,.45)'}">${esc(label)}${
+      dur?' · '+esc(dur):''}</span>
+    <div style="position:absolute;right:12px;bottom:12px;width:34px;height:34px;border-radius:50%;
+      background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.65);display:grid;place-items:center">
+      <svg width="11" height="13" viewBox="0 0 17 19" fill="#111"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5
+        18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></div>
+  </div>`;
+}
+
 function topBar(){
   const sc=!!st.scrolled;
   const label = ({home:'TODAY',today:'TODAY',ladder:'LADDER',progress:'PROGRESS',
