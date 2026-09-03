@@ -284,6 +284,7 @@ const AUTH = {
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
   prefs:'/api/app/prefs',              // GET|POST what they want emailing about
+  state:'/api/app/state',              // GET|POST week layout and drill lengths
   questions:'/api/app/questions',      // GET yours, POST a new one
   intake:'/api/app/intake',            // POST the quiz answers so the coach can see them
   application:'/api/app/application',  // POST a coaching application
@@ -870,6 +871,34 @@ function sendAssessment(file){
 /* has anything been sent that is still waiting on a reply */
 /* People should be able to turn off anything that is not essential. A
    password reset or a receipt still goes; a nudge does not have to. */
+/* ── state that belongs to the person, not the phone ──────────────
+   The week layout and any drill lengths they have changed. Written on
+   change and read on sign-in, so a new phone picks up where they left off. */
+let stateQueued=null;
+function loadState(){
+  if(!st.token) return Promise.resolve();
+  return fetch(AUTH.state,{headers:authed()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(!d) return;
+      if(d.dayMap && Object.keys(d.dayMap).length) st.dayMap=d.dayMap;
+      if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
+      if(d.time) st.time=d.time;
+      if(d.perWeek) st.perWeek=d.perWeek;
+      save(); render();
+    })
+    .catch(()=>{});
+}
+function saveState(){
+  if(!st.token) return;
+  clearTimeout(stateQueued);
+  stateQueued=setTimeout(()=>{
+    stateQueued=null;
+    fetch(AUTH.state,{method:'POST',headers:authed(),body:JSON.stringify({
+      dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0
+    })}).catch(()=>{});
+  }, 800);
+}
+
 function loadPrefs(){
   if(!st.token) return;
   fetch(AUTH.prefs,{headers:authed()}).then(r=>r.ok?r.json():null)
@@ -1559,14 +1588,16 @@ function drawOv(){
                 :`<span class="rt" style="flex:none;opacity:.55">Soon</span>`}
             </div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
+              <span style="font:700 13px/1 var(--sans);color:var(--forest)">${
+                esc(it.d||work(it)+'s')}</span>
               <button onclick="toggleStep('${k}')" id="dose-${k}"
                 style="border:none;background:none;cursor:pointer;padding:0;
-                font:700 13px/1 var(--sans);color:var(--forest);text-decoration:underline;
+                font:600 12.5px/1 var(--sans);color:var(--grey);text-decoration:underline;
                 text-underline-offset:3px">${mode==='work'
                   ? (reps?reps+' done':'Log reps')
-                  : work(it)+'s'}</button>
-              <button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
-              <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>
+                  : 'Change time'}</button>
+              ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
+              <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>`:''}
             </div>
             <div id="step-${k}" ${editing?'':'hidden'}
               style="display:flex;align-items:center;gap:10px;margin-top:11px">
@@ -1594,7 +1625,7 @@ function drawOv(){
             ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
               esc(it.desc)}</div>`:''}
             <div id="demo-${k}" hidden style="margin-top:11px"></div>
-            ${flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
+            ${st.in&&flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
               <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
                 rate==='hard'?'TOO HARD':'TOO EASY'}</div>
               <input value="${esc((st.note||{})[it.v]||'')}"
@@ -2105,7 +2136,7 @@ function doLogin(ev){
       st.plus=!!d.plus;
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
-      if(st.in){ loadProgramme(); loadProgress(); loadThread(); } })
+      if(st.in){ loadProgramme(); loadProgress(); loadThread(); } loadState(); })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -2129,7 +2160,7 @@ function verifyCode(){
     body:JSON.stringify({email:st.email,code:c})})
     .then(r=>r.ok?r.json():Promise.reject())
     .then(d=>{ st.token=d.token; st.client=d.client||nameFrom(st.email); st.in=true;
-               save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); })
+               save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); loadState(); })
     .catch(()=>{
       if(c===DEV_CODE){ st.in=true; st.client=nameFrom(st.email); save(); render(); return; }
       const m=$('#authMsg'); if(m) m.textContent='That code did not work. Check it, or send a new one.';
@@ -3494,7 +3525,7 @@ function moveWorkout(i,by){
   const clash=Object.keys(m).find(k=>+k!==i && m[k]===want);
   if(clash!=null) m[clash]=m[i];
   m[i]=want;
-  st.dayMap=m; save(); render();
+  st.dayMap=m; save(); saveState(); render();
 }
 
 /* which session is next: they rotate, and finishing one advances it */
@@ -3580,7 +3611,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   if(!out.length) out.push({it:pool[0],gi:0,ii:0,set:1,sets:1,grp:s.n});
   Q=out;
   if(listOnly){
-    st.ovList=!!wristDay;
+    st.ovList=!!wristDay; st.ovRow=null;
     st.listMode = (listOnly===true) ? 'work' : listOnly;
     st.ovFull = st.listMode==='work';
     openOv('list'); return;
@@ -3641,7 +3672,7 @@ function adjustSecs(v,by,k){
   const it=(Q||[]).map(q=>q.it).find(x=>x.v===v);
   const cur=st.secs[v]|| (it?work(it):30);
   const next=Math.max(10,Math.min(300,cur+by));
-  st.secs[v]=next; save();
+  st.secs[v]=next; save(); saveState();
   /* write the new value where it shows rather than rebuilding the list */
   if(k){
     const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);

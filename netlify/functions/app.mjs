@@ -995,6 +995,47 @@ export default async (request) => {
     });
   }
 
+  /* ── app state that has to follow the person ──────────────────
+     Which weekday each session sits on, and any drill lengths they have
+     changed. Small, and useless on one device only — a new phone should
+     not cost someone their week. */
+  if (path === '/state') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const key = `state:${who}`;
+    if (request.method === 'POST') {
+      const cur = (await getSetting(key)) || {};
+      if (body.dayMap && typeof body.dayMap === 'object') {
+        const m = {};
+        for (const k of Object.keys(body.dayMap).slice(0, 14)) {
+          const d = Number(body.dayMap[k]);
+          if (Number.isInteger(d) && d >= 0 && d <= 6) m[String(k).slice(0, 8)] = d;
+        }
+        cur.dayMap = m;
+      }
+      if (body.secs && typeof body.secs === 'object') {
+        const m = {};
+        for (const k of Object.keys(body.secs).slice(0, 200)) {
+          const n = Number(body.secs[k]);
+          if (Number.isFinite(n) && n >= 10 && n <= 300) m[String(k).slice(0, 64)] = Math.round(n);
+        }
+        cur.secs = m;
+      }
+      if (body.time !== undefined) {
+        const t = Number(body.time);
+        if ([15, 30, 45].includes(t)) cur.time = t;
+      }
+      if (body.perWeek !== undefined) {
+        const n = Number(body.perWeek);
+        if (Number.isInteger(n) && n >= 1 && n <= 7) cur.perWeek = n;
+      }
+      await setSetting(key, cur);
+    }
+    const out = (await getSetting(key)) || {};
+    return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
+      time: out.time || 0, perWeek: out.perWeek || 0 });
+  }
+
   /* the intake answers, so the coach sees who someone said they were */
   if (path === '/intake' && request.method === 'POST') {
     const who = await me();
