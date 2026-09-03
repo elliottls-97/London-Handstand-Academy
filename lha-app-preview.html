@@ -1826,6 +1826,44 @@ function drawOv(){
     const si=st.ovStage||0, locked=si>curStage();
     if(stageLocked(si)){ body=screenUpgradeBody(si); }
     else {
+    const St=STAGES[si]||STAGES[0];
+    const isNow=si===curStage(), isDone=si<curStage();
+    const goalS=parseInt(St.hold,10)||30, bestS=st.bestHold||0;
+    const bestPct=Math.min(100,Math.round(bestS/goalS*100));
+    const ready=isNow&&stageReady();
+    const badge=isDone?['DONE','var(--forest)']:isNow?['NOW','var(--forest)']:['LOCKED','var(--grey2)'];
+    const overview=`
+      <div style="position:relative;aspect-ratio:16/9;border-radius:18px;overflow:hidden;
+        background:linear-gradient(150deg,#CFE6EC,#5E9DB2)">
+        <span style="position:absolute;top:12px;left:14px;font:600 10px/1 var(--sans);letter-spacing:.14em;
+          color:rgba(17,17,17,.45)">STAGE ${si+1} · IMAGE PLACEHOLDER</span>
+        <span style="position:absolute;top:11px;right:11px;padding:5px 10px;border-radius:99px;
+          background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.7);
+          font:700 9.5px/1 var(--sans);letter-spacing:.11em;color:${badge[1]}">${badge[0]}</span>
+      </div>
+      <div style="font:400 26px/1.05 var(--serif);margin-top:14px">${esc(St.n)}</div>
+      <p style="margin:8px 0 0;font:400 14.5px/1.5 var(--sans);color:#444">${esc(St.intro||St.goal||'')}</p>
+      <p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
+        color:var(--grey2)">TO LEAVE THIS STAGE</p>
+      <p style="margin:0;font:400 14.5px/1.45 var(--sans)">${esc(St.goal||'')}</p>
+      ${isNow?`
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:16px">
+          <span style="font:600 10.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">YOUR BEST</span>
+          <span style="font:600 14px/1 var(--sans)">${bestS}s of ${goalS}s</span></div>
+        <div style="margin-top:9px;height:5px;border-radius:99px;background:rgba(17,17,17,.1);overflow:hidden">
+          <div style="height:100%;width:${bestPct}%;border-radius:99px;
+            background:${ready?'var(--forest)':'var(--amber)'}"></div></div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+          ${ready?"You've hit the marker. Move up whenever you're ready."
+                 :'Use the hold timer to log an attempt — that is what fills this bar.'}</div>
+        ${STAGES[si+1]?`<button class="btn" style="width:100%;margin-top:14px"
+          onclick="closeOv();advanceStage()">${ready?'Move up to '+esc(STAGES[si+1].n)
+            :'Move up anyway'}</button>`:''}
+        <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+          Nothing is locked by the marker — it is a guide, and you can drop back.</div>`
+      :isDone?`<button class="btn2" style="width:100%;margin-top:16px"
+          onclick="closeOv();dropToStage(${si})">Drop back to this stage</button>`:''}
+      <div style="height:1px;background:rgba(17,17,17,.08);margin:20px 0 4px"></div>`;
     const secs=STAGE_SECTIONS[si]||[];
     const total=secs.reduce((a,x)=>a+x.items.length,0);
     const done=secs.reduce((a,x)=>a+x.items.filter(i=>st.ladderDone&&st.ladderDone[i.v]).length,0);
@@ -1862,7 +1900,7 @@ function drawOv(){
               </div>
             </div>`;}).join('')}
         </div></div>`).join('');
-    body=`<div class="card" style="padding:18px">
+    body=`${overview}<div class="card" style="padding:18px">
         <div class="kick2">TRAIN THIS STAGE NOW</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
           How long have you got? I will build it from this stage's drills.</div>
@@ -2812,7 +2850,7 @@ function screenHome(){
       <!-- the ladder, as five segments. Filled to where you are; the one you
            are on sits slightly taller so it reads without needing a label. -->
       <div class="rise rise-1" style="display:flex;gap:6px;margin-top:15px">
-        ${STAGES.map((sg,i)=>`<div onclick="go('ladder')" style="flex:1;cursor:pointer;padding-bottom:2px">
+        ${STAGES.map((sg,i)=>`<div onclick="openStage(${i})" style="flex:1;cursor:pointer;padding-bottom:2px">
           <div style="height:4px;border-radius:99px;transform:scaleY(${i===cs?1.6:1});
             background:${i<=cs?'var(--on-primary)':'rgba(236,231,226,.2)'}"></div>
           <span style="display:block;margin-top:7px;font:600 9.5px/1 var(--sans);letter-spacing:.1em;
@@ -2864,15 +2902,20 @@ function screenHome(){
         const mon=new Date(now); mon.setHours(0,0,0,0);
         mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
         const trained=new Set(sessionsDone().map(x=>new Date(x.at).toDateString()));
+        const cells=weekCells();
+        const booked=new Set(cells.map((_,k)=>dayFor(k)));
         const chips=['M','T','W','T','F','S','S'].map((L,i)=>{
           const dt=new Date(mon); dt.setDate(mon.getDate()+i);
           const isToday=dt.toDateString()===now.toDateString();
           const did=trained.has(dt.toDateString());
+          const has=booked.has(i);
           return `<div onclick="st.weekOpen=!st.weekOpen;save();render()" style="flex:1;min-width:0;
-            height:30px;border-radius:9px;display:grid;place-items:center;cursor:pointer;
+            height:30px;border-radius:9px;display:grid;place-items:center;cursor:pointer;position:relative;
             font:600 11.5px/1 var(--sans);
             background:${isToday?'var(--forest)':did?'var(--sage)':'rgba(17,17,17,.05)'};
-            color:${isToday?'var(--on-primary)':did?'var(--deep)':'var(--grey2)'}">${L}</div>`;
+            color:${isToday?'var(--on-primary)':did?'var(--deep)':has?'var(--forest)':'var(--grey2)'}">${L}
+            ${has&&!isToday&&!did?`<span style="position:absolute;bottom:4px;width:3px;height:3px;
+              border-radius:99px;background:var(--forest)"></span>`:''}</div>`;
         }).join('');
         return `<div style="border-radius:18px;background:rgba(255,255,255,.5);
           border:1px solid rgba(17,17,17,.08)">
@@ -2886,30 +2929,41 @@ function screenHome(){
             <span style="flex:none;font:400 13px/1 var(--sans);color:var(--grey2);
               transform:rotate(${st.weekOpen?180:0}deg)">⌄</span>
           </div>
-          ${st.weekOpen&&plan?`<div class="rail" style="display:flex;gap:9px;overflow-x:auto;
-            scroll-snap-type:x mandatory;padding:2px 14px 14px;-webkit-overflow-scrolling:touch">
-            ${plan.map((dd,n)=>{
-              const on=n===idx, past=n<idx, rest=/wrist|mobility|rest/i.test(dd.n+' '+(dd.sub||''));
-              return `<div onclick="buildFreeSession(false,true,${n})" style="flex:none;width:128px;
-                scroll-snap-align:start;padding:13px;border-radius:18px;cursor:pointer;
-                border:1px solid ${on?'transparent':'rgba(17,17,17,.1)'};
+          ${st.weekOpen?`<div style="padding:0 14px 14px">
+            <div class="rail" style="display:flex;gap:9px;overflow-x:auto;
+              scroll-snap-type:x mandatory;padding:2px 0;-webkit-overflow-scrolling:touch">
+            ${cells.map((dd,n)=>{
+              const on=n===idx, past=n<idx;
+              const rest=/wrist|mobility|rest/i.test(dd.n+' '+(dd.sub||''));
+              const wd=dayFor(n);
+              return `<div style="flex:none;width:138px;scroll-snap-align:start;padding:13px;
+                border-radius:18px;border:1px solid ${on?'transparent':'rgba(17,17,17,.1)'};
                 background:${on?'var(--forest)':rest?'rgba(255,255,255,.45)':'#fff'};
                 box-shadow:${on?'0 14px 30px -18px rgba(17,17,17,.85)':'0 1px 2px rgba(17,17,17,.04)'};
                 transform:translateY(${on?-3:0}px)">
-                <div style="display:flex;align-items:center;justify-content:space-between;min-height:14px">
-                  <span style="font:600 10px/1 var(--sans);letter-spacing:.14em;
-                    color:${on?'rgba(236,231,226,.6)':'var(--grey2)'}">DAY ${n+1}</span>
-                  <span style="font:600 11px/1 var(--sans);opacity:${past?1:0};
-                    color:${on?'var(--sage)':'var(--forest)'}">✓</span>
+                <div style="display:flex;align-items:center;justify-content:space-between;min-height:20px">
+                  <button onclick="event.stopPropagation();moveWorkout(${n},-1)" aria-label="Earlier in the week"
+                    style="border:none;background:none;cursor:pointer;padding:0 4px;font:600 13px/1 var(--sans);
+                    color:${on?'rgba(236,231,226,.7)':'var(--grey2)'}">‹</button>
+                  <span style="font:700 10px/1 var(--sans);letter-spacing:.14em;
+                    color:${on?'var(--on-primary)':'var(--forest)'}">${DAYL[wd]}</span>
+                  <button onclick="event.stopPropagation();moveWorkout(${n},1)" aria-label="Later in the week"
+                    style="border:none;background:none;cursor:pointer;padding:0 4px;font:600 13px/1 var(--sans);
+                    color:${on?'rgba(236,231,226,.7)':'var(--grey2)'}">›</button>
                 </div>
-                <p style="margin:8px 0 0;font:400 16px/1.18 var(--serif);
-                  color:${on?'var(--on-primary)':rest?'var(--grey2)':'var(--ink)'}">${esc(dd.n)}</p>
-                <span style="display:block;margin-top:7px;font:500 12px/1 var(--sans);
-                  color:${on?'rgba(236,231,226,.55)':'var(--grey2)'}">${esc(dd.sub||'')}</span>
+                <div onclick="buildFreeSession(${rest},true,${plan?n:null})" style="cursor:pointer">
+                  <p style="margin:8px 0 0;font:400 16px/1.18 var(--serif);
+                    color:${on?'var(--on-primary)':rest?'var(--grey2)':'var(--ink)'}">${esc(dd.n)}</p>
+                  <span style="display:block;margin-top:7px;font:500 12px/1.3 var(--sans);
+                    color:${on?'rgba(236,231,226,.55)':'var(--grey2)'}">${esc(dd.sub||'')}</span>
+                  ${past?`<span style="display:block;margin-top:8px;font:600 10px/1 var(--sans);
+                    color:${on?'var(--on-primary)':'var(--forest)'}">✓ DONE</span>`:''}
+                </div>
               </div>`;}).join('')}
-          </div>`:st.weekOpen?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);
-            padding:0 14px 14px">${done} of ${target} sessions done this week, with two short wrist
-            and mobility days between them.</div>`:''}
+            </div>
+            <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);padding-top:10px">
+              Tap a day to see its drills. The arrows move it to another day of the week.</div>
+          </div>`:''}
         </div>`;})()}
 
 
@@ -3233,6 +3287,40 @@ const WRIST_DAY = {n:'Wrists and mobility', sub:'Short — this is the one that 
           'shoulder-circles','heart-melting-pose']};
 
 const weekPlan = () => WEEK[curStage()] || null;
+
+const DAYL=['MON','TUE','WED','THU','FRI','SAT','SUN'];
+
+/* Which sessions this week, whatever the stage. Only Foundations has a written
+   week; on every other stage each session is built from the whole stage pool,
+   so the days are the sessions you are aiming at rather than a fabricated split. */
+function weekCells(){
+  const plan=weekPlan();
+  if(plan) return plan;
+  const n=weekTarget(), st1=STAGES[curStage()]||{};
+  return Array.from({length:n},(_,i)=>({n:st1.n||'Session',sub:'Session '+(i+1)+' of '+n}));
+}
+
+/* Which weekday each session sits on. Spread evenly to begin with, then
+   whatever the client has dragged it to. */
+function defaultDay(i,total){ return Math.min(6, Math.round(i*(total>1?6/(total-1):0))); }
+function dayFor(i){
+  const cells=weekCells();
+  const m=st.dayMap||{};
+  return m[i]!=null ? m[i] : defaultDay(i,cells.length);
+}
+/* Moving one session onto a day another already holds swaps the two, so the
+   week never quietly loses a session. */
+function moveWorkout(i,by){
+  const cells=weekCells(), m=Object.assign({},st.dayMap||{});
+  cells.forEach((_,k)=>{ if(m[k]==null) m[k]=defaultDay(k,cells.length); });
+  const want=Math.max(0,Math.min(6,m[i]+by));
+  if(want===m[i]) return;
+  const clash=Object.keys(m).find(k=>+k!==i && m[k]===want);
+  if(clash!=null) m[clash]=m[i];
+  m[i]=want;
+  st.dayMap=m; save(); render();
+}
+
 /* which session is next: they rotate, and finishing one advances it */
 function nextDayIdx(){
   const plan=weekPlan(); if(!plan) return 0;
