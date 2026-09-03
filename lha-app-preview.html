@@ -3052,23 +3052,45 @@ function screenLadder(){
     <div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);margin-top:9px">
       ${st.intake&&st.intake.baseline?'Answer a few more and the plan gets sharper.'
         :'Film a baseline clip and I can place you properly rather than taking your word for it.'}</div></div>`;
+  /* the design's ladder: a spine down the left with the stages hanging off it,
+     filled to where you are. The one you are on opens out to show the marker
+     and how close you are to it. */
   const cards=STAGES.map((x,i)=>{
-    const state=i<curStage()?'done':i===curStage()?'current':'locked';
-    const bg=state==='current'?'#fff':state==='done'?'rgba(255,255,255,.55)':'rgba(255,255,255,.4)';
-    return `<button onclick="openStage(${i})" style="border:none;text-align:left;background:${bg};border-radius:22px;
-      padding:16px 18px;cursor:pointer;width:100%;${state==='current'?'box-shadow:0 2px 20px rgba(28,32,25,.08)':''}">
-      <div style="display:flex;align-items:center;gap:14px">
-        <div style="width:34px;height:34px;border-radius:999px;flex:none;display:grid;place-items:center;
-          font:700 13px/1 var(--sans);background:${state==='locked'?'var(--mist)':'var(--forest)'};
-          color:${state==='locked'?'var(--grey2)':'var(--bg)'}">${state==='done'?'✓':i+1}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font:600 15px/1.2 var(--sans);color:${state==='locked'?'var(--grey2)':'var(--ink)'}">${esc(x.n)}</div>
-          <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">${esc(x.goal)}</div></div>
-        <span class="pill" style="flex:none;background:${
-            stageLocked(i)?'rgba(200,122,86,.14)':state==='current'?'rgba(200,122,86,.14)':'transparent'};
-          color:${stageLocked(i)||state==='current'?'var(--amber)':'var(--grey2)'}">${
-          stageLocked(i)?'£5/MO':state==='current'?'NOW':state==='done'?'DONE':'LOCKED'}</span>
-      </div></button>`;
+    const done=i<curStage(), now=i===curStage();
+    const locked=stageLocked(i);
+    const tag=done?'Done':now?'Now':locked?'£5/mo':'Locked';
+    const nxt=STAGES[i+1];
+    const goalS=nxt?(parseInt(x.hold,10)||30):0;
+    const bestS=st.bestHold||0;
+    const pctS=goalS?Math.min(100,Math.round(bestS/goalS*100)):100;
+    return `<div onclick="openStage(${i})" style="position:relative;padding:15px 16px;border-radius:18px;
+      cursor:pointer;background:${now?'#fff':done?'rgba(255,255,255,.6)':'rgba(255,255,255,.35)'};
+      ${now?'box-shadow:0 2px 20px rgba(28,32,25,.08)':''}">
+      <span style="position:absolute;left:-38px;top:15px;width:30px;height:30px;border-radius:50%;
+        display:grid;place-items:center;font:600 12.5px/1 var(--sans);box-shadow:0 0 0 4px var(--bg);
+        background:${done||now?'var(--forest)':'rgba(0,102,99,.09)'};
+        color:${done||now?'var(--on-primary)':'var(--grey2)'}">${done?'✓':i+1}</span>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="font:600 16px/1.2 var(--sans);color:${done||now?'var(--ink)':'var(--grey2)'}">${esc(x.n)}</span>
+        <span style="flex:none;padding:${now?'5px 10px':'0'};border-radius:99px;font:600 10px/1 var(--sans);
+          letter-spacing:.12em;text-transform:uppercase;
+          background:${now?'rgba(243,169,73,.18)':'transparent'};
+          color:${now?'#8a5a12':'var(--grey2)'}">${tag}</span>
+      </div>
+      <p style="margin:6px 0 0;font:400 13.5px/1.4 var(--sans);
+        color:${done||now?'var(--grey)':'var(--grey2)'}">${esc(x.goal)}</p>
+      ${now?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(17,17,17,.07)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">TO MOVE UP</span>
+          <span style="font:600 12px/1 var(--sans)">${nxt?bestS+'s / '+goalS+'s':''}</span></div>
+        <p style="margin:7px 0 0;font:400 13.5px/1.4 var(--sans);color:var(--grey)">${
+          nxt?'Hit '+esc(x.hold)+' and '+esc(nxt.n)+' opens — '+esc((nxt.goal||'').toLowerCase())
+             :'You are at the top of the ladder.'}</p>
+        <div style="margin-top:9px;height:5px;border-radius:99px;background:rgba(0,102,99,.1);overflow:hidden">
+          <div style="height:100%;width:${pctS}%;border-radius:99px;background:var(--sage);
+            transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
+      </div>`:''}
+    </div>`;
   }).join('');
   return `<div class="scroll s">
     <div class="hero">
@@ -3106,8 +3128,19 @@ function screenLadder(){
     </div>
 
     <div class="pad">
-      <div class="h-sm" style="padding:0 4px 12px">The ladder</div>
-      <div style="display:flex;flex-direction:column;gap:9px">${cards}</div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;padding:0 6px 4px">
+        <div style="font:400 21px/1 var(--serif)">The ladder</div>
+        <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;
+          color:var(--grey2)">STAGE ${curStage()+1} OF ${STAGES.length}</span>
+      </div>
+      <div style="position:relative;padding-left:38px;margin-top:14px">
+        <div style="position:absolute;left:15px;top:14px;bottom:22px;width:2px;
+          background:rgba(0,102,99,.14)"></div>
+        <div style="position:absolute;left:15px;top:14px;width:2px;border-radius:99px;
+          height:${curStage()*(100/STAGES.length)}%;background:var(--forest);
+          transition:height .6s cubic-bezier(.2,.8,.2,1)"></div>
+        <div style="display:flex;flex-direction:column;gap:10px">${cards}</div>
+      </div>
     </div>
     <div style="padding:16px 16px 26px">
       <button onclick="go('coaching')" style="width:100%;text-align:left;border:none;background:var(--amber);
