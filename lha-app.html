@@ -1763,11 +1763,22 @@ function drawOv(){
           background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.7);
           font:700 9.5px/1 var(--sans);letter-spacing:.11em;color:${badge[1]}">${badge[0]}</span>
       </div>
-      <div style="font:400 26px/1.05 var(--serif);margin-top:14px">${esc(St.n)}</div>
-      <p style="margin:8px 0 0;font:400 14.5px/1.5 var(--sans);color:#444">${esc(St.intro||St.goal||'')}</p>
-      <p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
-        color:var(--grey2)">TO LEAVE THIS STAGE</p>
-      <p style="margin:0;font:400 14.5px/1.45 var(--sans)">${esc(St.goal||'')}</p>
+      <p style="margin:14px 0 0;font:400 14.5px/1.5 var(--sans);color:#444">${esc(St.intro||St.goal||'')}</p>
+      ${(()=>{
+        if(isNow) return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
+            color:var(--grey2)">TO MOVE UP</p>
+          <p style="margin:0;font:400 14.5px/1.45 var(--sans)">${esc(St.goal||'')}</p>`;
+        if(isDone) return `<p style="margin:16px 0 0;font:400 14.5px/1.45 var(--sans);color:var(--grey)">
+            You have been through this one.</p>`;
+        const prev=STAGES[si-1];
+        return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
+            color:var(--grey2)">TO GET HERE</p>
+          <p style="margin:0;font:400 14.5px/1.45 var(--sans)">${prev
+            ? 'Clear '+esc(prev.n)+' — '+esc((prev.goal||'').toLowerCase())
+            : 'This is where everyone starts.'}</p>
+          ${si>curStage()+1?`<p style="margin:8px 0 0;font:400 13px/1.45 var(--sans);color:var(--grey2)">
+            ${si-curStage()} stages above you. They open one at a time.</p>`:''}`;
+      })()}
       ${isNow?`
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:16px">
           <span style="font:600 10.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">YOUR BEST</span>
@@ -1852,6 +1863,20 @@ function drawOv(){
         <div class="kick2">LOCKED</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:9px">Pass the challenge on the stage before this one and it opens.</div></div>`:''}
       ${list}<div style="height:20px"></div>`;
+
+    if(st.stageView!=='drills'){
+      body=`${overview}
+        <div style="display:flex;gap:9px;margin-top:4px">
+          ${isNow||isDone?`<button class="btn" style="flex:1"
+            onclick="closeOv();buildFreeSession()">Train this stage</button>`:''}
+          <button class="btn2" style="flex:1"
+            onclick="st.stageView='drills';save();drawOv()">See the drills</button>
+        </div>`;
+    } else {
+      body=`<button onclick="st.stageView='summary';save();drawOv()" style="background:none;border:none;
+        cursor:pointer;padding:0 0 12px;font:500 13px/1 var(--sans);color:var(--grey)">&larr; Summary</button>
+        ${body}`;
+    }
     }
   }
   if(st.ov==='summary'){
@@ -3217,7 +3242,7 @@ function manageSubscription(){
     .catch(()=>{ if(b){ b.textContent='Could not open — message Elliott'; } });
 }
 
-function openStage(i){ st.ovStage=i; openOv('stage'); }
+function openStage(i){ st.ovStage=i; st.stageView='summary'; openOv('stage'); }
 
 /* ── the week, for Foundations ─────────────────────────────────────
    Until now every free session drew from the whole stage pool, so three
