@@ -1025,7 +1025,8 @@ function screenAsk(){
       msgs.length ? bubbles : `<div style="text-align:center;padding:34px 20px;color:var(--grey2);
         font:400 14.5px/1.6 var(--sans)">No messages yet.<br>Ask me anything about the training.</div>`
     }</div>
-    <div style="padding:6px 14px 26px">
+    <div style="position:sticky;bottom:0;z-index:3;padding:6px 14px calc(env(safe-area-inset-bottom) + 14px);
+      background:linear-gradient(180deg,rgba(236,231,226,0),var(--bg) 22%)">
       <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;align-items:center">
         <input id="askIn" placeholder="Ask about a drill, a niggle, a week off…"
           value="${esc(askDraft)}" oninput="askDraft=this.value"
@@ -1517,32 +1518,36 @@ function drawOv(){
   if(st.ov==='list'){
     /* one row per drill in the built session. Opening a row shows what it is
        and lets you change how long it runs before you start. */
+    /* the same session in the format the coached plan uses: tick it off as you
+       go, change a dose before you start, flag one that was wrong, watch the
+       demo. Follow-along is still one tap away for anyone who wants it. */
     const rows=(Q||[]).map((q,i)=>{
-      const it=q.it, open=st.ovRow===i;
-      return `<div style="border-radius:16px;background:#fff;border:1px solid rgba(17,17,17,.07);
-        overflow:hidden">
-        <div onclick="st.ovRow=${open?'null':i};save();drawOv()" style="display:flex;align-items:center;
-          gap:12px;padding:13px 14px;cursor:pointer">
-          <span style="flex:none;width:22px;font:600 11px/1.3 var(--sans);color:var(--grey2)">${
-            String(i+1).padStart(2,'0')}</span>
-          <span style="flex:1;min-width:0">
-            <span style="display:block;font:500 15px/1.3 var(--sans)">${esc(it.n)}</span>
-            <span style="display:block;margin-top:4px;font:500 12.5px/1 var(--sans);
-              color:var(--grey)">${esc(q.grp||'')}</span></span>
-          <span style="flex:none;display:flex;align-items:center;gap:9px">
-            <span style="font:600 13px/1 var(--sans);color:var(--forest)">${work(it)}s</span>
-            <span style="font:400 13px/1 var(--sans);color:var(--grey2);
-              transform:rotate(${open?180:0}deg)">⌄</span></span>
-        </div>
-        ${open?`<div style="padding:0 14px 14px">
-          ${it.url?`<video src="${it.url}" controls playsinline preload="none"
-             style="width:100%;border-radius:12px;background:#11150f;display:block"></video>`
-            :videoPlaceholder(q.grp||'Drill','')}
-          ${it.desc?`<p style="margin:11px 0 0;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
-            esc(it.desc)}</p>`:''}
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px">
-            <span style="font:600 10px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">SECONDS</span>
-            <div style="display:flex;align-items:center;gap:10px">
+      const it=q.it, k='q'+i;
+      const on=(st.qTick||{})[k], rate=(st.rate||{})[it.v]||'', openD=(st.open||{})[k];
+      const editing=st.ovRow===i;
+      const flagged=rate==='easy'||rate==='hard';
+      return `<div style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
+        border-radius:16px;padding:13px 14px">
+        <div style="display:flex;gap:13px;align-items:flex-start">
+          <div class="box ${on?'on':''}" onclick="qTick('${k}')">✓</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+              <div style="font:600 15px/1.25 var(--sans);${on?'color:var(--grey2);text-decoration:line-through':''}">
+                ${esc(it.n)}</div>
+              ${it.url?`<button class="rt" style="flex:none"
+                onclick="st.open=st.open||{};st.open['${k}']=!st.open['${k}'];save();drawOv()">${
+                openD?'Hide':'▶ Demo'}</button>`
+                :`<span class="rt" style="flex:none;opacity:.55">Soon</span>`}
+            </div>
+            <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
+              <button onclick="st.ovRow=${editing?'null':i};save();drawOv()"
+                style="border:none;background:none;cursor:pointer;padding:0;
+                font:700 13px/1 var(--sans);color:var(--forest);text-decoration:underline;
+                text-underline-offset:3px">${work(it)}s</button>
+              <button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
+              <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>
+            </div>
+            ${editing?`<div style="display:flex;align-items:center;gap:10px;margin-top:11px">
               <button onclick="adjustSecs('${esc(it.v||'')}',-10)" style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">−</button>
@@ -1551,18 +1556,31 @@ function drawOv(){
               <button onclick="adjustSecs('${esc(it.v||'')}',10)" style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">+</button>
-            </div>
+              <button class="rt" style="margin-left:auto" onclick="closeOv();startQueue(${i})">Start here</button>
+            </div>`:''}
+            ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
+              esc(it.desc)}</div>`:''}
+            ${openD&&it.url?`<div style="margin-top:11px">${vidBlock(it.url,'16/10')}</div>`:''}
+            ${flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
+              <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
+                rate==='hard'?'TOO HARD':'TOO EASY'}</div>
+              <input value="${esc((st.note||{})[it.v]||'')}"
+                oninput="st.note=st.note||{};st.note['${it.v}']=this.value;save()"
+                placeholder="What happened? (optional)"
+                style="width:100%;margin-top:8px;border:1px solid rgba(17,17,17,.12);border-radius:10px;
+                padding:9px 11px;font:400 13.5px/1.3 var(--sans);background:#fff"></div>`:''}
           </div>
-          <button class="btn" style="width:100%;margin-top:12px"
-            onclick="closeOv();startQueue(${i})">Start from here</button>
-        </div>`:''}
+        </div>
       </div>`;}).join('');
     const mins=Math.round((Q||[]).reduce((a,q)=>a+work(q.it)+rest(q.it),0)/60);
+    const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
     body=`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
-        ${(Q||[]).length} drills · ${mins} minutes</div>
-      <button class="btn" style="width:100%;margin-bottom:16px"
-        onclick="closeOv();startQueue(0)">Start the session</button>
-      <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>`;
+        ${(Q||[]).length} drills · ${mins} minutes${ticked?' · '+ticked+' done':''}</div>
+      <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
+      <button class="btn2" style="width:100%;margin-top:14px"
+        onclick="closeOv();startQueue(0)">Follow along instead</button>
+      ${ticked?`<button class="btn" style="width:100%;margin-top:9px"
+        onclick="finishChecklist()">Done for today</button>`:''}`;
   }
   if(st.ov==='explainer'){
     const q=FAQS[st.exOpen]||FAQS[0];
@@ -1598,9 +1616,10 @@ function drawOv(){
         </div>
       </div>
       ${prefsHTML()}
-      ${st.plus?`<div class="card" style="margin-top:14px;padding:16px">
+      ${(st.plus||st.in)?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
-        <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">The full ladder — £5 a month.</div>
+        <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${st.in
+          ? 'Your coaching subscription.' : 'The full ladder — £5 a month.'}</div>
         ${(()=>{
           if(!subInfo) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
             Checking with Stripe…</div>`;
@@ -1637,7 +1656,7 @@ function drawOv(){
         ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
         ${!st.canCancel&&!st.canManage?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-          To cancel, message Elliott.</div>`:''}
+          To change a card or cancel, message Elliott and it is done the same day.</div>`:''}
       </div>`:''}
       ${(!st.plus&&!st.in)?`<button class="btn" style="width:100%;margin-top:14px"
         onclick="closeOv();openStage(FREE_STAGES)">Unlock the full ladder — £5/mo</button>`:''}
@@ -2236,6 +2255,33 @@ function tick(k){ st.tick[k]=!st.tick[k]; save(); render(); }
    every drill row carry three buttons. Only the two exceptions are worth
    a tap. Clear any that were already saved. */
 Object.keys(st.rate||{}).forEach(function(k){ if(st.rate[k]==='good') delete st.rate[k]; });
+/* ticking a drill off in the list. Kept apart from the coached plan's own
+   ticks, which are keyed by day and group rather than by queue position. */
+function qTick(k){
+  st.qTick=st.qTick||{};
+  st.qTick[k]=!st.qTick[k];
+  save(); drawOv();
+}
+
+/* the list is a way of training, so finishing it has to count the same as
+   finishing the player — the same session record, marked as worked through
+   rather than followed along. */
+function finishChecklist(){
+  const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
+  if(!ticked) return;
+  const done=ticked>=(Q||[]).length;
+  const mins=Math.round((Q||[]).reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60);
+  reportProgress({session:{
+    day:st.day, name:((Q[0]&&Q[0].grp)||''), done, mode:'list',
+    drills:Q.length, mins, actual:0, got:ticked, of:Q.length,
+    items:(Q||[]).map((q,i)=>({v:q.it.v, n:q.it.n, of:1,
+      got:(st.qTick||{})['q'+i]?1:0, rate:(st.rate||{})[q.it.v]||''})).slice(0,40)
+  }});
+  st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
+  st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
+  st.qTick={}; save(); closeOv(); openOv('summary');
+}
+
 function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); reportSoon(); render(); }
 function sendFlags(){
   const f=Object.keys(st.rate).filter(v=>st.rate[v]==='easy'||st.rate[v]==='hard');
@@ -2637,6 +2683,12 @@ function dropStage(){
   if(curStage()<=0) return;
   if(!confirm('Drop back to '+STAGES[curStage()-1].n+'?')) return;
   st.stage=curStage()-1; save(); sendIntake(); render();
+}
+/* dropping back from a stage sheet, which can go further than one rung */
+function dropToStage(i){
+  if(i>=curStage()) return;
+  if(!confirm('Drop back to '+STAGES[i].n+'?\n\nYour training history stays.')) return;
+  st.stage=i; save(); sendIntake(); render();
 }
 function retakeIntake(){
   if(!confirm('Retake the questions?\n\nYour training history stays — this only changes where you are placed.')) return;
