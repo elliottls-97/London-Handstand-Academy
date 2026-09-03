@@ -57,6 +57,9 @@ SHIM = """
 (function(){
   const DEMO_PLAN = __PLAN__;
   const DEMO_PROG = __PROG__;
+  /* keep the demo plan in step with the app's own shape — the preview is
+     generated from lha-app.html, so it goes stale the moment a screen
+     changes and nobody regenerates it */
   const DEMO_MSGS = [
     {from:'coach', text:"Sample reply. Your shoulder line is stacking better — keep the ribs down on the entry.", at:Date.now()-6*3600e3},
     {from:'client', text:"Thanks — the wall work felt easier this week.", at:Date.now()-5*3600e3}

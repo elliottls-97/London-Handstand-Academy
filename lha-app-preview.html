@@ -23,6 +23,14 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink);
 .s::-webkit-scrollbar{display:none}.s{scrollbar-width:none}
 #app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;
  background:var(--bg);overflow:hidden}
+.burst{position:absolute;inset:0;pointer-events:none}
+.burst i{position:absolute;left:50%;top:34%;width:7px;height:7px;border-radius:2px;
+  opacity:0;transform:rotate(var(--a)) translateY(0);
+  animation:pop 900ms cubic-bezier(.2,.7,.3,1) var(--t) 1 both}
+@keyframes pop{0%{opacity:0;transform:rotate(var(--a)) translateY(0) scale(.4)}
+  15%{opacity:1}
+  100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--d)*-1)) scale(1) }}
+@media(prefers-reduced-motion:reduce){.burst{display:none}}
 .scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:8px}
 .hero{padding:calc(env(safe-area-inset-top) + 14px) 22px 26px;
  background:linear-gradient(180deg,var(--forest),var(--forest-d));color:var(--bg);border-radius:0 0 30px 30px}
@@ -277,6 +285,10 @@ const AUTH = {
   subscription:'/api/app/subscription',// GET → live status and dates
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
+  prefs:'/api/app/prefs',              // GET|POST what they want emailing about
+  questions:'/api/app/questions',      // GET yours, POST a new one
+  intake:'/api/app/intake',            // POST the quiz answers so the coach can see them
+  application:'/api/app/application',  // POST a coaching application
   submission:'/api/app/submission',    // POST numbers + clips as one review
   submissions:'/api/app/submissions',  // GET → what has been sent, and its status
   cycle:'/api/app/cycle'               // GET → where the client is in the block
@@ -428,6 +440,58 @@ const greeting=()=>{const h=new Date().getHours();return h<12?'morning':h<18?'af
 const today=()=>new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
 
 /* ── Plan ── */
+/* ── the coaching that was only ever on the standalone page ────────
+   read, priority, honest, filming and the Q&A were written into every
+   spec and then thrown away at build time, so the app showed a bare
+   drill list while the page Marina and Hannah actually use carried the
+   coaching. Moving them onto the app was a downgrade until now. */
+function planExtras(){
+  const D=DATA||{};
+  const para=t=>`<p style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin:0 0 10px">${esc(t)}</p>`;
+  const out=[];
+
+  if(D.priority) out.push(`<div class="card" style="padding:20px">
+    <div class="kick2">THE PRIORITY</div>
+    <div style="font:400 15px/1.55 var(--sans);margin-top:9px">${esc(D.priority)}</div></div>`);
+
+  if(D.honest&&D.honest.t) out.push(`<div class="card" style="padding:20px;border-left:3px solid var(--terra)">
+    <div class="kick2" style="color:var(--terra)">THE HONEST BIT</div>
+    <div class="h-sm" style="font-size:18px;margin-top:8px">${esc(D.honest.t)}</div>
+    <div style="margin-top:10px">${(D.honest.p||[]).map(para).join('')}</div></div>`);
+
+  if((D.answers||[]).length) out.push(`<div class="card" style="padding:20px">
+    <div class="kick2">QUESTIONS I GET ASKED</div>
+    <div style="margin-top:6px">${D.answers.map((a,i)=>{
+      const open=(st.qa||{})[i];
+      return `<div style="border-top:1px solid rgba(28,32,25,.08);padding:13px 0">
+        <div onclick="st.qa=st.qa||{};st.qa[${i}]=!st.qa[${i}];save();render()"
+          style="display:flex;gap:10px;justify-content:space-between;cursor:pointer">
+          <span style="font:500 14.5px/1.35 var(--sans)">${esc(a.q||'')}</span>
+          <span style="font:400 15px/1 var(--serif);color:var(--terra);flex:none">${open?'−':'+'}</span></div>
+        ${open?`${a.a?`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:9px">${esc(a.a)}</div>`:''}
+          ${qaVideo(a)}`:''}
+      </div>`;}).join('')}</div></div>`);
+
+  if((D.filming||[]).length) out.push(`<div class="card" style="padding:20px">
+    <div class="kick2">HOW TO FILM</div>
+    ${D.formcheck?`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">${esc(D.formcheck)}</div>`:''}
+    <ul style="margin:11px 0 0;padding-left:18px">${D.filming.map(f=>
+      `<li style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-bottom:5px">${esc(f)}</li>`).join('')}</ul>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="openOv('test')">Film the test</button></div>`);
+
+  return out.join('');
+}
+
+/* Explainer clips are not drills and are not in the library — they sit in
+   their own R2 bucket, named by filename, which is what the spec stores.
+   These never moved to Cloudflare Stream with the rest. */
+const EXPLAINERS='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/explainer-videos/';
+function qaVideo(a){
+  if(!a.v) return '';
+  return `<video src="${EXPLAINERS}${encodeURIComponent(a.v)}" controls playsinline preload="none"
+    style="width:100%;border-radius:14px;margin-top:11px;background:#11150f;display:block"></video>`;
+}
+
 function screenPlan(){
   const d=day();
   const total=allItems(d).length;
@@ -495,7 +559,9 @@ function screenPlan(){
         <div style="height:100%;width:${total?Math.round(ticked/total*100):0}%;background:var(--sand);border-radius:999px"></div></div>
       <div style="display:flex;gap:7px;margin-top:13px">${tabs}</div>
     </div>
-    ${groups}<div style="height:26px"></div></div>`;
+    ${groups}
+    <div style="padding:22px 12px 0;display:flex;flex-direction:column;gap:11px">${planExtras()}</div>
+    <div style="height:26px"></div></div>`;
 }
 const PURPOSE={'Warm-up':'Wrists and shoulders','Entries — build to 6':'The position, every time',
  'Shape changes':'Awareness while upside down','Tuck':'This is press training',
@@ -626,10 +692,18 @@ function screenProgress(){
       <div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
         ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet — the first test opens in a few days.</div>`}</div>
-      ${st.awaitingReview?`<div class="card" style="border:1.5px solid var(--terra);padding:18px">
-        <div class="kick2" style="color:var(--terra)">WITH ELLIOTT NOW</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-          Sent ${esc(when(st.awaitingReview))} — a reply lands within 48 hours.</div></div>`:''}
+      ${st.awaitingReview
+        ? `<div class="card" style="border:1.5px solid var(--terra);padding:18px">
+            <div class="kick2" style="color:var(--terra)">IN REVIEW</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+              Sent ${esc(when(st.awaitingReview))} — an answer lands within 48 hours.</div></div>`
+        : (st.lastReview && st.lastReview > (st.seenReview||0))
+        ? `<div class="card" style="border:1.5px solid var(--forest);padding:18px;cursor:pointer"
+            onclick="st.seenReview=st.lastReview;save();go('${st.in?'ask':'coaching'}')">
+            <div class="kick2" style="color:var(--forest)">ANSWERED</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+              Your answer is back — tap to read it.</div></div>`
+        : ''}
       ${panelMonth(st.prog)}
       ${panelWeek(st.prog)}
       <div class="card"><div class="kick2">CONSISTENCY</div>
@@ -783,8 +857,9 @@ function sendAssessment(file){
     upSay('Sending…');
     return fetch(AUTH.submission,{method:'POST',headers:authed(),
       body:JSON.stringify({kind:'assessment',
-        clips: got.uid?[{uid:got.uid,name:'Assessment clip'}]:[],
-        numbers: got.image?{photo:got.image}:{}})})
+        clips:[got.uid?{uid:got.uid,name:'Assessment clip'}
+                      :{image:got.image,name:'Assessment photo'}],
+        numbers:{}})})
       .then(gateCheck);
   })
   .then(()=>{ upBusy=false; upSay(''); st.freeCheckUsed=true; st.awaitingReview=Date.now();
@@ -793,6 +868,42 @@ function sendAssessment(file){
 }
 
 /* has anything been sent that is still waiting on a reply */
+/* People should be able to turn off anything that is not essential. A
+   password reset or a receipt still goes; a nudge does not have to. */
+function loadPrefs(){
+  if(!st.token) return;
+  fetch(AUTH.prefs,{headers:authed()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ st.prefs=d; save(); if(st.ov==='account') drawOv(); } })
+    .catch(()=>{});
+}
+function setPref(k,v){
+  st.prefs=Object.assign({},st.prefs,{[k]:v}); save(); drawOv();
+  fetch(AUTH.prefs,{method:'POST',headers:authed(),body:JSON.stringify({[k]:v})})
+    .then(r=>r.ok?r.json():null).then(d=>{ if(d){ st.prefs=d; save(); drawOv(); } })
+    .catch(()=>{});
+}
+function prefsHTML(){
+  const p=st.prefs||{};
+  const row=(k,t,d)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:11px 0;
+    border-top:1px solid rgba(28,32,25,.08)">
+    <div style="flex:1">
+      <div style="font:500 14px/1.3 var(--sans)">${t}</div>
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${d}</div></div>
+    <button onclick="setPref('${k}',${p[k]===false?'true':'false'})" aria-pressed="${p[k]!==false}"
+      style="flex:none;width:46px;height:27px;border-radius:999px;border:none;cursor:pointer;padding:3px;
+      background:${p[k]!==false?'var(--forest)':'rgba(28,32,25,.18)'};display:flex;
+      justify-content:${p[k]!==false?'flex-end':'flex-start'}">
+      <span style="width:21px;height:21px;border-radius:999px;background:#fff;display:block"></span>
+    </button></div>`;
+  return `<div class="card" style="padding:18px;margin-top:14px">
+    <div class="kick2">EMAILS</div>
+    ${row('replies','Replies and answers','When Elliott replies, or your form check is ready.')}
+    ${row('reminders','Training reminders','When your two-week test is due.')}
+    ${row('marketing','Tips and workshops','No more than twice a month.')}
+    <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
+      Password resets and receipts always send — those cannot be turned off.</div></div>`;
+}
+
 function loadSubmissions(){
   if(!st.token) return;
   fetch(AUTH.submissions,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
@@ -800,9 +911,27 @@ function loadSubmissions(){
     const open=d.submissions.find(s=>s.status==='submitted');
     const was=st.awaitingReview;
     st.awaitingReview = open ? open.at : 0;
-    st.lastReview = (d.submissions.find(s=>s.status==='reviewed')||{}).reviewedAt||0;
+    const done=d.submissions.find(s=>s.status==='reviewed')||{};
+    st.lastReview = done.reviewedAt||0;
+    st.lastAnswer = done.answer||null;
     save(); if(was!==st.awaitingReview && (st.tab==='coaching'||st.tab==='progress')) render();
   }).catch(()=>{});
+}
+
+function sendApplication(){
+  const a=st.applyDraft||{};
+  const say=m=>{ const el=$('#applyMsg'); if(el) el.textContent=m; };
+  const em=(st.email||a.email||'').trim();
+  if(!em){ say('I need an email address to reply to.'); return; }
+  if(!a.goal||!a.level){ say('Pick a goal and where you are now.'); return; }
+  say('Sending…');
+  fetch(AUTH.application,{method:'POST',headers:authed(),
+    body:JSON.stringify({email:em,name:a.name||'',
+      answers:{goal:a.goal,level:a.level,format:a.format||'',days:a.days||'',
+               injuries:a.injuries||'',notes:a.notes||''}})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
+    .then(()=>{ st.applyDraft={}; st.applied=Date.now(); save(); closeOv(); render(); })
+    .catch(e=>say(String(e)));
 }
 
 /* the server is what rations the free form check; the app only reports it */
@@ -971,7 +1100,20 @@ function screenMore(){
         :`<button class="act" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>`}
       </div>
       ${st.in?`<div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
-        color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>`:''}
+        color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>
+      <div class="card" style="padding:16px 18px;margin-bottom:16px">
+        <div class="kick2">WHICH APP</div>
+        <div style="display:flex;gap:8px;margin-top:11px">
+          ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>
+            `<button onclick="switchView(${f})" style="flex:1;cursor:pointer;border-radius:14px;
+              padding:12px 8px;font:500 13.5px/1 var(--sans);
+              border:1.5px solid ${(!!st.asFree)===f?'var(--forest)':'rgba(28,32,25,.16)'};
+              background:${(!!st.asFree)===f?'var(--forest)':'#fff'};
+              color:${(!!st.asFree)===f?'var(--bg)':'var(--ink)'}">${l}</button>`).join('')}
+        </div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
+          Your programme is always here. The ladder is the free five-stage
+          version — some people like having both.</div></div>`:''}
       <div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
         color:var(--grey2);margin:0 2px 12px">Drill library · ${all.length}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${cards}</div>
@@ -1232,7 +1374,22 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
   const d=day();
   const partWay = !done && qi>0 && qi<Q.length-1;
   if(partWay) whyStopContext=(Q[qi]&&Q[qi].it&&Q[qi].it.n)||'';
-  reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done,
+  /* The player has known the drill-by-drill all along — every set in Q
+     carries its drill, its block and its position — and threw it away at
+     the end, reporting only a count. Without it a coach can see that a
+     session was abandoned but not which drill it died on, or how far
+     into it. */
+  const rows=(function(){
+    const m=new Map();
+    Q.forEach((x,idx)=>{
+      const k=(x.it&&x.it.v)||(x.it&&x.it.n)||('#'+idx);
+      if(!m.has(k)) m.set(k,{v:(x.it&&x.it.v)||'',n:(x.it&&x.it.n)||'',grp:x.grp||'',got:0,of:0});
+      const r=m.get(k); r.of++; if(idx<qi||done) r.got++;
+    });
+    return [...m.values()].slice(0,40)
+      .map(r=>Object.assign(r,{rate:(st.rate||{})[r.v]||''}));
+  })();
+  reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done, items:rows,
     drills:Q.length,
     mins:Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60),
     actual: sessionStart?Math.round((Date.now()-sessionStart)/60000):0,
@@ -1240,6 +1397,8 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
     /* where they stopped is the useful half of an abandoned session */
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
+  st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
+  if(done && !st.in) advanceDay();
   save();
   if(done){ st.ovSummary=true; openOv('summary'); }
   else if(partWay){ render(); openOv('why'); }
@@ -1319,7 +1478,7 @@ function drawOv(){
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
            password:'Change password', account:'Your account',
-           why:'Why are you stopping?',
+           why:'Why are you stopping?',apply:'Apply for coaching',
            summary:'Session complete',stage:S?S.n:'Stage'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
@@ -1340,6 +1499,7 @@ function drawOv(){
     const tier = st.in ? {n:'Coaching', d:'Your own programme, written by Elliott.', c:'var(--terra)'}
       : st.plus ? {n:'Full ladder', d:'£5 a month. Every stage including the Press.', c:'var(--terra)'}
       : {n:'Free', d:'Stages 1 to 4. The Press is £5 a month.', c:'var(--sand)'};
+    if(!st.prefs) loadPrefs();
     body=`<div class="card" style="padding:18px">
         <div style="display:flex;align-items:center;gap:11px">
           <span style="width:42px;height:42px;border-radius:999px;background:${tier.c};flex:none;
@@ -1359,6 +1519,7 @@ function drawOv(){
           <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${tier.d}</div>
         </div>
       </div>
+      ${prefsHTML()}
       ${st.plus?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">The full ladder — £5 a month.</div>
@@ -1450,6 +1611,51 @@ function drawOv(){
       <div id="testMsg" style="font:500 12px/1.5 var(--sans);color:var(--terra);text-align:center;min-height:16px"></div>
       <button class="btn" onclick="sendTest()">Send my test</button></div>`;
   }
+  if(st.ov==='apply'){
+    const a=st.applyDraft||{};
+    const set=(k)=>`oninput="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']=this.value;save()"`;
+    const opts=(k,list)=>`<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:9px">
+      ${list.map(o=>`<button onclick="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']='${esc(o)}';save();drawOv()"
+        style="border:1.5px solid ${a[k]===o?'var(--forest)':'rgba(28,32,25,.16)'};
+        background:${a[k]===o?'var(--forest)':'#fff'};color:${a[k]===o?'var(--bg)':'var(--ink)'};
+        border-radius:999px;padding:9px 14px;font:500 13px/1 var(--sans);cursor:pointer">
+        ${esc(o)}</button>`).join('')}</div>`;
+    const label=t=>`<div style="font:600 10px/1 var(--sans);letter-spacing:.13em;
+      text-transform:uppercase;color:var(--grey2);margin:20px 0 0">${t}</div>`;
+    const box=(k,ph,rows)=>`<textarea ${set(k)} rows="${rows}" placeholder="${ph}"
+      style="width:100%;margin-top:9px;border:1px solid rgba(28,32,25,.16);border-radius:14px;
+      padding:12px;font:400 14px/1.5 var(--sans);resize:vertical;box-sizing:border-box;
+      outline:none">${esc(a[k]||'')}</textarea>`;
+
+    body=`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">
+        I read every one of these myself and come back within 48 hours.</div>
+      ${st.token?'':`${label('Your email')}
+        <input ${set('email')} type="email" inputmode="email" placeholder="you@example.com"
+          value="${esc(a.email||'')}" style="width:100%;margin-top:9px;border:1px solid rgba(28,32,25,.16);
+          border-radius:14px;padding:13px;font:400 14px/1 var(--sans);box-sizing:border-box;outline:none">`}
+      ${label('Your name')}
+      <input ${set('name')} placeholder="First name is fine" value="${esc(a.name||'')}"
+        style="width:100%;margin-top:9px;border:1px solid rgba(28,32,25,.16);border-radius:14px;
+        padding:13px;font:400 14px/1 var(--sans);box-sizing:border-box;outline:none">
+      ${label('What do you want')}
+      ${opts('goal',['A freestanding handstand','A longer, cleaner hold','Press to handstand','One arm','Something else'])}
+      ${label('Where you are now')}
+      ${opts('level',['Not been upside down','Chest to wall','Kicking up, no balance','A few seconds free','10 seconds or more'])}
+      ${label('How you would train')}
+      ${opts('format',['Online only','In person in London','Either'])}
+      ${label('Days a week you can train')}
+      ${opts('days',['1–2','3','4','5+'])}
+      ${label('Injuries or anything I should know')}
+      ${box('injuries','Wrists, shoulders, back, anything recent or ongoing. Be honest — it shapes the plan.',3)}
+      ${label('Anything else')}
+      ${box('notes','Optional.',2)}
+      <div id="applyMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--terra);
+        text-align:center;margin-top:14px;min-height:18px"></div>
+      <button class="btn" style="width:100%;margin-top:4px" onclick="sendApplication()">Send it</button>
+      <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:10px">
+        By sending this you agree to our
+        <a href="/privacy" target="_blank" rel="noopener" style="color:var(--grey)">Privacy Policy</a>.</div>`;
+  }
   if(st.ov==='adjust'){
     body=`<div style="display:flex;flex-direction:column;gap:11px">
       ${[['Short on time','Do the warm-up, entries and shape changes. Skip the strength block — it is the part that keeps.'],
@@ -1533,15 +1739,34 @@ function drawOv(){
     }
   }
   if(st.ov==='summary'){
-    const q=queue();
-    body=`<div style="text-align:center;padding:20px 0">
-      <div class="h-xl" style="font-size:64px;color:var(--terra)">${q.length}</div>
-      <div class="kick2" style="margin-top:10px">SETS DONE</div>
-      <div class="h-lg" style="margin-top:22px">That's ${esc(day().label)} done</div></div>
-      <div class="kick2" style="margin-top:10px">HOW DID IT FEEL?</div>
+    const q=queue(), d=day();
+    const drills=allItems(d).length;
+    const mins=st.lastSessionMins||0;
+    const stat=(v,l)=>`<div style="flex:1;text-align:center">
+      <div class="h-sm" style="font-size:26px">${v}</div>
+      <div style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2);
+        margin-top:6px">${l}</div></div>`;
+    /* the moment a session ends is the one moment worth making a fuss of */
+    body=`<div style="position:relative;text-align:center;padding:26px 0 6px;overflow:hidden">
+      <div class="burst">${Array.from({length:18},(_,i)=>
+        `<i style="--a:${(i*20)}deg;--d:${60+(i%5)*22}px;--t:${(i%6)*90}ms;
+          background:${['var(--terra)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
+      <div class="h-xl" style="font-size:58px;color:var(--terra);position:relative">${q.length}</div>
+      <div class="kick2" style="margin-top:8px">SETS DONE</div>
+      <div class="h-lg" style="margin-top:20px">That's ${esc(d.label)} done.</div>
+      <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
+        Logged. ${st.in?'Elliott can see it.':'It is on your Progress screen.'}</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;padding:16px 0;
+      border-top:1px solid rgba(28,32,25,.09);border-bottom:1px solid rgba(28,32,25,.09)">
+      ${stat(drills,'DRILLS')}${stat(mins?mins+'m':'—','TIME')}${stat(q.length,'SETS')}
+    </div>
+      <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
       <div style="display:flex;gap:9px;margin-top:12px">
       ${['Too easy','About right','Too hard'].map(f=>`<button class="btn2" style="flex:1"
-        onclick="post({type:'Session feel',feel:'${f}'});closeOv()">${f}</button>`).join('')}</div>`;
+        onclick="post({type:'Session feel',feel:'${f}'});closeOv()">${f}</button>`).join('')}</div>
+      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
+        Telling me how it felt is what changes the next block.</div>`;
   }
   $('#ov').innerHTML=`<div class="ovhead"><button class="back" onclick="closeOv()">← Back</button>
     <div class="h-lg" style="margin-top:16px">${esc(T[st.ov]||'')}</div></div>
@@ -1918,30 +2143,182 @@ function sendTest(){
 let LIBRARY=[{"v": "wrist-circles-mob", "n": "Wrist Circles", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a7cd457020f580093be946524a84c3af/downloads/default.mp4", "d": "", "nt": "", "cues": ["Spread fingers wide.", "Keep pressure light at first.", "Move slowly through the full circle.", "Match both directions evenly."], "desc": "Gently warm and lubricate the wrists through their full range of motion before loading."}, {"v": "wrist-flexion-ext", "n": "Wrist Flexion and Extension", "url": "", "d": "", "nt": "", "cues": ["Use the other hand to assist gently.", "Hold briefly at end range.", "Never force into pain.", "Breathe steadily."], "desc": "Build active range through the wrist joint in both directions to reduce injury risk."}, {"v": "wrist-weight-shift", "n": "Wrist Weight Shifting", "url": "", "d": "", "nt": "", "cues": ["On all fours, fingers facing forward.", "Shift weight slowly side to side.", "Then front to back.", "Increase pressure gradually."], "desc": "Progressively load the wrists on all fours with gentle shifts to build tolerance for handstand work."}, {"v": "upward-dog-to-plank", "n": "Upward Dog to Plank", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/32d7acb10d5135328b3632c9d405c7cb/downloads/default.mp4", "d": "", "nt": "", "cues": ["Biceps rotate forward in upward dog.", "Keep arms straight throughout.", "Look forward in the dog position.", "Flow between positions smoothly."], "desc": "Start in upward facing dog with feet pointed, biceps turned forward looking forward. Keeping arms straight push up into plank."}, {"v": "wall-front-side-opener", "n": "Wall Front Side Opener", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5d5918dbb655c385fc7ee598262eb68d/downloads/default.mp4", "d": "", "nt": "", "cues": ["Face the wall a soft arms length away.", "Place palms high on the wall.", "Sink the chest forward and down.", "Hold for the full 30 seconds."], "desc": "Start facing the wall a soft arms distance away. Palms on wall above you, sink chest towards and down the wall."}, {"v": "dolphin-lean-forwards", "n": "Dolphin Lean Forwards", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/469ee75ee03a7834d30993b43fc0900e/downloads/default.mp4", "d": "", "nt": "", "cues": ["Keep forearms parallel on the floor.", "Shift forward with control.", "Touch nose gently to the floor.", "Push back actively through the shoulders."], "desc": "Start in Dolphin pose with legs bent while arms are as parallel as possible. Shift forwards to touch your nose to the floor between the hands. Push back."}, {"v": "floor-lateral-stretch", "n": "Floor Lateral Stretch", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/846d5c9cfbe28e8d311620b5bd867359/downloads/default.mp4", "d": "", "nt": "", "cues": ["Get on your knees.", "Place back of palms and forearms on the floor in parallel.", "Pull the body back.", "Focus on stretching the lats."], "desc": "Get on your knees, place the back of your palms and forearms on the floor in parallel, then pull the body back focusing on stretching the lats."}, {"v": "heart-melting-pose", "n": "Heart Melting Pose", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/08e6b205174da88791e0d9597ad2f657/downloads/default.mp4", "d": "", "nt": "", "cues": ["Get on your knees.", "Place back of palms and forearms on the floor.", "Pull body back actively.", "Feel the stretch through the entire shoulder girdle."], "desc": "Get on your knees, place the back of your palms and forearms on the floor in parallel, pull the body back focusing on stretching the lats."}, {"v": "downward-dog-elbow-lowers", "n": "Downward Dog Elbow Lowers", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/1f0c187746f22cf8854ce38631d86f0b/downloads/default.mp4", "d": "", "nt": "", "cues": ["Start in Downward Facing Dog.", "Lower elbows toward the floor.", "Keep elbows tucked in throughout.", "Hold 5 seconds at the bottom."], "desc": "Start in Downward Facing Dog, lower the elbows towards the floor. Keep elbows tucked in throughout. Hold for 5 seconds at the bottom of each one."}, {"v": "wall-shoulder-opener", "n": "Wall Shoulder Opener", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/89bd83f5409f89c13851812e7c08469a/downloads/default.mp4", "d": "", "nt": "", "cues": ["Place hands on wall at chest level.", "Lower body to horizontal.", "Look at the floor.", "Try hollowing the body out and keeping it straight."], "desc": "Place hands on the wall at chest level. Lower the body to horizontal, look at the floor. Try both hollowing out the body and keeping it straight."}, {"v": "downward-dog-pulses", "n": "Downward Dog Pulses", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b98ec8907ff9f1ffed4ae4fa68254d21/downloads/default.mp4", "d": "", "nt": "", "cues": ["Start in Downward Facing Dog.", "Look back between your legs.", "Bend the knees slightly.", "Pulse the chest toward the back of the room."], "desc": "Start in downward facing dog, look back, bend the knees. Pulse the chest towards the back of the room."}, {"v": "chaturganga-push-ups", "n": "Chaturanga Push Ups", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/54584cf750ae439aaa12b62218385ce2/downloads/default.mp4", "d": "", "nt": "", "cues": ["Start in Downward Dog.", "Walk hands forward into plank.", "Walk them back and repeat.", "Raise legs on a box to progress."], "desc": "Start in Downward Dog, walk your hands forward into a plank pose, walk them back and repeat. To make it harder raise your legs up on a box or bench."}, {"v": "crow-pose", "n": "Crow Pose", "url": "", "d": "", "nt": "", "cues": ["Place knees on your elbows.", "Use blocks or a pillow in front for your head.", "Lean forward and down gently.", "Lift one or both feet and hold."], "desc": "Place knees on elbows. Place head on blocks or a pillow in a triangle between your hands. Lean forward and down, set head on the blocks. Lift one or both feet off the floor and hold."}, {"v": "kick-up-bounces", "n": "Kick Up Bounces", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/843bc9940391615a0da8bc40fc061572/downloads/default.mp4", "d": "", "nt": "", "cues": ["Fingers close to the wall.", "Right leg up, straight and engaged.", "Look between hands, shoulders over hips.", "Bounce quickly keeping all engagement points."], "desc": "Start with fingers close to the wall. Right leg up in the air, straight and engaged. Look between hands, shoulders stacked over hips. Bounce on the left foot in quick succession."}, {"v": "wall-kick-ups", "n": "Wall Kick Ups", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/51a36a15330dd845d7099de1712cf8d2/downloads/default.mp4", "d": "", "nt": "", "cues": ["Stack shoulders above hands.", "Stack hips above shoulders.", "Jump up, throw hips toward the wall.", "Claw through the hands to exit."], "desc": "Stack shoulders above hands, hips above shoulders. Jump up and throw your hips towards the wall. Claw through the hands to come off the wall."}, {"v": "wall-kick-ups-progressions", "n": "Wall Kick Ups Progressions", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/41ee75425ffdb75af7c5122ad7823770/downloads/default.mp4", "d": "", "nt": "", "cues": ["Foam block between hip and floor leg prevents back arch.", "Block behind one hand keeps shoulders stacked over hands.", "Use a chair close to wall to reduce jump height.", "Progress each aid as you get stronger."], "desc": "Use a foam block tucked between the hip and the floor leg to prevent back arching. A block behind one hand keeps shoulders stacked. A chair near the wall reduces the height to jump."}, {"v": "wrist-circles-prep", "n": "Wrist Circles and Prep", "url": "", "d": "", "nt": "", "cues": ["Spread the fingers evenly.", "Keep pressure light at first.", "Move through full wrist circles.", "Match both sides with control."], "desc": "Prepare the wrists with controlled circles and gentle loading before going upside down."}, {"v": "shoulder-cars", "n": "Shoulder CARs", "url": "", "d": "", "nt": "", "cues": ["Stay tall through the ribs.", "Move slowly through the full arc.", "Keep the rest of the body quiet.", "Control both directions evenly."], "desc": "Take the shoulders through active full-range circles to warm the joint and improve awareness."}, {"v": "sprinter-warm-up", "n": "Sprinter Warm-Up", "url": "", "d": "", "nt": "", "cues": ["Push the floor away.", "Keep the front foot grounded.", "Switch sides smoothly.", "Breathe steadily throughout."], "desc": "Prime the hips, ankles and lower body with dynamic sprinter-position switching."}, {"v": "chest-to-wall-bailouts", "n": "Chest-to-Wall Bailouts", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/362da5a70cede1b49229a635829656ca/downloads/default.mp4", "d": "", "nt": "", "cues": ["Look between the hands.", "Step one hand slightly forward to twist out.", "Keep the exit soft and controlled.", "Practice both sides."], "desc": "Learn to exit safely from the wall with control so handstand practice feels confident and repeatable."}, {"v": "wall-walks", "n": "Wall Walks", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/aa4d27ce00fb663bc340ccac433d2d43/downloads/default.mp4", "d": "", "nt": "", "cues": ["Walk the feet up smoothly.", "Push tall through the shoulders.", "Keep the core lightly braced.", "Come down with control."], "desc": "Build confidence upside down while opening the shoulders and learning stacked alignment."}, {"v": "chest-to-wall-handstand", "n": "Chest-to-Wall Handstand", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/58fc55e74e70f2bd27233abfd289d4e8/downloads/default.mp4", "d": "", "nt": "", "cues": ["Squeeze legs together.", "Reach tall through the toes.", "Push the floor away constantly.", "Keep ribs gently in."], "desc": "Own a straight wall-supported handstand with strong shoulder push and midline control."}, {"v": "scapula-shrugs", "n": "Scapula Shrugs", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/9b4fb78a3767e853f1d9834e7ce86485/downloads/default.mp4", "d": "", "nt": "", "cues": ["Keep elbows straight.", "Move only through the shoulders.", "Push tall at the top.", "Lower with control."], "desc": "Strengthen upward rotation and elevation through the scapula for a more stable overhead shape."}, {"v": "one-leg-scapula-extensions", "n": "1-Leg Scapula Extensions", "url": "", "d": "", "nt": "", "cues": ["Keep hips level.", "Push evenly through both hands.", "Move slowly through each rep.", "Stay long through the standing leg."], "desc": "Challenge scapular control with asymmetry to build strength that transfers to balancing."}, {"v": "pike-press-ups", "n": "Pike Press-Ups", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3dc884615d637e2b1cee93aecb79e168/downloads/default.mp4", "d": "", "nt": "", "cues": ["Shift weight into the hands.", "Lower the head forward slightly.", "Press the floor away.", "Keep reps smooth and strong."], "desc": "Develop pressing strength and overhead pushing mechanics in a scalable shape."}, {"v": "single-leg-tuck-slides", "n": "Single Leg Tuck Slides", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/19cf721ee5bf8669c3a0a7aa77db847d/downloads/default.mp4", "d": "", "nt": "", "cues": ["Chest to wall, hands about 1.5 feet from the wall, feet pointed.", "One foot stays on the wall.", "Take the other knee down towards your chest."], "desc": "Chest to wall, hands 1.5 feet from the wall. One foot stays on the wall, take the other knee down towards your chest."}, {"v": "lateral-slide-outs", "n": "Lateral Slide Outs", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/76117e863cb1fb17f3d8f719e27990ba/downloads/default.mp4", "d": "", "nt": "", "cues": ["Shift slowly into the hand.", "Stay active through the shoulders.", "Keep legs long.", "Come back with control."], "desc": "Train side-to-side corrections and stronger fingertip awareness during balance changes."}, {"v": "tuck-slides", "n": "Tuck Slides", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3749a6dc6abc40ae2627290d1f446d33/downloads/default.mp4", "d": "", "nt": "", "cues": ["Same start, hands about 1.5 feet from the wall.", "Knees together, lower them both down.", "Don't worry about the rest of the body at first — it's about the movement."], "desc": "Same start, but both knees come down together. The harder version."}, {"v": "knees-on-box", "n": "Knees on Box", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3f8d978d6e7c21ae14d376815eb90803/downloads/default.mp4", "d": "", "nt": "", "cues": ["Box about hip height, knees near the edge.", "Hands right to the edge of the box.", "Push into the ground, look between the hands."], "desc": "Use the box to build overhead loading tolerance and a cleaner stacked shape."}, {"v": "knees-on-box-single-leg-lifts", "n": "Knees on Box - Single Leg Lifts", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3b113c75d21425757a1934bc002ff6f0/downloads/default.mp4", "d": "", "nt": "", "cues": ["Lift only as high as you can control.", "Keep hips square.", "Push tall continuously.", "Alternate smoothly."], "desc": "Add small leg lifts to challenge balance while keeping strong support through the shoulders."}, {"v": "knees-on-box-knee-lift-offs", "n": "Knees on Box - Knee Lift-Offs", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3b113c75d21425757a1934bc002ff6f0/downloads/default.mp4", "d": "", "nt": "", "cues": ["Lean forward gradually.", "Stay active in the fingertips.", "Lift for a brief clean moment.", "Reset before the next rep."], "desc": "Progress toward full support by briefly unweighting the box with both knees."}, {"v": "single-leg-take-off", "n": "Single Leg Take Off", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/bed0e1e90176e790569dc82e8060e158/downloads/default.mp4", "d": "", "nt": "", "cues": ["Hands about 1.5 feet from the wall.", "Take one leg off the wall.", "Float the second leg just off and hold 1-2 seconds.", "Place back on the wall before you over-balance."], "desc": "With hands about 1.5 feet from the wall, take one leg off, then the other just slightly off, hold 1-2 seconds, then place back. Go too far and you fall out."}, {"v": "single-leg-wall-removals", "n": "Single Leg Wall Removals", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/97a793aeb7268ea61159163eb5a0c30e/downloads/default.mp4", "d": "", "nt": "", "cues": ["Move from the hip slowly.", "Stay long through both legs.", "Use the fingertips to steer.", "Return to the wall with control."], "desc": "Take one leg away from the wall to build balance confidence and ownership of your line."}, {"v": "slide-away", "n": "Slide Away", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/0011bde2e0f70364712159d9442d4803/downloads/default.mp4", "d": "", "nt": "", "cues": ["Lean the shoulders forward.", "Push back actively through the arms.", "Let the feet slide back up the wall.", "Keep the movement smooth and controlled."], "desc": "Lean the shoulders forward and push back, letting the feet slide back up the wall. This version is about grooving the shoulder movement — the feet stay on the wall throughout."}, {"v": "slide-away-2", "n": "Slide Away — Off the Wall", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/0011bde2e0f70364712159d9442d4803/downloads/default.mp4", "d": "", "nt": "", "cues": ["Stay aligned and hollow throughout.", "Move the shoulders off with control.", "Let the feet leave the wall as the shoulders move.", "Find a brief balance, then return."], "desc": "The progression: keep the body aligned and hollow as you move. Now the aim is for the feet to come off the wall as the shoulders move off — finding a brief moment of balance before returning."}, {"v": "single-leg-tuck-take-offs", "n": "Single Leg Tuck Take-Offs", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/bed0e1e90176e790569dc82e8060e158/downloads/default.mp4", "d": "", "nt": "", "cues": ["Walk up the wall, one leg in the air, toes pointed.", "Slide the second leg down to tuck.", "Lean and look slightly forward as you pull the foot in.", "Hold a moment, then place it back."], "desc": "Walk up the wall with one leg in the air, slide the second leg down into a tuck. Lean and look slightly forward as you pull the second foot in. Hold, then replace. The gap can grow over time."}, {"v": "tuck-take-offs", "n": "Tuck Take-Offs", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b173a66d935153d532b2748227f253bc/downloads/default.mp4", "d": "", "nt": "", "cues": ["Slide into a tuck against the wall.", "Keep knees tucked tightly, touching.", "Look forward and lean forward.", "Bring the knees off the wall with control."], "desc": "Slide into tuck against the wall, knees tucked tightly together. Look forward and lean forward to bring your knees off the wall."}, {"v": "straddle-to-straight", "n": "Straddle to Straight", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/195e5344c3399b8ce0bc91931633ab9f/downloads/default.mp4", "d": "", "nt": "", "cues": ["Kick up, option against the wall first.", "Lightly touch, then come away.", "Move freestanding once you get a couple of reps.", "Keep the straddle moderate, not excessive."], "desc": "Kick up into handstand (option against the wall), taking the body away from the wall. Lightly touch at first, then not at all. Keep the straddle moderate so it does not throw your balance."}, {"v": "straight-to-tuck-back", "n": "Straight to Tuck & Back", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/e461fca19fb288c2a004edaa65df8a21/downloads/default.mp4", "d": "", "nt": "", "cues": ["Kick up with knees together.", "Use hip flexors to pull knees down.", "Keep pushing tall through the shoulders.", "Gradually increase the depth of the tuck."], "desc": "Once kicked up with knees together, actively use the hip flexors to pull the knees down towards you, then back. This needs anterior deltoid and scapular elevation strength to stay up."}, {"v": "straddle-to-diamond", "n": "Straddle to Diamond", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/40348e20a24a20f8279e1f69119e68cd/downloads/default.mp4", "d": "", "nt": "", "cues": ["Start in straddle handstand.", "Bring toes together into a diamond.", "Externally rotate the hips to keep it neat.", "Point the toes; option to tuck after."], "desc": "From a straddle handstand, bring the toes together into a diamond, externally rotating the hips to keep it neat. Option to come into tuck after."}, {"v": "straight-entries", "n": "Straight Entries", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/2119c2dd78761e507a61728712c5a7ba/downloads/default.mp4", "d": "", "nt": "", "cues": ["Right leg up, straight and pointed.", "Shoulders stacked over hands, hips high.", "Bounce the lower leg to kick up.", "Bring the legs together, hold 1 second."], "desc": "Start with the right leg in the air, straight with pointed foot, shoulders stacked over hands and hips high. Bounce on the lower leg to kick up, bringing the left leg to meet the right. Hold a second before coming down."}, {"v": "straddle-entries", "n": "Straddle Entries", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/4be7868ac0a11251d92d447367dceef1/downloads/default.mp4", "d": "", "nt": "", "cues": ["Shoulders over hands, hips high.", "Start in a forward fold, legs bent.", "Open legs to the side, circle to centre.", "Keep looking down; elevate the scapula to push up."], "desc": "Shoulders stacked over hands, hips high in a forward fold with bent legs. Open the legs out to the side and circle them to centre, keeping the gaze down and elevating the scapula to push up into position."}, {"v": "tuck-entries", "n": "Tuck Entries", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/1215255521e9da9fd966e8b6d7ec128b/downloads/default.mp4", "d": "", "nt": "", "cues": ["Stack the shoulders over the hands.", "Keep knees together throughout.", "Jump up to a tuck handstand.", "Extend the legs and push the pelvis through to straight."], "desc": "Once the shoulders are stacked, keep the knees together and jump up to a tuck handstand. Extend the legs and push the pelvis through to bring the body into a straight line."}, {"v": "p-pike-pushups", "n": "Pike Push Ups", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/1d49ef13267f7b9516df86a406c3412a/downloads/default.mp4", "d": "", "nt": "", "cues": ["Feet a little wider than hips, knees bent, hips high.", "Look forward to a point between the hands.", "Lower the forehead to that point, elbows tucked.", "Push back up keeping the diagonal line."], "desc": "Front deltoid strength — the fix if you end up collapsing in the take-off. Build the pressing strength the take-off demands."}, {"v": "p-pike-pushup-negs", "n": "Pike Push Up Negatives", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5fc1575443b323abd17a824d634ddb41/downloads/default.mp4", "d": "", "nt": "", "cues": ["Lower under control.", "Keep the shoulders elevated throughout."], "desc": "A progression on the pike push up — load the lowering phase to build pressing strength."}, {"v": "p-pike-pushups-knees", "n": "Pike Push Ups on Knees", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/990e81ff459d2a428966d1cfc75d868c/downloads/default.mp4", "d": "", "nt": "", "cues": ["Same shape, less load.", "Build to the full pike push up."], "desc": "A regression — the same pressing pattern made more accessible. Build the strength from your knees first."}, {"v": "p-l-handstand", "n": "L-Shaped Handstand", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/ae64c76e183bb5191aaf6856240a3eab/downloads/default.mp4", "d": "", "nt": "", "cues": ["Stack the hips over the shoulders.", "Push tall through the shoulders."], "desc": "Helps you learn to get the hips stacked over the shoulders — the position the take-off has to find."}, {"v": "p-tuck-handstand", "n": "Tuck Handstand", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/823cfe703e74214ad84ddba54a386bbe/downloads/default.mp4", "d": "", "nt": "", "cues": ["Engage the hip flexors to pull the knees down.", "Let the lower back draw the hips into anterior pelvic tilt.", "Push tall — actively elevate the scapula.", "Avoid posterior tilt — it becomes a tuck planche."], "desc": "HERO DRILL. The scapula needs to be elevated to properly take off, and the tuck handstand is the best teacher — it shows you how to move the hips and elevate the scapula at the same time. The lower centre of mass makes balancing easier but you feel it far more in the shoulders."}, {"v": "p-tuck-slides", "n": "Tuck Handstand Slides", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b8566b45406a58ad0824b1af38a4ea85/downloads/default.mp4", "d": "", "nt": "", "cues": ["Same start, hands 1.5 feet from the wall.", "Knees together, lower them down.", "The harder version — both legs at once."], "desc": "Movement patterning for the take-off — learn to get the hips stacked over the shoulders."}, {"v": "p-single-leg-tuck-slides", "n": "Single Leg Tuck Slides", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b8566b45406a58ad0824b1af38a4ea85/downloads/default.mp4", "d": "", "nt": "", "cues": ["Chest to wall, hands about 1.5 feet from the wall, feet pointed.", "One foot stays on the wall.", "Take the other knee down towards your chest."], "desc": "A single-leg variation to build control and hip stacking one side at a time."}, {"v": "p-plank-slides", "n": "Plank Slides to Pike", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/7e7ebd3d88d2a9fc610a62d556d01ec4/downloads/default.mp4", "d": "", "nt": "", "cues": ["Move as one connected chain.", "Control the slide both ways."], "desc": "Conditioning — builds the connected-chain strength the compression demands."}, {"v": "p-bench-zombies", "n": "Bench Zombies", "url": "", "d": "", "nt": "", "cues": ["Feet on the bench, toes pointed.", "Pull up until the hips stack over the shoulders.", "Keep the lower back engaged."], "desc": "Plank with your feet on a bench, toes pointed. Pull yourself up until the hips are stacked over the shoulders."}, {"v": "p-bench-zombies-lowers", "n": "Bench Zombies Lowers", "url": "", "d": "", "nt": "", "cues": ["Start on the edge of the bench.", "Step off and lower slowly to the floor."], "desc": "Start on the edge of the bench, step off and slowly lower down to the floor — adds the eccentric to build strength through the position."}, {"v": "p-pancake", "n": "Pancake Training", "url": "", "d": "", "nt": "", "cues": ["Reach long through the chest.", "Build active range, not just passive."], "desc": "Flexibility — builds the active compression range in the straddle that the press relies on."}, {"v": "p-dd-toe-taps", "n": "Downward Dog Toe Taps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/097aa6b7a61129cdaf8a78e64ba389bb/downloads/default.mp4", "d": "", "nt": "", "cues": ["Push the hips up and back.", "Keep the shoulders open."], "desc": "Trains compression and shoulder position while keeping the wrists happy."}, {"v": "p-pelvis-glute", "n": "Pelvis & Glute Engagement Drill", "url": "", "d": "", "nt": "", "cues": ["Find the hip position on the floor first.", "Take it to the wall."], "desc": "On the floor and at the wall — trains the hip positioning that keeps the unroll organised."}, {"v": "p-solo-press-circles", "n": "Solo Press Circles", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/7ab907d930c9749d32486003184bcf23/downloads/default.mp4", "d": "", "nt": "", "cues": ["Hold the handstand, open the legs.", "Start with small circles.", "Grow them as you get stronger.", "Both directions — speed doesn't matter."], "desc": "In a handstand, open the legs and make small circles. Grow the circles bigger over time, working towards the press position. Speed doesn't matter — work both directions."}, {"v": "p-back-to-wall", "n": "Back to Wall Press", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/7fdd9f7cceba8dcb31544af7550a0154/downloads/default.mp4", "d": "", "nt": "", "cues": ["Full upper back AND head on the wall.", "Focus on engaging the hip flexors.", "Keep the back rounded.", "If heavy on the wrists, turn the hands out to the side."], "desc": "HERO DRILL. Teaches the shape and compression with the wall taking some of the load. Make sure your full upper back as well as head is on the wall — this takes more of the weight so you can focus on engaging the hip flexors and keeping the back rounded."}, {"v": "p-chest-to-wall", "n": "Chest to Wall Press", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/eef15d6792347cd1aaeb0be71f222aeb/downloads/default.mp4", "d": "", "nt": "", "cues": ["Take-off into the line.", "Compress with the chain connected.", "Unroll with the shoulders opening first."], "desc": "THE ULTIMATE HERO. Trains all three stages — take-off, compression and unrolling — in a single movement. Your feet cannot go anywhere, so your shoulders cannot either: you either compress and unroll correctly, or the wall rejects you."}, {"v": "p-chest-to-wall-negs", "n": "Chest to Wall Negatives", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/900bba4d79fa55bd8e3db4d369e0157b/downloads/default.mp4", "d": "", "nt": "", "cues": ["Lower slowly and with control.", "Feel the path you will reverse on the way up."], "desc": "Lower under control from the wall handstand to break the ice and feel the descending path of the press."}, {"v": "shoulder-circles", "n": "Shoulder Circles", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/9ad6108b534d2c6375d629bd2f2363ea/downloads/default.mp4", "d": "", "nt": "", "cues": [], "desc": ""}, {"v": "shoulder-pulses", "n": "Shoulder Pulses", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/c812fa2fff981dd17bb93580619601f8/downloads/default.mp4", "d": "", "nt": "", "cues": [], "desc": "Small pulses through the shoulders to open them up before load."}, {"v": "plank-fingertip-lifts", "n": "Plank Fingertip Lifts", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5e23544c8db4eac5b2377f400d7ceb8a/downloads/default.mp4", "d": "", "nt": "", "cues": [], "desc": "A plank, but up on the fingertips instead of flat palms."}, {"v": "chest-to-wall-toe-taps", "n": "Chest to Wall Toe Taps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/da4144ad54ec886963a8e09a8050c7c6/downloads/default.mp4", "d": "", "nt": "", "cues": ["Hands about 2 feet from the wall.", "One leg stays on the wall.", "Pull the other knee or toe towards the floor.", "Control it down, don't drop."], "desc": "Hands about 2 feet from the wall, one leg on the wall. Take the other leg off and pull the knee or toe down towards the floor."}, {"v": "press-eccentrics", "n": "Press Eccentrics", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/29ccefcc5c0dfb837de6272309d647cd/downloads/default.mp4", "d": "", "nt": "", "cues": ["Start in the handstand.", "Lower slowly through the compression.", "Same path you'll press back up."], "desc": "The press in reverse. From the handstand, lower under control through the compressed position instead of pushing up out of it."}, {"v": "press-walks", "n": "Press Walks", "url": "", "d": "", "nt": "", "cues": ["Baby hop the feet forward.", "Press the hips up and back as you lean forward.", "Up and down the mat."], "desc": "Baby hop the feet forward, then press the hips up and back as you lean forward. Walk up and down the mat."}, {"v": "block-reaches", "n": "Block Reaches", "url": "", "d": "", "nt": "", "cues": ["Seated forward fold, block in the hands.", "Reach forward over the feet.", "Engage through the quads.", "Active, not a passive hang."], "desc": "Sit in a forward fold holding a block. Reach forward over the feet, engaging through the quads. An active forward fold, not a passive one."}, {"v": "lolasana-lifts", "n": "Lolasana Lifts", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/1d8c3fd87048e4be984c51f8372f16ae/downloads/default.mp4", "d": "", "nt": "", "cues": [], "desc": "Straight arms, knees tucked, lift and hold."}, {"v": "freestanding-hold", "n": "Freestanding Hold", "url": "", "d": "", "nt": "", "cues": ["Kick up, find it, hold it.", "Stop the set the moment the shape goes.", "Quality over seconds — this isn't a max attempt."], "desc": "A clean hold, not a maximum. Up to 15 seconds, stopping as soon as the line goes."}, {"v": "max-hold-test", "n": "Max Hold Test", "url": "", "d": "", "nt": "", "cues": ["Three attempts, best of three.", "Warm up properly first.", "Film one if you can."], "desc": "The tracked number. Three attempts, log the best."}, {"v": "dd-wrist-taps", "n": "Downward Dog Wrist Taps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/d79ada213578ca1993b4cb4b9f3ec4b1/downloads/default.mp4", "d": "", "nt": "", "cues": [], "desc": ""}, {"v": "chair-assisted-knee-lifts", "n": "Chair-Assisted Knee Lifts", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a3f7be549122a3e84dd46e1530724349/downloads/default.mp4", "d": "", "nt": "", "cues": [], "desc": ""}, {"v": "chair-assisted-step-ups", "n": "Chair-Assisted Step Ups", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/d5bff0ae8e4f8914cd35d7b906155956/downloads/default.mp4", "d": "", "nt": "", "cues": [], "desc": ""}, {"v": "dd-float-drills", "n": "Downward Dog Floats", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/e6b63c7852f82ba17a727fd8002700c9/downloads/default.mp4", "d": "", "nt": "", "cues": ["Start in downward facing dog.", "Look forward and lean forward.", "Jump with the hips coming as high as you can.", "Bend the knees to help slow yourself down."], "desc": "From downward facing dog, look and lean forward and jump, hips as high as you can. Bend the knees to slow the landing — the aim is a quiet forward fold, then jump back to dog."}, {"v": "lying-crunch-and-contract", "n": "Lying Crunch and Contract", "url": "", "d": "", "nt": "", "cues": ["On your back.", "Crunch and hold the contraction.", "Same shape you need in the air, without the wrist load."], "desc": ""}, {"v": "table-top-knee-to-nose", "n": "Table Top Knee to Nose", "url": "", "d": "", "nt": "", "cues": ["Knees lifted off the floor.", "Pull the knees towards the nose.", "Round the spine and press the ground away."], "desc": "Table top with the knees lifted. Take the knees to the nose and round the spine, pressing the ground away."}, {"v": "plank-pose", "n": "Plank Pose", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/90a824ed88a1bca051dceb30dfd5e629/downloads/default.mp4", "d": "", "nt": "", "cues": ["Shoulders stacked over the hands.", "Ribs down, glutes on.", "Push the floor away — don't sag between the shoulder blades."], "desc": "A plank held with the shoulders stacked and the ribs down."}, {"v": "chair-assisted-puppy-press", "n": "Chair-Assisted Puppy Press", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a4e209b649da9c8f63b8784dd42e42e1/downloads/default.mp4", "d": "", "nt": "", "cues": ["One foot on the chair, hips high.", "Start higher than feels necessary.", "Lift the other hip and stack the body.", "Option to take it fully off into a handstand."], "desc": "One foot on the side of a chair, lift the other hip and stack the body. Start with the hips higher than feels necessary."}, {"v": "forearm-massage", "n": "Forearm Massage", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/39baddde2e76b2dd1ef4f33b232d2b2d/downloads/default.mp4", "d": "", "nt": "", "cues": ["Work the forearms before you load the wrists.", "Both sides, thumbs into the belly of the muscle."], "desc": ""}, {"v": "plank-knee-to-nose-float-ups", "n": "Plank Knee to Nose, Float Ups", "url": "", "d": "", "nt": "", "cues": ["From plank, knee to nose.", "Round the spine and press the ground away.", "Float up rather than jump."], "desc": ""}, {"v": "palm-lifts-table-top", "n": "Palm Lifts in Table Top", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/ffcc972bba57d4229af54b30e1c208a9/downloads/default.mp4", "d": "", "nt": "", "cues": ["Table top, hands flat.", "Lift the palms, keep the fingers down.", "Slow — this is wrist prep, not a rep."], "desc": ""}, {"v": "chair-assisted-handstand-walks", "n": "Chair-Assisted Handstand Walks", "url": "", "d": "", "nt": "", "cues": ["In the chair-assisted position.", "Walk the hands, keep the shoulders stacked."], "desc": ""}, {"v": "chair-press-entries", "n": "Chair Press Entries", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/f601190534cc4f21c99d05e50e2c1457/downloads/default.mp4", "d": "", "nt": "", "cues": ["From the chair, press the hips up and over.", "Shoulders stay stacked as the hips travel."], "desc": ""}, {"v": "wall-shape-changes", "n": "Shape Changes — At the Wall", "url": "", "d": "", "nt": "", "cues": ["Chest to wall, hands close.", "Change shape with the wall taking the balance.", "Build the awareness first — freestanding comes after."], "desc": "Shape changes done chest-to-wall so the wall holds the balance and you can feel the shape."}, {"v": "sideways-press-walks", "n": "Sideways Press Walks", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5dc97917e4f5613ab94e7fad92258860/downloads/default.mp4", "d": "", "nt": "", "cues": ["Press walks, travelling sideways.", "Hips up and back as you lean.", "Same push, different direction."], "desc": "Press walks travelling sideways rather than forward and back."}, {"v": "straddle-leg-lifts", "n": "Straddle Leg Lifts", "url": "", "d": "", "nt": "", "cues": ["Lift from the hip flexor.", "Don't lean back to make it easier.", "Slow up, slow down."], "desc": ""}, {"v": "pancake-to-wide-standing", "n": "Pancake to Wide Standing Lifts", "url": "", "d": "", "nt": "", "cues": ["From pancake, lift to a wide standing fold.", "Drive through the legs, keep the chest long."], "desc": "From a pancake, lift up to a wide standing forward fold and back down."}, {"v": "hands-together-tuck", "n": "Tuck Handstand — Hands Together", "url": "", "d": "", "nt": "", "cues": ["Bring the hands closer than feels natural.", "Push through the shoulders rather than widening the base.", "Less depth in the tuck is fine — the hand position is the drill."], "desc": "A tuck handstand with the hands closer together, even if that means less depth in the tuck."}];
 const STAGE_SECTIONS={"0": [{"title": "Wrist Mobilisation", "sub": "Essential prep before any handstand work", "items": [{"v": "wrist-circles-mob", "n": "Wrist Circles", "d": "30s each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a7cd457020f580093be946524a84c3af/downloads/default.mp4", "cues": ["Spread fingers wide.", "Keep pressure light at first.", "Move slowly through the full circle.", "Match both directions evenly."], "desc": "Gently warm and lubricate the wrists through their full range of motion before loading.", "nt": ""}, {"v": "wrist-flexion-ext", "n": "Wrist Flexion and Extension", "d": "2 × 10", "url": "", "cues": ["Use the other hand to assist gently.", "Hold briefly at end range.", "Never force into pain.", "Breathe steadily."], "desc": "Build active range through the wrist joint in both directions to reduce injury risk.", "nt": ""}, {"v": "wrist-weight-shift", "n": "Wrist Weight Shifting", "d": "2 × 30s", "url": "", "cues": ["On all fours, fingers facing forward.", "Shift weight slowly side to side.", "Then front to back.", "Increase pressure gradually."], "desc": "Progressively load the wrists on all fours with gentle shifts to build tolerance for handstand work.", "nt": ""}, {"v": "plank-fingertip-lifts", "n": "Plank Fingertip Lifts", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5e23544c8db4eac5b2377f400d7ceb8a/downloads/default.mp4", "cues": [], "desc": "A plank, but up on the fingertips instead of flat palms.", "nt": ""}]}, {"title": "Warm-Up", "sub": "Same opening every session", "items": [{"v": "shoulder-circles", "n": "Shoulder Circles", "d": "10 each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/9ad6108b534d2c6375d629bd2f2363ea/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}, {"v": "shoulder-pulses", "n": "Shoulder Pulses", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/c812fa2fff981dd17bb93580619601f8/downloads/default.mp4", "cues": [], "desc": "Small pulses through the shoulders to open them up before load.", "nt": ""}, {"v": "downward-dog-pulses", "n": "Downward Dog Pulses", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b98ec8907ff9f1ffed4ae4fa68254d21/downloads/default.mp4", "cues": ["Start in Downward Facing Dog.", "Look back between your legs.", "Bend the knees slightly.", "Pulse the chest toward the back of the room."], "desc": "Start in downward facing dog, look back, bend the knees. Pulse the chest towards the back of the room.", "nt": ""}, {"v": "dolphin-lean-forwards", "n": "Dolphin Lean Forwards", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/469ee75ee03a7834d30993b43fc0900e/downloads/default.mp4", "cues": ["Keep forearms parallel on the floor.", "Shift forward with control.", "Touch nose gently to the floor.", "Push back actively through the shoulders."], "desc": "Start in Dolphin pose with legs bent while arms are as parallel as possible. Shift forwards to touch your nose to the floor between the hands. Push back.", "nt": ""}, {"v": "upward-dog-to-plank", "n": "Upward Dog to Plank", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/32d7acb10d5135328b3632c9d405c7cb/downloads/default.mp4", "cues": ["Biceps rotate forward in upward dog.", "Keep arms straight throughout.", "Look forward in the dog position.", "Flow between positions smoothly."], "desc": "Start in upward facing dog with feet pointed, biceps turned forward looking forward. Keeping arms straight push up into plank.", "nt": ""}, {"v": "forearm-massage", "n": "Forearm Massage", "d": "60s each arm", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/39baddde2e76b2dd1ef4f33b232d2b2d/downloads/default.mp4", "cues": ["Palm-up side: massage the forearm with the bony part of the knee.", "Don't put too much weight through it.", "Other side: use the elbow along the top line of fascia shown in the video."], "desc": "", "nt": ""}, {"v": "wrist-circles-mob", "n": "Wrist Circles", "d": "30s each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a7cd457020f580093be946524a84c3af/downloads/default.mp4", "cues": ["Try the different varieties shown in the video.", "Work the fingers facing every direction.", "Bring the hands in closer to increase the difficulty.", "Lightest pressure first."], "desc": "Gently warm and lubricate the wrists through their full range of motion before loading.", "nt": ""}, {"v": "plank-pose", "n": "Plank Pose", "d": "2 × 20s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/90a824ed88a1bca051dceb30dfd5e629/downloads/default.mp4", "cues": ["Turn the biceps to face forward.", "Start on the knees.", "Push through the base of the palms to round the back.", "Then take one knee back, and maybe the other."], "desc": "A plank held with the shoulders stacked and the ribs down.", "nt": ""}, {"v": "knee-to-nose-bounces", "n": "Knee to Nose Bounces", "d": "2 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/8bca83124064e21a1abe84d1a21ac587/downloads/default.mp4", "cues": ["Start in table top with the knees off the floor.", "Take the knee to the nose.", "Jump in towards it slightly as you do.", "Keep the bounce as light as you can."], "desc": "", "nt": ""}, {"v": "pancake-leg-lifts", "n": "Pancake Leg Lifts", "d": "2 × 8 each", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/99ca791dffe62a152b532c7117109000/downloads/default.mp4", "cues": ["Blocks make it easier.", "Keep the back straight — it doesn't have to be vertical.", "Lean forward to make it harder.", "If it's easy, bring the hands into the centre."], "desc": "", "nt": ""}, {"v": "p-pancake", "n": "Pancake Training", "d": "3 sets", "url": "", "cues": ["Reach long through the chest.", "Build active range, not just passive."], "desc": "Flexibility — builds the active compression range in the straddle that the press relies on.", "nt": ""}, {"v": "plank-fingertip-lifts", "n": "Plank Fingertip Lifts", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5e23544c8db4eac5b2377f400d7ceb8a/downloads/default.mp4", "cues": [], "desc": "A plank, but up on the fingertips instead of flat palms.", "nt": ""}, {"v": "banded-shoulder-engagement", "n": "Banded Shoulder Engagement", "d": "2 × 10", "url": "", "cues": [], "desc": "", "nt": ""}, {"v": "palm-lifts-table-top", "n": "Palm Lifts in Table Top", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/ffcc972bba57d4229af54b30e1c208a9/downloads/default.mp4", "cues": ["Start in table top.", "Lift the palms and thumb up.", "Lean the shoulders over the hands to increase the difficulty.", "You can also do this in plank pose."], "desc": "", "nt": ""}, {"v": "dd-wrist-taps", "n": "Downward Dog Wrist Taps", "d": "2 × 10", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/d79ada213578ca1993b4cb4b9f3ec4b1/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}]}, {"title": "Shoulder Openers", "sub": "Build overhead range from the ground up", "items": [{"v": "wall-front-side-opener", "n": "Wall Front Side Opener", "d": "30s each side", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5d5918dbb655c385fc7ee598262eb68d/downloads/default.mp4", "cues": ["Face the wall a soft arms length away.", "Place palms high on the wall.", "Sink the chest forward and down.", "Hold for the full 30 seconds."], "desc": "Start facing the wall a soft arms distance away. Palms on wall above you, sink chest towards and down the wall.", "nt": ""}, {"v": "wall-shoulder-opener", "n": "Wall Shoulder Opener", "d": "10 pulses", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/89bd83f5409f89c13851812e7c08469a/downloads/default.mp4", "cues": ["Place hands on wall at chest level.", "Lower body to horizontal.", "Look at the floor.", "Try hollowing the body out and keeping it straight."], "desc": "Place hands on the wall at chest level. Lower the body to horizontal, look at the floor. Try both hollowing out the body and keeping it straight.", "nt": ""}, {"v": "heart-melting-pose", "n": "Heart Melting Pose", "d": "60s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/08e6b205174da88791e0d9597ad2f657/downloads/default.mp4", "cues": ["Get on your knees.", "Place back of palms and forearms on the floor.", "Pull body back actively.", "Feel the stretch through the entire shoulder girdle."], "desc": "Get on your knees, place the back of your palms and forearms on the floor in parallel, pull the body back focusing on stretching the lats.", "nt": ""}, {"v": "floor-lateral-stretch", "n": "Floor Lateral Stretch", "d": "60s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/846d5c9cfbe28e8d311620b5bd867359/downloads/default.mp4", "cues": ["Get on your knees.", "Place back of palms and forearms on the floor in parallel.", "Pull the body back.", "Focus on stretching the lats."], "desc": "Get on your knees, place the back of your palms and forearms on the floor in parallel, then pull the body back focusing on stretching the lats.", "nt": ""}]}, {"title": "Kick Ups to the Wall", "sub": "Your first steps upside down", "items": [{"v": "wall-kick-ups", "n": "Wall Kick Ups", "d": "10 each side", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/51a36a15330dd845d7099de1712cf8d2/downloads/default.mp4", "cues": ["Stack shoulders above hands.", "Stack hips above shoulders.", "Jump up, throw hips toward the wall.", "Claw through the hands to exit."], "desc": "Stack shoulders above hands, hips above shoulders. Jump up and throw your hips towards the wall. Claw through the hands to come off the wall.", "nt": ""}, {"v": "wall-kick-ups-progressions", "n": "Wall Kick Ups Progressions", "d": "10 each side", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/41ee75425ffdb75af7c5122ad7823770/downloads/default.mp4", "cues": ["Foam block between hip and floor leg prevents back arch.", "Block behind one hand keeps shoulders stacked over hands.", "Use a chair close to wall to reduce jump height.", "Progress each aid as you get stronger."], "desc": "Use a foam block tucked between the hip and the floor leg to prevent back arching. A block behind one hand keeps shoulders stacked. A chair near the wall reduces the height to jump.", "nt": ""}, {"v": "kick-up-bounces", "n": "Kick Up Bounces", "d": "3 × 10", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/843bc9940391615a0da8bc40fc061572/downloads/default.mp4", "cues": ["Fingers close to the wall.", "Right leg up, straight and engaged.", "Look between hands, shoulders over hips.", "Bounce quickly keeping all engagement points."], "desc": "Start with fingers close to the wall. Right leg up in the air, straight and engaged. Look between hands, shoulders stacked over hips. Bounce on the left foot in quick succession.", "nt": ""}, {"v": "chest-to-wall-bailouts", "n": "Chest-to-Wall Bailouts", "d": "3 × 3 each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/362da5a70cede1b49229a635829656ca/downloads/default.mp4", "cues": ["Look between the hands.", "Step one hand slightly forward to twist out.", "Keep the exit soft and controlled.", "Practice both sides."], "desc": "Learn to exit safely from the wall with control so handstand practice feels confident and repeatable.", "nt": ""}]}], "1": [{"title": "Warm-Up", "sub": "Same opening every session", "items": [{"v": "wrist-circles-mob", "n": "Wrist Circles", "d": "30s each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a7cd457020f580093be946524a84c3af/downloads/default.mp4", "cues": ["Spread fingers wide.", "Keep pressure light at first.", "Move slowly through the full circle.", "Match both directions evenly."], "desc": "Gently warm and lubricate the wrists through their full range of motion before loading.", "nt": ""}, {"v": "plank-fingertip-lifts", "n": "Plank Fingertip Lifts", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5e23544c8db4eac5b2377f400d7ceb8a/downloads/default.mp4", "cues": [], "desc": "A plank, but up on the fingertips instead of flat palms.", "nt": ""}, {"v": "shoulder-circles", "n": "Shoulder Circles", "d": "10 each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/9ad6108b534d2c6375d629bd2f2363ea/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}, {"v": "downward-dog-pulses", "n": "Downward Dog Pulses", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b98ec8907ff9f1ffed4ae4fa68254d21/downloads/default.mp4", "cues": ["Start in Downward Facing Dog.", "Look back between your legs.", "Bend the knees slightly.", "Pulse the chest toward the back of the room."], "desc": "Start in downward facing dog, look back, bend the knees. Pulse the chest towards the back of the room.", "nt": ""}, {"v": "forearm-massage", "n": "Forearm Massage", "d": "60s each arm", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/39baddde2e76b2dd1ef4f33b232d2b2d/downloads/default.mp4", "cues": ["Palm-up side: massage the forearm with the bony part of the knee.", "Don't put too much weight through it.", "Other side: use the elbow along the top line of fascia shown in the video."], "desc": "", "nt": ""}, {"v": "plank-pose", "n": "Plank Pose", "d": "2 × 20s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/90a824ed88a1bca051dceb30dfd5e629/downloads/default.mp4", "cues": ["Turn the biceps to face forward.", "Start on the knees.", "Push through the base of the palms to round the back.", "Then take one knee back, and maybe the other."], "desc": "A plank held with the shoulders stacked and the ribs down.", "nt": ""}, {"v": "knee-to-nose-bounces", "n": "Knee to Nose Bounces", "d": "2 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/8bca83124064e21a1abe84d1a21ac587/downloads/default.mp4", "cues": ["Start in table top with the knees off the floor.", "Take the knee to the nose.", "Jump in towards it slightly as you do.", "Keep the bounce as light as you can."], "desc": "", "nt": ""}, {"v": "pancake-leg-lifts", "n": "Pancake Leg Lifts", "d": "2 × 8 each", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/99ca791dffe62a152b532c7117109000/downloads/default.mp4", "cues": ["Blocks make it easier.", "Keep the back straight — it doesn't have to be vertical.", "Lean forward to make it harder.", "If it's easy, bring the hands into the centre."], "desc": "", "nt": ""}, {"v": "p-pancake", "n": "Pancake Training", "d": "3 sets", "url": "", "cues": ["Reach long through the chest.", "Build active range, not just passive."], "desc": "Flexibility — builds the active compression range in the straddle that the press relies on.", "nt": ""}, {"v": "shoulder-pulses", "n": "Shoulder Pulses", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/c812fa2fff981dd17bb93580619601f8/downloads/default.mp4", "cues": ["Hands above the head, or out to one side.", "Pulse in that direction without opening through the chest.", "Also try pulling the hands into fists with the thumbs pointing back.", "That gets a different stretch."], "desc": "Small pulses through the shoulders to open them up before load.", "nt": ""}, {"v": "dolphin-lean-forwards", "n": "Dolphin Lean Forwards", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/469ee75ee03a7834d30993b43fc0900e/downloads/default.mp4", "cues": ["Keep forearms parallel on the floor.", "Shift forward with control.", "Touch nose gently to the floor.", "Push back actively through the shoulders."], "desc": "Start in Dolphin pose with legs bent while arms are as parallel as possible. Shift forwards to touch your nose to the floor between the hands. Push back.", "nt": ""}, {"v": "banded-shoulder-engagement", "n": "Banded Shoulder Engagement", "d": "2 × 10", "url": "", "cues": [], "desc": "", "nt": ""}, {"v": "palm-lifts-table-top", "n": "Palm Lifts in Table Top", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/ffcc972bba57d4229af54b30e1c208a9/downloads/default.mp4", "cues": ["Start in table top.", "Lift the palms and thumb up.", "Lean the shoulders over the hands to increase the difficulty.", "You can also do this in plank pose."], "desc": "", "nt": ""}, {"v": "dd-wrist-taps", "n": "Downward Dog Wrist Taps", "d": "2 × 10", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/d79ada213578ca1993b4cb4b9f3ec4b1/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}]}, {"title": "Wall Foundations", "sub": "Getting upside down safely", "items": [{"v": "wall-walks", "n": "Wall Walks", "d": "3 × 3 walks in", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/aa4d27ce00fb663bc340ccac433d2d43/downloads/default.mp4", "cues": ["Walk the feet up smoothly.", "Push tall through the shoulders.", "Keep the core lightly braced.", "Come down with control."], "desc": "Build confidence upside down while opening the shoulders and learning stacked alignment.", "nt": ""}, {"v": "chest-to-wall-handstand", "n": "Chest-to-Wall Handstand", "d": "3 × 20–30s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/58fc55e74e70f2bd27233abfd289d4e8/downloads/default.mp4", "cues": ["Squeeze legs together.", "Reach tall through the toes.", "Push the floor away constantly.", "Keep ribs gently in."], "desc": "Own a straight wall-supported handstand with strong shoulder push and midline control.", "nt": ""}, {"v": "chest-to-wall-bailouts", "n": "Chest-to-Wall Bailouts", "d": "3 × 3 each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/362da5a70cede1b49229a635829656ca/downloads/default.mp4", "cues": ["Look between the hands.", "Step one hand slightly forward to twist out.", "Keep the exit soft and controlled.", "Practice both sides."], "desc": "Learn to exit safely from the wall with control so handstand practice feels confident and repeatable.", "nt": ""}]}, {"title": "Scapular Strength", "sub": "The foundation of a stable handstand", "items": [{"v": "scapula-shrugs", "n": "Scapula Shrugs", "d": "3 × 10", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/9b4fb78a3767e853f1d9834e7ce86485/downloads/default.mp4", "cues": ["Keep elbows straight.", "Move only through the shoulders.", "Push tall at the top.", "Lower with control."], "desc": "Strengthen upward rotation and elevation through the scapula for a more stable overhead shape.", "nt": ""}, {"v": "one-leg-scapula-extensions", "n": "1-Leg Scapula Extensions", "d": "3 × 8 each", "url": "", "cues": ["Keep hips level.", "Push evenly through both hands.", "Move slowly through each rep.", "Stay long through the standing leg."], "desc": "Challenge scapular control with asymmetry to build strength that transfers to balancing.", "nt": ""}, {"v": "pike-press-ups", "n": "Pike Press-Ups", "d": "3 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3dc884615d637e2b1cee93aecb79e168/downloads/default.mp4", "cues": ["Shift weight into the hands.", "Lower the head forward slightly.", "Press the floor away.", "Keep reps smooth and strong."], "desc": "Develop pressing strength and overhead pushing mechanics in a scalable shape.", "nt": ""}]}, {"title": "Balance Drills", "sub": "Building time and confidence", "items": [{"v": "tuck-slides", "n": "Tuck Slides", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3749a6dc6abc40ae2627290d1f446d33/downloads/default.mp4", "cues": ["Same start, hands about 1.5 feet from the wall.", "Knees together, lower them both down.", "Don't worry about the rest of the body at first — it's about the movement."], "desc": "Same start, but both knees come down together. The harder version.", "nt": ""}, {"v": "single-leg-tuck-slides", "n": "Single Leg Tuck Slides", "d": "build to 5 each", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/19cf721ee5bf8669c3a0a7aa77db847d/downloads/default.mp4", "cues": ["Chest to wall, hands about 1.5 feet from the wall, feet pointed.", "One foot stays on the wall.", "Take the other knee down towards your chest."], "desc": "Chest to wall, hands 1.5 feet from the wall. One foot stays on the wall, take the other knee down towards your chest.", "nt": ""}, {"v": "lateral-slide-outs", "n": "Lateral Slide Outs", "d": "3 × 6 each", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/76117e863cb1fb17f3d8f719e27990ba/downloads/default.mp4", "cues": ["Shift slowly into the hand.", "Stay active through the shoulders.", "Keep legs long.", "Come back with control."], "desc": "Train side-to-side corrections and stronger fingertip awareness during balance changes.", "nt": ""}, {"v": "slide-away", "n": "Slide Away", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/0011bde2e0f70364712159d9442d4803/downloads/default.mp4", "cues": ["Lean the shoulders forward.", "Push back actively through the arms.", "Let the feet slide back up the wall.", "Keep the movement smooth and controlled."], "desc": "Lean the shoulders forward and push back, letting the feet slide back up the wall. This version is about grooving the shoulder movement — the feet stay on the wall throughout.", "nt": ""}]}], "2": [{"title": "Warm-Up", "sub": "Same opening every session", "items": [{"v": "wrist-circles-mob", "n": "Wrist Circles", "d": "30s each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a7cd457020f580093be946524a84c3af/downloads/default.mp4", "cues": ["Spread fingers wide.", "Keep pressure light at first.", "Move slowly through the full circle.", "Match both directions evenly."], "desc": "Gently warm and lubricate the wrists through their full range of motion before loading.", "nt": ""}, {"v": "plank-fingertip-lifts", "n": "Plank Fingertip Lifts", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5e23544c8db4eac5b2377f400d7ceb8a/downloads/default.mp4", "cues": [], "desc": "A plank, but up on the fingertips instead of flat palms.", "nt": ""}, {"v": "shoulder-circles", "n": "Shoulder Circles", "d": "10 each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/9ad6108b534d2c6375d629bd2f2363ea/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}, {"v": "dolphin-lean-forwards", "n": "Dolphin Lean Forwards", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/469ee75ee03a7834d30993b43fc0900e/downloads/default.mp4", "cues": ["Keep forearms parallel on the floor.", "Shift forward with control.", "Touch nose gently to the floor.", "Push back actively through the shoulders."], "desc": "Start in Dolphin pose with legs bent while arms are as parallel as possible. Shift forwards to touch your nose to the floor between the hands. Push back.", "nt": ""}, {"v": "forearm-massage", "n": "Forearm Massage", "d": "60s each arm", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/39baddde2e76b2dd1ef4f33b232d2b2d/downloads/default.mp4", "cues": ["Palm-up side: massage the forearm with the bony part of the knee.", "Don't put too much weight through it.", "Other side: use the elbow along the top line of fascia shown in the video."], "desc": "", "nt": ""}, {"v": "plank-pose", "n": "Plank Pose", "d": "2 × 20s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/90a824ed88a1bca051dceb30dfd5e629/downloads/default.mp4", "cues": ["Turn the biceps to face forward.", "Start on the knees.", "Push through the base of the palms to round the back.", "Then take one knee back, and maybe the other."], "desc": "A plank held with the shoulders stacked and the ribs down.", "nt": ""}, {"v": "knee-to-nose-bounces", "n": "Knee to Nose Bounces", "d": "2 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/8bca83124064e21a1abe84d1a21ac587/downloads/default.mp4", "cues": ["Start in table top with the knees off the floor.", "Take the knee to the nose.", "Jump in towards it slightly as you do.", "Keep the bounce as light as you can."], "desc": "", "nt": ""}, {"v": "pancake-leg-lifts", "n": "Pancake Leg Lifts", "d": "2 × 8 each", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/99ca791dffe62a152b532c7117109000/downloads/default.mp4", "cues": ["Blocks make it easier.", "Keep the back straight — it doesn't have to be vertical.", "Lean forward to make it harder.", "If it's easy, bring the hands into the centre."], "desc": "", "nt": ""}, {"v": "p-pancake", "n": "Pancake Training", "d": "3 sets", "url": "", "cues": ["Reach long through the chest.", "Build active range, not just passive."], "desc": "Flexibility — builds the active compression range in the straddle that the press relies on.", "nt": ""}, {"v": "shoulder-pulses", "n": "Shoulder Pulses", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/c812fa2fff981dd17bb93580619601f8/downloads/default.mp4", "cues": ["Hands above the head, or out to one side.", "Pulse in that direction without opening through the chest.", "Also try pulling the hands into fists with the thumbs pointing back.", "That gets a different stretch."], "desc": "Small pulses through the shoulders to open them up before load.", "nt": ""}, {"v": "banded-shoulder-engagement", "n": "Banded Shoulder Engagement", "d": "2 × 10", "url": "", "cues": [], "desc": "", "nt": ""}, {"v": "palm-lifts-table-top", "n": "Palm Lifts in Table Top", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/ffcc972bba57d4229af54b30e1c208a9/downloads/default.mp4", "cues": ["Start in table top.", "Lift the palms and thumb up.", "Lean the shoulders over the hands to increase the difficulty.", "You can also do this in plank pose."], "desc": "", "nt": ""}, {"v": "dd-wrist-taps", "n": "Downward Dog Wrist Taps", "d": "2 × 10", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/d79ada213578ca1993b4cb4b9f3ec4b1/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}]}, {"title": "Box Progressions", "sub": "Controlled overhead loading", "items": [{"v": "knees-on-box", "n": "Knees on Box", "d": "2 sets · build to 30s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3f8d978d6e7c21ae14d376815eb90803/downloads/default.mp4", "cues": ["Box about hip height, knees near the edge.", "Hands right to the edge of the box.", "Push into the ground, look between the hands."], "desc": "Use the box to build overhead loading tolerance and a cleaner stacked shape.", "nt": ""}, {"v": "knees-on-box-single-leg-lifts", "n": "Knees on Box - Single Leg Lifts", "d": "3 × 8 each", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3b113c75d21425757a1934bc002ff6f0/downloads/default.mp4", "cues": ["Lift only as high as you can control.", "Keep hips square.", "Push tall continuously.", "Alternate smoothly."], "desc": "Add small leg lifts to challenge balance while keeping strong support through the shoulders.", "nt": ""}, {"v": "knees-on-box-knee-lift-offs", "n": "Knees on Box - Knee Lift-Offs", "d": "3 × 5–8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3b113c75d21425757a1934bc002ff6f0/downloads/default.mp4", "cues": ["Lean forward gradually.", "Stay active in the fingertips.", "Lift for a brief clean moment.", "Reset before the next rep."], "desc": "Progress toward full support by briefly unweighting the box with both knees.", "nt": ""}]}, {"title": "Hover & Take-Off", "sub": "Controlled entries into balance", "items": [{"v": "single-leg-take-off", "n": "Single Leg Take Off", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/bed0e1e90176e790569dc82e8060e158/downloads/default.mp4", "cues": ["Hands about 1.5 feet from the wall.", "Take one leg off the wall.", "Float the second leg just off and hold 1-2 seconds.", "Place back on the wall before you over-balance."], "desc": "With hands about 1.5 feet from the wall, take one leg off, then the other just slightly off, hold 1-2 seconds, then place back. Go too far and you fall out.", "nt": ""}, {"v": "single-leg-wall-removals", "n": "Single Leg Wall Removals", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/97a793aeb7268ea61159163eb5a0c30e/downloads/default.mp4", "cues": ["Move from the hip slowly.", "Stay long through both legs.", "Use the fingertips to steer.", "Return to the wall with control."], "desc": "Take one leg away from the wall to build balance confidence and ownership of your line.", "nt": ""}, {"v": "slide-away-2", "n": "Slide Away — Off the Wall", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/0011bde2e0f70364712159d9442d4803/downloads/default.mp4", "cues": ["Stay aligned and hollow throughout.", "Move the shoulders off with control.", "Let the feet leave the wall as the shoulders move.", "Find a brief balance, then return."], "desc": "The progression: keep the body aligned and hollow as you move. Now the aim is for the feet to come off the wall as the shoulders move off — finding a brief moment of balance before returning.", "nt": ""}]}, {"title": "Tuck Take-Offs", "sub": "Freestanding entry drills", "items": [{"v": "tuck-take-offs", "n": "Tuck Take-Offs", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b173a66d935153d532b2748227f253bc/downloads/default.mp4", "cues": ["Slide into a tuck against the wall.", "Keep knees tucked tightly, touching.", "Look forward and lean forward.", "Bring the knees off the wall with control."], "desc": "Slide into tuck against the wall, knees tucked tightly together. Look forward and lean forward to bring your knees off the wall.", "nt": ""}, {"v": "single-leg-tuck-take-offs", "n": "Single Leg Tuck Take-Offs", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/bed0e1e90176e790569dc82e8060e158/downloads/default.mp4", "cues": ["Walk up the wall, one leg in the air, toes pointed.", "Slide the second leg down to tuck.", "Lean and look slightly forward as you pull the foot in.", "Hold a moment, then place it back."], "desc": "Walk up the wall with one leg in the air, slide the second leg down into a tuck. Lean and look slightly forward as you pull the second foot in. Hold, then replace. The gap can grow over time.", "nt": ""}]}], "3": [{"title": "Warm-Up", "sub": "Same opening every session", "items": [{"v": "wrist-circles-mob", "n": "Wrist Circles", "d": "30s each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a7cd457020f580093be946524a84c3af/downloads/default.mp4", "cues": ["Spread fingers wide.", "Keep pressure light at first.", "Move slowly through the full circle.", "Match both directions evenly."], "desc": "Gently warm and lubricate the wrists through their full range of motion before loading.", "nt": ""}, {"v": "plank-fingertip-lifts", "n": "Plank Fingertip Lifts", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/5e23544c8db4eac5b2377f400d7ceb8a/downloads/default.mp4", "cues": [], "desc": "A plank, but up on the fingertips instead of flat palms.", "nt": ""}, {"v": "shoulder-circles", "n": "Shoulder Circles", "d": "10 each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/9ad6108b534d2c6375d629bd2f2363ea/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}, {"v": "downward-dog-pulses", "n": "Downward Dog Pulses", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/b98ec8907ff9f1ffed4ae4fa68254d21/downloads/default.mp4", "cues": ["Start in Downward Facing Dog.", "Look back between your legs.", "Bend the knees slightly.", "Pulse the chest toward the back of the room."], "desc": "Start in downward facing dog, look back, bend the knees. Pulse the chest towards the back of the room.", "nt": ""}, {"v": "forearm-massage", "n": "Forearm Massage", "d": "60s each arm", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/39baddde2e76b2dd1ef4f33b232d2b2d/downloads/default.mp4", "cues": ["Palm-up side: massage the forearm with the bony part of the knee.", "Don't put too much weight through it.", "Other side: use the elbow along the top line of fascia shown in the video."], "desc": "", "nt": ""}, {"v": "plank-pose", "n": "Plank Pose", "d": "2 × 20s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/90a824ed88a1bca051dceb30dfd5e629/downloads/default.mp4", "cues": ["Turn the biceps to face forward.", "Start on the knees.", "Push through the base of the palms to round the back.", "Then take one knee back, and maybe the other."], "desc": "A plank held with the shoulders stacked and the ribs down.", "nt": ""}, {"v": "knee-to-nose-bounces", "n": "Knee to Nose Bounces", "d": "2 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/8bca83124064e21a1abe84d1a21ac587/downloads/default.mp4", "cues": ["Start in table top with the knees off the floor.", "Take the knee to the nose.", "Jump in towards it slightly as you do.", "Keep the bounce as light as you can."], "desc": "", "nt": ""}, {"v": "pancake-leg-lifts", "n": "Pancake Leg Lifts", "d": "2 × 8 each", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/99ca791dffe62a152b532c7117109000/downloads/default.mp4", "cues": ["Blocks make it easier.", "Keep the back straight — it doesn't have to be vertical.", "Lean forward to make it harder.", "If it's easy, bring the hands into the centre."], "desc": "", "nt": ""}, {"v": "p-pancake", "n": "Pancake Training", "d": "3 sets", "url": "", "cues": ["Reach long through the chest.", "Build active range, not just passive."], "desc": "Flexibility — builds the active compression range in the straddle that the press relies on.", "nt": ""}, {"v": "shoulder-pulses", "n": "Shoulder Pulses", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/c812fa2fff981dd17bb93580619601f8/downloads/default.mp4", "cues": ["Hands above the head, or out to one side.", "Pulse in that direction without opening through the chest.", "Also try pulling the hands into fists with the thumbs pointing back.", "That gets a different stretch."], "desc": "Small pulses through the shoulders to open them up before load.", "nt": ""}, {"v": "dolphin-lean-forwards", "n": "Dolphin Lean Forwards", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/469ee75ee03a7834d30993b43fc0900e/downloads/default.mp4", "cues": ["Keep forearms parallel on the floor.", "Shift forward with control.", "Touch nose gently to the floor.", "Push back actively through the shoulders."], "desc": "Start in Dolphin pose with legs bent while arms are as parallel as possible. Shift forwards to touch your nose to the floor between the hands. Push back.", "nt": ""}, {"v": "banded-shoulder-engagement", "n": "Banded Shoulder Engagement", "d": "2 × 10", "url": "", "cues": [], "desc": "", "nt": ""}, {"v": "palm-lifts-table-top", "n": "Palm Lifts in Table Top", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/ffcc972bba57d4229af54b30e1c208a9/downloads/default.mp4", "cues": ["Start in table top.", "Lift the palms and thumb up.", "Lean the shoulders over the hands to increase the difficulty.", "You can also do this in plank pose."], "desc": "", "nt": ""}, {"v": "dd-wrist-taps", "n": "Downward Dog Wrist Taps", "d": "2 × 10", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/d79ada213578ca1993b4cb4b9f3ec4b1/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}]}, {"title": "Entries", "sub": "Consistent ways into a handstand", "items": [{"v": "tuck-entries", "n": "Tuck Entries", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/1215255521e9da9fd966e8b6d7ec128b/downloads/default.mp4", "cues": ["Stack the shoulders over the hands.", "Keep knees together throughout.", "Jump up to a tuck handstand.", "Extend the legs and push the pelvis through to straight."], "desc": "Once the shoulders are stacked, keep the knees together and jump up to a tuck handstand. Extend the legs and push the pelvis through to bring the body into a straight line.", "nt": ""}, {"v": "straight-entries", "n": "Straight Entries", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/2119c2dd78761e507a61728712c5a7ba/downloads/default.mp4", "cues": ["Right leg up, straight and pointed.", "Shoulders stacked over hands, hips high.", "Bounce the lower leg to kick up.", "Bring the legs together, hold 1 second."], "desc": "Start with the right leg in the air, straight with pointed foot, shoulders stacked over hands and hips high. Bounce on the lower leg to kick up, bringing the left leg to meet the right. Hold a second before coming down.", "nt": ""}, {"v": "straddle-entries", "n": "Straddle Entries", "d": "10 reps", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/4be7868ac0a11251d92d447367dceef1/downloads/default.mp4", "cues": ["Shoulders over hands, hips high.", "Start in a forward fold, legs bent.", "Open legs to the side, circle to centre.", "Keep looking down; elevate the scapula to push up."], "desc": "Shoulders stacked over hands, hips high in a forward fold with bent legs. Open the legs out to the side and circle them to centre, keeping the gaze down and elevating the scapula to push up into position.", "nt": ""}]}, {"title": "Shape Changes", "sub": "Correcting movement once off the wall", "items": [{"v": "straddle-to-straight", "n": "Straddle to Straight", "d": "build to 6", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/195e5344c3399b8ce0bc91931633ab9f/downloads/default.mp4", "cues": ["Kick up, option against the wall first.", "Lightly touch, then come away.", "Move freestanding once you get a couple of reps.", "Keep the straddle moderate, not excessive."], "desc": "Kick up into handstand (option against the wall), taking the body away from the wall. Lightly touch at first, then not at all. Keep the straddle moderate so it does not throw your balance.", "nt": ""}, {"v": "straight-to-tuck-back", "n": "Straight to Tuck & Back", "d": "build to 6", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/e461fca19fb288c2a004edaa65df8a21/downloads/default.mp4", "cues": ["Kick up with knees together.", "Use hip flexors to pull knees down.", "Keep pushing tall through the shoulders.", "Gradually increase the depth of the tuck."], "desc": "Once kicked up with knees together, actively use the hip flexors to pull the knees down towards you, then back. This needs anterior deltoid and scapular elevation strength to stay up.", "nt": ""}, {"v": "straddle-to-diamond", "n": "Straddle to Diamond", "d": "build to 6", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/40348e20a24a20f8279e1f69119e68cd/downloads/default.mp4", "cues": ["Start in straddle handstand.", "Bring toes together into a diamond.", "Externally rotate the hips to keep it neat.", "Point the toes; option to tuck after."], "desc": "From a straddle handstand, bring the toes together into a diamond, externally rotating the hips to keep it neat. Option to come into tuck after.", "nt": ""}]}, {"title": "Holding It", "sub": "Time upside down", "items": [{"v": "chest-to-wall-handstand", "n": "Chest-to-Wall Handstand", "d": "3 × 20–30s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/58fc55e74e70f2bd27233abfd289d4e8/downloads/default.mp4", "cues": ["Squeeze legs together.", "Reach tall through the toes.", "Push the floor away constantly.", "Keep ribs gently in."], "desc": "Own a straight wall-supported handstand with strong shoulder push and midline control.", "nt": ""}, {"v": "tuck-slides", "n": "Tuck Slides", "d": "build to 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3749a6dc6abc40ae2627290d1f446d33/downloads/default.mp4", "cues": ["Same start, hands about 1.5 feet from the wall.", "Knees together, lower them both down.", "Don't worry about the rest of the body at first — it's about the movement."], "desc": "Same start, but both knees come down together. The harder version.", "nt": ""}, {"v": "knees-on-box", "n": "Knees on Box", "d": "2 sets · build to 30s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3f8d978d6e7c21ae14d376815eb90803/downloads/default.mp4", "cues": ["Box about hip height, knees near the edge.", "Hands right to the edge of the box.", "Push into the ground, look between the hands."], "desc": "Use the box to build overhead loading tolerance and a cleaner stacked shape.", "nt": ""}]}], "4": [{"title": "Press · Prep", "sub": "Wrists, shoulders and compression", "items": [{"v": "wrist-circles-mob", "n": "Wrist Circles", "d": "30s each way", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/a7cd457020f580093be946524a84c3af/downloads/default.mp4", "cues": ["Spread fingers wide.", "Keep pressure light at first.", "Move slowly through the full circle.", "Match both directions evenly."], "desc": "Gently warm and lubricate the wrists through their full range of motion before loading.", "nt": ""}, {"v": "p-pancake", "n": "Pancake Training", "d": "3 × 60s", "url": "", "cues": ["Reach long through the chest.", "Build active range, not just passive."], "desc": "Flexibility — builds the active compression range in the straddle that the press relies on.", "nt": ""}, {"v": "dd-wrist-taps", "n": "Downward Dog Wrist Taps", "d": "2 × 10", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/d79ada213578ca1993b4cb4b9f3ec4b1/downloads/default.mp4", "cues": [], "desc": "", "nt": ""}]}, {"title": "Press · Take-Off", "sub": "Scapula elevation and strength", "items": [{"v": "knees-on-box", "n": "Knees on Box", "d": "2 sets · build to 30s", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/3f8d978d6e7c21ae14d376815eb90803/downloads/default.mp4", "cues": ["Box about hip height, knees near the edge.", "Hands right to the edge of the box.", "Push into the ground, look between the hands."], "desc": "Use the box to build overhead loading tolerance and a cleaner stacked shape.", "nt": ""}, {"v": "p-pike-pushups", "n": "Pike Push Ups", "d": "3 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/1d49ef13267f7b9516df86a406c3412a/downloads/default.mp4", "cues": ["Feet a little wider than hips, knees bent, hips high.", "Look forward to a point between the hands.", "Lower the forehead to that point, elbows tucked.", "Push back up keeping the diagonal line."], "desc": "Front deltoid strength — the fix if you end up collapsing in the take-off. Build the pressing strength the take-off demands.", "nt": ""}, {"v": "p-bench-zombies", "n": "Bench Zombies", "d": "2 × 5–8", "url": "", "cues": ["Feet on the bench, toes pointed.", "Pull up until the hips stack over the shoulders.", "Keep the lower back engaged."], "desc": "Plank with your feet on a bench, toes pointed. Pull yourself up until the hips are stacked over the shoulders.", "nt": ""}]}, {"title": "Press · Compression", "sub": "Feet, shoulders and hips as one chain", "items": [{"v": "press-walks", "n": "Press Walks", "d": "1 × mat", "url": "", "cues": ["Baby hop the feet forward.", "Press the hips up and back as you lean forward.", "Up and down the mat."], "desc": "Baby hop the feet forward, then press the hips up and back as you lean forward. Walk up and down the mat.", "nt": ""}, {"v": "p-solo-press-circles", "n": "Solo Press Circles", "d": "3 × 6", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/7ab907d930c9749d32486003184bcf23/downloads/default.mp4", "cues": ["Hold the handstand, open the legs.", "Start with small circles.", "Grow them as you get stronger.", "Both directions — speed doesn't matter."], "desc": "In a handstand, open the legs and make small circles. Grow the circles bigger over time, working towards the press position. Speed doesn't matter — work both directions.", "nt": ""}, {"v": "p-plank-slides", "n": "Plank Slides to Pike", "d": "3 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/7e7ebd3d88d2a9fc610a62d556d01ec4/downloads/default.mp4", "cues": ["Move as one connected chain.", "Control the slide both ways."], "desc": "Conditioning — builds the connected-chain strength the compression demands.", "nt": ""}]}, {"title": "Press · Wall Presses", "sub": "All three stages together", "items": [{"v": "chest-to-wall-toe-taps", "n": "Chest to Wall Toe Taps", "d": "3 × 8", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/da4144ad54ec886963a8e09a8050c7c6/downloads/default.mp4", "cues": ["Hands about 2 feet from the wall.", "One leg stays on the wall.", "Pull the other knee or toe towards the floor.", "Control it down, don't drop."], "desc": "Hands about 2 feet from the wall, one leg on the wall. Take the other leg off and pull the knee or toe down towards the floor.", "nt": ""}, {"v": "p-back-to-wall", "n": "Back to Wall Press", "d": "3 × 5", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/7fdd9f7cceba8dcb31544af7550a0154/downloads/default.mp4", "cues": ["Full upper back AND head on the wall.", "Focus on engaging the hip flexors.", "Keep the back rounded.", "If heavy on the wrists, turn the hands out to the side."], "desc": "HERO DRILL. Teaches the shape and compression with the wall taking some of the load. Make sure your full upper back as well as head is on the wall — this takes more of the weight so you can focus on engaging the hip flexors and keeping the back rounded.", "nt": ""}, {"v": "p-chest-to-wall", "n": "Chest to Wall Press", "d": "3 × 3", "url": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/eef15d6792347cd1aaeb0be71f222aeb/downloads/default.mp4", "cues": ["Take-off into the line.", "Compress with the chain connected.", "Unroll with the shoulders opening first."], "desc": "THE ULTIMATE HERO. Trains all three stages — take-off, compression and unrolling — in a single movement. Your feet cannot go anywhere, so your shoulders cannot either: you either compress and unroll correctly, or the wall rejects you.", "nt": ""}]}]};
 const STAGES=[
- {n:'Foundations',goal:'A 15-second chest-to-wall hold and a confident kick up.',hold:'15s',drills:14,
-  intro:'Everything you need before going upside down for real. Wrist and shoulder resilience, kicking up to the wall, and getting comfortable holding chest-to-wall.',
+ {n:'Foundations',goal:'A 15-second chest-to-wall hold and a confident kick up.',hold:'15s',intro:'Everything you need before going upside down for real. Wrist and shoulder resilience, kicking up to the wall, and getting comfortable holding chest-to-wall.',
   ch:'Chest-to-wall hold',chSub:'Kick up to the wall and hold for 30 seconds. Do it with me.',
-  drillIds:['wrist-circles-mob','plank-fingertip-lifts','shoulder-circles','downward-dog-pulses','chest-to-wall-bailouts','wall-walks','kick-up-bounces','scapula-shrugs']},
- {n:'Wall Work',goal:'Hold chest-to-wall 45–60s and start moving against the wall.',hold:'45s',drills:16,
-  intro:'Now you own the wall, get strong and mobile on it. Scapular strength, longer holds, and the first movements that take weight off the wall.',
+  drillIds:['wrist-circles-mob','plank-fingertip-lifts','shoulder-circles','downward-dog-pulses','chest-to-wall-bailouts','wall-walks','kick-up-bounces','scapula-shrugs','chest-to-wall-handstand','wall-kick-ups','p-l-handstand','chair-assisted-knee-lifts','chair-assisted-step-ups','dd-float-drills','p-dd-toe-taps','chaturganga-push-ups','p-pike-pushups-knees','dd-wrist-taps','palm-lifts-table-top']},
+ {n:'Wall Work',goal:'Hold chest-to-wall 45–60s and start moving against the wall.',hold:'45s',intro:'Now you own the wall, get strong and mobile on it. Scapular strength, longer holds, and the first movements that take weight off the wall.',
   ch:'Slide away & hold',chSub:'Slide off the wall and hold your balance as long as you can. Aim for 15 seconds.',
-  drillIds:['scapula-shrugs','wall-walks','tuck-slides','single-leg-tuck-slides','lateral-slide-outs','slide-away','pike-press-ups','knees-on-box']},
- {n:'Take-Off',goal:'Leave the wall into brief moments of freestanding balance.',hold:'5s',drills:15,
-  intro:'This is where the wall disappears. Single-leg take-offs, box work and tuck take-offs build the control to leave on your own terms.',
+  drillIds:['scapula-shrugs','wall-walks','tuck-slides','single-leg-tuck-slides','lateral-slide-outs','slide-away','pike-press-ups','knees-on-box','wall-kick-ups-progressions','p-tuck-handstand','p-tuck-slides','p-single-leg-tuck-slides','knees-on-box-single-leg-lifts','knees-on-box-knee-lift-offs','shoulder-pulses','p-pike-pushups']},
+ {n:'Take-Off',goal:'Leave the wall into brief moments of freestanding balance.',hold:'5s',intro:'This is where the wall disappears. Single-leg take-offs, box work and tuck take-offs build the control to leave on your own terms.',
   ch:'Free handstand attempt',chSub:'Take off and catch your balance. Hold whatever you find.',
-  drillIds:['knees-on-box','single-leg-take-off','single-leg-wall-removals','slide-away-2','tuck-take-offs']},
- {n:'Freestanding',goal:'Kick up and balance freestanding, consistently.',hold:'30s',drills:18,
-  intro:'Entries, shapes and corrections. The stage where a handstand becomes something you can repeat rather than catch.',
+  drillIds:['knees-on-box','single-leg-take-off','single-leg-wall-removals','slide-away-2','tuck-take-offs','single-leg-tuck-take-offs','p-plank-slides']},
+ {n:'Freestanding',goal:'Kick up and balance freestanding, consistently.',hold:'30s',intro:'Entries, shapes and corrections. The stage where a handstand becomes something you can repeat rather than catch.',
   ch:'Freestanding hold',chSub:'Kick up and hold freestanding. Aim for 30 seconds clean.',
   drillIds:['tuck-entries','straight-entries','straddle-entries','straddle-to-straight','straight-to-tuck-back','straddle-to-diamond']},
- {n:'Press',goal:'Compress, unroll and press to handstand.',hold:'20s',drills:17,
-  intro:'The press is strength, compression and patience in one skill. Part of the Press Masterclass.',
+ {n:'Press',goal:'Compress, unroll and press to handstand.',hold:'20s',intro:'The press is strength, compression and patience in one skill. Part of the Press Masterclass.',
   ch:'Chest-to-wall press',chSub:'One clean press attempt from the wall. Compress, unroll, hold.',
-  drillIds:['press-walks','p-pancake','knees-on-box','p-bench-zombies','chest-to-wall-toe-taps']}];
-const QUIZ=[
- {q:'Can you hold a chest-to-wall handstand for 15 seconds?',opts:['Not yet — still building up to it','Just about, not consistently','Yes, comfortably']},
- {q:'Do you feel stuck at the wall?',opts:["Yes — I can't get off it yet",'Tapping a foot off, but no balance','No — I can balance away from it']},
- {q:'Can you kick up and balance freestanding on your own?',opts:['Not yet','Sometimes, briefly','Yes — refining entries and shapes']}];
+  drillIds:['press-walks','p-pancake','knees-on-box','p-bench-zombies','chest-to-wall-toe-taps','p-solo-press-circles','p-back-to-wall','p-chest-to-wall','p-chest-to-wall-negs','press-eccentrics','sideways-press-walks','chair-assisted-puppy-press','chair-press-entries','lolasana-lifts','p-pike-pushup-negs']}];
+/* ── intake ────────────────────────────────────────────────────────
+   Four screens. Level is the only one that places anyone — goal never
+   touches the stage, because someone who has never been upside down and
+   wants a one-arm is still a beginner, and that is exactly the person a
+   goal-driven placement would break. Goal earns its place by reframing
+   the work ("a one-arm is a handstand you can hold without thinking, so
+   that is what we build first") and by ordering the explainers. */
+const GOALS=[
+  {v:'learn',    t:'Learn to handstand',        d:"I'm starting from the beginning."},
+  {v:'hold',     t:'Hold a freestanding handstand', d:"I can get upside down, but can't balance consistently."},
+  {v:'improve',  t:'Improve my handstand',      d:'I want a better line, control and technique.'},
+  {v:'advanced', t:'Learn advanced skills',     d:'Presses, shapes, one-arm and beyond.'},
+];
+
+/* Four rungs. Wrist tissue adapts slower than everything else, which is
+   why the cap is physiology rather than a judgement about them — and why
+   the copy says so. */
+const LEVELS=[
+  {v:0, t:'I have never done handstands', d:'Never been upside down.',
+   days:[2,3],   def:2, mins:[15,30,45]},
+  {v:1, t:"I'm stuck at the wall",        d:"I can kick up, but can't balance.",
+   days:[2,3],   def:3, mins:[15,30,45]},
+  {v:2, t:'I can briefly balance',        d:'A few seconds, but not consistently.',
+   days:[3,4],   def:3, mins:[15,30,45,60]},
+  {v:3, t:'I can hold it',                d:'Ten seconds or more.',
+   days:[3,4,5], def:4, mins:[15,30,45,60]},
+];
+
+const NIGGLES=['Wrists','Shoulders','Neck or back','Elbows','Something else','Nothing right now'];
+const MINS=[[15,'Short and focused'],[30,'A proper session'],[45,"I'm ready to put the work in"],[60,'Handstands are a priority']];
+
+const intake = () => (st.intake=st.intake||{});
+const levelDef = () => LEVELS.find(l=>l.v===intake().level) || LEVELS[0];
+
+/* "How well we know you", never "how far along you are" — a training bar
+   that starts above zero is a lie, and one that drops when we add a
+   question later is worse than none. */
+function profilePct(){
+  const a=intake(); let n=20;                 /* opening the app is the first rung */
+  if(a.goal) n+=15; if(a.level!=null) n+=20;
+  if(a.niggles) n+=15; if(a.mins&&a.days) n+=15;
+  if(a.baseline) n+=15;
+  return Math.min(100,n);
+}
+
+const INTAKE_STEPS=[
+  {id:'goal',  kick:'WHAT YOU WANT',  q:'What are you here to achieve?',
+   sub:'This shapes how I explain things — not where you start.'},
+  {id:'level', kick:'WHERE YOU ARE',  q:'Tell us about your handstand.',
+   sub:'This is the one that sets your stage.'},
+  {id:'niggles',kick:'ANYTHING SORE', q:'Anything I should know about?',
+   sub:'Pick any that apply. It changes what you get given, not whether you can start.'},
+  {id:'train', kick:'YOUR WEEK',      q:'How do you want to train?',
+   sub:"Nothing binding — it just tells me what's realistic."},
+];
+
+function screenQuiz(){
+  const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
+  const rails=INTAKE_STEPS.map((_,n)=>`<i style="flex:1;height:4px;border-radius:2px;
+    background:${n<=i?'var(--sand)':'rgba(255,255,255,.2)'}"></i>`).join('');
+  const card=(on,body,click)=>`<button onclick="${click}" style="background:${on?'rgba(255,255,255,.20)':'rgba(255,255,255,.08)'};
+    border:1.5px solid ${on?'var(--sand)':'transparent'};border-radius:18px;padding:16px 18px;
+    color:var(--bg);cursor:pointer;text-align:left;width:100%">${body}</button>`;
+  const two=(t,d)=>`<div style="font:600 15px/1.3 var(--sans)">${esc(t)}</div>
+    <div style="font:400 13px/1.45 var(--sans);color:var(--sage);margin-top:4px">${esc(d)}</div>`;
+
+  let body='';
+  if(step.id==='goal') body=GOALS.map(g=>
+    card(a.goal===g.v, two(g.t,g.d), `pickIntake('goal','${g.v}')`)).join('');
+
+  if(step.id==='level') body=LEVELS.map(l=>
+    card(a.level===l.v, two(l.t,l.d), `pickIntake('level',${l.v})`)).join('');
+
+  if(step.id==='niggles'){
+    const sel=a.niggles||[];
+    body=`<div style="display:flex;flex-wrap:wrap;gap:9px">${NIGGLES.map(x=>{
+      const on=sel.indexOf(x)>=0;
+      return `<button onclick="toggleNiggle('${esc(x)}')" style="background:${on?'var(--sand)':'rgba(255,255,255,.08)'};
+        color:${on?'var(--ink)':'var(--bg)'};border:none;border-radius:999px;padding:12px 16px;
+        font:600 13.5px/1 var(--sans);cursor:pointer">${esc(x)}</button>`;}).join('')}</div>
+      <button class="btn" style="width:100%;margin-top:18px;background:var(--bg);color:var(--ink)"
+        onclick="nextIntake()">${sel.length?'Continue':'Nothing to flag'}</button>`;
+  }
+
+  if(step.id==='train'){
+    const L=levelDef();
+    body=`<div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--sage)">HOW LONG</div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:10px">
+        ${MINS.filter(([m])=>L.mins.indexOf(m)>=0)
+          .map(([m,d])=>card(a.mins===m, two(m+' minutes',d), `pickIntake('mins',${m})`)).join('')}</div>
+      <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--sage);margin-top:20px">HOW OFTEN</div>
+      <div style="display:flex;gap:9px;margin-top:10px;flex-wrap:wrap">
+        ${L.days.map(n=>`<button onclick="pickIntake('days',${n})" style="flex:1;min-width:74px;
+          background:${a.days===n?'var(--sand)':'rgba(255,255,255,.08)'};
+          color:${a.days===n?'var(--ink)':'var(--bg)'};border:none;border-radius:16px;padding:16px 8px;
+          font:700 16px/1 var(--sans);cursor:pointer">${n}×</button>`).join('')}</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);margin-top:12px">
+        Plus two short wrist and mobility days. ${esc(capLine())}</div>
+      ${a.mins&&a.days?`<button class="btn" style="width:100%;margin-top:18px;background:var(--bg);color:var(--ink)"
+        onclick="finishIntake()">See where you land</button>`:''}`;
+  }
+
+  /* .scroll, because #app is a fixed-height flex column with overflow
+     hidden — without it the last step runs past the fold and the button
+     that finishes the quiz cannot be reached. */
+  return `<div class="scroll s" style="background:var(--forest);color:var(--bg)">
+    <div style="min-height:100%;padding:calc(env(safe-area-inset-top) + 22px) 24px 34px;
+    display:flex;flex-direction:column">
+    <div style="display:flex;gap:5px">${rails}</div>
+    <div class="kick" style="margin-top:26px">${step.kick} · ${i+1} OF ${INTAKE_STEPS.length}</div>
+    <div class="h-lg" style="margin-top:14px">${esc(step.q)}</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--sage);margin-top:9px">${esc(step.sub)}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:24px">${body}</div>
+    ${i>0?`<button onclick="st.quizStep=${i-1};save();render()" style="background:none;border:none;
+      color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:22px;padding:10px">← Back</button>`:''}
+    </div></div>`;
+}
+
+/* the cap, explained as physiology rather than as a verdict on them */
+function capLine(){
+  const L=levelDef(), max=L.days[L.days.length-1];
+  return max<=3
+    ? 'Three sessions of up to 45 minutes is the most that helps at this stage — wrists adapt slower than everything else.'
+    : 'More than five stops helping and starts costing you wrists.';
+}
+
+function pickIntake(k,v){
+  intake()[k]=v; save();
+  if(k==='goal'||k==='level'){ nextIntake(); return; }
+  /* changing level can invalidate a frequency that is no longer offered */
+  const L=levelDef();
+  if(L.days.indexOf(intake().days)<0) delete intake().days;
+  if(L.mins.indexOf(intake().mins)<0) delete intake().mins;
+  render();
+}
+function toggleNiggle(x){
+  const a=intake(); let s2=a.niggles||[];
+  if(x==='Nothing right now') s2=s2.indexOf(x)>=0?[]:[x];
+  else { s2=s2.filter(y=>y!=='Nothing right now');
+         s2 = s2.indexOf(x)>=0 ? s2.filter(y=>y!==x) : s2.concat([x]); }
+  a.niggles=s2; save(); render();
+}
+function nextIntake(){
+  const a=intake();
+  if(!a.niggles && (st.quizStep|0)===2) a.niggles=[];
+  st.quizStep=Math.min((st.quizStep|0)+1, INTAKE_STEPS.length-1); save(); render();
+}
+function finishIntake(){
+  const a=intake(), L=levelDef();
+  st.stage=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
+  st.quizDone=true; st.oriented=false;
+  st.tab = st.email ? 'home' : 'joinFree';
+  save(); sendIntake(); render();
+}
+/* the answers are worth having on the coach's side, not just in a browser */
+function sendIntake(){
+  if(!st.token) return;
+  fetch(AUTH.intake,{method:'POST',headers:authed(),
+    body:JSON.stringify({intake:st.intake||{},stage:st.stage})}).catch(()=>{});
+}
+
 const TIERS=[['The five-stage ladder','✓','✓'],['Level-finder quiz','✓','—'],['Quick session builder','✓','✓'],
  ['Guided follow-along player','✓','✓'],['Drill library','Stage-gated','All drills'],['Max hold timer','✓','✓'],
  ['Offline use','✓','✓'],['Programme written for you','—','✓'],["Coach's read on the block",'—','✓'],
@@ -1965,29 +2342,342 @@ const FREE_DOSE={'wrist-circles-mob':'30s each way','scapula-shrugs':'3 × 10','
  'straddle-to-straight':'build to 6','straight-to-tuck-back':'build to 6','straddle-to-diamond':'build to 6',
  'press-walks':'1 × up and down the mat','p-pancake':'3 × 60s','p-bench-zombies':'2 × 5–8',
  'chest-to-wall-toe-taps':'3 × 8','chest-to-wall-handstand':'3 × 30s'};
+/* The number of drills a stage advertises used to be typed by hand, and had
+   drifted: Foundations claimed 14 and had 8, Freestanding claimed 18 and had
+   6. Someone paying for the Press stage was told 17 and given 5. It is
+   derived now, so the claim and the content cannot disagree. */
+STAGES.forEach(x=>{ x.drills=(x.drillIds||[]).length; });
 const curStage=()=>st.stage==null?1:st.stage;
 
-/* ── level-finder quiz ── */
-function screenQuiz(){
-  const i=st.quizStep|0, q=QUIZ[i];
-  const rails=QUIZ.map((_,n)=>`<i style="flex:1;height:4px;border-radius:2px;background:${n<=i?'var(--sand)':'rgba(255,255,255,.2)'}"></i>`).join('');
-  return `<div style="min-height:100dvh;background:var(--forest);padding:calc(env(safe-area-inset-top) + 22px) 24px 30px;
-    color:var(--bg);display:flex;flex-direction:column">
-    <div style="display:flex;gap:5px">${rails}</div>
-    <div class="kick" style="margin-top:26px">FIND YOUR LEVEL · ${i+1} OF ${QUIZ.length}</div>
-    <div class="h-lg" style="margin-top:16px">${esc(q.q)}</div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:auto">
-      ${q.opts.map((o,oi)=>`<button onclick="answerQuiz(${oi})" style="background:rgba(255,255,255,.08);border:none;
-        border-radius:18px;padding:18px;font:500 15px/1.3 var(--sans);color:var(--bg);cursor:pointer;text-align:left">
-        ${esc(o)}</button>`).join('')}
+
+/* ── asking a question ─────────────────────────────────────────────
+   Separate from the chat on purpose: a question has one job, it either
+   has an answer or it does not, and it should still be findable next to
+   its answer months later — which a thread cannot do. */
+function loadQuestions(){
+  if(!st.token) return;
+  fetch(AUTH.questions,{headers:authed()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d&&d.questions){ st.qs=d.questions; save();
+      if(st.tab==='home'||st.tab==='more') render(); } }).catch(()=>{});
+}
+function askQuestion(){
+  const el=$('#askQ'); const t=((el&&el.value)||'').trim();
+  const say=m=>{ const e2=$('#askQMsg'); if(e2) e2.textContent=m; };
+  if(!t){ say('Type your question first.'); return; }
+  if(!st.token){ say('Create an account and I can answer you.'); return; }
+  say('Sending…');
+  fetch(AUTH.questions,{method:'POST',headers:authed(),body:JSON.stringify({body:t})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
+    .then(()=>{ if(el) el.value=''; st.askDraft=''; save(); loadQuestions();
+                say('Sent. I answer these myself, usually within 48 hours.'); })
+    .catch(e=>say(String(e)));
+}
+function questionsCard(){
+  const qs=st.qs||[];
+  const answered=qs.filter(q=>q.status==='answered');
+  const open=qs.filter(q=>q.status!=='answered');
+  return `<div class="card" style="padding:20px">
+    <div class="kick2">ASK A QUESTION</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+      Anything about the training. I answer them myself.</div>
+    <textarea id="askQ" rows="2" placeholder="Why do my wrists hurt after the wall work?"
+      oninput="st.askDraft=this.value"
+      style="width:100%;margin-top:11px;border:1px solid rgba(28,32,25,.16);border-radius:14px;
+      padding:12px;font:400 14px/1.5 var(--sans);resize:vertical;box-sizing:border-box;
+      outline:none">${esc(st.askDraft||'')}</textarea>
+    <div id="askQMsg" style="font:500 12px/1.5 var(--sans);color:var(--terra);
+      min-height:17px;margin-top:6px"></div>
+    <button class="btn" style="width:100%" onclick="askQuestion()">Send it</button>
+    ${open.length?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
+      ${open.length} waiting on an answer.</div>`:''}
+    ${answered.length?`<div style="margin-top:14px;border-top:1px solid rgba(28,32,25,.08);padding-top:12px">
+      <div class="kick2">ANSWERED</div>
+      ${answered.slice(0,4).map(q=>`<div style="margin-top:11px">
+        <div style="font:600 13.5px/1.4 var(--sans)">${esc(q.body)}</div>
+        <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:5px;
+          padding-left:11px;border-left:2px solid var(--sage)">${esc(q.answer)}</div>
+      </div>`).join('')}</div>`:''}
+  </div>`;
+}
+
+/* ── where you landed ─────────────────────────────────────────────
+   The screen that used to be missing. Someone finishing the quiz was
+   dropped onto a ladder of five cards with no explanation of what a
+   ladder is or what to do first. The words do the orienting; the video
+   is optional and deepens it, because a video in front of someone who
+   has just answered four questions is a wall at the moment they are
+   keenest. It works with the slot empty, and gets better when it is not. */
+const LADDER_INTRO_VIDEO = '';   /* drop the Stream URL in when it is filmed */
+
+function screenOriented(){
+  const S=STAGES[curStage()]||STAGES[0];
+  const a=intake();
+  const goal=(GOALS.find(g=>g.v===a.goal)||{}).t||'';
+  /* the goal never moved them — it explains why this is the road to it */
+  const bridge = a.goal==='advanced'
+      ? 'You said presses and one-arm. Those are a handstand you can hold without thinking, so that is what we build first.'
+    : a.goal==='improve'
+      ? 'You want a better line. Line comes from the shapes below, not from more time upside down.'
+    : a.goal==='hold'
+      ? 'You want to hold it freestanding. Everything here is aimed at exactly that.'
+      : 'Everything here starts from the beginning. No experience assumed.';
+  const per=st.perWeek||levelDef().def, mins=st.time||30;
+  const row=(n,t,d)=>`<div style="display:flex;gap:13px;padding:13px 0;border-top:1px solid rgba(255,255,255,.12)">
+    <span style="flex:none;width:20px;font:700 12px/1.5 var(--sans);color:var(--sand)">${n}</span>
+    <span><b style="font:600 14.5px/1.4 var(--sans)">${t}</b>
+    <span style="display:block;font:400 13.5px/1.5 var(--sans);color:var(--sage);margin-top:3px">${d}</span></span></div>`;
+
+  return `<div class="scroll s" style="background:var(--forest);color:var(--bg);min-height:100dvh">
+    <div style="padding:calc(env(safe-area-inset-top) + 30px) 24px 34px">
+      <div class="kick">YOU'VE LANDED HERE</div>
+      <div class="h-xl" style="font-size:38px;margin-top:12px">${esc(S.n)}</div>
+      <div style="font:400 15px/1.55 var(--sans);color:var(--sage);margin-top:10px">
+        Stage ${curStage()+1} of 5 — ${esc(levelDef().d.toLowerCase())}</div>
+      <div style="font:400 15px/1.6 var(--sans);margin-top:16px">${esc(bridge)}</div>
+
+      <div style="background:rgba(255,255,255,.07);border-radius:22px;padding:6px 18px 16px;margin-top:24px">
+        ${row('1','The ladder is five stages',
+          'You move up when you hit the marker for the one you are on. Yours is '+esc(S.hold)+' — '+esc((S.goal||'').toLowerCase()))}
+        ${row('2','Your first session is ready',
+          mins+' minutes, '+per+'× a week, plus two short wrist and mobility days.')}
+        ${row('3','Questions get answered below',
+          'Every explainer is there whenever you want it. I will suggest one a day.')}
+      </div>
+
+      <button class="btn" style="width:100%;margin-top:22px;background:var(--bg);color:var(--ink)"
+        onclick="st.oriented=true;save();go('home')">Start your first session</button>
+
+      ${LADDER_INTRO_VIDEO
+        ? `<video src="${LADDER_INTRO_VIDEO}" controls playsinline preload="none"
+             style="width:100%;border-radius:18px;margin-top:16px;background:#11150f;display:block"></video>`
+        : `<div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);text-align:center;margin-top:14px">
+             A short walkthrough of how the ladder works is coming here.</div>`}
+
+      <button onclick="st.oriented=true;save();go('home')" style="width:100%;background:none;border:none;
+        color:var(--sage);font:500 13px/1 var(--sans);cursor:pointer;margin-top:6px;padding:12px">
+        Take me in</button>
     </div></div>`;
 }
-function answerQuiz(oi){
-  st.quizAns=(st.quizAns||[]).concat([oi]);
-  if(st.quizAns.length<QUIZ.length){ st.quizStep=st.quizAns.length; save(); render(); return; }
-  const score=st.quizAns.reduce((a,b)=>a+b,0);
-  st.stage=score<=1?0:score<=3?1:score<=5?2:3;
-  st.quizDone=true; st.tab = st.email ? 'ladder' : 'joinFree'; save(); render();
+
+/* ── moving up ─────────────────────────────────────────────────────
+   st.stage was only ever set by the quiz, so once placed there was no way
+   up the ladder at all — and nothing on screen said what moving up would
+   even take. The marker is the stage's own hold target, which was already
+   written into STAGES and never shown as a thing to aim at. */
+function stageReady(){
+  const s=STAGES[curStage()];
+  const goal=parseInt(s.hold,10)||30;
+  return (st.bestHold||0) >= goal;
+}
+function advanceStage(){
+  const next=curStage()+1;
+  if(next>=STAGES.length){ alert("You're at the top of the ladder."); return; }
+  if(stageLocked(next)){ openOv('stage'); st.ovStage=next; save(); render(); return; }
+  if(!confirm('Move up to '+STAGES[next].n+'?\n\nYou can always drop back down.')) return;
+  st.stage=next; save(); sendIntake(); render();
+}
+/* not stepBack — the player already owns that name for rewinding a step,
+   and this one being defined later was quietly winning */
+function dropStage(){
+  if(curStage()<=0) return;
+  if(!confirm('Drop back to '+STAGES[curStage()-1].n+'?')) return;
+  st.stage=curStage()-1; save(); sendIntake(); render();
+}
+function retakeIntake(){
+  if(!confirm('Retake the questions?\n\nYour training history stays — this only changes where you are placed.')) return;
+  st.quizDone=false; st.oriented=false; st.quizStep=0; save(); st.tab='quiz'; render();
+}
+
+/* what it takes to move up, and the way to do it */
+function nextStageCard(){
+  const s=STAGES[curStage()], next=STAGES[curStage()+1];
+  const goal=parseInt(s.hold,10)||30, best=st.bestHold||0;
+  const pct=Math.min(100,Math.round(best/goal*100));
+  const ready=stageReady();
+  return `<div class="card" style="padding:20px">
+    <div class="kick2">MOVING UP</div>
+    <div class="h-md" style="font-size:20px;margin-top:8px">
+      ${next?'Next: '+esc(next.n):"You're at the top"}</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
+      ${next
+        ? 'The marker for '+esc(s.n)+' is <b>'+esc(s.hold)+'</b> — '+esc((s.goal||'').toLowerCase())
+        : 'Nothing above this one. Keep sharpening what you have.'}</div>
+    ${next?`
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:14px">
+        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">YOUR BEST</span>
+        <span style="font:700 13px/1 var(--sans)">${best}s of ${goal}s</span></div>
+      <div style="height:6px;border-radius:3px;background:var(--mist);margin-top:9px;overflow:hidden">
+        <i style="display:block;height:100%;width:${pct}%;background:${ready?'var(--forest)':'var(--terra)'}"></i></div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+        ${ready ? "You've hit the marker. Move up whenever you're ready."
+                : 'Use the hold timer to log an attempt — that is what fills this bar.'}</div>
+      <button class="btn" style="width:100%;margin-top:14px;${ready?'':'background:var(--mist);color:var(--forest)'}"
+        onclick="advanceStage()">${ready?'Move up to '+esc(next.n):"Move up anyway"}</button>
+      <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+        Nothing is locked by the marker — it is a guide, and you can drop back.</div>`:''}
+    <div style="display:flex;gap:14px;justify-content:center;margin-top:14px;flex-wrap:wrap">
+      ${curStage()>0?`<button onclick="dropStage()" style="background:none;border:none;cursor:pointer;
+        font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+        text-underline-offset:3px;padding:4px">Drop back a stage</button>`:''}
+      <button onclick="retakeIntake()" style="background:none;border:none;cursor:pointer;
+        font:500 12px/1 var(--sans);color:var(--grey2);text-decoration:underline;
+        text-underline-offset:3px;padding:4px">Retake the questions</button>
+    </div></div>`;
+}
+
+/* ── explainers ────────────────────────────────────────────────────
+   The questions that get asked before anyone asks anything else. Three
+   are open to everyone; the rest need an account, because an address is
+   a fair price for the whole library and no price at all for a taste. */
+const FAQS=[
+  {q:'Why do my wrists hurt?',                      v:''},
+  {q:'How often should I practise handstands?',     v:''},
+  {q:'Do I need to be strong to start?',            v:''},
+  {q:'How to safely fall out of a handstand',       v:''},
+  {q:'How long does it take to learn a handstand?', v:''},
+  {q:'What alignment really feels like',            v:''},
+];
+const FREE_EXPLAINERS=3;
+const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token;
+/* v is a filename in the R2 bucket the explainers already live in */
+/* one a day, rotating, so there is a reason to come back rather than a
+   library to binge and forget */
+const explainerToday = () =>
+  FAQS[Math.floor(Date.now()/86400000) % FAQS.length];
+
+/* ── today ─────────────────────────────────────────────────────────
+   Landing on the ladder meant landing on five stage cards and a choice.
+   This is the screen that says what to do now — the ladder is still
+   there to browse, it is just no longer the front door. */
+function weekTarget(){ return st.perWeek || levelDef().def; }
+function sessionsThisWeek(){
+  const wk=Date.now()-7*864e5;
+  return sessionsDone().filter(x=>x.at>wk).length;
+}
+function trainedToday(){
+  const k=new Date().toISOString().slice(0,10);
+  return sessionsDone().some(x=>new Date(x.at).toISOString().slice(0,10)===k);
+}
+
+function screenHome(){
+  const S=STAGES[curStage()]||STAGES[0];
+  const done=sessionsThisWeek(), target=weekTarget();
+  const didToday=trainedToday();
+  const ex=explainerToday();
+  const exIdx=FAQS.indexOf(ex);
+  const hour=new Date().getHours();
+  const hello = hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
+  const name=(st.client||'').split(' ')[0]||'';
+
+  const pips=Array.from({length:target},(_,i)=>
+    `<i style="flex:1;height:5px;border-radius:3px;background:${i<done?'var(--sand)':'rgba(255,255,255,.22)'}"></i>`).join('');
+
+  return `<div class="scroll s">
+    <div class="hero">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="kick">${esc(S.n.toUpperCase())} · STAGE ${curStage()+1} OF 5</span>
+        ${st.token?`<button onclick="openOv('account')" aria-label="Your account"
+          style="border:none;background:none;padding:0;cursor:pointer">
+          <span style="width:32px;height:32px;border-radius:999px;background:var(--sand);display:grid;
+            place-items:center;font:700 12px/1 var(--sans);color:var(--ink)">${esc(((st.client||st.email||'?')[0]||'?').toUpperCase())}</span>
+        </button>`:''}
+      </div>
+      <div class="h-lg" style="margin-top:14px">${hello}${name?', '+esc(name):''}.</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--sage);margin-top:8px">
+        ${didToday?"That's today done. Rest, or do the wrist routine."
+                  :'Your session is ready when you are.'}</div>
+      <div style="display:flex;gap:5px;margin-top:16px">${pips}</div>
+      <div style="font:500 11px/1 var(--sans);letter-spacing:.1em;color:var(--sage);margin-top:9px">
+        ${done} OF ${target} THIS WEEK · PLUS TWO WRIST DAYS</div>
+    </div>
+
+    <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
+
+      ${(function(){
+        const plan=weekPlan(), idx=nextDayIdx();
+        const dayDef=plan?plan[idx]:null;
+        const title=dayDef?dayDef.n:S.n;
+        const sub=dayDef?dayDef.sub:(S.intro||S.goal||'');
+        const count=(dayDef?dayDef.drills:(S.drillIds||[])).length;
+        return `<div class="card" style="padding:20px">
+        <div class="kick2">${didToday?'ALREADY DONE TODAY':"TODAY'S SESSION"}${
+          plan?` · ${idx+1} OF ${plan.length}`:''}</div>
+        <div class="h-md" style="font-size:26px;margin-top:10px">${esc(title)}</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">${esc(sub)}</div>
+        <div style="display:flex;gap:22px;margin-top:16px">
+          ${[[String(st.time||30),'MINUTES'],[String(count),'DRILLS']]
+            .map(([v,l])=>`<div><div class="h-sm" style="font-size:24px">${v}</div>
+              <div style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2);
+                margin-top:5px">${l}</div></div>`).join('')}
+        </div>
+        <button class="btn" style="width:100%;margin-top:16px" onclick="buildFreeSession()">
+          ${didToday?'Go again':'Start the session'}</button>
+        ${plan?`<button class="btn2" style="width:100%;margin-top:8px" onclick="buildFreeSession(true)">
+          Short wrist and mobility day instead</button>`:''}
+        <button class="btn2" style="width:100%;margin-top:8px" onclick="go('ladder')">See the whole ladder</button>
+      </div>
+      ${plan?`<div class="card" style="padding:18px 20px">
+        <div class="kick2">YOUR WEEK</div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-top:12px">
+          ${plan.map((dd,i)=>`<div style="display:flex;gap:11px;align-items:center;
+            font:400 13.5px/1.4 var(--sans);opacity:${i===idx?1:.62}">
+            <span style="flex:none;width:20px;height:20px;border-radius:999px;display:grid;
+              place-items:center;font:700 10px/1 var(--sans);
+              background:${i===idx?'var(--forest)':'var(--mist)'};
+              color:${i===idx?'var(--bg)':'var(--grey2)'}">${i+1}</span>
+            <span style="flex:1"><b style="font-weight:${i===idx?600:400}">${esc(dd.n)}</b>
+              <span style="color:var(--grey2)"> · ${esc(dd.sub)}</span></span>
+            ${i===idx?`<span style="font:700 9px/1 var(--sans);letter-spacing:.1em;
+              color:var(--terra)">NEXT</span>`:''}
+          </div>`).join('')}
+          <div style="display:flex;gap:11px;align-items:center;font:400 13.5px/1.4 var(--sans);
+            opacity:.62;padding-top:7px;border-top:1px solid rgba(28,32,25,.08)">
+            <span style="flex:none;width:20px;height:20px;border-radius:999px;display:grid;
+              place-items:center;font:700 10px/1 var(--sans);background:var(--mist);
+              color:var(--grey2)">+</span>
+            <span style="flex:1">Two short wrist days
+              <span style="color:var(--grey2)"> · between the sessions</span></span></div>
+        </div></div>`:''}`;})()}
+
+      <div class="card" style="padding:20px">
+        <div class="kick2">TODAY'S EXPLAINER</div>
+        <div class="h-md" style="font-size:19px;margin-top:9px">${esc(ex.q)}</div>
+        ${explainerOpen(exIdx)
+          ? (ex.v
+              ? qaVideo(ex)
+              : `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
+                   Filming this one shortly.</div>`)
+          : `<div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+               Save your progress with an email and the rest of the answers open up.</div>
+             <button class="btn" style="width:100%;margin-top:12px"
+               onclick="st.tab='joinFree';save();render()">Create an account</button>`}
+        <div style="margin-top:16px;border-top:1px solid rgba(28,32,25,.08);padding-top:13px">
+          <div class="kick2">ALL THE EXPLAINERS</div>
+          <div style="display:flex;flex-direction:column;gap:2px;margin-top:9px">
+          ${FAQS.map((q,i)=>{
+            const open=explainerOpen(i), showing=(st.exOpen===i);
+            return `<div style="border-top:${i?'1px solid rgba(28,32,25,.07)':'none'};padding:11px 0">
+              <div onclick="${open?`st.exOpen=${showing?'null':i};save();render()`
+                                  :`st.tab='joinFree';save();render()`}"
+                style="display:flex;gap:10px;justify-content:space-between;cursor:pointer;
+                align-items:baseline">
+                <span style="font:${open?500:400} 14px/1.4 var(--sans);
+                  color:${open?'var(--ink)':'var(--grey2)'}">${esc(q.q)}</span>
+                <span style="flex:none;font:400 14px/1 var(--serif);color:var(--terra)">
+                  ${open?(showing?'−':'+'):'🔒'}</span></div>
+              ${open&&showing?(q.v?qaVideo(q)
+                :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+                   Not filmed yet — it lands here when it is.</div>`):''}
+            </div>`;}).join('')}
+          </div>
+          ${st.token?'':`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
+            The first ${FREE_EXPLAINERS} are open. An account opens the rest.</div>`}
+        </div>
+      </div>
+
+      ${questionsCard()}
+      ${nextStageCard()}
+    </div></div>`;
 }
 
 /* ── ladder home ── */
@@ -1996,6 +2686,17 @@ function screenLadder(){
   const best=st.bestHold||0;
   const goal=parseInt(s.hold,10)||30;
   const pct=Math.min(100,Math.round(best/goal*100));
+  const knowPct=profilePct();
+  const profileBar = knowPct>=100 ? '' : `<div style="background:rgba(255,255,255,.08);border-radius:18px;
+    padding:14px 16px;margin-top:16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span style="font:600 11px/1 var(--sans);letter-spacing:.13em;color:var(--sage)">HOW WELL I KNOW YOU</span>
+      <span style="font:700 13px/1 var(--sans)">${knowPct}%</span></div>
+    <div style="height:6px;border-radius:3px;background:rgba(255,255,255,.14);margin-top:10px;overflow:hidden">
+      <i style="display:block;height:100%;width:${knowPct}%;background:var(--sand)"></i></div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);margin-top:9px">
+      ${st.intake&&st.intake.baseline?'Answer a few more and the plan gets sharper.'
+        :'Film a baseline clip and I can place you properly rather than taking your word for it.'}</div></div>`;
   const cards=STAGES.map((x,i)=>{
     const state=i<curStage()?'done':i===curStage()?'current':'locked';
     const bg=state==='current'?'#fff':state==='done'?'rgba(255,255,255,.55)':'rgba(255,255,255,.4)';
@@ -2039,6 +2740,8 @@ function screenLadder(){
         <span>${pct}% of this stage</span><span>Best hold ${best}s · goal ${esc(s.hold)}</span></div>
     </div>
     <div class="pad" style="padding-top:18px">
+      ${profileBar}
+      ${nextStageCard()}
       <div class="card">
         <div class="kick2">TRAIN NOW</div>
         <div class="h-lg" style="font-size:30px;margin-top:12px">How long have you got?</div>
@@ -2152,14 +2855,16 @@ function loadEntitlement(){
   return fetch(AUTH.me,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const was=st.plus, wasIn=st.in;
+      const was=st.plus, wasIn=st.in, wasFC=st.freeCheckUsed;
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
       st.in=!!d.coached;
       if(!st.in && st.token){ st.mode='free'; st.quizDone=true; }
       if(d.name&&!st.client) st.client=d.name;
-      save(); if(was!==st.plus || wasIn!==st.in) render(); })
+      /* the free-check flag has to be in here too: a coach clearing it
+         changed the server and left the screen saying USED */
+      save(); if(was!==st.plus || wasIn!==st.in || wasFC!==st.freeCheckUsed) render(); })
     .catch(()=>{});
 }
 
@@ -2210,23 +2915,103 @@ function manageSubscription(){
 
 function openStage(i){ st.ovStage=i; openOv('stage'); }
 
+/* ── the week, for Foundations ─────────────────────────────────────
+   Until now every free session drew from the whole stage pool, so three
+   sessions a week were three shuffles of the same bag. A week should have
+   a shape: get upside down, build the shapes, then the assisted work —
+   plus two short wrist days, which is where the tissue actually adapts.
+
+   Only Foundations has a written week so far. Other stages fall back to
+   the whole pool, which is what they did before. */
+const WEEK = {
+  0: [
+    {n:'Getting upside down', sub:'Kick ups and the wall',
+     drills:['wall-kick-ups','chest-to-wall-handstand','chest-to-wall-bailouts','kick-up-bounces','wall-walks']},
+    {n:'Shapes and strength', sub:'The pushing underneath it',
+     drills:['chaturganga-push-ups','p-pike-pushups-knees','dd-float-drills','p-dd-toe-taps','palm-lifts-table-top']},
+    {n:'Assisted work', sub:'Chair and wall, learning the line',
+     drills:['p-l-handstand','chair-assisted-knee-lifts','chair-assisted-step-ups','wall-walks','chest-to-wall-handstand']},
+  ],
+};
+const WRIST_DAY = {n:'Wrists and mobility', sub:'Short — this is the one that keeps you training',
+  drills:['forearm-massage','wrist-circles-mob','dd-wrist-taps','palm-lifts-table-top',
+          'shoulder-circles','heart-melting-pose']};
+
+const weekPlan = () => WEEK[curStage()] || null;
+/* which session is next: they rotate, and finishing one advances it */
+function nextDayIdx(){
+  const plan=weekPlan(); if(!plan) return 0;
+  return ((st.planDay|0) % plan.length + plan.length) % plan.length;
+}
+function advanceDay(){
+  const plan=weekPlan(); if(!plan) return;
+  st.planDay=((st.planDay|0)+1)%plan.length; save();
+}
+
+/* ── how a session is ordered ──────────────────────────────────────
+   Every session used to be the stage's drill list round-robined, which
+   meant a wrist drill, then a wall walk, then back to a wrist drill —
+   and stages 2 to 5 carry no prep drills at all, so they opened cold on
+   shoulder shrugs or knees-on-box.
+
+   Marina's and Hannah's programmes are built the way a session actually
+   runs: wrists, then shoulders and general mobility, then the skill work
+   with the easier drills first. That order is now the app's too, for the
+   free ladder as well as a written plan. */
+const RAMP = {
+  wrists:    ['forearm-massage','wrist-circles-mob','wrist-flexion-ext',
+              'wrist-weight-shift','plank-fingertip-lifts'],
+  shoulders: ['shoulder-circles','scapula-shrugs','heart-melting-pose',
+              'wall-shoulder-opener','downward-dog-pulses'],
+  general:   ['upward-dog-to-plank','plank-pose','dolphin-lean-forwards',
+              'downward-dog-elbow-lowers','wall-front-side-opener','floor-lateral-stretch'],
+};
+const RAMP_ALL = [].concat(RAMP.wrists, RAMP.shoulders, RAMP.general);
+
+/* wrists always, then two from the shoulder and general pools. Kept to
+   one set each and about a fifth of the session, so choosing 10 minutes
+   still leaves time for the thing they came to train. */
+function warmupFor(budgetSecs){
+  const take=(list,n)=>list.map(drillById).filter(Boolean).slice(0,n);
+  const picks=[].concat(take(RAMP.wrists,2), take(RAMP.shoulders,2), take(RAMP.general,1));
+  const cap=budgetSecs*0.22;
+  const out=[]; let secs=0;
+  for(const d of picks){
+    const it=Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'1 × 30s'});
+    const t=work(it)+rest(it);
+    if(out.length && secs+t>cap) break;
+    out.push(it); secs+=t;
+  }
+  return {items:out, secs};
+}
+
 /* a session built from the current stage's drills, to fit the time chosen */
-function buildFreeSession(){
+function buildFreeSession(wristDay){
   const mins=st.time||30, s=STAGES[curStage()];
-  const pool=s.drillIds.map(drillById).filter(Boolean)
+  /* prep drills belong in the warm-up, not scattered through the skill work */
+  const plan=weekPlan();
+  const dayDef = wristDay ? WRIST_DAY : (plan ? plan[nextDayIdx()] : null);
+  const ids = dayDef ? dayDef.drills : s.drillIds;
+  const pool=ids.filter(v=>RAMP_ALL.indexOf(v)<0).map(drillById).filter(Boolean)
     .map(d=>Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'3 × 8'}));
   if(!pool.length){ alert('Nothing filmed for this stage yet.'); return; }
-  /* Expand each drill into its sets, then fill the time chosen — one set
-     from each drill in turn, so a short session still covers the stage
-     rather than doing three sets of the first thing and stopping. */
-  const budget=mins*60; const out=[]; let secs=0, round=0, added=true;
+
+  const budget=mins*60;
+  const warm=warmupFor(budget);
+  const out=warm.items.map((it,i)=>({it,gi:0,ii:i,set:1,sets:1,grp:'Warm-up'}));
+  let secs=warm.secs;
+
+  /* Then the skill work, easiest first — one set from each in turn, so a
+     short session still covers the stage rather than three sets of the
+     first thing and nothing else. */
+  let round=0, added=true;
   while(added && secs<budget){
     added=false;
     for(const it of pool){
       const n=sets(it.d); if(round>=n) continue;
       const t=work(it)+rest(it);
       if(secs+t>budget){ added=false; break; }
-      out.push({it,gi:0,ii:out.length,set:round+1,sets:n,grp:s.n});
+      out.push({it,gi:0,ii:out.length,set:round+1,sets:n,grp:(dayDef&&dayDef.n)||s.n});
       secs+=t; added=true;
     }
     round++;
@@ -2267,13 +3052,51 @@ function screenCoaching(){
           onclick="st.tab='signin';save();render()">Create an account to send it</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
           Takes a second — it's just so the answer has somewhere to land.</div></div>`
-    : awaiting
-    ? `<div class="card" style="padding:22px;border:1.5px solid var(--terra)">
-        <div class="kick2" style="color:var(--terra)">WITH ME NOW</div>
-        <div class="h-md" style="font-size:22px;margin-top:8px">Got it — I'm on it.</div>
-        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Sent ${esc(when(st.awaitingReview))}. I'll come back to you within 48 hours,
-          and my reply lands in the chat below.</div></div>`
+    : awaiting || (st.lastReview && st.lastReview > (st.seenReview||0))
+    ? (function(){
+        /* three states, one line each, so it is obvious where the thing is:
+           it went, someone has it, the answer is back. Silence after
+           uploading is what makes people think it vanished. */
+        const done = !awaiting;
+        const steps = [
+          ['Uploaded', 'Your clip is in.', true],
+          ['With Elliott', done
+            ? 'Watched.'
+            : "He's watching it and picking the one thing to change.", true],
+          ['Answer ready', done
+            ? 'It\'s in the chat below.'
+            : 'Within 48 hours. You\'ll get an email the moment it lands.', done],
+        ];
+        return `<div class="card" style="padding:22px;border:1.5px solid ${done?'var(--forest)':'var(--terra)'}">
+          <div class="kick2" style="color:${done?'var(--forest)':'var(--terra)'}">
+            ${done?'ANSWERED':'IN REVIEW'}</div>
+          <div class="h-md" style="font-size:22px;margin-top:8px">
+            ${done?'Your answer is back.':'Hang tight.'}</div>
+          <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+            Sent ${esc(when(awaiting?st.awaitingReview:st.lastReview))}.</div>
+          ${done&&st.lastAnswer&&st.lastAnswer.text?`<div style="background:var(--mist);
+            border-radius:14px;padding:14px 16px;margin-top:14px">
+            <div class="kick2">WHAT ELLIOTT SAID</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:8px">
+              ${esc(st.lastAnswer.text)}</div></div>`:''}
+          <div style="margin-top:18px">
+          ${steps.map(([t,d,on],i)=>`<div style="display:flex;gap:13px">
+            <div style="flex:none;display:flex;flex-direction:column;align-items:center;width:20px">
+              <span style="width:20px;height:20px;border-radius:999px;display:grid;place-items:center;
+                background:${on?'var(--forest)':'transparent'};
+                border:${on?'none':'2px solid rgba(28,32,25,.18)'};
+                color:var(--bg);font:700 10px/1 var(--sans)">${on?(i===1&&!done?'&bull;':'&check;'):''}</span>
+              ${i<2?`<span style="flex:1;width:2px;min-height:26px;background:rgba(28,32,25,.12)"></span>`:''}
+            </div>
+            <div style="padding-bottom:${i<2?'14px':'0'}">
+              <div style="font:600 14.5px/1.3 var(--sans);color:${on?'var(--ink)':'var(--grey2)'}">${t}</div>
+              <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${d}</div>
+            </div></div>`).join('')}
+          </div>
+          ${done?`<button class="btn" style="width:100%;margin-top:16px"
+            onclick="st.seenReview=st.lastReview;save();go('${st.in?'ask':'coaching'}')">Read the answer</button>`:''}
+        </div>`;
+      })()
     : used
     ? `<div class="card" style="padding:22px">
         <div class="kick2">FREE ASSESSMENT · USED</div>
@@ -2372,7 +3195,13 @@ function screenCoaching(){
       </div>
       <div class="card" style="padding:20px">
         <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
-      <button class="btn" onclick="post({type:'Coaching enquiry'});alert('Sent — Elliott will be in touch.')">Apply for coaching</button>
+      ${st.applied
+        ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
+            <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+              Sent ${esc(when(st.applied))}. Elliott reads every one himself and comes
+              back within 48 hours.</div></div>`
+        : `<button class="btn" onclick="openOv('apply')">Apply for coaching</button>`}
       <button class="btn2" style="width:100%" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
     </div></div>`;
 }
@@ -2474,7 +3303,9 @@ function screenJoin(){
 
     <div style="margin-top:auto;padding-top:30px">
       <div style="font:400 15px/1.55 var(--sans);color:var(--sage);margin-bottom:14px">
-        Pop your email in to save this and keep your progress across devices.</div>
+        ${emailOptional()
+          ? 'Optional. It saves your progress, opens the rest of the explainers, and I send tips and new videos as they land.'
+          : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
       <form onsubmit="doJoin(event)" style="display:flex;flex-direction:column;gap:10px">
         <input id="joinEm" type="email" inputmode="email" autocomplete="email" required
           placeholder="you@example.com"
@@ -2499,9 +3330,9 @@ function screenJoin(){
         <div id="joinMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--sand);
           text-align:center;min-height:18px">${esc(joinErr)}</div>
       </form>
-      <button onclick="skipJoin()" style="width:100%;background:none;border:none;margin-top:6px;
+      ${emailOptional()?`<button onclick="skipJoin()" style="width:100%;background:none;border:none;margin-top:6px;
         font:500 13px/1 var(--sans);color:#7d8b74;cursor:pointer;padding:12px">
-        Skip for now</button>
+        Skip for now — I'll do it later</button>`:''}
     </div></div>`;
 }
 /* never re-render on a validation error — it rebuilds the form and throws
@@ -2525,9 +3356,13 @@ function doJoin(ev){
 }
 /* letting them skip costs one address and keeps the app usable —
    they get asked again when they hit the paid stages */
-function skipJoin(){ st.joinSkipped=true; st.tab='ladder'; save(); render(); }
+/* A beginner can get going without giving us anything — three explainers
+   and the ladder are enough to be useful. From stage 2 up we ask, because
+   by then the app is tracking something worth not losing. */
+const emailOptional = () => curStage() === 0;
+function skipJoin(){ st.joinSkipped=true; st.tab='home'; save(); render(); }
 
-function startFree(){ st.mode='free'; st.tab=st.quizDone?'ladder':'quiz'; st.quizStep=0; st.quizAns=[]; save(); render(); }
+function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizStep=0; st.quizAns=[]; save(); render(); }
 
 /* ── max hold timer (free tier) ── */
 let holdT=null,holdS=0;
@@ -2552,9 +3387,19 @@ function saveHold(){ if(holdS>(st.bestHold||0)) st.bestHold=holdS;
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
   coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask'],['more','More']],
-  free:[['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
+  free:[['home','Today'],['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
 };
+/* A coaching client is still a person who might want the ladder. The tab
+   set follows the view they have chosen rather than what they pay for. */
+function coachedView(){ return !!st.in && !st.asFree; }
+function switchView(toFree){
+  st.asFree=!!toFree;
+  st.tab = toFree ? 'ladder' : 'today';
+  save(); render();
+}
+
 function go(t){ st.tab=t; save(); render();
+  if(t==='home') loadQuestions();
   if(t==='ask'||t==='coaching'){ loadThread(); loadEntitlement(); loadSubmissions(); }
   if(t==='progress') loadSubmissions(); }
 function render(){
@@ -2576,11 +3421,15 @@ function render(){
   if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
   if(!st.mode && !st.in){ swap(screenWelcome()); return; }
   if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ swap(screenQuiz()); return; }
-  if(!st.in && st.quizDone && !st.email && !st.joinSkipped){ swap(screenJoin()); return; }
-  const coached=!!st.in;
+  /* shown once, between finishing the quiz and the ladder */
+  if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null){
+    swap(screenOriented()); return; }
+  if(!st.in && st.quizDone && !st.email && !(st.joinSkipped && emailOptional())){
+    swap(screenJoin()); return; }
+  const coached=coachedView();
   const screens=coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore}
-    : {ladder:screenLadder,progress:screenProgress,coaching:screenCoaching,more:screenMore};
+    : {home:screenHome,ladder:screenLadder,progress:screenProgress,coaching:screenCoaching,more:screenMore};
   const tabs=TABS[coached?'coached':'free'];
   if(!screens[st.tab]) st.tab=tabs[0][0];
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span></button>`).join('');
@@ -2592,7 +3441,7 @@ document.addEventListener('DOMContentLoaded',function(){
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
   render();
-  if(st.token){ loadEntitlement(); loadSubmissions(); }
+  if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); }
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
   if(st.token) reportProgress();
 });
