@@ -10,6 +10,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* an inline display beats the browser's own [hidden] rule, and several of
+   these panels carry one */
+[hidden]{display:none!important}
 :root{
  /* Repainted from the Claude Design Today canvas. Same token names so
     nothing downstream had to change — only what they resolve to. Warm
@@ -1646,7 +1649,8 @@ function drawOv(){
       const it=q.it, k='q'+i;
       const mode=st.listMode||'work';
       const on=(st.qTick||{})[k], rate=(st.rate||{})[it.v]||'', openD=(st.open||{})[k];
-      const reps=(st.reps||{})[k]||0;
+      const logged=(st.reps||{})[k];
+      const reps=logged==null?recommendedReps(it):logged;
       const editing=st.ovRow===i;
       const flagged=rate==='easy'||rate==='hard';
       return `<div style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
@@ -1663,7 +1667,7 @@ function drawOv(){
               ${it.url?`<button class="rt" style="flex:none"
                 onclick="toggleListDemo('${k}',this)" data-url="${esc(it.url)}">${
                 openD?'Hide':'▶ Demo'}</button>`
-                :`<span class="rt" style="flex:none;opacity:.55">Soon</span>`}
+                :`<button class="rt" style="flex:none" onclick="toggleCues('${k}',this)">How to</button>`}
             </div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${
@@ -1672,7 +1676,7 @@ function drawOv(){
                 style="border:none;background:none;cursor:pointer;padding:0;
                 font:600 12.5px/1 var(--sans);color:var(--grey);text-decoration:underline;
                 text-underline-offset:3px">${mode==='work'
-                  ? (reps?reps+' done':'Log reps')
+                  ? (logged==null?'Log reps':logged+' done')
                   : 'Change time'}</button>
               ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
               <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>`:''}
@@ -1703,6 +1707,17 @@ function drawOv(){
             ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
               esc(it.desc)}</div>`:''}
             <div id="demo-${k}" hidden style="margin-top:11px"></div>
+            <div id="cues-${k}" hidden style="margin-top:10px">
+              ${(it.cues&&it.cues.length)?`<div style="background:rgba(0,102,99,.05);border-radius:12px;
+                padding:11px 13px">
+                <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">HOW TO DO IT</div>
+                <ul style="margin:9px 0 0;padding-left:16px">
+                  ${it.cues.slice(0,6).map(c=>`<li style="font:400 13.5px/1.5 var(--sans);
+                    color:var(--ink);margin-top:3px">${esc(c)}</li>`).join('')}
+                </ul></div>`
+              :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2)">
+                No written cues for this one yet.</div>`}
+            </div>
             ${st.in&&flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
               <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
                 rate==='hard'?'TOO HARD':'TOO EASY'}</div>
@@ -2493,7 +2508,16 @@ function toggleListDemo(k,btn){
   const open=box.hasAttribute('hidden');
   if(open && !box.innerHTML) box.innerHTML=vidBlock(btn.dataset.url,'16/10');
   box.hidden=!open;
+  /* the cues belong with the clip — you are watching it to learn the thing */
+  const cues=document.getElementById('cues-'+k); if(cues) cues.hidden=!open;
   btn.textContent = open ? 'Hide' : '▶ Demo';
+}
+
+/* a drill with no clip still has cues worth reading */
+function toggleCues(k,btn){
+  const cues=document.getElementById('cues-'+k); if(!cues) return;
+  cues.hidden=!cues.hidden;
+  btn.textContent = cues.hidden ? 'How to' : 'Hide';
 }
 
 function toggleStep(k){
@@ -3710,6 +3734,13 @@ function startQueue(from){
    Reps are only worth logging if you can see them again. Kept per drill,
    newest first, capped so the record cannot grow without end. */
 const REPS_KEPT=8;
+/* "3 × 10" is ten, "30s each way" is thirty, "10 reps" is ten. The last
+   number in the dose is the one being counted. */
+function recommendedReps(it){
+  const nums=String((it&&it.d)||'').match(/\d+/g);
+  if(nums&&nums.length) return Number(nums[nums.length-1]);
+  return work(it)||10;
+}
 function repsHistory(v){ return (st.repsLog&&st.repsLog[v])||[]; }
 /* signed out there is no account to hold this, so the local copy is all there
    is — worth saying rather than pretending it syncs */
@@ -3738,7 +3769,9 @@ function agoShort(ms){
    session asks for — logged per drill for the session record. */
 function adjustReps(k,by){
   st.reps=st.reps||{};
-  const next=Math.max(0,(st.reps[k]||0)+by);
+  const i=Number(String(k).slice(1));
+  const base = st.reps[k]==null ? recommendedReps(((Q||[])[i]||{}).it||{}) : st.reps[k];
+  const next=Math.max(0,base+by);
   st.reps[k]=next; save();
   const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);
   if(a) a.textContent=String(next);
