@@ -57,6 +57,9 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink);
 @keyframes sheetUp{from{transform:translateY(101%)}to{transform:none}}
 @keyframes breathe{0%,100%{opacity:.45}50%{opacity:1}}
 /* one class so a section can be given the design's entrance and its delay */
+#app[data-still="1"] .rise,
+#app[data-still="1"] [style*="animation:rise"],
+#app[data-still="1"] [style*="animation:riseB"]{animation:none!important}
 .rise{animation:rise .7s cubic-bezier(.2,.8,.2,1) both}
 .rise-1{animation-delay:.1s}.rise-2{animation-delay:.16s}
 .rise-3{animation-delay:.3s}.rise-4{animation-delay:.36s}
@@ -1529,38 +1532,39 @@ function drawOv(){
       return `<div style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
         border-radius:16px;padding:13px 14px">
         <div style="display:flex;gap:13px;align-items:flex-start">
-          <div class="box ${on?'on':''}" onclick="qTick('${k}')">✓</div>
+          <div class="box ${on?'on':''}" id="box-${k}" onclick="qTick('${k}',this)">✓</div>
           <div style="flex:1;min-width:0">
             <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
-              <div style="font:600 15px/1.25 var(--sans);${on?'color:var(--grey2);text-decoration:line-through':''}">
-                ${esc(it.n)}</div>
+              <div id="name-${k}" style="font:600 15px/1.25 var(--sans);${
+                on?'color:var(--grey2);text-decoration:line-through':''}">${esc(it.n)}</div>
               ${it.url?`<button class="rt" style="flex:none"
-                onclick="st.open=st.open||{};st.open['${k}']=!st.open['${k}'];save();drawOv()">${
+                onclick="toggleListDemo('${k}',this)" data-url="${esc(it.url)}">${
                 openD?'Hide':'▶ Demo'}</button>`
                 :`<span class="rt" style="flex:none;opacity:.55">Soon</span>`}
             </div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
-              <button onclick="st.ovRow=${editing?'null':i};save();drawOv()"
+              <button onclick="toggleStep('${k}')" id="dose-${k}"
                 style="border:none;background:none;cursor:pointer;padding:0;
                 font:700 13px/1 var(--sans);color:var(--forest);text-decoration:underline;
                 text-underline-offset:3px">${work(it)}s</button>
               <button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
               <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>
             </div>
-            ${editing?`<div style="display:flex;align-items:center;gap:10px;margin-top:11px">
-              <button onclick="adjustSecs('${esc(it.v||'')}',-10)" style="width:34px;height:34px;
+            <div id="step-${k}" ${editing?'':'hidden'}
+              style="display:flex;align-items:center;gap:10px;margin-top:11px">
+              <button onclick="adjustSecs('${esc(it.v||'')}',-10,'${k}')" style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">−</button>
-              <span style="min-width:52px;text-align:center;font:400 20px/1 var(--serif);
+              <span id="secs-${k}" style="min-width:52px;text-align:center;font:400 20px/1 var(--serif);
                 color:var(--forest)">${work(it)}s</span>
-              <button onclick="adjustSecs('${esc(it.v||'')}',10)" style="width:34px;height:34px;
+              <button onclick="adjustSecs('${esc(it.v||'')}',10,'${k}')" style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">+</button>
               <button class="rt" style="margin-left:auto" onclick="closeOv();startQueue(${i})">Start here</button>
-            </div>`:''}
+            </div>
             ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
               esc(it.desc)}</div>`:''}
-            ${openD&&it.url?`<div style="margin-top:11px">${vidBlock(it.url,'16/10')}</div>`:''}
+            <div id="demo-${k}" hidden style="margin-top:11px"></div>
             ${flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
               <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
                 rate==='hard'?'TOO HARD':'TOO EASY'}</div>
@@ -1574,13 +1578,13 @@ function drawOv(){
       </div>`;}).join('');
     const mins=Math.round((Q||[]).reduce((a,q)=>a+work(q.it)+rest(q.it),0)/60);
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
-    body=`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
+    body=`<div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
         ${(Q||[]).length} drills · ${mins} minutes${ticked?' · '+ticked+' done':''}</div>
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
       <button class="btn2" style="width:100%;margin-top:14px"
         onclick="closeOv();startQueue(0)">Follow along instead</button>
-      ${ticked?`<button class="btn" style="width:100%;margin-top:9px"
-        onclick="finishChecklist()">Done for today</button>`:''}`;
+      <button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:9px"
+        onclick="finishChecklist()">Done for today</button>`;
   }
   if(st.ov==='explainer'){
     const q=FAQS[st.exOpen]||FAQS[0];
@@ -1930,10 +1934,14 @@ function drawOv(){
   }
   /* tapping the scrim closes it, the way a sheet should; the panel swallows
      its own clicks so a tap inside does not shut it */
+  const oldSheet=$('#ov').querySelector('.sheet');
+  const sheetTop=oldSheet?oldSheet.scrollTop:0;
   $('#ov').innerHTML=`<div class="sheet" onclick="event.stopPropagation()">
     <div class="grab"></div>
     <h2 class="st">${esc(T[st.ov]||'')}</h2>
     <div style="padding-top:14px">${body}</div></div>`;
+  const sheet=$('#ov').querySelector('.sheet');
+  if(sheet && sheetTop) sheet.scrollTop=sheetTop;
 }
 
 /* ── sign in: passwordless email code ─────────────────────────
@@ -2257,10 +2265,41 @@ function tick(k){ st.tick[k]=!st.tick[k]; save(); render(); }
 Object.keys(st.rate||{}).forEach(function(k){ if(st.rate[k]==='good') delete st.rate[k]; });
 /* ticking a drill off in the list. Kept apart from the coached plan's own
    ticks, which are keyed by day and group rather than by queue position. */
-function qTick(k){
+function qTick(k,el){
   st.qTick=st.qTick||{};
-  st.qTick[k]=!st.qTick[k];
-  save(); drawOv();
+  const on = st.qTick[k] = !st.qTick[k];
+  save();
+  /* touch this row only. Redrawing the sheet threw away open demos, the
+     stepper you were using and where you had scrolled to. */
+  if(el) el.classList.toggle('on', on);
+  const row=el&&el.closest('div[style*="border-radius:16px"]');
+  if(row) row.style.background = on ? '#faf8f5' : '#fff';
+  const nm=document.getElementById('name-'+k);
+  if(nm){ nm.style.color = on?'var(--grey2)':''; nm.style.textDecoration = on?'line-through':''; }
+  qCount();
+}
+
+/* the header line and the Done button, kept in step without a redraw */
+function qCount(){
+  const n=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
+  const el=document.getElementById('qcount');
+  if(el) el.textContent = (Q||[]).length+' drills · '+
+    Math.round((Q||[]).reduce((a,q)=>a+work(q.it)+rest(q.it),0)/60)+' minutes'+(n?' · '+n+' done':'');
+  const fin=document.getElementById('qdone');
+  if(fin) fin.hidden = !n;
+}
+
+function toggleListDemo(k,btn){
+  const box=document.getElementById('demo-'+k); if(!box) return;
+  const open=box.hasAttribute('hidden');
+  if(open && !box.innerHTML) box.innerHTML=vidBlock(btn.dataset.url,'16/10');
+  box.hidden=!open;
+  btn.textContent = open ? 'Hide' : '▶ Demo';
+}
+
+function toggleStep(k){
+  const box=document.getElementById('step-'+k); if(!box) return;
+  box.hidden=!box.hidden;
 }
 
 /* the list is a way of training, so finishing it has to count the same as
@@ -3448,12 +3487,19 @@ function startQueue(from){
   showStep();
 }
 
-function adjustSecs(v,by){
+function adjustSecs(v,by,k){
   st.secs=st.secs||{};
-  const cur=st.secs[v]||0;
-  st.secs[v]=Math.max(10,Math.min(300,(cur||30)+by));
-  save();
-  buildFreeSession(st.ovList,true);
+  const it=(Q||[]).map(q=>q.it).find(x=>x.v===v);
+  const cur=st.secs[v]|| (it?work(it):30);
+  const next=Math.max(10,Math.min(300,cur+by));
+  st.secs[v]=next; save();
+  /* write the new value where it shows rather than rebuilding the list */
+  if(k){
+    const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);
+    if(a) a.textContent=next+'s';
+    if(b) b.textContent=next+'s';
+  }
+  qCount();
 }
 
 /* ── coaching pitch (free tier's 4th tab) ── */
@@ -3948,9 +3994,15 @@ function render(){
      are redrawing the screen the reader is already on. */
   const was=app.querySelector('.scroll');
   const keepTop=(was && app.dataset.screen===st.tab) ? was.scrollTop : 0;
+  const same = app.dataset.screen===st.tab;
   const swap=html=>{
+    /* redrawing the screen you are already on is a state change, not an
+       arrival — entrance animations replaying on every tap is what made it
+       feel choppy. */
+    app.dataset.still = same ? '1' : '';
     app.innerHTML=html; app.dataset.screen=st.tab;
     const now=app.querySelector('.scroll'); if(now && keepTop) now.scrollTop=keepTop;
+    if(!same) requestAnimationFrame(()=>{ app.dataset.still='1'; });
   };
   /* accent tells you which product you are in without reading a word:
      sand for the free ladder, amber for coached */
