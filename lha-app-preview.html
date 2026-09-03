@@ -1661,6 +1661,14 @@ function drawOv(){
               <span style="margin-left:auto;font:600 10px/1 var(--sans);letter-spacing:.12em;
                 color:var(--grey2)">${mode==='work'?'REPS DONE':'SECONDS'}</span>
             </div>
+            ${(()=>{
+              const last=lastReps(it.v); if(!last) return '';
+              const hist=repsHistory(it.v).slice(0,5);
+              return `<div style="margin-top:8px;font:500 12px/1.4 var(--sans);color:var(--grey)">
+                Last time <b style="color:var(--forest)">${last.reps}</b> · ${esc(agoShort(last.at))}
+                ${hist.length>1?`<span style="color:var(--grey2)"> · before that ${
+                  hist.slice(1).map(x=>x.reps).join(', ')}</span>`:''}</div>`;
+            })()}
             ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
               esc(it.desc)}</div>`:''}
             <div id="demo-${k}" hidden style="margin-top:11px"></div>
@@ -2470,6 +2478,7 @@ function finishChecklist(){
   }});
   st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
   st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
+  logReps();
   st.qTick={}; st.reps={}; save(); closeOv(); openOv('summary');
 }
 
@@ -3655,6 +3664,31 @@ function startQueue(from){
   $('#player').innerHTML=playerShell();
   bindPlayer();
   showStep();
+}
+
+/* ── what you did last time ───────────────────────────────────────
+   Reps are only worth logging if you can see them again. Kept per drill,
+   newest first, capped so the record cannot grow without end. */
+const REPS_KEPT=8;
+function repsHistory(v){ return (st.repsLog&&st.repsLog[v])||[]; }
+function lastReps(v){ const h=repsHistory(v); return h.length?h[0]:null; }
+function logReps(){
+  st.repsLog=st.repsLog||{};
+  (Q||[]).forEach((q,i)=>{
+    const n=(st.reps||{})['q'+i]||0, v=q.it&&q.it.v;
+    if(!v||!n) return;
+    const row={at:Date.now(), reps:n, secs:work(q.it)};
+    st.repsLog[v]=[row].concat(repsHistory(v)).slice(0,REPS_KEPT);
+  });
+}
+/* "3 days ago" reads better than a date on something you did this week */
+function agoShort(ms){
+  const d=Math.floor((Date.now()-ms)/864e5);
+  if(d<=0) return 'today';
+  if(d===1) return 'yesterday';
+  if(d<7) return d+' days ago';
+  const w=Math.floor(d/7);
+  return w===1?'last week':w+' weeks ago';
 }
 
 /* in the working list the number is what you have actually done, not what the

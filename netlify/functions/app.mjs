@@ -1291,6 +1291,7 @@ export default async (request) => {
                 grp: String((x && x.grp) || '').slice(0, 40),
                 got: Number(x && x.got) || 0,
                 of: Number(x && x.of) || 0,
+                reps: Number(x && x.reps) || 0,
                 rate: ['easy', 'hard'].includes(x && x.rate) ? x.rate : '',
               }))
             : [],
