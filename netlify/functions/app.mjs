@@ -995,6 +995,47 @@ export default async (request) => {
     });
   }
 
+  /* ── app state that has to follow the person ──────────────────
+     Which weekday each session sits on, and any drill lengths they have
+     changed. Small, and useless on one device only — a new phone should
+     not cost someone their week. */
+  if (path === '/state') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const key = `state:${who}`;
+    if (request.method === 'POST') {
+      const cur = (await getSetting(key)) || {};
+      if (body.dayMap && typeof body.dayMap === 'object') {
+        const m = {};
+        for (const k of Object.keys(body.dayMap).slice(0, 14)) {
+          const d = Number(body.dayMap[k]);
+          if (Number.isInteger(d) && d >= 0 && d <= 6) m[String(k).slice(0, 8)] = d;
+        }
+        cur.dayMap = m;
+      }
+      if (body.secs && typeof body.secs === 'object') {
+        const m = {};
+        for (const k of Object.keys(body.secs).slice(0, 200)) {
+          const n = Number(body.secs[k]);
+          if (Number.isFinite(n) && n >= 10 && n <= 300) m[String(k).slice(0, 64)] = Math.round(n);
+        }
+        cur.secs = m;
+      }
+      if (body.time !== undefined) {
+        const t = Number(body.time);
+        if ([15, 30, 45].includes(t)) cur.time = t;
+      }
+      if (body.perWeek !== undefined) {
+        const n = Number(body.perWeek);
+        if (Number.isInteger(n) && n >= 1 && n <= 7) cur.perWeek = n;
+      }
+      await setSetting(key, cur);
+    }
+    const out = (await getSetting(key)) || {};
+    return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
+      time: out.time || 0, perWeek: out.perWeek || 0 });
+  }
+
   /* the intake answers, so the coach sees who someone said they were */
   if (path === '/intake' && request.method === 'POST') {
     const who = await me();
@@ -1245,6 +1286,24 @@ export default async (request) => {
      Written by the app, read by the coach view. Kept as a rolling
      summary plus a capped event log — enough to see a pattern, not so
      much that it becomes a surveillance record of someone's training. */
+  /* What was done on each drill, newest first, read back out of the sessions
+     the account already holds. Derived rather than stored a second time — two
+     copies of the same fact drift, and this one has to survive a new phone. */
+  function repsLogFrom(sessions) {
+    const log = {};
+    for (const s of (Array.isArray(sessions) ? sessions : [])) {
+      for (const it of (Array.isArray(s.items) ? s.items : [])) {
+        const v = it && it.v, n = Number(it && it.reps) || 0;
+        if (!v || !n) continue;
+        (log[v] = log[v] || []).push({ at: Number(s.at) || 0, reps: n, secs: 0 });
+      }
+    }
+    for (const v of Object.keys(log)) {
+      log[v] = log[v].sort((a, b) => b.at - a.at).slice(0, 8);
+    }
+    return log;
+  }
+
   if (path === '/progress') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -1254,7 +1313,8 @@ export default async (request) => {
       const prog = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
     return json(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
-  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {});
+  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen),
+  repsLog: repsLogFrom(prog.sessions) } : {});
     }
     if (request.method === 'POST') {
     const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
@@ -1291,6 +1351,7 @@ export default async (request) => {
                 grp: String((x && x.grp) || '').slice(0, 40),
                 got: Number(x && x.got) || 0,
                 of: Number(x && x.of) || 0,
+                reps: Number(x && x.reps) || 0,
                 rate: ['easy', 'hard'].includes(x && x.rate) ? x.rate : '',
               }))
             : [],
