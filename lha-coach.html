@@ -1879,10 +1879,53 @@ function snippetsHTML(){
   </div>`;
 }
 
+/* ── standing up a new coaching client ────────────────────────────
+   Two of the three steps can happen here. The third cannot: the roster
+   lives in the CLIENTS environment variable, so who counts as a coached
+   client is decided in Netlify and needs a redeploy. This at least says
+   so, and hands over the exact line to paste. */
+function newClientHTML(){
+  return `<div class="glass" style="padding:16px 18px;margin-bottom:14px">
+    <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">NEW COACHING CLIENT</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:8px">
+      Set their password here, add the line below to CLIENTS in Netlify, then write
+      their programme from their thread.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <input id="ncEmail" placeholder="them@email.com" style="flex:1;min-width:170px;${bInput}">
+      <input id="ncName" placeholder="Their name" style="flex:1;min-width:130px;${bInput}">
+      <input id="ncPw" placeholder="Password (8+)" style="flex:1;min-width:130px;${bInput}">
+      <button class="send" onclick="makeClient()">Create account</button>
+    </div>
+    <div id="ncMsg" style="font:500 12.5px/1.6 var(--sans);color:var(--forest);margin-top:10px;
+      min-height:18px"></div>
+  </div>`;
+}
+function makeClient(){
+  const g=id=>(document.getElementById(id)||{}).value||'';
+  const email=g('ncEmail').trim().toLowerCase(), name=g('ncName').trim(), pw=g('ncPw');
+  const say=t=>{ const m=document.getElementById('ncMsg'); if(m) m.textContent=t; };
+  if(!email||pw.length<8){ say('An email and a password of at least 8 characters.'); return; }
+  say('Creating…');
+  fetch(API+'/setpw',{method:'POST',headers:hdr(),body:JSON.stringify({email,password:pw})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{
+      const line=email+':'+(name||email);
+      say((d.hadAccount?'Password set on their existing account. ':'Account created. ')
+        +'Add to CLIENTS in Netlify and redeploy:  '+line
+        +'   (append :suryava@… if they are his)');
+    })
+    .catch(()=>say('Could not create that account.'));
+}
+
 function threadCardHTML(msgs){
   return `
       <div class="card">
-        <div class="kick">${esc((clients.find(c=>c.email===sel)||{}).name||'THREAD').toUpperCase()}</div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <div class="kick">${esc((clients.find(c=>c.email===sel)||{}).name||'THREAD').toUpperCase()}</div>
+          ${sel?`<button onclick="openBuilder('${esc(sel)}')" style="flex:none;border:1px solid var(--line);
+            border-radius:999px;padding:7px 13px;background:#fff;cursor:pointer;
+            font:600 11.5px/1 var(--sans);color:var(--forest)">Edit programme</button>`:''}
+        </div>
         ${sel?`<div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:4px">${esc(sel)}</div>`:''}
         <div style="margin-top:16px">${sel?subsHTML(sel):''}</div>
         <div id="pane" style="display:flex;flex-direction:column;gap:14px;
@@ -2029,7 +2072,7 @@ function draw(){
         <div class="wideGrid">${metricsHTML(sel)}</div>
       </div>`:
       view==='setup'?`<div style="margin-top:16px">
-        ${mailguardHTML()}${dbHTML()}
+        ${newClientHTML()}${mailguardHTML()}${dbHTML()}
         <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px;max-width:60ch">
           The database check and the copy are one-time setup. The copy reads the
           old Blobs store, so running it now would push stale data over live
