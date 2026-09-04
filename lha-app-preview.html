@@ -605,8 +605,7 @@ function screenPlan(){
               <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>
             </div>
             ${it.nt?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(it.nt)}</div>`:''}
-            ${openD&&it.url?`<div style="margin-top:11px">${
-              canWatch(it.v)?vidBlock(it.url,'16/10'):lockedClip()}</div>`:''}
+            ${openD&&it.url?`<div style="margin-top:11px">${vidBlock(it.url,'16/10')}</div>`:''}
             ${flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:18px;padding:14px">
               <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${rate==='hard'?'TOO HARD':'TOO EASY'} — TELL ELLIOTT</div>
               <input value="${esc(st.note[it.v]||'')}" oninput="st.note['${it.v}']=this.value;save()"
@@ -1652,7 +1651,7 @@ function drawOv(){
            mode:'Start the session',list:'Every drill',explainer:'Explainer'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
-    body=`${it.url?(canWatch(it.v)?vidBlock(it.url,'4/3','contain'):lockedClip())
+    body=`${it.url?vidBlock(it.url,'4/3','contain')
       :`<div style="border-radius:22px;padding:26px;text-align:center;margin-bottom:18px;
          background:linear-gradient(150deg,var(--sand),var(--sage));
          font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--deep)">FILMING SOON — THE CUES ARE THE DRILL</div>`}
@@ -2033,7 +2032,7 @@ function drawOv(){
                   ${it.url?'▶ Demo':'Cues'}</button>
               </div>
               <div class="dr-body">
-                ${it.url?(canWatch(it.v)?vidBlock(it.url,'16/10','contain'):lockedClip())
+                ${it.url?vidBlock(it.url,'16/10','contain')
                         :'<div class="p-vfail">Filming soon — the cues are the drill</div>'}
                 ${it.desc?`<p style="font:600 14px/1.5 var(--sans);margin:12px 0 0">${esc(it.desc)}</p>`:''}
                 ${(it.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
@@ -2217,6 +2216,11 @@ function screenSignIn(){
       <button onclick="st.tab='reset';resetStep=0;resetMsg='';save();render()"
         style="background:none;border:none;color:var(--sand);font:600 13px/1 var(--sans);
         text-decoration:underline;cursor:pointer;padding:6px">Forgotten your password?</button>
+      <div style="height:1px;background:rgba(236,231,226,.16);margin:16px 0 14px"></div>
+      <div style="color:var(--sage)">No account yet?</div>
+      <button onclick="st.tab='joinFree';save();render()"
+        style="background:none;border:none;color:var(--sand);font:600 13px/1 var(--sans);
+        text-decoration:underline;cursor:pointer;padding:6px">Create one</button>
       </div></div>`;
 }
 /* let people read what they typed — most sign-in failures here are just a
@@ -2529,9 +2533,7 @@ function qCount(){
 function toggleListDemo(k,btn){
   const box=document.getElementById('demo-'+k); if(!box) return;
   const open=box.hasAttribute('hidden');
-  if(open && !box.innerHTML){
-    box.innerHTML = canWatch(btn.dataset.v) ? vidBlock(btn.dataset.url,'16/10') : lockedClip();
-  }
+  if(open && !box.innerHTML) box.innerHTML=vidBlock(btn.dataset.url,'16/10');
   box.hidden=!open;
   /* the cues belong with the clip — you are watching it to learn the thing */
   const cues=document.getElementById('cues-'+k); if(cues) cues.hidden=!open;
@@ -3508,30 +3510,8 @@ function ladderTick(v,el){
 /* Foundations, Wall Work and Take-Off are free to train. Freestanding and the
    Press are the £5 ones. */
 const FREE_STAGES = 3;
-/* Foundations plays in full without an account. Above it you get the first
-   few clips of the stage, and an account opens the rest. */
-const FREE_CLIPS = 4;
-function canWatch(v){
-  if(st.token) return true;
-  const i=curStage();
-  if(i===0) return true;
-  const ids=(STAGES[i]||{}).drillIds||[];
-  const at=ids.indexOf(v);
-  return at>-1 && at<FREE_CLIPS;
-}
-/* what stands in for a clip that needs an account */
-function lockedClip(){
-  return `<div style="position:relative;aspect-ratio:16/10;border-radius:14px;overflow:hidden;
-    background:linear-gradient(150deg,var(--sand),var(--sage));display:grid;place-items:center;
-    text-align:center;padding:18px">
-    <div>
-      <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--deep)">ACCOUNT NEEDED</div>
-      <div style="font:400 14.5px/1.4 var(--sans);color:var(--deep);margin-top:9px">
-        The first ${FREE_CLIPS} clips of this stage are open. An account opens the rest.</div>
-      <button class="btn" style="margin-top:12px;padding:10px 16px"
-        onclick="st.tab='joinFree';save();render()">Create an account</button>
-    </div></div>`;
-}
+/* The explainers are what an account opens — see FREE_EXPLAINERS. Drill
+   demos are part of training, and these stages train free. */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
 const isPlus = () => !!(st.plus || st.in);   /* st.plus is refreshed from /me */
 const stageLocked = i => i >= FREE_STAGES && !isPlus();
@@ -4421,6 +4401,7 @@ function render(){
   /* shown once, between finishing the quiz and the ladder */
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null){
     swap(screenOriented()); return; }
+  if(st.tab==='joinFree' && !st.in){ swap(screenJoin()); return; }
   if(!st.in && st.quizDone && !st.email && !(st.joinSkipped && emailOptional())){
     swap(screenJoin()); return; }
   const coached=coachedView();
