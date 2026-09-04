@@ -1044,6 +1044,65 @@ export default async (request) => {
       ladderDone: out.ladderDone || {} });
   }
 
+  /* ── tracking: metrics, habits, check-ins ─────────────────────
+     Rides on the settings row rather than new columns, so there is no
+     migration to apply by hand. Everything is append-only and capped:
+     a client cannot grow their own row without bound. */
+  if (path === '/track') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const key = `track:${who}`;
+    const cur = (await getSetting(key)) || {};
+    cur.metrics = cur.metrics || {};
+    cur.habits  = cur.habits  || {};
+    cur.checkins = cur.checkins || [];
+
+    if (request.method === 'POST') {
+      const now = Date.now();
+      /* one reading of one metric */
+      if (body.metric && typeof body.metric === 'object') {
+        const m = String(body.metric.m || '').slice(0, 32);
+        const v = Number(body.metric.v);
+        if (m && Number.isFinite(v) && v >= 0 && v <= 100000) {
+          const list = (cur.metrics[m] || []).concat([{ v: Math.round(v * 10) / 10, at: now }]);
+          cur.metrics[m] = list.slice(-60);
+        }
+      }
+      /* a habit ticked or unticked on a given day */
+      if (body.habit && typeof body.habit === 'object') {
+        const h = String(body.habit.h || '').slice(0, 32);
+        const day = String(body.habit.day || '').slice(0, 10);
+        if (h && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+          const set = new Set(cur.habits[h] || []);
+          if (body.habit.on === false) set.delete(day); else set.add(day);
+          cur.habits[h] = Array.from(set).sort().slice(-180);
+        }
+      }
+      /* a fortnightly check-in */
+      if (body.checkin && typeof body.checkin === 'object') {
+        const c = body.checkin;
+        cur.checkins = cur.checkins.concat([{
+          at: now,
+          mood: Number(c.mood) || 0,
+          soreness: Number(c.soreness) || 0,
+          sleep: Number(c.sleep) || 0,
+          note: String(c.note || '').slice(0, 600),
+        }]).slice(-40);
+      }
+      /* a progress photo, already uploaded — this records the reference */
+      if (body.photo && typeof body.photo === 'object' && body.photo.id) {
+        cur.photos = (cur.photos || []).concat([{
+          id: String(body.photo.id).slice(0, 80),
+          view: ['side', 'front', 'back'].includes(body.photo.view) ? body.photo.view : 'side',
+          at: now,
+        }]).slice(-40);
+      }
+      await setSetting(key, cur);
+    }
+    return json({ metrics: cur.metrics, habits: cur.habits,
+      checkins: cur.checkins, photos: cur.photos || [] });
+  }
+
   /* the intake answers, so the coach sees who someone said they were */
   if (path === '/intake' && request.method === 'POST') {
     const who = await me();

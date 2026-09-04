@@ -288,6 +288,7 @@ const AUTH = {
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
   prefs:'/api/app/prefs',              // GET|POST what they want emailing about
   state:'/api/app/state',              // GET|POST week layout and drill lengths
+  track:'/api/app/track',              // GET|POST metrics, habits, check-ins
   questions:'/api/app/questions',      // GET yours, POST a new one
   intake:'/api/app/intake',            // POST the quiz answers so the coach can see them
   application:'/api/app/application',  // POST a coaching application
@@ -775,7 +776,9 @@ function freeProgressBody(){
   </div>`).join('');
 
   /* holds, newest last, so the line reads left to right like time does */
-  const holds=(((st.prog||{}).holds)||[]).slice(-10);
+  const kind=holdKind();
+  const holds=(((st.prog||{}).holds)||[])
+    .filter(h=>(h.kind||'ctw')===kind).slice(-10);
   const goal=parseInt(S.hold,10)||30;
   const hpeak=Math.max(goal,...holds.map(h=>h.s||0),1);
   const hbars=holds.map(h=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;
@@ -825,8 +828,9 @@ function freeProgressBody(){
 
     <div class="card" style="padding:18px 20px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <span class="kick2">HOLD TIMES</span>
-        <span style="font:600 11px/1 var(--sans);color:var(--grey2)">BEST ${st.bestHold||0}s · GOAL ${esc(S.hold)}</span>
+        <span class="kick2">${esc(holdLabel().toUpperCase())}</span>
+        <span style="font:600 11px/1 var(--sans);color:var(--grey2)">BEST ${
+          bestHoldFor(holdKind())}s · GOAL ${esc(S.hold)}</span>
       </div>
       ${holds.length
         ? `<div style="display:flex;gap:5px;margin-top:14px;align-items:flex-end">${hbars}</div>`
@@ -853,6 +857,194 @@ function freeProgressBody(){
   `;
 }
 
+/* ── tracking ──────────────────────────────────────────────────────
+   Three things a handstand client can move that the ladder does not
+   already measure, plus the daily habit that decides whether their
+   wrists survive the month. */
+const METRICS=[
+  {m:'wall',  n:'Distance from the wall', unit:'cm', lower:true,
+   help:'Hands to skirting board on your best chest-to-wall hold. Smaller is better.'},
+  {m:'press', n:'Press attempts held',    unit:'reps',
+   help:'Out of ten tries, how many came up and stayed up.'},
+  {m:'wrist', n:'Wrist discomfort',       unit:'/10', max:10, lower:true,
+   help:'Worst it got this week. Zero is nothing, ten is stop training.'},
+];
+const HABITS=[
+  {h:'wrists', n:'Wrist prep',      help:'Two minutes before you load them.'},
+  {h:'shoulders', n:'Shoulder opener', help:'The thing that makes the line possible.'},
+  {h:'hollow', n:'Hollow hold',     help:'Thirty seconds. It is the shape.'},
+];
+
+function loadTrack(){
+  if(!st.token) return Promise.resolve();
+  return fetch(AUTH.track,{headers:authed()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ st.track=d; save(); render(); } })
+    .catch(()=>{});
+}
+function postTrack(body){
+  if(!st.token) return Promise.resolve();
+  return fetch(AUTH.track,{method:'POST',headers:authed(),body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ st.track=d; save(); } })
+    .catch(()=>{});
+}
+const todayKey = () => new Date().toISOString().slice(0,10);
+
+function logMetric(m){
+  const def=METRICS.find(x=>x.m===m); if(!def) return;
+  const raw=prompt(def.n+' ('+def.unit+')\n\n'+def.help);
+  if(raw==null) return;
+  const v=Number(String(raw).replace(/[^0-9.]/g,''));
+  if(!Number.isFinite(v)){ return; }
+  st.track=st.track||{metrics:{},habits:{},checkins:[]};
+  st.track.metrics=st.track.metrics||{};
+  st.track.metrics[m]=(st.track.metrics[m]||[]).concat([{v,at:Date.now()}]).slice(-60);
+  save(); render();
+  postTrack({metric:{m,v}});
+}
+function toggleHabit(h){
+  const day=todayKey();
+  st.track=st.track||{metrics:{},habits:{},checkins:[]};
+  st.track.habits=st.track.habits||{};
+  const list=st.track.habits[h]||[];
+  const on=list.indexOf(day)<0;
+  st.track.habits[h]= on ? list.concat([day]).sort() : list.filter(d=>d!==day);
+  save(); render();
+  postTrack({habit:{h,day,on}});
+}
+/* the last 28 days, so a streak is visible without counting */
+function habitDays(h,n){
+  const set=new Set(((st.track&&st.track.habits)||{})[h]||[]);
+  const out=[], now=new Date();
+  for(let i=n-1;i>=0;i--){
+    const d=new Date(now); d.setDate(now.getDate()-i);
+    const k=d.toISOString().slice(0,10);
+    out.push({k, on:set.has(k), today:i===0});
+  }
+  return out;
+}
+function habitRate(h,n){
+  const d=habitDays(h,n);
+  return d.length?Math.round(d.filter(x=>x.on).length/d.length*100):0;
+}
+/* how much of what you said you would do, you did */
+function adherence(weeks){
+  const target=weekTarget()||1, sess=sessionsDone();
+  const ws=weeksBack(weeks);
+  const per=ws.map(w=>Math.min(1, sess.filter(x=>x.at>=w.from&&x.at<w.to).length/target));
+  return per.length?Math.round(per.reduce((a,b)=>a+b,0)/per.length*100):0;
+}
+
+function checkinDue(){
+  const c=((st.track&&st.track.checkins)||[]);
+  if(!c.length) return true;
+  return (Date.now()-c[c.length-1].at) > 14*864e5;
+}
+function sendCheckin(){
+  const g=id=>{ const el=document.getElementById(id); return el?el.value:''; };
+  const body={mood:+g('ciMood')||0, soreness:+g('ciSore')||0, sleep:+g('ciSleep')||0, note:g('ciNote')};
+  st.track=st.track||{};
+  st.track.checkins=(st.track.checkins||[]).concat([Object.assign({at:Date.now()},body)]);
+  save();
+  postTrack({checkin:body}).then(()=>{ closeOv(); render(); });
+  if(st.in) post({type:'Check-in', ...body});
+}
+
+/* ── the tracking cards ────────────────────────────────────────── */
+function habitsCard(){
+  const rows=HABITS.map((H,i)=>{
+    const days=habitDays(H.h,28), rate=habitRate(H.h,28);
+    const onToday=days[days.length-1].on;
+    const dots=days.map(d=>`<span title="${d.k}" style="flex:1;min-width:0;height:16px;border-radius:3px;
+      background:${d.on?'var(--forest)':d.today?'var(--sand)':'var(--mist)'}"></span>`).join('');
+    return `<div style="padding:14px 0;${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button onclick="toggleHabit('${H.h}')" aria-label="Mark ${esc(H.n)} done"
+          style="flex:none;width:30px;height:30px;border-radius:9px;cursor:pointer;
+          border:1.5px solid ${onToday?'var(--forest)':'rgba(17,17,17,.18)'};
+          background:${onToday?'var(--forest)':'#fff'};color:var(--on-primary);
+          font:700 14px/1 var(--sans)">${onToday?'✓':''}</button>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font:600 14.5px/1.2 var(--sans)">${esc(H.n)}</span>
+          <span style="display:block;margin-top:3px;font:400 12.5px/1.35 var(--sans);
+            color:var(--grey)">${esc(H.help)}</span></span>
+        <span style="flex:none;font:400 18px/1 var(--serif);
+          color:${rate>=70?'var(--forest)':'var(--grey2)'}">${rate}%</span>
+      </div>
+      <div style="display:flex;gap:2px;margin-top:10px">${dots}</div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:18px 20px">
+    <div class="kick2">DAILY HABITS</div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+      The last 28 days. These are what decide whether your wrists last the month.</div>
+    ${rows}</div>`;
+}
+
+function metricsCard(){
+  const M=((st.track&&st.track.metrics)||{});
+  const rows=METRICS.map((D,i)=>{
+    const h=(M[D.m]||[]).slice(-8);
+    const last=h.length?h[h.length-1]:null, prev=h.length>1?h[h.length-2]:null;
+    const peak=Math.max(1,...h.map(x=>x.v));
+    const bars=h.map(x=>`<div style="flex:1;min-width:0;display:flex;align-items:flex-end;height:34px">
+      <div style="width:100%;height:${Math.round(x.v/peak*100)}%;min-height:3px;border-radius:3px;
+        background:var(--sage)"></div></div>`).join('');
+    /* closer to the wall and less wrist pain are both falling numbers, so
+       which direction counts as better belongs to the metric */
+    const better = prev ? (D.lower ? last.v<prev.v : last.v>prev.v) : null;
+    return `<div style="padding:14px 0;${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="flex:1;min-width:0;font:600 14.5px/1.2 var(--sans)">${esc(D.n)}</span>
+        <span style="flex:none;font:400 20px/1 var(--serif);color:${
+          last?'var(--forest)':'var(--grey2)'}">${last?last.v:'—'}</span>
+        <span style="flex:none;font:600 10px/1 var(--sans);color:var(--grey2);min-width:22px">${esc(D.unit)}</span>
+      </div>
+      ${h.length>1?`<div style="display:flex;gap:3px;margin-top:9px">${bars}</div>`:''}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px">
+        <span style="font:400 12px/1.4 var(--sans);color:var(--grey2)">${
+          prev ? (better?'Better than last time':last.v===prev.v?'Same as last time':'Down on last time')
+               : esc(D.help)}</span>
+        <button class="rt" style="flex:none" onclick="logMetric('${D.m}')">Log</button>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:18px 20px">
+    <div class="kick2">YOUR NUMBERS</div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+      Three things that move before the hold does.</div>
+    ${rows}</div>`;
+}
+
+function adherenceCard(){
+  const four=adherence(4), eight=adherence(8);
+  const trend=four-eight;
+  return `<div class="card" style="padding:18px 20px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2">STICKING TO IT</span>
+      <span style="font:400 26px/1 var(--serif);color:${four>=70?'var(--forest)':'var(--grey)'}">${four}%</span>
+    </div>
+    <div style="height:8px;border-radius:99px;background:var(--mist);margin-top:12px;overflow:hidden">
+      <div style="height:100%;width:${four}%;border-radius:99px;
+        background:${four>=70?'var(--forest)':'var(--sage)'}"></div></div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+      Of the ${weekTarget()} sessions a week you set, over the last four weeks.
+      ${trend>4?'Up on the four before.':trend<-4?'Down on the four before.':'Steady on the four before.'}</div>
+  </div>`;
+}
+
+function checkinCard(){
+  if(!checkinDue()) return '';
+  return `<div class="card" style="padding:18px 20px;border:1.5px solid var(--forest)">
+    <div class="kick2" style="color:var(--forest)">CHECK-IN DUE</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+      Three sliders and a sentence. It is what tells ${st.in?'me':'the plan'} whether to push
+      or back off.</div>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="openOv('checkin')">Do the check-in</button>
+  </div>`;
+}
+
 function screenProgress(){
   const t=st.tests||[];
   const rows=DATA.test.items.map((it,i)=>{
@@ -876,7 +1068,11 @@ function screenProgress(){
     <div class="hero"><span class="kick">YOUR NUMBERS</span>
       <div class="h-lg" style="margin-top:16px">Where you are</div></div>
     <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
+      ${checkinCard()}
       ${coachedView() ? '' : freeProgressBody()}
+      ${adherenceCard()}
+      ${habitsCard()}
+      ${metricsCard()}
       ${stageMasteryCard()}
       ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
@@ -911,7 +1107,7 @@ function screenProgress(){
            <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>` : ''}
       ${coachedView() ? '' : `<div class="card"><div class="kick2">PERSONAL BESTS</div>
         <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
-        ${[['Best hold', st.bestHold?st.bestHold+'s':'—'],
+        ${[[holdLabel(), bestHoldFor(holdKind())?bestHoldFor(holdKind())+'s':'—'],
             ['Sessions done', String(sessionsDone().length)],
             ['Drills ticked off', String(Object.keys(st.ladderDone||{}).length)]].map(([n,v])=>
           `<div style="display:flex;justify-content:space-between;align-items:baseline">
@@ -1080,7 +1276,7 @@ function loadState(){
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
       if(d.perWeek) st.perWeek=d.perWeek;
-      if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
+    if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
       save(); render();
     })
     .catch(()=>{});
@@ -1765,7 +1961,8 @@ function drawOv(){
            password:'Change password', account:'Your account',
            why:'Why are you stopping?',apply:'Apply for coaching',
            summary:'Session complete',stage:S?S.n:'Stage',
-           mode:'Start the session',list:'Every drill',explainer:'Explainer'};
+           mode:'Start the session',list:'Every drill',explainer:'Explainer',
+           checkin:'Your fortnight'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
     body=`${it.url?vidBlock(it.url,'4/3','contain')
@@ -1920,6 +2117,28 @@ function drawOv(){
              onclick="finishChecklist()">Done for today</button>
            <button class="btn2" style="width:100%;margin-top:9px"
              onclick="closeOv();buildFreeSession(st.ovList,'prep')">Follow along instead</button>`}`;
+  }
+  if(st.ov==='checkin'){
+    const row=(id,label,lo,hi,def)=>`<div style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font:600 14px/1.2 var(--sans)">${label}</span>
+        <output id="${id}out" style="font:400 20px/1 var(--serif);color:var(--forest)">${def}</output></div>
+      <input id="${id}" type="range" min="0" max="10" value="${def}" step="1"
+        oninput="document.getElementById('${id}out').textContent=this.value"
+        style="width:100%;margin-top:8px;accent-color:var(--forest)">
+      <div style="display:flex;justify-content:space-between;font:400 11px/1 var(--sans);color:var(--grey2)">
+        <span>${lo}</span><span>${hi}</span></div></div>`;
+    body=`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin:-6px 0 4px">
+        Where you are this fortnight.</div>
+      ${row('ciMood','How training feels','A slog','Flying',5)}
+      ${row('ciSore','Soreness','None','Everywhere',3)}
+      ${row('ciSleep','Sleep','Broken','Solid',6)}
+      <div style="margin-top:18px">
+        <div style="font:600 14px/1.2 var(--sans)">Anything else</div>
+        <textarea id="ciNote" rows="3" placeholder="One sentence is plenty."
+          style="width:100%;margin-top:8px;border:1px solid rgba(17,17,17,.14);border-radius:12px;
+          padding:11px;font:400 14px/1.45 var(--sans);background:#fff;resize:vertical"></textarea></div>
+      <button class="btn" style="width:100%;margin-top:16px" onclick="sendCheckin()">Send it</button>`;
   }
   if(st.ov==='explainer'){
     const q=FAQS[st.exOpen]||FAQS[0];
@@ -2076,7 +2295,7 @@ function drawOv(){
     else {
     const St=STAGES[si]||STAGES[0];
     const isNow=si===curStage(), isDone=si<curStage();
-    const goalS=parseInt(St.hold,10)||30, bestS=st.bestHold||0;
+    const goalS=parseInt(St.hold,10)||30, bestS=bestHoldFor(holdKind(si));
     const bestPct=Math.min(100,Math.round(bestS/goalS*100));
     const ready=isNow&&stageReady();
     const badge=isDone?['DONE','var(--forest)']:isNow?['NOW','var(--forest)']:['LOCKED','var(--grey2)'];
@@ -2373,7 +2592,7 @@ function doLogin(ev){
       st.plus=!!d.plus;
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
-      if(st.in){ loadProgramme(); loadProgress(); loadThread(); } loadState(); })
+      if(st.in){ loadProgramme(); loadProgress(); loadThread(); } loadState(); loadTrack(); })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -2397,7 +2616,7 @@ function verifyCode(){
     body:JSON.stringify({email:st.email,code:c})})
     .then(r=>r.ok?r.json():Promise.reject())
     .then(d=>{ st.token=d.token; st.client=d.client||nameFrom(st.email); st.in=true;
-               save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); loadState(); })
+               save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); loadState(); loadTrack(); })
     .catch(()=>{
       if(c===DEV_CODE){ st.in=true; st.client=nameFrom(st.email); save(); render(); return; }
       const m=$('#authMsg'); if(m) m.textContent='That code did not work. Check it, or send a new one.';
@@ -3095,7 +3314,7 @@ function screenOriented(){
 function stageReady(){
   const s=STAGES[curStage()];
   const goal=parseInt(s.hold,10)||30;
-  return (st.bestHold||0) >= goal;
+  return bestHoldFor(holdKind()) >= goal;
 }
 function advanceStage(){
   const next=curStage()+1;
@@ -4352,7 +4571,8 @@ function drawHold(){
   $('#ov').innerHTML=`<div class="ovhead"><button class="back" onclick="stopHold();closeOv()">← Back</button>
     <div class="h-lg" style="margin-top:16px">Max hold</div>
     <div style="font:400 14px/1.5 var(--sans);color:var(--sage);margin-top:8px">
-      Best so far ${st.bestHold||0}s. Start it, kick up, stop it when you come down.</div></div>
+      ${esc(holdLabel())} — best so far ${bestHoldFor(holdKind())}s.
+      Start it, kick up, stop it when you come down.</div></div>
     <div style="padding:40px 18px;text-align:center">
       <div class="h-xl" style="font-size:96px;color:var(--forest)">${holdS>=60?mm+':'+ss:holdS}</div>
       <div class="kick2" style="margin-top:12px">SECONDS</div>
@@ -4362,8 +4582,30 @@ function drawHold(){
 }
 function toggleHold(){ if(holdT){ clearInterval(holdT); holdT=null; } else { holdS=0; holdT=setInterval(()=>{holdS++;drawHold();},1000); } drawHold(); }
 function stopHold(){ if(holdT){clearInterval(holdT);holdT=null;} holdS=0; }
-function saveHold(){ if(holdS>(st.bestHold||0)) st.bestHold=holdS;
-  save(); reportProgress({hold:st.bestHold||0}); stopHold(); closeOv(); }
+/* ── holds belong to a shape ───────────────────────────────────────
+   One best-hold number across five stages was wrong in both directions:
+   a 45s chest-to-wall marked someone ready to leave Take-Off, whose
+   marker is five seconds of freestanding, and a freestanding hold could
+   never beat it so it never looked like progress. A hold is now filed
+   under the shape it was held in. */
+const HOLD_KINDS=['ctw','slide','takeoff','free','press'];
+const holdKind = i => HOLD_KINDS[i==null?curStage():i] || 'ctw';
+const holdLabel = i => (STAGES[i==null?curStage():i]||{}).ch || 'Hold';
+function bestHoldFor(kind){
+  const b=st.bestHolds||{};
+  if(b[kind]!=null) return b[kind];
+  /* one legacy number, and only the stage it was set on can claim it */
+  return (kind===HOLD_KINDS[0] && st.bestHold) ? st.bestHold : 0;
+}
+function saveHold(){
+  const kind=holdKind();
+  st.bestHolds=st.bestHolds||{};
+  if(holdS>bestHoldFor(kind)) st.bestHolds[kind]=holdS;
+  if(holdS>(st.bestHold||0)) st.bestHold=holdS;   /* kept for the coach's older reads */
+  save();
+  reportProgress({hold:holdS, holdKind:kind, holdStage:curStage()});
+  stopHold(); closeOv();
+}
 
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
