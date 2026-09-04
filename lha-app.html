@@ -670,6 +670,69 @@ function panelWeek(p){
       Nothing logged this week yet. Finish a session and it turns up here.</div>`}</div>`;
 }
 
+/* ── how much of each stage you can actually do ────────────────────
+   The ladder measures you by one hold, which says nothing about the
+   twenty drills underneath it. This counts what you have ticked off in
+   each stage, section by section, so the answer to "how far through
+   Wall Work am I" is a number rather than a feeling. */
+function stageMasteryCard(){
+  const done=st.ladderDone||{};
+  const rows=STAGES.map((S,i)=>{
+    const secs=STAGE_SECTIONS[i]||[];
+    const items=secs.reduce((a,x)=>a.concat(x.items||[]),[]);
+    const total=items.length;
+    const got=items.filter(it=>done[it.v]).length;
+    const pct=total?Math.round(got/total*100):0;
+    const state=i<curStage()?'done':i===curStage()?'now':'ahead';
+    const paid=stageLocked(i);
+    /* the sections are the shape of the stage — showing them is the
+       difference between "9 of 16" and knowing what the 7 are */
+    const bars=secs.map(sec=>{
+      const n=(sec.items||[]).length;
+      const d=(sec.items||[]).filter(it=>done[it.v]).length;
+      return `<div style="flex:${n||1};min-width:0">
+        <div style="height:5px;border-radius:99px;overflow:hidden;background:var(--mist)">
+          <div style="height:100%;width:${n?Math.round(d/n*100):0}%;
+            background:${d===n&&n?'var(--forest)':'var(--sage)'}"></div></div>
+        <span style="display:block;margin-top:5px;font:600 8.5px/1.2 var(--sans);letter-spacing:.06em;
+          color:var(--grey2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
+          esc((sec.title||'').toUpperCase())}</span></div>`;
+    }).join('');
+    return `<div onclick="openStage(${i})" style="cursor:pointer;padding:14px 0;
+      ${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="font:600 15px/1.2 var(--sans);color:${state==='ahead'?'var(--grey2)':'var(--ink)'}">
+          ${i+1}. ${esc(S.n)}</span>
+        <span style="flex:none;font:600 11px/1 var(--sans);letter-spacing:.1em;
+          color:${state==='now'?'var(--forest)':'var(--grey2)'}">${
+          paid?'£5/MO':state==='done'?'DONE':state==='now'?'NOW':''}</span>
+      </div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:6px">
+        <span style="font:400 12.5px/1.4 var(--sans);color:var(--grey)">
+          ${total?got+' of '+total+' drills ticked off':'No drills listed yet'}</span>
+        <span style="flex:none;font:400 18px/1 var(--serif);
+          color:${pct?'var(--forest)':'var(--grey2)'}">${pct}%</span>
+      </div>
+      ${bars?`<div style="display:flex;gap:6px;margin-top:11px">${bars}</div>`:''}
+      <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
+        To leave this stage: ${esc(S.hold)} — ${esc((S.goal||'').toLowerCase())}</div>
+    </div>`;
+  }).join('');
+
+  const all=STAGES.reduce((a,_,i)=>a.concat((STAGE_SECTIONS[i]||[]).reduce((b,x)=>b.concat(x.items||[]),[])),[]);
+  const gotAll=all.filter(it=>done[it.v]).length;
+
+  return `<div class="card" style="padding:18px 20px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2">THE LADDER, DRILL BY DRILL</span>
+      <span style="font:600 11px/1 var(--sans);color:var(--grey2)">${gotAll} of ${all.length}</span>
+    </div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:8px">
+      Ticked off in the stage sheets. Tap a stage to open it.</div>
+    <div style="margin-top:6px">${rows}</div>
+  </div>`;
+}
+
 function screenProgress(){
   const t=st.tests||[];
   const rows=DATA.test.items.map((it,i)=>{
@@ -693,6 +756,7 @@ function screenProgress(){
     <div class="hero"><span class="kick">YOUR NUMBERS</span>
       <div class="h-lg" style="margin-top:16px">Where you are</div></div>
     <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
+      ${stageMasteryCard()}
       <div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
         ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet — the first test opens in a few days.</div>`}</div>
@@ -887,6 +951,7 @@ function loadState(){
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
       if(d.perWeek) st.perWeek=d.perWeek;
+      if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
       save(); render();
     })
     .catch(()=>{});
@@ -897,7 +962,8 @@ function saveState(){
   stateQueued=setTimeout(()=>{
     stateQueued=null;
     fetch(AUTH.state,{method:'POST',headers:authed(),body:JSON.stringify({
-      dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0
+      dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
+      ladderDone:st.ladderDone||{}
     })}).catch(()=>{});
   }, 800);
 }
@@ -2325,7 +2391,7 @@ function savePassword(ev){
    report. */
 let progQueued=null;
 function reportProgress(extra){
-  if(!st.in || !st.token) return Promise.resolve();
+  if(!st.token) return Promise.resolve();
   const flags={};
   Object.keys(st.rate||{}).forEach(function(v){
     if(st.rate[v]==='easy'||st.rate[v]==='hard')

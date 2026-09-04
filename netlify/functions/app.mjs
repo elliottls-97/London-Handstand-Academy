@@ -1021,6 +1021,13 @@ export default async (request) => {
         }
         cur.secs = m;
       }
+      if (body.ladderDone && typeof body.ladderDone === 'object') {
+        const m = {};
+        for (const k of Object.keys(body.ladderDone).slice(0, 400)) {
+          if (body.ladderDone[k]) m[String(k).slice(0, 64)] = true;
+        }
+        cur.ladderDone = m;
+      }
       if (body.time !== undefined) {
         const t = Number(body.time);
         if ([15, 30, 45].includes(t)) cur.time = t;
@@ -1033,7 +1040,8 @@ export default async (request) => {
     }
     const out = (await getSetting(key)) || {};
     return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
-      time: out.time || 0, perWeek: out.perWeek || 0 });
+      time: out.time || 0, perWeek: out.perWeek || 0,
+      ladderDone: out.ladderDone || {} });
   }
 
   /* the intake answers, so the coach sees who someone said they were */
