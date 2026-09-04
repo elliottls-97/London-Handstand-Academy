@@ -905,15 +905,64 @@ function saveState(){
 function loadPrefs(){
   if(!st.token) return;
   fetch(AUTH.prefs,{headers:authed()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.prefs=d; save(); if(st.ov==='account') drawOv(); } })
+    .then(d=>{ if(d){ st.prefs=d; save();
+      if(st.ov==='account') ['replies','reminders','marketing'].forEach(paintPref); } })
     .catch(()=>{});
 }
-function setPref(k,v){
-  st.prefs=Object.assign({},st.prefs,{[k]:v}); save(); drawOv();
+/* the switch is the only thing that changed, so redraw the switch. Rebuilding
+   the whole sheet — twice, once for the optimistic flip and once for the
+   server's answer — is what made a toggle feel like a page reload. */
+function paintPref(k){
+  const b=document.getElementById('pref-'+k); if(!b) return;
+  const on=(st.prefs||{})[k]!==false;
+  b.setAttribute('aria-pressed', String(on));
+  b.style.background = on ? 'var(--forest)' : 'rgba(28,32,25,.18)';
+  b.style.justifyContent = on ? 'flex-end' : 'flex-start';
+}
+function setPref(k){
+  const v=((st.prefs||{})[k]===false);
+  st.prefs=Object.assign({},st.prefs,{[k]:v}); save(); paintPref(k);
   fetch(AUTH.prefs,{method:'POST',headers:authed(),body:JSON.stringify({[k]:v})})
-    .then(r=>r.ok?r.json():null).then(d=>{ if(d){ st.prefs=d; save(); drawOv(); } })
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ st.prefs=d; save(); ['replies','reminders','marketing'].forEach(paintPref); } })
     .catch(()=>{});
 }
+/* what Stripe says about this subscription, on its own so a late answer can
+   be dropped in without rebuilding the sheet around it */
+function subscriptionHTML(){
+          if(!subInfo) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+            Checking with Stripe…</div>`;
+          if(subInfo.none) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+            No subscription found. If you have paid, message Elliott.</div>`;
+          const amt = subInfo.amount!=null
+            ? '£'+subInfo.amount.toFixed(2)+' a '+subInfo.interval : '£5 a month';
+          if(subInfo.willCancel) return `
+            <div style="background:rgba(196,122,86,.1);border-radius:12px;padding:13px 14px;margin-top:10px">
+              <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">CANCELLED</div>
+              <div style="font:400 14.5px/1.5 var(--sans);margin-top:7px">
+                You will not be charged again. The Press stays unlocked until
+                <b>${esc(niceDate(subInfo.cancelAt||subInfo.renewsAt))}</b>, then the account
+                goes back to free.</div>
+            </div>
+            <button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
+              Resume my subscription</button>`;
+          return `
+            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:10px;
+              font:400 14px/1.5 var(--sans)">
+              <span style="color:var(--grey)">Next payment</span>
+              <span style="font-weight:600;text-align:right">${esc(niceDate(subInfo.renewsAt))}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:4px;
+              font:400 14px/1.5 var(--sans)">
+              <span style="color:var(--grey)">Amount</span>
+              <span style="font-weight:600">${esc(amt)}</span>
+            </div>
+            ${subInfo.status&&subInfo.status!=='active'?`<div style="font:400 13px/1.5 var(--sans);
+              color:var(--forest);margin-top:8px">Status: ${esc(subInfo.status)}</div>`:''}
+            <button class="btn2" style="width:100%;margin-top:14px" onclick="cancelSub(false)">
+              Cancel subscription</button>`;
+}
+
 function prefsHTML(){
   const p=st.prefs||{};
   const row=(k,t,d)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:11px 0;
@@ -921,8 +970,9 @@ function prefsHTML(){
     <div style="flex:1">
       <div style="font:500 14px/1.3 var(--sans)">${t}</div>
       <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${d}</div></div>
-    <button onclick="setPref('${k}',${p[k]===false?'true':'false'})" aria-pressed="${p[k]!==false}"
+    <button id="pref-${k}" onclick="setPref('${k}')" aria-pressed="${p[k]!==false}"
       style="flex:none;width:46px;height:27px;border-radius:999px;border:none;cursor:pointer;padding:3px;
+      transition:background .25s;
       background:${p[k]!==false?'var(--forest)':'rgba(28,32,25,.18)'};display:flex;
       justify-content:${p[k]!==false?'flex-end':'flex-start'}">
       <span style="width:21px;height:21px;border-radius:999px;background:#fff;display:block"></span>
@@ -1600,8 +1650,10 @@ function drawOv(){
                 text-underline-offset:3px">${mode==='work'
                   ? (logged==null?'Log reps':logged+' done')
                   : 'Change time'}</button>
-              ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
-              <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>`:''}
+              ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" id="easy-${k}"
+                onclick="rateRow('${it.v}','${k}','easy')">Too easy</button>
+              <button class="rt hard ${rate==='hard'?'on':''}" id="hard-${k}"
+                onclick="rateRow('${it.v}','${k}','hard')">Too hard</button>`:''}
             </div>
             <div id="step-${k}" ${editing?'':'hidden'}
               style="display:flex;align-items:center;gap:10px;margin-top:11px">
@@ -1640,8 +1692,9 @@ function drawOv(){
               :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2)">
                 No written cues for this one yet.</div>`}
             </div>
-            ${st.in&&flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
-              <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
+            ${st.in?`<div id="note-${k}" ${flagged?'':'hidden'}
+              style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
+              <div id="notelbl-${k}" style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
                 rate==='hard'?'TOO HARD':'TOO EASY'}</div>
               <input value="${esc((st.note||{})[it.v]||'')}"
                 oninput="st.note=st.note||{};st.note['${it.v}']=this.value;save()"
@@ -1710,39 +1763,7 @@ function drawOv(){
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${st.in
           ? 'Your coaching subscription.' : 'The full ladder — £5 a month.'}</div>
-        ${(()=>{
-          if(!subInfo) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-            Checking with Stripe…</div>`;
-          if(subInfo.none) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-            No subscription found. If you have paid, message Elliott.</div>`;
-          const amt = subInfo.amount!=null
-            ? '£'+subInfo.amount.toFixed(2)+' a '+subInfo.interval : '£5 a month';
-          if(subInfo.willCancel) return `
-            <div style="background:rgba(196,122,86,.1);border-radius:12px;padding:13px 14px;margin-top:10px">
-              <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">CANCELLED</div>
-              <div style="font:400 14.5px/1.5 var(--sans);margin-top:7px">
-                You will not be charged again. The Press stays unlocked until
-                <b>${esc(niceDate(subInfo.cancelAt||subInfo.renewsAt))}</b>, then the account
-                goes back to free.</div>
-            </div>
-            <button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
-              Resume my subscription</button>`;
-          return `
-            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:10px;
-              font:400 14px/1.5 var(--sans)">
-              <span style="color:var(--grey)">Next payment</span>
-              <span style="font-weight:600;text-align:right">${esc(niceDate(subInfo.renewsAt))}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:4px;
-              font:400 14px/1.5 var(--sans)">
-              <span style="color:var(--grey)">Amount</span>
-              <span style="font-weight:600">${esc(amt)}</span>
-            </div>
-            ${subInfo.status&&subInfo.status!=='active'?`<div style="font:400 13px/1.5 var(--sans);
-              color:var(--forest);margin-top:8px">Status: ${esc(subInfo.status)}</div>`:''}
-            <button class="btn2" style="width:100%;margin-top:14px" onclick="cancelSub(false)">
-              Cancel subscription</button>`;
-        })()}
+        <div id="subblock">${subscriptionHTML()}</div>
         ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
         ${!st.canCancel&&!st.canManage?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
@@ -1920,7 +1941,7 @@ function drawOv(){
             const rid=sx+'-'+ix;
             return `<div class="dr" data-dr="${rid}"${dn?' style="background:#faf8f5"':''}>
               <div class="dr-head">
-                <button class="dr-tick" onclick="ladderTick('${it.v}')"
+                <button class="dr-tick" onclick="ladderTick('${it.v}',this)"
                   aria-label="Mark done"
                   style="border-color:${dn?'var(--forest)':'rgba(28,32,25,.2)'};
                   background:${dn?'var(--forest)':'#fff'}">${dn?'✓':''}</button>
@@ -1960,7 +1981,7 @@ function drawOv(){
       <div class="card" style="margin-top:12px"><div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(S.intro)}</div>
       <div style="display:flex;gap:20px;margin-top:16px">
         <div><div class="h-md" style="font-size:26px">${esc(S.hold)}</div><div class="kick2" style="margin-top:6px">HOLD GOAL</div></div>
-        <div><div class="h-md" style="font-size:26px">${done}/${total}</div><div class="kick2" style="margin-top:6px">DRILLS DONE</div></div>
+        <div><div class="h-md" id="stagecount" style="font-size:26px">${done}/${total}</div><div class="kick2" style="margin-top:6px">DRILLS DONE</div></div>
       </div></div>
       <div class="card" style="margin-top:11px">
         <div class="kick2">THE CHALLENGE THAT UNLOCKS THE NEXT STAGE</div>
@@ -2466,6 +2487,25 @@ function finishChecklist(){
   st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
   logReps();
   st.qTick={}; st.reps={}; save(); closeOv(); openOv('summary');
+}
+
+/* the list's own flag toggle: state, then the two buttons and the note box
+   that belong to this row */
+function rateRow(v,k,r){
+  st.rate=st.rate||{}; st.note=st.note||{};
+  const now = st.rate[v]===r ? '' : r;
+  st.rate[v]=now;
+  if(now!=='easy'&&now!=='hard') delete st.note[v];
+  save(); reportSoon();
+  const e=document.getElementById('easy-'+k), h=document.getElementById('hard-'+k);
+  if(e) e.classList.toggle('on', now==='easy');
+  if(h) h.classList.toggle('on', now==='hard');
+  const box=document.getElementById('note-'+k);
+  if(box){
+    box.hidden = !now;
+    const lbl=document.getElementById('notelbl-'+k);
+    if(lbl && now) lbl.textContent = now==='hard' ? 'TOO HARD' : 'TOO EASY';
+  }
 }
 
 function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); reportSoon(); render(); }
@@ -3357,7 +3397,30 @@ function toggleDemo(rid){
   if(!open) row.querySelectorAll('video').forEach(v=>{try{v.pause()}catch(e){}});
 }
 
-function ladderTick(v){ st.ladderDone=st.ladderDone||{}; st.ladderDone[v]=!st.ladderDone[v]; save(); drawOv(); }
+/* ticking a drill off in a stage rebuilt the whole stage sheet, video and
+   all. It changes one box and one line of text. */
+function ladderTick(v,el){
+  st.ladderDone=st.ladderDone||{};
+  const on = st.ladderDone[v] = !st.ladderDone[v];
+  save();
+  if(!el){ drawOv(); return; }
+  el.style.borderColor = on ? 'var(--forest)' : 'rgba(28,32,25,.2)';
+  el.style.background  = on ? 'var(--forest)' : '#fff';
+  el.textContent = on ? '\u2713' : '';
+  const row=el.closest('.dr');
+  if(row){
+    row.style.background = on ? '#faf8f5' : '';
+    const nm=row.querySelector('.dr-n');
+    if(nm){ nm.style.color = on?'var(--grey2)':''; nm.style.textDecoration = on?'line-through':''; }
+  }
+  const hdr=document.getElementById('stagecount');
+  if(hdr){
+    const secs=STAGE_SECTIONS[st.ovStage||0]||[];
+    const tot=secs.reduce((a,x)=>a+x.items.length,0);
+    const dn=secs.reduce((a,x)=>a+x.items.filter(i=>(st.ladderDone||{})[i.v]).length,0);
+    hdr.textContent=dn+'/'+tot;
+  }
+}
 /* Stages 1-3 are free. Stage 4 onwards is the £5 tier. Kept as one
    constant so the line can move without hunting through the file. */
 const FREE_STAGES = 4;   /* stages 1-4 free; the Press is the paid one */
@@ -3451,7 +3514,11 @@ function loadSubscription(){
       subInfo=d;
       if(d.plus!=null) st.plus=!!d.plus;
       st.cancelAt=d.cancelAt||0;
-      save(); if(st.ov==='account') drawOv(); })
+      save();
+      if(st.ov==='account'){
+        const b=document.getElementById('subblock');
+        if(b) b.innerHTML=subscriptionHTML(); else drawOv();
+      } })
     .catch(()=>{ subLoading=false; });
 }
 const niceDate = t => t ? new Date(t).toLocaleDateString('en-GB',
@@ -4200,7 +4267,12 @@ function watchScroll(){
   apply();
 }
 
+let renderPending=false;
 function render(){
+  /* a sheet covers the page. Redrawing underneath it costs a flash and buys
+     nothing — closeOv renders on the way out. */
+  if(st.ov && $('#ov') && $('#ov').classList.contains('on')){ renderPending=true; return; }
+  renderPending=false;
   const app=$('#app');
   /* swapping innerHTML throws the scroll container back to the top, which
      reads as the page jumping to the top mid-tap. Put it back whenever we
