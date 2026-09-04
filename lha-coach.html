@@ -206,8 +206,9 @@ function openThread(email){
       const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
       const same=shape(merged)===shape(thread);
       thread=merged;
-      const c=clients.find(x=>x.email===email); if(c) c.unread=0;
-      if(!same) draw();
+      const c=clients.find(x=>x.email===email);
+      const cleared=!!(c&&c.unread); if(c) c.unread=0;
+      if(!same||cleared) draw();
       const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; })
     /* keep whatever is on screen rather than replacing it with nothing */
     .catch(()=>coachSay('Could not refresh the thread — what you see may be behind.'));
@@ -1067,6 +1068,25 @@ function monthStats(byDay,y,m){
   return `${n} session${n===1?'':'s'} · ${h?h+'h ':''}${mm}m`;
 }
 
+/* what a day's sessions actually got through, as drills done over drills set */
+function dayParts(list){
+  let got=0, of=0;
+  (list||[]).forEach(x=>{
+    (x.items||[]).forEach(it=>{
+      const o=Number(it.of)||0;
+      if(!o) return;
+      of+=o; got+=Math.min(o, Number(it.got)||0);
+    });
+  });
+  return {got, of};
+}
+function dayCompletion(list){
+  const t=dayParts(list);
+  if(t.of) return Math.max(0, Math.min(1, t.got/t.of));
+  /* older sessions carry no per-drill detail, so fall back to the flag */
+  return (list||[]).some(x=>x.done) ? 1 : 0;
+}
+
 function coachCalendar(email){
   const p=prog[email]||{};
   const opens=new Set(p.opens||[]);
@@ -1088,24 +1108,42 @@ function coachCalendar(email){
     const k=iso(new Date(y,m,dnum,12));
     const on=opens.has(k), did=(byDay[k]||[]).length;
     const done=(byDay[k]||[]).some(x=>x.done);
+    /* how much of the session they actually got through. Missing one drill
+       out of eight is worth knowing and is not a failure — the calendar was
+       painting it the same red as never starting. */
+    const pc=dayCompletion(byDay[k]||[]);
+    const partsTip=(()=>{
+      const t=dayParts(byDay[k]||[]);
+      return t.of ? t.got+' of '+t.of+' drills' : '';
+    })();
     const isSel=calDay===k;
     const future=new Date(y,m,dnum)>new Date();
-    const tip = done ? 'Finished a session — click for what they did'
-      : did ? 'Started a session but stopped — click to see where'
+    const tip = done ? ('Finished the session'+(partsTip?' — '+partsTip:'')+' — click for detail')
+      : did ? ((partsTip||'Started a session')+' — click to see which')
       : on ? 'Opened the app, no session logged'
       : future ? '' : 'Nothing';
     /* the design's squares: shading says what kind of day it was, the bar
        inside says how long — two facts in one cell without a legend for
        the second */
     const mins=(byDay[k]||[]).reduce((t,x)=>t+(x.actual||x.mins||0),0);
-    const bg = done?'var(--forest)' : did?'var(--terra)' : on?'rgba(255,255,255,.7)' : 'transparent';
-    const fg = (done||did)?'#fff' : future?'#d6d0c9' : 'var(--grey)';
+    /* full teal when it was finished, teal weakening with how much was left
+       undone, and the warning colour only when nothing at all got done */
+    const bg = done ? 'var(--forest)'
+      : did && pc>0 ? `rgba(0,102,99,${(0.3+0.55*pc).toFixed(2)})`
+      : did ? 'var(--red)'
+      : on ? 'rgba(255,255,255,.7)' : 'transparent';
+    const fg = (done|| (did&&pc>0.35) || (did&&pc===0)) ? '#fff' : did ? 'var(--deep)'
+      : future?'#d6d0c9' : 'var(--grey)';
     cells.push(`<button onclick="calDay=${isSel?'null':`'${k}'`};draw()" title="${esc(tip)}"
       style="aspect-ratio:1;cursor:${(on||did)?'pointer':'default'};padding:0;border-radius:12px;
       display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
       background:${bg};border:1px solid ${isSel?'var(--ink)':(on||did)?'transparent':'rgba(28,32,25,.07)'}">
       <span style="font:${(on||did)?'700':'400'} 12.5px/1 var(--sans);color:${fg}">${dnum}</span>
-      ${mins?`<span style="font:600 9.5px/1 var(--sans);font-variant-numeric:tabular-nums;
+      ${did&&!done&&pc>0
+        ? `<span style="width:70%;height:3px;border-radius:2px;background:rgba(255,255,255,.35);
+             overflow:hidden"><i style="display:block;height:100%;width:${Math.round(pc*100)}%;
+             background:#fff"></i></span>`
+        : mins?`<span style="font:600 9.5px/1 var(--sans);font-variant-numeric:tabular-nums;
         color:${(done||did)?'rgba(255,255,255,.85)':'var(--grey2)'}">${mins}m</span>`
         :on?`<span style="width:14px;height:3px;border-radius:2px;background:rgba(28,32,25,.16)"></span>`:''}
     </button>`);
@@ -1888,12 +1926,14 @@ function newClientHTML(){
   return `<div class="glass" style="padding:16px 18px;margin-bottom:14px">
     <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">NEW COACHING CLIENT</div>
     <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:8px">
-      Set their password here, add the line below to CLIENTS in Netlify, then write
-      their programme from their thread.</div>
+      Sets their password and takes them on as a client. They are live straight away —
+      no deploy. Write their programme from their thread.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
       <input id="ncEmail" placeholder="them@email.com" style="flex:1;min-width:170px;${bInput}">
       <input id="ncName" placeholder="Their name" style="flex:1;min-width:130px;${bInput}">
       <input id="ncPw" placeholder="Password (8+)" style="flex:1;min-width:130px;${bInput}">
+      <input id="ncCoach" placeholder="Their coach (blank = you)"
+        style="flex:1;min-width:150px;${bInput}">
       <button class="send" onclick="makeClient()">Create account</button>
     </div>
     <div id="ncMsg" style="font:500 12.5px/1.6 var(--sans);color:var(--forest);margin-top:10px;
@@ -1906,15 +1946,21 @@ function makeClient(){
   const say=t=>{ const m=document.getElementById('ncMsg'); if(m) m.textContent=t; };
   if(!email||pw.length<8){ say('An email and a password of at least 8 characters.'); return; }
   say('Creating…');
+  const coach=(document.getElementById('ncCoach')||{}).value||'';
   fetch(API+'/setpw',{method:'POST',headers:hdr(),body:JSON.stringify({email,password:pw})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{
-      const line=email+':'+(name||email);
-      say((d.hadAccount?'Password set on their existing account. ':'Account created. ')
-        +'Add to CLIENTS in Netlify and redeploy:  '+line
-        +'   (append :suryava@… if they are his)');
-    })
-    .catch(()=>say('Could not create that account.'));
+    .then(d=>fetch(API+'/roster',{method:'POST',headers:hdr(),
+      body:JSON.stringify({email,name,coach})})
+      .then(r=>r.ok?r.json():Promise.reject(r.status))
+      .then(()=>{
+        say((d.hadAccount?'Password set on their existing account.':'Account created.')
+          +' They are on the roster — open their thread to write a programme.');
+        const c=document.getElementById('ncEmail'); if(c) c.value='';
+        const n2=document.getElementById('ncName'); if(n2) n2.value='';
+        const w=document.getElementById('ncPw'); if(w) w.value='';
+        load();
+      }))
+    .catch(()=>say('Could not set that up.'));
 }
 
 function threadCardHTML(msgs){

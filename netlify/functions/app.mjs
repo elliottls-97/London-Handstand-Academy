@@ -56,7 +56,9 @@ const parseClients = () => (process.env.CLIENTS || '')
   })
   .filter(c => c.email);
 
-const clients = () => Object.fromEntries(parseClients().map(c => [c.email, c.name]));
+let ROSTER = null;                 /* set once per request, never across them */
+const rosterList = () => ROSTER || parseClients();
+const clients = () => Object.fromEntries(rosterList().map(c => [c.email, c.name]));
 
 const coaches = () => {
   const out = {};
@@ -72,7 +74,7 @@ const coaches = () => {
 
 const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_EMAIL || '');
 const coachOf = e => {
-  const c = parseClients().find(x => x.email === norm(e));
+  const c = rosterList().find(x => x.email === norm(e));
   return (c && c.coach) || primaryCoach();
 };
 const coachName = e => coaches()[norm(e)] || 'your coach';
@@ -332,10 +334,13 @@ const ms = v => (v ? new Date(v).getTime() : 0);
 /* ── accounts ── */
 const getAcct = e => supa.row('accounts', `email=eq.${enc(e)}&select=*`);
 
-async function saveAcct(patch) {
-  const row = { ...patch, last_seen: nowISO() };
+async function saveAcct(patch, opts) {
+  const row = (opts && opts.seen) ? { ...patch, last_seen: nowISO() } : { ...patch };
   return supa.upsert('accounts', row, 'email');
 }
+/* the client was here. Called where they act, never where we act on them. */
+const touchSeen = e => supa.update('accounts', `email=eq.${enc(e)}`, { last_seen: nowISO() })
+  .catch(() => {});
 
 /* an account has to exist before a message or a submission can point at
    it — every one of those tables has a foreign key onto this */
@@ -564,6 +569,22 @@ export default async (request) => {
 
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
 
+  /* who counts as a coached client. The environment variable seeds it; the
+     stored roster adds to it and wins on a clash, so a client added in the
+     dashboard is live immediately rather than at the next deploy. */
+  ROSTER = await (async () => {
+    const seed = parseClients();
+    const stored = (await getSetting('roster')) || {};
+    const byEmail = new Map(seed.map(c => [c.email, c]));
+    for (const [e, v] of Object.entries(stored)) {
+      const email = norm(e);
+      if (!email || v === null) { byEmail.delete(email); continue; }
+      byEmail.set(email, { email, name: String(v.name || email).slice(0, 60),
+                           coach: norm(v.coach || '') });
+    }
+    return Array.from(byEmail.values());
+  })();
+
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   /* a coach signs in with their own email and password like anyone else;
      the shared key still works so nothing breaks mid-change */
@@ -765,6 +786,9 @@ export default async (request) => {
 
   /* ── who am I, and what have I paid for ── */
   if (path === '/me') {
+    /* the app asks this on open, so this is the honest moment to say they
+       were here — not whenever some row of theirs happened to be written */
+    await (async () => { const w = await me(); if (w) await touchSeen(w); })();
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const acct = (await getAcct(who)) || {};
@@ -1611,6 +1635,32 @@ export default async (request) => {
         await supa.upsert('coach_notes',
           { email: e, body: text, updated_at: nowISO() }, 'email');
         return json({ ok: true, at: Date.now() });
+      }
+    }
+
+    /* the roster itself, so a client can be taken on without a deploy */
+    if (path === '/coach/roster') {
+      if (request.method === 'GET') {
+        return json({ roster: rosterList(),
+                      stored: Object.keys((await getSetting('roster')) || {}) });
+      }
+      if (request.method === 'POST') {
+        const e = norm(body.email);
+        if (!e || !e.includes('@')) return json({ error: 'Need an email' }, 400);
+        const stored = (await getSetting('roster')) || {};
+        if (body.remove) {
+          /* a seeded client cannot simply be dropped from the object — the
+             variable would put them straight back, so mark the removal */
+          const seeded = parseClients().some(c => c.email === e);
+          if (seeded) stored[e] = null; else delete stored[e];
+        } else {
+          if (Object.keys(stored).length >= 200) return json({ error: 'Roster is full' }, 400);
+          stored[e] = { name: String(body.name || '').slice(0, 60) || e,
+                        coach: norm(body.coach || '') };
+          await ensureAcct(e);
+        }
+        await setSetting('roster', stored);
+        return json({ ok: true, email: e, removed: !!body.remove });
       }
     }
 
