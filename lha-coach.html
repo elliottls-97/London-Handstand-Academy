@@ -1262,6 +1262,170 @@ const LEVEL_LABEL=['Never done handstands',"Stuck at the wall",
    Habits, the three numbers, and the fortnightly check-in. Read-only:
    this is what they said, and the point is to see it before writing the
    next block. */
+/* ── the programme builder ─────────────────────────────────────────
+   A programme was a generated file, so every change to Hannah's Tuesday
+   was a code deploy. This writes it. Drills are stored as an id and a
+   dose; the name, clip and cues come from the library when it is read,
+   so nothing can drift out of sync again. */
+let builder=null;          /* {email, plan, dirty} while a programme is open */
+let libIndex=null;         /* id → name, for the picker */
+
+function openBuilder(email){
+  fetch(API+'/programme?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{
+      libIndex=(d.library&&d.library.names)||{};
+      builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited};
+      draw();
+    })
+    .catch(()=>{ builder={email, plan:{days:[]}, dirty:false, error:true}; draw(); });
+}
+function closeBuilder(){
+  if(builder&&builder.dirty&&!confirm('Close without saving?')) return;
+  builder=null; draw();
+}
+function bMark(){ builder.dirty=true; }
+function bDays(){ return (builder.plan.days=builder.plan.days||[]); }
+
+function bAddDay(){
+  bDays().push({id:String(bDays().length+1),label:'Day '+(bDays().length+1),
+    sub:'',title:'',when:'',mins:'45',groups:[]});
+  bMark(); draw();
+}
+function bDelDay(i){
+  if(!confirm('Remove '+(bDays()[i].label||'this day')+'?')) return;
+  bDays().splice(i,1); bMark(); draw();
+}
+function bField(i,f,v){ bDays()[i][f]=v; bMark(); }
+function bAddGroup(i){
+  (bDays()[i].groups=bDays()[i].groups||[]).push({name:'New block',items:[]});
+  bMark(); draw();
+}
+function bDelGroup(i,g){
+  if(!confirm('Remove this block and its drills?')) return;
+  bDays()[i].groups.splice(g,1); bMark(); draw();
+}
+function bGroupName(i,g,v){ bDays()[i].groups[g].name=v; bMark(); }
+function bAddItem(i,g){
+  bDays()[i].groups[g].items.push({v:'',d:'',nt:''}); bMark(); draw();
+}
+function bDelItem(i,g,k){ bDays()[i].groups[g].items.splice(k,1); bMark(); draw(); }
+function bItem(i,g,k,f,v){
+  const it=bDays()[i].groups[g].items[k];
+  it[f]=v;
+  /* picking a drill with no dose set yet takes the library's default */
+  if(f==='v' && !it.d) it.d='';
+  bMark();
+  if(f==='v') draw();
+}
+function bMove(i,g,k,by){
+  const arr=bDays()[i].groups[g].items, j=k+by;
+  if(j<0||j>=arr.length) return;
+  const [x]=arr.splice(k,1); arr.splice(j,0,x); bMark(); draw();
+}
+
+function saveBuilder(){
+  const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  fetch(API+'/programme',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email:builder.email, days:bDays()})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.edited=true;
+               draw();
+               const b=document.getElementById('bSave');
+               if(b){ b.disabled=false; b.textContent='Saved'; setTimeout(()=>{
+                 const c=document.getElementById('bSave'); if(c) c.textContent='Save programme'; },1600); } })
+    .catch(()=>{ const b=document.getElementById('bSave');
+      if(b){ b.disabled=false; b.textContent='Could not save — try again'; } });
+}
+
+function drillOptions(sel){
+  const ids=Object.keys(libIndex||{}).sort((a,b)=>
+    (libIndex[a]||a).localeCompare(libIndex[b]||b));
+  return `<option value="">Pick a drill…</option>`+ids.map(v=>
+    `<option value="${esc(v)}"${v===sel?' selected':''}>${esc(libIndex[v]||v)}</option>`).join('');
+}
+
+function builderHTML(){
+  if(!builder) return '';
+  const days=bDays();
+  const name=((clients.find(c=>c.email===builder.email)||{}).name)||builder.email;
+  const body=days.length?days.map((d,i)=>`
+    <div class="glass" style="padding:15px 17px;margin-top:11px">
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+        <input value="${esc(d.label||'')}" oninput="bField(${i},'label',this.value)"
+          placeholder="Day 1" style="flex:0 0 92px;${bInput}">
+        <input value="${esc(d.sub||'')}" oninput="bField(${i},'sub',this.value)"
+          placeholder="Strength &amp; balance" style="flex:1;min-width:130px;${bInput}">
+        <input value="${esc(d.mins||'')}" oninput="bField(${i},'mins',this.value)"
+          placeholder="45" style="flex:0 0 54px;${bInput}">
+        <button onclick="bDelDay(${i})" style="${bGhost}">Remove day</button>
+      </div>
+      <input value="${esc(d.when||'')}" oninput="bField(${i},'when',this.value)"
+        placeholder="What they need — floor and a chair, nothing else."
+        style="width:100%;margin-top:8px;${bInput}">
+
+      ${(d.groups||[]).map((g,gi)=>`
+        <div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)">
+          <div style="display:flex;gap:9px;align-items:center">
+            <input value="${esc(g.name||'')}" oninput="bGroupName(${i},${gi},this.value)"
+              placeholder="Warm-up" style="flex:1;${bInput};font-weight:600">
+            <button onclick="bDelGroup(${i},${gi})" style="${bGhost}">Remove block</button>
+          </div>
+          ${(g.items||[]).map((it,k)=>`
+            <div style="display:flex;gap:7px;align-items:center;margin-top:7px">
+              <span style="flex:none;display:flex;flex-direction:column;gap:2px">
+                <button onclick="bMove(${i},${gi},${k},-1)" style="${bTiny}" aria-label="Up">▲</button>
+                <button onclick="bMove(${i},${gi},${k},1)" style="${bTiny}" aria-label="Down">▼</button>
+              </span>
+              <select onchange="bItem(${i},${gi},${k},'v',this.value)"
+                style="flex:1;min-width:0;${bInput}">${drillOptions(it.v)}</select>
+              <input value="${esc(it.d||'')}" oninput="bItem(${i},${gi},${k},'d',this.value)"
+                placeholder="3 × 8" style="flex:0 0 108px;${bInput}">
+              <button onclick="bDelItem(${i},${gi},${k})" style="${bGhost}">×</button>
+            </div>
+            <input value="${esc(it.nt||'')}" oninput="bItem(${i},${gi},${k},'nt',this.value)"
+              placeholder="A note for this drill, if it needs one"
+              style="width:calc(100% - 34px);margin:5px 0 0 34px;${bInput};font-size:12px">
+          `).join('')}
+          <button onclick="bAddItem(${i},${gi})" style="${bGhost};margin-top:8px">+ Drill</button>
+        </div>`).join('')}
+
+      <button onclick="bAddGroup(${i})" style="${bGhost};margin-top:11px">+ Block</button>
+    </div>`).join('')
+    : `<div class="glass" style="padding:22px;margin-top:11px;text-align:center;
+         font:400 13.5px/1.6 var(--sans);color:var(--grey)">
+         No days yet. Add one and start putting blocks in it.</div>`;
+
+  return `<div style="position:fixed;inset:0;z-index:80;background:rgba(0,30,28,.55);
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    display:flex;justify-content:center;overflow-y:auto;padding:22px 14px">
+    <div style="width:100%;max-width:760px;height:max-content;background:var(--bg);
+      border-radius:22px;padding:20px;box-shadow:0 30px 70px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font:400 24px/1.1 var(--serif);color:var(--ink)">${esc(name)}</div>
+          <div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin-top:4px">
+            ${builder.edited?'Edited here':'From the original file'}${
+            builder.dirty?' · unsaved changes':''}</div>
+        </div>
+        <button onclick="closeBuilder()" style="${bGhost}">Close</button>
+        <button id="bSave" class="send" onclick="saveBuilder()">Save programme</button>
+      </div>
+      ${body}
+      <button onclick="bAddDay()" style="${bGhost};margin-top:12px">+ Day</button>
+      <div style="font:400 12px/1.6 var(--sans);color:var(--grey2);margin:14px 0 30px">
+        Saving writes the programme the client's app reads. Names, clips and cues come from
+        the drill library, so they stay right on their own — you set the drill and the dose.
+      </div>
+    </div></div>`;
+}
+
+const bInput='border:1px solid var(--line);border-radius:9px;padding:8px 10px;'
+  +'background:#fff;font:400 13px/1.2 var(--sans);color:var(--ink)';
+const bGhost='border:1px solid var(--line);border-radius:9px;padding:7px 11px;background:transparent;'
+  +'font:600 11.5px/1 var(--sans);color:var(--grey);cursor:pointer';
+const bTiny='border:none;background:none;cursor:pointer;font:400 8px/1 var(--sans);color:var(--grey2);padding:1px';
+
 function trackHTML(email){
   const t=tracks[email]; if(!t) return '';
   const HAB={wrists:'Wrist prep',shoulders:'Shoulder opener',hollow:'Hollow hold'};
@@ -1581,6 +1745,9 @@ function metricsHTML(email){
   ${panelWeek(p)}
   ${intakeHTML(email)}
   ${trackHTML(email)}
+  <div style="margin-top:11px">
+    <button onclick="openBuilder('${esc(email)}')" class="send">Edit programme</button>
+  </div>
   <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
     <div class="kick" style="margin:0">ANALYSIS</div>
     <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;padding:5px 9px;border-radius:4px;
@@ -1876,7 +2043,7 @@ function draw(){
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       ${threadCardHTML(msgs)}
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
-      </div>`}`;
+      </div>`}`+builderHTML();
 }
 TOKEN?load():gate('');
 </script></body></html>

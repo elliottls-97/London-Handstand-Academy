@@ -928,6 +928,51 @@ export default async (request) => {
     }
   }
 
+  /* ── programmes that can be written ───────────────────────────
+     A programme was a generated file, so changing one meant a deploy.
+     An edited programme lives in the settings row and wins over the
+     file; the file stays as the starting point for anyone never edited.
+
+     Drills are stored as a reference and a dose, not a copy. The name,
+     clip, cues and description come from the library at read time — the
+     reason the cues drifted out of two programmes was that they had
+     been copied. */
+  const libGet = (m, v) => (programmes.library[m] || {})[v];
+  function hydrateItem(it) {
+    const v = String(it && it.v || '').slice(0, 64);
+    if (!v) return null;
+    return {
+      v,
+      n: libGet('names', v) || v,
+      d: String(it.d || libGet('timing', v) || '').slice(0, 60),
+      nt: String(it.nt || '').slice(0, 300),
+      url: libGet('video', v) || '',
+      cues: libGet('cues', v) || [],
+      desc: libGet('desc', v) || '',
+    };
+  }
+  function hydratePlan(base) {
+    if (!base) return null;
+    const days = (base.days || []).slice(0, 14).map((d, i) => ({
+      id: String(d.id || (i + 1)).slice(0, 8),
+      label: String(d.label || `Day ${i + 1}`).slice(0, 40),
+      sub: String(d.sub || '').slice(0, 60),
+      title: String(d.title || d.label || '').slice(0, 80),
+      when: String(d.when || '').slice(0, 120),
+      mins: String(d.mins || '').slice(0, 8),
+      more: d.more || '',
+      groups: (d.groups || []).slice(0, 12).map(g => ({
+        name: String(g.name || '').slice(0, 60),
+        items: (g.items || []).slice(0, 40).map(hydrateItem).filter(Boolean),
+      })),
+    }));
+    return Object.assign({}, base, { days });
+  }
+  async function planFor(email) {
+    const saved = await getSetting(`programme:${email}`);
+    return hydratePlan(saved || programmes.clients[email] || null);
+  }
+
   /* ── the client's own programme ──────────────────────────────────
      The app used to ship one client's plan baked into the HTML, so a
      second client signing in saw the first one's drills. The plan is
@@ -935,7 +980,7 @@ export default async (request) => {
   if (path === '/programme' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const plan = programmes.clients[who];
+    const plan = await planFor(who);
     if (!plan) return json({ error: 'No programme yet' }, 404);
     const cycle = await cycleGet(db, who, plan);
     return json({ client: clients()[who] || plan.client, plan, cycle,
@@ -1566,6 +1611,52 @@ export default async (request) => {
         await supa.upsert('coach_notes',
           { email: e, body: text, updated_at: nowISO() }, 'email');
         return json({ ok: true, at: Date.now() });
+      }
+    }
+
+    if (path === '/coach/programme') {
+      if (request.method === 'GET') {
+        const e = norm(url.searchParams.get('email'));
+        if (!e) return json({ error: 'Which client?' }, 400);
+        if (!owns(e)) return json({ error: 'Not your client' }, 403);
+        const saved = await getSetting(`programme:${e}`);
+        return json({
+          email: e,
+          edited: !!saved,
+          plan: hydratePlan(saved || programmes.clients[e] || { days: [] }),
+          library: programmes.library,
+        });
+      }
+      if (request.method === 'POST') {
+        const e = norm(body.email);
+        if (!e) return json({ error: 'Which client?' }, 400);
+        if (!owns(e)) return json({ error: 'Not your client' }, 403);
+        const base = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        /* only what the builder edits is taken from the request; the rest of
+           the plan — the read, the test, the coach's notes — carries over */
+        const next = Object.assign({}, base, {
+          client: String(body.client || base.client || '').slice(0, 60),
+          goal: String(body.goal || base.goal || '').slice(0, 300),
+          days: (Array.isArray(body.days) ? body.days : []).slice(0, 14).map((d, i) => ({
+            id: String(d.id || (i + 1)).slice(0, 8),
+            label: String(d.label || `Day ${i + 1}`).slice(0, 40),
+            sub: String(d.sub || '').slice(0, 60),
+            title: String(d.title || '').slice(0, 80),
+            when: String(d.when || '').slice(0, 120),
+            mins: String(d.mins || '').slice(0, 8),
+            groups: (Array.isArray(d.groups) ? d.groups : []).slice(0, 12).map(g => ({
+              name: String(g.name || '').slice(0, 60),
+              items: (Array.isArray(g.items) ? g.items : []).slice(0, 40)
+                .map(it => ({ v: String(it.v || '').slice(0, 64),
+                              d: String(it.d || '').slice(0, 60),
+                              nt: String(it.nt || '').slice(0, 300) }))
+                .filter(it => it.v),
+            })),
+          })),
+          editedAt: Date.now(),
+        });
+        await setSetting(`programme:${e}`, next);
+        return json({ ok: true, plan: hydratePlan(next) });
       }
     }
 
