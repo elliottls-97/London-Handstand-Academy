@@ -811,6 +811,126 @@ function stageMasteryCard(){
   </div>`;
 }
 
+/* ── the free ladder's own progress ────────────────────────────────
+   A ladder client is working on one stage, so this answers that: how
+   much of it can you do, are you doing more of it than last week, and
+   is the hold going up. The block-shaped stuff below is coached work
+   and means nothing here. */
+function weeksBack(n){
+  const out=[], now=new Date();
+  const mon=new Date(now); mon.setHours(0,0,0,0);
+  mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+  for(let i=n-1;i>=0;i--){
+    const a=new Date(mon); a.setDate(mon.getDate()-i*7);
+    const b=new Date(a);   b.setDate(a.getDate()+7);
+    out.push({from:+a, to:+b, label:i===0?'This':(i===1?'Last':i+'w')});
+  }
+  return out;
+}
+
+function freeProgressBody(){
+  const S=STAGES[curStage()]||STAGES[0];
+  const done=st.ladderDone||{};
+  const secs=STAGE_SECTIONS[curStage()]||[];
+  const items=secs.reduce((a,x)=>a.concat(x.items||[]),[]);
+  const got=items.filter(it=>done[it.v]).length;
+  const pct=items.length?Math.round(got/items.length*100):0;
+
+  /* week on week, counted off the sessions the account holds */
+  const sess=sessionsDone();
+  const wk=weeksBack(8).map(w=>Object.assign(w,{
+    n:sess.filter(x=>x.at>=w.from&&x.at<w.to).length }));
+  const peak=Math.max(1,...wk.map(w=>w.n));
+  const target=weekTarget();
+  const bars=wk.map(w=>`<div style="flex:1;display:flex;flex-direction:column;
+    align-items:center;gap:6px;min-width:0">
+    <span style="font:600 11px/1 var(--sans);color:${w.n?'var(--forest)':'var(--grey2)'}">${w.n||''}</span>
+    <div style="width:100%;height:64px;display:flex;align-items:flex-end">
+      <div style="width:100%;height:${Math.round(w.n/peak*100)}%;min-height:${w.n?6:2}px;
+        border-radius:5px;background:${w.label==='This'?'var(--forest)':w.n>=target?'var(--sage)':'var(--mist)'}"></div>
+    </div>
+    <span style="font:600 8.5px/1 var(--sans);letter-spacing:.06em;color:var(--grey2)">${w.label}</span>
+  </div>`).join('');
+
+  /* holds, newest last, so the line reads left to right like time does */
+  const holds=(((st.prog||{}).holds)||[]).slice(-10);
+  const goal=parseInt(S.hold,10)||30;
+  const hpeak=Math.max(goal,...holds.map(h=>h.s||0),1);
+  const hbars=holds.map(h=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;
+    gap:5px;min-width:0">
+    <div style="width:100%;height:52px;display:flex;align-items:flex-end">
+      <div style="width:100%;height:${Math.round((h.s||0)/hpeak*100)}%;min-height:3px;border-radius:4px;
+        background:${(h.s||0)>=goal?'var(--forest)':'var(--sage)'}"></div></div>
+    <span style="font:600 9px/1 var(--sans);color:var(--grey2)">${h.s||0}</span>
+  </div>`).join('');
+
+  /* the drills you have actually counted reps on, best first */
+  const logged=Object.keys(st.repsLog||{}).map(v=>{
+    const h=st.repsLog[v]||[]; if(!h.length) return null;
+    const name=(items.find(it=>it.v===v)||{}).n || (drillById(v)||{}).n || v;
+    return {v, name, last:h[0], prev:h[1]||null};
+  }).filter(Boolean).sort((a,b)=>b.last.at-a.last.at).slice(0,6);
+
+  return `
+    <div class="card" style="padding:18px 20px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span class="kick2">STAGE ${curStage()+1} · ${esc(S.n.toUpperCase())}</span>
+        <span style="font:400 20px/1 var(--serif);color:var(--forest)">${pct}%</span>
+      </div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+        ${got} of ${items.length} drills ticked off. To leave: ${esc(S.hold)} — ${esc((S.goal||'').toLowerCase())}</div>
+      <div style="display:flex;gap:6px;margin-top:12px">
+        ${secs.map(sec=>{
+          const n=(sec.items||[]).length, d=(sec.items||[]).filter(it=>done[it.v]).length;
+          return `<div style="flex:${n||1};min-width:0">
+            <div style="height:6px;border-radius:99px;background:var(--mist);overflow:hidden">
+              <div style="height:100%;width:${n?Math.round(d/n*100):0}%;
+                background:${d===n&&n?'var(--forest)':'var(--sage)'}"></div></div>
+            <span style="display:block;margin-top:5px;font:600 8.5px/1.2 var(--sans);color:var(--grey2);
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((sec.title||'').toUpperCase())}</span>
+          </div>`;}).join('')}
+      </div>
+      <button class="btn2" style="width:100%;margin-top:14px" onclick="openStage(${curStage()})">
+        Open ${esc(S.n)}</button>
+    </div>
+
+    <div class="card" style="padding:18px 20px">
+      <div class="kick2">SESSIONS, WEEK BY WEEK</div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+        ${wk[wk.length-1].n} this week${target?' · aiming at '+target:''}</div>
+      <div style="display:flex;gap:5px;margin-top:14px;align-items:flex-end">${bars}</div>
+    </div>
+
+    <div class="card" style="padding:18px 20px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span class="kick2">HOLD TIMES</span>
+        <span style="font:600 11px/1 var(--sans);color:var(--grey2)">BEST ${st.bestHold||0}s · GOAL ${esc(S.hold)}</span>
+      </div>
+      ${holds.length
+        ? `<div style="display:flex;gap:5px;margin-top:14px;align-items:flex-end">${hbars}</div>`
+        : `<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:8px">
+             Nothing logged yet. The max hold timer is on the ladder.</div>`}
+      <button class="btn2" style="width:100%;margin-top:14px" onclick="openOv('hold')">Max hold timer</button>
+    </div>
+
+    ${logged.length?`<div class="card" style="padding:18px 20px">
+      <div class="kick2">REPS YOU HAVE COUNTED</div>
+      <div style="display:flex;flex-direction:column;gap:0;margin-top:6px">
+      ${logged.map((r,i)=>`<div style="display:flex;align-items:baseline;justify-content:space-between;
+        gap:10px;padding:11px 0;${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
+        <span style="flex:1;min-width:0;font:500 14px/1.3 var(--sans)">${esc(r.name)}</span>
+        <span style="flex:none;font:400 12px/1 var(--sans);color:var(--grey2)">${esc(agoShort(r.last.at))}</span>
+        <span style="flex:none;font:400 18px/1 var(--serif);color:var(--forest);min-width:34px;
+          text-align:right">${r.last.reps}</span>
+        ${r.prev?`<span style="flex:none;font:600 10px/1 var(--sans);min-width:26px;text-align:right;
+          color:${r.last.reps>r.prev.reps?'var(--forest)':r.last.reps<r.prev.reps?'var(--grey2)':'var(--grey2)'}">${
+          r.last.reps>r.prev.reps?'+'+(r.last.reps-r.prev.reps)
+            :r.last.reps<r.prev.reps?String(r.last.reps-r.prev.reps):'='}</span>`
+          :`<span style="flex:none;min-width:26px"></span>`}
+      </div>`).join('')}</div></div>`:''}
+  `;
+}
+
 function screenProgress(){
   const t=st.tests||[];
   const rows=DATA.test.items.map((it,i)=>{
@@ -834,8 +954,9 @@ function screenProgress(){
     <div class="hero"><span class="kick">YOUR NUMBERS</span>
       <div class="h-lg" style="margin-top:16px">Where you are</div></div>
     <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
+      ${coachedView() ? '' : freeProgressBody()}
       ${stageMasteryCard()}
-      <div class="card"><div class="kick2">TWO-WEEK TEST</div>
+      ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
         ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet — the first test opens in a few days.</div>`}</div>
       ${st.awaitingReview
@@ -865,7 +986,15 @@ function screenProgress(){
             ['Days trained', String(((st.prog&&st.prog.opens)||[]).length)]].map(([n,v])=>
           `<div style="display:flex;justify-content:space-between;align-items:baseline">
            <span style="font:400 14px/1.3 var(--sans)">${n}</span>
-           <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>
+           <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>` : ''}
+      ${coachedView() ? '' : `<div class="card"><div class="kick2">PERSONAL BESTS</div>
+        <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
+        ${[['Best hold', st.bestHold?st.bestHold+'s':'—'],
+            ['Sessions done', String(sessionsDone().length)],
+            ['Drills ticked off', String(Object.keys(st.ladderDone||{}).length)]].map(([n,v])=>
+          `<div style="display:flex;justify-content:space-between;align-items:baseline">
+           <span style="font:400 14px/1.3 var(--sans)">${n}</span>
+           <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>`}
     </div></div>`;
 }
 
