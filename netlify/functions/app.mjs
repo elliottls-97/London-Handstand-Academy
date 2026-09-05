@@ -1425,6 +1425,17 @@ export default async (request) => {
   /* What was done on each drill, newest first, read back out of the sessions
      the account already holds. Derived rather than stored a second time — two
      copies of the same fact drift, and this one has to survive a new phone. */
+  /* the best of each shape, read back out of the holds already stored */
+  function bestHoldsFrom(holds) {
+    const best = {};
+    for (const h of (Array.isArray(holds) ? holds : [])) {
+      const k = h && h.kind ? h.kind : 'ctw';
+      const s = Number(h && h.s) || 0;
+      if (s > (best[k] || 0)) best[k] = s;
+    }
+    return best;
+  }
+
   function repsLogFrom(sessions) {
     const log = {};
     for (const s of (Array.isArray(sessions) ? sessions : [])) {
@@ -1450,7 +1461,8 @@ export default async (request) => {
     return json(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen),
-  repsLog: repsLogFrom(prog.sessions) } : {});
+  repsLog: repsLogFrom(prog.sessions),
+  bestHolds: bestHoldsFrom(prog.holds) } : {});
     }
     if (request.method === 'POST') {
     const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
@@ -1507,7 +1519,11 @@ export default async (request) => {
       if (body.hold != null) {
         const h = Number(body.hold) || 0;
         if (h > 0) {
-          p.holds = (p.holds || []).concat([{ s: h, at: now }]).slice(-100);
+          /* a hold without the shape it was held in cannot be compared to
+             anything — a 45s chest-to-wall is not a 5s freestanding */
+          const kind = ['ctw', 'slide', 'takeoff', 'free', 'press']
+            .includes(body.holdKind) ? body.holdKind : 'ctw';
+          p.holds = (p.holds || []).concat([{ s: h, at: now, kind }]).slice(-100);
           if (h > (p.bestHold || 0)) { p.bestHold = h; p.bestHoldAt = now; }
         }
       }
