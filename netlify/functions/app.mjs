@@ -551,6 +551,10 @@ export default async (request) => {
       if (obj.cancel_at_period_end != null) acct.cancel_at = obj.cancel_at_period_end
         ? iso((obj.current_period_end || 0) * 1000) : null;
       if (obj.customer) acct.stripe_customer = obj.customer;
+      /* which product they are on, so the app can tell a ladder subscriber
+         from a coached client without asking Stripe again */
+      const boughtPlan = (obj.metadata && obj.metadata.plan) || '';
+      if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
     } else if (off.includes(ev.type)) {
       acct.plus = false;
     } else {
@@ -812,18 +816,36 @@ export default async (request) => {
   /* ── start a checkout ─────────────────────────────────────────────
      A Checkout Session rather than a payment link, because a link
      cannot tell us which account paid. */
+  /* Which products can be bought without talking to anyone. The ladder was
+     the only one; coaching was application-gated with no way to pay. A plan
+     only appears here once its Stripe price exists, so switching one on is
+     setting an environment variable rather than a deploy of new code. */
+  const PLANS = {
+    plus:   { price: () => process.env.STRIPE_PRICE_PLUS,   mode: 'subscription' },
+    check:  { price: () => process.env.STRIPE_PRICE_CHECK,  mode: 'subscription' },
+    online: { price: () => process.env.STRIPE_PRICE_ONLINE, mode: 'subscription' },
+    inner:  { price: () => process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
+  };
+
+  if (path === '/plans') {
+    return json({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price()) });
+  }
+
   if (path === '/checkout' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    if (!stripeKey() || !process.env.STRIPE_PRICE_PLUS) {
-      return json({ error: 'Payments are not switched on yet' }, 503);
+    const planKey = Object.prototype.hasOwnProperty.call(PLANS, body.plan) ? body.plan : 'plus';
+    const plan = PLANS[planKey];
+    if (!stripeKey() || !plan.price()) {
+      return json({ error: 'That one is not switched on yet' }, 503);
     }
     const origin = url.origin;
     try {
       const sess = await stripe('/checkout/sessions', {
-        mode: 'subscription',
-        'line_items[0][price]': process.env.STRIPE_PRICE_PLUS,
+        mode: plan.mode,
+        'line_items[0][price]': plan.price(),
         'line_items[0][quantity]': '1',
+        'metadata[plan]': planKey,
         customer_email: who,
         client_reference_id: who,
         allow_promotion_codes: 'true',

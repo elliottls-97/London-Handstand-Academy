@@ -365,6 +365,7 @@ const AUTH = {
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
   prefs:'/api/app/prefs',              // GET|POST what they want emailing about
+  plans:'/api/app/plans',              // GET which tiers can be bought outright
   state:'/api/app/state',              // GET|POST week layout and drill lengths
   track:'/api/app/track',              // GET|POST metrics, habits, check-ins
   questions:'/api/app/questions',      // GET yours, POST a new one
@@ -3775,7 +3776,13 @@ const explainerToday = () =>
    Landing on the ladder meant landing on five stage cards and a choice.
    This is the screen that says what to do now — the ladder is still
    there to browse, it is just no longer the front door. */
-function weekTarget(){ return st.perWeek || levelDef().def; }
+function weekTarget(){
+  /* a stage with a written week is the week; the quiz frequency only decides
+     the count where there is no plan to follow */
+  const plan=(typeof WEEK!=='undefined') ? WEEK[curStage()] : null;
+  if(plan && plan.length) return plan.length;
+  return st.perWeek || levelDef().def;
+}
 function sessionsThisWeek(){
   const wk=Date.now()-7*864e5;
   return sessionsDone().filter(x=>x.at>wk).length;
@@ -3905,13 +3912,17 @@ function screenHome(){
           const isToday=dt.toDateString()===now.toDateString();
           const did=trained.has(dt.toDateString());
           const has=booked.has(i);
+          /* A day that carries a session is the filled one — that is the
+             fact you are looking for. Today is a ring around whichever day
+             it happens to be, so a rest day today cannot look like a
+             training day. */
+          const bg = did ? 'var(--sage)' : has ? 'var(--forest)' : 'rgba(17,17,17,.05)';
+          const fg = did ? 'var(--deep)' : has ? 'var(--on-primary)' : 'var(--grey2)';
           return `<div onclick="st.weekOpen=!st.weekOpen;save();render()" style="flex:1;min-width:0;
             height:30px;border-radius:9px;display:grid;place-items:center;cursor:pointer;position:relative;
-            font:600 11.5px/1 var(--sans);
-            background:${isToday?'var(--forest)':did?'var(--sage)':'rgba(17,17,17,.05)'};
-            color:${isToday?'var(--on-primary)':did?'var(--deep)':has?'var(--forest)':'var(--grey2)'}">${L}
-            ${has&&!isToday&&!did?`<span style="position:absolute;bottom:4px;width:3px;height:3px;
-              border-radius:99px;background:var(--forest)"></span>`:''}</div>`;
+            font:600 11.5px/1 var(--sans);background:${bg};color:${fg};
+            box-shadow:${isToday?'0 0 0 2px var(--bg),0 0 0 3.5px var(--forest)':'none'}">${L}
+            ${did?`<span style="position:absolute;bottom:3px;font:700 7px/1 var(--sans)">✓</span>`:''}</div>`;
         }).join('');
         return `<div style="border-radius:18px;background:rgba(255,255,255,.5);
           border:1px solid rgba(17,17,17,.08)">
@@ -4368,7 +4379,12 @@ function weekCells(){
 
 /* Which weekday each session sits on. Spread evenly to begin with, then
    whatever the client has dragged it to. */
-function defaultDay(i,total){ return Math.min(6, Math.round(i*(total>1?6/(total-1):0))); }
+const DAY_SPREADS={1:[2],2:[1,4],3:[0,2,4],4:[0,2,4,6],5:[0,1,3,4,6],6:[0,1,2,3,4,5],7:[0,1,2,3,4,5,6]};
+function defaultDay(i,total){
+  const s=DAY_SPREADS[total];
+  if(s && s[i]!=null) return s[i];
+  return Math.min(6, Math.round(i*(total>1?6/(total-1):0)));
+}
 function dayFor(i){
   const cells=weekCells();
   const m=st.dayMap||{};
@@ -4557,6 +4573,75 @@ function adjustSecs(v,by,k){
   qCount();
 }
 
+/* ── what coaching costs ───────────────────────────────────────────
+   The comparison table was detailed and carried no price, which reads as
+   something withheld. Each tier buys itself where its Stripe price exists
+   and falls back to the application where it does not, so switching one
+   on is an environment variable rather than a deploy.
+
+   The form check sits between the £5 ladder and full coaching on purpose:
+   the gap from five pounds of video to a hundred and twenty of bespoke
+   programming is too far to jump, and what people actually want at that
+   point is someone to look at their handstand. */
+const PLANS=[
+  {k:'check', n:'Form checks',   price:'£35', per:'a month',
+   for:'You have the ladder and you want eyes on it.',
+   gets:['A filmed check every fortnight, answered within 48 hours',
+         'What to change, in writing, against your own footage',
+         'The full ladder included']},
+  {k:'online', n:'Coaching',      price:'£120', per:'a month', best:true,
+   for:'Your own programme, rewritten every fortnight.',
+   gets:['A programme built for your body and your week',
+         'Form checks whenever you send them',
+         'Ask me anything, any time',
+         'A 1-1 onboarding call to set the direction']},
+  {k:'inner',  n:'Inner Circle',  price:'£250', per:'a month',
+   for:'Everything, and me on the end of the phone.',
+   gets:['All of the above, answered first',
+         'A monthly call',
+         'In-person in London available as an add-on']},
+];
+let plansOn=null;
+function loadPlans(){
+  fetch(AUTH.plans).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ plansOn=d.plans||[]; render(); } }).catch(()=>{ plansOn=[]; });
+}
+function buyPlan(k){
+  if(!st.token){ st.tab='joinFree'; save(); render(); return; }
+  const b=document.getElementById('buy-'+k);
+  if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
+  fetch(AUTH.checkout,{method:'POST',headers:authed(),body:JSON.stringify({plan:k})})
+    .then(r=>r.json())
+    .then(d=>{ if(d.url) location.href=d.url; else throw new Error(d.error||''); })
+    .catch(()=>{ if(b){ b.disabled=false; b.textContent='Something went wrong — try again'; } });
+}
+function pricingCard(){
+  if(plansOn===null) loadPlans();
+  const on=plansOn||[];
+  return `<div style="display:flex;flex-direction:column;gap:11px">
+    ${PLANS.map(P=>{
+      const live=on.indexOf(P.k)>-1;
+      return `<div class="card" style="padding:20px${P.best?';border:1.5px solid var(--forest)':''}">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <span style="font:400 22px/1.1 var(--serif)">${esc(P.n)}</span>
+          <span style="flex:none;font:400 26px/1 var(--serif);color:var(--forest)">${esc(P.price)}
+            <span style="font:400 12px/1 var(--sans);color:var(--grey2)">${esc(P.per)}</span></span>
+        </div>
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${esc(P.for)}</div>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-top:13px">
+          ${P.gets.map(g=>`<div style="display:flex;gap:9px;font:400 14px/1.5 var(--sans)">
+            <span style="flex:none;color:var(--forest)">✓</span><span>${esc(g)}</span></div>`).join('')}
+        </div>
+        <button id="buy-${P.k}" class="${P.best?'btn':'btn2'}" style="width:100%;margin-top:15px"
+          onclick="${live?`buyPlan('${P.k}')`:`openOv('apply')`}">
+          ${live?'Start '+esc(P.n.toLowerCase()):'Apply for this'}</button>
+      </div>`;}).join('')}
+    <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);text-align:center">
+      Cancel any time from inside the app. In-person in London is +£60 a month on top of
+      any tier.</div>
+  </div>`;
+}
+
 /* ── coaching pitch (free tier's 4th tab) ── */
 function screenCoaching(){
   /* the free form check, for real this time. It used to fire an email and
@@ -4742,6 +4827,7 @@ function screenCoaching(){
       </div>
       <div class="card" style="padding:20px">
         <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
+      ${pricingCard()}
       ${st.applied
         ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
             <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
