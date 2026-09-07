@@ -9,13 +9,13 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v1';
+const CACHE_VERSION = 'lha-v2';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 const VIDEO_CACHE   = CACHE_VERSION + '-video';
 
 /* Files that make up the app shell. Kept small and all same-origin. */
 const SHELL = [
-  '/handstand-ladder-app.html',
+  '/lha-app.html',
   '/manifest.json'
 ];
 
@@ -100,7 +100,7 @@ self.addEventListener('fetch', event => {
           return res;
         })
         .catch(() => caches.match(req).then(hit =>
-          hit || caches.match('/handstand-ladder-app.html')
+          hit || caches.match('/lha-app.html')
         ))
     );
   }
