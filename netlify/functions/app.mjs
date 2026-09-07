@@ -1158,6 +1158,17 @@ export default async (request) => {
           note: String(c.note || '').slice(0, 600),
         }]).slice(-40);
       }
+      /* one check point reading. These are what decide whether someone
+         moves up a stage, so they are kept per key with their history. */
+      if (body.checkpoint && typeof body.checkpoint === 'object') {
+        const k = String(body.checkpoint.k || '').slice(0, 32);
+        const v = Number(body.checkpoint.v);
+        if (k && Number.isFinite(v) && v >= 0 && v <= 100000) {
+          cur.checkpoints = cur.checkpoints || {};
+          cur.checkpoints[k] = (cur.checkpoints[k] || [])
+            .concat([{ v: Math.round(v * 10) / 10, at: Date.now() }]).slice(-20);
+        }
+      }
       /* a progress photo, already uploaded — this records the reference */
       if (body.photo && typeof body.photo === 'object' && body.photo.id) {
         cur.photos = (cur.photos || []).concat([{
@@ -1169,7 +1180,8 @@ export default async (request) => {
       await setSetting(key, cur);
     }
     return json({ metrics: cur.metrics, habits: cur.habits,
-      checkins: cur.checkins, photos: cur.photos || [] });
+      checkins: cur.checkins, photos: cur.photos || [],
+      checkpoints: cur.checkpoints || {} });
   }
 
   /* the intake answers, so the coach sees who someone said they were */
