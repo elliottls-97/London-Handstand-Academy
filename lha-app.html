@@ -1242,7 +1242,14 @@ const CP_KIND={
   breaks:{unit:' breaks',label:'Goes to reach ten', step:1},
   yn:    {unit:'',       label:'Yes or no'},
 };
-const cpFor = i => CHECKPOINTS[i==null?curStage():i] || [];
+/* Coached clients get the check points their coach set, not the ladder's.
+   The ladder ones are the free product's stage gates and mean nothing to
+   someone on a written programme. */
+const cpFor = i => {
+  if(i==null && coachedView() && Array.isArray(DATA.checkpoints) && DATA.checkpoints.length)
+    return DATA.checkpoints;
+  return CHECKPOINTS[i==null?curStage():i] || [];
+};
 function cpLog(){ return (st.track&&st.track.checkpoints)||{}; }
 function cpLast(k){ const h=cpLog()[k]||[]; return h.length?h[h.length-1]:null; }
 function cpDue(){
@@ -1251,13 +1258,54 @@ function cpDue(){
   const newest=Math.max(...all.map(x=>x.at));
   return (Date.now()-newest) > 14*864e5;
 }
-function saveCheckpoint(k,v){
+function saveCheckpoint(k,v,video){
   st.track=st.track||{};
   st.track.checkpoints=st.track.checkpoints||{};
-  const list=(st.track.checkpoints[k]||[]).concat([{v:Number(v)||0,at:Date.now()}]).slice(-20);
-  st.track.checkpoints[k]=list;
+  const row=Object.assign({v:Number(v)||0,at:Date.now()}, video?{video}:{});
+  st.track.checkpoints[k]=(st.track.checkpoints[k]||[]).concat([row]).slice(-20);
   save(); render();
-  postTrack({checkpoint:{k, v:Number(v)||0}});
+  postTrack({checkpoint:Object.assign({k, v:Number(v)||0}, video?{video}:{})});
+}
+
+/* A number says what happened. A clip says whether it was any good, which is
+   the whole reason a coached client has check points at all. Coached only:
+   the free tier has no one to send it to. */
+let cpUpBusy=null;
+function cpFilm(k){
+  if(!st.token){ st.tab='joinFree'; save(); render(); return; }
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*';
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(f) cpSendClip(k,f); };
+  inp.click();
+}
+function cpSay(k,t){
+  const el=document.getElementById('cpup-'+k);
+  if(el) el.textContent=t||'';
+}
+function cpSendClip(k,file){
+  if(cpUpBusy) return;
+  if(file.size > 220*1024*1024){ cpSay(k,'Too large. Trim it to under three minutes.'); return; }
+  cpUpBusy=k; cpSay(k,'Getting ready…');
+  fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
+    .then(d=>new Promise((resolve,reject)=>{
+      const fd=new FormData(); fd.append('file',file);
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST',d.uploadURL);
+      xhr.upload.onprogress=e=>{ if(e.lengthComputable)
+        cpSay(k,'Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };
+      xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid)
+                    : reject('Upload failed ('+xhr.status+')');
+      xhr.onerror=()=>reject('Upload failed, check your signal');
+      xhr.send(fd);
+    }))
+    .then(uid=>{
+      const el=document.getElementById('cp-'+k);
+      const v=(el&&el.value) || (cpLast(k)||{}).v || 0;
+      cpUpBusy=null;
+      saveCheckpoint(k, v, uid);
+    })
+    .catch(err=>{ cpUpBusy=null; cpSay(k, String(err&&err.message||err||'Could not send it')); });
 }
 function cpInput(c){
   const K=CP_KIND[c.kind]||CP_KIND.count;
@@ -1287,12 +1335,16 @@ function checkpointsCard(){
   const due=cpDue();
   return `<div class="card" style="padding:18px 20px${due?';border:1.5px solid var(--forest)':''}">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-      <span class="kick2"${due?' style="color:var(--forest)"':''}>CHECK POINTS · ${esc(S.n||'')}</span>
+      <span class="kick2"${due?' style="color:var(--forest)"':''}>CHECK POINTS${
+        coachedView()?'':' · '+esc(S.n||'')}</span>
       <span style="font:600 11px/1 var(--sans);color:var(--grey2)">${done} of ${list.length}</span>
     </div>
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-      ${due ? 'Worth running through these — it has been a fortnight or more.'
-            : 'These are what decide when you move up. Log one whenever you test it.'}</div>
+      ${coachedView()
+        ? (due ? 'Worth running through these, it has been a fortnight or more.'
+               : 'What Elliott wants you to be able to do. Log one whenever you test it, and send a clip so he can see it.')
+        : (due ? 'Worth running through these, it has been a fortnight or more.'
+               : 'These are what decide when you move up. Log one whenever you test it.')}</div>
     <div style="margin-top:6px">
     ${list.map((c,i)=>{
       const last=cpLast(c.k);
@@ -1314,6 +1366,12 @@ function checkpointsCard(){
               ? (last.v<prev.v?' — fewer goes, better':last.v>prev.v?' — more goes':'')
               : (last.v>prev.v?' — up':last.v<prev.v?' — down':'')}</div>`:''}
         <div style="margin-top:9px">${cpInput(c)}</div>
+        ${coachedView()&&c.video!==false?`<div style="display:flex;align-items:center;gap:9px;margin-top:8px">
+          <button class="btn2" style="flex:none;padding:8px 12px;font-size:12.5px"
+            onclick="cpFilm('${c.k}')">${last&&last.video?'Send another clip':'Send a clip'}</button>
+          <span id="cpup-${c.k}" style="flex:1;font:400 12px/1.3 var(--sans);color:var(--grey2)">${
+            last&&last.video?'Clip sent, Elliott has it.':''}</span>
+        </div>`:''}
       </div>`;}).join('')}
     </div>
   </div>`;
@@ -1525,7 +1583,57 @@ function checkinCard(){
    finished, weaker for a session part done, and the warning colour only
    for a day logged as not trained. A blank means nothing was logged,
    which is a different fact from a miss. */
-function calShift(by){ st.calOff=Math.max(0,Math.min(11,(st.calOff|0)+by)); save(); render(); }
+function calShift(by){ st.calOff=Math.max(0,Math.min(11,(st.calOff|0)+by)); st.calDay=null; save(); render(); }
+function calPick(k){ st.calDay = (st.calDay===k) ? null : k; save(); render(); }
+/* what a day actually held. The calendar could say a day was part done and
+   then had no way of telling you which part. */
+function dayBreakdown(byDay, opens){
+  const k=st.calDay; if(!k) return '';
+  const list=byDay[k]||[];
+  const d=new Date(k+'T12:00:00');
+  const title=d.toLocaleDateString('en-GB',{weekday:'long', day:'numeric', month:'long'});
+  if(!list.length){
+    return `<div style="margin-top:14px;padding:14px 15px;border-radius:16px;background:var(--mist)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="font:400 16px/1.2 var(--serif)">${esc(title)}</span>
+        <button class="back" onclick="calPick('${k}')" style="color:var(--grey2);font-size:11.5px">Close</button>
+      </div>
+      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+        ${opens && opens.has(k) ? 'You opened the app. Nothing was logged.' : 'Nothing logged.'}</div>
+    </div>`;
+  }
+  const body=list.map(x=>{
+    const label = x.kind==='all'||x.done ? 'Whole session'
+      : x.kind==='none' ? 'Logged as not trained'
+      : x.approx ? 'Part of the session' : 'Part done';
+    const when=new Date(x.at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    const items=(x.items||[]).filter(it=>it && it.n);
+    return `<div style="padding:11px 0;border-top:1px solid rgba(17,17,17,.08)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="flex:1;font:600 14px/1.3 var(--sans)">${esc(x.name||label)}</span>
+        <span style="flex:none;font:400 12px/1 var(--sans);color:var(--grey2)">${when}</span>
+      </div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">
+        ${esc(label)}${x.of?', '+(x.approx?'':x.got+' of '+x.of+' drills'):''}${
+          x.mins?' · '+x.mins+' min':''}</div>
+      ${items.length?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px">
+        ${items.map(it=>`<div style="display:flex;gap:9px;align-items:baseline;
+          font:400 13px/1.4 var(--sans)">
+          <span style="flex:none;width:14px;color:${it.got?'var(--forest)':'var(--grey2)'}">${it.got?'✓':'·'}</span>
+          <span style="flex:1;${it.got?'':'color:var(--grey2)'}">${esc(it.n)}</span>
+          ${it.reps?`<span style="flex:none;color:var(--grey2)">${esc(String(it.reps))}</span>`:''}
+          ${it.rate?`<span style="flex:none;font:600 9px/1 var(--sans);letter-spacing:.1em;
+            color:var(--red)">${esc(String(it.rate).toUpperCase())}</span>`:''}
+        </div>`).join('')}</div>`:''}
+    </div>`;}).join('');
+  return `<div style="margin-top:14px;padding:14px 15px 4px;border-radius:16px;background:var(--mist)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span style="font:400 16px/1.2 var(--serif)">${esc(title)}</span>
+      <button class="back" onclick="calPick('${k}')" style="color:var(--grey2);font-size:11.5px">Close</button>
+    </div>
+    ${body}
+  </div>`;
+}
 function sessionCalendar(){
   const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
   /* days the app was opened but nothing was logged. Turning up is worth
@@ -1571,12 +1679,15 @@ function sessionCalendar(){
       : list.length ? (approx||!of ? 'Part of the session' : got+' of '+of+' drills')
       : onlyOpened ? 'Opened the app, nothing logged'
       : future ? '' : 'Nothing logged';
-    const ring = isToday ? '0 0 0 1.5px var(--forest)'
+    const sel = st.calDay===k;
+    const ring = sel ? '0 0 0 2px var(--deep)'
+      : isToday ? '0 0 0 1.5px var(--forest)'
       : onlyOpened ? 'inset 0 0 0 1.5px rgba(0,102,99,.32)' : 'none';
+    const tap = (list.length||onlyOpened) ? `onclick="calPick('${k}')"` : '';
     cells.push(`<div style="aspect-ratio:1;display:grid;place-items:center">
-      <span title="${esc(tip)}" style="width:29px;height:29px;border-radius:9px;display:grid;
+      <span ${tap} title="${esc(tip)}" style="width:29px;height:29px;border-radius:9px;display:grid;
         place-items:center;font:${done||miss?'700':'400'} 12px/1 var(--sans);background:${bg};color:${fg};
-        box-shadow:${ring}">${dn}</span></div>`);
+        box-shadow:${ring};${tap?'cursor:pointer':''}">${dn}</span></div>`);
   }
   const head=['M','T','W','T','F','S','S'].map(x=>
     `<div style="text-align:center;font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${x}</div>`).join('');
@@ -1622,6 +1733,7 @@ function sessionCalendar(){
         ${stat(String(full+part),'Sessions this month')}
         ${stat(String(opened),'Opened only')}
       </div>`;})()}
+    ${dayBreakdown(byDay, opens)}
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">${
       (full+part+missed)
         ? full+' full, '+part+' part done, '+missed+' logged as missed this month.'
@@ -1662,10 +1774,9 @@ function screenProgress(){
       <div data-tour="adherence">${adherenceCard()}</div>
       <div data-tour="checkin">${checkinCard()}</div>
       ${coachedView() ? '' : freeProgressBody()}
-      <div data-tour="metrics">${metricsCard()}</div>
-      ${coachedView() ? `<div data-tour="habits">${habitsCard()}</div>` : ''}
+      ${coachedView() ? '' : `<div data-tour="metrics">${metricsCard()}</div>`}
       ${coachedView() ? photosCard() : ''}
-      ${coachedView() ? panelMonth(st.prog) + panelWeek(st.prog) : ''}
+      ${coachedView() ? panelWeek(st.prog) : ''}
       ${coachedView()
         ? `<div class="card"><div class="kick2">PERSONAL BESTS</div>
             <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
@@ -1686,8 +1797,8 @@ function screenProgress(){
 
   const marksBody = `
       ${milestoneCard()}
-      ${coachedView() ? '' : `<div data-tour="checkpoints">${checkpointsCard()}</div>`}
-      ${coachedView() ? stageMasteryCard() : ''}
+      <div data-tour="checkpoints">${checkpointsCard()}</div>
+
       ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
         ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet, the first test opens in a few days.</div>`}</div>

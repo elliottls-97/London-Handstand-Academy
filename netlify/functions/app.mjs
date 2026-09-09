@@ -1185,10 +1185,15 @@ export default async (request) => {
       if (body.checkpoint && typeof body.checkpoint === 'object') {
         const k = String(body.checkpoint.k || '').slice(0, 32);
         const v = Number(body.checkpoint.v);
+        /* a clip is optional and it is the point of a coached check point:
+           a number on its own says what happened, not whether it was any
+           good. Stored as the Stream uid, same as every other upload. */
+        const vid = String(body.checkpoint.video || '').slice(0, 64);
         if (k && Number.isFinite(v) && v >= 0 && v <= 100000) {
           cur.checkpoints = cur.checkpoints || {};
           cur.checkpoints[k] = (cur.checkpoints[k] || [])
-            .concat([{ v: Math.round(v * 10) / 10, at: Date.now() }]).slice(-20);
+            .concat([Object.assign({ v: Math.round(v * 10) / 10, at: Date.now() },
+                                   vid ? { video: vid } : {})]).slice(-20);
         }
       }
       /* a progress photo, already uploaded — this records the reference */
@@ -1758,6 +1763,18 @@ export default async (request) => {
                 .filter(it => it.v),
             })),
           })),
+          /* the coach's check points for this client. Left alone when the
+             builder does not send them, so saving a programme cannot wipe
+             them. */
+          checkpoints: Array.isArray(body.checkpoints)
+            ? body.checkpoints.slice(0, 20).map(c => ({
+                k: String(c.k || '').slice(0, 32),
+                n: String(c.n || '').slice(0, 80),
+                kind: ['secs', 'count', 'rate', 'yn'].includes(c.kind) ? c.kind : 'count',
+                note: String(c.note || '').slice(0, 200),
+                video: c.video !== false,
+              })).filter(c => c.k && c.n)
+            : (base.checkpoints || []),
           editedAt: Date.now(),
         });
         await setSetting(`programme:${e}`, next);
@@ -1772,6 +1789,9 @@ export default async (request) => {
       return json({ email: e, name: clients()[e] || e,
                     intake: (await getSetting(`intake:${e}`)) || null,
                     track: (await getSetting(`track:${e}`)) || null,
+                    /* so the dashboard can name a check point the coach set
+                       rather than showing its key */
+                    checkpoints: ((await getSetting(`programme:${e}`)) || {}).checkpoints || [],
         progress: (await (async () => {
           const prog = await supa.row('progress', `email=eq.${enc(e)}&select=*`);
           return prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],

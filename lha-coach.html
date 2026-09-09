@@ -102,6 +102,7 @@ let drafts={};
 let subs={};      /* what each client has sent for review */
 let queue=[];     /* everything waiting on a review, whoever it came from */
 let apps=[];      /* coaching applications */
+let cpDefs={};    /* the check points each client was set */
 let view='clients';
 let mailguard=null;   /* null until loaded; {suppress, clients} after */
 let dbstate=null;
@@ -179,7 +180,7 @@ function openThread(email){
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ prog[email]=d.progress||{}; intakes[email]=d.intake||null;
-                      tracks[email]=d.track||null; draw(); } })
+                      tracks[email]=d.track||null; cpDefs[email]=d.checkpoints||[]; draw(); } })
     .catch(()=>{});
   if(!fcState[email]) loadFormCheck(email);
   fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
@@ -621,6 +622,24 @@ function markReviewed(email,id,nextBlock){
 /* ── clips ─────────────────────────────────────────────────────── */
 const STREAM_SUB='customer-pns1oongdltmkjwa.cloudflarestream.com';
 const streamEmbed = uid => `https://${STREAM_SUB}/${uid}/iframe?preload=metadata`;
+/* check point clips open where they are, rather than sending you to the
+   thread to hunt for the right one */
+function playCp(uid){
+  let el=document.getElementById('cpPlay');
+  if(!el){ el=document.createElement('div'); el.id='cpPlay';
+    el.style.cssText='position:fixed;inset:0;z-index:80;background:rgba(8,20,18,.72);'
+      +'display:grid;place-items:center;padding:20px';
+    el.onclick=e=>{ if(e.target===el) el.remove(); };
+    document.body.appendChild(el); }
+  el.innerHTML=`<div style="width:100%;max-width:520px">
+    <div style="aspect-ratio:9/16;max-height:78vh;border-radius:16px;overflow:hidden;background:#000">
+      <iframe src="${streamEmbed(uid)}" allow="fullscreen"
+        style="width:100%;height:100%;border:0;display:block"></iframe></div>
+    <button onclick="document.getElementById('cpPlay').remove()"
+      style="width:100%;margin-top:10px;border:0;border-radius:12px;padding:12px;cursor:pointer;
+      background:#fff;font:600 14px/1 var(--sans)">Close</button>
+  </div>`;
+}
 let upBusy=false;
 function coachSay(m){ const el=document.getElementById('upMsg'); if(el) el.textContent=m; }
 
@@ -1357,6 +1376,61 @@ function bItem(i,g,k,f,v){
   bMark();
   if(f==='v') draw();
 }
+/* ── the client's check points ────────────────────────────────────
+   What they have to be able to do, set per client rather than off the free
+   ladder, and each one can ask for a clip. */
+function bCps(){ return (builder.plan.checkpoints = builder.plan.checkpoints || []); }
+function bCpAdd(){
+  bCps().push({k:'cp'+Date.now().toString(36), n:'', kind:'secs', note:'', video:true});
+  bMark(); draw();
+}
+function bCpDel(i){ bCps().splice(i,1); bMark(); draw(); }
+function bCpSet(i,f,v){
+  const c=bCps()[i]; if(!c) return;
+  c[f] = (f==='video') ? !!v : v;
+  bMark();
+}
+function bCpHTML(){
+  const rows=bCps().map((c,i)=>`<div style="border:1px solid var(--line);border-radius:14px;
+    padding:12px 13px;margin-top:9px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <input value="${esc(c.n||'')}" placeholder="What they have to do"
+        oninput="bCpSet(${i},'n',this.value)"
+        style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+        font:400 14px/1 var(--sans);background:#fff">
+      <select onchange="bCpSet(${i},'kind',this.value)"
+        style="flex:none;border:1px solid var(--line);border-radius:10px;padding:9px;
+        font:400 13px/1 var(--sans);background:#fff">
+        ${[['secs','Seconds'],['count','How many'],['rate','Out of ten'],['yn','Yes or no']]
+          .map(([v,l])=>`<option value="${v}"${c.kind===v?' selected':''}>${l}</option>`).join('')}
+      </select>
+      <button onclick="bCpDel(${i})" style="flex:none;border:0;background:none;cursor:pointer;
+        color:var(--grey2);font:600 16px/1 var(--sans);padding:4px 6px">×</button>
+    </div>
+    <input value="${esc(c.note||'')}" placeholder="A note, how to measure it (optional)"
+      oninput="bCpSet(${i},'note',this.value)"
+      style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+      font:400 13px/1 var(--sans);background:#fff">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;
+      font:400 12.5px/1 var(--sans);color:var(--grey)">
+      <input type="checkbox" ${c.video!==false?'checked':''}
+        onchange="bCpSet(${i},'video',this.checked)"> Ask for a clip with it
+    </label>
+  </div>`).join('');
+  return `<div class="card" style="margin-top:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div>
+        <div class="kick">CHECK POINTS</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+          What they have to be able to do. They see these on Progress and log them there.</div>
+      </div>
+      <button onclick="bCpAdd()" style="${bGhost};flex:none">+ Check point</button>
+    </div>
+    ${rows||`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
+      None set. Without them their check points tab falls back to the free ladder's.</div>`}
+  </div>`;
+}
+
 function bMove(i,g,k,by){
   const arr=bDays()[i].groups[g].items, j=k+by;
   if(j<0||j>=arr.length) return;
@@ -1366,7 +1440,7 @@ function bMove(i,g,k,by){
 function saveBuilder(){
   const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
-    body:JSON.stringify({email:builder.email, days:bDays()})})
+    body:JSON.stringify({email:builder.email, days:bDays(), checkpoints:bCps()})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.edited=true;
                draw();
@@ -1452,6 +1526,7 @@ function builderHTML(){
       </div>
       ${body}
       <button onclick="bAddDay()" style="${bGhost};margin-top:12px">+ Day</button>
+      ${bCpHTML()}
       <div style="font:400 12px/1.6 var(--sans);color:var(--grey2);margin:14px 0 30px">
         Saving writes the programme the client's app reads. Names, clips and cues come from
         the drill library, so they stay right on their own — you set the drill and the dose.
@@ -1513,19 +1588,30 @@ function trackHTML(email){
     'straddle-entries':'Straddle entries','straddle-to-straight':'Straddle to straight',
     'straight-to-tuck-back':'Straight to tuck','straddle-to-diamond':'Straddle to diamond',
     'press-wall':'Chest-to-wall press',compression:'Compression','press-ecc':'Press eccentrics'};
+  /* a check point the coach set for this client wins over the ladder's name */
+  const own={};
+  (cpDefs[email]||[]).forEach(c=>{ own[c.k]=c.n; });
   const cps=Object.keys(t.checkpoints||{}).map(k=>{
     const h=(t.checkpoints[k]||[]); if(!h.length) return null;
     const last=h[h.length-1], prev=h.length>1?h[h.length-2]:null;
-    return {k, n:CPN[k]||k, last, prev};
+    const clips=h.filter(x=>x.video).slice(-3).reverse();
+    return {k, n:own[k]||CPN[k]||k, last, prev, clips};
   }).filter(Boolean).sort((a,b)=>b.last.at-a.last.at);
   const cpBlock=cps.length?`<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)">
     <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">CHECK POINTS</div>
-    ${cps.map(c=>`<div style="display:flex;align-items:baseline;gap:10px;margin-top:8px">
-      <span style="flex:1;min-width:0;font:500 12.5px/1.2 var(--sans)">${esc(c.n)}</span>
-      ${c.prev?`<span style="flex:none;font:500 11px/1 var(--sans);color:var(--grey2)">${c.prev.v} →</span>`:''}
-      <span style="flex:none;font:700 14px/1 var(--sans);color:var(--forest)">${c.last.v}</span>
-      <span style="flex:none;width:52px;text-align:right;font:500 10px/1 var(--sans);
-        color:var(--grey2)">${daysAgo(c.last.at)}</span>
+    ${cps.map(c=>`<div style="margin-top:8px">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="flex:1;min-width:0;font:500 12.5px/1.2 var(--sans)">${esc(c.n)}</span>
+        ${c.prev?`<span style="flex:none;font:500 11px/1 var(--sans);color:var(--grey2)">${c.prev.v} →</span>`:''}
+        <span style="flex:none;font:700 14px/1 var(--sans);color:var(--forest)">${c.last.v}</span>
+        <span style="flex:none;width:52px;text-align:right;font:500 10px/1 var(--sans);
+          color:var(--grey2)">${daysAgo(c.last.at)}</span>
+      </div>
+      ${c.clips.length?`<div style="display:flex;gap:7px;margin-top:6px;flex-wrap:wrap">
+        ${c.clips.map(x=>`<button onclick="playCp('${esc(x.video)}')"
+          style="border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;
+          padding:5px 9px;font:600 10.5px/1 var(--sans);color:var(--forest)">▶ ${daysAgo(x.at)}</button>`).join('')}
+      </div>`:''}
     </div>`).join('')}</div>`:'';
 
   const ci=(t.checkins||[]).slice(-1)[0];
