@@ -165,6 +165,34 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
    Ported from the programme pages, which read better than the dark
    version this replaced: stone ground, whole video visible rather
    than cropped, cues on screen while you work. */
+/* ── the tutorial's glass ──────────────────────────────────────────
+   Frosted rather than solid, so the screen it is describing stays
+   readable through it. Falls back to a near-opaque panel where
+   backdrop-filter is not supported. */
+.tour-card{position:absolute;left:12px;right:12px;border-radius:24px;padding:18px 19px 15px;
+  background:rgba(246,243,239,.82);border:1px solid rgba(255,255,255,.62);
+  box-shadow:0 26px 60px -26px rgba(0,20,19,.75),inset 0 1px 0 rgba(255,255,255,.85);
+  animation:tourIn .4s cubic-bezier(.2,.9,.2,1) both}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .tour-card{background:rgba(246,243,239,.58);backdrop-filter:blur(22px) saturate(1.5);
+    -webkit-backdrop-filter:blur(22px) saturate(1.5)}
+}
+@keyframes tourIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.tour-card{animation:none}}
+.tour-kick{font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)}
+.tour-h{font:400 21px/1.15 var(--serif);color:var(--deep);margin-top:9px}
+.tour-b{font:400 14.5px/1.55 var(--sans);color:#4a4a4a;margin-top:8px}
+.tour-dots{display:flex;gap:5px;margin-top:14px}
+.tour-dots i{width:5px;height:5px;border-radius:99px;background:rgba(17,17,17,.16);
+  transition:width .3s ease,background .3s ease}
+.tour-dots i.on{width:16px;background:var(--forest)}
+.tour-skip{border:0;background:none;cursor:pointer;padding:10px 2px;
+  font:600 13.5px/1 var(--sans);color:var(--grey2)}
+.tour-back{border:1px solid rgba(255,255,255,.7);background:rgba(255,255,255,.5);
+  border-radius:13px;cursor:pointer;padding:11px 16px;font:600 13.5px/1 var(--sans);color:var(--ink)}
+.tour-go{border:0;border-radius:13px;cursor:pointer;padding:11px 20px;
+  font:600 13.5px/1 var(--sans);background:var(--forest);color:var(--on-primary);
+  box-shadow:0 8px 20px -10px rgba(0,102,99,.9)}
 #player{position:fixed;inset:0;z-index:990;background:#f4f1ed;color:var(--ink);
  display:none;flex-direction:column;overflow:hidden}
 #player.on{display:flex}
@@ -565,6 +593,16 @@ function screenToday(){
         <span class="kick2">EXPLAINERS</span>
         <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${ex.length} video${ex.length===1?'':'s'}</span>
       </div>
+      <div style="padding:0 16px 12px">
+        <button onclick="go('ask')" style="width:100%;display:flex;align-items:center;gap:10px;
+          border:1px solid rgba(17,17,17,.13);border-radius:14px;padding:13px 14px;background:#fff;
+          cursor:pointer;text-align:left">
+          <span style="flex:1;font:400 14.5px/1.3 var(--sans);color:var(--grey2)">
+            Not covered here? Ask me and I will film it</span>
+          <span style="flex:none;width:26px;height:26px;border-radius:99px;background:var(--forest);
+            color:var(--on-primary);display:grid;place-items:center;font:400 13px/1 var(--sans)">→</span>
+        </button>
+      </div>
       <div class="rail" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:2px 16px 8px;-webkit-overflow-scrolling:touch">
         ${ex.map((a,i)=>{
@@ -582,6 +620,14 @@ function screenToday(){
             </div>
             <p style="margin:10px 2px 0;font:400 15px/1.25 var(--serif);color:var(--ink)">${esc(a.q||'')}</p>
           </div>`;}).join('')}
+        <div onclick="go('ask')" style="flex:none;width:198px;scroll-snap-align:center;cursor:pointer">
+          <div style="aspect-ratio:16/10;border-radius:18px;border:1.5px dashed rgba(0,102,99,.32);
+            display:grid;place-items:center;background:rgba(0,102,99,.05)">
+            <span style="font:400 26px/1 var(--serif);color:var(--forest)">+</span>
+          </div>
+          <p style="margin:10px 2px 0;font:400 15px/1.25 var(--serif);color:var(--forest)">
+            Ask for one</p>
+        </div>
       </div>
     </section>`;})()}
 
@@ -1756,6 +1802,9 @@ function sendAssessment(file){
       .then(gateCheck);
   })
   .then(()=>{ upBusy=false; upSay(''); st.freeCheckUsed=true; st.awaitingReview=Date.now();
+      /* a filmed clip is the baseline. Nothing used to set this, so the
+         profile bar stopped at 85% with no way to move it. */
+      st.intake=st.intake||{}; st.intake.baseline=Date.now();
               save(); loadSubmissions(); loadThread(); render(); })
   .catch(e=>{ upBusy=false; upSay(String(e)); });
 }
@@ -1913,6 +1962,7 @@ function gateCheck(r){
   return r.json().catch(()=>({})).then(d=>{
     if(d && d.gated){
       st.freeCheckUsed=true;
+      st.intake=st.intake||{}; st.intake.baseline=st.intake.baseline||Date.now();
       /* only roll back an optimistic chat bubble if one was actually added */
       if(pendingMsgs.length){ pendingMsgs.pop(); st.msgs=(st.msgs||[]).slice(0,-1); }
       save(); render();
@@ -2899,10 +2949,48 @@ function drawOv(){
         if(isDone) return `<p style="margin:16px 0 0;font:400 14.5px/1.45 var(--sans);color:var(--grey)">
             You have been through this one.</p>`;
         const prev=STAGES[si-1];
+        /* The next stage up is the one people actually open, and it used to
+           answer with one line. It is the test they have to pass, so show
+           the test: the hold, where they are against it, and the check
+           points that go with it. */
+        const isNext = si===curStage()+1;
+        if(isNext && prev){
+          const need=parseInt(prev.hold,10)||30, got=bestHoldFor(holdKind(si-1));
+          const pc=Math.min(100,Math.round(got/need*100));
+          const cps=cpFor(si-1)||[];
+          const kept=(st.track&&st.track.checkpoints)||{};
+          const doneN=cps.filter(c=>kept[c.k]!=null && kept[c.k]!=='').length;
+          return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
+              color:var(--grey2)">THE TEST TO GET HERE</p>
+            <div style="border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:15px 16px">
+              <div style="font:400 17px/1.25 var(--serif);color:var(--deep)">${esc(prev.ch||prev.n)}</div>
+              <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+                ${esc(prev.goal||prev.chSub||'')}</div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+                margin-top:14px">
+                <span style="font:600 10.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">
+                  YOUR BEST</span>
+                <span style="font:400 15px/1 var(--serif)">${got}s
+                  <span style="color:var(--grey2)">of ${need}s</span></span>
+              </div>
+              <div style="height:6px;border-radius:99px;background:var(--mist);margin-top:8px;
+                overflow:hidden"><i style="display:block;height:100%;width:${pc}%;
+                background:${pc>=100?'var(--forest)':'var(--sage)'}"></i></div>
+              ${cps.length?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px;
+                padding-top:12px;border-top:1px solid rgba(17,17,17,.08)">
+                And the ${cps.length} check points for ${esc(prev.n)}, ${doneN} of them logged.
+                They are on the Progress tab.</div>`:''}
+              <button onclick="closeOv();openOv('hold')" style="margin-top:14px;width:100%;border:0;
+                border-radius:12px;padding:12px;background:var(--forest);color:var(--on-primary);
+                font:600 14px/1 var(--sans);cursor:pointer">Time a max hold</button>
+            </div>
+            ${pc>=100?`<p style="margin:10px 0 0;font:400 13.5px/1.5 var(--sans);color:var(--forest)">
+              You are already holding it. Move up from the bottom of the ladder screen.</p>`:''}`;
+        }
         return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
             color:var(--grey2)">TO GET HERE</p>
           <p style="margin:0;font:400 14.5px/1.45 var(--sans)">${prev
-            ? 'Clear '+esc(prev.n)+' — '+esc((prev.goal||'').toLowerCase())
+            ? 'Clear '+esc(prev.n)+', '+esc((prev.goal||'').toLowerCase())
             : 'This is where everyone starts.'}</p>
           ${si>curStage()+1?`<p style="margin:8px 0 0;font:400 13px/1.45 var(--sans);color:var(--grey2)">
             ${si-curStage()} stages above you. They open one at a time.</p>`:''}`;
@@ -3934,18 +4022,39 @@ function retakeIntake(){
 /* what it takes to move up, and the way to do it */
 /* how much of you the plan actually knows. It sat on the ladder, where it was
    the first thing between you and the ladder itself. */
+/* what is still missing, and the button that fixes it. The bar used to sit
+   there with no way to move it: nothing set baseline at all, so it stopped
+   at 85 per cent and the copy asked for a clip it gave you no way to send. */
+function profileGaps(){
+  const a=intake(), out=[];
+  if(!a.goal || a.level==null) out.push({t:'Answer the quiz', d:'Your goal and where you are now.',
+    go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"});
+  else if(!a.niggles) out.push({t:'Anything sore?', d:'Thirty seconds, and it changes what you are given.',
+    go:"st.tab='quiz';st.quizDone=false;st.quizStep=2;save();render()"});
+  else if(!(a.mins&&a.days)) out.push({t:'How much can you train?', d:'Minutes and days a week.',
+    go:"st.tab='quiz';st.quizDone=false;st.quizStep=3;save();render()"});
+  if(!a.baseline) out.push({t:'Film a baseline clip', d:'One attempt, and I can place you properly rather than taking your word for it.',
+    go:"go(coachedView()?'ask':'coaching')"});
+  return out;
+}
 function knowCard(){
   const pct=profilePct();
   if(pct>=100) return '';
+  const gaps=profileGaps(), next=gaps[0];
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
       <span class="kick2">HOW WELL I KNOW YOU</span>
       <span style="font:700 13px/1 var(--sans)">${pct}%</span></div>
     <div style="height:6px;border-radius:3px;background:var(--mist);margin-top:10px;overflow:hidden">
       <i style="display:block;height:100%;width:${pct}%;background:var(--forest)"></i></div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">
-      ${st.intake&&st.intake.baseline?'Answer a few more and the plan gets sharper.'
-        :'Film a baseline clip and I can place you properly rather than taking your word for it.'}</div></div>`;
+    ${next?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">
+        ${esc(next.d)}</div>
+      <button onclick="${next.go}" style="margin-top:12px;width:100%;border:0;border-radius:12px;
+        padding:12px;background:var(--forest);color:var(--on-primary);font:600 14px/1 var(--sans);
+        cursor:pointer">${esc(next.t)}</button>
+      ${gaps.length>1?`<div style="font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px;
+        text-align:center">${gaps.length-1} more after that</div>`:''}`
+    :''}</div>`;
 }
 
 function nextStageCard(){
@@ -4909,12 +5018,16 @@ const PLANS=[
    gets:['A programme built for your body and your week',
          'Form checks whenever you send them',
          'Ask me anything, any time',
-         'A 1-1 onboarding call to set the direction']},
-  {k:'inner',  n:'Inner Circle',  price:'£250', per:'a month',
-   for:'Everything, and me on the end of the phone.',
-   gets:['All of the above, answered first',
-         'A monthly call',
-         'In-person in London available as an add-on']},
+         'A 1-1 onboarding call to set the direction',
+         'Add a session in London for £70 a month, or do not']},
+  {k:'inner',  n:'Inner Circle',  price:'£320', per:'a month', apply:true,
+   for:'The programme, with someone on your case every week. Three places.',
+   gets:['Everything in coaching, plus a session in London each month',
+         'Chased every week to finish the plan, not left to drift',
+         'The plan adjusted weekly if it needs it',
+         'Clips back with a voice over and a video reply',
+         'An optional 20 minute call each month on your progress',
+         'No joining fee']},
 ];
 let plansOn=null;
 function loadPlans(){
@@ -4948,12 +5061,13 @@ function pricingCard(){
             <span style="flex:none;color:var(--forest)">✓</span><span>${esc(g)}</span></div>`).join('')}
         </div>
         <button id="buy-${P.k}" class="${P.best?'btn':'btn2'}" style="width:100%;margin-top:15px"
-          onclick="${live?`buyPlan('${P.k}')`:`openOv('apply')`}">
-          ${live?'Start '+esc(P.n.toLowerCase()):'Apply for this'}</button>
+          onclick="${(live && !P.apply)?`buyPlan('${P.k}')`:`openOv('apply')`}">
+          ${(live && !P.apply)?'Start '+esc(P.n.toLowerCase()):'Apply for this'}</button>
       </div>`;}).join('')}
     <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);text-align:center">
-      Cancel any time from inside the app. In-person in London is +£60 a month on top of
-      any tier.</div>
+      Cancel any time from inside the app. A session in London each month is £70 on top,
+      so coaching is £120 online or £190 with one. Inner Circle includes the session.
+      No joining fees.</div>
   </div>`;
 }
 
@@ -5505,11 +5619,18 @@ const TOURS = {
        b:'Open it and each day is a card. The arrows move that day to another day of the week, and whatever ends up on today is what the banner gives you. Tap a card to open its drills.',
        pre:()=>{ st.weekOpen=true; save(); render(); }},
       {t:'modesheet', h:'Two ways to train it',
-       b:'Follow along runs the session for you, every set and every rest timed, with the clip playing. See every drill gives you the same session as a list you work down at your own pace, setting your own numbers.',
+       b:'Every session comes both ways. Pick one and I will show you both.',
        pre:()=>{ st.pickDay=todayCellIdx(); save(); openOv('mode'); }},
+      {t:'followalong', h:'Follow along',
+       b:'The session runs itself. Each set counted down, each rest timed, the clip playing and the cues on screen. You train instead of reading.',
+       pre:()=>{ closeOv(); buildFreeSession(false,false,todayCellIdx()); }},
+      {t:'drilllist', h:'Or drill by drill',
+       b:'The same session as a list. Tick drills off as you go, change a dose before you start, open the demo, and flag one that was too easy or too hard. Work at your own pace.',
+       pre:()=>{ tourLeaveMode(); buildFreeSession(false,'work',todayCellIdx()); }},
+
       {t:'explainers', h:'Ask, or watch',
        b:'Type a question and it looks through the videos first. The rail underneath is every explainer.',
-       pre:()=>{ if(st.ov) closeOv(); }},
+       pre:()=>{ tourLeaveMode(); }},
       {t:'tabs', h:'The rest of it',
        b:'Ladder is every drill in every stage, Progress is what you have actually done, and Coaching is where you send a clip to me.'}
     ]
@@ -5522,11 +5643,18 @@ const TOURS = {
       {t:'block', h:'Where you are',
        b:'Your block is six weeks. The taller bar is the week you are in. It gets rebuilt at the end of it.'},
       {t:'modesheet', h:'Two ways to train it',
-       b:'Follow along runs the session for you, every set and every rest timed, with the clip and the cues on screen. See every drill is the same session as a list you tick off at your own pace.',
-       pre:()=>{ openOv('mode'); }},
+       b:'Every session comes both ways. Pick one and I will show you both.',
+       pre:()=>{  save(); openOv('mode'); }},
+      {t:'followalong', h:'Follow along',
+       b:'The session runs itself. Each set counted down, each rest timed, the clip playing and the cues on screen. You train instead of reading.',
+       pre:()=>{ closeOv(); buildFreeSession(false,false); }},
+      {t:'drilllist', h:'Or drill by drill',
+       b:'The same session as a list. Tick drills off as you go, change a dose before you start, open the demo, and flag one that was too easy or too hard. Work at your own pace.',
+       pre:()=>{ tourLeaveMode(); buildFreeSession(false,'work'); }},
+
       {t:'checkin', h:'Tell me what happened',
        b:'This is the bit that matters. Log the whole session, some of it, or a day you could not train. You do not have to tick a single drill for it to count.',
-       pre:()=>{ if(st.ov) closeOv(); }},
+       pre:()=>{ tourLeaveMode(); }},
       {t:'explainers', h:'Your explainers',
        b:'The videos filmed for your questions. They stay here for good, so you can come back to one when it finally clicks.'},
       {t:'tabs', h:'The rest of it',
@@ -5589,10 +5717,14 @@ function markTourSeen(key){
   const seen = tourSeen(); seen[key] = 1;
   st.tourSeen = seen; save();
 }
+/* steps that open something rather than pointing at part of a screen. They
+   have no data-tour anywhere, so they must not be filtered out as missing. */
+const TOUR_VIRTUAL = ['modesheet','followalong','drilllist'];
 function tourSteps(){
   const def = TOURS[tourKey];
   if(!def) return [];
-  return def.steps.filter(x => x.t==='modesheet' || document.querySelector('[data-tour="'+x.t+'"]'));
+  return def.steps.filter(x =>
+    TOUR_VIRTUAL.indexOf(x.t) > -1 || document.querySelector('[data-tour="'+x.t+'"]'));
 }
 function startTour(key){
   tourKey = key || (coachedView() ? 'today' : 'home');
@@ -5608,7 +5740,7 @@ function endTour(){
   const was = tourKey;
   tourKey = null;
   if(was) markTourSeen(was);
-  if(st.ov) closeOv();
+  tourLeaveMode();
   const el = document.getElementById('tour'); if(el) el.remove();
   document.body.style.overflow = '';
 }
@@ -5629,22 +5761,18 @@ function offerNext(nxt){
   document.body.style.overflow='hidden';
   let box=document.getElementById('tour');
   if(!box){ box=document.createElement('div'); box.id='tour';
-    box.style.cssText='position:fixed;inset:0;z-index:400'; document.body.appendChild(box); }
+    box.style.cssText='position:fixed;inset:0;z-index:1000'; document.body.appendChild(box); }
   box.innerHTML =
-    `<div style="position:absolute;inset:0;background:rgba(0,48,46,.76)"></div>
-     <div style="position:absolute;left:12px;right:12px;bottom:24px;background:var(--bg);
-       border-radius:20px;padding:20px 18px 16px">
-       <div style="font:400 21px/1.15 var(--serif);color:var(--deep)">That is this screen</div>
-       <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">
-         Want the same for ${esc(TOURS[nxt].n)}? It only takes a moment, and it will show itself
-         the first time you open that tab anyway.</div>
-       <div style="display:flex;align-items:center;gap:9px;margin-top:16px">
-         <button onclick="endTour()" style="border:0;background:none;cursor:pointer;padding:10px 2px;
-           font:600 13.5px/1 var(--sans);color:var(--grey2)">No thanks</button>
+    `<div style="position:absolute;inset:0;background:rgba(0,42,40,.62);
+       backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)"></div>
+     <div class="tour-card" style="bottom:24px">
+       <div class="tour-h">That is this screen</div>
+       <div class="tour-b">Want the same for ${esc(TOURS[nxt].n)}? It only takes a moment, and it
+         will show itself the first time you open that tab anyway.</div>
+       <div style="display:flex;align-items:center;gap:9px;margin-top:15px">
+         <button onclick="endTour()" class="tour-skip">No thanks</button>
          <span style="flex:1"></span>
-         <button onclick="tourJump('${nxt}')" style="border:0;background:var(--forest);
-           color:var(--on-primary);border-radius:12px;cursor:pointer;padding:11px 20px;
-           font:600 13.5px/1 var(--sans)">Show me ${esc(TOURS[nxt].n)}</button>
+         <button onclick="tourJump('${nxt}')" class="tour-go">Show me ${esc(TOURS[nxt].n)}</button>
        </div>
      </div>`;
 }
@@ -5686,8 +5814,19 @@ function drawTour(){
 }
 /* the mode sheet is not part of a screen, so it is found by its own hook */
 function tourTarget(step){
-  if(step.t==='modesheet') return document.querySelector('#ov .sheet') || document.getElementById('ov');
+  if(step.t==='modesheet' || step.t==='drilllist')
+    return document.querySelector('#ov .sheet') || document.getElementById('ov');
+  if(step.t==='followalong') return document.getElementById('player') || document.body;
   return document.querySelector('[data-tour="'+step.t+'"]');
+}
+/* Leaving the demonstrated follow-along must not log a session or ask why
+   they stopped. Nothing was trained, it was a picture of the screen. */
+function tourLeaveMode(){
+  try{ if(typeof tick_!=='undefined' && tick_){ clearInterval(tick_); tick_=null; } }catch(e){}
+  document.querySelectorAll('#player video').forEach(v=>{ try{ v.pause(); }catch(e){} });
+  const pl=document.getElementById('player');
+  if(pl){ pl.classList.remove('on'); pl.innerHTML=''; }
+  if(st.ov) closeOv();
 }
 function paintTour(){
   const steps = tourSteps(), step = steps[tourStep];
@@ -5699,7 +5838,7 @@ function paintTour(){
   if(!box){
     box = document.createElement('div');
     box.id = 'tour';
-    box.style.cssText = 'position:fixed;inset:0;z-index:400';
+    box.style.cssText = 'position:fixed;inset:0;z-index:1000';
     document.body.appendChild(box);
   }
   const r = el.getBoundingClientRect();
@@ -5714,25 +5853,21 @@ function paintTour(){
   const def = TOURS[tourKey]||{};
   box.innerHTML =
     `<div onclick="tourNext()" style="position:absolute;top:${top}px;left:${left}px;width:${w}px;
-       height:${h}px;border-radius:16px;box-shadow:0 0 0 9999px rgba(0,48,46,.76);
-       border:2px solid var(--bg);pointer-events:auto;transition:top .28s cubic-bezier(.2,.8,.2,1),
-       left .28s cubic-bezier(.2,.8,.2,1),width .28s,height .28s"></div>
-     <div style="position:absolute;top:${cardTop}px;left:12px;right:12px;background:var(--bg);
-       border-radius:20px;padding:18px 18px 15px;box-shadow:0 24px 50px -24px rgba(0,0,0,.6)">
-       <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">
-         ${esc((def.n||'').toUpperCase())} · STEP ${n} OF ${of}</div>
-       <div style="font:400 21px/1.15 var(--serif);color:var(--deep);margin-top:9px">${esc(step.h)}</div>
-       <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">${esc(step.b)}</div>
-       <div style="display:flex;align-items:center;gap:9px;margin-top:15px">
-         <button onclick="endTour()" style="border:0;background:none;cursor:pointer;padding:10px 2px;
-           font:600 13.5px/1 var(--sans);color:var(--grey2)">Skip</button>
+       height:${h}px;border-radius:20px;box-shadow:0 0 0 9999px rgba(0,42,40,.62),
+       inset 0 1px 0 rgba(255,255,255,.5),0 0 40px -8px rgba(207,230,236,.5);
+       border:1.5px solid rgba(255,255,255,.6);pointer-events:auto;
+       transition:top .38s cubic-bezier(.2,.9,.2,1),left .38s cubic-bezier(.2,.9,.2,1),
+       width .38s cubic-bezier(.2,.9,.2,1),height .38s cubic-bezier(.2,.9,.2,1)"></div>
+     <div class="tour-card" style="top:${cardTop}px">
+       <div class="tour-kick">${esc((def.n||'').toUpperCase())} · STEP ${n} OF ${of}</div>
+       <div class="tour-h">${esc(step.h)}</div>
+       <div class="tour-b">${esc(step.b)}</div>
+       <div class="tour-dots">${steps.map((_,i)=>`<i class="${i===tourStep?'on':''}"></i>`).join('')}</div>
+       <div style="display:flex;align-items:center;gap:9px;margin-top:13px">
+         <button onclick="endTour()" class="tour-skip">Skip</button>
          <span style="flex:1"></span>
-         ${tourStep?`<button onclick="tourBack()" style="border:1px solid rgba(17,17,17,.14);
-           background:#fff;border-radius:12px;cursor:pointer;padding:11px 16px;
-           font:600 13.5px/1 var(--sans);color:var(--ink)">Back</button>`:''}
-         <button onclick="tourNext()" style="border:0;background:var(--forest);color:var(--on-primary);
-           border-radius:12px;cursor:pointer;padding:11px 20px;font:600 13.5px/1 var(--sans)">
-           ${last?'Done':'Next'}</button>
+         ${tourStep?`<button onclick="tourBack()" class="tour-back">Back</button>`:''}
+         <button onclick="tourNext()" class="tour-go">${last?'Done':'Next'}</button>
        </div>
      </div>`;
 }
@@ -5740,6 +5875,7 @@ function paintTour(){
    things that are no longer there. Not marked as seen: it never finished. */
 function abortTour(){
   tourKey = null;
+  tourLeaveMode();
   const el = document.getElementById('tour'); if(el) el.remove();
   document.body.style.overflow = '';
 }
