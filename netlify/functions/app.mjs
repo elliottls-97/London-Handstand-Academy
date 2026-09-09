@@ -1274,9 +1274,14 @@ export default async (request) => {
     }
 
     const pick = (k, max = 200) => String((body.answers || {})[k] || '').slice(0, max);
+    /* The website enquiry form asks a few things the in-app one does not.
+       They are kept because they are what tells you whether to reply with
+       a call or a link. */
     const answers = {
       goal: pick('goal'), level: pick('level'), format: pick('format'),
-      days: pick('days'), injuries: pick('injuries', 1200),
+      days: pick('days'), commitment: pick('commitment'), hours: pick('hours'),
+      stops: pick('stops'), plan: pick('plan', 120), source: pick('source', 60),
+      injuries: pick('injuries', 1200),
       notes: pick('notes', 1200), location: pick('location'),
     };
     const name = String(body.name || '').slice(0, 60);
@@ -1291,7 +1296,7 @@ export default async (request) => {
       `Coaching application: ${name || e}`,
       mail({
         title: 'Someone wants coaching.',
-        paras: [`<b>${esc(name || e)}</b> — ${esc(e)}`, lines || 'No answers given.'],
+        paras: [`<b>${esc(name || e)}</b>, ${esc(e)}`, lines || 'No answers given.'],
         cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
         signoff: { name: 'London Handstand Academy' },
       }));
