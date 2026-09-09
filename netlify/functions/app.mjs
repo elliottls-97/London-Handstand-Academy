@@ -1486,7 +1486,8 @@ export default async (request) => {
       for (const it of (Array.isArray(s.items) ? s.items : [])) {
         const v = it && it.v, n = Number(it && it.reps) || 0;
         if (!v || !n) continue;
-        (log[v] = log[v] || []).push({ at: Number(s.at) || 0, reps: n, secs: 0 });
+        (log[v] = log[v] || []).push({ at: Number(s.at) || 0, reps: n, secs: 0,
+                                       want: Number(it.want) || 0, n: it.n || '' });
       }
     }
     for (const v of Object.keys(log)) {
@@ -1544,6 +1545,8 @@ export default async (request) => {
                 got: Number(x && x.got) || 0,
                 of: Number(x && x.of) || 0,
                 reps: Number(x && x.reps) || 0,
+                want: Number(x && x.want) || 0,
+                dose: String((x && x.dose) || '').slice(0, 40),
                 rate: ['easy', 'hard'].includes(x && x.rate) ? x.rate : '',
               }))
             : [],

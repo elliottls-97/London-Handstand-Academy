@@ -1654,6 +1654,41 @@ function calShift(by){ st.calOff=Math.max(0,Math.min(11,(st.calOff|0)+by)); st.c
 function calPick(k){ st.calDay = (st.calDay===k) ? null : k; save(); render(); }
 /* what a day actually held. The calendar could say a day was part done and
    then had no way of telling you which part. */
+/* Drills where the number they managed was not the number asked for. It is
+   the most useful thing in the log and it was buried inside one day's
+   breakdown, so neither of us was reading it. */
+function repsOffCard(){
+  const log=(st.prog&&st.prog.repsLog)||{};
+  const rows=[];
+  Object.keys(log).forEach(v=>{
+    const h=(log[v]||[]).filter(x=>x && x.reps && x.want);
+    if(!h.length) return;
+    const last=h[0];
+    if(last.reps===last.want) return;
+    rows.push({v, n:last.n||v.replace(/-/g,' '), reps:last.reps, want:last.want, at:last.at,
+               trend:h.length>1?last.reps-h[1].reps:0});
+  });
+  if(!rows.length) return '';
+  rows.sort((a,b)=>b.at-a.at);
+  return `<div class="card" style="padding:18px 20px">
+    <div class="kick2">WHAT YOU ACTUALLY MANAGED</div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+      Where the number you did was not the number asked for. Short of it is information,
+      not a failure.</div>
+    <div style="margin-top:12px">
+    ${rows.slice(0,8).map((r,i)=>`<div style="display:flex;align-items:baseline;gap:10px;
+      padding:10px 0;${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
+      <span style="flex:1;min-width:0;font:600 14px/1.25 var(--sans)">${esc(r.n)}</span>
+      ${r.trend?`<span style="flex:none;font:600 10.5px/1 var(--sans);
+        color:${r.trend>0?'var(--forest)':'var(--grey2)'}">${r.trend>0?'+':''}${r.trend}</span>`:''}
+      <span style="flex:none;font:400 17px/1 var(--serif);
+        color:${r.reps>=r.want?'var(--forest)':'var(--ink)'}">${r.reps}
+        <span style="font:400 12px/1 var(--sans);color:var(--grey2)">of ${r.want}</span></span>
+    </div>`).join('')}
+    </div>
+  </div>`;
+}
+
 function dayBreakdown(byDay, opens){
   const k=st.calDay; if(!k) return '';
   const list=byDay[k]||[];
@@ -1688,7 +1723,9 @@ function dayBreakdown(byDay, opens){
           font:400 13px/1.4 var(--sans)">
           <span style="flex:none;width:14px;color:${it.got?'var(--forest)':'var(--grey2)'}">${it.got?'✓':'·'}</span>
           <span style="flex:1;${it.got?'':'color:var(--grey2)'}">${esc(it.n)}</span>
-          ${it.reps?`<span style="flex:none;color:var(--grey2)">${esc(String(it.reps))}</span>`:''}
+          ${it.reps?`<span style="flex:none;color:${
+            it.want&&it.reps<it.want?'var(--red)':'var(--grey2)'}">${esc(String(it.reps))}${
+            it.want&&it.reps!==it.want?' of '+it.want:''}</span>`:''}
           ${it.rate?`<span style="flex:none;font:600 9px/1 var(--sans);letter-spacing:.1em;
             color:var(--red)">${esc(String(it.rate).toUpperCase())}</span>`:''}
         </div>`).join('')}</div>`:''}
@@ -1842,6 +1879,7 @@ function screenProgress(){
       <div data-tour="checkin">${checkinCard()}</div>
       ${coachedView() ? '' : freeProgressBody()}
       ${coachedView() ? '' : `<div data-tour="metrics">${metricsCard()}</div>`}
+      ${repsOffCard()}
       ${coachedView() ? photosCard() : ''}
       ${coachedView() ? panelWeek(st.prog) : ''}
       ${coachedView()
@@ -3868,6 +3906,9 @@ function finishChecklist(){
     drills:Q.length, mins, actual:0, got:ticked, of:Q.length,
     items:(Q||[]).map((q,i)=>({v:q.it.v, n:q.it.n, of:1,
       got:(st.qTick||{})['q'+i]?1:0, reps:(st.reps||{})['q'+i]||0,
+      /* what was asked for, so short of it or past it is visible on both
+         sides rather than a bare number with nothing to read it against */
+      want:recommendedReps(q.it)||0, dose:String(q.it.d||'').slice(0,40),
       rate:(st.rate||{})[q.it.v]||''})).slice(0,40)
   }});
   st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
