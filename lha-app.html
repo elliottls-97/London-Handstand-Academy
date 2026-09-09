@@ -342,6 +342,80 @@ function queue(){
 }
 
 /* ── screens ───────────────────────────────────────────────── */
+/* ── the coached week: what was done, and what was not ───────────────
+   Ticking every drill was the only way to record a session, so a week
+   where the work happened but the phone stayed in a bag looked identical
+   to a week with no training in it. Logging is now its own act. */
+const LOG_KIND={all:'all',part:'part',none:'none'};
+function loggedFor(dateKey){
+  return ((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at&&dayKey(x.at)===dateKey);
+}
+function loggedToday(){ return loggedFor(dayKey(Date.now())); }
+/* ticked drills on the day currently open in the plan */
+function tickedToday(){
+  const d=day();
+  return d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
+}
+function totalToday(){ return allItems(day()).length; }
+
+function openLog(){ openOv('logday'); }
+function openAnswer(i){ st.ovAnswer=i|0; save(); openOv('answer'); }
+/* kind is all | part | none. A miss is logged too: a blank on the
+   calendar means "we do not know", and that is a different fact. */
+function logDay(kind){
+  const d=day(), of=totalToday(), ticked=tickedToday();
+  const got = kind==='all' ? of : kind==='none' ? 0 : Math.max(ticked, 0);
+  /* "some of it" with nothing ticked is not the same as none of it. Without
+     this the calendar paints an honest part-session as an empty one. */
+  const approx = kind==='part' && !ticked;
+  const mins = kind==='none' ? 0 : Math.round((queue().reduce((a,x)=>a+work(x.it)+rest(x.it),0))/60);
+  st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
+  st.prog.sessions.push({
+    at:Date.now(), done:kind==='all', kind, mins, mode:'checkin', approx,
+    day:st.day, name:d.label+(d.sub?', '+d.sub:''),
+    drills:of, got, of
+  });
+  save();
+  reportProgress({session:{
+    day:st.day, name:d.label+(d.sub?', '+d.sub:''), done:kind==='all',
+    mode:'checkin', kind, approx, drills:of, mins, actual:mins, got, of, items:[]
+  }});
+  closeOv();
+  /* finishing the whole thing is the moment worth asking about */
+  if(kind==='all'){ st.fbRate=''; st.fbNote=''; save(); openOv('dayfeedback'); return; }
+  render();
+}
+function setFbRate(r){ st.fbRate = st.fbRate===r ? '' : r; save(); drawOv(); }
+function sendDayFeedback(skip){
+  const note=(($('#fbNote')||{}).value||'').trim();
+  const rate=st.fbRate||'';
+  if(!skip && (note||rate)){
+    const d=day();
+    const text='Session done: '+d.label+(d.sub?', '+d.sub:'')
+      + (rate?'. Felt '+rate:'') + (note?'. '+note:'');
+    st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now'}]);
+    save();
+    fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
+      .catch(()=>post({type:'Session feedback',text}));
+  }
+  st.fbRate=''; st.fbNote=''; save(); closeOv(); render();
+}
+
+/* weeks in a row with at least one session logged, counting back from
+   this week. It used to say three weeks whatever had happened. */
+function weekStreak(){
+  const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at&&x.kind!=='none');
+  if(!ss.length) return 0;
+  const mondayOf=t=>{ const d=new Date(t); d.setHours(0,0,0,0);
+    d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.getTime(); };
+  const weeks=new Set(ss.map(x=>mondayOf(x.at)));
+  let cur=mondayOf(Date.now()), n=0;
+  /* this week not being logged yet does not break a run */
+  if(!weeks.has(cur)) cur-=7*864e5;
+  while(weeks.has(cur)){ n++; cur-=7*864e5; }
+  return n;
+}
+
 function screenToday(){
   const d=day(), q=queue(), done=allItems(d).filter((_,i)=>false).length;
   const total=allItems(d).length;
@@ -357,9 +431,9 @@ function screenToday(){
       <div style="display:flex;gap:3px">${days}</div>
       <span style="font:600 9.5px/1 var(--sans);color:${w===3?'var(--bg)':'var(--sage)'};text-align:center">W${w}</span></div>`;
   }).join('');
-  const pts=[['Stack early','Shoulders and hands aligned at the start of the entry, not fixed once you are up.'],
-             ['Hands closer','You widen to make up for pushing less through the shoulders. You are strong enough not to.'],
-             ['Hips','Engage them and get to the open position rather than letting the shape close.']];
+  /* these three used to be typed into the app, so every client was told
+     the same thing about their own block whatever their block said */
+  const pts=(DATA.changed||[]).map(x=>Array.isArray(x)?x:[x.t||'',x.p||'']).filter(x=>x[0]||x[1]);
   return `<div class="scroll s">
   <div class="hero">
     <div class="h-lg" style="max-width:22ch">Good ${greeting()}. ${(()=>{
@@ -381,7 +455,7 @@ function screenToday(){
     <div style="height:1px;background:rgba(236,231,226,.16);margin:14px 0 12px"></div>
 
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
-      <div style="font:400 20px/1.1 var(--serif)">${esc(d.label)} — ${esc(d.sub)}</div>
+      <div style="font:400 20px/1.1 var(--serif)">${esc(d.label)}${d.sub?', '+esc(d.sub):''}</div>
       <span style="flex:none;font:500 11.5px/1 var(--sans);color:rgba(236,231,226,.6)">
         ${Math.round(mins/60)} min · ${total} drill${total===1?'':'s'}</span>
     </div>
@@ -398,46 +472,125 @@ function screenToday(){
       <button class="btn2" style="flex:1" onclick="go('plan')">See the drills</button>
       <button class="btn2" style="flex:1" onclick="openOv('adjust')">Can't train?</button>
     </div>
-    ${ticked?`<div style="font:500 12px/1 var(--sans);color:var(--grey2);text-align:center;
-      margin-top:12px">${ticked} of ${total} ticked off today</div>`:''}
   </div>
 
+  <!-- the check in. Ticking every drill was the only way to record a
+       session, so a session that happened away from the phone did not
+       exist. This is the record; ticking is just a way of keeping your
+       place. -->
   <div class="pad">
+    ${(function(){
+      const logs=loggedToday();
+      const lastLog=logs[logs.length-1];
+      const label=k=>k==='all'?'Whole session done'
+        :k==='none'?'Logged as not trained'
+        :'Some of it done';
+      return `<div class="card" style="padding:18px 20px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <span class="kick2">TODAY'S CHECK IN</span>
+          <span style="font:500 12px/1 var(--sans);color:var(--grey2)">${ticked} of ${total} ticked</span>
+        </div>
+        ${lastLog
+          ? `<div style="display:flex;align-items:center;gap:10px;margin-top:13px">
+               <span style="flex:none;width:10px;height:10px;border-radius:99px;background:${
+                 lastLog.kind==='all'?'var(--forest)':lastLog.kind==='none'?'var(--amber)':'var(--sage)'}"></span>
+               <span style="flex:1;font:400 14px/1.45 var(--sans)">${label(lastLog.kind)}${
+                 lastLog.kind==='part'&&lastLog.of&&!lastLog.approx
+                   ? ', '+lastLog.got+' of '+lastLog.of : ''}.</span>
+               <button class="back" style="color:var(--forest);font-weight:700;font-size:11.5px"
+                 onclick="openLog()">Change</button>
+             </div>`
+          : `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:11px">
+               Tell me what actually happened today. You do not have to tick a thing.</div>
+             <button onclick="openLog()" style="margin-top:13px;width:100%;border:0;border-radius:14px;
+               padding:13px;background:var(--forest);color:var(--on-primary);font:600 15px/1 var(--sans);
+               cursor:pointer">Log today</button>`}
+      </div>`;})()}
+  </div>
+
+  ${(pts.length||(DATA.read||[]).length)?`<div class="pad">
     <div class="card" style="padding:20px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span class="kick2">ELLIOTT ON THIS BLOCK</span>
-        <button class="back" style="color:var(--forest);font-weight:700;font-size:11.5px" onclick="st.readOpen=!st.readOpen;save();render()">${st.readOpen?'Less':'Read it'}</button>
+        ${(DATA.read||[]).length?`<button class="back" style="color:var(--forest);font-weight:700;font-size:11.5px" onclick="st.readOpen=!st.readOpen;save();render()">${st.readOpen?'Less':'Read it'}</button>`:''}
       </div>
-      <div class="h-md" style="margin-top:12px">Three things changed</div>
+      ${pts.length?`<div class="h-md" style="margin-top:12px">What changed this block</div>
       <div style="display:flex;flex-direction:column;gap:12px;margin-top:15px">
         ${pts.map(([t,x])=>`<div style="display:flex;gap:12px;align-items:baseline">
-          <span style="font:italic 400 15px/1.2 var(--serif);color:var(--forest);min-width:74px">${t}</span>
-          <span style="font:400 14px/1.45 var(--sans);flex:1">${x}</span></div>`).join('')}
-      </div>
-      ${st.readOpen?`<div style="margin-top:16px;border-top:1px solid rgba(28,32,25,.1);padding-top:15px;display:flex;flex-direction:column;gap:12px">
+          <span style="font:italic 400 15px/1.2 var(--serif);color:var(--forest);min-width:74px">${esc(t)}</span>
+          <span style="font:400 14px/1.45 var(--sans);flex:1">${esc(x)}</span></div>`).join('')}
+      </div>`:''}
+      ${(st.readOpen||!pts.length)&&(DATA.read||[]).length?`<div style="margin-top:${pts.length?16:12}px;${
+        pts.length?'border-top:1px solid rgba(28,32,25,.1);padding-top:15px;':''}display:flex;flex-direction:column;gap:12px">
         ${DATA.read.map(p=>`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${p.replace(/<[^>]+>/g,'')}</div>`).join('')}
       </div>`:''}
     </div>
-  </div>
+  </div>`:''}
 
   <div class="pad" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div class="card" style="border-radius:22px;padding:18px">
-      <div class="kick2">STREAK</div>
-      <div class="h-md" style="font-size:32px;margin-top:10px">3 weeks</div>
-      <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">Nothing missed.</div>
-    </div>
-    <div class="card" style="border-radius:22px;padding:18px;background:var(--amber);color:#fff;cursor:pointer" onclick="openOv('test')">
-      <div class="kick2" style="color:rgba(255,255,255,.75)">TWO-WEEK TEST</div>
-      <div class="h-md" style="font-size:32px;margin-top:10px">4 days</div>
-      <div style="font:400 12.5px/1.4 var(--sans);color:rgba(255,255,255,.85);margin-top:5px">Five drills, one honest go.</div>
-    </div>
+    ${(function(){
+      const n=weekStreak();
+      const missed=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.kind==='none').length;
+      return `<div class="card" style="border-radius:22px;padding:18px">
+        <div class="kick2">STREAK</div>
+        <div class="h-md" style="font-size:32px;margin-top:10px">${n} week${n===1?'':'s'}</div>
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">${
+          n===0 ? 'Log a session and it starts.'
+          : missed ? missed+' day'+(missed===1?'':'s')+' logged as missed.'
+          : 'Nothing missed.'}</div>
+      </div>`;})()}
+    ${(function(){
+      /* counted from the block start, or from the last test if one has
+         been done, rather than a number typed into the page */
+      const last=(st.tests||[]).length ? (st.testAt||0) : 0;
+      const from=last || blockStart() || 0;
+      const days=from ? Math.max(0, 14-Math.floor((Date.now()-from)/864e5)%14) : null;
+      return `<div class="card" style="border-radius:22px;padding:18px;background:var(--amber);
+        color:#fff;cursor:pointer" onclick="openOv('test')">
+        <div class="kick2" style="color:rgba(255,255,255,.75)">TWO-WEEK TEST</div>
+        <div class="h-md" style="font-size:32px;margin-top:10px">${
+          days==null?'Ready':days===0?'Today':days+' day'+(days===1?'':'s')}</div>
+        <div style="font:400 12.5px/1.4 var(--sans);color:rgba(255,255,255,.85);margin-top:5px">
+          Five drills, one honest go.</div>
+      </div>`;})()}
   </div>
+  <!-- the explainers she already has. They were only reachable as an
+       accordion at the bottom of the plan, so nobody found them. -->
+  ${(function(){
+    const ex=(DATA.answers||[]).filter(a=>a && a.v && (a.t||'explainer')==='explainer');
+    if(!ex.length) return '';
+    return `<section style="padding:16px 0 0">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+        padding:0 16px 11px">
+        <span class="kick2">EXPLAINERS</span>
+        <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${ex.length} video${ex.length===1?'':'s'}</span>
+      </div>
+      <div class="rail" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+        padding:2px 16px 8px;-webkit-overflow-scrolling:touch">
+        ${ex.map((a,i)=>{
+          const grad = i%2 ? '#DCECF0,#9FC9D4' : '#CFE6EC,#5E9DB2';
+          return `<div onclick="openAnswer(${(DATA.answers||[]).indexOf(a)})" style="flex:none;width:198px;
+            scroll-snap-align:center;cursor:pointer">
+            <div style="position:relative;aspect-ratio:16/10;border-radius:18px;overflow:hidden;
+              background:linear-gradient(150deg,${grad})">
+              <span style="position:absolute;top:11px;left:13px;font:600 10px/1 var(--sans);
+                letter-spacing:.14em;color:rgba(17,17,17,.4)">${String(i+1).padStart(2,'0')}</span>
+              <div style="position:absolute;right:11px;bottom:11px;width:32px;height:32px;border-radius:50%;
+                background:rgba(255,255,255,.72);display:grid;place-items:center">
+                <svg width="10" height="12" viewBox="0 0 17 19" fill="#111"><path d="M16 8.63a1 1 0 0 1 0
+                  1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></div>
+            </div>
+            <p style="margin:10px 2px 0;font:400 15px/1.25 var(--serif);color:var(--ink)">${esc(a.q||'')}</p>
+          </div>`;}).join('')}
+      </div>
+    </section>`;})()}
+
   <div style="padding:10px 16px 26px">
     <div class="card" style="border-radius:22px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer" onclick="go('ask')">
       <div><div class="kick2">${(()=>{const m=(st.msgs||[]).filter(x=>x.from==='e').pop();
         return m?('ELLIOTT · '+String(m.time||'').toUpperCase()):'ASK ELLIOTT';})()}</div>
       <div style="font:400 14px/1.45 var(--sans);margin-top:7px">${(()=>{const m=(st.msgs||[]).filter(x=>x.from==='e').pop();
-        return esc(m?m.text.slice(0,90)+(m.text.length>90?'…':''):'A question, a niggle, a week you cannot train — send it over.');})()}</div></div>
+        return esc(m?m.text.slice(0,90)+(m.text.length>90?'…':''):'A question, a niggle, a week you cannot train. Send it over.');})()}</div></div>
       <span style="font:400 22px/1 var(--serif);color:var(--forest)">→</span>
     </div>
   </div></div>`;
@@ -1309,6 +1462,85 @@ function checkinCard(){
   </div>`;
 }
 
+/* ── the month, the way the coach dashboard shows it ─────────────────
+   Same reading on both sides of the table: full colour for a session
+   finished, weaker for a session part done, and the warning colour only
+   for a day logged as not trained. A blank means nothing was logged,
+   which is a different fact from a miss. */
+function calShift(by){ st.calOff=Math.max(0,Math.min(11,(st.calOff|0)+by)); save(); render(); }
+function sessionCalendar(){
+  const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
+  const byDay={};
+  ss.forEach(x=>{ (byDay[dayKey(x.at)]=byDay[dayKey(x.at)]||[]).push(x); });
+
+  const now=new Date(); now.setDate(1);
+  now.setMonth(now.getMonth()-(st.calOff|0));
+  const y=now.getFullYear(), m=now.getMonth();
+  const first=new Date(y,m,1), last=new Date(y,m+1,0);
+  const lead=(first.getDay()+6)%7;                       /* Monday first */
+  const title=first.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  const todayK=dayKey(Date.now());
+
+  let full=0, part=0, missed=0;
+  const cells=[];
+  for(let i=0;i<lead;i++) cells.push('<div></div>');
+  for(let dn=1;dn<=last.getDate();dn++){
+    const k=dayKey(new Date(y,m,dn,12));
+    const list=byDay[k]||[];
+    const isToday=k===todayK;
+    const future=new Date(y,m,dn)>new Date();
+    const done=list.some(x=>x.done || x.kind==='all');
+    const miss=list.length && list.every(x=>x.kind==='none');
+    const of=list.reduce((a,x)=>a+(Number(x.of)||0),0);
+    const got=list.reduce((a,x)=>a+Math.min(Number(x.of)||0,Number(x.got)||0),0);
+    const approx=list.some(x=>x.approx);
+    const pc=approx?0.5:(of?Math.max(0,Math.min(1,got/of)):(done?1:0));
+    if(done) full++; else if(miss) missed++; else if(list.length) part++;
+
+    const bg = done ? 'var(--forest)'
+      : miss ? 'var(--amber)'
+      : list.length ? `rgba(0,102,99,${(0.28+0.5*pc).toFixed(2)})`
+      : 'transparent';
+    const fg = (done||miss||(list.length&&pc>0.45)) ? 'var(--bg)'
+      : future ? '#c9c4be' : 'var(--grey2)';
+    const tip = done ? 'Whole session done' : miss ? 'Logged as not trained'
+      : list.length ? (approx||!of ? 'Part of the session' : got+' of '+of+' drills')
+      : future ? '' : 'Nothing logged';
+    cells.push(`<div style="aspect-ratio:1;display:grid;place-items:center">
+      <span title="${esc(tip)}" style="width:29px;height:29px;border-radius:9px;display:grid;
+        place-items:center;font:${done||miss?'700':'400'} 12px/1 var(--sans);background:${bg};color:${fg};
+        box-shadow:${isToday?'0 0 0 1.5px var(--forest)':'none'}">${dn}</span></div>`);
+  }
+  const head=['M','T','W','T','F','S','S'].map(x=>
+    `<div style="text-align:center;font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${x}</div>`).join('');
+  const key=(c,t)=>`<span style="display:inline-flex;align-items:center;gap:6px;
+    font:400 11.5px/1 var(--sans);color:var(--grey)">
+    <i style="width:10px;height:10px;border-radius:3px;background:${c}"></i>${t}</span>`;
+  return `<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span class="kick2">WHAT YOU ACTUALLY DID</span>
+      <span style="display:flex;gap:4px">
+        <button class="back" onclick="calShift(1)" style="padding:2px 8px;color:var(--grey2)">‹</button>
+        <span style="font:600 11.5px/1.6 var(--sans);color:var(--ink)">${esc(title)}</span>
+        <button class="back" onclick="calShift(-1)" style="padding:2px 8px;
+          color:${(st.calOff|0)?'var(--grey2)':'rgba(17,17,17,.18)'}">›</button>
+      </span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin:14px 0 6px">${head}</div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">${cells.join('')}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:13px;margin-top:15px;padding-top:13px;
+      border-top:1px solid rgba(28,32,25,.08)">
+      ${key('var(--forest)','Whole session')}
+      ${key('rgba(0,102,99,.5)','Part of it')}
+      ${key('var(--amber)','Not trained')}
+    </div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">${
+      (full+part+missed)
+        ? full+' full, '+part+' part done, '+missed+' logged as missed this month.'
+        : 'Nothing logged this month yet. Check in on the Today tab and it turns up here.'}</div>
+  </div>`;
+}
+
 function screenProgress(){
   const t=st.tests||[];
   const rows=DATA.test.items.map((it,i)=>{
@@ -1333,6 +1565,7 @@ function screenProgress(){
       <div class="h-lg" style="margin-top:16px">Where you are</div></div>
     <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
       ${milestoneCard()}
+      ${coachedView() ? sessionCalendar() : ''}
       ${coachedView() ? '' : checkpointsCard()}
       ${checkinCard()}
       ${coachedView() ? '' : freeProgressBody()}
@@ -2244,6 +2477,60 @@ function drawOv(){
           <span style="font:400 14.5px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
+  if(st.ov==='answer'){
+    const a=(DATA.answers||[])[st.ovAnswer|0]||{};
+    body=`<div style="padding:2px">
+      <div class="h-md" style="font-size:23px">${esc(a.q||'')}</div>
+      ${a.v?`<video src="${EXPLAINERS}${encodeURIComponent(a.v)}" controls playsinline preload="none"
+        style="width:100%;border-radius:16px;margin-top:14px;background:#11150f;display:block"></video>`:''}
+      ${a.a?`<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:14px">${esc(a.a)}</div>`:''}
+    </div>`;
+  }
+  if(st.ov==='logday'){
+    const d=day(), of=totalToday(), ticked=tickedToday();
+    const already=loggedToday();
+    const opt=(kind,t,sub,tone)=>`<div onclick="logDay('${kind}')" style="display:flex;align-items:center;
+      gap:13px;padding:15px;border-radius:16px;cursor:pointer;
+      background:${tone==='go'?'var(--forest)':'#fff'};
+      ${tone==='go'?'color:var(--on-primary)':'border:1px solid rgba(17,17,17,.1)'}">
+      <span style="flex:1">
+        <span style="display:block;font:600 15.5px/1.2 var(--sans)">${t}</span>
+        <span style="display:block;margin-top:4px;font:400 13px/1.4 var(--sans);
+          color:${tone==='go'?'rgba(236,231,226,.72)':'var(--grey)'}">${sub}</span></span></div>`;
+    body=`<div style="padding:2px">
+      <div class="h-md" style="font-size:24px">${esc(d.label)}${d.sub?', '+esc(d.sub):''}</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
+        ${ticked} of ${of} drills ticked. Ticking is optional, this is what counts.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${opt('all','I did the whole session','Everything on the list',"go")}
+        ${opt('part','I did some of it',ticked?('Logged as '+ticked+' of '+of):'Logged as part done')}
+        ${opt('none','I did not train today','Logged as missed, so the month stays honest')}
+      </div>
+      ${already.length?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:14px">
+        Already logged today. Logging again replaces nothing, it adds a second entry.</div>`:''}
+    </div>`;
+  }
+  if(st.ov==='dayfeedback'){
+    const chip=(r,t)=>`<button onclick="setFbRate('${r}')" style="flex:1;cursor:pointer;
+      border-radius:999px;padding:11px 8px;font:600 13px/1 var(--sans);
+      border:1px solid ${st.fbRate===r?'var(--forest)':'rgba(17,17,17,.14)'};
+      background:${st.fbRate===r?'var(--forest)':'#fff'};
+      color:${st.fbRate===r?'var(--on-primary)':'var(--ink)'}">${t}</button>`;
+    body=`<div style="padding:2px">
+      <div class="h-md" style="font-size:24px">That is the session done</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
+        How did it feel? It changes what you get next week.</div>
+      <div style="display:flex;gap:8px">${chip('easy','Too easy')}${chip('right','About right')}${chip('hard','Too hard')}</div>
+      <textarea id="fbNote" rows="3" placeholder="Anything worth telling me, or leave it blank"
+        style="width:100%;margin-top:12px;border:1px solid rgba(17,17,17,.13);border-radius:14px;
+        padding:13px 14px;font:400 14.5px/1.4 var(--sans);resize:none">${esc(st.fbNote||'')}</textarea>
+      <button onclick="sendDayFeedback(false)" style="margin-top:12px;width:100%;border:0;border-radius:14px;
+        padding:14px;background:var(--forest);color:var(--on-primary);font:600 15px/1 var(--sans);
+        cursor:pointer">Send it</button>
+      <button onclick="sendDayFeedback(true)" style="margin-top:8px;width:100%;border:0;background:none;
+        padding:10px;color:var(--grey2);font:600 13.5px/1 var(--sans);cursor:pointer">Skip</button>
+    </div>`;
+  }
   if(st.ov==='mode'){
     const S=STAGES[curStage()]||STAGES[0];
     const _plan=weekPlan();
