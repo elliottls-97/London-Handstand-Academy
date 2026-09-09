@@ -2245,9 +2245,18 @@ function drawOv(){
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
   if(st.ov==='mode'){
-    const _plan=weekPlan(), _idx=nextDayIdx(), _day=_plan?_plan[_idx]:null;
     const S=STAGES[curStage()]||STAGES[0];
-    const n=(_day?_day.drills:(S.drillIds||[])).length;
+    const _plan=weekPlan();
+    /* whichever day the hero or the week strip sent us to */
+    const _pick=(st.pickDay==null?-1:st.pickDay);
+    const _cells=weekCells();
+    const _cell=(_pick>=0 && _pick<_cells.length) ? _cells[_pick] : null;
+    const _rest=isRestCell(_cell);
+    const _arg=(_plan && _pick>=0 && _pick<_plan.length) ? _pick : 'null';
+    const _idx=_pick>=0?_pick:nextDayIdx();
+    const _day=_plan?_plan[_idx]:null;
+    const n=_rest ? (typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills ? WRIST_DAY.drills.length : 0)
+                  : (_day?_day.drills:(S.drillIds||[])).length;
     const opt=(click,glyph,t,d)=>`<div onclick="closeOv();${click}" style="display:flex;align-items:center;
       gap:13px;padding:15px;border-radius:16px;cursor:pointer;background:${glyph==='play'?'var(--forest)':'#fff'};
       ${glyph==='play'?'color:var(--on-primary)':'border:1px solid rgba(17,17,17,.1)'}">
@@ -2260,14 +2269,19 @@ function drawOv(){
         <span style="display:block;margin-top:4px;font:400 13px/1.4 var(--sans);
           color:${glyph==='play'?'rgba(236,231,226,.72)':'var(--grey)'}">${d}</span></span></div>`;
     body=`<div style="padding:2px">
-      <div class="h-md" style="font-size:24px">${esc(_day?_day.n:S.n)}</div>
+      <div class="h-md" style="font-size:24px">${esc(_cell?_cell.n:(_day?_day.n:S.n))}</div>
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
         ${st.time||30} min · ${n} drill${n===1?'':'s'} · pick how you want it</div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        ${opt("buildFreeSession(false,'prep')",'play','Follow along','Set your times, then the timer runs itself')}
-        ${opt("buildFreeSession(false,'work')",'list','See every drill','The full list, work at your own pace')}
-        ${opt("buildFreeSession(true,'prep')",'hand','Wrist and mobility day instead',
-          'Short, and kinder on a tired week')}
+        ${_rest
+          ? opt("buildFreeSession(true,'prep')",'play','Follow along','Set your times, then the timer runs itself')
+            + opt("buildFreeSession(true,'work')",'list','See every drill','The full list, work at your own pace')
+            + opt(`buildFreeSession(false,'prep',${_arg})`,'hand','Full session instead',
+                'If the wrists feel fine and you want the work')
+          : opt(`buildFreeSession(false,'prep',${_arg})`,'play','Follow along','Set your times, then the timer runs itself')
+            + opt(`buildFreeSession(false,'work',${_arg})`,'list','See every drill','The full list, work at your own pace')
+            + opt("buildFreeSession(true,'prep')",'hand','Wrist and mobility day instead',
+                'Short, and kinder on a tired week')}
       </div></div>`;
   }
   if(st.ov==='list'){
@@ -3762,15 +3776,29 @@ function screenHome(){
   const name=(st.client||'').split(' ')[0]||'';
 
   const cs=curStage();
-  const _plan=weekPlan(), _idx=nextDayIdx(), _day=_plan?_plan[_idx]:null;
-  const sessTitle=_day?_day.n:S.n;
-  const sessCount=(_day?_day.drills:(S.drillIds||[])).length;
+  const _plan=weekPlan();
+  /* The day map decides the day. If nothing sits on today it is a rest day
+     and we say so, rather than offering a session the week does not have. */
+  const _cellIdx=todayCellIdx();
+  const _cells=weekCells();
+  const _cell=_cellIdx>=0?_cells[_cellIdx]:null;
+  const _restDay=_cellIdx<0;
+  const _override=overrideToday();
+  const _rest=isRestCell(_cell);
+  const _idx=_cellIdx>=0?_cellIdx:nextDayIdx();
+  const _day=_plan?_plan[_idx]:null;
+  const sessTitle=(_restDay && !_override) ? 'No drill due today'
+                                            : (_cell?_cell.n:(_day?_day.n:S.n));
+  const sessCount=_rest ? (typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills ? WRIST_DAY.drills.length : 0)
+                        : (_day?_day.drills:(S.drillIds||[])).length;
 
   return `<div class="scroll s">
     <div class="hero">
       <div class="h-lg rise" style="max-width:22ch">${hello}. ${didToday
         ? "That's today done."
-        : (done ? 'Your next session is ready.' : 'Your first session is ready.')}</div>
+        : _restDay && !_override
+          ? 'Nothing due today.'
+          : (done ? 'Your next session is ready.' : 'Your first session is ready.')}</div>
 
       <!-- the ladder, as five segments. Filled to where you are; the one you
            are on sits slightly taller so it reads without needing a label. -->
@@ -3788,12 +3816,21 @@ function screenHome(){
       <div class="rise rise-2" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
         <div style="font:400 20px/1.1 var(--serif)">${esc(sessTitle)}</div>
         <span style="flex:none;font:500 11.5px/1 var(--sans);color:rgba(236,231,226,.6)">
-          ${st.time||30} min · ${sessCount} drill${sessCount===1?'':'s'}</span>
+          ${_restDay&&!_override
+            ? 'Rest day'
+            : `${st.time||30} min · ${sessCount} drill${sessCount===1?'':'s'}`}</span>
       </div>
 
-      <button onclick="openOv('mode')" style="margin-top:11px;width:100%;border:0;border-radius:14px;
-        padding:13px;background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans);cursor:pointer">
-        ${didToday?'Go again':'Start the session'}</button>
+      ${_restDay&&!_override
+        ? `<div style="margin-top:9px;font:400 13px/1.5 var(--sans);color:rgba(236,231,226,.66)">
+             Your week has nothing on ${DAYL[todayWd()]}. Move a day in the week below, or train anyway.</div>
+           <button onclick="trainAnyway()" style="margin-top:11px;width:100%;border:1px solid
+             rgba(236,231,226,.45);border-radius:14px;padding:13px;background:rgba(236,231,226,.13);
+             color:var(--on-primary);font:600 15px/1 var(--sans);cursor:pointer">Train anyway</button>`
+        : `<button onclick="startDay(${_cellIdx})" style="margin-top:11px;width:100%;border:0;
+             border-radius:14px;padding:13px;background:var(--bg);color:var(--deep);
+             font:600 15px/1 var(--sans);cursor:pointer">
+             ${didToday?'Go again':'Start the session'}</button>`}
 
       <button onclick="st.introOpen=!st.introOpen;save();render()" style="margin-top:10px;width:100%;
         display:flex;align-items:center;gap:10px;border:1px solid rgba(236,231,226,${done?0.2:0.4});
@@ -3819,8 +3856,9 @@ function screenHome(){
       <!-- the week, collapsed to a strip. Tapping it opens the same day list
            that used to sit in its own card. -->
       ${(function(){
-        const plan=weekPlan();
-        const idx=plan?nextDayIdx():-1;
+        /* the card that lifts is the one today holds, not the one a counter
+           happens to be pointing at */
+        const idx=todayCellIdx();
         /* seven days, Monday first, from this week's actual dates — so a chip
            is filled because you trained that day, not because of a counter. */
         const now=new Date();
@@ -3862,9 +3900,13 @@ function screenHome(){
             <div class="rail" style="display:flex;gap:9px;overflow-x:auto;
               scroll-snap-type:x mandatory;padding:2px 0;-webkit-overflow-scrolling:touch">
             ${cells.map((dd,n)=>{
-              const on=n===idx, past=n<idx;
-              const rest=!!dd.wrist||/wrist|mobility|rest/i.test(dd.n+' '+(dd.sub||''));
+              const on=n===idx;
+              const rest=isRestCell(dd);
               const wd=dayFor(n);
+              /* done means that day's date was actually trained, not that a
+                 counter has moved past it */
+              const cd=new Date(mon); cd.setDate(mon.getDate()+wd);
+              const past=trained.has(cd.toDateString());
               return `<div style="flex:none;width:138px;scroll-snap-align:start;padding:13px;
                 border-radius:18px;border:1px solid ${on?'transparent':'rgba(17,17,17,.1)'};
                 background:${on?'var(--forest)':rest?'rgba(255,255,255,.45)':'#fff'};
@@ -3880,7 +3922,7 @@ function screenHome(){
                     style="border:none;background:none;cursor:pointer;padding:0 4px;font:600 13px/1 var(--sans);
                     color:${on?'rgba(236,231,226,.7)':'var(--grey2)'}">›</button>
                 </div>
-                <div onclick="openWorkout(${n})" style="cursor:pointer">
+                <div onclick="startDay(${n})" style="cursor:pointer">
                   <p style="margin:8px 0 0;font:400 16px/1.18 var(--serif);
                     color:${on?'var(--on-primary)':rest?'var(--grey2)':'var(--ink)'}">${esc(dd.n)}</p>
                   <span style="display:block;margin-top:7px;font:500 12px/1.3 var(--sans);
@@ -3904,7 +3946,7 @@ function screenHome(){
     <section class="rise rise-3" style="padding:4px 0 0">
       <div style="padding:0 16px 12px">
         <input id="askq" value="${esc(st.q||'')}" oninput="askFilter(this.value)"
-          placeholder="Ask anything — I check the videos first"
+          placeholder="Ask anything, I check the videos first"
           style="width:100%;border:1px solid rgba(17,17,17,.13);border-radius:14px;padding:13px 14px;
           background:#fff;font:400 14.5px/1.3 var(--sans)">
         <div id="askmatches">${askMatches(st.q||'')}</div>
@@ -4275,7 +4317,7 @@ const WEEK = {
      drills:['p-l-handstand','chair-assisted-knee-lifts','chair-assisted-step-ups','wall-walks','chest-to-wall-handstand']},
   ],
 };
-const WRIST_DAY = {n:'Wrists and mobility', sub:'Short — this is the one that keeps you training',
+const WRIST_DAY = {n:'Wrists and mobility', sub:'Short, and it is the one that keeps you training',
   drills:['forearm-massage','wrist-circles-mob','dd-wrist-taps','palm-lifts-table-top',
           'shoulder-circles','heart-melting-pose']};
 
@@ -4286,17 +4328,21 @@ const DAYL=['MON','TUE','WED','THU','FRI','SAT','SUN'];
 /* Which sessions this week, whatever the stage. Only Foundations has a written
    week; on every other stage each session is built from the whole stage pool,
    so the days are the sessions you are aiming at rather than a fabricated split. */
+/* the two short wrist and mobility days belong on every stage's week,
+   Foundations included. Its written week is the three sessions; the wrist
+   days were being dropped only because they are not written into it. */
+const WRIST_CELLS=[
+  {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true},
+  {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true}
+];
 function weekCells(){
   const plan=weekPlan();
-  if(plan) return plan;
+  if(plan) return plan.concat(WRIST_CELLS);
   /* the training days, then the two short wrist and mobility days that sit
      between them — they are part of the week, so they belong on it. */
   const n=weekTarget(), st1=STAGES[curStage()]||{};
   const days=Array.from({length:n},(_,i)=>({n:st1.n||'Session',sub:'Session '+(i+1)+' of '+n}));
-  return days.concat([
-    {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true},
-    {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true}
-  ]);
+  return days.concat(WRIST_CELLS);
 }
 
 /* Which weekday each session sits on. Spread evenly to begin with, then
@@ -4314,13 +4360,6 @@ function dayFor(i){
 }
 /* Moving one session onto a day another already holds swaps the two, so the
    week never quietly loses a session. */
-/* open the workout a given day of the week holds */
-function openWorkout(i){
-  const cells=weekCells(), c=cells[i]||{};
-  const wrist=!!c.wrist||/wrist|mobility|rest/i.test((c.n||'')+' '+(c.sub||''));
-  buildFreeSession(wrist, true, weekPlan()?i:null);
-}
-
 function moveWorkout(i,by){
   const cells=weekCells(), m=Object.assign({},st.dayMap||{});
   cells.forEach((_,k)=>{ if(m[k]==null) m[k]=defaultDay(k,cells.length); });
@@ -4330,6 +4369,35 @@ function moveWorkout(i,by){
   if(clash!=null) m[clash]=m[i];
   m[i]=want;
   st.dayMap=m; save(); saveState(); render();
+}
+
+/* ── what today actually is ────────────────────────────────────────
+   The week strip already knows which weekday each session sits on, but
+   the hero used to run its own rotating counter, so moving a session to
+   another day changed the strip and nothing else. Everything that asks
+   "what am I doing today" now asks the day map. */
+const todayWd = () => (new Date().getDay() + 6) % 7;      /* 0 = Monday */
+function todayCellIdx(){
+  const wd = todayWd(), cells = weekCells();
+  for(let i = 0; i < cells.length; i++) if(dayFor(i) === wd) return i;
+  return -1;
+}
+/* A rest day is a rest day until you say otherwise, and only for today,
+   so tomorrow starts from the plan again. */
+const overrideToday = () => st.dayOverride === new Date().toDateString();
+function trainAnyway(){
+  st.dayOverride = new Date().toDateString();
+  save(); saveState(); render();
+  startDay(-1);
+}
+/* -1 means "nothing is scheduled, give me whatever is next" */
+function startDay(i){
+  st.pickDay = (i == null ? -1 : i);
+  save();
+  openOv('mode');
+}
+function isRestCell(c){
+  return !!(c && (c.wrist || /wrist|mobility|rest/i.test((c.n || '') + ' ' + (c.sub || ''))));
 }
 
 /* which session is next: they rotate, and finishing one advances it */
@@ -4385,7 +4453,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   /* prep drills belong in the warm-up, not scattered through the skill work */
   const plan=weekPlan();
   const dayDef = wristDay ? WRIST_DAY
-    : (plan ? plan[dayIdx==null?nextDayIdx():dayIdx] : null);
+    : (plan ? (plan[dayIdx==null?nextDayIdx():dayIdx] || plan[nextDayIdx()]) : null);
   const ids = dayDef ? dayDef.drills : s.drillIds;
   const pool=ids.filter(v=>RAMP_ALL.indexOf(v)<0).map(drillById).filter(Boolean)
     .map(d=>Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'3 × 8'}));
