@@ -276,12 +276,18 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   ];
   let mode = new URLSearchParams(location.search).get('as') || 'coached';
   try{
-    localStorage.setItem('lha_app', JSON.stringify({
+    /* The preview reseeds state on every load, which is the point. It was
+       also wiping the record of which tutorials had been seen, so the tour
+       reintroduced itself on every refresh. Carry that one across. */
+    let keep = {};
+    try{ const was = JSON.parse(localStorage.getItem('lha_app')||'{}');
+      if(was && was.tourSeen) keep.tourSeen = was.tourSeen; }catch(e){}
+    localStorage.setItem('lha_app', JSON.stringify(Object.assign(keep, {
       token:'preview', in: mode==='coached', email:'demo@example.com',
       client:'Demo', coachName:'Elliott', mode: mode==='coached'?'coached':'free',
       quizDone:true, stage:1, tab: mode==='coached' ? 'today' : 'ladder',
       plus: mode==='plus', prog: DEMO_PROG, msgs:[], freeCheckUsed:false, tick:{}
-    }));
+    })));
   }catch(e){}
 
   const reply = (body, status) => Promise.resolve(new Response(

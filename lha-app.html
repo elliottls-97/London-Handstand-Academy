@@ -1048,8 +1048,7 @@ function freeProgressBody(){
       ${holds.length
         ? `<div style="display:flex;gap:5px;margin-top:14px;align-items:flex-end">${hbars}</div>`
         : `<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:8px">
-             Nothing logged yet. The max hold timer is on the ladder.</div>`}
-      <button class="btn2" style="width:100%;margin-top:14px" onclick="openOv('hold')">Max hold timer</button>
+             Nothing logged yet. Log it as a check point and it turns up here.</div>`}
     </div>
 
     ${logged.length?`<div class="card" style="padding:18px 20px">
@@ -2172,14 +2171,58 @@ function sendAsk(){
 /* ── More ── */
 function screenMore(){
   const all=libraryDrills();
-  const cards=all.map((it,i)=>`<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer" onclick="openLib(${i})">
-    ${it.url?`<video data-lazy="${it.url}#t=0.6" muted playsinline preload="none"
+  /* 88 drills in one flat grid is a wall. They already belong to a stage and
+     a section in STAGE_SECTIONS, so group them by that and let each group
+     fold away. Anything the sections do not claim lands in Everything else
+     rather than disappearing. */
+  const idx=new Map(all.map((it,i)=>[it.v,i]));
+  const groups=[]; const claimed=new Set();
+  STAGES.forEach((sg,si)=>{
+    (STAGE_SECTIONS[si]||[]).forEach(sec=>{
+      const items=(sec.items||[]).map(it=>{
+        const i=idx.get(it.v);
+        return i==null ? null : {i, it:all[i]};
+      }).filter(x=>x && !claimed.has(x.i));
+      items.forEach(x=>claimed.add(x.i));
+      if(items.length) groups.push({stage:sg.n, title:sec.title, sub:sec.sub, items});
+    });
+  });
+  const rest=all.map((it,i)=>({i,it})).filter(x=>!claimed.has(x.i));
+  if(rest.length) groups.push({stage:'', title:'Everything else', sub:'', items:rest});
+
+  const card=x=>`<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer"
+      onclick="openLib(${x.i})">
+    ${x.it.url?`<video data-lazy="${x.it.url}#t=0.6" muted playsinline preload="none"
               style="aspect-ratio:4/3;object-fit:cover;display:block;width:100%;background:var(--mist)"></video>`
             :`<div style="aspect-ratio:4/3;display:grid;place-items:center;
                background:linear-gradient(150deg,var(--sand),var(--sage));
                font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--deep)">FILMING SOON</div>`}
-    <div style="padding:11px 12px 13px"><div style="font:600 13.5px/1.2 var(--sans)">${esc(it.n)}</div>
-    <div style="font:500 10px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:6px">${esc(it.d.toUpperCase())}</div></div></div>`).join('');
+    <div style="padding:11px 12px 13px"><div style="font:600 13.5px/1.2 var(--sans)">${esc(x.it.n)}</div>
+    <div style="font:500 10px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:6px">${esc(String(x.it.d||'').toUpperCase())}</div></div></div>`;
+
+  st.libOpen = st.libOpen || {};
+  const cards=groups.map((g,gi)=>{
+    /* the first group starts open so the screen is not a list of closed
+       drawers on a cold load */
+    const open = st.libOpen[gi] !== undefined ? st.libOpen[gi] : gi===0;
+    return `<div style="margin-bottom:11px;border-radius:20px;background:rgba(255,255,255,.5);
+      border:1px solid rgba(17,17,17,.08);overflow:hidden">
+      <div onclick="st.libOpen=st.libOpen||{};st.libOpen[${gi}]=${!open};save();render()"
+        style="display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer">
+        <div style="flex:1;min-width:0">
+          <div style="font:400 17px/1.2 var(--serif);color:var(--ink)">${esc(g.title)}</div>
+          <div style="font:500 10.5px/1 var(--sans);letter-spacing:.11em;color:var(--grey2);
+            margin-top:6px">${esc((g.stage||'').toUpperCase())}${g.stage?' · ':''}${g.items.length} DRILL${g.items.length===1?'':'S'}</div>
+        </div>
+        <span style="flex:none;font:400 13px/1 var(--sans);color:var(--grey2);
+          transform:rotate(${open?180:0}deg)">⌄</span>
+      </div>
+      ${open?`<div style="padding:0 12px 14px">
+        ${g.sub?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);padding:0 4px 11px">${esc(g.sub)}</div>`:''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${g.items.map(card).join('')}</div>
+      </div>`:''}
+    </div>`;}).join('');
+
   return `<div class="scroll s">
     <div style="background:var(--forest);padding:calc(env(safe-area-inset-top) + 10px) 20px 20px;color:var(--bg)">
       <div class="h-md" style="font-size:30px">Library &amp; more</div></div>
@@ -2222,7 +2265,7 @@ function screenMore(){
           version, and some people like having both.</div></div>`:''}
       <div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
         color:var(--grey2);margin:0 2px 12px">Drill library · ${all.length}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${cards}</div>
+      ${cards}
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:26px">
         ${[['Terms','/terms'],['Privacy','/privacy'],['Waiver','/waiver']].map(([n,h])=>
           `<a href="${h}" target="_blank" rel="noopener" style="font:500 12px/1 var(--sans);
@@ -3015,42 +3058,48 @@ function drawOv(){
             You have been through this one.</p>`;
         const prev=STAGES[si-1];
         /* The next stage up is the one people actually open, and it used to
-           answer with one line. It is the test they have to pass, so show
-           the test: the hold, where they are against it, and the check
-           points that go with it. */
+           answer with one line. It is the prerequisite they have to meet, so
+           show it item by item and say whether they meet it. */
         const isNext = si===curStage()+1;
         if(isNext && prev){
-          const need=parseInt(prev.hold,10)||30, got=bestHoldFor(holdKind(si-1));
-          const pc=Math.min(100,Math.round(got/need*100));
           const cps=cpFor(si-1)||[];
-          const kept=(st.track&&st.track.checkpoints)||{};
-          const doneN=cps.filter(c=>kept[c.k]!=null && kept[c.k]!=='').length;
+          const gotN=cps.filter(c=>cpLast(c.k)).length;
+          const met=cps.length>0 && gotN>=cps.length;
+          const rows=cps.map(c=>{
+            const last=cpLast(c.k);
+            const K=CP_KIND[c.kind]||CP_KIND.count;
+            const shown = last ? (c.kind==='yn' ? (last.v?'Yes':'Not yet') : last.v+K.unit) : 'not logged';
+            return `<div style="display:flex;align-items:baseline;gap:10px;padding:9px 0;
+              border-top:1px solid rgba(17,17,17,.07)">
+              <span style="flex:none;width:17px;height:17px;border-radius:5px;
+                background:${last?'var(--forest)':'transparent'};
+                box-shadow:${last?'none':'inset 0 0 0 1.5px rgba(17,17,17,.18)'};
+                color:#fff;font:700 10px/17px var(--sans);text-align:center">${last?'✓':''}</span>
+              <span style="flex:1;font:400 14px/1.35 var(--sans)">${esc(c.n)}</span>
+              <span style="flex:none;font:400 13px/1 var(--sans);
+                color:${last?'var(--forest)':'var(--grey2)'}">${esc(String(shown))}</span>
+            </div>`;}).join('');
           return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
-              color:var(--grey2)">THE TEST TO GET HERE</p>
-            <div style="border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:15px 16px">
-              <div style="font:400 17px/1.25 var(--serif);color:var(--deep)">${esc(prev.ch||prev.n)}</div>
-              <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
-                ${esc(prev.goal||prev.chSub||'')}</div>
-              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;
-                margin-top:14px">
-                <span style="font:600 10.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">
-                  YOUR BEST</span>
-                <span style="font:400 15px/1 var(--serif)">${got}s
-                  <span style="color:var(--grey2)">of ${need}s</span></span>
+              color:var(--grey2)">WHAT YOU NEED FIRST</p>
+            <div style="border:1px solid ${met?'var(--forest)':'rgba(17,17,17,.1)'};
+              border-radius:16px;padding:15px 16px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+                <span style="font:400 17px/1.25 var(--serif);color:var(--deep)">
+                  Clear ${esc(prev.n)}</span>
+                <span style="flex:none;font:400 15px/1 var(--serif);
+                  color:${met?'var(--forest)':'var(--grey2)'}">${gotN} of ${cps.length}</span>
               </div>
-              <div style="height:6px;border-radius:99px;background:var(--mist);margin-top:8px;
-                overflow:hidden"><i style="display:block;height:100%;width:${pc}%;
-                background:${pc>=100?'var(--forest)':'var(--sage)'}"></i></div>
-              ${cps.length?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px;
-                padding-top:12px;border-top:1px solid rgba(17,17,17,.08)">
-                And the ${cps.length} check points for ${esc(prev.n)}, ${doneN} of them logged.
-                They are on the Progress tab.</div>`:''}
-              <button onclick="closeOv();openOv('hold')" style="margin-top:14px;width:100%;border:0;
-                border-radius:12px;padding:12px;background:var(--forest);color:var(--on-primary);
-                font:600 14px/1 var(--sans);cursor:pointer">Time a max hold</button>
+              <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+                Every check point on ${esc(prev.n)} logged. That is the whole prerequisite.</div>
+              ${rows}
+              <button onclick="closeOv();st.tab='progress';st.progTab='marks';save();render()"
+                style="margin-top:14px;width:100%;border:0;border-radius:12px;padding:12px;
+                background:var(--forest);color:var(--on-primary);font:600 14px/1 var(--sans);
+                cursor:pointer">${met?'You meet it, open the check points'
+                                     :'Do I meet the prerequisite?'}</button>
             </div>
-            ${pc>=100?`<p style="margin:10px 0 0;font:400 13.5px/1.5 var(--sans);color:var(--forest)">
-              You are already holding it. Move up from the bottom of the ladder screen.</p>`:''}`;
+            ${met?`<p style="margin:10px 0 0;font:400 13.5px/1.5 var(--sans);color:var(--forest)">
+              You have logged all of them. Move up from the bottom of the ladder screen.</p>`:''}`;
         }
         return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
             color:var(--grey2)">TO GET HERE</p>
@@ -3139,7 +3188,8 @@ function drawOv(){
         <div class="h-sm" style="font-size:24px;margin-top:11px">${esc(S.ch)}</div>
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${esc(S.chSub)}</div>
         <button class="btn" style="margin-top:15px;background:var(--sand);color:var(--ink)"
-          onclick="closeOv();openOv('hold')">Do it with me</button></div>
+          onclick="closeOv();st.tab='progress';st.progTab='marks';save();render()">
+          Log it as a check point</button></div>
       ${locked?`<div style="margin-top:11px;background:var(--mist);border-radius:20px;padding:18px">
         <div class="kick2">LOCKED</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:9px">Pass the challenge on the stage before this one and it opens.</div></div>`:''}
@@ -3908,7 +3958,7 @@ function sendIntake(){
 }
 
 const TIERS=[['The six-stage ladder','✓','✓'],['Level-finder quiz','✓','—'],['Quick session builder','✓','✓'],
- ['Guided follow-along player','✓','✓'],['Drill library','Stage-gated','All drills'],['Max hold timer','✓','✓'],
+ ['Guided follow-along player','✓','✓'],['Drill library','Stage-gated','All drills'],['Check points','✓','✓'],
  ['Offline use','✓','✓'],['Programme written for you','—','✓'],["Coach's read on the block",'—','✓'],
  ['Too easy / too hard flags','Self only','To Elliott'],['Chat with Elliott','About coaching','Anything'],
  ['Form check on your footage','One free','Unlimited'],['Two-week test reviewed','Self-scored','By Elliott'],
@@ -4054,11 +4104,15 @@ function screenOriented(){
    up the ladder at all — and nothing on screen said what moving up would
    even take. The marker is the stage's own hold target, which was already
    written into STAGES and never shown as a thing to aim at. */
-function stageReady(){
-  const s=STAGES[curStage()];
-  const goal=parseInt(s.hold,10)||30;
-  return bestHoldFor(holdKind()) >= goal;
+/* What a stage asks for, and whether it has been met. It used to be one
+   number off a stopwatch. It is the stage's own check points now, which is
+   what the app was already collecting and what actually says you are ready. */
+function cpProgress(i){
+  const list=cpFor(i==null?curStage():i)||[];
+  const done=list.filter(c=>cpLast(c.k)).length;
+  return {done, of:list.length, ready:list.length>0 && done>=list.length};
 }
+function stageReady(){ return cpProgress().ready; }
 function advanceStage(){
   const next=curStage()+1;
   if(next>=STAGES.length){ alert("You're at the top of the ladder."); return; }
@@ -4589,11 +4643,12 @@ function screenLadder(){
           <span style="display:block;font:600 15px/1 var(--sans)">Build my session</span>
           <span style="display:block;margin-top:4px;font:600 9.5px/1 var(--sans);letter-spacing:.13em;
             color:rgba(0,64,61,.6)">${(st.time||30)} MIN · STAGE ${curStage()+1}</span></button>
-        <button onclick="openOv('hold')" style="flex:none;width:104px;border:1px solid rgba(236,231,226,.28);
+        <button onclick="st.tab='progress';st.progTab='marks';save();render()"
+          style="flex:none;width:112px;border:1px solid rgba(236,231,226,.28);
           border-radius:14px;padding:13px 6px;background:transparent;color:var(--on-primary);cursor:pointer">
-          <span style="display:block;font:600 15px/1 var(--sans)">Max hold</span>
+          <span style="display:block;font:600 15px/1 var(--sans)">Check points</span>
           <span style="display:block;margin-top:4px;font:600 9.5px/1 var(--sans);letter-spacing:.13em;
-            color:rgba(236,231,226,.6)">TIMER</span></button>
+            color:rgba(236,231,226,.6)">${cpProgress().done}/${cpProgress().of} DONE</span></button>
       </div>
     </div>
 
