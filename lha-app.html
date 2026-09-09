@@ -108,7 +108,7 @@ h1,h2,h3{margin:0;font-family:var(--serif);font-weight:400}
 .tabbar{flex:none;display:flex;background:#fff;border-top:1px solid rgba(28,32,25,.08);
  padding-bottom:env(safe-area-inset-bottom);position:relative;z-index:5}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0 12px;cursor:pointer;
- border:none;background:none;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+ border:none;background:none;position:relative;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
 .tab:active{transform:scale(.94)}
 .tab i{transition:background .35s}
 .tab span{transition:color .35s,font-weight .35s}
@@ -1290,10 +1290,25 @@ const CP_KIND={
    The ladder ones are the free product's stage gates and mean nothing to
    someone on a written programme. */
 const cpFor = i => {
-  if(i==null && coachedView() && Array.isArray(DATA.checkpoints) && DATA.checkpoints.length)
-    return DATA.checkpoints;
+  if(i==null && coachedView() && Array.isArray(DATA.checkpoints) && DATA.checkpoints.length){
+    /* a check point can be written now and scheduled for later, so one with
+       a start date does not exist until that date */
+    const today=new Date().toISOString().slice(0,10);
+    return DATA.checkpoints.filter(c=>!c.from || c.from<=today);
+  }
   return CHECKPOINTS[i==null?curStage():i] || [];
 };
+/* ones they have not been shown yet, so the app can say so */
+function cpNew(){
+  if(!coachedView()) return [];
+  const seen=st.cpSeen||{};
+  return cpFor().filter(c=>c.addedAt && !seen[c.k]);
+}
+function cpMarkSeen(){
+  const seen=Object.assign({}, st.cpSeen||{});
+  cpFor().forEach(c=>{ if(c.addedAt) seen[c.k]=1; });
+  st.cpSeen=seen; save();
+}
 function cpLog(){ return (st.track&&st.track.checkpoints)||{}; }
 function cpLast(k){ const h=cpLog()[k]||[]; return h.length?h[h.length-1]:null; }
 function cpDue(){
@@ -1377,7 +1392,15 @@ function checkpointsCard(){
   const S=STAGES[curStage()]||{};
   const done=list.filter(c=>cpLast(c.k)).length;
   const due=cpDue();
-  return `<div class="card" style="padding:18px 20px${due?';border:1.5px solid var(--forest)':''}">
+  const fresh=cpNew();
+  return `<div class="card" style="padding:18px 20px${
+    fresh.length?';border:1.5px solid var(--amber)':due?';border:1.5px solid var(--forest)':''}">
+    ${fresh.length?`<div style="display:flex;align-items:center;gap:10px;margin:-4px 0 12px">
+      <span style="flex:1;font:600 12.5px/1.4 var(--sans);color:#8a6524">${
+        fresh.length===1?'A new check point from Elliott':fresh.length+' new check points from Elliott'}</span>
+      <button class="back" style="flex:none;color:var(--forest);font-weight:700;font-size:11.5px"
+        onclick="cpMarkSeen();render()">Got it</button>
+    </div>`:''}
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
       <span class="kick2"${due?' style="color:var(--forest)"':''}>CHECK POINTS${
         coachedView()?'':' · '+esc(S.n||'')}</span>
@@ -6253,7 +6276,10 @@ function render(){
     : {home:screenHome,ladder:screenLadder,progress:screenProgress,coaching:screenCoaching,more:screenMore};
   const tabs=TABS[coached?'coached':'free'];
   if(!screens[st.tab]) st.tab=tabs[0][0];
-  const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span></button>`).join('');
+  const nCp = (typeof cpNew==='function') ? cpNew().length : 0;
+  const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span>${
+    (id==='progress'&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
+      border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
   swap(topBar()+screens[st.tab]()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
   watchScroll();
   lazyThumbs();

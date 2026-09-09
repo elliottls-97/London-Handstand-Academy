@@ -1767,18 +1767,51 @@ export default async (request) => {
              builder does not send them, so saving a programme cannot wipe
              them. */
           checkpoints: Array.isArray(body.checkpoints)
-            ? body.checkpoints.slice(0, 20).map(c => ({
-                k: String(c.k || '').slice(0, 32),
-                n: String(c.n || '').slice(0, 80),
-                kind: ['secs', 'count', 'rate', 'yn'].includes(c.kind) ? c.kind : 'count',
-                note: String(c.note || '').slice(0, 200),
-                video: c.video !== false,
-              })).filter(c => c.k && c.n)
+            ? body.checkpoints.slice(0, 20).map(c => {
+                const was = (base.checkpoints || []).find(x => x.k === c.k);
+                return {
+                  k: String(c.k || '').slice(0, 32),
+                  n: String(c.n || '').slice(0, 80),
+                  kind: ['secs', 'count', 'rate', 'yn'].includes(c.kind) ? c.kind : 'count',
+                  note: String(c.note || '').slice(0, 200),
+                  video: c.video !== false,
+                  /* the day it starts showing in their app. Blank means now. */
+                  from: /^\d{4}-\d{2}-\d{2}$/.test(String(c.from || '')) ? String(c.from) : '',
+                  /* stamped once, so re-saving a programme does not make an
+                     old check point look new all over again */
+                  addedAt: (was && was.addedAt) || Date.now(),
+                };
+              }).filter(c => c.k && c.n)
             : (base.checkpoints || []),
           editedAt: Date.now(),
         });
         await setSetting(`programme:${e}`, next);
-        return json({ ok: true, plan: hydratePlan(next) });
+
+        /* Tell them a new one has landed. Only genuinely new keys, and only
+           ones already showing: a check point scheduled for three weeks time
+           is not news today. The app flags it either way when it appears. */
+        const hadKeys = new Set((base.checkpoints || []).map(c => c.k));
+        const today = new Date().toISOString().slice(0, 10);
+        const fresh = (next.checkpoints || [])
+          .filter(c => !hadKeys.has(c.k) && (!c.from || c.from <= today));
+        if (fresh.length) {
+          const nm = clients()[e] || '';
+          await email(e, fresh.length === 1
+              ? 'A new check point in your app'
+              : `${fresh.length} new check points in your app`,
+            mail({
+              title: fresh.length === 1 ? 'Something new to test.' : 'A few things to test.',
+              paras: [
+                `${esc(nm ? nm.split(' ')[0] : 'Hello')}, I have added ${
+                  fresh.length === 1 ? 'a check point' : fresh.length + ' check points'} to your app.`,
+                fresh.map(c => `<b>${esc(c.n)}</b>${c.note ? '<br>' + esc(c.note) : ''}`).join('<br><br>'),
+                'They are on the Progress tab under Check points. Log the number when you test it, and send a clip so I can see it.',
+              ],
+              cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+              signoff: { name: coachName(coachOf(e) || primaryCoach()) },
+            }), 'reminders');
+        }
+        return json({ ok: true, plan: hydratePlan(next), notified: fresh.length });
       }
     }
 
