@@ -1012,7 +1012,16 @@ export default async (request) => {
         items: (g.items || []).slice(0, 40).map(hydrateItem).filter(Boolean),
       })),
     }));
-    return Object.assign({}, base, { days });
+    /* Explainers used to be written into each spec by hand, so the same
+       video was pasted per client and nobody could turn one on without a
+       rebuild. There is one library now and the plan says which are on. */
+    let answers = base.answers || [];
+    if (Array.isArray(base.explainers)) {
+      const lib = programmes.explainers || {};
+      answers = base.explainers.map(v => lib[v]).filter(Boolean)
+        .map(x => Object.assign({ t: 'explainer', d: '' }, x));
+    }
+    return Object.assign({}, base, { days, answers });
   }
   async function planFor(email) {
     const saved = await getSetting(`programme:${email}`);
@@ -1733,11 +1742,17 @@ export default async (request) => {
         if (!e) return json({ error: 'Which client?' }, 400);
         if (!owns(e)) return json({ error: 'Not your client' }, 403);
         const saved = await getSetting(`programme:${e}`);
+        const cur = saved || programmes.clients[e] || { days: [] };
         return json({
           email: e,
           edited: !!saved,
-          plan: hydratePlan(saved || programmes.clients[e] || { days: [] }),
+          plan: hydratePlan(cur),
           library: programmes.library,
+          /* every explainer that exists, and which of them this client has */
+          explainerLib: programmes.explainers || {},
+          explainersOn: Array.isArray(cur.explainers)
+            ? cur.explainers
+            : (cur.answers || []).map(a => a && a.v).filter(Boolean),
         });
       }
       if (request.method === 'POST') {
@@ -1769,6 +1784,11 @@ export default async (request) => {
           /* the coach's check points for this client. Left alone when the
              builder does not send them, so saving a programme cannot wipe
              them. */
+          explainers: Array.isArray(body.explainers)
+            ? body.explainers.slice(0, 40).map(v => String(v || '').slice(0, 80))
+                .filter(v => (programmes.explainers || {})[v])
+            : (Array.isArray(base.explainers) ? base.explainers
+               : (base.answers || []).map(a => a && a.v).filter(Boolean)),
           checkpoints: Array.isArray(body.checkpoints)
             ? body.checkpoints.slice(0, 20).map(c => {
                 const was = (base.checkpoints || []).find(x => x.k === c.k);

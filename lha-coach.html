@@ -1335,7 +1335,8 @@ function openBuilder(email){
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
       libIndex=(d.library&&d.library.names)||{};
-      builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited};
+      builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited,
+               exLib:d.explainerLib||{}, exOn:(d.explainersOn||[]).slice()};
       draw();
     })
     .catch(()=>{ builder={email, plan:{days:[]}, dirty:false, error:true}; draw(); });
@@ -1392,6 +1393,42 @@ function bCpSet(i,f,v){
   c[f] = (f==='video') ? !!v : v;
   bMark();
 }
+/* ── the explainer library ─────────────────────────────────────────
+   The same four videos were pasted into each spec by hand, so switching one
+   on for a client meant a rebuild. One library, a switch per client. */
+function bExToggle(v){
+  const on=builder.exOn=builder.exOn||[];
+  const i=on.indexOf(v);
+  if(i<0) on.push(v); else on.splice(i,1);
+  bMark(); draw();
+}
+function bExHTML(){
+  const lib=builder.exLib||{}, on=builder.exOn||[];
+  const keys=Object.keys(lib);
+  if(!keys.length) return '';
+  return `<div class="card" style="margin-top:14px">
+    <div class="kick">EXPLAINER VIDEOS</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+      Which of these they see on their Today screen. ${on.length} of ${keys.length} on.</div>
+    ${keys.map(v=>{
+      const e=lib[v], is=on.indexOf(v)>-1;
+      return `<div onclick="bExToggle('${esc(v)}')" style="display:flex;gap:12px;align-items:flex-start;
+        cursor:pointer;border:1px solid ${is?'var(--forest)':'var(--line)'};border-radius:14px;
+        padding:12px 13px;margin-top:9px;background:${is?'rgba(0,102,99,.05)':'#fff'}">
+        <span style="flex:none;width:20px;height:20px;border-radius:6px;margin-top:1px;
+          border:1.5px solid ${is?'var(--forest)':'var(--line)'};
+          background:${is?'var(--forest)':'#fff'};color:#fff;display:grid;place-items:center;
+          font:700 11px/1 var(--sans)">${is?'✓':''}</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font:600 13.5px/1.3 var(--sans)">${esc(e.q||v)}</span>
+          <span style="display:block;font:400 12px/1.45 var(--sans);color:var(--grey);margin-top:4px">
+            ${esc((e.a||'').slice(0,110))}${(e.a||'').length>110?'…':''}</span>
+          <span style="display:block;font:400 11px/1 var(--sans);color:var(--grey2);margin-top:5px">${esc(v)}</span>
+        </span>
+      </div>`;}).join('')}
+  </div>`;
+}
+
 function bCpHTML(){
   const rows=bCps().map((c,i)=>`<div style="border:1px solid var(--line);border-radius:14px;
     padding:12px 13px;margin-top:9px">
@@ -1453,7 +1490,8 @@ function bMove(i,g,k,by){
 function saveBuilder(){
   const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
-    body:JSON.stringify({email:builder.email, days:bDays(), checkpoints:bCps()})})
+    body:JSON.stringify({email:builder.email, days:bDays(), checkpoints:bCps(),
+                         explainers:(builder.exOn||[])})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.edited=true;
                draw();
@@ -1539,6 +1577,7 @@ function builderHTML(){
       </div>
       ${body}
       <button onclick="bAddDay()" style="${bGhost};margin-top:12px">+ Day</button>
+      ${bExHTML()}
       ${bCpHTML()}
       <div style="font:400 12px/1.6 var(--sans);color:var(--grey2);margin:14px 0 30px">
         Saving writes the programme the client's app reads. Names, clips and cues come from

@@ -1657,15 +1657,31 @@ function calPick(k){ st.calDay = (st.calDay===k) ? null : k; save(); render(); }
 /* Drills where the number they managed was not the number asked for. It is
    the most useful thing in the log and it was buried inside one day's
    breakdown, so neither of us was reading it. */
+/* what the programme asks for, so sessions logged before the app started
+   recording it are still readable rather than invisible */
+function prescribedFor(v){
+  const days=(DATA&&DATA.days)||[];
+  for(const d of days) for(const g of (d.groups||[])) for(const it of (g.items||[]))
+    if(it && it.v===v) return {want:recommendedReps(it), unit:doseUnit(it.d), n:it.n};
+  const drill=(typeof drillById==='function') ? drillById(v) : null;
+  return drill ? {want:recommendedReps(drill), unit:doseUnit(drill.d), n:drill.n} : null;
+}
+/* a dose in seconds is not a rep count, and calling it one made the number
+   meaningless on every hold in the programme */
+function doseUnit(d){ return /\bs(ec|econds)?\b|\d+\s*s\b/i.test(String(d||'')) ? 's' : ''; }
+
 function repsOffCard(){
   const log=(st.prog&&st.prog.repsLog)||{};
   const rows=[];
   Object.keys(log).forEach(v=>{
-    const h=(log[v]||[]).filter(x=>x && x.reps && x.want);
+    const h=(log[v]||[]).filter(x=>x && x.reps);
     if(!h.length) return;
     const last=h[0];
-    if(last.reps===last.want) return;
-    rows.push({v, n:last.n||v.replace(/-/g,' '), reps:last.reps, want:last.want, at:last.at,
+    const pre=prescribedFor(v);
+    const want=last.want || (pre&&pre.want) || 0;
+    if(!want || last.reps===want) return;
+    rows.push({v, n:last.n||(pre&&pre.n)||v.replace(/-/g,' '), reps:last.reps, want,
+               unit:(pre&&pre.unit)||'', at:last.at,
                trend:h.length>1?last.reps-h[1].reps:0});
   });
   if(!rows.length) return '';
@@ -1673,8 +1689,8 @@ function repsOffCard(){
   return `<div class="card" style="padding:18px 20px">
     <div class="kick2">WHAT YOU ACTUALLY MANAGED</div>
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-      Where the number you did was not the number asked for. Short of it is information,
-      not a failure.</div>
+      Reps and seconds, where what you did was not what was asked for. Short of it is
+      information, not a failure.</div>
     <div style="margin-top:12px">
     ${rows.slice(0,8).map((r,i)=>`<div style="display:flex;align-items:baseline;gap:10px;
       padding:10px 0;${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
@@ -1682,8 +1698,8 @@ function repsOffCard(){
       ${r.trend?`<span style="flex:none;font:600 10.5px/1 var(--sans);
         color:${r.trend>0?'var(--forest)':'var(--grey2)'}">${r.trend>0?'+':''}${r.trend}</span>`:''}
       <span style="flex:none;font:400 17px/1 var(--serif);
-        color:${r.reps>=r.want?'var(--forest)':'var(--ink)'}">${r.reps}
-        <span style="font:400 12px/1 var(--sans);color:var(--grey2)">of ${r.want}</span></span>
+        color:${r.reps>=r.want?'var(--forest)':'var(--ink)'}">${r.reps}${esc(r.unit)}
+        <span style="font:400 12px/1 var(--sans);color:var(--grey2)">of ${r.want}${esc(r.unit)}</span></span>
     </div>`).join('')}
     </div>
   </div>`;
@@ -2998,7 +3014,7 @@ function drawOv(){
                 style="border:none;background:none;cursor:pointer;padding:0;
                 font:600 12.5px/1 var(--sans);color:var(--grey);text-decoration:underline;
                 text-underline-offset:3px">${mode==='work'
-                  ? (logged==null?'Log reps':logged+' done')
+                  ? (logged==null?('Log '+(doseUnit(it.d)?'seconds':'reps')):logged+doseUnit(it.d)+' done')
                   : 'Change time'}</button>
               ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" id="easy-${k}"
                 onclick="rateRow('${it.v}','${k}','easy')">Too easy</button>
