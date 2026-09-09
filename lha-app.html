@@ -172,13 +172,26 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 .tour-card{position:absolute;left:12px;right:12px;border-radius:24px;padding:18px 19px 15px;
   background:rgba(246,243,239,.82);border:1px solid rgba(255,255,255,.62);
   box-shadow:0 26px 60px -26px rgba(0,20,19,.75),inset 0 1px 0 rgba(255,255,255,.85);
-  animation:tourIn .4s cubic-bezier(.2,.9,.2,1) both}
+  animation:tourIn .4s cubic-bezier(.2,.9,.2,1) both;
+  transition:top .4s cubic-bezier(.2,.9,.2,1)}
+/* the words change, the card does not arrive again */
+.tour-card.is-swap .tour-kick,.tour-card.is-swap .tour-h,.tour-card.is-swap .tour-b{
+  animation:tourSwap .26s cubic-bezier(.2,.9,.2,1) both}
+.tour-card.is-swap .tour-h{animation-delay:.03s}
+.tour-card.is-swap .tour-b{animation-delay:.06s}
+@keyframes tourSwap{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.tour-hole{position:absolute;border-radius:20px;pointer-events:auto;
+  box-shadow:0 0 0 9999px rgba(0,42,40,.62),inset 0 1px 0 rgba(255,255,255,.5),
+  0 0 40px -8px rgba(207,230,236,.5);border:1.5px solid rgba(255,255,255,.6);
+  transition:top .4s cubic-bezier(.2,.9,.2,1),left .4s cubic-bezier(.2,.9,.2,1),
+  width .4s cubic-bezier(.2,.9,.2,1),height .4s cubic-bezier(.2,.9,.2,1)}
 @supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
   .tour-card{background:rgba(246,243,239,.58);backdrop-filter:blur(22px) saturate(1.5);
     -webkit-backdrop-filter:blur(22px) saturate(1.5)}
 }
 @keyframes tourIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.tour-card{animation:none}}
+@media (prefers-reduced-motion:reduce){.tour-card,.tour-hole{animation:none!important;transition:none!important}
+  .tour-card.is-swap .tour-kick,.tour-card.is-swap .tour-h,.tour-card.is-swap .tour-b{animation:none!important}}
 .tour-kick{font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)}
 .tour-h{font:400 21px/1.15 var(--serif);color:var(--deep);margin-top:9px}
 .tour-b{font:400 14.5px/1.55 var(--sans);color:#4a4a4a;margin-top:8px}
@@ -5762,6 +5775,7 @@ function offerNext(nxt){
   let box=document.getElementById('tour');
   if(!box){ box=document.createElement('div'); box.id='tour';
     box.style.cssText='position:fixed;inset:0;z-index:1000'; document.body.appendChild(box); }
+  box.dataset.built = '';
   box.innerHTML =
     `<div style="position:absolute;inset:0;background:rgba(0,42,40,.62);
        backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)"></div>
@@ -5828,19 +5842,45 @@ function tourLeaveMode(){
   if(pl){ pl.classList.remove('on'); pl.innerHTML=''; }
   if(st.ov) closeOv();
 }
-function paintTour(){
-  const steps = tourSteps(), step = steps[tourStep];
-  if(!tourKey || !step) return;
-  const el = tourTarget(step);
-  if(!el) return;
-
+/* Built once, then only moved and retyped. Rebuilding innerHTML on every
+   repaint restarted the entrance animation, and paintTour runs three times
+   a step to catch the scroll settling, so each step flickered three times. */
+function tourDom(){
   let box = document.getElementById('tour');
+  if(box && box.dataset.built === '1') return box;
   if(!box){
     box = document.createElement('div');
     box.id = 'tour';
     box.style.cssText = 'position:fixed;inset:0;z-index:1000';
     document.body.appendChild(box);
   }
+  box.innerHTML =
+    `<div class="tour-hole" id="tourHole" onclick="tourNext()"></div>
+     <div class="tour-card" id="tourCard">
+       <div class="tour-kick" id="tourKick"></div>
+       <div class="tour-h" id="tourH"></div>
+       <div class="tour-b" id="tourB"></div>
+       <div class="tour-dots" id="tourDots"></div>
+       <div style="display:flex;align-items:center;gap:9px;margin-top:13px">
+         <button onclick="endTour()" class="tour-skip">Skip</button>
+         <span style="flex:1"></span>
+         <button onclick="tourBack()" class="tour-back" id="tourBackBtn">Back</button>
+         <button onclick="tourNext()" class="tour-go" id="tourGoBtn">Next</button>
+       </div>
+     </div>`;
+  box.dataset.built = '1';
+  box.dataset.step = '';
+  return box;
+}
+function paintTour(){
+  const steps = tourSteps(), step = steps[tourStep];
+  if(!tourKey || !step) return;
+  const el = tourTarget(step);
+  if(!el) return;
+
+  const box = tourDom();
+  const hole = document.getElementById('tourHole');
+  const card = document.getElementById('tourCard');
   const r = el.getBoundingClientRect();
   const pad = 6;
   const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
@@ -5848,29 +5888,40 @@ function paintTour(){
   const h = Math.min(window.innerHeight - 8, r.height + pad*2);
   const below = top + h + 210 < window.innerHeight;
   const cardTop = below ? top + h + 12 : Math.max(10, Math.min(top - 218, window.innerHeight - 236));
+
+  /* the hole and the card slide; CSS transitions carry them */
+  hole.style.top = top + 'px';
+  hole.style.left = left + 'px';
+  hole.style.width = w + 'px';
+  hole.style.height = h + 'px';
+  card.style.top = cardTop + 'px';
+  card.style.bottom = 'auto';
+
   const n = tourStep + 1, of = steps.length;
-  const last = n===of;
   const def = TOURS[tourKey]||{};
-  box.innerHTML =
-    `<div onclick="tourNext()" style="position:absolute;top:${top}px;left:${left}px;width:${w}px;
-       height:${h}px;border-radius:20px;box-shadow:0 0 0 9999px rgba(0,42,40,.62),
-       inset 0 1px 0 rgba(255,255,255,.5),0 0 40px -8px rgba(207,230,236,.5);
-       border:1.5px solid rgba(255,255,255,.6);pointer-events:auto;
-       transition:top .38s cubic-bezier(.2,.9,.2,1),left .38s cubic-bezier(.2,.9,.2,1),
-       width .38s cubic-bezier(.2,.9,.2,1),height .38s cubic-bezier(.2,.9,.2,1)"></div>
-     <div class="tour-card" style="top:${cardTop}px">
-       <div class="tour-kick">${esc((def.n||'').toUpperCase())} · STEP ${n} OF ${of}</div>
-       <div class="tour-h">${esc(step.h)}</div>
-       <div class="tour-b">${esc(step.b)}</div>
-       <div class="tour-dots">${steps.map((_,i)=>`<i class="${i===tourStep?'on':''}"></i>`).join('')}</div>
-       <div style="display:flex;align-items:center;gap:9px;margin-top:13px">
-         <button onclick="endTour()" class="tour-skip">Skip</button>
-         <span style="flex:1"></span>
-         ${tourStep?`<button onclick="tourBack()" class="tour-back">Back</button>`:''}
-         <button onclick="tourNext()" class="tour-go">${last?'Done':'Next'}</button>
-       </div>
-     </div>`;
+  const id = tourKey + ':' + tourStep;
+  if(box.dataset.step === id) return;      /* same step, only the position moved */
+  box.dataset.step = id;
+
+  document.getElementById('tourKick').textContent =
+    (def.n||'').toUpperCase() + ' · STEP ' + n + ' OF ' + of;
+  document.getElementById('tourH').textContent = step.h;
+  document.getElementById('tourB').textContent = step.b;
+  document.getElementById('tourGoBtn').textContent = (n===of) ? 'Done' : 'Next';
+  document.getElementById('tourBackBtn').style.display = tourStep ? '' : 'none';
+
+  const dots = document.getElementById('tourDots');
+  if(dots.children.length !== of){
+    dots.innerHTML = steps.map(()=>'<i></i>').join('');
+  }
+  for(let i=0;i<dots.children.length;i++) dots.children[i].classList.toggle('on', i===tourStep);
+
+  /* one short fade on the words, rather than the whole card arriving again */
+  card.classList.remove('is-swap');
+  void card.offsetWidth;
+  card.classList.add('is-swap');
 }
+
 /* the screen moved out from under a running tour, so stop pointing at
    things that are no longer there. Not marked as seen: it never finished. */
 function abortTour(){
