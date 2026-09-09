@@ -1649,61 +1649,81 @@ function screenProgress(){
       return `<div style="height:15px;border-radius:5px;background:${
         done?'var(--forest)':current?'var(--sand)':'var(--mist)'}"></div>`;}).join('')}
     <span style="font:600 9.5px/1 var(--sans);color:${w===thisWeek?'var(--ink)':'var(--grey2)'};margin-top:3px">W${w}</span></div>`).join('');
-  return `<div class="scroll s">
-    <div class="hero"><span class="kick">YOUR NUMBERS</span>
-      <div class="h-lg" style="margin-top:16px">Where you are</div></div>
-    <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
-      ${milestoneCard()}
-      <!-- the calendar leads on both sides now. How often you turn up is the
-           thing this screen is for, and it was buried on the free side. -->
+  /* Two different questions, and they were stacked in one column: am I
+     turning up, and am I ready to move up. They get a tab each. */
+  const tab = (st.progTab==='marks') ? 'marks' : 'track';
+  const seg = [['track','Training'],['marks','Check points']].map(([k,l])=>
+    `<button onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;
+      border-radius:12px;padding:11px 8px;font:600 13.5px/1 var(--sans);
+      background:${tab===k?'var(--on-primary)':'transparent'};
+      color:${tab===k?'var(--deep)':'rgba(236,231,226,.72)'}">${l}</button>`).join('');
+
+  const trackBody = `
       <div data-tour="calendar">${sessionCalendar()}</div>
       <div data-tour="adherence">${adherenceCard()}</div>
-      ${coachedView() ? '' : `<div data-tour="checkpoints">${checkpointsCard()}</div>`}
       <div data-tour="checkin">${checkinCard()}</div>
       ${coachedView() ? '' : freeProgressBody()}
       <div data-tour="metrics">${metricsCard()}</div>
       ${coachedView() ? `<div data-tour="habits">${habitsCard()}</div>` : ''}
       ${coachedView() ? photosCard() : ''}
+      ${coachedView() ? panelMonth(st.prog) + panelWeek(st.prog) : ''}
+      ${coachedView()
+        ? `<div class="card"><div class="kick2">PERSONAL BESTS</div>
+            <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
+            ${[['Best hold', (st.prog&&st.prog.bestHold)?st.prog.bestHold+'s':'not yet'],
+                ['Sessions done', String(sessionsDone().length)],
+                ['Days trained', String(((st.prog&&st.prog.opens)||[]).length)]].map(([n,v])=>
+              `<div style="display:flex;justify-content:space-between;align-items:baseline">
+               <span style="font:400 14px/1.3 var(--sans)">${n}</span>
+               <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>`
+        : `<div class="card"><div class="kick2">PERSONAL BESTS</div>
+            <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
+            ${[[holdLabel(), bestHoldFor(holdKind())?bestHoldFor(holdKind())+'s':'not yet'],
+                ['Sessions done', String(sessionsDone().length)],
+                ['Drills ticked off', String(Object.keys(st.ladderDone||{}).length)]].map(([n,v])=>
+              `<div style="display:flex;justify-content:space-between;align-items:baseline">
+               <span style="font:400 14px/1.3 var(--sans)">${n}</span>
+               <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>`}`;
+
+  const marksBody = `
+      ${milestoneCard()}
+      ${coachedView() ? '' : `<div data-tour="checkpoints">${checkpointsCard()}</div>`}
       ${coachedView() ? stageMasteryCard() : ''}
       ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
-        ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet — the first test opens in a few days.</div>`}</div>
+        ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet, the first test opens in a few days.</div>`}</div>
       ${st.awaitingReview
         ? `<div class="card" style="border:1.5px solid var(--amber);padding:18px">
             <div class="kick2" style="color:var(--forest)">IN REVIEW</div>
             <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-              Sent ${esc(when(st.awaitingReview))} — an answer lands within 48 hours.</div></div>`
+              Sent ${esc(when(st.awaitingReview))}, an answer lands within 48 hours.</div></div>`
         : (st.lastReview && st.lastReview > (st.seenReview||0))
         ? `<div class="card" style="border:1.5px solid var(--forest);padding:18px;cursor:pointer"
             onclick="st.seenReview=st.lastReview;save();go('${st.in?'ask':'coaching'}')">
             <div class="kick2" style="color:var(--forest)">ANSWERED</div>
             <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-              Your answer is back — tap to read it.</div></div>`
+              Your answer is back, tap to read it.</div></div>`
         : ''}
-      ${panelMonth(st.prog)}
-      ${panelWeek(st.prog)}
       <div class="card"><div class="kick2">CONSISTENCY</div>
         <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-top:16px">${weeks}</div>
         <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">${
           sessionsDone().length
             ? sessionsDone().length+' session'+(sessionsDone().length===1?'':'s')+' logged. Week '+thisWeek+' of six.'
-            : 'Nothing logged yet. Finish a session and it turns up here.'}</div></div>
-      <div class="card"><div class="kick2">PERSONAL BESTS</div>
-        <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
-        ${[['Best hold', (st.prog&&st.prog.bestHold)?st.prog.bestHold+'s':'—'],
-            ['Sessions done', String(sessionsDone().length)],
-            ['Days trained', String(((st.prog&&st.prog.opens)||[]).length)]].map(([n,v])=>
-          `<div style="display:flex;justify-content:space-between;align-items:baseline">
-           <span style="font:400 14px/1.3 var(--sans)">${n}</span>
-           <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>` : ''}
-      ${coachedView() ? '' : `<div class="card"><div class="kick2">PERSONAL BESTS</div>
-        <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
-        ${[[holdLabel(), bestHoldFor(holdKind())?bestHoldFor(holdKind())+'s':'—'],
-            ['Sessions done', String(sessionsDone().length)],
-            ['Drills ticked off', String(Object.keys(st.ladderDone||{}).length)]].map(([n,v])=>
-          `<div style="display:flex;justify-content:space-between;align-items:baseline">
-           <span style="font:400 14px/1.3 var(--sans)">${n}</span>
-           <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>`}
+            : 'Nothing logged yet. Finish a session and it turns up here.'}</div></div>` : ''}
+      ${coachedView() ? '' : `<div class="card"><div class="kick2">HOW YOU MOVE UP</div>
+        <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+          Every stage asks for one hold and a handful of check points. Clear both and the next
+          stage opens.</div>
+        <button class="btn2" style="width:100%;margin-top:13px" onclick="go('ladder')">
+          Open the ladder</button></div>`}`;
+
+  return `<div class="scroll s">
+    <div class="hero"><span class="kick">YOUR NUMBERS</span>
+      <div class="h-lg" style="margin-top:16px">Where you are</div>
+      <div style="display:flex;gap:6px;margin-top:18px;padding:4px;border-radius:16px;
+        background:rgba(236,231,226,.14)">${seg}</div></div>
+    <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
+      ${tab==='marks' ? marksBody : trackBody}
     </div></div>`;
 }
 
@@ -5730,9 +5750,8 @@ const TOURS = {
     n:'Progress', next:null,
     steps:[
       {t:'calendar', h:'What you actually did',
-       b:'Full colour is a session finished, weaker is one part done, amber is a day you logged as not trained. Blank means nothing was logged, which is not the same as a miss.'},
-      {t:'checkpoints', h:'Check points',
-       b:'The things each stage wants you to be able to do. Tick them off as they come, and they decide when the next stage opens.'},
+       b:'Full colour is a session finished, weaker is one part done, amber is a day you logged as not trained, and an outline is a day you opened the app and logged nothing. Blank means nothing at all, which is not the same as a miss.',
+       pre:()=>{ st.progTab='track'; save(); render(); }},
       {t:'checkin', h:'The fortnightly check in',
        b:'Three sliders and a sentence. It takes a minute and it is what tells me whether to push you or back off.'},
       {t:'adherence', h:'Sticking to it',
@@ -5740,7 +5759,10 @@ const TOURS = {
       {t:'habits', h:'The small daily things',
        b:'Wrist prep, shoulder opener, hollow hold. Two minutes each, and they are what decide whether your wrists last the month.'},
       {t:'metrics', h:'Numbers worth tracking',
-       b:'A few things that move before your hold does, so you can see progress on a week where the hold has not budged.'}
+       b:'A few things that move before your hold does, so you can see progress on a week where the hold has not budged.'},
+      {t:'checkpoints', h:'The other tab', always:true,
+       b:'Check points are what each stage wants you to be able to do. Tick them off as they come, and they decide when the next stage opens.',
+       pre:()=>{ st.progTab='marks'; save(); render(); }}
     ]
   },
   coaching: {
@@ -5765,16 +5787,23 @@ function markTourSeen(key){
 /* steps that open something rather than pointing at part of a screen. They
    have no data-tour anywhere, so they must not be filtered out as missing. */
 const TOUR_VIRTUAL = ['modesheet','followalong','drilllist'];
-function tourSteps(){
-  const def = TOURS[tourKey];
+/* Worked out once, when the tour starts, and then left alone. Recomputing
+   it against the live DOM meant a step that changed the screen shrank the
+   list under its own feet: the index ran off the end and the tour stalled
+   on the previous card. */
+let tourList = [];
+function tourSteps(){ return tourList; }
+function buildTourList(key){
+  const def = TOURS[key];
   if(!def) return [];
   return def.steps.filter(x =>
-    TOUR_VIRTUAL.indexOf(x.t) > -1 || document.querySelector('[data-tour="'+x.t+'"]'));
+    x.always || TOUR_VIRTUAL.indexOf(x.t) > -1 || document.querySelector('[data-tour="'+x.t+'"]'));
 }
 function startTour(key){
   tourKey = key || (coachedView() ? 'today' : 'home');
   tourStep = 0;
-  if(!TOURS[tourKey] || !tourSteps().length){ tourKey=null; return; }
+  tourList = buildTourList(tourKey);
+  if(!TOURS[tourKey] || !tourList.length){ tourKey=null; tourList=[]; return; }
   if(!tourBound){
     tourBound = true;
     window.addEventListener('resize', ()=>{ if(tourKey) paintTour(); });
@@ -5783,7 +5812,7 @@ function startTour(key){
 }
 function endTour(){
   const was = tourKey;
-  tourKey = null;
+  tourKey = null; tourList = [];
   if(was) markTourSeen(was);
   tourLeaveMode();
   const el = document.getElementById('tour'); if(el) el.remove();
@@ -5797,7 +5826,7 @@ function tourFinish(){
   const seen = tourSeen();
   if(nxt && TOURS[nxt] && !seen[nxt] && (nxt!=='ladder' || !coachedView())){
     markTourSeen(tourKey);
-    tourKey = null;
+    tourKey = null; tourList = [];
     return offerNext(nxt);
   }
   endTour();
@@ -5957,7 +5986,7 @@ function paintTour(){
 /* the screen moved out from under a running tour, so stop pointing at
    things that are no longer there. Not marked as seen: it never finished. */
 function abortTour(){
-  tourKey = null;
+  tourKey = null; tourList = [];
   tourLeaveMode();
   const el = document.getElementById('tour'); if(el) el.remove();
   document.body.style.overflow = '';
