@@ -1647,6 +1647,114 @@ export default async (request) => {
     return json({ ok: true });
   }
 
+  /* ── changing the address the account is keyed on ────────────────
+     Every table keys on email and the foreign keys cascade on delete but
+     not on update, so this is a migration, not an UPDATE. It runs in the
+     only order that works: create the new row, repoint the children, move
+     the settings, then drop the old one.
+
+     The new address is verified first. Sending a code to it proves the
+     person asking can read it, which is what stops a typo locking someone
+     out of their own account and stops a stolen session moving it. */
+  const EMAIL_TABLES = ['messages', 'progress', 'coach_notes', 'cycles',
+                        'submissions', 'free_checks', 'applications', 'questions'];
+  const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs'];
+
+  if (path === '/email/request' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const next = norm(body.next);
+    if (!next || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next)) {
+      return json({ error: 'That does not look like an email address' }, 400);
+    }
+    if (next === who) return json({ error: 'That is already your address' }, 400);
+
+    /* the password, so a borrowed phone cannot move the account */
+    const stored = await hashFor(db, who);
+    if (!stored || (await pwHash(String(body.password || ''))) !== stored) {
+      return json({ error: 'Current password is wrong' }, 401);
+    }
+    if (await getAcct(next)) return json({ error: 'There is already an account on that address' }, 409);
+    if ((await rateHit(`emailchg:${who}`, 3600000)) > 5) {
+      return json({ error: 'Too many attempts. Try again later.' }, 429);
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await setSetting(`emailchange:${who}`,
+      { next, code, expires: Date.now() + CODE_TTL, tries: 0 });
+    await email(next, 'Confirm your new email address',
+      mail({
+        title: 'Confirm your new address.',
+        paras: [`Your code is <b style="font-size:22px;letter-spacing:2px">${code}</b>.`,
+                `It moves the London Handstand Academy account from ${esc(who)} to this address, `
+                + `and it lasts fifteen minutes. If you did not ask for this, ignore it and nothing changes.`],
+        signoff: { name: 'London Handstand Academy' },
+      }));
+    return json({ ok: true, sent: next });
+  }
+
+  if (path === '/email/confirm' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const key = `emailchange:${who}`;
+    const pending = await getSetting(key);
+    if (!pending || !pending.next) return json({ error: 'Nothing waiting to confirm' }, 400);
+    if (Date.now() > (pending.expires || 0)) {
+      await dropSetting(key);
+      return json({ error: 'That code has expired. Start again.' }, 400);
+    }
+    if ((pending.tries || 0) >= 5) return json({ error: 'Too many attempts. Start again.' }, 429);
+    if (String(body.code || '').trim() !== pending.code) {
+      await setSetting(key, Object.assign({}, pending, { tries: (pending.tries || 0) + 1 }));
+      return json({ error: 'Wrong code' }, 401);
+    }
+
+    const next = norm(pending.next);
+    if (await getAcct(next)) {
+      await dropSetting(key);
+      return json({ error: 'There is already an account on that address' }, 409);
+    }
+
+    const old = await getAcct(who);
+    if (!old) return json({ error: 'No account to move' }, 404);
+
+    /* 1. the new row first, or the foreign keys have nothing to point at */
+    const moved = Object.assign({}, old, { email: next });
+    await supa.upsert('accounts', moved, 'email');
+    /* 2. every child table */
+    for (const t of EMAIL_TABLES) {
+      await supa.update(t, `email=eq.${enc(who)}`, { email: next }).catch(() => {});
+    }
+    /* 3. the settings that carry the address in their key */
+    for (const k of SETTING_KEYS) {
+      const v = await getSetting(`${k}:${who}`);
+      if (v !== null && v !== undefined) {
+        await setSetting(`${k}:${next}`, v);
+        await dropSetting(`${k}:${who}`);
+      }
+    }
+    /* 4. and only now the old row, which cascades away anything missed */
+    await supa.remove('codes', `email=eq.${enc(who)}`).catch(() => {});
+    await supa.remove('accounts', `email=eq.${enc(who)}`);
+    await dropSetting(key);
+
+    /* both addresses hear about it: the old one because losing an account
+       silently is how a takeover goes unnoticed */
+    await email(who, 'Your email address was changed',
+      mail({ title: 'Your address has moved.',
+        paras: [`Your London Handstand Academy account now uses ${esc(next)}. `
+              + `If this was not you, reply to this email straight away.`],
+        signoff: { name: 'London Handstand Academy' } }));
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `${old.name || who} changed their email`,
+      `<p style="font:16px/1.6 system-ui">${esc(old.name || '')} moved from ${esc(who)}
+       to ${esc(next)}. The roster still lists the old address, so update it.</p>`);
+
+    /* a fresh token, because the old one is signed for the old address */
+    return json({ ok: true, email: next,
+                  token: await sign({ scope: 'app', email: next, exp: Date.now() + TOKEN_TTL }) });
+  }
+
   if (path === '/messages') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
