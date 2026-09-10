@@ -2217,6 +2217,13 @@ function loadState(){
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
       if(d.perWeek) st.perWeek=d.perWeek;
+      /* the quiz followed the phone, not the person, so a new device or a
+         cleared cache asked all of it again */
+      if(d.intake && Object.keys(d.intake).length){
+        st.intake=Object.assign({}, d.intake, st.intake||{});
+        if(st.intake.level!=null) st.quizDone=true;
+      }
+      if(d.quizDone) st.quizDone=true;
     if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
       save(); render();
     })
@@ -2229,6 +2236,7 @@ function saveState(){
     stateQueued=null;
     fetch(AUTH.state,{method:'POST',headers:authed(),body:JSON.stringify({
       dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
+      intake:st.intake||{}, quizDone:!!st.quizDone,
       ladderDone:st.ladderDone||{}
     })}).catch(()=>{});
   }, 800);
@@ -2666,6 +2674,7 @@ function playerShell(){
       <span class="p-clock" id="p-clock"></span>
       <span class="p-ctrls">
         <span class="p-elapsed" id="p-elapsed"></span>
+        <button class="p-x" id="p-sound" title="Sound" onclick="toggleSound()"></button>
         <button class="p-x" id="p-pause" title="Pause">II</button>
         <button class="p-x" id="p-exit" title="End">✕</button>
       </span>
@@ -2798,7 +2807,7 @@ function showStep(){
     const hold=isHoldDose(it.d);
     tTotal=left=hold?0:work(it);
     if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
-      `<video src="${it.url}" autoplay loop muted playsinline></video>`; }
+      `<video src="${it.url}" autoplay loop playsinline ${soundOn()?'':'muted'}></video>`; }
     else { vw.className='p-vwrap novideo';
       vw.innerHTML='<div class="p-vfail">Filming soon — the cues are the drill</div>'; }
     const rp=repOf(it), cues=it.cues||[];
@@ -2821,6 +2830,9 @@ function showStep(){
   $('#p-fill').style.width=((qi/Q.length)*100).toFixed(1)+'%';
   $('#p-scroll').scrollTop=0;
   paintClock(); paintPause();
+  const sb=$('#p-sound');
+  if(sb){ sb.innerHTML=soundOn()?VB_SPK:VB_MUTED;
+          sb.setAttribute('aria-label', soundOn()?'Sound on':'Sound off'); }
   clearInterval(tick_); tick_=null;
   if(tTotal>0 && !paused){ lastT=Date.now(); tick_=setInterval(step,250); }
 }
@@ -2838,7 +2850,9 @@ function advance(){
   if(phase==='work'){
     const s=Q[qi];
     st.tick[key(st.day,s.gi,s.ii)]=true; save();
-    if(qi<Q.length-1){ phase='rest'; showStep(); return; }
+    /* the early warm-up drills run straight through, and a rest of zero
+       used to leave the player sat on a Rest card with no timer to end it */
+    if(qi<Q.length-1 && rest(Q[qi], qi, Q) > 0){ phase='rest'; showStep(); return; }
   }
   phase='work'; qi++;
   if(qi>=Q.length){ endPlayer(true); return; }
@@ -2880,7 +2894,26 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
   if(done){ st.ovSummary=true; openOv('summary'); }
   else if(partWay){ render(); openOv('why'); }
   else render(); }
-function beep(){ try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
+/* One switch for the lot: the rest chime, the follow-along clip and every
+   demo. It was per video and reset on each render, so turning sound on was
+   something you did over and over. */
+const soundOn = () => st.sound !== false;
+function toggleSound(){
+  st.sound = !soundOn(); save();
+  document.querySelectorAll('#player video, .vb video').forEach(v=>{
+    try{ v.muted = !soundOn(); }catch(e){}
+  });
+  document.querySelectorAll('[data-vb-sound]').forEach(b=>{
+    b.innerHTML = soundOn()?VB_SPK:VB_MUTED;
+    b.setAttribute('aria-label', soundOn()?'Sound on':'Sound off');
+  });
+  ['#p-sound','#l-sound'].forEach(sel=>{
+    const b=document.querySelector(sel);
+    if(b){ b.innerHTML = soundOn()?VB_SPK:VB_MUTED;
+           b.setAttribute('aria-label', soundOn()?'Sound on':'Sound off'); }
+  });
+}
+function beep(){ if(!soundOn()) return; try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
   o.frequency.value=660;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.0001,a.currentTime);
   g.gain.exponentialRampToValueAtTime(.2,a.currentTime+.01);g.gain.exponentialRampToValueAtTime(.0001,a.currentTime+.3);
   o.start();o.stop(a.currentTime+.31);}catch(e){} }
@@ -2908,7 +2941,7 @@ const VB_MUTED='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stro
 function vidBlock(url, ratio, fit){
   return `<div class="vb" data-vb style="position:relative;border-radius:22px;overflow:hidden;
     background:#000;margin-bottom:18px;cursor:pointer">
-    <video src="${url}#t=0.6" muted loop playsinline preload="metadata" autoplay
+    <video src="${url}#t=0.6" ${soundOn()?'':'muted'} loop playsinline preload="metadata" autoplay
       style="display:block;width:100%;aspect-ratio:${ratio||'4/3'};object-fit:${fit||'cover'};background:#11150f"></video>
     <div data-vb-play style="position:absolute;inset:0;display:grid;place-items:center;
       background:rgba(0,0,0,.18);opacity:0;transition:opacity .18s;pointer-events:none">
@@ -2918,9 +2951,9 @@ function vidBlock(url, ratio, fit){
       padding:12px 14px;background:linear-gradient(transparent,rgba(0,0,0,.55))">
       <div data-vb-track style="flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.3)">
         <div data-vb-fill style="height:100%;width:0;border-radius:2px;background:#fff"></div></div>
-      <button data-vb-sound aria-label="Unmute" style="flex:none;width:30px;height:30px;border:none;
+      <button data-vb-sound aria-label="Sound" style="flex:none;width:30px;height:30px;border:none;
         border-radius:50%;background:rgba(255,255,255,.18);color:#fff;cursor:pointer;
-        display:grid;place-items:center;padding:0">${VB_MUTED}</button>
+        display:grid;place-items:center;padding:0">${soundOn()?VB_SPK:VB_MUTED}</button>
     </div></div>`;
 }
 document.addEventListener('click',function(e){
@@ -2928,10 +2961,10 @@ document.addEventListener('click',function(e){
   const v=box.querySelector('video'); if(!v) return;
   const sound=e.target.closest('[data-vb-sound]');
   if(sound){
-    v.muted=!v.muted;
-    sound.innerHTML = v.muted ? VB_MUTED : VB_SPK;
-    sound.setAttribute('aria-label', v.muted?'Unmute':'Mute');
-    if(!v.muted && v.paused) v.play().catch(()=>{});
+    /* the toggle is the app's setting, not this one clip's, so it holds
+       across drills and across sessions */
+    toggleSound();
+    if(soundOn() && v.paused) v.play().catch(()=>{});
     return;
   }
   const track=e.target.closest('[data-vb-track]');
@@ -3170,6 +3203,10 @@ function drawOv(){
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
     const mode=st.listMode||'work';
     body=`<button class="fsbtn" onclick="toggleFull()">${st.ovFull?'Shrink':'Full screen'}</button>
+      <button id="l-sound" onclick="toggleSound()" aria-label="${soundOn()?'Sound on':'Sound off'}"
+        style="position:absolute;top:16px;right:96px;width:32px;height:32px;border:1px solid rgba(17,17,17,.14);
+        border-radius:50%;background:#fff;color:var(--ink);cursor:pointer;display:grid;place-items:center;
+        padding:0">${soundOn()?VB_SPK:VB_MUTED}</button>
       <div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
         ${(Q||[]).length} drills · ${mins} minutes${mode==='work'&&ticked?' · '+ticked+' done':''}</div>
       ${mode==='prep'?`<button class="btn" style="width:100%;margin-bottom:14px"
@@ -4279,7 +4316,7 @@ function finishIntake(){
   st.stage=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
   st.quizDone=true; st.oriented=false;
   st.tab = st.email ? 'home' : 'joinFree';
-  save(); sendIntake(); render();
+  save(); saveState(); sendIntake(); render();
 }
 /* the answers are worth having on the coach's side, not just in a browser */
 function sendIntake(){
@@ -4573,12 +4610,13 @@ const explainerToday = () =>
    Landing on the ladder meant landing on five stage cards and a choice.
    This is the screen that says what to do now — the ladder is still
    there to browse, it is just no longer the front door. */
+/* The quiz asks how many days a week, and on Foundations the answer was
+   thrown away: the written week is three days, so everyone got three
+   whatever they said. The week is built to the number they chose now,
+   cycling the written days when they want more than there are. */
 function weekTarget(){
-  /* a stage with a written week is the week; the quiz frequency only decides
-     the count where there is no plan to follow */
-  const plan=(typeof WEEK!=='undefined') ? WEEK[curStage()] : null;
-  if(plan && plan.length) return plan.length;
-  return st.perWeek || levelDef().def;
+  const n = st.perWeek || (levelDef()||{}).def || 3;
+  return Math.max(1, Math.min(7, n));
 }
 function sessionsThisWeek(){
   const wk=Date.now()-7*864e5;
@@ -5222,7 +5260,17 @@ const WRIST_CELLS=[
 ];
 function weekCells(){
   const plan=weekPlan();
-  if(plan) return plan.concat(WRIST_CELLS);
+  if(plan){
+    const n=weekTarget();
+    const days=Array.from({length:n},(_,i)=>{
+      const d=plan[i % plan.length];
+      /* past the written week it repeats, and says so rather than
+         pretending it is a different session */
+      return (i < plan.length) ? d
+        : Object.assign({}, d, {sub:(d.sub||'')+' (again)'});
+    });
+    return days.concat(WRIST_CELLS);
+  }
   /* the training days, then the two short wrist and mobility days that sit
      between them — they are part of the week, so they belong on it. */
   const n=weekTarget(), st1=STAGES[curStage()]||{};

@@ -1128,6 +1128,18 @@ export default async (request) => {
         }
         cur.ladderDone = m;
       }
+      /* the quiz answers, so a new phone does not ask them all again */
+      if (body.intake && typeof body.intake === 'object') {
+        const i = body.intake, out = {};
+        for (const k of ['goal', 'level', 'mins', 'days', 'baseline']) {
+          if (i[k] !== undefined && i[k] !== null) {
+            out[k] = typeof i[k] === 'string' ? String(i[k]).slice(0, 80) : i[k];
+          }
+        }
+        if (Array.isArray(i.niggles)) out.niggles = i.niggles.slice(0, 20).map(x => String(x).slice(0, 40));
+        cur.intake = out;
+      }
+      if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
       if (body.time !== undefined) {
         const t = Number(body.time);
         if ([15, 30, 45].includes(t)) cur.time = t;
