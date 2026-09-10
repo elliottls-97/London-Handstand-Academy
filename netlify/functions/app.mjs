@@ -1705,6 +1705,9 @@ export default async (request) => {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      /* usage and the chat only. A reset is about wiping what somebody has
+         done, never what they have been given, so the programme, their
+         check points and their explainers are all out of scope. */
       const want = Array.isArray(body.parts) ? body.parts : ['activity', 'chat', 'tracking'];
       const done = [];
 
@@ -1712,13 +1715,6 @@ export default async (request) => {
         await supa.remove('progress', `email=eq.${enc(e)}`);
         await supa.update('accounts', `email=eq.${enc(e)}`, { last_seen: null }).catch(() => {});
         done.push('activity');
-      }
-      if (want.includes('programme')) {
-        /* the saved record is the coach's edits, the check points and the
-           explainer switches. Dropping it falls the client back to the
-           programme in the file, which is never touched. */
-        await dropSetting(`programme:${e}`);
-        done.push('programme');
       }
       if (want.includes('tracking')) {
         await setSetting(`track:${e}`, {});
@@ -1817,7 +1813,10 @@ export default async (request) => {
         const next = Object.assign({}, base, {
           client: String(body.client || base.client || '').slice(0, 60),
           goal: String(body.goal || base.goal || '').slice(0, 300),
-          days: (Array.isArray(body.days) ? body.days : []).slice(0, 14).map((d, i) => ({
+          /* Only what was sent is replaced. Posting check points on their
+             own used to blank the programme, because days defaulted to an
+             empty list rather than to what was already there. */
+          days: (Array.isArray(body.days) ? body.days : (base.days || [])).slice(0, 14).map((d, i) => ({
             id: String(d.id || (i + 1)).slice(0, 8),
             label: String(d.label || `Day ${i + 1}`).slice(0, 40),
             sub: String(d.sub || '').slice(0, 60),

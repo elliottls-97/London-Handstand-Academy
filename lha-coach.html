@@ -591,13 +591,13 @@ function setFormCheck(email,used){
 /* Wiping a client's account is not something to do by accident, so it asks
    twice and says exactly what goes. */
 function resetClient(email){
+  /* usage and the chat. Never the programme: a reset wipes what they have
+     done, not what they have been given. */
   const parts=[];
-  if(confirm('Clear '+email+"'s activity? Sessions, opens, holds and last seen all go.")) parts.push('activity');
-  if(confirm('Clear their tracking? Habits, metrics, check-ins, check points and photos all go.')) parts.push('tracking');
-  if(confirm('Reset their programme to the original file? Your edits here, their check points and their explainer switches all go. The file itself is untouched.')) parts.push('programme');
+  if(confirm('Clear '+email+"'s usage? Sessions, opens, holds, last seen, and everything they have logged: habits, metrics, check-ins, check point readings and photos.")) parts.push('activity','tracking');
   if(confirm('Clear the chat? Every message goes and one opening message from you is left in its place.')) parts.push('chat');
   if(!parts.length) return;
-  if(!confirm('Last check. Clearing '+parts.join(', ')+' for '+email+'. This cannot be undone.')) return;
+  if(!confirm('Last check. Clearing '+(parts.indexOf('activity')>-1?'usage':'')+(parts.length>2||parts[0]==='chat'?(parts.indexOf('activity')>-1?' and ':'')+'the chat':'')+' for '+email+'. Their programme and check points are not touched. This cannot be undone.')) return;
   fetch(API+'/reset',{method:'POST',headers:hdr(),body:JSON.stringify({email, parts})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not do that')))
     .then(d=>{ prog[email]=null; tracks[email]=null; cpDefs[email]=null; pendingCoach=[];
@@ -606,6 +606,101 @@ function resetClient(email){
                openThread(email); })
     .catch(e=>alert(String(e)));
 }
+/* Check points were only reachable by opening the programme builder, which
+   is a lot of screen for four short rows. This edits just them. */
+let cpEdit=null;
+function openCps(email){
+  cpEdit={email, list:null, busy:true}; draw();
+  fetch(API+'/programme?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ cpEdit={email, list:((d.plan||{}).checkpoints||[]).slice(), dirty:false}; draw(); })
+    .catch(()=>{ cpEdit={email, list:[], dirty:false, error:true}; draw(); });
+}
+function closeCps(){
+  if(cpEdit && cpEdit.dirty && !confirm('Close without saving?')) return;
+  cpEdit=null; draw();
+}
+function cpAdd(){ cpEdit.list.push({k:'cp'+Date.now().toString(36),n:'',kind:'secs',note:'',video:true,from:''});
+  cpEdit.dirty=true; draw(); }
+function cpDel(i){ cpEdit.list.splice(i,1); cpEdit.dirty=true; draw(); }
+function cpSet(i,f,v){ const c=cpEdit.list[i]; if(!c) return;
+  c[f]=(f==='video')?!!v:v; cpEdit.dirty=true; }
+function cpSave(){
+  const b=document.getElementById('cpSave'); if(b){ b.disabled=true; b.textContent='Saving…'; }
+  fetch(API+'/programme',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email:cpEdit.email, checkpoints:cpEdit.list})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(()=>{ cpEdit.dirty=false; cpDefs[cpEdit.email]=cpEdit.list.slice();
+      const c=document.getElementById('cpSave');
+      if(c){ c.disabled=false; c.textContent='Saved'; setTimeout(()=>{ const x=document.getElementById('cpSave');
+        if(x) x.textContent='Save check points'; },1500); } })
+    .catch(()=>{ const c=document.getElementById('cpSave');
+      if(c){ c.disabled=false; c.textContent='Could not save, try again'; } });
+}
+function cpsHTML(){
+  if(!cpEdit) return '';
+  const rows=(cpEdit.list||[]).map((c,i)=>`<div style="border:1px solid var(--line);border-radius:14px;
+    padding:12px 13px;margin-top:9px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <input value="${esc(c.n||'')}" placeholder="What they have to be able to do"
+        oninput="cpSet(${i},'n',this.value)"
+        style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+        font:400 14px/1 var(--sans);background:#fff">
+      <select onchange="cpSet(${i},'kind',this.value)"
+        style="flex:none;border:1px solid var(--line);border-radius:10px;padding:9px;
+        font:400 13px/1 var(--sans);background:#fff">
+        ${[['secs','Seconds'],['count','How many'],['rate','Out of ten'],['yn','Yes or no']]
+          .map(([v,l])=>`<option value="${v}"${c.kind===v?' selected':''}>${l}</option>`).join('')}
+      </select>
+      <button onclick="cpDel(${i})" style="flex:none;border:0;background:none;cursor:pointer;
+        color:var(--grey2);font:600 16px/1 var(--sans);padding:4px 6px">×</button>
+    </div>
+    <input value="${esc(c.note||'')}" placeholder="How to measure it (optional)"
+      oninput="cpSet(${i},'note',this.value)"
+      style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+      font:400 13px/1 var(--sans);background:#fff">
+    <div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font:400 12.5px/1 var(--sans);
+        color:var(--grey)"><input type="checkbox" ${c.video!==false?'checked':''}
+        onchange="cpSet(${i},'video',this.checked)"> Ask for a clip</label>
+      <label style="display:flex;align-items:center;gap:8px;font:400 12.5px/1 var(--sans);color:var(--grey)">
+        Show from <input type="date" value="${esc(c.from||'')}" onchange="cpSet(${i},'from',this.value)"
+        style="border:1px solid var(--line);border-radius:9px;padding:7px 9px;font:400 12.5px/1 var(--sans);
+        background:#fff"></label>
+    </div>
+  </div>`).join('');
+  const nm=(clients.find(x=>x.email===cpEdit.email)||{}).name||cpEdit.email;
+  return `<div onclick="if(event.target===this)closeCps()" style="position:fixed;inset:0;z-index:70;
+    background:rgba(8,20,18,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    display:flex;justify-content:center;overflow-y:auto;padding:22px 14px">
+    <div style="width:100%;max-width:620px;height:max-content;background:var(--bg);border-radius:22px;
+      padding:20px;box-shadow:0 30px 70px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font:400 22px/1.1 var(--serif);color:var(--ink)">Check points</div>
+          <div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin-top:4px">
+            ${esc(nm)}${cpEdit.dirty?' · unsaved changes':''}</div>
+        </div>
+        <button onclick="closeCps()" style="${bGhost}">Close</button>
+        <button id="cpSave" class="send" onclick="cpSave()">Save check points</button>
+      </div>
+      ${cpEdit.busy?`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:14px">
+        Loading…</div>`
+       :`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+          What they have to be able to do. They log these on Progress, and a new one that is
+          already showing emails them if their emails are on. Their programme is not touched.</div>
+        ${rows||`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:12px">
+          None set. Without any, they fall back to the free ladder's.</div>`}
+        <button onclick="cpAdd()" style="${bGhost};margin-top:12px">+ Check point</button>`}
+    </div></div>`;
+}
+function cpsBtnHTML(email){
+  const n=(cpDefs[email]||[]).length;
+  return `<button onclick="openCps('${esc(email)}')" style="background:none;border:none;cursor:pointer;
+    padding:8px 0;font:500 12px/1 var(--sans);color:var(--forest);text-decoration:underline;
+    text-underline-offset:3px">Check points${n?' · '+n:''}</button>`;
+}
+
 function resetHTML(email){
   return `<button onclick="resetClient('${esc(email)}')" style="background:none;border:none;
     cursor:pointer;padding:8px 0;font:500 12px/1 var(--sans);color:var(--terra);
@@ -2189,6 +2284,7 @@ function threadCardHTML(msgs){
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
         ${sel?mailRowHTML(sel):''}
         ${sel?formCheckHTML(sel):''}
+        ${sel?cpsBtnHTML(sel):''}
         ${sel?resetHTML(sel):''}
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">
           ⌘+Enter sends${sel&&openSub(sel)?' · “Send &amp; close” answers their form check and tells them it is ready':''}</div>
@@ -2323,7 +2419,7 @@ function draw(){
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       ${threadCardHTML(msgs)}
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
-      </div>`}`+builderHTML();
+      </div>`}`+builderHTML()+cpsHTML();
 }
 TOKEN?load():gate('');
 </script></body></html>
