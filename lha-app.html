@@ -3529,21 +3529,26 @@ function drawOv(){
           ${si>curStage()+1?`<p style="margin:8px 0 0;font:400 13px/1.45 var(--sans);color:var(--grey2)">
             ${si-curStage()} stages above you. They open one at a time.</p>`:''}`;
       })()}
-      ${isNow?`
+      ${isNow?(function(){
+        /* This bar measured a max hold while the gate beside it counted
+           check points, so every check point logged could sit next to a
+           bar reading 0s and copy pointing at a timer. One measure now. */
+        const p=cpProgress(si), pc=p.of?Math.round(p.done/p.of*100):0;
+        return `
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:16px">
-          <span style="font:600 10.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">YOUR BEST</span>
-          <span style="font:600 14px/1 var(--sans)">${bestS}s of ${goalS}s</span></div>
+          <span style="font:600 10.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">CHECK POINTS</span>
+          <span style="font:600 14px/1 var(--sans)">${p.done} of ${p.of}</span></div>
         <div style="margin-top:9px;height:5px;border-radius:99px;background:rgba(17,17,17,.1);overflow:hidden">
-          <div style="height:100%;width:${bestPct}%;border-radius:99px;
+          <div style="height:100%;width:${pc}%;border-radius:99px;
             background:${ready?'var(--forest)':'var(--amber)'}"></div></div>
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-          ${ready?"You've hit the marker. Move up whenever you're ready."
-                 :'Use the hold timer to log an attempt — that is what fills this bar.'}</div>
+          ${ready?"That is all of them. Move up whenever you are ready."
+                 :'Log them on the Progress tab, under Check points.'}</div>
         ${STAGES[si+1]?`<button class="btn" style="width:100%;margin-top:14px"
           onclick="closeOv();advanceStage()">${ready?'Move up to '+esc(STAGES[si+1].n)
             :'Move up anyway'}</button>`:''}
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-          Nothing is locked by the marker — it is a guide, and you can drop back.</div>`
+          Nothing is locked. You can move up early, and you can drop back.</div>`;})()
       :isDone?`<button class="btn2" style="width:100%;margin-top:16px"
           onclick="closeOv();dropToStage(${si})">Drop back to this stage</button>`:''}
       <div style="height:1px;background:rgba(17,17,17,.08);margin:20px 0 4px"></div>`;
@@ -4626,35 +4631,6 @@ function knowCard(){
       ${gaps.length>1?`<div style="font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px;
         text-align:center">${gaps.length-1} more after that</div>`:''}`
     :''}</div>`;
-}
-
-function nextStageCard(){
-  const s=STAGES[curStage()], next=STAGES[curStage()+1];
-  const goal=parseInt(s.hold,10)||30, best=st.bestHold||0;
-  const pct=Math.min(100,Math.round(best/goal*100));
-  const ready=stageReady();
-  return `<div class="card" style="padding:20px">
-    <div class="kick2">MOVING UP</div>
-    <div class="h-md" style="font-size:20px;margin-top:8px">
-      ${next?'Next: '+esc(next.n):"You're at the top"}</div>
-    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
-      ${next
-        ? 'The marker for '+esc(s.n)+' is <b>'+esc(s.hold)+'</b> — '+esc((s.goal||'').toLowerCase())
-        : 'Nothing above this one. Keep sharpening what you have.'}</div>
-    ${next?`
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:14px">
-        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">YOUR BEST</span>
-        <span style="font:700 13px/1 var(--sans)">${best}s of ${goal}s</span></div>
-      <div style="height:6px;border-radius:3px;background:var(--mist);margin-top:9px;overflow:hidden">
-        <i style="display:block;height:100%;width:${pct}%;background:${ready?'var(--forest)':'var(--amber)'}"></i></div>
-      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-        ${ready ? "You've hit the marker. Move up whenever you're ready."
-                : 'Use the hold timer to log an attempt — that is what fills this bar.'}</div>
-      <button class="btn" style="width:100%;margin-top:14px;${ready?'':'background:var(--mist);color:var(--forest)'}"
-        onclick="advanceStage()">${ready?'Move up to '+esc(next.n):"Move up anyway"}</button>
-      <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-        Nothing is locked by the marker — it is a guide, and you can drop back.</div>`:''}
-    </div>`;
 }
 
 /* the two escape hatches, small and at the foot of the page rather than
