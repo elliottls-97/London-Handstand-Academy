@@ -2620,8 +2620,8 @@ function screenMore(){
               color:${(!!st.asFree)===f?'var(--bg)':'var(--ink)'}">${l}</button>`).join('')}
         </div>
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
-          Your programme is always here. The ladder is the free five-stage
-          version, and some people like having both.</div></div>`:''}
+          Your programme is always here. The ladder is the six-stage version,
+          and some people like having both.</div></div>`:''}
       <div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
         color:var(--grey2);margin:0 2px 12px">Drill library · ${all.length}</div>
       ${cards}
@@ -3314,7 +3314,7 @@ function drawOv(){
           To change a card or cancel, message Elliott and it is done the same day.</div>`:''}
       </div>`:''}
       ${(!st.plus&&!st.in)?`<button class="btn" style="width:100%;margin-top:14px"
-        onclick="closeOv();openStage(FREE_STAGES)">Unlock the full ladder — £5/mo</button>`:''}
+        onclick="closeOv();openStage(FREE_STAGES)">Unlock the rest of the ladder, £5/mo</button>`:''}
       <button class="btn2" style="width:100%;margin-top:14px" onclick="openOv('password')">Change password</button>
       <button class="btn2" style="width:100%;margin-top:10px" onclick="openOv('emailchange')">Change email</button>
       <button class="btn2" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>`;
@@ -3842,11 +3842,24 @@ const nameFrom=e=>{const n=(e||'').split('@')[0].split(/[._-]/)[0]; return n.cha
 function libraryDrills(){
   /* prefer the full library; fall back to whatever the plan contains
      so the screen is never empty on a cold first load */
-  if (LIBRARY && LIBRARY.length) return LIBRARY;
-  const out=[];
-  DATA.days.forEach(d=>d.groups.forEach(g=>g.items.forEach(it=>{
-    if(!out.some(x=>x.v===it.v)) out.push(it); })));
-  return out;
+  const base = (LIBRARY && LIBRARY.length) ? LIBRARY : (function(){
+    const out=[];
+    DATA.days.forEach(d=>d.groups.forEach(g=>g.items.forEach(it=>{
+      if(!out.some(x=>x.v===it.v)) out.push(it); })));
+    return out;
+  })();
+  /* A coached client has a written programme, and anyone who has paid has
+     the ladder, so both see the lot. On free it was every drill in every
+     stage, which gave away the material the paid stages are for. */
+  if (isPlus()) return base;
+  const open = new Set();
+  for (let i = 0; i < FREE_STAGES && i < STAGES.length; i++) {
+    (STAGE_SECTIONS[i] || []).forEach(sec =>
+      (sec.items || []).forEach(it => open.add(it.v)));
+    ((STAGES[i] || {}).drillIds || []).forEach(v => open.add(v));
+  }
+  if (typeof WRIST_DAY !== 'undefined') (WRIST_DAY.drills || []).forEach(v => open.add(v));
+  return base.filter(d => open.has(d.v));
 }
 function libToArray(lib){
   if(!lib || !lib.names) return [];
@@ -4414,8 +4427,8 @@ function sendIntake(){
     body:JSON.stringify({intake:st.intake||{},stage:st.stage})}).catch(()=>{});
 }
 
-const TIERS=[['The six-stage ladder','✓','✓'],['Level-finder quiz','✓','—'],['Quick session builder','✓','✓'],
- ['Guided follow-along player','✓','✓'],['Drill library','Stage-gated','All drills'],['Check points','✓','✓'],
+const TIERS=[['The six-stage ladder','Foundations free','✓'],['Level-finder quiz','✓','—'],['Quick session builder','✓','✓'],
+ ['Guided follow-along player','✓','✓'],['Drill library','Foundations only','All drills'],['Check points','✓','✓'],
  ['Offline use','✓','✓'],['Programme written for you','—','✓'],["Coach's read on the block",'—','✓'],
  ['Too easy / too hard flags','Self only','To Elliott'],['Chat with Elliott','About coaching','Anything'],
  ['Form check on your footage','One free','Unlimited'],['Two-week test reviewed','Self-scored','By Elliott'],
@@ -5152,9 +5165,10 @@ function ladderTick(v,el){
 }
 /* Stages 1-3 are free. Stage 4 onwards is the £5 tier. Kept as one
    constant so the line can move without hunting through the file. */
-/* Foundations, Wall Work and Take-Off are free to train. Freestanding and the
-   Press are the £5 ones. */
-const FREE_STAGES = 3;
+/* Foundations is what free gets. Everything above it is the £5 ladder.
+   Three stages were free, which meant most of the coached material was
+   sitting there for nothing. */
+const FREE_STAGES = 1;
 /* The explainers are what an account opens — see FREE_EXPLAINERS. Drill
    demos are part of training, and these stages train free. */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
@@ -5173,8 +5187,8 @@ function screenUpgradeBody(si){
       <div class="kick2">THE FULL LADDER</div>
       <div style="font:400 26px/1.1 var(--serif);margin-top:10px">£5 a month</div>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:16px">
-        ${['The Press — compress, unroll and press to handstand',
-           'Every drill with cues and demo video',
+        ${['Five more stages, from the wall to a press',
+           'Every drill in the library, with cues and a demo',
            'Quick sessions built around the time you have',
            'Your progress and holds tracked across devices',
            'Cancel any time']
