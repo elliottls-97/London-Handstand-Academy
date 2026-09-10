@@ -372,7 +372,30 @@ function work(it){
   if(n.includes('pancake')) return 90;
   return 40;
 }
-const rest=it=>/entries|build to/.test((it.n+it.d).toLowerCase())?60:35;
+/* Rest is not one number. The first few wrist drills run straight through,
+   the rest of the warm-up needs a breath, and strength work later on needs
+   long enough to actually recover or the next set is not the same set. */
+const STRENGTH_RE=/push[- ]?up|chaturanga|zombie|pull|row|lolasana|press[- ]?up|dip|lift[s]?\b|shrug/i;
+function rest(x, i, list){
+  /* takes a queue entry {it,grp} or a bare drill, so every caller works */
+  const it = (x && x.it) ? x.it : (x||{});
+  const grp = String((x && x.grp) || it.grp || '');
+  const t = ((it.n||'') + ' ' + (it.d||'')).toLowerCase();
+  if(Array.isArray(list) && i!=null){
+    /* the first four of the warm-up run straight through, the rest of it
+       gets a breath */
+    const warm = list.filter(y => /warm/i.test((y && y.grp) || ''));
+    const pos = warm.indexOf(list[i]);
+    if(pos > -1) return pos < 4 ? 0 : 10;
+  } else if(/warm/i.test(grp)) {
+    return 10;
+  }
+  /* strength needs long enough that the next set is the same set, and it
+     wins over the build-to rule: "build to 10" push ups are strength */
+  if(/strength|press\b/i.test(grp) || STRENGTH_RE.test(it.n||'')) return 90;
+  if(/entries|build to/.test(t)) return 60;
+  return 35;
+}
 function queue(){
   const d=day(), q=[];
   d.groups.forEach((g,gi)=>g.items.forEach((it,ii)=>{
@@ -425,7 +448,8 @@ function logDay(kind){
   /* "some of it" with nothing ticked is not the same as none of it. Without
      this the calendar paints an honest part-session as an empty one. */
   const approx = kind==='part' && !ticked;
-  const mins = kind==='none' ? 0 : Math.round((queue().reduce((a,x)=>a+work(x.it)+rest(x.it),0))/60);
+  const _q = queue();
+  const mins = kind==='none' ? 0 : Math.round((_q.reduce((a,x,_i)=>a+work(x.it)+rest(x,_i,_q),0))/60);
   st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
   st.prog.sessions.push({
     at:Date.now(), done:kind==='all', kind, mins, mode:'checkin', approx,
@@ -477,7 +501,7 @@ function screenToday(){
   const d=day(), q=queue(), done=allItems(d).filter((_,i)=>false).length;
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
-  const mins=q.reduce((a,s)=>a+work(s.it)+rest(s.it),0);
+  const mins=q.reduce((a,s,_i)=>a+work(s.it)+rest(s,_i,q),0);
   const hGrid=weekGrid(), hWeek=weekNow();
   const weeks=[1,2,3,4,5,6].map(w=>{
     const days=[0,1,2].map(i=>{
@@ -527,7 +551,7 @@ function screenToday(){
   <div class="pad" style="padding-top:14px">
     <div style="display:flex;gap:9px">
       <button class="btn2" style="flex:1" onclick="go('plan')">See the drills</button>
-      <button class="btn2" style="flex:1" onclick="openOv('adjust')">Can't train?</button>
+      <button class="btn2" style="flex:1" onclick="openLog()">Log today</button>
     </div>
   </div>
 
@@ -636,7 +660,10 @@ function screenToday(){
   ${(pts.length||(DATA.read||[]).length)?`<div class="pad">
     <div class="card" style="padding:20px">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <span class="kick2">ELLIOTT ON THIS BLOCK</span>
+        <span class="kick2">ELLIOTT ON THIS BLOCK${blockNew()?`
+          <span style="display:inline-block;margin-left:7px;padding:3px 7px;border-radius:99px;
+            background:var(--amber);color:#fff;font:700 8.5px/1 var(--sans);letter-spacing:.1em;
+            vertical-align:1px">UPDATED</span>`:''}</span>
 
       </div>
       ${pts.length?`<div class="h-md" style="margin-top:12px">What changed this block</div>
@@ -656,7 +683,7 @@ function screenToday(){
           ${shown.map(t=>`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(t)}</div>`).join('')}
         </div>
         ${paras.length>1?`<button class="back" style="color:var(--forest);font-weight:700;font-size:12.5px;
-          margin-top:11px;padding:0" onclick="st.readOpen=!st.readOpen;save();render()">${
+          margin-top:11px;padding:0" onclick="st.readOpen=!st.readOpen;markBlockSeen();render()">${
           st.readOpen?'Show less':'Read more'}</button>`:''}`;})():''}
     </div>
   </div>`:''}
@@ -781,9 +808,16 @@ function screenPlan(){
             </div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${esc(it.d)}</span>
-              <button class="rt easy ${rate==='easy'?'on':''}" onclick="rate('${it.v}','easy')">Too easy</button>
-              <button class="rt hard ${rate==='hard'?'on':''}" onclick="rate('${it.v}','hard')">Too hard</button>
+              ${planLogBtn(k,it)}
+              <button class="rt ${st.howOpen===k?'on':''}" onclick="st.howOpen=st.howOpen==='${k}'?null:'${k}';save();render()">How did it go?</button>
             </div>
+            ${st.howOpen===k?`<div style="display:flex;gap:7px;margin-top:8px">
+              <button class="rt easy ${rate==='easy'?'on':''}" style="flex:1"
+                onclick="rate('${it.v}','easy')">Too easy</button>
+              <button class="rt hard ${rate==='hard'?'on':''}" style="flex:1"
+                onclick="rate('${it.v}','hard')">Too hard</button>
+            </div>`:''}
+            ${st.repOpen===k?planStepper(k,it):''}
             ${it.nt?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(it.nt)}</div>`:''}
             ${openD&&it.url?`<div style="margin-top:11px">${vidBlock(it.url,'16/10')}</div>`:''}
             ${flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:18px;padding:14px">
@@ -820,6 +854,9 @@ function screenPlan(){
       <div style="height:4px;border-radius:999px;background:rgba(255,255,255,.15);margin-top:12px;overflow:hidden">
         <div style="height:100%;width:${total?Math.round(ticked/total*100):0}%;background:var(--sand);border-radius:999px"></div></div>
       <div data-tour="daytabs" style="display:flex;gap:7px;margin-top:13px">${tabs}</div>
+      <button onclick="startQueue(0)" style="margin-top:12px;width:100%;border:0;border-radius:14px;
+        padding:13px;background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans);cursor:pointer">
+        Follow along, ${esc(d.label)}</button>
     </div>
     <div data-tour="drillrows">${groups}</div>
     <div style="padding:22px 12px 0;display:flex;flex-direction:column;gap:11px">${planExtras()}</div>
@@ -1657,8 +1694,67 @@ function calPick(k){ st.calDay = (st.calDay===k) ? null : k; save(); render(); }
 /* Drills where the number they managed was not the number asked for. It is
    the most useful thing in the log and it was buried inside one day's
    breakdown, so neither of us was reading it. */
+/* The block note changes when the coach rewrites it, and nothing said so.
+   A stamp of what was last read, against what is there now. */
+function blockText(){
+  return JSON.stringify([(DATA.read||[]), (DATA.changed||[])]);
+}
+function blockNew(){
+  const t=blockText();
+  return !!t && t.length>4 && st.readSeen !== t;
+}
+function markBlockSeen(){ st.readSeen=blockText(); save(); }
+
 /* what the programme asks for, so sessions logged before the app started
    recording it are still readable rather than invisible */
+/* Logging by exception: the number is only worth typing when it was not the
+   number asked for, so the row shows the target until you say otherwise. */
+function planLogged(k){ const r=(st.planReps||{})[k]; return r==null?null:r; }
+function planLogBtn(k,it){
+  const got=planLogged(k), u=doseUnit(it.d);
+  if(got!=null) return `<button class="rt on" onclick="st.repOpen=st.repOpen==='${k}'?null:'${k}';save();render()">${got}${u} done</button>`;
+  return `<button class="rt" onclick="planOpenRep('${k}')">Did fewer?</button>`;
+}
+function planOpenRep(k){ st.repOpen=k; save(); render(); }
+function planStepper(k,it){
+  const u=doseUnit(it.d), step=u==='s'?5:1;
+  const want=recommendedReps(it)||0;
+  const v=(st.planReps||{})[k];
+  const cur=v==null?want:v;
+  return `<div style="display:flex;align-items:center;gap:9px;margin-top:9px;background:#f4efe9;
+    border-radius:16px;padding:11px 12px">
+    <span style="flex:1;font:400 12.5px/1.35 var(--sans);color:var(--grey)">
+      ${u==='s'?'How long did you hold it?':'How many did you do?'}</span>
+    <button class="rt" onclick="planRep('${k}',${-step},${want})" aria-label="Fewer">−</button>
+    <span style="flex:none;min-width:46px;text-align:center;font:400 19px/1 var(--serif)">${cur}${u}</span>
+    <button class="rt" onclick="planRep('${k}',${step},${want})" aria-label="More">+</button>
+    <button class="rt on" onclick="planRepDone('${k}')">Done</button>
+  </div>`;
+}
+function planRep(k,by,want){
+  st.planReps=st.planReps||{};
+  const cur=st.planReps[k]==null?want:st.planReps[k];
+  st.planReps[k]=Math.max(0,cur+by);
+  save(); render();
+}
+function planRepDone(k){ st.repOpen=null; save(); render(); sendPlanReps(); }
+/* it reaches the coach the same way a flag does */
+function sendPlanReps(){
+  if(!st.token) return;
+  const d=day(), out=[];
+  (d.groups||[]).forEach((g,gi)=>(g.items||[]).forEach((it,ii)=>{
+    const k=key(st.day,gi,ii), r=(st.planReps||{})[k];
+    if(r==null) return;
+    out.push({v:it.v, n:it.n, grp:g.name, got:st.tick[k]?1:0, of:1,
+              reps:r, want:recommendedReps(it)||0, dose:String(it.d||'').slice(0,40),
+              rate:(st.rate||{})[it.v]||''});
+  }));
+  if(!out.length) return;
+  reportProgress({session:{day:st.day, name:d.label||'', done:false, mode:'plan',
+    drills:out.length, mins:0, actual:0, got:out.filter(x=>x.got).length, of:out.length,
+    items:out.slice(0,40)}});
+}
+
 function prescribedFor(v){
   const days=(DATA&&DATA.days)||[];
   for(const d of days) for(const g of (d.groups||[])) for(const it of (g.items||[]))
@@ -2621,7 +2717,7 @@ function paintClock(){
   if(f) f.style.width = (tTotal>0 ? (1-left/tTotal)*100 : 0).toFixed(1)+'%';
   const e=$('#p-elapsed');
   if(e&&sessionStart) e.textContent = fmtT((Date.now()-sessionStart)/1000)+' / ~'+
-    Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60)+' min';
+    Math.round(Q.reduce((a,x,_i)=>a+work(x.it)+rest(x,_i,Q),0)/60)+' min';
 }
 
 
@@ -2680,7 +2776,7 @@ function showStep(){
 
   const vw=$('#p-vwrap'), body=$('#p-body');
   if(resting){
-    tTotal=left=rest(it);
+    tTotal=left=rest(Q[qi], qi, Q);
     vw.className='p-vwrap novideo'; vw.innerHTML='';
     /* only preview a genuinely different drill — the line above already
        names the next set of the current one */
@@ -2772,7 +2868,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
   })();
   reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done, items:rows,
     drills:Q.length,
-    mins:Math.round(Q.reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60),
+    mins:Math.round(Q.reduce((a,x,_i)=>a+work(x.it)+rest(x,_i,Q),0)/60),
     actual: sessionStart?Math.round((Date.now()-sessionStart)/60000):0,
     got: done?Q.length:qi, of: Q.length,
     /* where they stopped is the useful half of an abandoned session */
@@ -3070,7 +3166,7 @@ function drawOv(){
           </div>
         </div>
       </div>`;}).join('');
-    const mins=Math.round((Q||[]).reduce((a,q)=>a+work(q.it)+rest(q.it),0)/60);
+    const mins=Math.round((Q||[]).reduce((a,q,_i)=>a+work(q.it)+rest(q,_i,Q),0)/60);
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
     const mode=st.listMode||'work';
     body=`<button class="fsbtn" onclick="toggleFull()">${st.ovFull?'Shrink':'Full screen'}</button>
@@ -3882,7 +3978,7 @@ function qCount(){
   const n=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
   const el=document.getElementById('qcount');
   if(el) el.textContent = (Q||[]).length+' drills · '+
-    Math.round((Q||[]).reduce((a,q)=>a+work(q.it)+rest(q.it),0)/60)+' minutes'+(n?' · '+n+' done':'');
+    Math.round((Q||[]).reduce((a,q,_i)=>a+work(q.it)+rest(q,_i,Q),0)/60)+' minutes'+(n?' · '+n+' done':'');
   const fin=document.getElementById('qdone');
   if(fin) fin.hidden = !n;
 }
@@ -3916,7 +4012,7 @@ function finishChecklist(){
   const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
   if(!ticked) return;
   const done=ticked>=(Q||[]).length;
-  const mins=Math.round((Q||[]).reduce((a,x)=>a+work(x.it)+rest(x.it),0)/60);
+  const mins=Math.round((Q||[]).reduce((a,x,_i)=>a+work(x.it)+rest(x,_i,Q),0)/60);
   reportProgress({session:{
     day:st.day, name:((Q[0]&&Q[0].grp)||''), done, mode:'list',
     drills:Q.length, mins, actual:0, got:ticked, of:Q.length,

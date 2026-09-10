@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v6';
+const CACHE_VERSION = 'lha-v7';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 const VIDEO_CACHE   = CACHE_VERSION + '-video';
 
