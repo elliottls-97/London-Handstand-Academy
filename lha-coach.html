@@ -701,6 +701,93 @@ function cpsBtnHTML(email){
     text-underline-offset:3px">Check points${n?' · '+n:''}</button>`;
 }
 
+/* Name, address and password in one place. All three were scattered: the
+   name only settable when creating the account, the address not at all, and
+   the password only on the create form. */
+function acctDetails(email){
+  const c=clients.find(x=>x.email===email)||{};
+  const nm=(c.name||'').trim();
+  const say=t=>{ const m=document.getElementById('adMsg'); if(m) m.textContent=t; };
+
+  window.adRename=function(){
+    const v=(document.getElementById('adName')||{}).value.trim();
+    if(!v) return say('Give them a name.');
+    say('Saving…');
+    fetch(API+'/roster',{method:'POST',headers:hdr(),
+      body:JSON.stringify({email, name:v, coach:c.coach||''})})
+      .then(r=>r.ok?r.json():Promise.reject(r.status))
+      .then(()=>{ say('Name saved.'); load(); })
+      .catch(()=>say('Could not save that.'));
+  };
+  window.adMove=function(){
+    const v=(document.getElementById('adEmail')||{}).value.trim().toLowerCase();
+    if(!v||v===email) return say('Type the new address.');
+    if(!confirm('Move '+email+' to '+v+'?\n\nTheir programme, progress, check points and the whole chat move with it. They sign in with the new address from then on, and they are emailed to say so.')) return;
+    say('Moving…');
+    fetch(API+'/email',{method:'POST',headers:hdr(),body:JSON.stringify({email,next:v})})
+      .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not move it')))
+      .then(d=>{ say('Moved to '+d.to+'.'); sel=d.to; acct=null; load(); })
+      .catch(e=>say(String(e)));
+  };
+  window.adPw=function(){
+    const v=(document.getElementById('adPw')||{}).value||'';
+    if(v.length<8) return say('At least 8 characters.');
+    say('Setting…');
+    fetch(API+'/setpw',{method:'POST',headers:hdr(),body:JSON.stringify({email,password:v})})
+      .then(r=>r.ok?r.json():Promise.reject(r.status))
+      .then(()=>{ say('Password set. Tell them what it is, it is not emailed.');
+                  const el=document.getElementById('adPw'); if(el) el.value=''; })
+      .catch(()=>say('Could not set that.'));
+  };
+
+  const fld=(id,val,ph,btn,fn)=>`<div style="display:flex;gap:8px;margin-top:9px">
+    <input id="${id}" value="${esc(val||'')}" placeholder="${esc(ph)}"
+      style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+      font:400 14px/1 var(--sans);background:#fff">
+    <button onclick="${fn}" style="${bGhost};flex:none">${btn}</button></div>`;
+
+  return `<div onclick="if(event.target===this)closeAcct()" style="position:fixed;inset:0;z-index:70;
+    background:rgba(8,20,18,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    display:flex;justify-content:center;overflow-y:auto;padding:22px 14px">
+    <div style="width:100%;max-width:520px;height:max-content;background:var(--bg);border-radius:22px;
+      padding:20px;box-shadow:0 30px 70px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="font:400 22px/1.1 var(--serif)">Account</div>
+          <div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin-top:4px">${esc(email)}</div>
+        </div>
+        <button onclick="closeAcct()" style="${bGhost}">Close</button>
+      </div>
+
+      <div class="kick" style="margin-top:18px">NAME</div>
+      ${fld('adName',nm,'What you call them','Save','adRename()')}
+
+      <div class="kick" style="margin-top:18px">EMAIL</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+        They sign in with this. Moving it brings everything across. Use this when they have
+        lost the old inbox, otherwise they can do it themselves in the app.</div>
+      ${fld('adEmail',email,'New address','Move','adMove()')}
+
+      <div class="kick" style="margin-top:18px">PASSWORD</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+        Sets it outright and clears any lockout from failed attempts. It is not emailed,
+        so tell them what it is.</div>
+      ${fld('adPw','','New password, 8+ characters','Set','adPw()')}
+
+      <div id="adMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--forest);
+        text-align:center;min-height:18px;margin-top:16px"></div>
+    </div></div>`;
+}
+let acct=null;
+function openAcct(email){ acct=email; draw(); }
+function closeAcct(){ acct=null; draw(); }
+function acctHTML(){ return acct?acctDetails(acct):''; }
+function acctBtnHTML(email){
+  return `<button onclick="openAcct('${esc(email)}')" style="background:none;border:none;cursor:pointer;
+    padding:8px 0;font:500 12px/1 var(--sans);color:var(--grey);text-decoration:underline;
+    text-underline-offset:3px">Account</button>`;
+}
+
 function resetHTML(email){
   return `<button onclick="resetClient('${esc(email)}')" style="background:none;border:none;
     cursor:pointer;padding:8px 0;font:500 12px/1 var(--sans);color:var(--terra);
@@ -2285,6 +2372,7 @@ function threadCardHTML(msgs){
         ${sel?mailRowHTML(sel):''}
         ${sel?formCheckHTML(sel):''}
         ${sel?cpsBtnHTML(sel):''}
+        ${sel?acctBtnHTML(sel):''}
         ${sel?resetHTML(sel):''}
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">
           ⌘+Enter sends${sel&&openSub(sel)?' · “Send &amp; close” answers their form check and tells them it is ready':''}</div>
@@ -2419,7 +2507,7 @@ function draw(){
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       ${threadCardHTML(msgs)}
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
-      </div>`}`+builderHTML()+cpsHTML();
+      </div>`}`+builderHTML()+cpsHTML()+acctHTML();
 }
 TOKEN?load():gate('');
 </script></body></html>

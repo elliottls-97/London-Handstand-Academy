@@ -1660,6 +1660,37 @@ export default async (request) => {
                         'submissions', 'free_checks', 'applications', 'questions'];
   const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs'];
 
+  /* The only order that works, given the foreign keys cascade on delete and
+     not on update: the new row first so there is something to point at, then
+     the children, then the settings that carry the address in their key,
+     then the old row. One implementation, so the coach route and the client
+     route cannot drift apart. */
+  async function moveAccount(from, to) {
+    const old = await getAcct(from);
+    if (!old) return { error: 'No account to move', status: 404 };
+    if (await getAcct(to)) return { error: 'There is already an account on that address', status: 409 };
+
+    await supa.upsert('accounts', Object.assign({}, old, { email: to }), 'email');
+    for (const t of EMAIL_TABLES) {
+      await supa.update(t, `email=eq.${enc(from)}`, { email: to }).catch(() => {});
+    }
+    for (const k of SETTING_KEYS) {
+      const v = await getSetting(`${k}:${from}`);
+      if (v !== null && v !== undefined) {
+        await setSetting(`${k}:${to}`, v);
+        await dropSetting(`${k}:${from}`);
+      }
+    }
+    /* the roster keys on the address too, so it follows or the client
+       quietly stops being anybody's client */
+    const roster = (await getSetting('roster')) || {};
+    if (roster[from]) { roster[to] = roster[from]; delete roster[from]; await setSetting('roster', roster); }
+
+    await supa.remove('codes', `email=eq.${enc(from)}`).catch(() => {});
+    await supa.remove('accounts', `email=eq.${enc(from)}`);
+    return { ok: true, name: old.name || '' };
+  }
+
   if (path === '/email/request' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -1715,27 +1746,9 @@ export default async (request) => {
       return json({ error: 'There is already an account on that address' }, 409);
     }
 
-    const old = await getAcct(who);
-    if (!old) return json({ error: 'No account to move' }, 404);
-
-    /* 1. the new row first, or the foreign keys have nothing to point at */
-    const moved = Object.assign({}, old, { email: next });
-    await supa.upsert('accounts', moved, 'email');
-    /* 2. every child table */
-    for (const t of EMAIL_TABLES) {
-      await supa.update(t, `email=eq.${enc(who)}`, { email: next }).catch(() => {});
-    }
-    /* 3. the settings that carry the address in their key */
-    for (const k of SETTING_KEYS) {
-      const v = await getSetting(`${k}:${who}`);
-      if (v !== null && v !== undefined) {
-        await setSetting(`${k}:${next}`, v);
-        await dropSetting(`${k}:${who}`);
-      }
-    }
-    /* 4. and only now the old row, which cascades away anything missed */
-    await supa.remove('codes', `email=eq.${enc(who)}`).catch(() => {});
-    await supa.remove('accounts', `email=eq.${enc(who)}`);
+    const moved = await moveAccount(who, next);
+    if (moved.error) { await dropSetting(key); return json({ error: moved.error }, moved.status || 400); }
+    const old = { name: moved.name };
     await dropSetting(key);
 
     /* both addresses hear about it: the old one because losing an account
@@ -2034,6 +2047,31 @@ export default async (request) => {
        comp someone. Everything it does is logged on the account. */
     /* set someone's password directly — for when they cannot receive the
        email, or have locked themselves out mid-change */
+    /* Elliott moving a client's address himself. No code to the new
+       inbox: the point of this route is the client who has lost the old
+       one and cannot receive anything. He is the authority, so the guard
+       is that he has to type it. */
+    if (path === '/coach/email' && request.method === 'POST') {
+      const from = norm(body.email), to = norm(body.next);
+      if (!from || !to) return json({ error: 'Need both addresses' }, 400);
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return json({ error: 'That is not an email address' }, 400);
+      if (from === to) return json({ error: 'Those are the same address' }, 400);
+      if (!owns(from)) return json({ error: 'Not your client' }, 403);
+
+      const moved = await moveAccount(from, to);
+      if (moved.error) return json({ error: moved.error }, moved.status || 400);
+
+      await email(to, 'Your email address was changed',
+        mail({ title: 'Your address has moved.',
+          paras: [`Elliott has moved your London Handstand Academy account to this address. `
+                + `Everything came with it: your programme, your progress and the whole chat. `
+                + `You sign in with ${esc(to)} from now on.`],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: coachName(coachOf(to) || primaryCoach()) } }));
+
+      return json({ ok: true, from, to, name: moved.name });
+    }
+
     if (path === '/coach/setpw' && request.method === 'POST') {
       const e = norm(body.email);
       const pw = String(body.password || '');
