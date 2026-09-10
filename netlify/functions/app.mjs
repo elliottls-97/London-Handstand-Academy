@@ -1695,6 +1695,36 @@ export default async (request) => {
 
     /* wipe a client's activity record — needed for a deletion request,
        and for clearing test data out of a real client's history */
+    /* Wipe a client back to a clean account. Destructive and deliberate:
+       it names exactly what it cleared, and the chat keeps one message so
+       the screen is not an empty void the next time they open it. */
+    if (path === '/coach/reset' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const want = Array.isArray(body.parts) ? body.parts : ['activity', 'chat', 'tracking'];
+      const done = [];
+
+      if (want.includes('activity')) {
+        await supa.remove('progress', `email=eq.${enc(e)}`);
+        await supa.update('accounts', `email=eq.${enc(e)}`, { last_seen: null }).catch(() => {});
+        done.push('activity');
+      }
+      if (want.includes('tracking')) {
+        await setSetting(`track:${e}`, {});
+        done.push('tracking');
+      }
+      if (want.includes('chat')) {
+        await supa.remove('messages', `email=eq.${enc(e)}`);
+        const nm = (clients()[e] || '').split(' ')[0];
+        await threadAdd(db, e, { from: 'coach',
+          text: `Hi${nm ? ' ' + nm : ''}, this is where we talk. Send me a clip, a question, `
+              + `or how a session went, and I will come back to you here.` });
+        done.push('chat');
+      }
+      return json({ ok: true, email: e, cleared: done });
+    }
+
     if (path === '/coach/progress/reset' && request.method === 'POST') {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);

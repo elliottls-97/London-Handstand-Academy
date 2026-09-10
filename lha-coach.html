@@ -588,6 +588,27 @@ function setFormCheck(email,used){
     .then(d=>{ fcState[email]={used:!!used,at:Date.now()}; draw(); if(d.note) alert(d.note); })
     .catch(e=>alert(String(e)));
 }
+/* Wiping a client's account is not something to do by accident, so it asks
+   twice and says exactly what goes. */
+function resetClient(email){
+  const parts=[];
+  if(confirm('Clear '+email+"'s activity? Sessions, opens, holds and last seen all go.")) parts.push('activity');
+  if(confirm('Clear their tracking? Habits, metrics, check-ins, check points and photos all go.')) parts.push('tracking');
+  if(confirm('Clear the chat? Every message goes and one opening message from you is left in its place.')) parts.push('chat');
+  if(!parts.length) return;
+  if(!confirm('Last check. Clearing '+parts.join(', ')+' for '+email+'. This cannot be undone.')) return;
+  fetch(API+'/reset',{method:'POST',headers:hdr(),body:JSON.stringify({email, parts})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not do that')))
+    .then(d=>{ prog[email]=null; tracks[email]=null; cpDefs[email]=null; pendingCoach=[];
+               alert('Cleared: '+(d.cleared||[]).join(', ')+'.');
+               openThread(email); })
+    .catch(e=>alert(String(e)));
+}
+function resetHTML(email){
+  return `<button onclick="resetClient('${esc(email)}')" style="background:none;border:none;
+    cursor:pointer;padding:8px 0;font:500 12px/1 var(--sans);color:var(--terra);
+    text-decoration:underline;text-underline-offset:3px">Reset this account</button>`;
+}
 function formCheckHTML(email){
   const st2=fcState[email];
   if(!st2) return `<button onclick="loadFormCheck('${esc(email)}')" style="background:none;border:none;
@@ -2166,6 +2187,7 @@ function threadCardHTML(msgs){
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
         ${sel?mailRowHTML(sel):''}
         ${sel?formCheckHTML(sel):''}
+        ${sel?resetHTML(sel):''}
         <div style="font:500 11.5px/1 var(--sans);color:var(--grey2);margin-top:8px">
           ⌘+Enter sends${sel&&openSub(sel)?' · “Send &amp; close” answers their form check and tells them it is ready':''}</div>
         </div>
