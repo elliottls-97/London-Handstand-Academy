@@ -426,6 +426,9 @@ const getSetting = async k => {
 };
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
+/* a setting that is gone reads as absent, which is not the same as one
+   holding an empty object: the programme falls back to the original file */
+const dropSetting = k => supa.remove('settings', `key=eq.${enc(k)}`);
 
 const getCode = (e, kind) =>
   supa.row('codes', `email=eq.${enc(e)}&kind=eq.${kind}&select=*`);
@@ -1709,6 +1712,13 @@ export default async (request) => {
         await supa.remove('progress', `email=eq.${enc(e)}`);
         await supa.update('accounts', `email=eq.${enc(e)}`, { last_seen: null }).catch(() => {});
         done.push('activity');
+      }
+      if (want.includes('programme')) {
+        /* the saved record is the coach's edits, the check points and the
+           explainer switches. Dropping it falls the client back to the
+           programme in the file, which is never touched. */
+        await dropSetting(`programme:${e}`);
+        done.push('programme');
       }
       if (want.includes('tracking')) {
         await setSetting(`track:${e}`, {});
