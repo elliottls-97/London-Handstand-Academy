@@ -372,30 +372,28 @@ function work(it){
   if(n.includes('pancake')) return 90;
   return 40;
 }
-/* Rest is not one number. The first few wrist drills run straight through,
-   the rest of the warm-up needs a breath, and strength work later on needs
-   long enough to actually recover or the next set is not the same set. */
-const STRENGTH_RE=/push[- ]?up|chaturanga|zombie|pull|row|lolasana|press[- ]?up|dip|lift[s]?\b|shrug/i;
+/* Rest is not one number, and it is decided by which block a drill sits in,
+   not by its name. Matching on names put "Pancake Lift Combo" and "Press
+   Scapula Shrugs" on a 90 second strength rest because they contain "lift"
+   and "shrug", and put press walks there because the block starts "Press". */
+const WARM_GRP = /warm|pancake|mobility|wrist/i;
+const HARD_GRP = /^(strength|press)$/i;
 function rest(x, i, list){
   /* takes a queue entry {it,grp} or a bare drill, so every caller works */
-  const it = (x && x.it) ? x.it : (x||{});
-  const grp = String((x && x.grp) || it.grp || '');
-  const t = ((it.n||'') + ' ' + (it.d||'')).toLowerCase();
-  if(Array.isArray(list) && i!=null){
-    /* the first four of the warm-up run straight through, the rest of it
-       gets a breath */
-    const warm = list.filter(y => /warm/i.test((y && y.grp) || ''));
-    const pos = warm.indexOf(list[i]);
-    if(pos > -1) return pos < 4 ? 0 : 10;
-  } else if(/warm/i.test(grp)) {
-    return 10;
+  const it  = (x && x.it) ? x.it : (x || {});
+  const grp = String((x && x.grp) || it.grp || '').trim();
+  const t   = ((it.n || '') + ' ' + (it.d || '')).toLowerCase();
+
+  if(Array.isArray(list) && i != null){
+    /* the first four of the session run straight through */
+    if(i < 4 && WARM_GRP.test(String((list[i] && list[i].grp) || ''))) return 0;
   }
-  /* strength needs long enough that the next set is the same set, and it
-     wins over the build-to rule: "build to 10" push ups are strength */
-  if(/strength|press\b/i.test(grp) || STRENGTH_RE.test(it.n||'')) return 90;
+  if(WARM_GRP.test(grp)) return 10;
+  if(HARD_GRP.test(grp)) return 90;
   if(/entries|build to/.test(t)) return 60;
   return 35;
 }
+
 function queue(){
   const d=day(), q=[];
   d.groups.forEach((g,gi)=>g.items.forEach((it,ii)=>{
@@ -803,8 +801,10 @@ function screenPlan(){
             <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
               <div style="font:600 15px/1.25 var(--sans);${on?'color:var(--grey2);text-decoration:line-through':''}"
                    onclick="openDrill(${gi},${ii})">${esc(it.n)}</div>
-              ${it.url?`<button class="rt" style="flex:none" onclick="st.open['${k}']=!st.open['${k}'];save();render()">${openD?'Hide':'▶ Demo'}</button>`
-                      :`<span class="rt" style="flex:none;opacity:.55">Soon</span>`}
+              ${(it.url||(it.cues||[]).length)
+                ? `<button class="rt" style="flex:none" onclick="st.open['${k}']=!st.open['${k}'];save();render()">${
+                    openD?'Hide':(it.url?'▶ Demo':'Cues')}</button>`
+                : `<span class="rt" style="flex:none;opacity:.55">Soon</span>`}
             </div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${esc(it.d)}</span>
@@ -819,10 +819,10 @@ function screenPlan(){
             </div>`:''}
             ${st.repOpen===k?planStepper(k,it):''}
             ${it.nt?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(it.nt)}</div>`:''}
-            ${(it.cues||[]).length?`<ul style="margin:9px 0 0;padding-left:17px;display:flex;
-              flex-direction:column;gap:5px">${it.cues.map(c=>
-              `<li style="font:400 13px/1.5 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}</ul>`:''}
-            ${openD&&it.url?`<div style="margin-top:11px">${vidBlock(it.url,'16/10')}</div>`:''}
+            ${openD?`${it.url?`<div style="margin-top:11px">${vidBlock(it.url,'16/10')}</div>`:''}
+              ${(it.cues||[]).length?`<ul style="margin:${it.url?'-6px':'9px'} 0 0;padding-left:17px;
+                display:flex;flex-direction:column;gap:5px">${it.cues.map(c=>
+                `<li style="font:400 13px/1.5 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}</ul>`:''}`:''}
             ${flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:18px;padding:14px">
               <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${rate==='hard'?'TOO HARD':'TOO EASY'} — TELL ELLIOTT</div>
               <input value="${esc(st.note[it.v]||'')}" oninput="st.note['${it.v}']=this.value;save()"
@@ -840,10 +840,17 @@ function screenPlan(){
         <span class="h-sm">${esc(g.name)}</span>
         <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${g.items.length} DRILLS</span>
       </div>
-      <button class="why" onclick="st.why['${st.day+'-'+gi}']=!st.why['${st.day+'-'+gi}'];save();render()">
-        <span>${esc(purpose(g.name))}</span><b>${wk?'Less':'Why?'}</b></button>
-      ${wk?`<div style="margin-top:11px;background:#fff;border-radius:20px;padding:16px">
-        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(why(g.name))}</div></div>`:''}
+      ${(function(){
+        const wv=whyVideo(g.name);
+        if(!wv) return `<div class="why" style="pointer-events:none">
+          <span>${esc(purpose(g.name))}</span></div>`;
+        return `<button class="why" onclick="st.why['${st.day+'-'+gi}']=!st.why['${st.day+'-'+gi}'];save();render()">
+          <span>${esc(purpose(g.name))}</span><b>${wk?'Less':'Why?'}</b></button>
+        ${wk?`<div style="margin-top:11px;background:#fff;border-radius:20px;padding:16px">
+          <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-bottom:12px">${esc(why(g.name))}</div>
+          ${vidBlock(EXPLAINERS+encodeURIComponent(wv.v),'16/9')}
+          ${wv.a?`<div style="font:400 14px/1.55 var(--sans);color:var(--grey)">${esc(wv.a)}</div>`:''}
+        </div>`:''}`;})()}
     </div>
     <div style="margin:12px 12px 0;background:#fff;border-radius:24px;overflow:hidden">${rows}</div>`;
   }).join('');
@@ -879,6 +886,16 @@ const WHY={'Warm-up':'Four minutes so the first entry is not the warm-up. Wrists
  'Floats and press walks':'The press pattern at floor level — same shift of weight, no handstand needed.'};
 const purpose=n=>PURPOSE[n]||'Why this is here';
 const why=n=>WHY[n]||'';
+/* The chip offered an explainer for every block. It only earns its place
+   when there is actually a video to show, so it now checks the client's
+   own answers for one before appearing. */
+function whyVideo(n){
+  /* the block's prose lives in WHY; which explainer belongs to it lives in
+     the plan, as a question that matches one of their answers */
+  const q=((DATA.why||{})[n]||'').trim();
+  if(!q) return null;
+  return (DATA.answers||[]).find(x=>x && x.v && String(x.q||'').trim()===q) || null;
+}
 
 /* ── Progress ── */
 /* ── activity, from what is already recorded ───────────────────────
