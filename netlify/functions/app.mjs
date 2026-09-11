@@ -1681,10 +1681,24 @@ export default async (request) => {
         await dropSetting(`${k}:${from}`);
       }
     }
+    /* A programme that was never opened in the builder has no saved row: it
+       lives in the generated file, keyed on the old address. Moving the
+       account left it behind and the client read as free, with no plan.
+       Snapshot the file version onto the new address so it travels. */
+    if (!(await getSetting(`programme:${to}`)) && programmes.clients[from]) {
+      await setSetting(`programme:${to}`,
+        Object.assign({}, programmes.clients[from], { movedFrom: from, movedAt: Date.now() }));
+    }
     /* the roster keys on the address too, so it follows or the client
        quietly stops being anybody's client */
     const roster = (await getSetting('roster')) || {};
-    if (roster[from]) { roster[to] = roster[from]; delete roster[from]; await setSetting('roster', roster); }
+    const wasStored = !!roster[from];
+    const seeded = parseClients().some(c => c.email === from);
+    roster[to] = roster[from] || { name: (old.name || to), coach: norm(old.coach || '') };
+    /* a seeded address cannot simply be deleted, the CLIENTS variable puts it
+       straight back, so mark it gone the way the roster route does */
+    if (seeded) roster[from] = null; else delete roster[from];
+    await setSetting('roster', roster);
 
     await supa.remove('codes', `email=eq.${enc(from)}`).catch(() => {});
     await supa.remove('accounts', `email=eq.${enc(from)}`);
