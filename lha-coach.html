@@ -1540,7 +1540,7 @@ function openBuilder(email){
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
       libIndex=(d.library&&d.library.names)||{};
-      builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited,
+      builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited, day:0, grp:0,
                exLib:d.explainerLib||{}, exOn:(d.explainersOn||[]).slice()};
       draw();
     })
@@ -1553,23 +1553,47 @@ function closeBuilder(){
 function bMark(){ builder.dirty=true; }
 function bDays(){ return (builder.plan.days=builder.plan.days||[]); }
 
+/* Which day and which block are open. The builder was one long column and
+   a five day block meant scrolling past everything to reach the end of it. */
+function bDay(){
+  const n=bDays().length;
+  if(!n) return 0;
+  builder.day = Math.max(0, Math.min(n-1, builder.day|0));
+  return builder.day;
+}
+function bGrp(){
+  const d=bDays()[bDay()]; const n=((d&&d.groups)||[]).length;
+  if(!n) return 0;
+  builder.grp = Math.max(0, Math.min(n-1, builder.grp|0));
+  return builder.grp;
+}
+function bPickDay(i){ builder.day=i; builder.grp=0; draw(); }
+function bPickGrp(g){ builder.grp=g; draw(); }
+
 function bAddDay(){
   bDays().push({id:String(bDays().length+1),label:'Day '+(bDays().length+1),
     sub:'',title:'',when:'',mins:'45',groups:[]});
+  builder.day=bDays().length-1; builder.grp=0;
   bMark(); draw();
 }
 function bDelDay(i){
   if(!confirm('Remove '+(bDays()[i].label||'this day')+'?')) return;
-  bDays().splice(i,1); bMark(); draw();
+  bDays().splice(i,1);
+  if(builder.day>=bDays().length) builder.day=Math.max(0,bDays().length-1);
+  builder.grp=0;
+  bMark(); draw();
 }
 function bField(i,f,v){ bDays()[i][f]=v; bMark(); }
 function bAddGroup(i){
   (bDays()[i].groups=bDays()[i].groups||[]).push({name:'New block',items:[]});
+  builder.grp=bDays()[i].groups.length-1;
   bMark(); draw();
 }
 function bDelGroup(i,g){
   if(!confirm('Remove this block and its drills?')) return;
-  bDays()[i].groups.splice(g,1); bMark(); draw();
+  bDays()[i].groups.splice(g,1);
+  if(builder.grp>=bDays()[i].groups.length) builder.grp=Math.max(0,bDays()[i].groups.length-1);
+  bMark(); draw();
 }
 function bGroupName(i,g,v){ bDays()[i].groups[g].name=v; bMark(); }
 function bAddItem(i,g){
@@ -1718,52 +1742,79 @@ function builderHTML(){
   if(!builder) return '';
   const days=bDays();
   const name=((clients.find(c=>c.email===builder.email)||{}).name)||builder.email;
-  const body=days.length?days.map((d,i)=>`
-    <div class="glass" style="padding:15px 17px;margin-top:11px">
+  const di=bDay(), d=days[di];
+  const tab=(on,label,sub,click,del)=>`<span style="position:relative;display:inline-flex">
+    <button onclick="${click}" style="border:1px solid ${on?'transparent':'var(--line)'};
+      border-radius:12px;padding:9px 13px;cursor:pointer;text-align:left;
+      background:${on?'var(--forest)':'#fff'};color:${on?'#fff':'var(--ink)'};
+      font:600 12.5px/1.2 var(--sans)">${esc(label)}${sub?`<span style="display:block;
+      font:500 10px/1.3 var(--sans);margin-top:3px;
+      color:${on?'rgba(255,255,255,.7)':'var(--grey2)'}">${esc(sub)}</span>`:''}</button>
+    ${del?`<button onclick="${del}" title="Remove" style="position:absolute;top:-6px;right:-6px;
+      width:18px;height:18px;border-radius:50%;border:1px solid var(--line);background:#fff;
+      color:var(--grey2);cursor:pointer;font:600 11px/1 var(--sans);padding:0">×</button>`:''}
+  </span>`;
+
+  const dayTabs=`<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:14px">
+    ${days.map((x,i)=>tab(i===di, x.label||('Day '+(i+1)), x.sub||'',
+        'bPickDay('+i+')', 'bDelDay('+i+')')).join('')}
+    <button onclick="bAddDay()" style="${bGhost}">+ Day</button>
+  </div>`;
+
+  const body = days.length ? `${dayTabs}
+    <div class="glass" style="padding:15px 17px;margin-top:12px">
       <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
-        <input value="${esc(d.label||'')}" oninput="bField(${i},'label',this.value)"
+        <input value="${esc(d.label||'')}" oninput="bField(${di},'label',this.value)"
           placeholder="Day 1" style="flex:0 0 92px;${bInput}">
-        <input value="${esc(d.sub||'')}" oninput="bField(${i},'sub',this.value)"
+        <input value="${esc(d.sub||'')}" oninput="bField(${di},'sub',this.value)"
           placeholder="Strength &amp; balance" style="flex:1;min-width:130px;${bInput}">
-        <input value="${esc(d.mins||'')}" oninput="bField(${i},'mins',this.value)"
+        <input value="${esc(d.mins||'')}" oninput="bField(${di},'mins',this.value)"
           placeholder="45" style="flex:0 0 54px;${bInput}">
-        <button onclick="bDelDay(${i})" style="${bGhost}">Remove day</button>
       </div>
-      <input value="${esc(d.when||'')}" oninput="bField(${i},'when',this.value)"
-        placeholder="What they need — floor and a chair, nothing else."
+      <input value="${esc(d.when||'')}" oninput="bField(${di},'when',this.value)"
+        placeholder="What they need. Floor and a chair, nothing else."
         style="width:100%;margin-top:8px;${bInput}">
 
-      ${(d.groups||[]).map((g,gi)=>`
-        <div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)">
-          <div style="display:flex;gap:9px;align-items:center">
-            <input value="${esc(g.name||'')}" oninput="bGroupName(${i},${gi},this.value)"
-              placeholder="Warm-up" style="flex:1;${bInput};font-weight:600">
-            <button onclick="bDelGroup(${i},${gi})" style="${bGhost}">Remove block</button>
-          </div>
+      ${(function(){
+        const gs=d.groups||[];
+        if(!gs.length) return `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);
+          margin-top:14px">No blocks in this day yet.</div>
+          <button onclick="bAddGroup(${di})" style="${bGhost};margin-top:10px">+ Block</button>`;
+        const gi=bGrp(), g=gs[gi];
+        return `<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:14px;
+          padding-top:12px;border-top:1px solid var(--line)">
+          ${gs.map((x,k)=>tab(k===gi, x.name||('Block '+(k+1)),
+              ((x.items||[]).length)+' drill'+((x.items||[]).length===1?'':'s'),
+              'bPickGrp('+k+')', 'bDelGroup('+di+','+k+')')).join('')}
+          <button onclick="bAddGroup(${di})" style="${bGhost}">+ Block</button>
+        </div>
+        <div style="margin-top:13px">
+          <input value="${esc(g.name||'')}" oninput="bGroupName(${di},${gi},this.value)"
+            placeholder="Warm-up" style="width:100%;${bInput};font-weight:600">
           ${(g.items||[]).map((it,k)=>`
             <div style="display:flex;gap:7px;align-items:center;margin-top:7px">
               <span style="flex:none;display:flex;flex-direction:column;gap:2px">
-                <button onclick="bMove(${i},${gi},${k},-1)" style="${bTiny}" aria-label="Up">▲</button>
-                <button onclick="bMove(${i},${gi},${k},1)" style="${bTiny}" aria-label="Down">▼</button>
+                <button onclick="bMove(${di},${gi},${k},-1)" style="${bTiny}" aria-label="Up">▲</button>
+                <button onclick="bMove(${di},${gi},${k},1)" style="${bTiny}" aria-label="Down">▼</button>
               </span>
-              <select onchange="bItem(${i},${gi},${k},'v',this.value)"
+              <select onchange="bItem(${di},${gi},${k},'v',this.value)"
                 style="flex:1;min-width:0;${bInput}">${drillOptions(it.v)}</select>
-              <input value="${esc(it.d||'')}" oninput="bItem(${i},${gi},${k},'d',this.value)"
+              <input value="${esc(it.d||'')}" oninput="bItem(${di},${gi},${k},'d',this.value)"
                 placeholder="3 × 8" style="flex:0 0 108px;${bInput}">
-              <button onclick="bDelItem(${i},${gi},${k})" style="${bGhost}">×</button>
+              <button onclick="bDelItem(${di},${gi},${k})" style="${bGhost}">×</button>
             </div>
-            <input value="${esc(it.nt||'')}" oninput="bItem(${i},${gi},${k},'nt',this.value)"
+            <input value="${esc(it.nt||'')}" oninput="bItem(${di},${gi},${k},'nt',this.value)"
               placeholder="A note for this drill, if it needs one"
               style="width:calc(100% - 34px);margin:5px 0 0 34px;${bInput};font-size:12px">
           `).join('')}
-          <button onclick="bAddItem(${i},${gi})" style="${bGhost};margin-top:8px">+ Drill</button>
-        </div>`).join('')}
-
-      <button onclick="bAddGroup(${i})" style="${bGhost};margin-top:11px">+ Block</button>
-    </div>`).join('')
-    : `<div class="glass" style="padding:22px;margin-top:11px;text-align:center;
+          <button onclick="bAddItem(${di},${gi})" style="${bGhost};margin-top:9px">+ Drill</button>
+        </div>`;})()}
+    </div>`
+    : `${dayTabs}
+       <div class="glass" style="padding:22px;margin-top:12px;text-align:center;
          font:400 13.5px/1.6 var(--sans);color:var(--grey)">
          No days yet. Add one and start putting blocks in it.</div>`;
+
 
   return `<div style="position:fixed;inset:0;z-index:80;background:rgba(0,30,28,.55);
     backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
@@ -1781,12 +1832,11 @@ function builderHTML(){
         <button id="bSave" class="send" onclick="saveBuilder()">Save programme</button>
       </div>
       ${body}
-      <button onclick="bAddDay()" style="${bGhost};margin-top:12px">+ Day</button>
       ${bExHTML()}
       ${bCpHTML()}
       <div style="font:400 12px/1.6 var(--sans);color:var(--grey2);margin:14px 0 30px">
         Saving writes the programme the client's app reads. Names, clips and cues come from
-        the drill library, so they stay right on their own — you set the drill and the dose.
+        the drill library, so they stay right on their own. You set the drill and the dose.
       </div>
     </div></div>`;
 }
