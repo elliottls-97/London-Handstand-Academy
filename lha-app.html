@@ -1330,7 +1330,7 @@ function sendCheckin(){
 const CHECKPOINTS={
   0:[
     {k:'ch-assist',   n:'Chair-assisted handstand', kind:'secs',  target:20, demo:'chair-assisted-knee-lifts', note:'Stacked? How long did you hold it?'},
-    {k:'fall-comfort',n:'Falling off the wall',     kind:'rate',  target:8,  demo:'chest-to-wall-bailouts', note:'How comfortable does bailing feel?'},
+    {k:'fall-comfort',n:'Falling off the wall',     kind:'face',  demo:'chest-to-wall-bailouts', note:'How comfortable does bailing out feel?', faces:['Not really','Getting there','Comfortable']},
     {k:'wall-45',     n:'45-degree wall hold',      kind:'secs',  target:30, demo:'chest-to-wall-handstand', note:'Alignment held, not just time on the clock.'},
     {k:'plank',       n:'Plank pose',               kind:'secs',  target:60, demo:'plank-pose'},
     {k:'crow',        n:'Crow pose',                kind:'secs',  target:10, demo:'crow-pose'},
@@ -1347,9 +1347,9 @@ const CHECKPOINTS={
     {k:'assist-entry',n:'Assisted freestanding entries', kind:'count', target:10}
   ],
   2:[
-    {k:'tuck-depth',  n:'Tuck slides',              kind:'yn',    demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?'},
+    {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
     {k:'slide-count', n:'Slide aways',              kind:'count', target:10, demo:'slide-away'},
-    {k:'slide-off',   n:'Coming off the wall',      kind:'yn',    demo:'slide-away', note:'Do you leave it, or slide and stay?'},
+    {k:'slide-off',   n:'Coming off the wall',      kind:'face',  demo:'slide-away', note:'Do you leave it on purpose, or slide and stay?', faces:['Still stuck','Sometimes','I leave it']},
     {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.'},
     {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box'},
     {k:'step-ups',    n:'Step ups',                 kind:'count', target:10, demo:'chair-assisted-step-ups'},
@@ -1427,7 +1427,10 @@ function saveCheckpoint(k,v,video){
   const row=Object.assign({v:Number(v)||0,at:Date.now()}, video?{video}:{});
   st.track.checkpoints[k]=(st.track.checkpoints[k]||[]).concat([row]).slice(-20);
   if(st.cpDraft) delete st.cpDraft[k];
-  save(); render();
+  save();
+  /* under an open sheet render() bails out, so logging one used to change
+     nothing on screen until the sheet was closed */
+  if(document.getElementById('cptop-'+k)) repaintCp(k); else render();
   postTrack({checkpoint:Object.assign({k, v:Number(v)||0}, video?{video}:{})});
 }
 
@@ -1474,6 +1477,7 @@ function cpSendClip(k,file){
 /* has this one reached what it is asking for */
 function cpMet(c){
   const last=cpLast(c.k); if(!last) return false;
+  if(c.kind==='face') return Number(last.v)>=2;
   if(c.kind==='yn') return !!last.v;
   if(c.target==null) return false;
   const K=CP_KIND[c.kind]||CP_KIND.count;
@@ -1483,6 +1487,36 @@ function cpMet(c){
   return lower ? (last.v>0 && last.v<=c.target) : last.v>=c.target;
 }
 const cpUnit = c => (c.unit!=null) ? c.unit : ((CP_KIND[c.kind]||CP_KIND.count).unit||'');
+
+/* ── faces ─────────────────────────────────────────────────────────
+   Some check points are not a measurement. "How comfortable do you feel
+   falling off the wall" has no number in it, and asking for one out of ten
+   invites a made-up answer. Three faces: it is honest about being a feeling
+   and it takes one tap. The middle one counts as not there yet, because
+   "sort of" is not the same as yes. */
+const FACES=[
+  {v:0, mouth:'M8.4 16.4c1.9-2 5.3-2 7.2 0'},
+  {v:1, mouth:'M8.4 15.4h7.2'},
+  {v:2, mouth:'M8.4 14.2c1.9 2.3 5.3 2.3 7.2 0'}
+];
+const FACE_LABELS=['Not really','Getting there','Yes'];
+const cpFaceLabels = c => c.faces || FACE_LABELS;
+function cpFaceLabel(c,v){
+  if(c.kind==='face') return cpFaceLabels(c)[Math.max(0,Math.min(2,Number(v)||0))];
+  return v ? 'Yes' : 'Not yet';
+}
+function faceSVG(i,on){
+  const f=FACES[i];
+  return `<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"
+    style="display:block;margin:0 auto">
+    <circle cx="12" cy="12" r="9.4" fill="none" stroke="${on?'#fff':'rgba(17,17,17,.28)'}"
+      stroke-width="1.5"/>
+    <circle cx="9" cy="10" r="1.15" fill="${on?'#fff':'rgba(17,17,17,.45)'}"/>
+    <circle cx="15" cy="10" r="1.15" fill="${on?'#fff':'rgba(17,17,17,.45)'}"/>
+    <path d="${f.mouth}" fill="none" stroke="${on?'#fff':'rgba(17,17,17,.45)'}"
+      stroke-width="1.5" stroke-linecap="round"/>
+  </svg>`;
+}
 function cpWhen(at){
   const d=new Date(at);
   return d.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
@@ -1494,6 +1528,22 @@ function cpWhen(at){
 function cpInput(c){
   const K=CP_KIND[c.kind]||CP_KIND.count;
   const last=cpLast(c.k);
+  if(c.kind==='face'){
+    const labels=cpFaceLabels(c);
+    return `<div style="display:flex;gap:7px">
+      ${[0,1,2].map(v=>{
+        const on=last&&Number(last.v)===v;
+        return `<button onclick="saveCheckpoint('${c.k}',${v})"
+          style="flex:1;border-radius:14px;padding:11px 6px 10px;cursor:pointer;min-height:44px;
+          display:flex;flex-direction:column;align-items:center;gap:6px;
+          border:1px solid ${on?'transparent':'rgba(17,17,17,.14)'};
+          background:${on?(v===2?'var(--forest)':v===1?'#b07a2a':'var(--grey)'):'#fff'};
+          color:${on?'var(--on-primary)':'var(--ink)'}">
+          ${faceSVG(v,on)}
+          <span style="font:600 11.5px/1 var(--sans)">${esc(labels[v])}</span></button>`;
+      }).join('')}
+    </div>`;
+  }
   if(c.kind==='yn'){
     return `<div style="display:flex;gap:7px">
       ${[['1','Yes'],['0','Not yet']].map(([v,l])=>`<button onclick="saveCheckpoint('${c.k}',${v})"
@@ -1526,7 +1576,7 @@ function cpInput(c){
   const RES = c.target!=null ? 88 : 36;
   const run = `(100% - ${RES}px) * ${(pct/100).toFixed(4)}`;
   return `<div>
-    <div id="cptrack-${c.k}" onpointerdown="cpDrag(event,'${c.k}',${max},${RES})"
+    <div id="cptrack-${c.k}" data-res="${RES}" onpointerdown="cpDrag(event,'${c.k}',${max},${RES})"
       style="position:relative;height:40px;border-radius:20px;background:rgba(17,17,17,.07);
       cursor:pointer;touch-action:none;overflow:hidden">
       <i id="cpfill-${c.k}" style="position:absolute;left:0;top:0;bottom:0;border-radius:20px;
@@ -1557,14 +1607,23 @@ function cpInput(c){
    notch in the middle, because the target is the whole point of the row:
    you are dragging towards a number, not along a scale.
 
-   "How to test this" opens the clip in place. Where a check point names a
-   drill we have filmed, that is the drill's own demo; where we have not
-   filmed it yet the row says so rather than offering a play button that
-   does nothing. */
+   The card is deliberately in two halves. Everything above the demo is
+   repainted whenever the number changes; the demo container below it is
+   never touched, so opening a clip and then nudging the slider does not
+   tear the video down and start it again. Redrawing the whole sheet for
+   either of those is what made it feel like the page reloading. */
 function cpCard(c, i, total){
+  return `<div id="cpcard-${c.k}" data-i="${i}" data-total="${total}"
+    style="border-radius:18px;padding:15px 15px 16px;background:#fff;
+    box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
+    <div id="cptop-${c.k}">${cpCardTop(c,i,total)}</div>
+    <div id="cpdemo-${c.k}"></div>
+  </div>`;
+}
+function cpCardTop(c, i, total){
   const last=cpLast(c.k);
   const K=CP_KIND[c.kind]||CP_KIND.count;
-  const yn=c.kind==='yn';
+  const pick=c.kind==='yn'||c.kind==='face';
   const met=cpMet(c);
   const lower=(c.lower!=null)?c.lower:K.lower;
   const drill=c.demo?drillById(c.demo):null;
@@ -1575,25 +1634,14 @@ function cpCard(c, i, total){
      itself is worse than one number. What was logged is on the line below. */
   const draft=(st.cpDraft||{})[c.k];
   const cur = draft!=null ? draft : (last ? last.v : null);
-  const shown = yn ? (last ? (last.v?'Yes':'Not yet') : '—')
-              : (cur==null ? '—' : cur+unit);
-
-  /* how far off it is, said in the units it is measured in */
-  let togo='';
-  if(yn) togo = met ? 'Reached' : 'Not yet';
-  else if(!last) togo = 'Not logged yet';
-  else if(met) togo = 'Target reached';
-  else if(c.target!=null) togo = lower
-    ? (last.v-c.target)+unit+' to lose'
-    : (c.target-last.v)+unit+' to go';
+  const shown = pick ? (last ? cpFaceLabel(c,last.v) : '')
+              : (cur==null ? '' : cur+unit);
 
   const status = met ? ['REACHED','rgba(0,102,99,.14)','var(--forest)']
                : last ? ['IN PROGRESS','rgba(243,169,73,.2)','#7a4a10']
                       : ['NOT STARTED','rgba(17,17,17,.06)','var(--grey)'];
 
-  return `<div style="border-radius:18px;padding:15px 15px 16px;background:#fff;
-    box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
       <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">
         CHECK POINT ${i+1} OF ${total}</span>
       <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 9px;border-radius:999px;
@@ -1616,7 +1664,7 @@ function cpCard(c, i, total){
     <div style="margin-top:9px;display:flex;justify-content:space-between;gap:10px;
       font:400 11.5px/1 var(--sans);color:var(--grey)">
       <span>${last?'Logged '+esc(cpWhen(last.at)):'Not logged yet'}</span>
-      <span style="color:${met?'var(--forest)':'var(--grey)'}">${esc(togo)}</span>
+      <span id="cpgo-${c.k}" style="color:${met?'var(--forest)':'var(--grey)'}">${esc(cpToGo(c))}</span>
     </div>
     <div ${drill&&drill.url?`onclick="toggleCpDemo('${c.k}')" style="cursor:pointer;`:'style="'}margin-top:11px;
       display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px;
@@ -1632,28 +1680,84 @@ function cpCard(c, i, total){
             border-top:5px solid transparent;border-bottom:5px solid transparent"></span></div>`:''}
       </div>
       <div style="flex:1;min-width:0">
-        <div style="font:600 13px/1.2 var(--sans)">${
+        <div id="cpdlbl-${c.k}" style="font:600 13px/1.2 var(--sans)">${
           drill&&drill.url?(openD?'Hide the demo':'How to test this'):'Demo coming soon'}</div>
         <div style="margin-top:4px;font:400 11px/1.3 var(--sans);color:var(--grey)">${
           drill ? esc(drill.n) : 'Not filmed yet'}</div>
       </div>
-    </div>
-    ${openD&&drill&&drill.url?`<div style="margin-top:10px">${vidBlock(drill.url,'16/10')}</div>
-      ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
-        flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
-        `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`:''}
-  </div>`;
+    </div>`;
 }
+/* how far off it is, said in the units it is measured in */
+function cpToGo(c){
+  const last=cpLast(c.k);
+  const K=CP_KIND[c.kind]||CP_KIND.count;
+  const lower=(c.lower!=null)?c.lower:K.lower;
+  const unit=cpUnit(c);
+  const met=cpMet(c);
+  /* the left of this line already says whether it has been logged, so the
+     right says nothing rather than saying it twice */
+  if(c.kind==='yn'||c.kind==='face') return last ? (met?'Reached':'Not there yet') : '';
+  if(!last) return '';
+  if(met) return 'Target reached';
+  if(c.target==null) return '';
+  return lower ? (last.v-c.target)+unit+' to lose' : (c.target-last.v)+unit+' to go';
+}
+/* Repaint one card's numbers without touching its demo, and refresh the
+   counts the sheet shows above the list. render() bails out under an open
+   sheet, which is why logging a check point used to change nothing on
+   screen until you closed it. */
+function repaintCp(k){
+  const el=document.getElementById('cptop-'+k); if(!el) return;
+  const card=document.getElementById('cpcard-'+k);
+  const si=st.ovStage||0, list=cpFor(si)||[];
+  const c=list.find(x=>x.k===k); if(!c) return;
+  el.innerHTML=cpCardTop(c, Number(card.dataset.i)||0, Number(card.dataset.total)||list.length);
+  const p=cpProgress(si);
+  const cnt=document.getElementById('cpcount');
+  if(cnt) cnt.textContent=p.met+' of '+p.of+' reached';
+  const bar=document.getElementById('cpbar');
+  if(bar) bar.style.width=(p.of?Math.round(p.met/p.of*100):0)+'%';
+  const num=document.getElementById('cpnum');
+  if(num) num.textContent=p.met+'/'+p.of;
+}
+/* opens the clip in place — nothing else on the card is rebuilt */
 function toggleCpDemo(k){
-  st.cpOpen=Object.assign({},st.cpOpen,{[k]:!((st.cpOpen||{})[k])});
-  save(); drawOv();
+  const box=document.getElementById('cpdemo-'+k); if(!box) return;
+  const open=!((st.cpOpen||{})[k]);
+  st.cpOpen=Object.assign({},st.cpOpen,{[k]:open});
+  save();
+  const si=st.ovStage||0;
+  const c=(cpFor(si)||[]).find(x=>x.k===k);
+  const drill=c&&c.demo?drillById(c.demo):null;
+  box.innerHTML = (open && drill && drill.url)
+    ? `<div style="margin-top:10px">${vidBlock(drill.url,'16/10')}</div>
+       ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
+         flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
+         `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`
+    : '';
+  const lbl=document.getElementById('cpdlbl-'+k);
+  if(lbl) lbl.textContent = open ? 'Hide the demo' : 'How to test this';
 }
 
 function cpStep(k,by,max){
   const cur=(st.cpDraft||{})[k]!=null?st.cpDraft[k]:((cpLast(k)||{}).v||0);
-  st.cpDraft=Object.assign({},st.cpDraft,{[k]:Math.max(0,Math.min(max,cur+by))});
+  const next=Math.max(0,Math.min(max,cur+by));
+  st.cpDraft=Object.assign({},st.cpDraft,{[k]:next});
   save();
-  if(st.ov) drawOv(); else render();
+  /* paint the three places the number shows rather than redrawing the sheet */
+  const el=document.getElementById('cptrack-'+k);
+  if(el){
+    const res=Number(el.dataset.res)||36, p=max?next/max:0;
+    const run='(100% - '+res+'px) * '+p.toFixed(4);
+    const fill=document.getElementById('cpfill-'+k), thumb=document.getElementById('cpthumb-'+k);
+    if(fill) fill.style.width='calc('+run+' + 36px)';
+    if(thumb) thumb.style.left='calc('+run+' + 4px)';
+  }
+  ['cpval-','cpstep-'].forEach(pre=>{
+    const n=document.getElementById(pre+k);
+    if(n) n.textContent=next+(n.dataset.u||'');
+  });
+  if(!st.ov) render();
 }
 /* dragging the track, pointer events so it works with a thumb and a mouse */
 function cpDrag(e,k,max,res){
@@ -1680,10 +1784,10 @@ function cpDrag(e,k,max,res){
   el.setPointerCapture&&el.setPointerCapture(e.pointerId);
   const move=ev=>set(ev);
   const up=()=>{ el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
-                 save();
-                 /* the sheet owns the screen when a check point is dragged in
-                    it, and render() skips a redraw underneath an open sheet */
-                 if(st.ov) drawOv(); else render(); };
+                 /* the drag already painted everything that moves, so there is
+                    nothing to redraw: rebuilding the sheet here is what made
+                    letting go feel like the page reloading */
+                 save(); };
   el.addEventListener('pointermove',move);
   el.addEventListener('pointerup',up);
 }
@@ -3785,10 +3889,10 @@ function drawOv(){
       </div>
       <div style="display:flex;align-items:center;gap:11px;margin-top:12px">
         <div style="flex:1;height:6px;border-radius:3px;background:rgba(17,17,17,.08);overflow:hidden">
-          <div style="height:100%;border-radius:3px;width:${pc}%;
+          <div id="cpbar" style="height:100%;border-radius:3px;width:${pc}%;
             background:linear-gradient(90deg,#0a7b74,#006663);
             transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
-        <span style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${p.met}/${p.of}</span>
+        <span id="cpnum" style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${p.met}/${p.of}</span>
       </div>
 
       <div style="margin-top:16px;border-radius:18px;overflow:hidden;
@@ -3830,7 +3934,7 @@ function drawOv(){
       <div style="margin-top:16px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
         <span style="font:700 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--grey)">
           CHECK POINTS TO PROGRESS</span>
-        <span style="font:600 11px/1 var(--sans);color:var(--forest)">${p.met} of ${p.of} reached</span>
+        <span id="cpcount" style="font:600 11px/1 var(--sans);color:var(--forest)">${p.met} of ${p.of} reached</span>
       </div>
       <div style="margin-top:7px;font:400 13px/1.45 var(--sans);color:var(--grey)">
         Drag each one to what you managed and log it. Reach all ${p.of} and ${
