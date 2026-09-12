@@ -33,6 +33,11 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink);
  /* the page itself never scrolls — only .scroll does, so the tab bar stays put */
  height:100dvh;overflow:hidden}
 .s::-webkit-scrollbar{display:none}.s{scrollbar-width:none}
+/* the stage you are on breathes, so the eye finds it without a label */
+@keyframes lhaNow{0%,100%{box-shadow:0 0 0 0 rgba(243,169,73,0)}
+  50%{box-shadow:0 0 0 7px rgba(243,169,73,.22)}}
+@keyframes lhaRow{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
 #app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;
  background:var(--bg);overflow:hidden}
 .burst{position:absolute;inset:0;pointer-events:none}
@@ -1367,9 +1372,9 @@ const CHECKPOINTS={
     {k:'straddle-to-diamond',n:'Straddle to diamond',   kind:'breaks', target:14, demo:'straddle-to-diamond'}
   ],
   5:[
-    {k:'press-wall',  n:'Chest-to-wall press',      kind:'count', target:5,  demo:'press-wall'},
+    {k:'press-wall',  n:'Chest-to-wall press',      kind:'count', target:5,  demo:'p-chest-to-wall'},
     {k:'compression', n:'Pancake compression',      kind:'secs',  target:30, demo:'p-pancake'},
-    {k:'press-ecc',   n:'Press eccentrics',         kind:'count', target:5,  demo:'press-ecc'}
+    {k:'press-ecc',   n:'Press eccentrics',         kind:'count', target:5,  demo:'press-eccentrics'}
   ]
 };
 const CP_KIND={
@@ -1492,65 +1497,193 @@ function cpInput(c){
   if(c.kind==='yn'){
     return `<div style="display:flex;gap:7px">
       ${[['1','Yes'],['0','Not yet']].map(([v,l])=>`<button onclick="saveCheckpoint('${c.k}',${v})"
-        style="flex:1;border-radius:12px;padding:12px;cursor:pointer;min-height:44px;
-        font:600 13px/1 var(--sans);
+        style="flex:1;border-radius:14px;padding:13px;cursor:pointer;min-height:44px;
+        font:700 13px/1 var(--sans);
         border:1px solid ${last&&String(last.v)===v?'transparent':'rgba(17,17,17,.14)'};
         background:${last&&String(last.v)===v?'var(--forest)':'#fff'};
         color:${last&&String(last.v)===v?'var(--on-primary)':'var(--ink)'}">${l}</button>`).join('')}
     </div>`;
   }
-  const max=Math.max(K.max||20, c.target||0, last?last.v:0);
   const draft=(st.cpDraft||{})[c.k];
   const val=draft!=null?draft:(last?last.v:0);
-  const pct=Math.max(0,Math.min(100,(val/max)*100));
-  const notch=c.target!=null?Math.max(0,Math.min(100,(c.target/max)*100)):null;
   const lower=(c.lower!=null)?c.lower:K.lower;
+  /* The target sits at the end of the track, not as a notch in the middle
+     of an arbitrary scale: you are dragging towards a number. The scale
+     only grows past it if someone actually beats it, so the usual case
+     reads as "how close am I to the end". Lower-is-better runs the other
+     way, from wherever they started down to the target. */
+  const max = lower
+    ? Math.max(c.from||K.max||25, val, last?last.v:0)
+    : Math.max(c.target||K.max||20, val, last?last.v:0);
+  const pct=Math.max(0,Math.min(100,(val/max)*100));
   const met = c.target==null ? false : (lower ? (val>0 && val<=c.target) : val>=c.target);
+  const notch = (c.target!=null && max>c.target) ? (c.target/max)*100 : null;
   const step=c.kind==='secs'?5:1;
+  const unit=cpUnit(c);
+  /* The target label lives at the right-hand end of the track, so the thumb
+     has to stop short of it: at a full bar the two sat on top of each other
+     and the number you are aiming at was the one you could not read. */
+  const RES = c.target!=null ? 88 : 36;
+  const run = `(100% - ${RES}px) * ${(pct/100).toFixed(4)}`;
   return `<div>
-    <div id="cptrack-${c.k}" onpointerdown="cpDrag(event,'${c.k}',${max})"
-      style="position:relative;height:34px;border-radius:99px;background:rgba(17,17,17,.06);
+    <div id="cptrack-${c.k}" onpointerdown="cpDrag(event,'${c.k}',${max},${RES})"
+      style="position:relative;height:40px;border-radius:20px;background:rgba(17,17,17,.07);
       cursor:pointer;touch-action:none;overflow:hidden">
-      <i style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;border-radius:99px;
+      <i id="cpfill-${c.k}" style="position:absolute;left:0;top:0;bottom:0;border-radius:20px;
+        width:calc(${run} + 36px);
         background:${met?'linear-gradient(90deg,#0a7b74,#006663)':'linear-gradient(90deg,#cfe6ec,#8fbeca)'};
-        transition:width .12s"></i>
-      ${notch!=null?`<i style="position:absolute;left:${notch}%;top:6px;bottom:6px;width:2px;
+        transition:width .16s,background .35s"></i>
+      ${c.target!=null?`<span style="position:absolute;right:0;top:0;bottom:0;width:52px;display:flex;
+        align-items:center;justify-content:center;font:700 10.5px/1 var(--sans);color:var(--deep);
+        pointer-events:none">${c.target}${esc(unit)}</span>`:''}
+      ${notch!=null?`<i style="position:absolute;left:calc((100% - ${RES}px) * ${
+        (notch/100).toFixed(4)} + 18px);top:5px;bottom:5px;width:2px;
         background:rgba(0,64,61,.45)"></i>`:''}
-      <i style="position:absolute;top:3px;left:calc(${pct}% - ${(pct/100)*28}px);width:28px;height:28px;
-        border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.18);transition:left .12s"></i>
+      <i id="cpthumb-${c.k}" style="position:absolute;top:4px;left:calc(${run} + 4px);
+        width:32px;height:32px;
+        border-radius:50%;background:#fff;box-shadow:0 2px 9px rgba(28,32,25,.3);transition:left .16s"></i>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-top:9px">
       <button class="rt" onclick="cpStep('${c.k}',${-step},${max})" aria-label="Less">−</button>
-      <span style="flex:1;text-align:center;font:600 15px/1 var(--sans)">${val}${esc(cpUnit(c))}</span>
+      <span id="cpstep-${c.k}" data-u="${esc(unit)}"
+        style="flex:1;text-align:center;font:700 15px/1 var(--sans)">${val}${esc(unit)}</span>
       <button class="rt" onclick="cpStep('${c.k}',${step},${max})" aria-label="More">+</button>
       <button class="rt on" style="min-height:38px" onclick="saveCheckpoint('${c.k}',${val})">Log</button>
     </div>
   </div>`;
 }
+/* ── one check point, as a card ────────────────────────────────────
+   The slider carries the target at its right-hand end rather than as a
+   notch in the middle, because the target is the whole point of the row:
+   you are dragging towards a number, not along a scale.
+
+   "How to test this" opens the clip in place. Where a check point names a
+   drill we have filmed, that is the drill's own demo; where we have not
+   filmed it yet the row says so rather than offering a play button that
+   does nothing. */
+function cpCard(c, i, total){
+  const last=cpLast(c.k);
+  const K=CP_KIND[c.kind]||CP_KIND.count;
+  const yn=c.kind==='yn';
+  const met=cpMet(c);
+  const lower=(c.lower!=null)?c.lower:K.lower;
+  const drill=c.demo?drillById(c.demo):null;
+  const openD=(st.cpOpen||{})[c.k];
+  const unit=cpUnit(c);
+  /* The number at the top is what the slider is holding, not what was logged
+     last time: they diverge the moment you drag, and a card arguing with
+     itself is worse than one number. What was logged is on the line below. */
+  const draft=(st.cpDraft||{})[c.k];
+  const cur = draft!=null ? draft : (last ? last.v : null);
+  const shown = yn ? (last ? (last.v?'Yes':'Not yet') : '—')
+              : (cur==null ? '—' : cur+unit);
+
+  /* how far off it is, said in the units it is measured in */
+  let togo='';
+  if(yn) togo = met ? 'Reached' : 'Not yet';
+  else if(!last) togo = 'Not logged yet';
+  else if(met) togo = 'Target reached';
+  else if(c.target!=null) togo = lower
+    ? (last.v-c.target)+unit+' to lose'
+    : (c.target-last.v)+unit+' to go';
+
+  const status = met ? ['REACHED','rgba(0,102,99,.14)','var(--forest)']
+               : last ? ['IN PROGRESS','rgba(243,169,73,.2)','#7a4a10']
+                      : ['NOT STARTED','rgba(17,17,17,.06)','var(--grey)'];
+
+  return `<div style="border-radius:18px;padding:15px 15px 16px;background:#fff;
+    box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">
+        CHECK POINT ${i+1} OF ${total}</span>
+      <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 9px;border-radius:999px;
+        background:${status[1]};color:${status[2]}">${status[0]}</span>
+    </div>
+    <div style="margin-top:11px;display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+      <div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:9px">
+        <span style="flex:none;width:19px;height:19px;border-radius:50%;display:inline-flex;
+          align-items:center;justify-content:center;font:700 10px/1 var(--sans);
+          transition:background .35s;background:${met?'var(--forest)':'rgba(17,17,17,.12)'};
+          color:var(--on-primary)">${met?'✓':''}</span>
+        <span style="font:600 15.5px/1.25 var(--sans)">${esc(c.n)}</span>
+      </div>
+      <div id="cpval-${c.k}" data-u="${esc(unit)}" style="flex:none;font:700 15px/1 var(--sans);color:${
+        met?'var(--forest)':last?'var(--ink)':'var(--grey2)'}">${esc(String(shown))}</div>
+    </div>
+    ${c.note?`<div style="margin-top:6px;padding-left:28px;font:400 12.5px/1.4 var(--sans);
+      color:var(--grey)">${esc(c.note)}</div>`:''}
+    <div style="margin-top:12px">${cpInput(c)}</div>
+    <div style="margin-top:9px;display:flex;justify-content:space-between;gap:10px;
+      font:400 11.5px/1 var(--sans);color:var(--grey)">
+      <span>${last?'Logged '+esc(cpWhen(last.at)):'Not logged yet'}</span>
+      <span style="color:${met?'var(--forest)':'var(--grey)'}">${esc(togo)}</span>
+    </div>
+    <div ${drill&&drill.url?`onclick="toggleCpDemo('${c.k}')" style="cursor:pointer;`:'style="'}margin-top:11px;
+      display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px;
+      background:rgba(0,102,99,.06)">
+      <div style="position:relative;flex:none;width:74px;height:46px;border-radius:10px;overflow:hidden;
+        background:linear-gradient(145deg,#0a7b74,#00403d)">
+        <div style="position:absolute;inset:0;background:radial-gradient(70% 80% at 70% 20%,
+          rgba(143,190,202,.35),transparent 70%)"></div>
+        ${drill&&drill.url?`<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+          width:24px;height:24px;border-radius:50%;background:rgba(236,231,226,.22);
+          border:1px solid rgba(236,231,226,.5);display:flex;align-items:center;justify-content:center">
+          <span style="display:block;width:0;height:0;margin-left:2px;border-left:8px solid #ece7e2;
+            border-top:5px solid transparent;border-bottom:5px solid transparent"></span></div>`:''}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font:600 13px/1.2 var(--sans)">${
+          drill&&drill.url?(openD?'Hide the demo':'How to test this'):'Demo coming soon'}</div>
+        <div style="margin-top:4px;font:400 11px/1.3 var(--sans);color:var(--grey)">${
+          drill ? esc(drill.n) : 'Not filmed yet'}</div>
+      </div>
+    </div>
+    ${openD&&drill&&drill.url?`<div style="margin-top:10px">${vidBlock(drill.url,'16/10')}</div>
+      ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
+        flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
+        `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`:''}
+  </div>`;
+}
+function toggleCpDemo(k){
+  st.cpOpen=Object.assign({},st.cpOpen,{[k]:!((st.cpOpen||{})[k])});
+  save(); drawOv();
+}
+
 function cpStep(k,by,max){
-  const c=(cpFor().find(x=>x.k===k))||{};
   const cur=(st.cpDraft||{})[k]!=null?st.cpDraft[k]:((cpLast(k)||{}).v||0);
   st.cpDraft=Object.assign({},st.cpDraft,{[k]:Math.max(0,Math.min(max,cur+by))});
-  save(); render();
+  save();
+  if(st.ov) drawOv(); else render();
 }
 /* dragging the track, pointer events so it works with a thumb and a mouse */
-function cpDrag(e,k,max){
+function cpDrag(e,k,max,res){
   const el=document.getElementById('cptrack-'+k); if(!el) return;
+  const RES=res||36;
   const set=ev=>{
     const r=el.getBoundingClientRect();
-    const p=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width));
+    const run=Math.max(1, r.width-RES);
+    const p=Math.max(0,Math.min(1,(ev.clientX-r.left-16)/run));
     st.cpDraft=Object.assign({},st.cpDraft,{[k]:Math.round(p*max)});
-    /* paint without a full render, or the drag stutters */
-    const fill=el.querySelector('i'), thumb=el.querySelectorAll('i')[el.children.length-1];
-    const pct=(p*100).toFixed(1);
-    if(fill) fill.style.width=pct+'%';
-    if(thumb) thumb.style.left='calc('+pct+'% - '+(p*28)+'px)';
+    /* paint without a full render, or the drag stutters. Addressed by id
+       rather than by position: the track has a target label in it now, and
+       counting children put the thumb on the wrong element. */
+    const fill=document.getElementById('cpfill-'+k), thumb=document.getElementById('cpthumb-'+k);
+    const run2='(100% - '+RES+'px) * '+p.toFixed(4);
+    if(fill) fill.style.width='calc('+run2+' + 36px)';
+    if(thumb) thumb.style.left='calc('+run2+' + 4px)';
+    const lab=document.getElementById('cpval-'+k);
+    if(lab) lab.textContent=Math.round(p*max)+(lab.dataset.u||'');
+    const st2=document.getElementById('cpstep-'+k);
+    if(st2) st2.textContent=Math.round(p*max)+(st2.dataset.u||'');
   };
   set(e);
   el.setPointerCapture&&el.setPointerCapture(e.pointerId);
   const move=ev=>set(ev);
   const up=()=>{ el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
-                 save(); render(); };
+                 save();
+                 /* the sheet owns the screen when a check point is dragged in
+                    it, and render() skips a redraw underneath an open sheet */
+                 if(st.ov) drawOv(); else render(); };
   el.addEventListener('pointermove',move);
   el.addEventListener('pointerup',up);
 }
@@ -3631,188 +3764,81 @@ function drawOv(){
       <button class="btn" onclick="post({type:'Cannot train'});closeOv()">Tell Elliott I'm skipping</button></div>`;
   }
   if(st.ov==='stage'&&S){
-    const si=st.ovStage||0, locked=si>curStage();
+    const si=st.ovStage||0;
     if(stageLocked(si)){ body=screenUpgradeBody(si); }
     else {
     const St=STAGES[si]||STAGES[0];
     const isNow=si===curStage(), isDone=si<curStage();
-    const goalS=parseInt(St.hold,10)||30, bestS=bestHoldFor(holdKind(si));
-    const bestPct=Math.min(100,Math.round(bestS/goalS*100));
-    const ready=isNow&&stageReady();
-    const badge=isDone?['DONE','var(--forest)']:isNow?['NOW','var(--forest)']:['LOCKED','var(--grey2)'];
-    const overview=`
-      <div style="position:relative;aspect-ratio:16/9;border-radius:18px;overflow:hidden;
-        background:linear-gradient(150deg,#CFE6EC,#5E9DB2)">
-        <span style="position:absolute;top:12px;left:14px;font:600 10px/1 var(--sans);letter-spacing:.14em;
-          color:rgba(17,17,17,.45)">STAGE ${si+1} · IMAGE PLACEHOLDER</span>
-        <span style="position:absolute;top:11px;right:11px;padding:5px 10px;border-radius:99px;
-          background:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.7);
-          font:700 9.5px/1 var(--sans);letter-spacing:.11em;color:${badge[1]}">${badge[0]}</span>
+    const p=cpProgress(si), pc=p.of?Math.round(p.met/p.of*100):0;
+    const tag = isDone?['PASSED','rgba(0,102,99,.14)','var(--forest)']
+              : isNow?['NOW','rgba(243,169,73,.24)','#7a4a10']
+                     : ['AHEAD','rgba(17,17,17,.06)','var(--grey)'];
+    const mins=ladderMins();
+    /* the sheet already prints the stage name in its own title, so this
+       line carries the things the title cannot */
+    body=`
+      <div style="display:flex;align-items:center;gap:12px;margin-top:-6px">
+        <div style="flex:1;min-width:0;font:700 9.5px/1 var(--sans);letter-spacing:.16em;
+          color:var(--grey)">STAGE ${si+1} OF ${STAGES.length}</div>
+        <span style="flex:none;padding:6px 11px;border-radius:999px;font:700 9.5px/1 var(--sans);
+          letter-spacing:.14em;background:${tag[1]};color:${tag[2]}">${tag[0]}</span>
       </div>
-      <p style="margin:14px 0 0;font:400 14.5px/1.5 var(--sans);color:#444">${esc(St.intro||St.goal||'')}</p>
-      ${(()=>{
-        if(isNow) return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
-            color:var(--grey2)">TO MOVE UP</p>
-          <p style="margin:0;font:400 14.5px/1.45 var(--sans)">${esc(St.goal||'')}</p>`;
-        if(isDone) return `<p style="margin:16px 0 0;font:400 14.5px/1.45 var(--sans);color:var(--grey)">
-            You have been through this one.</p>`;
-        const prev=STAGES[si-1];
-        /* The next stage up is the one people actually open, and it used to
-           answer with one line. It is the prerequisite they have to meet, so
-           show it item by item and say whether they meet it. */
-        const isNext = si===curStage()+1;
-        if(isNext && prev){
-          const cps=cpFor(si-1)||[];
-          const gotN=cps.filter(c=>cpLast(c.k)).length;
-          const met=cps.length>0 && gotN>=cps.length;
-          const rows=cps.map(c=>{
-            const last=cpLast(c.k);
-            const K=CP_KIND[c.kind]||CP_KIND.count;
-            const shown = last ? (c.kind==='yn' ? (last.v?'Yes':'Not yet') : last.v+cpUnit(c)) : 'not logged';
-            return `<div style="display:flex;align-items:baseline;gap:10px;padding:9px 0;
-              border-top:1px solid rgba(17,17,17,.07)">
-              <span style="flex:none;width:17px;height:17px;border-radius:5px;
-                background:${last?'var(--forest)':'transparent'};
-                box-shadow:${last?'none':'inset 0 0 0 1.5px rgba(17,17,17,.18)'};
-                color:#fff;font:700 10px/17px var(--sans);text-align:center">${last?'✓':''}</span>
-              <span style="flex:1;font:400 14px/1.35 var(--sans)">${esc(c.n)}</span>
-              <span style="flex:none;font:400 13px/1 var(--sans);
-                color:${last?'var(--forest)':'var(--grey2)'}">${esc(String(shown))}</span>
-            </div>`;}).join('');
-          return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
-              color:var(--grey2)">WHAT YOU NEED FIRST</p>
-            <div style="border:1px solid ${met?'var(--forest)':'rgba(17,17,17,.1)'};
-              border-radius:16px;padding:15px 16px">
-              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-                <span style="font:400 17px/1.25 var(--serif);color:var(--deep)">
-                  Clear ${esc(prev.n)}</span>
-                <span style="flex:none;font:400 15px/1 var(--serif);
-                  color:${met?'var(--forest)':'var(--grey2)'}">${gotN} of ${cps.length}</span>
-              </div>
-              <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
-                Every check point on ${esc(prev.n)} logged. That is the whole prerequisite.</div>
-              ${rows}
-              <button onclick="closeOv();st.tab='progress';st.progTab='marks';save();render()"
-                style="margin-top:14px;width:100%;border:0;border-radius:12px;padding:12px;
-                background:var(--forest);color:var(--on-primary);font:600 14px/1 var(--sans);
-                cursor:pointer">${met?'You meet it, open the check points'
-                                     :'Do I meet the prerequisite?'}</button>
-            </div>
-            ${met?`<p style="margin:10px 0 0;font:400 13.5px/1.5 var(--sans);color:var(--forest)">
-              You have logged all of them. Move up from the bottom of the ladder screen.</p>`:''}`;
-        }
-        return `<p style="margin:16px 0 8px;font:600 10.5px/1 var(--sans);letter-spacing:.13em;
-            color:var(--grey2)">TO GET HERE</p>
-          <p style="margin:0;font:400 14.5px/1.45 var(--sans)">${prev
-            ? 'Clear '+esc(prev.n)+', '+esc((prev.goal||'').toLowerCase())
-            : 'This is where everyone starts.'}</p>
-          ${si>curStage()+1?`<p style="margin:8px 0 0;font:400 13px/1.45 var(--sans);color:var(--grey2)">
-            ${si-curStage()} stages above you. They open one at a time.</p>`:''}`;
-      })()}
-      ${isNow?(function(){
-        /* This bar measured a max hold while the gate beside it counted
-           check points, so every check point logged could sit next to a
-           bar reading 0s and copy pointing at a timer. One measure now. */
-        const p=cpProgress(si), pc=p.of?Math.round(p.done/p.of*100):0;
-        return `
-        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:16px">
-          <span style="font:600 10.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">CHECK POINTS</span>
-          <span style="font:600 14px/1 var(--sans)">${p.done} of ${p.of}</span></div>
-        <div style="margin-top:9px;height:5px;border-radius:99px;background:rgba(17,17,17,.1);overflow:hidden">
-          <div style="height:100%;width:${pc}%;border-radius:99px;
-            background:${ready?'var(--forest)':'var(--amber)'}"></div></div>
-        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-          ${ready?"That is all of them. Move up whenever you are ready."
-                 :'Log them on the Progress tab, under Check points.'}</div>
-        ${STAGES[si+1]?`<button class="btn" style="width:100%;margin-top:14px"
-          onclick="closeOv();advanceStage()">${ready?'Move up to '+esc(STAGES[si+1].n)
-            :'Move up anyway'}</button>`:''}
-        <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-          Nothing is locked. You can move up early, and you can drop back.</div>`;})()
-      :isDone?`<button class="btn2" style="width:100%;margin-top:16px"
-          onclick="closeOv();dropToStage(${si})">Drop back to this stage</button>`:''}
-      <div style="height:1px;background:rgba(17,17,17,.08);margin:20px 0 4px"></div>`;
-    const secs=STAGE_SECTIONS[si]||[];
-    const total=secs.reduce((a,x)=>a+x.items.length,0);
-    const done=secs.reduce((a,x)=>a+x.items.filter(i=>st.ladderDone&&st.ladderDone[i.v]).length,0);
-    /* the drill list is the point of a stage — the old app got that right */
-    const list=secs.map((sec,sx)=>`
-      <div style="margin-top:20px">
-        <div style="font:600 15px/1.2 var(--sans)">${esc(sec.title)}</div>
-        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">${esc(sec.sub)}</div>
-        <div style="background:#fff;border-radius:20px;overflow:hidden;margin-top:11px">
-          ${sec.items.map((it,ix)=>{
-            const dn=(st.ladderDone||{})[it.v];
-            const rid=sx+'-'+ix;
-            return `<div class="dr" data-dr="${rid}"${dn?' style="background:#faf8f5"':''}>
-              <div class="dr-head">
-                <button class="dr-tick" onclick="ladderTick('${it.v}',this)"
-                  aria-label="Mark done"
-                  style="border-color:${dn?'var(--forest)':'rgba(28,32,25,.2)'};
-                  background:${dn?'var(--forest)':'#fff'}">${dn?'✓':''}</button>
-                <span class="dr-mid">
-                  <span class="dr-n"${dn?' style="color:var(--grey2);text-decoration:line-through"':''}>${esc(it.n)}</span>
-                  <span class="dr-d">${esc(it.d)}</span>
-                </span>
-                <button class="dr-demo" onclick="toggleDemo('${rid}')">
-                  ${it.url?'▶ Demo':'Cues'}</button>
-              </div>
-              <div class="dr-body">
-                ${it.url?vidBlock(it.url,'16/10','contain')
-                        :'<div class="p-vfail">Filming soon — the cues are the drill</div>'}
-                ${it.desc?`<p style="font:600 14px/1.5 var(--sans);margin:12px 0 0">${esc(it.desc)}</p>`:''}
-                ${(it.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
-                  flex-direction:column;gap:6px">${(it.cues||[]).map(c=>
-                  `<li style="font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}</ul>`:''}
-                ${it.nt?`<p style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin:10px 0 0">${esc(it.nt)}</p>`:''}
-              </div>
-            </div>`;}).join('')}
-        </div></div>`).join('');
-    body=`${overview}<div class="card" style="padding:18px">
-        <div class="kick2">TRAIN THIS STAGE NOW</div>
-        <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
-          How long have you got? I will build it from this stage's drills.</div>
-        <div style="display:flex;gap:8px;margin-top:13px">
-          ${[15,30,45].map(m=>`<button onclick="st.time=${m};save();drawOv()"
-            style="flex:1;padding:13px 0;border-radius:14px;cursor:pointer;
-            border:1.5px solid ${(st.time||30)===m?'var(--forest)':'rgba(28,32,25,.16)'};
-            background:${(st.time||30)===m?'var(--forest)':'#fff'};
-            color:${(st.time||30)===m?'var(--bg)':'var(--ink)'};
-            font:600 14px/1 var(--sans)">${m} min</button>`).join('')}
-        </div>
-        <button class="btn" style="width:100%;margin-top:12px"
-          onclick="closeOv();buildFreeSession(${si})">Start ${st.time||30}-minute session</button>
+      <div style="display:flex;align-items:center;gap:11px;margin-top:12px">
+        <div style="flex:1;height:6px;border-radius:3px;background:rgba(17,17,17,.08);overflow:hidden">
+          <div style="height:100%;border-radius:3px;width:${pc}%;
+            background:linear-gradient(90deg,#0a7b74,#006663);
+            transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
+        <span style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${p.met}/${p.of}</span>
       </div>
-      <div class="card" style="margin-top:12px"><div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(S.intro)}</div>
-      <div style="display:flex;gap:20px;margin-top:16px">
-        <div><div class="h-md" style="font-size:26px">${esc(S.hold)}</div><div class="kick2" style="margin-top:6px">HOLD GOAL</div></div>
-        <div><div class="h-md" id="stagecount" style="font-size:26px">${done}/${total}</div><div class="kick2" style="margin-top:6px">DRILLS DONE</div></div>
-      </div></div>
-      <div class="card" style="margin-top:11px">
-        <div class="kick2">THE CHALLENGE THAT UNLOCKS THE NEXT STAGE</div>
-        <div class="h-sm" style="font-size:24px;margin-top:11px">${esc(S.ch)}</div>
-        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${esc(S.chSub)}</div>
-        <button class="btn" style="margin-top:15px;background:var(--sand);color:var(--ink)"
-          onclick="closeOv();st.tab='progress';st.progTab='marks';save();render()">
-          Log it as a check point</button></div>
-      ${locked?`<div style="margin-top:11px;background:var(--mist);border-radius:20px;padding:18px">
-        <div class="kick2">LOCKED</div>
-        <div style="font:400 14.5px/1.5 var(--sans);margin-top:9px">Pass the challenge on the stage before this one and it opens.</div></div>`:''}
-      ${list}<div style="height:20px"></div>`;
 
-    if(st.stageView!=='drills'){
-      body=`${overview}
-        <div style="display:flex;gap:9px;margin-top:4px">
-          ${isNow||isDone?`<button class="btn" style="flex:1"
-            onclick="closeOv();buildFreeSession()">Train this stage</button>`:''}
-          <button class="btn2" style="flex:1"
-            onclick="st.stageView='drills';save();drawOv()">See the drills</button>
-        </div>`;
-    } else {
-      body=`<button onclick="st.stageView='summary';save();drawOv()" style="background:none;border:none;
-        cursor:pointer;padding:0 0 12px;font:500 13px/1 var(--sans);color:var(--grey)">&larr; Summary</button>
-        ${body}`;
-    }
+      <div style="margin-top:16px;border-radius:18px;overflow:hidden;
+        background:linear-gradient(150deg,#0a7b74,#00403d);position:relative;aspect-ratio:16/9">
+        <div style="position:absolute;top:-70px;right:-50px;width:200px;height:200px;border-radius:50%;
+          background:radial-gradient(circle,rgba(143,190,202,.3),transparent 70%)"></div>
+        <div style="position:absolute;left:16px;bottom:14px;right:16px">
+          <div style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--sage)">
+            STAGE WALKTHROUGH</div>
+          <div style="font:400 17px/1.15 var(--serif);color:var(--on-primary);margin-top:6px">
+            ${esc(St.n)}, explained</div>
+        </div>
+        <div style="position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);
+          font:400 12px/1.3 var(--sans);color:rgba(236,231,226,.75);text-align:center;
+          white-space:nowrap">Filming soon</div>
+      </div>
+      <div style="margin-top:16px;font:400 14.5px/1.5 var(--serif);color:var(--ink)">${
+        esc(St.intro||St.goal||'')}</div>
+
+      <button class="btn" style="width:100%;margin-top:18px"
+        onclick="closeOv();st.stage=${si};save();startDay(-1)">Start a ${mins} min ${esc(St.n)} session</button>
+      <div style="display:flex;gap:9px;margin-top:9px">
+        ${isNow
+          ? `<div style="flex:1;text-align:center;padding:14px;border-radius:16px;
+               box-shadow:inset 0 0 0 1.5px rgba(17,17,17,.12);color:var(--grey);
+               font:600 13px/1 var(--sans)">You're training here</div>`
+          : `<button style="flex:1;text-align:center;padding:14px;border-radius:16px;border:0;
+               background:transparent;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
+               font:600 13px/1 var(--sans);cursor:pointer"
+               onclick="closeOv();${isDone?'dropToStage('+si+')':'advanceStage()'}">${
+               isDone?'Come back up to this':'Move down to this'}</button>`}
+        <button style="flex:1;text-align:center;padding:14px;border-radius:16px;border:0;
+          background:transparent;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
+          font:600 13px/1 var(--sans);cursor:pointer"
+          onclick="closeOv();go('coaching')">Send Elliott a clip</button>
+      </div>
+
+      <div style="height:1px;background:rgba(17,17,17,.09);margin:22px 0 0"></div>
+      <div style="margin-top:16px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="font:700 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--grey)">
+          CHECK POINTS TO PROGRESS</span>
+        <span style="font:600 11px/1 var(--sans);color:var(--forest)">${p.met} of ${p.of} reached</span>
+      </div>
+      <div style="margin-top:7px;font:400 13px/1.45 var(--sans);color:var(--grey)">
+        Drag each one to what you managed and log it. Reach all ${p.of} and ${
+          STAGES[si+1]?esc(STAGES[si+1].n)+' opens below.':'the ladder is done.'}</div>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">
+        ${(cpFor(si)||[]).map((c,i)=>cpCard(c,i,p.of)).join('')}
+      </div>
+      <div style="height:14px"></div>`;
     }
   }
   if(st.ov==='summary'){
@@ -4811,10 +4837,15 @@ function screenOriented(){
 /* What a stage asks for, and whether it has been met. It used to be one
    number off a stopwatch. It is the stage's own check points now, which is
    what the app was already collecting and what actually says you are ready. */
+/* Two different questions, and the ladder was answering the wrong one.
+   "done" is how many have been logged at all; "met" is how many actually
+   reached what they ask for. A stage opens on met, because logging a
+   20-second hold against a 45-second target is not clearing anything. */
 function cpProgress(i){
   const list=cpFor(i==null?curStage():i)||[];
   const done=list.filter(c=>cpLast(c.k)).length;
-  return {done, of:list.length, ready:list.length>0 && done>=list.length};
+  const met=list.filter(c=>cpMet(c)).length;
+  return {done, met, of:list.length, ready:list.length>0 && met>=list.length};
 }
 function stageReady(){ return cpProgress().ready; }
 function advanceStage(){
@@ -5234,126 +5265,189 @@ function screenHome(){
 }
 
 /* ── ladder home ── */
+/* ── the ladder ────────────────────────────────────────────────────
+   Six stages down the screen, each one harder than the last, with a spine
+   linking them. Where you are is the white card; everything behind you is
+   muted teal and everything ahead is grey. Nothing is locked in the sense
+   of forbidden: the copy says so, because people arrive at this screen
+   expecting a gate and the point is that there is not one.
+
+   The measure throughout is check points reached, not best hold. A single
+   number that the whole screen agrees on, rather than a bar counting one
+   thing beside a gate counting another. */
+const LADDER_MIN = 15;
+const stageMaxMin = i => (i<=1 ? 40 : 60);
+
+function ladderMins(){
+  const max=stageMaxMin(curStage());
+  return Math.max(LADDER_MIN, Math.min(max, st.time||30));
+}
+/* the minutes slider in the header. Steps of five, because nobody trains
+   for 37 minutes and a continuous drag pretends they might. */
+function minsDrag(e){
+  const el=document.getElementById('minstrack'); if(!el) return;
+  const max=stageMaxMin(curStage());
+  const set=ev=>{
+    const r=el.getBoundingClientRect();
+    const p=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width));
+    const v=Math.round((LADDER_MIN + p*(max-LADDER_MIN))/5)*5;
+    st.time=Math.max(LADDER_MIN,Math.min(max,v));
+    /* paint during the drag rather than re-rendering the screen under the
+       finger, which loses the pointer capture */
+    const pct=((st.time-LADDER_MIN)/(max-LADDER_MIN))*100;
+    const fill=document.getElementById('minsfill'), th=document.getElementById('minsthumb'),
+          lb=document.getElementById('minslabel');
+    if(fill) fill.style.width=pct+'%';
+    if(th) th.style.left='calc('+pct+'% - '+((pct/100)*28)+'px)';
+    if(lb) lb.textContent=st.time+' min';
+  };
+  set(e);
+  el.setPointerCapture&&el.setPointerCapture(e.pointerId);
+  const move=ev=>set(ev);
+  const up=()=>{ el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+                 save(); saveState(); render(); };
+  el.addEventListener('pointermove',move);
+  el.addEventListener('pointerup',up);
+}
+
 function screenLadder(){
-  const s=STAGES[curStage()];
-  const best=st.bestHold||0;
-  const goal=parseInt(s.hold,10)||30;
-  const pct=Math.min(100,Math.round(best/goal*100));
-  const knowPct=profilePct();
-  const profileBar = knowPct>=100 ? '' : `<div style="background:rgba(255,255,255,.08);border-radius:18px;
-    padding:14px 16px;margin-top:16px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <span style="font:600 11px/1 var(--sans);letter-spacing:.13em;color:var(--sage)">HOW WELL I KNOW YOU</span>
-      <span style="font:700 13px/1 var(--sans)">${knowPct}%</span></div>
-    <div style="height:6px;border-radius:3px;background:rgba(255,255,255,.14);margin-top:10px;overflow:hidden">
-      <i style="display:block;height:100%;width:${knowPct}%;background:var(--sand)"></i></div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--sage);margin-top:9px">
-      ${st.intake&&st.intake.baseline?'Answer a few more and the plan gets sharper.'
-        :'Film a baseline clip and I can place you properly rather than taking your word for it.'}</div></div>`;
-  /* the design's ladder: a spine down the left with the stages hanging off it,
-     filled to where you are. The one you are on opens out to show the marker
-     and how close you are to it. */
-  const cards=STAGES.map((x,i)=>{
-    const done=i<curStage(), now=i===curStage();
-    const locked=stageLocked(i);
-    const tag=done?'Done':now?'Now':locked?'£5/mo':'Locked';
+  const cur=curStage(), s=STAGES[cur]||STAGES[0];
+  const P=cpProgress(cur);
+  const pct=P.of?Math.round(P.met/P.of*100):0;
+  const mins=ladderMins(), maxMin=stageMaxMin(cur);
+  const mpct=((mins-LADDER_MIN)/(maxMin-LADDER_MIN))*100;
+
+  const rungs=STAGES.map((x,i)=>{
+    const passed=i<cur, now=i===cur, locked=stageLocked(i);
+    const p=cpProgress(i);
+    const pc=p.of?Math.round(p.met/p.of*100):0;
     const nxt=STAGES[i+1];
-    const goalS=nxt?(parseInt(x.hold,10)||30):0;
-    const bestS=st.bestHold||0;
-    const pctS=goalS?Math.min(100,Math.round(bestS/goalS*100)):100;
-    return `<div onclick="openStage(${i})" style="position:relative;padding:15px 16px;border-radius:18px;
-      cursor:pointer;background:${now?'#fff':done?'rgba(255,255,255,.6)':'rgba(255,255,255,.35)'};
-      ${now?'box-shadow:0 2px 20px rgba(28,32,25,.08)':''}">
-      <span style="position:absolute;left:-38px;top:15px;width:30px;height:30px;border-radius:50%;
-        display:grid;place-items:center;font:600 12.5px/1 var(--sans);box-shadow:0 0 0 4px var(--bg);
-        background:${done||now?'var(--forest)':'rgba(0,102,99,.09)'};
-        color:${done||now?'var(--on-primary)':'var(--grey2)'}">${done?'✓':i+1}</span>
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <span style="font:600 16px/1.2 var(--sans);color:${done||now?'var(--ink)':'var(--grey2)'}">${esc(x.n)}</span>
-        <span style="flex:none;padding:${now?'5px 10px':'0'};border-radius:99px;font:600 10px/1 var(--sans);
-          letter-spacing:.12em;text-transform:uppercase;
-          background:${now?'rgba(243,169,73,.18)':'transparent'};
-          color:${now?'#8a5a12':'var(--grey2)'}">${tag}</span>
+    const node = passed
+      ? {bg:'#0a7b74', fg:'var(--on-primary)', t:'✓', anim:''}
+      : now
+        ? {bg:'var(--deep)', fg:'var(--on-primary)', t:String(i+1),
+           anim:'animation:lhaNow 3s ease-in-out infinite'}
+        : {bg:'rgba(17,17,17,.08)', fg:'var(--grey)', t:String(i+1), anim:''};
+    const card = passed ? 'rgba(0,102,99,.07)' : now ? '#fff' : 'rgba(17,17,17,.043)';
+    const tag = passed ? ['PASSED','rgba(0,102,99,.14)','var(--forest)']
+              : now    ? ['NOW','rgba(243,169,73,.24)','#7a4a10']
+              : locked ? ['£5/MO','transparent','var(--grey)']
+                       : ['','transparent','var(--grey)'];
+    return `<div style="position:relative;display:flex;gap:13px">
+      <div style="flex:none;width:34px;display:flex;flex-direction:column;align-items:center;padding-top:13px">
+        <div style="flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
+          justify-content:center;font:700 13.5px/1 var(--sans);transition:background .45s,color .45s;
+          background:${node.bg};color:${node.fg};${node.anim}">${node.t}</div>
+        ${i<STAGES.length-1?`<div style="flex:none;width:2.5px;border-radius:2px;margin-top:7px;
+          margin-bottom:-32px;height:calc(100% + 32px);transition:background .5s;
+          background:${passed?'#0a7b74':'rgba(17,17,17,.12)'}"></div>`:''}
       </div>
-      <p style="margin:6px 0 0;font:400 13.5px/1.4 var(--sans);
-        color:${done||now?'var(--grey)':'var(--grey2)'}">${esc(x.goal)}</p>
-      ${now?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(17,17,17,.07)">
-        <div style="display:flex;align-items:baseline;justify-content:space-between">
-          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">TO MOVE UP</span>
-          <span style="font:600 12px/1 var(--sans)">${nxt?bestS+'s / '+goalS+'s':''}</span></div>
-        <p style="margin:7px 0 0;font:400 13.5px/1.4 var(--sans);color:var(--grey)">${
-          nxt?'Hit '+esc(x.hold)+' and '+esc(nxt.n)+' opens — '+esc((nxt.goal||'').toLowerCase())
-             :'You are at the top of the ladder.'}</p>
-        <div style="margin-top:9px;height:5px;border-radius:99px;background:rgba(0,102,99,.1);overflow:hidden">
-          <div style="height:100%;width:${pctS}%;border-radius:99px;background:var(--sage);
-            transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
-      </div>`:''}
+      <div onclick="openStage(${i})" style="flex:1;min-width:0;border-radius:20px;padding:15px 17px;
+        cursor:pointer;transition:background .45s,box-shadow .45s;background:${card};
+        ${now?'box-shadow:0 6px 26px rgba(28,32,25,.13)':''}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="font:400 20px/1.1 var(--serif);color:${
+            now||passed?'var(--ink)':'var(--grey)'}">${esc(x.n)}</div>
+          ${tag[0]?`<div style="flex:none;padding:6px ${tag[1]==='transparent'?'0':'11px'};border-radius:999px;
+            font:700 9.5px/1 var(--sans);letter-spacing:.14em;background:${tag[1]};color:${tag[2]}">${tag[0]}</div>`:''}
+        </div>
+        <div style="margin-top:7px;font:400 13.5px/1.4 var(--sans);color:${
+          now?'#3d3b3a':passed?'var(--grey)':'var(--grey2)'}">${esc(x.goal)}</div>
+        ${now?`<div style="margin-top:14px;height:1px;background:rgba(17,17,17,.09)"></div>
+          <div style="margin-top:13px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+            <span style="font:700 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--grey)">TO MOVE DOWN</span>
+            <span style="font:700 13px/1 var(--sans);color:var(--forest)">${p.met} / ${p.of}</span></div>
+          <div style="margin-top:9px;font:400 13.5px/1.45 var(--sans);color:var(--ink)">${
+            p.of && p.met>=p.of
+              ? (nxt ? 'All '+p.of+' reached. '+esc(nxt.n)+' is open below.'
+                     : 'All '+p.of+' reached. That is the whole ladder.')
+              : nxt ? 'Reach all '+p.of+' check points and '+esc(nxt.n)+' opens below.'
+                    : 'Reach all '+p.of+' check points and the ladder is done.'}</div>
+          <div style="margin-top:12px;height:6px;border-radius:3px;background:rgba(17,17,17,.08);overflow:hidden">
+            <div style="height:100%;border-radius:3px;width:${pc}%;
+              background:linear-gradient(90deg,#0a7b74,#006663);
+              transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
+          <div style="margin-top:14px;display:flex;gap:9px">
+            <button onclick="event.stopPropagation();startDay(-1)" style="flex:1;text-align:center;
+              padding:13px 8px;border:0;border-radius:14px;background:var(--forest);color:var(--on-primary);
+              font:700 12.5px/1 var(--sans);cursor:pointer">Train at my level</button>
+            <button onclick="event.stopPropagation();openStage(${i})" style="flex:1;text-align:center;
+              padding:13px 8px;border:0;border-radius:14px;background:transparent;
+              box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
+              font:700 12.5px/1 var(--sans);cursor:pointer">Check points ${p.met}/${p.of}</button>
+          </div>`:''}
+      </div>
     </div>`;
   }).join('');
+
   return `<div class="scroll s">
-    <div class="hero">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span class="kick">THE HANDSTAND LADDER</span></div>
-      <div data-tour="stagegoal">
-      <div class="h-xl" style="font-size:38px;margin-top:18px">Stage ${curStage()+1}, ${esc(s.n)}</div>
-      <div style="font:400 14.5px/1.5 var(--sans);color:var(--sage);margin-top:10px">${esc(s.goal)}</div>
-      <div style="height:6px;border-radius:999px;background:rgba(255,255,255,.15);margin-top:18px;overflow:hidden">
-        <div style="height:100%;width:${pct}%;background:var(--sand);border-radius:999px"></div></div>
-      <div style="display:flex;justify-content:space-between;font:500 11px/1 var(--sans);color:var(--sage);margin-top:9px">
-        <span>${pct}% of this stage</span><span>Best hold ${best}s · goal ${esc(s.hold)}</span></div>
+    <div style="position:relative;background:linear-gradient(170deg,#0a7b74,#00615d 60%,#005a56);
+      color:var(--on-primary);border-radius:0 0 26px 26px;overflow:hidden;
+      padding:calc(env(safe-area-inset-top) + 62px) 20px 18px">
+      <div style="position:absolute;top:-120px;right:-80px;width:260px;height:260px;border-radius:50%;
+        background:radial-gradient(circle,rgba(143,190,202,.2),transparent 70%);pointer-events:none"></div>
+      <div style="position:relative" data-tour="stagegoal">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+          <div style="font:400 27px/1.05 var(--serif)">Stage ${cur+1}, ${esc(s.n)}</div>
+          <div style="flex:none;font:600 10px/1 var(--sans);letter-spacing:.14em;
+            color:var(--sage)">${P.met}/${P.of}</div>
+        </div>
+        <div style="margin-top:7px;font:400 13px/1.35 var(--sans);color:rgba(236,231,226,.78)">${esc(s.goal)}</div>
+        <div style="margin-top:13px;height:5px;border-radius:3px;background:rgba(236,231,226,.2);overflow:hidden">
+          <div style="height:100%;border-radius:3px;width:${pct}%;background:var(--amber);
+            transition:width .7s cubic-bezier(.2,.8,.2,1)"></div></div>
       </div>
-
-      <div style="height:1px;background:rgba(236,231,226,.16);margin:20px 0 16px"></div>
-      <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:rgba(236,231,226,.55)">TRAIN NOW</div>
-      <div style="font:400 26px/1.08 var(--serif);margin-top:9px">How long have you got?</div>
-      <div style="display:flex;gap:8px;margin-top:15px">
-        ${[15,30,45].map(t=>`<button onclick="st.time=${t};save();render()" style="flex:1;cursor:pointer;
-          border-radius:14px;padding:13px 0;font:600 14px/1 var(--sans);
-          border:1px solid ${(st.time||30)===t?'transparent':'rgba(236,231,226,.28)'};
-          background:${(st.time||30)===t?'var(--on-primary)':'transparent'};
-          color:${(st.time||30)===t?'var(--deep)':'var(--on-primary)'}">${t} min</button>`).join('')}
-      </div>
-      <div data-tour="buildsession" style="display:flex;gap:8px;margin-top:9px">
-        <button onclick="buildFreeSession()" style="flex:1;border:0;border-radius:14px;padding:13px;
-          background:var(--bg);color:var(--deep);cursor:pointer">
-          <span style="display:block;font:600 15px/1 var(--sans)">Build my session</span>
-          <span style="display:block;margin-top:4px;font:600 9.5px/1 var(--sans);letter-spacing:.13em;
-            color:rgba(0,64,61,.6)">${(st.time||30)} MIN · STAGE ${curStage()+1}</span></button>
-        <button onclick="st.tab='progress';st.progTab='marks';save();render()"
-          style="flex:none;width:112px;border:1px solid rgba(236,231,226,.28);
-          border-radius:14px;padding:13px 6px;background:transparent;color:var(--on-primary);cursor:pointer">
-          <span style="display:block;font:600 15px/1 var(--sans)">Check points</span>
-          <span style="display:block;margin-top:4px;font:600 9.5px/1 var(--sans);letter-spacing:.13em;
-            color:rgba(236,231,226,.6)">${cpProgress().done}/${cpProgress().of} DONE</span></button>
-      </div>
-    </div>
-
-    <div class="pad">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;padding:0 6px 4px">
-        <div style="font:400 21px/1 var(--serif)">The ladder</div>
-        <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;
-          color:var(--grey2)">STAGE ${curStage()+1} OF ${STAGES.length}</span>
-      </div>
-      <div data-tour="stagelist" style="position:relative;padding-left:38px;margin-top:14px">
-        <div style="position:absolute;left:15px;top:14px;bottom:22px;width:2px;
-          background:rgba(0,102,99,.14)"></div>
-        <div style="position:absolute;left:15px;top:14px;width:2px;border-radius:99px;
-          height:${curStage()*(100/STAGES.length)}%;background:var(--forest);
-          transition:height .6s cubic-bezier(.2,.8,.2,1)"></div>
-        <div style="display:flex;flex-direction:column;gap:10px">${cards}</div>
+      <div data-tour="buildsession" style="position:relative;margin-top:16px;display:flex;
+        align-items:flex-end;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+            <span style="font:600 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--sage)">TRAIN NOW</span>
+            <span style="font:400 10.5px/1 var(--sans);color:rgba(236,231,226,.6)">${
+              LADDER_MIN} min–${maxMin} min</span>
+          </div>
+          <div id="minstrack" onpointerdown="minsDrag(event)" style="margin-top:9px;position:relative;
+            height:34px;border-radius:17px;background:rgba(0,48,46,.4);cursor:pointer;touch-action:none;
+            overflow:hidden">
+            <div id="minsfill" style="position:absolute;left:0;top:0;bottom:0;border-radius:17px;
+              background:rgba(236,231,226,.22);transition:width .14s;width:${mpct}%"></div>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;padding-left:15px;
+              font:700 14px/1 var(--sans);color:var(--on-primary);pointer-events:none"
+              ><span id="minslabel">${mins} min</span></div>
+            <div id="minsthumb" style="position:absolute;top:3px;width:28px;height:28px;border-radius:50%;
+              background:var(--on-primary);box-shadow:0 2px 8px rgba(0,0,0,.28);transition:left .14s;
+              left:calc(${mpct}% - ${(mpct/100)*28}px)"></div>
+          </div>
+        </div>
+        <button onclick="startDay(-1)" aria-label="Start a session" style="flex:none;width:72px;height:60px;
+          border:0;border-radius:18px;background:var(--on-primary);display:flex;flex-direction:column;
+          align-items:center;justify-content:center;gap:3px;cursor:pointer">
+          <span style="font:700 17px/1 var(--sans);color:var(--deep)">▶</span>
+          <span style="font:700 9px/1 var(--sans);letter-spacing:.1em;color:var(--forest)">START</span>
+        </button>
       </div>
     </div>
-    <div data-tour="upsell" style="padding:16px 16px 26px">
-      <button onclick="go('coaching')" style="width:100%;text-align:left;border:none;background:var(--amber);
-        border-radius:26px;padding:22px 20px;color:#fff;cursor:pointer">
-        <div class="kick2" style="color:rgba(255,255,255,.8)">WANT ELLIOTT'S EYES ON IT</div>
-        <div class="h-md" style="margin-top:12px">The ladder is the map. Coaching is someone reading it with you.</div>
-        <div style="font:400 13.5px/1.5 var(--sans);color:rgba(255,255,255,.85);margin-top:10px">
-          A programme built for you, form checks on your own footage, and adjustments every fortnight.</div>
-        <div style="margin-top:16px;background:#fff;border-radius:14px;padding:14px;text-align:center;
-          font:600 13px/1 var(--sans);color:var(--ink)">See what coaching adds</div>
-      </button>
-    </div></div>`;
+
+    <div style="padding:24px 20px 40px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+        <div style="font:400 25px/1 var(--serif)">The ladder</div>
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">
+          STAGE ${cur+1} OF ${STAGES.length}</div>
+      </div>
+      <div data-tour="stagelist" style="margin-top:16px;position:relative;display:flex;
+        flex-direction:column;gap:12px">${rungs}</div>
+
+      <div data-tour="upsell" onclick="go('coaching')" style="margin-top:20px;padding:18px 20px 20px;
+        border-radius:20px;background:var(--amber);cursor:pointer">
+        <div style="font:700 10px/1 var(--sans);letter-spacing:.18em;color:#7a4a10">WANT ELLIOTT'S EYES ON IT</div>
+        <div style="margin-top:10px;font:400 20px/1.2 var(--serif);color:var(--deep)">
+          Send a clip, get a form check</div>
+        <div style="margin-top:13px;display:inline-block;padding:12px 19px;border-radius:13px;
+          background:var(--deep);color:var(--on-primary);font:700 13px/1 var(--sans)">Book a review</div>
+      </div>
+      <div style="margin-top:18px;text-align:center;font:400 12.5px/1.5 var(--serif);color:var(--grey)">
+        Nothing is locked. Move down early, come back up when you need to.</div>
+    </div>
+  </div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
    back loses your spot, which is the thing the programme pages get right */
@@ -6687,11 +6781,11 @@ const TOURS = {
     n:'The ladder', next:'progress',
     steps:[
       {t:'stagegoal', h:'How you leave this stage',
-       b:'Every stage has one thing to hit. The bar is how much of the stage you have ticked off, and the line under it is your best hold against the one the stage asks for. Hit that and the next stage opens.'},
+       b:'Every stage has a handful of check points. The number beside the stage is how many you have reached, and the amber bar is the same thing drawn. Reach all of them and the next stage opens below.'},
       {t:'stagelist', h:'All six stages',
-       b:'Where you are, what is behind you and what is coming. Tap any stage to see its drills and what it asks for. You can drop back a stage from the bottom of this screen if one was a reach.'},
+       b:'Where you are is the white one, behind you is teal, ahead is grey. Tap any stage to see what it asks for, watch the walkthrough and log its check points. Nothing is locked, so you can move down early or come back up.'},
       {t:'buildsession', h:'Train off the ladder',
-       b:'Tell it how long you have and it builds a session for your stage that fits, warm-up included. Max hold is a timer for the hold the stage is asking for.'}
+       b:'Drag for how long you have got and press start. It builds a session for your stage that fits, warm-up included.'}
     ]
   },
   progress: {
