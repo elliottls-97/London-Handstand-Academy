@@ -1083,7 +1083,7 @@ function stageMasteryCard(){
       </div>
       ${bars?`<div style="display:flex;gap:6px;margin-top:11px">${bars}</div>`:''}
       <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
-        To leave this stage: ${esc(S.hold)} — ${esc((S.goal||'').toLowerCase())}</div>
+        To leave this stage: reach its ${(cpFor(curStage())||[]).length} check points.</div>
     </div>`;
   }).join('');
 
@@ -1170,7 +1170,8 @@ function freeProgressBody(){
         <span style="font:400 20px/1 var(--serif);color:var(--forest)">${pct}%</span>
       </div>
       <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-        ${got} of ${items.length} drills ticked off. To leave: ${esc(S.hold)} — ${esc((S.goal||'').toLowerCase())}</div>
+        ${got} of ${items.length} drills ticked off. To leave, reach this stage's
+        ${(cpFor(curStage())||[]).length} check points.</div>
       <div style="display:flex;gap:6px;margin-top:12px">
         ${secs.map(sec=>{
           const n=(sec.items||[]).length, d=(sec.items||[]).filter(it=>done[it.v]).length;
@@ -4835,7 +4836,9 @@ const FREE_DOSE={'wrist-circles-mob':'30s, both ways','scapula-shrugs':'3 × 10'
    6. Someone paying for the Press stage was told 17 and given 5. It is
    derived now, so the claim and the content cannot disagree. */
 STAGES.forEach(x=>{ x.drills=(x.drillIds||[]).length; });
-const curStage=()=>st.stage==null?1:st.stage;
+/* straight out of localStorage, so it has to be clamped: a stale or edited
+   value put the whole app on a stage that does not exist */
+const curStage=()=>Math.max(0, Math.min(STAGES.length-1, st.stage==null?1:(st.stage|0)));
 
 
 /* ── asking a question ─────────────────────────────────────────────
@@ -4921,13 +4924,21 @@ function screenOriented(){
       <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)">YOU'VE LANDED HERE</div>
       <div style="font:400 40px/1.02 var(--serif);color:var(--deep);margin-top:10px">${esc(S.n)}</div>
       <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:9px">
-        Stage ${curStage()+1} of ${STAGES.length} — ${esc(levelDef().d.toLowerCase())}</div>
+        Stage ${curStage()+1} of ${STAGES.length}. ${esc(levelDef().d)}</div>
       <div style="font:400 15.5px/1.5 var(--sans);color:#333;margin-top:16px">${esc(bridge)}</div>
 
       <div style="background:#fff;border:1px solid rgba(17,17,17,.07);border-radius:20px;
         padding:4px 16px;margin-top:20px;box-shadow:0 1px 2px rgba(17,17,17,.04)">
-        ${row('1','The ladder is five stages',
-          'You move up when you hit the marker for the one you are on. Yours is '+esc(S.hold)+' — '+esc((S.goal||'').toLowerCase()))}
+        ${(()=>{
+          /* This said five stages beside a header reading "Stage 1 of 6", and
+             described the old gate: a hold you had to hit. The gate is the
+             stage's check points now, so the first thing a new person reads
+             about moving up was the one thing that had changed. */
+          const n=(cpFor(curStage())||[]).length;
+          return row('1','The ladder is '+STAGES.length+' stages',
+            'You move down to the next one when you reach the check points for the one you are on. '+
+            (n? esc(S.n)+' has '+n+'.' : ''));
+        })()}
         ${row('2','Your first session is ready',
           mins+' minutes, '+per+'× a week, plus two short wrist and mobility days.')}
         ${row('3','Questions get answered below',
@@ -5549,7 +5560,9 @@ function screenLadder(){
           background:var(--deep);color:var(--on-primary);font:700 13px/1 var(--sans)">Book a review</div>
       </div>
       <div style="margin-top:18px;text-align:center;font:400 12.5px/1.5 var(--serif);color:var(--grey)">
-        Nothing is locked. Move down early, come back up when you need to.</div>
+        ${isPlus()
+          ? 'Nothing is locked. Move down early, come back up when you need to.'
+          : 'You can move around inside '+esc(STAGES[0].n)+' freely. The rest of the ladder is the £5 tier.'}</div>
     </div>
   </div>`;
 }
@@ -5628,8 +5641,9 @@ function screenUpgradeBody(si){
             <span style="color:var(--forest)">—</span><span>${x}</span></div>`).join('')}
       </div>
       <button class="btn" style="width:100%;margin-top:20px" onclick="startUpgrade()">Unlock the full ladder</button>
-      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-        Stages 1 to 4 stay free, always.</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:12px">
+        ${FREE_STAGES===1 ? esc(STAGES[0].n)+' stays free, always.'
+          : 'Stages 1 to '+FREE_STAGES+' stay free, always.'}</div>
     </div>`;
 }
 function startUpgrade(){
@@ -6493,8 +6507,9 @@ function screenWelcome(){
         onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
     </div>
     <div style="font:400 12.5px/1.6 var(--sans);color:#8fbeca;margin-top:20px;text-align:center">
-      Free to Take-Off, no account needed. An account opens every clip and keeps
-      your progress; Freestanding and the Press are £5 a month.</div></div>`;
+      ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account opens every
+      clip and keeps your progress; the ${STAGES.length-FREE_STAGES} stages below it are
+      £5 a month.</div></div>`;
 }
 
 /* ── free sign-up, after the quiz ────────────────────────────────
@@ -7177,7 +7192,11 @@ function render(){
   if(st.tab==='reset'){ swap(screenReset()); return; }
   if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
   if(!st.mode && !st.in){ swap(screenWelcome()); return; }
-  if(st.mode==='free' && !st.quizDone && st.tab==='quiz'){ swap(screenQuiz()); return; }
+  /* Reloading part-way through the intake used to land on Today with half a
+     profile filled in and the level question never answered, because resuming
+     the quiz was conditional on the tab still being 'quiz'. It is not the tab
+     that decides this, it is whether the quiz is finished. */
+  if(st.mode==='free' && !st.in && !st.quizDone){ st.tab='quiz'; swap(screenQuiz()); return; }
   /* shown once, between finishing the quiz and the ladder */
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null){
     swap(screenOriented()); return; }
