@@ -3007,6 +3007,50 @@ function advance(){
   showStep();
 }
 function skip(){ clearInterval(tick_); tick_=null; advance(); }
+/* A line that says what just happened and then goes away. There was no
+   such thing in here, and alert() stops the app dead to say one sentence. */
+let toast_=null;
+function toast(msg){
+  let el=document.getElementById('toast');
+  if(!el){
+    el=document.createElement('div'); el.id='toast';
+    el.style.cssText='position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:60;'+
+      'background:var(--forest,#003b38);color:#fff;border-radius:999px;padding:11px 19px;'+
+      'font:600 13.5px/1.2 var(--sans);box-shadow:0 8px 26px rgba(0,0,0,.22);'+
+      'max-width:calc(100vw - 40px);text-align:center;opacity:0;transition:opacity .18s ease';
+    document.body.appendChild(el);
+  }
+  el.textContent=msg;
+  el.style.opacity='1';
+  clearTimeout(toast_);
+  toast_=setTimeout(()=>{ el.style.opacity='0'; }, 2600);
+}
+
+/* The only place a follow-along ever gets asked. Rating a single drill
+   needs the drill list open, and someone who only ever presses play would
+   have stayed on level one forever, so the answer here moves every
+   grouping the session touched. */
+function sessionFeel(f){
+  if(st.in) post({type:'Session feel',feel:f});
+  const dir = f==='Too easy' ? +1 : f==='Too hard' ? -1 : 0;
+  let n=0;
+  if(dir){
+    const moved=new Set();
+    (Q||[]).forEach(x=>{
+      const v=x.it&&x.it.v, g=x.g||(poolRow(curStage(),v)||{}).g;
+      if(!v || !g || g==='Warm-up' || moved.has(g)) return;
+      moved.add(g);
+      const m=nudgeGroup(v, dir);
+      if(m && m.to!==m.from) n++;
+    });
+  }
+  closeOv();
+  /* say what it did, or the session quietly changing next week reads as the
+     app being inconsistent rather than as the thing they just asked for */
+  if(n) toast(dir>0 ? 'Next session steps up.' : 'Next session eases off.');
+  else if(dir>0) toast('Already at the top of this stage.');
+}
+
 function endPlayer(done){ clearInterval(tick_); tick_=null;
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.remove('on'); $('#player').innerHTML='';
@@ -3030,7 +3074,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
   })();
   reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done, items:rows,
     drills:Q.length,
-    mins:Math.round(Q.reduce((a,x,_i)=>a+work(x.it)+rest(x,_i,Q),0)/60),
+    mins:Math.round(Q.reduce((a,x,_i)=>a+work(x.it,x.g||x.grp)+rest(x,_i,Q),0)/60),
     actual: sessionStart?Math.round((Date.now()-sessionStart)/60000):0,
     got: done?Q.length:qi, of: Q.length,
     /* where they stopped is the useful half of an abandoned session */
@@ -3772,8 +3816,17 @@ function drawOv(){
     }
   }
   if(st.ov==='summary'){
-    const q=queue(), d=day();
-    const drills=allItems(d).length;
+    /* the session that just ran, not the coached plan's idea of today — on
+       the ladder those are different things and the summary was reporting
+       the wrong one */
+    const onLadder = !st.in && (Q||[]).length>0;
+    const q = onLadder ? Q : queue();
+    /* the session's own name, not "Warm-up", which is only what its first
+       row happened to be in */
+    const dayName = onLadder
+      ? ((Q.map(x=>x.grp).find(g=>g && !WARM_GRP.test(g))) || 'that session') : '';
+    const d = onLadder ? {label:dayName} : day();
+    const drills = onLadder ? new Set(Q.map(x=>x.it&&x.it.v)).size : allItems(d).length;
     const mins=st.lastSessionMins||0;
     const stat=(v,l)=>`<div style="flex:1;text-align:center">
       <div class="h-sm" style="font-size:26px">${v}</div>
@@ -3797,9 +3850,10 @@ function drawOv(){
       <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
       <div style="display:flex;gap:9px;margin-top:12px">
       ${['Too easy','About right','Too hard'].map(f=>`<button class="btn2" style="flex:1"
-        onclick="post({type:'Session feel',feel:'${f}'});closeOv()">${f}</button>`).join('')}</div>
-      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-        Telling me how it felt is what changes the next block.</div>`;
+        onclick="sessionFeel('${f}')">${f}</button>`).join('')}</div>
+      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">${
+        st.in ? 'Telling me how it felt is what changes the next block.'
+              : 'This is what moves the next session up or down.'}</div>`;
   }
   /* tapping the scrim closes it, the way a sheet should; the panel swallows
      its own clicks so a tap inside does not shut it */
