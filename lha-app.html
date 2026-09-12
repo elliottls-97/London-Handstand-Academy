@@ -4078,6 +4078,30 @@ function savePassword(ev){
    the server. Nothing here is sent for a free-tier user — no token, no
    report. */
 let progQueued=null;
+/* one visit per load, stamped on first touch and closed out on the way out */
+let visitStart=0, visitSent=false;
+function watchVisit(){
+  const begin=()=>{
+    if(visitSent || !st.token) return;
+    visitSent=true; visitStart=Date.now();
+    reportProgress({visit:{ms:0}});
+    ['pointerdown','keydown'].forEach(e=>document.removeEventListener(e,begin,true));
+  };
+  ['pointerdown','keydown'].forEach(e=>document.addEventListener(e,begin,true));
+  /* how long they actually stayed, sent once, on the way out. keepalive so a
+     closing tab still gets it away. */
+  const close=()=>{
+    if(!visitSent || !visitStart) return;
+    const ms=Date.now()-visitStart; visitStart=0;
+    try{
+      fetch(AUTH.progress,{method:'POST',headers:authed(),keepalive:true,
+        body:JSON.stringify({visit:{ms}})});
+    }catch(e){}
+  };
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden) close(); });
+  window.addEventListener('pagehide', close);
+}
+
 function reportProgress(extra){
   if(!st.token) return Promise.resolve();
   const flags={};
@@ -6655,7 +6679,10 @@ document.addEventListener('DOMContentLoaded',function(){
   render();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); }
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
-  if(st.token) reportProgress();
+  /* An open is a person opening the app, not a tab waking up. Wait for a
+     real interaction before reporting one, and report how long they stayed
+     when they leave. */
+  if(st.token) watchVisit();
 });
 render();
 </script>

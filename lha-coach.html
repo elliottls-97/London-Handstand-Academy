@@ -180,7 +180,8 @@ function openThread(email){
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ prog[email]=d.progress||{}; intakes[email]=d.intake||null;
-                      tracks[email]=d.track||null; cpDefs[email]=d.checkpoints||[]; draw(); } })
+                      tracks[email]=d.track||null; cpDefs[email]=d.checkpoints||[];
+                      visitsBy[email]=d.visits||{}; draw(); } })
     .catch(()=>{});
   if(!fcState[email]) loadFormCheck(email);
   fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
@@ -1405,8 +1406,28 @@ function coachCalendar(email){
     </div>
     <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:9px">
       ${monthOpens.length} day${monthOpens.length===1?'':'s'} opened ·
-      ${monthSess.length} with a session logged. Click any day for detail.</div>
+      ${monthSess.length} with a session logged${monthVisitLine(email, month)}.
+      Click any day for detail.</div>
     ${calDay?dayDetail(email,byDay[calDay]||[],calDay,p):''}`;
+}
+
+/* How often they are actually in the app, not just whether they were. An
+   open used to be stamped by the page loading, so a phone waking a tab read
+   as a training day. */
+let visitsBy={};
+const visitsFor = e => visitsBy[e] || {};
+function visitMins(v){
+  if(!v || !v.ms) return '';
+  const m=Math.round(v.ms/60000);
+  return m>=1 ? ', '+m+' min' : ', under a minute';
+}
+function monthVisitLine(email, month){
+  const v=visitsFor(email);
+  let n=0, ms=0;
+  Object.keys(v).forEach(d=>{ if(d.slice(0,7)===month){ n+=v[d].n||0; ms+=v[d].ms||0; } });
+  if(!n) return '';
+  const m=Math.round(ms/60000);
+  return ' · '+n+' visit'+(n===1?'':'s')+(m?', '+m+' min in total':'');
 }
 
 /* what actually happened on one day, in the client's own words where
@@ -1416,11 +1437,15 @@ function dayDetail(email,list,k,p){
     {weekday:'long',day:'numeric',month:'long'});
   const holds=(p.holds||[]).filter(h=>h&&h.at&&new Date(h.at).toISOString().slice(0,10)===k);
   const notes=(p.feedback||[]).filter(f=>f&&f.at&&new Date(f.at).toISOString().slice(0,10)===k);
+  const opened=(p.opens||[]).indexOf(k)>-1;
+  const v=visitsFor(email)[k];
   if(!list.length && !holds.length && !notes.length)
     return `<div style="background:var(--mist);border-radius:12px;padding:13px 15px;margin-top:12px">
       <div style="font:600 12.5px/1.3 var(--sans)">${esc(when)}</div>
       <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:5px">
-        They opened the app but did not log a session.</div></div>`;
+        ${opened
+          ? 'They opened the app'+(v?' '+v.n+(v.n===1?' time':' times')+visitMins(v):'')+', and logged nothing.'
+          : 'Nothing at all. They did not open the app.'}</div></div>`;
   return `<div style="background:var(--mist);border-radius:12px;padding:14px 15px;margin-top:12px">
     <div style="font:600 12.5px/1.3 var(--sans)">${esc(when)}</div>
     ${list.map(x=>`<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">

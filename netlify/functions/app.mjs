@@ -1542,10 +1542,26 @@ export default async (request) => {
       : { opens: [], sessions: [], holds: [], flags: {}, tests: [], feedback: [] };
       const now = Date.now();
 
-      /* one "open" per day is all we need to see a habit */
+      /* An open used to be stamped by the app merely loading, so a phone
+         waking a backgrounded tab read as a training day. The client only
+         reports one after a real interaction now, and says how long the
+         visit lasted, so "opened" means opened by a person. */
       const today = new Date(now).toISOString().slice(0, 10);
-      p.opens = (p.opens || []).filter(d => d !== today).concat([today]).slice(-180);
-      p.lastSeen = now;
+      if (body.visit) {
+        p.opens = (p.opens || []).filter(d => d !== today).concat([today]).slice(-180);
+        p.lastSeen = now;
+        const key = `visits:${who}`;
+        const v = (await getSetting(key)) || {};
+        const day = v[today] || { n: 0, ms: 0 };
+        day.n += 1;
+        day.ms += Math.max(0, Math.min(4 * 3600000, Number(body.visit.ms) || 0));
+        v[today] = day;
+        /* six months is plenty to read a habit off */
+        for (const d of Object.keys(v)) {
+          if (d < new Date(now - 180 * 86400000).toISOString().slice(0, 10)) delete v[d];
+        }
+        await setSetting(key, v);
+      }
 
       if (body.session && body.session.day != null) {
         p.sessions = (p.sessions || []).concat([{
@@ -2034,6 +2050,7 @@ export default async (request) => {
                     /* so the dashboard can name a check point the coach set
                        rather than showing its key */
                     checkpoints: ((await getSetting(`programme:${e}`)) || {}).checkpoints || [],
+                    visits: (await getSetting(`visits:${e}`)) || {},
         progress: (await (async () => {
           const prog = await supa.row('progress', `email=eq.${enc(e)}&select=*`);
           return prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
