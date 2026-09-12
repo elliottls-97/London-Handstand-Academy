@@ -1994,11 +1994,24 @@ export default async (request) => {
           checkpoints: Array.isArray(body.checkpoints)
             ? body.checkpoints.slice(0, 20).map(c => {
                 const was = (base.checkpoints || []).find(x => x.k === c.k);
+                const tgt = Number(c.target);
                 return {
                   k: String(c.k || '').slice(0, 32),
                   n: String(c.n || '').slice(0, 80),
-                  kind: ['secs', 'count', 'rate', 'yn'].includes(c.kind) ? c.kind : 'count',
+                  kind: ['secs', 'count', 'rate', 'yn', 'face'].includes(c.kind) ? c.kind : 'count',
                   note: String(c.note || '').slice(0, 200),
+                  /* The target was being dropped here, so a coach-set check
+                     point had nothing to be measured against: the app's slider
+                     had no end to run to and "reached" could never be true.
+                     The demo went the same way, which is why they never had a
+                     clip showing how to test the thing. */
+                  target: Number.isFinite(tgt) && tgt >= 0 && tgt <= 100000
+                    ? Math.round(tgt * 10) / 10 : null,
+                  unit: String(c.unit || '').slice(0, 8),
+                  lower: !!c.lower,
+                  demo: String(c.demo || '').slice(0, 60),
+                  faces: Array.isArray(c.faces)
+                    ? c.faces.slice(0, 3).map(x => String(x || '').slice(0, 24)) : undefined,
                   video: c.video !== false,
                   /* the day it starts showing in their app. Blank means now. */
                   from: /^\d{4}-\d{2}-\d{2}$/.test(String(c.from || '')) ? String(c.from) : '',

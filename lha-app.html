@@ -1480,8 +1480,11 @@ function cpSendClip(k,file){
       xhr.send(fd);
     }))
     .then(uid=>{
-      const el=document.getElementById('cp-'+k);
-      const v=(el&&el.value) || (cpLast(k)||{}).v || 0;
+      /* the number to attach is whatever the slider is holding, then whatever
+         was last logged — the old input id this read from no longer exists, so
+         every clip was being filed against a zero */
+      const draft=(st.cpDraft||{})[k];
+      const v = draft!=null ? draft : ((cpLast(k)||{}).v || 0);
       cpUpBusy=null;
       saveCheckpoint(k, v, uid);
     })
@@ -1625,6 +1628,18 @@ function cpInput(c){
    never touched, so opening a clip and then nudging the slider does not
    tear the video down and start it again. Redrawing the whole sheet for
    either of those is what made it feel like the page reloading. */
+/* A card can be on the Progress tab (the coached list, or the current
+   stage's) or inside a stage sheet for some other stage, so it cannot assume
+   which list it came from. */
+function cpDef(k){
+  const here=(cpFor()||[]).find(x=>x.k===k);
+  if(here) return here;
+  if(st.ov==='stage') return (cpFor(st.ovStage||0)||[]).find(x=>x.k===k)||null;
+  for(let i=0;i<STAGES.length;i++){
+    const f=(cpFor(i)||[]).find(x=>x.k===k); if(f) return f;
+  }
+  return null;
+}
 function cpCard(c, i, total){
   return `<div id="cpcard-${c.k}" data-i="${i}" data-total="${total}"
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
@@ -1645,6 +1660,7 @@ function cpCardTop(c, i, total){
   /* The number at the top is what the slider is holding, not what was logged
      last time: they diverge the moment you drag, and a card arguing with
      itself is worse than one number. What was logged is on the line below. */
+  const sent=(cpLog()[c.k]||[]).filter(x=>x&&x.video).slice(-1)[0]||null;
   const draft=(st.cpDraft||{})[c.k];
   const cur = draft!=null ? draft : (last ? last.v : null);
   const shown = pick ? (last ? cpFaceLabel(c,last.v) : '')
@@ -1695,10 +1711,25 @@ function cpCardTop(c, i, total){
       <div style="flex:1;min-width:0">
         <div id="cpdlbl-${c.k}" style="font:600 13px/1.2 var(--sans)">${
           drill&&drill.url?(openD?'Hide the demo':'How to test this'):'Demo coming soon'}</div>
-        <div style="margin-top:4px;font:400 11px/1.3 var(--sans);color:var(--grey)">${
+        <div style="margin-top:4px;font:400 12px/1.3 var(--sans);color:var(--grey)">${
           drill ? esc(drill.n) : 'Not filmed yet'}</div>
       </div>
-    </div>`;
+    </div>
+    ${(coachedView() && c.video!==false)?`
+      <button onclick="cpFilm('${c.k}')" style="width:100%;margin-top:9px;cursor:pointer;min-height:48px;
+        border:0;border-radius:14px;padding:14px;display:flex;align-items:center;justify-content:center;
+        gap:9px;font:700 13px/1 var(--sans);
+        background:${sent?'transparent':'rgba(243,169,73,.18)'};
+        box-shadow:${sent?'inset 0 0 0 1.5px rgba(0,102,99,.3)':'none'};
+        color:${sent?'var(--forest)':'#7a4a10'}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        ${sent?'Send another clip':'Send Elliott a clip'}</button>
+      <div id="cpup-${c.k}" style="margin-top:7px;font:500 12px/1.4 var(--sans);
+        text-align:center;color:${sent?'var(--forest)':'var(--grey)'}">${
+        sent ? 'Clip sent '+esc(cpWhen(sent.at))+'. Elliott has it.'
+             : 'A number says what happened. A clip says whether it was any good.'}</div>`:''}`;
 }
 /* how far off it is, said in the units it is measured in */
 function cpToGo(c){
@@ -1722,10 +1753,9 @@ function cpToGo(c){
 function repaintCp(k){
   const el=document.getElementById('cptop-'+k); if(!el) return;
   const card=document.getElementById('cpcard-'+k);
-  const si=st.ovStage||0, list=cpFor(si)||[];
-  const c=list.find(x=>x.k===k); if(!c) return;
-  el.innerHTML=cpCardTop(c, Number(card.dataset.i)||0, Number(card.dataset.total)||list.length);
-  const p=cpProgress(si);
+  const c=cpDef(k); if(!c) return;
+  el.innerHTML=cpCardTop(c, Number(card.dataset.i)||0, Number(card.dataset.total)||0);
+  const p=(st.ov==='stage') ? cpProgress(st.ovStage||0) : cpProgress();
   const cnt=document.getElementById('cpcount');
   if(cnt) cnt.textContent=p.met+' of '+p.of+' reached';
   const bar=document.getElementById('cpbar');
@@ -1739,8 +1769,7 @@ function toggleCpDemo(k){
   const open=!((st.cpOpen||{})[k]);
   st.cpOpen=Object.assign({},st.cpOpen,{[k]:open});
   save();
-  const si=st.ovStage||0;
-  const c=(cpFor(si)||[]).find(x=>x.k===k);
+  const c=cpDef(k);
   const drill=c&&c.demo?drillById(c.demo):null;
   box.innerHTML = (open && drill && drill.url)
     ? `<div style="margin-top:10px">${vidBlock(drill.url,'16/10')}</div>
@@ -1807,66 +1836,52 @@ function cpDrag(e,k,max,res){
 function checkpointsCard(){
   const list=cpFor(); if(!list.length) return '';
   const S=STAGES[curStage()]||{};
-  const done=list.filter(c=>cpMet(c)).length;
+  const P=cpProgress();
+  const pc=P.of?Math.round(P.met/P.of*100):0;
   const due=cpDue();
   const fresh=cpNew();
+  const coached=coachedView();
+  const all = P.of>0 && P.met>=P.of;
   return `<div class="card" style="padding:18px 20px${
     fresh.length?';border:1.5px solid var(--amber)':due?';border:1.5px solid var(--forest)':''}">
     ${fresh.length?`<div style="display:flex;align-items:center;gap:10px;margin:-4px 0 12px">
       <span style="flex:1;font:600 12.5px/1.4 var(--sans);color:#8a6524">${
         fresh.length===1?'A new check point from Elliott':fresh.length+' new check points from Elliott'}</span>
-      <button class="back" style="flex:none;color:var(--forest);font-weight:700;font-size:11.5px"
+      <button class="back" style="flex:none;color:var(--forest);font-weight:700;font-size:12.5px"
         onclick="cpMarkSeen();render()">Got it</button>
     </div>`:''}
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
       <span class="kick2"${due?' style="color:var(--forest)"':''}>CHECK POINTS${
-        coachedView()?'':' · '+esc(S.n||'')}</span>
-      <span style="font:600 12px/1 var(--sans);color:${done===list.length&&list.length?'var(--forest)':'var(--grey2)'}">${done} of ${list.length} at target</span>
+        coached?'':' · '+esc(S.n||'')}</span>
+      <span id="cpcount" style="font:600 12px/1 var(--sans);color:${
+        all?'var(--forest)':'var(--grey2)'}">${P.met} of ${P.of} reached</span>
     </div>
-    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-      ${coachedView()
-        ? (due ? 'Worth running through these, it has been a fortnight or more.'
-               : 'What Elliott wants you to be able to do. Log one whenever you test it, and send a clip so he can see it.')
-        : (due ? 'Worth running through these, it has been a fortnight or more.'
-               : 'These are what decide when you move up. Log one whenever you test it.')}</div>
-    <div style="margin-top:6px">
-    ${list.map((c,i)=>{
-      const last=cpLast(c.k);
-      const K=CP_KIND[c.kind]||CP_KIND.count;
-      const hist=(cpLog()[c.k]||[]).slice(-6);
-      const prev=hist.length>1?hist[hist.length-2]:null;
-      const yn=c.kind==='yn';
-      const met=cpMet(c);
-      const shown = last ? (yn ? (last.v?'Yes':'Not yet') : last.v+cpUnit(c)) : (yn?'Not yet':'—');
-      const drill=c.demo?drillById(c.demo):null;
-      const openD=(st.cpOpen||{})[c.k];
-      return `<div style="padding:14px 0;${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-          <span style="flex:1;min-width:0;font:600 15px/1.25 var(--sans)">${esc(c.n)}</span>
-          <span style="flex:none;font:600 17px/1 var(--sans);
-            color:${met?'var(--forest)':last?'var(--ink)':'var(--grey2)'}">${esc(String(shown))}${
-            (!yn && c.target!=null)?`<span style="font:400 14px/1 var(--sans);color:var(--grey2)"> / ${
-              c.target}${esc(cpUnit(c))}</span>`:''}</span>
-        </div>
-        ${c.note?`<div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">${
-          esc(c.note)}</div>`:''}
-        <div style="margin-top:10px">${cpInput(c)}</div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:7px">
-          <span style="flex:1;font:400 12px/1.3 var(--sans);color:var(--grey2)">${
-            last ? 'Logged '+cpWhen(last.at) : 'Not logged yet'}${
-            prev&&!yn ? ' · was '+prev.v+esc(cpUnit(c)) : ''}</span>
-          ${drill&&drill.url?`<button class="rt" style="flex:none"
-            onclick="st.cpOpen=Object.assign({},st.cpOpen,{'${c.k}':!${openD?'true':'false'}});save();render()">${
-            openD?'Hide':'▶ Demo'}</button>`:''}
-        </div>
-        ${openD&&drill&&drill.url?`<div style="margin-top:10px">${vidBlock(drill.url,'16/10')}</div>`:''}
-        ${coachedView()&&c.video!==false?`<div style="display:flex;align-items:center;gap:9px;margin-top:8px">
-          <button class="btn2" style="flex:none;padding:8px 12px;font-size:12.5px"
-            onclick="cpFilm('${c.k}')">${last&&last.video?'Send another clip':'Send a clip'}</button>
-          <span id="cpup-${c.k}" style="flex:1;font:400 12px/1.3 var(--sans);color:var(--grey2)">${
-            last&&last.video?'Clip sent, Elliott has it.':''}</span>
-        </div>`:''}
-      </div>`;}).join('')}
+    <div style="display:flex;align-items:center;gap:11px;margin-top:11px">
+      <div style="flex:1;height:6px;border-radius:3px;background:rgba(17,17,17,.08);overflow:hidden">
+        <div id="cpbar" style="height:100%;border-radius:3px;width:${pc}%;
+          background:linear-gradient(90deg,#0a7b74,#006663);
+          transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
+      <span id="cpnum" style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${P.met}/${P.of}</span>
+    </div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+      ${coached
+        ? (all
+            ? 'All of them. Elliott will have seen that come through.'
+            : due ? 'Worth running through these, it has been a fortnight or more. Log what you manage and send a clip, even the ones that did not go well.'
+                  : 'What Elliott wants you to be able to do. Log whatever you manage, and send a clip so he can see it rather than take your word for it.')
+        : (all
+            ? 'All of them. That stage is yours.'
+            : due ? 'Worth running through these, it has been a fortnight or more.'
+                  : 'These are what decide when you move up. Log one whenever you test it.')}</div>
+    ${all?`<div style="margin-top:13px;border-radius:16px;padding:14px 16px;
+      background:rgba(0,102,99,.08);display:flex;align-items:center;gap:12px">
+      <span style="flex:none;width:30px;height:30px;border-radius:50%;background:var(--forest);
+        color:var(--on-primary);display:grid;place-items:center;font:700 14px/1 var(--sans)">✓</span>
+      <span style="flex:1;font:600 13.5px/1.4 var(--sans);color:var(--deep)">
+        Every check point reached.${coached?' Nicely done.':' Move down whenever you are ready.'}</span>
+    </div>`:''}
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">
+      ${list.map((c,i)=>cpCard(c,i,list.length)).join('')}
     </div>
   </div>`;
 }
@@ -4973,7 +4988,11 @@ function screenOriented(){
    reached what they ask for. A stage opens on met, because logging a
    20-second hold against a 45-second target is not clearing anything. */
 function cpProgress(i){
-  const list=cpFor(i==null?curStage():i)||[];
+  /* pass the argument straight through: cpFor() with nothing already knows to
+     return a coached client's own list. Substituting curStage() here meant a
+     coached client's counts were taken from the ladder stage they happen to
+     sit on, so four check points were reported as nought of seven. */
+  const list=cpFor(i)||[];
   const done=list.filter(c=>cpLast(c.k)).length;
   const met=list.filter(c=>cpMet(c)).length;
   return {done, met, of:list.length, ready:list.length>0 && met>=list.length};
@@ -6923,7 +6942,9 @@ const TOURS = {
       {t:'metrics', h:'Numbers worth tracking',
        b:'A few things that move before your hold does, so you can see progress on a week where the hold has not budged.'},
       {t:'checkpoints', h:'The other tab', always:true,
-       b:'Check points are what each stage wants you to be able to do. Tick them off as they come, and they decide when the next stage opens.',
+       b:st.in
+         ? 'What Elliott wants you to be able to do. Log whatever you manage, and send a clip with it so he can see the thing rather than take your word for it.'
+         : 'Check points are what each stage wants you to be able to do. Reach all of them and the next stage opens below.',
        pre:()=>{ st.progTab='marks'; save(); render(); }}
     ]
   },

@@ -614,18 +614,24 @@ function openCps(email){
   cpEdit={email, list:null, busy:true}; draw();
   fetch(API+'/programme?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ cpEdit={email, list:((d.plan||{}).checkpoints||[]).slice(), dirty:false}; draw(); })
+    .then(d=>{ libIndex=(d.library&&d.library.names)||libIndex||{};
+               cpEdit={email, list:((d.plan||{}).checkpoints||[]).slice(), dirty:false}; draw(); })
     .catch(()=>{ cpEdit={email, list:[], dirty:false, error:true}; draw(); });
 }
 function closeCps(){
   if(cpEdit && cpEdit.dirty && !confirm('Close without saving?')) return;
   cpEdit=null; draw();
 }
-function cpAdd(){ cpEdit.list.push({k:'cp'+Date.now().toString(36),n:'',kind:'secs',note:'',video:true,from:''});
+function cpAdd(){ cpEdit.list.push({k:'cp'+Date.now().toString(36),n:'',kind:'secs',target:null,
+  note:'',demo:'',lower:false,video:true,from:''});
   cpEdit.dirty=true; draw(); }
 function cpDel(i){ cpEdit.list.splice(i,1); cpEdit.dirty=true; draw(); }
 function cpSet(i,f,v){ const c=cpEdit.list[i]; if(!c) return;
-  c[f]=(f==='video')?!!v:v; cpEdit.dirty=true; }
+  c[f]=(f==='video'||f==='lower')?!!v:v; cpEdit.dirty=true;
+  /* switching between a measured type and a yes/no one changes which fields
+     are on screen, so that one has to redraw */
+  if(f==='kind') draw();
+}
 function cpSave(){
   const b=document.getElementById('cpSave'); if(b){ b.disabled=true; b.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
@@ -650,7 +656,8 @@ function cpsHTML(){
       <select onchange="cpSet(${i},'kind',this.value)"
         style="flex:none;border:1px solid var(--line);border-radius:10px;padding:9px;
         font:400 13px/1 var(--sans);background:#fff">
-        ${[['secs','Seconds'],['count','How many'],['rate','Out of ten'],['yn','Yes or no']]
+        ${[['secs','Seconds'],['count','How many'],['rate','Out of ten'],
+           ['yn','Yes or no'],['face','Three faces']]
           .map(([v,l])=>`<option value="${v}"${c.kind===v?' selected':''}>${l}</option>`).join('')}
       </select>
       <button onclick="cpDel(${i})" style="flex:none;border:0;background:none;cursor:pointer;
@@ -660,6 +667,24 @@ function cpsHTML(){
       oninput="cpSet(${i},'note',this.value)"
       style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
       font:400 13px/1 var(--sans);background:#fff">
+    <div style="display:flex;align-items:center;gap:9px;margin-top:8px;flex-wrap:wrap">
+      ${(c.kind==='yn'||c.kind==='face')?'':`<label style="display:flex;align-items:center;gap:7px;
+        font:400 12.5px/1 var(--sans);color:var(--grey)">Target
+        <input type="number" min="0" value="${c.target==null?'':esc(String(c.target))}"
+          placeholder="—" oninput="cpSet(${i},'target',this.value===''?null:Number(this.value))"
+          style="width:78px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;
+          font:600 13px/1 var(--sans);background:#fff"></label>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;
+        font:400 12.5px/1 var(--sans);color:var(--grey)">
+        <input type="checkbox" ${c.lower?'checked':''} onchange="cpSet(${i},'lower',this.checked)">
+        Lower is better</label>`}
+      <label style="display:flex;align-items:center;gap:7px;flex:1;min-width:190px;
+        font:400 12.5px/1 var(--sans);color:var(--grey)">Demo
+        <input list="drillslugs" value="${esc(c.demo||'')}" placeholder="drill slug (optional)"
+          oninput="cpSet(${i},'demo',this.value)"
+          style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:8px 10px;
+          font:400 12.5px/1 var(--sans);background:#fff"></label>
+    </div>
     <div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font:400 12.5px/1 var(--sans);
         color:var(--grey)"><input type="checkbox" ${c.video!==false?'checked':''}
@@ -676,6 +701,8 @@ function cpsHTML(){
     display:flex;justify-content:center;overflow-y:auto;padding:22px 14px">
     <div style="width:100%;max-width:620px;height:max-content;background:var(--bg);border-radius:22px;
       padding:20px;box-shadow:0 30px 70px -30px rgba(0,0,0,.5)">
+      <datalist id="drillslugs">${Object.keys(libIndex||{})
+        .map(v=>`<option value="${esc(v)}">${esc(libIndex[v])}</option>`).join('')}</datalist>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
           <div style="font:400 22px/1.1 var(--serif);color:var(--ink)">Check points</div>
@@ -1923,28 +1950,61 @@ function trackHTML(email){
   /* a check point the coach set for this client wins over the ladder's name */
   const own={};
   (cpDefs[email]||[]).forEach(c=>{ own[c.k]=c.n; });
-  const cps=Object.keys(t.checkpoints||{}).map(k=>{
-    const h=(t.checkpoints[k]||[]); if(!h.length) return null;
-    const last=h[h.length-1], prev=h.length>1?h[h.length-2]:null;
+  /* Every check point set for this client, not only the ones they have got
+     round to: an untouched one used to be invisible here, so "nothing logged"
+     and "nothing set" looked identical. */
+  const defs=(cpDefs[email]||[]);
+  const keys=[...new Set(defs.map(c=>c.k).concat(Object.keys(t.checkpoints||{})))];
+  const cps=keys.map(k=>{
+    const def=defs.find(c=>c.k===k)||null;
+    const h=(t.checkpoints||{})[k]||[];
+    const last=h.length?h[h.length-1]:null, prev=h.length>1?h[h.length-2]:null;
     const clips=h.filter(x=>x.video).slice(-3).reverse();
-    return {k, n:own[k]||CPN[k]||k, last, prev, clips};
-  }).filter(Boolean).sort((a,b)=>b.last.at-a.last.at);
+    const tgt=def&&def.target!=null?def.target:null;
+    const met = last && tgt!=null
+      ? (def&&def.lower ? (last.v>0 && last.v<=tgt) : last.v>=tgt)
+      : (last && def && (def.kind==='face') ? Number(last.v)>=2
+         : last && def && def.kind==='yn' ? !!last.v : false);
+    return {k, n:(def&&def.n)||own[k]||CPN[k]||k, last, prev, clips, tgt, met,
+            unit:(def&&def.unit)||((def&&def.kind==='secs')?'s':''), kind:def&&def.kind};
+  }).filter(c=>c.last||c.tgt!=null||defs.some(d=>d.k===c.k))
+    .sort((a,b)=>(b.last?b.last.at:0)-(a.last?a.last.at:0));
+  const cpMetN=cps.filter(c=>c.met).length;
+  const cpClips=cps.reduce((a,c)=>a+c.clips.length,0);
   const cpBlock=cps.length?`<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)">
-    <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">CHECK POINTS</div>
-    ${cps.map(c=>`<div style="margin-top:8px">
-      <div style="display:flex;align-items:baseline;gap:10px">
-        <span style="flex:1;min-width:0;font:500 12.5px/1.2 var(--sans)">${esc(c.n)}</span>
-        ${c.prev?`<span style="flex:none;font:500 11px/1 var(--sans);color:var(--grey2)">${c.prev.v} →</span>`:''}
-        <span style="flex:none;font:700 14px/1 var(--sans);color:var(--forest)">${c.last.v}</span>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">CHECK POINTS</span>
+      <span style="font:600 10.5px/1 var(--sans);color:var(--grey2)">${cpMetN} of ${cps.length} reached${
+        cpClips?' · '+cpClips+' clip'+(cpClips===1?'':'s'):''}</span>
+    </div>
+    ${cps.map(c=>{
+      const val=c.last ? (c.kind==='face'
+          ? ['Not really','Getting there','Yes'][Math.max(0,Math.min(2,Number(c.last.v)||0))]
+          : c.kind==='yn' ? (c.last.v?'Yes':'Not yet') : c.last.v+c.unit)
+        : 'not logged';
+      return `<div style="margin-top:9px">
+      <div style="display:flex;align-items:baseline;gap:9px">
+        <span style="flex:none;width:15px;height:15px;border-radius:50%;
+          background:${c.met?'var(--forest)':c.last?'rgba(243,169,73,.35)':'rgba(17,17,17,.1)'};
+          color:#fff;font:700 9px/15px var(--sans);text-align:center">${c.met?'✓':''}</span>
+        <span style="flex:1;min-width:0;font:500 12.5px/1.2 var(--sans);
+          color:${c.last?'var(--ink)':'var(--grey2)'}">${esc(c.n)}</span>
+        ${c.prev?`<span style="flex:none;font:500 11px/1 var(--sans);color:var(--grey2)">${
+          c.prev.v}${esc(c.unit)} →</span>`:''}
+        <span style="flex:none;font:700 14px/1 var(--sans);
+          color:${c.met?'var(--forest)':c.last?'var(--ink)':'var(--grey2)'}">${esc(String(val))}</span>
+        ${c.tgt!=null?`<span style="flex:none;font:400 11.5px/1 var(--sans);color:var(--grey2)">/ ${
+          c.tgt}${esc(c.unit)}</span>`:''}
         <span style="flex:none;width:52px;text-align:right;font:500 10px/1 var(--sans);
-          color:var(--grey2)">${daysAgo(c.last.at)}</span>
+          color:var(--grey2)">${c.last?daysAgo(c.last.at):''}</span>
       </div>
-      ${c.clips.length?`<div style="display:flex;gap:7px;margin-top:6px;flex-wrap:wrap">
+      ${c.clips.length?`<div style="display:flex;gap:7px;margin-top:6px;margin-left:24px;flex-wrap:wrap">
         ${c.clips.map(x=>`<button onclick="playCp('${esc(x.video)}')"
-          style="border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;
-          padding:5px 9px;font:600 10.5px/1 var(--sans);color:var(--forest)">▶ ${daysAgo(x.at)}</button>`).join('')}
+          style="border:1px solid rgba(0,102,99,.3);border-radius:8px;background:rgba(0,102,99,.06);
+          cursor:pointer;padding:6px 10px;font:600 10.5px/1 var(--sans);color:var(--forest)">
+          &#9654; Watch ${daysAgo(x.at)}${x.v!=null?' · '+x.v+esc(c.unit):''}</button>`).join('')}
       </div>`:''}
-    </div>`).join('')}</div>`:'';
+    </div>`;}).join('')}</div>`:'';
 
   const ci=(t.checkins||[]).slice(-1)[0];
   const check=ci?`<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)">
