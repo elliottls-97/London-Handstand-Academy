@@ -5004,12 +5004,20 @@ function stageReady(){ return cpProgress().ready; }
 function goToStage(i){
   i=Math.max(0,Math.min(STAGES.length-1,i|0));
   if(i===curStage()) return;
-  if(stageLocked(i)){ st.ovStage=i; openOv('stage'); return; }
+  /* Moving down into a stage nobody has paid for is the one case that stops
+     here. Moving back up never is: it is a stage you have already been on,
+     and being stranded on a locked one with no way back is not a paywall,
+     it is a trap. */
+  if(i>curStage() && stageLocked(i)){ st.ovStage=i; openOv('stage'); return; }
   const down=i>curStage();
-  if(!confirm((down?'Move down to ':'Come back up to ')+STAGES[i].n+'?\n\n'+
-     (down?'You can always come back up.':'Your training history stays.'))) return;
-  st.stage=i; save(); sendIntake(); render();
-  toast((down?'Moved down to ':'Back up to ')+STAGES[i].n+'.');
+  st.stage=i; save();
+  /* sendIntake talks to the server, and a throw here used to take the redraw
+     with it, so the stage moved in memory and the screen did not */
+  try{ sendIntake(); }catch(e){}
+  render();
+  /* No confirm. The screen promises you can move either way whenever you
+     like, and stopping to ask every time is the opposite of that. */
+  toast((down?'Moved down to ':'Back up to ')+STAGES[i].n+'. Move again whenever you like.');
 }
 function advanceStage(){
   const next=curStage()+1;
@@ -5578,10 +5586,28 @@ function screenLadder(){
         <div style="margin-top:13px;display:inline-block;padding:12px 19px;border-radius:13px;
           background:var(--deep);color:var(--on-primary);font:700 13px/1 var(--sans)">Book a review</div>
       </div>
-      <div style="margin-top:18px;text-align:center;font:400 12.5px/1.5 var(--serif);color:var(--grey)">
-        ${isPlus()
-          ? 'Nothing is locked. Move down early, come back up when you need to.'
-          : 'You can move around inside '+esc(STAGES[0].n)+' freely. The rest of the ladder is the £5 tier.'}</div>
+      <div style="margin-top:20px;padding:16px 18px;border-radius:20px;background:rgba(17,17,17,.04)">
+        <div style="font:400 13px/1.5 var(--serif);color:var(--grey);text-align:center">
+          ${isPlus()
+            ? 'Nothing is locked. Move down early, come back up when you need to.'
+            : 'Come back up whenever you like. Moving further down is the £5 tier.'}</div>
+        <div style="display:flex;gap:9px;margin-top:13px">
+          <button ${cur<=0?'disabled':''} onclick="goToStage(${cur-1})"
+            style="flex:1;min-height:48px;border:0;border-radius:14px;padding:8px;
+            cursor:${cur<=0?'default':'pointer'};background:transparent;
+            box-shadow:inset 0 0 0 1.5px rgba(0,102,99,${cur<=0?'.12':'.32'});
+            color:${cur<=0?'var(--grey2)':'var(--forest)'};font:700 12.5px/1.3 var(--sans)">
+            ${cur<=0?'Top of the ladder':'Up to '+esc(STAGES[cur-1].n)}</button>
+          <button ${cur>=STAGES.length-1?'disabled':''} onclick="goToStage(${cur+1})"
+            style="flex:1;min-height:48px;border:0;border-radius:14px;padding:8px;
+            cursor:${cur>=STAGES.length-1?'default':'pointer'};
+            background:${cur>=STAGES.length-1?'transparent':'var(--forest)'};
+            box-shadow:${cur>=STAGES.length-1?'inset 0 0 0 1.5px rgba(0,102,99,.12)':'none'};
+            color:${cur>=STAGES.length-1?'var(--grey2)':'var(--on-primary)'};
+            font:700 12.5px/1.3 var(--sans)">
+            ${cur>=STAGES.length-1?'Bottom of the ladder':'Down to '+esc(STAGES[cur+1].n)}</button>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -5660,6 +5686,8 @@ function screenUpgradeBody(si){
             <span style="color:var(--forest)">—</span><span>${x}</span></div>`).join('')}
       </div>
       <button class="btn" style="width:100%;margin-top:20px" onclick="startUpgrade()">Unlock the full ladder</button>
+      ${curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:9px"
+        onclick="closeOv();goToStage(0)">Train on ${esc(STAGES[0].n)} instead</button>`:''}
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:12px">
         ${FREE_STAGES===1 ? esc(STAGES[0].n)+' stays free, always.'
           : 'Stages 1 to '+FREE_STAGES+' stay free, always.'}</div>
