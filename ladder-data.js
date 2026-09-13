@@ -122,7 +122,7 @@ const WEEK = {
   ],
 };
 
-const WRIST_DAY = {n:'Wrists and mobility', sub:'Short, and it is the one that keeps you training',
+const WRIST_DAY = {n:'Mobility day', sub:'Wrists and shoulders, and it is the one that keeps you training',
   drills:['forearm-massage','wrist-circles-mob','dd-wrist-taps','palm-lifts-table-top',
           'shoulder-circles','heart-melting-pose']};
 

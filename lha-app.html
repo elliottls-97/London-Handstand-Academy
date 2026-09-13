@@ -2368,7 +2368,7 @@ function weekCard(){
                 background:var(--forest)"></i>Session</span>
               <span style="display:inline-flex;align-items:center;gap:6px;font:400 11.5px/1 var(--sans);
                 color:var(--grey2)"><i style="width:9px;height:9px;border-radius:3px;
-                background:var(--sage)"></i>Wrists and mobility</span>
+                background:var(--sage)"></i>Mobility day</span>
             </div>
             <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);padding-top:8px">
               Tap a day to see its drills. The arrows move it to another day of the week.</div>
@@ -5537,7 +5537,7 @@ function setMins(m){ st.time=m; save(); saveState(); render(); }
    third of the screen before anything had been said; it is a card on the
    page now and the header is a header again.
 
-   The fourth option is not a difficulty. Wrists and mobility is the short
+   Mobility is not a difficulty, so it is its own control. It is the short
    day that keeps people training, and it was reachable only by finding the
    right day in a week strip that has since moved to Progress. */
 function sessionChooser(day){
@@ -5568,26 +5568,32 @@ function sessionChooser(day){
           color:var(--on-primary)">START</span>
       </button>
     </div>
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:15px">
-      <span class="kick2">WHAT KIND</span>
-      <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">Change it whenever</span>
+    <!-- Two different questions, so two controls. How hard is a scale of
+         three; mobility is a different kind of day altogether and sat in the
+         same row as a fourth pill, which read as a fourth difficulty. -->
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px">
+      <span class="kick2">HOW HARD</span>
+      <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${
+        wrist?'Not used on a mobility day':'Change it whenever'}</span>
     </div>
-    <div style="${tray};margin-top:10px">
+    <div style="${tray};margin-top:10px;${wrist?'opacity:.45':''}">
       ${[1,2,3].map(l=>`<button onclick="setKind(${l})"
         style="${pill};${(!wrist&&stageLevel(cur)===l)?on:off}">${BAND_NAME[l]}</button>`).join('')}
-      <!-- not a fourth difficulty: it is a different kind of day, so it is a
-           different colour. The same pale blue the week strip uses for a
-           wrist day and the ladder uses for a rest cell. -->
-      <button onclick="setKind('wrist')" style="${pill};${wrist
-        ? 'background:var(--sand);color:var(--deep);box-shadow:0 1px 3px rgba(17,17,17,.12)'
-        : 'background:rgba(143,190,202,.22);color:#2c5f6e'}">Wrists</button>
     </div>
-    ${wrist?`<div style="margin-top:11px;display:flex;align-items:center;gap:9px;
-      padding:10px 12px;border-radius:12px;background:rgba(143,190,202,.16)">
-      <span style="flex:none;width:8px;height:8px;border-radius:50%;background:var(--sage)"></span>
-      <span style="flex:1;font:500 12.5px/1.45 var(--sans);color:#2c5f6e">
-        A mobility day. Short, no stage work, and it is the one that keeps you training.</span>
-    </div>`:''}
+    <button onclick="setKind(${wrist?'null':"'wrist'"})" style="width:100%;margin-top:10px;cursor:pointer;
+      display:flex;align-items:center;gap:11px;padding:12px 13px;border-radius:15px;min-height:52px;
+      border:1.5px solid ${wrist?'#7fb2c2':'rgba(143,190,202,.5)'};
+      background:${wrist?'rgba(143,190,202,.22)':'transparent'};text-align:left">
+      <span style="flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+        background:${wrist?'#2c5f6e':'rgba(143,190,202,.3)'};color:${wrist?'#fff':'#2c5f6e'};
+        font:700 13px/1 var(--sans)">${wrist?'✓':'+'}</span>
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font:700 13px/1.2 var(--sans);color:#2c5f6e">
+          Mobility day instead</span>
+        <span style="display:block;margin-top:3px;font:400 11.5px/1.35 var(--sans);color:var(--grey)">
+          Wrists and shoulders. Short, no stage work, and the one that keeps you training.</span>
+      </span>
+    </button>
   </div>`;
 }
 /* what the start button does depends on which kind is chosen */
@@ -5987,8 +5993,23 @@ function dayDrills(dayDef, stage){
    The bands slide rather than pile up. Harder drops the easy work instead
    of adding to it, which is the difference between a harder session and a
    longer one. */
-const STAGE_BANDS = {1:[1,2], 2:[2,3], 3:[3,4]};
+/* How much of each drill level a band asks for, as sets. Not a window:
+   a window meant Harder simply swapped one set of drills for another and
+   the session never built, which is why pressing it did not feel harder.
+
+   Every band starts at the easy end and ramps, so the first thing you do is
+   always something you can do. What changes is where the volume sits. */
+const BAND_MIX = {
+  1: {1:3, 2:1},              /* Easier: mostly level one, a little two */
+  2: {1:1, 2:2, 3:2},         /* As written: a mixture, building to three */
+  3: {1:1, 2:2, 3:3, 4:3},    /* Harder: still opens easy, then three and four */
+};
 const BAND_NAME   = {1:'Easier', 2:'As written', 3:'Harder'};
+/* how many sets a drill of this level gets at this band, 0 meaning leave it out */
+function bandSets(stage, level){
+  const mix=BAND_MIX[stageLevel(stage)]||BAND_MIX[2];
+  return mix[level]||0;
+}
 function stageLevel(stage){
   return Math.max(1, Math.min(3, ((st.lvl||{})[stage]) || 2));
 }
@@ -6009,14 +6030,12 @@ function nudgeStage(dir){
    the nearest drills it has when a band is empty, so a thin grouping still
    gives you something rather than nothing. */
 function groupDrills(stage, g){
-  const band=STAGE_BANDS[stageLevel(stage)];
   const rows=poolFor(stage).filter(x=>x.g===g).sort((a,b)=>a.L-b.L);
   if(!rows.length) return [];
-  const at=rows.filter(x=>x.L>=band[0] && x.L<=band[1]);
-  if(at.length) return at.map(x=>x.v);
-  /* nothing in the band: take whichever end of the grouping is nearest it */
-  const below=rows.filter(x=>x.L<band[0]);
-  return (below.length ? below.slice(-2) : rows.slice(0,2)).map(x=>x.v);
+  const at=rows.filter(x=>bandSets(stage, x.L)>0);
+  /* a grouping with nothing at any level this band wants still has to give
+     something, so it gives its easiest */
+  return (at.length?at:rows.slice(0,2)).map(x=>x.v);
 }
 /* the groupings a stage has, in the order the workbook lists them */
 function stageGroups(stage){
@@ -6036,8 +6055,8 @@ const DAYL=['MON','TUE','WED','THU','FRI','SAT','SUN'];
    Foundations included. Its written week is the three sessions; the wrist
    days were being dropped only because they are not written into it. */
 const WRIST_CELLS=[
-  {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true},
-  {n:'Wrists and mobility',sub:'Short, between sessions',wrist:true}
+  {n:'Mobility day',sub:'Short, between sessions',wrist:true},
+  {n:'Mobility day',sub:'Short, between sessions',wrist:true}
 ];
 function weekCells(){
   const plan=weekPlan();
@@ -6215,7 +6234,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
       for(const it of list){
         /* four sets of anything is plenty; a stage thin on drills should
            give a shorter session rather than six sets of wall walks */
-        const cap=Math.min(maxSets||sets(it.d), 4);
+        /* the band decides how many sets a drill of this level gets; the
+           dose is the fallback for anything the ladder does not know */
+        const lvl=(poolRow(stage,it.v)||{}).L;
+        const want=lvl ? bandSets(stage,lvl) : sets(it.d);
+        const cap=Math.min(maxSets||want||sets(it.d), 4);
         const had=done[it.v]||0; if(had>=cap) continue;
         const g=(poolRow(stage,it.v)||{}).g||'';
         const t=work(it,g||grp)+rest({it:it,grp:grp,g:g});
