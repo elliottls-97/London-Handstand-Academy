@@ -1386,7 +1386,7 @@ const CHECKPOINTS={
   ],
   5:[
     {k:'press-wall',  n:'Chest-to-wall press',      kind:'count', target:5,  demo:'p-chest-to-wall'},
-    {k:'compression', n:'Pancake compression',      kind:'secs',  target:30, demo:'p-pancake'},
+    {k:'compression', n:'Pancake compression',      kind:'secs',  target:30, demo:'pancake-lift-combo'},
     {k:'press-ecc',   n:'Press eccentrics',         kind:'count', target:5,  demo:'press-eccentrics'}
   ]
 };
@@ -1438,7 +1438,17 @@ function saveCheckpoint(k,v,video){
   st.track=st.track||{};
   st.track.checkpoints=st.track.checkpoints||{};
   const row=Object.assign({v:Number(v)||0,at:Date.now()}, video?{video}:{});
-  st.track.checkpoints[k]=(st.track.checkpoints[k]||[]).concat([row]).slice(-20);
+  const hist=(st.track.checkpoints[k]||[]).slice();
+  /* Nudging the slider twice in one session is a correction, not two
+     readings. Today's entry is replaced rather than added to, or logging as
+     you drag would fill the history with every value it passed through. A
+     clip already sent is never dropped by a later bare number. */
+  const lastRow=hist[hist.length-1];
+  if(lastRow && dayKey(lastRow.at)===dayKey(row.at)){
+    if(lastRow.video && !row.video) row.video=lastRow.video;
+    hist[hist.length-1]=row;
+  } else hist.push(row);
+  st.track.checkpoints[k]=hist.slice(-20);
   if(st.cpDraft) delete st.cpDraft[k];
   save();
   /* under an open sheet render() bails out, so logging one used to change
@@ -1614,7 +1624,6 @@ function cpInput(c){
       <span id="cpstep-${c.k}" data-u="${esc(unit)}"
         style="flex:1;text-align:center;font:700 15px/1 var(--sans)">${val}${esc(unit)}</span>
       <button class="rt" onclick="cpStep('${c.k}',${step},${max})" aria-label="More">+</button>
-      <button class="rt on" onclick="saveCheckpoint('${c.k}',${val})">Log</button>
     </div>
   </div>`;
 }
@@ -1799,8 +1808,12 @@ function cpStep(k,by,max){
     const n=document.getElementById(pre+k);
     if(n) n.textContent=next+(n.dataset.u||'');
   });
-  if(!st.ov) render();
+  /* hold off until the tapping stops, so five taps are one reading and one
+     trip to the server rather than five */
+  clearTimeout(cpStepT_);
+  cpStepT_=setTimeout(()=>saveCheckpoint(k,(st.cpDraft||{})[k]), 700);
 }
+let cpStepT_=null;
 /* dragging the track, pointer events so it works with a thumb and a mouse */
 function cpDrag(e,k,max,res){
   const el=document.getElementById('cptrack-'+k); if(!el) return;
@@ -1826,10 +1839,12 @@ function cpDrag(e,k,max,res){
   el.setPointerCapture&&el.setPointerCapture(e.pointerId);
   const move=ev=>set(ev);
   const up=()=>{ el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
-                 /* the drag already painted everything that moves, so there is
-                    nothing to redraw: rebuilding the sheet here is what made
-                    letting go feel like the page reloading */
-                 save(); };
+                 /* Letting go logs it. Dragging all the way to the target and
+                    watching the card still say NOT STARTED made the slider look
+                    broken: there was no way to finish one without noticing a
+                    small pill beside it. */
+                 const val=(st.cpDraft||{})[k];
+                 if(val!=null) saveCheckpoint(k, val); else save(); };
   el.addEventListener('pointermove',move);
   el.addEventListener('pointerup',up);
 }
@@ -1868,11 +1883,11 @@ function checkpointsCard(){
         ? (all
             ? 'All of them. Elliott will have seen that come through.'
             : due ? 'Worth running through these, it has been a fortnight or more. Log what you manage and send a clip, even the ones that did not go well.'
-                  : 'What Elliott wants you to be able to do. Log whatever you manage, and send a clip so he can see it rather than take your word for it.')
+                  : 'What Elliott wants you to be able to do. Drag each one to what you managed, it logs as you go, then send a clip so he can see it.')
         : (all
             ? 'All of them. That stage is yours.'
             : due ? 'Worth running through these, it has been a fortnight or more.'
-                  : 'These are what decide when you move up. Log one whenever you test it.')}</div>
+                  : 'These are what decide when you move up. Drag one to what you managed whenever you test it.')}</div>
     ${all?`<div style="margin-top:13px;border-radius:16px;padding:14px 16px;
       background:rgba(0,102,99,.08);display:flex;align-items:center;gap:12px">
       <span style="flex:none;width:30px;height:30px;border-radius:50%;background:var(--forest);
@@ -3969,7 +3984,7 @@ function drawOv(){
         <span id="cpcount" style="font:600 11px/1 var(--sans);color:var(--forest)">${p.met} of ${p.of} reached</span>
       </div>
       <div style="margin-top:7px;font:400 13px/1.45 var(--sans);color:var(--grey)">
-        Drag each one to what you managed and log it. Reach all ${p.of} and ${
+        Drag each one to what you managed, it logs as you go. Reach all ${p.of} and ${
           STAGES[si+1]?esc(STAGES[si+1].n)+' opens below.':'the ladder is done.'}</div>
       <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">
         ${(cpFor(si)||[]).map((c,i)=>cpCard(c,i,p.of)).join('')}
