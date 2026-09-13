@@ -1435,6 +1435,7 @@ function cpDue(){
   return (Date.now()-newest) > 14*864e5;
 }
 function saveCheckpoint(k,v,video){
+  const wasReady = coachedView() ? true : cpProgress(stageOfCp(k)).ready;
   st.track=st.track||{};
   st.track.checkpoints=st.track.checkpoints||{};
   const row=Object.assign({v:Number(v)||0,at:Date.now()}, video?{video}:{});
@@ -1450,10 +1451,16 @@ function saveCheckpoint(k,v,video){
   } else hist.push(row);
   st.track.checkpoints[k]=hist.slice(-20);
   if(st.cpDraft) delete st.cpDraft[k];
+  /* Reaching the last check point on a stage is the whole point of the
+     stage, and nothing happened when you did: the counter read 7 of 7 and
+     you stayed where you were. */
+  const sg = coachedView() ? -1 : stageOfCp(k);
+  const clearedNow = sg>-1 && sg===curStage() && !wasReady && cpProgress(sg).ready;
   save();
   /* under an open sheet render() bails out, so logging one used to change
      nothing on screen until the sheet was closed */
   if(document.getElementById('cptop-'+k)) repaintCp(k); else render();
+  if(clearedNow) stageCleared(sg);
   postTrack({checkpoint:Object.assign({k, v:Number(v)||0}, video?{video}:{})});
 }
 
@@ -1640,6 +1647,32 @@ function cpInput(c){
 /* A card can be on the Progress tab (the coached list, or the current
    stage's) or inside a stage sheet for some other stage, so it cannot assume
    which list it came from. */
+/* ── clearing a stage ──────────────────────────────────────────────
+   It moves you, rather than congratulating you and leaving you where you
+   were. Moving is the thing that was asked for and it is reversible from
+   the foot of the ladder, so it happens first and the sheet says where you
+   have landed. If the next one is behind the paywall nothing moves and the
+   sheet offers it instead, because pretending otherwise would be worse. */
+function stageOfCp(k){
+  for(let i=0;i<STAGES.length;i++)
+    if((CHECKPOINTS[i]||[]).some(c=>c.k===k)) return i;
+  return -1;
+}
+function stageCleared(i){
+  const next=STAGES[i+1];
+  const blocked = !next || stageLocked(i+1);
+  st.clearedFrom=i;
+  if(!blocked){
+    st.stage=i+1; save();
+    try{ sendIntake(); }catch(e){}
+  }
+  closeOv();
+  openOv('cleared');
+}
+function clearedStay(){
+  if(st.clearedFrom!=null){ st.stage=st.clearedFrom; save(); try{ sendIntake(); }catch(e){} }
+  st.clearedFrom=null; closeOv();
+}
 function cpDef(k){
   const here=(cpFor()||[]).find(x=>x.k===k);
   if(here) return here;
@@ -3469,6 +3502,7 @@ function drawOv(){
            password:'Change password', account:'Your account', emailchange:'Change email',
            why:'Why are you stopping?',apply:'Apply for coaching',
            summary:'Session complete',stage:S?S.n:'Stage',
+           cleared:'Stage cleared',
            mode:'Start the session',list:'Every drill',explainer:'Explainer',
            checkin:'Your fortnight'};
   let body='';
@@ -3991,6 +4025,37 @@ function drawOv(){
       </div>
       <div style="height:14px"></div>`;
     }
+  }
+  if(st.ov==='cleared'){
+    const from=STAGES[st.clearedFrom||0]||STAGES[0];
+    const next=STAGES[(st.clearedFrom||0)+1];
+    const moved=next && curStage()===(st.clearedFrom||0)+1;
+    const P=cpProgress(st.clearedFrom||0);
+    body=`<div style="position:relative;text-align:center;padding:22px 0 4px;overflow:hidden">
+      <div class="burst">${Array.from({length:18},(_,i)=>
+        `<i style="--a:${(i*20)}deg;--d:${60+(i%5)*22}px;--t:${(i%6)*90}ms;
+          background:${['var(--amber)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
+      <div class="h-xl" style="font-size:52px;color:var(--forest);position:relative">${P.of}</div>
+      <div class="kick2" style="margin-top:8px">CHECK POINTS REACHED</div>
+      <div class="h-lg" style="margin-top:18px">That is ${esc(from.n)} done.</div>
+      <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">${
+        moved ? 'You are on '+esc(next.n)+' now. '+esc((next.goal||'').replace(/\.$/,''))+'.'
+        : next ? esc(next.n)+' is the £5 tier. You stay on '+esc(from.n)+' until you open it.'
+        : 'That is the whole ladder. There is nothing below this one.'}</div>
+    </div>
+    ${moved?`<button class="btn" style="width:100%;margin-top:20px"
+        onclick="st.clearedFrom=null;closeOv();startDay(-1)">Train ${esc(next.n)} now</button>
+      <button class="btn2" style="width:100%;margin-top:9px" onclick="clearedStay()">
+        Stay on ${esc(from.n)}</button>`
+     : next?`<button class="btn" style="width:100%;margin-top:20px"
+        onclick="st.clearedFrom=null;st.ovStage=${(st.clearedFrom||0)+1};openOv('stage')">
+        See what ${esc(next.n)} is</button>
+      <button class="btn2" style="width:100%;margin-top:9px"
+        onclick="st.clearedFrom=null;closeOv()">Keep training ${esc(from.n)}</button>`
+     :`<button class="btn" style="width:100%;margin-top:20px"
+        onclick="st.clearedFrom=null;closeOv()">Close</button>`}
+    <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
+      You can move back up whenever you like, from the foot of the ladder.</div>`;
   }
   if(st.ov==='summary'){
     /* the session that just ran, not the coached plan's idea of today — on
