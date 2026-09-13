@@ -5674,6 +5674,7 @@ function screenHome(){
   const name=(st.client||'').split(' ')[0]||'';
 
   const cs=curStage();
+  const _P=cpProgress(cs);
   const _plan=weekPlan();
   /* The day map decides the day. If nothing sits on today it is a rest day
      and we say so, rather than offering a session the week does not have. */
@@ -5691,70 +5692,58 @@ function screenHome(){
                         : ((_day && dayDrills(_day, curStage())) || S.drillIds || []).length;
 
   return `<div class="scroll s">
-    <div class="hero">
-      <!-- One line. It said "Good afternoon. Your first session is ready."
-           which wrapped to two and the first one sat under the fixed top bar,
-           so the greeting was cut in half. The card below already says what
-           is ready and how long it takes. -->
-      <div class="h-lg rise" style="max-width:22ch">${hello}${name?', '+esc(name):''}.</div>
-
-      <!-- the ladder, as five segments. Filled to where you are; the one you
-           are on sits slightly taller so it reads without needing a label. -->
-      <div class="rise rise-1" data-tour="ladder" style="display:flex;gap:6px;margin-top:15px">
-        ${STAGES.map((sg,i)=>`<button onclick="openStage(${i})" aria-label="${esc(sg.n)}"
-          style="flex:1;cursor:pointer;border:0;background:none;padding:14px 0 12px;min-height:44px;
-          display:flex;flex-direction:column;justify-content:flex-end">
-          <div style="height:4px;border-radius:99px;transform:scaleY(${i===cs?1.6:1});
-            background:${i<=cs?'var(--on-primary)':'rgba(236,231,226,.2)'}"></div>
-          <span style="display:block;margin-top:7px;font:600 9.5px/1 var(--sans);letter-spacing:.1em;
-            color:${i===cs?'rgba(236,231,226,.92)':'rgba(236,231,226,.55)'}">${esc(SHORT[i]||'')}</span>
-        </button>`).join('')}
+    <!-- The green hero is gone. It was a third of the screen before anything
+         had been said, and the one thing this screen exists for, starting, was
+         a small square sharing a row with three time buttons. The ground is the
+         warm neutral now, the greeting is the only large type, and Start is the
+         size of the decision it represents. How long and how hard moved into
+         the sheet behind it, because they are the second question. -->
+    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+      <div style="font:400 38px/1.05 var(--serif);letter-spacing:-.01em">
+        ${hello}${name?', '+esc(name):''}.<br>
+        <span style="color:var(--grey);font-size:24px">${
+          didToday ? 'That is today done.'
+                   : (_restDay&&!_override) ? 'Nothing due today.'
+                   : 'Get ready to be upside down.'}</span>
       </div>
-
-
-
-      ${_restDay&&!_override
-        ? `<div style="margin-top:9px;font:400 13px/1.5 var(--sans);color:rgba(236,231,226,1)">
-             Your week has nothing on ${DAYL[todayWd()]}. Move a day in the week below, or train anyway.</div>
-           <button onclick="trainAnyway()" style="margin-top:11px;width:100%;border:1px solid
-             rgba(236,231,226,.45);border-radius:14px;padding:14px;min-height:48px;
-             background:rgba(236,231,226,.13);
-             color:var(--on-primary);font:600 15px/1 var(--sans);cursor:pointer">Train anyway</button>`
-        : ''}
-
-      <button onclick="st.introOpen=!st.introOpen;save();render()" style="margin-top:10px;width:100%;
-        display:flex;align-items:center;gap:10px;border:1px solid rgba(236,231,226,${done?0.2:0.4});
-        border-radius:12px;padding:9px 12px;background:rgba(236,231,226,${done?0.05:0.13});cursor:pointer">
-        <span style="width:26px;height:26px;flex:none;border-radius:50%;background:rgba(236,231,226,.9);
-          display:grid;place-items:center">
-          <svg width="9" height="11" viewBox="0 0 17 19" fill="#00403D"><path d="M16 8.63a1 1 0 0 1 0
-            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
-        <span style="flex:1;text-align:left;font:600 13.5px/1.2 var(--sans);color:var(--on-primary)">
-          ${st.introOpen?'Hide it':esc(introOffer().label)}</span>
-        <span style="font:400 12px/1 var(--sans);color:rgba(236,231,226,.96)">${esc(introOffer().len)}</span>
-        <span style="font:400 13px/1 var(--sans);color:rgba(236,231,226,.96);
-          transform:rotate(${st.introOpen?180:0}deg)">⌄</span>
-      </button>
-      ${st.introOpen?(introOffer().url
-        ? `<div style="margin-top:14px">
-             <div style="font:600 16px/1.25 var(--serif);color:var(--on-primary)">${
-               esc(introOffer().title)}</div>
-             <div style="font:400 11.5px/1 var(--sans);color:rgba(236,231,226,.7);margin-top:4px">${
-               esc(introOffer().len)} · captions on</div>
-             ${(setTimeout(mountCaptions,0),'')}
-             ${ccWrap(`<video src="${streamMp4(introOffer().url)}" controls playsinline preload="none"
-               poster="${streamThumb(introOffer().url)}" data-cc="${esc(introOffer().url)}"
-               style="width:100%;background:#11150f;display:block"></video>`,
-               'margin-top:9px;border-radius:16px;overflow:hidden')}
-           </div>`
-        : videoPlaceholder(introOffer().title, introOffer().len, true)):''}
     </div>
 
+    <!-- the stage and how far through it, on one line. Six segments in the
+         header said almost nothing; this says which stage and how many check
+         points are left, which is the thing that actually moves. -->
+    <div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
+      style="padding:24px 20px 0;cursor:pointer">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+        <span style="font:600 14px/1.2 var(--sans)">Stage ${cs+1}, ${esc(S.n)}</span>
+        <span style="font:400 13px/1 var(--sans);color:var(--grey)">${
+          _P.of ? _P.met+' of '+_P.of+' check points' : 'No check points yet'}</span>
+      </div>
+      <div style="height:8px;border-radius:4px;background:var(--mist);margin-top:8px;overflow:hidden">
+        <div style="height:100%;width:${_P.of?Math.round(_P.met/_P.of*100):0}%;background:var(--deep);
+          border-radius:4px;transition:width .5s cubic-bezier(.2,.8,.2,1)"></div>
+      </div>
+    </div>
 
-    <div class="pad" style="padding:10px 16px 0">${
-      sessionChooser(_restDay && !_override ? -1 : _cellIdx)}</div>
-    ${workshopOn()?`<div class="pad" style="padding:11px 16px 0">${workshopStrip()}</div>`:''}
-
+    <div class="rise rise-2" style="padding:20px 20px 0;display:flex;flex-direction:column;gap:10px">
+      <button data-tour="buildsession" onclick="${
+        (_restDay&&!_override) ? 'trainAnyway()' : `startDay(${_cellIdx},'full')`}"
+        style="height:68px;width:100%;border:0;border-radius:18px;background:var(--forest);
+        color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
+        padding:0 12px 0 22px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
+        onpointerdown="this.style.transform='scale(.985)'"
+        onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
+        <span style="font:600 20px/1 var(--sans)">${
+          (_restDay&&!_override) ? 'Train anyway' : 'Start session'}</span>
+        <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);
+          display:grid;place-items:center">
+          <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+      </button>
+      <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center">${
+        (_restDay&&!_override)
+          ? 'Your week has nothing on '+DAYL[todayWd()]+'.'
+          : 'Then pick how long and how hard.'}</div>
+    </div>
 
     <!-- the explainers, as the design has them: one question box, then a rail
          of video cards. The accordion this replaces held the same list; the
@@ -5827,9 +5816,13 @@ function screenHome(){
         ${FAQS.map((_,i)=>`<span style="width:5px;height:5px;border-radius:99px;
           background:rgba(17,17,17,${i?0.14:0.42})"></span>`).join('')}
       </div>
-      ${st.token?'':`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);padding:10px 16px 0">
+      ${st.token?'':`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);padding:10px 20px 0">
         The first ${FREE_EXPLAINERS} are open. An account opens the rest.</div>`}
     </section>
+
+    <!-- the workshop after the explainers, where the design puts it: it is an
+         offer, and an offer belongs after the thing they came for -->
+    ${workshopOn()?`<div class="rise rise-4" style="padding:18px 16px 0">${workshopStrip()}</div>`:''}
 
     <!-- keep your progress. Replaces the create-an-account button that used to
          sit inside the explainer card. -->
