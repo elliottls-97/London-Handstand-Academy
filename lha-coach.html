@@ -87,6 +87,8 @@ button.quiet{border:1px solid rgba(28,32,25,.14);background:rgba(255,255,255,.7)
 button.quiet:hover{background:#fff}
 .gate{max-width:400px;margin:16vh auto;text-align:center}
 </style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
+<script src="/ladder-data.js"></script>
+<script src="/timing.js"></script>
 <script>
 const API='/api/app/coach';
 let TOKEN=localStorage.getItem('lha_coach_token')||'';
@@ -1625,6 +1627,49 @@ function bGrp(){
   builder.grp = Math.max(0, Math.min(n-1, builder.grp|0));
   return builder.grp;
 }
+/* ── what the day says versus what it comes to ────────────────────
+   The minutes box is a promise and the drills are the thing. They drift:
+   a block gets another two drills and the label still says forty-five.
+   Both numbers, side by side, worked out with the same arithmetic the app
+   counts down with, so the two cannot disagree. */
+function dayActualSecs(d){
+  return (typeof lhaSessionSecs==='function') ? lhaSessionSecs(d.groups||[]) : 0;
+}
+function lengthLine(d){
+  const secs=dayActualSecs(d);
+  if(!secs) return '';
+  const actual=lhaMins(secs);
+  /* the minutes field is written by hand and is often a range, "35-40".
+     Stripping the punctuation turned that into thirty-five thousand. */
+  const nums=(String(d.mins||'').match(/\d+/g)||[]).map(Number).filter(n=>n>0&&n<=240);
+  const lo=nums[0], hi=nums.length>1?nums[nums.length-1]:nums[0];
+  const drills=(d.groups||[]).reduce((n,g)=>n+((g.items||[]).length),0);
+  const sets=(d.groups||[]).reduce((n,g)=>n+(g.items||[]).reduce((m,it)=>m+lhaSets(it.d),0),0);
+  let verdict='', colour='var(--grey2)';
+  if(lo){
+    /* inside the range counts as right, so a day written as 35 to 40 is not
+       reported as five minutes wrong for landing on either end */
+    const diff = actual>hi ? actual-hi : actual<lo ? actual-lo : 0;
+    const pct = Math.abs(diff)/hi;
+    colour = diff===0 ? 'var(--forest)' : pct<=0.2 ? '#8a6524' : 'var(--terra)';
+    verdict = diff===0 ? 'about right'
+      : (diff>0 ? '+'+diff+' min over' : diff+' min under');
+  }
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:9px;
+    padding:9px 11px;border-radius:11px;background:rgba(17,17,17,.04)">
+    <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">LENGTH</span>
+    <span style="font:500 12.5px/1 var(--sans);color:var(--grey)">
+      says <b style="color:var(--ink)">${lo?(lo===hi?lo:lo+'\u2013'+hi)+' min':'—'}</b></span>
+    <span style="font:500 12.5px/1 var(--sans);color:var(--grey)">
+      actually <b style="color:${colour}">${actual} min</b></span>
+    ${verdict?`<span style="font:700 10.5px/1 var(--sans);padding:4px 8px;border-radius:999px;
+      background:${colour==='var(--forest)'?'rgba(0,102,99,.12)':colour==='var(--terra)'
+        ?'rgba(164,80,60,.14)':'rgba(243,169,73,.18)'};color:${colour}">${verdict}</span>`:''}
+    <span style="flex:1"></span>
+    <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${drills} drills · ${sets} sets</span>
+  </div>`;
+}
+
 function bPickDay(i){ builder.day=i; builder.grp=0; draw(); }
 function bPickGrp(g){ builder.grp=g; draw(); }
 
@@ -1983,6 +2028,7 @@ function builderHTML(){
         <input value="${esc(d.mins||'')}" oninput="bField(${di},'mins',this.value)"
           placeholder="45" style="flex:0 0 54px;${bInput}">
       </div>
+      ${lengthLine(d)}
       <input value="${esc(d.when||'')}" oninput="bField(${di},'when',this.value)"
         placeholder="What they need. Floor and a chair, nothing else."
         style="width:100%;margin-top:8px;${bInput}">
