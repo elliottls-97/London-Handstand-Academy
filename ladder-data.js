@@ -147,6 +147,57 @@ const WRIST_DAY = {n:'Mobility day', sub:'Wrists and shoulders, and it is the on
    of those drills also appeared as often as its count, so the session came
    out nearer nine to one: Easier was four drills on repeat. Shares are what
    was meant, so shares are what it stores. */
+/* ── explainers, by the phase they belong to ──────────────────────
+   The list Elliott and Suryava keep, copied phase by phase. A row with no
+   uid is written but not filmed: it still shows, as a placeholder, because
+   the list is also the filming list and hiding the gaps hides the work.
+
+   uid is a Cloudflare Stream id. Stream makes its own thumbnail at
+   /thumbnails/thumbnail.jpg, which is why the cover images do not need
+   uploading anywhere. */
+const EXPLAIN = {
+  0: [
+    {q:'How to safely fall out of a handstand',       uid:'bf9ca9d217d21dbd588318d479d9507c', dur:'3 min', tag:'Bailing'},
+    {q:'Why do my wrists hurt?',                      uid:'780eb706b9607047da0fd92103f09cf0', dur:'2 min', tag:'Wrists'},
+    {q:'How often should I practise handstands?',     uid:'a74fc970945b633f71bc7457893baf25', dur:'3 min', tag:'Programming'},
+    {q:'Do I need to be strong to start?',            uid:'7467f41353ab66c13b57543f0a7105d6', dur:'3 min', tag:'Strength'},
+    {q:'Engaging my core',                            uid:'',                                 dur:'',      tag:'Shapes'},
+    {q:'How long does it take to learn a handstand?', uid:'d692864081a3d4976dbafaaaff314213', dur:'4 min', tag:'Progress'},
+    {q:'Do handstands improve my fitness?',           uid:'',                                 dur:'',      tag:'Progress'},
+    {q:'How should it feel when doing these exercises?', uid:'f84f53ba8026f8bd0348cb6836a46aad', dur:'3 min', tag:'Alignment'},
+  ],
+  1: [
+    {q:'What are we trying to achieve in this phase?', uid:'99806cf5a01e65ef29f786bb4e50453b', dur:'3 min', tag:'The phase'},
+    {q:'What makes a good kick up?',                   uid:'',                                 dur:'',      tag:'Kick ups'},
+    {q:'How to bail out?',                             uid:'',                                 dur:'',      tag:'Bailing'},
+    {q:'Where to look in a handstand?',                uid:'e1ff0eb98d4c9721ede040f7db994acf', dur:'2 min', tag:'Alignment'},
+    {q:'How strong do I need to get?',                 uid:'7467f41353ab66c13b57543f0a7105d6', dur:'3 min', tag:'Strength'},
+    {q:'Why do people get stuck against the wall?',    uid:'',                                 dur:'',      tag:'The wall'},
+    {q:'Using finger tips',                            uid:'',                                 dur:'',      tag:'Balance'},
+  ],
+  2: [
+    {q:'What is scapula elevation?',                   uid:'',                                 dur:'',      tag:'Shapes'},
+    {q:"Explaining the concept of 'build to'",         uid:'a366aa047568153b2db238333eb43e8f', dur:'2 min', tag:'Programming'},
+    {q:'Why separate entries with balance?',           uid:'',                                 dur:'',      tag:'Entries'},
+    {q:"Why can't I start to balance now?",            uid:'',                                 dur:'',      tag:'Balance'},
+    {q:'Stuck to the wall? The sunk chest theory',     uid:'',                                 dur:'',      tag:'The wall'},
+  ],
+  3: [
+    {q:'Oh no, not another stage using the wall',      uid:'',                                 dur:'',      tag:'The phase'},
+    {q:'How do I use my supporting leg?',              uid:'',                                 dur:'',      tag:'Take off'},
+    {q:'I come off the wall but my shape changes',     uid:'',                                 dur:'',      tag:'Shapes'},
+    {q:'Bailing out freestanding, and using a spotter', uid:'',                                dur:'',      tag:'Bailing'},
+  ],
+  4: [
+    {q:"Explaining the concept of 'build to'",         uid:'a366aa047568153b2db238333eb43e8f', dur:'2 min', tag:'Programming'},
+    {q:'Keeping the right shoulder positioning',       uid:'',                                 dur:'',      tag:'Alignment'},
+    {q:'How far to open the legs in straddle?',        uid:'',                                 dur:'',      tag:'Shapes'},
+    {q:'Why is tuck harder than straight?',            uid:'',                                 dur:'',      tag:'Shapes'},
+    {q:'Why is straight harder than tuck handstand?',  uid:'',                                 dur:'',      tag:'Shapes'},
+  ],
+  5: [],
+};
+
 const BAND_MIX = {
   1: {1:55, 2:30, 3:15},          /* Easier: mostly level one, some two, a little three to finish on */
   2: {1:25, 2:40, 3:35},          /* As written: a mixture, building to three */

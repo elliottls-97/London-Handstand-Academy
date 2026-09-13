@@ -852,9 +852,18 @@ function planExtras(){
    their own R2 bucket, named by filename, which is what the spec stores.
    These never moved to Cloudflare Stream with the rest. */
 const EXPLAINERS='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/explainer-videos/';
+/* The explainers Elliott filmed are on Stream, addressed by uid, not in the
+   R2 bucket the first ones went to. Stream makes its own still, so a cover
+   image never needs uploading: 37 of them were, as JPGs, and Stream cannot
+   ingest a JPG as video so not one of them will ever be ready. */
+const STREAM_CDN='https://customer-pns1oongdltmkjwa.cloudflarestream.com/';
+const streamMp4   = uid => STREAM_CDN+uid+'/downloads/default.mp4';
+const streamThumb = uid => STREAM_CDN+uid+'/thumbnails/thumbnail.jpg?time=3s&height=320';
 function qaVideo(a){
-  if(!a.v) return '';
-  return `<video src="${EXPLAINERS}${encodeURIComponent(a.v)}" controls playsinline preload="none"
+  const src = a.uid ? streamMp4(a.uid) : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
+  if(!src) return '';
+  return `<video src="${src}" controls playsinline preload="none"
+    ${a.uid?`poster="${streamThumb(a.uid)}"`:''}
     style="width:100%;border-radius:14px;margin-top:11px;background:#11150f;display:block"></video>`;
 }
 
@@ -3866,7 +3875,7 @@ function drawOv(){
     const q=FAQS[st.exOpen]||FAQS[0];
     body=`<div class="card" style="padding:20px">
       <div class="h-md" style="font-size:21px">${esc(q.q)}</div>
-      ${q.v?qaVideo(q):videoPlaceholder(q.tag||'Explainer',q.dur)}
+      ${(q.uid||q.v)?qaVideo(q):videoPlaceholder(q.tag||'Explainer',q.dur)}
     </div>`;
   }
   if(st.ov==='account'){
@@ -5103,20 +5112,25 @@ function questionsCard(){
    is optional and deepens it, because a video in front of someone who
    has just answered four questions is a wall at the moment they are
    keenest. It works with the slot empty, and gets better when it is not. */
-const LADDER_INTRO_VIDEO = '';   /* drop the Stream URL in when it is filmed */
+const LADDER_INTRO_VIDEO = 'ca0c240ddea6010e5b376d7c6147d29c';   /* intro to the handstand ladder */
 /* One walkthrough per stage, once they are past the first. "New here? Watch
    this first" is the right offer on day one and the wrong one on stage four,
    where the useful film is about the stage they have just reached. Slots are
    here ready; an empty one falls back to the ladder intro. */
-const STAGE_VIDEO = ['','','','','',''];
+const STAGE_VIDEO = [
+  '',                                   /* Foundations uses the ladder intro */
+  '99806cf5a01e65ef29f786bb4e50453b',   /* Wall Work, what this phase is for */
+  '', '', '', ''
+];
 const stageFilm = () => STAGE_VIDEO[curStage()] || '';
 /* what the button on Today offers, and what opening it plays */
 function introOffer(){
   const i=curStage(), S=STAGES[i]||STAGES[0];
   if(i===0) return {label:'New here? Watch this first', title:'How the handstand ladder works',
-                    url:LADDER_INTRO_VIDEO, len:'2 min'};
+                    url:LADDER_INTRO_VIDEO, len:'3 min'};
+  const own=stageFilm();
   return {label:'About '+S.n, title:S.n+', explained',
-          url:stageFilm()||LADDER_INTRO_VIDEO, len:'2 min'};
+          url:own||LADDER_INTRO_VIDEO, len:'3 min'};
 }
 
 function screenOriented(){
@@ -5169,7 +5183,8 @@ function screenOriented(){
         font:600 16px/1 var(--sans);cursor:pointer">Start your first session</button>
 
       ${LADDER_INTRO_VIDEO
-        ? `<video src="${LADDER_INTRO_VIDEO}" controls playsinline preload="none"
+        ? `<video src="${streamMp4(LADDER_INTRO_VIDEO)}" controls playsinline preload="none"
+             poster="${streamThumb(LADDER_INTRO_VIDEO)}"
              style="width:100%;border-radius:18px;margin-top:16px;background:#11150f;display:block"></video>`
         : videoPlaceholder('Intro · how the ladder works','2 min')}
 
@@ -5303,14 +5318,20 @@ function placementLinks(){
    The questions that get asked before anyone asks anything else. Three
    are open to everyone; the rest need an account, because an address is
    a fair price for the whole library and no price at all for a taste. */
-const FAQS=[
-  {q:'Why do my wrists hurt?',                      v:'', dur:'3 min', tag:'Wrists'},
-  {q:'How often should I practise handstands?',     v:'', dur:'4 min', tag:'Programming'},
-  {q:'Do I need to be strong to start?',            v:'', dur:'3 min', tag:'Strength'},
-  {q:'How to safely fall out of a handstand',       v:'', dur:'4 min', tag:'Bailing'},
-  {q:'How long does it take to learn a handstand?', v:'', dur:'3 min', tag:'Progress'},
-  {q:'What alignment really feels like',            v:'', dur:'4 min', tag:'Shapes'},
-];
+/* One flat list, built from the per-phase one in ladder-data.js, filmed
+   first. The rail is a rail: an unfilmed placeholder at the front of it is
+   the first thing a new person sees, and there are eighteen of them. */
+const FAQS = (()=>{
+  const out=[];
+  Object.keys(EXPLAIN).map(Number).sort((a,b)=>a-b).forEach(st0=>{
+    (EXPLAIN[st0]||[]).forEach(x=>{
+      /* the same film answers a question in two phases; show it once */
+      if(x.uid && out.some(y=>y.uid===x.uid)) return;
+      out.push(Object.assign({stage:st0, v:''}, x));
+    });
+  });
+  return out.filter(x=>x.uid).concat(out.filter(x=>!x.uid));
+})();
 const FREE_EXPLAINERS=3;
 const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token;
 /* v is a filename in the R2 bucket the explainers already live in */
@@ -5473,12 +5494,13 @@ function screenHome(){
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
         <span style="flex:1;text-align:left;font:600 13.5px/1.2 var(--sans);color:var(--on-primary)">
           ${st.introOpen?'Hide it':esc(introOffer().label)}</span>
-        <span style="font:400 12px/1 var(--sans);color:rgba(236,231,226,.96)">2 min</span>
+        <span style="font:400 12px/1 var(--sans);color:rgba(236,231,226,.96)">${esc(introOffer().len)}</span>
         <span style="font:400 13px/1 var(--sans);color:rgba(236,231,226,.96);
           transform:rotate(${st.introOpen?180:0}deg)">⌄</span>
       </button>
       ${st.introOpen?(introOffer().url
-        ? `<video src="${introOffer().url}" controls playsinline preload="none"
+        ? `<video src="${streamMp4(introOffer().url)}" controls playsinline preload="none"
+             poster="${streamThumb(introOffer().url)}"
              style="width:100%;border-radius:16px;margin-top:14px;background:#11150f;display:block"></video>`
         : videoPlaceholder(introOffer().title, introOffer().len, true)):''}
     </div>
@@ -5509,8 +5531,16 @@ function screenHome(){
             style="flex:none;width:214px;scroll-snap-align:center;cursor:pointer">
             <div style="position:relative;aspect-ratio:16/10;border-radius:20px;overflow:hidden;
               opacity:${open?1:.74};background:linear-gradient(150deg,${grad})">
+              ${q.uid?`<img src="${streamThumb(q.uid)}" alt="" loading="lazy"
+                style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+                <span style="position:absolute;inset:0;background:linear-gradient(180deg,
+                  rgba(0,0,0,.34),rgba(0,0,0,0) 46%,rgba(0,0,0,.28))"></span>`:''}
               <span style="position:absolute;top:11px;left:13px;font:600 10px/1 var(--sans);
-                letter-spacing:.14em;color:rgba(17,17,17,.72)">${String(i+1).padStart(2,'0')}</span>
+                letter-spacing:.14em;color:${q.uid?'rgba(255,255,255,.9)':'rgba(17,17,17,.72)'}">${
+                String(i+1).padStart(2,'0')}</span>
+              ${q.uid?'':`<span style="position:absolute;left:13px;bottom:12px;padding:4px 8px;
+                border-radius:99px;background:rgba(255,255,255,.55);font:600 9px/1 var(--sans);
+                letter-spacing:.1em;color:#444">FILMING SOON</span>`}
               ${open?'':`<span style="position:absolute;top:11px;right:11px;padding:5px 9px;
                 border-radius:99px;background:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.6);
                 font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:#444">EMAIL TO UNLOCK</span>`}
