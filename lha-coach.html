@@ -1854,6 +1854,94 @@ function reviewHTML(){
   </div>`;
 }
 
+/* ── explainers, and the words people find them by ───────────────
+   The questions and the shipped keywords are in ladder-data.js. What the
+   coach adds here is saved separately and merged on top, so a word added
+   after watching what people actually type reaches the app on its next
+   load rather than the next deploy. */
+let exKeyEdits={}, exKeyStore=null, exKeyBusy=false;
+function exLoad(){
+  if(exKeyStore) return;
+  exKeyStore={};
+  fetch(API+'/coach/explain',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ exKeyStore=(d&&d.explainKeys)||{}; draw(); })
+    .catch(()=>{ exKeyStore={}; });
+}
+const exOwn = id => (exKeyEdits[id]!=null) ? exKeyEdits[id]
+  : ((exKeyStore||{})[id]||[]).join(', ');
+function exSet(id,v){
+  exKeyEdits[id]=v;
+  const n=document.getElementById('exn-'+id);
+  if(n) n.textContent=exCount(id);
+  const b=document.getElementById('exSave');
+  if(b){ const k=Object.keys(exKeyEdits).length;
+    b.disabled=!k||exKeyBusy; b.style.opacity=(k&&!exKeyBusy)?1:.5;
+    b.textContent=exKeyBusy?'Saving…':k?('Save '+k+' change'+(k===1?'':'s')):'Saved'; }
+}
+function exCount(id){
+  const own=exOwn(id).split(',').map(x=>x.trim()).filter(Boolean).length;
+  return own?(own+' yours'):'';
+}
+function exSave(){
+  if(exKeyBusy) return;
+  const rows=Object.keys(exKeyEdits).map(id=>({id, k:exKeyEdits[id]}));
+  if(!rows.length) return;
+  exKeyBusy=true; draw();
+  fetch(API+'/coach/explain',{method:'POST',headers:hdr(),body:JSON.stringify({rows})})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ exKeyStore=d.explainKeys||{}; exKeyEdits={}; exKeyBusy=false; draw(); })
+    .catch(e=>{ exKeyBusy=false; alert(String(e)); draw(); });
+}
+function explainHTML(){
+  exLoad();
+  const inp='border:1px solid var(--line);border-radius:9px;padding:8px 9px;'
+    +'font:500 12.5px/1.35 var(--sans);background:#fff;width:100%';
+  const dirty=Object.keys(exKeyEdits).length;
+  const stages=Object.keys(EXPLAIN).map(Number).sort((a,b)=>a-b);
+  let filmed=0, total=0;
+  stages.forEach(s0=>(EXPLAIN[s0]||[]).forEach(x=>{ total++; if(x.uid) filmed++; }));
+
+  const body=stages.filter(s0=>(EXPLAIN[s0]||[]).length).map(s0=>`
+    <div style="margin-top:18px">
+      <div style="font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">${
+        esc((STAGES[s0]||{}).n||('Phase '+(s0+1)))}</div>
+      ${(EXPLAIN[s0]||[]).map(x=>`
+        <div style="margin-top:9px;padding:10px 11px;border-radius:12px;border:1px solid var(--line);
+          background:${exKeyEdits[x.id]!=null?'rgba(243,169,73,.1)':'#fff'}">
+          <div style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap">
+            <b style="flex:1;min-width:170px;font:600 13px/1.3 var(--sans)">${esc(x.q)}</b>
+            <span style="font:500 10.5px/1 var(--sans);color:${x.uid?'var(--forest)':'var(--grey2)'}">${
+              x.uid?('filmed · '+esc(x.dur||'')):'not filmed'}</span>
+            <span id="exn-${esc(x.id)}" style="font:500 10.5px/1 var(--sans);
+              color:var(--grey2)">${esc(exCount(x.id))}</span>
+          </div>
+          <div style="font:400 11px/1.5 var(--sans);color:var(--grey2);margin-top:5px">
+            Ships with: ${esc((x.k||[]).join(', ')||'nothing')}</div>
+          <input value="${esc(exOwn(x.id))}" oninput="exSet('${esc(x.id)}',this.value)"
+            placeholder="Your own words, separated by commas"
+            style="${inp};margin-top:7px">
+        </div>`).join('')}
+    </div>`).join('');
+
+  return `<div class="glass" style="padding:16px 18px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font:400 21px/1.1 var(--serif)">Explainers</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px;max-width:66ch">
+          ${filmed} of ${total} filmed. The words underneath each one are what the
+          search matches on, so someone typing "sore wrists" finds the wrists film
+          without having guessed its title. Add whatever people actually ask you.
+          Saved here, live on the next app load, no deploy.</div>
+      </div>
+      <button class="send" id="exSave" onclick="exSave()"${dirty&&!exKeyBusy?'':' disabled'}
+        style="${dirty&&!exKeyBusy?'':'opacity:.5'}">${
+        exKeyBusy?'Saving…':dirty?`Save ${dirty} change${dirty===1?'':'s'}`:'Saved'}</button>
+    </div>
+    ${body}
+  </div>`;
+}
+
 function workoutsHTML(){
   wkLoad();
   const inp='border:1px solid var(--line);border-radius:9px;padding:7px 8px;'
@@ -3128,6 +3216,7 @@ function draw(){
          ['apps','Applications'+(newApps().length?' · '+newApps().length:'')],
          ['workouts','Workouts'],
          ['review','Review'+(reviewQueue.length?' · '+reviewQueue.length:'')],
+         ['explain','Explainers'],
          ['setup','Settings']].map(([id,label])=>
         `<button onclick="view='${id}';draw()" style="cursor:pointer;border-radius:999px;padding:9px 16px;
           font:600 12.5px/1 var(--sans);border:1.5px solid ${view===id?'var(--forest)':'var(--line)'};
@@ -3154,6 +3243,7 @@ function draw(){
       </div>`:
       view==='workouts'?`<div style="margin-top:16px">${workoutsHTML()}</div>`:
       view==='review'?`<div style="margin-top:16px">${reviewHTML()}</div>`:
+      view==='explain'?`<div style="margin-top:16px">${explainHTML()}</div>`:
       view==='questions'?`<div style="margin-top:16px">${questionsHTML()}</div>`:
       view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
       view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>

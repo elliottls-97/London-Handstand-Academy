@@ -1081,7 +1081,33 @@ export default async (request) => {
      route carries them on their own. Nothing personal is in it. */
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
-                  timing:      (await getSetting('timing:custom')) || {} });
+                  timing:      (await getSetting('timing:custom')) || {},
+                  /* the words the coach has added for finding an explainer */
+                  explainKeys: (await getSetting('explain:keys')) || {} });
+  }
+
+  /* ── what people type when they look for an explainer ────────────
+     Searching the question alone found nothing for "sore wrists" while the
+     film about sore wrists sat two rows under the box. The shipped words
+     are in ladder-data.js; these are the ones Elliott adds after watching
+     what people actually ask, and they need no deploy. */
+  if (path === '/coach/explain') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const all = (await getSetting('explain:keys')) || {};
+    if (request.method === 'GET') return json({ explainKeys: all });
+    if (request.method === 'POST') {
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      rows.slice(0, 200).forEach(r => {
+        const id = String(r.id || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+        if (!id) return;
+        const k = (Array.isArray(r.k) ? r.k : String(r.k || '').split(','))
+          .map(x => String(x || '').trim().toLowerCase().slice(0, 40))
+          .filter(Boolean).slice(0, 40);
+        if (k.length) all[id] = k; else delete all[id];
+      });
+      await setSetting('explain:keys', all);
+      return json({ ok: true, explainKeys: all });
+    }
   }
 
   if (path === '/programme' && request.method === 'GET') {

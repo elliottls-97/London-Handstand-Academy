@@ -859,11 +859,42 @@ const EXPLAINERS='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/explainer-
 const STREAM_CDN='https://customer-pns1oongdltmkjwa.cloudflarestream.com/';
 const streamMp4   = uid => STREAM_CDN+uid+'/downloads/default.mp4';
 const streamThumb = uid => STREAM_CDN+uid+'/thumbnails/thumbnail.jpg?time=3s&height=320';
+/* no extension on this one: /captions/en.vtt is a 404 and /captions/en is
+   the file. An hour went into that difference. */
+const streamVtt   = uid => STREAM_CDN+uid+'/captions/en';
+/* Captions, which Stream generates and serves as a VTT per language.
+   A cross-origin <track> only loads on a video marked crossorigin, and
+   crossorigin turns the MP4 request into a CORS one, which the download
+   URL fails: it answers 302 and the redirect carries no CORS header. So
+   the track is fetched here and handed to the player as a blob, same
+   origin as far as the element is concerned. Captions are an addition, so
+   a failure is silent and the film still plays. */
+function attachCaptions(v, uid){
+  if(!v || !uid || v.dataset.ccDone) return;
+  v.dataset.ccDone='1';
+  fetch(streamVtt(uid))
+    .then(r=>r.ok?r.text():Promise.reject(r.status))
+    .then(t=>{
+      if(!/-->/.test(t)) return;            /* not a cue sheet, do not mount it */
+      const tr=document.createElement('track');
+      tr.kind='captions'; tr.label='English'; tr.srclang='en'; tr.default=true;
+      tr.src=URL.createObjectURL(new Blob([t],{type:'text/vtt'}));
+      v.appendChild(tr);
+      /* default alone does not switch it on once the element is live */
+      try{ const t0=v.textTracks[v.textTracks.length-1]; if(t0) t0.mode='showing'; }catch(e){}
+    })
+    .catch(()=>{});
+}
+/* every explainer video on the page, whenever one is drawn */
+function mountCaptions(){
+  document.querySelectorAll('video[data-cc]').forEach(v=>attachCaptions(v, v.getAttribute('data-cc')));
+}
 function qaVideo(a){
   const src = a.uid ? streamMp4(a.uid) : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
   if(!src) return '';
+  setTimeout(mountCaptions,0);
   return `<video src="${src}" controls playsinline preload="none"
-    ${a.uid?`poster="${streamThumb(a.uid)}"`:''}
+    ${a.uid?`poster="${streamThumb(a.uid)}" data-cc="${esc(a.uid)}"`:''}
     style="width:100%;border-radius:14px;margin-top:11px;background:#11150f;display:block"></video>`;
 }
 
@@ -4485,6 +4516,7 @@ function loadLadder(){
     .then(d=>{
       let moved=false;
       if(d && d.timing)      { st.timing=d.timing;           moved=true; }
+      if(d && d.explainKeys) { st.explainKeys=d.explainKeys;   moved=true; }
       if(d && d.ladderExtra) { st.ladderExtra=d.ladderExtra; moved=true; }
       if(moved){ save(); render(); }
       return true;
@@ -5183,9 +5215,15 @@ function screenOriented(){
         font:600 16px/1 var(--sans);cursor:pointer">Start your first session</button>
 
       ${LADDER_INTRO_VIDEO
-        ? `<video src="${streamMp4(LADDER_INTRO_VIDEO)}" controls playsinline preload="none"
-             poster="${streamThumb(LADDER_INTRO_VIDEO)}"
-             style="width:100%;border-radius:18px;margin-top:16px;background:#11150f;display:block"></video>`
+        ? `<div style="margin-top:16px">
+             <div style="font:600 17px/1.25 var(--serif)">How the handstand ladder works</div>
+             <div style="font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:4px">
+               3 min · captions on</div>
+             ${(setTimeout(mountCaptions,0),'')}
+             <video src="${streamMp4(LADDER_INTRO_VIDEO)}" controls playsinline preload="none"
+               poster="${streamThumb(LADDER_INTRO_VIDEO)}" data-cc="${esc(LADDER_INTRO_VIDEO)}"
+               style="width:100%;border-radius:18px;margin-top:9px;background:#11150f;display:block"></video>
+           </div>`
         : videoPlaceholder('Intro · how the ladder works','2 min')}
 
       <button onclick="st.oriented=true;save();go('home')" style="width:100%;background:none;border:none;
@@ -5394,11 +5432,36 @@ function askFromSearch(){
   }, 160);
 }
 
+/* the coach's own words for a film, from the dashboard, keyed on id */
+const exKeys = id => ((st.explainKeys||{})[id]||[]);
+/* everything this film can be found by: its question, its tag, the words
+   shipped with it and the words Elliott has added since */
+const exHaystack = f =>
+  [f.q, f.tag||''].concat(f.k||[], exKeys(f.id)).join(' ').toLowerCase();
+
+/* Searching the title alone meant "sore wrists" found nothing while
+   "Why do my wrists hurt?" sat two rows below the box. Matching is on the
+   keywords too, and the best match leads: a film whose own words contain
+   the whole phrase beats one that shares a single word with it. */
+function exScore(f, q, words){
+  const hay=exHaystack(f);
+  if(!hay) return 0;
+  let n=0;
+  if(hay.indexOf(q)>-1) n+=10;
+  words.forEach(w=>{
+    if(f.q.toLowerCase().indexOf(w)>-1) n+=3;
+    else if(hay.indexOf(w)>-1) n+=2;
+  });
+  /* a film beats a placeholder at the same score: one can be watched */
+  if(n && f.uid) n+=1;
+  return n;
+}
 function askMatches(q){
   q=(q||'').trim().toLowerCase();
   if(q.length<3) return '';
   const words=q.split(/\s+/).filter(w=>w.length>2);
-  const hits=FAQS.map((f,i)=>({f,i})).filter(({f})=>words.some(w=>f.q.toLowerCase().includes(w)));
+  const hits=FAQS.map((f,i)=>({f,i,s:exScore(f,q,words)}))
+    .filter(x=>x.s>0).sort((a,b)=>b.s-a.s).slice(0,6);
   if(!hits.length) return `<div style="margin-top:10px">
     <p style="margin:0 0 8px;font:500 13.5px/1.45 var(--sans);color:var(--grey)">
       No video on that one yet.</p>${askElliottRow()}</div>`;
@@ -5415,7 +5478,8 @@ function askMatches(q){
         <svg width="10" height="12" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
       <span style="flex:1;font:500 13.5px/1.3 var(--sans)">${esc(f.q)}</span>
-      <span style="font:500 12px/1 var(--sans);color:var(--grey2)">${explainerOpen(i)?'':'Locked'}</span>
+      <span style="font:500 12px/1 var(--sans);color:var(--grey2)">${
+        !explainerOpen(i)?'Locked':f.uid?esc(f.dur||''):'Filming soon'}</span>
     </div>`).join('')}</div>
     ${askElliottRow()}</div>`;
 }
@@ -5499,9 +5563,16 @@ function screenHome(){
           transform:rotate(${st.introOpen?180:0}deg)">⌄</span>
       </button>
       ${st.introOpen?(introOffer().url
-        ? `<video src="${streamMp4(introOffer().url)}" controls playsinline preload="none"
-             poster="${streamThumb(introOffer().url)}"
-             style="width:100%;border-radius:16px;margin-top:14px;background:#11150f;display:block"></video>`
+        ? `<div style="margin-top:14px">
+             <div style="font:600 16px/1.25 var(--serif);color:var(--on-primary)">${
+               esc(introOffer().title)}</div>
+             <div style="font:400 11.5px/1 var(--sans);color:rgba(236,231,226,.7);margin-top:4px">${
+               esc(introOffer().len)} · captions on</div>
+             ${(setTimeout(mountCaptions,0),'')}
+             <video src="${streamMp4(introOffer().url)}" controls playsinline preload="none"
+               poster="${streamThumb(introOffer().url)}" data-cc="${esc(introOffer().url)}"
+               style="width:100%;border-radius:16px;margin-top:9px;background:#11150f;display:block"></video>
+           </div>`
         : videoPlaceholder(introOffer().title, introOffer().len, true)):''}
     </div>
 
