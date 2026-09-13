@@ -585,9 +585,9 @@ function screenToday(){
     <div data-tour="block" style="display:flex;gap:6px;margin-top:15px">
       ${[1,2,3,4,5,6].map(w=>`<div style="flex:1;padding-bottom:2px">
         <div style="height:4px;border-radius:99px;transform:scaleY(${w===hWeek?1.6:1});
-          background:${w<=hWeek?'var(--on-primary)':'rgba(236,231,226,.2)'}"></div>
+          background:${w<=hWeek?'var(--ink)':'rgba(17,17,17,.1)'}"></div>
         <span style="display:block;margin-top:7px;font:600 9.5px/1 var(--sans);letter-spacing:.1em;
-          text-align:center;color:${w===hWeek?'rgba(236,231,226,1)':'rgba(236,231,226,.42)'}">W${w}</span>
+          text-align:center;color:${w===hWeek?'rgba(236,231,226,1)':'var(--grey2)'}">W${w}</span>
       </div>`).join('')}
     </div>
 
@@ -595,14 +595,14 @@ function screenToday(){
 
     <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
       <div style="font:400 20px/1.1 var(--serif)">${esc(d.label)}${d.sub?', '+esc(d.sub):''}</div>
-      <span style="flex:none;font:500 11.5px/1 var(--sans);color:rgba(236,231,226,.96)">
+      <span style="flex:none;font:500 11.5px/1 var(--sans);color:var(--grey)">
         ${Math.round(mins/60)} min · ${total} drill${total===1?'':'s'}</span>
     </div>
 
     <button onclick="startPlayer()" style="margin-top:11px;width:100%;border:0;border-radius:14px;
       padding:13px;background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans);cursor:pointer">
       ${ticked>=total&&total?'Go again':'Start the session'}</button>
-    <div style="font:400 11.5px/1 var(--sans);color:rgba(236,231,226,.96);text-align:center;
+    <div style="font:400 11.5px/1 var(--sans);color:var(--grey);text-align:center;
       margin-top:9px">${esc(d.when)}</div>
   </div>
 
@@ -2250,6 +2250,126 @@ function dayBreakdown(byDay, opens){
     ${body}
   </div>`;
 }
+/* The week, as a strip of days with the sessions under it. It sat on Today,
+   where it competed with the one thing Today is for: choosing a session and
+   starting it. It lives on Progress now, which is where someone goes to look
+   at their week rather than to train. */
+function weekCard(){
+  /* it read `done` and `target` out of Today's scope, which is fine while it
+     lives inside Today and a crash the moment it does not */
+  const cells=weekCells();
+  const trainedDays=new Set(sessionsDone().map(x=>new Date(x.at).toDateString()));
+  const mon=new Date(); mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+  const done=cells.filter((c,n)=>{
+    const dt=new Date(mon); dt.setDate(mon.getDate()+dayFor(n));
+    return !isRestCell(c) && trainedDays.has(dt.toDateString());
+  }).length;
+  const target=weekTarget();
+  return (function(){
+        /* the card that lifts is the one today holds, not the one a counter
+           happens to be pointing at */
+        const idx=todayCellIdx();
+        /* seven days, Monday first, from this week's actual dates — so a chip
+           is filled because you trained that day, not because of a counter. */
+        const now=new Date();
+        const mon=new Date(now); mon.setHours(0,0,0,0);
+        mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+        const trained=new Set(sessionsDone().map(x=>new Date(x.at).toDateString()));
+        const cells=weekCells();
+        /* wrist and mobility days are a different kind of day, not a
+           quieter version of a training day, so they get their own colour
+           rather than the same green at less opacity */
+        const kindOn={};
+        cells.forEach((c,k)=>{ const d=dayFor(k);
+          if(kindOn[d]!=='work') kindOn[d]=isRestCell(c)?'rest':'work'; });
+        const chips=['M','T','W','T','F','S','S'].map((L,i)=>{
+          const dt=new Date(mon); dt.setDate(mon.getDate()+i);
+          const isToday=dt.toDateString()===now.toDateString();
+          const did=trained.has(dt.toDateString());
+          const kind=kindOn[i];
+          /* Today is a ring around whichever day it happens to be, so a rest
+             day today cannot look like a training day. */
+          const bg = kind==='rest' ? 'var(--sage)' : kind==='work' ? 'var(--forest)'
+                                                                  : 'rgba(17,17,17,.05)';
+          const fg = kind==='rest' ? 'var(--deep)' : kind==='work' ? 'var(--on-primary)'
+                                                                  : 'var(--grey2)';
+          return `<div onclick="st.weekOpen=!st.weekOpen;save();render()" style="flex:1;min-width:0;
+            height:30px;border-radius:9px;display:grid;place-items:center;cursor:pointer;position:relative;
+            font:600 11.5px/1 var(--sans);background:${bg};color:${fg};
+            box-shadow:${isToday?'0 0 0 2px var(--bg),0 0 0 3.5px var(--forest)':'none'}">${L}
+            ${did?`<span style="position:absolute;bottom:3px;font:700 7px/1 var(--sans)">✓</span>`:''}</div>`;
+        }).join('');
+        return `<div data-tour="week" style="border-radius:18px;background:rgba(255,255,255,.5);
+          border:1px solid rgba(17,17,17,.08)">
+          <div onclick="st.weekOpen=!st.weekOpen;save();render()"
+            style="display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer">
+            <span style="flex:none;font:600 10.5px/1 var(--sans);letter-spacing:.12em;
+              color:var(--grey)">WEEK</span>
+            <div style="flex:1;display:flex;gap:5px;min-width:0">${chips}</div>
+            <span style="flex:none;font:600 10.5px/1 var(--sans);letter-spacing:.1em;
+              color:var(--grey2)">${done}/${target}</span>
+            <span style="flex:none;font:400 13px/1 var(--sans);color:var(--grey2);
+              transform:rotate(${st.weekOpen?180:0}deg)">⌄</span>
+          </div>
+          ${st.weekOpen?`<div style="padding:0 14px 14px">
+            <div class="rail" style="display:flex;gap:9px;overflow-x:auto;
+              scroll-snap-type:x mandatory;padding:2px 0;-webkit-overflow-scrolling:touch">
+            ${cells.map((dd,n)=>{
+              const on=n===idx;
+              const rest=isRestCell(dd);
+              const wd=dayFor(n);
+              /* done means that day's date was actually trained, not that a
+                 counter has moved past it */
+              const cd=new Date(mon); cd.setDate(mon.getDate()+wd);
+              const past=trained.has(cd.toDateString());
+              /* the two kinds of day read as two kinds of day, whether or
+                 not one of them happens to be today */
+              const tint = rest ? 'var(--sage)' : 'var(--forest)';
+              return `<div style="flex:none;width:138px;scroll-snap-align:start;padding:13px;
+                border-radius:18px;
+                border:1px solid ${on?'transparent':rest?'rgba(143,190,202,.65)':'rgba(17,17,17,.1)'};
+                background:${on?tint:rest?'rgba(143,190,202,.16)':'#fff'};
+                box-shadow:${on?'0 14px 30px -18px rgba(17,17,17,.85)':'0 1px 2px rgba(17,17,17,.04)'};
+                transform:translateY(${on?-3:0}px)">
+                <div style="display:flex;align-items:center;justify-content:space-between;min-height:20px">
+                  <button onclick="event.stopPropagation();moveWorkout(${n},-1)" aria-label="Earlier in the week"
+                    style="border:none;background:none;cursor:pointer;width:40px;height:40px;margin:-10px 0;
+                    display:grid;place-items:center;font:600 17px/1 var(--sans);
+                    color:${on&&!rest?'rgba(236,231,226,.85)':'var(--grey)'}">‹</button>
+                  <span style="font:700 10px/1 var(--sans);letter-spacing:.14em;
+                    color:${on?(rest?'var(--deep)':'var(--on-primary)'):rest?'#3d7b8c':'var(--forest)'}">${DAYL[wd]}</span>
+                  <button onclick="event.stopPropagation();moveWorkout(${n},1)" aria-label="Later in the week"
+                    style="border:none;background:none;cursor:pointer;width:40px;height:40px;margin:-10px 0;
+                    display:grid;place-items:center;font:600 17px/1 var(--sans);
+                    color:${on&&!rest?'rgba(236,231,226,.85)':'var(--grey)'}">›</button>
+                </div>
+                <div onclick="startDay(${n})" style="cursor:pointer">
+                  ${rest?`<span style="display:inline-block;margin-top:8px;padding:3px 7px;border-radius:5px;
+                    background:${on?'rgba(0,64,61,.16)':'rgba(61,123,140,.16)'};
+                    font:700 8.5px/1 var(--sans);letter-spacing:.13em;
+                    color:${on?'var(--deep)':'#3d7b8c'}">MOBILITY</span>`:''}
+                  <p style="margin:8px 0 0;font:400 16px/1.18 var(--serif);
+                    color:${on?(rest?'var(--deep)':'var(--on-primary)'):'var(--ink)'}">${esc(dd.n)}</p>
+                  <span style="display:block;margin-top:7px;font:500 12px/1.3 var(--sans);
+                    color:${on?(rest?'rgba(0,64,61,.6)':'rgba(236,231,226,1)'):'var(--grey2)'}">${esc(dd.sub||'')}</span>
+                  ${past?`<span style="display:block;margin-top:8px;font:600 10px/1 var(--sans);
+                    color:${on?(rest?'var(--deep)':'var(--on-primary)'):'var(--forest)'}">✓ DONE</span>`:''}
+                </div>
+              </div>`;}).join('')}
+            </div>
+            <div style="display:flex;gap:14px;padding-top:11px">
+              <span style="display:inline-flex;align-items:center;gap:6px;font:400 11.5px/1 var(--sans);
+                color:var(--grey2)"><i style="width:9px;height:9px;border-radius:3px;
+                background:var(--forest)"></i>Session</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;font:400 11.5px/1 var(--sans);
+                color:var(--grey2)"><i style="width:9px;height:9px;border-radius:3px;
+                background:var(--sage)"></i>Wrists and mobility</span>
+            </div>
+            <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);padding-top:8px">
+              Tap a day to see its drills. The arrows move it to another day of the week.</div>
+          </div>`:''}
+        </div>`;})();
+}
 function sessionCalendar(){
   const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
   /* days the app was opened but nothing was logged. Turning up is worth
@@ -2386,6 +2506,7 @@ function screenProgress(){
       color:${tab===k?'var(--deep)':'rgba(236,231,226,.96)'}">${l}</button>`).join('');
 
   const trackBody = `
+      ${coachedView()?'':weekCard()}
       <div data-tour="calendar">${sessionCalendar()}</div>
       <div data-tour="adherence">${adherenceCard()}</div>
       <div data-tour="checkin">${checkinCard()}</div>
@@ -5268,7 +5389,7 @@ function screenHome(){
           <div style="height:4px;border-radius:99px;transform:scaleY(${i===cs?1.6:1});
             background:${i<=cs?'var(--on-primary)':'rgba(236,231,226,.2)'}"></div>
           <span style="display:block;margin-top:7px;font:600 9.5px/1 var(--sans);letter-spacing:.1em;
-            color:${i===cs?'rgba(236,231,226,1)':'rgba(236,231,226,1)'}">${esc(SHORT[i]||'')}</span>
+            color:${i===cs?'rgba(236,231,226,.92)':'rgba(236,231,226,.55)'}">${esc(SHORT[i]||'')}</span>
         </button>`).join('')}
       </div>
 
@@ -5289,10 +5410,8 @@ function screenHome(){
              rgba(236,231,226,.45);border-radius:14px;padding:14px;min-height:48px;
              background:rgba(236,231,226,.13);
              color:var(--on-primary);font:600 15px/1 var(--sans);cursor:pointer">Train anyway</button>`
-        : `<button onclick="startDay(${_cellIdx})" style="margin-top:11px;width:100%;border:0;
-             border-radius:14px;padding:13px;background:var(--bg);color:var(--deep);
-             font:600 15px/1 var(--sans);cursor:pointer">
-             ${didToday?'Go again':'Start the session'}</button>`}
+        : ''}
+      ${sessionChooser(_restDay && !_override ? -1 : _cellIdx)}
 
       <button onclick="st.introOpen=!st.introOpen;save();render()" style="margin-top:10px;width:100%;
         display:flex;align-items:center;gap:10px;border:1px solid rgba(236,231,226,${done?0.2:0.4});
@@ -5317,110 +5436,7 @@ function screenHome(){
 
       <!-- the week, collapsed to a strip. Tapping it opens the same day list
            that used to sit in its own card. -->
-      ${(function(){
-        /* the card that lifts is the one today holds, not the one a counter
-           happens to be pointing at */
-        const idx=todayCellIdx();
-        /* seven days, Monday first, from this week's actual dates — so a chip
-           is filled because you trained that day, not because of a counter. */
-        const now=new Date();
-        const mon=new Date(now); mon.setHours(0,0,0,0);
-        mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
-        const trained=new Set(sessionsDone().map(x=>new Date(x.at).toDateString()));
-        const cells=weekCells();
-        /* wrist and mobility days are a different kind of day, not a
-           quieter version of a training day, so they get their own colour
-           rather than the same green at less opacity */
-        const kindOn={};
-        cells.forEach((c,k)=>{ const d=dayFor(k);
-          if(kindOn[d]!=='work') kindOn[d]=isRestCell(c)?'rest':'work'; });
-        const chips=['M','T','W','T','F','S','S'].map((L,i)=>{
-          const dt=new Date(mon); dt.setDate(mon.getDate()+i);
-          const isToday=dt.toDateString()===now.toDateString();
-          const did=trained.has(dt.toDateString());
-          const kind=kindOn[i];
-          /* Today is a ring around whichever day it happens to be, so a rest
-             day today cannot look like a training day. */
-          const bg = kind==='rest' ? 'var(--sage)' : kind==='work' ? 'var(--forest)'
-                                                                  : 'rgba(17,17,17,.05)';
-          const fg = kind==='rest' ? 'var(--deep)' : kind==='work' ? 'var(--on-primary)'
-                                                                  : 'var(--grey2)';
-          return `<div onclick="st.weekOpen=!st.weekOpen;save();render()" style="flex:1;min-width:0;
-            height:30px;border-radius:9px;display:grid;place-items:center;cursor:pointer;position:relative;
-            font:600 11.5px/1 var(--sans);background:${bg};color:${fg};
-            box-shadow:${isToday?'0 0 0 2px var(--bg),0 0 0 3.5px var(--forest)':'none'}">${L}
-            ${did?`<span style="position:absolute;bottom:3px;font:700 7px/1 var(--sans)">✓</span>`:''}</div>`;
-        }).join('');
-        return `<div data-tour="week" style="border-radius:18px;background:rgba(255,255,255,.5);
-          border:1px solid rgba(17,17,17,.08)">
-          <div onclick="st.weekOpen=!st.weekOpen;save();render()"
-            style="display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer">
-            <span style="flex:none;font:600 10.5px/1 var(--sans);letter-spacing:.12em;
-              color:var(--grey)">WEEK</span>
-            <div style="flex:1;display:flex;gap:5px;min-width:0">${chips}</div>
-            <span style="flex:none;font:600 10.5px/1 var(--sans);letter-spacing:.1em;
-              color:var(--grey2)">${done}/${target}</span>
-            <span style="flex:none;font:400 13px/1 var(--sans);color:var(--grey2);
-              transform:rotate(${st.weekOpen?180:0}deg)">⌄</span>
-          </div>
-          ${st.weekOpen?`<div style="padding:0 14px 14px">
-            <div class="rail" style="display:flex;gap:9px;overflow-x:auto;
-              scroll-snap-type:x mandatory;padding:2px 0;-webkit-overflow-scrolling:touch">
-            ${cells.map((dd,n)=>{
-              const on=n===idx;
-              const rest=isRestCell(dd);
-              const wd=dayFor(n);
-              /* done means that day's date was actually trained, not that a
-                 counter has moved past it */
-              const cd=new Date(mon); cd.setDate(mon.getDate()+wd);
-              const past=trained.has(cd.toDateString());
-              /* the two kinds of day read as two kinds of day, whether or
-                 not one of them happens to be today */
-              const tint = rest ? 'var(--sage)' : 'var(--forest)';
-              return `<div style="flex:none;width:138px;scroll-snap-align:start;padding:13px;
-                border-radius:18px;
-                border:1px solid ${on?'transparent':rest?'rgba(143,190,202,.65)':'rgba(17,17,17,.1)'};
-                background:${on?tint:rest?'rgba(143,190,202,.16)':'#fff'};
-                box-shadow:${on?'0 14px 30px -18px rgba(17,17,17,.85)':'0 1px 2px rgba(17,17,17,.04)'};
-                transform:translateY(${on?-3:0}px)">
-                <div style="display:flex;align-items:center;justify-content:space-between;min-height:20px">
-                  <button onclick="event.stopPropagation();moveWorkout(${n},-1)" aria-label="Earlier in the week"
-                    style="border:none;background:none;cursor:pointer;width:40px;height:40px;margin:-10px 0;
-                    display:grid;place-items:center;font:600 17px/1 var(--sans);
-                    color:${on&&!rest?'rgba(236,231,226,.85)':'var(--grey)'}">‹</button>
-                  <span style="font:700 10px/1 var(--sans);letter-spacing:.14em;
-                    color:${on?(rest?'var(--deep)':'var(--on-primary)'):rest?'#3d7b8c':'var(--forest)'}">${DAYL[wd]}</span>
-                  <button onclick="event.stopPropagation();moveWorkout(${n},1)" aria-label="Later in the week"
-                    style="border:none;background:none;cursor:pointer;width:40px;height:40px;margin:-10px 0;
-                    display:grid;place-items:center;font:600 17px/1 var(--sans);
-                    color:${on&&!rest?'rgba(236,231,226,.85)':'var(--grey)'}">›</button>
-                </div>
-                <div onclick="startDay(${n})" style="cursor:pointer">
-                  ${rest?`<span style="display:inline-block;margin-top:8px;padding:3px 7px;border-radius:5px;
-                    background:${on?'rgba(0,64,61,.16)':'rgba(61,123,140,.16)'};
-                    font:700 8.5px/1 var(--sans);letter-spacing:.13em;
-                    color:${on?'var(--deep)':'#3d7b8c'}">MOBILITY</span>`:''}
-                  <p style="margin:8px 0 0;font:400 16px/1.18 var(--serif);
-                    color:${on?(rest?'var(--deep)':'var(--on-primary)'):'var(--ink)'}">${esc(dd.n)}</p>
-                  <span style="display:block;margin-top:7px;font:500 12px/1.3 var(--sans);
-                    color:${on?(rest?'rgba(0,64,61,.6)':'rgba(236,231,226,1)'):'var(--grey2)'}">${esc(dd.sub||'')}</span>
-                  ${past?`<span style="display:block;margin-top:8px;font:600 10px/1 var(--sans);
-                    color:${on?(rest?'var(--deep)':'var(--on-primary)'):'var(--forest)'}">✓ DONE</span>`:''}
-                </div>
-              </div>`;}).join('')}
-            </div>
-            <div style="display:flex;gap:14px;padding-top:11px">
-              <span style="display:inline-flex;align-items:center;gap:6px;font:400 11.5px/1 var(--sans);
-                color:var(--grey2)"><i style="width:9px;height:9px;border-radius:3px;
-                background:var(--forest)"></i>Session</span>
-              <span style="display:inline-flex;align-items:center;gap:6px;font:400 11.5px/1 var(--sans);
-                color:var(--grey2)"><i style="width:9px;height:9px;border-radius:3px;
-                background:var(--sage)"></i>Wrists and mobility</span>
-            </div>
-            <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);padding-top:8px">
-              Tap a day to see its drills. The arrows move it to another day of the week.</div>
-          </div>`:''}
-        </div>`;})()}
+      
 
 
     </div>
@@ -5510,6 +5526,47 @@ function ladderMins(){
 }
 function setMins(m){ st.time=m; save(); saveState(); render(); }
 
+/* Choose how long, choose how hard, press start. This is the whole of
+   what Today is for, so it lives there rather than on the ladder: the
+   ladder is for seeing where you are and what opens next. */
+function sessionChooser(day){
+  const cur=curStage(), mins=ladderMins();
+  const d = (day==null ? -1 : day);
+  return `      <div data-tour="buildsession" style="position:relative;margin-top:16px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--sage-t)">TRAIN NOW</span>
+          <span style="font:400 10.5px/1 var(--sans);color:rgba(236,231,226,.96)">How long have you got?</span>
+        </div>
+        <div style="display:flex;align-items:stretch;gap:9px;margin-top:10px">
+          <div style="flex:1;display:flex;gap:6px;padding:4px;border-radius:16px;
+            background:rgba(0,48,46,.4)">
+            ${LADDER_MINS.map(m=>`<button onclick="setMins(${m})" style="flex:1;min-height:44px;border:0;
+              border-radius:12px;cursor:pointer;font:700 13.5px/1 var(--sans);
+              transition:background .25s,color .25s;
+              background:${mins===m?'var(--on-primary)':'transparent'};
+              color:${mins===m?'var(--deep)':'var(--on-primary)'}">${m} min</button>`).join('')}
+          </div>
+          <button onclick="startDay(${d})" aria-label="Start a session" style="flex:none;width:72px;
+            border:0;border-radius:16px;background:var(--on-primary);display:flex;flex-direction:column;
+            align-items:center;justify-content:center;gap:3px;cursor:pointer">
+            <span style="font:700 17px/1 var(--sans);color:var(--deep)">▶</span>
+            <span style="font:700 9px/1 var(--sans);letter-spacing:.1em;color:var(--forest)">START</span>
+          </button>
+        </div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px">
+          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--sage-t)">HOW HARD</span>
+          <span style="font:400 10.5px/1 var(--sans);color:rgba(236,231,226,.6)">Change it whenever</span>
+        </div>
+        <div style="display:flex;gap:6px;padding:4px;border-radius:16px;margin-top:10px;
+          background:rgba(0,48,46,.4)">
+          ${[1,2,3].map(l=>`<button onclick="setStageLevel(${cur},${l});render()" style="flex:1;
+            min-height:44px;border:0;border-radius:12px;cursor:pointer;font:700 12.5px/1 var(--sans);
+            transition:background .25s,color .25s;
+            background:${stageLevel(cur)===l?'var(--on-primary)':'transparent'};
+            color:${stageLevel(cur)===l?'var(--deep)':'var(--on-primary)'}">${BAND_NAME[l]}</button>`).join('')}
+        </div>
+      </div>`;
+}
 function screenLadder(){
   const cur=curStage(), s=STAGES[cur]||STAGES[0];
   const P=cpProgress(cur);
@@ -5591,47 +5648,14 @@ function screenLadder(){
           <div style="flex:none;font:600 10px/1 var(--sans);letter-spacing:.14em;
             color:var(--sage-t)">${P.met}/${P.of}</div>
         </div>
-        <div style="margin-top:7px;font:400 13px/1.35 var(--sans);color:rgba(236,231,226,.96)">${esc(s.goal)}</div>
-        <div style="margin-top:13px;height:5px;border-radius:3px;background:rgba(236,231,226,.2);overflow:hidden">
+        <div style="margin-top:7px;font:400 13px/1.35 var(--sans);
+          color:rgba(236,231,226,.96)">${esc(s.goal)}</div>
+        <div style="margin-top:13px;height:5px;border-radius:3px;background:rgba(236,231,226,.2);
+          overflow:hidden">
           <div style="height:100%;border-radius:3px;width:${pct}%;background:var(--amber);
             transition:width .7s cubic-bezier(.2,.8,.2,1)"></div></div>
       </div>
-      <div data-tour="buildsession" style="position:relative;margin-top:16px">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--sage-t)">TRAIN NOW</span>
-          <span style="font:400 10.5px/1 var(--sans);color:rgba(236,231,226,.96)">How long have you got?</span>
-        </div>
-        <div style="display:flex;align-items:stretch;gap:9px;margin-top:10px">
-          <div style="flex:1;display:flex;gap:6px;padding:4px;border-radius:16px;
-            background:rgba(0,48,46,.4)">
-            ${LADDER_MINS.map(m=>`<button onclick="setMins(${m})" style="flex:1;min-height:44px;border:0;
-              border-radius:12px;cursor:pointer;font:700 13.5px/1 var(--sans);
-              transition:background .25s,color .25s;
-              background:${mins===m?'var(--on-primary)':'transparent'};
-              color:${mins===m?'var(--deep)':'var(--on-primary)'}">${m} min</button>`).join('')}
-          </div>
-          <button onclick="startDay(-1)" aria-label="Start a session" style="flex:none;width:72px;
-            border:0;border-radius:16px;background:var(--on-primary);display:flex;flex-direction:column;
-            align-items:center;justify-content:center;gap:3px;cursor:pointer">
-            <span style="font:700 17px/1 var(--sans);color:var(--deep)">▶</span>
-            <span style="font:700 9px/1 var(--sans);letter-spacing:.1em;color:var(--forest)">START</span>
-          </button>
-        </div>
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px">
-          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--sage)">HOW HARD</span>
-          <span style="font:400 10.5px/1 var(--sans);color:rgba(236,231,226,.6)">Change it whenever</span>
-        </div>
-        <div style="display:flex;gap:6px;padding:4px;border-radius:16px;margin-top:10px;
-          background:rgba(0,48,46,.4)">
-          ${[1,2,3].map(l=>`<button onclick="setStageLevel(${cur},${l});render()" style="flex:1;
-            min-height:44px;border:0;border-radius:12px;cursor:pointer;font:700 12.5px/1 var(--sans);
-            transition:background .25s,color .25s;
-            background:${stageLevel(cur)===l?'var(--on-primary)':'transparent'};
-            color:${stageLevel(cur)===l?'var(--deep)':'var(--on-primary)'}">${BAND_NAME[l]}</button>`).join('')}
-        </div>
-      </div>
     </div>
-
     ${ladderSeg()}
     ${st.ladderTab==='progress' ? `<div style="padding:18px 16px 26px;display:flex;
       flex-direction:column;gap:11px">${progressBody()}</div>` : `
@@ -5650,7 +5674,7 @@ function screenLadder(){
         <div style="margin-top:10px;font:400 20px/1.2 var(--serif);color:var(--deep)">
           Send a clip, get a form check</div>
         <div style="margin-top:13px;display:inline-block;padding:12px 19px;border-radius:13px;
-          background:var(--deep);color:var(--on-primary);font:700 13px/1 var(--sans)">Book a review</div>
+          background:var(--deep);color:var(--ink);font:700 13px/1 var(--sans)">Book a review</div>
       </div>
       <div style="margin-top:20px;padding:16px 18px;border-radius:20px;background:rgba(17,17,17,.04)">
         <div style="font:400 13px/1.5 var(--serif);color:var(--grey);text-align:center">
@@ -5669,7 +5693,7 @@ function screenLadder(){
             cursor:${cur>=STAGES.length-1?'default':'pointer'};
             background:${cur>=STAGES.length-1?'transparent':'var(--forest)'};
             box-shadow:${cur>=STAGES.length-1?'inset 0 0 0 1.5px rgba(0,102,99,.12)':'none'};
-            color:${cur>=STAGES.length-1?'var(--grey2)':'var(--on-primary)'};
+            color:${cur>=STAGES.length-1?'var(--grey2)':'var(--ink)'};
             font:700 12.5px/1.3 var(--sans)">
             ${cur>=STAGES.length-1?'Bottom of the ladder':'Down to '+esc(STAGES[cur+1].n)}</button>
         </div>
