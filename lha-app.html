@@ -4091,7 +4091,8 @@ function drawOv(){
     const mins=Math.max(1,Math.round((Q||[]).reduce((a,q,_i)=>a+work(q.it,q.g||q.grp)+rest(q,_i,Q),0)/60));
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
     const mode=st.listMode||'work';
-    body=`<button class="fsbtn" onclick="toggleFull()">${st.ovFull?'Shrink':'Full screen'}</button>
+    body=`<button class="fsbtn" id="ovFullBtn" onclick="toggleFull()">${
+      st.ovFull?'Shrink':'Full screen'}</button>
       <button id="l-sound" onclick="toggleSound()" aria-label="${soundOn()?'Sound on':'Sound off'}"
         style="position:absolute;top:16px;right:96px;width:32px;height:32px;border:1px solid rgba(17,17,17,.14);
         border-radius:50%;background:#fff;color:var(--ink);cursor:pointer;display:grid;place-items:center;
@@ -4523,9 +4524,14 @@ function bindSheetDrag(sheet){
 
 /* a sheet that is really a screen — the drill list, mostly */
 function toggleFull(){
-  st.ovFull=!st.ovFull;
+  st.ovFull=!st.ovFull; save();
   $('#ov').classList.toggle('full', !!st.ovFull);
-  drawOv();
+  /* Full screen is a class on the sheet, not a different sheet. Redrawing it
+     tore down whatever you were in the middle of: a demo you had open closed
+     itself and the list jumped, which is the "it refreshed on me" everybody
+     reports. Only the button's own label needs to change. */
+  const b=document.getElementById('ovFullBtn');
+  if(b) b.textContent = st.ovFull ? 'Shrink' : 'Full screen';
 }
 
 /* ── sign in: passwordless email code ─────────────────────────
@@ -5928,7 +5934,11 @@ function sessionMins(stage){
   const m=ladderMins();
   return stageLevel(st0)===1 ? Math.min(m, EASY_CAP) : m;
 }
-function setMins(m){ st.time=m; save(); saveState(); render(); }
+/* A sheet is open more often than not when these are pressed, and render()
+   bails out while one is, leaving a full rebuild queued for the moment it
+   closes. The sheet repaints itself; the screen behind it only needs
+   redrawing when there is no sheet in front of it. */
+function setMins(m){ st.time=m; save(); saveState(); if(!st.ov) render(); }
 
 /* Choose how long, choose how hard, press start. This is the whole of
    what Today is for, so it lives there rather than on the ladder: the
@@ -6132,7 +6142,7 @@ function sessionChooser(day){
 function setKind(k){
   if(k==='wrist') st.sessionKind='wrist';
   else { st.sessionKind=null; setStageLevel(curStage(), k); }
-  save(); render();
+  save(); if(!st.ov) render();
 }
 function startChosen(day){
   if(st.sessionKind==='wrist'){ buildFreeSession(true,false); return; }
@@ -7929,7 +7939,12 @@ function render(){
     app.dataset.still = same ? '1' : '';
     app.innerHTML=html; app.dataset.screen=st.tab;
     const now=app.querySelector('.scroll'); if(now && keepTop) now.scrollTop=keepTop;
-    if(!same) requestAnimationFrame(()=>{ app.dataset.still='1'; });
+    /* There used to be a requestAnimationFrame here setting still='1' straight
+       after an arrival, which killed the entrance animation about sixteen
+       milliseconds into its seven hundred: nothing on any screen has animated
+       in for months. It is not needed. The next render works out "same" from
+       dataset.screen, which the line above has already updated, so a re-render
+       of this screen suppresses itself without help. */
   };
   /* accent tells you which product you are in without reading a word:
      sand for the free ladder, amber for coached */
