@@ -1705,7 +1705,13 @@ function wkDrill(v){
 }
 function wkRowLen(v){
   const it=wkDrill(v), grp=(POOL[wkStage]||[]).find(x=>x.v===v);
-  const w=lhaWork(it, grp?grp.g:''), n=lhaSets(it.d);
+  /* The app does the sets the dose names, and three where it names none, so
+     the length shown here has to use the same rule or the tab reports a
+     third of the work it is about to give somebody. A warm-up drill is one
+     pass, never three, which is how the app builds it. */
+  const warm=grp && /warm|mobility|wrist/i.test(grp.g||'');
+  const w=lhaWork(it, grp?grp.g:'');
+  const n=warm ? 1 : (lhaSets(it.d)>1?lhaSets(it.d):3);
   const r=(it.r!=null)?it.r:lhaRest(it, grp?grp.g:'');
   return (w?`${n} × ${w}s`:`${n} × untimed`) + ` · ${r}s rest · ${Math.round((n*w+(n-1)*r)/60*10)/10} min`;
 }
@@ -1793,13 +1799,15 @@ function workoutsHTML(){
     <div style="margin-top:12px;padding:10px 12px;border-radius:11px;
       background:rgba(0,102,99,.06)">
       <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">
-        EVERY DRILL IN THE DAY'S GROUPINGS</div>
+        THE WHOLE POOL, NOT ONE SESSION</div>
       <div id="wkTotal" style="font:500 12.5px/1.5 var(--sans);color:var(--forest);margin-top:6px">${
         wkStageLine()}</div>
       <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:5px">
-        What the day holds, not what one client gets: a session stops at the length
-        they picked. A day far above the longest option is one they will never see
-        the end of.</div>
+        Every drill the day's groupings hold, at three sets each. Nobody is given
+        this: a session takes as much of it as the time they picked allows, and
+        which part it takes depends on whether they chose Easier, As written or
+        Harder. Read it as the size of the pool you are tuning, not as a session
+        length.</div>
     </div>
     ${body}
   </div>`;

@@ -1072,6 +1072,18 @@ export default async (request) => {
     return out;
   }
 
+  /* ── what the coach has changed about the free ladder ────────────
+     The Workouts tab in the dashboard writes drill seconds and doses here,
+     and the free app has to be able to read them. It used to read them off
+     /programme, which 404s for anyone without a written programme, so every
+     edit the coach made reached coached clients only and did nothing at all
+     to the app's own workouts. That is the whole point of the tab, so this
+     route carries them on their own. Nothing personal is in it. */
+  if (path === '/ladder' && request.method === 'GET') {
+    return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
+                  timing:      (await getSetting('timing:custom')) || {} });
+  }
+
   if (path === '/programme' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);

@@ -337,6 +337,7 @@ const AUTH = {
   messages:'/api/app/messages',// GET → thread · POST {text} → send
   login:   '/api/app/login',   // POST {email,password} → {token, client}
   programme:'/api/app/programme', // GET → {client, plan, library} for the token
+  ladder:  '/api/app/ladder',   // GET → {ladderExtra, timing} the coach has set, for everyone
   password:'/api/app/password',  // POST {current,next}
   emailReq:'/api/app/email/request',   // POST {next,password} → code to the new address
   emailGo: '/api/app/email/confirm',   // POST {code} → moves the account, new token
@@ -4337,7 +4338,8 @@ function doLogin(ev){
       st.plus=!!d.plus;
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
-      if(st.in){ loadProgramme(); loadProgress(); loadThread(); } loadState(); loadTrack(); })
+      if(st.in){ loadProgramme(); loadProgress(); loadThread(); }
+      loadLadder(); loadState(); loadTrack(); })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -4464,6 +4466,22 @@ function weekGrid(){
   return out;
 }
 
+/* The coach's changes to the free ladder, which every account needs and not
+   only the coached ones. These rode on /programme, and /programme 404s for
+   anyone without a written programme, so the Workouts tab in the dashboard
+   saved happily and changed nothing about the app's own workouts. */
+function loadLadder(){
+  return fetch(AUTH.ladder)
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{
+      let moved=false;
+      if(d && d.timing)      { st.timing=d.timing;           moved=true; }
+      if(d && d.ladderExtra) { st.ladderExtra=d.ladderExtra; moved=true; }
+      if(moved){ save(); render(); }
+      return true;
+    })
+    .catch(()=>false);
+}
 function loadProgramme(){
   if(!st.token) return Promise.resolve(false);
   return fetch(AUTH.programme,{headers:authed()})
@@ -7497,6 +7515,7 @@ document.addEventListener('DOMContentLoaded',function(){
   if(st.in && st.token) loadCachedProgramme();
   render();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); }
+  loadLadder();
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
   /* An open is a person opening the app, not a tab waking up. Wait for a
      real interaction before reporting one, and report how long they stayed
