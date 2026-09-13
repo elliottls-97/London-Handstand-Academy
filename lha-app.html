@@ -3656,9 +3656,13 @@ function drawOv(){
     const _pick=(st.pickDay==null?-1:st.pickDay);
     const _cells=weekCells();
     const _cell=(_pick>=0 && _pick<_cells.length) ? _cells[_pick] : null;
-    const _rest=isRestCell(_cell);
-    const _arg=(_plan && _pick>=0 && _pick<_plan.length) ? _pick : 'null';
-    const _idx=_pick>=0?_pick:nextDayIdx();
+    /* Start from the chooser means a full session whatever the calendar says */
+    const _full=st.pickKind==='full';
+    const _restCell=isRestCell(_cell);
+    const _rest=_full ? false : _restCell;
+    const _arg=(_plan && _pick>=0 && _pick<_plan.length && !(_full&&_restCell))
+      ? _pick : 'null';
+    const _idx=(_arg==='null')?nextDayIdx():_pick;
     const _day=_plan?_plan[_idx]:null;
     const n=_rest ? (typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills ? WRIST_DAY.drills.length : 0)
                   : ((_day && dayDrills(_day, curStage())) || S.drillIds || []).length;
@@ -3674,9 +3678,11 @@ function drawOv(){
         <span style="display:block;margin-top:4px;font:400 13px/1.4 var(--sans);
           color:${glyph==='play'?'rgba(236,231,226,.96)':'var(--grey)'}">${d}</span></span></div>`;
     body=`<div style="padding:2px">
-      <div class="h-md" style="font-size:24px">${esc(_cell?_cell.n:(_day?_day.n:S.n))}</div>
+      <div class="h-md" style="font-size:24px">${esc(
+        (_rest&&_cell?_cell.n:null) || (_day?_day.n:null) || (_cell?_cell.n:null) || S.n)}</div>
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
-        ${st.time||30} min · ${n} drill${n===1?'':'s'} · pick how you want it</div>
+        ${_rest ? (st.time||30) : sessionMins()} min · ${_rest ? n+' drill'+(n===1?'':'s')
+          : esc(BAND_NAME[stageLevel(curStage())]||'As written')} · pick how you want it</div>
       <div style="display:flex;flex-direction:column;gap:10px">
         ${_rest
           ? opt("buildFreeSession(true,'prep')",'play','Follow along','Set your times, then the timer runs itself')
@@ -5533,6 +5539,15 @@ function ladderMins(){
   const opts=LADDER_MINS;
   return opts.indexOf(st.time) > -1 ? st.time : 30;
 }
+/* Easier tops out at half an hour. Three quarters of an hour of the easiest
+   work in the stage is not an easier session, it is a long one, and the
+   people who press Easier are the ones who need the shorter day. */
+const EASY_CAP=30;
+function sessionMins(stage){
+  const st0=(stage==null?curStage():stage);
+  const m=ladderMins();
+  return stageLevel(st0)===1 ? Math.min(m, EASY_CAP) : m;
+}
 function setMins(m){ st.time=m; save(); saveState(); render(); }
 
 /* Choose how long, choose how hard, press start. This is the whole of
@@ -5563,8 +5578,15 @@ function sessionChooser(day){
     </div>
     <div style="display:flex;align-items:stretch;gap:9px;margin-top:10px">
       <div style="flex:1;${tray}">
-        ${LADDER_MINS.map(m=>`<button onclick="setMins(${m})"
-          style="${pill};${mins===m?on:off}">${m} min</button>`).join('')}
+        ${LADDER_MINS.map(m=>{
+          /* Easier tops out at thirty, so the longer button says so rather
+             than saying forty five and quietly building half an hour */
+          const capped = !wrist && stageLevel(cur)===1 && m>EASY_CAP;
+          return `<button onclick="setMins(${capped?EASY_CAP:m})"
+            title="${capped?'Easier tops out at '+EASY_CAP+' min':''}"
+            style="${pill};${(!capped&&mins===m)?on:off};${capped?'opacity:.4':''}"
+            >${m} min</button>`;
+        }).join('')}
       </div>
       <button onclick="startChosen(${d})" aria-label="Start a session" style="flex:none;width:76px;
         border:0;border-radius:15px;background:var(--forest);display:flex;flex-direction:column;
@@ -5610,7 +5632,12 @@ function setKind(k){
 }
 function startChosen(day){
   if(st.sessionKind==='wrist'){ buildFreeSession(true,false); return; }
-  startDay(day);
+  /* The chooser has already asked which kind of day this is, so the sheet
+     that follows must not second-guess it from the calendar. Pressing Start
+     with a difficulty selected offered a mobility day whenever today's cell
+     happened to be one. Picking a cell from the week strip still honours
+     that cell, which is the point of picking it. */
+  startDay(day,'full');
 }
 
 function screenLadder(){
@@ -5999,19 +6026,23 @@ function dayDrills(dayDef, stage){
    The bands slide rather than pile up. Harder drops the easy work instead
    of adding to it, which is the difference between a harder session and a
    longer one. */
-/* How much of each drill level a band asks for, as sets. Not a window:
-   a window meant Harder simply swapped one set of drills for another and
-   the session never built, which is why pressing it did not feel harder.
+/* What a band is made of: the share of the session that sits at each drill
+   level, as a percentage. Every band ramps, so the session runs easiest
+   first and the hardest thing you do is at the end of it. What the three
+   buttons change is where the weight of the session sits.
 
-   Every band starts at the easy end and ramps, so the first thing you do is
-   always something you can do. What changes is where the volume sits. */
+   These were set counts before, which is not the same thing. A count of
+   three at level one and one at level two reads as three to one, but each
+   of those drills also appeared as often as its count, so the session came
+   out nearer nine to one: Easier was four drills on repeat. Shares are what
+   was meant, so shares are what it stores. */
 const BAND_MIX = {
-  1: {1:3, 2:1},              /* Easier: mostly level one, a little two */
-  2: {1:1, 2:2, 3:2},         /* As written: a mixture, building to three */
-  3: {1:1, 2:2, 3:3, 4:3},    /* Harder: still opens easy, then three and four */
+  1: {1:55, 2:30, 3:15},          /* Easier: mostly level one, some two, a little three to finish on */
+  2: {1:25, 2:40, 3:35},          /* As written: a mixture, building to three */
+  3: {1:10, 2:25, 3:35, 4:30},    /* Harder: opens easy, then far more three and four */
 };
 const BAND_NAME   = {1:'Easier', 2:'As written', 3:'Harder'};
-/* how many sets a drill of this level gets at this band, 0 meaning leave it out */
+/* the share of the session a band gives this level, 0 meaning leave it out */
 function bandSets(stage, level){
   const mix=BAND_MIX[stageLevel(stage)]||BAND_MIX[2];
   return mix[level]||0;
@@ -6130,8 +6161,9 @@ function trainAnyway(){
   startDay(-1);
 }
 /* -1 means "nothing is scheduled, give me whatever is next" */
-function startDay(i){
+function startDay(i, kind){
   st.pickDay = (i == null ? -1 : i);
+  st.pickKind = kind || null;
   save();
   openOv('mode');
 }
@@ -6194,7 +6226,7 @@ function warmupFor(budgetSecs, stage){
 
 /* a session built from the current stage's drills, to fit the time chosen */
 function buildFreeSession(wristDay,listOnly,dayIdx){
-  const mins=st.time||30, s=STAGES[curStage()];
+  const mins=wristDay ? (st.time||30) : sessionMins(), s=STAGES[curStage()];
   /* prep drills belong in the warm-up, not scattered through the skill work */
   const plan=weekPlan();
   const dayDef = wristDay ? WRIST_DAY
@@ -6233,37 +6265,117 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   /* how many sets each drill already has, so a second pass tops a drill up
      rather than starting it again from set one */
   const done={};
-  const fill=(list,maxSets)=>{
-    let added=true;
-    while(added && secs<budget){
-      added=false;
-      for(const it of list){
-        /* four sets of anything is plenty; a stage thin on drills should
-           give a shorter session rather than six sets of wall walks */
-        /* the band decides how many sets a drill of this level gets; the
-           dose is the fallback for anything the ladder does not know */
-        const lvl=(poolRow(stage,it.v)||{}).L;
-        const want=lvl ? bandSets(stage,lvl) : sets(it.d);
-        const cap=Math.min(maxSets||want||sets(it.d), 4);
-        const had=done[it.v]||0; if(had>=cap) continue;
-        const g=(poolRow(stage,it.v)||{}).g||'';
-        const t=work(it,g||grp)+rest({it:it,grp:grp,g:g});
-        if(secs+t>budget){ added=false; break; }
-        done[it.v]=had+1;
-        out.push({it,gi:0,ii:out.length,set:had+1,sets:Math.max(sets(it.d),cap),grp:grp,g:g});
-        secs+=t; added=true;
-      }
-    }
+  const lvlOf = v => ((poolRow(stage,v)||{}).L)||0;
+  const grpOf = v => ((poolRow(stage,v)||{}).g)||'';
+  const hard  = stageLevel(stage)===3;
+  const add=it=>{
+    const g=grpOf(it.v);
+    const t=work(it,g||grp)+rest({it:it,grp:grp,g:g});
+    if(secs+t>budget) return false;
+    const had=done[it.v]||0;
+    done[it.v]=had+1;
+    out.push({it,gi:0,ii:out.length,set:had+1,sets:had+1,grp:grp,g:g});
+    secs+=t; return true;
   };
-  /* The day's own work first, at the sets it asks for. Then the rest of the
-     stage, one set each, to fill the time without turning every day into the
-     same day. Then back to the focus for anything still left, because an
-     extra set of what the day is for beats a second set of what it is not. */
-  fill(focus);
+  /* HOW A BAND CHANGES THE WORKOUT
+     The band is the make-up of the session, not a sort order and not a
+     filter. Its weights are shares: Easier is mostly level one with some
+     two, As written is a mixture building to three, Harder is mostly three
+     and four with a level one and a two to open on.
+
+     Two earlier attempts did nothing you could see. Treating the weights as
+     set counts changed only how many sets a drill got, and one set of every
+     drill in the stage already fills thirty minutes, so all three bands ran
+     out of time before they diverged. Treating them as a sort order went too
+     far the other way: Easier became four drills on repeat and Harder never
+     touched level two. Picking the drills by share and then ramping through
+     them is the thing that is both different and still a session. */
+  const mix   = BAND_MIX[stageLevel(stage)] || BAND_MIX[2];
+  const lvls  = Object.keys(mix).map(Number).sort((a,b)=>a-b);
+  /* how many different drills, fewer and properly done rather than one set
+     of everything the stage has */
+  const wantN = mins>=45 ? 8 : mins>=30 ? 6 : 4;
+  const inPool = (wristDay?focus:pool);
+  const known  = inPool.filter(it=>lvlOf(it.v));
+  let picked;
+  if(!known.length){
+    /* a stage the workbook has not given levels to yet, and the mobility day:
+       no band to apply, so take the day as it is written */
+    picked = inPool.slice(0, wristDay ? inPool.length : wantN);
+  } else {
+    const byLvl={};
+    known.forEach(it=>{ const L=lvlOf(it.v); if(mix[L]) (byLvl[L]=byLvl[L]||[]).push(it); });
+    /* the day's own groupings get first refusal inside each level, so a
+       strength day is still a strength day */
+    lvls.forEach(L=>(byLvl[L]||[]).sort((a,b)=>
+      (focus.indexOf(a)<0?1:0)-(focus.indexOf(b)<0?1:0)));
+    /* largest remainder, so the places add up to the number of drills asked
+       for instead of rounding each share on its own and landing anywhere */
+    const total=lvls.reduce((t,L)=>t+mix[L],0);
+    const raw={}, quota={};
+    lvls.forEach(L=>{ raw[L]=wantN*mix[L]/total; quota[L]=Math.floor(raw[L]); });
+    let spareN=wantN-lvls.reduce((t,L)=>t+quota[L],0);
+    lvls.slice().sort((a,b)=>(raw[b]-quota[b])-(raw[a]-quota[a]))
+        .forEach(L=>{ if(spareN>0){ quota[L]++; spareN--; } });
+    /* every band opens on something you can do, so the lowest level it uses
+       is guaranteed a place even when its share rounds to nothing */
+    if(!quota[lvls[0]]) quota[lvls[0]]=1;
+    picked=[];
+    lvls.forEach(L=>{ (byLvl[L]||[]).slice(0,quota[L]).forEach(it=>picked.push(it)); });
+    /* a level this stage is thin on hands its places back to the nearest one
+       it has, working out from the band's own end of the range */
+    const order=lvls.slice().sort((a,b)=>hard?b-a:a-b);
+    let guard=0;
+    while(picked.length<wantN && guard++<40){
+      let grew=false;
+      for(const L of order){
+        const more=(byLvl[L]||[]).filter(it=>picked.indexOf(it)<0);
+        if(more.length && picked.length<wantN){ picked.push(more[0]); grew=true; }
+      }
+      if(!grew) break;
+    }
+  }
+  /* Easiest first, one set each in turn, so the session ramps and a short one
+     still covers the whole of it rather than three sets of the first thing. */
+  picked.sort((a,b)=>lvlOf(a.v)-lvlOf(b.v));
+  /* Sets are the same for every drill in the session. They used to come from
+     the band's own numbers, which multiplied the share by itself: a level
+     that held half the drills also got three times the sets and ended up
+     holding nearly all of the session. The shares decide what is in it, the
+     clock decides how many sets there is room for. */
+  const capOf=it=>lvlOf(it.v) ? 3 : (Math.min(sets(it.d)||1,4));
+  let more=true;
+  while(more && secs<budget){
+    more=false;
+    for(const it of picked){
+      if((done[it.v]||0)>=capOf(it)) continue;
+      if(add(it)) more=true;
+    }
+  }
+  /* Time left over and the band satisfied: another set of what it is already
+     using, at its own end of the range, rather than reaching past it. */
   if(!wristDay && secs<budget*0.9){
-    fill(pool.filter(x=>focus.indexOf(x)<0), 2);
-    if(secs<budget*0.9) fill(focus, 4);
-    if(secs<budget*0.9) fill(pool, 4);
+    const order=picked.slice().sort((a,b)=>(lvlOf(a.v)-lvlOf(b.v))*(hard?-1:1));
+    let again=true;
+    while(again && secs<budget*0.9){
+      again=false;
+      for(const it of order){ if((done[it.v]||0)>=4) continue; if(add(it)) again=true; }
+    }
+  }
+  /* Easiest first, hardest last. The rotation above decides how many sets
+     each drill earns inside the time; the order they are done in is a
+     separate question, and the answer is a ramp: warm up, then the level one
+     work, and the level three finishes the session rather than turning up in
+     the middle of it. */
+  if(!wristDay){
+    const warmN=warm.items.length;
+    const skill=out.slice(warmN);
+    const seen=[]; skill.forEach(q=>{ if(seen.indexOf(q.it.v)<0) seen.push(q.it.v); });
+    skill.sort((a,b)=>
+         lvlOf(a.it.v)-lvlOf(b.it.v)
+      || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
+      || a.set-b.set);
+    out.length=warmN; skill.forEach(q=>{ q.ii=out.length; out.push(q); });
   }
   if(!out.length) out.push({it:pool[0],gi:0,ii:0,set:1,sets:1,grp:s.n});
   /* the set count is only known once the session is built: a later pass can
