@@ -2497,6 +2497,12 @@ function screenProgress(){
         <button class="btn2" style="width:100%;margin-top:13px" onclick="go('ladder')">
           Open the ladder</button></div>`}`;
 
+  /* On the free ladder this is the second half of the ladder tab rather than
+     a screen of its own, and the check points live in the stage sheet there,
+     so the Training and Check points split only means something to a coached
+     client who has no ladder. */
+  if(!coachedView()) return `<div style="display:flex;flex-direction:column;gap:11px">
+    ${milestoneCard()}${trackBody}</div>`;
   return `<div class="scroll s">
     <div class="hero"><span class="kick">YOUR NUMBERS</span>
       <div class="h-lg" style="margin-top:16px">Where you are</div>
@@ -2506,6 +2512,8 @@ function screenProgress(){
       ${tab==='marks' ? marksBody : trackBody}
     </div></div>`;
 }
+/* the free tier's progress, without the screen wrapper */
+function progressBody(){ return screenProgress(); }
 
 /* Two coaches now, so the app cannot assume it is talking to Elliott. */
 function coachLabel(){ return st.coachName || 'Elliott'; }
@@ -5679,7 +5687,10 @@ function screenLadder(){
       </div>
     </div>
 
-    <div style="padding:24px 20px 40px">
+    ${ladderSeg()}
+    ${st.ladderTab==='progress' ? `<div style="padding:18px 16px 26px;display:flex;
+      flex-direction:column;gap:11px">${progressBody()}</div>` : `
+    <div style="padding:18px 20px 40px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
         <div style="font:400 25px/1 var(--serif)">The ladder</div>
         <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">
@@ -5718,8 +5729,20 @@ function screenLadder(){
             ${cur>=STAGES.length-1?'Bottom of the ladder':'Down to '+esc(STAGES[cur+1].n)}</button>
         </div>
       </div>
-    </div>
+    </div>`}
   </div>`;
+}
+/* The two halves of the one tab. A segmented control rather than a second
+   row of tabs, because the hero above it belongs to both. */
+function ladderSeg(){
+  const on=st.ladderTab==='progress'?'progress':'ladder';
+  const b=(k,l)=>`<button onclick="st.ladderTab='${k}';save();render()" style="flex:1;cursor:pointer;
+    border:0;border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
+    transition:background .25s,color .25s;
+    background:${on===k?'#fff':'transparent'};
+    color:${on===k?'var(--deep)':'var(--grey)'}">${l}</button>`;
+  return `<div style="padding:16px 16px 0"><div style="display:flex;gap:5px;padding:4px;
+    border-radius:15px;background:rgba(17,17,17,.055)">${b('ladder','The ladder')}${b('progress','Progress')}</div></div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
    back loses your spot, which is the thing the programme pages get right */
@@ -6884,7 +6907,10 @@ function saveHold(){
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
   coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask'],['more','More']],
-  free:[['home','Today'],['ladder','Ladder'],['progress','Progress'],['coaching','Coaching'],['more','More']]
+  /* Progress used to be its own tab and the ladder is where a free client
+     actually lives, so the two were competing for the same trip. Progress is
+     the second half of the ladder screen now. Four tabs, not five. */
+  free:[['home','Today'],['ladder','Ladder'],['coaching','Coaching'],['more','More']]
 };
 /* A coaching client is still a person who might want the ladder. The tab
    set follows the view they have chosen rather than what they pay for. */
@@ -7080,7 +7106,7 @@ const TOURS = {
     ]
   },
   ladder: {
-    n:'The ladder', next:'progress',
+    n:'The ladder', next:null,
     steps:[
       {t:'stagegoal', h:'How you leave this stage',
        b:'Every stage has a handful of check points. The number beside the stage is how many you have reached, and the amber bar is the same thing drawn. Reach all of them and the next stage opens below.'},
@@ -7390,12 +7416,15 @@ function render(){
   const coached=coachedView();
   const screens=coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore}
-    : {home:screenHome,ladder:screenLadder,progress:screenProgress,coaching:screenCoaching,more:screenMore};
+    : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore};
+  /* Progress moved inside the ladder. Anyone whose last tab was Progress
+     should land on it rather than being dropped back on Today. */
+  if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
   const tabs=TABS[coached?'coached':'free'];
   if(!screens[st.tab]) st.tab=tabs[0][0];
   const nCp = (typeof cpNew==='function') ? cpNew().length : 0;
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span>${
-    (id==='progress'&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
+    ((id==='progress'||(id==='ladder'&&!coached))&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
       border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
   swap(topBar()+screens[st.tab]()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
   watchScroll();
