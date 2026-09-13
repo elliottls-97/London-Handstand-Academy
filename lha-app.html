@@ -4224,11 +4224,13 @@ function applyProgramme(d){
   if(d && d.plan && d.plan.days && d.plan.days.length) DATA = d.plan;
   const arr = libToArray(d && d.library);
   if(arr.length) LIBRARY = arr;
+  if(d && d.ladderExtra) { st.ladderExtra = d.ladderExtra; save(); }
   if(st.day >= DATA.days.length) st.day = 0;
 }
 function cacheProgramme(d){
   try { localStorage.setItem('lha_plan', JSON.stringify(
-    {at:Date.now(), email:st.email, plan:d.plan, library:d.library})); } catch(e){}
+    {at:Date.now(), email:st.email, plan:d.plan, library:d.library,
+     ladderExtra:d.ladderExtra})); } catch(e){}
 }
 function loadCachedProgramme(){
   try {
@@ -4554,7 +4556,7 @@ function levelLine(v){
   const stage=curStage(), row=poolRow(stage, v);
   if(!row || row.g==='Warm-up') return '';
   const lvl=grpLevel(stage, row.g);
-  const top=Math.max.apply(null,(POOL[stage]||[]).filter(x=>x.g===row.g).map(x=>x.L));
+  const top=Math.max.apply(null,poolFor(stage).filter(x=>x.g===row.g).map(x=>x.L));
   return row.g+' · level '+lvl+' of '+top;
 }
 
@@ -5939,7 +5941,19 @@ const POOL = {
 };
 const MAX_LVL = 4;
 /* which grouping a drill belongs to on the stage it is being trained on */
-function poolRow(stage, v){ return (POOL[stage]||[]).find(x=>x.v===v) || null; }
+/* The coach can add a drill to a stage from the dashboard, which lands in
+   settings rather than in this file. Merged in here so every caller sees one
+   pool rather than each having to remember there are two. */
+function poolFor(stage){
+  const base=POOL[stage]||[];
+  const extra=((st.ladderExtra||{})[stage]||[])
+    .filter(x=>x&&x.v&&drillById(x.v))
+    .map(x=>({v:x.v, g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
+  if(!extra.length) return base;
+  const seen=new Set(base.map(x=>x.v));
+  return base.concat(extra.filter(x=>!seen.has(x.v)));
+}
+function poolRow(stage, v){ return poolFor(stage).find(x=>x.v===v) || null; }
 function grpLevel(stage, g){
   const m=(st.grpLvl||{})[stage]||{};
   return Math.max(1, Math.min(MAX_LVL, m[g]||1));
@@ -5968,14 +5982,14 @@ function nudgeGroup(v, dir){
    the work that earned it. */
 function groupDrills(stage, g){
   const lvl=grpLevel(stage, g);
-  const rows=(POOL[stage]||[]).filter(x=>x.g===g).sort((a,b)=>a.L-b.L);
+  const rows=poolFor(stage).filter(x=>x.g===g).sort((a,b)=>a.L-b.L);
   const at=rows.filter(x=>x.L<=lvl);
   return (at.length?at:rows.slice(0,1)).map(x=>x.v);
 }
 /* the groupings a stage has, in the order the workbook lists them */
 function stageGroups(stage){
   const out=[];
-  (POOL[stage]||[]).forEach(x=>{ if(x.g!=='Warm-up' && out.indexOf(x.g)<0) out.push(x.g); });
+  poolFor(stage).forEach(x=>{ if(x.g!=='Warm-up' && out.indexOf(x.g)<0) out.push(x.g); });
   return out;
 }
 
@@ -6106,7 +6120,7 @@ function warmupFor(budgetSecs, stage){
   const take=(list,n)=>list.map(drillById).filter(Boolean).slice(0,n);
   /* the stage's own warm-up group if the workbook wrote one, otherwise the
      general ramp — wrists first in both cases */
-  const own=(POOL[stage]||[]).filter(x=>x.g==='Warm-up').map(x=>x.v)
+  const own=poolFor(stage).filter(x=>x.g==='Warm-up').map(x=>x.v)
     .filter(v=>RAMP.wrists.indexOf(v)<0);
   const rest4 = own.length ? take(own,4) : [].concat(take(RAMP.shoulders,2), take(RAMP.general,2));
   const picks=[].concat(take(RAMP.wrists,2), rest4);

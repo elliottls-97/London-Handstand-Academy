@@ -683,7 +683,10 @@ function cpsHTML(){
         <input list="drillslugs" value="${esc(c.demo||'')}" placeholder="drill slug (optional)"
           oninput="cpSet(${i},'demo',this.value)"
           style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:8px 10px;
-          font:400 12.5px/1 var(--sans);background:#fff"></label>
+          font:400 12.5px/1 var(--sans);background:#fff">
+        <button title="Make a new drill" onclick="openNewDrill({kind:'cpdemo',idx:${i}})"
+          style="flex:none;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;
+          min-width:38px;min-height:38px;font:600 16px/1 var(--sans);color:var(--forest)">+</button></label>
     </div>
     <div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font:400 12.5px/1 var(--sans);
@@ -1783,6 +1786,160 @@ function saveBuilder(){
       if(b){ b.disabled=false; b.textContent='Could not save — try again'; } });
 }
 
+/* ── a drill the coach makes, on the spot ──────────────────────────
+   Everything in the library came out of a build, so adding a drill meant
+   a developer and a deploy. This uploads the clip to Stream and writes the
+   drill into settings, where the server folds it into the library for both
+   the app and this dashboard. It can go straight onto a ladder stage, or
+   nowhere, in which case it is just available to drop into a programme. */
+let newDrill=null, ndBusy=false;
+const ND_GROUPS=['Warm-up','Kick ups','Falling','Chest to wall','Chair assisted','Crow',
+  'Strength','Entries','Box work','Slides','Off the wall','Shapes'];
+function ndSlug(n){ return String(n||'').toLowerCase()
+  .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,60); }
+function openNewDrill(target){
+  newDrill={n:'',v:'',desc:'',cues:'',file:null,stage:'',group:'Strength',level:1,
+            msg:'',target:target||null};
+  draw();
+}
+function closeNewDrill(){ if(ndBusy) return; newDrill=null; draw(); }
+function ndSet(f,val){
+  if(!newDrill) return;
+  newDrill[f]=val;
+  /* the slug follows the name until someone types their own */
+  if(f==='n' && !newDrill.slugEdited) newDrill.v=ndSlug(val);
+  if(f==='v') newDrill.slugEdited=true;
+  const sl=document.getElementById('ndSlug'); if(sl && f==='n') sl.value=newDrill.v;
+}
+function ndPickFile(){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove();
+    if(f){ newDrill.file=f; newDrill.msg=f.name; draw(); } };
+  inp.click();
+}
+function ndSay(m){ if(newDrill) newDrill.msg=m;
+  const el=document.getElementById('ndMsg'); if(el) el.textContent=m; }
+function ndSave(){
+  if(!newDrill || ndBusy) return;
+  const name=(document.getElementById('ndName')||{}).value||'';
+  const slug=ndSlug((document.getElementById('ndSlug')||{}).value||name);
+  const desc=(document.getElementById('ndDesc')||{}).value||'';
+  const cues=((document.getElementById('ndCues')||{}).value||'')
+    .split('\n').map(x=>x.trim()).filter(Boolean);
+  if(!name.trim()) return ndSay('It needs a name.');
+  if(!slug) return ndSay('That name has no letters in it.');
+  Object.assign(newDrill,{n:name,v:slug,desc:desc,cuesArr:cues});
+  ndBusy=true; draw();
+  const post=uid=>fetch(API+'/coach/drill',{method:'POST',headers:hdr(),
+      body:JSON.stringify({v:slug,n:name,desc,cues,uid,
+        stage:newDrill.stage===''?null:Number(newDrill.stage),
+        group:newDrill.group, level:newDrill.level})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))));
+  const step = newDrill.file
+    ? fetch(API+'/upload',{method:'POST',headers:hdr(),body:'{}'})
+        .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
+        .then(d=>new Promise((res,rej)=>{
+          const fd=new FormData(); fd.append('file',newDrill.file);
+          const x=new XMLHttpRequest(); x.open('POST',d.uploadURL);
+          x.upload.onprogress=e=>{ if(e.lengthComputable)
+            ndSay('Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };
+          x.onload=()=> (x.status>=200&&x.status<300)?res(d.uid):rej('Upload failed ('+x.status+')');
+          x.onerror=()=>rej('Upload failed, check your signal');
+          x.send(fd);
+        })).then(uid=>{ ndSay('Saving the drill…'); return post(uid); })
+    : (ndSay('Saving the drill…'), post(''));
+  step.then(()=>{
+      ndBusy=false;
+      libIndex[slug]=name;
+      /* read the target before clearing it, then drop the drill straight into
+         whatever was open when they pressed New drill */
+      const t=newDrill.target;
+      if(t && t.kind==='item' && builder){
+        const it=((bDays()[t.day]||{}).groups||[])[t.grp]
+          && bDays()[t.day].groups[t.grp].items[t.idx];
+        if(it){ it.drill=slug; it.v=slug; it.n=name; builder.dirty=true; }
+      } else if(t && t.kind==='cpdemo' && cpEdit && cpEdit.list){
+        const c=cpEdit.list[t.idx]; if(c){ c.demo=slug; cpEdit.dirty=true; }
+      }
+      newDrill=null; draw();
+    })
+    .catch(e=>{ ndBusy=false; ndSay(String(e&&e.message||e)); draw(); });
+}
+function newDrillHTML(){
+  if(!newDrill) return '';
+  const lab='font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);text-transform:uppercase';
+  const inp='width:100%;margin-top:7px;border:1px solid var(--line);border-radius:11px;'
+    +'padding:11px 12px;font:400 14px/1.35 var(--sans);background:#fff';
+  return `<div onclick="if(event.target===this)closeNewDrill()" style="position:fixed;inset:0;z-index:75;
+    background:rgba(8,20,18,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    display:flex;justify-content:center;overflow-y:auto;padding:22px 14px">
+    <div style="width:100%;max-width:560px;height:max-content;background:var(--bg);border-radius:22px;
+      padding:20px;box-shadow:0 30px 70px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="font:400 22px/1.1 var(--serif);color:var(--ink)">New drill</div>
+          <div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin-top:4px">
+            Goes into the library for every programme, and onto a ladder stage if you pick one.</div>
+        </div>
+        <button onclick="closeNewDrill()" style="${bGhost}"${ndBusy?' disabled':''}>Close</button>
+      </div>
+
+      <div style="margin-top:16px"><span style="${lab}">Name</span>
+        <input id="ndName" value="${esc(newDrill.n||'')}" placeholder="What you call it"
+          oninput="ndSet('n',this.value)" style="${inp}"></div>
+      <div style="margin-top:13px"><span style="${lab}">Its id</span>
+        <input id="ndSlug" value="${esc(newDrill.v||'')}" placeholder="lowercase-with-hyphens"
+          oninput="ndSet('v',this.value)" style="${inp};font-family:ui-monospace,monospace;font-size:13px">
+        <div style="font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:5px">
+          Never reused and never changed once a programme points at it.</div></div>
+      <div style="margin-top:13px"><span style="${lab}">What it is</span>
+        <textarea id="ndDesc" rows="2" placeholder="One line, the way you would say it"
+          style="${inp};resize:vertical">${esc(newDrill.desc||'')}</textarea></div>
+      <div style="margin-top:13px"><span style="${lab}">Cues, one per line</span>
+        <textarea id="ndCues" rows="4" placeholder="Push the floor away&#10;Ribs down"
+          style="${inp};resize:vertical">${esc(newDrill.cues||'')}</textarea></div>
+
+      <div style="margin-top:15px;padding:14px;border-radius:14px;background:rgba(0,102,99,.06)">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button onclick="ndPickFile()" style="${bGhost}"${ndBusy?' disabled':''}>
+            ${newDrill.file?'Choose a different clip':'Choose a clip'}</button>
+          <span id="ndMsg" style="flex:1;min-width:140px;font:500 12.5px/1.4 var(--sans);
+            color:var(--grey)">${esc(newDrill.msg||'Optional. You can add the clip later.')}</span>
+        </div>
+        <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:9px">
+          Stream takes a minute or two to build the downloadable file, so a brand new clip
+          can show as coming soon for a little while after this saves.</div>
+      </div>
+
+      <div style="margin-top:15px"><span style="${lab}">Put it on a ladder stage</span>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <select onchange="newDrill.stage=this.value;draw()" style="${inp};width:auto;flex:1;min-width:150px">
+            <option value="">Library only, no stage</option>
+            ${['Foundations','Wall Work','Pushing More','Take-Off','Freestanding','Press']
+              .map((n,i)=>`<option value="${i}"${String(newDrill.stage)===String(i)?' selected':''}>
+                Stage ${i+1} · ${n}</option>`).join('')}
+          </select>
+          ${newDrill.stage===''?'':`
+          <select onchange="newDrill.group=this.value" style="${inp};width:auto;flex:1;min-width:130px">
+            ${ND_GROUPS.map(g=>`<option${g===newDrill.group?' selected':''}>${g}</option>`).join('')}
+          </select>
+          <select onchange="newDrill.level=Number(this.value)" style="${inp};width:auto;flex:none">
+            ${[1,2,3,4].map(l=>`<option value="${l}"${l===newDrill.level?' selected':''}>
+              Level ${l}</option>`).join('')}
+          </select>`}
+        </div>
+        ${newDrill.stage===''?'':`<div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">
+          Level 1 is where everyone starts on that stage. It moves up when someone says the work is too easy.</div>`}
+      </div>
+
+      <button class="send" style="width:100%;margin-top:18px" onclick="ndSave()"${ndBusy?' disabled':''}>
+        ${ndBusy?'Working…':'Save this drill'}</button>
+    </div>
+  </div>`;
+}
+
 function drillOptions(sel){
   const ids=Object.keys(libIndex||{}).sort((a,b)=>
     (libIndex[a]||a).localeCompare(libIndex[b]||b));
@@ -1851,6 +2008,11 @@ function builderHTML(){
               </span>
               <select onchange="bItem(${di},${gi},${k},'v',this.value)"
                 style="flex:1;min-width:0;${bInput}">${drillOptions(it.v)}</select>
+              <button title="Make a new drill"
+                onclick="openNewDrill({kind:'item',day:${di},grp:${gi},idx:${k}})"
+                style="flex:none;border:1px solid var(--line);border-radius:10px;background:#fff;
+                cursor:pointer;min-width:40px;min-height:40px;font:600 17px/1 var(--sans);
+                color:var(--forest)">+</button>
               <input value="${esc(it.d||'')}" oninput="bItem(${di},${gi},${k},'d',this.value)"
                 placeholder="3 × 8" style="flex:0 0 108px;${bInput}">
               <button onclick="bDelItem(${di},${gi},${k})" style="${bGhost}">×</button>
@@ -2642,7 +2804,7 @@ function draw(){
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       ${threadCardHTML(msgs)}
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
-      </div>`}`+builderHTML()+cpsHTML()+acctHTML();
+      </div>`}`+builderHTML()+cpsHTML()+acctHTML()+newDrillHTML();
 }
 TOKEN?load():gate('');
 </script></body></html>

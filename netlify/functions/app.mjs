@@ -1035,6 +1035,34 @@ export default async (request) => {
      The app used to ship one client's plan baked into the HTML, so a
      second client signing in saw the first one's drills. The plan is
      chosen by the token, never by anything the caller sends. */
+  /* ── the library, plus whatever the coach has added ──────────────
+     programmes.library is generated at build time, so a drill created in
+     the dashboard could not appear in it without a deploy. Custom drills
+     live in settings and are folded in here, which is the only place that
+     has to know they came from somewhere else. */
+  const customDrills = () => getSetting('drills:custom').then(d => d || {});
+  async function libraryNow() {
+    const base = programmes.library || {};
+    const extra = await customDrills();
+    const keys = Object.keys(extra);
+    if (!keys.length) return base;
+    const out = {
+      names: Object.assign({}, base.names),
+      video: Object.assign({}, base.video),
+      cues:  Object.assign({}, base.cues),
+      desc:  Object.assign({}, base.desc),
+      timing: Object.assign({}, base.timing || {}),
+    };
+    for (const v of keys) {
+      const d = extra[v] || {};
+      out.names[v] = d.n || v;
+      if (d.url) out.video[v] = d.url;
+      out.cues[v] = Array.isArray(d.cues) ? d.cues : [];
+      out.desc[v] = d.desc || '';
+    }
+    return out;
+  }
+
   if (path === '/programme' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -1042,12 +1070,86 @@ export default async (request) => {
     if (!plan) return json({ error: 'No programme yet' }, 404);
     const cycle = await cycleGet(db, who, plan);
     return json({ client: clients()[who] || plan.client, plan, cycle,
-                  library: programmes.library });
+                  library: await libraryNow(),
+                  /* drills the coach has added to a ladder stage since the
+                     last deploy, so the free ladder can pick them up too */
+                  ladderExtra: (await getSetting('ladder:extra')) || {} });
   }
 
   /* ── a one-time link to upload a clip ────────────────────────────
      The file goes from the phone straight to Cloudflare. It never passes
      through this function, which could not carry a 60MB video anyway. */
+  /* ── a drill the coach made, clip and all ────────────────────────
+     Everything in the library is generated from the specs at build time,
+     which meant a new drill needed a developer and a deploy. This writes
+     one straight into settings, where libraryNow folds it back in.
+
+     The clip needs MP4 downloads switching on: the whole library is served
+     from /downloads/default.mp4 and Stream returns 404 on that path until
+     you ask for it, per video. Stream builds the file in the background, so
+     a new drill can take a minute or two to start playing. */
+  if (path === '/coach/drill') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const all = (await getSetting('drills:custom')) || {};
+
+    if (request.method === 'GET') return json({ drills: all });
+
+    if (request.method === 'POST') {
+      const v = String(body.v || '').toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+      if (!v) return json({ error: 'That drill needs a name' }, 400);
+
+      if (body.remove) {
+        delete all[v];
+        await setSetting('drills:custom', all);
+        return json({ ok: true, removed: v });
+      }
+      /* a slug the generated library already owns would be shadowed rather
+         than added, and the coach would have no way to tell */
+      if (!all[v] && (programmes.library.names || {})[v]) {
+        return json({ error: 'There is already a drill with that name. Give this one a different one.' }, 409);
+      }
+      const uid = String(body.uid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+      let url = all[v] ? all[v].url : '';
+      if (uid) {
+        url = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4`;
+        if (process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+          await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,
+            { method: 'POST',
+              headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } })
+            .catch(() => {});
+        }
+      }
+      all[v] = {
+        n: String(body.n || '').slice(0, 80) || v.replace(/-/g, ' '),
+        desc: String(body.desc || '').slice(0, 400),
+        cues: Array.isArray(body.cues)
+          ? body.cues.slice(0, 8).map(c => String(c || '').slice(0, 140)).filter(Boolean) : [],
+        url,
+        uid: uid || (all[v] && all[v].uid) || '',
+        at: (all[v] && all[v].at) || Date.now(),
+      };
+      await setSetting('drills:custom', all);
+
+      /* optionally onto a ladder stage, with the grouping and level the
+         free ladder builds its sessions from */
+      if (body.stage != null) {
+        const st = Math.max(0, Math.min(5, Number(body.stage) || 0));
+        const extra = (await getSetting('ladder:extra')) || {};
+        const list = (extra[st] || []).filter(x => x && x.v !== v);
+        if (!body.offLadder) {
+          list.push({ v,
+            g: String(body.group || '').slice(0, 40) || 'Strength',
+            L: Math.max(1, Math.min(4, Number(body.level) || 1)) });
+        }
+        extra[st] = list;
+        await setSetting('ladder:extra', extra);
+      }
+      return json({ ok: true, drill: Object.assign({ v }, all[v]) });
+    }
+    return json({ error: 'Nope' }, 405);
+  }
+
   if (path === '/upload' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -1946,7 +2048,7 @@ export default async (request) => {
           email: e,
           edited: !!saved,
           plan: hydratePlan(cur),
-          library: programmes.library,
+          library: await libraryNow(),
           /* every explainer that exists, and which of them this client has */
           explainerLib: programmes.explainers || {},
           explainersOn: Array.isArray(cur.explainers)
