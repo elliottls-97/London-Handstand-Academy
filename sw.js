@@ -9,13 +9,15 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v28';
+const CACHE_VERSION = 'lha-v29';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 const VIDEO_CACHE   = CACHE_VERSION + '-video';
 
 /* Files that make up the app shell. Kept small and all same-origin. */
 const SHELL = [
   '/lha-app.html',
+  /* the ladder itself lives here now, so the app is not an app without it */
+  '/ladder-data.js',
   '/manifest.json'
 ];
 
