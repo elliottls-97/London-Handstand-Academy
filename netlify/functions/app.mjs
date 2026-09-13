@@ -592,6 +592,15 @@ export default async (request) => {
     return Array.from(byEmail.values());
   })();
 
+  /* Someone with a written programme is a coached client, whatever the
+     roster says. Being coached was read off the roster alone, so an email
+     change that moved the account but not the roster entry put a client on
+     the free ladder with their plan sitting there unreachable. A programme
+     is the more reliable fact of the two, so either one counts. */
+  const hasPlan = async e =>
+    !!(programmes.clients[e] || (await getSetting(`programme:${e}`)));
+  const isCoached = async e => !!clients()[e] || await hasPlan(e);
+
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   /* a coach signs in with their own email and password like anyone else;
      the shared key still works so nothing breaks mid-change */
@@ -660,7 +669,7 @@ export default async (request) => {
     await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
     return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
                   client: name, coach: coachList().includes(e),
-                  coached: !!clients()[e], plus: !!(acct && acct.plus) });
+                  coached: await isCoached(e), plus: !!(acct && acct.plus) });
   }
 
   /* ── swap a code for a token ── */
@@ -738,7 +747,7 @@ export default async (request) => {
     if (!e) return ok;
 
     const acct = await getAcct(e);
-    const isClient = !!clients()[e];
+    const isClient = await isCoached(e);
     if (!acct && !isClient) return ok;
 
     /* slow down anyone working through a list of addresses */
@@ -802,9 +811,9 @@ export default async (request) => {
     return json({
       email: who,
       name: clients()[who] || acct.name || '',
-      coached: !!clients()[who],
+      coached: await isCoached(who),
       coach: coachList().includes(who),
-      coachName: clients()[who] ? coachName(coachOf(who)) : '',
+      coachName: (await isCoached(who)) ? coachName(coachOf(who)) : '',
       plus: !!acct.plus,
       canManage: !!acct.stripe_customer,
       canCancel: !!(acct.subscription || acct.stripe_customer),
