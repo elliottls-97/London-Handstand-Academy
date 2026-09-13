@@ -3994,9 +3994,15 @@ function drawOv(){
         onclick="st.clearedFrom=null;closeOv();startDay(-1)">Train ${esc(next.n)} now</button>
       <button class="btn2" style="width:100%;margin-top:9px" onclick="clearedStay()">
         Stay on ${esc(from.n)}</button>`
-     : next?`<button class="btn" style="width:100%;margin-top:20px"
-        onclick="st.clearedFrom=null;st.ovStage=${(st.clearedFrom||0)+1};openOv('stage')">
-        See what ${esc(next.n)} is</button>
+     : next?`<div style="margin-top:18px;border-radius:18px;padding:16px 18px;
+        background:rgba(243,169,73,.14)">
+        <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#7a4a10">WHAT IS NEXT</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:9px">
+          ${esc(next.n)} and the three stages after it are £5 a month. ${
+          esc((next.goal||'').replace(/\.$/,''))}.</div>
+      </div>
+      <button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
+        Open ${esc(next.n)} for £5 a month</button>
       <button class="btn2" style="width:100%;margin-top:9px"
         onclick="st.clearedFrom=null;closeOv()">Keep training ${esc(from.n)}</button>`
      :`<button class="btn" style="width:100%;margin-top:20px"
@@ -4817,7 +4823,10 @@ function nextIntake(){
 }
 function finishIntake(){
   const a=intake(), L=levelDef();
-  st.stage=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
+  /* where the answers place them, which a free account may not be able to
+     reach yet. curStage caps it; this is kept so the upgrade can say what
+     they were placed at rather than guessing. */
+  st.stage=L.v; st.placed=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
   st.quizDone=true; st.oriented=false;
   st.tab = st.email ? 'home' : 'joinFree';
   save(); saveState(); sendIntake(); render();
@@ -4850,7 +4859,24 @@ const drillById=v=>allDrills().find(d=>d.v===v)||LIBRARY.find(d=>d.v===v);
 STAGES.forEach(x=>{ x.drills=(x.drillIds||[]).length; });
 /* straight out of localStorage, so it has to be clamped: a stale or edited
    value put the whole app on a stage that does not exist */
-const curStage=()=>Math.max(0, Math.min(STAGES.length-1, st.stage==null?1:(st.stage|0)));
+/* ── which stage they are actually on ──────────────────────────────
+   st.stage is where they have been placed or have moved to. This is where
+   they are allowed to be, which is not the same thing on a free account,
+   and every reader of the current stage goes through here: the session
+   builder, the check points, the drill library, the header.
+
+   It was neither clamped nor entitled. The quiz places by level, so
+   answering "I can hold it" put someone on Take-Off for nothing, and the
+   default was 1 rather than 0, which put a brand new account on Wall Work
+   before it had answered a single question. Both were the whole paid ladder,
+   free, without ever meeting the paywall.
+
+   isPlus and FREE_STAGES are declared further down the file; these are
+   function bodies, so they resolve at call time. */
+const placedStage=()=>Math.max(0, Math.min(STAGES.length-1,
+  st.stage==null ? 0 : (st.stage|0)));
+const stageCap=()=>isPlus() ? STAGES.length-1 : FREE_STAGES-1;
+const curStage=()=>Math.min(placedStage(), stageCap());
 
 
 /* ── asking a question ─────────────────────────────────────────────
@@ -5737,6 +5763,18 @@ function screenUpgradeBody(si){
           .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
             <span style="color:var(--forest)">—</span><span>${x}</span></div>`).join('')}
       </div>
+      ${(function(){
+        /* the quiz placed them somewhere they cannot reach yet, and saying so
+           is more honest and more persuasive than a generic list of features */
+        const placed=placedStage();
+        if(placed<=stageCap() || !STAGES[placed]) return '';
+        return `<div style="margin-top:16px;border-radius:14px;padding:13px 15px;
+          background:rgba(243,169,73,.14)">
+          <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">
+            Your answers put you at <b>${esc(STAGES[placed].n)}</b>, stage ${placed+1}.
+            ${esc(STAGES[0].n)} is what the free tier covers, so that is where you are
+            training until this opens.</div></div>`;
+      })()}
       <button class="btn" style="width:100%;margin-top:20px" onclick="startUpgrade()">Unlock the full ladder</button>
       ${curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:9px"
         onclick="closeOv();goToStage(0)">Train on ${esc(STAGES[0].n)} instead</button>`:''}
