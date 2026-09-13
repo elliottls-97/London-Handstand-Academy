@@ -1082,12 +1082,48 @@ export default async (request) => {
                   library: await libraryNow(),
                   /* drills the coach has added to a ladder stage since the
                      last deploy, so the free ladder can pick them up too */
-                  ladderExtra: (await getSetting('ladder:extra')) || {} });
+                  ladderExtra: (await getSetting('ladder:extra')) || {},
+                  /* per drill seconds the coach has set, which beat the rule */
+                  timing: (await getSetting('timing:custom')) || {} });
   }
 
   /* ── a one-time link to upload a clip ────────────────────────────
      The file goes from the phone straight to Cloudflare. It never passes
      through this function, which could not carry a 60MB video anyway. */
+  /* ── the ladder's own timings ────────────────────────────────────
+     The app works a drill's seconds out from its dose, which is right
+     until it is not: a rule cannot know that one hold needs longer to set
+     up than another. This is the override, per drill, and it beats the
+     rule everywhere the drill appears. Dose included, because sets come
+     out of the dose and a wrong set count is a wrong session length. */
+  if (path === '/coach/timing') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const all = (await getSetting('timing:custom')) || {};
+    if (request.method === 'GET') return json({ timing: all });
+    if (request.method === 'POST') {
+      const rows = Array.isArray(body.timing) ? body.timing : [];
+      for (const r of rows.slice(0, 400)) {
+        const v = String((r && r.v) || '').toLowerCase()
+          .replace(/[^a-z0-9-]/g, '').slice(0, 60);
+        if (!v) continue;
+        const num = (x, cap) => {
+          const n = Number(x);
+          return Number.isFinite(n) && n >= 0 && n <= cap ? Math.round(n) : null;
+        };
+        const w = num(r.w, 600), rest = num(r.r, 600);
+        const d = String(r.d || '').slice(0, 40);
+        /* an empty row is a deletion: it goes back to the rule */
+        if (w == null && rest == null && !d) { delete all[v]; continue; }
+        all[v] = Object.assign({}, w != null ? { w } : {},
+                               rest != null ? { r: rest } : {},
+                               d ? { d } : {});
+      }
+      await setSetting('timing:custom', all);
+      return json({ ok: true, timing: all });
+    }
+    return json({ error: 'Nope' }, 405);
+  }
+
   /* ── a drill the coach made, clip and all ────────────────────────
      Everything in the library is generated from the specs at build time,
      which meant a new drill needed a developer and a deploy. This writes

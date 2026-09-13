@@ -1670,6 +1670,141 @@ function lengthLine(d){
   </div>`;
 }
 
+/* ── the app's own workouts ────────────────────────────────────────
+   A coached client's days are edited in the builder. The free ladder's
+   were not editable at all: the seconds came out of a rule, and a rule
+   cannot know that one hold wants longer to set up than another.
+
+   Every drill a stage uses, with the dose, the seconds it runs and the
+   rest after it. Blank means the rule decides. Saved per drill, so a
+   change follows the drill into every workout it appears in. */
+let wkStage=0, wkTiming=null, wkEdits={}, wkBusy=false;
+function wkLoad(){
+  if(wkTiming) return;
+  wkTiming={};
+  fetch(API+'/coach/timing',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ wkTiming=(d&&d.timing)||{}; draw(); })
+    .catch(()=>{ wkTiming={}; });
+}
+function wkPick(i){ wkStage=i; draw(); }
+function wkSet(v,f,val){
+  wkEdits[v]=Object.assign({}, wkTiming[v]||{}, wkEdits[v]||{});
+  if(val==='' || val==null) delete wkEdits[v][f];
+  else wkEdits[v][f] = (f==='d') ? val : Number(val);
+  /* repaint only the line that changed, or the field loses focus mid-type */
+  const row=document.getElementById('wk-'+v);
+  if(row) row.textContent=wkRowLen(v);
+  const tot=document.getElementById('wkTotal');
+  if(tot) tot.textContent=wkStageLine();
+}
+function wkMerged(v){ return Object.assign({}, (wkTiming||{})[v]||{}, wkEdits[v]||{}); }
+function wkDrill(v){
+  const d=wkMerged(v);
+  return { v, n:(libIndex||{})[v]||v, d:d.d||FREE_DOSE[v]||'3 × 8', w:d.w, r:d.r };
+}
+function wkRowLen(v){
+  const it=wkDrill(v), grp=(POOL[wkStage]||[]).find(x=>x.v===v);
+  const w=lhaWork(it, grp?grp.g:''), n=lhaSets(it.d);
+  const r=(it.r!=null)?it.r:lhaRest(it, grp?grp.g:'');
+  return (w?`${n} × ${w}s`:`${n} × untimed`) + ` · ${r}s rest · ${Math.round((n*w+(n-1)*r)/60*10)/10} min`;
+}
+function wkStageLine(){
+  const week=WEEK[wkStage];
+  if(!week) return 'This stage has no written week yet, so a session is built from the whole pool.';
+  return week.map((day,i)=>{
+    const ids=[]; (day.focus||[]).forEach(g=>(POOL[wkStage]||[]).filter(x=>x.g===g)
+      .forEach(x=>{ if(ids.indexOf(x.v)<0) ids.push(x.v); }));
+    const groups=[{name:day.n, items:ids.map(v=>wkDrill(v))}];
+    return `${day.n}: ${lhaMins(lhaSessionSecs(groups))} min`;
+  }).join('  ·  ');
+}
+function wkSave(){
+  if(wkBusy) return;
+  const rows=Object.keys(wkEdits).map(v=>Object.assign({v}, wkMerged(v)));
+  if(!rows.length) return;
+  wkBusy=true; draw();
+  fetch(API+'/coach/timing',{method:'POST',headers:hdr(),body:JSON.stringify({timing:rows})})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ wkTiming=d.timing||{}; wkEdits={}; wkBusy=false; draw(); })
+    .catch(e=>{ wkBusy=false; alert(String(e)); draw(); });
+}
+function workoutsHTML(){
+  wkLoad();
+  const inp='border:1px solid var(--line);border-radius:9px;padding:7px 8px;'
+    +'font:500 12.5px/1 var(--sans);background:#fff;width:100%';
+  const tabs=STAGES.map((x,i)=>`<button onclick="wkPick(${i})" style="cursor:pointer;
+    border-radius:999px;padding:8px 14px;font:600 12px/1 var(--sans);
+    border:1.5px solid ${wkStage===i?'var(--forest)':'var(--line)'};
+    background:${wkStage===i?'var(--forest)':'#fff'};color:${wkStage===i?'#fff':'var(--ink)'}">
+    ${i+1}. ${esc(x.n)}</button>`).join('');
+
+  const pool=POOL[wkStage]||[];
+  const groups=[];
+  pool.forEach(x=>{ if(groups.indexOf(x.g)<0) groups.push(x.g); });
+  const body = groups.length ? groups.map(g=>`
+    <div style="margin-top:16px">
+      <div style="font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">${esc(g)}</div>
+      ${pool.filter(x=>x.g===g).sort((a,b)=>a.L-b.L).map(x=>{
+        const it=wkDrill(x.v), edited=!!wkEdits[x.v];
+        return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;
+          padding:9px 10px;border-radius:12px;background:${edited?'rgba(243,169,73,.1)':'#fff'};
+          border:1px solid var(--line)">
+          <span style="flex:1;min-width:150px">
+            <b style="font:600 13px/1.25 var(--sans)">${esc(it.n)}</b>
+            <span style="display:block;font:400 11px/1.3 var(--sans);color:var(--grey2);margin-top:3px">
+              level ${x.L}${(libIndex||{})[x.v]?'':' · not in the library'}</span>
+          </span>
+          <label style="flex:0 0 116px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+            color:var(--grey2)">DOSE</span>
+            <input value="${esc(it.d||'')}" oninput="wkSet('${x.v}','d',this.value)"
+              style="${inp};margin-top:4px"></label>
+          <label style="flex:0 0 74px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+            color:var(--grey2)">SECONDS</span>
+            <input type="number" min="0" value="${it.w==null?'':it.w}" placeholder="auto"
+              oninput="wkSet('${x.v}','w',this.value)" style="${inp};margin-top:4px"></label>
+          <label style="flex:0 0 74px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+            color:var(--grey2)">REST</span>
+            <input type="number" min="0" value="${it.r==null?'':it.r}" placeholder="auto"
+              oninput="wkSet('${x.v}','r',this.value)" style="${inp};margin-top:4px"></label>
+          <span id="wk-${x.v}" style="flex:0 0 168px;text-align:right;font:500 11.5px/1.3 var(--sans);
+            color:var(--grey)">${wkRowLen(x.v)}</span>
+        </div>`;}).join('')}
+    </div>`).join('')
+    : `<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:16px">
+        This stage has no groupings written yet, so its sessions come from the whole
+        drill pool and there is nothing here to tune.</div>`;
+
+  const dirty=Object.keys(wkEdits).length;
+  return `<div class="glass" style="padding:16px 18px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font:400 21px/1.1 var(--serif)">The app's workouts</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px;max-width:62ch">
+          Every drill the ladder uses. Blank seconds means the rule works it out.
+          A change here follows the drill into every workout it appears in, and it
+          reaches the app on its next load. No deploy.</div>
+      </div>
+      <button class="send" onclick="wkSave()"${dirty&&!wkBusy?'':' disabled'}
+        style="${dirty&&!wkBusy?'':'opacity:.5'}">${
+        wkBusy?'Saving…':dirty?`Save ${dirty} change${dirty===1?'':'s'}`:'Saved'}</button>
+    </div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
+    <div style="margin-top:12px;padding:10px 12px;border-radius:11px;
+      background:rgba(0,102,99,.06)">
+      <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">
+        EVERY DRILL IN THE DAY'S GROUPINGS</div>
+      <div id="wkTotal" style="font:500 12.5px/1.5 var(--sans);color:var(--forest);margin-top:6px">${
+        wkStageLine()}</div>
+      <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:5px">
+        What the day holds, not what one client gets: a session stops at the length
+        they picked. A day far above the longest option is one they will never see
+        the end of.</div>
+    </div>
+    ${body}
+  </div>`;
+}
+
 function bPickDay(i){ builder.day=i; builder.grp=0; draw(); }
 function bPickGrp(g){ builder.grp=g; draw(); }
 
@@ -2821,6 +2956,7 @@ function draw(){
          ['free','Form checks'+(freeQ().length?' · '+freeQ().length:'')],
          ['paid','Client reviews'+(paidQ().length?' · '+paidQ().length:'')],
          ['apps','Applications'+(newApps().length?' · '+newApps().length:'')],
+         ['workouts','Workouts'],
          ['setup','Settings']].map(([id,label])=>
         `<button onclick="view='${id}';draw()" style="cursor:pointer;border-radius:999px;padding:9px 16px;
           font:600 12.5px/1 var(--sans);border:1.5px solid ${view===id?'var(--forest)':'var(--line)'};
@@ -2845,6 +2981,7 @@ function draw(){
           old Blobs store, so running it now would push stale data over live
           records — leave it alone unless something has gone wrong.</div>
       </div>`:
+      view==='workouts'?`<div style="margin-top:16px">${workoutsHTML()}</div>`:
       view==='questions'?`<div style="margin-top:16px">${questionsHTML()}</div>`:
       view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
       view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>

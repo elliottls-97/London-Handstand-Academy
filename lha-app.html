@@ -413,6 +413,9 @@ const isWarm = x => WARM_GRP.test(String((x&&x.grp)||(x&&x.it&&x.it.grp)||''));
 
 function work(it, grp){
   const ov=st.secs&&it.v?st.secs[it.v]:0; if(ov) return ov;
+  /* what the coach set for this drill beats the rule everywhere */
+  const set=(st.timing||{})[it.v];
+  if(set && set.w) return set.w;
   /* a coached programme carries its own seconds, and the coach outranks
      the rules — this is only the ladder's default */
   if(it.w) return it.w;
@@ -432,6 +435,8 @@ const HARD_GRP = /^(strength|press)$/i;
 function rest(x, i, list){
   /* takes a queue entry {it,grp} or a bare drill, so every caller works */
   const it  = (x && x.it) ? x.it : (x || {});
+  const set=(st.timing||{})[it.v];
+  if(set && set.r!=null) return set.r;
   /* On the ladder a session is one block named after the day, so the day
      name was deciding the rest for everything in it: a day called Strength
      put ninety seconds between wall walks. The drill's own grouping decides
@@ -4247,12 +4252,13 @@ function applyProgramme(d){
   const arr = libToArray(d && d.library);
   if(arr.length) LIBRARY = arr;
   if(d && d.ladderExtra) { st.ladderExtra = d.ladderExtra; save(); }
+  if(d && d.timing) { st.timing = d.timing; save(); }
   if(st.day >= DATA.days.length) st.day = 0;
 }
 function cacheProgramme(d){
   try { localStorage.setItem('lha_plan', JSON.stringify(
     {at:Date.now(), email:st.email, plan:d.plan, library:d.library,
-     ladderExtra:d.ladderExtra})); } catch(e){}
+     ladderExtra:d.ladderExtra, timing:d.timing})); } catch(e){}
 }
 function loadCachedProgramme(){
   try {
@@ -6090,7 +6096,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   if(!wristDay) stageGroups(stage).forEach(g=>groupDrills(stage,g).forEach(v=>{
     if(ids.indexOf(v)<0 && spare.indexOf(v)<0) spare.push(v); }));
   const mk=list=>list.filter(v=>!used.has(v)).map(drillById).filter(Boolean)
-    .map(d=>Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'3 × 8'}));
+    .map(d=>Object.assign({},d,{d:((st.timing||{})[d.v]||{}).d || d.d || FREE_DOSE[d.v] || '3 × 8'}));
   const focus=mk(ids), pool=focus.concat(mk(spare));
   if(!pool.length){ alert('Nothing filmed for this stage yet.'); return; }
 
