@@ -141,6 +141,7 @@ const POOL = {
     {v:'wall-kick-ups',                g:'Kick ups',       L:3},
     {v:'fear-of-falling-cartwheel',    g:'Falling',        L:1},
     {v:'proper-cartwheel',             g:'Falling',        L:2},
+    {v:'basic-bail-outs',              g:'Falling',        L:1},
     {v:'chest-to-wall-bailouts',       g:'Falling',        L:2},
     {v:'wall-walks',                   g:'Chest to wall',  L:3},
     {v:'chest-to-wall-handstand',      g:'Chest to wall',  L:3},
