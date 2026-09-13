@@ -862,26 +862,191 @@ const streamThumb = uid => STREAM_CDN+uid+'/thumbnails/thumbnail.jpg?time=3s&hei
 /* no extension on this one: /captions/en.vtt is a 404 and /captions/en is
    the file. An hour went into that difference. */
 const streamVtt   = uid => STREAM_CDN+uid+'/captions/en';
-/* Captions, which Stream generates and serves as a VTT per language.
-   A cross-origin <track> only loads on a video marked crossorigin, and
+/* ── captions ─────────────────────────────────────────────────────
+   Stream generates these and serves a VTT per language. Two things make
+   this more than a <track>:
+
+   A cross-origin track only loads on a video marked crossorigin, and
    crossorigin turns the MP4 request into a CORS one, which the download
    URL fails: it answers 302 and the redirect carries no CORS header. So
-   the track is fetched here and handed to the player as a blob, same
-   origin as far as the element is concerned. Captions are an addition, so
-   a failure is silent and the film still plays. */
+   the cue sheet is fetched and drawn here instead of handed to the player.
+
+   And the browser's own cue rendering is a white box in a sans face. The
+   design Elliott gave is a glass plate low in the frame, the line in the
+   display serif, one word lit at a time in #3f8f8c as it is spoken. That
+   is the whole reason a person watches a muted clip to the end, so it is
+   worth drawing ourselves.
+
+   Captions are an addition. Every failure in here is silent and the film
+   still plays. */
+const CC_ACCENT = '#3f8f8c';
+const CC_LINE   = 7;    /* words per line, broken on natural phrasing */
+
+/* Words the machine hears but does not capitalise. Stream's transcription
+   sentence-cases properly and then writes "actually on saturday the 26th
+   september", which on a caption plate reads as a typo rather than as a
+   transcript. Days, months and the names this business uses are the whole
+   of the list: it corrects, it does not rewrite. */
+const CC_PROPER = {};
+('Monday Tuesday Wednesday Thursday Friday Saturday Sunday '
+ +'January February March April May June July August September October November December '
+ +'London England English British Elliott Suryava Tamzen OverGravity Shadwell '
+ +'Instagram YouTube').split(' ').forEach(w=>{ CC_PROPER[w.toLowerCase()]=w; });
+CC_PROPER['lha']='LHA';
+function ccCase(w){
+  /* keep whatever punctuation is hanging off the word, and use the name's
+     own spelling: OverGravity is not Overgravity, which is what capitalising
+     the first letter alone gave */
+  const m=/^([^A-Za-z]*)([A-Za-z][A-Za-z'-]*)(.*)$/.exec(w);
+  if(!m) return w;
+  const fix=CC_PROPER[m[2].toLowerCase()];
+  return fix ? m[1]+fix+m[3] : w;
+}
+
+/* Stream gives cue level timings, not word level, so a word's share of its
+   line is taken from its length. Longer words take longer to say, which is
+   crude and lands close enough that the highlight tracks the voice. */
+function ccParse(text){
+  const out=[];
+  String(text||'').split(/\r?\n\r?\n/).forEach(block=>{
+    const lines=block.split(/\r?\n/).filter(Boolean);
+    const ti=lines.findIndex(l=>l.indexOf('-->')>-1);
+    if(ti<0) return;
+    const m=lines[ti].match(/(\d\d:\d\d:\d\d[.,]\d+)\s*-->\s*(\d\d:\d\d:\d\d[.,]\d+)/);
+    if(!m) return;
+    const secs=x=>{ const p=x.replace(',','.').split(':');
+      return (+p[0])*3600+(+p[1])*60+parseFloat(p[2]); };
+    const a=secs(m[1]), b=secs(m[2]);
+    const raw=lines.slice(ti+1).join(' ').replace(/<[^>]*>/g,'').trim();
+    const words=raw.split(/\s+/).filter(Boolean).map(ccCase);
+    if(!words.length) return;
+
+    /* Break on sentences first, then on seven words. Chunking straight to
+       seven cut mid-sentence, so plate after plate opened on a lowercase
+       word and read like a transcript with the tops sliced off. Sentences
+       first means most plates start where a capital already is. */
+    const groups=[]; let cur=[];
+    words.forEach(w=>{ cur.push(w);
+      if(/[.!?]["')\]]?$/.test(w)){ groups.push(cur); cur=[]; } });
+    if(cur.length) groups.push(cur);
+
+    const chunks=[];
+    groups.forEach((g,gi)=>{
+      for(let i=0;i<g.length;i+=CC_LINE)
+        chunks.push({w:g.slice(i,i+CC_LINE), starts: i===0});
+    });
+
+    /* Stream cases its output properly, so a capital is only added where
+       one is missing at the start of a sentence: a plate that opens
+       mid-sentence keeps its lower case, which is what it should have. */
+    const upper = x => x.charAt(0).toUpperCase()+x.slice(1);
+    const shouted = !/[a-z]/.test(raw), whispered = !/[A-Z]/.test(raw);
+    let seen=0;
+    chunks.forEach(c=>{
+      const n0=c.w.length;
+      const share=n0/words.length;
+      const from=a+(b-a)*(seen/words.length), to=from+(b-a)*share;
+      seen+=n0;
+      /* a cue with no capital anywhere is an engine that gave up on case;
+         give it a sentence capital rather than leave it looking broken */
+      if((c.starts || whispered) && !shouted) c.w=[upper(c.w[0])].concat(c.w.slice(1));
+      const weight=c.w.reduce((t,w)=>t+w.length+1,0);
+      let run=0;
+      out.push({a:from, b:to, w:c.w.map(w=>{
+        const at=from+(to-from)*(run/weight); run+=w.length+1; return {t:at, x:w};
+      })});
+    });
+  });
+  return out;
+}
+
+function ccPlate(){
+  let el=document.getElementById('ccPlate');
+  if(el) return el;
+  el=document.createElement('div');
+  el.id='ccPlate';
+  el.style.cssText='position:absolute;left:50%;transform:translateX(-50%);bottom:11%;'
+    +'width:calc(100% - 22px);display:flex;justify-content:center;pointer-events:none;'
+    +'z-index:3;opacity:0;transition:opacity 160ms linear';
+  el.innerHTML='<div id="ccRow" style="display:flex;flex-wrap:wrap;justify-content:center;'
+    +'column-gap:.32em;row-gap:.08em;padding:.5em .92em;border-radius:999px;max-width:100%;'
+    +'min-width:0;background:rgba(255,255,255,.10);backdrop-filter:blur(18px) saturate(160%);'
+    +'-webkit-backdrop-filter:blur(18px) saturate(160%);border:1px solid rgba(255,255,255,.22);'
+    +'box-shadow:inset 0 1px 0 rgba(255,255,255,.38),inset 0 -1px 0 rgba(255,255,255,.08),'
+    +'0 12px 40px rgba(0,0,0,.35);font:600 16px/1.18 var(--serif);'
+    +'letter-spacing:-.005em"></div>';
+  return el;
+}
+/* one plate, moved to whichever video is playing, because two captioned
+   videos on one screen is not a thing that happens and two plates is */
+function ccDraw(v, cues){
+  const host=v.parentElement; if(!host) return;
+  const el=ccPlate();
+  if(el.parentElement!==host){ host.style.position='relative'; host.appendChild(el); el.dataset.fit=''; }
+  /* The plate is sized from the video, not from the viewport. Sized from the
+     viewport it was the same height on a full screen vertical film and on a
+     small explainer in a sheet, where it swallowed the picture. A horizontal
+     film gets a fifth of its height at most, and sits inside the bottom
+     fifth; a vertical one can afford a little more. */
+  const box=v.getBoundingClientRect();
+  if(box.height>40){
+    const wide=box.width/box.height>1.2;
+    const key=Math.round(box.width)+'x'+Math.round(box.height);
+    if(el.dataset.fit!==key){
+      el.dataset.fit=key;
+      el.style.bottom=(wide?'6%':'10%');
+      const row=el.firstChild;
+      row.style.fontSize=Math.max(10, Math.min(box.height*(wide?0.062:0.05), 22)).toFixed(1)+'px';
+      row.style.maxHeight=Math.round(box.height*0.2)+'px';
+      row.style.overflow='hidden';
+    }
+  }
+  const t=v.currentTime;
+  const cue=cues.find(c=>t>=c.a-0.12 && t<=c.b+0.2);
+  if(!cue || v.paused && !v.currentTime){ el.style.opacity='0'; return; }
+  el.style.opacity='1';
+  const row=el.firstChild;
+  if(row.dataset.k!==String(cue.a)){
+    row.dataset.k=String(cue.a);
+    row.innerHTML=cue.w.map((w,i)=>`<span data-i="${i}" style="display:inline-block;
+      color:rgba(255,255,255,.88);text-shadow:0 2px 10px rgba(0,0,0,.55);
+      transition:color 120ms linear,transform 120ms ease-out;
+      transform-origin:50% 70%">${esc(w.x)}</span>`).join('');
+  }
+  let active=-1;
+  cue.w.forEach((w,i)=>{ if(t>=w.t) active=i; });
+  [...row.children].forEach((sp,i)=>{
+    const on=i===active;
+    const want=on?CC_ACCENT:'rgba(255,255,255,.88)';
+    if(sp.dataset.on!==String(on)){
+      sp.dataset.on=String(on);
+      sp.style.color=want;
+      sp.style.transform=on?'scale(1.08)':'scale(1)';
+      sp.style.textShadow=on
+        ? '0 0 20px '+CC_ACCENT+'4d, 0 2px 10px rgba(0,0,0,.55)'
+        : '0 2px 10px rgba(0,0,0,.55)';
+      if(on) setTimeout(()=>{ if(sp.dataset.on==='true') sp.style.transform='scale(1)'; },240);
+    }
+  });
+}
 function attachCaptions(v, uid){
   if(!v || !uid || v.dataset.ccDone) return;
   v.dataset.ccDone='1';
   fetch(streamVtt(uid))
     .then(r=>r.ok?r.text():Promise.reject(r.status))
-    .then(t=>{
-      if(!/-->/.test(t)) return;            /* not a cue sheet, do not mount it */
-      const tr=document.createElement('track');
-      tr.kind='captions'; tr.label='English'; tr.srclang='en'; tr.default=true;
-      tr.src=URL.createObjectURL(new Blob([t],{type:'text/vtt'}));
-      v.appendChild(tr);
-      /* default alone does not switch it on once the element is live */
-      try{ const t0=v.textTracks[v.textTracks.length-1]; if(t0) t0.mode='showing'; }catch(e){}
+    .then(txt=>{
+      const cues=ccParse(txt);
+      if(!cues.length) return;
+      let raf=0;
+      const tick=()=>{ ccDraw(v,cues); raf=requestAnimationFrame(tick); };
+      const stop=()=>{ cancelAnimationFrame(raf); raf=0;
+        const el=document.getElementById('ccPlate');
+        if(el && el.parentElement===v.parentElement) el.style.opacity='0'; };
+      v.addEventListener('play', ()=>{ if(!raf) tick(); });
+      v.addEventListener('pause', stop);
+      v.addEventListener('ended', stop);
+      v.addEventListener('seeked', ()=>ccDraw(v,cues));
+      if(!v.paused) tick();
     })
     .catch(()=>{});
 }
@@ -889,13 +1054,20 @@ function attachCaptions(v, uid){
 function mountCaptions(){
   document.querySelectorAll('video[data-cc]').forEach(v=>attachCaptions(v, v.getAttribute('data-cc')));
 }
+/* The plate is positioned against the video's own box, so every captioned
+   video gets a wrapper that is exactly the video and nothing else. Dropped
+   into the card directly it measured against the card and the line floated
+   somewhere under the film. */
+const ccWrap = (inner, extra) =>
+  `<div style="position:relative;line-height:0;${extra||''}">${inner}</div>`;
 function qaVideo(a){
   const src = a.uid ? streamMp4(a.uid) : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
   if(!src) return '';
   setTimeout(mountCaptions,0);
-  return `<video src="${src}" controls playsinline preload="none"
+  return ccWrap(`<video src="${src}" controls playsinline preload="none"
     ${a.uid?`poster="${streamThumb(a.uid)}" data-cc="${esc(a.uid)}"`:''}
-    style="width:100%;border-radius:14px;margin-top:11px;background:#11150f;display:block"></video>`;
+    style="width:100%;border-radius:14px;background:#11150f;display:block"></video>`,
+    'margin-top:11px;border-radius:14px;overflow:hidden');
 }
 
 function screenPlan(){
@@ -5220,9 +5392,10 @@ function screenOriented(){
              <div style="font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:4px">
                3 min · captions on</div>
              ${(setTimeout(mountCaptions,0),'')}
-             <video src="${streamMp4(LADDER_INTRO_VIDEO)}" controls playsinline preload="none"
+             ${ccWrap(`<video src="${streamMp4(LADDER_INTRO_VIDEO)}" controls playsinline preload="none"
                poster="${streamThumb(LADDER_INTRO_VIDEO)}" data-cc="${esc(LADDER_INTRO_VIDEO)}"
-               style="width:100%;border-radius:18px;margin-top:9px;background:#11150f;display:block"></video>
+               style="width:100%;background:#11150f;display:block"></video>`,
+               'margin-top:9px;border-radius:18px;overflow:hidden')}
            </div>`
         : videoPlaceholder('Intro · how the ladder works','2 min')}
 
@@ -5569,9 +5742,10 @@ function screenHome(){
              <div style="font:400 11.5px/1 var(--sans);color:rgba(236,231,226,.7);margin-top:4px">${
                esc(introOffer().len)} · captions on</div>
              ${(setTimeout(mountCaptions,0),'')}
-             <video src="${streamMp4(introOffer().url)}" controls playsinline preload="none"
+             ${ccWrap(`<video src="${streamMp4(introOffer().url)}" controls playsinline preload="none"
                poster="${streamThumb(introOffer().url)}" data-cc="${esc(introOffer().url)}"
-               style="width:100%;border-radius:16px;margin-top:9px;background:#11150f;display:block"></video>
+               style="width:100%;background:#11150f;display:block"></video>`,
+               'margin-top:9px;border-radius:16px;overflow:hidden')}
            </div>`
         : videoPlaceholder(introOffer().title, introOffer().len, true)):''}
     </div>
@@ -5579,6 +5753,7 @@ function screenHome(){
 
     <div class="pad" style="padding:10px 16px 0">${
       sessionChooser(_restDay && !_override ? -1 : _cellIdx)}</div>
+    ${workshopOn()?`<div class="pad" style="padding:11px 16px 0">${workshopStrip()}</div>`:''}
 
 
     <!-- the explainers, as the design has them: one question box, then a rail
@@ -5712,6 +5887,130 @@ function setMins(m){ st.time=m; save(); saveState(); render(); }
    Mobility is not a difficulty, so it is its own control. It is the short
    day that keeps people training, and it was reachable only by finding the
    right day in a week strip that has since moved to Progress. */
+/* ── the in person workshop ───────────────────────────────────────
+   A dated thing in an app that is not dated, so it carries its own expiry
+   and stops existing the day after: an advert for a workshop that has
+   already happened is worse than no advert.
+
+   It arrives as a popup, but not on open. Three minutes of use in, once
+   ever, and only while the person is actually looking at the screen. An
+   advert in the first second of a session interrupts the thing they came
+   for and gets closed without being read. Dismissed is dismissed, and the
+   strip on Today is how it stays reachable afterwards, because most people
+   reading this are not in London and should be asked exactly once. */
+const WORKSHOP = {
+  id:'ws-2026-09-26',
+  n:'All-levels handstand workshop',
+  when:'Saturday 26 September · 12:30 to 2:00',
+  where:'OverGravity, Shadwell, London',
+  price:'£25 early bird',
+  blurb:'Ninety minutes, genuinely all levels. Never been upside down through to freestanding, every drill scaled to you. Coached by Elliott and Suryava, in a small group.',
+  uid:'d64459ceab007129244814ac6733d02a',
+  url:'https://londonhandstandacademy.com/workshop-handstand-26-sept',
+  until:'2026-09-26T14:00:00+01:00',
+};
+const WS_AFTER_MS = 3*60*1000;   /* three minutes of looking at it */
+const workshopOn = () => !!WORKSHOP.uid && new Date() < new Date(WORKSHOP.until);
+
+/* Time spent with the app in front of them, not time since it loaded. A
+   backgrounded tab must not earn its way to a popup. */
+let wsUsed=0, wsTimer=0;
+function workshopWatch(){
+  if(!workshopOn() || st.wsSeen===WORKSHOP.id) return;
+  clearInterval(wsTimer);
+  wsTimer=setInterval(()=>{
+    if(document.hidden) return;
+    wsUsed+=5000;
+    if(wsUsed>=WS_AFTER_MS){
+      clearInterval(wsTimer);
+      /* never over the top of the player or an open sheet */
+      const ov=document.getElementById('ov');
+      if(ov && ov.classList.contains('on')) { wsUsed=0; workshopWatch(); return; }
+      if((document.getElementById('player')||{}).childElementCount) { wsUsed=0; workshopWatch(); return; }
+      openWorkshop();
+    }
+  },5000);
+}
+function openWorkshop(){
+  if(!workshopOn()) return;
+  const el=wsHost();
+  el.innerHTML=workshopPopHTML();
+  el.style.display='flex';
+  setTimeout(mountCaptions,0);
+}
+function closeWorkshop(seen){
+  const el=document.getElementById('wsPop');
+  if(el){ el.style.display='none'; el.innerHTML=''; }
+  if(seen){ st.wsSeen=WORKSHOP.id; save(); render(); }
+}
+function wsHost(){
+  let el=document.getElementById('wsPop');
+  if(el) return el;
+  el=document.createElement('div');
+  el.id='wsPop';
+  /* display is set on the element, not by a class: an inline display:none
+     beats any rule a stylesheet can offer, so the class version mounted a
+     popup that was open and invisible at the same time. */
+  el.style.cssText='position:fixed;inset:0;z-index:995;display:none;align-items:center;'
+    +'justify-content:center;padding:18px;background:rgba(8,20,18,.74);'
+    +'backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)';
+  el.onclick=e=>{ if(e.target===el) closeWorkshop(true); };
+  document.body.appendChild(el);
+  return el;
+}
+/* The film is shot vertical, so the card is built around a 9:16 box that
+   is told how tall it may be rather than left to push the buttons off the
+   bottom of a phone. */
+function workshopPopHTML(){
+  return `<div style="width:100%;max-width:380px;max-height:calc(100vh - 36px);overflow:auto;
+    background:var(--bg,#ece7e2);border-radius:22px;box-shadow:0 30px 70px -20px rgba(0,0,0,.6)"
+    onclick="event.stopPropagation()">
+    <div style="position:relative">
+      ${ccWrap(`<video src="${streamMp4(WORKSHOP.uid)}" autoplay muted playsinline loop
+        poster="${streamThumb(WORKSHOP.uid)}" data-cc="${esc(WORKSHOP.uid)}"
+        style="width:100%;aspect-ratio:9/16;max-height:52vh;object-fit:cover;display:block;
+        background:#0f1a19"></video>`, 'border-radius:22px 22px 0 0;overflow:hidden')}
+      <button onclick="closeWorkshop(true)" aria-label="Close"
+        style="position:absolute;top:10px;right:10px;z-index:4;width:34px;height:34px;border:0;
+        border-radius:50%;background:rgba(8,20,18,.55);color:#fff;cursor:pointer;
+        font:400 18px/1 var(--sans)">×</button>
+    </div>
+    <div style="padding:15px 17px 17px">
+      <span class="kick2" style="color:#a86b16">IN PERSON · LONDON</span>
+      <div style="font:600 20px/1.2 var(--serif);margin-top:7px">${esc(WORKSHOP.n)}</div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+        ${esc(WORKSHOP.blurb)}</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
+        ${[WORKSHOP.when, WORKSHOP.where, WORKSHOP.price].map((x,i)=>
+          `<span style="padding:7px 11px;border-radius:999px;font:700 11px/1 var(--sans);
+            background:${i===2?'rgba(168,107,22,.14)':'rgba(17,17,17,.055)'};
+            color:${i===2?'#a86b16':'var(--ink)'}">${esc(x)}</span>`).join('')}
+      </div>
+      <a href="${esc(WORKSHOP.url)}" target="_blank" rel="noopener" onclick="closeWorkshop(true)"
+        style="display:block;text-align:center;text-decoration:none;margin-top:14px;border-radius:14px;
+        padding:15px;background:#a86b16;color:#fff;font:700 14px/1 var(--sans)">Book a place</a>
+      <button onclick="closeWorkshop(true)" style="width:100%;margin-top:6px;border:0;background:none;
+        cursor:pointer;padding:11px;color:var(--grey);font:500 13px/1 var(--sans)">Not for me</button>
+    </div>
+  </div>`;
+}
+/* one line on Today, so a dismissed advert is not a lost one */
+function workshopStrip(){
+  if(!workshopOn()) return '';
+  return `<button onclick="openWorkshop()" style="width:100%;display:flex;align-items:center;gap:10px;
+    border:1px solid rgba(168,107,22,.3);background:rgba(168,107,22,.07);border-radius:14px;
+    padding:11px 13px;cursor:pointer;text-align:left">
+    <span style="flex:none;width:26px;height:26px;border-radius:50%;background:#a86b16;color:#fff;
+      display:grid;place-items:center;font:600 11px/1 var(--sans)">▶</span>
+    <span style="flex:1;min-width:0">
+      <span style="display:block;font:700 12.5px/1.2 var(--sans);color:#8a5712">In person, London</span>
+      <span style="display:block;margin-top:3px;font:400 11.5px/1.3 var(--sans);color:var(--grey)">
+        ${esc(WORKSHOP.n)} · Sat 26 Sept · ${esc(WORKSHOP.price)}</span>
+    </span>
+    <span style="flex:none;font:400 15px/1 var(--sans);color:var(--grey2)">›</span>
+  </button>`;
+}
+
 function sessionChooser(day){
   const cur=curStage(), mins=ladderMins();
   const d=(day==null?-1:day);
@@ -7621,6 +7920,7 @@ document.addEventListener('DOMContentLoaded',function(){
   render();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); }
   loadLadder();
+  workshopWatch();
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
   /* An open is a person opening the app, not a tab waking up. Wait for a
      real interaction before reporting one, and report how long they stayed
