@@ -1678,7 +1678,7 @@ function lengthLine(d){
    Every drill a stage uses, with the dose, the seconds it runs and the
    rest after it. Blank means the rule decides. Saved per drill, so a
    change follows the drill into every workout it appears in. */
-let wkStage=0, wkTiming=null, wkEdits={}, wkBusy=false;
+let wkStage=0, wkLevel=0, wkTiming=null, wkEdits={}, wkBusy=false;
 function wkLoad(){
   if(wkTiming) return;
   wkTiming={};
@@ -1687,7 +1687,15 @@ function wkLoad(){
     .then(d=>{ wkTiming=(d&&d.timing)||{}; draw(); })
     .catch(()=>{ wkTiming={}; });
 }
-function wkPick(i){ wkStage=i; draw(); }
+function wkPick(i){ wkStage=i; wkLevel=0; draw(); }
+/* 0 is every level, 1 to 4 is that difficulty on its own */
+function wkLvl(n){ wkLevel=n; draw(); }
+/* which of the three buttons in the app ever reach this difficulty. A level
+   no band asks for is work nobody is given, which is worth seeing while you
+   are tuning it. */
+function wkBandsFor(L){
+  return [1,2,3].filter(b=>((BAND_MIX[b]||{})[L]||0)>0).map(b=>BAND_NAME[b]);
+}
 function wkSet(v,f,val){
   wkEdits[v]=Object.assign({}, wkTiming[v]||{}, wkEdits[v]||{});
   if(val==='' || val==null) delete wkEdits[v][f];
@@ -1745,7 +1753,33 @@ function workoutsHTML(){
     background:${wkStage===i?'var(--forest)':'#fff'};color:${wkStage===i?'#fff':'var(--ink)'}">
     ${i+1}. ${esc(x.n)}</button>`).join('');
 
-  const pool=POOL[wkStage]||[];
+  const all=POOL[wkStage]||[];
+  /* Sub tabs for the difficulty levels inside the stage. A stage mixes four
+     of them across six groupings, so tuning "the level two work" meant
+     hunting it down grouping by grouping. */
+  const lvlsHere=[];
+  all.forEach(x=>{ if(x.L && lvlsHere.indexOf(x.L)<0) lvlsHere.push(x.L); });
+  lvlsHere.sort((a,b)=>a-b);
+  if(lvlsHere.indexOf(wkLevel)<0) wkLevel=0;
+  const lvlTab=(n,label,count)=>`<button onclick="wkLvl(${n})" style="cursor:pointer;
+    border-radius:999px;padding:6px 12px;font:600 11.5px/1 var(--sans);
+    border:1.5px solid ${wkLevel===n?'var(--forest)':'var(--line)'};
+    background:${wkLevel===n?'rgba(0,102,99,.09)':'#fff'};
+    color:${wkLevel===n?'var(--forest)':'var(--grey)'}">${esc(label)}
+    <span style="opacity:.6">${count}</span></button>`;
+  const levelTabs = lvlsHere.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;
+    align-items:center;margin-top:10px">
+    ${lvlTab(0,'All levels', all.filter(x=>x.L).length)}
+    ${lvlsHere.map(L=>lvlTab(L,'Level '+L, all.filter(x=>x.L===L).length)).join('')}
+    </div>
+    <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">${
+      wkLevel ? (()=>{ const b=wkBandsFor(wkLevel);
+        return b.length
+          ? 'Level '+wkLevel+' is used by '+esc(b.join(', '))+'.'
+          : 'Level '+wkLevel+' is used by none of the three buttons, so nobody is given it.'; })()
+            : 'Every difficulty in this stage. Pick one to tune it on its own.'}</div>` : '';
+
+  const pool=wkLevel ? all.filter(x=>x.L===wkLevel) : all;
   const groups=[];
   pool.forEach(x=>{ if(groups.indexOf(x.g)<0) groups.push(x.g); });
   const body = groups.length ? groups.map(g=>`
@@ -1759,7 +1793,9 @@ function workoutsHTML(){
           <span style="flex:1;min-width:150px">
             <b style="font:600 13px/1.25 var(--sans)">${esc(it.n)}</b>
             <span style="display:block;font:400 11px/1.3 var(--sans);color:var(--grey2);margin-top:3px">
-              level ${x.L}${(libIndex||{})[x.v]?'':' · not in the library'}</span>
+              level ${x.L}${/warm|mobility|wrist/i.test(g)
+                ? ' · warm-up, so one pass at 30s and the dose does not set the sets'
+                : ''}${(libIndex||{})[x.v]?'':' · not in the library'}</span>
           </span>
           <label style="flex:0 0 116px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
             color:var(--grey2)">DOSE</span>
@@ -1787,15 +1823,18 @@ function workoutsHTML(){
       <div>
         <div style="font:400 21px/1.1 var(--serif)">The app's workouts</div>
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px;max-width:62ch">
-          Every drill the ladder uses. Blank seconds means the rule works it out.
-          A change here follows the drill into every workout it appears in, and it
-          reaches the app on its next load. No deploy.</div>
+          Every drill the ladder uses. The dose sets how many sets a drill gets,
+          so "3 × 8" is three of them; blank seconds means the rule works the
+          length out. A warm-up is the exception, always one pass at 30 seconds.
+          A change here follows the drill into every workout it appears in, and
+          it reaches the app on its next load. No deploy.</div>
       </div>
       <button class="send" onclick="wkSave()"${dirty&&!wkBusy?'':' disabled'}
         style="${dirty&&!wkBusy?'':'opacity:.5'}">${
         wkBusy?'Saving…':dirty?`Save ${dirty} change${dirty===1?'':'s'}`:'Saved'}</button>
     </div>
     <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
+    ${levelTabs}
     <div style="margin-top:12px;padding:10px 12px;border-radius:11px;
       background:rgba(0,102,99,.06)">
       <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">

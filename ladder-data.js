@@ -137,6 +137,23 @@ const WRIST_DAY = {n:'Mobility day', sub:'Wrists and shoulders, and it is the on
   drills:['forearm-massage','wrist-circles-mob','dd-wrist-taps','palm-lifts-table-top',
           'shoulder-circles','heart-melting-pose']};
 
+/* What a band is made of: the share of the session that sits at each drill
+   level, as a percentage. Every band ramps, so the session runs easiest
+   first and the hardest thing you do is at the end of it. What the three
+   buttons change is where the weight of the session sits.
+
+   These were set counts before, which is not the same thing. A count of
+   three at level one and one at level two reads as three to one, but each
+   of those drills also appeared as often as its count, so the session came
+   out nearer nine to one: Easier was four drills on repeat. Shares are what
+   was meant, so shares are what it stores. */
+const BAND_MIX = {
+  1: {1:55, 2:30, 3:15},          /* Easier: mostly level one, some two, a little three to finish on */
+  2: {1:25, 2:40, 3:35},          /* As written: a mixture, building to three */
+  3: {1:10, 2:25, 3:35, 4:30},    /* Harder: opens easy, then far more three and four */
+};
+const BAND_NAME   = {1:'Easier', 2:'As written', 3:'Harder'};
+
 const POOL = {
   /* Foundations */
   0:[
