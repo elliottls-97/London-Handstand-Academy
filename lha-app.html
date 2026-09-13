@@ -1970,6 +1970,19 @@ function cpToGo(c){
    counts the sheet shows above the list. render() bails out under an open
    sheet, which is why logging a check point used to change nothing on
    screen until you closed it. */
+/* render() returns early while a sheet is open, so the chooser has to
+   repaint itself. Everything it shows comes from st, so redrawing the
+   sheet body is enough and there is nothing in it to lose. */
+function repaintMode(){
+  if(st.ov!=='mode') return;
+  const ov=document.getElementById('ov');
+  const host=ov && ov.querySelector('.sheet');
+  if(!host) return;
+  const keep=host.scrollTop;
+  drawOv();
+  const now=document.querySelector('#ov .sheet');
+  if(now) now.scrollTop=keep;
+}
 function repaintCp(k){
   const el=document.getElementById('cptop-'+k); if(!el) return;
   const card=document.getElementById('cpcard-'+k);
@@ -3805,7 +3818,9 @@ function drawOv(){
            why:'Why are you stopping?',apply:'Apply for coaching',
            summary:'Session complete',stage:S?S.n:'Stage',
            cleared:'Stage cleared',
-           mode:'Start the session',list:'Every drill',explainer:'Explainer',
+           /* the chooser writes its own heading, and two titles one above
+              the other is one title too many */
+           mode:'',list:'Every drill',explainer:'Explainer',
            checkin:'Your fortnight'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
@@ -3876,50 +3891,96 @@ function drawOv(){
     </div>`;
   }
   if(st.ov==='mode'){
-    const S=STAGES[curStage()]||STAGES[0];
+    /* The chooser lives here now rather than on Today. Today asks one
+       question, start or not. This asks the second, and the button at the
+       bottom says what it is about to build, so nobody presses Go and then
+       wonders what they agreed to. */
     const _plan=weekPlan();
-    /* whichever day the hero or the week strip sent us to */
     const _pick=(st.pickDay==null?-1:st.pickDay);
     const _cells=weekCells();
     const _cell=(_pick>=0 && _pick<_cells.length) ? _cells[_pick] : null;
-    /* Start from the chooser means a full session whatever the calendar says */
     const _full=st.pickKind==='full';
     const _restCell=isRestCell(_cell);
-    const _rest=_full ? false : _restCell;
-    const _arg=(_plan && _pick>=0 && _pick<_plan.length && !(_full&&_restCell))
-      ? _pick : 'null';
+    const _arg=(_plan && _pick>=0 && _pick<_plan.length && !(_full&&_restCell)) ? _pick : 'null';
     const _idx=(_arg==='null')?nextDayIdx():_pick;
     const _day=_plan?_plan[_idx]:null;
-    const n=_rest ? (typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills ? WRIST_DAY.drills.length : 0)
-                  : ((_day && dayDrills(_day, curStage())) || S.drillIds || []).length;
-    const opt=(click,glyph,t,d)=>`<div onclick="closeOv();${click}" style="display:flex;align-items:center;
-      gap:13px;padding:15px;border-radius:16px;cursor:pointer;background:${glyph==='play'?'var(--forest)':'#fff'};
-      ${glyph==='play'?'color:var(--on-primary)':'border:1px solid rgba(17,17,17,.1)'}">
-      <span style="width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;
-        background:${glyph==='play'?'rgba(236,231,226,.18)':'rgba(0,102,99,.07)'};
-        color:${glyph==='play'?'var(--on-primary)':'var(--forest)'};font:500 13px/1 var(--sans)">${
-        glyph==='play'?'▶':glyph==='list'?'☰':'●'}</span>
-      <span style="flex:1">
-        <span style="display:block;font:600 15.5px/1.2 var(--sans)">${t}</span>
-        <span style="display:block;margin-top:4px;font:400 13px/1.4 var(--sans);
-          color:${glyph==='play'?'rgba(236,231,226,.96)':'var(--grey)'}">${d}</span></span></div>`;
-    body=`<div style="padding:2px">
-      <div class="h-md" style="font-size:24px">${esc(
-        (_rest&&_cell?_cell.n:null) || (_day?_day.n:null) || (_cell?_cell.n:null) || S.n)}</div>
-      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
-        ${_rest ? (st.time||30) : sessionMins()} min · ${_rest ? n+' drill'+(n===1?'':'s')
-          : esc(BAND_NAME[stageLevel(curStage())]||'As written')} · pick how you want it</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        ${_rest
-          ? opt("buildFreeSession(true,'prep')",'play','Follow along','Set your times, then the timer runs itself')
-            + opt("buildFreeSession(true,'work')",'list','See every drill','The full list, work at your own pace')
-            + opt(`buildFreeSession(false,'prep',${_arg})`,'hand','Full session instead',
-                'If the wrists feel fine and you want the work')
-          : opt(`buildFreeSession(false,'prep',${_arg})`,'play','Follow along','Set your times, then the timer runs itself')
-            + opt(`buildFreeSession(false,'work',${_arg})`,'list','See every drill','The full list, work at your own pace')
-            + opt("buildFreeSession(true,'prep')",'hand','Wrist and mobility day instead',
-                'Short, and kinder on a tired week')}
-      </div></div>`;
+    const _hr=new Date().getHours();
+    const _when=_hr<12?"This morning's":_hr<18?"This afternoon's":"Tonight's";
+    const _wrist=st.sessionKind==='wrist';
+    const _cur=curStage();
+    const _kick='font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)';
+    const _row='min-height:52px;width:100%;border:0;border-radius:14px;display:flex;align-items:center;'
+      +'justify-content:space-between;padding:0 16px;cursor:pointer;text-align:left;'
+      +'font:600 15px/1.2 var(--sans);transition:background .18s ease,color .18s ease';
+    const _tick='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+      +' stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+    const _seg=(on)=>'flex:1;min-height:48px;border:0;border-radius:11px;cursor:pointer;'
+      +'font:600 15px/1 var(--sans);transition:background .18s ease,color .18s ease;'
+      +(on?'background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)'
+          :'background:transparent;color:var(--grey)');
+
+    body=`<div style="display:flex;flex-direction:column;gap:20px;padding:2px">
+      <div>
+        <div class="h-md" style="font-size:28px">${esc(_when)} session</div>
+        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:4px">${
+          esc((_restCell&&!_full&&_cell) ? _cell.n : (_day?_day.n:(STAGES[_cur]||STAGES[0]).n))}</div>
+      </div>
+
+      <div>
+        <div style="${_kick}">HOW LONG</div>
+        <div style="display:flex;gap:8px;margin-top:10px;background:var(--mist);
+          border-radius:14px;padding:4px">
+          ${LADDER_MINS.map(m=>{
+            const cap = !_wrist && stageLevel(_cur)===1 && m>EASY_CAP;
+            const on  = !cap && sessionMins()===m;
+            return `<button onclick="setMins(${cap?EASY_CAP:m});repaintMode()"
+              title="${cap?'Easier tops out at '+EASY_CAP+' min':''}"
+              style="${_seg(on)};${cap?'opacity:.4':''}">${m} min</button>`;}).join('')}
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;${_kick}">
+          <span>HOW HARD</span>
+          <span style="letter-spacing:0;font-weight:500;text-transform:none;font-size:12px">${
+            _wrist?'Not used on a mobility day':'Change it whenever'}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+          <button onclick="setKind(${_wrist?'null':"'wrist'"});repaintMode()"
+            style="${_row};background:${_wrist?'var(--sand)':'#fff'};color:var(--ink)">
+            <span><span style="color:${_wrist?'var(--deep)':'var(--ink)'}">Mobility only</span>
+              <span style="font:400 13px/1.35 var(--sans);color:var(--grey);margin-left:8px">
+                Wrists and shoulders, no stage work</span></span>
+            ${_wrist?_tick:''}</button>
+          ${[1,2,3].map(l=>{
+            const on = !_wrist && stageLevel(_cur)===l;
+            return `<button onclick="setKind(${l});repaintMode()"
+              style="${_row};background:${on?'var(--forest)':'#fff'};
+              color:${on?'var(--on-primary)':'var(--ink)'}">
+              <span>${esc(BAND_NAME[l])}</span>${on?_tick:''}</button>`;}).join('')}
+        </div>
+      </div>
+
+      <div>
+        <div style="${_kick}">HOW YOU WANT IT</div>
+        <div style="display:flex;gap:8px;margin-top:10px;background:var(--mist);
+          border-radius:14px;padding:4px">
+          ${[['prep','Follow along'],['work','Every drill']].map(([k,label])=>
+            `<button onclick="st.startAs='${k}';save();repaintMode()"
+              style="${_seg((st.startAs||'prep')===k)}">${label}</button>`).join('')}
+        </div>
+      </div>
+
+      <button onclick="closeOv();buildFreeSession(${_wrist},'${st.startAs||'prep'}',${_wrist?'null':_arg})"
+        style="height:60px;width:100%;border:0;border-radius:16px;background:var(--forest);
+        color:var(--on-primary);display:flex;align-items:center;justify-content:center;gap:10px;
+        cursor:pointer;font:600 18px/1 var(--sans)">
+        <svg width="15" height="17" viewBox="0 0 17 19" fill="currentColor"><path d="M16 8.63a1 1 0 0 1 0
+          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg>
+        Go &middot; ${_wrist?'mobility day'
+          :sessionMins()+' min, '+esc(BAND_NAME[stageLevel(_cur)].toLowerCase())}
+      </button>
+    </div>`;
   }
   if(st.ov==='list'){
     /* one row per drill in the built session. Opening a row shows what it is
@@ -4418,7 +4479,7 @@ function drawOv(){
   const sheetTop=oldSheet?oldSheet.scrollTop:0;
   $('#ov').innerHTML=`<div class="sheet" onclick="event.stopPropagation()">
     <div class="grab"></div>
-    <h2 class="st">${esc(T[st.ov]||'')}</h2>
+    ${T[st.ov]?`<h2 class="st">${esc(T[st.ov])}</h2>`:''}
     <div style="padding-top:14px">${body}</div></div>`;
   const sheet=$('#ov').querySelector('.sheet');
   if(sheet && sheetTop) sheet.scrollTop=sheetTop;
