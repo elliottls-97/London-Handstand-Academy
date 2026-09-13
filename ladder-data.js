@@ -93,7 +93,18 @@ const STAGES=[
   ch:'Chest-to-wall press',chSub:'One clean press attempt from the wall. Compress, unroll, hold.',
   drillIds:['press-walks','p-pancake','knees-on-box','p-bench-zombies','chest-to-wall-toe-taps','p-solo-press-circles','p-back-to-wall','p-chest-to-wall','p-chest-to-wall-negs','press-eccentrics','sideways-press-walks','chair-assisted-puppy-press','chair-press-entries','lolasana-lifts','p-pike-pushup-negs']}];
 
-const FREE_DOSE={'wrist-circles-mob':'30s, both ways','scapula-shrugs':'3 × 10','wall-walks':'3 × 3 walks in',
+/* Doses taken from Elliott's own Exercise Timing Master, not invented here.
+   Without one a drill fell back to '3 × 8', which labelled a wall hold as
+   eight reps. The ones still missing are listed in the open threads: they
+   are not in either workbook, so nothing but Elliott can supply them. */
+const FREE_DOSE={'wall-kick-ups':'2 × 10 reps each side','crow-pose':'2 × hold 15 to 30s',
+ 'p-l-handstand':'3 × 30s','chaturganga-push-ups':'2 × 10 reps','p-dd-toe-taps':'3 × 10 reps',
+ 'p-pike-pushups-knees':'3 × 10 reps','p-tuck-slides':'3 × 8 reps',
+ 'p-single-leg-tuck-slides':'3 × 6 each side','p-tuck-handstand':'3 × 20s',
+ 'p-pike-pushups':'3 × 8 reps','wall-kick-ups-progressions':'2 × 10 reps each side',
+ 'knees-on-box-single-leg-lifts':'3 × 8 each side','knees-on-box-knee-lift-offs':'3 × 5–8 reps',
+ 'p-plank-slides':'3 × 8 reps','single-leg-tuck-take-offs':'3 × build to 5 reps',
+ 'wrist-circles-mob':'30s, both ways','scapula-shrugs':'3 × 10','wall-walks':'3 × 3 walks in',
  'chest-to-wall-bailouts':'3 × 3 each way','tuck-slides':'build to 5','single-leg-tuck-slides':'build to 5 each',
  'lateral-slide-outs':'3 × 6 each','slide-away':'3 × build to 5','pike-press-ups':'3 × 8',
  'knees-on-box':'2 sets · build to 30s','kick-up-bounces':'3 × 10','plank-fingertip-lifts':'10 reps',

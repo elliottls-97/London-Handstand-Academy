@@ -379,6 +379,19 @@ const allItems=d=>d.groups.flatMap(g=>g.items);
 const key=(di,gi,ii)=>di+'-'+gi+'-'+ii;
 
 /* ── session queue ── */
+/* One row is one set, so a row must not print the whole dose. Three rows
+   each reading "3 x 8" and "set 1 of 3" is nine sets of eight to anyone
+   reading it, and it was counted as nine. A row shows what one set is. */
+function perSet(dose, nSets){
+  const d=String(dose||'');
+  if(!(nSets>1)) return d;
+  let m=/^\s*\d+\s*[×x]\s*(.+)$/.exec(d);
+  if(!m) m=/^\s*\d+\s*sets?\s*(?:·|,|-)?\s*(.+)$/i.exec(d);
+  if(!m) return d;
+  const one=m[1].trim();
+  /* "3 × 8" leaves a bare 8, and "2 × 5–8" a bare range; neither is a dose */
+  return /^\d+(\s*[–—-]\s*\d+)?$/.test(one) ? one+' reps' : one;
+}
 function sets(dose){
   let m=/^\s*(\d+)\s*[×x]/.exec(dose); if(m) return +m[1];
   m=/^\s*(\d+)\s*sets?\b/i.exec(dose); if(m) return +m[1];
@@ -3297,7 +3310,7 @@ function upNextHTML(){
           <span style="flex:1;min-width:0;text-align:left">
             <span style="display:block;font:600 14.5px/1.2 var(--sans)">${esc(it.n)}</span>
             <span style="display:block;font:400 12.5px/1 var(--sans);color:var(--grey2);margin-top:6px">${
-              esc(it.d)}${q.sets>1?' · set '+q.set+' of '+q.sets:''}</span>
+              esc(perSet(it.d,q.sets))}${q.sets>1?' · set '+q.set+' of '+q.sets:''}</span>
           </span>
           <span class="p-upchev">▾</span>
         </button>
@@ -3728,12 +3741,13 @@ function drawOv(){
             </div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${
-                esc(it.d||lenLabel(it,q.g||q.grp))}</span>
+                esc(perSet(it.d,q.sets)||lenLabel(it,q.g||q.grp))}</span>
               ${(()=>{
                 /* "1 x 30s  30s" says one thing twice; the clock earns its
                    place only where the dose does not already give it */
                 const lab=lenLabel(it,q.g||q.grp);
-                const same=doseSecs(it.d)===work(it,q.g||q.grp) && sets(it.d)<2;
+                const same=doseSecs(it.d)===work(it,q.g||q.grp)
+                  && (q.sets>1 || sets(it.d)<2);
                 const bits=[same?'':lab, q.sets>1?'set '+q.set+' of '+q.sets:''].filter(Boolean);
                 return bits.length?`<span style="font:500 12.5px/1 var(--sans);color:var(--grey2)">${
                   esc(bits.join(' · '))}</span>`:'';
@@ -6343,7 +6357,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
      that held half the drills also got three times the sets and ended up
      holding nearly all of the session. The shares decide what is in it, the
      clock decides how many sets there is room for. */
-  const capOf=it=>lvlOf(it.v) ? 3 : (Math.min(sets(it.d)||1,4));
+  /* The dose is the authority where it names a set count: "3 x 8" is three
+     sets, not three sets of three. Where it does not, three sets is the
+     default and the mobility day stays at one, because it is the short day. */
+  const capOf=it=>{ const n=sets(it.d);
+    return Math.min(n>1 ? n : (wristDay?1:3), 4); };
   let more=true;
   while(more && secs<budget){
     more=false;
