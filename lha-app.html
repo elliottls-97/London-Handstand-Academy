@@ -3356,22 +3356,14 @@ function toast(msg){
 function sessionFeel(f){
   if(st.in) post({type:'Session feel',feel:f});
   const dir = f==='Too easy' ? +1 : f==='Too hard' ? -1 : 0;
-  let n=0;
-  if(dir){
-    const moved=new Set();
-    (Q||[]).forEach(x=>{
-      const v=x.it&&x.it.v, g=x.g||(poolRow(curStage(),v)||{}).g;
-      if(!v || !g || g==='Warm-up' || moved.has(g)) return;
-      moved.add(g);
-      const m=nudgeGroup(v, dir);
-      if(m && m.to!==m.from) n++;
-    });
-  }
+  const moved = dir ? nudgeStage(dir) : null;
   closeOv();
   /* say what it did, or the session quietly changing next week reads as the
      app being inconsistent rather than as the thing they just asked for */
-  if(n) toast(dir>0 ? 'Next session steps up.' : 'Next session eases off.');
-  else if(dir>0) toast('Already at the top of this stage.');
+  if(moved) toast((dir>0?'Harder workouts from now on.':'Easier workouts from now on.')
+    +' You can change it on the ladder.');
+  else if(dir>0) toast('Already on the hardest workouts for this stage.');
+  else if(dir<0) toast('Already on the easiest workouts for this stage.');
 }
 
 function endPlayer(done){ clearInterval(tick_); tick_=null;
@@ -4641,11 +4633,8 @@ function finishChecklist(){
    the app being inconsistent rather than the person getting better. */
 function levelLine(v){
   if(typeof poolRow!=='function') return '';
-  const stage=curStage(), row=poolRow(stage, v);
-  if(!row || row.g==='Warm-up') return '';
-  const lvl=grpLevel(stage, row.g);
-  const top=Math.max.apply(null,poolFor(stage).filter(x=>x.g===row.g).map(x=>x.L));
-  return row.g+' · level '+lvl+' of '+top;
+  const row=poolRow(curStage(), v);
+  return (row && row.g!=='Warm-up') ? row.g : '';
 }
 
 function rateRow(v,k,r){
@@ -4655,16 +4644,14 @@ function rateRow(v,k,r){
   if(now!=='easy'&&now!=='hard') delete st.note[v];
   /* a rating is only a flag to a coach if there is one; on the ladder it is
      the thing that moves the work */
-  const moved = now==='easy' ? nudgeGroup(v, +1)
-              : now==='hard' ? nudgeGroup(v, -1) : null;
+  /* on a coached plan this is a flag for the coach and nothing else; the
+     ladder's difficulty is one dial on the ladder screen now */
   save(); reportSoon();
   const e=document.getElementById('easy-'+k), h=document.getElementById('hard-'+k);
   if(e) e.classList.toggle('on', now==='easy');
   if(h) h.classList.toggle('on', now==='hard');
   const ll=document.getElementById('lvl-'+k);
-  if(ll) ll.textContent = (moved && moved.to!==moved.from)
-    ? moved.g+' moves to level '+moved.to+' next session'
-    : levelLine(v);
+  if(ll) ll.textContent = levelLine(v);
   const box=document.getElementById('note-'+k);
   if(box){
     box.hidden = !now;
@@ -5684,6 +5671,18 @@ function screenLadder(){
             <span style="font:700 9px/1 var(--sans);letter-spacing:.1em;color:var(--forest)">START</span>
           </button>
         </div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px">
+          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--sage)">HOW HARD</span>
+          <span style="font:400 10.5px/1 var(--sans);color:rgba(236,231,226,.6)">Change it whenever</span>
+        </div>
+        <div style="display:flex;gap:6px;padding:4px;border-radius:16px;margin-top:10px;
+          background:rgba(0,48,46,.4)">
+          ${[1,2,3].map(l=>`<button onclick="setStageLevel(${cur},${l});render()" style="flex:1;
+            min-height:44px;border:0;border-radius:12px;cursor:pointer;font:700 12.5px/1 var(--sans);
+            transition:background .25s,color .25s;
+            background:${stageLevel(cur)===l?'var(--on-primary)':'transparent'};
+            color:${stageLevel(cur)===l?'var(--deep)':'var(--on-primary)'}">${BAND_NAME[l]}</button>`).join('')}
+        </div>
       </div>
     </div>
 
@@ -6070,7 +6069,7 @@ const POOL = {
     {v:'wall-shape-changes',           g:'Shapes',         L:3},
   ],
 };
-const MAX_LVL = 4;
+/* drill levels run 1 to 4; the bands above map them onto three workouts */
 /* which grouping a drill belongs to on the stage it is being trained on */
 /* The coach can add a drill to a stage from the dashboard, which lands in
    settings rather than in this file. Merged in here so every caller sees one
@@ -6085,37 +6084,45 @@ function poolFor(stage){
   return base.concat(extra.filter(x=>!seen.has(x.v)));
 }
 function poolRow(stage, v){ return poolFor(stage).find(x=>x.v===v) || null; }
-function grpLevel(stage, g){
-  const m=(st.grpLvl||{})[stage]||{};
-  return Math.max(1, Math.min(MAX_LVL, m[g]||1));
+/* ── how hard this stage runs ──────────────────────────────────────
+   One dial for the whole stage, not one per grouping. Six dials moving
+   independently was a model nobody asked for and nobody could see: the
+   honest version is that a stage has an easier set of workouts and a
+   harder set, and you say which one you are on.
+
+   The bands slide rather than pile up. Harder drops the easy work instead
+   of adding to it, which is the difference between a harder session and a
+   longer one. */
+const STAGE_BANDS = {1:[1,2], 2:[2,3], 3:[3,4]};
+const BAND_NAME   = {1:'Easier', 2:'As written', 3:'Harder'};
+function stageLevel(stage){
+  return Math.max(1, Math.min(3, ((st.lvl||{})[stage]) || 2));
 }
-function setGrpLevel(stage, g, n){
-  st.grpLvl=st.grpLvl||{};
-  st.grpLvl[stage]=st.grpLvl[stage]||{};
-  st.grpLvl[stage][g]=Math.max(1, Math.min(MAX_LVL, n));
+function setStageLevel(stage, n){
+  st.lvl=Object.assign({}, st.lvl||{});
+  st.lvl[stage]=Math.max(1, Math.min(3, n));
   save(); saveState();
 }
-/* One rating moves a grouping, because the alternative is asking the same
-   question three sessions running before anything changes. Warm-ups do not
-   move: they are there to warm you up, not to be beaten. */
-function nudgeGroup(v, dir){
-  if(isPlus() && st.in) return;              /* coached: the coach decides */
-  const stage=curStage(), row=poolRow(stage, v);
-  if(!row || row.g==='Warm-up') return;
-  const was=grpLevel(stage, row.g);
-  setGrpLevel(stage, row.g, was+dir);
-  return {g:row.g, from:was, to:grpLevel(stage,row.g)};
+/* too easy moves the whole stage up a band, too hard moves it down */
+function nudgeStage(dir){
+  if(coachedView()) return null;
+  const stage=curStage(), was=stageLevel(stage);
+  setStageLevel(stage, was+dir);
+  const now=stageLevel(stage);
+  return now===was ? null : {from:was, to:now, name:BAND_NAME[now]};
 }
-/* What a grouping offers right now: everything up to the level it has
-   reached, easiest first, so a session ramps instead of opening on the
-   hardest thing the grouping knows. The two rungs below the current level
-   are kept — dropping them would mean the work you just earned replaces
-   the work that earned it. */
+/* What a grouping offers at the band this stage is running at. Falls back to
+   the nearest drills it has when a band is empty, so a thin grouping still
+   gives you something rather than nothing. */
 function groupDrills(stage, g){
-  const lvl=grpLevel(stage, g);
+  const band=STAGE_BANDS[stageLevel(stage)];
   const rows=poolFor(stage).filter(x=>x.g===g).sort((a,b)=>a.L-b.L);
-  const at=rows.filter(x=>x.L<=lvl);
-  return (at.length?at:rows.slice(0,1)).map(x=>x.v);
+  if(!rows.length) return [];
+  const at=rows.filter(x=>x.L>=band[0] && x.L<=band[1]);
+  if(at.length) return at.map(x=>x.v);
+  /* nothing in the band: take whichever end of the grouping is nearest it */
+  const below=rows.filter(x=>x.L<band[0]);
+  return (below.length ? below.slice(-2) : rows.slice(0,2)).map(x=>x.v);
 }
 /* the groupings a stage has, in the order the workbook lists them */
 function stageGroups(stage){
