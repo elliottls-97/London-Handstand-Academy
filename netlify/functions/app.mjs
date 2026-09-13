@@ -1145,6 +1145,46 @@ export default async (request) => {
      from /downloads/default.mp4 and Stream returns 404 on that path until
      you ask for it, per video. Stream builds the file in the background, so
      a new drill can take a minute or two to start playing. */
+  /* ── a client's clip, in a form the review tool can draw ─────────
+     The review tool paints the video onto a canvas, draws on it and records
+     the canvas. A cross-origin frame taints the canvas and both getImageData
+     and captureStream then throw, so the whole tool goes dead on anything
+     but a local file.
+
+     Stream's MP4 does send access-control-allow-origin: *, but /downloads/
+     answers with a 302 and the redirect itself carries no CORS header, so a
+     crossOrigin="anonymous" video never survives the hop. Resolving the
+     redirect here and handing back the final /dl/ URL fixes it: verified in
+     the browser, untainted canvas and captureStream working.
+
+     Downloads are off per video until asked for, so this asks first. Stream
+     builds the file in the background, which is why a clip can 404 for a
+     minute after the first request. */
+  if (path === '/coach/clip' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+    if (!uid) return json({ error: 'Which clip?' }, 400);
+
+    const base = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4`;
+    const ask = async () => {
+      if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) return;
+      await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,
+        { method: 'POST', headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } })
+        .catch(() => {});
+    };
+    const resolve = async () => {
+      const r = await fetch(base, { method: 'HEAD', redirect: 'manual' }).catch(() => null);
+      if (!r) return null;
+      if (r.status >= 300 && r.status < 400) return r.headers.get('location') || null;
+      return r.ok ? base : null;
+    };
+
+    let src = await resolve();
+    if (!src) { await ask(); src = await resolve(); }
+    if (!src) return json({ error: 'Stream is still building this one. Try again in a minute.', building: true }, 202);
+    return json({ uid, src });
+  }
+
   if (path === '/coach/drill') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('drills:custom')) || {};

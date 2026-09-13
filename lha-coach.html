@@ -873,9 +873,14 @@ function playCp(uid){
     <div style="aspect-ratio:9/16;max-height:78vh;border-radius:16px;overflow:hidden;background:#000">
       <iframe src="${streamEmbed(uid)}" allow="fullscreen"
         style="width:100%;height:100%;border:0;display:block"></iframe></div>
-    <button onclick="document.getElementById('cpPlay').remove()"
-      style="width:100%;margin-top:10px;border:0;border-radius:12px;padding:12px;cursor:pointer;
-      background:#fff;font:600 14px/1 var(--sans)">Close</button>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button onclick="document.getElementById('cpPlay').remove();reviewClip('${esc(uid)}','Client clip')"
+        style="flex:1;border:0;border-radius:12px;padding:12px;cursor:pointer;
+        background:var(--forest);color:#fff;font:600 14px/1 var(--sans)">Review this</button>
+      <button onclick="document.getElementById('cpPlay').remove()"
+        style="flex:1;border:0;border-radius:12px;padding:12px;cursor:pointer;
+        background:#fff;font:600 14px/1 var(--sans)">Close</button>
+    </div>
   </div>`;
 }
 let upBusy=false;
@@ -1743,6 +1748,112 @@ function wkSave(){
     .then(d=>{ wkTiming=d.timing||{}; wkEdits={}; wkBusy=false; draw(); })
     .catch(e=>{ wkBusy=false; alert(String(e)); draw(); });
 }
+/* ── the review tool ─────────────────────────────────────────────
+   Elliott's own tool, kept as its own file and mounted in a same-origin
+   iframe rather than folded into this one. It is 1,700 lines with its own
+   CSS and a full-screen layout, and this page is one inline script where a
+   single syntax error takes the whole dashboard down. An iframe also means
+   the tool still works on its own, which is how it was built.
+
+   Clips reach it by postMessage. A clip a client sent is a Cloudflare
+   Stream uid, and the tool needs a URL it can paint onto a canvas without
+   tainting it, which /coach/clip works out. */
+let reviewQueue=[], reviewReady=false, reviewBusy='';
+
+function reviewFrame(){ const f=document.getElementById('reviewFrame'); return f&&f.contentWindow; }
+function reviewPost(clip){
+  const w=reviewFrame(); if(!w) return false;
+  w.postMessage({type:'lha-review-clip', url:clip.src, title:clip.title}, location.origin);
+  return true;
+}
+window.addEventListener('message', e=>{
+  if(e.origin!==location.origin || !e.data || e.data.type!=='lha-review-ready') return;
+  reviewReady=true;
+  /* anything queued while the tool was still parsing */
+  reviewQueue.filter(c=>c.src && !c.sent).forEach(c=>{ if(reviewPost(c)) c.sent=true; });
+});
+
+/* Send a client's clip to the tool. The uid is all the dashboard has; the
+   server turns it into something the canvas can read. */
+function reviewClip(uid, title){
+  uid=String(uid||''); if(!uid) return;
+  const have=reviewQueue.find(c=>c.uid===uid);
+  if(have && have.src){ view='review'; draw(); setTimeout(()=>reviewPost(have),0); return; }
+  const row={uid, title:title||'Client clip', src:'', sent:false};
+  if(!have) reviewQueue.push(row);
+  reviewBusy=uid; view='review'; draw();
+  fetch(API+'/coach/clip?uid='+encodeURIComponent(uid),{headers:hdr()})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{
+      const c=reviewQueue.find(x=>x.uid===uid)||row;
+      c.src=d.src; reviewBusy='';
+      if(reviewReady && reviewPost(c)) c.sent=true;
+      draw();
+    })
+    .catch(err=>{ reviewBusy=''; const c=reviewQueue.find(x=>x.uid===uid);
+      if(c) c.error=String(err); draw(); });
+}
+function reviewDrop(uid){
+  reviewQueue=reviewQueue.filter(c=>c.uid!==uid); draw();
+}
+/* The iframe is mounted once, outside #v, and never moves. draw() replaces
+   the whole of #v on every keystroke, and an iframe that is re-created, or
+   even just re-parented, reloads: the clips, the drawing and a recording in
+   progress would all go with it. Only the bar above it repaints. */
+function ensureReview(){
+  let wrap=document.getElementById('reviewWrap');
+  if(wrap) return wrap;
+  wrap=document.createElement('div');
+  wrap.id='reviewWrap';
+  wrap.style.cssText='position:fixed;inset:0;z-index:60;display:none;'
+    +'flex-direction:column;background:var(--bg)';
+  wrap.innerHTML='<div id="reviewBar" style="flex:none;padding:8px 12px;display:flex;'
+    +'align-items:center;gap:9px;flex-wrap:wrap;border-bottom:1px solid var(--line);'
+    +'background:var(--surface,#f7f4f1)"></div>'
+    +'<iframe id="reviewFrame" src="/coach-review.html" allow="camera;microphone"'
+    +' style="flex:1;width:100%;border:0;display:block"></iframe>';
+  document.body.appendChild(wrap);
+  return wrap;
+}
+function reviewBack(){ view='clients'; draw(); }
+function syncReview(){
+  const wrap=(view==='review') ? ensureReview() : document.getElementById('reviewWrap');
+  if(!wrap) return;
+  wrap.style.display = (view==='review') ? 'flex' : 'none';
+  if(view!=='review') return;
+  const bar=document.getElementById('reviewBar');
+  if(!bar) return;
+  const chip=c=>`<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 8px;
+    border-radius:999px;border:1px solid var(--line);background:#fff;
+    font:600 11px/1 var(--sans);color:${c.error?'var(--red)':'var(--ink)'}">
+    <span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
+      esc(c.title)}</span>
+    <span style="font-weight:500;color:var(--grey2)">${
+      c.error?esc(c.error):(c.src?'loaded':'fetching…')}</span>
+    <button onclick="reviewDrop('${esc(c.uid)}')" title="Remove"
+      style="cursor:pointer;border:0;background:none;color:var(--grey2);padding:0;
+      font-size:14px;line-height:1">×</button></span>`;
+  bar.innerHTML=`<button onclick="reviewBack()" style="cursor:pointer;border:1px solid var(--line);
+      background:#fff;border-radius:9px;padding:6px 11px;font:600 12px/1 var(--sans)">
+      ← Dashboard</button>
+    <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">REVIEW</span>
+    ${reviewQueue.map(chip).join('')}
+    ${reviewQueue.length?'':`<span style="font:400 11.5px/1.4 var(--sans);color:var(--grey2)">
+      Press Review on any clip a client has sent, or add files below.</span>`}`;
+}
+/* the tab body is only what shows for the split second before the panel
+   opens, and what shows if the panel somehow cannot mount */
+function reviewHTML(){
+  return `<div class="glass" style="padding:16px 18px">
+    <div style="font:400 21px/1.1 var(--serif)">Review a client's footage</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px;max-width:66ch">
+      Opening the review tool. Every clip a client has sent has a Review button next
+      to it, in their thread and on their check points; press it and the clip lands
+      here. You can add files from this Mac too. Draw on it, turn your camera on,
+      record the lot as one video, then save it and send it however you do today.</div>
+  </div>`;
+}
+
 function workoutsHTML(){
   wkLoad();
   const inp='border:1px solid var(--line);border-radius:9px;padding:7px 8px;'
@@ -2392,10 +2503,17 @@ function trackHTML(email){
           color:var(--grey2)">${c.last?daysAgo(c.last.at):''}</span>
       </div>
       ${c.clips.length?`<div style="display:flex;gap:7px;margin-top:6px;margin-left:24px;flex-wrap:wrap">
-        ${c.clips.map(x=>`<button onclick="playCp('${esc(x.video)}')"
-          style="border:1px solid rgba(0,102,99,.3);border-radius:8px;background:rgba(0,102,99,.06);
+        ${c.clips.map(x=>`<span style="display:inline-flex">
+          <button onclick="playCp('${esc(x.video)}')"
+          style="border:1px solid rgba(0,102,99,.3);border-right:0;border-radius:8px 0 0 8px;
+          background:rgba(0,102,99,.06);
           cursor:pointer;padding:6px 10px;font:600 10.5px/1 var(--sans);color:var(--forest)">
-          &#9654; Watch ${daysAgo(x.at)}${x.v!=null?' · '+x.v+esc(c.unit):''}</button>`).join('')}
+          &#9654; Watch ${daysAgo(x.at)}${x.v!=null?' · '+x.v+esc(c.unit):''}</button>
+          <button onclick="reviewClip('${esc(x.video)}','${esc(c.n)} · '+'${esc(daysAgo(x.at))}')"
+          title="Open this clip in the review tool"
+          style="border:1px solid rgba(0,102,99,.3);border-radius:0 8px 8px 0;
+          background:#fff;cursor:pointer;padding:6px 10px;font:600 10.5px/1 var(--sans);
+          color:var(--forest)">Review</button></span>`).join('')}
       </div>`:''}
     </div>`;}).join('')}</div>`:'';
 
@@ -2977,6 +3095,11 @@ function draw(){
       margin-bottom:${m.text?'6px':'0'}">
       <iframe src="${streamEmbed(m.video)}" loading="lazy" allow="fullscreen"
         style="display:block;width:100%;aspect-ratio:4/5;border:0"></iframe></div>
+    ${m.from!=='coach'?`<button onclick="reviewClip('${esc(m.video)}','${
+      esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(ago(m.at))}')"
+      style="margin-bottom:6px;border:1px solid rgba(0,102,99,.3);border-radius:9px;background:#fff;
+      cursor:pointer;padding:5px 10px;font:600 11px/1 var(--sans);color:var(--forest)">
+      Review this</button>`:''}
     ${Date.now()-(m.at||0)<180000?`<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:0 0 6px">
       Just uploaded — Cloudflare is still encoding it. If the player errors, give it a minute and reload.</div>`:''}`:''}
     ${m.image?`<a href="/api/app/image/${esc(m.image)}" target="_blank" rel="noopener"
@@ -3004,6 +3127,7 @@ function draw(){
          ['paid','Client reviews'+(paidQ().length?' · '+paidQ().length:'')],
          ['apps','Applications'+(newApps().length?' · '+newApps().length:'')],
          ['workouts','Workouts'],
+         ['review','Review'+(reviewQueue.length?' · '+reviewQueue.length:'')],
          ['setup','Settings']].map(([id,label])=>
         `<button onclick="view='${id}';draw()" style="cursor:pointer;border-radius:999px;padding:9px 16px;
           font:600 12.5px/1 var(--sans);border:1.5px solid ${view===id?'var(--forest)':'var(--line)'};
@@ -3029,6 +3153,7 @@ function draw(){
           records — leave it alone unless something has gone wrong.</div>
       </div>`:
       view==='workouts'?`<div style="margin-top:16px">${workoutsHTML()}</div>`:
+      view==='review'?`<div style="margin-top:16px">${reviewHTML()}</div>`:
       view==='questions'?`<div style="margin-top:16px">${questionsHTML()}</div>`:
       view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
       view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>
@@ -3038,6 +3163,7 @@ function draw(){
       ${threadCardHTML(msgs)}
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
       </div>`}`+builderHTML()+cpsHTML()+acctHTML()+newDrillHTML();
+  syncReview();
 }
 TOKEN?load():gate('');
 </script></body></html>

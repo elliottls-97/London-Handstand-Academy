@@ -1,0 +1,1683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Handstand Coach Review Tool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ece7e2;
+    --page: #e4dfda;
+    --surface: #f7f4f1;
+    --forest: #006663;
+    --forest-d: #00403d;
+    --ink: #111111;
+    --sand: #cfe6ec;
+    --sage: #8fbeca;
+    --grey: #6b6b6b;
+    --grey2: #8a8a8a;
+    --mist: #e3ded8;
+    --red: #a4503c;
+    --line: rgba(17,17,17,.12);
+    --on-primary: #f7f4f1;
+    --amber: #f3a949;
+    --serif: "Newsreader", Georgia, serif;
+    --sans: "Figtree", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    padding: 8px 12px 10px;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .brand {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--forest-d);
+    line-height: 1.3;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .sub {
+    color: var(--grey);
+    font-size: 11.5px;
+    margin-left: auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 290px;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+  }
+  .col-left {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    min-width: 0;
+  }
+  .col-right {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 2px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px 10px;
+    min-width: 0;
+    flex-shrink: 0;
+  }
+  .panel h2 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--grey);
+    margin: 0 0 6px;
+    font-weight: 600;
+  }
+  .stage-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+  .stage-wrap {
+    background: #0b0e0d;
+    border-radius: 9px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+  }
+  #stage {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    display: block;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .empty-msg {
+    position: absolute;
+    color: #9aa1ac;
+    font-size: 13px;
+    pointer-events: none;
+    font-family: var(--sans);
+    text-align: center;
+    padding: 0 20px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .row + .row { margin-top: 6px; }
+  .row.nowrap { flex-wrap: nowrap; }
+
+  button {
+    background: var(--on-primary);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-family: var(--sans);
+    font-weight: 500;
+    cursor: pointer;
+    line-height: 1.2;
+    flex-shrink: 0;
+  }
+  button:hover { border-color: var(--forest); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.icon-btn { padding: 6px 9px; }
+  button.active {
+    background: var(--forest);
+    border-color: var(--forest);
+    color: var(--on-primary);
+    font-weight: 600;
+  }
+  button.primary {
+    background: var(--forest);
+    border-color: var(--forest);
+    color: var(--on-primary);
+    font-weight: 600;
+  }
+  button.record {
+    background: var(--red);
+    border-color: var(--red);
+    color: var(--on-primary);
+    font-weight: 700;
+    width: 100%;
+  }
+  button.record.recording { animation: pulse 1.1s infinite; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(164,80,60,0.45); }
+    50% { box-shadow: 0 0 0 6px rgba(164,80,60,0); }
+  }
+
+  label {
+    font-size: 11.5px;
+    color: var(--grey);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  input[type="file"] {
+    font-size: 11px;
+    color: var(--grey);
+    max-width: 100%;
+    min-width: 0;
+  }
+  input[type="range"] { width: 100%; accent-color: var(--forest); min-width: 0; }
+  select {
+    background: var(--on-primary);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 11.5px;
+    font-family: var(--sans);
+    max-width: 100%;
+  }
+  .swatch {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    cursor: pointer;
+    padding: 0;
+  }
+  .swatch.active { border-color: var(--forest-d); box-shadow: 0 0 0 2px var(--sand); }
+  .timecode {
+    font-variant-numeric: tabular-nums;
+    font-size: 11.5px;
+    color: var(--grey);
+    min-width: 42px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  #seek { flex: 1; min-width: 60px; }
+  .rec-timer {
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
+    color: var(--red);
+    font-weight: 600;
+    display: none;
+  }
+  .rec-timer.show { display: inline; }
+  .hint {
+    font-size: 10.5px;
+    color: var(--grey2);
+    line-height: 1.4;
+    margin-top: 4px;
+  }
+  .output video {
+    width: 100%;
+    border-radius: 8px;
+    margin-top: 8px;
+    display: none;
+    background: #000;
+    max-height: 120px;
+  }
+  .output video.show { display: block; }
+  a.download-link {
+    display: none;
+    text-align: center;
+    background: var(--forest);
+    color: var(--on-primary);
+    font-weight: 700;
+    text-decoration: none;
+    padding: 8px 12px;
+    border-radius: 999px;
+    margin-top: 8px;
+    font-size: 12.5px;
+  }
+  a.download-link.show { display: block; }
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 5px;
+  }
+  .tool-grid button { padding: 6px 4px; font-size: 14px; }
+  #stage.pan-cursor { cursor: grab; }
+  #stage.pan-cursor:active { cursor: grabbing; }
+  .status {
+    font-size: 11.5px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    background: var(--mist);
+    color: var(--grey);
+    display: none;
+    margin-top: 8px;
+  }
+  .status.show { display: block; }
+  .status.error { color: var(--red); background: #f3e3de; }
+
+  /* ---- Clip list ---- */
+  .clip-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 30vh;
+    overflow-y: auto;
+    margin-top: 6px;
+  }
+  .clip-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 5px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--on-primary);
+    cursor: pointer;
+    min-width: 0;
+  }
+  .clip-row:hover { border-color: var(--forest); }
+  .clip-row.active { background: var(--forest); border-color: var(--forest); }
+  .clip-num {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--grey2);
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .clip-row.active .clip-num { color: rgba(247,244,241,0.75); }
+  .clip-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 11.5px;
+    font-family: var(--sans);
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    padding: 3px 4px;
+    border-radius: 5px;
+    text-overflow: ellipsis;
+  }
+  .clip-row.active .clip-title { color: var(--on-primary); font-weight: 600; }
+  .clip-title:focus {
+    outline: none;
+    background: #fff;
+    color: var(--ink);
+    box-shadow: 0 0 0 1px var(--forest);
+  }
+  .clip-del {
+    border: none;
+    background: transparent;
+    color: var(--grey2);
+    font-size: 13px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    line-height: 1;
+  }
+  .clip-row.active .clip-del { color: rgba(247,244,241,0.8); }
+  .clip-del:hover { background: rgba(164,80,60,0.15); color: var(--red); border-color: transparent; }
+  .clip-empty { font-size: 11px; color: var(--grey2); padding: 6px 2px; }
+
+  .meter {
+    flex: 1;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--mist);
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .meter-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--forest);
+    border-radius: 999px;
+    transition: width 0.06s linear;
+  }
+  .meter-fill.hot { background: var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="brand">London Handstand Academy</div>
+    <h1>Coach Review Tool</h1>
+  </div>
+  <div class="sub">Load clips, pause and draw, react on camera, record it all as one video</div>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT: stage + playback + drawing -->
+  <div class="col-left">
+    <div class="panel stage-panel">
+      <div class="stage-wrap" id="stageWrap">
+        <canvas id="stage" width="1280" height="720"></canvas>
+        <div class="empty-msg" id="emptyMsg">Add one or more client clips to begin</div>
+      </div>
+
+      <div class="row nowrap" style="margin-top:8px;">
+        <button id="prevClipBtn" class="icon-btn" title="Previous clip">‹</button>
+        <button id="stepBack" class="icon-btn" title="Step back one frame">⏮</button>
+        <button id="playPause" class="primary icon-btn" title="Play / pause (space)">▶</button>
+        <button id="stepFwd" class="icon-btn" title="Step forward one frame">⏭</button>
+        <button id="nextClipBtn" class="icon-btn" title="Next clip">›</button>
+        <span class="timecode" id="curTime">0:00</span>
+        <input type="range" id="seek" min="0" max="100" value="0" step="0.01">
+        <span class="timecode" id="durTime">0:00</span>
+      </div>
+      <div class="row nowrap">
+        <label style="min-width:34px;">Zoom</label>
+        <input type="range" id="zoomSlider" min="100" max="250" value="100" style="flex:1;">
+        <span class="timecode" id="zoomVal">100%</span>
+        <button id="zoomResetBtn" class="icon-btn" title="Reset zoom">Reset</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <div class="tool-grid" style="width:auto;">
+          <button data-tool="pen" class="active icon-btn" title="Freehand pen">✏️</button>
+          <button data-tool="line" class="icon-btn" title="Straight line">╱</button>
+          <button data-tool="arrow" class="icon-btn" title="Arrow">➜</button>
+          <button data-tool="circle" class="icon-btn" title="Circle">◯</button>
+          <button data-tool="eraser" class="icon-btn" title="Eraser">⌫</button>
+          <button data-tool="pan" class="icon-btn" title="Pan around when zoomed in">✋</button>
+        </div>
+        <button id="undoBtn" title="Undo last mark">Undo</button>
+        <button id="clearBtn" title="Clear all marks">Clear</button>
+        <button class="swatch active" style="background:#ff3b30" data-color="#ff3b30"></button>
+        <button class="swatch" style="background:#f3a949" data-color="#f3a949"></button>
+        <button class="swatch" style="background:#006663" data-color="#006663"></button>
+        <button class="swatch" style="background:#3fa9ff" data-color="#3fa9ff"></button>
+        <button class="swatch" style="background:#ffffff" data-color="#ffffff"></button>
+        <label style="margin-left:2px;">Thickness
+          <input type="range" id="thickness" min="2" max="18" value="6" style="width:70px;">
+        </label>
+        <label><input type="checkbox" id="autoClear" checked> Auto-clear on play</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: clips + camera + recording -->
+  <div class="col-right">
+
+    <div class="panel">
+      <h2>Clips</h2>
+      <div class="row">
+        <input type="file" id="fileInput" accept="video/*" multiple>
+      </div>
+      <div class="clip-list" id="clipList">
+        <div class="clip-empty" id="clipEmpty">No clips yet. Add one or more videos above.</div>
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <label><input type="checkbox" id="showTitleToggle" checked> Show clip title on video</label>
+      </div>
+      <div class="hint">Click a clip to switch to it, even while recording. Click its name to rename it.</div>
+      <div class="row" style="margin-top:6px;">
+        <label style="flex:1;">Format
+          <select id="orientationSel" style="flex:1;">
+            <option value="auto" selected>Auto (matches clip)</option>
+            <option value="vertical">Vertical 9:16</option>
+            <option value="horizontal">Horizontal 16:9</option>
+            <option value="square">Square 1:1</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Your reaction camera</h2>
+      <div class="row">
+        <button id="camToggle">Enable camera</button>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <label style="flex:1;">Corner
+          <select id="camCorner" style="flex:1;">
+            <option value="tr" selected>Top right</option>
+            <option value="tl">Top left</option>
+            <option value="br">Bottom right</option>
+            <option value="bl">Bottom left</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label style="flex:1;">Size
+          <input type="range" id="camSize" min="10" max="30" value="18">
+        </label>
+      </div>
+
+      <h2 style="margin-top:10px;">Microphone</h2>
+      <div class="row nowrap">
+        <span style="font-size:11px;color:var(--grey);min-width:30px;">Level</span>
+        <div class="meter"><div class="meter-fill" id="meterFill"></div></div>
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <button id="audioTestBtn" style="flex:1;">Test audio (3s)</button>
+      </div>
+      <audio id="audioTestPlayback" controls style="display:none;width:100%;margin-top:6px;"></audio>
+      <div class="hint" id="micHint">Turn the camera on, then talk. The bar should move.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Record</h2>
+      <div class="row">
+        <label><input type="checkbox" id="captionsToggle" checked> Live captions</label>
+      </div>
+      <div class="hint" id="captionsHint">Burned into the video as you talk. These share your microphone with the recorder, so if a take loses its sound, turn this off and try again.</div>
+      <div class="row" style="margin-top:8px;">
+        <label><input type="checkbox" id="includeOrigAudio"> Include the clip's own audio</label>
+      </div>
+      <div class="hint">Leave off for silent phone clips. If on, wear headphones so your mic doesn't pick up echo.</div>
+      <div class="row" style="margin-top:10px;">
+        <button id="recordBtn" class="record">● Record</button>
+      </div>
+      <div class="row" style="margin-top:6px; justify-content:center;">
+        <span class="rec-timer" id="recTimer">0:00</span>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="output">
+        <video id="outputPreview" controls></video>
+        <a href="#" id="downloadLink" class="download-link" download>Download MP4</a>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<script>
+(function () {
+  const fileInput = document.getElementById('fileInput');
+  const stage = document.getElementById('stage');
+  const ctx = stage.getContext('2d');
+  const emptyMsg = document.getElementById('emptyMsg');
+
+  const playPauseBtn = document.getElementById('playPause');
+  const stepBackBtn = document.getElementById('stepBack');
+  const stepFwdBtn = document.getElementById('stepFwd');
+  const prevClipBtn = document.getElementById('prevClipBtn');
+  const nextClipBtn = document.getElementById('nextClipBtn');
+  const seek = document.getElementById('seek');
+  const curTimeEl = document.getElementById('curTime');
+  const durTimeEl = document.getElementById('durTime');
+
+  const undoBtn = document.getElementById('undoBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const autoClear = document.getElementById('autoClear');
+  const thicknessInput = document.getElementById('thickness');
+
+  const camToggleBtn = document.getElementById('camToggle');
+  const camCornerSel = document.getElementById('camCorner');
+  const camSizeInput = document.getElementById('camSize');
+
+  const includeOrigAudio = document.getElementById('includeOrigAudio');
+  const recordBtn = document.getElementById('recordBtn');
+  const recTimer = document.getElementById('recTimer');
+  const statusEl = document.getElementById('status');
+  const outputPreview = document.getElementById('outputPreview');
+  const downloadLink = document.getElementById('downloadLink');
+
+  const orientationSel = document.getElementById('orientationSel');
+  const zoomSlider = document.getElementById('zoomSlider');
+  const zoomVal = document.getElementById('zoomVal');
+  const zoomResetBtn = document.getElementById('zoomResetBtn');
+  const captionsToggle = document.getElementById('captionsToggle');
+  const captionsHint = document.getElementById('captionsHint');
+
+  const clipList = document.getElementById('clipList');
+  const clipEmpty = document.getElementById('clipEmpty');
+  const showTitleToggle = document.getElementById('showTitleToggle');
+
+  const meterFill = document.getElementById('meterFill');
+  const audioTestBtn = document.getElementById('audioTestBtn');
+  const audioTestPlayback = document.getElementById('audioTestPlayback');
+  const micHint = document.getElementById('micHint');
+
+  // Hidden source video (the client clip)
+  const srcVideo = document.createElement('video');
+  srcVideo.muted = true;
+  srcVideo.playsInline = true;
+
+  // Hidden webcam video
+  const camVideo = document.createElement('video');
+  camVideo.muted = true;
+  camVideo.playsInline = true;
+
+  // Offscreen annotation layer, at the clip's own native resolution
+  const annotationCanvas = document.createElement('canvas');
+  const annCtx = annotationCanvas.getContext('2d');
+
+  let videoLoaded = false;
+  let camEnabled = false;
+  let camStream = null;
+  let currentTool = 'pen';
+  let currentColor = '#ff3b30';
+  let drawing = false;
+  let startPt = null;
+  let snapshot = null;
+  let undoStack = [];
+
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recTimerInterval = null;
+  let recSeconds = 0;
+  let audioCtx = null;
+  let mixedDestNode = null;
+  let srcAudioNode = null;
+  let isRecording = false;
+  let pendingOrientation = false;
+  let recordProblems = [];
+
+  // Zoom / pan / output framing
+  let srcW = 1280, srcH = 720;
+  let zoom = 1;
+  let panX = 0, panY = 0;
+
+  // Clips
+  let clips = [];          // { id, url, title }
+  let activeClipIndex = -1;
+
+  // Captions
+  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const captionsSupported = !!SpeechRecognitionCtor;
+  let recognition = null;
+  let currentCaptionText = '';
+  let captionClearTimer = null;
+  if (!captionsSupported) {
+    captionsToggle.checked = false;
+    captionsToggle.disabled = true;
+    captionsHint.textContent = 'Live captions need Chrome (Web Speech API not available in this browser).';
+  }
+
+  function showStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.classList.add('show');
+    statusEl.classList.toggle('error', !!isError);
+  }
+  function clearStatus() {
+    statusEl.classList.remove('show', 'error');
+  }
+
+  function fmtTime(s) {
+    if (!isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    return m + ':' + sec;
+  }
+
+  // ---------- Clips ----------
+  fileInput.addEventListener('change', () => {
+    const files = Array.from(fileInput.files || []);
+    if (!files.length) return;
+    const wasEmpty = clips.length === 0;
+    files.forEach(file => {
+      clips.push({
+        id: 'c' + Date.now() + Math.random().toString(36).slice(2, 7),
+        url: URL.createObjectURL(file),
+        title: file.name.replace(/\.[^.]+$/, '')
+      });
+    });
+    renderClipList();
+    if (wasEmpty) selectClip(0);
+    fileInput.value = ''; // so the same file can be added again later
+  });
+
+  function renderClipList() {
+    clipList.innerHTML = '';
+    if (!clips.length) {
+      clipList.appendChild(clipEmpty);
+      clipEmpty.style.display = 'block';
+      return;
+    }
+    clips.forEach((clip, i) => {
+      const row = document.createElement('div');
+      row.className = 'clip-row' + (i === activeClipIndex ? ' active' : '');
+
+      const num = document.createElement('span');
+      num.className = 'clip-num';
+      num.textContent = (i + 1);
+
+      const title = document.createElement('input');
+      title.className = 'clip-title';
+      title.type = 'text';
+      title.value = clip.title;
+      title.placeholder = 'Clip title';
+      title.addEventListener('input', () => { clip.title = title.value; });
+      title.addEventListener('focus', () => { if (i !== activeClipIndex) selectClip(i); });
+
+      const del = document.createElement('button');
+      del.className = 'clip-del';
+      del.textContent = '×';
+      del.title = 'Remove clip';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeClip(i);
+      });
+
+      row.addEventListener('click', (e) => {
+        if (e.target === title || e.target === del) return;
+        selectClip(i);
+      });
+
+      row.appendChild(num);
+      row.appendChild(title);
+      row.appendChild(del);
+      clipList.appendChild(row);
+    });
+  }
+
+  function selectClip(idx) {
+    if (idx < 0 || idx >= clips.length) return;
+    activeClipIndex = idx;
+    srcVideo.pause();
+    /* A clip sent in by a client comes from Cloudflare, not from a file on
+       this Mac. Drawing a cross-origin frame onto the canvas taints it and
+       every one of getImageData, captureStream and the whole recorder then
+       throws, so the tool would load the video and quietly refuse to record
+       it. Asking for it anonymously keeps the canvas clean; the dashboard
+       hands over a URL that answers CORS without a redirect. */
+    if (clips[idx].remote) srcVideo.crossOrigin = 'anonymous';
+    else srcVideo.removeAttribute('crossorigin');
+    srcVideo.src = clips[idx].url;
+    srcVideo.load();
+    renderClipList();
+  }
+
+  function removeClip(idx) {
+    const clip = clips[idx];
+    if (!clip) return;
+    /* only a blob made here can be revoked; a Cloudflare URL is not ours */
+    if (!clip.remote) URL.revokeObjectURL(clip.url);
+    clips.splice(idx, 1);
+
+    if (clips.length === 0) {
+      activeClipIndex = -1;
+      videoLoaded = false;
+      srcVideo.removeAttribute('src');
+      srcVideo.load();
+      emptyMsg.style.display = 'block';
+      ctx.clearRect(0, 0, stage.width, stage.height);
+      renderClipList();
+      return;
+    }
+    if (idx === activeClipIndex) {
+      selectClip(Math.min(idx, clips.length - 1));
+    } else {
+      if (idx < activeClipIndex) activeClipIndex--;
+      renderClipList();
+    }
+  }
+
+  prevClipBtn.addEventListener('click', () => {
+    if (activeClipIndex > 0) selectClip(activeClipIndex - 1);
+  });
+  nextClipBtn.addEventListener('click', () => {
+    if (activeClipIndex < clips.length - 1) selectClip(activeClipIndex + 1);
+  });
+
+  // ---------- Video load ----------
+  srcVideo.addEventListener('loadedmetadata', () => {
+    srcW = srcVideo.videoWidth || 1280;
+    srcH = srcVideo.videoHeight || 720;
+
+    // Resizing the annotation canvas also clears last clip's marks, which is what we want
+    annotationCanvas.width = srcW;
+    annotationCanvas.height = srcH;
+    undoStack = [];
+    drawing = false;
+
+    // "Auto" tracks the clip's own aspect ratio, so a vertical phone clip comes
+    // out vertical and a landscape one comes out landscape.
+    applyOrientation();
+
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+    zoomSlider.value = 100;
+    zoomVal.textContent = '100%';
+
+    seek.max = srcVideo.duration;
+    seek.value = 0;
+    durTimeEl.textContent = fmtTime(srcVideo.duration);
+    curTimeEl.textContent = '0:00';
+    videoLoaded = true;
+    emptyMsg.style.display = 'none';
+    srcVideo.currentTime = 0;
+  });
+
+  // ---------- Output framing (orientation) ----------
+  function computeOutputSize() {
+    const setting = orientationSel.value;
+    if (setting === 'vertical') return { w: 720, h: 1280 };
+    if (setting === 'horizontal') return { w: 1280, h: 720 };
+    if (setting === 'square') return { w: 960, h: 960 };
+    // auto: match the clip's own aspect ratio, capped so recording stays smooth
+    const longest = 1280;
+    if (srcW >= srcH) {
+      const w = Math.min(longest, srcW);
+      return { w, h: Math.round(w * srcH / srcW) };
+    }
+    const h = Math.min(longest, srcH);
+    return { w: Math.round(h * srcW / srcH), h };
+  }
+
+  // Resizing the canvas mid-recording ends the captured video track and kills
+  // the MediaRecorder, so while recording the frame size stays locked and any
+  // differently shaped clip just letterboxes into it.
+  function applyOrientation() {
+    if (isRecording) {
+      pendingOrientation = true;
+      return;
+    }
+    const size = computeOutputSize();
+    stage.width = size.w;
+    stage.height = size.h;
+  }
+
+  orientationSel.addEventListener('change', applyOrientation);
+
+  // ---------- Zoom / pan viewport ----------
+  function clampPan() {
+    const viewW = srcW / zoom, viewH = srcH / zoom;
+    panX = Math.min(Math.max(panX, 0), Math.max(0, srcW - viewW));
+    panY = Math.min(Math.max(panY, 0), Math.max(0, srcH - viewH));
+  }
+
+  function getViewport() {
+    const viewW = srcW / zoom, viewH = srcH / zoom;
+    const scale = Math.min(stage.width / viewW, stage.height / viewH);
+    const dw = viewW * scale, dh = viewH * scale;
+    const dx = (stage.width - dw) / 2, dy = (stage.height - dh) / 2;
+    return { viewW, viewH, scale, dx, dy, dw, dh };
+  }
+
+  zoomSlider.addEventListener('input', () => {
+    const prevZoom = zoom;
+    const newZoom = parseFloat(zoomSlider.value) / 100;
+    // keep the centre of the view steady while zooming
+    const cx = panX + (srcW / prevZoom) / 2;
+    const cy = panY + (srcH / prevZoom) / 2;
+    zoom = newZoom;
+    panX = cx - (srcW / zoom) / 2;
+    panY = cy - (srcH / zoom) / 2;
+    zoomVal.textContent = zoomSlider.value + '%';
+    clampPan();
+  });
+  zoomResetBtn.addEventListener('click', () => {
+    zoom = 1;
+    zoomSlider.value = 100;
+    zoomVal.textContent = '100%';
+    panX = 0;
+    panY = 0;
+  });
+
+  srcVideo.addEventListener('timeupdate', () => {
+    seek.value = srcVideo.currentTime;
+    curTimeEl.textContent = fmtTime(srcVideo.currentTime);
+  });
+
+  srcVideo.addEventListener('play', () => {
+    playPauseBtn.textContent = '⏸';
+    if (autoClear.checked) {
+      annCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+      undoStack = [];
+    }
+  });
+  srcVideo.addEventListener('pause', () => { playPauseBtn.textContent = '▶'; });
+  srcVideo.addEventListener('ended', () => { playPauseBtn.textContent = '▶'; });
+
+  playPauseBtn.addEventListener('click', () => {
+    if (!videoLoaded) return;
+    if (srcVideo.paused) srcVideo.play(); else srcVideo.pause();
+  });
+
+  const FRAME_STEP = 1 / 30;
+  stepBackBtn.addEventListener('click', () => {
+    if (!videoLoaded) return;
+    srcVideo.pause();
+    srcVideo.currentTime = Math.max(0, srcVideo.currentTime - FRAME_STEP);
+  });
+  stepFwdBtn.addEventListener('click', () => {
+    if (!videoLoaded) return;
+    srcVideo.pause();
+    srcVideo.currentTime = Math.min(srcVideo.duration, srcVideo.currentTime + FRAME_STEP);
+  });
+
+  seek.addEventListener('input', () => {
+    if (!videoLoaded) return;
+    srcVideo.currentTime = parseFloat(seek.value);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!videoLoaded) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (srcVideo.paused) srcVideo.play(); else srcVideo.pause();
+    } else if (e.code === 'ArrowLeft') {
+      e.preventDefault();
+      srcVideo.pause();
+      srcVideo.currentTime = Math.max(0, srcVideo.currentTime - FRAME_STEP);
+    } else if (e.code === 'ArrowRight') {
+      e.preventDefault();
+      srcVideo.pause();
+      srcVideo.currentTime = Math.min(srcVideo.duration, srcVideo.currentTime + FRAME_STEP);
+    }
+  });
+
+  // ---------- Drawing tools ----------
+  document.querySelectorAll('[data-tool]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-tool]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentTool = btn.dataset.tool;
+      stage.classList.toggle('pan-cursor', currentTool === 'pan');
+    });
+  });
+  document.querySelectorAll('.swatch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.swatch').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentColor = btn.dataset.color;
+    });
+  });
+
+  // Maps a pointer event to native (annotation-layer) coordinates, accounting
+  // for the current zoom/pan and any letterboxing from the chosen output format.
+  function stageToNativeCoords(evt) {
+    const rect = stage.getBoundingClientRect();
+    const canvasX = (evt.clientX - rect.left) / rect.width * stage.width;
+    const canvasY = (evt.clientY - rect.top) / rect.height * stage.height;
+    const vp = getViewport();
+    const x = panX + (canvasX - vp.dx) / vp.scale;
+    const y = panY + (canvasY - vp.dy) / vp.scale;
+    return { x, y };
+  }
+
+  function pushUndo() {
+    undoStack.push(annCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height));
+    if (undoStack.length > 25) undoStack.shift();
+  }
+
+  function drawArrowHead(context, fromX, fromY, toX, toY, size) {
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    context.beginPath();
+    context.moveTo(toX, toY);
+    context.lineTo(toX - size * Math.cos(angle - Math.PI / 7), toY - size * Math.sin(angle - Math.PI / 7));
+    context.lineTo(toX - size * Math.cos(angle + Math.PI / 7), toY - size * Math.sin(angle + Math.PI / 7));
+    context.closePath();
+    context.fill();
+  }
+
+  let panDragStart = null;
+
+  stage.addEventListener('pointerdown', (e) => {
+    if (!videoLoaded) return;
+    stage.setPointerCapture(e.pointerId);
+    drawing = true;
+
+    if (currentTool === 'pan') {
+      panDragStart = { clientX: e.clientX, clientY: e.clientY, panX, panY };
+      return;
+    }
+
+    startPt = stageToNativeCoords(e);
+    pushUndo();
+    if (currentTool === 'pen' || currentTool === 'eraser') {
+      annCtx.lineCap = 'round';
+      annCtx.lineJoin = 'round';
+      annCtx.lineWidth = parseFloat(thicknessInput.value);
+      annCtx.strokeStyle = currentColor;
+      annCtx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
+      annCtx.beginPath();
+      annCtx.moveTo(startPt.x, startPt.y);
+    } else {
+      snapshot = annCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height);
+    }
+  });
+
+  stage.addEventListener('pointermove', (e) => {
+    if (!drawing) return;
+
+    if (currentTool === 'pan') {
+      if (!panDragStart) return;
+      const rect = stage.getBoundingClientRect();
+      const vp = getViewport();
+      const screenToNative = (stage.width / rect.width) / vp.scale;
+      panX = panDragStart.panX - (e.clientX - panDragStart.clientX) * screenToNative;
+      panY = panDragStart.panY - (e.clientY - panDragStart.clientY) * screenToNative;
+      clampPan();
+      return;
+    }
+
+    const pt = stageToNativeCoords(e);
+    if (currentTool === 'pen' || currentTool === 'eraser') {
+      annCtx.lineTo(pt.x, pt.y);
+      annCtx.stroke();
+    } else {
+      annCtx.putImageData(snapshot, 0, 0);
+      annCtx.lineWidth = parseFloat(thicknessInput.value);
+      annCtx.strokeStyle = currentColor;
+      annCtx.fillStyle = currentColor;
+      annCtx.globalCompositeOperation = 'source-over';
+      if (currentTool === 'line') {
+        annCtx.beginPath();
+        annCtx.moveTo(startPt.x, startPt.y);
+        annCtx.lineTo(pt.x, pt.y);
+        annCtx.stroke();
+      } else if (currentTool === 'arrow') {
+        annCtx.beginPath();
+        annCtx.moveTo(startPt.x, startPt.y);
+        annCtx.lineTo(pt.x, pt.y);
+        annCtx.stroke();
+        drawArrowHead(annCtx, startPt.x, startPt.y, pt.x, pt.y, parseFloat(thicknessInput.value) * 2.5);
+      } else if (currentTool === 'circle') {
+        const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
+        annCtx.beginPath();
+        annCtx.arc(startPt.x, startPt.y, r, 0, Math.PI * 2);
+        annCtx.stroke();
+      }
+    }
+  });
+
+  stage.addEventListener('pointerup', () => { drawing = false; panDragStart = null; });
+  stage.addEventListener('pointercancel', () => { drawing = false; panDragStart = null; });
+
+  undoBtn.addEventListener('click', () => {
+    if (undoStack.length === 0) return;
+    annCtx.putImageData(undoStack.pop(), 0, 0);
+  });
+  clearBtn.addEventListener('click', () => {
+    pushUndo();
+    annCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+  });
+
+  // ---------- Webcam + microphone ----------
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  async function enableCamera() {
+    if (camEnabled) return true;
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      camVideo.srcObject = camStream;
+      await camVideo.play();
+      camEnabled = true;
+      camToggleBtn.textContent = 'Camera on';
+      camToggleBtn.classList.add('active');
+
+      const micTracks = camStream.getAudioTracks();
+      if (!micTracks.length) {
+        showStatus('Camera is on but no microphone track was granted, so recordings would be silent. Check your mic permission.', true);
+      } else {
+        clearStatus();
+        startMeter();
+      }
+      return true;
+    } catch (err) {
+      showStatus('Could not access the camera or microphone: ' + err.message, true);
+      return false;
+    }
+  }
+
+  function disableCamera() {
+    stopMeter();
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    camStream = null;
+    camEnabled = false;
+    camToggleBtn.textContent = 'Enable camera';
+    camToggleBtn.classList.remove('active');
+  }
+
+  camToggleBtn.addEventListener('click', () => {
+    if (camEnabled) disableCamera(); else enableCamera();
+  });
+
+  // ---------- Mic level meter ----------
+  let meterAnalyser = null, meterRaf = null, meterSource = null;
+
+  function startMeter() {
+    stopMeter();
+    const track = camStream && camStream.getAudioTracks()[0];
+    if (!track) return;
+    const ac = getAudioCtx();
+    meterSource = ac.createMediaStreamSource(new MediaStream([track]));
+    meterAnalyser = ac.createAnalyser();
+    meterAnalyser.fftSize = 1024;
+    meterSource.connect(meterAnalyser); // analyser only, never to output, so no feedback
+    const data = new Uint8Array(meterAnalyser.fftSize);
+
+    const tick = () => {
+      meterAnalyser.getByteTimeDomainData(data);
+      let peak = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = Math.abs(data[i] - 128) / 128;
+        if (v > peak) peak = v;
+      }
+      const pct = Math.min(100, Math.round(peak * 140));
+      meterFill.style.width = pct + '%';
+      meterFill.classList.toggle('hot', pct > 88);
+      meterRaf = requestAnimationFrame(tick);
+    };
+    tick();
+    micHint.textContent = 'Talk now. The bar should move. If it stays flat, the mic is not being picked up.';
+  }
+
+  function stopMeter() {
+    if (meterRaf) cancelAnimationFrame(meterRaf);
+    meterRaf = null;
+    if (meterSource) { try { meterSource.disconnect(); } catch (e) {} }
+    meterSource = null;
+    meterAnalyser = null;
+    meterFill.style.width = '0%';
+  }
+
+  // ---------- Audio test: record 3 seconds of mic and play it back ----------
+  audioTestBtn.addEventListener('click', async () => {
+    if (!camEnabled) {
+      const ok = await enableCamera();
+      if (!ok) return;
+    }
+    const track = camStream && camStream.getAudioTracks()[0];
+    if (!track) {
+      showStatus('No microphone track available to test.', true);
+      return;
+    }
+
+    audioTestBtn.disabled = true;
+    audioTestPlayback.style.display = 'none';
+    const chunks = [];
+    let rec;
+    try {
+      rec = new MediaRecorder(new MediaStream([track]));
+    } catch (e) {
+      showStatus('Could not start the audio test: ' + e.message, true);
+      audioTestBtn.disabled = false;
+      return;
+    }
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      const blob = new Blob(chunks, { type: chunks[0] ? chunks[0].type : 'audio/webm' });
+      audioTestPlayback.src = URL.createObjectURL(blob);
+      audioTestPlayback.style.display = 'block';
+      audioTestBtn.disabled = false;
+      audioTestBtn.textContent = 'Test audio (3s)';
+      if (blob.size < 1000) {
+        showStatus('The audio test captured almost nothing (' + blob.size + ' bytes). Your mic is not feeding the recorder.', true);
+      } else {
+        showStatus('Audio test recorded ' + Math.round(blob.size / 1024) + ' KB. Press play above to hear it back.');
+      }
+    };
+
+    rec.start();
+    let left = 3;
+    audioTestBtn.textContent = 'Recording... ' + left;
+    const iv = setInterval(() => {
+      left--;
+      audioTestBtn.textContent = left > 0 ? 'Recording... ' + left : 'Finishing...';
+      if (left <= 0) {
+        clearInterval(iv);
+        try { rec.stop(); } catch (e) {}
+      }
+    }, 1000);
+  });
+
+  // Where the floating head sits, so the title can sit next to it
+  function getCamBubbleGeom() {
+    if (!camEnabled || !camVideo.videoWidth) return null;
+    const pct = parseFloat(camSizeInput.value) / 100;
+    const r = Math.min(stage.width, stage.height) * pct;
+    const margin = r * 0.35;
+    const corner = camCornerSel.value;
+    let cx, cy;
+    if (corner === 'br') { cx = stage.width - r - margin; cy = stage.height - r - margin; }
+    else if (corner === 'bl') { cx = r + margin; cy = stage.height - r - margin; }
+    else if (corner === 'tr') { cx = stage.width - r - margin; cy = r + margin; }
+    else { cx = r + margin; cy = r + margin; }
+    return { r, cx, cy, corner, margin };
+  }
+
+  function drawCamBubble() {
+    const geom = getCamBubbleGeom();
+    if (!geom) return;
+    const { r, cx, cy } = geom;
+
+    const vw = camVideo.videoWidth, vh = camVideo.videoHeight;
+    const side = Math.min(vw, vh);
+    const sx = (vw - side) / 2, sy = (vh - side) / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.translate(cx, cy);
+    ctx.scale(-1, 1); // mirror for a natural selfie view
+    ctx.drawImage(camVideo, sx, sy, side, side, -r, -r, r * 2, r * 2);
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.lineWidth = Math.max(2, r * 0.04);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ---------- On-screen text ----------
+  function roundRectPath(context, x, y, w, h, r) {
+    if (context.roundRect) {
+      context.beginPath();
+      context.roundRect(x, y, w, h, r);
+      return;
+    }
+    context.beginPath();
+    context.moveTo(x + r, y);
+    context.arcTo(x + w, y, x + w, y + h, r);
+    context.arcTo(x + w, y + h, x, y + h, r);
+    context.arcTo(x, y + h, x, y, r);
+    context.arcTo(x, y, x + w, y, r);
+    context.closePath();
+  }
+
+  // Trims text with an ellipsis until it fits the given width
+  function fitText(context, text, maxTextWidth) {
+    if (context.measureText(text).width <= maxTextWidth) return text;
+    let t = text;
+    while (t.length > 1 && context.measureText(t + '...').width > maxTextWidth) {
+      t = t.slice(0, -1);
+    }
+    return t + '...';
+  }
+
+  function drawTitleCaption() {
+    if (!showTitleToggle.checked) return;
+    const clip = clips[activeClipIndex];
+    if (!clip || !clip.title.trim()) return;
+
+    // Scale off the short edge so the title looks the same size in both
+    // vertical and landscape formats
+    const fontSize = Math.max(13, Math.round(Math.min(stage.width, stage.height) * 0.038));
+    ctx.save();
+    ctx.font = '700 ' + fontSize + 'px Figtree, sans-serif';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = Math.max(1, Math.round(fontSize * 0.08)) + 'px';
+    ctx.textBaseline = 'middle';
+
+    let text = clip.title.trim().toUpperCase();
+    const padX = fontSize * 1.0;
+    const padY = fontSize * 0.55;
+    const boxH = fontSize + padY * 2;
+
+    const geom = getCamBubbleGeom();
+    const topBubble = geom && (geom.corner === 'tl' || geom.corner === 'tr');
+
+    let boxX, boxY, boxW, textX;
+
+    if (topBubble) {
+      const gap = geom.r * 0.28;
+      const edge = geom.margin;
+      const beside = geom.corner === 'tl'
+        ? stage.width - (geom.cx + geom.r + gap) - edge
+        : (geom.cx - geom.r - gap) - edge;
+
+      // Only sit it beside the head if the whole title actually fits there,
+      // otherwise it goes underneath where there is far more room
+      if (ctx.measureText(text).width + padX * 2 <= beside) {
+        boxW = ctx.measureText(text).width + padX * 2;
+        boxY = geom.cy - boxH / 2; // vertically centred on the bubble
+        if (geom.corner === 'tl') {
+          boxX = geom.cx + geom.r + gap;
+          ctx.textAlign = 'left';
+          textX = boxX + padX;
+        } else {
+          boxX = (geom.cx - geom.r - gap) - boxW;
+          ctx.textAlign = 'right';
+          textX = boxX + boxW - padX;
+        }
+      } else {
+        // Narrow frame (vertical): tuck the title under the head, same side
+        const maxW = stage.width - edge * 2;
+        text = fitText(ctx, text, maxW - padX * 2);
+        boxW = Math.min(maxW, ctx.measureText(text).width + padX * 2);
+        boxY = geom.cy + geom.r + gap;
+        if (geom.corner === 'tl') {
+          boxX = edge;
+          ctx.textAlign = 'left';
+          textX = boxX + padX;
+        } else {
+          boxX = stage.width - edge - boxW;
+          ctx.textAlign = 'right';
+          textX = boxX + boxW - padX;
+        }
+      }
+    } else {
+      // No head up top, so centre the title as normal
+      text = fitText(ctx, text, stage.width * 0.9 - padX * 2);
+      boxW = Math.min(stage.width * 0.9, ctx.measureText(text).width + padX * 2);
+      boxX = stage.width / 2 - boxW / 2;
+      boxY = stage.height * 0.04;
+      ctx.textAlign = 'center';
+      textX = stage.width / 2;
+    }
+
+    if (boxW <= padX) { ctx.restore(); return; } // no room, skip it
+
+    ctx.fillStyle = 'rgba(0,64,61,0.88)';
+    roundRectPath(ctx, boxX, boxY, boxW, boxH, boxH / 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#f7f4f1';
+    ctx.fillText(text, textX, boxY + boxH / 2);
+    ctx.restore();
+  }
+
+  function drawCaptions() {
+    if (!captionsToggle.checked || !currentCaptionText) return;
+    const fontSize = Math.max(14, Math.round(stage.height * 0.042));
+    ctx.save();
+    ctx.font = '700 ' + fontSize + 'px Figtree, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const maxWidth = stage.width * 0.84;
+    const words = currentCaptionText.split(/\s+/);
+    let lines = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    lines = lines.slice(-2);
+
+    const lineHeight = fontSize * 1.3;
+    const blockHeight = lines.length * lineHeight + fontSize * 0.5;
+    const bottomMargin = stage.height * 0.07;
+    const blockTop = stage.height - bottomMargin - blockHeight;
+
+    let maxLineWidth = 0;
+    lines.forEach(l => { maxLineWidth = Math.max(maxLineWidth, ctx.measureText(l).width); });
+    const padX = fontSize * 0.7;
+    const boxW = Math.min(maxWidth + padX * 2, maxLineWidth + padX * 2);
+    const boxX = stage.width / 2 - boxW / 2;
+    const boxY = blockTop - fontSize * 0.25;
+
+    ctx.fillStyle = 'rgba(0,64,61,0.82)';
+    roundRectPath(ctx, boxX, boxY, boxW, blockHeight, blockHeight * 0.22);
+    ctx.fill();
+
+    ctx.fillStyle = '#f7f4f1';
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = 4;
+    lines.forEach((l, i) => {
+      const y = blockTop + lineHeight * i + lineHeight / 2 + fontSize * 0.15;
+      ctx.fillText(l, stage.width / 2, y);
+    });
+    ctx.restore();
+  }
+
+  function startCaptions() {
+    if (!captionsSupported || !captionsToggle.checked) return;
+    try {
+      recognition = new SpeechRecognitionCtor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-GB';
+      recognition.onresult = (e) => {
+        let text = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          text += e.results[i][0].transcript;
+        }
+        currentCaptionText = text.trim();
+        clearTimeout(captionClearTimer);
+        captionClearTimer = setTimeout(() => { currentCaptionText = ''; }, 3000);
+      };
+      recognition.onerror = () => {};
+      recognition.onend = () => {
+        if (isRecording) { try { recognition.start(); } catch (e) {} }
+      };
+      recognition.start();
+    } catch (e) {
+      // captions are a nice-to-have, never block recording over this
+    }
+  }
+
+  function stopCaptions() {
+    if (recognition) {
+      recognition.onend = null;
+      try { recognition.stop(); } catch (e) {}
+      recognition = null;
+    }
+    clearTimeout(captionClearTimer);
+    currentCaptionText = '';
+  }
+
+  // ---------- Composite render loop ----------
+  function renderFrame() {
+    if (videoLoaded) {
+      ctx.fillStyle = '#00403d';
+      ctx.fillRect(0, 0, stage.width, stage.height);
+
+      const vp = getViewport();
+      ctx.drawImage(srcVideo, panX, panY, vp.viewW, vp.viewH, vp.dx, vp.dy, vp.dw, vp.dh);
+      ctx.drawImage(annotationCanvas, panX, panY, vp.viewW, vp.viewH, vp.dx, vp.dy, vp.dw, vp.dh);
+      drawTitleCaption();
+      drawCamBubble();
+      drawCaptions();
+    }
+    requestAnimationFrame(renderFrame);
+  }
+  requestAnimationFrame(renderFrame);
+
+  // ---------- Recording ----------
+  function pickMimeType() {
+    const candidates = [
+      'video/mp4;codecs=avc1.640028,mp4a.40.2',
+      'video/mp4;codecs=h264,aac',
+      'video/mp4',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm'
+    ];
+    for (const c of candidates) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+    }
+    return '';
+  }
+
+  let ffmpegInstance = null;
+  async function getFfmpeg() {
+    if (ffmpegInstance) return ffmpegInstance;
+    if (!window.FFmpeg) throw new Error('FFmpeg library did not load');
+    const { createFFmpeg } = window.FFmpeg;
+    ffmpegInstance = createFFmpeg({
+      log: false,
+      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+    });
+    ffmpegInstance.setProgress(({ ratio }) => {
+      if (ratio >= 0 && ratio <= 1) {
+        showStatus('Converting to MP4... ' + Math.round(ratio * 100) + '%');
+      }
+    });
+    showStatus('Loading the MP4 converter (first time only)...');
+    await ffmpegInstance.load();
+    return ffmpegInstance;
+  }
+
+  async function transcodeToMp4(webmBlob) {
+    const ffmpeg = await getFfmpeg();
+    const { fetchFile } = window.FFmpeg;
+    showStatus('Converting to MP4...');
+    ffmpeg.FS('writeFile', 'input.webm', await fetchFile(webmBlob));
+    await ffmpeg.run(
+      '-i', 'input.webm',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '128k',
+      'output.mp4'
+    );
+    const data = ffmpeg.FS('readFile', 'output.mp4');
+    try { ffmpeg.FS('unlink', 'input.webm'); } catch (e) {}
+    try { ffmpeg.FS('unlink', 'output.mp4'); } catch (e) {}
+    return new Blob([data.buffer], { type: 'video/mp4' });
+  }
+
+  function finalizeOutput(blob, ext) {
+    const url = URL.createObjectURL(blob);
+    outputPreview.src = url;
+    outputPreview.classList.add('show');
+    downloadLink.href = url;
+    downloadLink.download = 'coaching-review-' + Date.now() + '.' + ext;
+    downloadLink.textContent = 'Download ' + ext.toUpperCase();
+    downloadLink.classList.add('show');
+  }
+
+  // The mic always goes through the Web Audio graph rather than straight into the
+  // recorder. The track handed to MediaRecorder is then a stable synthetic one, so
+  // if the real device track gets muted or stolen (live captions share the mic, and
+  // Chrome can yank it), the recording keeps running instead of stopping dead.
+  function buildAudioTrack() {
+    const micTrack = camStream ? camStream.getAudioTracks()[0] : null;
+    const ac = getAudioCtx();
+
+    if (!mixedDestNode) mixedDestNode = ac.createMediaStreamDestination();
+
+    if (micTrack) {
+      ac.createMediaStreamSource(new MediaStream([micTrack])).connect(mixedDestNode);
+    }
+
+    if (includeOrigAudio.checked) {
+      // A muted element feeds silence into the graph, so it has to be unmuted
+      srcVideo.muted = false;
+      if (!srcAudioNode) {
+        try {
+          srcAudioNode = ac.createMediaElementSource(srcVideo);
+          srcAudioNode.connect(ac.destination); // so you can still hear the clip
+        } catch (e) {
+          // already wired up on a previous run, safe to ignore
+        }
+      }
+      if (srcAudioNode) srcAudioNode.connect(mixedDestNode);
+    } else {
+      srcVideo.muted = true;
+    }
+
+    return mixedDestNode.stream.getAudioTracks()[0] || null;
+  }
+
+  includeOrigAudio.addEventListener('change', () => {
+    if (!includeOrigAudio.checked) srcVideo.muted = true;
+  });
+
+  recordBtn.addEventListener('click', async () => {
+    if (!videoLoaded) {
+      showStatus('Add a clip first.', true);
+      return;
+    }
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      return;
+    }
+    if (!camEnabled) {
+      showStatus('Turning your camera on first so your reaction and voice are captured...');
+      // Awaited properly, so a slow permission prompt no longer aborts the record
+      const ok = await enableCamera();
+      if (!ok) return;
+    }
+
+    clearStatus();
+    recordedChunks = [];
+    outputPreview.classList.remove('show');
+    downloadLink.classList.remove('show');
+
+    const canvasStream = stage.captureStream(30);
+    const audioTrack = buildAudioTrack();
+    const tracks = [...canvasStream.getVideoTracks()];
+    if (audioTrack) tracks.push(audioTrack);
+    const combined = new MediaStream(tracks);
+
+    if (!audioTrack) {
+      showStatus('No microphone track, so this recording would have no sound. Run the audio test first.', true);
+      return;
+    }
+
+    const mimeType = pickMimeType();
+    try {
+      mediaRecorder = new MediaRecorder(combined, mimeType ? { mimeType } : undefined);
+    } catch (err) {
+      showStatus('Recording is not supported in this browser. Try Chrome.', true);
+      return;
+    }
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    };
+    mediaRecorder.onerror = (e) => {
+      showStatus('The recorder hit an error and stopped: ' + (e.error ? e.error.name : 'unknown') + '. Whatever was captured up to that point is kept.', true);
+    };
+    // Watchdogs: if something kills a track mid-session, say exactly what happened
+    // instead of the recording just quietly dying.
+    const problems = [];
+    canvasStream.getVideoTracks().forEach(t => {
+      t.onended = () => {
+        problems.push('video capture ended');
+        if (isRecording) {
+          showStatus('The video capture ended unexpectedly, stopping the recording now.', true);
+          try { mediaRecorder.stop(); } catch (err) {}
+        }
+      };
+    });
+    const micTrack = camStream && camStream.getAudioTracks()[0];
+    if (micTrack) {
+      micTrack.onended = () => {
+        problems.push('microphone track ended at ' + recSeconds + 's');
+        showStatus('Your microphone was disconnected ' + recSeconds + 's in, so the rest of this recording has no sound. Live captions are the usual cause, try again with them off.', true);
+      };
+      micTrack.onmute = () => {
+        problems.push('microphone muted at ' + recSeconds + 's');
+      };
+      micTrack.onunmute = () => { problems.push('microphone came back at ' + recSeconds + 's'); };
+    }
+    recordProblems = problems;
+
+    mediaRecorder.onstop = async () => {
+      isRecording = false;
+      stopCaptions();
+      recordBtn.textContent = '● Record';
+      recordBtn.classList.remove('recording');
+      recTimer.classList.remove('show');
+      clearInterval(recTimerInterval);
+
+      // Frame size was locked during the recording, apply any deferred change now
+      if (pendingOrientation) {
+        pendingOrientation = false;
+        applyOrientation();
+      }
+
+      const rawType = mimeType || 'video/webm';
+      const rawBlob = new Blob(recordedChunks, { type: rawType });
+
+      const issues = recordProblems.length ? ' Problems during this take: ' + recordProblems.join('; ') + '.' : '';
+
+      if (rawType.startsWith('video/mp4')) {
+        finalizeOutput(rawBlob, 'mp4');
+        showStatus('Recording finished, ' + recSeconds + 's, ' + Math.round(rawBlob.size / 1024) + ' KB.' + issues, recordProblems.length > 0);
+        return;
+      }
+      try {
+        const mp4Blob = await transcodeToMp4(rawBlob);
+        finalizeOutput(mp4Blob, 'mp4');
+        showStatus('Recording finished and converted to MP4.');
+      } catch (err) {
+        finalizeOutput(rawBlob, 'webm');
+        showStatus('Could not convert to MP4 (needs internet the first time). Saved as WEBM, CapCut opens this fine.', true);
+      }
+    };
+
+    // Timeslice means chunks arrive every second, so if anything does go wrong
+    // mid-session the footage up to that point still survives
+    mediaRecorder.start(1000);
+    isRecording = true;
+    startCaptions();
+    showStatus('Recording at ' + stage.width + 'x' + stage.height + ' with audio. Frame size is locked until you stop.');
+    recordBtn.textContent = '■ Stop';
+    recordBtn.classList.add('recording');
+    recSeconds = 0;
+    recTimer.textContent = '0:00';
+    recTimer.classList.add('show');
+    recTimerInterval = setInterval(() => {
+      recSeconds++;
+      recTimer.textContent = fmtTime(recSeconds);
+    }, 1000);
+  });
+
+  renderClipList();
+
+  /* ── clips handed over by the coach dashboard ────────────────────
+     The dashboard runs this file in a same-origin iframe and posts a clip
+     to it. Kept to a message rather than a query string because a review
+     often takes several of a client's clips, added one at a time as you
+     work through their week. */
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent) return;
+    const d = e.data || {};
+    if (d.type !== 'lha-review-clip' || !d.url) return;
+    /* the same clip twice is almost always a double click, not an intention */
+    const already = clips.findIndex(c => c.url === d.url);
+    if (already > -1) { selectClip(already); return; }
+    const wasEmpty = clips.length === 0;
+    clips.push({
+      id: 'c' + Date.now() + Math.random().toString(36).slice(2, 7),
+      url: d.url,
+      title: d.title || 'Client clip',
+      remote: true
+    });
+    renderClipList();
+    selectClip(wasEmpty ? 0 : clips.length - 1);
+    showStatus(d.title ? ('Loaded ' + d.title) : 'Clip loaded');
+  });
+  /* the dashboard waits for this before it posts anything, so a clip sent
+     while the iframe is still parsing is not dropped on the floor */
+  try { if (window.parent !== window) window.parent.postMessage({ type: 'lha-review-ready' }, '*'); } catch (err) {}
+})();
+</script>
+
+</body>
+</html>
