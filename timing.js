@@ -30,10 +30,41 @@ function lhaSets(dose){
   m = /^\s*(\d+)\s*sets?\b/i.exec(String(dose || ''));  if(m) return +m[1];
   return 1;
 }
+/* ── stated beats parsed ───────────────────────────────────────────
+   A drill can now carry its set count, its amount and its unit as three
+   numbers the coach typed, rather than leaving all three to be read back
+   out of a sentence. Where they are there they win; where they are not,
+   the dose is parsed exactly as it always was, so a drill nobody has
+   touched behaves the same as yesterday. */
+function lhaSetsOf(it){
+  it = it || {};
+  const n = Number(it.sets);
+  if(Number.isFinite(n) && n >= 1) return Math.round(n);
+  return lhaSets(it.d);
+}
+/* one set's worth: how much, and whether that is reps or seconds */
+function lhaAmount(it){
+  it = it || {};
+  const n = Number(it.amt);
+  if(Number.isFinite(n) && n > 0 && (it.unit === 's' || it.unit === '')){
+    return { n: Math.round(n), unit: it.unit };
+  }
+  const d = String(it.d || '');
+  const nums = d.match(/\d+/g);
+  if(nums && nums.length){
+    return { n: Number(nums[nums.length - 1]),
+             unit: /\bs(ec|econds)?\b|\d+\s*s\b/i.test(d) ? 's' : '' };
+  }
+  return { n: 0, unit: '' };
+}
 /* one set, in seconds. 0 means untimed: they stop when they stop. */
 function lhaWork(it, grp){
   it = it || {};
   if(it.w) return it.w;                       /* a coach's own number wins */
+  /* a stated amount in seconds is how long one set takes; a stated amount
+     in reps says nothing about the clock and falls through to the rules */
+  if(it.unit === 's' && Number(it.amt) > 0) return Math.round(Number(it.amt));
+  if(it.unit === '' && Number(it.amt) > 0 && !it.w && !it.d) return LHA_REPS_SECS;
   if(LHA_WARM_GRP.test(String(grp || it.grp || ''))) return LHA_WARMUP_SECS;
   const d = String(it.d || '');
   if(lhaIsHold(d)) return 0;
@@ -64,7 +95,7 @@ function lhaSessionSecs(groups){
   (groups || []).forEach(g => (g.items || []).forEach(it =>
     flat.push({ it, grp: g.name })));
   flat.forEach((x, i) => {
-    const n = lhaSets(x.it.d);
+    const n = lhaSetsOf(x.it);
     const w = lhaWork(x.it, x.grp) || LHA_REPS_SECS;
     const r = lhaRest(x.it, x.grp, i, flat);
     secs += n * w + (n - 1) * r;

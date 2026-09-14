@@ -446,6 +446,16 @@ function perSet(dose, nSets){
   /* "3 × 8" leaves a bare 8, and "2 × 5–8" a bare range; neither is a dose */
   return /^\d+(\s*[–—-]\s*\d+)?$/.test(one) ? one+' reps' : one;
 }
+/* ── the drill, with what the coach has stated merged on ───────────
+   The Workouts tab writes a set count, an amount and a unit per drill.
+   They live in st.timing, not on the drill, so every reader of a drill's
+   numbers has to look in both places or it reads the dose and ignores
+   what was typed. One merge, used by all of them. */
+function timed(it){
+  const set=(st.timing||{})[it && it.v];
+  return set ? Object.assign({}, it, set) : (it||{});
+}
+const setsFor = it => lhaSetsOf(timed(it));
 function sets(dose){
   let m=/^\s*(\d+)\s*[×x]/.exec(dose); if(m) return +m[1];
   m=/^\s*(\d+)\s*sets?\b/i.exec(dose); if(m) return +m[1];
@@ -527,7 +537,7 @@ function rest(x, i, list){
 function queue(){
   const d=day(), q=[];
   d.groups.forEach((g,gi)=>g.items.forEach((it,ii)=>{
-    const n=sets(it.d);
+    const n=setsFor(it);
     for(let k=0;k<n;k++) q.push({it,gi,ii,set:k+1,sets:n,grp:g.name});
   }));
   return q;
@@ -4286,6 +4296,13 @@ function lenLabel(it, grp){
 /* the big number is the dose, not a countdown — a set of ten reps should
    say TEN, not however many seconds we guessed it would take */
 function repOf(it){
+  /* the big number on the follow-along card. It parsed the dose a fourth
+     time, with its own patterns, so "build to 5" and "3 x 5" put different
+     things on screen for the same work. Stated numbers answer it now. */
+  const st0=timed(it);
+  if(Number(st0.amt)>0 && (st0.unit==='s'||st0.unit==='')){
+    return {n:String(Math.round(Number(st0.amt))), u:st0.unit==='s'?'seconds':'reps'};
+  }
   const d=String(it.d||'');
   let m=d.match(/^\s*\d+\s*[×x]\s*(\d+)\s*(?:each|per)?/i);   if(m) return {n:m[1],u:'reps'};
   m=d.match(/(\d+)\s*reps/i);                                  if(m) return {n:m[1],u:'reps'};
@@ -8110,7 +8127,14 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   /* The dose is the authority where it names a set count: "3 x 8" is three
      sets, not three sets of three. Where it does not, three sets is the
      default and the mobility day stays at one, because it is the short day. */
-  const capOf=it=>{ const n=sets(it.d);
+  /* The ceiling was four, which was fine while the set count could only be
+     read out of a dose. A coach who types five in the Workouts tab is asking
+     for five, and quietly giving four is the same silence this whole change
+     is meant to end. A stated number is honoured up to eight; a parsed one
+     keeps the old ceiling, because a dose was never a promise. */
+  const capOf=it=>{ const m=timed(it), stated=Number(m.sets);
+    if(Number.isFinite(stated) && stated>=1) return Math.min(stated, 8);
+    const n=setsFor(it);
     return Math.min(n>1 ? n : (wristDay?1:3), 4); };
   let more=true;
   while(more && secs<budget){
@@ -8127,7 +8151,15 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
     let again=true;
     while(again && secs<budget*0.9){
       again=false;
-      for(const it of order){ if((done[it.v]||0)>=4) continue; if(add(it)) again=true; }
+      /* the top-up used its own hardcoded four, so a drill the coach had
+         stated three sets for came back with a fourth. A stated number is
+         the ceiling here as well; only an unstated one may be topped up. */
+      for(const it of order){
+        const m=timed(it), stated=Number(m.sets);
+        const ceiling=(Number.isFinite(stated)&&stated>=1) ? Math.min(stated,8) : 4;
+        if((done[it.v]||0)>=ceiling) continue;
+        if(add(it)) again=true;
+      }
     }
   }
   /* Easiest first, hardest last. The rotation above decides how many sets
@@ -8189,6 +8221,10 @@ function recommendedReps(it){
    A rep and a second are different things and adding them together gives a
    number that means nothing, so everything downstream keeps them apart. */
 function doseAmount(it){
+  /* stated first: lhaAmount takes the coach's numbers where they are set
+     and falls back to reading the dose exactly as this used to */
+  const stated=lhaAmount(timed(it));
+  if(stated.n) return stated;
   const d=String((it&&it.d)||'');
   const nums=d.match(/\d+/g);
   if(nums&&nums.length) return {n:Number(nums[nums.length-1]), unit:doseUnit(d)};

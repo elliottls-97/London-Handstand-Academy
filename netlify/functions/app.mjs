@@ -1243,10 +1243,25 @@ export default async (request) => {
         };
         const w = num(r.w, 600), rest = num(r.r, 600);
         const d = String(r.d || '').slice(0, 40);
-        /* an empty row is a deletion: it goes back to the rule */
-        if (w == null && rest == null && !d) { delete all[v]; continue; }
+        /* ── sets and the amount, said rather than guessed ────────────
+           The dose was one free text field read three ways: a leading
+           "N x" for the set count, the first "NNs" for the work timer,
+           and the last number for the amount. "30s, both ways" gave
+           thirty seconds instead of sixty because the doubling rule
+           looks for "each", "build to 5" read as an untimed hold, and
+           anything not starting with a number silently became three
+           sets. These are the same three facts, stated. */
+        const sets = num(r.sets, 12);
+        const amt  = num(r.amt, 3600);
+        const unit = r.unit === 's' ? 's' : (r.unit === '' ? '' : null);
+        if (w == null && rest == null && !d && sets == null && amt == null && unit == null) {
+          delete all[v]; continue;                    /* an empty row is a deletion */
+        }
         all[v] = Object.assign({}, w != null ? { w } : {},
                                rest != null ? { r: rest } : {},
+                               sets != null ? { sets } : {},
+                               amt  != null ? { amt } : {},
+                               unit != null ? { unit } : {},
                                d ? { d } : {});
       }
       await setSetting('timing:custom', all);
