@@ -2567,8 +2567,14 @@ export default async (request) => {
          listing plus a fetch per account */
       const out = (await supa.rows('accounts',
         'select=*&order=last_seen.desc')) || [];
-      return json({ leads: out.map(a => ({ ...a, last: ms(a.last_seen),
-        first: ms(a.first_seen), stripeCustomer: a.stripe_customer })) });
+      /* Named, not spread. The row carries the salted password hash, and
+         spreading it sent every account's hash to the browser to draw a
+         list that never needed it. */
+      return json({ leads: out.map(a => ({
+        email: a.email, name: a.name || '',
+        plus: !!a.plus, plusAt: ms(a.plus_at),
+        last: ms(a.last_seen), first: ms(a.first_seen),
+        stripeCustomer: a.stripe_customer || null })) });
     }
 
     /* everything waiting on a review, across everyone this coach has.

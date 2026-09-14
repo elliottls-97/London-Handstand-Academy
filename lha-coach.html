@@ -537,6 +537,160 @@ function questionsHTML(){
   </div>`;
 }
 
+/* ── everyone who ever signed up ───────────────────────────────────
+   The dashboard showed coaching clients and enquiries, which is a handful
+   of people. Everybody who did the quiz, used the free ladder and drifted
+   off was invisible, and that is the whole top of the funnel. */
+let leads=null, leadQ='', leadSort='last', grantBusy='', leadErr='', leadsAsked=false;
+function loadLeads(force){
+  if(leadsAsked && !force) return;
+  leadsAsked=true;
+  fetch(API+'/leads',{headers:hdr()})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ leads=d.leads||[]; draw(); })
+    .catch(e=>{ leadErr=String(e); draw(); });
+}
+/* Active means seen in the last fortnight. Anything longer and "still
+   training" stops meaning anything. */
+const leadLive = a => a.last && (Date.now()-a.last) < 14*DAY;
+const leadNew  = a => a.first && (Date.now()-a.first) < 7*DAY;
+function grant(email, on){
+  const word = on
+    ? 'Give '+email+' the whole ladder, free?\n\nThey get every stage straight away. You can take it back from this screen at any time.'
+    : 'Take the paid stages back from '+email+'?\n\nThey keep their account and their history, and drop to stage one. If they are paying through Stripe this does not cancel that, so check before you do it.';
+  if(!confirm(word)) return;
+  grantBusy=email; draw();
+  fetch(API+'/grant',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email, plus:!!on})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(()=>{ grantBusy=''; loadLeads(true); })
+    .catch(e=>{ grantBusy=''; draw(); alert(String(e)); });
+}
+function leadsHTML(){
+  loadLeads();
+  if(leadErr) return `<div class="card"><div class="kick">ACCOUNTS</div>
+    <div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+      Could not load them. ${esc(leadErr)}.</div>
+    <button class="send" style="width:auto;padding:0 16px;margin-top:12px"
+      onclick="leadErr='';leadsAsked=false;loadLeads()">Try again</button></div>`;
+  if(!leads || !leads.length) return `<div class="card"><div class="kick">ACCOUNTS</div>
+    <div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+      ${leads?'Nobody has signed up yet.':'Loading…'}</div></div>`;
+
+  const coachedSet=new Set(clients.filter(c=>c.coached!==false).map(c=>c.email));
+  const paid=leads.filter(a=>a.plus), live=leads.filter(leadLive), fresh=leads.filter(leadNew);
+  const q=leadQ.trim().toLowerCase();
+  const rows=leads
+    .filter(a=>!q || (a.email||'').toLowerCase().indexOf(q)>-1
+                  || (a.name||'').toLowerCase().indexOf(q)>-1)
+    .slice()
+    .sort((a,b)=> leadSort==='first' ? (b.first||0)-(a.first||0) : (b.last||0)-(a.last||0));
+
+  const stat=(n,label,note)=>`<div style="flex:1;min-width:118px;padding:12px 14px;
+    border-radius:14px;background:#fff;border:1px solid var(--line)">
+    <div style="font:600 26px/1 var(--sans);font-variant-numeric:tabular-nums">${n}</div>
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:7px">
+      ${label}</div>
+    ${note?`<div style="font:400 11px/1.4 var(--sans);color:var(--grey2);margin-top:5px">${note}</div>`:''}
+  </div>`;
+  const sortBtn=(id,label)=>`<button onclick="leadSort='${id}';draw()"
+    style="cursor:pointer;border-radius:999px;padding:6px 12px;font:600 11.5px/1 var(--sans);
+    border:1.5px solid ${leadSort===id?'var(--forest)':'var(--line)'};
+    background:${leadSort===id?'var(--forest)':'#fff'};
+    color:${leadSort===id?'#fff':'var(--ink)'}">${label}</button>`;
+
+  return `<div class="card">
+    <div class="kick">ACCOUNTS · ${leads.length}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+      ${stat(leads.length,'SIGNED UP','every account ever')}
+      ${stat(live.length,'STILL TRAINING','opened it in the last fortnight')}
+      ${stat(fresh.length,'NEW THIS WEEK','')}
+      ${stat(paid.length,'ON £5','including anyone you have comped')}
+    </div>
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:16px">
+      <input value="${esc(leadQ)}" oninput="leadQ=this.value;draw()" placeholder="Find an address…"
+        style="flex:1;min-width:190px;border:1px solid var(--line);border-radius:10px;
+        padding:9px 11px;font:400 13.5px/1 var(--sans);background:#fff">
+      ${sortBtn('last','Last seen')}${sortBtn('first','Newest')}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+      ${rows.map(a=>{
+        const isC=coachedSet.has(a.email), busy=grantBusy===a.email;
+        const tag=(t,c)=>`<span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+          border-radius:999px;padding:4px 8px;background:${c}1a;color:${c}">${t}</span>`;
+        return `<div style="display:flex;gap:11px;align-items:center;flex-wrap:wrap;
+          padding:11px 13px;border-radius:13px;background:#fff;border:1px solid var(--line)">
+          <span style="flex:1;min-width:190px">
+            <b style="font:600 13.5px/1.3 var(--sans)">${esc(a.name||a.email.split('@')[0])}</b>
+            <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey2);margin-top:3px">
+              ${esc(a.email)}</span>
+          </span>
+          <span style="flex:none;display:flex;gap:6px;flex-wrap:wrap">
+            ${isC?tag('COACHED','#006663'):''}
+            ${a.plus?tag(a.stripeCustomer?'£5 · STRIPE':'£5 · COMPED','#006663'):''}
+            ${leadLive(a)?'':tag('QUIET','#5a5a5a')}
+          </span>
+          <span style="flex:none;min-width:148px;text-align:right;font:400 11.5px/1.5 var(--sans);
+            color:var(--grey2)">
+            ${a.last?'seen '+ago(a.last):'never opened it'}
+            ${a.first?`<span style="display:block">joined ${ago(a.first)}</span>`:''}
+          </span>
+          <button onclick="grant('${esc(a.email)}',${a.plus?'false':'true'})"${busy?' disabled':''}
+            style="flex:none;cursor:pointer;border-radius:10px;padding:8px 12px;
+            font:600 11.5px/1 var(--sans);background:#fff;
+            border:1.5px solid ${a.plus?'var(--line)':'var(--forest)'};
+            color:${a.plus?'var(--grey)':'var(--forest)'};opacity:${busy?.5:1}">
+            ${busy?'…':a.plus?'Take it back':'Give them £5 free'}</button>
+        </div>`;}).join('')
+        || '<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey2)">Nobody matches.</div>'}
+    </div>
+    <div style="font:400 11.5px/1.6 var(--sans);color:var(--grey2);margin-top:14px;max-width:70ch">
+      Giving someone the tier is instant and reversible from the same button. It does not
+      touch Stripe: if they are already paying, taking it back here does not cancel the
+      subscription, and giving it to a payer does not stop them being charged.</div>
+  </div>`;
+}
+
+/* ── is Stripe wired up ────────────────────────────────────────────
+   Configuration, not customer data: whether the key, the price and the
+   webhook secret exist, and whether the key is a test one. The failure it
+   catches is a live site quietly running on test keys. */
+let stripeCfg=null, stripeAsked=false;
+function loadStripe(){
+  if(stripeAsked) return; stripeAsked=true;
+  fetch(API+'/stripe-status',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ stripeCfg=d; draw(); } })
+    .catch(()=>{});
+}
+function stripeHTML(){
+  loadStripe();
+  if(!stripeCfg) return '';
+  const c=stripeCfg;
+  const bad = c.secretKey==='missing' || c.priceId==='missing' || c.webhookSecret==='missing'
+           || /TEST/.test(c.secretKey||'');
+  const line=(label,val,ok)=>`<div style="display:flex;gap:10px;align-items:baseline;
+    padding:7px 0;border-top:1px solid var(--line)">
+    <span style="flex:0 0 150px;font:600 9.5px/1.4 var(--sans);letter-spacing:.11em;
+      color:var(--grey2)">${label}</span>
+    <span style="flex:1;font:600 13px/1.4 var(--sans);color:${ok?'var(--ink)':'var(--terra)'}">
+      ${esc(val)}</span></div>`;
+  return `<div class="card" style="margin-top:14px">
+    <div class="kick">PAYMENTS${bad?' · CHECK THIS':''}</div>
+    <div style="margin-top:10px">
+      ${line('SECRET KEY', c.secretKey, c.secretKey!=='missing' && !/TEST/.test(c.secretKey||''))}
+      ${line('£5 PRICE', c.priceId, c.priceId!=='missing')}
+      ${line('WEBHOOK SECRET', c.webhookSecret, c.webhookSecret!=='missing')}
+      ${line('BUILD', (c.context||'')+' · '+(c.branch||''), true)}
+    </div>
+    <div style="font:400 12px/1.6 var(--sans);color:${bad?'var(--terra)':'var(--grey2)'};
+      margin-top:12px;max-width:64ch">
+      ${bad
+        ? 'Something here is not right. A missing webhook secret means a payment goes through and the account never turns on. A test key means no real money moves at all.'
+        : 'Keys, price and webhook are all set on live keys. Nothing to do.'}</div>
+  </div>`;
+}
+
 function loadApps(){
   fetch(API+'/applications',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
@@ -4006,6 +4160,7 @@ function draw(){
                 ['questions','Questions', qOpen().length],
                 ['apps','Applications', newApps().length]];
   const navRest=[['paid','Client reviews', paidQ().length],
+                 ['leads','Accounts', 0],
                  ['workouts','Workouts', 0],
                  ['review','Review', reviewQueue.length],
                  ['explain','Explainers', 0],
@@ -4050,7 +4205,7 @@ function draw(){
         <div class="wideGrid">${metricsHTML(sel)}</div>
       </div>`:
       view==='setup'?`<div style="margin-top:16px">
-        ${newClientHTML()}${mailguardHTML()}${dbHTML()}
+        ${newClientHTML()}${mailguardHTML()}${stripeHTML()}${dbHTML()}
         <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px;max-width:60ch">
           The database check and the copy are one-time setup. The copy reads the
           old Blobs store, so running it now would push stale data over live
@@ -4060,6 +4215,7 @@ function draw(){
       view==='review'?`<div style="margin-top:16px">${reviewHTML()}</div>`:
       view==='explain'?`<div style="margin-top:16px">${explainHTML()}</div>`:
       view==='questions'?`<div style="margin-top:16px">${questionsHTML()}</div>`:
+      view==='leads'?`<div style="margin-top:16px">${leadsHTML()}</div>`:
       view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
       view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>
       ${sel?`<div style="margin-top:14px">${threadCardHTML(msgs)}</div>`:''}`:`
