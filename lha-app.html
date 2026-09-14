@@ -2005,7 +2005,15 @@ function repaintMode(){
   const keep=host.scrollTop;
   drawOv();
   const now=document.querySelector('#ov .sheet');
-  if(now) now.scrollTop=keep;
+  if(now){
+    /* .sheet carries a 450ms slide up, and drawOv builds a fresh one, so
+       every tap of a time or a difficulty replayed the whole sheet coming in
+       from the bottom. That is the "it refreshes when I press it". The sheet
+       is already up; only its contents changed. Setting this synchronously
+       means the animation never starts rather than being cut off. */
+    now.style.animation='none';
+    now.scrollTop=keep;
+  }
 }
 function repaintCp(k){
   const el=document.getElementById('cptop-'+k); if(!el) return;
@@ -3366,8 +3374,14 @@ function screenMore(){
     </div>`;}).join('');
 
   return `<div class="scroll s">
-    <div style="background:var(--forest);padding:calc(env(safe-area-inset-top) + 79px) 20px 20px;color:var(--bg)">
-      <div class="h-md" style="font-size:30px">Library &amp; more</div></div>
+    <!-- the last green block in the app. Every other screen is on the ground
+         now, so this one was the odd page out. -->
+    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">Everything else</div>
+      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:8px">Library &amp;
+        <em style="color:var(--forest);font-style:normal">more.</em></div>
+    </div>
     <div style="padding:16px 14px 0">
       <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:20px">
         ${st.in?`<button class="act" onclick="openOv('password')">Change password</button>
@@ -5255,14 +5269,31 @@ const INTAKE_STEPS=[
    sub:"Nothing binding — it just tells me what's realistic."},
 ];
 
+/* has this step got an answer yet, so Next can be offered rather than sat
+   there doing nothing */
+function stepAnswered(i){
+  const a=intake(), id=(INTAKE_STEPS[i]||{}).id;
+  if(id==='goal')    return !!a.goal;
+  if(id==='level')   return a.level!=null;
+  if(id==='niggles') return true;          /* nothing to flag is an answer */
+  if(id==='week')    return !!(a.mins && a.days);
+  return true;
+}
 function screenQuiz(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
   const rails=INTAKE_STEPS.map((_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
-    background:${n<=i?'var(--forest)':'rgba(0,102,99,.14)'}"></i>`).join('');
+    background:${n<i?'var(--deep)':n===i?'var(--amber)':'rgba(0,64,61,.15)'}"></i>`).join('');
   const card=(on,body,click)=>`<button onclick="${click}" style="background:#fff;
-    border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};border-radius:16px;padding:15px 16px;
-    box-shadow:${on?'0 0 0 3px rgba(0,102,99,.1)':'0 1px 2px rgba(17,17,17,.04)'};
-    color:var(--ink);cursor:pointer;text-align:left;width:100%">${body}</button>`;
+    border:1.5px solid ${on?'var(--forest)':'rgba(0,64,61,.10)'};border-radius:16px;padding:15px 16px;
+    box-shadow:${on?'0 0 0 3px rgba(0,102,99,.08)'
+      :'0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)'};
+    color:var(--ink);cursor:pointer;text-align:left;width:100%;
+    display:flex;align-items:center;gap:13px">
+    <span style="flex:1;min-width:0">${body}</span>
+    <span style="flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+      background:${on?'var(--forest)':'transparent'};
+      border:${on?'none':'1.5px solid rgba(0,64,61,.2)'};color:#fff;font:700 12px/1 var(--sans)">${
+      on?'&check;':''}</span></button>`;
   const two=(t,d)=>`<div style="font:600 16px/1.25 var(--sans);color:var(--ink)">${esc(t)}</div>
     <div style="font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">${esc(d)}</div>`;
 
@@ -5281,8 +5312,18 @@ function screenQuiz(){
         color:${on?'var(--on-primary)':'var(--ink)'};border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};
         border-radius:999px;padding:12px 16px;
         font:600 13.5px/1 var(--sans);cursor:pointer">${esc(x)}</button>`;}).join('')}</div>
-      <button class="btn" style="width:100%;margin-top:18px"
-        onclick="nextIntake()">${sel.length?'Continue':'Nothing to flag'}</button>`;
+      ${sel.length && sel.indexOf('Nothing right now')<0 ? `
+      <!-- 6c shows a box here saying what each niggle changes. Nothing in the
+           free app adapts to a niggle yet, so this says the true thing: it
+           reaches Elliott and shapes what he writes. Give me a line per
+           niggle and I will say the specific thing instead. -->
+      <div style="margin-top:16px;padding:13px 15px;border-left:3px solid var(--forest);
+        background:rgba(0,102,99,.05);border-radius:0 12px 12px 0">
+        <div style="font:400 14px/1.5 var(--sans)">
+          ${esc(sel.filter(x=>x!=='Nothing right now').join(', '))}: noted. It goes to
+          Elliott with the rest of your answers and shapes what he suggests. Nothing
+          here is off limits because of it.</div>
+      </div>`:''}`;
   }
 
   if(step.id==='train'){
@@ -5322,12 +5363,24 @@ function screenQuiz(){
         : i===INTAKE_STEPS.length-1 ? 'Last one'
         : (INTAKE_STEPS.length-i-1)+' to go'}</span>
     </div>
-    <div style="margin-top:11px;font:400 32px/1.06 var(--serif);color:var(--deep)">${esc(step.q)}</div>
+    <div style="margin-top:11px;font:400 32px/1.06 var(--serif)">${(()=>{
+      const w=String(step.q).trim().split(' ');
+      const last=w.pop();
+      return esc(w.join(' '))+' <em style="color:var(--forest);font-style:normal">'+esc(last)+'</em>';
+    })()}</div>
     <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">${esc(step.sub)}</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:24px">${body}</div>
-    <!-- what the next question is about, so answering feels like progress -->
-    ${INTAKE_STEPS[i+1]?`<div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);
-      margin-top:18px;text-align:center">Next: ${esc(INTAKE_STEPS[i+1].kick.toLowerCase())}</div>`:''}
+    <!-- The frames make this a button, not a caption. It names the next
+         question, so answering reads as progress rather than as a form. It
+         only appears once this step has an answer, because a Next that does
+         nothing is worse than no Next. -->
+    ${(INTAKE_STEPS[i+1] && stepAnswered(i))?`<button onclick="nextIntake()"
+      style="width:100%;height:56px;margin-top:22px;border:0;border-radius:14px;cursor:pointer;
+      background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+      box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+      font:600 16px/1 var(--sans)">${
+        i===INTAKE_STEPS.length-2 ? 'Last one: '+esc(INTAKE_STEPS[i+1].kick.toLowerCase())
+                                  : 'Next: '+esc(INTAKE_STEPS[i+1].kick.toLowerCase())} &rarr;</button>`:''}
     ${i>0?`<button onclick="st.quizStep=${i-1};save();render()" style="background:none;border:none;
       color:var(--grey2);font:500 13px/1 var(--sans);cursor:pointer;margin-top:14px;padding:10px">← Back</button>`
       :`<button onclick="skipIntake()" style="background:none;border:none;color:var(--grey2);
@@ -7558,26 +7611,50 @@ function screenCoaching(){
 
 /* ── the welcome gate: free by default, coached with a code ── */
 function screenWelcome(){
-  return `<div style="min-height:100dvh;background:linear-gradient(180deg,var(--forest),var(--ink));
-    padding:calc(env(safe-area-inset-top) + 40px) 26px 30px;color:var(--bg);display:flex;flex-direction:column">
-    <div class="kick">LONDON HANDSTAND ACADEMY</div>
-    <div class="h-xl" style="font-size:52px;line-height:.98;margin-top:auto;letter-spacing:-.015em">Get upside
-      <em style="color:var(--sage);font-style:normal">down.</em></div>
-    <div style="font:400 15px/1.55 var(--sans);color:var(--sage-t);margin-top:14px">
-      ${STAGES.length} stages, from your first wall hold to a freestanding press. Free, and it works offline.</div>
-    <!-- what pressing the button costs them, before they press it. Four
-         questions unannounced is where people leave. -->
-    <div style="font:400 13.5px/1.5 var(--sans);color:rgba(236,231,226,.72);margin-top:16px">
-      4 questions, about a minute. You come out on your stage.</div>
-    <div style="margin-top:22px;display:flex;flex-direction:column;gap:10px">
-      <button class="btn" style="background:var(--bg);color:var(--ink)" onclick="startFree()">Start free &rarr;</button>
-      <button class="btn" style="background:none;border:1.5px solid rgba(242,239,231,.28);color:var(--bg);font-weight:600"
-        onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
+  /* 6a. On the ground the rest of the app uses, not the old dark gradient:
+     this is the first screen anybody sees, and it was the one still selling
+     a different app. The four bars are the quiz, and the same strip carries
+     through it, so the thing you are about to do is visible before you
+     agree to it. */
+  return `<div class="scroll s" style="min-height:100dvh;display:flex;flex-direction:column;
+    justify-content:flex-end;padding:calc(env(safe-area-inset-top) + 44px) 26px 40px;
+    position:relative;background:transparent;color:var(--ink)">
+    <div style="position:absolute;top:calc(env(safe-area-inset-top) + 44px);left:26px;
+      font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+      color:var(--forest)">London Handstand Academy</div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font:400 52px/.98 var(--serif);letter-spacing:-.015em">Get upside
+        <em style="color:var(--forest);font-style:normal">down.</em></div>
+      <div style="font:400 17px/1.45 var(--sans);color:var(--grey);max-width:330px">
+        ${STAGES.length} stages, from your first wall hold to a freestanding press.
+        Free, and it works offline.</div>
     </div>
-    <div style="font:400 12.5px/1.6 var(--sans);color:#8fbeca;margin-top:20px;text-align:center">
+
+    <div style="display:flex;gap:10px;margin-top:28px;align-items:center;
+      color:var(--grey);font:400 13px/1.45 var(--sans)">
+      <span style="display:flex;gap:4px;flex:none">
+        ${[0,1,2,3].map(i=>`<i style="width:22px;height:3px;border-radius:2px;
+          background:${i?'rgba(0,64,61,.15)':'var(--amber)'}"></i>`).join('')}
+      </span>
+      <span>4 questions, about a minute. You come out on your stage.</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+      <button onclick="startFree()" style="height:56px;border:0;border-radius:14px;cursor:pointer;
+        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+        font:600 17px/1 var(--sans)">Start free &rarr;</button>
+      <button onclick="st.tab='signin';save();render()" style="height:52px;border-radius:14px;
+        border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);cursor:pointer;
+        font:600 16px/1 var(--sans)">Coaching client? Sign in</button>
+    </div>
+
+    <div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center">
       ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account opens every
       clip and keeps your progress; the ${STAGES.length-FREE_STAGES} stages below it are
-      £5 a month.</div></div>`;
+      £5 a month.</div>
+  </div>`;
 }
 
 /* ── free sign-up, after the quiz ────────────────────────────────
