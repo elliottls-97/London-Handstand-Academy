@@ -5,7 +5,14 @@
 <meta name="theme-color" content="#006663">
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Handstand Ladder">
+<meta name="mobile-web-app-capable" content="yes">
 <title>London Handstand Academy</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -1300,6 +1307,79 @@ function whyVideo(n){
    and showing three numbers. */
 function dayKey(d){ return new Date(d).toISOString().slice(0,10); }
 
+/* ── how much, and how long ────────────────────────────────────────
+   Everything below reads what the account already holds. Nothing new is
+   asked of the person and nothing is estimated: a session carries its
+   drill rows, a row carries what one set asked for and how many sets were
+   finished, and a visit carries how long the app was open.
+
+   Reps and seconds are counted apart all the way through. Adding a
+   thirty second hold to ten shoulder taps gives forty of nothing. */
+const MONDAY = t => { const d=new Date(t); const w=(d.getDay()+6)%7;
+  d.setHours(0,0,0,0); d.setDate(d.getDate()-w); return d.getTime(); };
+
+/* a row's unit, falling back to the programme for rows logged before the
+   unit was carried */
+function rowUnit(it){
+  if(it && (it.unit==='s'||it.unit==='')) return it.unit;
+  const p=(typeof prescribedFor==='function' && it && it.v) ? prescribedFor(it.v) : null;
+  return (p && p.unit) || '';
+}
+function volumeBetween(from, to){
+  const ss=((st.prog&&st.prog.sessions)||[])
+    .filter(s=>s && (s.at||0)>=from && (s.at||0)<(to||Infinity));
+  let reps=0, secs=0, sets=0, mins=0;
+  const drills=new Set();
+  ss.forEach(s=>{
+    mins += Number(s.actual)||Number(s.mins)||0;
+    (s.items||[]).forEach(it=>{
+      const n=Number(it.reps)||0;
+      sets += Number(it.got)||0;
+      if(it.v && (Number(it.got)||0)) drills.add(it.v);
+      if(!n) return;
+      if(rowUnit(it)==='s') secs+=n; else reps+=n;
+    });
+  });
+  return {reps, secs, sets, mins, drills:drills.size, sessions:ss.length};
+}
+const volumeSince = from => volumeBetween(from, null);
+
+/* time in the app, from the per-day visit record the server keeps */
+function appTimeBetween(from, to){
+  const v=(st.prog&&st.prog.visits)||{};
+  let ms=0, opens=0, days=0;
+  Object.keys(v).forEach(k=>{
+    const t=new Date(k+'T12:00:00').getTime();
+    if(t<from || (to && t>=to)) return;
+    const d=v[k]||{}; ms+=Number(d.ms)||0; opens+=Number(d.n)||0; days++;
+  });
+  return {ms, opens, days};
+}
+/* eight weeks of both, newest last, for the bars */
+function weeklySeries(n){
+  const thisWeek=MONDAY(Date.now()), out=[];
+  for(let i=n-1;i>=0;i--){
+    const from=thisWeek-i*7*864e5, to=from+7*864e5;
+    const v=volumeBetween(from,to), a=appTimeBetween(from,to);
+    out.push({from, reps:v.reps, secs:v.secs, mins:v.mins, sets:v.sets,
+      sessions:v.sessions, appMs:a.ms, opens:a.opens});
+  }
+  return out;
+}
+/* "1h 20m", "20m", "40s": a duration nobody has to divide in their head */
+function hm(ms){
+  const m=Math.round((ms||0)/60000);
+  if(m<1) return ms>0 ? 'under a minute' : '0m';
+  if(m<60) return m+'m';
+  return Math.floor(m/60)+'h '+(m%60?(m%60)+'m':'');
+}
+function mmss(secs){
+  const s=Math.round(secs||0);
+  if(s<60) return s+'s';
+  const m=Math.floor(s/60);
+  return m+'m'+(s%60?' '+(s%60)+'s':'');
+}
+
 function panelMonth(p){
   const opens=new Set(((p&&p.opens)||[]));
   const today=new Date(); today.setHours(12,0,0,0);
@@ -2503,8 +2583,10 @@ function sendPlanReps(){
   (d.groups||[]).forEach((g,gi)=>(g.items||[]).forEach((it,ii)=>{
     const k=key(st.day,gi,ii), r=(st.planReps||{})[k];
     if(r==null) return;
+    const a=doseAmount(it);
     out.push({v:it.v, n:it.n, grp:g.name, got:st.tick[k]?1:0, of:1,
-              reps:r, want:recommendedReps(it)||0, dose:String(it.d||'').slice(0,40),
+              reps:r, unit:a.unit, per:a.n, secs:0,
+              want:a.n||recommendedReps(it)||0, dose:String(it.d||'').slice(0,40),
               rate:(st.rate||{})[it.v]||''});
   }));
   if(!out.length) return;
@@ -2524,38 +2606,203 @@ function prescribedFor(v){
    meaningless on every hold in the programme */
 function doseUnit(d){ return /\bs(ec|econds)?\b|\d+\s*s\b/i.test(String(d||'')) ? 's' : ''; }
 
-function repsOffCard(){
-  const log=(st.prog&&st.prog.repsLog)||{};
+/* repsOffCard lived here. It listed only the drills where what was done
+   did not match what was asked, capped at eight, so a drill done exactly as
+   prescribed never appeared and the card read as a list of failures rather
+   than a record of work. perDrillCard below is the whole log. */
+
+/* ── this week, in the units the training is actually in ───────────
+   The Progress tab counted sessions and days and never once said how much
+   work was done in them. These three are the answer to "how much": time on
+   the floor, reps turned over, and seconds spent upside down. */
+function volumeHero(){
+  const wk=MONDAY(Date.now()), lastWk=wk-7*864e5;
+  const now=volumeBetween(wk,null), was=volumeBetween(lastWk,wk);
+  const app=appTimeBetween(wk,null), appWas=appTimeBetween(lastWk,wk);
+  const anything = now.sessions||now.reps||now.secs||app.opens;
+  const delta=(a,b)=>{
+    if(!b) return '';
+    const d=a-b; if(!d) return 'level with last week';
+    const pct=Math.round(Math.abs(d)/b*100);
+    return (d>0?'up ':'down ')+pct+'% on last week';
+  };
+  const stat=(v,label,sub)=>`<div style="flex:1;min-width:0">
+    <div style="font:400 ${String(v).length>5?25:34}px/1 var(--serif);letter-spacing:-.015em;
+      color:var(--ink);white-space:nowrap">${v}</div>
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+      color:var(--grey);margin-top:8px">${label}</div>
+    ${sub?`<div style="font:400 11.5px/1.35 var(--sans);color:var(--grey2);margin-top:5px">${sub}</div>`:''}
+  </div>`;
+  if(!anything) return `<div class="card" style="padding:20px">
+    <div class="kick2">THE WORK, THIS WEEK</div>
+    <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
+      Nothing yet this week. Finish a session and the time, the reps and the
+      seconds you held all turn up here on their own.</div></div>`;
+  return `<div class="card" style="padding:22px 20px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2">THE WORK, THIS WEEK</span>
+      <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${
+        now.sessions} session${now.sessions===1?'':'s'}</span>
+    </div>
+    <div style="display:flex;gap:14px;margin-top:16px">
+      ${stat(now.mins+'m','Training', delta(now.mins,was.mins))}
+      ${stat(String(now.reps),'Reps', delta(now.reps,was.reps))}
+      ${stat(mmss(now.secs),'Held', delta(now.secs,was.secs))}
+    </div>
+    <div style="height:1px;background:rgba(0,64,61,.09);margin:18px 0 14px"></div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span style="font:400 13.5px/1.4 var(--sans);color:var(--grey)">
+        ${now.sets} set${now.sets===1?'':'s'} across ${now.drills} drill${now.drills===1?'':'s'}</span>
+      <span style="font:400 13.5px/1.4 var(--sans);color:var(--grey2)">${
+        app.opens? hm(app.ms)+' in the app' : ''}</span>
+    </div>
+  </div>`;
+}
+
+/* ── the same three, eight weeks of them ───────────────────────────
+   One bar chart with a switch rather than three charts, because they are
+   three readings of one thing and nobody wants to scroll past two of them
+   to reach the one they meant. */
+function volumeCard(){
+  const tab=['reps','secs','mins'].indexOf(st.volTab)>-1?st.volTab:'reps';
+  const wks=weeklySeries(8);
+  const val=w=>tab==='reps'?w.reps:tab==='secs'?w.secs:w.mins;
+  const any=wks.some(w=>val(w)>0);
+  const peak=Math.max(1,...wks.map(val));
+  const fmt=v=>tab==='secs'?mmss(v):tab==='mins'?hm(v*60000):String(v);
+  const seg=[['reps','Reps'],['secs','Held'],['mins','Time']].map(([k,l])=>
+    `<button onclick="st.volTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;
+      border-radius:10px;padding:9px 6px;min-height:40px;font:600 12.5px/1 var(--sans);
+      background:${tab===k?'#fff':'transparent'};
+      box-shadow:${tab===k?'0 1px 2px rgba(17,17,17,.08)':'none'};
+      color:${tab===k?'var(--deep)':'var(--grey)'}">${l}</button>`).join('');
+  const total=wks.reduce((a,w)=>a+val(w),0);
+  return `<div class="card" style="padding:20px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2">EIGHT WEEKS</span>
+      <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${
+        any?fmt(total)+' in total':'nothing logged yet'}</span>
+    </div>
+    <div style="display:flex;gap:4px;padding:4px;border-radius:13px;
+      background:rgba(0,64,61,.08);margin-top:14px">${seg}</div>
+    <div style="display:flex;align-items:flex-end;gap:6px;height:104px;margin-top:18px">
+      ${wks.map((w,i)=>{
+        const v=val(w), h=any?Math.max(v?4:2,Math.round(v/peak*100)):2;
+        const last=i===wks.length-1;
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;
+          justify-content:flex-end;height:100%;gap:6px">
+          ${v?`<span style="font:600 9px/1 var(--sans);color:${
+            last?'var(--ink)':'var(--grey2)'}">${tab==='secs'?Math.round(v):v}</span>`:''}
+          <div title="${fmt(v)}" style="width:100%;height:${h}%;border-radius:5px;
+            background:${v? (last?'var(--amber)':'var(--deep)') : 'rgba(0,64,61,.1)'}"></div>
+        </div>`;}).join('')}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      ${wks.map((w,i)=>`<span style="flex:1;text-align:center;font:600 8.5px/1 var(--sans);
+        letter-spacing:.06em;color:${i===wks.length-1?'var(--ink)':'var(--grey2)'}">${
+        i===wks.length-1?'NOW':new Date(w.from).toLocaleDateString('en-GB',{day:'numeric',month:'short'})
+          .replace(' ',' ')}</span>`).join('')}
+    </div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">${
+      tab==='reps' ? 'Every rep of every set you finished, warm-ups included.'
+      : tab==='secs' ? 'Time actually spent holding a shape, not session length.'
+      : 'Session time, as long as the session really took.'}</div>
+  </div>`;
+}
+
+/* ── how much they are in here, as opposed to training ─────────────
+   Two different habits and they were being read as one. Opening the app
+   is not a session, and a week of opening it without training is exactly
+   the week worth seeing. */
+function appUseCard(){
+  const wk=MONDAY(Date.now());
+  const now=appTimeBetween(wk,null), was=appTimeBetween(wk-7*864e5,wk);
+  const v=(st.prog&&st.prog.visits)||{};
+  if(!Object.keys(v).length) return '';
+  const trained=volumeBetween(wk,null).sessions;
+  const days=[0,1,2,3,4,5,6].map(i=>{
+    const t=wk+i*864e5, k=new Date(t).toISOString().slice(0,10);
+    const d=v[k]||{}; return {k, ms:Number(d.ms)||0, n:Number(d.n)||0,
+      fut:t>Date.now(), today:k===new Date().toISOString().slice(0,10)};
+  });
+  const peak=Math.max(1,...days.map(d=>d.ms));
+  return `<div class="card" style="padding:20px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2">TIME IN THE APP</span>
+      <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${
+        now.opens} visit${now.opens===1?'':'s'}${was.ms?', '+hm(was.ms)+' last week':''}</span>
+    </div>
+    <div style="font:400 34px/1 var(--serif);letter-spacing:-.015em;margin-top:13px">${hm(now.ms)}</div>
+    <div style="display:flex;align-items:flex-end;gap:5px;height:64px;margin-top:16px">
+      ${days.map(d=>`<div style="flex:1;height:100%;display:flex;align-items:flex-end">
+        <div style="width:100%;height:${d.ms?Math.max(8,Math.round(d.ms/peak*100)):3}%;
+          border-radius:4px;opacity:${d.fut?.4:1};
+          background:${d.ms?(d.today?'var(--amber)':'var(--sage)'):'rgba(0,64,61,.1)'}"></div>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:5px;margin-top:7px">
+      ${['M','T','W','T','F','S','S'].map((l,i)=>`<span style="flex:1;text-align:center;
+        font:600 9px/1 var(--sans);color:${days[i].today?'var(--ink)':'var(--grey2)'}">${l}</span>`).join('')}
+    </div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">${
+      !now.opens ? 'Nothing this week yet.'
+      : trained ? 'Across '+now.days+' day'+(now.days===1?'':'s')+', with '+trained+
+        ' session'+(trained===1?'':'s')+' trained.'
+      : 'Across '+now.days+' day'+(now.days===1?'':'s')+', and nothing trained yet. '+
+        'Opening it is not the same as doing it.'}</div>
+  </div>`;
+}
+
+/* ── per drill ─────────────────────────────────────────────────────
+   This card only ever listed drills where what was done did not match what
+   was asked, so everything done as prescribed was invisible and the card
+   read as a list of failures. It is the whole log now, best first, with
+   what was asked for beside it. */
+function perDrillCard(){
+  const log=(st.prog&&st.prog.repsLog)||st.repsLog||{};
   const rows=[];
   Object.keys(log).forEach(v=>{
     const h=(log[v]||[]).filter(x=>x && x.reps);
     if(!h.length) return;
-    const last=h[0];
-    const pre=prescribedFor(v);
-    const want=last.want || (pre&&pre.want) || 0;
-    if(!want || last.reps===want) return;
-    rows.push({v, n:last.n||(pre&&pre.n)||v.replace(/-/g,' '), reps:last.reps, want,
-               unit:(pre&&pre.unit)||'', at:last.at,
-               trend:h.length>1?last.reps-h[1].reps:0});
+    const last=h[0], pre=prescribedFor(v);
+    const unit=(last.unit==='s'||last.unit==='') ? last.unit : ((pre&&pre.unit)||'');
+    const best=Math.max(...h.map(x=>Number(x.reps)||0));
+    rows.push({v, n:last.n||(pre&&pre.n)||v.replace(/-/g,' '),
+      reps:Number(last.reps)||0, want:Number(last.want)||(pre&&pre.want)||0,
+      best, unit, at:Number(last.at)||0,
+      trend:h.length>1 ? (Number(last.reps)||0)-(Number(h[1].reps)||0) : 0});
   });
   if(!rows.length) return '';
   rows.sort((a,b)=>b.at-a.at);
+  const open=!!st.drillsOpen;
+  const shown=open?rows:rows.slice(0,6);
   return `<div class="card" style="padding:18px 20px">
-    <div class="kick2">WHAT YOU ACTUALLY MANAGED</div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2">DRILL BY DRILL</span>
+      <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${rows.length} logged</span>
+    </div>
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-      Reps and seconds, where what you did was not what was asked for. Short of it is
+      The last set of each, against what it asked for. Short of it is
       information, not a failure.</div>
     <div style="margin-top:12px">
-    ${rows.slice(0,8).map((r,i)=>`<div style="display:flex;align-items:baseline;gap:10px;
-      padding:10px 0;${i?'border-top:1px solid rgba(17,17,17,.07)':''}">
-      <span style="flex:1;min-width:0;font:600 14px/1.25 var(--sans)">${esc(r.n)}</span>
+    ${shown.map((r,i)=>`<div style="display:flex;align-items:baseline;gap:10px;
+      padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+      <span style="flex:1;min-width:0;font:600 14px/1.25 var(--sans)">${esc(r.n)}
+        ${r.best>r.reps?`<span style="display:block;font:400 11px/1.3 var(--sans);
+          color:var(--grey2);margin-top:3px">best ${r.best}${esc(r.unit)}</span>`:''}</span>
       ${r.trend?`<span style="flex:none;font:600 10.5px/1 var(--sans);
         color:${r.trend>0?'var(--forest)':'var(--grey2)'}">${r.trend>0?'+':''}${r.trend}</span>`:''}
       <span style="flex:none;font:400 17px/1 var(--serif);
-        color:${r.reps>=r.want?'var(--forest)':'var(--ink)'}">${r.reps}${esc(r.unit)}
-        <span style="font:400 12px/1 var(--sans);color:var(--grey2)">of ${r.want}${esc(r.unit)}</span></span>
+        color:${r.want&&r.reps>=r.want?'var(--forest)':'var(--ink)'}">${r.reps}${esc(r.unit)}
+        ${r.want?`<span style="font:400 12px/1 var(--sans);color:var(--grey2)">of ${
+          r.want}${esc(r.unit)}</span>`:''}</span>
     </div>`).join('')}
     </div>
+    ${rows.length>6?`<button class="back" style="font-weight:700;font-size:12.5px;margin-top:10px;padding:0"
+      onclick="st.drillsOpen=!st.drillsOpen;save();render()">${
+      open?'Show fewer':'All '+rows.length+' drills'}</button>`:''}
+    ${repsAreLocal()?`<div style="font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:11px">
+      Kept on this phone only until you have an account.</div>`:''}
   </div>`;
 }
 
@@ -2874,17 +3121,23 @@ function screenProgress(){
       box-shadow:${tab===k?'0 1px 2px rgba(17,17,17,.08)':'none'};
       color:${tab===k?'var(--deep)':'var(--grey)'}">${l}</button>`).join('');
 
+  /* How much, then how often, then what per drill, then how much time is
+     spent in here rather than training. The tab used to open on a calendar
+     and never answer the first of those at all. */
   const trackBody = `
+      <div data-tour="volume">${volumeHero()}</div>
+      ${volumeCard()}
       ${coachedView()?'':weekCard()}
       <div data-tour="calendar">${sessionCalendar()}</div>
       <div data-tour="adherence">${adherenceCard()}</div>
-      <div data-tour="checkin">${checkinCard()}</div>
+      ${coachedView()?`<div data-tour="checkin">${checkinCard()}</div>`:''}
       <!-- The stage card, the week-by-week bars, the hold and Your numbers
            came out of the free Progress tab. The stage card repeated the
            ladder tab it now sits behind, the bars repeated Sticking to it
            directly above them, and the hold was the gate check points
            replaced. Four cards saying what two already said. -->
-      ${repsOffCard()}
+      ${perDrillCard()}
+      ${appUseCard()}
       ${coachedView() ? photosCard() : ''}
       ${coachedView() ? panelWeek(st.prog) : ''}
       ${coachedView()
@@ -2896,14 +3149,7 @@ function screenProgress(){
               `<div style="display:flex;justify-content:space-between;align-items:baseline">
                <span style="font:400 14px/1.3 var(--sans)">${n}</span>
                <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>`
-        : `<div class="card"><div class="kick2">PERSONAL BESTS</div>
-            <div style="display:flex;flex-direction:column;gap:13px;margin-top:14px">
-            ${[[holdLabel(), bestHoldFor(holdKind())?bestHoldFor(holdKind())+'s':'not yet'],
-                ['Sessions done', String(sessionsDone().length)],
-                ['Drills ticked off', String(Object.keys(st.ladderDone||{}).length)]].map(([n,v])=>
-              `<div style="display:flex;justify-content:space-between;align-items:baseline">
-               <span style="font:400 14px/1.3 var(--sans)">${n}</span>
-               <span class="h-sm" style="font-size:22px">${v}</span></div>`).join('')}</div></div>`}`;
+        : ''}`;
 
   const marksBody = `
       ${milestoneCard()}
@@ -3519,10 +3765,37 @@ function screenMore(){
             A quick tour of each screen, pointing at the real thing as it goes.</div>
         </div>
         <button onclick="st.tourSeen=null;save();go(coachedView()?'today':'home');setTimeout(function(){startTour()},400)"
-          style="flex:none;border:1px solid rgba(17,17,17,.14);background:#fff;border-radius:12px;
+          style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:12px;
           cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);
           color:var(--ink)">Show me</button>
       </div>
+
+      <!-- the tour mentions this once. It needs to be somewhere they can
+           find it again, because nobody installs an app on the first day. -->
+      ${canInstall()?`<div class="card" style="padding:18px 20px;margin-bottom:16px">
+        <div class="kick2">ON YOUR HOME SCREEN</div>
+        <div style="font:400 22px/1.2 var(--serif);margin-top:10px">Open it like an app.</div>
+        <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:9px"
+          id="installHow">${esc(installCopy())}</div>
+        ${installPrompt?`<button onclick="if(doInstall())this.textContent='Asking\u2026'"
+          style="width:100%;margin-top:14px;border:0;border-radius:16px;padding:16px;
+          background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+          box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+          font:600 15px/1 var(--sans);cursor:pointer">Add to home screen</button>`
+        :isIOS()?`<div style="display:flex;align-items:center;gap:11px;margin-top:14px;
+          background:rgba(0,64,61,.06);border-radius:14px;padding:12px 14px">
+          <svg width="17" height="21" viewBox="0 0 20 24" fill="none" stroke="var(--forest)"
+            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex:none">
+            <path d="M10 1v14"/><path d="M5.5 5.5L10 1l4.5 4.5"/>
+            <path d="M4 11H2.5v11.5h15V11H16"/></svg>
+          <span style="font:500 13px/1.4 var(--sans);color:var(--deep)">
+            Share, then Add to Home Screen</span>
+        </div>`:''}
+      </div>`:`<div class="card" style="padding:16px 18px;margin-bottom:16px">
+        <div class="kick2">ON YOUR HOME SCREEN</div>
+        <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
+          Installed. This is running as an app, so the sessions work without signal.</div>
+      </div>`}
 
       ${st.in?`<div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
         color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>
@@ -3858,11 +4131,23 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
     const m=new Map();
     Q.forEach((x,idx)=>{
       const k=(x.it&&x.it.v)||(x.it&&x.it.n)||('#'+idx);
-      if(!m.has(k)) m.set(k,{v:(x.it&&x.it.v)||'',n:(x.it&&x.it.n)||'',grp:x.grp||'',got:0,of:0});
+      if(!m.has(k)){
+        const a=doseAmount(x.it);
+        m.set(k,{v:(x.it&&x.it.v)||'',n:(x.it&&x.it.n)||'',grp:x.grp||'',got:0,of:0,
+          /* how much one set asks for, and in what unit, so a finished set
+             is countable rather than just ticked */
+          per:a.n, unit:a.unit, dose:String((x.it&&x.it.d)||'').slice(0,40),
+          secsPer:(work(x.it, x.g||x.grp)||0)});
+      }
       const r=m.get(k); r.of++; if(idx<qi||done) r.got++;
     });
-    return [...m.values()].slice(0,40)
-      .map(r=>Object.assign(r,{rate:(st.rate||{})[r.v]||''}));
+    return [...m.values()].slice(0,40).map(r=>Object.assign(r,{
+      rate:(st.rate||{})[r.v]||'',
+      /* what they actually did: the per-set amount for every set they got
+         through. An adjusted count from the working list wins over it. */
+      reps:r.per*r.got,
+      want:r.per*r.of,
+      secs:r.secsPer*r.got}));
   })();
   reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done, items:rows,
     drills:Q.length,
@@ -5258,12 +5543,19 @@ function finishChecklist(){
   reportProgress({session:{
     day:st.day, name:((Q[0]&&Q[0].grp)||''), done, mode:'list',
     drills:Q.length, mins, actual:0, got:ticked, of:Q.length,
-    items:(Q||[]).map((q,i)=>({v:q.it.v, n:q.it.n, of:1,
-      got:(st.qTick||{})['q'+i]?1:0, reps:(st.reps||{})['q'+i]||0,
-      /* what was asked for, so short of it or past it is visible on both
-         sides rather than a bare number with nothing to read it against */
-      want:recommendedReps(q.it)||0, dose:String(q.it.d||'').slice(0,40),
-      rate:(st.rate||{})[q.it.v]||''})).slice(0,40)
+    items:(Q||[]).map((q,i)=>{
+      const a=doseAmount(q.it), got=(st.qTick||{})['q'+i]?1:0;
+      const adj=(st.reps||{})['q'+i]||0;
+      return {v:q.it.v, n:q.it.n, of:1, got,
+        /* what they did. Only an adjusted number was recorded before, so a
+           drill done exactly as asked counted for nothing at all. */
+        reps: got ? (adj||a.n) : 0, unit:a.unit, per:a.n,
+        secs: got ? (work(q.it)||0) : 0,
+        /* what was asked for, so short of it or past it is visible on both
+           sides rather than a bare number with nothing to read it against */
+        want:a.n||recommendedReps(q.it)||0, dose:String(q.it.d||'').slice(0,40),
+        rate:(st.rate||{})[q.it.v]||''};
+    }).slice(0,40)
   }});
   st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
   st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
@@ -7419,6 +7711,18 @@ function recommendedReps(it){
   if(nums&&nums.length) return Number(nums[nums.length-1]);
   return work(it)||10;
 }
+/* What one set of a drill asks for, as a number and the unit it is in.
+   A rep and a second are different things and adding them together gives a
+   number that means nothing, so everything downstream keeps them apart. */
+function doseAmount(it){
+  const d=String((it&&it.d)||'');
+  const nums=d.match(/\d+/g);
+  if(nums&&nums.length) return {n:Number(nums[nums.length-1]), unit:doseUnit(d)};
+  /* no dose written: an untimed hold is still seconds, and the rules know
+     how many. A drill with neither is not volume, it is a tick. */
+  const w=(typeof work==='function') ? (work(it)||0) : 0;
+  return w ? {n:w, unit:'s'} : {n:0, unit:''};
+}
 function repsHistory(v){ return (st.repsLog&&st.repsLog[v])||[]; }
 /* signed out there is no account to hold this, so the local copy is all there
    is — worth saying rather than pretending it syncs */
@@ -8217,7 +8521,12 @@ const TOURS = {
        b:'Type a question and it looks through the videos first. The rail underneath is every explainer.',
        pre:()=>{ tourLeaveMode(); }},
       {t:'tabs', h:'The rest of it',
-       b:'Ladder is every drill in every stage, Progress is what you have actually done, and Coaching is where you send a clip to me.'}
+       b:'Ladder is every drill in every stage, Progress is what you have actually done, and Coaching is where you send a clip to me.'},
+      /* skipped entirely once it is installed, which is why it carries a
+         test rather than sitting there telling people to do what they have
+         already done */
+      {t:'tabs', h:'Keep it on your home screen', when:canInstall, b:installCopy,
+       go:()=>{ doInstall(); }}
     ]
   },
   today: {
@@ -8309,6 +8618,38 @@ function markTourSeen(key){
 /* steps that open something rather than pointing at part of a screen. They
    have no data-tour anywhere, so they must not be filtered out as missing. */
 const TOUR_VIRTUAL = ['modesheet','followalong','drilllist'];
+/* ── on the home screen ────────────────────────────────────────────
+   This is a progressive web app and nothing ever said so. Opened from a
+   browser tab it loses the full screen, the icon and half the reason it
+   works offline, and most people will never think to install a website.
+
+   Chrome hands us the install prompt and we hold on to it. Safari does
+   not, and never will, so there it is the instructions or nothing. */
+let installPrompt=null;
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installPrompt=e; });
+window.addEventListener('appinstalled', ()=>{ installPrompt=null; st.installed=true; save(); });
+const isStandalone = () => {
+  try{ return window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone===true; }catch(e){ return false; }
+};
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
+  || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+function canInstall(){ return !isStandalone(); }
+function installCopy(){
+  if(installPrompt) return 'Chrome can do it in one tap. Next puts it on your '+
+    'home screen, where it opens full screen and works without signal.';
+  if(isIOS()) return 'Tap the share button at the bottom of Safari, then Add to '+
+    'Home Screen. It opens full screen from there, and the sessions work without signal.';
+  return 'Open your browser menu and choose Install, or Add to Home Screen. It opens '+
+    'full screen from there, and the sessions work without signal.';
+}
+function doInstall(){
+  if(!installPrompt) return false;
+  const p=installPrompt; installPrompt=null;
+  try{ p.prompt(); p.userChoice.then(r=>{ if(r&&r.outcome==='accepted'){ st.installed=true; save(); } }); }
+  catch(e){ return false; }
+  return true;
+}
 /* Worked out once, when the tour starts, and then left alone. Recomputing
    it against the live DOM meant a step that changed the screen shrank the
    list under its own feet: the index ran off the end and the tour stalled
@@ -8319,7 +8660,8 @@ function buildTourList(key){
   const def = TOURS[key];
   if(!def) return [];
   return def.steps.filter(x =>
-    x.always || TOUR_VIRTUAL.indexOf(x.t) > -1 || document.querySelector('[data-tour="'+x.t+'"]'));
+    (!x.when || x.when()) &&
+    (x.always || TOUR_VIRTUAL.indexOf(x.t) > -1 || document.querySelector('[data-tour="'+x.t+'"]')));
 }
 function startTour(key){
   tourKey = key || (coachedView() ? 'today' : 'home');
@@ -8380,7 +8722,11 @@ function tourJump(key){
   setTimeout(()=>startTour(key), 420);
 }
 function tourNext(){
-  const steps = tourSteps();
+  const steps = tourSteps(), step = steps[tourStep];
+  /* a step can do something on the way out. The install step fires the
+     browser's own prompt, which only Chrome gives us and which must be
+     called from inside the tap that asked for it. */
+  if(step && step.go){ try{ step.go(); }catch(e){} }
   if(tourStep >= steps.length - 1) return tourFinish();
   tourStep++; drawTour();
 }
@@ -8489,8 +8835,10 @@ function paintTour(){
   document.getElementById('tourKick').textContent =
     (def.n||'').toUpperCase() + ' · STEP ' + n + ' OF ' + of;
   document.getElementById('tourH').textContent = step.h;
-  document.getElementById('tourB').textContent = step.b;
-  document.getElementById('tourGoBtn').textContent = (n===of) ? 'Done' : 'Next';
+  document.getElementById('tourB').textContent =
+    (typeof step.b==='function') ? step.b() : step.b;
+  document.getElementById('tourGoBtn').textContent =
+    (step.go && installPrompt) ? 'Add it' : (n===of) ? 'Done' : 'Next';
   document.getElementById('tourBackBtn').style.display = tourStep ? '' : 'none';
 
   const dots = document.getElementById('tourDots');

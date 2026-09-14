@@ -1067,7 +1067,7 @@ function analysis(email){
      5-a-week client look better than they were */
   const target=(intakes[email]&&Number(intakes[email].days))||3;
   const adherence=weeks?Math.round(done.length/(weeks*target)*100):0;
-  const sinceLast=done.length?Math.floor((Date.now()-Math.max(...done.map(x=>x.at)))/DAY):null;
+  const sinceLast=done.length?Math.max(0,Math.floor((Date.now()-Math.max(...done.map(x=>x.at)))/DAY)):null;
   const abandoned=all.length-done.length;
 
   /* status is the thing you want to see before anything else */
@@ -1556,6 +1556,103 @@ function dayDetail(email,list,k,p){
 /* panelMonth lived here. coachCalendar replaced it — a coach needs to
    page back through months, which the client's fixed four weeks cannot. */
 
+/* ── how much, and how long ────────────────────────────────────────
+   The dashboard counted sessions, minutes and days on the app, and never
+   once said how much work was in them. The client's sessions carry a row
+   per drill with what one set asked for and how many sets were finished,
+   so the reps and the seconds are already there to be added up. Kept
+   apart, because a rep and a second are different things. */
+const MONDAY = t => { const d=new Date(t); const w=(d.getDay()+6)%7;
+  d.setHours(0,0,0,0); d.setDate(d.getDate()-w); return d.getTime(); };
+function volumeBetween(p, from, to){
+  const ss=((p&&p.sessions)||[]).filter(s=>s && (s.at||0)>=from && (s.at||0)<(to||Infinity));
+  let reps=0, secs=0, sets=0, mins=0;
+  const drills=new Set();
+  ss.forEach(s=>{
+    mins += Number(s.actual)||Number(s.mins)||0;
+    (s.items||[]).forEach(it=>{
+      const n=Number(it.reps)||0;
+      sets += Number(it.got)||0;
+      if(it.v && (Number(it.got)||0)) drills.add(it.v);
+      if(!n) return;
+      if(it.unit==='s') secs+=n; else reps+=n;
+    });
+  });
+  return {reps, secs, sets, mins, drills:drills.size, sessions:ss.length};
+}
+function appTimeBetween(v, from, to){
+  let ms=0, opens=0, days=0;
+  Object.keys(v||{}).forEach(k=>{
+    const t=new Date(k+'T12:00:00').getTime();
+    if(t<from || (to && t>=to)) return;
+    const d=v[k]||{}; ms+=Number(d.ms)||0; opens+=Number(d.n)||0; days++;
+  });
+  return {ms, opens, days};
+}
+function hm(ms){
+  const m=Math.round((ms||0)/60000);
+  if(m<1) return ms>0?'<1m':'0m';
+  if(m<60) return m+'m';
+  return Math.floor(m/60)+'h '+(m%60?(m%60)+'m':'');
+}
+function mmss(s){ s=Math.round(s||0);
+  if(s<60) return s+'s';
+  const m=Math.floor(s/60); return m+'m'+(s%60?' '+(s%60)+'s':''); }
+/* eight weeks of both, newest last */
+function panelVolume(p, email){
+  const thisWk=MONDAY(Date.now()), wks=[];
+  for(let i=7;i>=0;i--){
+    const from=thisWk-i*7*864e5, to=from+7*864e5;
+    wks.push(Object.assign({from}, volumeBetween(p,from,to),
+      {app:appTimeBetween(visitsFor(email),from,to)}));
+  }
+  const now=wks[wks.length-1], was=wks[wks.length-2]||{reps:0,secs:0,mins:0};
+  const any=wks.some(w=>w.reps||w.secs||w.mins);
+  const peakR=Math.max(1,...wks.map(w=>w.reps));
+  const peakS=Math.max(1,...wks.map(w=>w.secs));
+  const d=(a,b)=>{ if(!b) return ''; const x=a-b; if(!x) return 'level';
+    return (x>0?'+':'')+Math.round(x/b*100)+'%'; };
+  const appNow=now.app, appWas=(wks[wks.length-2]||{app:{ms:0}}).app;
+  const stat=(v,l,s)=>`<div style="flex:1;min-width:74px">
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${l}</div>
+    <div class="h-sm" style="font-size:21px;margin-top:6px">${v}</div>
+    ${s?`<div style="font:400 11px/1.3 var(--sans);color:var(--grey2);margin-top:4px">${s}</div>`:''}
+  </div>`;
+  return `<div class="card"><div class="kick2">THE WORK</div>
+    ${any?`<div style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap">
+      ${stat(now.mins+'m','TRAINING',d(now.mins,was.mins))}
+      ${stat(String(now.reps),'REPS',d(now.reps,was.reps))}
+      ${stat(mmss(now.secs),'HELD',d(now.secs,was.secs))}
+      ${stat(String(now.sets),'SETS', now.drills+' drills')}
+    </div>
+    <div style="display:flex;gap:4px;align-items:flex-end;height:60px;margin-top:18px">
+      ${wks.map((w,i)=>`<div style="flex:1;height:100%;display:flex;flex-direction:column;
+        justify-content:flex-end;gap:2px" title="${new Date(w.from).toLocaleDateString('en-GB',
+        {day:'numeric',month:'short'})}: ${w.reps} reps, ${mmss(w.secs)} held, ${w.mins}m">
+        <div style="width:100%;height:${Math.round(w.secs/peakS*46)}%;border-radius:3px;
+          background:${i===wks.length-1?'var(--amber)':'var(--sage)'}"></div>
+        <div style="width:100%;height:${Math.round(w.reps/peakR*46)}%;border-radius:3px;
+          background:${i===wks.length-1?'var(--forest)':'var(--deep)'};opacity:${
+          i===wks.length-1?1:.75}"></div>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:16px;margin-top:9px;font:400 11px/1 var(--sans);color:var(--grey2)">
+      <span style="display:flex;align-items:center;gap:6px"><i style="width:9px;height:9px;
+        border-radius:2px;background:var(--deep);display:block"></i>Reps</span>
+      <span style="display:flex;align-items:center;gap:6px"><i style="width:9px;height:9px;
+        border-radius:2px;background:var(--sage);display:block"></i>Seconds held</span>
+      <span style="margin-left:auto">Eight weeks, this one last</span>
+    </div>`
+    :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:11px">
+      No rep or second counts yet. They arrive with the next finished session.</div>`}
+    <div style="display:flex;gap:14px;margin-top:16px;padding-top:14px;
+      border-top:1px solid rgba(28,32,25,.08)">
+      ${stat(hm(appNow.ms),'IN THE APP', appWas.ms?hm(appWas.ms)+' last week':'')}
+      ${stat(String(appNow.opens),'VISITS', appNow.days+' day'+(appNow.days===1?'':'s'))}
+      ${stat(now.sessions?String(now.sessions):'0','SESSIONS',
+        appNow.opens&&!now.sessions?'opened, not trained':'')}
+    </div></div>`;
+}
 function panelWeek(p){
   const ss=((p&&p.sessions)||[]).filter(x=>x&&x.at);
   const now=new Date(); now.setHours(23,59,59,999);
@@ -2909,6 +3006,7 @@ function metricsHTML(email){
     </div>
     ${coachCalendar(email)}</div>
   ${panelWeek(p)}
+  ${panelVolume(p, email)}
   ${intakeHTML(email)}
   ${trackHTML(email)}
   <div style="margin-top:11px">

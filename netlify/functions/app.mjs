@@ -1767,11 +1767,15 @@ export default async (request) => {
 
     if (request.method === 'GET') {
       const prog = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
+      /* how long they have spent in here, per day. It has been recorded on
+         every visit since visits stopped meaning "a tab woke up", and only
+         the coach could see it. */
+      const visits = (await getSetting(`visits:${who}`)) || {};
     return json(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen),
-  repsLog: repsLogFrom(prog.sessions),
-  bestHolds: bestHoldsFrom(prog.holds) } : {});
+  repsLog: repsLogFrom(prog.sessions), visits,
+  bestHolds: bestHoldsFrom(prog.holds) } : { visits });
     }
     if (request.method === 'POST') {
     const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
@@ -1826,6 +1830,11 @@ export default async (request) => {
                 of: Number(x && x.of) || 0,
                 reps: Number(x && x.reps) || 0,
                 want: Number(x && x.want) || 0,
+                /* a rep and a second are different units and the row carried
+                   neither, so volume could only ever be a bare count */
+                unit: (x && x.unit) === 's' ? 's' : '',
+                per: Number(x && x.per) || 0,
+                secs: Math.max(0, Math.min(36000, Number(x && x.secs) || 0)),
                 dose: String((x && x.dose) || '').slice(0, 40),
                 rate: ['easy', 'hard'].includes(x && x.rate) ? x.rate : '',
               }))

@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v60';
+const CACHE_VERSION = 'lha-v61';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 const VIDEO_CACHE   = CACHE_VERSION + '-video';
 
@@ -20,7 +20,14 @@ const SHELL = [
   '/ladder-data.js',
   /* and the clock, which the app loads as a script and so cannot open without */
   '/timing.js',
-  '/manifest.json'
+  '/manifest.json',
+  /* an installed app whose icon is not cached loses its icon the first time
+     it opens without signal */
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-180.png',
+  '/icons/icon-192-maskable.png',
+  '/icons/icon-512-maskable.png'
 ];
 
 /* Cap the video cache so a long session cannot fill up the device. */
