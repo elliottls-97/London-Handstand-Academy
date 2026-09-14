@@ -8044,11 +8044,19 @@ function warmupFor(budgetSecs, stage){
   const picks=[].concat(take(RAMP.wrists,2), rest4);
   const cap=budgetSecs*0.25;
   const out=[]; let secs=0;
+  /* A warm-up used to be one pass whatever anyone said, so a set count typed
+     in the Workouts tab changed nothing and the field was locked to 1 to stop
+     it lying. A number the coach typed is now given, up to four, and still
+     inside the quarter of the session a warm-up is allowed. */
   for(const d of picks){
     const it=Object.assign({},d,{d:d.d||FREE_DOSE[d.v]||'30s'});
+    const stated=Number((timed(it)||{}).sets);
+    const n=(Number.isFinite(stated)&&stated>=1) ? Math.min(Math.round(stated),4) : 1;
     const t=work(it,'Warm-up')+rest({it:it,grp:'Warm-up'});
-    if(out.length && secs+t>cap) break;
-    out.push(it); secs+=t;
+    for(let k=0;k<n;k++){
+      if(out.length && secs+t>cap) break;
+      out.push(it); secs+=t;
+    }
   }
   return {items:out, secs};
 }
@@ -8082,7 +8090,13 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   const focus=mk(ids), pool=focus.concat(mk(spare));
   if(!pool.length){ alert('Nothing filmed for this stage yet.'); return; }
 
-  const out=warm.items.map((it,i)=>({it,gi:0,ii:i,set:1,sets:1,grp:'Warm-up'}));
+  /* the warm-up can now run a drill more than once, so the card has to say
+     which set this is rather than always "1 of 1" */
+  const out=warm.items.map((it,i)=>{
+    const n=warm.items.filter(x=>x.v===it.v).length;
+    const k=warm.items.slice(0,i+1).filter(x=>x.v===it.v).length;
+    return {it,gi:0,ii:i,set:k,sets:n,grp:'Warm-up'};
+  });
   let secs=warm.secs;
   const grp=(dayDef&&dayDef.n)||s.n;
 
