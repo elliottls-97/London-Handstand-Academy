@@ -15,7 +15,8 @@ SRC = os.path.expanduser('~/lha')
 out_path = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(
     '~/Downloads/LHA-APP-OPEN-THIS.html')
 
-html = io.open(os.path.join(SRC, 'lha-app.html'), encoding='utf-8').read()
+PAGE = sys.argv[2] if len(sys.argv) > 2 else 'lha-app.html'
+html = io.open(os.path.join(SRC, PAGE), encoding='utf-8').read()
 for name in ('ladder-data.js', 'timing.js'):
     js = io.open(os.path.join(SRC, name), encoding='utf-8').read()
     tag = '<script src="%s"></script>' % name
