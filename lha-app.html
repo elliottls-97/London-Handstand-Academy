@@ -8034,14 +8034,21 @@ const RAMP_ALL = [].concat(RAMP.wrists, RAMP.shoulders, RAMP.general);
    workbook's "5-6 warm up exercises including wrist warm up". At 30 seconds
    each that is three minutes, and it is capped at a quarter of the session
    so choosing 15 minutes still leaves time for the thing they came to train. */
-function warmupFor(budgetSecs, stage){
+function warmupFor(budgetSecs, stage, written){
   const take=(list,n)=>list.map(drillById).filter(Boolean).slice(0,n);
+  /* A coach who writes a workout out writes its warm-up out too, and it is
+     the top of the list, the first thing they touch. This built its own from
+     the stage and the general ramp whatever they had written, so swapping a
+     warm-up drill in the dashboard changed nothing anybody could see: the
+     session still opened with the six it had always opened with. */
+  const said = (written||[]).filter(x=>WARM_GRP.test(String(x.g||'')))
+    .map(x=>drillById(x.v)).filter(Boolean);
   /* the stage's own warm-up group if the workbook wrote one, otherwise the
      general ramp — wrists first in both cases */
   const own=poolFor(stage).filter(x=>x.g==='Warm-up').map(x=>x.v)
     .filter(v=>RAMP.wrists.indexOf(v)<0);
   const rest4 = own.length ? take(own,4) : [].concat(take(RAMP.shoulders,2), take(RAMP.general,2));
-  const picks=[].concat(take(RAMP.wrists,2), rest4);
+  const picks = said.length ? said : [].concat(take(RAMP.wrists,2), rest4);
   const cap=budgetSecs*0.25;
   const out=[]; let secs=0;
   /* A warm-up used to be one pass whatever anyone said, so a set count typed
@@ -8074,7 +8081,10 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   /* A wrist day has no warm-up and no top-up: the drills are the warm-up,
      and reaching into the stage for more turned the short day that keeps
      people training into a full session of kick ups. */
-  const warm = wristDay ? {items:[], secs:0} : warmupFor(budget, stage);
+  /* the coach's own list, worked out here rather than further down, because
+     the warm-up is part of the workout they wrote and needs it too */
+  const written = wristDay ? null : bandFor(stage, stageLevel(stage));
+  const warm = wristDay ? {items:[], secs:0} : warmupFor(budget, stage, written);
   /* a drill the warm-up already used should not come round again as skill
      work; every other drill in the stage should still be available, which
      dropping the whole warm-up pool stopped */
@@ -8144,7 +8154,6 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   /* The coach can write a band out drill by drill from the dashboard, and
      where they have, that list is the session and the shares do not run.
      Order is theirs: a short session takes from the top. */
-  const written = wristDay ? null : bandFor(stage, stageLevel(stage));
   if(written){
     const byId={};
     inPool.forEach(it=>{ if(!byId[it.v]) byId[it.v]=it; });
@@ -8244,12 +8253,16 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
      separate question, and the answer is a ramp: warm up, then the level one
      work, and the level three finishes the session rather than turning up in
      the middle of it. */
+  /* A written list is already in the coach's order and the whole point of
+     writing it is to set that order, so the ramp only applies to a session
+     the shares built. The pick further up was careful about this and then
+     this pass sorted it by level anyway, which put it back where it started.
+     The sets of one drill still have to stay together and in order. */
   if(!wristDay){
     const warmN=warm.items.length;
     const skill=out.slice(warmN);
     const seen=[]; skill.forEach(q=>{ if(seen.indexOf(q.it.v)<0) seen.push(q.it.v); });
-    skill.sort((a,b)=>
-         lvlOf(a.it.v)-lvlOf(b.it.v)
+    skill.sort((a,b)=> (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
       || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
       || a.set-b.set);
     out.length=warmN; skill.forEach(q=>{ q.ii=out.length; out.push(q); });

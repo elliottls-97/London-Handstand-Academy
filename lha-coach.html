@@ -2537,8 +2537,22 @@ function wkSwap(stage, band, from, to){
   const i=cur.indexOf(from);
   if(i<0) return;
   if(cur.indexOf(to)>-1 && cur.indexOf(to)!==i){ alert('That drill is already in this workout.'); draw(); return; }
+  /* A drill swapped into a slot takes the grouping of the one it replaced.
+     Everything new defaulted to Strength, so putting one warm-up in place of
+     another filed it as strength work: the app's warm-up never touched it and
+     the session opened exactly as before. The grouping decides the rest
+     between sets as well, so it was wrong twice. */
+  const pool=wkPoolFor(stage);
+  const was=(pool.find(x=>x.v===from)||{}).g;
+  const has=pool.find(x=>x.v===to);
+  if(was && (!has || wkIsExtra(stage,to))) wkNewGrp[to]=was;
   cur[i]=to;
   wkBandEdit(stage,band,cur);
+}
+/* a drill the coach put on this stage, as opposed to one the workbook ships:
+   its grouping is theirs to change, the shipped ones are not */
+function wkIsExtra(stage, v){
+  return (wkExtra[stage]||wkExtra[String(stage)]||[]).some(x=>x&&x.v===v);
 }
 function wkBandDrop(stage, band, v){
   wkBandEdit(stage, band, wkBandNow(stage,band).list.filter(x=>x!==v));
@@ -2574,10 +2588,16 @@ function wkBandSave(){
       return; }
     const [stage,band]=k.split(':');
     const list=wkBandDirty[k];
-    const here=new Set(wkPoolFor(Number(stage)).map(x=>x.v));
-    /* anything in the list the stage does not already have goes onto it */
-    const onStage=list.filter(v=>!here.has(v))
-      .map(v=>({v, g:wkNewGrp[v]||'Strength', L:2}));
+    const pool=wkPoolFor(Number(stage));
+    const here=new Set(pool.map(x=>x.v));
+    const grpOf=v=>(pool.find(x=>x.v===v)||{}).g;
+    /* anything in the list the stage does not already have goes onto it, and
+       anything already on it whose grouping has been changed goes with them,
+       or moving a drill into the warm-up saved the list and lost the move */
+    const onStage=list
+      .filter(v=>!here.has(v) || (wkNewGrp[v] && wkNewGrp[v]!==grpOf(v) && wkIsExtra(Number(stage),v)))
+      .map(v=>({v, g:wkNewGrp[v]||grpOf(v)||'Strength',
+                L:((pool.find(x=>x.v===v)||{}).L)||2}));
     fetch(API+'/bands',{method:'POST',headers:hdr(),
       body:JSON.stringify({stage:Number(stage), band:Number(band), list, onStage})})
       .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
@@ -2727,12 +2747,13 @@ function workoutsHTML(){
             WHAT THEY READ</span>
           <input value="${esc(it.d||'')}" oninput="wkSet('${v}','d',this.value)"
             placeholder="60s each arm" style="${inp};flex:1;min-width:150px">
-          ${row ? `<span style="flex:none;font:400 11px/1.3 var(--sans);color:var(--grey2)">${
-              esc(row.g)}${gone?' · not in the library':''}</span>`
-            : `<select onchange="wkGrpSet('${v}',this.value)"
+          ${(row && !wkIsExtra(wkStage,v))
+            ? `<span style="flex:none;font:400 11px/1.3 var(--sans);color:var(--grey2)">${
+                esc(row.g)}${gone?' · not in the library':''}</span>`
+            : `<select onchange="wkGrpSet('${v}',this.value)" title="Which part of the session"
                  style="${inp};width:auto;padding:6px 8px;font-size:11.5px">
                  ${wkStageGroups(wkStage).map(g=>`<option value="${esc(g)}"${
-                   (wkNewGrp[v]||'Strength')===g?' selected':''}>${esc(g)}</option>`).join('')}
+                   (wkNewGrp[v]||(row&&row.g)||'Strength')===g?' selected':''}>${esc(g)}</option>`).join('')}
                </select>`}
         </div>
       </div>`;}).join('');
