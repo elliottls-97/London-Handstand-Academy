@@ -84,6 +84,11 @@ h1{font:400 34px/1 var(--serif);margin:0}
 input,textarea{font-family:var(--sans);font-size:15px;border:1px solid var(--line);border-radius:12px;padding:12px;width:100%}
 button.send{border:none;background:var(--forest);color:var(--on-primary);border-radius:999px;padding:12px 22px;
  font:700 13px/1 var(--sans);cursor:pointer}
+/* Ten call sites narrow this button by setting padding:0 14px, which took the
+   vertical padding with it and left a flat strip that read as a text link.
+   A floor on the height means those keep their width and still look like a
+   button. */
+button.send{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:7px}
 /* secondary actions: same shape, a third of the presence */
 button.quiet{border:1px solid rgba(28,32,25,.14);background:rgba(255,255,255,.7);color:var(--ink);
  border-radius:999px;padding:9px 15px;font:600 12.5px/1 var(--sans);cursor:pointer}
@@ -155,7 +160,8 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ago=t=>{ if(!t) return 'no messages'; const m=Math.round((Date.now()-t)/60000);
   if(m<60) return m+' min ago'; const h=Math.round(m/60);
-  return h<24? h+' hr ago' : Math.round(h/24)+' days ago'; };
+  if(h<24) return h+' hr ago';
+  const d=Math.round(h/24); return d===1 ? 'yesterday' : d+' days ago'; };
 const hdr=()=>({'Content-Type':'application/json','Authorization':'Bearer '+TOKEN});
 
 function gate(msg){
@@ -512,7 +518,7 @@ function questionsHTML(){
            padding:11px 12px;font:400 14px/1.55 var(--sans);background:#fff;resize:vertical;
            min-height:84px">${esc(qDraft[q.id]||'')}</textarea>
          <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
-           <button class="send" style="width:auto;padding:0 16px;font-size:13px"
+           <button class="send" style="font-size:13px"
              onclick="qAnswer('${esc(q.id)}')"${qBusy===q.id?' disabled':''}>${
              qBusy===q.id?'Sending…':'Send the answer'}</button>
            <span style="font:400 11.5px/1.4 var(--sans);color:var(--grey2)">
@@ -529,7 +535,7 @@ function questionsHTML(){
              || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">
                   Nothing waiting. Every question has an answer.</div>`}
          </div>
-         ${done.length?`<button class="back" style="margin-top:16px"
+         ${done.length?`<button class="quiet" style="margin-top:16px"
            onclick="qShowDone=${qShowDone?'false':'true'};draw()">${
            qShowDone?'Hide':'Show'} the ${done.length} already answered</button>
            ${qShowDone?`<div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
@@ -2763,9 +2769,9 @@ function workoutsHTML(){
                  color:${c.here?'var(--forest)':'var(--grey)'}">${esc(c.n)}</button>`).join('')}
                </div></div>`).join('')
                || '<div style="margin-top:10px;font:400 12.5px/1 var(--sans);color:var(--grey2)">Nothing matches.</div>'}
-             <button class="back" style="margin-top:10px" onclick="wkAdd=false;wkAddQ='';draw()">Cancel</button>`
+             <button class="quiet" style="margin-top:10px" onclick="wkAdd=false;wkAddQ='';draw()">Cancel</button>`
           : `<button class="send" onclick="wkAdd=true;draw()">Add an exercise</button>
-             ${st0.written?`<button class="back" style="margin-left:12px;color:var(--terra)"
+             ${st0.written?`<button class="quiet" style="margin-left:12px;color:var(--terra)"
                onclick="wkBandReset(${wkStage},${wkBand})">Back to the levels</button>`:''}`}
       </div>
     </div>`;
