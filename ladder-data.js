@@ -338,15 +338,40 @@ const POOL = {
 /* The coach can add a drill to a stage from the dashboard, which lands in
    settings rather than in this file. Merged in here so every caller sees one
    pool rather than each having to remember there are two. */
+/* The shipped pool, plus what the coach has added, plus what they have
+   changed about a shipped drill. An extra naming a drill the stage already
+   has used to be thrown away, so moving a shipped drill to another grouping
+   or another level from the dashboard was saved and then ignored. It now
+   replaces the shipped row rather than being dropped beside it. */
 function poolFor(stage){
   const base=POOL[stage]||[];
   const extra=((st.ladderExtra||{})[stage]||[])
     .filter(x=>x&&x.v&&drillById(x.v))
     .map(x=>({v:x.v, g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
   if(!extra.length) return base;
+  const by={}; extra.forEach(x=>{ by[x.v]=x; });
+  const out=base.map(row=>by[row.v] || row);
   const seen=new Set(base.map(x=>x.v));
-  return base.concat(extra.filter(x=>!seen.has(x.v)));
+  return out.concat(extra.filter(x=>!seen.has(x.v)));
 }
+/* the level shares for a stage and a band: the coach's where they have set
+   them, otherwise the shipped mix every stage used to share */
+function mixFor(stage, band){
+  const own=(((typeof st!=='undefined' && st.ladderMix)||{})[stage]||{})[band];
+  if(own && Object.keys(own).length) return own;
+  return BAND_MIX[band] || BAND_MIX[2];
+}
+/* Sets and reps for a drill inside one band. The band's own numbers win,
+   then the drill's, then whatever the dose says. */
+function bandTimingFor(stage, band, v){
+  const bt=(typeof st!=='undefined' && st.bandTiming) || {};
+  return ((bt[stage]||{})[band]||{})[v] || null;
+}
+/* Which bands a stage offers. Foundations is the one being tuned and has
+   three; everywhere else there is one workout and the chooser should not
+   pretend otherwise. */
+const BANDS_ON = { 0:[1,2,3] };
+function bandsFor(stage){ return BANDS_ON[stage] || [2]; }
 function poolRow(stage, v){ return poolFor(stage).find(x=>x.v===v) || null; }
 /* ── a band written out, rather than worked out ────────────────────
    BAND_MIX gives each of the three buttons a share of each difficulty

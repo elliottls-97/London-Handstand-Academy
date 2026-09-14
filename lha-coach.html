@@ -2171,12 +2171,75 @@ function wkLvl(n){ wkLevel=n; draw(); }
 function wkBandsFor(L){
   return [1,2,3].filter(b=>((BAND_MIX[b]||{})[L]||0)>0).map(b=>BAND_NAME[b]);
 }
+/* Sets and reps inside one band. A drill can be two sets in Easier and four
+   in Harder, and with one set of numbers per drill there was no way to say
+   so. Editing a band writes here; editing Every drill writes the drill's own
+   numbers, which is what a band with nothing of its own falls back to. */
+let wkBandTiming={}, wkBandEdits={}, wkMix={}, wkMixEdits={}, wkNewLvl={};
+const wkBandKey=(stage,band)=>stage+':'+band;
+/* ── the level shares ──────────────────────────────────────────────
+   One shipped set of percentages served every stage, so tuning Foundations
+   moved Wall Work with it. They are per stage and per band now, and the
+   shipped mix is what a stage falls back to. */
+let wkMixVals={};
+function wkMixNow(stage, band){
+  const pend=((wkMixVals[stage]||{})[band]);
+  if(pend) return pend;
+  const saved=((wkMix[stage]||wkMix[String(stage)]||{})[band]);
+  if(saved && Object.keys(saved).length) return saved;
+  return BAND_MIX[band] || BAND_MIX[2];
+}
+function wkMixSet(stage, band, L, val){
+  const now=Object.assign({}, wkMixNow(stage,band));
+  const n=Math.round(Number(val));
+  if(!Number.isFinite(n) || n<=0) delete now[L]; else now[L]=Math.min(100,n);
+  wkMixVals[stage]=wkMixVals[stage]||{};
+  wkMixVals[stage][band]=now;
+  wkMixEdits[wkBandKey(stage,band)]=true;
+  draw();
+}
+function wkMixFor(stage){
+  const out={};
+  [1,2,3].forEach(b=>{ out[b]=wkMixNow(stage,b); });
+  return out;
+}
+/* what those shares come to in drills, which is the thing being decided */
+function wkMixCounts(stage, band, n){
+  const mix=wkMixNow(stage,band);
+  const lvls=Object.keys(mix).map(Number).sort((a,b)=>a-b);
+  const total=lvls.reduce((t,L)=>t+mix[L],0) || 1;
+  const raw={}, q={};
+  lvls.forEach(L=>{ raw[L]=n*mix[L]/total; q[L]=Math.floor(raw[L]); });
+  let spare=n-lvls.reduce((t,L)=>t+q[L],0);
+  lvls.slice().sort((a,b)=>(raw[b]-q[b])-(raw[a]-q[a]))
+      .forEach(L=>{ if(spare>0){ q[L]++; spare--; } });
+  if(!q[lvls[0]]) q[lvls[0]]=1;
+  return lvls.map(L=>'L'+L+' × '+q[L]).join(', ');
+}
+function wkBandNums(stage,band,v){
+  const saved=((wkBandTiming[stage]||wkBandTiming[String(stage)]||{})[band]||{})[v]||{};
+  const pend=((wkBandEdits[wkBandKey(stage,band)]||{})[v])||{};
+  return Object.assign({}, saved, pend);
+}
 function wkSet(v,f,val){
+  /* a band selected means the numbers belong to that band */
+  if(wkBand){
+    const k=wkBandKey(wkStage,wkBand);
+    wkBandEdits[k]=wkBandEdits[k]||{};
+    wkBandEdits[k][v]=Object.assign({}, wkBandNums(wkStage,wkBand,v));
+    if(val==='' || val==null) delete wkBandEdits[k][v][f];
+    else if(f==='d' || f==='unit') wkBandEdits[k][v][f]=val;
+    else wkBandEdits[k][v][f]=Number(val);
+    wkRepaintRow(v); return;
+  }
   wkEdits[v]=Object.assign({}, wkTiming[v]||{}, wkEdits[v]||{});
   if(val==='' || val==null) delete wkEdits[v][f];
   else if(f==='d' || f==='unit') wkEdits[v][f] = val;
   else wkEdits[v][f] = Number(val);
-  /* repaint only the lines that changed, or the field loses focus mid-type */
+  wkRepaintRow(v);
+}
+/* repaint only the lines that changed, or the field loses focus mid-type */
+function wkRepaintRow(v){
   const row=document.getElementById('wk-'+v);
   if(row) row.textContent=wkRowLen(v);
   const tot=document.getElementById('wkTotal');
@@ -2185,11 +2248,21 @@ function wkSet(v,f,val){
   if(bt && wkBand) bt.innerHTML=wkBandLengths(wkStage, wkBandNow(wkStage,wkBand).list);
   /* the Save button has to know there is something to save */
   const sv=document.getElementById('wkSaveBtn');
-  if(sv){ const n=Object.keys(wkEdits).length;
+  if(sv){ const n=wkPending();
     sv.disabled=false; sv.style.opacity=1;
     sv.textContent='Save '+n+' change'+(n===1?'':'s'); }
 }
-function wkMerged(v){ return Object.assign({}, (wkTiming||{})[v]||{}, wkEdits[v]||{}); }
+function wkMerged(v){
+  const base=Object.assign({}, (wkTiming||{})[v]||{}, wkEdits[v]||{});
+  return wkBand ? Object.assign(base, wkBandNums(wkStage, wkBand, v)) : base;
+}
+/* everything waiting to be saved, wherever it is being held */
+function wkPending(){
+  let n=Object.keys(wkEdits).length + Object.keys(wkBandDirty).length
+      + Object.keys(wkMixEdits).length;
+  Object.keys(wkBandEdits).forEach(k=>{ n+=Object.keys(wkBandEdits[k]).length; });
+  return n;
+}
 function wkDrill(v){
   const d=wkMerged(v);
   return { v, n:(libIndex||{})[v]||v, d:d.d||FREE_DOSE[v]||'3 × 8',
@@ -2476,6 +2549,14 @@ function wkPoolFor(stage){
   return base.concat(extra.filter(x=>!seen.has(x.v)));
 }
 function wkGrpSet(v,g){ wkNewGrp[v]=g; draw(); }
+/* The level a drill sits at inside this stage. It decides which share picks
+   it up, so a drill added to a stage with no level was invisible to the
+   shares and only ever turned up as a spare. */
+function wkLvlSet(v,L){ wkNewLvl[v]=Number(L)||1; draw(); }
+function wkLvlOf(stage, v){
+  if(wkNewLvl[v]) return Number(wkNewLvl[v]);
+  return Number((wkPoolFor(stage).find(x=>x.v===v)||{}).L) || 0;
+}
 function wkStageGroups(stage){
   const out=[];
   wkPoolFor(stage).forEach(x=>{ if(x.g && out.indexOf(x.g)<0) out.push(x.g); });
@@ -2493,6 +2574,8 @@ function wkBandsLoad(){
     .then(d=>{ if(!d) return; wkBandsErr='';
       if(d.bands) wkBands=d.bands;
       if(d.ladderExtra) wkExtra=d.ladderExtra;
+      if(d.ladderMix) wkMix=d.ladderMix;
+      if(d.bandTiming) wkBandTiming=d.bandTiming;
       /* the picker shows names, and libIndex was only ever filled by opening
          a client's programme, so this tab showed raw ids until you had */
       noteLibrary(d.library);
@@ -2572,40 +2655,61 @@ function wkBandReset(stage, band){
    list has to exist on the stage before its numbers mean anything */
 function wkSaveAll(){
   if(wkBandBusy||wkBusy) return;
-  const hadBands=Object.keys(wkBandDirty).length;
-  if(hadBands) wkBandSave(); else wkSave();
+  if(wkBandKeys().length) wkBandSave(); else wkSave();
+}
+/* every stage and band with something waiting: a changed list, changed
+   numbers of its own, or changed shares */
+function wkBandKeys(){
+  const out=[];
+  const add=k=>{ if(out.indexOf(k)<0) out.push(k); };
+  Object.keys(wkBandDirty).forEach(add);
+  Object.keys(wkBandEdits).forEach(k=>{
+    if(Object.keys(wkBandEdits[k]||{}).length) add(k); });
+  Object.keys(wkMixEdits).forEach(add);
+  return out;
 }
 function wkBandSave(){
   if(wkBandBusy) return;
-  const keys=Object.keys(wkBandDirty);
-  if(!keys.length) return;
+  if(!wkBandKeys().length) return;
   wkBandBusy=true; draw();
   const next=()=>{
-    const k=Object.keys(wkBandDirty)[0];
+    const k=wkBandKeys()[0];
     if(!k){ wkBandBusy=false;
       /* the numbers go next, so one press clears the whole row */
       if(Object.keys(wkEdits).length) wkSave(); else draw();
       return; }
     const [stage,band]=k.split(':');
-    const list=wkBandDirty[k];
+    /* a list is only sent when it has been changed: sending the one on
+       screen would turn a stage still built from the shares into a written
+       one just because its shares were nudged */
+    const list=wkBandDirty[k] || null;
     const pool=wkPoolFor(Number(stage));
     const here=new Set(pool.map(x=>x.v));
     const grpOf=v=>(pool.find(x=>x.v===v)||{}).g;
     /* anything in the list the stage does not already have goes onto it, and
        anything already on it whose grouping has been changed goes with them,
        or moving a drill into the warm-up saved the list and lost the move */
-    const onStage=list
-      .filter(v=>!here.has(v) || (wkNewGrp[v] && wkNewGrp[v]!==grpOf(v) && wkIsExtra(Number(stage),v)))
+    const lvlOf=v=>(pool.find(x=>x.v===v)||{}).L;
+    const onStage=(list||[])
+      .filter(v=>!here.has(v)
+        || (wkNewGrp[v] && wkNewGrp[v]!==grpOf(v))
+        || (wkNewLvl[v] && Number(wkNewLvl[v])!==lvlOf(v)))
       .map(v=>({v, g:wkNewGrp[v]||grpOf(v)||'Strength',
-                L:((pool.find(x=>x.v===v)||{}).L)||2}));
-    fetch(API+'/bands',{method:'POST',headers:hdr(),
-      body:JSON.stringify({stage:Number(stage), band:Number(band), list, onStage})})
+                L:Number(wkNewLvl[v]||lvlOf(v)||2)}));
+    const body={stage:Number(stage), band:Number(band), onStage};
+    if(list) body.list=list;
+    if(wkBandEdits[k] && Object.keys(wkBandEdits[k]).length) body.bandTiming=wkBandEdits[k];
+    if(wkMixEdits[k]) body.mix=wkMixFor(Number(stage));
+    fetch(API+'/bands',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
       .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
       .then(d=>{ wkBands=d.bands||wkBands;
         /* POOL is the shipped file; ladderExtra is what the coach has added.
            Fold it in so the row stops saying the drill is not on the stage. */
         if(d.ladderExtra) wkExtra=d.ladderExtra;
-        delete wkBandDirty[k]; next(); })
+        if(d.ladderMix) wkMix=d.ladderMix;
+        if(d.bandTiming) wkBandTiming=d.bandTiming;
+        delete wkBandDirty[k]; delete wkBandEdits[k]; delete wkMixEdits[k];
+        next(); })
       .catch(e=>{ wkBandBusy=false; alert(String(e)); draw(); });
   };
   next();
@@ -2615,16 +2719,30 @@ function wkBandSave(){
    It used to hand the drills to the shared session clock, which does not
    know about a row whose seconds or rest the coach has just changed and
    not yet saved. This adds the same numbers the rows are showing. */
+/* What a session of each length takes out of this list. The list is a pool,
+   so a session is a handful of it, not all of it: the shares and the spread
+   decide which handful, and the time decides how many and how many sets.
+   A quarter of an hour is one set of each whatever the numbers say. */
 function wkBandLengths(stage, list){
   const pool=wkPoolFor(stage);
-  const secsOf=v=>wkRowSecs(v, (pool.find(x=>x.v===v)||{}).g||'');
-  return [15,30,45,60].map(mins=>{
-    const wantN = mins>=45 ? 8 : mins>=30 ? 6 : 4;
-    const ids=list.slice(0, wantN);
-    const secs=ids.reduce((t,v)=>t+secsOf(v),0);
-    const over=secs > mins*60*1.15;
+  const warmish=v=>/warm|mobility|wrist/i.test(String((pool.find(x=>x.v===v)||{}).g||''));
+  const skill=list.filter(v=>!warmish(v));
+  const grpOf=v=>(pool.find(x=>x.v===v)||{}).g||'';
+  /* one set of a drill, and the rest after it */
+  const oneSet=v=>{ const n=wkNums(v, grpOf(v)); return n.w + n.r; };
+  const setsOf=v=>wkSetsOf(wkNums(v, grpOf(v)));
+  const warmSecs=list.filter(warmish).reduce((t,v)=>t+wkRowSecs(v, grpOf(v)),0);
+  const avg = arr => arr.length ? arr.reduce((t,x)=>t+x,0)/arr.length : 0;
+  return [15,30,45].map(mins=>{
+    const wantN = mins>=45 ? 10 : mins>=30 ? 8 : 6;
+    const n=Math.min(wantN, skill.length);
+    const per=avg(skill.map(oneSet));
+    const sets=mins<30 ? 1 : avg(skill.map(setsOf));
+    const secs=warmSecs + n*per*sets;
+    const over=secs > mins*60*1.12;
     return '<span style="white-space:nowrap;'+(over?'color:var(--terra)':'')+'">'
-      + mins + ' min: ' + ids.length + ' drill' + (ids.length===1?'':'s')
+      + mins + ' min: ' + n + ' drill' + (n===1?'':'s')
+      + (mins<30 ? ', one set each' : ', ' + (Math.round(sets*10)/10) + ' sets each')
       + ', about ' + Math.round(secs/60) + ' min' + (over?' (over)':'') + '</span>';
   }).join('<span style="color:var(--grey2)">  ·  </span>');
 }
@@ -2667,10 +2785,13 @@ function workoutsHTML(){
     note?`<span style="opacity:${wkBand===n?.75:.5};font-weight:400"> ${esc(note)}</span>`:''}</button>`;
   const levelTabs = `<div style="display:flex;gap:6px;flex-wrap:wrap;
     align-items:center;margin-top:12px">
-    ${[1,2,3].map(b=>{ const s=wkBandNow(wkStage,b);
+    ${bandsFor(wkStage).map(b=>{ const s=wkBandNow(wkStage,b);
       return bandTab(b, BAND_NAME[b], s.list.length+(s.written?'':' · from levels')); }).join('')}
     ${bandTab(0,'Every drill', all.length)}
     </div>`;
+
+  /* a stage with one workout should not open on a band it does not have */
+  if(wkBand && bandsFor(wkStage).indexOf(wkBand)<0) wkBand=bandsFor(wkStage)[0];
 
   /* ── one of the three workouts, written out ── */
   if(wkBand){
@@ -2747,14 +2868,18 @@ function workoutsHTML(){
             WHAT THEY READ</span>
           <input value="${esc(it.d||'')}" oninput="wkSet('${v}','d',this.value)"
             placeholder="60s each arm" style="${inp};flex:1;min-width:150px">
-          ${(row && !wkIsExtra(wkStage,v))
-            ? `<span style="flex:none;font:400 11px/1.3 var(--sans);color:var(--grey2)">${
-                esc(row.g)}${gone?' · not in the library':''}</span>`
-            : `<select onchange="wkGrpSet('${v}',this.value)" title="Which part of the session"
-                 style="${inp};width:auto;padding:6px 8px;font-size:11.5px">
-                 ${wkStageGroups(wkStage).map(g=>`<option value="${esc(g)}"${
-                   (wkNewGrp[v]||(row&&row.g)||'Strength')===g?' selected':''}>${esc(g)}</option>`).join('')}
-               </select>`}
+          <select onchange="wkGrpSet('${v}',this.value)" title="Which part of the session"
+            style="${inp};flex:none;width:auto;padding:6px 8px;font-size:11.5px">
+            ${wkStageGroups(wkStage).map(g=>`<option value="${esc(g)}"${
+              (wkNewGrp[v]||(row&&row.g)||'Strength')===g?' selected':''}>${esc(g)}</option>`).join('')}
+          </select>
+          <select onchange="wkLvlSet('${v}',this.value)" title="How hard, inside this stage"
+            style="${inp};flex:none;width:auto;padding:6px 8px;font-size:11.5px">
+            ${[1,2,3,4].map(L=>`<option value="${L}"${
+              wkLvlOf(wkStage,v)===L?' selected':''}>level ${L}</option>`).join('')}
+          </select>
+          ${gone?`<span style="flex:none;font:400 11px/1.3 var(--sans);color:var(--terra)">
+            not in the library</span>`:''}
         </div>
       </div>`;}).join('');
 
@@ -2781,18 +2906,20 @@ function workoutsHTML(){
         <div>
           <div style="font:400 21px/1.1 var(--serif)">${esc(BAND_NAME[wkBand])}, ${esc(STAGES[wkStage].n)}</div>
           <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px;max-width:64ch">
-            The drills this button gives, in the order it gives them. A short
-            session takes from the top, so put the ones that matter first.
+            The pool this workout draws on, in your order. A session takes six
+            to ten of them, keeping to the shares below and spreading across
+            the groupings, and starts further down the list each time so
+            nobody gets the same session twice running.
             ${st0.written
-              ? 'This list is yours, and it is what the app builds.'
-              : 'Nothing written for this one yet, so what you see is what the difficulty shares build. Change anything and it becomes a list.'}
+              ? 'This list is yours, and it is what the app draws on.'
+              : 'Nothing written for this one yet, so what you see is the whole stage. Change anything and it becomes your list.'}
             It reaches the app on its next load. No deploy.</div>
         </div>
         ${(function(){
           /* a row carries the list it is in and the drill's own numbers, and
              they are stored in two different places. One button saves both,
              because nobody editing a workout thinks of them as two jobs. */
-          const n=dirty+Object.keys(wkEdits).length;
+          const n=wkPending();
           const busy=wkBandBusy||wkBusy;
           return `<button id="wkSaveBtn" class="send" onclick="wkSaveAll()"${n&&!busy?'':' disabled'}
             style="${n&&!busy?'':'opacity:.5'}">${
@@ -2805,12 +2932,47 @@ function workoutsHTML(){
           st0.written?'WHAT EACH LENGTH TAKES':'NOT WRITTEN YET'}</div>
         <div id="wkBandTotal" style="font:500 12.5px/1.6 var(--sans);color:var(--ink);margin-top:6px">${
           !st0.written
-            ? 'These '+list.length+' drills are what the difficulty shares can draw on for '
-              +esc(BAND_NAME[wkBand])+', not the session. The app picks four, six or eight of '
-              +'them by level. Change anything below and this becomes a written list, and then '
-              +'a session is taken from the top of it in your order.'
+            ? 'These '+list.length+' drills are the whole stage, which is what the shares draw on '
+              +'until you write this workout out. Change anything below and it becomes your list, '
+              +'and the shares draw on that instead.'
             : list.length?wkBandLengths(wkStage,list):'Nothing in it yet.'}</div>
       </div>
+      ${(function(){
+        /* ── the shares ────────────────────────────────────────────
+           They decide the make-up of a session: how much of it is level one
+           work and how much is level three. One shipped set served every
+           stage, so there was no way to say that Wall Work should sit harder
+           than Foundations without moving both. */
+        const mix=wkMixNow(wkStage, wkBand);
+        const num=(L)=>`<label style="display:flex;flex-direction:column;gap:5px;flex:none">
+          <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">LEVEL ${L}</span>
+          <span style="display:flex;align-items:center;gap:4px">
+            <input type="number" min="0" max="100" value="${mix[L]==null?'':mix[L]}" placeholder="0"
+              oninput="wkMixSet(${wkStage},${wkBand},${L},this.value)"
+              style="${inp};width:64px;font-weight:600">
+            <span style="font:500 12px/1 var(--sans);color:var(--grey2)">%</span></span>
+        </label>`;
+        const total=[1,2,3,4].reduce((t,L)=>t+(Number(mix[L])||0),0);
+        return `<div style="margin-top:12px;padding:12px 14px;border-radius:13px;
+          border:1px solid var(--line);background:#fff">
+          <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">
+            THE MIX OF A SESSION</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+            ${[1,2,3,4].map(num).join('')}
+            <div style="flex:1;min-width:190px;font:400 11.5px/1.5 var(--sans);color:var(--grey);
+              text-align:right">
+              <div>A six drill session: ${esc(wkMixCounts(wkStage,wkBand,6))}</div>
+              <div>A ten drill session: ${esc(wkMixCounts(wkStage,wkBand,10))}</div>
+            </div>
+          </div>
+          <div style="font:400 11.5px/1.5 var(--sans);color:${total?'var(--grey2)':'var(--terra)'};
+            margin-top:9px;max-width:70ch">
+            ${total
+              ? 'Shares, not a total, so they do not have to add to a hundred. A level with no share '
+                +'is never drawn on. Nobody gets three drills out of one grouping while another one '
+                +'at the same level is untouched.'
+              : 'Every level is at zero, so there is nothing for a session to draw on.'}</div>
+        </div>`;})()}
       ${rows||`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:16px">
         Nothing in this workout. Add a drill below and it becomes the session.</div>`}
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">

@@ -1102,6 +1102,12 @@ export default async (request) => {
                      coach has written them. Empty means the stage is still
                      built from the level shares. */
                   ladderBands: (await getSetting('ladder:bands')) || {},
+                  /* the level shares per stage, so a stage can have its own
+                     mix rather than every stage sharing the shipped one */
+                  ladderMix:   (await getSetting('ladder:mix')) || {},
+                  /* sets and reps that apply only inside one band, so the
+                     same drill can be lighter in Easier than in Harder */
+                  bandTiming:  (await getSetting('ladder:bandtiming')) || {},
                   /* the words the coach has added for finding an explainer */
                   explainKeys: (await getSetting('explain:keys')) || {} });
   }
@@ -1129,7 +1135,9 @@ export default async (request) => {
                     /* drills already put onto a stage, so the tab shows the
                        same pool the app builds from rather than the shipped
                        file on its own */
-                    ladderExtra: (await getSetting('ladder:extra')) || {} });
+                    ladderExtra: (await getSetting('ladder:extra')) || {},
+                    ladderMix:   (await getSetting('ladder:mix')) || {},
+                    bandTiming:  (await getSetting('ladder:bandtiming')) || {} });
     }
     if (request.method === 'POST') {
       const stage = String(Number(body.stage));
@@ -1138,19 +1146,27 @@ export default async (request) => {
         return json({ error: 'Which stage and which band?' }, 400);
       }
       const list = Array.isArray(body.list) ? body.list : null;
-      if (list === null) return json({ error: 'No list' }, 400);
+      /* The shares and the band's own numbers can be changed without touching
+         the list, and sending the list anyway would turn a stage that is
+         still built from the shares into a written one behind the coach. */
+      const touchingList = list !== null;
+      if (!touchingList && !body.mix && !body.bandTiming) {
+        return json({ error: 'No list' }, 400);
+      }
       const clean = [];
-      for (const x of list.slice(0, 60)) {
+      for (const x of (list || []).slice(0, 60)) {
         const v = String(x || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
         if (v && clean.indexOf(v) < 0) clean.push(v);
       }
-      all[stage] = all[stage] || {};
-      /* an empty list is "go back to the shares", not "a workout with
-         nothing in it", which would give somebody a blank session */
-      if (clean.length) all[stage][band] = clean;
-      else delete all[stage][band];
-      if (!Object.keys(all[stage]).length) delete all[stage];
-      await setSetting('ladder:bands', all);
+      if (touchingList) {
+        all[stage] = all[stage] || {};
+        /* an empty list is "go back to the shares", not "a workout with
+           nothing in it", which would give somebody a blank session */
+        if (clean.length) all[stage][band] = clean;
+        else delete all[stage][band];
+        if (!Object.keys(all[stage]).length) delete all[stage];
+        await setSetting('ladder:bands', all);
+      }
 
       /* A drill can be put in a workout from the whole library, not only
          from what the stage already has. The app builds the session out of
@@ -1158,7 +1174,8 @@ export default async (request) => {
          on the way through and the coach would never know it had been. This
          puts it on the stage properly, which is the same list a drill made
          from scratch lands in. */
-      if (Array.isArray(body.onStage) && body.onStage.length) {
+      const out = { ok: true, bands: all };
+      if (touchingList && Array.isArray(body.onStage) && body.onStage.length) {
         const extra = (await getSetting('ladder:extra')) || {};
         const list = (extra[stage] || []).slice();
         for (const x of body.onStage.slice(0, 40)) {
@@ -1172,9 +1189,62 @@ export default async (request) => {
         }
         extra[stage] = list;
         await setSetting('ladder:extra', extra);
-        return json({ ok: true, bands: all, ladderExtra: extra });
+        out.ladderExtra = extra;
       }
-      return json({ ok: true, bands: all });
+
+      /* the level shares for this stage. They were one shipped set every
+         stage borrowed, so tuning Foundations moved Wall Work with it. */
+      if (body.mix && typeof body.mix === 'object') {
+        const mix = (await getSetting('ladder:mix')) || {};
+        const clean = {};
+        for (const b of ['1', '2', '3']) {
+          const row = body.mix[b];
+          if (!row || typeof row !== 'object') continue;
+          const one = {};
+          for (const L of ['1', '2', '3', '4']) {
+            const n = Math.round(Number(row[L]));
+            if (Number.isFinite(n) && n > 0) one[L] = Math.min(100, n);
+          }
+          if (Object.keys(one).length) clean[b] = one;
+        }
+        if (Object.keys(clean).length) mix[stage] = clean; else delete mix[stage];
+        await setSetting('ladder:mix', mix);
+        out.ladderMix = mix;
+      }
+
+      /* sets and reps that apply only inside this band, so one drill can be
+         two sets in Easier and four in Harder without two copies of it */
+      if (body.bandTiming && typeof body.bandTiming === 'object') {
+        const bt = (await getSetting('ladder:bandtiming')) || {};
+        const forStage = bt[stage] || {};
+        const rows = {};
+        for (const k of Object.keys(body.bandTiming).slice(0, 80)) {
+          const v = String(k).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+          if (!v) continue;
+          const r = body.bandTiming[k] || {};
+          const one = {};
+          const num = (x, lo, hi) => {
+            const n = Math.round(Number(x));
+            return Number.isFinite(n) && n >= lo && n <= hi ? n : null;
+          };
+          const sets = num(r.sets, 1, 8);   if (sets !== null) one.sets = sets;
+          const amt  = num(r.amt, 1, 600);  if (amt !== null) one.amt = amt;
+          const w    = num(r.w, 0, 600);    if (w !== null) one.w = w;
+          const rest = num(r.r, 0, 600);    if (rest !== null) one.r = rest;
+          if (r.unit === 's' || r.unit === '') one.unit = r.unit;
+          if (typeof r.d === 'string') one.d = r.d.slice(0, 80);
+          if (Object.keys(one).length) rows[v] = one; else delete forStage[v];
+        }
+        forStage[band] = Object.assign({}, forStage[band], rows);
+        /* an emptied row is a removal, not an empty object left behind */
+        for (const v of Object.keys(forStage[band])) {
+          if (!forStage[band][v] || !Object.keys(forStage[band][v]).length) delete forStage[band][v];
+        }
+        bt[stage] = forStage;
+        await setSetting('ladder:bandtiming', bt);
+        out.bandTiming = bt;
+      }
+      return json(out);
     }
     return json({ error: 'Nope' }, 405);
   }

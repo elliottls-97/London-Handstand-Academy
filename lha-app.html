@@ -4850,7 +4850,7 @@ function drawOv(){
           esc((_restCell&&!_full&&_cell) ? _cell.n : (_day?_day.n:(STAGES[_cur]||STAGES[0]).n))}</div>
       </div>
 
-      <div style="${_wrist?'opacity:.4;pointer-events:none':''}">
+      ${bandsFor(_cur).length<2 ? '' : `<div style="${_wrist?'opacity:.4;pointer-events:none':''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;${_kick}">
           <span>LEVEL</span>
           <span style="letter-spacing:0;font-weight:500;text-transform:none;font-size:12px">${
@@ -4858,10 +4858,10 @@ function drawOv(){
         </div>
         <div style="display:flex;gap:8px;margin-top:10px;background:rgba(0,64,61,.08);
           border-radius:14px;padding:4px">
-          ${[1,2,3].map(l=>`<button onclick="setKind(${l});repaintMode()"
+          ${bandsFor(_cur).map(l=>`<button onclick="setKind(${l});repaintMode()"
             style="${_seg(!_wrist && stageLevel(_cur)===l)}">${esc(BAND_NAME[l])}</button>`).join('')}
         </div>
-      </div>
+      </div>`}
 
       <div style="${_wrist?'opacity:.4;pointer-events:none':''}">
         <div style="${_kick}">HOW LONG</div>
@@ -5697,6 +5697,8 @@ function applyProgramme(d){
   if(d && d.ladderExtra) { st.ladderExtra = d.ladderExtra; save(); }
   if(d && d.timing) { st.timing = d.timing; save(); }
   if(d && d.ladderBands) { st.ladderBands = d.ladderBands; save(); }
+  if(d && d.ladderMix)   { st.ladderMix = d.ladderMix; save(); }
+  if(d && d.bandTiming)  { st.bandTiming = d.bandTiming; save(); }
   if(st.day >= DATA.days.length) st.day = 0;
 }
 function cacheProgramme(d){
@@ -5766,6 +5768,8 @@ function loadLadder(){
       if(d && d.explainKeys) { st.explainKeys=d.explainKeys;   moved=true; }
       if(d && d.ladderExtra) { st.ladderExtra=d.ladderExtra; moved=true; }
       if(d && d.ladderBands) { st.ladderBands=d.ladderBands; moved=true; }
+      if(d && d.ladderMix)   { st.ladderMix=d.ladderMix;     moved=true; }
+      if(d && d.bandTiming)  { st.bandTiming=d.bandTiming;   moved=true; }
       if(moved){ save(); render(); }
       return true;
     })
@@ -7334,15 +7338,15 @@ function sessionChooser(day){
     <!-- Two different questions, so two controls. How hard is a scale of
          three; mobility is a different kind of day altogether and sat in the
          same row as a fourth pill, which read as a fourth difficulty. -->
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px">
+    ${bandsFor(cur).length<2 ? '' : `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:16px">
       <span class="kick2">HOW HARD</span>
       <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${
         wrist?'Not used on a mobility day':'Change it whenever'}</span>
     </div>
     <div style="${tray};margin-top:10px;${wrist?'opacity:.45':''}">
-      ${[1,2,3].map(l=>`<button onclick="setKind(${l})"
+      ${bandsFor(cur).map(l=>`<button onclick="setKind(${l})"
         style="${pill};${(!wrist&&stageLevel(cur)===l)?on:off}">${BAND_NAME[l]}</button>`).join('')}
-    </div>
+    </div>`}
     <button onclick="setKind(${wrist?'null':"'wrist'"})" style="width:100%;margin-top:10px;cursor:pointer;
       display:flex;align-items:center;gap:11px;padding:12px 13px;border-radius:15px;min-height:52px;
       border:1.5px solid ${wrist?'#7fb2c2':'rgba(143,190,202,.5)'};
@@ -7876,8 +7880,13 @@ function bandSets(stage, level){
   const mix=BAND_MIX[stageLevel(stage)]||BAND_MIX[2];
   return mix[level]||0;
 }
+/* A stage the coach has not written three workouts for has one, and it is
+   As written. The dial is kept per stage either way, so turning the other
+   two back on later finds the person where they left off. */
 function stageLevel(stage){
-  return Math.max(1, Math.min(3, ((st.lvl||{})[stage]) || 2));
+  const on=bandsFor(stage);
+  const want=Math.max(1, Math.min(3, ((st.lvl||{})[stage]) || 2));
+  return on.indexOf(want)>-1 ? want : on[0];
 }
 function setStageLevel(stage, n){
   st.lvl=Object.assign({}, st.lvl||{});
@@ -8130,50 +8139,61 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
     out.push({it,gi:0,ii:out.length,set:had+1,sets:had+1,grp:grp,g:g});
     secs+=t; return true;
   };
-  /* HOW A BAND CHANGES THE WORKOUT
-     The band is the make-up of the session, not a sort order and not a
-     filter. Its weights are shares: Easier is mostly level one with some
-     two, As written is a mixture building to three, Harder is mostly three
-     and four with a level one and a two to open on.
+  /* HOW A WORKOUT IS PICKED
+     The list the coach writes is a pool, not a script. A session takes five
+     to ten drills out of it, keeping two things true: the level shares for
+     this stage and this band, and a spread across the groupings, so nobody
+     gets three kick up drills and nothing else. Where nothing is written the
+     pool is the whole stage, which is how it has always worked.
 
-     Two earlier attempts did nothing you could see. Treating the weights as
-     set counts changed only how many sets a drill got, and one set of every
-     drill in the stage already fills thirty minutes, so all three bands ran
-     out of time before they diverged. Treating them as a sort order went too
-     far the other way: Easier became four drills on repeat and Harder never
-     touched level two. Picking the drills by share and then ramping through
-     them is the thing that is both different and still a session. */
-  const mix   = BAND_MIX[stageLevel(stage)] || BAND_MIX[2];
+     Two earlier attempts did nothing you could see. Treating the shares as
+     set counts changed only how many sets a drill got. Treating them as a
+     sort order made Easier four drills on repeat. Picking by share and then
+     spending the clock on sets is the thing that is both different and still
+     a session. */
+  const mix   = mixFor(stage, stageLevel(stage));
   const lvls  = Object.keys(mix).map(Number).sort((a,b)=>a-b);
-  /* how many different drills, fewer and properly done rather than one set
-     of everything the stage has */
-  const wantN = mins>=45 ? 8 : mins>=30 ? 6 : 4;
+  /* how many different drills. A short session is a spread of five to eight
+     at one set each; a longer one has room for more of them and for the sets
+     the coach asked for. */
+  const wantN = mins>=45 ? 10 : mins>=30 ? 8 : 6;
   const inPool = (wristDay?focus:pool);
-  const known  = inPool.filter(it=>lvlOf(it.v));
-  let picked;
-  /* The coach can write a band out drill by drill from the dashboard, and
-     where they have, that list is the session and the shares do not run.
-     Order is theirs: a short session takes from the top. */
+  /* the coach's list is the pool for this band, minus whatever the warm-up
+     has already taken out of it */
+  let cands = inPool;
   if(written){
     const byId={};
     inPool.forEach(it=>{ if(!byId[it.v]) byId[it.v]=it; });
-    picked = written.map(row=>byId[row.v]).filter(Boolean).slice(0, wantN);
+    const fromList = written.map(row=>byId[row.v]).filter(Boolean);
     /* a list whose drills are all out of this day's pool would give an empty
-       session, so fall through to the shares rather than hand over nothing */
-    if(!picked.length) picked = null;
+       session, so fall back to the stage rather than hand over nothing */
+    if(fromList.length) cands = fromList;
   }
-  if(picked){ /* written out, nothing to work out */ }
-  else if(!known.length){
+  const known  = cands.filter(it=>lvlOf(it.v));
+  /* ── a different session each time ──────────────────────────────
+     The order is the coach's and the shares are the coach's, so the only
+     honest way to vary it is where in the pool it starts. Each session
+     begins one further down than the last and wraps around, so everything
+     comes up in turn and two sessions running are not the same. */
+  const rot = Number((st.rot||{})[stage] || 0);
+  const spin = (list, by) => list.length ? list.slice(by % list.length)
+                                           .concat(list.slice(0, by % list.length)) : list;
+  let picked;
+  if(!known.length){
     /* a stage the workbook has not given levels to yet, and the mobility day:
-       no band to apply, so take the day as it is written */
-    picked = inPool.slice(0, wristDay ? inPool.length : wantN);
+       no shares to apply, so take the day as it is written */
+    picked = wristDay ? cands.slice() : spin(cands, rot).slice(0, wantN);
   } else {
     const byLvl={};
     known.forEach(it=>{ const L=lvlOf(it.v); if(mix[L]) (byLvl[L]=byLvl[L]||[]).push(it); });
     /* the day's own groupings get first refusal inside each level, so a
-       strength day is still a strength day */
-    lvls.forEach(L=>(byLvl[L]||[]).sort((a,b)=>
-      (focus.indexOf(a)<0?1:0)-(focus.indexOf(b)<0?1:0)));
+       strength day is still a strength day, and then the rotation decides
+       which of them this session gets */
+    lvls.forEach(L=>{
+      const bucket=(byLvl[L]||[]).slice()
+        .sort((a,b)=>(focus.indexOf(a)<0?1:0)-(focus.indexOf(b)<0?1:0));
+      byLvl[L]=spin(bucket, rot);
+    });
     /* largest remainder, so the places add up to the number of drills asked
        for instead of rounding each share on its own and landing anywhere */
     const total=lvls.reduce((t,L)=>t+mix[L],0);
@@ -8185,8 +8205,32 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
     /* every band opens on something you can do, so the lowest level it uses
        is guaranteed a place even when its share rounds to nothing */
     if(!quota[lvls[0]]) quota[lvls[0]]=1;
+    /* ── the spread ────────────────────────────────────────────────
+       Filling each level's places in order gave sessions that were three
+       drills out of one grouping, because a grouping tends to sit at one
+       level. No grouping takes more than a third of the session while
+       another one in the same level is still untouched. */
+    const capPerGrp = Math.max(2, Math.ceil(wantN/3));
+    const usedGrp={};
     picked=[];
-    lvls.forEach(L=>{ (byLvl[L]||[]).slice(0,quota[L]).forEach(it=>picked.push(it)); });
+    const take=it=>{ const g=grpOf(it.v)||''; usedGrp[g]=(usedGrp[g]||0)+1; picked.push(it); };
+    lvls.forEach(L=>{
+      let want=quota[L];
+      const bucket=byLvl[L]||[];
+      /* first pass: only groupings that still have room */
+      for(const it of bucket){
+        if(want<=0) break;
+        if(picked.indexOf(it)>-1) continue;
+        if((usedGrp[grpOf(it.v)||'']||0) >= capPerGrp) continue;
+        take(it); want--;
+      }
+      /* second pass: the level's places matter more than the spread does */
+      for(const it of bucket){
+        if(want<=0) break;
+        if(picked.indexOf(it)>-1) continue;
+        take(it); want--;
+      }
+    });
     /* a level this stage is thin on hands its places back to the nearest one
        it has, working out from the band's own end of the range */
     const order=lvls.slice().sort((a,b)=>hard?b-a:a-b);
@@ -8195,64 +8239,57 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
       let grew=false;
       for(const L of order){
         const more=(byLvl[L]||[]).filter(it=>picked.indexOf(it)<0);
-        if(more.length && picked.length<wantN){ picked.push(more[0]); grew=true; }
+        if(more.length && picked.length<wantN){ take(more[0]); grew=true; }
       }
       if(!grew) break;
     }
   }
-  /* Easiest first, one set each in turn, so the session ramps and a short one
-     still covers the whole of it rather than three sets of the first thing.
-     A written band is already in the order the coach put it in, and
-     re-sorting it would quietly undo the thing they came here to set. */
+  /* Easiest first where the shares built it, so the session ramps. A written
+     list is in the coach's order and re-sorting it would quietly undo the
+     thing they came here to set. */
   if(!written) picked.sort((a,b)=>lvlOf(a.v)-lvlOf(b.v));
-  /* Sets are the same for every drill in the session. They used to come from
-     the band's own numbers, which multiplied the share by itself: a level
-     that held half the drills also got three times the sets and ended up
-     holding nearly all of the session. The shares decide what is in it, the
-     clock decides how many sets there is room for. */
-  /* The dose is the authority where it names a set count: "3 x 8" is three
-     sets, not three sets of three. Where it does not, three sets is the
-     default and the mobility day stays at one, because it is the short day. */
-  /* The ceiling was four, which was fine while the set count could only be
-     read out of a dose. A coach who types five in the Workouts tab is asking
-     for five, and quietly giving four is the same silence this whole change
-     is meant to end. A stated number is honoured up to eight; a parsed one
-     keeps the old ceiling, because a dose was never a promise. */
-  const capOf=it=>{ const m=timed(it), stated=Number(m.sets);
+  else { const seq={}; (written||[]).forEach((r,i)=>{ seq[r.v]=i; });
+         picked.sort((a,b)=>(seq[a.v]==null?9e9:seq[a.v])-(seq[b.v]==null?9e9:seq[b.v])); }
+  /* the band's own numbers, folded into the drill before it is timed, so a
+     drill can be lighter in Easier than in Harder without a second copy */
+  picked = picked.map(it=>{
+    const b=bandTimingFor(stage, stageLevel(stage), it.v);
+    return b ? Object.assign({}, it, b) : it;
+  });
+  /* ── how many sets ──────────────────────────────────────────────
+     A quarter of an hour is one set of each, whatever any dose says: the
+     point of the short session is to cover a spread, and four sets of kick
+     up bounces was the thing that made the Workouts tab feel like it did
+     nothing. From half an hour up it gives the number the coach set, band
+     first, then the drill, then whatever the dose can be read to say. */
+  const oneSetOnly = mins < 30;
+  const setsWanted = it => {
+    if(oneSetOnly) return 1;
+    const band=bandTimingFor(stage, stageLevel(stage), it.v);
+    const bs=Number(band && band.sets);
+    if(Number.isFinite(bs) && bs>=1) return Math.min(Math.round(bs), 8);
+    const m=timed(it), stated=Number(m.sets);
     if(Number.isFinite(stated) && stated>=1) return Math.min(stated, 8);
     const n=setsFor(it);
-    return Math.min(n>1 ? n : (wristDay?1:3), 4); };
+    return Math.min(n>1 ? n : (wristDay?1:3), 4);
+  };
+  /* one set of each in turn, round and round, so the time that runs out
+     takes the last set off the end rather than the last drill */
   let more=true;
   while(more && secs<budget){
     more=false;
     for(const it of picked){
-      if((done[it.v]||0)>=capOf(it)) continue;
+      if((done[it.v]||0)>=setsWanted(it)) continue;
       if(add(it)) more=true;
     }
   }
-  /* Time left over and the band satisfied: another set of what it is already
-     using, at its own end of the range, rather than reaching past it. */
-  if(!wristDay && secs<budget*0.9){
-    const order=picked.slice().sort((a,b)=>(lvlOf(a.v)-lvlOf(b.v))*(hard?-1:1));
-    let again=true;
-    while(again && secs<budget*0.9){
-      again=false;
-      /* the top-up used its own hardcoded four, so a drill the coach had
-         stated three sets for came back with a fourth. A stated number is
-         the ceiling here as well; only an unstated one may be topped up. */
-      for(const it of order){
-        const m=timed(it), stated=Number(m.sets);
-        const ceiling=(Number.isFinite(stated)&&stated>=1) ? Math.min(stated,8) : 4;
-        if((done[it.v]||0)>=ceiling) continue;
-        if(add(it)) again=true;
-      }
-    }
+  /* the rotation only moves on when a session is actually built, so opening
+     the list twice shows the same session both times */
+  if(!listOnly){
+    st.rot=Object.assign({}, st.rot||{});
+    st.rot[stage]=(rot+1)%997;
+    save();
   }
-  /* Easiest first, hardest last. The rotation above decides how many sets
-     each drill earns inside the time; the order they are done in is a
-     separate question, and the answer is a ramp: warm up, then the level one
-     work, and the level three finishes the session rather than turning up in
-     the middle of it. */
   /* A written list is already in the coach's order and the whole point of
      writing it is to set that order, so the ramp only applies to a session
      the shares built. The pick further up was careful about this and then
