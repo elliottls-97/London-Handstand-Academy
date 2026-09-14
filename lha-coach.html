@@ -2313,14 +2313,16 @@ function wkSet(v,f,val){
     const k=wkBandKey(wkStage,wkBand);
     wkBandEdits[k]=wkBandEdits[k]||{};
     wkBandEdits[k][v]=Object.assign({}, wkBandNums(wkStage,wkBand,v));
-    if(val==='' || val==null) delete wkBandEdits[k][v][f];
-    else if(f==='d' || f==='unit') wkBandEdits[k][v][f]=val;
+    /* an empty box is "go back to the rule", except the unit, where the
+       empty string is reps and deleting it lost the choice */
+    if((val===''||val==null) && f!=='unit') delete wkBandEdits[k][v][f];
+    else if(f==='d' || f==='dx' || f==='unit' || f==='style') wkBandEdits[k][v][f]=val;
     else wkBandEdits[k][v][f]=Number(val);
     wkRepaintRow(v); return;
   }
   wkEdits[v]=Object.assign({}, wkTiming[v]||{}, wkEdits[v]||{});
-  if(val==='' || val==null) delete wkEdits[v][f];
-  else if(f==='d' || f==='unit') wkEdits[v][f] = val;
+  if((val===''||val==null) && f!=='unit') delete wkEdits[v][f];
+  else if(f==='d' || f==='dx' || f==='unit' || f==='style') wkEdits[v][f] = val;
   else wkEdits[v][f] = Number(val);
   wkRepaintRow(v);
 }
@@ -2403,7 +2405,11 @@ function wkStageLine(){
 }
 function wkSave(){
   if(wkBusy) return;
-  const rows=Object.keys(wkEdits).map(v=>Object.assign({v}, wkMerged(v)));
+  /* the line they read is written from the numbers and sent with them, so
+     nothing downstream has to know how it was worded */
+  const grpOf=v=>(wkPoolFor(wkStage).find(x=>x.v===v)||{}).g||'';
+  const rows=Object.keys(wkEdits).map(v=>
+    Object.assign({v}, wkMerged(v), {d:wkDoseText(v, grpOf(v))}));
   if(!rows.length) return;
   wkBusy=true; draw();
   fetch(API+'/timing',{method:'POST',headers:hdr(),body:JSON.stringify({timing:rows})})
@@ -2627,12 +2633,24 @@ let wkNewGrp={};
    has to see the same pool or it will keep calling a drill new. */
 let wkExtra={};
 function wkPoolFor(stage){
-  const base=POOL[stage]||[];
+  /* POOL is the level and grouping table, and it was only ever written for
+     the first three stages. Take-Off, Freestanding and Press have drills,
+     they simply have no levels: this tab read POOL alone and so showed those
+     three stages as empty when the app was building sessions from them.
+     They come in with no level, which is the truth and is now something that
+     can be set here row by row. */
+  let base=POOL[stage]||[];
+  if(!base.length){
+    base=(((typeof STAGES!=='undefined' && STAGES[stage])||{}).drillIds||[])
+      .map(v=>({v, g:'Strength', L:0}));
+  }
   const extra=(wkExtra[stage]||wkExtra[String(stage)]||[])
     .filter(x=>x&&x.v).map(x=>({v:x.v, g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
   if(!extra.length) return base;
+  const by={}; extra.forEach(x=>{ by[x.v]=x; });
+  const out=base.map(row=>by[row.v]||row);
   const seen=new Set(base.map(x=>x.v));
-  return base.concat(extra.filter(x=>!seen.has(x.v)));
+  return out.concat(extra.filter(x=>!seen.has(x.v)));
 }
 /* ── one row at a time ─────────────────────────────────────────────
    Every row open at once is six fields and two selects apiece, and a stage
@@ -2671,11 +2689,64 @@ function wkDropOn(e,v){
   cur.splice(cur.indexOf(v) + (i<j?1:0), 0, from);
   wkBandEdit(wkStage,wkBand,cur);
 }
+/* ── how a dose is said ────────────────────────────────────────────
+   There were two ways to say the same thing: five numbers, and a free text
+   box the numbers were also parsed out of when they were blank. You could
+   type 1 in SETS and leave the text reading "3 × 8", and the app would give
+   one set while telling the person three. The numbers are the fact now and
+   the sentence is written from them. */
+const DOSE_STYLES=[
+  ['straight','Straight sets'],
+  ['buildto','Build to'],
+  ['failure','To failure'],
+  ['eachside','Each side'],
+  ['maxhold','Max hold']
+];
+function wkStyleOf(v, n){
+  if(n.it.style) return n.it.style;
+  /* what an existing hand-typed dose was trying to say */
+  const d=String(n.it.d||'');
+  if(/max hold/i.test(d)) return 'maxhold';
+  if(/failure/i.test(d)) return 'failure';
+  if(/build to/i.test(d)) return 'buildto';
+  if(/each (way|side|leg|arm)/i.test(d)) return 'eachside';
+  return 'straight';
+}
+/* the line the person in the app reads: the coach's own words where they
+   have written any, otherwise written from the numbers */
+function wkDoseText(v, grp){
+  const own=String((wkNums(v,grp).it.dx)||'').trim();
+  if(own) return own;
+  return wkDoseAuto(v, grp);
+}
+function wkDoseAuto(v, grp){
+  const n=wkNums(v, grp);
+  const sets=wkSetsOf(n);
+  const unit=(n.it.unit!=null)?n.it.unit:n.unit;
+  const amt=(n.it.amt!=null)?n.it.amt:n.amt;
+  const style=wkStyleOf(v,n);
+  const each = unit==='s' ? (amt||30)+'s' : String(amt||8);
+  if(unit==='f' || style==='failure') return sets>1 ? sets+' × to failure' : 'To failure';
+  if(style==='maxhold') return sets>1 ? sets+' × max hold' : 'Max hold';
+  if(style==='buildto') return 'Build to '+each;
+  const straight = sets>1 ? sets+' × '+each : each;
+  return style==='eachside' ? straight+' each side' : straight;
+}
+/* Nobody has written a dose for this one, so it is running on the fallback,
+   which is three sets of eight and calls a hold eight reps. Thirty one of
+   the eighty ladder drills are in this state and there was no way to see
+   which from here. */
+function wkNoDose(v){
+  const saved=(wkTiming||{})[v]||{};
+  const pend=wkEdits[v]||{};
+  if(saved.d || pend.d || saved.amt!=null || pend.amt!=null) return false;
+  return !(typeof FREE_DOSE!=='undefined' && FREE_DOSE[v]);
+}
 function wkGrpSet(v,g){ wkNewGrp[v]=g; draw(); }
 /* The level a drill sits at inside this stage. It decides which share picks
    it up, so a drill added to a stage with no level was invisible to the
    shares and only ever turned up as a spare. */
-function wkLvlSet(v,L){ wkNewLvl[v]=Number(L)||1; draw(); }
+function wkLvlSet(v,L){ if(!L) return; wkNewLvl[v]=Number(L)||1; draw(); }
 function wkLvlOf(stage, v){
   if(wkNewLvl[v]) return Number(wkNewLvl[v]);
   return Number((wkPoolFor(stage).find(x=>x.v===v)||{}).L) || 0;
@@ -2713,9 +2784,12 @@ function wkBandList(stage, band){
   const own=((wkBands[String(stage)]||{})[String(band)]);
   if(Array.isArray(own) && own.length) return {list:own.slice(), written:true};
   const pool=wkPoolFor(stage);
-  const mix=BAND_MIX[band]||{};
-  const out=pool.filter(x=>x.L && (mix[x.L]||0)>0)
-                .sort((a,b)=>a.L-b.L).map(x=>x.v);
+  const mix=wkMixNow(stage,band)||{};
+  const levelled=pool.filter(x=>x.L && (mix[x.L]||0)>0);
+  /* a stage with no levels yet would otherwise show nothing at all, which is
+     what it did, so the whole of it stands in until the levels are set */
+  const out=(levelled.length?levelled.slice().sort((a,b)=>a.L-b.L):pool.slice())
+    .map(x=>x.v);
   return {list:out, written:false};
 }
 function wkBandNow(stage, band){
@@ -2821,7 +2895,13 @@ function wkBandSave(){
                 L:Number(wkNewLvl[v]||lvlOf(v)||2)}));
     const body={stage:Number(stage), band:Number(band), onStage};
     if(list) body.list=list;
-    if(wkBandEdits[k] && Object.keys(wkBandEdits[k]).length) body.bandTiming=wkBandEdits[k];
+    if(wkBandEdits[k] && Object.keys(wkBandEdits[k]).length){
+      const bt={};
+      Object.keys(wkBandEdits[k]).forEach(v=>{
+        bt[v]=Object.assign({}, wkBandEdits[k][v], {d:wkDoseText(v, grpOf(v))});
+      });
+      body.bandTiming=bt;
+    }
     if(wkMixEdits[k]) body.mix=wkMixFor(Number(stage));
     fetch(API+'/bands',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
       .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
@@ -2969,6 +3049,9 @@ function workoutsHTML(){
                place in the order -->
           <select onchange="wkSwap(${wkStage},${wkBand},'${v}',this.value)"
             style="${inp};flex:1;min-width:170px;font-weight:600">${drillOptions(v)}</select>
+          ${wkNoDose(v)?`<span title="Nobody has written a dose for this one, so it falls back to 3 × 8"
+            style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.11em;border-radius:6px;
+            padding:5px 7px;background:rgba(243,169,73,.22);color:#8a5a12">NO DOSE</span>`:''}
           ${open?'':`<span style="flex:none;font:500 11.5px/1.3 var(--sans);color:var(--grey2);
             white-space:nowrap">${wkRowLen(v)}</span>`}
           ${clipBtn(v)}
@@ -2984,11 +3067,13 @@ function workoutsHTML(){
         <div style="display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-top:9px">
           ${fld('SETS', num(v,'sets',it.sets!=null?it.sets:n.sets,n.warm?'1':'3',62))}
           ${fld('BUILD TO', num(v,'amt',it.amt!=null?it.amt:n.amt,'8',72))}
-          ${fld('IN', `<select onchange="wkSet('${v}','unit',this.value)"
-            style="${inp};width:96px">
-            <option value=""${(it.unit!=null?it.unit:n.unit)===''?' selected':''}>reps</option>
-            <option value="s"${(it.unit!=null?it.unit:n.unit)==='s'?' selected':''}>seconds</option>
-          </select>`)}
+          ${fld('IN', (function(){ const u=(it.unit!=null?it.unit:n.unit);
+            return `<select onchange="wkSet('${v}','unit',this.value)"
+              style="${inp};width:110px">
+              <option value=""${u===''?' selected':''}>reps</option>
+              <option value="s"${u==='s'?' selected':''}>seconds</option>
+              <option value="f"${u==='f'?' selected':''}>to failure</option>
+            </select>`; })())}
           ${fld('SECONDS TO DO IT', num(v,'w',it.w!=null?it.w:n.w,String(n.w),86))}
           ${fld('REST', num(v,'r',it.r!=null?it.r:n.r,String(n.r),66))}
           <span style="flex:1;min-width:120px;text-align:right;font:500 11.5px/1.4 var(--sans);
@@ -2996,19 +3081,29 @@ function workoutsHTML(){
         </div>
         <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:8px">
           <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">
-            WHAT THEY READ</span>
-          <input value="${esc(it.d||'')}" oninput="wkSet('${v}','d',this.value)"
-            placeholder="60s each arm" style="${inp};flex:1;min-width:150px">
+            SAID AS</span>
+          <select onchange="wkSet('${v}','style',this.value)"
+            style="${inp};flex:none;width:auto;padding:6px 8px;font-size:11.5px">
+            ${DOSE_STYLES.map(([k,lab])=>`<option value="${k}"${
+              wkStyleOf(v,n)===k?' selected':''}>${esc(lab)}</option>`).join('')}
+          </select>
+          <input value="${esc(it.dx||'')}" oninput="wkSet('${v}','dx',this.value)"
+            title="Leave it empty and the line is written from the numbers"
+            placeholder="${esc(wkDoseAuto(v, row?row.g:''))}"
+            style="${inp};flex:1;min-width:150px">
           <select onchange="wkGrpSet('${v}',this.value)" title="Which part of the session"
             style="${inp};flex:none;width:auto;padding:6px 8px;font-size:11.5px">
             ${wkStageGroups(wkStage).map(g=>`<option value="${esc(g)}"${
               (wkNewGrp[v]||(row&&row.g)||'Strength')===g?' selected':''}>${esc(g)}</option>`).join('')}
           </select>
-          <select onchange="wkLvlSet('${v}',this.value)" title="How hard, inside this stage"
-            style="${inp};flex:none;width:auto;padding:6px 8px;font-size:11.5px">
-            ${[1,2,3,4].map(L=>`<option value="${L}"${
-              wkLvlOf(wkStage,v)===L?' selected':''}>level ${L}</option>`).join('')}
-          </select>
+          ${(function(){ const L0=wkLvlOf(wkStage,v);
+            return `<select onchange="wkLvlSet('${v}',this.value)" title="How hard, inside this stage"
+              style="${inp};flex:none;width:auto;padding:6px 8px;font-size:11.5px;${
+                L0?'':'border-color:var(--terra);color:var(--terra)'}">
+              ${L0?'':'<option value="" selected>no level yet</option>'}
+              ${[1,2,3,4].map(L=>`<option value="${L}"${
+                L0===L?' selected':''}>level ${L}</option>`).join('')}
+            </select>`; })()}
           ${gone?`<span style="flex:none;font:400 11px/1.3 var(--sans);color:var(--terra)">
             not in the library</span>`:''}
           <span style="flex:none;display:flex;gap:4px;margin-left:auto">
@@ -3073,6 +3168,12 @@ function workoutsHTML(){
               +'until you write this workout out. Change anything below and it becomes your list, '
               +'and the shares draw on that instead.'
             : list.length?wkBandLengths(wkStage,list):'Nothing in it yet.'}</div>
+        ${(function(){ const n=list.filter(wkNoDose).length;
+          if(!n) return '';
+          return `<div style="font:500 12px/1.5 var(--sans);color:#8a5a12;margin-top:8px">
+            ${n} of these ${n===1?'has':'have'} no dose written, so ${n===1?'it falls':'they fall'}
+            back to three sets of eight, which calls a hold eight reps. They are marked below.</div>`;
+        })()}
       </div>
       ${(function(){
         /* ── the shares ────────────────────────────────────────────

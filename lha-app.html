@@ -4328,7 +4328,7 @@ let Q=[],qi=0,left=0,tTotal=0,phase='work',paused=false,tick_=null,lastT=0,sessi
 /* always m:ss — a bare '4' on a big clock reads as four minutes */
 function fmtT(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), r=s%60;
   return m+':'+String(r).padStart(2,'0'); }
-const isHoldDose = d => /max hold|attempts|build to/i.test(String(d||''));
+const isHoldDose = d => /max hold|attempts|build to|to failure/i.test(String(d||''));
 
 /* what a row says it will take, in the same seconds the player counts.
    A dose is the prescription ("3 x 8"); this is the clock. */
@@ -4989,14 +4989,14 @@ function drawOv(){
         <div style="display:flex;gap:8px;margin-top:10px;background:rgba(0,64,61,.08);
           border-radius:14px;padding:4px">
           ${LADDER_MINS.map(m=>{
-            const cap = !_wrist && stageLevel(_cur)===1 && m>EASY_CAP;
+            const cap = !_wrist && stageLevel(_cur)===1 && easyCapped(_cur) && m>EASY_CAP;
             const on  = !cap && sessionMins()===m;
             return `<button onclick="setMins(${cap?EASY_CAP:m});repaintMode()"
               title="${cap?'Easier tops out at '+EASY_CAP+' minutes':''}"
               style="${_seg(on)};${cap?'opacity:.35':''}">${m}</button>`;}).join('')}
         </div>
         <div style="font:400 12px/1 var(--sans);color:var(--grey);margin-top:8px;text-align:right">${
-          (!_wrist && stageLevel(_cur)===1) ? 'minutes · easier stops at '+EASY_CAP : 'minutes'}</div>
+          (!_wrist && stageLevel(_cur)===1 && easyCapped(_cur)) ? 'minutes · easier stops at '+EASY_CAP : 'minutes'}</div>
       </div>
 
       <div>
@@ -7270,10 +7270,15 @@ function ladderMins(){
    work in the stage is not an easier session, it is a long one, and the
    people who press Easier are the ones who need the shorter day. */
 const EASY_CAP=30;
+/* Easier was capped at half an hour, because forty five minutes of the
+   gentlest drills in a stage is a longer session rather than an easier one.
+   Above Foundations, Easier now means a third of the session is the stage
+   below, which is a different thing and does not want capping. */
+const easyCapped = stage => stage===0;
 function sessionMins(stage){
   const st0=(stage==null?curStage():stage);
   const m=ladderMins();
-  return stageLevel(st0)===1 ? Math.min(m, EASY_CAP) : m;
+  return (stageLevel(st0)===1 && easyCapped(st0)) ? Math.min(m, EASY_CAP) : m;
 }
 /* A sheet is open more often than not when these are pressed, and render()
    bails out while one is, leaving a full rebuild queued for the moment it
@@ -7441,7 +7446,7 @@ function sessionChooser(day){
         ${LADDER_MINS.map(m=>{
           /* Easier tops out at thirty, so the longer button says so rather
              than saying forty five and quietly building half an hour */
-          const capped = !wrist && stageLevel(cur)===1 && m>EASY_CAP;
+          const capped = !wrist && stageLevel(cur)===1 && easyCapped(cur) && m>EASY_CAP;
           return `<button onclick="setMins(${capped?EASY_CAP:m})"
             title="${capped?'Easier tops out at '+EASY_CAP+' min':''}"
             style="${pill};${(!capped&&mins===m)?on:off};${capped?'opacity:.4':''}"

@@ -14,7 +14,7 @@ const LHA_REPS_SECS   = 45;
 const LHA_WARM_GRP = /warm|pancake|mobility|wrist/i;
 const LHA_HARD_GRP = /^(strength|press)$/i;
 
-const lhaIsHold = d => /max hold|attempts|build to/i.test(String(d || ''));
+const lhaIsHold = d => /max hold|attempts|build to|to failure/i.test(String(d || ''));
 
 /* the seconds named in a dose: "30s" is thirty, "30s each way" is sixty */
 function lhaDoseSecs(d){

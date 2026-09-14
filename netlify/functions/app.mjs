@@ -1231,8 +1231,12 @@ export default async (request) => {
           const amt  = num(r.amt, 1, 600);  if (amt !== null) one.amt = amt;
           const w    = num(r.w, 0, 600);    if (w !== null) one.w = w;
           const rest = num(r.r, 0, 600);    if (rest !== null) one.r = rest;
-          if (r.unit === 's' || r.unit === '') one.unit = r.unit;
+          if (['s', '', 'f'].includes(r.unit)) one.unit = r.unit;
+          if (['straight','buildto','failure','eachside','maxhold'].includes(r.style)) {
+            one.style = r.style;
+          }
           if (typeof r.d === 'string') one.d = r.d.slice(0, 80);
+          if (typeof r.dx === 'string' && r.dx.trim()) one.dx = r.dx.slice(0, 60);
           if (Object.keys(one).length) rows[v] = one; else delete forStage[v];
         }
         forStage[band] = Object.assign({}, forStage[band], rows);
@@ -1313,6 +1317,9 @@ export default async (request) => {
         };
         const w = num(r.w, 600), rest = num(r.r, 600);
         const d = String(r.d || '').slice(0, 40);
+        /* the coach's own wording, where the written-from-the-numbers one
+           does not say it: "30s each arm, palms out" */
+        const dx = String(r.dx || '').slice(0, 60);
         /* ── sets and the amount, said rather than guessed ────────────
            The dose was one free text field read three ways: a leading
            "N x" for the set count, the first "NNs" for the work timer,
@@ -1323,8 +1330,13 @@ export default async (request) => {
            sets. These are the same three facts, stated. */
         const sets = num(r.sets, 12);
         const amt  = num(r.amt, 3600);
-        const unit = r.unit === 's' ? 's' : (r.unit === '' ? '' : null);
-        if (w == null && rest == null && !d && sets == null && amt == null && unit == null) {
+        /* reps, seconds, or until they cannot do another one */
+        const unit = ['s', '', 'f'].includes(r.unit) ? r.unit : null;
+        /* how the dose is said, which the sentence they read is built from */
+        const STYLES = ['straight', 'buildto', 'failure', 'eachside', 'maxhold'];
+        const style = STYLES.includes(r.style) ? r.style : null;
+        if (w == null && rest == null && !d && !dx && sets == null && amt == null
+            && unit == null && style == null) {
           delete all[v]; continue;                    /* an empty row is a deletion */
         }
         all[v] = Object.assign({}, w != null ? { w } : {},
@@ -1332,6 +1344,8 @@ export default async (request) => {
                                sets != null ? { sets } : {},
                                amt  != null ? { amt } : {},
                                unit != null ? { unit } : {},
+                               style != null ? { style } : {},
+                               dx ? { dx } : {},
                                d ? { d } : {});
       }
       await setSetting('timing:custom', all);
