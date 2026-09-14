@@ -453,7 +453,12 @@ function perSet(dose, nSets){
    what was typed. One merge, used by all of them. */
 function timed(it){
   const set=(st.timing||{})[it && it.v];
-  return set ? Object.assign({}, it, set) : (it||{});
+  if(!set) return it||{};
+  /* The Workouts tab tunes the free ladder; the builder tunes one client's
+     programme. On the ladder the tab is the authority. On a coached plan the
+     row the coach wrote for that person is more specific than a ladder
+     default, so it wins there. */
+  return coachedView() ? Object.assign({}, set, it) : Object.assign({}, it, set);
 }
 const setsFor = it => lhaSetsOf(timed(it));
 function sets(dose){
@@ -493,11 +498,13 @@ const isWarm = x => WARM_GRP.test(String((x&&x.grp)||(x&&x.it&&x.it.grp)||''));
 
 function work(it, grp){
   const ov=st.secs&&it.v?st.secs[it.v]:0; if(ov) return ov;
+  /* A coached programme carries its own seconds and the ladder tuning is not
+     about that client, so on a plan the item wins. On the ladder there is no
+     item-level number and the tab is the authority. */
+  if(coachedView() && it.w) return it.w;
   /* what the coach set for this drill beats the rule everywhere */
   const set=(st.timing||{})[it.v];
   if(set && set.w) return set.w;
-  /* a coached programme carries its own seconds, and the coach outranks
-     the rules — this is only the ladder's default */
   if(it.w) return it.w;
   if(isWarm({grp:grp, it:it})) return WARMUP_SECS;
   const d=String(it.d||'');
@@ -515,8 +522,12 @@ const HARD_GRP = /^(strength|press)$/i;
 function rest(x, i, list){
   /* takes a queue entry {it,grp} or a bare drill, so every caller works */
   const it  = (x && x.it) ? x.it : (x || {});
+  /* same order as work(): on a plan the row the coach wrote for this client
+     beats the ladder tuning, which is not about them */
+  if(coachedView() && it.r!=null) return it.r;
   const set=(st.timing||{})[it.v];
   if(set && set.r!=null) return set.r;
+  if(it.r!=null) return it.r;
   /* On the ladder a session is one block named after the day, so the day
      name was deciding the rest for everything in it: a day called Strength
      put ninety seconds between wall walks. The drill's own grouping decides

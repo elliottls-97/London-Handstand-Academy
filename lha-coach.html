@@ -2601,13 +2601,49 @@ function bAddItem(i,g){
   bDays()[i].groups[g].items.push({v:'',d:'',nt:''}); bMark(); draw();
 }
 function bDelItem(i,g,k){ bDays()[i].groups[g].items.splice(k,1); bMark(); draw(); }
+/* what a programme row is running at, stated where stated and read off the
+   dose where not, so the fields open showing the truth rather than empty.
+   The ladder's version of this is wkNums; a programme row's numbers are on
+   the row itself rather than in the ladder tuning. */
+function bNums(it, grp){
+  const a=lhaAmount(it);
+  const warm=/warm|mobility|wrist/i.test(String(grp||''));
+  return {
+    sets: (it.sets!=null) ? it.sets : (warm ? 1 : (lhaSets(it.d)>1?lhaSets(it.d):3)),
+    amt:  a.n, unit: a.unit,
+    w:    (it.w!=null) ? it.w : lhaWork(it, grp||''),
+    r:    (it.r!=null) ? it.r : lhaRest(it, grp||''),
+    warm
+  };
+}
+function bRowLen(it, grp){
+  const n=bNums(it, grp);
+  const sets=n.warm ? 1 : Math.max(1, n.sets);
+  const secs=sets*n.w + Math.max(0, sets-1)*n.r;
+  return (n.w?`${sets} × ${n.w}s`:`${sets} × untimed`)
+    + ` · ${n.r}s rest · ${Math.round(secs/60*10)/10} min`;
+}
 function bItem(i,g,k,f,v){
   const it=bDays()[i].groups[g].items[k];
-  it[f]=v;
-  /* picking a drill with no dose set yet takes the library's default */
-  if(f==='v' && !it.d) it.d='';
+  /* the numbers are numbers, the text is text, and an emptied field means
+     "go back to the rule" rather than zero */
+  if(f==='sets'||f==='amt'||f==='w'||f==='r'){
+    if(v===''||v==null) delete it[f]; else it[f]=Number(v);
+  } else if(f==='unit'){
+    it.unit=v;
+  } else {
+    it[f]=v;
+    /* picking a drill with no dose set yet takes the library's default */
+    if(f==='v' && !it.d) it.d='';
+  }
   bMark();
-  if(f==='v') draw();
+  if(f==='v'||f==='unit') draw();
+  else {
+    /* repaint the one line, or the field loses focus mid-type */
+    const row=document.querySelector('[data-brow="'+i+'-'+g+'-'+k+'"]');
+    if(row){ const gname=((bDays()[i].groups[g])||{}).name||'';
+      row.textContent=bRowLen(it, gname); }
+  }
 }
 /* ── the client's check points ────────────────────────────────────
    What they have to be able to do, set per client rather than off the free
@@ -3043,10 +3079,42 @@ function builderHTML(){
                 style="flex:none;border:1px solid var(--line);border-radius:10px;background:#fff;
                 cursor:pointer;min-width:40px;min-height:40px;font:600 17px/1 var(--sans);
                 color:var(--forest)">+</button>
-              <input value="${esc(it.d||'')}" oninput="bItem(${di},${gi},${k},'d',this.value)"
-                placeholder="3 × 8" style="flex:0 0 108px;${bInput}">
               ${clipBtn(it.v)}
               <button onclick="bDelItem(${di},${gi},${k})" style="${bGhost}">×</button>
+            </div>
+            <!-- The row could set the drill, the dose and a note, and nothing
+                 else. The specs write seconds and rests onto items and there
+                 was no way to see or change them here, which is half of what
+                 tuning somebody's programme means. Same five fields as the
+                 Workouts tab, on this client's row rather than the ladder. -->
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;
+              margin:7px 0 0 30px">
+              ${(function(){
+                const n=bNums(it, g.name||'');
+                const f=(lab,html)=>`<label style="flex:none;display:flex;flex-direction:column;gap:4px">
+                  <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;
+                    color:var(--grey2)">${lab}</span>${html}</label>`;
+                const num=(fld,val,ph,w)=>`<input type="number" min="0" value="${val==null?'':val}"
+                  placeholder="${ph}" oninput="bItem(${di},${gi},${k},'${fld}',this.value)"
+                  style="${bInput};width:${w}px;font-weight:600">`;
+                return f('SETS', n.warm
+                    ? `<span style="${bInput};width:60px;display:inline-flex;align-items:center;
+                         color:var(--grey2);font-weight:600">1</span>`
+                    : num('sets', it.sets!=null?it.sets:n.sets, '3', 60))
+                  + f('BUILD TO', num('amt', it.amt!=null?it.amt:n.amt, '8', 70))
+                  + f('IN', `<select onchange="bItem(${di},${gi},${k},'unit',this.value)"
+                      style="${bInput};width:94px">
+                      <option value=""${(it.unit!=null?it.unit:n.unit)===''?' selected':''}>reps</option>
+                      <option value="s"${(it.unit!=null?it.unit:n.unit)==='s'?' selected':''}>seconds</option>
+                    </select>`)
+                  + f('SECONDS TO DO IT', num('w', it.w!=null?it.w:n.w, String(n.w), 84))
+                  + f('REST', num('r', it.r!=null?it.r:n.r, String(n.r), 64))
+                  + f('WHAT THEY READ', `<input value="${esc(it.d||'')}"
+                      oninput="bItem(${di},${gi},${k},'d',this.value)"
+                      placeholder="60s each arm" style="${bInput};width:140px">`)
+                  + `<span data-brow="${di}-${gi}-${k}" style="flex:1;min-width:100px;text-align:right;
+                      font:500 11.5px/1.4 var(--sans);color:var(--grey)">${bRowLen(it, g.name||'')}</span>`;
+              })()}
             </div>
             <input value="${esc(it.nt||'')}" oninput="bItem(${di},${gi},${k},'nt',this.value)"
               placeholder="A note for this drill, if it needs one"

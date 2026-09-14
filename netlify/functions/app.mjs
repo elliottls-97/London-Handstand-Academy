@@ -2382,9 +2382,28 @@ export default async (request) => {
             groups: (Array.isArray(d.groups) ? d.groups : []).slice(0, 12).map(g => ({
               name: String(g.name || '').slice(0, 60),
               items: (Array.isArray(g.items) ? g.items : []).slice(0, 40)
-                .map(it => ({ v: String(it.v || '').slice(0, 64),
-                              d: String(it.d || '').slice(0, 60),
-                              nt: String(it.nt || '').slice(0, 300) }))
+                .map(it => {
+                  /* This kept v, d and nt and dropped everything else, so the
+                     seconds and rests the specs write onto items, thirty and
+                     seventy-four of them across the two live programmes, were
+                     destroyed the first time the builder saved that client.
+                     Nothing said so; the session simply got slower or faster.
+                     The builder can set them now, so they have to survive. */
+                  const num = (x, cap) => {
+                    const n = Number(x);
+                    return Number.isFinite(n) && n >= 0 && n <= cap ? Math.round(n) : null;
+                  };
+                  const w = num(it.w, 600), r = num(it.r, 600);
+                  const sets = num(it.sets, 12), amt = num(it.amt, 3600);
+                  const unit = it.unit === 's' ? 's' : (it.unit === '' ? '' : null);
+                  return Object.assign(
+                    { v: String(it.v || '').slice(0, 64),
+                      d: String(it.d || '').slice(0, 60),
+                      nt: String(it.nt || '').slice(0, 300) },
+                    w != null ? { w } : {}, r != null ? { r } : {},
+                    sets != null ? { sets } : {}, amt != null ? { amt } : {},
+                    unit != null ? { unit } : {});
+                })
                 .filter(it => it.v),
             })),
           })),
