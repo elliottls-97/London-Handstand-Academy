@@ -3556,9 +3556,9 @@ function screenProgress(){
      session was got through, how long it took, and, on a tap, every
      exercise with what was actually done against what was asked. */
   const trackBody = `
+      <div data-tour="calendar">${trainingCalendar()}</div>
       <div data-tour="volume">${volumeHero()}</div>
       ${volumeCard()}
-      <div data-tour="calendar">${trainingCalendar()}</div>
       ${coachedView()?`<div data-tour="checkin">${checkinCard()}</div>`:''}
       ${perDrillCard()}
       ${appUseCard()}
@@ -5641,6 +5641,7 @@ function applyProgramme(d){
   if(arr.length) LIBRARY = arr;
   if(d && d.ladderExtra) { st.ladderExtra = d.ladderExtra; save(); }
   if(d && d.timing) { st.timing = d.timing; save(); }
+  if(d && d.ladderBands) { st.ladderBands = d.ladderBands; save(); }
   if(st.day >= DATA.days.length) st.day = 0;
 }
 function cacheProgramme(d){
@@ -5709,6 +5710,7 @@ function loadLadder(){
       if(d && d.timing)      { st.timing=d.timing;           moved=true; }
       if(d && d.explainKeys) { st.explainKeys=d.explainKeys;   moved=true; }
       if(d && d.ladderExtra) { st.ladderExtra=d.ladderExtra; moved=true; }
+      if(d && d.ladderBands) { st.ladderBands=d.ladderBands; moved=true; }
       if(moved){ save(); render(); }
       return true;
     })
@@ -7340,7 +7342,43 @@ function screenLadder(){
          the page, not a banner over it, and the stages below it are a spine
          rather than five cards that each carried the price. -->
     <div style="padding:calc(env(safe-area-inset-top) + 84px) 0 0">${ladderSeg()}</div>
-    ${st.ladderTab==='progress' ? `
+    ${st.ladderTab==='progress' && !st.token ? `
+    <!-- Everything on this tab is a record of what somebody has done, and
+         without an account it lives in one browser and goes when that
+         browser is cleared. Rather than build the record and lose it, ask
+         first. Nothing else in the free tier is behind this. -->
+    <div class="rise" style="padding:26px 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">Progress</div>
+      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:9px">Needs an
+        <em style="color:var(--forest);font-style:normal">account.</em></div>
+      <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:13px">
+        Every session, every rep and every second you log is kept against your
+        account. Without one it lives in this browser only, and clearing it or
+        picking up your other phone loses the lot.</div>
+      <div class="card" style="margin-top:22px;padding:20px">
+        <div class="kick2">WHAT IT KEEPS</div>
+        <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+          ${['When you trained, and how much of each session you got through',
+             'Reps and seconds, drill by drill, week on week',
+             'Your check points and where they put you on the ladder',
+             'The same record on every device you sign in on']
+            .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
+              <span style="color:var(--forest)">&bull;</span><span>${x}</span></div>`).join('')}
+        </div>
+        <button onclick="st.wantUpgrade=null;st.tab='joinFree';st.quizDone=true;save();render();window.scrollTo(0,0)"
+          style="width:100%;margin-top:18px;border:0;border-radius:16px;padding:17px;
+          background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+          box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+          font:600 16px/1 var(--sans);cursor:pointer">Create a free account</button>
+        <button class="btn2" style="width:100%;margin-top:9px"
+          onclick="st.tab='signin';save();render()">I already have one</button>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
+          Free, and it opens every explainer as well.</div>
+      </div>
+    </div>
+    <div style="height:28px"></div>`
+    : st.ladderTab==='progress' ? `
     <!-- 6f. One number leads: the sessions you have done against the target you
          set yourself. Then the week as seven circles, the check-in if one is
          due, where that sits on the ladder, and your bests. The month calendar
@@ -7606,6 +7644,14 @@ function startUpgrade(){
     st.ov=null;
     const ov=$('#ov'); if(ov){ ov.classList.remove('on'); ov.innerHTML=''; }
     document.querySelectorAll('video').forEach(v=>{try{v.pause()}catch(e){}});
+    /* Which stage they were trying to open. Without this the join screen
+       leads with "Your starting point, Stage 1, Foundations" to somebody who
+       has just cleared Foundations and asked to buy the stage after it, and
+       the reason they are on that screen at all is lost. */
+    st.wantUpgrade = (st.ovStage!=null ? st.ovStage
+      : (st.clearedFrom!=null ? st.clearedFrom+1
+      : (placedStage()>stageCap() ? placedStage() : curStage()+1)));
+    if(!STAGES[st.wantUpgrade]) st.wantUpgrade=Math.min(STAGES.length-1, curStage()+1);
     if(!st.email){ st.tab='joinFree'; st.quizDone=true; }
     else st.tab='signin';
     save(); render(); window.scrollTo(0,0);
@@ -8001,7 +8047,20 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   const inPool = (wristDay?focus:pool);
   const known  = inPool.filter(it=>lvlOf(it.v));
   let picked;
-  if(!known.length){
+  /* The coach can write a band out drill by drill from the dashboard, and
+     where they have, that list is the session and the shares do not run.
+     Order is theirs: a short session takes from the top. */
+  const written = wristDay ? null : bandFor(stage, stageLevel(stage));
+  if(written){
+    const byId={};
+    inPool.forEach(it=>{ if(!byId[it.v]) byId[it.v]=it; });
+    picked = written.map(row=>byId[row.v]).filter(Boolean).slice(0, wantN);
+    /* a list whose drills are all out of this day's pool would give an empty
+       session, so fall through to the shares rather than hand over nothing */
+    if(!picked.length) picked = null;
+  }
+  if(picked){ /* written out, nothing to work out */ }
+  else if(!known.length){
     /* a stage the workbook has not given levels to yet, and the mobility day:
        no band to apply, so take the day as it is written */
     picked = inPool.slice(0, wristDay ? inPool.length : wantN);
@@ -8039,8 +8098,10 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
     }
   }
   /* Easiest first, one set each in turn, so the session ramps and a short one
-     still covers the whole of it rather than three sets of the first thing. */
-  picked.sort((a,b)=>lvlOf(a.v)-lvlOf(b.v));
+     still covers the whole of it rather than three sets of the first thing.
+     A written band is already in the order the coach put it in, and
+     re-sorting it would quietly undo the thing they came here to set. */
+  if(!written) picked.sort((a,b)=>lvlOf(a.v)-lvlOf(b.v));
   /* Sets are the same for every drill in the session. They used to come from
      the band's own numbers, which multiplied the share by itself: a level
      that held half the drills also got three times the sets and ended up
@@ -8637,7 +8698,11 @@ function doResetConfirm(ev){
 }
 
 function screenJoin(){
-  const s=STAGES[curStage()]||{n:''};
+  /* Arriving here from the £5 button is a different errand from arriving
+     here after the quiz, and the screen used to tell both of them the same
+     thing: the stage they are already on, free. */
+  const want = (st.wantUpgrade!=null && STAGES[st.wantUpgrade]) ? STAGES[st.wantUpgrade] : null;
+  const s = want || STAGES[curStage()] || {n:''};
   /* This and screenOriented sit between the quiz and Today, so they are the
      first two things a new person sees after answering. They were still the
      old green blocks while everything around them had moved, which is why
@@ -8645,14 +8710,20 @@ function screenJoin(){
   return `<div class="scroll s" style="min-height:100dvh;background:transparent;color:var(--ink);
     padding:calc(env(safe-area-inset-top) + 40px) 24px 30px;display:flex;flex-direction:column">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-      color:var(--forest)">Your starting point</div>
-    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">Stage ${
-      curStage()+1}, <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em></div>
-    <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${esc(s.goal||'')}</div>
+      color:var(--forest)">${want?'To open '+esc(want.n):'Your starting point'}</div>
+    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
+      want ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
+           : `Stage ${curStage()+1}, <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em>`}</div>
+    <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
+      want ? 'The £5 a month rides on an account, so this takes a moment and then '
+             +'the payment page opens. '+esc((s.goal||'').replace(/\.$/,''))+'.'
+           : esc(s.goal||'')}</div>
 
     <div style="margin-top:auto;padding-top:30px">
       <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-bottom:14px">
-        ${emailOptional()
+        ${want
+          ? 'Your subscription is attached to this account, so it is the one you sign in with on any phone.'
+          : emailOptional()
           ? 'Optional. It saves your progress, opens the rest of the explainers, and I send tips and new videos as they land.'
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
       <form onsubmit="doJoin(event)" style="display:flex;flex-direction:column;gap:10px">
@@ -8671,7 +8742,8 @@ function screenJoin(){
         <button class="btn" type="submit" style="margin-top:4px;
           background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)">
-          Save and start</button>
+          ${(st.wantUpgrade!=null && STAGES[st.wantUpgrade])
+            ? 'Create it and open checkout' : 'Save and start'}</button>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
           By joining you agree to our
           <a href="/terms" target="_blank" rel="noopener" style="color:var(--forest)">Terms</a> and
@@ -8681,7 +8753,7 @@ function screenJoin(){
       </form>
       ${emailOptional()?`<button onclick="skipJoin()" style="width:100%;background:none;border:none;margin-top:6px;
         font:500 13px/1 var(--sans);color:var(--grey);cursor:pointer;padding:12px">
-        Skip for now — I'll do it later</button>`:''}
+        Skip for now, I'll do it later</button>`:''}
     </div></div>`;
 }
 /* never re-render on a validation error — it rebuilds the form and throws
@@ -8700,7 +8772,10 @@ function doJoin(ev){
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
     .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus;
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
-      st.tab='ladder'; save(); render(); })
+      st.tab='ladder'; save(); render();
+      /* they came here to buy a stage, so finish the errand rather than
+         landing them on the ladder and making them find the button again */
+      if(st.token && st.wantUpgrade!=null){ st.wantUpgrade=null; save(); startUpgrade(); } })
     .catch(e=>{ joinSay(String(e)); });
 }
 /* letting them skip costs one address and keeps the app usable —

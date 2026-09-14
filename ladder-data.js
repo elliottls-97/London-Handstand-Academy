@@ -348,3 +348,24 @@ function poolFor(stage){
   return base.concat(extra.filter(x=>!seen.has(x.v)));
 }
 function poolRow(stage, v){ return poolFor(stage).find(x=>x.v===v) || null; }
+/* ── a band written out, rather than worked out ────────────────────
+   BAND_MIX gives each of the three buttons a share of each difficulty
+   level, and the builder spends those shares. It works, and it means the
+   only way to change what is in Harder is to move a drill between levels
+   and then work out what that did to the other two.
+
+   Where the coach has written the list out instead, that list is the
+   session. Returned in the order it was written, because a short session
+   takes from the top. Ids that no longer name a drill are dropped rather
+   than handed on as holes. */
+function bandFor(stage, band){
+  const list=(((typeof st!=='undefined' && st.ladderBands)||{})[stage]||{})[band];
+  if(!Array.isArray(list) || !list.length) return null;
+  const pool=poolFor(stage);
+  const out=[];
+  list.forEach(v=>{
+    const row=pool.find(x=>x.v===v);
+    if(row && out.indexOf(row)<0) out.push(row);
+  });
+  return out.length ? out : null;
+}

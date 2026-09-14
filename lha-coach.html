@@ -1877,7 +1877,8 @@ function wkLoad(){
     .then(d=>{ wkTiming=(d&&d.timing)||{}; draw(); })
     .catch(()=>{ wkTiming={}; });
 }
-function wkPick(i){ wkStage=i; wkLevel=0; draw(); }
+function wkPick(i){ wkStage=i; wkLevel=0; wkAdd=false; wkAddQ=''; draw(); }
+function wkBandPick(n){ wkBand=n; wkAdd=false; wkAddQ=''; draw(); }
 /* 0 is every level, 1 to 4 is that difficulty on its own */
 function wkLvl(n){ wkLevel=n; draw(); }
 /* which of the three buttons in the app ever reach this difficulty. A level
@@ -2127,43 +2128,268 @@ function explainHTML(){
   </div>`;
 }
 
+/* ── the three workouts, as lists ──────────────────────────────────
+   The tab tuned dose and rest, and what was actually in a session came
+   from each drill's level and the share BAND_MIX gives that level. So the
+   only way to change what was in Harder was to move a drill between levels
+   and then work out what that did to Easier and As written.
+
+   These are the three sessions written out instead. A list wins over the
+   shares for that stage and that band, and a stage with no list carries on
+   as it did, so they can be done one at a time.
+
+   Order is the coach's: a short session takes from the top. */
+let wkBands={}, wkBand=0, wkBandDirty={}, wkBandBusy=false, wkAdd=false, wkAddQ='';
+/* a drill added from the wider library is not on the stage, and the app
+   builds a session out of the stage's pool, so it has to be put there or it
+   is dropped on the way through without a word. The grouping decides the
+   rest between sets, so it is asked for rather than assumed. */
+let wkNewGrp={};
+/* POOL is the shipped file. The coach can add a drill to a stage, which lands
+   in settings, and the app merges the two before it builds anything. This tab
+   has to see the same pool or it will keep calling a drill new. */
+let wkExtra={};
+function wkPoolFor(stage){
+  const base=POOL[stage]||[];
+  const extra=(wkExtra[stage]||wkExtra[String(stage)]||[])
+    .filter(x=>x&&x.v).map(x=>({v:x.v, g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
+  if(!extra.length) return base;
+  const seen=new Set(base.map(x=>x.v));
+  return base.concat(extra.filter(x=>!seen.has(x.v)));
+}
+function wkGrpSet(v,g){ wkNewGrp[v]=g; draw(); }
+function wkStageGroups(stage){
+  const out=[];
+  wkPoolFor(stage).forEach(x=>{ if(x.g && out.indexOf(x.g)<0) out.push(x.g); });
+  ['Warm-up','Strength','Mobility'].forEach(g=>{ if(out.indexOf(g)<0) out.push(g); });
+  return out;
+}
+let wkBandsLoaded=false;
+function wkBandsLoad(){
+  if(wkBandsLoaded) return; wkBandsLoaded=true;
+  fetch(API+'/coach/bands',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(!d) return;
+      if(d.bands) wkBands=d.bands;
+      if(d.ladderExtra) wkExtra=d.ladderExtra;
+      /* the picker shows names, and libIndex was only ever filled by opening
+         a client's programme, so this tab showed raw ids until you had */
+      if(d.library && d.library.names) libIndex=Object.assign({}, libIndex||{}, d.library.names);
+      draw(); })
+    .catch(()=>{});
+}
+/* what is in this band right now: the coach's list where there is one,
+   otherwise what the shares would build, so the first thing they see is
+   the session the app is giving today rather than an empty box */
+function wkBandList(stage, band){
+  const own=((wkBands[String(stage)]||{})[String(band)]);
+  if(Array.isArray(own) && own.length) return {list:own.slice(), written:true};
+  const pool=wkPoolFor(stage);
+  const mix=BAND_MIX[band]||{};
+  const out=pool.filter(x=>x.L && (mix[x.L]||0)>0)
+                .sort((a,b)=>a.L-b.L).map(x=>x.v);
+  return {list:out, written:false};
+}
+function wkBandNow(stage, band){
+  const k=stage+':'+band;
+  if(wkBandDirty[k]) return {list:wkBandDirty[k].slice(), written:true, dirty:true};
+  return wkBandList(stage, band);
+}
+function wkBandEdit(stage, band, list){
+  wkBandDirty[stage+':'+band]=list; draw();
+}
+function wkBandMove(stage, band, v, by){
+  const cur=wkBandNow(stage,band).list;
+  const i=cur.indexOf(v), j=i+by;
+  if(i<0 || j<0 || j>=cur.length) return;
+  cur.splice(j,0,cur.splice(i,1)[0]);
+  wkBandEdit(stage,band,cur);
+}
+function wkBandDrop(stage, band, v){
+  wkBandEdit(stage, band, wkBandNow(stage,band).list.filter(x=>x!==v));
+}
+function wkBandAdd(stage, band, v){
+  const cur=wkBandNow(stage,band).list;
+  if(cur.indexOf(v)<0) cur.push(v);
+  wkAdd=false; wkAddQ='';
+  wkBandEdit(stage,band,cur);
+}
+function wkBandReset(stage, band){
+  if(!confirm('Put '+BAND_NAME[band]+' back to the levels?\n\nThe list you wrote is deleted and the app builds this one from the difficulty shares again.')) return;
+  wkBandDirty[stage+':'+band]=[];
+  wkBandSave();
+}
+function wkBandSave(){
+  if(wkBandBusy) return;
+  const keys=Object.keys(wkBandDirty);
+  if(!keys.length) return;
+  wkBandBusy=true; draw();
+  const next=()=>{
+    const k=Object.keys(wkBandDirty)[0];
+    if(!k){ wkBandBusy=false; draw(); return; }
+    const [stage,band]=k.split(':');
+    const list=wkBandDirty[k];
+    const here=new Set(wkPoolFor(Number(stage)).map(x=>x.v));
+    /* anything in the list the stage does not already have goes onto it */
+    const onStage=list.filter(v=>!here.has(v))
+      .map(v=>({v, g:wkNewGrp[v]||'Strength', L:2}));
+    fetch(API+'/coach/bands',{method:'POST',headers:hdr(),
+      body:JSON.stringify({stage:Number(stage), band:Number(band), list, onStage})})
+      .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+      .then(d=>{ wkBands=d.bands||wkBands;
+        /* POOL is the shipped file; ladderExtra is what the coach has added.
+           Fold it in so the row stops saying the drill is not on the stage. */
+        if(d.ladderExtra) wkExtra=d.ladderExtra;
+        delete wkBandDirty[k]; next(); })
+      .catch(e=>{ wkBandBusy=false; alert(String(e)); draw(); });
+  };
+  next();
+}
+/* what a session of each length actually takes from this list */
+function wkBandLengths(stage, list){
+  return [15,30,45,60].map(mins=>{
+    const wantN = mins>=45 ? 8 : mins>=30 ? 6 : 4;
+    const ids=list.slice(0, wantN);
+    const groups=[{name:'s', items:ids.map(v=>wkDrill(v))}];
+    return mins+' min: '+ids.length+' drill'+(ids.length===1?'':'s')
+      +', about '+lhaMins(lhaSessionSecs(groups))+' min';
+  }).join('  ·  ');
+}
+
 function workoutsHTML(){
   wkLoad();
   const inp='border:1px solid var(--line);border-radius:9px;padding:7px 8px;'
     +'font:500 12.5px/1 var(--sans);background:#fff;width:100%';
+  const btn='width:30px;height:30px;border-radius:8px;border:1px solid var(--line);'
+    +'background:#fff;cursor:pointer;font:600 13px/1 var(--sans);color:var(--ink);padding:0';
   const tabs=STAGES.map((x,i)=>`<button onclick="wkPick(${i})" style="cursor:pointer;
     border-radius:999px;padding:8px 14px;font:600 12px/1 var(--sans);
     border:1.5px solid ${wkStage===i?'var(--forest)':'var(--line)'};
     background:${wkStage===i?'var(--forest)':'#fff'};color:${wkStage===i?'#fff':'var(--ink)'}">
     ${i+1}. ${esc(x.n)}</button>`).join('');
 
-  const all=POOL[wkStage]||[];
-  /* Sub tabs for the difficulty levels inside the stage. A stage mixes four
-     of them across six groupings, so tuning "the level two work" meant
-     hunting it down grouping by grouping. */
-  const lvlsHere=[];
-  all.forEach(x=>{ if(x.L && lvlsHere.indexOf(x.L)<0) lvlsHere.push(x.L); });
-  lvlsHere.sort((a,b)=>a-b);
-  if(lvlsHere.indexOf(wkLevel)<0) wkLevel=0;
-  const lvlTab=(n,label,count)=>`<button onclick="wkLvl(${n})" style="cursor:pointer;
-    border-radius:999px;padding:6px 12px;font:600 11.5px/1 var(--sans);
-    border:1.5px solid ${wkLevel===n?'var(--forest)':'var(--line)'};
-    background:${wkLevel===n?'rgba(0,102,99,.09)':'#fff'};
-    color:${wkLevel===n?'var(--forest)':'var(--grey)'}">${esc(label)}
-    <span style="opacity:.6">${count}</span></button>`;
-  const levelTabs = lvlsHere.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;
-    align-items:center;margin-top:10px">
-    ${lvlTab(0,'All levels', all.filter(x=>x.L).length)}
-    ${lvlsHere.map(L=>lvlTab(L,'Level '+L, all.filter(x=>x.L===L).length)).join('')}
-    </div>
-    <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">${
-      wkLevel ? (()=>{ const b=wkBandsFor(wkLevel);
-        return b.length
-          ? 'Level '+wkLevel+' is used by '+esc(b.join(', '))+'.'
-          : 'Level '+wkLevel+' is used by none of the three buttons, so nobody is given it.'; })()
-            : 'Every difficulty in this stage. Pick one to tune it on its own.'}</div>` : '';
+  wkBandsLoad();
+  const all=wkPoolFor(wkStage);
+  /* The three workouts, then the whole pool. Levels are still under this and
+     still decide what an untouched stage builds, but they are not the thing
+     anyone is trying to get right. */
+  const bandTab=(n,label,note)=>`<button onclick="wkBandPick(${n})" style="cursor:pointer;
+    border-radius:999px;padding:7px 13px;font:600 11.5px/1 var(--sans);text-align:left;
+    border:1.5px solid ${wkBand===n?'var(--forest)':'var(--line)'};
+    background:${wkBand===n?'var(--forest)':'#fff'};
+    color:${wkBand===n?'#fff':'var(--ink)'}">${esc(label)}${
+    note?`<span style="opacity:${wkBand===n?.75:.5};font-weight:400"> ${esc(note)}</span>`:''}</button>`;
+  const levelTabs = `<div style="display:flex;gap:6px;flex-wrap:wrap;
+    align-items:center;margin-top:12px">
+    ${[1,2,3].map(b=>{ const s=wkBandNow(wkStage,b);
+      return bandTab(b, BAND_NAME[b], s.list.length+(s.written?'':' · from levels')); }).join('')}
+    ${bandTab(0,'Every drill', all.length)}
+    </div>`;
 
-  const pool=wkLevel ? all.filter(x=>x.L===wkLevel) : all;
+  /* ── one of the three workouts, written out ── */
+  if(wkBand){
+    const st0=wkBandNow(wkStage, wkBand);
+    const list=st0.list;
+    const inPool=new Set(all.map(x=>x.v));
+    const dirty=Object.keys(wkBandDirty).length;
+    const rows=list.map((v,i)=>{
+      const it=wkDrill(v), row=all.find(x=>x.v===v);
+      const gone=!(libIndex||{})[v];
+      return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px;
+        padding:9px 10px;border-radius:12px;border:1px solid var(--line);
+        background:${gone?'rgba(164,80,60,.07)':'#fff'}">
+        <span style="flex:none;width:22px;font:700 11px/1 var(--sans);color:var(--grey2);
+          font-variant-numeric:tabular-nums">${i+1}</span>
+        <span style="flex:1;min-width:150px">
+          <b style="font:600 13px/1.25 var(--sans)">${esc(it.n)}</b>
+          <span style="display:block;font:400 11px/1.3 var(--sans);color:var(--grey2);margin-top:3px">
+            ${row ? esc(row.g)+' · level '+row.L
+                  : 'new to this stage, saves as'}${gone?' · not in the library':''}</span>
+          ${row?'':`<select onchange="wkGrpSet('${v}',this.value)"
+            style="${inp};width:auto;margin-top:5px;padding:5px 7px;font-size:11.5px">
+            ${wkStageGroups(wkStage).map(g=>`<option value="${esc(g)}"${
+              (wkNewGrp[v]||'Strength')===g?' selected':''}>${esc(g)}</option>`).join('')}
+          </select>`}</span>
+        <label style="flex:0 0 112px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+          color:var(--grey2)">DOSE</span>
+          <input value="${esc(it.d||'')}" oninput="wkSet('${v}','d',this.value)"
+            style="${inp};margin-top:4px"></label>
+        <span id="wk-${v}" style="flex:0 0 150px;text-align:right;font:500 11px/1.3 var(--sans);
+          color:var(--grey)">${wkRowLen(v)}</span>
+        <span style="flex:none;display:flex;gap:4px">
+          <button onclick="wkBandMove(${wkStage},${wkBand},'${v}',-1)" aria-label="Up"
+            ${i?'':'disabled'} style="${btn};opacity:${i?1:.3}">&uarr;</button>
+          <button onclick="wkBandMove(${wkStage},${wkBand},'${v}',1)" aria-label="Down"
+            ${i<list.length-1?'':'disabled'} style="${btn};opacity:${i<list.length-1?1:.3}">&darr;</button>
+          <button onclick="wkBandDrop(${wkStage},${wkBand},'${v}')" aria-label="Remove"
+            style="${btn};color:var(--terra)">&times;</button>
+        </span>
+      </div>`;}).join('');
+
+    /* anything on this stage, then anything in the library at all, because
+       a drill that belongs in a workout is not always already on the stage */
+    const q=wkAddQ.trim().toLowerCase();
+    const already=new Set(list);
+    const cands=Object.keys(libIndex||{})
+      .filter(v=>!already.has(v))
+      .map(v=>({v, n:(libIndex||{})[v]||v, here:inPool.has(v)}))
+      .filter(x=>!q || x.n.toLowerCase().indexOf(q)>-1 || x.v.indexOf(q)>-1)
+      .sort((a,b)=>(b.here-a.here) || a.n.localeCompare(b.n))
+      .slice(0, q?40:24);
+
+    return `<div class="glass" style="padding:16px 18px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font:400 21px/1.1 var(--serif)">${esc(BAND_NAME[wkBand])}, ${esc(STAGES[wkStage].n)}</div>
+          <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px;max-width:64ch">
+            The drills this button gives, in the order it gives them. A short
+            session takes from the top, so put the ones that matter first.
+            ${st0.written
+              ? 'This list is yours, and it is what the app builds.'
+              : 'Nothing written for this one yet, so what you see is what the difficulty shares build. Change anything and it becomes a list.'}
+            It reaches the app on its next load. No deploy.</div>
+        </div>
+        <button class="send" onclick="wkBandSave()"${dirty&&!wkBandBusy?'':' disabled'}
+          style="${dirty&&!wkBandBusy?'':'opacity:.5'}">${
+          wkBandBusy?'Saving…':dirty?`Save ${dirty} workout${dirty===1?'':'s'}`:'Saved'}</button>
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
+      ${levelTabs}
+      <div style="margin-top:12px;padding:10px 12px;border-radius:11px;background:rgba(0,102,99,.06)">
+        <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">${
+          st0.written?'WHAT EACH LENGTH TAKES':'NOT WRITTEN YET'}</div>
+        <div style="font:500 12.5px/1.6 var(--sans);color:var(--ink);margin-top:6px">${
+          !st0.written
+            ? 'These '+list.length+' drills are what the difficulty shares can draw on for '
+              +esc(BAND_NAME[wkBand])+', not the session. The app picks four, six or eight of '
+              +'them by level. Change anything below and this becomes a written list, and then '
+              +'a session is taken from the top of it in your order.'
+            : list.length?esc(wkBandLengths(wkStage,list)):'Nothing in it yet.'}</div>
+      </div>
+      ${rows||`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:16px">
+        Nothing in this workout. Add a drill below and it becomes the session.</div>`}
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+        ${wkAdd
+          ? `<input autofocus value="${esc(wkAddQ)}" oninput="wkAddQ=this.value;draw()"
+               placeholder="Search the library…" style="${inp};max-width:320px">
+             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+               ${cands.map(c=>`<button onclick="wkBandAdd(${wkStage},${wkBand},'${c.v}')"
+                 title="${c.here?'Already on this stage':'From the wider library'}"
+                 style="cursor:pointer;border-radius:999px;padding:7px 12px;
+                 font:600 11.5px/1 var(--sans);background:#fff;
+                 border:1.5px solid ${c.here?'var(--forest)':'var(--line)'};
+                 color:${c.here?'var(--forest)':'var(--grey)'}">${esc(c.n)}</button>`).join('')
+                 || '<span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">Nothing matches.</span>'}
+             </div>
+             <button class="back" style="margin-top:10px" onclick="wkAdd=false;wkAddQ='';draw()">Cancel</button>`
+          : `<button class="send" onclick="wkAdd=true;draw()">Add an exercise</button>
+             ${st0.written?`<button class="back" style="margin-left:12px;color:var(--terra)"
+               onclick="wkBandReset(${wkStage},${wkBand})">Back to the levels</button>`:''}`}
+      </div>
+    </div>`;
+  }
+
+  const pool=all;
   const groups=[];
   pool.forEach(x=>{ if(groups.indexOf(x.g)<0) groups.push(x.g); });
   const body = groups.length ? groups.map(g=>`

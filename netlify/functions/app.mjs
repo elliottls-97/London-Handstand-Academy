@@ -1098,8 +1098,85 @@ export default async (request) => {
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
                   timing:      (await getSetting('timing:custom')) || {},
+                  /* the three workouts, written out drill by drill where the
+                     coach has written them. Empty means the stage is still
+                     built from the level shares. */
+                  ladderBands: (await getSetting('ladder:bands')) || {},
                   /* the words the coach has added for finding an explainer */
                   explainKeys: (await getSetting('explain:keys')) || {} });
+  }
+
+  /* ── the three workouts, as lists ────────────────────────────────
+     Easier, As written and Harder were a share of each difficulty level
+     rather than three sessions, so the only way to change what was in one
+     was to move a drill between levels and work out what that did to the
+     other two. This stores each of them as an ordered list of drills, which
+     is the thing the coach is actually trying to get right.
+
+     A list wins over the shares for that stage and that band. A stage with
+     no list carries on exactly as it did, so this can be done one at a time
+     rather than all eighteen at once.
+
+     Order matters: a short session takes from the top, so the first four
+     are what fifteen minutes gives. */
+  if (path === '/coach/bands') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const all = (await getSetting('ladder:bands')) || {};
+    if (request.method === 'GET') {
+      /* names for the picker. Every other route that carries the library
+         wants a client email, and this tab is not about a client. */
+      return json({ bands: all, library: await libraryNow(),
+                    /* drills already put onto a stage, so the tab shows the
+                       same pool the app builds from rather than the shipped
+                       file on its own */
+                    ladderExtra: (await getSetting('ladder:extra')) || {} });
+    }
+    if (request.method === 'POST') {
+      const stage = String(Number(body.stage));
+      const band = String(Number(body.band));
+      if (!/^[0-5]$/.test(stage) || !/^[123]$/.test(band)) {
+        return json({ error: 'Which stage and which band?' }, 400);
+      }
+      const list = Array.isArray(body.list) ? body.list : null;
+      if (list === null) return json({ error: 'No list' }, 400);
+      const clean = [];
+      for (const x of list.slice(0, 60)) {
+        const v = String(x || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+        if (v && clean.indexOf(v) < 0) clean.push(v);
+      }
+      all[stage] = all[stage] || {};
+      /* an empty list is "go back to the shares", not "a workout with
+         nothing in it", which would give somebody a blank session */
+      if (clean.length) all[stage][band] = clean;
+      else delete all[stage][band];
+      if (!Object.keys(all[stage]).length) delete all[stage];
+      await setSetting('ladder:bands', all);
+
+      /* A drill can be put in a workout from the whole library, not only
+         from what the stage already has. The app builds the session out of
+         the stage's pool, so one that is not in that pool would be dropped
+         on the way through and the coach would never know it had been. This
+         puts it on the stage properly, which is the same list a drill made
+         from scratch lands in. */
+      if (Array.isArray(body.onStage) && body.onStage.length) {
+        const extra = (await getSetting('ladder:extra')) || {};
+        const list = (extra[stage] || []).slice();
+        for (const x of body.onStage.slice(0, 40)) {
+          const v = String((x && x.v) || '').toLowerCase()
+            .replace(/[^a-z0-9-]/g, '').slice(0, 60);
+          if (!v || clean.indexOf(v) < 0) continue;
+          const g = String((x && x.g) || '').slice(0, 40) || 'Strength';
+          const L = Math.max(1, Math.min(4, Number(x && x.L) || 2));
+          const at = list.findIndex(y => y && y.v === v);
+          if (at > -1) list[at] = { v, g, L }; else list.push({ v, g, L });
+        }
+        extra[stage] = list;
+        await setSetting('ladder:extra', extra);
+        return json({ ok: true, bands: all, ladderExtra: extra });
+      }
+      return json({ ok: true, bands: all });
+    }
+    return json({ error: 'Nope' }, 405);
   }
 
   /* ── what people type when they look for an explainer ────────────
