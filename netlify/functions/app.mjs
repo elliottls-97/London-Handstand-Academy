@@ -1471,9 +1471,22 @@ export default async (request) => {
         const vid = String(body.checkpoint.video || '').slice(0, 64);
         if (k && Number.isFinite(v) && v >= 0 && v <= 100000) {
           cur.checkpoints = cur.checkpoints || {};
-          cur.checkpoints[k] = (cur.checkpoints[k] || [])
-            .concat([Object.assign({ v: Math.round(v * 10) / 10, at: Date.now() },
-                                   vid ? { video: vid } : {})]).slice(-20);
+          const hist = (cur.checkpoints[k] || []).slice();
+          const row = Object.assign({ v: Math.round(v * 10) / 10, at: Date.now() },
+                                    vid ? { video: vid } : {});
+          /* Same rule as the app: nudging a slider twice in one session is a
+             correction, not two readings. The app replaced today's entry and
+             this appended, so the coach's record of a day and the client's
+             were different, and with a cap of 20 a few days of fiddling
+             pushed real readings out. A clip already sent is never dropped
+             by a later bare number. */
+          const day = t => new Date(t || 0).toISOString().slice(0, 10);
+          const last = hist[hist.length - 1];
+          if (last && day(last.at) === day(row.at)) {
+            if (last.video && !row.video) row.video = last.video;
+            hist[hist.length - 1] = row;
+          } else hist.push(row);
+          cur.checkpoints[k] = hist.slice(-20);
         }
       }
       /* a progress photo, already uploaded — this records the reference */

@@ -1529,7 +1529,7 @@ function dayDetail(email,list,k,p){
       <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:5px">
         ${x.got||0} of ${x.of||0} sets${x.actual?' · '+x.actual+' min'
           +(x.mins&&x.mins!==x.actual?' (planned '+x.mins+')':''):''}
-        ${x.done?'':`<br><b>Stopped at:</b> ${esc(x.stoppedAt||'unknown')}${x.block?' — '+esc(x.block):''}`}
+        ${x.done?'':`<br><b>Stopped at:</b> ${esc(x.stoppedAt||'unknown')}${x.block?', in '+esc(x.block):''}`}
       </div>
       ${(x.items||[]).length?`<div style="display:flex;flex-direction:column;gap:4px;margin-top:9px">
         ${x.items.map(it=>{
@@ -1539,10 +1539,17 @@ function dayDetail(email,list,k,p){
             <span style="flex:none;width:62px;font:700 8.5px/1.3 var(--sans);letter-spacing:.1em;
               text-transform:uppercase;color:var(--grey2)">${esc(it.grp||'')}</span>
             <span style="flex:1;min-width:0">${esc(it.n||it.v)}</span>
-            ${it.reps?`<span style="flex:none;font:700 11px/1 var(--sans);
-              color:${it.want&&it.reps<it.want?'var(--terra)':'var(--forest)'};
-              font-variant-numeric:tabular-nums" title="${esc(it.dose||'')}">${it.reps}${
-              it.want&&it.reps!==it.want?' of '+it.want:''} reps</span>`:''}
+            ${it.reps?(()=>{
+              /* "135 reps" for a two minute hold. The unit rides on the row
+                 now; rows logged before it did fall back to the dose. */
+              const secs = it.unit==='s'
+                || (!it.unit && /\bs(ec|econds)?\b|\d+\s*s\b/i.test(String(it.dose||'')));
+              const u = secs ? 's' : '';
+              const tail = secs ? '' : ' reps';
+              return `<span style="flex:none;font:700 11px/1 var(--sans);
+                color:${it.want&&it.reps<it.want?'var(--terra)':'var(--forest)'};
+                font-variant-numeric:tabular-nums" title="${esc(it.dose||'')}">${it.reps}${u}${
+                it.want&&it.reps!==it.want?' of '+it.want+u:''}${tail}</span>`;})():''}
             <span style="flex:none;color:${part?'var(--terra)':'var(--grey2)'};
               font-variant-numeric:tabular-nums">${none?'not reached':it.got+'/'+it.of}</span>
             ${it.rate?`<span style="flex:none;font:800 8px/1 var(--sans);letter-spacing:.1em;
@@ -1608,6 +1615,56 @@ function mmss(s){ s=Math.round(s||0);
   if(s<60) return s+'s';
   const m=Math.floor(s/60); return m+'m'+(s%60?' '+(s%60)+'s':''); }
 /* eight weeks of both, newest last */
+/* ── the progress photos ───────────────────────────────────────────
+   The client can take a side, front and back shot, they upload, and the
+   whole record reached the server and stopped there. The only mention of
+   photos anywhere in this dashboard was in the wording of the button that
+   deletes them. Side by side is the entire point of taking them. */
+const PHOTO_VIEWS=[['side','Side on'],['front','Front on'],['back','From behind']];
+function panelPhotos(email){
+  const t=tracks[email]||{};
+  const all=(t.photos||[]).filter(p=>p&&p.id);
+  if(!all.length) return '';
+  const view=(photoView[email]||'side');
+  const shots=all.filter(p=>(p.view||'side')===view).sort((a,b)=>(a.at||0)-(b.at||0));
+  const first=shots[0], last=shots[shots.length-1];
+  const gap=(first&&last&&first!==last)
+    ? Math.round(((last.at||0)-(first.at||0))/864e5) : 0;
+  const tabs=PHOTO_VIEWS.map(([v,l])=>{
+    const n=all.filter(p=>(p.view||'side')===v).length;
+    return `<button onclick="photoView['${esc(email)}']='${v}';draw()"
+      style="flex:1;border:0;cursor:${n?'pointer':'default'};border-radius:10px;padding:9px 6px;
+      min-height:38px;font:600 12px/1 var(--sans);opacity:${n?1:.4};
+      background:${view===v?'#fff':'transparent'};
+      box-shadow:${view===v?'0 1px 2px rgba(17,17,17,.08)':'none'};
+      color:${view===v?'var(--deep)':'var(--grey)'}">${l}${
+      n?` <span style="font-weight:400;color:var(--grey2)">${n}</span>`:''}</button>`;}).join('');
+  const shot=(p,label)=>p?`<div style="flex:1;min-width:0">
+    <a href="/api/app/image/${esc(p.id)}" target="_blank" rel="noopener"
+      style="display:block;aspect-ratio:3/4;border-radius:12px;overflow:hidden;
+      background:rgba(0,64,61,.07)">
+      <img src="/api/app/image/${esc(p.id)}" alt="" loading="lazy"
+        style="width:100%;height:100%;object-fit:cover;display:block"></a>
+    <div style="font:600 9px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:7px">
+      ${label}</div>
+    <div style="font:400 11px/1 var(--sans);color:var(--grey2);margin-top:4px">${
+      p.at?new Date(p.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):''}</div>
+  </div>`:`<div style="flex:1"></div>`;
+  return `<div class="card"><div class="kick2">PROGRESS PHOTOS</div>
+    <div style="display:flex;gap:4px;padding:4px;border-radius:13px;
+      background:rgba(0,64,61,.08);margin-top:12px">${tabs}</div>
+    ${shots.length?`<div style="display:flex;gap:12px;margin-top:14px">
+      ${shot(first,'FIRST')}${(last&&last!==first)?shot(last,'LATEST'):''}
+    </div>
+    <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">
+      ${shots.length} shot${shots.length===1?'':'s'}${
+        gap?', '+gap+' day'+(gap===1?'':'s')+' apart':''}. Tap either to open it full size.</div>`
+    :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
+      Nothing from this angle yet.</div>`}
+  </div>`;
+}
+let photoView={};
+
 function panelVolume(p, email){
   const thisWk=MONDAY(Date.now()), wks=[];
   for(let i=7;i>=0;i--){
@@ -3016,6 +3073,7 @@ function metricsHTML(email){
     ${coachCalendar(email)}</div>
   ${panelWeek(p)}
   ${panelVolume(p, email)}
+  ${panelPhotos(email)}
   ${intakeHTML(email)}
   ${trackHTML(email)}
   <div style="margin-top:11px">
