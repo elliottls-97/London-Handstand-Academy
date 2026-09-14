@@ -174,6 +174,35 @@ body[data-tier=free] .tab.on i{background:var(--sand)}
 .back{font:500 13px/1 var(--sans);color:var(--forest);cursor:pointer;background:none;border:none;
  padding:11px 2px;min-height:44px;display:inline-flex;align-items:center}
 video{width:100%;display:block;background:#000}
+/* ── the in-app player ── */
+.vp{position:relative;line-height:0}
+.vp-bar{position:absolute;left:0;right:0;bottom:0;z-index:4;
+ display:flex;align-items:center;gap:9px;padding:10px 11px 11px;
+ background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.55) 42%,rgba(0,0,0,.72));
+ opacity:1;transition:opacity .25s}
+.vp-btn{flex:none;width:34px;height:34px;border:0;border-radius:999px;cursor:pointer;
+ background:rgba(255,255,255,.14);color:#fff;display:grid;place-items:center;padding:0;
+ -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:background .2s}
+.vp-btn:hover{background:rgba(255,255,255,.26)}
+.vp-btn:active{transform:scale(.94)}
+.vp-t{flex:none;font:600 11px/1 var(--sans);color:rgba(255,255,255,.82);
+ font-variant-numeric:tabular-nums}
+.vp-track{flex:1;min-width:0;height:20px;display:flex;align-items:center;cursor:pointer;
+ touch-action:none}
+.vp-track::before{content:'';position:absolute;left:0;right:0;height:20px}
+.vp-track>i{display:block;position:relative;width:0;height:4px;border-radius:3px;background:#fff;
+ box-shadow:0 0 0 100vmax rgba(255,255,255,.22) inset}
+.vp-track{position:relative;border-radius:3px;background:rgba(255,255,255,.26);height:4px}
+.vp-track>i{height:4px}
+#theatre{position:fixed;inset:0;z-index:1400;background:#000;display:none;
+ align-items:center;justify-content:center;overflow:hidden;overscroll-behavior:contain}
+#theatre.on{display:flex}
+#vpRoom{position:relative;display:flex;align-items:center;justify-content:center;
+ transform-origin:50% 50%}
+#vpStage{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
+#theatre .vp-bar{background:none;padding:14px 16px calc(env(safe-area-inset-bottom) + 16px)}
+#theatre .vp-btn{width:40px;height:40px}
+#theatre .vp-t{font-size:12px}
 .row{padding:15px 18px;border-bottom:1px solid rgba(0,64,61,.08)}
 .row:last-child{border-bottom:none}
 .box{width:24px;height:24px;border-radius:8px;border:2px solid rgba(0,64,61,.22);flex:none;
@@ -1033,13 +1062,26 @@ function ccDraw(v, cues){
      small explainer in a sheet, where it swallowed the picture. A horizontal
      film gets a fifth of its height at most, and sits inside the bottom
      fifth; a vertical one can afford a little more. */
-  const box=v.getBoundingClientRect();
+  /* offsetWidth and offsetHeight are the layout box and ignore transforms.
+     getBoundingClientRect returns the painted box, which is swapped once the
+     theatre rotates the film, so the plate decided a vertical film had gone
+     horizontal the moment it was turned. */
+  const rect=v.getBoundingClientRect();
+  const box=(v.offsetWidth>40 && v.offsetHeight>40)
+    ? {width:v.offsetWidth, height:v.offsetHeight} : rect;
   if(box.height>40){
     const wide=box.width/box.height>1.2;
     const key=Math.round(box.width)+'x'+Math.round(box.height);
-    if(el.dataset.fit!==key){
-      el.dataset.fit=key;
-      el.style.bottom=(wide?'6%':'10%');
+    /* the control bar sits at the foot of the film, so the plate has to
+       start above it. In the theatre the bar is on the room instead and
+       this finds nothing, which is the right answer there. */
+    const bar=host.querySelector(':scope > .vp-bar');
+    const barH=bar?Math.round(bar.getBoundingClientRect().height):0;
+    if(el.dataset.fit!==key+'+'+barH){
+      el.dataset.fit=key+'+'+barH;
+      el.style.bottom=barH
+        ? 'calc('+(wide?'4%':'7%')+' + '+barH+'px)'
+        : (wide?'6%':'10%');
       const row=el.firstChild;
       row.style.fontSize=Math.max(10, Math.min(box.height*(wide?0.062:0.05), 22)).toFixed(1)+'px';
       row.style.maxHeight=Math.round(box.height*0.2)+'px';
@@ -1074,6 +1116,195 @@ function ccDraw(v, cues){
     }
   });
 }
+
+/* ── the in-app theatre ────────────────────────────────────────────
+   Native fullscreen takes the <video> element and nothing else, so the
+   caption plate, which is a sibling of it, is simply not on screen. The
+   old answer was to hand over to a real text track for the duration,
+   which works but puts the browser's own white box on screen in place of
+   the design: a different typeface, a different colour, no lit word.
+
+   So this does not use the Fullscreen API at all. It is a fixed layer,
+   and the video is moved into it rather than copied, which means the
+   plate travels with it and keeps drawing. It behaves the same on iOS,
+   where an arbitrary element cannot be fullscreened anyway.
+
+   Rotating is the other half. A horizontal film on an upright phone is
+   the width of a stamp; turning it fills the screen without asking
+   anyone to turn their phone over and fight the lock. */
+let vpFrom=null, vpMark=null, vpTurn=0, vpHideT=null;
+
+const VP_PLAY='<svg width="15" height="17" viewBox="0 0 17 19" fill="currentColor"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg>';
+const VP_PAUSE='<svg width="14" height="16" viewBox="0 0 14 16" fill="currentColor"><rect x="1" y="0" width="4" height="16" rx="1.4"/><rect x="9" y="0" width="4" height="16" rx="1.4"/></svg>';
+const VP_EXPAND='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5"/><path d="M16 3h5v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/></svg>';
+const VP_CLOSE='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
+const VP_TURN='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M8 3.5l2-2 2 2"/><path d="M10 1.5A7.5 7.5 0 0 1 17 7"/></svg>';
+
+const vpTime = s => { s=Math.max(0,Math.floor(s||0));
+  return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+
+/* the bar under a captioned film, in place of the browser's own controls.
+   The browser's carry a fullscreen button, and that button is the whole
+   problem this is here to avoid. */
+function vpBar(v, theatre){
+  const bar=document.createElement('div');
+  bar.className='vp-bar';
+  bar.dataset.theatre=theatre?'1':'';
+  bar.innerHTML=
+    '<button class="vp-btn" data-a="play" aria-label="Play"></button>'
+   +'<span class="vp-t" data-a="now">0:00</span>'
+   +'<div class="vp-track" data-a="track"><i></i></div>'
+   +'<span class="vp-t" data-a="dur">0:00</span>'
+   +(theatre?'<button class="vp-btn" data-a="turn" aria-label="Rotate">'+VP_TURN+'</button>':'')
+   +'<button class="vp-btn" data-a="full" aria-label="'+(theatre?'Close':'Full screen')+'">'
+   +(theatre?VP_CLOSE:VP_EXPAND)+'</button>';
+  const q=a=>bar.querySelector('[data-a="'+a+'"]');
+  const play=q('play'), now=q('now'), dur=q('dur'), track=q('track'), fill=track.firstChild;
+  const paint=()=>{
+    play.innerHTML = v.paused ? VP_PLAY : VP_PAUSE;
+    play.setAttribute('aria-label', v.paused?'Play':'Pause');
+    now.textContent=vpTime(v.currentTime);
+    dur.textContent=vpTime(v.duration);
+    fill.style.width=(v.duration?(v.currentTime/v.duration*100):0).toFixed(2)+'%';
+  };
+  play.onclick=e=>{ e.stopPropagation(); v.paused?v.play():v.pause(); paint(); };
+  q('full').onclick=e=>{ e.stopPropagation(); theatre?vpClose():vpOpen(v); };
+  if(theatre) q('turn').onclick=e=>{ e.stopPropagation(); vpRotate(); };
+  /* scrub by pointer, so a drag works as well as a tap */
+  const seek=ev=>{
+    const r=track.getBoundingClientRect();
+    const x=Math.max(0,Math.min(1,(ev.clientX-r.left)/Math.max(1,r.width)));
+    if(v.duration) v.currentTime=x*v.duration;
+    paint();
+  };
+  track.addEventListener('pointerdown',ev=>{ ev.stopPropagation();
+    track.setPointerCapture(ev.pointerId); seek(ev); });
+  track.addEventListener('pointermove',ev=>{ if(track.hasPointerCapture&&
+    track.hasPointerCapture(ev.pointerId)) seek(ev); });
+  ['timeupdate','play','pause','loadedmetadata','seeked','durationchange']
+    .forEach(e=>v.addEventListener(e,paint));
+  paint();
+  return bar;
+}
+
+/* one call per captioned film, on the way in */
+function vpBuild(v){
+  if(!v || v.dataset.vp) return;
+  const host=v.parentElement; if(!host) return;
+  v.dataset.vp='1';
+  v.removeAttribute('controls'); v.controls=false;
+  v.setAttribute('playsinline','');
+  host.classList.add('vp');
+  host.appendChild(vpBar(v,false));
+  /* tapping the picture plays and pauses, which is what everyone tries */
+  v.addEventListener('click',()=>{ v.paused?v.play():v.pause(); });
+}
+
+function vpTheatre(){
+  let el=document.getElementById('theatre');
+  if(el) return el;
+  el=document.createElement('div');
+  el.id='theatre';
+  /* a room inside the layer. The stage and the controls live in it
+     together, so turning the film turns the buttons with it rather than
+     leaving them lying on their side under a picture that is not. */
+  el.innerHTML='<div id="vpRoom"><div id="vpStage"></div></div>';
+  el.addEventListener('click', ev=>{ if(ev.target===el) vpClose(); });
+  document.body.appendChild(el);
+  return el;
+}
+function vpOpen(v){
+  if(vpFrom) return;
+  const wrap=v.parentElement; if(!wrap) return;
+  const t=vpTheatre(), stage=document.getElementById('vpStage');
+  /* a placeholder of the same size, so the page underneath does not jump
+     while the film is out of it */
+  vpMark=document.createElement('div');
+  vpMark.style.height=wrap.offsetHeight+'px';
+  vpFrom={wrap, parent:wrap.parentElement, next:wrap.nextSibling,
+          css:wrap.getAttribute('style')||'', at:v.currentTime, playing:!v.paused};
+  vpFrom.parent.insertBefore(vpMark, wrap);
+  stage.appendChild(wrap);
+  wrap.setAttribute('style','position:relative;line-height:0;width:100%;max-width:100%');
+  /* re-parenting a <video> drops playback in some browsers; put it back */
+  try{ v.currentTime=vpFrom.at; }catch(e){}
+  if(vpFrom.playing) v.play().catch(()=>{});
+  const bar=wrap.querySelector('.vp-bar'); if(bar) bar.remove();
+  /* the controls go on the room, not on the film. A three minute explainer
+     is a 211px strip on a phone, and a bar pinned to the bottom of that
+     strip lands exactly on top of the caption plate. */
+  document.getElementById('vpRoom').appendChild(vpBar(v,true));
+  vpTurn=0; vpFit();
+  /* videoWidth is 0 until metadata lands, so a cold open would size to 16/9
+     and then sit wrong for the rest of the film */
+  v.addEventListener('loadedmetadata', vpFit);
+  t.classList.add('on');
+  document.body.style.overflow='hidden';
+  document.addEventListener('keydown', vpKeys);
+}
+function vpClose(){
+  if(!vpFrom) return;
+  const {wrap,parent,next,css}=vpFrom;
+  const v=wrap.querySelector('video');
+  const at=v?v.currentTime:0, playing=v?!v.paused:false;
+  const room=document.getElementById('vpRoom');
+  const tbar=room&&room.querySelector(':scope > .vp-bar'); if(tbar) tbar.remove();
+  wrap.style.transform=''; wrap.style.width=''; wrap.style.height='';
+  wrap.setAttribute('style', css);
+  parent.insertBefore(wrap, next || null);
+  if(vpMark && vpMark.parentElement) vpMark.remove();
+  wrap.appendChild(vpBar(v,false));
+  if(v){ try{ v.currentTime=at; }catch(e){} if(playing) v.play().catch(()=>{}); }
+  const t=document.getElementById('theatre'); if(t) t.classList.remove('on');
+  document.body.style.overflow='';
+  document.removeEventListener('keydown', vpKeys);
+  vpFrom=null; vpMark=null; vpTurn=0;
+}
+function vpKeys(e){
+  if(e.key==='Escape'){ vpClose(); return; }
+  if(!vpFrom) return;
+  const v=vpFrom.wrap.querySelector('video'); if(!v) return;
+  if(e.key===' '){ e.preventDefault(); v.paused?v.play():v.pause(); }
+  if(e.key==='ArrowRight') v.currentTime=Math.min(v.duration||0, v.currentTime+5);
+  if(e.key==='ArrowLeft') v.currentTime=Math.max(0, v.currentTime-5);
+}
+function vpRotate(){ vpTurn=(vpTurn+90)%180; vpFit(); }
+/* size the stage to whichever way round it is, so the film is as large as
+   the screen allows and the plate, which is inside it, scales with it */
+function vpFit(){
+  if(!vpFrom) return;
+  const wrap=vpFrom.wrap, v=wrap.querySelector('video');
+  const turned=vpTurn===90;
+  const W=window.innerWidth, H=window.innerHeight;
+  /* the space available, in the orientation the film is being watched in */
+  const availW=turned?H:W, availH=turned?W:H;
+  const room=document.getElementById('vpRoom');
+  if(room){
+    room.style.width=availW+'px';
+    room.style.height=availH+'px';
+    room.style.transform=turned?'rotate(90deg)':'';
+  }
+  /* Fit the film's own shape into it rather than stretching the wrapper to
+     the whole screen. The plate hangs off the bottom of the video box, so a
+     letterboxed box means the line floats in the black well below the
+     picture, which is exactly where nobody is looking. */
+  const ar=(v && v.videoWidth && v.videoHeight) ? v.videoWidth/v.videoHeight : 16/9;
+  /* leave the bar its own room at the foot rather than letting it sit on
+     the picture, which on a wide film is where the captions are */
+  const barH=68;
+  let w=availW, h=Math.round(availW/ar);
+  if(h>availH-barH){ h=availH-barH; w=Math.round(h*ar); }
+  wrap.style.width=w+'px';
+  wrap.style.height=h+'px';
+  /* the room does the turning; the film only has to fit inside it */
+  wrap.style.transform='';
+  if(v){ v.style.width='100%'; v.style.height='100%'; v.style.objectFit='contain'; }
+  /* the plate measures the video, so let it measure again */
+  const el=document.getElementById('ccPlate'); if(el) el.dataset.fit='';
+}
+window.addEventListener('resize', ()=>{ if(vpFrom) vpFit(); });
+window.addEventListener('orientationchange', ()=>{ if(vpFrom) setTimeout(vpFit,120); });
+
 function attachCaptions(v, uid){
   if(!v || !uid || v.dataset.ccDone) return;
   v.dataset.ccDone='1';
@@ -1083,35 +1314,23 @@ function attachCaptions(v, uid){
       const cues=ccParse(txt);
       if(!cues.length) return;
 
-      /* Fullscreen takes the <video> and nothing else, so the plate, which is
-         a sibling of it, is simply not on screen any more. Rather than fight
-         that, hand over to a real text track for the duration: the browser
-         draws its own captions inside the fullscreen video, and the plate
-         comes back when you come back. Built here from the cues we already
-         have, so no cross-origin track is involved. */
-      let native=null;
-      const buildNative=()=>{
-        if(native) return native;
-        try{
-          native=v.addTextTrack('captions','English','en');
-          cues.forEach(c=>{
-            const line=c.w.map(w=>w.x).join(' ');
-            try{ native.addCue(new VTTCue(c.a, c.b, line)); }catch(e){}
-          });
-        }catch(e){ native=null; }
-        return native;
-      };
+      /* This used to build a real text track and hand over to it whenever
+         the film went native fullscreen, because fullscreen takes the
+         <video> and nothing else and left the plate behind. It worked, and
+         it put the browser's own white box on screen in place of the design:
+         wrong face, wrong colour, no lit word. Expanding goes through the
+         theatre now, which moves the whole wrapper and keeps the plate with
+         it, so there is nothing to hand over to.
+
+         A film can still reach native fullscreen from a context menu or a
+         keyboard shortcut. The plate is hidden for the duration rather than
+         drawn somewhere nobody can see it. */
       const fsEl=()=>document.fullscreenElement||document.webkitFullscreenElement||null;
       const inFs=()=>fsEl()===v || !!v.webkitDisplayingFullscreen;
       const sync=()=>{
-        const full=inFs();
-        const t=full?buildNative():native;
-        if(t) t.mode = full ? 'showing' : 'disabled';
         const el=document.getElementById('ccPlate');
-        if(el && full) el.style.opacity='0';
-        /* coming back out, redraw at once rather than waiting for the next
-           frame of the loop, which is not running if the film is paused */
-        if(!full) ccDraw(v, cues);
+        if(el && inFs()) el.style.opacity='0';
+        if(!inFs()) ccDraw(v, cues);
       };
       ['fullscreenchange','webkitfullscreenchange'].forEach(e=>
         document.addEventListener(e, sync));
@@ -1133,7 +1352,13 @@ function attachCaptions(v, uid){
 }
 /* every explainer video on the page, whenever one is drawn */
 function mountCaptions(){
-  document.querySelectorAll('video[data-cc]').forEach(v=>attachCaptions(v, v.getAttribute('data-cc')));
+  document.querySelectorAll('video[data-cc]').forEach(v=>{
+    /* the player first and unconditionally: a film whose captions fail to
+       load still needs controls, and the browser's own carry the fullscreen
+       button this exists to replace */
+    vpBuild(v);
+    attachCaptions(v, v.getAttribute('data-cc'));
+  });
 }
 /* The plate is positioned against the video's own box, so every captioned
    video gets a wrapper that is exactly the video and nothing else. Dropped
