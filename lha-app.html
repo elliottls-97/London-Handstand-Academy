@@ -102,14 +102,6 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 /* The top bar is fixed and 67px tall: 10 + a 44px control + 12. Anything
    less than that here puts the first line of the hero underneath it, which
    is how the greeting and the stage title both ended up sliced. */
-.hero{position:relative;overflow:hidden;
- padding:calc(env(safe-area-inset-top) + 79px) 22px 16px;
- background:linear-gradient(178deg,#0a7b74,#046e68);color:var(--bg);border-radius:0 0 30px 30px}
-.hero::before{content:'';position:absolute;top:-120px;right:-90px;width:280px;height:280px;
- border-radius:50%;pointer-events:none;
- background:radial-gradient(circle,rgba(143,190,202,.22),transparent 70%)}
-.hero>*{position:relative}
-body[data-tier=free] .hero{background:linear-gradient(180deg,#0a7b74,#006663)}
 body[data-tier=free] .btn{background:#0a7b74}
 .kick{font:600 10px/1 var(--sans);letter-spacing:.2em;color:var(--sage-t)}
 .kick2{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
@@ -168,15 +160,16 @@ body[data-tier=free] .tab.on i{background:var(--sand)}
 .sheet{position:relative}
 .sheet h2.st{margin:0;padding-right:110px;font:400 24px/1.05 var(--serif);color:var(--ink)}
 @media (prefers-reduced-motion:reduce){.ov.on,.sheet{animation:none!important}}
-.ovhead{background:var(--forest);padding:calc(env(safe-area-inset-top) + 18px) 22px 22px;color:var(--bg)}
+.ovhead{padding:calc(env(safe-area-inset-top) + 18px) 22px 22px;
+ border-bottom:1px solid rgba(0,64,61,.10)}
 /* text links that are still buttons: padding gives them a target without
    moving them visually */
-.back{font:500 13px/1 var(--sans);color:var(--sage-t);cursor:pointer;background:none;border:none;
+.back{font:500 13px/1 var(--sans);color:var(--forest);cursor:pointer;background:none;border:none;
  padding:11px 2px;min-height:44px;display:inline-flex;align-items:center}
 video{width:100%;display:block;background:#000}
-.row{padding:15px 18px;border-bottom:1px solid rgba(28,32,25,.07)}
+.row{padding:15px 18px;border-bottom:1px solid rgba(0,64,61,.08)}
 .row:last-child{border-bottom:none}
-.box{width:24px;height:24px;border-radius:8px;border:2px solid rgba(28,32,25,.2);flex:none;
+.box{width:24px;height:24px;border-radius:8px;border:2px solid rgba(0,64,61,.22);flex:none;
  display:grid;place-items:center;font-size:13px;color:transparent;cursor:pointer;background:#fff}
 .box.on{background:var(--forest);border-color:var(--forest);color:#fff}
 /* This started life as a label-sized chip and is now the stepper on every
@@ -186,10 +179,10 @@ video{width:100%;display:block;background:#000}
  border:1px solid var(--line);background:#fff;color:var(--grey)}
 .rt.easy.on{background:var(--sage);color:#fff;border-color:transparent}
 .rt.hard.on{background:var(--amber);color:#fff;border-color:transparent}
-.why{display:inline-flex;align-items:center;gap:9px;margin-top:10px;background:var(--mist);
- border-radius:999px;padding:8px 13px;cursor:pointer;border:none}
+.why{display:inline-flex;align-items:center;gap:9px;margin-top:10px;background:rgba(0,64,61,.06);
+ border-radius:999px;padding:9px 14px;min-height:36px;cursor:pointer;border:none}
 .why b{font:700 11.5px/1 var(--sans);color:var(--forest)}
-.why span{font:500 11.5px/1 var(--sans);color:#007a75}
+.why span{font:500 11.5px/1 var(--sans);color:var(--deep)}
 input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 .act{
   border:1px solid var(--line,rgba(0,0,0,.14)); background:#fff; color:var(--ink);
@@ -601,54 +594,75 @@ function screenToday(){
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
   const mins=q.reduce((a,s,_i)=>a+work(s.it)+rest(s,_i,q),0);
-  const hGrid=weekGrid(), hWeek=weekNow();
-  const weeks=[1,2,3,4,5,6].map(w=>{
-    const days=[0,1,2].map(i=>{
-      const doneW = hGrid[w-1].length>i;
-      return `<i style="flex:1;height:26px;border-radius:5px;background:${doneW?'var(--sand)':'rgba(255,255,255,.16)'}"></i>`;
-    }).join('');
-    return `<div style="display:flex;flex-direction:column;gap:6px">
-      <div style="display:flex;gap:3px">${days}</div>
-      <span style="font:600 9.5px/1 var(--sans);color:${w===3?'var(--bg)':'var(--sage)'};text-align:center">W${w}</span></div>`;
-  }).join('');
+  const hWeek=weekNow();
+  const name=(st.client||'').split(' ')[0]||'';
+  const nDone=sessionsDone().length;
   /* these three used to be typed into the app, so every client was told
      the same thing about their own block whatever their block said */
   const pts=(DATA.changed||[]).map(x=>Array.isArray(x)?x:[x.t||'',x.p||'']).filter(x=>x[0]||x[1]);
   return `<div class="scroll s">
-  <div class="hero">
-    <div class="h-lg" style="max-width:22ch">Good ${greeting()}. ${(()=>{
-      const n=sessionsDone().length;
-      return ticked>=total&&total ? "That's today done." : n ? 'Your next session is ready.' : 'Your first session is ready.';
-    })()}</div>
+  <!-- The green hero has gone, the same way the free side's did. It was a
+       third of the screen before a word had been said, and the one control
+       this screen exists for, Start, was a flat panel the size of a chip.
+       Nothing here has been dropped: the greeting, the six week block, the
+       day, its length and the time it is due are all still on the first
+       screen, on the ground rather than on a slab of green. -->
+  <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+      color:var(--forest)">Good ${greeting()}${name?', '+esc(name):''}</div>
+    <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">${
+      ticked>=total&&total ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
+      : nDone ? `Your next session <em style="color:var(--forest);font-style:normal">is ready.</em>`
+              : `Your first session <em style="color:var(--forest);font-style:normal">is ready.</em>`}</div>
+  </div>
 
-    <!-- the block, as six weeks. Same shape as the ladder strip on the free
-         side; the content is the block you are in rather than the stage. -->
-    <div data-tour="block" style="display:flex;gap:6px;margin-top:15px">
-      ${[1,2,3,4,5,6].map(w=>`<div style="flex:1;padding-bottom:2px">
-        <div style="height:4px;border-radius:99px;transform:scaleY(${w===hWeek?1.6:1});
-          background:${w<=hWeek?'var(--ink)':'rgba(17,17,17,.1)'}"></div>
+  <!-- the block, as six weeks. Same shape as the stage rail on the free
+       side; the content is the block you are in rather than the stage.
+       Amber marks the week you are in, which is the one thing amber is for. -->
+  <div class="rise rise-1" data-tour="block" style="padding:26px 20px 0">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span style="font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--grey)">Block · week ${hWeek} of 6</span>
+      <span style="font:400 13px/1 var(--sans);color:var(--grey)">${
+        nDone?nDone+' session'+(nDone===1?'':'s')+' logged':'Nothing logged yet'}</span>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:10px">
+      ${[1,2,3,4,5,6].map(w=>`<div style="flex:1">
+        <div style="height:8px;border-radius:4px;background:${
+          w<hWeek?'var(--deep)':w===hWeek?'var(--amber)':'rgba(0,64,61,.1)'}"></div>
         <span style="display:block;margin-top:7px;font:600 9.5px/1 var(--sans);letter-spacing:.1em;
-          text-align:center;color:${w===hWeek?'rgba(236,231,226,1)':'var(--grey2)'}">W${w}</span>
+          text-align:center;color:${w===hWeek?'var(--ink)':'var(--grey2)'}">W${w}</span>
       </div>`).join('')}
     </div>
+  </div>
 
-    <div style="height:1px;background:rgba(236,231,226,.16);margin:14px 0 12px"></div>
-
+  <div class="rise rise-2" style="padding:24px 20px 0">
     <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
-      <div style="font:400 20px/1.1 var(--serif)">${esc(d.label)}${d.sub?', '+esc(d.sub):''}</div>
-      <span style="flex:none;font:500 11.5px/1 var(--sans);color:var(--grey)">
+      <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
+        d.sub?', '+esc(d.sub):''}</div>
+      <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">
         ${Math.round(mins/60)} min · ${total} drill${total===1?'':'s'}</span>
     </div>
 
-    <button onclick="startPlayer()" style="margin-top:11px;width:100%;border:0;border-radius:14px;
-      padding:13px;background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans);cursor:pointer">
-      ${ticked>=total&&total?'Go again':'Start the session'}</button>
-    <div style="font:400 11.5px/1 var(--sans);color:var(--grey);text-align:center;
-      margin-top:9px">${esc(d.when)}</div>
+    <button onclick="startPlayer()" style="margin-top:14px;height:68px;width:100%;border:0;border-radius:18px;
+      background:linear-gradient(180deg,#0a7a76,#006663);
+      box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+      color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
+      padding:0 12px 0 22px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
+      onpointerdown="this.style.transform='scale(.985)'"
+      onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
+      <span style="font:600 19px/1.15 var(--sans)">${ticked>=total&&total?'Go again':'Start the session'}</span>
+      <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);
+        display:grid;place-items:center">
+        <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+    </button>
+    <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
+      margin-top:10px">${esc(d.when)}</div>
   </div>
 
-  <div class="pad" style="padding-top:14px">
-    <div style="display:flex;gap:9px">
+  <div class="rise rise-3 pad" style="padding-top:20px">
+    <div style="display:flex;gap:10px">
       <button class="btn2" style="flex:1" onclick="go('plan')">See the drills</button>
       <button class="btn2" style="flex:1" onclick="openLog()">Log today</button>
     </div>
@@ -807,12 +821,12 @@ function screenToday(){
       const last=(st.tests||[]).length ? (st.testAt||0) : 0;
       const from=last || blockStart() || 0;
       const days=from ? Math.max(0, 14-Math.floor((Date.now()-from)/864e5)%14) : null;
-      return `<div class="card" style="border-radius:22px;padding:18px;background:var(--amber);
-        color:#fff;cursor:pointer" onclick="openOv('test')">
-        <div class="kick2" style="color:rgba(255,255,255,.86)">TWO-WEEK TEST</div>
-        <div class="h-md" style="font-size:32px;margin-top:10px">${
+      return `<div class="card" style="border-radius:22px;padding:18px;background:#fdf1dd;
+        border-color:rgba(243,169,73,.5);cursor:pointer" onclick="openOv('test')">
+        <div class="kick2" style="color:#8a5a12">TWO-WEEK TEST</div>
+        <div class="h-md" style="font-size:32px;margin-top:10px;color:var(--ink)">${
           days==null?'Ready':days===0?'Today':days+' day'+(days===1?'':'s')}</div>
-        <div style="font:400 12.5px/1.4 var(--sans);color:rgba(255,255,255,.85);margin-top:5px">
+        <div style="font:400 12.5px/1.4 var(--sans);color:#7a5416;margin-top:5px">
           Five drills, filmed.</div>
       </div>`;})()}
   </div>
@@ -1135,17 +1149,19 @@ function screenPlan(){
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
   const tabs=DATA.days.map((x,i)=>`<button onclick="st.day=${i};save();render()" style="flex:1;border:none;cursor:pointer;
-    border-radius:14px;padding:10px 6px;background:${i===st.day?'rgba(255,255,255,.14)':'transparent'};
-    font:${i===st.day?'700':'500'} 12.5px/1 var(--sans);color:${i===st.day?'var(--bg)':'var(--sage)'}">
-    ${esc(x.label)}<span style="display:block;font:500 9.5px/1 var(--sans);letter-spacing:.1em;margin-top:5px;
-    color:${i===st.day?'var(--sage)':'rgba(159,176,152,.6)'}">${esc(x.sub.toUpperCase())}</span></button>`).join('');
+    border-radius:12px;padding:9px 6px;min-height:44px;
+    background:${i===st.day?'#fff':'transparent'};
+    box-shadow:${i===st.day?'0 1px 2px rgba(17,17,17,.08)':'none'};
+    font:${i===st.day?'600':'500'} 12.5px/1 var(--sans);color:${i===st.day?'var(--deep)':'var(--grey)'}">
+    ${esc(x.label)}<span style="display:block;font:600 9px/1 var(--sans);letter-spacing:.1em;margin-top:5px;
+    color:${i===st.day?'var(--forest)':'var(--grey2)'}">${esc(x.sub.toUpperCase())}</span></button>`).join('');
 
   const groups=d.groups.map((g,gi)=>{
     const wk=st.why[st.day+'-'+gi];
     const rows=g.items.map((it,ii)=>{
       const k=key(st.day,gi,ii), on=st.tick[k], rate=st.rate[it.v]||'', openD=st.open[k];
       const flagged=rate==='easy'||rate==='hard';
-      return `<div class="row" style="${on?'background:#faf8f5':''}">
+      return `<div class="row" style="${on?'background:rgba(0,64,61,.035)':''}">
         <div style="display:flex;gap:13px;align-items:flex-start">
           <div class="box ${on?'on':''}" onclick="tick('${k}')">✓</div>
           <div style="flex:1;min-width:0">
@@ -1174,15 +1190,20 @@ function screenPlan(){
               ${(it.cues||[]).length?`<ul style="margin:${it.url?'-6px':'9px'} 0 0;padding-left:17px;
                 display:flex;flex-direction:column;gap:5px">${it.cues.map(c=>
                 `<li style="font:400 13px/1.5 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}</ul>`:''}`:''}
-            ${flagged?`<div style="margin-top:12px;background:#f4efe9;border-radius:18px;padding:14px">
-              <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${rate==='hard'?'TOO HARD':'TOO EASY'} — TELL ELLIOTT</div>
+            ${flagged?`<div style="margin-top:12px;background:#faf0ed;border:1px solid rgba(164,80,60,.22);
+              border-radius:18px;padding:14px">
+              <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
+                rate==='hard'?'TOO HARD':'TOO EASY'} &middot; TELL ELLIOTT</div>
               <input value="${esc(st.note[it.v]||'')}" oninput="st.note['${it.v}']=this.value;save()"
                 placeholder="What happened? (optional)"
-                style="width:100%;background:#fff;border:none;border-radius:14px;padding:12px;margin-top:10px;
-                font:400 13.5px/1.45 var(--sans);color:var(--grey)">
+                style="width:100%;background:#fff;border:1px solid rgba(0,64,61,.14);border-radius:14px;
+                padding:12px;margin-top:10px;min-height:44px;
+                font:400 13.5px/1.45 var(--sans);color:var(--ink)">
               <div style="display:flex;gap:9px;margin-top:10px">
-                <button onclick="sendFlags()" style="flex:1;border:none;background:var(--forest);color:var(--bg);
-                  border-radius:999px;padding:12px;font:600 12px/1 var(--sans);cursor:pointer">Send to Elliott</button>
+                <button onclick="sendFlags()" style="flex:1;border:none;min-height:44px;
+                  background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+                  box-shadow:0 8px 18px rgba(0,102,99,.24),inset 0 1px 0 rgba(255,255,255,.3);
+                  border-radius:999px;padding:12px;font:600 12.5px/1 var(--sans);cursor:pointer">Send to Elliott</button>
               </div></div>`:''}
           </div></div></div>`;
     }).join('');
@@ -1197,27 +1218,50 @@ function screenPlan(){
           <span>${esc(purpose(g.name))}</span></div>`;
         return `<button class="why" onclick="st.why['${st.day+'-'+gi}']=!st.why['${st.day+'-'+gi}'];save();render()">
           <span>${esc(purpose(g.name))}</span><b>${wk?'Less':'Why?'}</b></button>
-        ${wk?`<div style="margin-top:11px;background:#fff;border-radius:20px;padding:16px">
+        ${wk?`<div style="margin-top:11px;background:#fff;border-radius:22px;padding:16px;
+          border:1px solid rgba(0,64,61,.10);
+          box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
           <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-bottom:12px">${esc(why(g.name))}</div>
           ${vidBlock(EXPLAINERS+encodeURIComponent(wv.v),'16/9')}
           ${wv.a?`<div style="font:400 14px/1.55 var(--sans);color:var(--grey)">${esc(wv.a)}</div>`:''}
         </div>`:''}`;})()}
     </div>
-    <div style="margin:12px 12px 0;background:#fff;border-radius:24px;overflow:hidden">${rows}</div>`;
+    <div style="margin:12px 14px 0;background:#fff;border-radius:24px;overflow:hidden;
+      border:1px solid rgba(0,64,61,.10);
+      box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">${rows}</div>`;
   }).join('');
 
   return `<div class="scroll s">
-    <div style="background:var(--forest);padding:calc(env(safe-area-inset-top) + 79px) 18px 16px;color:var(--bg);position:sticky;top:0;z-index:2">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span class="h-md" style="font-size:26px">${esc(d.label)}</span>
-        <span style="font:600 11.5px/1 var(--sans);color:var(--sage-t)">${ticked} / ${total}</span>
+    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">Your plan</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:8px">
+        <span style="font:400 40px/1 var(--serif);letter-spacing:-.015em">${esc(d.label)}</span>
+        <span style="flex:none;font:500 13px/1 var(--sans);color:var(--grey)">${ticked} of ${total} ticked</span>
       </div>
-      <div style="height:4px;border-radius:999px;background:rgba(255,255,255,.15);margin-top:12px;overflow:hidden">
-        <div style="height:100%;width:${total?Math.round(ticked/total*100):0}%;background:var(--sand);border-radius:999px"></div></div>
-      <div data-tour="daytabs" style="display:flex;gap:7px;margin-top:13px">${tabs}</div>
-      <button onclick="followDay()" style="margin-top:12px;width:100%;border:0;border-radius:14px;
-        padding:13px;background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans);cursor:pointer">
-        Follow along, ${esc(d.label)}</button>
+      <div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:14px;overflow:hidden">
+        <div style="height:100%;width:${total?Math.round(ticked/total*100):0}%;background:var(--deep);
+          border-radius:4px;transition:width .5s cubic-bezier(.2,.8,.2,1)"></div></div>
+      <button onclick="followDay()" style="margin-top:16px;height:64px;width:100%;border:0;border-radius:18px;
+        background:linear-gradient(180deg,#0a7a76,#006663);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+        color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
+        padding:0 10px 0 20px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
+        onpointerdown="this.style.transform='scale(.985)'"
+        onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
+        <span style="font:600 17px/1.15 var(--sans);text-align:left">Follow along, ${esc(d.label)}</span>
+        <span style="flex:none;width:44px;height:44px;border-radius:50%;background:var(--on-primary);
+          display:grid;place-items:center">
+          <svg width="15" height="17" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+      </button>
+    </div>
+    <div data-tour="daytabs" style="position:sticky;top:calc(env(safe-area-inset-top) + 67px);z-index:2;
+      margin-top:18px;padding:9px 16px 10px;
+      background:rgba(244,244,245,.86);backdrop-filter:blur(22px) saturate(180%);
+      -webkit-backdrop-filter:blur(22px) saturate(180%);
+      border-bottom:1px solid rgba(0,64,61,.10)">
+      <div style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08)">${tabs}</div>
     </div>
     <div data-tour="drillrows">${groups}</div>
     <div style="padding:22px 12px 0;display:flex;flex-direction:column;gap:11px">${planExtras()}</div>
@@ -1229,12 +1273,12 @@ const PURPOSE={'Warm-up':'Wrists and shoulders','Entries — build to 6':'The po
  'Mobility':'When you are warm','Floats and press walks':'The press pattern at floor level'};
 const WHY={'Warm-up':'Four minutes so the first entry is not the warm-up. Wrists get loaded hard today.',
  'Entries — build to 6':'Entries are to practise entering the correct position every single time. Get fully into it, but do not make more than one adjustment before coming back down.',
- 'Shape changes':'The key thing that made my handstand consistent. The wall holds the balance so you can feel the shape — then one freestanding set on top.',
+ 'Shape changes':'The key thing that made my handstand consistent. The wall holds the balance so you can feel the shape, then one freestanding set on top.',
  'Tuck':'The tuck handstand is press training in disguise. Hands close, push through the shoulders instead of widening. Less depth is fine.',
- 'Press walks':'I want these done slightly differently to normal to get a lot more out of them — the explainer is the whole drill.',
+ 'Press walks':'I want these done slightly differently to normal to get a lot more out of them, and the explainer is the whole drill.',
  'Strength':'Strength last so it never eats into the balance work.',
  'Mobility':'At the end, when you are warm.',
- 'Floats and press walks':'The press pattern at floor level — same shift of weight, no handstand needed.'};
+ 'Floats and press walks':'The press pattern at floor level, the same shift of weight with no handstand needed.'};
 const purpose=n=>PURPOSE[n]||'Why this is here';
 const why=n=>WHY[n]||'';
 /* The chip offered an explainer for every block. It only earns its place
@@ -2208,10 +2252,10 @@ function milestoneCard(){
   return `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
     <div class="kick2" style="color:var(--forest)">YOU HIT THE MARKER</div>
     <div class="h-md" style="font-size:21px;margin-top:9px">
-      ${esc((STAGES[i]||{}).ch||'That hold')} — ${bestHoldFor(holdKind())}s.</div>
+      ${esc((STAGES[i]||{}).ch||'That hold')}, ${bestHoldFor(holdKind())}s.</div>
     <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
       That is ${esc((STAGES[i]||{}).n)} done on the numbers.${next
-        ? ' '+esc(next.n)+' is where most people start guessing — it is the stage where what you cannot see about your own shape starts costing you.'
+        ? ' '+esc(next.n)+' is where most people start guessing. It is the stage where what you cannot see about your own shape starts costing you.'
         : ' You are at the top of the ladder.'}</div>
     <button class="btn" style="width:100%;margin-top:14px" onclick="dismissMilestone();go('coaching')">
       Get my eyes on it</button>
@@ -2263,7 +2307,7 @@ function photosCard(){
     color:${view===v?'var(--on-primary)':'var(--ink)'}">${label}</button>`).join('');
 
   const shot=(p,label)=>p?`<div style="flex:1;min-width:0">
-      <div style="position:relative;aspect-ratio:3/4;border-radius:14px;overflow:hidden;background:var(--mist)">
+      <div style="position:relative;aspect-ratio:3/4;border-radius:14px;overflow:hidden;background:rgba(0,64,61,.07)">
         <img src="${AUTH.image}/${esc(p.id)}" alt="${label}" loading="lazy"
           style="display:block;width:100%;height:100%;object-fit:cover">
       </div>
@@ -2273,7 +2317,7 @@ function photosCard(){
         ${esc(agoShort(p.at))}</div>
     </div>`
     :`<div style="flex:1;min-width:0">
-      <div style="aspect-ratio:3/4;border-radius:14px;background:var(--mist);display:grid;
+      <div style="aspect-ratio:3/4;border-radius:14px;background:rgba(0,64,61,.07);display:grid;
         place-items:center;font:400 12.5px/1.4 var(--sans);color:var(--grey2);text-align:center;
         padding:12px">Nothing yet</div></div>`;
 
@@ -2347,7 +2391,7 @@ function metricsCard(){
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
         <span style="flex:1;min-width:0;font:600 14.5px/1.2 var(--sans)">${esc(D.n)}</span>
         <span style="flex:none;font:400 20px/1 var(--serif);color:${
-          last?'var(--forest)':'var(--grey2)'}">${last?last.v:'—'}</span>
+          last?'var(--forest)':'var(--grey2)'}">${last?last.v:'not yet'}</span>
         <span style="flex:none;font:600 10px/1 var(--sans);color:var(--grey2);min-width:22px">${esc(D.unit)}</span>
       </div>
       ${h.length>1?`<div style="display:flex;gap:3px;margin-top:9px">${bars}</div>`:''}
@@ -2798,13 +2842,17 @@ function sessionCalendar(){
 function screenProgress(){
   const t=st.tests||[];
   const rows=DATA.test.items.map((it,i)=>{
-    const was=(t[0]&&t[0][it.id])||'—', now=(t[t.length-1]&&t[t.length-1][it.id])||'—';
-    const pct=(was!=='—'&&now!=='—'&&+was>0)?Math.min(100,Math.round(+now/Math.max(+was,+now)*100)):0;
-    return `<div><div style="display:flex;justify-content:space-between;align-items:baseline">
+    const was=(t[0]&&t[0][it.id]), now=(t[t.length-1]&&t[t.length-1][it.id]);
+    const pct=(was&&now&&+was>0)?Math.min(100,Math.round(+now/Math.max(+was,+now)*100)):0;
+    return `<div><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
       <span style="font:500 14px/1.2 var(--sans)">${esc(it.n)}</span>
-      <span style="font:400 15px/1 var(--serif);color:var(--grey)">${was} → <span style="color:var(--forest)">${now}</span></span></div>
-      <div style="height:6px;border-radius:999px;background:var(--mist);margin-top:8px;overflow:hidden">
-        <div style="height:100%;width:${pct}%;background:var(--amber);border-radius:999px"></div></div></div>`;
+      ${(was||now)
+        ? `<span style="flex:none;font:400 15px/1 var(--serif);color:var(--grey)">${
+            was||'first go'} → <span style="color:var(--forest)">${now||'first go'}</span></span>`
+        : `<span style="flex:none;font:400 12.5px/1 var(--sans);color:var(--grey2)">Not tested yet</span>`}</div>
+      <div style="height:6px;border-radius:999px;background:rgba(0,64,61,.1);margin-top:8px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:var(--amber);border-radius:999px;
+          transition:width .5s cubic-bezier(.2,.8,.2,1)"></div></div></div>`;
   }).join('');
   const grid=weekGrid(), thisWeek=weekNow();
   const weeks=[1,2,3,4,5,6].map(w=>`<div style="display:flex;flex-direction:column;gap:5px;text-align:center">
@@ -2820,8 +2868,9 @@ function screenProgress(){
   const seg = [['track','Training'],['marks','Check points']].map(([k,l])=>
     `<button onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;
       border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
-      background:${tab===k?'var(--on-primary)':'transparent'};
-      color:${tab===k?'var(--deep)':'rgba(236,231,226,.96)'}">${l}</button>`).join('');
+      background:${tab===k?'#fff':'transparent'};
+      box-shadow:${tab===k?'0 1px 2px rgba(17,17,17,.08)':'none'};
+      color:${tab===k?'var(--deep)':'var(--grey)'}">${l}</button>`).join('');
 
   const trackBody = `
       ${coachedView()?'':weekCard()}
@@ -2893,11 +2942,16 @@ function screenProgress(){
   if(!coachedView()) return `<div style="display:flex;flex-direction:column;gap:11px">
     ${milestoneCard()}${trackBody}</div>`;
   return `<div class="scroll s">
-    <div class="hero"><span class="kick">YOUR NUMBERS</span>
-      <div class="h-lg" style="margin-top:16px">Where you are</div>
-      <div style="display:flex;gap:6px;margin-top:18px;padding:4px;border-radius:16px;
-        background:rgba(236,231,226,.14)">${seg}</div></div>
-    <div style="padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px">
+    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">Your numbers</div>
+      <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">Where you
+        <em style="color:var(--forest);font-style:normal">are.</em></div>
+    </div>
+    <div class="rise rise-1" style="padding:22px 16px 0">
+      <div style="display:flex;gap:4px;padding:4px;border-radius:14px;
+        background:rgba(0,64,61,.08)">${seg}</div></div>
+    <div class="rise rise-2" style="padding:14px 16px 26px;display:flex;flex-direction:column;gap:11px">
       ${tab==='marks' ? marksBody : trackBody}
     </div></div>`;
 }
@@ -3007,7 +3061,7 @@ function uploadClip(file, say){
         say('Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };
       xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid)
                     : reject('Upload failed ('+xhr.status+')');
-      xhr.onerror=()=>reject('Upload failed — check your signal');
+      xhr.onerror=()=>reject('Upload failed, check your signal');
       xhr.send(fd);
     }));
 }
@@ -3173,7 +3227,7 @@ function prefsHTML(){
     ${row('reminders','Training reminders','When your two-week test is due.')}
     ${row('marketing','Tips and workshops','No more than twice a month.')}
     <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
-      Password resets and receipts always send — those cannot be turned off.</div></div>`;
+      Password resets and receipts always send, and those cannot be turned off.</div></div>`;
 }
 
 function loadSubmissions(){
@@ -3259,7 +3313,7 @@ function sendClip(file){
         upPct=Math.round(e.loaded/e.total*100); upSay('Uploading… '+upPct+'%'); } };
       xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid)
                     : reject('Upload failed ('+xhr.status+')');
-      xhr.onerror=()=>reject('Upload failed — check your signal');
+      xhr.onerror=()=>reject('Upload failed, check your signal');
       xhr.send(fd);
     }))
     .then(uid=>{
@@ -3293,39 +3347,56 @@ function screenAsk(){
         <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" loading="lazy"
           style="display:block;width:100%;max-height:56vh;object-fit:contain"></a>`:''}
       ${m.text?`<div style="max-width:82%;border-radius:${mine?'20px 20px 6px 20px':'20px 20px 20px 6px'};padding:14px 16px;
-        background:${mine?'var(--forest)':'#fff'};color:${mine?'var(--bg)':'var(--ink)'};
+        background:${mine?'linear-gradient(180deg,#0a7a76,#006663)':'#fff'};
+        color:${mine?'var(--on-primary)':'var(--ink)'};
+        border:${mine?'0':'1px solid rgba(0,64,61,.10)'};
+        box-shadow:${mine?'0 8px 20px rgba(0,102,99,.22)':'0 1px 2px rgba(0,64,61,.05),0 6px 16px rgba(0,64,61,.06)'};
         font:400 14.5px/1.5 var(--sans)">${esc(m.text)}</div>`:''}
       <div style="font:500 10.5px/1 var(--sans);color:var(--grey2);margin-top:6px">${esc(m.time)}</div></div>`;
   }).join('');
-  return `<div class="scroll s">
-    <div style="background:var(--forest);padding:calc(env(safe-area-inset-top) + 79px) 20px 18px;color:var(--bg);
-      position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px">
-      <span style="width:38px;height:38px;border-radius:999px;background:var(--amber);display:grid;place-items:center;font:700 14px/1 var(--sans)">${esc((coachLabel()[0]||'E').toUpperCase())}</span>
-      <div><div class="h-sm">${esc(coachLabel())}</div>
-      <div style="font:500 10.5px/1 var(--sans);letter-spacing:.1em;color:var(--sage-t);margin-top:6px">USUALLY REPLIES WITHIN 48 HOURS</div></div>
+  return `<div class="scroll s" style="display:flex;flex-direction:column">
+    <div class="rise" style="flex:none;padding:calc(env(safe-area-inset-top) + 84px) 20px 0;
+      display:flex;align-items:center;gap:14px">
+      <span style="flex:none;width:52px;height:52px;border-radius:999px;
+        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+        box-shadow:0 10px 24px rgba(0,102,99,.26),inset 0 1px 0 rgba(255,255,255,.3);
+        display:grid;place-items:center;font:700 19px/1 var(--sans)">${
+        esc((coachLabel()[0]||'E').toUpperCase())}</span>
+      <div style="min-width:0">
+        <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+          color:var(--forest)">Ask</div>
+        <div style="font:400 34px/1 var(--serif);letter-spacing:-.015em;margin-top:7px">${
+          esc(coachLabel())}</div>
+      </div>
     </div>
-    <div style="padding:16px 14px 8px;display:flex;flex-direction:column;gap:14px">${
-      msgs.length ? bubbles : `<div style="text-align:center;padding:34px 20px;color:var(--grey2);
-        font:400 14.5px/1.6 var(--sans)">No messages yet.<br>Ask me anything about the training.</div>`
+    <div class="rise rise-1" style="padding:12px 20px 0;font:400 13px/1.4 var(--sans);color:var(--grey)">
+      Usually replies within 48 hours.</div>
+    <div class="rise rise-2" style="flex:1;padding:22px 14px 8px;display:flex;flex-direction:column;gap:14px">${
+      msgs.length ? bubbles : `<div style="text-align:center;padding:40px 22px;color:var(--grey);
+        font:400 15px/1.6 var(--sans)">No messages yet.<br>Ask me anything about the training.</div>`
     }</div>
-    <div style="position:sticky;bottom:0;z-index:3;padding:6px 14px calc(env(safe-area-inset-bottom) + 14px);
-      background:linear-gradient(180deg,rgba(236,231,226,0),var(--bg) 22%)">
-      <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;align-items:center">
+    <div style="position:sticky;bottom:0;z-index:3;padding:10px 14px calc(env(safe-area-inset-bottom) + 14px);
+      background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)">
+      <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;
+        align-items:center;border:1px solid rgba(0,64,61,.10);
+        box-shadow:0 1px 2px rgba(0,64,61,.05),0 10px 24px rgba(0,64,61,.07)">
         <input id="askIn" placeholder="Ask about a drill, a niggle, a week off…"
           value="${esc(askDraft)}" oninput="askDraft=this.value"
           onkeydown="if(event.key==='Enter'){event.preventDefault();sendAsk();}"
           style="flex:1;border:none;outline:none;background:none;font:400 14px/1.3 var(--sans)">
         <button onclick="pickClip()" aria-label="Send a video"
-          style="flex:none;width:42px;height:42px;border-radius:999px;background:var(--mist);
-          border:none;color:var(--ink);cursor:pointer;display:grid;place-items:center;padding:0">
+          style="flex:none;width:44px;height:44px;border-radius:999px;background:#fff;
+          border:1px solid rgba(0,64,61,.14);color:var(--deep);cursor:pointer;
+          display:grid;place-items:center;padding:0">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5"/>
             <path d="m15 12 6-3.5v11L15 16"/></svg>
         </button>
         <button onclick="pickPhoto()" aria-label="Send a photo"
-          style="flex:none;width:42px;height:42px;border-radius:999px;background:var(--mist);
-          border:none;color:var(--ink);cursor:pointer;display:grid;place-items:center;padding:0">
+          style="flex:none;width:44px;height:44px;border-radius:999px;background:#fff;
+          border:1px solid rgba(0,64,61,.14);color:var(--deep);cursor:pointer;
+          display:grid;place-items:center;padding:0">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="16" rx="2.5"/>
@@ -3333,13 +3404,16 @@ function screenAsk(){
             <path d="m3.5 17 4.8-4.6a2 2 0 0 1 2.7-.06L15 16"/>
             <path d="m13.5 14.5 2.2-2.1a2 2 0 0 1 2.7-.02l2.1 1.9"/></svg>
         </button>
-        <button onclick="sendAsk()" style="flex:none;width:42px;height:42px;border-radius:999px;background:var(--forest);
-          border:none;color:var(--bg);font:400 18px/1 var(--serif);cursor:pointer">→</button>
+        <button onclick="sendAsk()" aria-label="Send"
+          style="flex:none;width:44px;height:44px;border-radius:999px;
+          background:linear-gradient(180deg,#0a7a76,#006663);
+          box-shadow:0 8px 18px rgba(0,102,99,.28),inset 0 1px 0 rgba(255,255,255,.3);
+          border:none;color:var(--on-primary);font:400 18px/1 var(--serif);cursor:pointer">→</button>
       </div>
       <div id="askMsg" style="font:500 11.5px/1.5 var(--sans);color:var(--forest);
         text-align:center;margin-top:9px;min-height:16px"></div>
       <div style="font:500 11px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:4px">
-        Film a form check — side on, whole body in frame, up to three minutes.
+        Film a form check: side on, whole body in frame, up to three minutes.
         Photos work too.</div>
     </div></div>`;
 }
@@ -3524,7 +3598,7 @@ function repOf(it){
   m=d.match(/(\d+)\s*s\b/);                                    if(m) return {n:m[1],u:'seconds'};
   m=d.match(/build to\s*(\d+)/i);                              if(m) return {n:m[1],u:'build to'};
   m=d.match(/^\s*(\d+)\s*$/);                                  if(m) return {n:m[1],u:'reps'};
-  return {n:d||'—',u:'',small:true};
+  return {n:d||'',u:'',small:true};
 }
 
 function startPlayer(){
@@ -3602,7 +3676,7 @@ function paintClock(){
 function upNextHTML(){
   const rest=Q.slice(qi+1, qi+5);
   if(!rest.length) return `<div class="p-up"><div class="p-uphead">Up next</div>
-    <div class="p-uprow"><span style="font:400 14px/1.4 var(--sans);color:var(--grey)">Last one — that is the session.</span></div></div>`;
+    <div class="p-uprow"><span style="font:400 14px/1.4 var(--sans);color:var(--grey)">Last one, that is the session.</span></div></div>`;
   return `<div class="p-up">
     <div class="p-uphead">Up next · ${Q.length-qi-1} to go
       <span style="float:right;font-weight:500;letter-spacing:0;text-transform:none">tap to preview</span></div>
@@ -3622,7 +3696,7 @@ function upNextHTML(){
         </button>
         <div class="p-updetail">
           ${it.url?`<div class="p-upvid">${vidBlock(it.url,'16/10','contain')}</div>`
-                  :'<div class="p-vfail">Filming soon — the cues are the drill</div>'}
+                  :'<div class="p-vfail">Filming soon, the cues are the drill</div>'}
           ${it.desc?`<p style="font:600 14px/1.5 var(--sans);margin:12px 0 0">${esc(it.desc)}</p>`:''}
           ${cues.length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px">
             ${cues.map(c=>`<li style="font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}
@@ -3675,7 +3749,7 @@ function showStep(){
     if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
       `<video src="${it.url}" autoplay loop playsinline ${soundOn()?'':'muted'}></video>`; }
     else { vw.className='p-vwrap novideo';
-      vw.innerHTML='<div class="p-vfail">Filming soon — the cues are the drill</div>'; }
+      vw.innerHTML='<div class="p-vfail">Filming soon, the cues are the drill</div>'; }
     const rp=repOf(it), cues=it.cues||[];
     body.innerHTML=`<span class="p-phase">${s.sets>1?'Set '+s.set+' of '+s.sets:esc(s.grp||'Exercise')}</span>
       <div class="p-main">
@@ -3907,12 +3981,12 @@ function drawOv(){
     body=`${it.url?vidBlock(it.url,'4/3','contain')
       :`<div style="border-radius:22px;padding:26px;text-align:center;margin-bottom:18px;
          background:linear-gradient(150deg,var(--sand),var(--sage));
-         font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--deep)">FILMING SOON — THE CUES ARE THE DRILL</div>`}
+         font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--deep)">FILMING SOON &middot; THE CUES ARE THE DRILL</div>`}
       <div class="kick2">DOSE</div><div class="h-md" style="margin-top:8px">${esc(it.d||'')}</div>
       ${it.desc?`<div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:16px">${esc(it.desc)}</div>`:''}
       ${(it.cues||[]).length?`<div class="kick2" style="margin-top:22px">COACHING CUES</div>
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
-        ${it.cues.map(c=>`<div style="display:flex;gap:10px"><span style="color:var(--forest)">—</span>
+        ${it.cues.map(c=>`<div style="display:flex;gap:10px"><span style="color:var(--forest)">&bull;</span>
           <span style="font:400 14.5px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
@@ -4291,7 +4365,7 @@ function drawOv(){
           <span style="flex:1;min-width:0">
             <span style="display:block;font:600 15px/1.2 var(--sans)">${esc(st.client||'Signed in')}</span>
             <span style="display:block;font:400 13px/1.3 var(--sans);color:var(--grey);margin-top:4px;
-              word-break:break-all">${esc(st.email||'—')}</span>
+              word-break:break-all">${esc(st.email||'not set')}</span>
           </span>
         </div>
         <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(28,32,25,.09)">
@@ -4378,20 +4452,24 @@ function drawOv(){
         <div style="font:600 15px/1.2 var(--sans)">${esc(t.n)}</div>
         <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:6px">${esc(t.q)}</div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
-          <input id="t-${t.id}" type="number" inputmode="numeric" placeholder="—" value="${esc((st.testDraft||{})[t.id]||'')}"
+          <input id="t-${t.id}" type="number" inputmode="numeric" placeholder="0" value="${esc((st.testDraft||{})[t.id]||'')}"
             oninput="st.testDraft=st.testDraft||{};st.testDraft['${t.id}']=this.value;save()"
-            style="width:96px;border:1px solid var(--line);border-radius:12px;padding:11px;font:700 17px/1 var(--sans)">
+            style="width:96px;min-height:44px;border:1px solid rgba(0,64,61,.14);border-radius:12px;
+            padding:11px;font:700 17px/1 var(--sans)">
           <span style="font:600 10.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">${esc(t.u.toUpperCase())}</span>
-          <button onclick="filmTest('${t.id}','${esc(t.n)}')" style="margin-left:auto;flex:none;border:none;cursor:pointer;
-            border-radius:999px;padding:10px 14px;font:600 12px/1 var(--sans);
-            background:${filmed?'var(--forest)':'var(--mist)'};color:${filmed?'var(--bg)':'var(--ink)'}">
+          <button onclick="filmTest('${t.id}','${esc(t.n)}')" style="margin-left:auto;flex:none;cursor:pointer;
+            border-radius:999px;padding:11px 15px;min-height:44px;font:600 12px/1 var(--sans);
+            border:${filmed?'0':'1px solid rgba(0,64,61,.14)'};
+            background:${filmed?'linear-gradient(180deg,#0a7a76,#006663)':'#fff'};
+            box-shadow:${filmed?'0 8px 18px rgba(0,102,99,.24)':'none'};
+            color:${filmed?'var(--on-primary)':'var(--deep)'}">
             ${filmed?'&check; Filmed':'Film it'}</button>
         </div>
         <div id="tc-${t.id}" style="font:500 11.5px/1.4 var(--sans);color:var(--forest);margin-top:7px;min-height:15px"></div>
         </div>`;}).join('')}
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:2px 2px 0">
         ${esc((DATA.filming&&DATA.filming[0])||'Side on, phone vertical, whole body in frame.')}
-        A number without the clip is a claim I can't check — send both if you can.</div>
+        A number without the clip is a claim I cannot check, so send both if you can.</div>
       <div id="testMsg" style="font:500 12px/1.5 var(--sans);color:var(--forest);text-align:center;min-height:16px"></div>
       <button class="btn" onclick="sendTest()">Send my test</button></div>`;
   }
@@ -4606,7 +4684,7 @@ function drawOv(){
     </div>
     <div style="display:flex;gap:8px;margin-top:20px;padding:16px 0;
       border-top:1px solid rgba(28,32,25,.09);border-bottom:1px solid rgba(28,32,25,.09)">
-      ${stat(drills,'DRILLS')}${stat(mins?mins+'m':'—','TIME')}${stat(q.length,'SETS')}
+      ${stat(drills,'DRILLS')}${stat(mins?mins+'m':'0m','TIME')}${stat(q.length,'SETS')}
     </div>
       <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
       <div style="display:flex;gap:9px;margin-top:12px">
@@ -5035,7 +5113,7 @@ const WHY_REASONS=['Too long','Too hard','Too easy','Ran out of time',
 let whyPicked=[];
 function screenWhyBody(){
   return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">
-      Optional — it tells me what to change.</div>
+      Optional, it tells me what to change.</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
       ${WHY_REASONS.map(r=>`<button onclick="toggleWhy('${esc(r)}')"
         style="display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;
@@ -5222,7 +5300,7 @@ function sendFlags(){
   const f=Object.keys(st.rate).filter(v=>st.rate[v]==='easy'||st.rate[v]==='hard');
   if(!f.length) return;
   const names={}; DATA.days.forEach(d=>d.groups.forEach(g=>g.items.forEach(i=>names[i.v]=i.n)));
-  post({type:'Drill flags',flags:f.map(v=>st.rate[v].toUpperCase()+' — '+(names[v]||v)+(st.note[v]?' ("'+st.note[v]+'")':'')).join('\n')});
+  post({type:'Drill flags',flags:f.map(v=>st.rate[v].toUpperCase()+': '+(names[v]||v)+(st.note[v]?' ("'+st.note[v]+'")':'')).join('\n')});
   st.flagSent=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'}); save(); render();
 }
 function filmTest(id,name){
@@ -6737,7 +6815,7 @@ function screenUpgradeBody(si){
            'Your progress and holds tracked across devices',
            'Cancel any time']
           .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
-            <span style="color:var(--forest)">—</span><span>${x}</span></div>`).join('')}
+            <span style="color:var(--forest)">&bull;</span><span>${x}</span></div>`).join('')}
       </div>
       ${(function(){
         /* the quiz placed them somewhere they cannot reach yet, and saying so
@@ -7871,9 +7949,10 @@ let holdT=null,holdS=0;
 function drawHold(){
   const mm=String(Math.floor(holdS/60)),ss=String(holdS%60).padStart(2,'0');
   $('#ov').innerHTML=`<div class="ovhead"><button class="back" onclick="stopHold();closeOv()">← Back</button>
-    <div class="h-lg" style="margin-top:16px">Max hold</div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--sage-t);margin-top:8px">
-      ${esc(holdLabel())} — best so far ${bestHoldFor(holdKind())}s.
+    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:16px">Max <em
+      style="color:var(--forest);font-style:normal">hold.</em></div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+      ${esc(holdLabel())}. Best so far ${bestHoldFor(holdKind())}s.
       Start it, kick up, stop it when you come down.</div></div>
     <div style="padding:40px 18px;text-align:center">
       <div class="h-xl" style="font-size:96px;color:var(--forest)">${holdS>=60?mm+':'+ss:holdS}</div>
@@ -7975,12 +8054,10 @@ function topBar(){
      header now: nothing over the ground at the top, frosted once you are
      past it, and the same dark teal on white either way. */
   const sc=!!st.scrolled;
-  /* The free screens are all on the light ground, so the bar is dark on
-     nothing. The coached ones still have their green heroes, and dark teal
-     on green is unreadable: until those screens are redesigned too, the bar
-     inverts over them exactly as it used to. Scrolled is always light,
-     because the frosted bar is light whatever is behind it. */
-  const dark = !sc && coachedView() && ['today','plan','progress','ask'].indexOf(st.tab)>-1;
+  /* It used to invert over Today, Plan, Progress and Ask, because those four
+     kept their green heroes after the free side lost its. They are on the
+     light ground now, so there is nothing left for it to invert over and the
+     bar is the same dark teal on white everywhere. */
   const label = ({home:'TODAY',today:'TODAY',ladder:'LADDER',progress:'PROGRESS',
     coaching:'COACHING',ask:'ASK',plan:'PLAN',more:'MORE'})[st.tab] || '';
   const waiting = !!(st.lastReview && st.lastReview > (st.seenReview||0));
@@ -7988,9 +8065,9 @@ function topBar(){
   const initials = (name||'?').slice(0,2).toUpperCase();
   const sub = st.in ? 'COACHED' : 'STAGE '+(curStage()+1);
   const chip = `flex:none;cursor:pointer;transition:background .3s,border-color .3s,color .3s;
-    background:${dark?'rgba(247,244,241,.14)':'#fff'};
-    border:1px solid ${dark?'rgba(247,244,241,.26)':'rgba(0,64,61,.14)'};
-    color:${dark?'var(--on-primary)':'var(--deep)'}`;
+    background:#fff;
+    border:1px solid rgba(0,64,61,.14);
+    color:var(--deep)`;
   return `<div id="topbar" style="position:absolute;top:0;left:0;right:0;z-index:40;
     padding:calc(env(safe-area-inset-top) + 14px) 20px 12px;display:flex;align-items:center;gap:10px;
     transition:background .3s,border-color .3s,backdrop-filter .3s;
@@ -8000,10 +8077,10 @@ function topBar(){
     border-bottom:1px solid rgba(0,64,61,${sc?.10:0})">
     <span style="flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
       transition:background .3s,color .3s;
-      background:${dark?'var(--on-primary)':'var(--deep)'};
-      color:${dark?'var(--deep)':'var(--on-primary)'};font:700 11px/1 var(--sans)">LHA</span>
+      background:var(--deep);
+      color:var(--on-primary);font:700 11px/1 var(--sans)">LHA</span>
     <span style="flex:1;font:600 11px/1 var(--sans);letter-spacing:.14em;transition:color .3s;
-      color:${dark?'rgba(247,244,241,.92)':'var(--deep)'}">${label}</span>
+      color:var(--deep)">${label}</span>
     <button onclick="openChat()" aria-label="Messages"
       style="${chip};position:relative;width:44px;height:44px;border-radius:999px;
       display:grid;place-items:center">
@@ -8011,19 +8088,18 @@ function topBar(){
         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H8l-5
         3 1.5-4.5A8 8 0 1 1 21 12z"/></svg>
       ${waiting?`<span style="position:absolute;top:-1px;right:-1px;width:9px;height:9px;border-radius:999px;
-        background:var(--amber);border:2px solid ${dark?'var(--forest)':'#fff'}"></span>`:''}
+        background:var(--amber);border:2px solid #fff"></span>`:''}
     </button>
     ${st.token?`<button onclick="openOv('account')" aria-label="Your account"
       style="${chip};border-radius:999px;padding:4px 12px 4px 4px;display:flex;align-items:center;gap:8px">
       <span style="width:26px;height:26px;border-radius:999px;
-        background:${dark?'var(--on-primary)':'var(--deep)'};
-        color:${dark?'var(--deep)':'var(--on-primary)'};
+        background:var(--deep);
+        color:var(--on-primary);
         display:grid;place-items:center;font:700 10px/1 var(--sans)">${esc(initials)}</span>
       <span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px">
-        <span style="font:600 12.5px/1 var(--sans);color:${
-          dark?'var(--on-primary)':'var(--ink)'}">${esc(name||'You')}</span>
+        <span style="font:600 12.5px/1 var(--sans);color:var(--ink)">${esc(name||'You')}</span>
         <span style="font:600 8.5px/1 var(--sans);letter-spacing:.12em;
-          color:${dark?'rgba(247,244,241,.6)':'var(--grey2)'}">${sub}</span></span></button>`
+          color:var(--grey2)">${sub}</span></span></button>`
     :`<button onclick="st.tab='signin';save();render()" style="${chip};border-radius:22px;
       height:44px;padding:0 16px;display:inline-flex;align-items:center;
       font:600 14px/1 var(--sans)">Sign in</button>`}
