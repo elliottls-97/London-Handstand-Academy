@@ -1370,17 +1370,32 @@ export default async (request) => {
       if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
       if (body.time !== undefined) {
         const t = Number(body.time);
-        if ([15, 30, 45].includes(t)) cur.time = t;
+        /* 60 is offered to anyone who can already balance, and it was not on
+           this list, so those two levels picked an hour and got it back as
+           whatever the last valid answer was. */
+        if ([15, 30, 45, 60].includes(t)) cur.time = t;
       }
       if (body.perWeek !== undefined) {
         const n = Number(body.perWeek);
         if (Number.isInteger(n) && n >= 1 && n <= 7) cur.perWeek = n;
       }
+      /* Which ladder stage they are on. It was written to the account row for
+         the coach to read and never handed back to the app, so signing in on
+         a second device put a paying subscriber back on Foundations. */
+      if (body.stage !== undefined) {
+        const n = Number(body.stage);
+        if (Number.isInteger(n) && n >= 0 && n <= 20) cur.stage = n;
+      }
       await setSetting(key, cur);
     }
     const out = (await getSetting(key)) || {};
+    /* intake and quizDone were stored by the POST above and left out of this
+       answer, so the comment above about a new phone not asking the quiz
+       again described something that had never worked. */
     return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
       time: out.time || 0, perWeek: out.perWeek || 0,
+      intake: out.intake || {}, quizDone: !!out.quizDone,
+      stage: Number.isInteger(out.stage) ? out.stage : null,
       ladderDone: out.ladderDone || {} });
   }
 

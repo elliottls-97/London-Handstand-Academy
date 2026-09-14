@@ -1947,12 +1947,14 @@ function stageCleared(i){
   if(!blocked){
     st.stage=i+1; save();
     try{ sendIntake(); }catch(e){}
+    try{ saveState(); }catch(e){}
   }
   closeOv();
   openOv('cleared');
 }
 function clearedStay(){
-  if(st.clearedFrom!=null){ st.stage=st.clearedFrom; save(); try{ sendIntake(); }catch(e){} }
+  if(st.clearedFrom!=null){ st.stage=st.clearedFrom; save();
+    try{ sendIntake(); }catch(e){} try{ saveState(); }catch(e){} }
   st.clearedFrom=null; closeOv();
 }
 function cpDef(k){
@@ -3128,6 +3130,12 @@ function loadState(){
         if(st.intake.level!=null) st.quizDone=true;
       }
       if(d.quizDone) st.quizDone=true;
+      /* Where they are on the ladder followed the phone, not the person. It
+         was written to the account row by sendIntake and read back by the
+         coach's dashboard and by nothing else, so a paying subscriber who
+         signed in on a second device was put back on Foundations with no
+         way to see why, and every stage they had cleared was gone. */
+      if(d.stage!=null && Number.isFinite(Number(d.stage))) st.stage=Number(d.stage);
     if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
       save(); render();
     })
@@ -3140,7 +3148,7 @@ function saveState(){
     stateQueued=null;
     fetch(AUTH.state,{method:'POST',headers:authed(),body:JSON.stringify({
       dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
-      intake:st.intake||{}, quizDone:!!st.quizDone,
+      intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(),
       ladderDone:st.ladderDone||{}
     })}).catch(()=>{});
   }, 800);
@@ -4642,7 +4650,9 @@ function drawOv(){
         background:rgba(243,169,73,.14)">
         <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#7a4a10">WHAT IS NEXT</div>
         <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:9px">
-          ${esc(next.n)} and the three stages after it are £5 a month. ${
+          ${esc(next.n)}${(function(){const rest=STAGES.length-(st.clearedFrom||0)-2;
+            return rest>0 ? ' and the '+(rest===1?'stage':rest+' stages')+' after it' : '';})()
+          } ${STAGES.length-(st.clearedFrom||0)-2>0?'are':'is'} £5 a month. ${
           esc((next.goal||'').replace(/\.$/,''))}.</div>
       </div>
       <button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
@@ -5703,6 +5713,15 @@ function introOffer(){
 
 function screenOriented(){
   const S=STAGES[curStage()]||STAGES[0];
+  /* Where the answers put them, which is not always where they can train.
+     This screen read curStage() for everything, so someone who answered
+     "I'm stuck at the wall" was told "You've landed here: Foundations,
+     stage 1 of 6" with their own Wall Work answer printed underneath it.
+     The placement is the whole payoff of the quiz and the one moment the
+     paywall is worth meeting, and it was silently thrown away. */
+  const placed=placedStage();
+  const gated=placed>stageCap() && !!STAGES[placed];
+  const PS=STAGES[placed]||S;
   const a=intake();
   const goal=(GOALS.find(g=>g.v===a.goal)||{}).t||'';
   /* the goal never moved them — it explains why this is the road to it */
@@ -5723,12 +5742,37 @@ function screenOriented(){
   return `<div class="scroll s" style="background:transparent;color:var(--ink);min-height:100dvh">
     <div style="padding:calc(env(safe-area-inset-top) + 26px) 20px 40px">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-        color:var(--forest)">You&rsquo;ve landed here</div>
+        color:var(--forest)">${gated?'Your answers put you at':'You&rsquo;ve landed here'}</div>
       <div style="font:400 44px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
-        esc(S.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
+        esc(PS.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
       <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:9px">
-        Stage ${curStage()+1} of ${STAGES.length}. ${esc(levelDef().d)}</div>
+        Stage ${placed+1} of ${STAGES.length}. ${esc(levelDef().d)}</div>
       <div style="font:400 15.5px/1.5 var(--sans);color:#333;margin-top:16px">${esc(bridge)}</div>
+
+      <!-- The offer, at the one moment it means something: they have just
+           been told where they belong and it is not where they can train.
+           It is not a wall. Foundations is free and it is the button below,
+           and they meet this again the day they clear it. -->
+      ${gated?`<div style="margin-top:22px;border-radius:22px;padding:20px;
+        background:#fdf1dd;border:1px solid rgba(243,169,73,.5)">
+        <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#8a5a12">
+          ${esc(PS.n.toUpperCase())} IS THE &pound;5 TIER</div>
+        <div style="font:400 22px/1.2 var(--serif);margin-top:11px">
+          &pound;5 a month opens ${STAGES.length-FREE_STAGES} stages${
+          STAGES.length-FREE_STAGES>1?', from the wall to a press':''}.</div>
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:9px">
+          Every drill with its cues and a demo, and your progress kept across
+          devices. Cancel any time.</div>
+        <button onclick="startUpgrade()" style="width:100%;margin-top:16px;border:0;
+          border-radius:16px;padding:17px;background:linear-gradient(180deg,#0a7a76,#006663);
+          box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+          color:var(--on-primary);font:600 16px/1 var(--sans);cursor:pointer">
+          Open ${esc(PS.n)} for &pound;5 a month</button>
+      </div>
+      <div style="font:400 15px/1.55 var(--sans);color:#333;margin-top:22px">
+        ${esc(STAGES[stageCap()].n)} is free and always will be. It is the stage
+        ${esc(PS.n)} opens from, and you start there either way, so nothing is
+        lost by training it first.</div>`:''}
 
       <div style="background:#fff;border:1px solid rgba(17,17,17,.07);border-radius:20px;
         padding:4px 16px;margin-top:20px;box-shadow:0 1px 2px rgba(17,17,17,.04)">
@@ -5752,7 +5796,7 @@ function screenOriented(){
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);font:600 17px/1 var(--sans);cursor:pointer">
-        Start your first session</button>
+        ${gated?'Start on '+esc(S.n):'Start your first session'}</button>
 
       ${LADDER_INTRO_VIDEO
         ? `<div style="margin-top:16px">
@@ -5812,6 +5856,7 @@ function goToStage(i){
   /* sendIntake talks to the server, and a throw here used to take the redraw
      with it, so the stage moved in memory and the screen did not */
   try{ sendIntake(); }catch(e){}
+  try{ saveState(); }catch(e){}
   render();
   /* No confirm. The screen promises you can move either way whenever you
      like, and stopping to ask every time is the opposite of that. */
@@ -6799,10 +6844,10 @@ const stageLocked = i => i >= FREE_STAGES && !isPlus();
 
 function screenUpgradeBody(si){
   const s=STAGES[si]||{n:''};
-  return `<div style="text-align:center;padding:10px 0 4px">
-      <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">STAGE ${si+1}</div>
-      <div class="h-lg" style="margin-top:12px">${esc(s.n)}</div>
-      <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">
+  return `<div style="text-align:center;padding:2px 0 4px">
+      <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">STAGE ${
+        si+1} OF ${STAGES.length}</div>
+      <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px;max-width:34ch;margin-inline:auto">
         ${esc(s.goal||'')}</div>
     </div>
     <div class="card" style="margin-top:22px;padding:20px">
