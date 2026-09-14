@@ -6197,100 +6197,85 @@ function screenLadder(){
   const pct=P.of?Math.round(P.met/P.of*100):0;
   const mins=ladderMins();
 
+  /* The stages you have not reached, as a spine. They used to be five cards
+     identical to each other, each carrying its own £5/MO tag, so the loudest
+     thing on the ladder was the price repeated five times and the ladder read
+     as a list rather than a climb. The price is stated once, above. */
   const rungs=STAGES.map((x,i)=>{
-    const passed=i<cur, now=i===cur, locked=stageLocked(i);
+    if(i===cur) return '';
+    const passed=i<cur;
     const p=cpProgress(i);
-    const pc=p.of?Math.round(p.met/p.of*100):0;
-    const nxt=STAGES[i+1];
-    const node = passed
-      ? {bg:'#0a7b74', fg:'var(--on-primary)', t:'✓', anim:''}
-      : now
-        ? {bg:'var(--deep)', fg:'var(--on-primary)', t:String(i+1),
-           anim:'animation:lhaNow 3s ease-in-out infinite'}
-        : {bg:'rgba(17,17,17,.08)', fg:'var(--grey)', t:String(i+1), anim:''};
-    const card = passed ? 'rgba(0,102,99,.07)' : now ? '#fff' : 'rgba(17,17,17,.043)';
-    const tag = passed ? ['PASSED','rgba(0,102,99,.14)','var(--forest)']
-              : now    ? ['NOW','rgba(243,169,73,.24)','#5e3708']
-              : locked ? ['£5/MO','transparent','var(--grey)']
-                       : ['','transparent','var(--grey)'];
-    return `<div style="position:relative;display:flex;gap:13px">
-      <div style="flex:none;width:34px;display:flex;flex-direction:column;align-items:center;padding-top:13px">
-        <div style="flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;
-          justify-content:center;font:700 13.5px/1 var(--sans);transition:background .45s,color .45s;
-          background:${node.bg};color:${node.fg};${node.anim}">${node.t}</div>
-        ${i<STAGES.length-1?`<div style="flex:none;width:2.5px;border-radius:2px;margin-top:7px;
-          margin-bottom:-32px;height:calc(100% + 32px);transition:background .5s;
-          background:${passed?'#0a7b74':'rgba(17,17,17,.12)'}"></div>`:''}
+    const opensAt = (i===cur+1) ? P.of : 0;
+    return `<div style="display:grid;grid-template-columns:40px 1fr;column-gap:14px">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="width:34px;height:34px;flex:none;border-radius:50%;display:flex;
+          align-items:center;justify-content:center;font:600 14px/1 var(--sans);
+          background:${passed?'#0a7b74':'rgba(255,255,255,.8)'};
+          color:${passed?'var(--on-primary)':'var(--ink)'};
+          border:1.5px solid ${passed?'transparent':'rgba(0,64,61,.18)'}">${passed?'✓':i+1}</span>
+        ${i<STAGES.length-1?`<i style="flex:1;width:2px;margin:6px 0 -14px;
+          background:${passed?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`:''}
       </div>
-      <div onclick="openStage(${i})" style="flex:1;min-width:0;border-radius:20px;padding:15px 17px;
-        cursor:pointer;transition:background .45s,box-shadow .45s;background:${card};
-        ${now?'box-shadow:0 6px 26px rgba(28,32,25,.13)':''}">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-          <div style="font:400 20px/1.1 var(--serif);color:${
-            now||passed?'var(--ink)':'var(--grey)'}">${esc(x.n)}</div>
-          ${tag[0]?`<div style="flex:none;padding:6px ${tag[1]==='transparent'?'0':'11px'};border-radius:999px;
-            font:700 9.5px/1 var(--sans);letter-spacing:.14em;background:${tag[1]};color:${tag[2]}">${tag[0]}</div>`:''}
-        </div>
-        <div style="margin-top:7px;font:400 13.5px/1.4 var(--sans);color:${
-          now?'#3d3b3a':passed?'var(--grey)':'var(--grey2)'}">${esc(x.goal)}</div>
-        ${now?`<div style="margin-top:14px;height:1px;background:rgba(17,17,17,.09)"></div>
-          <div style="margin-top:13px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-            <span style="font:700 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--grey)">TO MOVE DOWN</span>
-            <span style="font:700 13px/1 var(--sans);color:var(--forest)">${p.met} / ${p.of}</span></div>
-          <div style="margin-top:9px;font:400 13.5px/1.45 var(--sans);color:var(--ink)">${
-            p.of && p.met>=p.of
-              ? (nxt ? 'All '+p.of+' reached. '+esc(nxt.n)+' is open below.'
-                     : 'All '+p.of+' reached. That is the whole ladder.')
-              : nxt ? 'Reach all '+p.of+' check points and '+esc(nxt.n)+' opens below.'
-                    : 'Reach all '+p.of+' check points and the ladder is done.'}</div>
-          <div style="margin-top:12px;height:6px;border-radius:3px;background:rgba(17,17,17,.08);overflow:hidden">
-            <div style="height:100%;border-radius:3px;width:${pc}%;
-              background:linear-gradient(90deg,#0a7b74,#006663);
-              transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
-          <div style="margin-top:14px;display:flex;gap:9px">
-            <button onclick="event.stopPropagation();startDay(-1)" style="flex:1;text-align:center;
-              min-height:48px;padding:13px 8px;border:0;border-radius:14px;background:var(--forest);
-              color:var(--on-primary);font:700 12.5px/1 var(--sans);cursor:pointer">Train at my level</button>
-            <button onclick="event.stopPropagation();openStage(${i})" style="flex:1;text-align:center;
-              min-height:48px;padding:13px 8px;border:0;border-radius:14px;background:transparent;
-              box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
-              font:700 12.5px/1 var(--sans);cursor:pointer">Check points ${p.met}/${p.of}</button>
-          </div>`:''}
+      <div onclick="openStage(${i})" style="cursor:pointer;padding-bottom:22px">
+        <div style="font:400 20px/1.1 var(--serif);color:${passed?'var(--ink)':'var(--grey)'}">${
+          esc(x.n)}</div>
+        <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
+          esc(x.goal)}</div>
+        ${opensAt?`<div style="margin-top:8px;font:600 12px/1 var(--sans);color:var(--forest)">
+          Opens at ${P.of} / ${P.of} above</div>`:''}
       </div>
     </div>`;
   }).join('');
 
+  const nxt=STAGES[cur+1];
   return `<div class="scroll s">
-    <div style="position:relative;background:linear-gradient(170deg,#0a7b74,#00615d 60%,#005a56);
-      color:var(--on-primary);border-radius:0 0 26px 26px;overflow:hidden;
-      padding:calc(env(safe-area-inset-top) + 79px) 20px 16px">
-      <div style="position:absolute;top:-120px;right:-80px;width:260px;height:260px;border-radius:50%;
-        background:radial-gradient(circle,rgba(143,190,202,.2),transparent 70%);pointer-events:none"></div>
-      <div style="position:relative" data-tour="stagegoal">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
-          <div style="font:400 27px/1.05 var(--serif)">Stage ${cur+1}, ${esc(s.n)}</div>
-          <div style="flex:none;font:600 10px/1 var(--sans);letter-spacing:.14em;
-            color:var(--sage-t)">${P.met}/${P.of}</div>
-        </div>
-        <div style="margin-top:7px;font:400 13px/1.35 var(--sans);
-          color:rgba(236,231,226,.96)">${esc(s.goal)}</div>
-        <div style="margin-top:13px;height:5px;border-radius:3px;background:rgba(236,231,226,.2);
-          overflow:hidden">
-          <div style="height:100%;border-radius:3px;width:${pct}%;background:var(--amber);
-            transition:width .7s cubic-bezier(.2,.8,.2,1)"></div></div>
-      </div>
-    </div>
-    ${ladderSeg()}
+    <!-- The green hero has gone the way of Today's. The stage you are on is
+         the page, not a banner over it, and the stages below it are a spine
+         rather than five cards that each carried the price. -->
+    <div style="padding:calc(env(safe-area-inset-top) + 84px) 0 0">${ladderSeg()}</div>
     ${st.ladderTab==='progress' ? `<div style="padding:18px 16px 26px;display:flex;
       flex-direction:column;gap:11px">${progressBody()}</div>` : `
-    <div style="padding:18px 20px 40px">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
-        <div style="font:400 25px/1 var(--serif)">The ladder</div>
-        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">
-          STAGE ${cur+1} OF ${STAGES.length}</div>
+    <div class="rise" data-tour="stagegoal" style="padding:24px 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">You are here &middot; Stage ${cur+1} of ${STAGES.length}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-top:8px">
+        <div style="font:400 36px/1 var(--serif);letter-spacing:-.01em">${esc(s.n)}<em
+          style="color:var(--forest);font-style:normal">.</em></div>
+        <div style="flex:none;font:400 44px/1 var(--serif);color:var(--deep)">${P.met}<span
+          style="font-size:22px;color:var(--grey)"> / ${P.of}</span></div>
       </div>
-      <div data-tour="stagelist" style="margin-top:16px;position:relative;display:flex;
-        flex-direction:column;gap:12px">${rungs}</div>
+      <div style="font:400 15px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(s.goal)}</div>
+      <div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:16px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;border-radius:4px;background:var(--deep);
+          transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
+      <div style="font:400 14px/1.5 var(--sans);margin-top:10px">${
+        P.of && P.met>=P.of
+          ? (nxt ? 'All '+P.of+' reached. <strong style="font-weight:600">'+esc(nxt.n)+'</strong> is open below.'
+                 : 'All '+P.of+' reached. That is the whole ladder.')
+          : nxt ? 'Reach all '+P.of+' check points and <strong style="font-weight:600">'+esc(nxt.n)+'</strong> opens below.'
+                : 'Reach all '+P.of+' check points and the ladder is done.'}</div>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <button onclick="startDay(-1,'full')" style="flex:1;min-height:52px;border:0;border-radius:14px;
+          background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+          box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+          font:600 15px/1 var(--sans);cursor:pointer">Train at my level</button>
+        <button onclick="openStage(${cur})" style="flex:1;min-height:52px;border:0;background:none;
+          color:var(--forest);font:600 15px/1 var(--sans);cursor:pointer">
+          See the check points</button>
+      </div>
+    </div>
+
+    <div style="padding:30px 20px 40px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">BELOW YOU</span>
+        ${isPlus()?'':`<span style="font:400 13px/1 var(--sans);color:var(--grey);display:flex;
+          align-items:center;gap:6px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2.4">
+            <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+            <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+          Stages ${cur+2} to ${STAGES.length} are the £5 tier</span>`}
+      </div>
+      <div data-tour="stagelist" style="margin-top:16px">${rungs}</div>
 
       <div data-tour="upsell" onclick="go('coaching')" style="margin-top:20px;padding:18px 20px 20px;
         border-radius:20px;background:var(--amber);cursor:pointer">
