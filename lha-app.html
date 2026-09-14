@@ -35,12 +35,7 @@
    teal top left, pale blue right, a little amber low down. It is what makes
    the white cards read as glass sitting on something rather than as boxes
    on a colour, and it was the part of the redesign that got left behind. */
-body{margin:0;background:
-   radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),
-   radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),
-   radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%),
-   var(--bg);
- background-attachment:fixed;font-family:var(--sans);color:var(--ink);
+body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
  -webkit-font-smoothing:antialiased;overscroll-behavior-y:none;
  /* the page itself never scrolls — only .scroll does, so the tab bar stays put */
  height:100dvh;overflow:hidden}
@@ -55,11 +50,15 @@ body{margin:0;background:
    gradient was on body and this flat fill sat on top of it, which is why
    the glass never showed. */
 #app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;
+ /* The base is #f4f4f5, a cool near white, exactly as the frames have it, not
+    the warm --bg cream. That is the whole difference: three washes at .05 to
+    .12 read against a near white and vanish into a warm mid tone, which is
+    why the gradient kept looking like it was not there. */
  background:
    radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),
    radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),
    radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%),
-   var(--bg);
+   #f4f4f5;
  overflow:hidden}
 .burst{position:absolute;inset:0;pointer-events:none}
 .burst i{position:absolute;left:50%;top:34%;width:7px;height:7px;border-radius:2px;
@@ -3851,7 +3850,7 @@ function drawOv(){
            cleared:'Stage cleared',
            /* the chooser writes its own heading, and two titles one above
               the other is one title too many */
-           mode:'',list:'Every drill',explainer:'Explainer',locked:'',
+           mode:'',list:'Every drill',explainer:'Explainer',locked:'',intro:'',
            checkin:'Your fortnight'};
   let body='';
   if(st.ov==='drill'){ const it=st.ovDrill||{};
@@ -4184,6 +4183,22 @@ function drawOv(){
           style="width:100%;margin-top:8px;border:1px solid rgba(17,17,17,.14);border-radius:12px;
           padding:11px;font:400 14px/1.45 var(--sans);background:#fff;resize:vertical"></textarea></div>
       <button class="btn" style="width:100%;margin-top:16px" onclick="sendCheckin()">Send it</button>`;
+  }
+  if(st.ov==='intro'){
+    const o=introOffer();
+    setTimeout(mountCaptions,0);
+    body=`<div style="padding:2px">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">Watch first</div>
+      <div style="font:400 26px/1.1 var(--serif);margin-top:8px">${esc(o.title)}</div>
+      <div style="font:400 12px/1 var(--sans);color:var(--grey2);margin-top:6px">${
+        esc(o.len)} &middot; captions on</div>
+      ${o.url ? ccWrap(`<video src="${streamMp4(o.url)}" controls playsinline autoplay
+        poster="${streamThumb(o.url)}" data-cc="${esc(o.url)}"
+        style="width:100%;background:#11150f;display:block"></video>`,
+        'margin-top:12px;border-radius:16px;overflow:hidden')
+        : videoPlaceholder(o.title, o.len)}
+    </div>`;
   }
   if(st.ov==='locked'){
     const q=FAQS[st.exOpen]||FAQS[0];
@@ -5955,6 +5970,35 @@ function screenHome(){
 
       <div class="rail" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:4px 16px 8px;-webkit-overflow-scrolling:touch">
+        <!-- 7a leads the rail with this, and rebuilding Today dropped it, which
+             left the ladder intro and all six stage films with nowhere to be
+             opened from. It is the first card because it is the one to watch
+             before any of the others. -->
+        ${introOffer().url?`<div onclick="st.introOpen=true;save();openOv('intro')"
+          style="flex:none;width:214px;scroll-snap-align:center;cursor:pointer">
+          <div style="position:relative;aspect-ratio:16/10;border-radius:20px;overflow:hidden;
+            background:var(--sand)">
+            <img src="${streamThumb(introOffer().url)}" alt="" loading="lazy"
+              style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.9">
+            <span style="position:absolute;inset:0;background:linear-gradient(180deg,
+              rgba(0,64,61,.55),rgba(0,64,61,.12) 52%,rgba(0,64,61,.5))"></span>
+            <div style="position:absolute;top:10px;left:13px;right:13px">
+              <span style="display:block;font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+                color:rgba(255,255,255,.88)">WATCH FIRST &middot; ${esc(introOffer().len)}</span>
+              <span style="display:block;margin-top:5px;font:600 15px/1.24 var(--serif);color:#fff;
+                text-shadow:0 1px 10px rgba(0,0,0,.55)">${esc(introOffer().label)}</span>
+            </div>
+            <div style="position:absolute;right:11px;bottom:11px;width:34px;height:34px;
+              border-radius:50%;background:rgba(255,255,255,.9);display:grid;place-items:center">
+              <svg width="11" height="13" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+                1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 2px 0">
+            <span style="font:500 12px/1 var(--sans);color:var(--grey)">${esc(introOffer().len)}</span>
+            <span style="width:3px;height:3px;border-radius:99px;background:rgba(17,17,17,.2)"></span>
+            <span style="font:600 10px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">START HERE</span>
+          </div>
+        </div>`:''}
         ${FAQS.map((q,i)=>{
           const open=explainerOpen(i);
           const grad = i%2 ? '#DCECF0,#9FC9D4' : '#CFE6EC,#5E9DB2';
