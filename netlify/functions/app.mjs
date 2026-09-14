@@ -1320,12 +1320,47 @@ export default async (request) => {
         await setSetting('drills:custom', all);
         return json({ ok: true, removed: v });
       }
+      const uid = String(body.uid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+
+      /* ── putting a clip on a drill that already exists ──────────────
+         Filming was only reachable through New drill, so the only way to
+         put a clip on a drill in a programme or on a check point was to
+         make a second drill with the same movement in it.
+
+         This writes the uid and nothing else. A plain save rebuilds the
+         record field by field, and libraryNow overwrites cues and desc from
+         whatever it finds here, so saving a clip the ordinary way onto a
+         generated drill would strip the cues that shipped with it. */
+      if (body.clipOnly) {
+        if (!uid) return json({ error: 'No clip to attach' }, 400);
+        const base = programmes.library || {};
+        const prev = all[v] || {};
+        const prevCues = Array.isArray(prev.cues) ? prev.cues : null;
+        all[v] = {
+          n: prev.n || (base.names || {})[v] || v.replace(/-/g, ' '),
+          desc: prev.desc != null ? prev.desc : ((base.desc || {})[v] || ''),
+          cues: (prevCues && prevCues.length) ? prevCues : ((base.cues || {})[v] || []),
+          url: `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4`,
+          uid,
+          at: prev.at || Date.now(),
+        };
+        /* Stream serves every clip from /downloads/default.mp4 and answers
+           404 on that path until downloads are switched on, per video */
+        if (process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+          await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,
+            { method: 'POST',
+              headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } })
+            .catch(() => {});
+        }
+        await setSetting('drills:custom', all);
+        return json({ ok: true, drill: Object.assign({ v }, all[v]) });
+      }
+
       /* a slug the generated library already owns would be shadowed rather
          than added, and the coach would have no way to tell */
       if (!all[v] && (programmes.library.names || {})[v]) {
         return json({ error: 'There is already a drill with that name. Give this one a different one.' }, 409);
       }
-      const uid = String(body.uid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
       let url = all[v] ? all[v].url : '';
       if (uid) {
         url = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4`;

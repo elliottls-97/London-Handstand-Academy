@@ -647,7 +647,7 @@ function openCps(email){
   cpEdit={email, list:null, busy:true}; draw();
   fetch(API+'/programme?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ libIndex=(d.library&&d.library.names)||libIndex||{};
+    .then(d=>{ noteLibrary(d.library);
                cpEdit={email, list:((d.plan||{}).checkpoints||[]).slice(), dirty:false}; draw(); })
     .catch(()=>{ cpEdit={email, list:[], dirty:false, error:true}; draw(); });
 }
@@ -719,7 +719,8 @@ function cpsHTML(){
           font:400 12.5px/1 var(--sans);background:#fff">
         <button title="Make a new drill" onclick="openNewDrill({kind:'cpdemo',idx:${i}})"
           style="flex:none;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;
-          min-width:38px;min-height:38px;font:600 16px/1 var(--sans);color:var(--forest)">+</button></label>
+          min-width:38px;min-height:38px;font:600 16px/1 var(--sans);color:var(--forest)">+</button>
+        ${c.demo?clipBtn(c.demo):''}</label>
     </div>
     <div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font:400 12.5px/1 var(--sans);
@@ -1789,7 +1790,7 @@ function openBuilder(email){
   fetch(API+'/programme?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
-      libIndex=(d.library&&d.library.names)||{};
+      noteLibrary(d.library);
       builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited, day:0, grp:0,
                exLib:d.explainerLib||{}, exOn:(d.explainersOn||[]).slice()};
       draw();
@@ -2174,7 +2175,7 @@ function wkBandsLoad(){
       if(d.ladderExtra) wkExtra=d.ladderExtra;
       /* the picker shows names, and libIndex was only ever filled by opening
          a client's programme, so this tab showed raw ids until you had */
-      if(d.library && d.library.names) libIndex=Object.assign({}, libIndex||{}, d.library.names);
+      noteLibrary(d.library);
       draw(); })
     .catch(()=>{});
 }
@@ -2632,6 +2633,89 @@ function saveBuilder(){
    drill into settings, where the server folds it into the library for both
    the app and this dashboard. It can go straight onto a ladder stage, or
    nowhere, in which case it is just available to drop into a programme. */
+/* ── putting a clip on a drill that already exists ─────────────────
+   Filming was only reachable through New drill, so a drill already in a
+   programme, or already named by a check point, could only be given a clip
+   by making a second drill with the same movement in it.
+
+   One control, used in the builder and in the check points editor. The
+   upload is Cloudflare's direct one: ask for a URL, PUT the file at it,
+   then tell the server which uid landed. */
+let libVideo = {};            /* slug -> mp4 url, so a row can say filmed */
+let clipBusy = '';            /* the slug being uploaded right now */
+let clipMsg = {};             /* slug -> what to show under the button */
+
+function noteLibrary(lib){
+  if(!lib) return;
+  if(lib.names) libIndex=Object.assign({}, libIndex||{}, lib.names);
+  if(lib.video) libVideo=Object.assign({}, libVideo, lib.video);
+}
+const hasClip = v => !!(v && libVideo[v]);
+
+function clipPick(v, after){
+  if(!v || clipBusy) return;
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove();
+    if(f) clipUpload(v, f, after); };
+  inp.click();
+}
+function clipSay(v, t){ clipMsg[v]=t;
+  const el=document.getElementById('clip-'+v);
+  if(el) el.textContent=t; else draw();
+}
+function clipUpload(v, file, after){
+  clipBusy=v; clipSay(v,'Starting…'); draw();
+  fetch(API+'/upload',{method:'POST',headers:hdr(),body:'{}'})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
+    .then(d=>new Promise((res,rej)=>{
+      const fd=new FormData(); fd.append('file',file);
+      const x=new XMLHttpRequest(); x.open('POST',d.uploadURL);
+      x.upload.onprogress=e=>{ if(e.lengthComputable)
+        clipSay(v,'Uploading '+Math.round(e.loaded/e.total*100)+'%'); };
+      x.onload=()=> (x.status>=200&&x.status<300)?res(d.uid):rej('Upload failed ('+x.status+')');
+      x.onerror=()=>rej('Upload failed, check your signal');
+      x.send(fd);
+    }))
+    .then(uid=>{ clipSay(v,'Attaching…');
+      return fetch(API+'/coach/drill',{method:'POST',headers:hdr(),
+        body:JSON.stringify({v, uid, clipOnly:true})})
+        .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))));
+    })
+    .then(d=>{
+      clipBusy='';
+      if(d && d.drill && d.drill.url) libVideo[v]=d.drill.url;
+      /* Stream builds the MP4 in the background, so a clip attached this
+         second can 404 for a minute. Say so rather than let it look broken. */
+      clipSay(v,'Filmed. Give Cloudflare a minute to finish encoding.');
+      if(typeof after==='function') after(v);
+      draw();
+    })
+    .catch(e=>{ clipBusy=''; clipSay(v,String(e&&e.message||e)); draw(); });
+}
+/* the control itself, small enough to sit on a row */
+function clipBtn(v){
+  if(!v) return '';
+  const busy=clipBusy===v, on=hasClip(v), msg=clipMsg[v];
+  return `<span style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+    <button onclick="clipPick('${esc(v)}')" ${busy?'disabled':''}
+      title="${on?'Replace the clip on this drill':'Attach a clip to this drill'}"
+      style="border:1px solid ${on?'var(--forest)':'var(--line)'};border-radius:10px;
+      background:${on?'rgba(0,102,99,.08)':'#fff'};cursor:${busy?'default':'pointer'};
+      min-height:38px;padding:0 11px;font:600 11.5px/1 var(--sans);
+      color:${on?'var(--forest)':'var(--grey)'};opacity:${busy?.6:1};
+      display:inline-flex;align-items:center;gap:6px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5"/>
+        <path d="m15 12 6-3.5v11L15 16"/></svg>
+      ${busy?'Working':on?'Filmed':'Add clip'}</button>
+    ${msg?`<span id="clip-${esc(v)}" style="font:400 10px/1.3 var(--sans);color:var(--grey2);
+      max-width:150px;text-align:right">${esc(msg)}</span>`:''}
+  </span>`;
+}
+
 let newDrill=null, ndBusy=false;
 const ND_GROUPS=['Warm-up','Kick ups','Falling','Chest to wall','Chair assisted','Crow',
   'Strength','Entries','Box work','Slides','Off the wall','Shapes'];
@@ -2856,6 +2940,7 @@ function builderHTML(){
                 color:var(--forest)">+</button>
               <input value="${esc(it.d||'')}" oninput="bItem(${di},${gi},${k},'d',this.value)"
                 placeholder="3 × 8" style="flex:0 0 108px;${bInput}">
+              ${clipBtn(it.v)}
               <button onclick="bDelItem(${di},${gi},${k})" style="${bGhost}">×</button>
             </div>
             <input value="${esc(it.nt||'')}" oninput="bItem(${di},${gi},${k},'nt',this.value)"
