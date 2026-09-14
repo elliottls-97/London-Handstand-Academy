@@ -93,6 +93,9 @@ button.send{min-height:38px;display:inline-flex;align-items:center;justify-conte
 button.quiet{border:1px solid rgba(28,32,25,.14);background:rgba(255,255,255,.7);color:var(--ink);
  border-radius:999px;padding:9px 15px;font:600 12.5px/1 var(--sans);cursor:pointer}
 button.quiet:hover{background:#fff}
+.navGroup{display:flex;flex-direction:column}
+.navGroup.top{gap:6px}
+.navGroup.rest{gap:2px}
 .gate{max-width:400px;margin:16vh auto;text-align:center}
 /* 6h shell: a fixed sidebar and a scrolling main, on the same ground the
    app uses. It was one centred column with a row of nine pills across it. */
@@ -101,12 +104,48 @@ button.quiet:hover{background:#fff}
   border-right:1px solid rgba(0,64,61,.12);background:rgba(255,255,255,.5);
   backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%)}
 .main{padding:32px 36px;display:flex;flex-direction:column;gap:24px;min-width:0}
+/* ── the phone ───────────────────────────────────────────────────────
+   The sidebar wrapped into a two column jumble that filled the first screen
+   before any work showed. On a narrow screen it is a bar that stays at the
+   top with the tabs in one row you swipe, which is the shape a phone already
+   knows. Both nav groups go display:contents so their buttons land in that
+   one row, and the LESS OFTEN heading goes, because a ranking only means
+   something in a column. */
 @media (max-width:880px){
   .shell{grid-template-columns:1fr}
-  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;gap:6px;align-items:center;
-    border-right:0;border-bottom:1px solid rgba(0,64,61,.12);padding:16px}
-  .side>div:first-child,.side>div:nth-child(2){width:100%}
-  .main{padding:18px 16px}
+  /* a grid item's floor is its content, and a row of tabs that scrolls is as
+     wide as all the tabs, so without this the whole page grew to fit them */
+  .side,.main{min-width:0}
+  .side{position:sticky;top:0;z-index:60;height:auto;padding:10px 0 0;gap:0;
+    border-right:0;border-bottom:1px solid rgba(0,64,61,.12);
+    background:rgba(255,255,255,.86);
+    backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%)}
+  .side .brand{display:flex;align-items:baseline;gap:10px;padding:0 74px 0 15px;flex-wrap:wrap}
+  .side .brand .wordmark{font-size:23px!important;margin:0!important}
+  .side .navLabel{display:none}
+  .side .nav{display:flex;gap:7px;overflow-x:auto;max-width:100%;padding:9px 15px 10px;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .side .nav::-webkit-scrollbar{display:none}
+  .side .navGroup{display:contents}
+  /* the inline width:100% and left aligned text are a column's shape */
+  .side .nav button{width:auto!important;flex:none;height:36px!important;
+    padding:0 13px!important;border-radius:999px!important;gap:7px;
+    justify-content:flex-start!important;white-space:nowrap}
+  /* onto the title's line rather than a line of its own: it is the least
+     used control on the page and it was taking a row of a phone screen */
+  .side .signout{position:absolute;top:9px;right:12px;margin-top:0!important;
+    width:auto!important;height:auto!important;padding:4px 6px!important;
+    font-size:12px!important;text-align:right!important}
+  .main{padding:16px 15px 40px}
+}
+@media (max-width:520px){
+  .side .brand>div:first-child{font-size:10px}
+  .main{padding:14px 12px 40px}
+  .card{padding:15px 14px;border-radius:20px}
+  h1{font-size:27px}
+  /* a bubble that can only use three quarters of a narrow screen wastes the
+     quarter and then wraps every other word */
+  .msg{max-width:88%}
 }
 </style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
 <!-- Relative, not root relative. "/ladder-data.js" resolves to the disk
@@ -4183,17 +4222,25 @@ function draw(){
       color:${view===id?'#111':'var(--deep)'};border-radius:10px;padding:3px 8px">${n}</span>`:''}
   </button>`;
 
+  /* The sidebar is a column on a desktop and one scrolling row of pills on a
+     phone. The parts are named rather than anonymous divs so the phone rules
+     can reach them: the two groups become display:contents there, which drops
+     both sets of buttons into the same scroller. */
   $('#v').innerHTML=`<div class="shell">
     <aside class="side">
-      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-        color:var(--forest)">London Handstand Academy</div>
-      <div style="font:400 32px/1 var(--serif);margin:6px 0 22px">Coach<em
-        style="color:var(--forest);font-style:normal">.</em></div>
-      <div style="display:flex;flex-direction:column;gap:6px">${navTop.map(x=>navItem(x,true)).join('')}</div>
-      <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey);
-        margin:22px 12px 6px">LESS OFTEN</div>
-      <div style="display:flex;flex-direction:column;gap:2px">${navRest.map(x=>navItem(x,false)).join('')}</div>
-      <button onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()"
+      <div class="brand">
+        <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+          color:var(--forest)">London Handstand Academy</div>
+        <div class="wordmark" style="font:400 32px/1 var(--serif);margin:6px 0 22px">Coach<em
+          style="color:var(--forest);font-style:normal">.</em></div>
+      </div>
+      <div class="nav">
+        <div class="navGroup top">${navTop.map(x=>navItem(x,true)).join('')}</div>
+        <div class="navLabel" style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey);
+          margin:22px 12px 6px">LESS OFTEN</div>
+        <div class="navGroup rest">${navRest.map(x=>navItem(x,false)).join('')}</div>
+      </div>
+      <button class="signout" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()"
         style="margin-top:auto;height:40px;padding:0 12px;border:0;background:none;cursor:pointer;
         text-align:left;color:var(--grey);font:400 14px/1 var(--sans)">Sign out</button>
     </aside>
