@@ -50,8 +50,17 @@ body{margin:0;background:
   50%{box-shadow:0 0 0 7px rgba(243,169,73,.22)}}
 @keyframes lhaRow{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+/* #app is where the ground has to live, not body: it is capped at 520px and
+   centred, so it paints over whatever body is doing underneath it. The
+   gradient was on body and this flat fill sat on top of it, which is why
+   the glass never showed. */
 #app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;
- background:var(--bg);overflow:hidden}
+ background:
+   radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),
+   radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),
+   radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%),
+   var(--bg);
+ overflow:hidden}
 .burst{position:absolute;inset:0;pointer-events:none}
 .burst i{position:absolute;left:50%;top:34%;width:7px;height:7px;border-radius:2px;
   opacity:0;transform:rotate(var(--a)) translateY(0);
@@ -5819,9 +5828,12 @@ function openExplainer(i){ st.exOpen=i; openOv('explainer'); }
 /* the tier table is the answer to a question, so it opens when asked */
 function openCompare(){
   st.tiersOpen=!st.tiersOpen; save();
-  const el=document.getElementById('tierTable');
-  if(el){ el.style.display=st.tiersOpen?'':'none';
-    if(st.tiersOpen) el.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+  ['tierTable','tierCards'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.style.display=st.tiersOpen?'':'none';
+  });
+  const first=document.getElementById('tierCards');
+  if(st.tiersOpen && first) first.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 /* A locked explainer used to run st.tab='joinFree' and render(), which threw
    you off Today onto the account screen. Twenty three of the twenty six cards
@@ -7405,14 +7417,19 @@ function screenCoaching(){
       </div>
       <div class="card" style="padding:20px">
         <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
-      <div data-tour="pricing">${pricingCard()}</div>
+      <!-- The three tier cards fold with the comparison table. They were both
+           always open under a card that already gave the price and an Apply
+           button, so the screen said £120 to £250 and then said it again as
+           three cards, and offered Apply twice. Compare tiers opens the lot. -->
+      <div data-tour="pricing" id="tierCards" style="${st.tiersOpen?'':'display:none'}">${
+        pricingCard()}</div>
       ${st.applied
         ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
             <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
             <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
               Sent ${esc(when(st.applied))}. Elliott reads every one himself and comes
               back within 48 hours.</div></div>`
-        : `<button class="btn" onclick="openOv('apply')">Apply for coaching</button>`}
+        : ''}
       <button class="btn2" style="width:100%" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
     </div></div>`;
 }
