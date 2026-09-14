@@ -164,18 +164,27 @@ function gate(msg){
       <input id="pw" type="password" autocomplete="current-password" placeholder="Password">
       ${msg?`<p style="color:var(--terra);font:500 13px/1.5 var(--sans);margin-top:10px">${esc(msg)}</p>`:''}
       <button class="send" style="margin-top:14px" type="submit">Sign in</button>
-    </form></div>`;
+    </form>
+    <p style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px">
+      No password on this account? Sign in at
+      <a href="/lha-app.html" style="color:var(--forest)">the app</a> with an emailed
+      code instead. A coach signing in there lands here.</p></div>`;
 }
 function signIn(ev){
   if(ev) ev.preventDefault();
   const em=($('#em').value||'').trim().toLowerCase(), pw=$('#pw').value||'';
+  /* the box is redrawn on every failure, and WHO was only set on success, so
+     a wrong password meant typing the address again */
+  if(em) WHO=em;
   if(!em||!pw) return gate('Both fields, please.');
   gate('Checking…');
   fetch('/api/app/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:em,password:pw})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
-      if(!d.coach) return gate('That account is not a coach account.');
+      if(!d.coach) return gate('That password was right, so the account is fine. '
+        + 'The address is not on the coach roster, which is the COACHES variable '
+        + 'in the Netlify settings for this site. Add it as email:Name and redeploy.');
       TOKEN=d.token; WHO=em;
       localStorage.setItem('lha_coach_token',TOKEN);
       localStorage.setItem('lha_coach_email',WHO);

@@ -619,7 +619,13 @@ export default async (request) => {
   if (path === '/code' && request.method === 'POST') {
     const e = norm(body.email);
     if (!e) return json({ error: 'Email required' }, 400);
-    const name = clients()[e];
+    /* A coach is not a client and was not on this list, so asking for a code
+       as the coach sent nothing at all. The route answers the same either
+       way, so there was no way to see that from the screen. */
+    const acct = await getAcct(e);
+    const name = clients()[e]
+      || (coachList().includes(e) ? (coaches()[e] || e.split('@')[0]) : '')
+      || ((acct && acct.name) ? acct.name : '');
 
     /* Always the same answer. Confirming whether an address is one of your
        clients would let anyone map your client list by typing addresses. */
@@ -675,7 +681,10 @@ export default async (request) => {
   /* ── swap a code for a token ── */
   if (path === '/verify' && request.method === 'POST') {
     const e = norm(body.email);
-    const name = clients()[e];
+    const acct = await getAcct(e);
+    const name = clients()[e]
+      || (coachList().includes(e) ? (coaches()[e] || e.split('@')[0]) : '')
+      || ((acct && acct.name) ? acct.name : '');
     const bad = () => json({ error: 'Wrong code' }, 401);
     if (!e || !name) return bad();
 
@@ -689,7 +698,14 @@ export default async (request) => {
       return bad();
     }
     await clearCode(e, 'login');
-    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }), client: name });
+    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+                  client: name,
+                  /* /login has always said this and /verify never did, so the
+                     code door could not reach the dashboard however the
+                     account was configured */
+                  coach: coachList().includes(e),
+                  coached: await isCoached(e),
+                  plus: !!(acct && acct.plus) });
   }
 
   /* ── the client's own thread ── */

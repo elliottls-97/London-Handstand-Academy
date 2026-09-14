@@ -5358,8 +5358,18 @@ function verifyCode(){
   fetch(AUTH.verify,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:st.email,code:c})})
     .then(r=>r.ok?r.json():Promise.reject())
-    .then(d=>{ st.token=d.token; st.client=d.client||nameFrom(st.email); st.in=true;
-               save(); render(); loadEntitlement(); loadProgramme(); loadProgress(); loadThread(); loadState(); loadTrack(); })
+    .then(d=>{
+      if(d.coach){ location.href='/lha-coach.html'; return; }
+      st.token=d.token; st.client=d.client||nameFrom(st.email);
+      /* this set st.in on everyone who came through the code door, so a
+         coach was shown a coached client's screens with no programme behind
+         them. The server says which they are. */
+      st.in = (d.coached!==undefined) ? !!d.coached : true;
+      st.plus=!!d.plus;
+      if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
+      save(); render(); loadEntitlement();
+      if(st.in){ loadProgramme(); loadProgress(); loadThread(); }
+      loadLadder(); loadState(); loadTrack(); })
     .catch(()=>{
       if(c===DEV_CODE){ st.in=true; st.client=nameFrom(st.email); save(); render(); return; }
       const m=$('#authMsg'); if(m) m.textContent='That code did not work. Check it, or send a new one.';
