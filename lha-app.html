@@ -287,6 +287,12 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 .p-ctrls{display:flex;align-items:center;gap:7px}
 .p-x{width:34px;height:34px;border-radius:999px;border:none;background:var(--mist);
  color:var(--ink);font:600 13px/1 var(--sans);cursor:pointer;display:grid;place-items:center;padding:0}
+/* Sound was a speaker glyph in the same grey pill whichever way it was set,
+   so there was no telling from the screen whether it was on. It says so. */
+.p-sound{height:34px;width:auto;padding:0 12px 0 10px;gap:6px;border-radius:999px;border:none;
+ cursor:pointer;display:inline-flex;align-items:center;font:600 11.5px/1 var(--sans);
+ background:var(--mist);color:var(--grey);white-space:nowrap}
+.p-sound.on{background:var(--forest);color:var(--on-primary)}
 .p-track{flex:none;height:3px;background:rgba(28,32,25,.09)}
 .p-track i{display:block;height:100%;background:var(--forest);width:0;transition:width .3s}
 .p-track2{height:2px}
@@ -1398,7 +1404,15 @@ function attachCaptions(v, uid){
         v.addEventListener(e, sync));
 
       let raf=0;
-      const tick=()=>{ if(!inFs()) ccDraw(v,cues); raf=requestAnimationFrame(tick); };
+      /* the follow-along replaces its <video> at every step, and a loop
+         still running against the old one kept dragging the single plate
+         back onto a node that is no longer on the page, so the caption on
+         the drill you are actually doing disappeared */
+      const tick=()=>{
+        if(!v.isConnected){ cancelAnimationFrame(raf); raf=0; return; }
+        if(!inFs()) ccDraw(v,cues);
+        raf=requestAnimationFrame(tick);
+      };
       const stop=()=>{ cancelAnimationFrame(raf); raf=0;
         const el=document.getElementById('ccPlate');
         if(el && el.parentElement===v.parentElement) el.style.opacity='0'; };
@@ -4374,7 +4388,7 @@ function playerShell(){
       <span class="p-clock" id="p-clock"></span>
       <span class="p-ctrls">
         <span class="p-elapsed" id="p-elapsed"></span>
-        <button class="p-x" id="p-sound" title="Sound" onclick="toggleSound()"></button>
+        <button class="p-sound" id="p-sound" onclick="toggleSound()"></button>
         <button class="p-x" id="p-pause" title="Pause">II</button>
         <button class="p-x" id="p-exit" title="End">✕</button>
       </span>
@@ -4481,7 +4495,9 @@ function showStep(){
   const s=Q[qi], it=s.it, resting=phase==='rest';
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.toggle('resting',resting);
-  $('#p-idx').textContent = resting ? 'REST' : 'EXERCISE '+(qi+1)+'/'+Q.length;
+  /* the player moves a set at a time, so counting sets and calling them
+     exercises said twenty five exercises in a seventeen drill session */
+  $('#p-idx').textContent = resting ? 'REST' : 'SET '+(qi+1)+' OF '+Q.length;
 
   const vw=$('#p-vwrap'), body=$('#p-body');
   if(resting){
@@ -4535,9 +4551,7 @@ function showStep(){
   $('#p-fill').style.width=((qi/Q.length)*100).toFixed(1)+'%';
   $('#p-scroll').scrollTop=0;
   paintClock(); paintPause();
-  const sb=$('#p-sound');
-  if(sb){ sb.innerHTML=soundOn()?VB_SPK:VB_MUTED;
-          sb.setAttribute('aria-label', soundOn()?'Sound on':'Sound off'); }
+  paintSound();
   clearInterval(tick_); tick_=null;
   if(tTotal>0 && !paused){ lastT=Date.now(); tick_=setInterval(step,250); }
 }
@@ -4651,6 +4665,18 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
    demo. It was per video and reset on each render, so turning sound on was
    something you did over and over. */
 const soundOn = () => st.sound !== false;
+/* the icon and the word together: an icon alone is a state nobody can read */
+function paintSound(){
+  const b=document.getElementById('p-sound');
+  if(b){
+    b.classList.toggle('on', soundOn());
+    b.innerHTML=(soundOn()?VB_SPK:VB_MUTED)+'<span>Sound '+(soundOn()?'on':'off')+'</span>';
+    b.setAttribute('aria-label', soundOn()?'Sound is on, turn it off':'Sound is off, turn it on');
+  }
+  const l=document.getElementById('l-sound');
+  if(l){ l.innerHTML=soundOn()?VB_SPK:VB_MUTED;
+         l.setAttribute('aria-label', soundOn()?'Sound on':'Sound off'); }
+}
 function toggleSound(){
   st.sound = !soundOn(); save();
   document.querySelectorAll('#player video, .vb video').forEach(v=>{
@@ -4660,11 +4686,7 @@ function toggleSound(){
     b.innerHTML = soundOn()?VB_SPK:VB_MUTED;
     b.setAttribute('aria-label', soundOn()?'Sound on':'Sound off');
   });
-  ['#p-sound','#l-sound'].forEach(sel=>{
-    const b=document.querySelector(sel);
-    if(b){ b.innerHTML = soundOn()?VB_SPK:VB_MUTED;
-           b.setAttribute('aria-label', soundOn()?'Sound on':'Sound off'); }
-  });
+  paintSound();
 }
 function beep(){ if(!soundOn()) return; try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
   o.frequency.value=660;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.0001,a.currentTime);
