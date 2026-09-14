@@ -6310,13 +6310,18 @@ function screenLadder(){
         ${i<STAGES.length-1?`<i style="flex:1;width:2px;margin:6px 0 -14px;
           background:${passed?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`:''}
       </div>
-      <div onclick="openStage(${i})" style="cursor:pointer;padding-bottom:22px">
-        <div style="font:400 20px/1.1 var(--serif);color:${passed?'var(--ink)':'var(--grey)'}">${
-          esc(x.n)}</div>
-        <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
-          esc(x.goal)}</div>
-        ${opensAt?`<div style="margin-top:8px;font:600 12px/1 var(--sans);color:var(--forest)">
-          Opens at ${P.of} / ${P.of} above</div>`:''}
+      <div onclick="openStage(${i})" style="cursor:pointer;padding-bottom:22px;display:flex;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font:400 20px/1.1 var(--serif);color:${passed?'var(--ink)':'var(--grey)'}">${
+            esc(x.n)}</div>
+          <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
+            esc(x.goal)}</div>
+          ${opensAt?`<div style="margin-top:8px;font:600 12px/1 var(--sans);color:var(--forest)">
+            Opens at ${P.of} / ${P.of} above</div>`:''}
+        </div>
+        ${stageLocked(i)?`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a"
+          stroke-width="2.2" style="flex:none;margin-top:6px"><rect x="5" y="11" width="14" height="10" rx="2"/>
+          <path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:''}
       </div>
     </div>`;
   }).join('');
@@ -6328,20 +6333,96 @@ function screenLadder(){
          rather than five cards that each carried the price. -->
     <div style="padding:calc(env(safe-area-inset-top) + 84px) 0 0">${ladderSeg()}</div>
     ${st.ladderTab==='progress' ? `
-    <!-- 6f: the week is the headline, because the number that matters is how
-         many of the sessions you promised yourself you have done. The month
-         calendar was the biggest thing on the screen and is a detail. -->
+    <!-- 6f. One number leads: the sessions you have done against the target you
+         set yourself. Then the week as seven circles, the check-in if one is
+         due, where that sits on the ladder, and your bests. The month calendar
+         was the biggest thing on this screen and is a detail, so it folds. -->
     <div class="rise" style="padding:24px 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">This week</div>
-      <div style="display:flex;align-items:flex-end;gap:10px;margin-top:8px">
-        <span style="font:400 52px/1 var(--serif);color:var(--deep)">${sessionsThisWeek()}</span>
-        <span style="font:400 24px/1.4 var(--serif);color:var(--grey)">/ ${weekTarget()}</span>
+      <div style="display:flex;align-items:flex-end;gap:14px;margin-top:8px">
+        <div style="flex:none;font:400 64px/.9 var(--serif);white-space:nowrap">${
+          sessionsThisWeek()}<span style="font-size:28px;color:var(--grey)"> / ${weekTarget()}</span></div>
+        <div style="font:400 15px/1.4 var(--sans);color:var(--grey);padding-bottom:4px">
+          sessions of the ${weekTarget()} a week you set. Finish one and it turns up here
+          and on ${esc((STAGES[cur]||STAGES[0]).n)}.</div>
       </div>
-      <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
-        sessions of the ${weekTarget()} a week you set. Finish one and it turns up here
-        and on ${esc((STAGES[cur]||STAGES[0]).n)}.</div>
+      ${(()=>{
+        /* Monday first, and a day is only "today" once. Part of a session counts
+           as showing up, which is the thing the streak is really measuring. */
+        const now=new Date(); const todayIdx=(now.getDay()+6)%7;
+        const mon=new Date(now); mon.setHours(0,0,0,0); mon.setDate(mon.getDate()-todayIdx);
+        const sess=sessionsDone();
+        const opened=((st.prog&&st.prog.sessions)||[]);
+        return `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:20px">
+        ${['M','T','W','T','F','S','S'].map((d,i)=>{
+          const from=+mon+i*864e5, to=from+864e5;
+          const whole=sess.some(x=>x.at>=from&&x.at<to);
+          const part =!whole && opened.some(x=>x.at>=from&&x.at<to);
+          const isToday=i===todayIdx;
+          const bg = whole?'var(--deep)':part?'var(--sand)':'rgba(0,64,61,.08)';
+          const fg = whole?'var(--on-primary)':part?'var(--deep)':'var(--grey)';
+          return `<div style="display:flex;justify-content:center">
+            <span style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
+              justify-content:center;font:600 14px/1 var(--sans);
+              background:${isToday&&!whole&&!part?'#fff':bg};color:${isToday&&!whole&&!part?'var(--deep)':fg};
+              ${isToday?'border:2px solid var(--forest)':''}">${d}</span></div>`;}).join('')}
+        </div>
+        <div style="display:flex;gap:16px;margin-top:12px;font:400 12px/1 var(--sans);color:var(--grey)">
+          <span style="display:flex;align-items:center;gap:6px"><i style="width:10px;height:10px;
+            border-radius:50%;background:var(--deep)"></i>Whole session</span>
+          <span style="display:flex;align-items:center;gap:6px"><i style="width:10px;height:10px;
+            border-radius:50%;background:var(--sand)"></i>Part of it</span>
+          <span style="display:flex;align-items:center;gap:6px"><i style="width:10px;height:10px;
+            border-radius:50%;border:2px solid var(--forest)"></i>Today</span>
+        </div>`;})()}
     </div>
+
+    ${checkinDue() ? `<div style="padding:18px 16px 0">
+      <div class="card" style="padding:20px;border:1.5px solid var(--forest)">
+        <div class="kick2" style="color:var(--forest)">CHECK-IN DUE</div>
+        <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">
+          Three sliders and a sentence. It is what tells the plan whether to push
+          or back off.</div>
+        <button class="btn" style="width:100%;margin-top:14px"
+          onclick="openOv('checkin')">Do the check-in</button>
+      </div></div>` : ''}
+
+    <div style="padding:22px 20px 0">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">ON THE LADDER</span>
+        <button onclick="st.ladderTab='ladder';save();render()" style="border:0;background:none;
+          cursor:pointer;padding:0;font:600 13px/1 var(--sans);color:var(--forest)">${
+          esc((STAGES[cur]||STAGES[0]).n)} &rarr;</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px">
+        ${[[P.met+'<span style="font-size:20px;color:var(--grey)">/'+P.of+'</span>','Check points'],
+           [weekStreak()+'<span style="font-size:20px;color:var(--grey)"> wk</span>','Streak'],
+           [adherence(4)+'<span style="font-size:20px;color:var(--grey)">%</span>','Sticking to it, 4 wks']
+          ].map(([n,l])=>`<div>
+            <div style="font:400 32px/1 var(--serif);color:var(--deep)">${n}</div>
+            <div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:5px">${l}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div style="padding:22px 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">PERSONAL BESTS</div>
+      ${(()=>{
+        const best=(k)=>{ const h=((st.track&&st.track.checkpoints)||{})[k]||[];
+          return h.length ? Math.max.apply(null,h.map(x=>+x.v||0)) : null; };
+        const hold=best('wall-45')||best('chest-to-wall');
+        const rows=[[ 'Chest-to-wall hold', hold!=null?hold+'s':'<em style="color:var(--grey)">not yet</em>' ],
+                    [ 'Sessions done', sessionsDone().length ],
+                    [ 'Drills ticked off', Object.keys(st.qTick||{}).length ]];
+        return rows.map(([l,v],i)=>`<div style="display:flex;align-items:baseline;
+          justify-content:space-between;gap:12px;padding:13px 0;
+          ${i?'border-top:1px solid rgba(17,17,17,.08)':''}">
+          <span style="font:400 14.5px/1.3 var(--sans)">${l}</span>
+          <span style="font:400 20px/1 var(--serif);color:var(--deep)">${v}</span></div>`).join('');
+      })()}
+    </div>
+
     <div style="padding:18px 16px 26px;display:flex;flex-direction:column;gap:11px">${
       progressBody()}</div>` : `
     <div class="rise" data-tour="stagegoal" style="padding:24px 20px 0">
@@ -6386,35 +6467,32 @@ function screenLadder(){
       </div>
       <div data-tour="stagelist" style="margin-top:16px">${rungs}</div>
 
-      <div data-tour="upsell" onclick="go('coaching')" style="margin-top:20px;padding:18px 20px 20px;
-        border-radius:20px;background:var(--amber);cursor:pointer">
-        <div style="font:700 10px/1 var(--sans);letter-spacing:.18em;color:#5e3708">WANT ELLIOTT'S EYES ON IT</div>
-        <div style="margin-top:10px;font:400 20px/1.2 var(--serif);color:var(--deep)">
-          Send a clip, get a form check</div>
-        <div style="margin-top:13px;display:inline-block;padding:12px 19px;border-radius:13px;
-          background:var(--deep);color:var(--ink);font:700 13px/1 var(--sans)">Book a review</div>
-      </div>
-      <div style="margin-top:20px;padding:16px 18px;border-radius:20px;background:rgba(17,17,17,.04)">
-        <div style="font:400 13px/1.5 var(--serif);color:var(--grey);text-align:center">
-          ${isPlus()
-            ? 'Nothing is locked. Move down early, come back up when you need to.'
-            : 'Come back up whenever you like. Moving further down is the £5 tier.'}</div>
-        <div style="display:flex;gap:9px;margin-top:13px">
-          <button ${cur<=0?'disabled':''} onclick="goToStage(${cur-1})"
-            style="flex:1;min-height:48px;border:0;border-radius:14px;padding:8px;
-            cursor:${cur<=0?'default':'pointer'};background:transparent;
-            box-shadow:inset 0 0 0 1.5px rgba(0,102,99,${cur<=0?'.12':'.32'});
-            color:${cur<=0?'var(--grey2)':'var(--forest)'};font:700 12.5px/1.3 var(--sans)">
-            ${cur<=0?'Top of the ladder':'Up to '+esc(STAGES[cur-1].n)}</button>
-          <button ${cur>=STAGES.length-1?'disabled':''} onclick="goToStage(${cur+1})"
-            style="flex:1;min-height:48px;border:0;border-radius:14px;padding:8px;
-            cursor:${cur>=STAGES.length-1?'default':'pointer'};
-            background:${cur>=STAGES.length-1?'transparent':'var(--forest)'};
-            box-shadow:${cur>=STAGES.length-1?'inset 0 0 0 1.5px rgba(0,102,99,.12)':'none'};
-            color:${cur>=STAGES.length-1?'var(--grey2)':'var(--ink)'};
-            font:700 12.5px/1.3 var(--sans)">
-            ${cur>=STAGES.length-1?'Bottom of the ladder':'Down to '+esc(STAGES[cur+1].n)}</button>
+      <!-- 6e puts both of these as plain rows rather than blocks. The amber
+           panel competed with the ladder it was sitting under, and the stage
+           navigator was a grey card holding two buttons for a thing that is
+           one sentence and one link. -->
+      <div data-tour="upsell" onclick="go('coaching')" style="margin:32px 0 0;display:flex;
+        align-items:center;gap:14px;min-height:56px;cursor:pointer">
+        <div style="flex:1;min-width:0">
+          <div style="font:400 19px/1.2 var(--serif)">Want Elliott&rsquo;s eyes on it?</div>
+          <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">
+            Send a clip, get a form check. Free once.</div>
         </div>
+        <span style="flex:none;height:44px;padding:0 16px;border-radius:22px;
+          border:1.5px solid var(--forest);color:var(--deep);font:600 14px/1 var(--sans);
+          display:flex;align-items:center;white-space:nowrap">Book a review</span>
+      </div>
+
+      <div style="margin:22px 0 24px;display:flex;justify-content:space-between;align-items:center;
+        gap:12px;min-height:44px;font:400 14px/1.4 var(--sans);color:var(--grey)">
+        <span>${isPlus() ? 'Nothing is locked.' : 'Come back up whenever you like.'}</span>
+        <span style="display:flex;gap:14px;flex:none">
+          ${cur>0?`<button onclick="goToStage(${cur-1})" style="border:0;background:none;cursor:pointer;
+            padding:0;font:600 14px/1 var(--sans);color:var(--grey)">&larr; Up</button>`:''}
+          ${cur<STAGES.length-1?`<button onclick="goToStage(${cur+1})" style="border:0;background:none;
+            cursor:pointer;padding:0;font:600 14px/1 var(--sans);color:var(--deep)">Down to ${
+            esc(STAGES[cur+1].n)} &rarr;</button>`:''}
+        </span>
       </div>
     </div>`}
   </div>`;
