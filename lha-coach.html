@@ -113,6 +113,10 @@ button.quiet:hover{background:#fff}
 <script src="timing.js"></script>
 <script>
 const API='/api/app/coach';
+/* Not every route the dashboard needs is a coach route. /upload is the same
+   one the app uses, so it sits under /api/app and asking for it under
+   /api/app/coach reached nothing at all. */
+const APP='/api/app';
 let TOKEN=localStorage.getItem('lha_coach_token')||'';
 let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
@@ -197,7 +201,7 @@ function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[];
-      loadQueue(); loadApps(); if(mailguard===null) loadMailguard();
+      loadQueue(); loadApps(); loadQuestions(); if(mailguard===null) loadMailguard();
       COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
       if(!sel&&clients.length) sel=clients[0].email; draw();
       if(sel) openThread(sel);
@@ -459,6 +463,79 @@ function loadQueue(){
 /* stay in the tab you are working through — bouncing back to Clients
    loses your place in the queue */
 function openFromQueue(email){ openThread(email); }
+
+/* ── questions ─────────────────────────────────────────────────────
+   Someone asks from the app, it lands in the questions table and emails
+   here. There was a branch in draw() for a Questions tab and no function
+   behind it and no way to reach it, so a question could be asked, stored
+   and emailed with nowhere in here to read or answer it. */
+let questions=[], qDraft={}, qBusy='', qShowDone=false;
+function loadQuestions(){
+  fetch(API+'/questions',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ questions=d.questions||[]; draw(); } })
+    .catch(()=>{});
+}
+const qOpen = () => questions.filter(q=>q.status!=='answered');
+function qSet(id,v){ qDraft[id]=v; }
+function qAnswer(id){
+  const a=(qDraft[id]||'').trim();
+  if(!a) return alert('Write an answer first.');
+  qBusy=id; draw();
+  fetch(API+'/question/answer',{method:'POST',headers:hdr(),
+    body:JSON.stringify({id, answer:a})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(()=>{ qBusy=''; delete qDraft[id]; loadQuestions(); })
+    .catch(e=>{ qBusy=''; draw(); alert(String(e)); });
+}
+function questionsHTML(){
+  const open=qOpen(), done=questions.filter(q=>q.status==='answered');
+  const card=(q,answered)=>`<div style="border:1px solid ${
+      answered?'var(--line)':'rgba(0,102,99,.35)'};border-radius:16px;padding:14px 16px;
+      background:${answered?'rgba(255,255,255,.6)':'#fff'}">
+    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+      <b style="font:600 14px/1.2 var(--sans)">${esc(q.name||q.email)}</b>
+      <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(q.email)}</span>
+      <span style="flex:1"></span>
+      <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${q.at?ago(q.at):''}</span>
+    </div>
+    <div style="font:400 14.5px/1.6 var(--sans);color:var(--ink);margin-top:9px;
+      white-space:pre-wrap">${esc(q.body||'')}</div>
+    ${answered
+      ? `<div style="margin-top:11px;padding:11px 13px;border-radius:12px;
+           background:rgba(0,102,99,.07);font:400 13.5px/1.6 var(--sans);color:var(--ink);
+           white-space:pre-wrap">${esc(q.answer||'')}</div>
+         <div style="font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:7px">
+           Answered${q.answeredAt?' '+ago(q.answeredAt):''}</div>`
+      : `<textarea oninput="qSet('${esc(q.id)}',this.value)" placeholder="Answer it…"
+           style="width:100%;margin-top:11px;border:1px solid var(--line);border-radius:12px;
+           padding:11px 12px;font:400 14px/1.55 var(--sans);background:#fff;resize:vertical;
+           min-height:84px">${esc(qDraft[q.id]||'')}</textarea>
+         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+           <button class="send" style="width:auto;padding:0 16px;font-size:13px"
+             onclick="qAnswer('${esc(q.id)}')"${qBusy===q.id?' disabled':''}>${
+             qBusy===q.id?'Sending…':'Send the answer'}</button>
+           <span style="font:400 11.5px/1.4 var(--sans);color:var(--grey2)">
+             They get it in the app, and by email unless client email is off.</span>
+         </div>`}
+  </div>`;
+  return `<div class="card">
+    <div class="kick">QUESTIONS${open.length?' · '+open.length+' WAITING':''}</div>
+    ${!questions.length
+      ? `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+           Nobody has asked anything yet.</div>`
+      : `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+           ${open.map(q=>card(q,false)).join('')
+             || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">
+                  Nothing waiting. Every question has an answer.</div>`}
+         </div>
+         ${done.length?`<button class="back" style="margin-top:16px"
+           onclick="qShowDone=${qShowDone?'false':'true'};draw()">${
+           qShowDone?'Hide':'Show'} the ${done.length} already answered</button>
+           ${qShowDone?`<div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+             ${done.map(q=>card(q,true)).join('')}</div>`:''}`:''}`}
+  </div>`;
+}
 
 function loadApps(){
   fetch(API+'/applications',{headers:hdr()})
@@ -2853,7 +2930,7 @@ function clipSay(v, t){ clipMsg[v]=t;
 }
 function clipUpload(v, file, after){
   clipBusy=v; clipSay(v,'Starting…'); draw();
-  fetch(API+'/upload',{method:'POST',headers:hdr(),body:'{}'})
+  fetch(APP+'/upload',{method:'POST',headers:hdr(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
     .then(d=>new Promise((res,rej)=>{
       const fd=new FormData(); fd.append('file',file);
@@ -2948,7 +3025,7 @@ function ndSave(){
         group:newDrill.group, level:newDrill.level})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))));
   const step = newDrill.file
-    ? fetch(API+'/upload',{method:'POST',headers:hdr(),body:'{}'})
+    ? fetch(APP+'/upload',{method:'POST',headers:hdr(),body:'{}'})
         .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
         .then(d=>new Promise((res,rej)=>{
           const fd=new FormData(); fd.append('file',newDrill.file);
@@ -3926,6 +4003,7 @@ function draw(){
      under "less often". */
   const navTop=[['clients','Clients', queue.length],
                 ['free','Form checks', freeQ().length],
+                ['questions','Questions', qOpen().length],
                 ['apps','Applications', newApps().length]];
   const navRest=[['paid','Client reviews', paidQ().length],
                  ['workouts','Workouts', 0],
