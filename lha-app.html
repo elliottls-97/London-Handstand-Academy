@@ -958,6 +958,9 @@ const streamThumb = uid => STREAM_CDN+uid+'/thumbnails/thumbnail.jpg?time=3s&hei
 /* no extension on this one: /captions/en.vtt is a 404 and /captions/en is
    the file. An hour went into that difference. */
 const streamVtt   = uid => STREAM_CDN+uid+'/captions/en';
+/* The library stores a whole URL for a drill and a bare uid for an
+   explainer, and captions, posters and the player all key off the uid. */
+const uidOfUrl = u => { const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]:''; };
 /* ── captions ─────────────────────────────────────────────────────
    Stream generates these and serves a VTT per language. Two things make
    this more than a <track>:
@@ -1475,7 +1478,7 @@ function screenPlan(){
             </div>`:''}
             ${st.repOpen===k?planStepper(k,it):''}
             ${it.nt?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(it.nt)}</div>`:''}
-            ${openD?`${it.url?`<div style="margin-top:11px">${vidBlock(it.url,'16/10')}</div>`:''}
+            ${openD?`${it.url?`<div style="margin-top:11px">${drillFilm(it.url,'16/10')}</div>`:''}
               ${(it.cues||[]).length?`<ul style="margin:${it.url?'-6px':'9px'} 0 0;padding-left:17px;
                 display:flex;flex-direction:column;gap:5px">${it.cues.map(c=>
                 `<li style="font:400 13px/1.5 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}</ul>`:''}`:''}
@@ -2485,7 +2488,7 @@ function toggleCpDemo(k){
   const c=cpDef(k);
   const drill=c&&c.demo?drillById(c.demo):null;
   box.innerHTML = (open && drill && drill.url)
-    ? `<div style="margin-top:10px">${vidBlock(drill.url,'16/10')}</div>
+    ? `<div style="margin-top:10px">${drillFilm(drill.url,'16/10')}</div>
        ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
          flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
          `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`
@@ -4451,7 +4454,7 @@ function upNextHTML(){
           <span class="p-upchev">▾</span>
         </button>
         <div class="p-updetail">
-          ${it.url?`<div class="p-upvid">${vidBlock(it.url,'16/10','contain')}</div>`
+          ${it.url?`<div class="p-upvid">${drillFilm(it.url,'16/10')}</div>`
                   :''}
           ${it.desc?`<p style="font:600 14px/1.5 var(--sans);margin:12px 0 0">${esc(it.desc)}</p>`:''}
           ${cues.length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px">
@@ -4503,7 +4506,13 @@ function showStep(){
   } else {
     tTotal=left=work(it, s.g||s.grp);
     if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
-      `<video src="${it.url}" autoplay loop playsinline ${soundOn()?'':'muted'}></video>`; }
+      `<video src="${it.url}" autoplay loop playsinline ${soundOn()?'':'muted'}></video>`;
+      /* The explainers were captioned and the drill you are mid-set on was
+         not, which is the one place the words matter most. Captions only, not
+         the theatre: the player has its own chrome and a second control bar
+         over a running set is one too many. */
+      const uid=uidOfUrl(it.url);
+      if(uid){ const vEl=vw.querySelector('video'); if(vEl) attachCaptions(vEl, uid); } }
     else { vw.className='p-vwrap novideo';
       vw.innerHTML=''; vw.classList.add('novideo'); }
     const rp=repOf(it), cues=it.cues||[];
@@ -4801,6 +4810,19 @@ function fbBody(){
    chrome: tap to play/pause, a scrub line, and a sound toggle. */
 const VB_SPK='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>';
 const VB_MUTED='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
+/* A drill clip, with the caption plate and the player's own fullscreen and
+   rotate. The explainers have had both since the player was built; the
+   drills were still the bare loop. */
+function drillFilm(url, ratio){
+  const uid=uidOfUrl(url);
+  if(!uid) return vidBlock(url, ratio, 'contain');
+  setTimeout(mountCaptions,0);
+  return ccWrap(`<video src="${url}" controls playsinline loop muted
+    poster="${streamThumb(uid)}" data-cc="${uid}"
+    style="width:100%;aspect-ratio:${ratio||'4/3'};object-fit:contain;
+    background:#11150f;display:block"></video>`,
+    'border-radius:22px;overflow:hidden;margin-bottom:18px');
+}
 function vidBlock(url, ratio, fit){
   return `<div class="vb" data-vb style="position:relative;border-radius:22px;overflow:hidden;
     background:#000;margin-bottom:18px;cursor:pointer">
@@ -4869,7 +4891,7 @@ function drawOv(){
     /* A panel announcing that there is no video is still a video-shaped
        hole at the top of the sheet. The cues are the drill either way, so
        they simply start where the film would have been. */
-    body=`${it.url?vidBlock(it.url,'4/3','contain'):''}
+    body=`${it.url?drillFilm(it.url,'4/3'):''}
       <div class="kick2">DOSE</div><div class="h-md" style="margin-top:8px">${esc(it.d||'')}</div>
       ${it.desc?`<div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:16px">${esc(it.desc)}</div>`:''}
       ${(it.cues||[]).length?`<div class="kick2" style="margin-top:22px">COACHING CUES</div>
@@ -5048,41 +5070,66 @@ function drawOv(){
     /* the same session in the format the coached plan uses: tick it off as you
        go, change a dose before you start, flag one that was wrong, watch the
        demo. Follow-along is still one tap away for anyone who wants it. */
-    const rows=(Q||[]).map((q,i)=>{
-      const it=q.it, k='q'+i;
+    /* ── one card per drill, not one per set ────────────────────────
+       Three sets of a drill was three identical cards with the same name,
+       the same cues and the same demo button, which made a nine drill
+       session read as twenty five things to do. It says how many sets it
+       is instead, and ticking it ticks all of them. */
+    const groups=[];
+    (Q||[]).forEach((q,i)=>{
+      const prev=groups[groups.length-1];
+      if(prev && prev.q.it.v===q.it.v){ prev.keys.push('q'+i); prev.idx.push(i); return; }
+      groups.push({q, keys:['q'+i], idx:[i]});
+    });
+    const rows=groups.map((grp,gi)=>{
+      const q=grp.q, it=q.it, k=grp.keys[0];
+      const nSets=grp.keys.length;
+      const keysJson=grp.keys.join(',');
       const mode=st.listMode||'work';
-      const on=(st.qTick||{})[k], rate=(st.rate||{})[it.v]||'', openD=(st.open||{})[k];
+      const on=grp.keys.every(x=>(st.qTick||{})[x]);
+      const someOn=!on && grp.keys.some(x=>(st.qTick||{})[x]);
+      const rate=(st.rate||{})[it.v]||'', openD=(st.open||{})[k];
       const logged=(st.reps||{})[k];
       const reps=logged==null?recommendedReps(it):logged;
-      const editing=st.ovRow===i;
+      const editing=st.ovRow===gi;
       const flagged=rate==='easy'||rate==='hard';
       return `<div style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
         border-radius:16px;padding:13px 14px">
         <div style="display:flex;gap:13px;align-items:flex-start">
           ${mode==='work'?`<div class="box ${on?'on':''}" id="box-${k}"
-            onclick="qTick('${k}',this)">✓</div>`
+            onclick="qTickAll('${keysJson}',this)">✓</div>`
             :`<span style="flex:none;width:22px;font:600 11px/1.3 var(--sans);color:var(--grey2);
-              padding-top:2px">${String(i+1).padStart(2,'0')}</span>`}
+              padding-top:2px">${String(gi+1).padStart(2,'0')}</span>`}
           <div style="flex:1;min-width:0">
             <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
               <div id="name-${k}" style="font:600 15px/1.25 var(--sans);${
                 on?'color:var(--grey2);text-decoration:line-through':''}">${esc(it.n)}</div>
-              ${it.url?`<button class="rt" style="flex:none"
+              ${it.url?`<button class="rt" style="flex:none;padding:0;width:56px;height:56px;
+                border-radius:14px;overflow:hidden;position:relative;background:#000;border:0"
+                aria-label="${openD?'Hide the demo':'Watch the demo'}"
                 onclick="toggleListDemo('${k}',this)" data-url="${esc(it.url)}"
-                data-v="${esc(it.v||'')}">${
-                openD?'Hide':'▶ Demo'}</button>`
+                data-v="${esc(it.v||'')}">
+                <img src="${esc(streamThumb(uidOfUrl(it.url)))}" alt="" loading="lazy"
+                  style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+                  pointer-events:none">
+                <span style="position:absolute;inset:0;display:grid;place-items:center;
+                  background:rgba(0,0,0,${openD?'.55':'.28'});color:#fff;font:600 15px/1 var(--sans)">${
+                  openD?'✕':'▶'}</span></button>`
                 :`<button class="rt" style="flex:none" onclick="toggleCues('${k}',this)">How to</button>`}
             </div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${
-                esc(perSet(it.d,q.sets)||lenLabel(it,q.g||q.grp))}</span>
+                esc(perSet(it.d,nSets)||lenLabel(it,q.g||q.grp))}</span>
               ${(()=>{
                 /* "1 x 30s  30s" says one thing twice; the clock earns its
                    place only where the dose does not already give it */
                 const lab=lenLabel(it,q.g||q.grp);
                 const same=doseSecs(it.d)===work(it,q.g||q.grp)
-                  && (q.sets>1 || sets(it.d)<2);
-                const bits=[same?'':lab, q.sets>1?'set '+q.set+' of '+q.sets:''].filter(Boolean);
+                  && (nSets>1 || sets(it.d)<2);
+                const bits=[same?'':lab,
+                  nSets>1?nSets+' sets':'',
+                  someOn?grp.keys.filter(x=>(st.qTick||{})[x]).length+' of '+nSets+' done':''
+                ].filter(Boolean);
                 return bits.length?`<span style="font:500 12.5px/1 var(--sans);color:var(--grey2)">${
                   esc(bits.join(' · '))}</span>`:'';
               })()}
@@ -5123,6 +5170,9 @@ function drawOv(){
             ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
               esc(it.desc)}</div>`:''}
             <div id="demo-${k}" hidden style="margin-top:11px"></div>
+            <!-- the same keys the box ticks, so anything that needs to know
+                 which sets a card stands for can read them off it -->
+            <span hidden data-keys="${keysJson}"></span>
             <div id="cues-${k}" hidden style="margin-top:10px">
               ${(it.cues&&it.cues.length)?`<div style="background:rgba(0,102,99,.05);border-radius:12px;
                 padding:11px 13px">
@@ -6095,6 +6145,23 @@ function tick(k){ st.tick[k]=!st.tick[k]; save(); render(); }
 Object.keys(st.rate||{}).forEach(function(k){ if(st.rate[k]==='good') delete st.rate[k]; });
 /* ticking a drill off in the list. Kept apart from the coached plan's own
    ticks, which are keyed by day and group rather than by queue position. */
+/* A card is a drill now, not a set, so the box has to move all of its sets
+   at once. Partly ticked is still a state the card can show, because the
+   player writes the ticks one set at a time. */
+function qTickAll(keys,el){
+  const list=String(keys||'').split(',').filter(Boolean);
+  if(!list.length) return;
+  st.qTick=st.qTick||{};
+  const on=!list.every(k=>st.qTick[k]);
+  list.forEach(k=>{ if(on) st.qTick[k]=true; else delete st.qTick[k]; });
+  save();
+  if(el) el.classList.toggle('on', on);
+  const row=el&&el.closest('div[style*="border-radius:16px"]');
+  if(row) row.style.background = on ? '#faf8f5' : '#fff';
+  const nm=document.getElementById('name-'+list[0]);
+  if(nm){ nm.style.color = on?'var(--grey2)':''; nm.style.textDecoration = on?'line-through':''; }
+  qCount();
+}
 function qTick(k,el){
   st.qTick=st.qTick||{};
   const on = st.qTick[k] = !st.qTick[k];
@@ -6122,11 +6189,28 @@ function qCount(){
 function toggleListDemo(k,btn){
   const box=document.getElementById('demo-'+k); if(!box) return;
   const open=box.hasAttribute('hidden');
-  if(open && !box.innerHTML) box.innerHTML=vidBlock(btn.dataset.url,'16/10');
+  if(open && !box.innerHTML){
+    const url=btn.dataset.url, uid=uidOfUrl(url);
+    /* A drill demo used to be the bare loop with no captions, while every
+       explainer had them. Same wrapper, same data-cc, same plate, so it gets
+       the caption line low in the frame and the player's own fullscreen and
+       rotate along with it. */
+    box.innerHTML = uid
+      ? ccWrap(`<video src="${url}" controls playsinline autoplay loop muted
+          poster="${streamThumb(uid)}" data-cc="${uid}"
+          style="width:100%;background:#11150f;display:block"></video>`,
+          'border-radius:16px;overflow:hidden')
+      : vidBlock(url,'16/10');
+  }
   box.hidden=!open;
   /* the cues belong with the clip — you are watching it to learn the thing */
   const cues=document.getElementById('cues-'+k); if(cues) cues.hidden=!open;
-  btn.textContent = open ? 'Hide' : '▶ Demo';
+  if(open) mountCaptions();
+  /* the button is a still of the film now, so only its overlay changes */
+  const glyph=btn.querySelector('span');
+  if(glyph){ glyph.textContent = open ? '✕' : '▶';
+             glyph.style.background = open ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.28)'; }
+  else btn.textContent = open ? 'Hide' : '▶ Demo';
 }
 
 /* a drill with no clip still has cues worth reading */
