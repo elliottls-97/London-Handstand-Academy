@@ -1061,15 +1061,51 @@ function attachCaptions(v, uid){
     .then(txt=>{
       const cues=ccParse(txt);
       if(!cues.length) return;
+
+      /* Fullscreen takes the <video> and nothing else, so the plate, which is
+         a sibling of it, is simply not on screen any more. Rather than fight
+         that, hand over to a real text track for the duration: the browser
+         draws its own captions inside the fullscreen video, and the plate
+         comes back when you come back. Built here from the cues we already
+         have, so no cross-origin track is involved. */
+      let native=null;
+      const buildNative=()=>{
+        if(native) return native;
+        try{
+          native=v.addTextTrack('captions','English','en');
+          cues.forEach(c=>{
+            const line=c.w.map(w=>w.x).join(' ');
+            try{ native.addCue(new VTTCue(c.a, c.b, line)); }catch(e){}
+          });
+        }catch(e){ native=null; }
+        return native;
+      };
+      const fsEl=()=>document.fullscreenElement||document.webkitFullscreenElement||null;
+      const inFs=()=>fsEl()===v || !!v.webkitDisplayingFullscreen;
+      const sync=()=>{
+        const full=inFs();
+        const t=full?buildNative():native;
+        if(t) t.mode = full ? 'showing' : 'disabled';
+        const el=document.getElementById('ccPlate');
+        if(el && full) el.style.opacity='0';
+        /* coming back out, redraw at once rather than waiting for the next
+           frame of the loop, which is not running if the film is paused */
+        if(!full) ccDraw(v, cues);
+      };
+      ['fullscreenchange','webkitfullscreenchange'].forEach(e=>
+        document.addEventListener(e, sync));
+      ['webkitbeginfullscreen','webkitendfullscreen'].forEach(e=>
+        v.addEventListener(e, sync));
+
       let raf=0;
-      const tick=()=>{ ccDraw(v,cues); raf=requestAnimationFrame(tick); };
+      const tick=()=>{ if(!inFs()) ccDraw(v,cues); raf=requestAnimationFrame(tick); };
       const stop=()=>{ cancelAnimationFrame(raf); raf=0;
         const el=document.getElementById('ccPlate');
         if(el && el.parentElement===v.parentElement) el.style.opacity='0'; };
       v.addEventListener('play', ()=>{ if(!raf) tick(); });
       v.addEventListener('pause', stop);
       v.addEventListener('ended', stop);
-      v.addEventListener('seeked', ()=>ccDraw(v,cues));
+      v.addEventListener('seeked', ()=>{ if(!inFs()) ccDraw(v,cues); });
       if(!v.paused) tick();
     })
     .catch(()=>{});
