@@ -1125,6 +1125,9 @@ export default async (request) => {
                   /* sets and reps that apply only inside one band, so the
                      same drill can be lighter in Easier than in Harder */
                   bandTiming:  (await getSetting('ladder:bandtiming')) || {},
+                  /* the ladder's own check points, where the coach has
+                     changed a wording, a target or the drill demonstrating it */
+                  ladderCps:   (await getSetting('ladder:checkpoints')) || {},
                   /* the words the coach has added for finding an explainer */
                   explainKeys: (await getSetting('explain:keys')) || {} });
   }
@@ -2470,6 +2473,63 @@ export default async (request) => {
        deploy on it. The variable is still where the first one lives, because
        a list that can only be reached from a coach account is a poor place
        for the only way in; everyone after that is kept here. */
+    /* ── the ladder's check points ───────────────────────────────────
+       The shipped list is in ladder-data.js and the only way to change a
+       target or point a check point at the right film was a deploy. Kept as
+       an overlay on the shipped one, keyed by k, so anything untouched stays
+       as it shipped and a future change to the file still lands. */
+    if (path === '/coach/checkpoints') {
+      const all = (await getSetting('ladder:checkpoints')) || {};
+      if (request.method === 'GET') return json({ ladderCps: all });
+      if (request.method === 'POST') {
+        const stage = String(Number(body.stage));
+        if (!/^[0-5]$/.test(stage)) return json({ error: 'Which stage?' }, 400);
+        const KINDS = ['secs', 'count', 'rate', 'breaks', 'yn', 'face'];
+        const one = c => {
+          const out = {};
+          const k = String((c && c.k) || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
+          if (!k) return null;
+          out.k = k;
+          if (typeof c.n === 'string' && c.n.trim()) out.n = c.n.trim().slice(0, 80);
+          if (KINDS.includes(c.kind)) out.kind = c.kind;
+          const t = Number(c.target);
+          if (Number.isFinite(t) && t > 0) out.target = Math.round(t);
+          if (typeof c.demo === 'string') {
+            const d = c.demo.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+            out.demo = d;                       /* empty clears it */
+          }
+          if (typeof c.note === 'string') out.note = c.note.slice(0, 200);
+          if (typeof c.unit === 'string') out.unit = c.unit.slice(0, 8);
+          if (c.lower !== undefined) out.lower = !!c.lower;
+          if (Array.isArray(c.faces) && c.faces.length === 3) {
+            out.faces = c.faces.map(x => String(x).slice(0, 30));
+          }
+          return out;
+        };
+        const edit = {}, add = [];
+        for (const c of (Array.isArray(body.edit) ? body.edit : []).slice(0, 40)) {
+          const r = one(c); if (r) { const { k, ...rest } = r; edit[k] = rest; }
+        }
+        for (const c of (Array.isArray(body.add) ? body.add : []).slice(0, 20)) {
+          const r = one(c);
+          if (r && r.n) add.push(Object.assign({ kind: 'count', target: 10 }, r));
+        }
+        const off = (Array.isArray(body.off) ? body.off : []).slice(0, 40)
+          .map(x => String(x).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40)).filter(Boolean);
+        const order = (Array.isArray(body.order) ? body.order : []).slice(0, 60)
+          .map(x => String(x).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40)).filter(Boolean);
+        const row = {};
+        if (Object.keys(edit).length) row.edit = edit;
+        if (add.length) row.add = add;
+        if (off.length) row.off = off;
+        if (order.length) row.order = order;
+        if (Object.keys(row).length) all[stage] = row; else delete all[stage];
+        await setSetting('ladder:checkpoints', all);
+        return json({ ok: true, ladderCps: all });
+      }
+      return json({ error: 'Nope' }, 405);
+    }
+
     if (path === '/coach/coaches') {
       const env = envCoaches();
       const rows = Object.keys(coaches()).map(e => ({

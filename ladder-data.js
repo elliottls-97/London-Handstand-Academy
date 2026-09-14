@@ -354,6 +354,29 @@ function poolFor(stage){
   const seen=new Set(base.map(x=>x.v));
   return out.concat(extra.filter(x=>!seen.has(x.v)));
 }
+/* ── the ladder's own check points, as the coach has them ──────────
+   CHECKPOINTS is the shipped list. The coach can change a wording, a
+   target, the drill the demo comes from, or add and remove one, and it is
+   kept as an overlay keyed by the same k so a shipped one that has not been
+   touched stays exactly as it shipped. */
+function cpsFor(stage){
+  const over=((typeof st!=='undefined' && st.ladderCps)||{})[stage];
+  const base=(CHECKPOINTS[stage]||[]);
+  if(!over) return base;
+  const edits=over.edit||{}, gone=over.off||[], extra=over.add||[];
+  const out=[];
+  base.forEach(c=>{
+    if(gone.indexOf(c.k)>-1) return;
+    out.push(edits[c.k] ? Object.assign({}, c, edits[c.k]) : c);
+  });
+  extra.forEach(c=>{ if(c && c.k && !out.some(x=>x.k===c.k)) out.push(c); });
+  /* the coach's order where they have set one */
+  if(Array.isArray(over.order) && over.order.length){
+    const at=v=>{ const i=over.order.indexOf(v); return i<0 ? 999 : i; };
+    out.sort((a,b)=>at(a.k)-at(b.k));
+  }
+  return out;
+}
 /* the level shares for a stage and a band: the coach's where they have set
    them, otherwise the shipped mix every stage used to share */
 function mixFor(stage, band){

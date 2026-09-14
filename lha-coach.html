@@ -2846,6 +2846,178 @@ function wkNoDose(v){
   if(saved.d || pend.d || saved.amt!=null || pend.amt!=null) return false;
   return !(typeof FREE_DOSE!=='undefined' && FREE_DOSE[v]);
 }
+/* ── the ladder's own check points ─────────────────────────────────
+   Not a client's: these are the things a free account has to be able to do
+   before the next stage opens. The list shipped in a file and the only way
+   to change a target, a wording, or the drill the demo comes from was a
+   deploy. */
+let wkCpsData=null, wkCpWork={}, wkCpBusy=false;
+function wkCpsLoad(){
+  if(wkCpsData) return;
+  wkCpsData={};
+  fetch(API+'/checkpoints',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ wkCpsData=d.ladderCps||{}; draw(); } })
+    .catch(()=>{});
+}
+const wkCpShipped = stage => (CHECKPOINTS[stage]||[]);
+function wkCpsMerged(stage){
+  const over=(wkCpsData||{})[stage]||(wkCpsData||{})[String(stage)]||{};
+  const edits=over.edit||{}, gone=over.off||[], extra=over.add||[];
+  const out=[];
+  wkCpShipped(stage).forEach(c=>{
+    if(gone.indexOf(c.k)>-1) return;
+    out.push(Object.assign({}, c, edits[c.k]||{}));
+  });
+  extra.forEach(c=>{ if(c&&c.k&&!out.some(x=>x.k===c.k)) out.push(Object.assign({},c)); });
+  if(Array.isArray(over.order)&&over.order.length){
+    const at=v=>{ const i=over.order.indexOf(v); return i<0?999:i; };
+    out.sort((a,b)=>at(a.k)-at(b.k));
+  }
+  return out;
+}
+function wkCpList(stage){
+  if(!wkCpWork[stage]) wkCpWork[stage]=wkCpsMerged(stage);
+  return wkCpWork[stage];
+}
+function wkCpDirty(stage){
+  return JSON.stringify(wkCpWork[stage]||null)!==JSON.stringify(wkCpsMerged(stage));
+}
+function wkCpSet(stage,i,f,val){
+  const row=wkCpList(stage)[i]; if(!row) return;
+  if(f==='target'){ const n=Number(val); if(val===''||!Number.isFinite(n)) delete row.target; else row.target=n; }
+  else if(f==='lower') row.lower=!!val;
+  else row[f]=val;
+  draw();
+}
+function wkCpDel(stage,i){
+  const row=wkCpList(stage)[i];
+  if(!row) return;
+  if(!confirm('Take "'+(row.n||row.k)+'" off this stage?\n\nNobody has to reach it any more, and anything already logged against it stays.')) return;
+  wkCpList(stage).splice(i,1); draw();
+}
+function wkCpMove(stage,i,by){
+  const list=wkCpList(stage), j=i+by;
+  if(j<0||j>=list.length) return;
+  list.splice(j,0,list.splice(i,1)[0]); draw();
+}
+function wkCpAdd(stage){
+  wkCpList(stage).push({k:'cp'+Date.now().toString(36), n:'', kind:'count', target:10, demo:'', note:''});
+  draw();
+}
+function wkCpReset(stage){
+  if(!confirm('Put this stage\'s check points back to the ones that shipped?')) return;
+  delete wkCpWork[stage];
+  wkCpBusy=true; draw();
+  fetch(API+'/checkpoints',{method:'POST',headers:hdr(),
+    body:JSON.stringify({stage:Number(stage)})})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ wkCpsData=d.ladderCps||{}; wkCpBusy=false; delete wkCpWork[stage]; draw(); })
+    .catch(e=>{ wkCpBusy=false; draw(); alert(String(e)); });
+}
+function wkCpSave(stage){
+  if(wkCpBusy) return;
+  const list=wkCpList(stage);
+  const shipped=wkCpShipped(stage);
+  const byK={}; shipped.forEach(c=>{ byK[c.k]=c; });
+  const edit=[], add=[], off=[], order=list.map(c=>c.k);
+  list.forEach(c=>{
+    const base=byK[c.k];
+    if(!base){ add.push(c); return; }
+    /* only what differs from the shipped one, so a later change to the file
+       still reaches anything the coach has not touched */
+    const diff={k:c.k};
+    ['n','kind','target','demo','note','unit','lower'].forEach(f=>{
+      if(JSON.stringify(c[f])!==JSON.stringify(base[f])) diff[f]=c[f];
+    });
+    if(Object.keys(diff).length>1) edit.push(diff);
+  });
+  shipped.forEach(c=>{ if(!list.some(x=>x.k===c.k)) off.push(c.k); });
+  wkCpBusy=true; draw();
+  fetch(API+'/checkpoints',{method:'POST',headers:hdr(),
+    body:JSON.stringify({stage:Number(stage), edit, add, off, order})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ wkCpsData=d.ladderCps||{}; delete wkCpWork[stage]; wkCpBusy=false; draw(); })
+    .catch(e=>{ wkCpBusy=false; draw(); alert(String(e)); });
+}
+function wkCpsHTML(stage, inp, btn){
+  wkCpsLoad();
+  const list=wkCpList(stage);
+  const dirty=wkCpDirty(stage);
+  const KINDS=[['secs','Seconds held'],['count','How many'],['rate','Out of ten'],
+               ['breaks','Goes to reach it'],['yn','Yes or no'],['face','How it feels']];
+  const rows=list.map((c,i)=>{
+    const noFilm=!c.demo;
+    const unfilmed=!!c.demo && !hasClip(c.demo);
+    return `<div style="margin-top:8px;padding:11px 12px;border-radius:13px;background:#fff;
+      border:1px solid ${noFilm||unfilmed?'rgba(243,169,73,.55)':'var(--line)'}">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="flex:none;width:18px;font:700 11px/1 var(--sans);color:var(--grey2);
+          font-variant-numeric:tabular-nums">${i+1}</span>
+        <input value="${esc(c.n||'')}" oninput="wkCpSet(${stage},${i},'n',this.value)"
+          placeholder="What they have to be able to do"
+          style="${inp};flex:1;min-width:190px;font-weight:600">
+        <span style="flex:none;display:flex;gap:4px">
+          <button onclick="wkCpMove(${stage},${i},-1)" ${i?'':'disabled'}
+            style="${btn};opacity:${i?1:.3}">&uarr;</button>
+          <button onclick="wkCpMove(${stage},${i},1)" ${i<list.length-1?'':'disabled'}
+            style="${btn};opacity:${i<list.length-1?1:.3}">&darr;</button>
+          <button onclick="wkCpDel(${stage},${i})" style="${btn};color:var(--terra)">&times;</button>
+        </span>
+      </div>
+      <div style="display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-top:9px">
+        <label style="flex:none;display:flex;flex-direction:column;gap:4px">
+          <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">MEASURED AS</span>
+          <select onchange="wkCpSet(${stage},${i},'kind',this.value)" style="${inp};width:150px">
+            ${KINDS.map(([k,l])=>`<option value="${k}"${c.kind===k?' selected':''}>${l}</option>`).join('')}
+          </select></label>
+        ${(c.kind==='yn'||c.kind==='face')?'':`<label style="flex:none;display:flex;flex-direction:column;gap:4px">
+          <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">TARGET</span>
+          <input type="number" min="0" value="${c.target==null?'':c.target}"
+            oninput="wkCpSet(${stage},${i},'target',this.value)"
+            style="${inp};width:82px;font-weight:600"></label>`}
+        <label style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:4px">
+          <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">SHOWN BY</span>
+          <select onchange="wkCpSet(${stage},${i},'demo',this.value)" style="${inp};font-weight:600">
+            ${drillOptions(c.demo||'')}
+          </select></label>
+        ${c.demo?clipBtn(c.demo):''}
+      </div>
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">NOTE</span>
+        <input value="${esc(c.note||'')}" oninput="wkCpSet(${stage},${i},'note',this.value)"
+          placeholder="What you want them to notice, if anything"
+          style="${inp};flex:1;min-width:180px">
+        ${noFilm
+          ? `<span style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.11em;
+              border-radius:6px;padding:5px 7px;background:rgba(243,169,73,.22);color:#8a5a12">NO FILM</span>`
+          : unfilmed
+            ? `<span style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.11em;
+                border-radius:6px;padding:5px 7px;background:rgba(243,169,73,.22);color:#8a5a12">NOT FILMED YET</span>`
+            : ''}
+      </div>
+    </div>`;}).join('');
+  const noFilmN=list.filter(c=>!c.demo||!hasClip(c.demo)).length;
+  return `<div style="margin-top:14px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="font:400 19px/1.2 var(--serif)">What opens the next stage</div>
+      <span style="display:flex;gap:9px">
+        ${wkCpsData&&(wkCpsData[stage]||wkCpsData[String(stage)])?`<button class="quiet"
+          onclick="wkCpReset(${stage})">Back to the shipped ones</button>`:''}
+        <button class="send" onclick="wkCpSave(${stage})"${dirty&&!wkCpBusy?'':' disabled'}
+          style="${dirty&&!wkCpBusy?'':'opacity:.5'}">${
+          wkCpBusy?'Saving…':dirty?'Save the check points':'Saved'}</button>
+      </span>
+    </div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:5px;max-width:70ch">
+      Everyone on the free ladder logs these, and reaching the last one opens the next stage.
+      Shown by is the drill whose film plays on the card.${
+        noFilmN?` <b style="color:#8a5a12">${noFilmN} of these ${noFilmN===1?'has':'have'} no film to show.</b>`:''}
+    </div>
+    ${rows}
+    <button class="quiet" style="margin-top:12px" onclick="wkCpAdd(${stage})">Add a check point</button>
+  </div>`;
+}
 function wkGrpSet(v,g){ wkNewGrp[v]=g; draw(); }
 /* The level a drill sits at inside this stage. It decides which share picks
    it up, so a drill added to a stage with no level was invisible to the
@@ -3095,10 +3267,21 @@ function workoutsHTML(){
     ${bandsFor(wkStage).map(b=>{ const s=wkBandNow(wkStage,b);
       return bandTab(b, BAND_NAME[b], s.list.length+(s.written?'':' · from levels')); }).join('')}
     ${bandTab(0,'Every drill', all.length)}
+    ${bandTab(-1,'Check points', wkCpList(wkStage).length)}
     </div>`;
 
   /* a stage with one workout should not open on a band it does not have */
-  if(wkBand && bandsFor(wkStage).indexOf(wkBand)<0) wkBand=bandsFor(wkStage)[0];
+  if(wkBand>0 && bandsFor(wkStage).indexOf(wkBand)<0) wkBand=bandsFor(wkStage)[0];
+
+  /* ── the stage's check points ── */
+  if(wkBand===-1){
+    return `<div class="glass" style="padding:16px 18px">
+      <div style="font:400 21px/1.1 var(--serif)">Check points, ${esc(STAGES[wkStage].n)}</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
+      ${levelTabs}${libNote}
+      ${wkCpsHTML(wkStage, inp, btn)}
+    </div>`;
+  }
 
   /* ── one of the three workouts, written out ── */
   if(wkBand){
