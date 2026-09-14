@@ -14,10 +14,13 @@
  --terra:#a4503c;                     /* only warnings still reach for it */
  --line:rgba(17,17,17,.12);
  --serif:Newsreader,Georgia,serif;--sans:Figtree,system-ui,sans-serif}
-body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink)}
+body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink)}
 /* Ambient ground from the design canvas: three slow washes under everything,
    so the glass surfaces have something to refract. */
-.amb{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0;background:var(--bg)}
+.amb{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0;background:
+  radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),
+  radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),
+  radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%),#f4f4f5}
 .amb i{position:absolute;border-radius:50%;display:block}
 .amb i:nth-child(1){width:62vw;height:62vw;left:-14vw;top:-18vw;filter:blur(18px);
   background:radial-gradient(circle at 40% 40%,rgba(143,190,202,.55),rgba(143,190,202,0) 68%);
@@ -38,7 +41,7 @@ body{margin:0;background:var(--bg);font-family:var(--sans);color:var(--ink)}
 .sheen{position:absolute;top:0;left:0;width:30%;height:100%;pointer-events:none;
   background:linear-gradient(100deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.5) 50%,rgba(255,255,255,0) 100%);
   animation:sheen 9s ease-in-out infinite}
-.wrap{max-width:1240px;margin:0 auto;padding:26px 20px 60px;position:relative;z-index:1}
+.wrap{position:relative;z-index:1}
 h1{font:400 34px/1 var(--serif);margin:0}
 .kick{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
 .grid{display:grid;grid-template-columns:260px minmax(320px,1fr) minmax(340px,1.15fr);
@@ -86,6 +89,20 @@ button.quiet{border:1px solid rgba(28,32,25,.14);background:rgba(255,255,255,.7)
  border-radius:999px;padding:9px 15px;font:600 12.5px/1 var(--sans);cursor:pointer}
 button.quiet:hover{background:#fff}
 .gate{max-width:400px;margin:16vh auto;text-align:center}
+/* 6h shell: a fixed sidebar and a scrolling main, on the same ground the
+   app uses. It was one centred column with a row of nine pills across it. */
+.shell{display:grid;grid-template-columns:220px 1fr;min-height:100dvh;align-items:start}
+.side{position:sticky;top:0;height:100dvh;padding:32px 24px;display:flex;flex-direction:column;
+  border-right:1px solid rgba(0,64,61,.12);background:rgba(255,255,255,.5);
+  backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%)}
+.main{padding:32px 36px;display:flex;flex-direction:column;gap:24px;min-width:0}
+@media (max-width:880px){
+  .shell{grid-template-columns:1fr}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;gap:6px;align-items:center;
+    border-right:0;border-bottom:1px solid rgba(0,64,61,.12);padding:16px}
+  .side>div:first-child,.side>div:nth-child(2){width:100%}
+  .main{padding:18px 16px}
+}
 </style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
 <!-- Relative, not root relative. "/ladder-data.js" resolves to the disk
      root when the file is opened straight from Finder, so the app loaded
@@ -3209,25 +3226,46 @@ function draw(){
         0 8px 18px -16px rgba(28,32,25,.6)">${esc(m.text)}</div>`:''}
     <div class="at">${m.from==='coach'?'You':esc((clients.find(c=>c.email===sel)||{}).name||'')} · ${ago(m.at)}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;
-  $('#v').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:baseline">
-      <h1>Coach</h1>
-      <button class="send" style="background:none;color:var(--grey2)" onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()">Sign out</button></div>
+  /* 6h. A sidebar, not nine pills of equal weight: Clients is opened every
+     day and Settings twice a year, and the old row said they were the same
+     thing. What is used daily sits at the top with its count; the rest go
+     under "less often". */
+  const navTop=[['clients','Clients', queue.length],
+                ['free','Form checks', freeQ().length],
+                ['apps','Applications', newApps().length]];
+  const navRest=[['paid','Client reviews', paidQ().length],
+                 ['workouts','Workouts', 0],
+                 ['review','Review', reviewQueue.length],
+                 ['explain','Explainers', 0],
+                 ['setup','Settings', 0]];
+  const navItem=([id,label,n],big)=>`<button onclick="view='${id}';draw()"
+    style="display:flex;justify-content:space-between;align-items:center;width:100%;cursor:pointer;
+    border:0;text-align:left;height:${big?44:40}px;padding:0 12px;border-radius:10px;
+    background:${view===id?'var(--forest)':'transparent'};
+    color:${view===id?'#fff':(big?'var(--ink)':'var(--grey)')};
+    font:${view===id?'600':(big?'500':'400')} ${big?15:14}px/1 var(--sans);
+    ${view===id?'box-shadow:0 6px 16px rgba(0,102,99,.25)':''}">
+    <span>${label}</span>
+    ${n?`<span style="font:600 12px/1 var(--sans);background:${view===id?'var(--amber)':'rgba(0,102,99,.1)'};
+      color:${view===id?'#111':'var(--deep)'};border-radius:10px;padding:3px 8px">${n}</span>`:''}
+  </button>`;
 
+  $('#v').innerHTML=`<div class="shell">
+    <aside class="side">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">London Handstand Academy</div>
+      <div style="font:400 32px/1 var(--serif);margin:6px 0 22px">Coach<em
+        style="color:var(--forest);font-style:normal">.</em></div>
+      <div style="display:flex;flex-direction:column;gap:6px">${navTop.map(x=>navItem(x,true)).join('')}</div>
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey);
+        margin:22px 12px 6px">LESS OFTEN</div>
+      <div style="display:flex;flex-direction:column;gap:2px">${navRest.map(x=>navItem(x,false)).join('')}</div>
+      <button onclick="localStorage.removeItem('lha_coach_token');localStorage.removeItem('lha_coach_email');location.reload()"
+        style="margin-top:auto;height:40px;padding:0 12px;border:0;background:none;cursor:pointer;
+        text-align:left;color:var(--grey);font:400 14px/1 var(--sans)">Sign out</button>
+    </aside>
+    <main class="main">
     ${urgentHTML()}
-    <div style="display:flex;gap:8px;margin-top:18px">
-      ${[['clients','Clients'],
-         ['free','Form checks'+(freeQ().length?' · '+freeQ().length:'')],
-         ['paid','Client reviews'+(paidQ().length?' · '+paidQ().length:'')],
-         ['apps','Applications'+(newApps().length?' · '+newApps().length:'')],
-         ['workouts','Workouts'],
-         ['review','Review'+(reviewQueue.length?' · '+reviewQueue.length:'')],
-         ['explain','Explainers'],
-         ['setup','Settings']].map(([id,label])=>
-        `<button onclick="view='${id}';draw()" style="cursor:pointer;border-radius:999px;padding:9px 16px;
-          font:600 12.5px/1 var(--sans);border:1.5px solid ${view===id?'var(--forest)':'var(--line)'};
-          background:${view===id?'var(--forest)':'#fff'};color:${view===id?'#fff':'var(--ink)'}">
-          ${label}</button>`).join('')}
-    </div>
     ${wideActivity&&sel&&view==='clients'?`
       <div style="margin-top:16px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
@@ -3257,7 +3295,7 @@ function draw(){
       <div class="card"><div class="kick">CLIENTS</div><div style="margin-top:10px">${list}</div></div>
       ${threadCardHTML(msgs)}
       ${sel?`<div class="card">${metricsHTML(sel)}</div>`:''}
-      </div>`}`+builderHTML()+cpsHTML()+acctHTML()+newDrillHTML();
+      </div>`}</main></div>`+builderHTML()+cpsHTML()+acctHTML()+newDrillHTML();
   syncReview();
 }
 TOKEN?load():gate('');
