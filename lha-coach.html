@@ -246,7 +246,8 @@ function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[];
-      loadQueue(); loadApps(); loadQuestions(); if(mailguard===null) loadMailguard();
+      loadQueue(); loadApps(); loadQuestions(); loadFeedback();
+      if(mailguard===null) loadMailguard();
       COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
       if(!sel&&clients.length) sel=clients[0].email; draw();
       if(sel) openThread(sel);
@@ -733,6 +734,91 @@ function stripeHTML(){
       ${bad
         ? 'Something here is not right. A missing webhook secret means a payment goes through and the account never turns on. A test key means no real money moves at all.'
         : 'Keys, price and webhook are all set on live keys. Nothing to do.'}</div>
+  </div>`;
+}
+
+/* ── what people say about the app ─────────────────────────────────
+   Questions are about handstands and go to a coach. This is about the app
+   itself, from anyone, signed in or not. Kept rather than only emailed,
+   because the same bug reported by four people is a different thing from
+   one reported once, and an inbox cannot tell you that. */
+let feedback=[], fbAsked=false, fbShowDone=false, fbFilter='all', fbBusy='';
+/* the questions as the app words them, so the answers read as answers */
+const FB_Q={often:'Training with it:',stuck:'Stuck on:',keep:'Would keep using it if:',
+  pay:'£5 a month:'};
+const FB_LABEL={bug:['Bug','var(--terra)'],idea:['Idea','#8a5a12'],review:['Feedback','var(--forest)']};
+function loadFeedback(){
+  if(fbAsked) return; fbAsked=true;
+  fetch(API+'/feedback',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ feedback=d.feedback||[]; draw(); } })
+    .catch(()=>{});
+}
+const fbOpenList = () => feedback.filter(f=>!f.done);
+function fbDone(id,on){
+  fbBusy=id; draw();
+  fetch(API+'/feedback',{method:'POST',headers:hdr(),body:JSON.stringify({id,done:on})})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ feedback=d.feedback||feedback; fbBusy=''; draw(); })
+    .catch(e=>{ fbBusy=''; draw(); alert(String(e)); });
+}
+function feedbackHTML(){
+  loadFeedback();
+  const open=fbOpenList(), done=feedback.filter(f=>f.done);
+  const counts={bug:0,idea:0,review:0};
+  open.forEach(f=>{ counts[f.kind]=(counts[f.kind]||0)+1; });
+  const shown=(fbFilter==='all'?open:open.filter(f=>f.kind===fbFilter));
+  const tag=(k)=>{ const pair=FB_LABEL[k]||FB_LABEL.review;
+    return `<span style="font:700 8.5px/1 var(--sans);letter-spacing:.11em;border-radius:6px;
+      padding:5px 8px;background:${pair[1]}1a;color:${pair[1]}">${pair[0].toUpperCase()}</span>`; };
+  const filt=(id,label,n)=>`<button onclick="fbFilter='${id}';draw()"
+    style="cursor:pointer;border-radius:999px;padding:7px 13px;font:600 12px/1 var(--sans);
+    border:1.5px solid ${fbFilter===id?'var(--forest)':'var(--line)'};
+    background:${fbFilter===id?'var(--forest)':'#fff'};
+    color:${fbFilter===id?'#fff':'var(--ink)'}">${label}${n?' '+n:''}</button>`;
+  const card=(f,isDone)=>`<div style="border:1px solid ${isDone?'var(--line)':'rgba(0,102,99,.3)'};
+    border-radius:16px;padding:14px 16px;background:${isDone?'rgba(255,255,255,.6)':'#fff'}">
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+      ${tag(f.kind)}
+      <b style="font:600 13.5px/1.2 var(--sans)">${esc(f.name||f.email||'Someone not signed in')}</b>
+      ${f.email?`<span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(f.email)}</span>`:''}
+      <span style="flex:1"></span>
+      <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">
+        stage ${f.stage||'?'}${f.plus?' · £5':''}${f.at?' · '+ago(f.at):''}</span>
+    </div>
+    <div style="font:400 14.5px/1.6 var(--sans);color:var(--ink);margin-top:9px;
+      white-space:pre-wrap">${esc(f.text||'')}</div>
+    ${Object.keys(f.extra||{}).length?`<div style="margin-top:11px;padding:11px 13px;border-radius:12px;
+      background:rgba(0,64,61,.05);display:flex;flex-direction:column;gap:7px">
+      ${Object.keys(f.extra).map(k=>`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">
+        <b style="color:var(--ink);font-weight:600">${esc(FB_Q[k]||k)}</b> ${esc(f.extra[k])}</div>`).join('')}
+    </div>`:''}
+    <div style="display:flex;gap:10px;align-items:center;margin-top:11px;flex-wrap:wrap">
+      <button class="quiet" onclick="fbDone('${esc(f.id)}',${isDone?'false':'true'})"${
+        fbBusy===f.id?' disabled':''}>${fbBusy===f.id?'…':isDone?'Put it back':'Done with it'}</button>
+      ${f.email?`<button class="quiet" onclick="view='clients';openThread('${esc(f.email)}')">
+        Open their thread</button>`:''}
+    </div>
+  </div>`;
+  return `<div class="card">
+    <div class="kick">FEEDBACK${open.length?' · '+open.length+' OPEN':''}</div>
+    ${!feedback.length
+      ? `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+           Nobody has sent anything yet. The button is in the app's top bar.</div>`
+      : `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">
+           ${filt('all','Everything',open.length)}${filt('bug','Bugs',counts.bug)}
+           ${filt('idea','Ideas',counts.idea)}${filt('review','How it is going',counts.review)}
+         </div>
+         <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+           ${shown.map(f=>card(f,false)).join('')
+             || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">
+                  Nothing open here.</div>`}
+         </div>
+         ${done.length?`<button class="quiet" style="margin-top:16px"
+           onclick="fbShowDone=${fbShowDone?'false':'true'};draw()">${
+           fbShowDone?'Hide':'Show'} the ${done.length} you have dealt with</button>
+           ${fbShowDone?`<div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+             ${done.map(f=>card(f,true)).join('')}</div>`:''}`:''}`}
   </div>`;
 }
 
@@ -2548,6 +2634,43 @@ function wkPoolFor(stage){
   const seen=new Set(base.map(x=>x.v));
   return base.concat(extra.filter(x=>!seen.has(x.v)));
 }
+/* ── one row at a time ─────────────────────────────────────────────
+   Every row open at once is six fields and two selects apiece, and a stage
+   is thirty of them. Collapsed, a row is the drill and what it comes to;
+   open it for the numbers. */
+let wkOpenRow={};
+function wkRowToggle(v){ if(wkOpenRow[v]) delete wkOpenRow[v]; else wkOpenRow[v]=true; draw(); }
+/* ── dragging ──────────────────────────────────────────────────────
+   Arrows move a drill one place at a time, which is fine for a nudge and
+   hopeless for moving something from the bottom to the top of thirty. */
+let wkDragV=null;
+function wkDragStart(e,v){
+  wkDragV=v;
+  try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain',v); }catch(err){}
+}
+function wkDragOver(e,v){
+  if(!wkDragV || v===wkDragV) return;
+  e.preventDefault();
+  try{ e.dataTransfer.dropEffect='move'; }catch(err){}
+  const el=e.currentTarget;
+  if(el) el.style.boxShadow='inset 0 3px 0 var(--forest)';
+}
+function wkDragLeave(e){ const el=e.currentTarget; if(el) el.style.boxShadow=''; }
+function wkDragEnd(){
+  wkDragV=null;
+  document.querySelectorAll('[data-wkrow]').forEach(el=>{ el.style.boxShadow=''; });
+}
+function wkDropOn(e,v){
+  e.preventDefault();
+  const from=wkDragV; wkDragEnd();
+  if(!from || from===v) return;
+  const cur=wkBandNow(wkStage,wkBand).list;
+  const i=cur.indexOf(from), j=cur.indexOf(v);
+  if(i<0||j<0) return;
+  cur.splice(i,1);
+  cur.splice(cur.indexOf(v) + (i<j?1:0), 0, from);
+  wkBandEdit(wkStage,wkBand,cur);
+}
 function wkGrpSet(v,g){ wkNewGrp[v]=g; draw(); }
 /* The level a drill sits at inside this stage. It decides which share picks
    it up, so a drill added to a stage with no level was invisible to the
@@ -2829,27 +2952,35 @@ function workoutsHTML(){
       const it=n.it;
       const gone=!(libIndex||{})[v];
       const edited=!!wkEdits[v];
-      return lead+`<div style="margin-top:8px;padding:11px 12px;border-radius:13px;
+      const open=!!wkOpenRow[v];
+      return lead+`<div draggable="true" data-wkrow="${esc(v)}"
+        ondragstart="wkDragStart(event,'${v}')" ondragover="wkDragOver(event,'${v}')"
+        ondragleave="wkDragLeave(event)" ondrop="wkDropOn(event,'${v}')" ondragend="wkDragEnd(event)"
+        style="margin-top:8px;padding:9px 11px;border-radius:13px;
         border:1px solid ${edited?'rgba(243,169,73,.5)':'var(--line)'};
         background:${gone?'rgba(164,80,60,.07)':edited?'rgba(243,169,73,.07)':'#fff'}">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span style="flex:none;width:20px;font:700 11px/1 var(--sans);color:var(--grey2);
+          <span title="Drag to move it" style="flex:none;cursor:grab;color:var(--grey2);
+            font:700 13px/1 var(--sans);letter-spacing:1px;padding:0 1px;user-select:none">⋮⋮</span>
+          <span style="flex:none;width:18px;font:700 11px/1 var(--sans);color:var(--grey2);
             font-variant-numeric:tabular-nums">${i+1}</span>
           <!-- swapping the exercise: the same picker the programme builder
                uses, so a row can become a different drill without losing its
                place in the order -->
           <select onchange="wkSwap(${wkStage},${wkBand},'${v}',this.value)"
-            style="${inp};flex:1;min-width:190px;font-weight:600">${drillOptions(v)}</select>
+            style="${inp};flex:1;min-width:170px;font-weight:600">${drillOptions(v)}</select>
+          ${open?'':`<span style="flex:none;font:500 11.5px/1.3 var(--sans);color:var(--grey2);
+            white-space:nowrap">${wkRowLen(v)}</span>`}
           ${clipBtn(v)}
           <span style="flex:none;display:flex;gap:4px">
-            <button onclick="wkBandMove(${wkStage},${wkBand},'${v}',-1)" aria-label="Up"
-              ${i?'':'disabled'} style="${btn};opacity:${i?1:.3}">&uarr;</button>
-            <button onclick="wkBandMove(${wkStage},${wkBand},'${v}',1)" aria-label="Down"
-              ${i<list.length-1?'':'disabled'} style="${btn};opacity:${i<list.length-1?1:.3}">&darr;</button>
+            <button onclick="wkRowToggle('${v}')" aria-label="${open?'Close':'Open'}"
+              title="${open?'Close this one':'Sets, reps, rest and the rest of it'}"
+              style="${btn};color:var(--forest)">${open?'&minus;':'&plus;'}</button>
             <button onclick="wkBandDrop(${wkStage},${wkBand},'${v}')" aria-label="Remove"
               style="${btn};color:var(--terra)">&times;</button>
           </span>
         </div>
+        ${!open?'':`
         <div style="display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-top:9px">
           ${fld('SETS', num(v,'sets',it.sets!=null?it.sets:n.sets,n.warm?'1':'3',62))}
           ${fld('BUILD TO', num(v,'amt',it.amt!=null?it.amt:n.amt,'8',72))}
@@ -2880,7 +3011,13 @@ function workoutsHTML(){
           </select>
           ${gone?`<span style="flex:none;font:400 11px/1.3 var(--sans);color:var(--terra)">
             not in the library</span>`:''}
-        </div>
+          <span style="flex:none;display:flex;gap:4px;margin-left:auto">
+            <button onclick="wkBandMove(${wkStage},${wkBand},'${v}',-1)" aria-label="Up"
+              ${i?'':'disabled'} style="${btn};opacity:${i?1:.3}">&uarr;</button>
+            <button onclick="wkBandMove(${wkStage},${wkBand},'${v}',1)" aria-label="Down"
+              ${i<list.length-1?'':'disabled'} style="${btn};opacity:${i<list.length-1?1:.3}">&darr;</button>
+          </span>
+        </div>`}
       </div>`;}).join('');
 
     /* anything on this stage, then anything in the library at all, because
@@ -4386,6 +4523,7 @@ function draw(){
   const navTop=[['clients','Clients', queue.length],
                 ['free','Form checks', freeQ().length],
                 ['questions','Questions', qOpen().length],
+                ['feedback','Feedback', fbOpenList().length],
                 ['apps','Applications', newApps().length]];
   const navRest=[['paid','Client reviews', paidQ().length],
                  ['leads','Accounts', 0],
@@ -4451,6 +4589,7 @@ function draw(){
       view==='review'?`<div style="margin-top:16px">${reviewHTML()}</div>`:
       view==='explain'?`<div style="margin-top:16px">${explainHTML()}</div>`:
       view==='questions'?`<div style="margin-top:16px">${questionsHTML()}</div>`:
+      view==='feedback'?`<div style="margin-top:16px">${feedbackHTML()}</div>`:
       view==='leads'?`<div style="margin-top:16px">${leadsHTML()}</div>`:
       view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
       view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>

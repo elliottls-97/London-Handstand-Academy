@@ -410,6 +410,7 @@ const AUTH = {
   state:'/api/app/state',              // GET|POST week layout and drill lengths
   track:'/api/app/track',              // GET|POST metrics, habits, check-ins
   questions:'/api/app/questions',      // GET yours, POST a new one
+  feedback:'/api/app/feedback',        // POST what they think of the app itself
   intake:'/api/app/intake',            // POST the quiz answers so the coach can see them
   application:'/api/app/application',  // POST a coaching application
   submission:'/api/app/submission',    // POST numbers + clips as one review
@@ -4675,6 +4676,125 @@ function closeOv(){
   $('#ov').innerHTML=''; render(); }
 function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'); }
 
+/* ── telling us what you think ─────────────────────────────────────
+   Three doors, because "feedback" on its own gets nothing: a person who
+   has just hit a bug, a person with an idea and a person who simply likes
+   it are three different conversations and only one of them is urgent.
+
+   One box, and then the offer of more. Most people will write a line and
+   go, and asking them six questions first means they write nothing. The
+   longer set is there for the ones who want to be asked. */
+const FB_KINDS=[
+  ['bug',   'Something is broken',  'It crashed, a video will not play, a number looks wrong'],
+  ['idea',  'I have an idea',       'Something missing, or something that would make it yours'],
+  ['review','How it is going',      'What is working, what is not, whether it is helping']
+];
+const FB_MORE=[
+  ['often','How often are you actually training with it?',
+    ['Most days','A few times a week','Now and then','I have stopped']],
+  ['stuck','What are you stuck on right now?', null],
+  ['keep','What would make you keep using it in three months?', null],
+  ['pay','Would the whole ladder be worth £5 a month to you?',
+    ['Yes','Maybe','No','I already pay']]
+];
+function fbOpen(){
+  st.fb=st.fb||{};
+  st.fb.sent=false;
+  openOv('feedback');
+}
+function fbKind(k){ st.fb=Object.assign({}, st.fb||{}, {kind:k}); save(); drawOv(); }
+function fbSet(f,val){ st.fb=st.fb||{}; st.fb[f]=val; save(); }
+function fbExtra(k,val){ st.fb=st.fb||{}; st.fb.extra=Object.assign({}, st.fb.extra||{}); 
+  st.fb.extra[k]=val; save(); if(FB_MORE.some(r=>r[0]===k && r[2])) drawOv(); }
+function fbMore(){ st.fb=Object.assign({}, st.fb||{}, {more:!(st.fb||{}).more}); save(); drawOv(); }
+function fbSend(){
+  const fb=st.fb||{};
+  const el=$('#fbText'); const text=((el&&el.value)||fb.text||'').trim();
+  const say=m=>{ const e2=$('#fbMsg'); if(e2) e2.textContent=m; };
+  if(!text){ say('Write a line first.'); return; }
+  say('Sending…');
+  const extra=Object.assign({}, fb.extra||{});
+  /* the free text answers live in the DOM until they are sent, so that
+     typing in them does not repaint the sheet underneath the cursor */
+  FB_MORE.forEach(([k,,opts])=>{ if(opts) return;
+    const e3=document.getElementById('fbx-'+k);
+    if(e3 && e3.value.trim()) extra[k]=e3.value.trim(); });
+  fetch(AUTH.feedback,{method:'POST',
+    headers:st.token?authed():{'Content-Type':'application/json'},
+    body:JSON.stringify({kind:fb.kind||'review', text, extra,
+      stage:curStage()+1, plus:!!st.plus})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
+    .then(()=>{ st.fb={sent:true}; save(); drawOv(); })
+    .catch(e=>say(String(e)));
+}
+function fbBody(){
+  const fb=st.fb||{};
+  if(fb.sent){
+    return `<div style="text-align:center;padding:14px 0 6px">
+      <div style="width:56px;height:56px;border-radius:50%;margin:0 auto;display:grid;
+        place-items:center;background:rgba(0,102,99,.1);color:var(--forest);font-size:26px">&#10003;</div>
+      <div class="h-lg" style="margin-top:16px">Thank you, that helps.</div>
+      <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;
+        margin-left:auto;margin-right:auto">A real person reads every one of these. If it was a
+        bug and you are signed in, you may hear back.</div>
+      <button class="btn" style="margin-top:22px" onclick="closeOv()">Close</button>
+    </div>`;
+  }
+  if(!fb.kind){
+    return `<div class="h-lg">What is on your mind?</div>
+      <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px">
+        Whichever one fits. It takes about twenty seconds.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
+        ${FB_KINDS.map(([k,title,sub])=>`<button onclick="fbKind('${k}')"
+          style="text-align:left;cursor:pointer;border:1.5px solid rgba(0,64,61,.16);
+          background:#fff;border-radius:18px;padding:15px 16px;min-height:44px">
+          <div style="font:600 15.5px/1.3 var(--sans);color:var(--ink)">${esc(title)}</div>
+          <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">${esc(sub)}</div>
+        </button>`).join('')}
+      </div>`;
+  }
+  const meta=FB_KINDS.find(x=>x[0]===fb.kind)||FB_KINDS[2];
+  const ph={bug:'What were you doing, and what happened instead?',
+            idea:'What would you like it to do?',
+            review:'How is it going?'}[fb.kind];
+  const pill=(on)=>`cursor:pointer;border-radius:999px;padding:9px 13px;min-height:40px;
+    font:600 13px/1 var(--sans);border:1.5px solid ${on?'var(--forest)':'rgba(0,64,61,.16)'};
+    background:${on?'var(--forest)':'#fff'};color:${on?'var(--on-primary)':'var(--ink)'}`;
+  return `<div style="display:flex;align-items:baseline;gap:10px">
+      <div class="h-lg" style="flex:1">${esc(meta[1])}</div>
+      <button onclick="fbKind('')" style="border:0;background:none;cursor:pointer;
+        font:600 13px/1 var(--sans);color:var(--forest);padding:6px">Change</button>
+    </div>
+    <textarea id="fbText" oninput="fbSet('text',this.value)" placeholder="${esc(ph)}"
+      style="width:100%;margin-top:14px;min-height:130px;border:1px solid rgba(0,64,61,.16);
+      border-radius:16px;padding:14px;font:400 15.5px/1.55 var(--sans);background:#fff;
+      resize:vertical">${esc(fb.text||'')}</textarea>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
+      <button onclick="fbMore()" style="border:0;background:none;cursor:pointer;padding:0;
+        text-align:left;font:600 14px/1.4 var(--sans);color:var(--forest)">
+        ${fb.more?'Never mind those':'Got two more minutes? Four more questions'}</button>
+      ${!fb.more?'':`<div style="display:flex;flex-direction:column;gap:18px;margin-top:16px">
+        ${FB_MORE.map(([k,q,opts])=>`<div>
+          <div style="font:500 14px/1.45 var(--sans);color:var(--ink)">${esc(q)}</div>
+          ${opts
+            ? `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
+                ${opts.map(o=>`<button onclick="fbExtra('${k}','${esc(o)}')"
+                  style="${pill(((fb.extra||{})[k])===o)}">${esc(o)}</button>`).join('')}
+               </div>`
+            : `<input id="fbx-${k}" value="${esc((fb.extra||{})[k]||'')}"
+                style="width:100%;margin-top:9px;border:1px solid rgba(0,64,61,.16);
+                border-radius:13px;padding:12px;font:400 15px/1.4 var(--sans);background:#fff">`}
+        </div>`).join('')}
+      </div>`}
+    </div>
+    <button class="btn" style="width:100%;margin-top:20px" onclick="fbSend()">Send it</button>
+    <div id="fbMsg" style="font:500 13px/1.5 var(--sans);color:var(--grey);margin-top:10px;
+      text-align:center;min-height:19px"></div>
+    <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">
+      ${st.token?'Sent with your email so I can reply.':'Sent anonymously. Sign in first if you want a reply.'}
+    </div>`;
+}
+
 /* ── video block ───────────────────────────────────────────────────
    Native controls put a black bar over the clip and a three-dot menu
    offering Download on paid footage. This is the same loop with our own
@@ -4742,9 +4862,10 @@ function drawOv(){
            /* the chooser writes its own heading, and two titles one above
               the other is one title too many */
            mode:'',list:'Every drill',explainer:'Explainer',locked:'',intro:'',
-           checkin:'Your fortnight'};
+           checkin:'Your fortnight', feedback:''};
   let body='';
-  if(st.ov==='drill'){ const it=st.ovDrill||{};
+  if(st.ov==='feedback'){ body=fbBody(); }
+  else if(st.ov==='drill'){ const it=st.ovDrill||{};
     /* A panel announcing that there is no video is still a video-shaped
        hole at the top of the sheet. The cues are the drill either way, so
        they simply start where the film would have been. */
@@ -8142,8 +8263,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   /* how many sets each drill already has, so a second pass tops a drill up
      rather than starting it again from set one */
   const done={};
-  const lvlOf = v => ((poolRow(stage,v)||{}).L)||0;
-  const grpOf = v => ((poolRow(stage,v)||{}).g)||'';
+  /* Easier on a later stage reaches into the stage below, so a row has to be
+     found there as well or its rest falls to the catch-all thirty five */
+  const rowOf = v => poolRow(stage,v) || (stage>0 ? poolRow(stage-1,v) : null);
+  const lvlOf = v => ((rowOf(v)||{}).L)||0;
+  const grpOf = v => ((rowOf(v)||{}).g)||'';
   const hard  = stageLevel(stage)===3;
   const add=it=>{
     const g=grpOf(it.v);
@@ -8184,7 +8308,6 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
        session, so fall back to the stage rather than hand over nothing */
     if(fromList.length) cands = fromList;
   }
-  const known  = cands.filter(it=>lvlOf(it.v));
   /* ── a different session each time ──────────────────────────────
      The order is the coach's and the shares are the coach's, so the only
      honest way to vary it is where in the pool it starts. Each session
@@ -8193,6 +8316,28 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   const rot = Number((st.rot||{})[stage] || 0);
   const spin = (list, by) => list.length ? list.slice(by % list.length)
                                            .concat(list.slice(0, by % list.length)) : list;
+  /* ── Easier reaches back a stage ────────────────────────────────
+     Easier used to be the same stage's gentlest drills, which on Wall Work
+     is still wall work. Somebody who has found the stage hard is better off
+     consolidating the top of the stage below, so a third of the session is
+     that, and it comes first, straight after the warm-up. */
+  const backFrom = (!wristDay && stageLevel(stage)===1 && stage>0) ? stage-1 : -1;
+  let backItems=[];
+  if(backFrom>=0){
+    const backIds=poolFor(backFrom)
+      .filter(x=>(x.L||0)>=BACK_MIN_LEVEL)
+      .map(x=>x.v)
+      .filter(v=>!used.has(v) && !cands.some(it=>it.v===v));
+    backItems=spin(backIds, rot)
+      .map(drillById).filter(Boolean)
+      .map(d=>Object.assign({},d,{
+        d:((st.timing||{})[d.v]||{}).d || d.d || FREE_DOSE[d.v] || '3 × 8',
+        /* marked, because the ramp at the end sorts by level and these are
+           the hardest drills of the stage below: left unmarked they sank to
+           the bottom of the session instead of opening it */
+        back:true }));
+  }
+  const known  = cands.filter(it=>lvlOf(it.v));
   let picked;
   if(!known.length){
     /* a stage the workbook has not given levels to yet, and the mobility day:
@@ -8265,6 +8410,12 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   if(!written) picked.sort((a,b)=>lvlOf(a.v)-lvlOf(b.v));
   else { const seq={}; (written||[]).forEach((r,i)=>{ seq[r.v]=i; });
          picked.sort((a,b)=>(seq[a.v]==null?9e9:seq[a.v])-(seq[b.v]==null?9e9:seq[b.v])); }
+  /* the stage below goes in first, before anything from this one, and takes
+     its share of the places rather than being added on top of them */
+  if(backItems.length){
+    const backN=Math.max(1, Math.round(wantN*BACK_SHARE));
+    picked=backItems.slice(0, backN).concat(picked.slice(0, Math.max(0, wantN-backN)));
+  }
   /* the band's own numbers, folded into the drill before it is timed, so a
      drill can be lighter in Easier than in Harder without a second copy */
   picked = picked.map(it=>{
@@ -8314,7 +8465,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
     const warmN=warm.items.length;
     const skill=out.slice(warmN);
     const seen=[]; skill.forEach(q=>{ if(seen.indexOf(q.it.v)<0) seen.push(q.it.v); });
-    skill.sort((a,b)=> (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
+    skill.sort((a,b)=> ((b.it.back?1:0)-(a.it.back?1:0))
+      || (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
       || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
       || a.set-b.set);
     out.length=warmN; skill.forEach(q=>{ q.ii=out.length; out.push(q); });
@@ -9110,6 +9262,14 @@ function topBar(){
       color:var(--on-primary);font:700 11px/1 var(--sans)">LHA</span>
     <span style="flex:1;font:600 11px/1 var(--sans);letter-spacing:.14em;transition:color .3s;
       color:var(--deep)">${label}</span>
+    <button onclick="fbOpen()" aria-label="Tell us what you think"
+      title="Tell us what you think"
+      style="${chip};width:44px;height:44px;border-radius:999px;display:grid;place-items:center">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>
+    </button>
     <button onclick="openChat()" aria-label="Messages"
       style="${chip};position:relative;width:44px;height:44px;border-radius:999px;
       display:grid;place-items:center">

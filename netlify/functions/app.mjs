@@ -1725,6 +1725,55 @@ export default async (request) => {
      A question is not a chat message. It has one job, it either has an
      answer or it does not, and it should be findable months later next to
      the answer it got — which a thread cannot do. */
+  /* ── feedback ──────────────────────────────────────────────────────
+     A question goes to a coach and is about handstands. This is about the
+     app itself, and most of the people with something to say about it have
+     no account and no coach, so it takes no sign in. It is kept rather than
+     only emailed, because a bug reported twice by two people is a different
+     thing from a bug reported once, and an inbox cannot tell you that. */
+  if (path === '/feedback' && request.method === 'POST') {
+    const who = await me();
+    const kinds = ['bug', 'idea', 'review'];
+    const kind = kinds.includes(body.kind) ? body.kind : 'review';
+    const text = String(body.text || '').trim().slice(0, 4000);
+    if (!text) return json({ error: 'Say something first' }, 400);
+    /* signed in is one bucket each, signed out is one bucket between them:
+       loose enough for a real person, tight enough that nobody fills the
+       setting with noise */
+    const bucket = who ? `fb:${who}` : 'fb:anon';
+    if ((await rateHit(bucket, 3600000)) > (who ? 12 : 60)) {
+      return json({ error: 'That is a lot at once. Try again shortly.' }, 429);
+    }
+    const extra = {};
+    if (body.extra && typeof body.extra === 'object') {
+      for (const k of Object.keys(body.extra).slice(0, 12)) {
+        const val = body.extra[k];
+        if (val === null || val === undefined || val === '') continue;
+        extra[String(k).slice(0, 40)] = String(val).slice(0, 600);
+      }
+    }
+    const log = (await getSetting('feedback:log')) || [];
+    const row = {
+      id: 'fb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      at: Date.now(), kind, text,
+      email: who || '', name: who ? (clients()[who] || '') : '',
+      stage: Number(body.stage) || 0,
+      plus: !!body.plus,
+      app: String(body.build || '').slice(0, 20),
+      extra, done: false,
+    };
+    log.unshift(row);
+    await setSetting('feedback:log', log.slice(0, 500));
+    const label = { bug: 'Bug', idea: 'Idea', review: 'Feedback' }[kind];
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `${label} from the app${who ? ': ' + who : ''}`,
+      mail({ title: `${label} from the app.`,
+        paras: [esc(text)].concat(Object.keys(extra).map(k => `<b>${esc(k)}</b>: ${esc(extra[k])}`)),
+        cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
+        signoff: { name: 'London Handstand Academy' } }));
+    return json({ ok: true });
+  }
+
   if (path === '/questions') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -2856,6 +2905,20 @@ export default async (request) => {
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       const row = await supa.row('free_checks', `email=eq.${enc(e)}&select=used_at`);
       return json({ email: e, used: !!row, at: row ? ms(row.used_at) : 0 });
+    }
+
+    if (path === '/coach/feedback') {
+      const log = (await getSetting('feedback:log')) || [];
+      if (request.method === 'POST') {
+        /* ticking one off, so the list is a queue rather than a pile */
+        const id = String(body.id || '').trim();
+        const i = log.findIndex(x => x && x.id === id);
+        if (i < 0) return json({ error: 'No such one' }, 404);
+        log[i].done = body.done !== false;
+        await setSetting('feedback:log', log);
+        return json({ ok: true, feedback: log });
+      }
+      return json({ feedback: log });
     }
 
     if (path === '/coach/questions') {

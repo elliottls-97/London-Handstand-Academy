@@ -370,7 +370,16 @@ function bandTimingFor(stage, band, v){
 /* Which bands a stage offers. Foundations is the one being tuned and has
    three; everywhere else there is one workout and the chooser should not
    pretend otherwise. */
-const BANDS_ON = { 0:[1,2,3] };
+/* Foundations is being tuned and has all three. Wall Work, Pushing More and
+   Take-Off have Easier as well, because Easier there means something plain:
+   go back a stage for part of the session. Freestanding and Press have one
+   workout until they have any drills at all. */
+const BANDS_ON = { 0:[1,2,3], 1:[1,2], 2:[1,2], 3:[1,2] };
+/* How much of an Easier session on a later stage is drawn from the stage
+   below it, at that stage's hardest. Somebody finding Wall Work hard is
+   better served by the top of Foundations than by the bottom of Wall Work. */
+const BACK_SHARE = 0.30;
+const BACK_MIN_LEVEL = 3;
 function bandsFor(stage){ return BANDS_ON[stage] || [2]; }
 function poolRow(stage, v){ return poolFor(stage).find(x=>x.v===v) || null; }
 /* ── a band written out, rather than worked out ────────────────────
