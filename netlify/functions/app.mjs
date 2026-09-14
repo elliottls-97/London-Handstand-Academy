@@ -60,7 +60,12 @@ let ROSTER = null;                 /* set once per request, never across them */
 const rosterList = () => ROSTER || parseClients();
 const clients = () => Object.fromEntries(rosterList().map(c => [c.email, c.name]));
 
-const coaches = () => {
+/* Coaches added from the dashboard, read once at the top of each request so
+   that everything downstream can stay a plain synchronous lookup. The
+   variable is still the source of the first one: a database nobody can
+   reach without a coach account is a poor place for the only way in. */
+let COACHES_STORED = {};
+const envCoaches = () => {
   const out = {};
   for (const p of (process.env.COACHES || '').split(',').map(x => x.trim()).filter(Boolean)) {
     const i = p.indexOf(':');
@@ -71,6 +76,11 @@ const coaches = () => {
     .split(',').map(x => norm(x)).filter(Boolean)) if (!(e in out)) out[e] = '';
   return out;
 };
+const coaches = () => Object.assign({}, envCoaches(), COACHES_STORED);
+/* the one in the variable, who can add and remove the others. Adding a coach
+   is handing over the back office, so it is not something a coach added this
+   way can do for themselves. */
+const isPrimary = e => Object.keys(envCoaches()).includes(norm(e || ''));
 
 const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_EMAIL || '');
 const coachOf = e => {
@@ -506,6 +516,13 @@ export default async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
   const db = store();
+  /* The coaches added from the dashboard, before anything asks who is who.
+     Every route but the two that never mention a coach and are the ones
+     under load: /ladder is fetched on every app open and the webhook is
+     Stripe talking to itself. */
+  if (path !== '/ladder' && path !== '/stripe/webhook') {
+    try { COACHES_STORED = (await getSetting('coaches')) || {}; } catch { COACHES_STORED = {}; }
+  }
 
   /* ── Stripe tells us what happened ─────────────────────────────
      Before the JSON parse below, because the signature covers the raw
@@ -2448,6 +2465,68 @@ export default async (request) => {
     }
 
     /* the roster itself, so a client can be taken on without a deploy */
+    /* ── who else coaches here ───────────────────────────────────────
+       Adding a coach used to mean editing a Netlify variable and spending a
+       deploy on it. The variable is still where the first one lives, because
+       a list that can only be reached from a coach account is a poor place
+       for the only way in; everyone after that is kept here. */
+    if (path === '/coach/coaches') {
+      const env = envCoaches();
+      const rows = Object.keys(coaches()).map(e => ({
+        email: e, name: coaches()[e] || e.split('@')[0],
+        fixed: e in env,                       /* in the variable, not editable here */
+        you: e === asking,
+        clients: rosterList().filter(c => coachOf(c.email) === e && clients()[c.email]).length,
+      }));
+      if (request.method === 'GET') {
+        return json({ coaches: rows, youArePrimary: isPrimary(asking) });
+      }
+      if (request.method === 'POST') {
+        if (!isPrimary(asking)) {
+          return json({ error: 'Only the account in the Netlify variable can change this list.' }, 403);
+        }
+        const e = norm(body.email);
+        if (!e || !e.includes('@')) return json({ error: 'Need an email' }, 400);
+        const stored = (await getSetting('coaches')) || {};
+        if (body.remove) {
+          if (e in env) return json({ error: 'That one is set in Netlify, not here.' }, 400);
+          delete stored[e];
+          /* their clients fall back to the coach in the variable rather than
+             to nobody, or a thread would have no one answering it */
+          const roster = (await getSetting('roster')) || {};
+          for (const k of Object.keys(roster)) {
+            if (roster[k] && norm(roster[k].coach || '') === e) roster[k].coach = '';
+          }
+          await setSetting('roster', roster);
+        } else {
+          if (Object.keys(stored).length >= 20) return json({ error: 'That is a lot of coaches.' }, 400);
+          stored[e] = String(body.name || '').slice(0, 60) || e.split('@')[0];
+          await ensureAcct(e);
+        }
+        await setSetting('coaches', stored);
+        COACHES_STORED = stored;
+        return json({ ok: true, email: e, removed: !!body.remove,
+          coaches: Object.keys(coaches()).map(x => ({ email: x, name: coaches()[x] || x.split('@')[0],
+            fixed: x in env, you: x === asking,
+            clients: rosterList().filter(c => coachOf(c.email) === x && clients()[c.email]).length })) });
+      }
+      return json({ error: 'Nope' }, 405);
+    }
+
+    /* move a client from one coach to another */
+    if (path === '/coach/assign' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const to = norm(body.coach || '');
+      if (to && coaches()[to] === undefined) return json({ error: 'Not a coach' }, 400);
+      const stored = (await getSetting('roster')) || {};
+      const was = stored[e] || rosterList().find(x => x.email === e) || {};
+      stored[e] = { name: was.name || e, coach: to };
+      await setSetting('roster', stored);
+      return json({ ok: true, email: e, coach: to || primaryCoach() });
+    }
+
     if (path === '/coach/roster') {
       if (request.method === 'GET') {
         return json({ roster: rosterList(),
@@ -2677,6 +2756,12 @@ export default async (request) => {
       const e = norm(body.email);
       const pw = String(body.password || '');
       if (!e || pw.length < 8) return json({ error: 'Need an email and 8+ characters' }, 400);
+      /* Setting a password is how a coach helps a client who is locked out.
+         Pointed at another coach it is how one takes the other's account,
+         and with coaches addable from a screen that stops being theoretical. */
+      if (e !== asking && coaches()[e] !== undefined) {
+        return json({ error: 'That is another coach. They set their own password.' }, 403);
+      }
       const hash = await pwHash(pw);
       const acct = await getAcct(e);
       await ensureAcct(e);
