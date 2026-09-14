@@ -2692,7 +2692,12 @@ function sessionCalendar(){
     <i style="width:10px;height:10px;border-radius:3px;background:${c}"></i>${t}</span>`;
   return `<div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-      <span class="kick2">WHAT YOU ACTUALLY DID</span>
+      <button onclick="st.calOpen=!st.calOpen;save();render()" style="border:0;background:none;
+        cursor:pointer;padding:0;display:flex;align-items:center;gap:7px">
+        <span class="kick2">WHAT YOU ACTUALLY DID</span>
+        <span style="font:400 12px/1 var(--sans);color:var(--forest);
+          transform:rotate(${st.calOpen?180:0}deg)">&#8964;</span>
+      </button>
       <span style="display:flex;gap:4px">
         <button class="back" onclick="calShift(1)" style="padding:2px 8px;color:var(--grey2)">‹</button>
         <span style="font:600 11.5px/1.6 var(--sans);color:var(--ink)">${esc(title)}</span>
@@ -2700,6 +2705,7 @@ function sessionCalendar(){
           color:${(st.calOff|0)?'var(--grey2)':'rgba(17,17,17,.18)'}">›</button>
       </span>
     </div>
+    ${st.calOpen?`
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin:14px 0 6px">${head}</div>
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">${cells.join('')}</div>
     <div style="display:flex;flex-wrap:wrap;gap:13px;margin-top:15px;padding-top:13px;
@@ -2710,7 +2716,7 @@ function sessionCalendar(){
       <span style="display:inline-flex;align-items:center;gap:6px;font:400 11.5px/1 var(--sans);
         color:var(--grey)"><i style="width:10px;height:10px;border-radius:3px;
         box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.32)"></i>Opened only</span>
-    </div>
+    </div>`:''}
     ${(function(){
       /* the two numbers this screen exists for */
       const wkStart=new Date(); wkStart.setHours(0,0,0,0);
@@ -5810,6 +5816,13 @@ function askFilter(v){
   if(box) box.innerHTML=askMatches(v);
 }
 function openExplainer(i){ st.exOpen=i; openOv('explainer'); }
+/* the tier table is the answer to a question, so it opens when asked */
+function openCompare(){
+  st.tiersOpen=!st.tiersOpen; save();
+  const el=document.getElementById('tierTable');
+  if(el){ el.style.display=st.tiersOpen?'':'none';
+    if(st.tiersOpen) el.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+}
 /* A locked explainer used to run st.tab='joinFree' and render(), which threw
    you off Today onto the account screen. Twenty three of the twenty six cards
    did it, so the commonest thing you could press on the main screen replaced
@@ -6302,8 +6315,23 @@ function screenLadder(){
          the page, not a banner over it, and the stages below it are a spine
          rather than five cards that each carried the price. -->
     <div style="padding:calc(env(safe-area-inset-top) + 84px) 0 0">${ladderSeg()}</div>
-    ${st.ladderTab==='progress' ? `<div style="padding:18px 16px 26px;display:flex;
-      flex-direction:column;gap:11px">${progressBody()}</div>` : `
+    ${st.ladderTab==='progress' ? `
+    <!-- 6f: the week is the headline, because the number that matters is how
+         many of the sessions you promised yourself you have done. The month
+         calendar was the biggest thing on the screen and is a detail. -->
+    <div class="rise" style="padding:24px 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">This week</div>
+      <div style="display:flex;align-items:flex-end;gap:10px;margin-top:8px">
+        <span style="font:400 52px/1 var(--serif);color:var(--deep)">${sessionsThisWeek()}</span>
+        <span style="font:400 24px/1.4 var(--serif);color:var(--grey)">/ ${weekTarget()}</span>
+      </div>
+      <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
+        sessions of the ${weekTarget()} a week you set. Finish one and it turns up here
+        and on ${esc((STAGES[cur]||STAGES[0]).n)}.</div>
+    </div>
+    <div style="padding:18px 16px 26px;display:flex;flex-direction:column;gap:11px">${
+      progressBody()}</div>` : `
     <div class="rise" data-tour="stagegoal" style="padding:24px 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">You are here &middot; Stage ${cur+1} of ${STAGES.length}</div>
@@ -7153,16 +7181,18 @@ function screenCoaching(){
 
   const checkCard = !signedIn
     ? `<div class="card" style="padding:22px">
-        <div class="kick2">FREE ASSESSMENT</div>
-        <div class="h-md" style="font-size:24px;margin-top:8px">Find out what's holding you back.</div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <span class="kick2">FREE FORM CHECK</span>
+          <span style="flex:none;padding:5px 10px;border-radius:999px;background:var(--sand);
+            font:600 11px/1 var(--sans);color:var(--deep)">Free once</span>
+        </div>
+        <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
+          One clip. One written answer, within 48 hours.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          One clip of the skill you're stuck on. I'll watch it and tell you the
-          one thing to change.</div>
-        ${tick('Watched by me, not a bot')}
-        ${tick('A reply within 48 hours')}
-        ${tick('Free. No card, nothing to cancel')}
+          Film the skill you're stuck on. I'll tell you the one thing to change.
+          No card, nothing to cancel.</div>
         <button class="btn" style="width:100%;margin-top:16px"
-          onclick="st.tab='signin';save();render()">Create an account to send it</button>
+          onclick="st.tab='signin';save();render()">Send my free form check</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
           Takes a second — it's just so the answer has somewhere to land.</div></div>`
     : awaiting || (st.lastReview && st.lastReview > (st.seenReview||0))
@@ -7324,7 +7354,6 @@ function screenCoaching(){
     </div>
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
-      ${askCard}
       <!-- what actually happens, which is the bit people are unsure about -->
       <div class="card" style="padding:20px">
         <div class="kick2">HOW IT GOES</div>
@@ -7339,7 +7368,31 @@ function screenCoaching(){
             </div>`).join('')}
         </div>
       </div>
-      <div class="card" data-tour="tiers" style="padding:20px">
+      <!-- The second route in. The screen offered the free check and then a
+           feature table, so the paid thing was a comparison grid rather than
+           an offer: 6g makes them two cards of equal weight. -->
+      <div class="card" style="padding:22px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <span class="kick2">ONE-TO-ONE COACHING</span>
+          <span style="flex:none;font:600 12.5px/1 var(--sans);color:var(--grey)">£120&ndash;£250 a month</span>
+        </div>
+        <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
+          A programme written for you, and me on the other end of it.</div>
+        ${tick('Unlimited form checks on your footage')}
+        ${tick('Two-week test reviewed by me, plan updated monthly')}
+        ${tick('A thread where you can ask anything')}
+        <button class="btn" style="width:100%;margin-top:16px"
+          onclick="openOv('apply')">Apply for coaching</button>
+        <div style="display:flex;gap:10px;margin-top:10px">
+          <button onclick="go('ask')" style="flex:1;border:0;background:none;cursor:pointer;
+            padding:11px;color:var(--forest);font:600 13.5px/1 var(--sans)">Ask me which tier</button>
+          <button onclick="openCompare()" style="flex:1;border:0;background:none;cursor:pointer;
+            padding:11px;color:var(--forest);font:600 13.5px/1 var(--sans)">Compare tiers &#8964;</button>
+        </div>
+      </div>
+      ${askCard}
+      <div class="card" data-tour="tiers" id="tierTable"
+        style="padding:20px;${st.tiersOpen?'':'display:none'}">
         <div class="kick2">WHAT EACH TIER GETS</div>
         <div style="margin-top:14px;border-radius:16px;overflow:hidden;border:1px solid rgba(28,32,25,.08)">
           <div style="background:rgba(0,102,99,.06);padding:10px 13px;display:flex;gap:8px">
