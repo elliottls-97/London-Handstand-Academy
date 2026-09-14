@@ -8057,7 +8057,22 @@ function warmupFor(budgetSecs, stage, written){
   const own=poolFor(stage).filter(x=>x.g==='Warm-up').map(x=>x.v)
     .filter(v=>RAMP.wrists.indexOf(v)<0);
   const rest4 = own.length ? take(own,4) : [].concat(take(RAMP.shoulders,2), take(RAMP.general,2));
-  const picks = said.length ? said : [].concat(take(RAMP.wrists,2), rest4);
+  /* ── the warm-up varies too ─────────────────────────────────────
+     It was the same opening every session while the skill work moved, so
+     half of every workout was identical. It rotates on the same counter,
+     with one exception: wrist circles stay where they are. The wrists carry
+     the whole thing and warming them is not optional, so they open every
+     session that has them rather than coming round in turn. */
+  const PINNED = /^wrist-circles/;
+  const rotW = Number((st.rot||{})[stage] || 0);
+  const spinW = (list, by) => list.length ? list.slice(by % list.length)
+                                            .concat(list.slice(0, by % list.length)) : list;
+  const arrange = list => {
+    const pin=list.filter(d=>PINNED.test(d.v));
+    const rest=list.filter(d=>!PINNED.test(d.v));
+    return pin.concat(spinW(rest, rotW));
+  };
+  const picks = arrange(said.length ? said : [].concat(take(RAMP.wrists,2), rest4));
   const cap=budgetSecs*0.25;
   const out=[]; let secs=0;
   /* A warm-up used to be one pass whatever anyone said, so a set count typed
