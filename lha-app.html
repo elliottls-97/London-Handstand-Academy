@@ -5089,7 +5089,9 @@ function drawOv(){
       const on=grp.keys.every(x=>(st.qTick||{})[x]);
       const someOn=!on && grp.keys.some(x=>(st.qTick||{})[x]);
       const rate=(st.rate||{})[it.v]||'', openD=(st.open||{})[k];
-      const logged=(st.reps||{})[k];
+      /* the player logs against the set it was on, so a card keyed to the
+         first set would miss a number logged against the second */
+      const logged=grp.keys.map(x=>(st.reps||{})[x]).find(x=>x!=null);
       const reps=logged==null?recommendedReps(it):logged;
       const editing=st.ovRow===gi;
       const flagged=rate==='easy'||rate==='hard';
@@ -5121,11 +5123,12 @@ function drawOv(){
                 return bits.length?`<span style="font:500 12.5px/1 var(--sans);color:var(--grey2)">${
                   esc(bits.join(' · '))}</span>`:'';
               })()}
+              <!-- an underlined word among other words did not read as
+                   something to press, and the unit was already said two
+                   items to its left -->
               <button onclick="toggleStep('${k}')" id="dose-${k}"
-                style="border:none;background:none;cursor:pointer;padding:0;
-                font:600 12.5px/1 var(--sans);color:var(--grey);text-decoration:underline;
-                text-underline-offset:3px">${mode==='work'
-                  ? (logged==null?('Log '+(doseUnit(it.d)?'seconds':'reps')):logged+doseUnit(it.d)+' done')
+                style="${logLook(logged!=null)}">${mode==='work'
+                  ? (logged==null?'Log':logged+doseUnit(it.d)+' done')
                   : 'Change time'}</button>
               ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" id="easy-${k}"
                 onclick="rateRow('${it.v}','${k}','easy')">Too easy</button>
@@ -6233,6 +6236,14 @@ function toggleCues(k,btn){
   btn.textContent = cues.hidden ? 'How to' : 'Hide';
 }
 
+/* The log control, as a pill rather than an underlined word. Thirty six
+   pixels rather than the forty four the primary controls get: it sits in a
+   dense list and the tick box next to it is the thing being aimed at. */
+const logLook = on => `cursor:pointer;border-radius:999px;padding:0 12px;min-height:36px;
+  display:inline-flex;align-items:center;font:600 12.5px/1 var(--sans);
+  border:1px solid ${on?'var(--forest)':'var(--line)'};
+  background:${on?'rgba(0,102,99,.08)':'#fff'};
+  color:${on?'var(--forest)':'var(--grey)'}`;
 function toggleStep(k){
   const box=document.getElementById('step-'+k); if(!box) return;
   box.hidden=!box.hidden;
@@ -8663,7 +8674,8 @@ function adjustReps(k,by){
   st.reps[k]=next; save();
   const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);
   if(a) a.textContent=String(next);
-  if(b) b.textContent=next?next+' done':'Log reps';
+  if(b){ b.textContent = next ? next+' done' : 'Log';
+         b.setAttribute('style', logLook(!!next)); }
 }
 
 function adjustSecs(v,by,k){
@@ -8676,7 +8688,7 @@ function adjustSecs(v,by,k){
   if(k){
     const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);
     if(a) a.textContent=next+'s';
-    if(b) b.textContent=next+'s';
+    if(b){ b.textContent=next+'s'; b.setAttribute('style', logLook(true)); }
   }
   qCount();
 }
