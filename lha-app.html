@@ -1069,9 +1069,18 @@ function ccDraw(v, cues){
   if(el.parentElement!==host){ host.style.position='relative'; host.appendChild(el); el.dataset.fit=''; }
   /* The plate is sized from the video, not from the viewport. Sized from the
      viewport it was the same height on a full screen vertical film and on a
-     small explainer in a sheet, where it swallowed the picture. A horizontal
-     film gets a fifth of its height at most, and sits inside the bottom
-     fifth; a vertical one can afford a little more. */
+     small explainer in a sheet, where it swallowed the picture.
+
+     The rule is the bottom fifth: the whole plate, not just its top edge,
+     lives inside the last twenty per cent of the film's height. That is one
+     budget covering the gap under it and the pill itself, so a two line cue
+     still cannot climb into the picture. It was being broken twice, by a six
+     per cent offset under a plate allowed a full fifth on its own, and again
+     by the control bar this used to sit above. */
+  const CC_BAND = 0.20, CC_GAP = 0.03;
+  /* the smallest film the rule can be kept on: eighteen pixels of pill
+     inside seventeen per cent of the height */
+  const CC_MIN_H = Math.ceil(18/(CC_BAND-CC_GAP));
   /* offsetWidth and offsetHeight are the layout box and ignore transforms.
      getBoundingClientRect returns the painted box, which is swapped once the
      theatre rotates the film, so the plate decided a vertical film had gone
@@ -1079,22 +1088,31 @@ function ccDraw(v, cues){
   const rect=v.getBoundingClientRect();
   const box=(v.offsetWidth>40 && v.offsetHeight>40)
     ? {width:v.offsetWidth, height:v.offsetHeight} : rect;
+  /* Below about a hundred pixels the smallest legible line will not fit
+     inside the fifth, and the floor that keeps it readable would push the
+     plate up into the picture. A film that small is a thumbnail: no plate
+     rather than a plate that breaks the rule. */
+  if(box.height>0 && box.height<CC_MIN_H){ el.style.opacity='0'; return; }
   if(box.height>40){
     const wide=box.width/box.height>1.2;
     const key=Math.round(box.width)+'x'+Math.round(box.height);
     /* the control bar sits at the foot of the film, so the plate has to
        start above it. In the theatre the bar is on the room instead and
        this finds nothing, which is the right answer there. */
-    const bar=host.querySelector(':scope > .vp-bar');
-    const barH=bar?Math.round(bar.getBoundingClientRect().height):0;
-    if(el.dataset.fit!==key+'+'+barH){
-      el.dataset.fit=key+'+'+barH;
-      el.style.bottom=barH
-        ? 'calc('+(wide?'4%':'7%')+' + '+barH+'px)'
-        : (wide?'6%':'10%');
+    if(el.dataset.fit!==key){
+      el.dataset.fit=key;
+      /* the gap under the plate and the plate itself share the fifth */
+      const gapPx = Math.round(box.height*CC_GAP);
+      const roomPx = Math.max(18, Math.round(box.height*(CC_BAND-CC_GAP)));
+      el.style.bottom = gapPx+'px';
       const row=el.firstChild;
-      row.style.fontSize=Math.max(10, Math.min(box.height*(wide?0.062:0.05), 22)).toFixed(1)+'px';
-      row.style.maxHeight=Math.round(box.height*0.2)+'px';
+      /* two lines plus the pill's own padding have to fit inside that room.
+         line-height is 1.18 and the padding is one em all told, so the type
+         can be at most a third of what is left. */
+      const fromRoom = roomPx/3.4;
+      row.style.fontSize=Math.max(9.5,
+        Math.min(box.height*(wide?0.05:0.042), fromRoom, 22)).toFixed(1)+'px';
+      row.style.maxHeight=roomPx+'px';
       row.style.overflow='hidden';
     }
   }
@@ -1205,7 +1223,24 @@ function vpBuild(v){
   v.removeAttribute('controls'); v.controls=false;
   v.setAttribute('playsinline','');
   host.classList.add('vp');
-  host.appendChild(vpBar(v,false));
+  const bar=vpBar(v,false);
+  host.appendChild(bar);
+  /* The captions live in the bottom fifth of the film, and so does this bar,
+     so one of them has to move. The bar is the one nobody is reading: it
+     fades out a couple of seconds into playback and comes back on a touch,
+     a hover or a pause. Fading rather than removing, so nothing reflows and
+     the plate never has to be measured twice. */
+  let idle=null;
+  const show=()=>{ bar.style.opacity='1'; bar.style.pointerEvents='auto';
+    clearTimeout(idle);
+    if(!v.paused) idle=setTimeout(()=>{
+      bar.style.opacity='0'; bar.style.pointerEvents='none'; }, 2200);
+  };
+  ['pointerdown','pointermove','focusin'].forEach(e=>host.addEventListener(e, show));
+  v.addEventListener('pause', show);
+  v.addEventListener('play', show);
+  v.addEventListener('ended', show);
+  show();
   /* tapping the picture plays and pauses, which is what everyone tries */
   v.addEventListener('click',()=>{ v.paused?v.play():v.pause(); });
 }
