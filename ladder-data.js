@@ -405,6 +405,67 @@ const BACK_SHARE = 0.30;
 const BACK_MIN_LEVEL = 3;
 function bandsFor(stage){ return BANDS_ON[stage] || [2]; }
 function poolRow(stage, v){ return poolFor(stage).find(x=>x.v===v) || null; }
+/* ── Press, seeded ─────────────────────────────────────────────────
+   The stage is marked coming soon in the app, and its pool is filled in
+   advance so switching it on is a decision rather than a build. The rows
+   are the press work from the two written programmes: what the easier one
+   uses is level one, what both use is level two, what only the harder one
+   uses is level three, and the stage's own press drills are three and four.
+   All of it editable from the Workouts tab like any other stage. */
+POOL[5]=[
+  {v:"forearm-massage", g:"Warm-up", L:1},
+  {v:"wrist-circles-mob", g:"Warm-up", L:1},
+  {v:"shoulder-circles", g:"Warm-up", L:1},
+  {v:"active-hamstring-stretch", g:"Warm-up", L:1},
+  {v:"plank-fingertip-lifts", g:"Warm-up", L:1},
+  {v:"shoulder-pulses", g:"Warm-up", L:1},
+  {v:"dolphin-lean-forwards", g:"Warm-up", L:1},
+  {v:"pike-hip-lifts", g:"Warm-up", L:1},
+  {v:"palm-lifts-table-top", g:"Warm-up", L:1},
+  {v:"dd-wrist-taps", g:"Warm-up", L:1},
+  {v:"floor-press-circles", g:"Warm-up", L:1},
+  {v:"crow-pose", g:"Strength", L:1},
+  {v:"lying-back-engagements", g:"Strength", L:1},
+  {v:"chair-assisted-knee-lifts", g:"Chair", L:1},
+  {v:"chair-assisted-handstand-shoulder-adjustments", g:"Chair", L:1},
+  {v:"chair-assisted-step-ups", g:"Chair", L:1},
+  {v:"chair-press-entries", g:"Chair", L:2},
+  {v:"chair-assisted-puppy-press", g:"Chair", L:2},
+  {v:"press-walks", g:"Press walks", L:2},
+  {v:"chair-assisted-handstand-extensions", g:"Chair", L:1},
+  {v:"chair-assisted-handstand-walks", g:"Chair", L:1},
+  {v:"p-l-handstand", g:"Chair", L:1},
+  {v:"chair-assisted-handstand-scapula-shrugs", g:"Chair", L:1},
+  {v:"dd-float-drills", g:"Chair", L:2},
+  {v:"press-slides", g:"Press walks", L:2},
+  {v:"sideways-press-walks", g:"Press walks", L:2},
+  {v:"p-bench-zombies", g:"Press", L:2},
+  {v:"chaturganga-push-ups", g:"Strength", L:1},
+  {v:"push-ups-on-knees", g:"Strength", L:1},
+  {v:"crow-to-chaturanga", g:"Strength", L:1},
+  {v:"press-scapula-shrugs", g:"Press walks", L:2},
+  {v:"lolasana-lifts", g:"Press", L:1},
+  {v:"pancake-lift-combo", g:"Pancake", L:3},
+  {v:"wall-shape-changes", g:"Shape changes", L:3},
+  {v:"straddle-to-straight", g:"Shape changes", L:3},
+  {v:"knees-on-box", g:"Tuck", L:3},
+  {v:"tuck-slides", g:"Tuck", L:3},
+  {v:"floor-scapula-push-ups", g:"Press walks", L:3},
+  {v:"p-chest-to-wall", g:"Strength", L:3},
+  {v:"chest-to-wall-toe-taps", g:"Strength", L:3},
+  {v:"straddle-to-diamond", g:"Shape changes", L:3},
+  {v:"p-pike-pushups", g:"Strength", L:3},
+  {v:"straddle-leg-lifts", g:"Pancake", L:3},
+  {v:"pancake-to-wide-standing", g:"Pancake", L:3},
+  {v:"p-pancake", g:"Press", L:3},
+  {v:"p-solo-press-circles", g:"Press", L:4},
+  {v:"p-back-to-wall", g:"Press", L:3},
+  {v:"p-chest-to-wall-negs", g:"Press", L:4},
+  {v:"press-eccentrics", g:"Press", L:4},
+  {v:"p-pike-pushup-negs", g:"Press", L:4}
+];
+STAGES[5].soon=true;
+
 /* ── a band written out, rather than worked out ────────────────────
    BAND_MIX gives each of the three buttons a share of each difficulty
    level, and the builder spends those shares. It works, and it means the

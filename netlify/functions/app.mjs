@@ -174,47 +174,47 @@ const esc = t => String(t == null ? '' : t)
 
 function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
   const F = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
-  const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#2c3229">${t}</p>`;
+  const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#4c5654">${t}</p>`;
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light"><title>${esc(title)}</title></head>
-<body style="margin:0;padding:0;background:#f2efe7">
+<body style="margin:0;padding:0;background:#f4f4f5">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(
   paras[0] ? String(paras[0]).replace(/<[^>]+>/g, '').slice(0, 110) : title)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-  style="background:#f2efe7;padding:28px 14px">
+  style="background:#f4f4f5;padding:28px 14px">
 <tr><td align="center">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
     style="max-width:560px;background:#ffffff;border-radius:18px;
     border:1px solid #e3e0d6">
     <tr><td style="padding:30px 32px 0;text-align:center">
-      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#2f3d2f;
+      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#006663;
         text-transform:uppercase">London Handstand Academy</div>
-      <div style="height:1px;background:#e8e5db;margin:24px 0 0"></div>
+      <div style="height:1px;background:#e3e6e6;margin:24px 0 0"></div>
     </td></tr>
     <tr><td style="padding:30px 32px 8px">
-      <h1 style="margin:0 0 18px;font:700 27px/1.22 ${F};color:#1c2019;
+      <h1 style="margin:0 0 18px;font:700 27px/1.22 ${F};color:#111111;
         letter-spacing:-.015em">${esc(title)}</h1>
       ${greeting ? p(`Hi ${esc(greeting)},`) : ''}
       ${paras.map(p).join('')}
       ${box ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-        style="background:#f4f6f2;border-radius:12px;margin:6px 0 20px">
+        style="background:#eef4f3;border-radius:12px;margin:6px 0 20px">
         <tr><td style="padding:19px 22px">
-          ${box.title ? `<div style="font:700 15px/1.3 ${F};color:#1c2019;
+          ${box.title ? `<div style="font:700 15px/1.3 ${F};color:#111111;
             margin:0 0 12px">${esc(box.title)}</div>` : ''}
           ${box.items.map((it, i) => `<div style="font:400 15px/1.55 ${F};
-            color:#3d443a;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
-            ${box.numbered ? `<b style="color:#2f3d2f">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
+            color:#4c5654;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
+            ${box.numbered ? `<b style="color:#006663">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
         </td></tr></table>` : ''}
       ${cta ? `<table role="presentation" cellpadding="0" cellspacing="0"
-        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#2f3d2f">
+        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#006663">
         <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
           font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
       </td></tr></table>` : ''}
       ${signoff ? p(`${esc(signoff.line || 'Talk soon,')}<br>${esc(signoff.name)}`) : ''}
     </td></tr>
     <tr><td style="padding:6px 32px 28px">
-      <div style="height:1px;background:#e8e5db;margin:0 0 16px"></div>
+      <div style="height:1px;background:#e3e6e6;margin:0 0 16px"></div>
       <div style="font:400 12.5px/1.6 ${F};color:#8a8d80">
         ${footnote ? esc(footnote) + '<br>' : ''}
         <a href="${SITE}" style="color:#8a8d80">londonhandstandacademy.com</a>
@@ -605,6 +605,36 @@ export default async (request) => {
          from a coached client without asking Stripe again */
       const boughtPlan = (obj.metadata && obj.metadata.plan) || '';
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
+      /* Buying coaching or form checks makes a client, not just a payer.
+         Before this the money arrived and nothing else happened: no roster
+         entry, no thread, nobody told. */
+      if (['check', 'online', 'inner'].includes(boughtPlan) && ev.type === 'checkout.session.completed') {
+        const e2 = acct.email;
+        const stored = (await getSetting('roster')) || {};
+        if (!stored[e2] && !clients()[e2]) {
+          stored[e2] = { name: acct.name || e2, coach: '', tier: boughtPlan };
+          await setSetting('roster', stored);
+        }
+        const tierName = { check: 'form checks', online: 'coaching', inner: 'Inner Circle' }[boughtPlan];
+        const first = String(acct.name || '').split(' ')[0];
+        const opener = boughtPlan === 'check'
+          ? `Welcome${first ? ' ' + first : ''}. You are set up for form checks. Send a clip here whenever you have one: film from the side, whole body in frame, and I will come back with what to change, in writing, against your own footage.`
+          : `Welcome${first ? ' ' + first : ''}. Before I write block one I need to see where you are. Film two things, from the side with your whole body in frame: a chest-to-wall hold for as long as you can, and one freestanding attempt, however it goes. Send them here and I will build the first two weeks from them.`;
+        try { await threadAdd(db, e2, { from: 'coach', text: opener }); } catch {}
+        await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
+          mail({ title: `Someone just bought ${tierName}.`,
+            paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster and has an opening message in their thread asking for a baseline clip.`,
+                    boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.'],
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
+            signoff: { name: 'London Handstand Academy' } }));
+        await email(e2, `You are in: ${tierName}`,
+          mail({ title: 'You are in.',
+            greeting: first,
+            paras: ['There is a message waiting for you in the app under Ask, and it is the first thing to do.',
+                    'Everything happens in the app from here: your clips, my answers, and your programme when there is one.'],
+            cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            signoff: { name: coachName(coachOf(e2)) } }), 'replies');
+      }
     } else if (off.includes(ev.type)) {
       acct.plus = false;
     } else if (ev.type === 'customer.subscription.trial_will_end') {
@@ -799,6 +829,14 @@ export default async (request) => {
     await saveAcct(acct);
 
     if (!prev.email) {
+      /* The thread opens with a line from the coach rather than an empty
+         box, so the first thing a new account sees under Ask is a person
+         asking if they have a question. It is the cheapest conversation
+         starter there is and it was not being started. */
+      try {
+        await threadAdd(db, e, { from: 'coach',
+          text: `Welcome to the ladder. I'm ${coachName(primaryCoach()).replace(/^your coach$/, 'Elliott')}, I coach the people this app is built around. If anything about your handstand is confusing, or you want to know what to work on, ask it here. It comes straight to me.` });
+      } catch {}
       /* to them, not only to the coach. Transactional: it says what the
          account is and where the app lives, and nothing it did not ask for. */
       const nm = String(acct.name || '').split(' ')[0];
@@ -847,7 +885,7 @@ export default async (request) => {
         title: 'Your reset code.',
         paras: ['Use this to set a new password. It expires in 15 minutes.',
           `<span style="display:inline-block;font:700 30px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
-           letter-spacing:.24em;color:#1c2019;background:#f4f6f2;border-radius:10px;
+           letter-spacing:.24em;color:#111111;background:#eef4f3;border-radius:10px;
            padding:16px 20px 16px 24px">${esc(code)}</span>`,
           'If you did not ask for this, ignore it — nothing has changed.'],
         signoff: { line: 'Thanks,', name: 'London Handstand Academy' },
@@ -1855,7 +1893,9 @@ export default async (request) => {
      one row per day of totals, in the settings table, no cookies, no third
      party, no per-person record. */
   const EVENTS = ['open', 'quiz', 'wall', 'checkout', 'subscribed', 'start',
-                  'finish', 'ret7', 'install', 'taste', 'signup', 'code'];
+                  'finish', 'ret7', 'install', 'taste', 'signup', 'code',
+                  /* the website, before the app */
+                  'site', 'sitequiz', 'siteapp', 'siteworkshop'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });

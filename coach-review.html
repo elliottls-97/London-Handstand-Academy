@@ -1487,7 +1487,34 @@
     downloadLink.download = 'coaching-review-' + Date.now() + '.' + ext;
     downloadLink.textContent = 'Download ' + ext.toUpperCase();
     downloadLink.classList.add('show');
+    /* Inside the dashboard the recording can go straight back to the client
+       as a video reply, which is the whole point of having made it. The
+       dashboard owns the thread and the upload, so it is handed the file. */
+    let send = document.getElementById('sendBack');
+    if (!send) {
+      send = document.createElement('button');
+      send.id = 'sendBack'; send.type = 'button';
+      send.style.cssText = 'margin-left:10px;border:0;border-radius:999px;padding:12px 20px;cursor:pointer;'
+        + 'background:#006663;color:#fff;font:600 14px/1 system-ui,sans-serif';
+      downloadLink.parentNode.insertBefore(send, downloadLink.nextSibling);
+    }
+    const inFrame = (() => { try { return window.parent !== window; } catch (e) { return false; } })();
+    send.style.display = inFrame ? 'inline-block' : 'none';
+    send.textContent = 'Send it to them';
+    send.disabled = false;
+    send.onclick = () => {
+      send.disabled = true; send.textContent = 'Handing it over…';
+      try { window.parent.postMessage({ type: 'lha-review-recording', blob, ext }, '*'); }
+      catch (e) { send.disabled = false; send.textContent = 'Could not hand it over'; }
+    };
   }
+  /* the dashboard says when it has gone */
+  window.addEventListener('message', (e) => {
+    if (!e.data || e.data.type !== 'lha-review-sent') return;
+    const send = document.getElementById('sendBack'); if (!send) return;
+    send.textContent = e.data.ok ? 'Sent to ' + (e.data.to || 'them') : ('Not sent: ' + (e.data.error || 'try the download'));
+    if (!e.data.ok) send.disabled = false;
+  });
 
   // The mic always goes through the Web Audio graph rather than straight into the
   // recorder. The track handed to MediaRecorder is then a stable synthetic one, so

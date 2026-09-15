@@ -61,47 +61,47 @@ const esc = t => String(t == null ? '' : t)
 
 function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
   const F = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
-  const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#2c3229">${t}</p>`;
+  const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#4c5654">${t}</p>`;
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light"><title>${esc(title)}</title></head>
-<body style="margin:0;padding:0;background:#f2efe7">
+<body style="margin:0;padding:0;background:#f4f4f5">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(
   paras[0] ? String(paras[0]).replace(/<[^>]+>/g, '').slice(0, 110) : title)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-  style="background:#f2efe7;padding:28px 14px">
+  style="background:#f4f4f5;padding:28px 14px">
 <tr><td align="center">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
     style="max-width:560px;background:#ffffff;border-radius:18px;
     border:1px solid #e3e0d6">
     <tr><td style="padding:30px 32px 0;text-align:center">
-      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#2f3d2f;
+      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#006663;
         text-transform:uppercase">London Handstand Academy</div>
-      <div style="height:1px;background:#e8e5db;margin:24px 0 0"></div>
+      <div style="height:1px;background:#e3e6e6;margin:24px 0 0"></div>
     </td></tr>
     <tr><td style="padding:30px 32px 8px">
-      <h1 style="margin:0 0 18px;font:700 27px/1.22 ${F};color:#1c2019;
+      <h1 style="margin:0 0 18px;font:700 27px/1.22 ${F};color:#111111;
         letter-spacing:-.015em">${esc(title)}</h1>
       ${greeting ? p(`Hi ${esc(greeting)},`) : ''}
       ${paras.map(p).join('')}
       ${box ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-        style="background:#f4f6f2;border-radius:12px;margin:6px 0 20px">
+        style="background:#eef4f3;border-radius:12px;margin:6px 0 20px">
         <tr><td style="padding:19px 22px">
-          ${box.title ? `<div style="font:700 15px/1.3 ${F};color:#1c2019;
+          ${box.title ? `<div style="font:700 15px/1.3 ${F};color:#111111;
             margin:0 0 12px">${esc(box.title)}</div>` : ''}
           ${box.items.map((it, i) => `<div style="font:400 15px/1.55 ${F};
-            color:#3d443a;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
-            ${box.numbered ? `<b style="color:#2f3d2f">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
+            color:#4c5654;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
+            ${box.numbered ? `<b style="color:#006663">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
         </td></tr></table>` : ''}
       ${cta ? `<table role="presentation" cellpadding="0" cellspacing="0"
-        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#2f3d2f">
+        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#006663">
         <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
           font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
       </td></tr></table>` : ''}
       ${signoff ? p(`${esc(signoff.line || 'Talk soon,')}<br>${esc(signoff.name)}`) : ''}
     </td></tr>
     <tr><td style="padding:6px 32px 28px">
-      <div style="height:1px;background:#e8e5db;margin:0 0 16px"></div>
+      <div style="height:1px;background:#e3e6e6;margin:0 0 16px"></div>
       <div style="font:400 12.5px/1.6 ${F};color:#8a8d80">
         ${footnote ? esc(footnote) + '<br>' : ''}
         <a href="${SITE}" style="color:#8a8d80">londonhandstandacademy.com</a>
@@ -294,6 +294,7 @@ export default async () => {
   }
 
   try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
+  try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
   return new Response(JSON.stringify(done), {
     headers: { 'Content-Type': 'application/json' } });
 };
@@ -338,6 +339,63 @@ async function quietFreeAccounts(done) {
     if (ok) {
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
       done.quiet = (done.quiet || 0) + 1;
+    }
+  }
+}
+
+/* ── the first ten days ────────────────────────────────────────────
+   Five short notes after an account is made, on days one, two, four, seven
+   and ten, then nothing but the quiet nudge above. Each is one thing about
+   handstands and one thing the app does. Five in ten days is a welcome;
+   one a day for ever is the thing people unsubscribe from. Drafted from the
+   cue text in the app: Elliott's to rewrite, and they live only here. */
+const TIPS = [
+  { day: 1, subject: 'Fingers first',
+    title: 'Your wrists carry the whole thing.',
+    paras: ['Most handstand pain in the first month is wrists, and most of it is skipped warm-ups. Circles, then flexion and extension with the other hand helping, then weight shifts on all fours. Two minutes. The app puts these at the top of every session for a reason.',
+            'On a day the rest of you is not up to it, there is a mobility day in the app: wrists and shoulders, ten minutes, no stage work. It still counts, and it is the day that keeps a habit alive.'] },
+  { day: 2, subject: 'Push the floor away',
+    title: 'One cue, for everything.',
+    paras: ['Chest to wall, chair assisted, crow, the press: the cue underneath all of them is the same. Push the floor away. Shoulders up by the ears, arms straight, the whole body reaching upwards rather than sitting in the joints.',
+            'Every film in the app has captions, so you can put the phone on the floor with the sound off and still catch the cue as it is said.'] },
+  { day: 4, subject: 'Twice a week is the number',
+    title: 'Two sessions a week moves a handstand. One keeps it.',
+    paras: ['Nobody needs an hour. A fifteen minute session in the app is six drills at one set each, and two of those a week beats one heroic Sunday every time.',
+            'Say how long you have and it builds one. It starts further down your stage each time, so Tuesday and Thursday are different workouts, not the same one again.'] },
+  { day: 7, subject: 'Film yourself, from the side',
+    title: 'You cannot feel a bent hip. You can see one.',
+    paras: ['Phone on the floor, side on, whole body in frame. What feels straight almost never is, and thirty seconds of footage teaches more than a month of guessing.',
+            'Each stage in the app has check points, the things you have to be able to do before the next stage opens. Log them as you go, and if you are being coached, send the clip with it.'] },
+  { day: 10, subject: 'Falling is a skill',
+    title: 'Learn to come down before you try to stay up.',
+    paras: ['The fear of falling is what keeps people leaning on the wall for a year. A cartwheel out is the answer: practise it on purpose, low and slow, until it is boring. Then kicking up freestanding stops being a leap.',
+            'Your Progress tab keeps a calendar of every session, what was in it and how long it took. Ten days in is a good moment to look at it.'] },
+];
+async function firstTenDays(done) {
+  const now = Date.now();
+  const rows = (await supa.rows('accounts',
+    'select=email,name,first_seen&order=first_seen.desc&limit=300')) || [];
+  const roster = new Set(parseClients().map(c => c.email));
+  for (const a of rows) {
+    if (!a.email || roster.has(a.email)) continue;
+    const first = ms(a.first_seen); if (!first) continue;
+    const ageDays = (now - first) / DAY;
+    if (ageDays > 14) continue;
+    for (let i = 0; i < TIPS.length; i++) {
+      const t = TIPS[i];
+      if (ageDays < t.day) continue;
+      const key = `tip:${a.email}:${i}`;
+      if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+      const ok = await email(a.email, t.subject,
+        mail({ title: t.title, greeting: (a.name || '').split(' ')[0] || '',
+          paras: t.paras,
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: 'Elliott, London Handstand Academy' },
+          footnote: 'Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, under More, stops all of it.' }),
+        'reminders');
+      if (ok) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+                done.tips = (done.tips || 0) + 1; }
+      break;   /* one a day at most, whatever is owed */
     }
   }
 }

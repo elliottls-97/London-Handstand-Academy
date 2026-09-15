@@ -764,6 +764,9 @@ function leadsHTML(){
             ${a.last?'seen '+ago(a.last):'never opened it'}
             ${a.first?`<span style="display:block">joined ${ago(a.first)}</span>`:''}
           </span>
+          <button onclick="view='clients';openThread('${esc(a.email)}')"
+            style="flex:none;cursor:pointer;border-radius:10px;padding:8px 12px;font:600 11.5px/1 var(--sans);
+            background:#fff;border:1.5px solid var(--line);color:var(--ink)">Message</button>
           <button onclick="grant('${esc(a.email)}',${a.plus?'false':'true'})"${busy?' disabled':''}
             style="flex:none;cursor:pointer;border-radius:10px;padding:8px 12px;
             font:600 11.5px/1 var(--sans);background:#fff;
@@ -1043,7 +1046,10 @@ function subsHTML(email){
       <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
         ${s.clips.length} clip${s.clips.length===1?'':'s'} — in the thread below.</div>
       <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
-        <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+        ${s.clips.length?`<button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+          onclick="reviewClips('${esc(email)}',${JSON.stringify(s.clips).replace(/"/g,'&quot;')},'${esc((clients.find(c=>c.email===email)||{}).name||'Client')}')">
+          Review ${s.clips.length===1?'this clip':'these '+s.clips.length+' clips'}</button>`:''}
+        <button class="send" style="width:auto;padding:0 14px;font-size:12.5px;background:var(--mist);color:var(--ink)"
           onclick="markReviewed('${esc(email)}','${esc(s.id)}',false)">Mark reviewed</button>
         <button class="send" style="width:auto;padding:0 14px;font-size:12.5px;
           background:var(--mist);color:var(--ink)"
@@ -1603,8 +1609,8 @@ function sendCoachPhoto(file){
     .catch(e=>{ upBusy=false; coachSay(String(e)); });
 }
 
-function sendCoachClip(file){
-  if(upBusy||!sel) return;
+function sendCoachClip(file, after){
+  if(upBusy||!sel){ if(after) after(false, 'busy'); return; }
   upBusy=true; coachSay('Getting ready…');
   fetch('/api/app/upload',{method:'POST',headers:hdr(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start upload')))
@@ -1625,9 +1631,26 @@ function sendCoachClip(file){
       return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
         body:JSON.stringify({text,video:uid})}).then(sendOK);
     })
-    .then(()=>{ upBusy=false; coachSay(''); setTimeout(()=>openThread(sel),1200); })
-    .catch(e=>{ upBusy=false; coachSay(String(e)); });
+    .then(()=>{ upBusy=false; coachSay(''); if(after) after(true); setTimeout(()=>openThread(sel),1200); })
+    .catch(e=>{ upBusy=false; coachSay(String(e)); if(after) after(false, String(e)); });
 }
+/* the recording the review tool made, sent back as a video reply to whoever
+   the clips were from. The tool hands the file over; this owns the upload
+   and the thread, the same path as any other video reply. */
+window.addEventListener('message', e=>{
+  if(e.origin!==location.origin || !e.data || e.data.type!=='lha-review-recording') return;
+  const w=reviewFrame();
+  const tell=(ok,error)=>{ try{ w && w.postMessage({type:'lha-review-sent', ok, error,
+    to:(clients.find(c=>c.email===sel)||{}).name||sel}, location.origin); }catch(err){} };
+  const to=reviewFor||sel;
+  if(!to){ tell(false,'nobody to send it to'); return; }
+  sel=to;
+  const ext=e.data.ext||'webm';
+  let file;
+  try{ file=new File([e.data.blob], 'review-'+Date.now()+'.'+ext, {type:e.data.blob.type||'video/'+ext}); }
+  catch(err){ file=e.data.blob; }
+  sendCoachClip(file, tell);
+});
 
 /* the oldest thing they are waiting on, if anything */
 function openSub(email){
@@ -2693,6 +2716,24 @@ window.addEventListener('message', e=>{
 
 /* Send a client's clip to the tool. The uid is all the dashboard has; the
    server turns it into something the canvas can read. */
+/* several at once: every clip in a submission, or everything a client has
+   sent, loaded into the review tool together so one recording can walk
+   through all of them and go back as one reply */
+function reviewClips(email, uids, name){
+  const list=(uids||[]).filter(Boolean);
+  if(!list.length) return;
+  reviewFor=email;
+  list.forEach((u,i)=>reviewClip(u, (name||'Client')+' · clip '+(i+1)+' of '+list.length));
+}
+function reviewAllFrom(email){
+  const name=(clients.find(c=>c.email===email)||{}).name||'Client';
+  const uids=[]; (subs[email]||[]).forEach(s=>(s.clips||[]).forEach(u=>{ if(uids.indexOf(u)<0) uids.push(u); }));
+  thread.forEach(m=>{ if(m.from!=='coach' && m.video && uids.indexOf(m.video)<0) uids.push(m.video); });
+  if(!uids.length) return alert('Nothing from them yet.');
+  reviewClips(email, uids, name);
+}
+/* who the recording goes back to */
+let reviewFor='';
 function reviewClip(uid, title){
   uid=String(uid||''); if(!uid) return;
   const have=reviewQueue.find(c=>c.uid===uid);
@@ -5055,6 +5096,9 @@ function threadCardHTML(msgs){
         <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
         ${sel?mailRowHTML(sel):''}
         ${sel?formCheckHTML(sel):''}
+        ${sel?`<button onclick="reviewAllFrom('${esc(sel)}')" style="background:none;border:none;cursor:pointer;
+          padding:8px 0;font:500 12px/1 var(--sans);color:var(--forest);text-decoration:underline;
+          text-underline-offset:3px">Review everything they have sent</button>`:''}
         ${sel?cpsBtnHTML(sel):''}
         ${sel?acctBtnHTML(sel):''}
         ${sel?assignHTML(sel):''}
