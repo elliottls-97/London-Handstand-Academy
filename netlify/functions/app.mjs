@@ -790,6 +790,17 @@ export default async (request) => {
     await saveAcct(acct);
 
     if (!prev.email) {
+      /* to them, not only to the coach. Transactional: it says what the
+         account is and where the app lives, and nothing it did not ask for. */
+      const nm = String(acct.name || '').split(' ')[0];
+      await email(e, 'Your Handstand Ladder account',
+        mail({ title: 'You are in.',
+          greeting: nm,
+          paras: ['This is the account your progress saves to, so it follows you between phones and survives a lost one.',
+                  'Foundations is free for as long as you want it. The five stages above it are £5 a month with the first week free, and you can put it on your home screen from the More tab so it opens like an app.',
+                  'If something is wrong, or you have an idea, the pencil in the top bar reaches me directly.'],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `New app sign-up: ${e}`,
         `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.

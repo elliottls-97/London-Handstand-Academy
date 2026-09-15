@@ -293,10 +293,53 @@ export default async () => {
     }
   }
 
+  try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
   return new Response(JSON.stringify(done), {
     headers: { 'Content-Type': 'application/json' } });
 };
 
 /* 9am UTC daily — early enough that a reminder lands before training,
    late enough that it is not a 3am push */
+/* ── 4: a free account gone quiet ─────────────────────────────────
+   Everything above is about coaching clients. A free user who stopped on
+   day four heard nothing, ever, and a reminder is the cheapest retention
+   there is. Three days of silence, one note, named at their stage, never
+   more than one a week, and only to someone who has actually trained: a
+   nudge to retest sent to a lapsed account is spam. */
+async function quietFreeAccounts(done) {
+  const now = Date.now();
+  const rows = (await supa.rows('accounts',
+    'select=email,name,last_seen,first_seen&order=last_seen.desc&limit=500')) || [];
+  const roster = new Set(parseClients().map(c => c.email));
+  for (const a of rows) {
+    if (!a.email || roster.has(a.email)) continue;
+    const last = ms(a.last_seen), first = ms(a.first_seen);
+    if (!last || !first) continue;
+    const quiet = now - last;
+    if (quiet < 3 * DAY || quiet > 21 * DAY) continue;
+    /* somebody who opened it once and left is not a lapsed trainer */
+    if (last - first < DAY) continue;
+    const key = `quiet:${a.email}`;
+    const sent = await supa.row('nudges', `key=eq.${enc(key)}&select=*`).catch(() => null);
+    if (sent && now - ms(sent.sent_at) < 7 * DAY) continue;
+    const st = await supa.row('settings', `key=eq.${enc('state:' + a.email)}&select=value`).catch(() => null);
+    const stage = st && st.value && Number.isInteger(st.value.stage) ? st.value.stage : 0;
+    const names = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
+    const first_ = (a.name || '').split(' ')[0];
+    const ok = await email(a.email, 'Your next session is ready',
+      mail({ title: 'Your next session is ready.',
+        greeting: first_,
+        paras: [`It has been a few days. ${names[stage] || 'The ladder'} is where you left it, and the next session is built and waiting: fifteen minutes is enough.`,
+                'Two sessions a week is what moves a handstand. One is what keeps it.'],
+        cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+        signoff: { name: 'London Handstand Academy' },
+        footnote: 'These stop the moment you turn reminders off in the app, under More.' }),
+      'reminders');
+    if (ok) {
+      await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+      done.quiet = (done.quiet || 0) + 1;
+    }
+  }
+}
+
 export const config = { schedule: '0 9 * * *' };
