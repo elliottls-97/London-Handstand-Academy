@@ -83,6 +83,10 @@ const coaches = () => Object.assign({}, envCoaches(), COACHES_STORED);
 const isPrimary = e => Object.keys(envCoaches()).includes(norm(e || ''));
 
 const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_EMAIL || '');
+/* Whether an account has the tier right now. Stripe sets plus on and off; a
+   code sets plus_until, and a date in the past is the same as off, so a
+   month free ends on its own without a job to end it. */
+const plusNow = a => !!a && (!!a.plus || (!!a.plus_until && ms(a.plus_until) > Date.now()));
 const coachOf = e => {
   const c = rosterList().find(x => x.email === norm(e));
   return (c && c.coach) || primaryCoach();
@@ -342,7 +346,24 @@ const iso = v => (v ? new Date(Number(v) || v).toISOString() : null);
 const ms = v => (v ? new Date(v).getTime() : 0);
 
 /* ── accounts ── */
-const getAcct = e => supa.row('accounts', `email=eq.${enc(e)}&select=*`);
+/* plus_until is not a column, because adding one means a migration nobody
+   has to run this way: it rides in settings and is folded onto the account
+   as it is read, so everything downstream sees one object. */
+const plusUntilOf = async e => (await getSetting(`plusuntil:${e}`)) || null;
+const getAcct = async e => {
+  const a = await supa.row('accounts', `email=eq.${enc(e)}&select=*`);
+  if (!a) return a;
+  const u = await plusUntilOf(e);
+  if (u) a.plus_until = u;
+  return a;
+};
+/* every expiry at once, for the screens that list accounts */
+const plusUntilAll = async () => {
+  const rows = (await supa.rows('settings', `select=key,value&key=like.plusuntil%3A*`)) || [];
+  const out = {};
+  for (const r of rows) out[r.key.slice('plusuntil:'.length)] = r.value;
+  return out;
+};
 
 async function saveAcct(patch, opts) {
   const row = (opts && opts.seen) ? { ...patch, last_seen: nowISO() } : { ...patch };
@@ -577,6 +598,17 @@ export default async (request) => {
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
     } else if (off.includes(ev.type)) {
       acct.plus = false;
+    } else if (ev.type === 'customer.subscription.trial_will_end') {
+      /* three days out. Nobody should meet the first charge as a surprise:
+         that is what gets a small subscription refunded and reported. */
+      await email(acct.email, 'Your free week ends in three days',
+        mail({ title: 'Three days left on the free week.',
+          greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
+          paras: ['After that it is £5 a month, and you can cancel from the app before then if it is not for you.',
+                  'If it is, you need do nothing.'],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: 'London Handstand Academy' } }), 'replies');
+      return json({ ok: true });
     } else {
       return json({ ok: true, ignored: ev.type });
     }
@@ -692,7 +724,7 @@ export default async (request) => {
     await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
     return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
                   client: name, coach: coachList().includes(e),
-                  coached: await isCoached(e), plus: !!(acct && acct.plus) });
+                  coached: await isCoached(e), plus: plusNow(acct) });
   }
 
   /* ── swap a code for a token ── */
@@ -722,7 +754,7 @@ export default async (request) => {
                      account was configured */
                   coach: coachList().includes(e),
                   coached: await isCoached(e),
-                  plus: !!(acct && acct.plus) });
+                  plus: plusNow(acct) });
   }
 
   /* ── the client's own thread ── */
@@ -752,7 +784,7 @@ export default async (request) => {
       hash: pw ? await pwHash(pw) : (prev.hash || null),
       marketing: body.marketing === true ? true : !!prev.marketing,
       stage: Number(body.stage) || prev.stage || null,
-      plus: !!prev.plus,
+      plus: plusNow(prev),
       stripe_customer: prev.stripe_customer || null,
     };
     await saveAcct(acct);
@@ -891,6 +923,9 @@ export default async (request) => {
         'line_items[0][price]': plan.price(),
         'line_items[0][quantity]': '1',
         'metadata[plan]': planKey,
+        /* seven days before the first charge. Card up front, so the people
+           who start it mean it, and it converts unless they cancel. */
+        ...(plan.mode === 'subscription' ? { 'subscription_data[trial_period_days]': '7' } : {}),
         customer_email: who,
         client_reference_id: who,
         allow_promotion_codes: 'true',
@@ -1615,6 +1650,11 @@ export default async (request) => {
         cur.intake = out;
       }
       if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
+      /* the free sessions above the free stage, counted down */
+      if (body.taste !== undefined) {
+        const t = Number(body.taste);
+        if (Number.isInteger(t) && t >= 0 && t <= 5) cur.taste = t;
+      }
       if (body.time !== undefined) {
         const t = Number(body.time);
         /* 60 is offered to anyone who can already balance, and it was not on
@@ -1643,6 +1683,7 @@ export default async (request) => {
       time: out.time || 0, perWeek: out.perWeek || 0,
       intake: out.intake || {}, quizDone: !!out.quizDone,
       stage: Number.isInteger(out.stage) ? out.stage : null,
+      taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {} });
   }
 
@@ -1793,6 +1834,40 @@ export default async (request) => {
     }
     await setSetting(key, row);
     return json({ ok: true });
+  }
+
+  /* ── a code that unlocks the tier for a while ─────────────────────
+     WORKSHOP26 on a screen at the end of a workshop. The comp button in the
+     dashboard does this per account by hand; this is the same thing a
+     person types themselves. Codes carry a number of days and a limit. */
+  if (path === '/redeem' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const code = String(body.code || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+    if (!code) return json({ error: 'Type the code first' }, 400);
+    if ((await rateHit(`redeem:${who}`, 3600000)) > 10) {
+      return json({ error: 'Too many tries. Give it an hour.' }, 429);
+    }
+    const codes = (await getSetting('codes')) || {};
+    const c = codes[code];
+    if (!c || c.off) return json({ error: 'That code is not one of ours' }, 404);
+    if (c.until && Date.now() > ms(c.until)) return json({ error: 'That code has expired' }, 410);
+    if (c.max && (c.used || 0) >= c.max) return json({ error: 'That code has been used up' }, 410);
+    const acct = await ensureAcct(who);
+    /* already paying: the code is worth nothing to them and should not
+       silently shorten anything */
+    if (acct && acct.plus) return json({ ok: true, already: true, plus: true });
+    const usedBy = c.by || [];
+    if (usedBy.includes(who)) return json({ error: 'You have used that one already' }, 409);
+    const days = Math.max(1, Math.min(365, Number(c.days) || 30));
+    const from = (acct && acct.plus_until && ms(acct.plus_until) > Date.now()) ? ms(acct.plus_until) : Date.now();
+    const until = iso(from + days * 86400000);
+    await setSetting(`plusuntil:${who}`, until);
+    c.used = (c.used || 0) + 1;
+    c.by = usedBy.concat(who).slice(-500);
+    codes[code] = c;
+    await setSetting('codes', codes);
+    return json({ ok: true, plus: true, until, days });
   }
 
   if (path === '/feedback' && request.method === 'POST') {
@@ -2527,14 +2602,44 @@ export default async (request) => {
       }
       /* the accounts side, which is measured properly because it is a table */
       const accts = (await supa.rows('accounts', 'select=email,plus,first_seen,last_seen')) || [];
+      const untils = await plusUntilAll();
+      accts.forEach(a => { if (untils[a.email]) a.plus_until = untils[a.email]; });
       const now = Date.now();
       const acct = {
         total: accts.length,
-        plus: accts.filter(a => a.plus).length,
+        plus: accts.filter(plusNow).length,
         active14: accts.filter(a => a.last_seen && now - ms(a.last_seen) < 14 * 86400000).length,
         new7: accts.filter(a => a.first_seen && now - ms(a.first_seen) < 7 * 86400000).length,
       };
       return json({ days, rows, totals, acct });
+    }
+
+    /* ── the codes ───────────────────────────────────────────────────── */
+    if (path === '/coach/codes') {
+      const codes = (await getSetting('codes')) || {};
+      const list = () => Object.keys(codes).sort().map(k => ({
+        code: k, days: codes[k].days || 30, max: codes[k].max || 0, used: codes[k].used || 0,
+        until: codes[k].until || '', off: !!codes[k].off, note: codes[k].note || '' }));
+      if (request.method === 'GET') return json({ codes: list() });
+      if (request.method === 'POST') {
+        const code = String(body.code || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+        if (!code) return json({ error: 'Need a code' }, 400);
+        if (body.remove) { delete codes[code]; }
+        else if (body.off !== undefined && codes[code]) { codes[code].off = !!body.off; }
+        else {
+          if (Object.keys(codes).length >= 100) return json({ error: 'That is a lot of codes' }, 400);
+          const prev = codes[code] || {};
+          codes[code] = Object.assign({}, prev, {
+            days: Math.max(1, Math.min(365, Number(body.days) || prev.days || 30)),
+            max: Math.max(0, Math.min(10000, Number(body.max) || 0)),
+            note: String(body.note || prev.note || '').slice(0, 80),
+            until: body.until ? String(body.until).slice(0, 10) : (prev.until || ''),
+            used: prev.used || 0, by: prev.by || [], off: false });
+        }
+        await setSetting('codes', codes);
+        return json({ ok: true, codes: list() });
+      }
+      return json({ error: 'Nope' }, 405);
     }
 
     if (path === '/coach/checkpoints') {
@@ -2907,9 +3012,13 @@ export default async (request) => {
       /* Named, not spread. The row carries the salted password hash, and
          spreading it sent every account's hash to the browser to draw a
          list that never needed it. */
+      const untils = await plusUntilAll();
       return json({ leads: out.map(a => ({
         email: a.email, name: a.name || '',
-        plus: !!a.plus, plusAt: ms(a.plus_at),
+        plus: plusNow(Object.assign({}, a, untils[a.email] ? { plus_until: untils[a.email] } : {})),
+        plusAt: ms(a.plus_at),
+        /* a code, not Stripe, and when it runs out */
+        until: untils[a.email] || '',
         last: ms(a.last_seen), first: ms(a.first_seen),
         stripeCustomer: a.stripe_customer || null })) });
     }

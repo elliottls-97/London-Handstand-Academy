@@ -3897,6 +3897,7 @@ function loadState(){
         if(st.intake.level!=null) st.quizDone=true;
       }
       if(d.quizDone) st.quizDone=true;
+      if(Number.isInteger(d.taste)) st.taste=d.taste;
       /* Where they are on the ladder followed the phone, not the person. It
          was written to the account row by sendIntake and read back by the
          coach's dashboard and by nothing else, so a paying subscriber who
@@ -3916,6 +3917,7 @@ function saveState(){
     fetch(AUTH.state,{method:'POST',headers:authed(),body:JSON.stringify({
       dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
       intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(),
+      ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
       ladderDone:st.ladderDone||{}
     })}).catch(()=>{});
   }, 800);
@@ -5088,6 +5090,13 @@ function drawOv(){
         </div>
       </div>
 
+      ${(!_wrist && tasting()) ? `<div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;
+        padding:11px 13px;border-radius:14px;background:rgba(243,169,73,.16)">
+        <span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.12em;color:#8a5a12">FREE</span>
+        <span style="font:400 13px/1.45 var(--sans);color:var(--ink)">
+          ${tasteLeft()===1 ? 'Your last free session' : tasteLeft()+' free sessions'} at
+          <b>${esc(STAGES[curStage()].n)}</b>, then it is £5 a month with the first week free.</span>
+      </div>` : ''}
       <button onclick="closeOv();buildFreeSession(${_wrist},'${st.startAs||'prep'}',${_wrist?'null':_arg})"
         style="height:60px;width:100%;border:0;border-radius:16px;
         background:linear-gradient(180deg,#0a7a76,#006663);
@@ -5686,6 +5695,15 @@ function drawOv(){
       border-top:1px solid rgba(28,32,25,.09);border-bottom:1px solid rgba(28,32,25,.09)">
       ${stat(drills,'DRILLS')}${stat(mins?mins+'m':'0m','TIME')}${stat(q.length,'SETS')}
     </div>
+      ${(!isStandalone() && !st.installNudged && !st.in) ? (function(){
+        /* not on first open. After they have done something and it went well. */
+        st.installNudged=true; save();
+        return `<div class="card" style="margin-top:18px;padding:15px 16px;background:rgba(0,102,99,.06);border:0">
+          <div style="font:600 14px/1.35 var(--sans)">Put it on your home screen</div>
+          <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">${esc(installCopy())}</div>
+          ${installPrompt?`<button class="btn" style="width:100%;margin-top:12px"
+            onclick="installPrompt.prompt()">Add it</button>`:''}
+        </div>`; })() : ''}
       <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
       <div style="display:flex;gap:9px;margin-top:12px">
       ${['Too easy','About right','Too hard'].map(f=>`<button class="btn2" style="flex:1"
@@ -6699,7 +6717,19 @@ STAGES.forEach(x=>{ x.drills=(x.drillIds||[]).length; });
    function bodies, so they resolve at call time. */
 const placedStage=()=>Math.max(0, Math.min(STAGES.length-1,
   st.stage==null ? 0 : (st.stage|0)));
-const stageCap=()=>isPlus() ? STAGES.length-1 : FREE_STAGES-1;
+/* The free sessions at the stage the quiz placed you on. Two of them, then
+   the wall. Nobody pays for a thing they have not felt, and the old shape
+   showed the price to someone who had not done a single drill. */
+const TASTE_SESSIONS = 2;
+const tasteLeft = () => Number.isInteger(st.taste) ? st.taste : TASTE_SESSIONS;
+const tasting = () => !isPlus() && placedStage() > FREE_STAGES-1 && tasteLeft() > 0;
+const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FREE_STAGES-1);
+/* one used, when a session above the free stage actually starts */
+function useTaste(){
+  if(!tasting()) return;
+  if(curStage() < FREE_STAGES) return;
+  st.taste = tasteLeft()-1; save(); saveState(); track('taste', curStage());
+}
 const curStage=()=>Math.min(placedStage(), stageCap());
 
 
@@ -7977,43 +8007,115 @@ const stageLocked = i => i >= FREE_STAGES && !isPlus();
 function screenUpgradeBody(si){
   const s=STAGES[si]||{n:''};
   trackOnce('wall', si);
+  const placed=placedStage();
+  const ids=(s.drillIds||[]);
+  const names=ids.slice(0,4).map(v=>{ const d=drillById(v); return d?d.n:''; }).filter(Boolean);
+  const cps=(typeof cpsFor==='function' ? cpsFor(si) : []).length;
+  /* say how many are filmed rather than claiming all of them are: on the
+     stages where filming is behind, "every one filmed" would be a lie on
+     the paywall, which is the worst place for one */
+  const filmed=ids.filter(v=>{ const d=drillById(v); return d && d.url; }).length;
+  const filmLine = filmed>=ids.length ? 'every one filmed and cued'
+    : filmed ? filmed+' of them filmed, all of them cued' : 'all of them cued';
   return `<div style="text-align:center;padding:2px 0 4px">
       <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">STAGE ${
         si+1} OF ${STAGES.length}</div>
       <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px;max-width:34ch;margin-inline:auto">
         ${esc(s.goal||'')}</div>
     </div>
-    <div class="card" style="margin-top:22px;padding:20px">
-      <div class="kick2">THE FULL LADDER</div>
-      <div style="font:400 26px/1.1 var(--serif);margin-top:10px">£5 a month</div>
+    ${ids.length?`<div class="card" style="margin-top:18px;padding:16px 18px">
+      <div class="kick2">WHAT IS IN ${esc(String(s.n||'').toUpperCase())}</div>
+      <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:9px">
+        ${ids.length} drill${ids.length===1?'':'s'}, ${filmLine}${cps?`, and ${cps} check point${cps===1?'':'s'} that open the stage after it`:''}.
+        ${names.length?`<span style="color:var(--grey)">${esc(names.join(', '))}${ids.length>names.length?', and more':''}.</span>`:''}
+      </div>
+    </div>`:''}
+    <div class="card" style="margin-top:14px;padding:20px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <div class="kick2">THE FULL LADDER</div>
+        <span style="font:700 9px/1 var(--sans);letter-spacing:.12em;border-radius:999px;padding:5px 9px;
+          background:rgba(243,169,73,.22);color:#8a5a12">FOUNDING PRICE</span>
+      </div>
+      <div style="font:400 26px/1.1 var(--serif);margin-top:10px">£5 a month
+        <span style="font:400 14px/1 var(--sans);color:var(--grey)">&middot; first week free</span></div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px;max-width:36ch">
+        The price goes up as the ladder fills out. Join now and yours does not.</div>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:16px">
         ${['Five more stages, from the wall to a press',
-           'Every drill in the library, with cues and a demo',
-           'Quick sessions built around the time you have',
-           'Your progress and holds tracked across devices',
-           'Cancel any time']
+           'Every drill in the library, filmed, cued and captioned',
+           'Sessions built around the time you have, different each time',
+           'Your progress and check points tracked across devices',
+           'Cancel any time, from the app']
           .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
             <span style="color:var(--forest)">&bull;</span><span>${x}</span></div>`).join('')}
       </div>
       ${(function(){
-        /* the quiz placed them somewhere they cannot reach yet, and saying so
-           is more honest and more persuasive than a generic list of features */
-        const placed=placedStage();
-        if(placed<=stageCap() || !STAGES[placed]) return '';
+        if(placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
         return `<div style="margin-top:16px;border-radius:14px;padding:13px 15px;
           background:rgba(243,169,73,.14)">
           <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">
             Your answers put you at <b>${esc(STAGES[placed].n)}</b>, stage ${placed+1}.
-            ${esc(STAGES[0].n)} is what the free tier covers, so that is where you are
-            training until this opens.</div></div>`;
+            ${tasteLeft()>0 && !isPlus()
+              ? `You have <b>${tasteLeft()} free session${tasteLeft()===1?'':'s'}</b> there before this opens.`
+              : `You have had your free sessions there. This is what opens it.`}</div></div>`;
       })()}
-      <button class="btn" style="width:100%;margin-top:20px" onclick="startUpgrade()">Unlock the full ladder</button>
+      <button class="btn" style="width:100%;margin-top:20px" onclick="startUpgrade()">Start the free week</button>
       ${curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:9px"
         onclick="closeOv();goToStage(0)">Train on ${esc(STAGES[0].n)} instead</button>`:''}
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:12px">
         ${FREE_STAGES===1 ? esc(STAGES[0].n)+' stays free, always.'
-          : 'Stages 1 to '+FREE_STAGES+' stay free, always.'}</div>
+          : 'Stages 1 to '+FREE_STAGES+' stay free, always.'}
+        Written by the coach who trains people in London, not a content team.</div>
+    </div>
+    <div style="margin-top:14px;text-align:center">
+      <button onclick="codeToggle()" id="codeBtn" style="border:0;background:none;cursor:pointer;
+        font:600 13px/1 var(--sans);color:var(--forest);padding:8px">Have a code?</button>
+      <div id="codeBox" hidden style="display:flex;gap:8px;margin-top:8px">
+        <input id="codeIn" placeholder="WORKSHOP26" autocapitalize="characters" autocomplete="off"
+          style="flex:1;border:1px solid rgba(0,64,61,.16);border-radius:12px;padding:12px;
+          font:600 15px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;background:#fff">
+        <button class="btn" style="flex:none;padding:0 18px" onclick="codeGo()">Use it</button>
+      </div>
+      <div id="codeMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px;min-height:18px"></div>
     </div>`;
+}
+/* ── a code that opens the ladder for a while ───────────────────────
+   Typed on the wall. Needs an account, because the tier has to be attached
+   to something; the join screen keeps the code for when they get back. */
+function codeToggle(){
+  const box=$('#codeBox'); if(!box) return;
+  box.hidden=!box.hidden; if(!box.hidden){ const i=$('#codeIn'); if(i) i.focus(); }
+}
+function codeGo(){
+  const i=$('#codeIn'); const code=((i&&i.value)||'').trim().toUpperCase();
+  const say=m=>{ const e2=$('#codeMsg'); if(e2) e2.textContent=m; };
+  if(!code){ say('Type the code first.'); return; }
+  if(!st.token){
+    st.pendingCode=code; st.wantUpgrade=st.ovStage!=null?st.ovStage:placedStage();
+    save(); closeOv(); st.tab=st.email?'signin':'joinFree'; st.quizDone=true; save(); render(); window.scrollTo(0,0);
+    return;
+  }
+  say('Checking…');
+  fetch('/api/app/redeem',{method:'POST',headers:authed(),body:JSON.stringify({code})})
+    .then(r=>r.json().then(d=>({ok:r.ok,d})))
+    .then(({ok,d})=>{
+      if(!ok){ say(d.error||'That did not work.'); return; }
+      track('code');
+      if(d.already){ say('You already have the whole ladder.'); return; }
+      st.plus=true; st.pendingCode=null; save();
+      say('Done. The whole ladder is open for '+(d.days||30)+' days.');
+      setTimeout(()=>{ closeOv(); render(); }, 900);
+    })
+    .catch(()=>say('Could not reach the server. Try again in a moment.'));
+}
+/* a code typed before there was an account to put it on */
+function codeResume(){
+  if(!st.pendingCode || !st.token) return;
+  const code=st.pendingCode; st.pendingCode=null; save();
+  fetch('/api/app/redeem',{method:'POST',headers:authed(),body:JSON.stringify({code})})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d&&d.plus){ st.plus=true; save(); track('code'); render(); } })
+    .catch(()=>{});
 }
 function startUpgrade(){
   const b=event&&event.target;
@@ -8670,7 +8772,7 @@ function followDay(){ Q=queue(); startQueue(0); }
 
 function startQueue(from){
   qi=from||0; phase='work'; paused=false; sessionStart=Date.now();
-  if(!from) track('start');
+  if(!from){ track('start'); if(!st.in) useTaste(); }
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
   bindPlayer();
@@ -9278,7 +9380,7 @@ function doJoin(ev){
   fetch(AUTH.signup,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:em,password:pw,marketing:mk,stage:curStage()})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
-    .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup');
+    .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup'); setTimeout(codeResume,0);
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
       st.tab='ladder'; save(); render();
       /* they came here to buy a stage, so finish the errand rather than
@@ -9948,7 +10050,7 @@ document.addEventListener('DOMContentLoaded',function(){
   if(st.in && st.token) loadCachedProgramme();
   render();
   trackOpen();
-  if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); }
+  if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); }
   loadLadder();
   workshopWatch();
   if(st.in && st.token){ loadProgramme(); loadProgress(); }

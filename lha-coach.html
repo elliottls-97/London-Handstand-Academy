@@ -756,7 +756,7 @@ function leadsHTML(){
           </span>
           <span style="flex:none;display:flex;gap:6px;flex-wrap:wrap">
             ${isC?tag('COACHED','#006663'):''}
-            ${a.plus?tag(a.stripeCustomer?'£5 · STRIPE':'£5 · COMPED','#006663'):''}
+            ${a.plus?tag(a.stripeCustomer?'£5 · STRIPE':(a.until?'£5 · CODE TO '+String(a.until).slice(5,10):'£5 · COMPED'),'#006663'):''}
             ${leadLive(a)?'':tag('QUIET','#5a5a5a')}
           </span>
           <span style="flex:none;min-width:148px;text-align:right;font:400 11.5px/1.5 var(--sans);
@@ -1379,6 +1379,68 @@ function coachesHTML(){
         app. No deploy. A coach sees the clients assigned to them and every enquiry, and shares the
         rest of this dashboard with you, including the app's workouts and everybody's account.
         Assign a client to them from the client's own thread.</div>`}
+  </div>`;
+}
+
+/* ── codes ───────────────────────────────────────────────────────────
+   WORKSHOP26 on a screen at the end of a workshop, a month free, up to
+   thirty uses. The person types it on the paywall. */
+let codes=null, codeBusy='', newCode={code:'',days:30,max:30,note:''};
+function loadCodes(){
+  if(codes) return; codes=[];
+  fetch(API+'/codes',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ codes=d.codes||[]; draw(); } })
+    .catch(()=>{});
+}
+function codeSave(body){
+  codeBusy=body.code||'new'; draw();
+  fetch(API+'/codes',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ codes=d.codes||codes; codeBusy=''; newCode={code:'',days:30,max:30,note:''}; draw(); })
+    .catch(e=>{ codeBusy=''; draw(); alert(String(e)); });
+}
+function codeAdd(){
+  const c=(newCode.code||'').trim().toUpperCase().replace(/[^A-Z0-9-]/g,'');
+  if(!c) return alert('Give it a code first. Letters and numbers.');
+  codeSave({code:c, days:Number(newCode.days)||30, max:Number(newCode.max)||0, note:newCode.note||''});
+}
+function codesHTML(){
+  loadCodes();
+  const inp='border:1px solid var(--line);border-radius:10px;padding:10px 11px;'
+    +'font:400 13.5px/1 var(--sans);background:#fff';
+  const rows=(codes||[]).map(c=>`<div style="display:flex;gap:11px;align-items:center;flex-wrap:wrap;
+    padding:11px 13px;border-radius:13px;background:#fff;border:1px solid var(--line);opacity:${c.off?.55:1}">
+    <span style="flex:none;font:700 14px/1 var(--sans);letter-spacing:.08em;color:var(--forest)">${esc(c.code)}</span>
+    <span style="flex:1;min-width:160px;font:400 12px/1.4 var(--sans);color:var(--grey)">
+      ${c.days} day${c.days===1?'':'s'} free${c.note?' · '+esc(c.note):''}${c.until?' · until '+esc(c.until):''}</span>
+    <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey2)">${c.used}${c.max?' of '+c.max:''} used</span>
+    <button class="quiet" onclick="codeSave({code:'${esc(c.code)}',off:${c.off?'false':'true'}})"${
+      codeBusy===c.code?' disabled':''}>${c.off?'Turn on':'Turn off'}</button>
+    <button class="quiet" style="color:var(--terra)"
+      onclick="if(confirm('Delete ${esc(c.code)}? Anyone who used it keeps what it gave them.'))codeSave({code:'${esc(c.code)}',remove:true})">Delete</button>
+  </div>`).join('');
+  return `<div class="card" style="margin-top:14px">
+    <div class="kick">CODES</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px;max-width:66ch">
+      A code opens the whole ladder for a number of days. People type it on the paywall. It does not
+      touch anyone already paying.</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${rows||
+      '<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey2)">No codes yet.</div>'}</div>
+    <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:14px;padding-top:14px;
+      border-top:1px solid var(--line)">
+      <input value="${esc(newCode.code)}" oninput="newCode.code=this.value" placeholder="WORKSHOP26"
+        style="${inp};flex:1;min-width:150px;text-transform:uppercase;letter-spacing:.06em;font-weight:700">
+      <label style="display:flex;align-items:center;gap:6px;font:500 12px/1 var(--sans);color:var(--grey)">
+        <input type="number" min="1" max="365" value="${newCode.days}" oninput="newCode.days=this.value"
+          style="${inp};width:70px"> days</label>
+      <label style="display:flex;align-items:center;gap:6px;font:500 12px/1 var(--sans);color:var(--grey)">
+        up to <input type="number" min="0" value="${newCode.max}" oninput="newCode.max=this.value"
+          style="${inp};width:70px"> uses</label>
+      <input value="${esc(newCode.note)}" oninput="newCode.note=this.value" placeholder="What it is for"
+        style="${inp};flex:1;min-width:140px">
+      <button class="send" onclick="codeAdd()"${codeBusy==='new'?' disabled':''}>${codeBusy==='new'?'Saving…':'Make the code'}</button>
+    </div>
   </div>`;
 }
 
@@ -5051,7 +5113,7 @@ function draw(){
         <div class="wideGrid">${metricsHTML(sel)}</div>
       </div>`:
       view==='setup'?`<div style="margin-top:16px">
-        ${newClientHTML()}${coachesHTML()}${mailguardHTML()}${stripeHTML()}${dbHTML()}
+        ${newClientHTML()}${codesHTML()}${coachesHTML()}${mailguardHTML()}${stripeHTML()}${dbHTML()}
         <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px;max-width:60ch">
           The database check and the copy are one-time setup. The copy reads the
           old Blobs store, so running it now would push stale data over live
