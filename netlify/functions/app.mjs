@@ -1143,7 +1143,28 @@ export default async (request) => {
      clip, cues and description come from the library at read time — the
      reason the cues drifted out of two programmes was that they had
      been copied. */
-  const libGet = (m, v) => (programmes.library[m] || {})[v];
+  /* A clip filmed from the dashboard is written to drills:custom, and this
+     read never looked there. libraryNow folds them in, and its comment said
+     it was "the only place that has to know". It was not. So a coach could
+     film a drill that sits in a written programme, watch it attach, and the
+     client's app would still say the video was coming soon, because their
+     plan is hydrated through here. Loaded once per request rather than per
+     drill, since hydrateItem is sync and runs for every item on the plan. */
+  let CUSTOM_NOW = null;
+  const ensureCustom = async () => {
+    if (!CUSTOM_NOW) CUSTOM_NOW = (await getSetting('drills:custom')) || {};
+    return CUSTOM_NOW;
+  };
+  const libGet = (m, v) => {
+    const c = CUSTOM_NOW && CUSTOM_NOW[v];
+    if (c) {
+      if (m === 'names' && c.n) return c.n;
+      if (m === 'video' && c.url) return c.url;
+      if (m === 'cues' && Array.isArray(c.cues) && c.cues.length) return c.cues;
+      if (m === 'desc' && c.desc) return c.desc;
+    }
+    return (programmes.library[m] || {})[v];
+  };
   function hydrateItem(it) {
     const v = String(it && it.v || '').slice(0, 64);
     if (!v) return null;
@@ -1184,6 +1205,7 @@ export default async (request) => {
     return Object.assign({}, base, { days, answers });
   }
   async function planFor(email) {
+    await ensureCustom();
     const saved = await getSetting(`programme:${email}`);
     return hydratePlan(saved || programmes.clients[email] || null);
   }
@@ -2824,17 +2846,23 @@ export default async (request) => {
 
     if (path === '/coach/coaches') {
       const env = envCoaches();
-      const rows = Object.keys(coaches()).map(e => ({
-        email: e, name: coaches()[e] || e.split('@')[0],
-        fixed: e in env,                       /* in the variable, not editable here */
-        you: e === asking,
-        clients: rosterList().filter(c => coachOf(c.email) === e && clients()[c.email]).length,
-      }));
+      /* Who is on the list, and whether each of them can actually get in
+         yet: a coach with no password has only the emailed code, and mail
+         is the part that fails. Built in one place, because the list handed
+         back after a change was a second copy without hasPw, which offered
+         to set a first password for coaches who already had one. */
+      const rowsNow = async () => {
+        const out = Object.keys(coaches()).map(e => ({
+          email: e, name: coaches()[e] || e.split('@')[0],
+          fixed: e in env,                     /* in the variable, not editable here */
+          you: e === asking,
+          clients: rosterList().filter(c => coachOf(c.email) === e && clients()[c.email]).length,
+        }));
+        for (const r of out) r.hasPw = !!(await hashFor(db, r.email));
+        return out;
+      };
       if (request.method === 'GET') {
-        /* whether each one can actually get in yet. A coach with no password
-           has only the emailed code, and mail is the thing that fails. */
-        for (const r of rows) r.hasPw = !!(await hashFor(db, r.email));
-        return json({ coaches: rows, youArePrimary: isPrimary(asking) });
+        return json({ coaches: await rowsNow(), youArePrimary: isPrimary(asking) });
       }
       if (request.method === 'POST') {
         if (!isPrimary(asking)) {
@@ -2860,10 +2888,7 @@ export default async (request) => {
         }
         await setSetting('coaches', stored);
         COACHES_STORED = stored;
-        return json({ ok: true, email: e, removed: !!body.remove,
-          coaches: Object.keys(coaches()).map(x => ({ email: x, name: coaches()[x] || x.split('@')[0],
-            fixed: x in env, you: x === asking,
-            clients: rosterList().filter(c => coachOf(c.email) === x && clients()[c.email]).length })) });
+        return json({ ok: true, email: e, removed: !!body.remove, coaches: await rowsNow() });
       }
       return json({ error: 'Nope' }, 405);
     }
@@ -2912,6 +2937,7 @@ export default async (request) => {
         const e = norm(url.searchParams.get('email'));
         if (!e) return json({ error: 'Which client?' }, 400);
         if (!owns(e)) return json({ error: 'Not your client' }, 403);
+        await ensureCustom();
         const saved = await getSetting(`programme:${e}`);
         const cur = saved || programmes.clients[e] || { days: [] };
         return json({
@@ -3040,6 +3066,7 @@ export default async (request) => {
               signoff: { name: coachName(coachOf(e) || primaryCoach()) },
             }), 'reminders');
         }
+        await ensureCustom();
         return json({ ok: true, plan: hydratePlan(next), notified: fresh.length });
       }
     }
