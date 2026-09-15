@@ -1361,6 +1361,26 @@ function coachRemove(email,name){
   if(!confirm('Take '+(name||email)+' off the coaching team?\n\nThey lose the dashboard. Their clients come back to you, and nothing they have written is deleted.')) return;
   coachSet(email,'',true);
 }
+/* A new coach's only other way in is the emailed code, and the email is the
+   part that fails: a blocked address, a spam folder, the EMAIL_ONLY variable
+   left over from testing. So hand them one to start with instead. Offered
+   only while they have never set one, so this can never take a working
+   account off the person using it. */
+function coachSeed(email,name){
+  const v=prompt('A first sign-in for '+(name||email)+', 8 characters or more.\n\n'
+    +'Tell it to them yourself, then they sign in at /lha-coach.html and '
+    +'change it in the app whenever they like.');
+  if(v===null) return;
+  if(String(v).length<8) return alert('Eight characters or more.');
+  coachBusy=email; draw();
+  fetch(API+'/setpw',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email,password:String(v)})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(()=>{ coachBusy=''; coachList=null; loadCoaches(); draw();
+      alert('Done. '+(name||email)+' signs in at londonhandstandacademy.com/lha-coach.html '
+        +'with that address.'); })
+    .catch(e=>{ coachBusy=''; draw(); alert(String(e)); });
+}
 function coachesHTML(){
   loadCoaches();
   const inp='border:1px solid var(--line);border-radius:10px;padding:10px 11px;'
@@ -1380,6 +1400,10 @@ function coachesHTML(){
     </span>
     <span style="flex:none;min-width:86px;text-align:right;font:400 11.5px/1 var(--sans);
       color:var(--grey2)">${c.clients} client${c.clients===1?'':'s'}</span>
+    ${(coachPrimary && !c.fixed && !c.hasPw)?`<button class="send"
+      onclick="coachSeed('${esc(c.email)}','${esc(c.name)}')"${coachBusy===c.email?' disabled':''}
+      title="They have never signed in. Give them a way in that does not rely on email.">${
+      coachBusy===c.email?'…':'Give them a sign-in'}</button>`:''}
     ${(coachPrimary && !c.fixed)?`<button class="quiet" onclick="coachRemove('${esc(c.email)}','${esc(c.name)}')"${
       coachBusy===c.email?' disabled':''}>${coachBusy===c.email?'…':'Remove'}</button>`:''}
   </div>`).join('');
@@ -1400,10 +1424,14 @@ function coachesHTML(){
           coachBusy==='new'?'Adding…':'Add a coach'}</button>
       </div>
       <div style="font:400 12px/1.6 var(--sans);color:var(--grey2);margin-top:11px;max-width:70ch">
-        They sign in here with that address and their own password, which they set themselves in the
-        app. No deploy. A coach sees the clients assigned to them and every enquiry, and shares the
+        No deploy. A coach sees the clients assigned to them and every enquiry, and shares the
         rest of this dashboard with you, including the app's workouts and everybody's account.
-        Assign a client to them from the client's own thread.</div>`}
+        Assign a client to them from the client's own thread.
+        <br><br>
+        Adding them here does not let them in on its own. They sign in at this page, and a new
+        coach has nothing to sign in with until either they ask the app to email them a code,
+        or you press <b>Give them a sign-in</b> above and tell them what you set. That button
+        goes once they have one of their own.</div>`}
   </div>`;
 }
 

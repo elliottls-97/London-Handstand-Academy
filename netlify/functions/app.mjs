@@ -2831,6 +2831,9 @@ export default async (request) => {
         clients: rosterList().filter(c => coachOf(c.email) === e && clients()[c.email]).length,
       }));
       if (request.method === 'GET') {
+        /* whether each one can actually get in yet. A coach with no password
+           has only the emailed code, and mail is the thing that fails. */
+        for (const r of rows) r.hasPw = !!(await hashFor(db, r.email));
         return json({ coaches: rows, youArePrimary: isPrimary(asking) });
       }
       if (request.method === 'POST') {
@@ -3110,9 +3113,19 @@ export default async (request) => {
       if (!e || pw.length < 8) return json({ error: 'Need an email and 8+ characters' }, 400);
       /* Setting a password is how a coach helps a client who is locked out.
          Pointed at another coach it is how one takes the other's account,
-         and with coaches addable from a screen that stops being theoretical. */
+         and with coaches addable from a screen that stops being theoretical.
+
+         The first one is the exception. A coach added from the dashboard had
+         exactly one door, the emailed code, and if that mail does not arrive
+         they are locked out for good while the only person who could help is
+         forbidden from helping. So the primary may seed a password for a
+         coach they added, and only while that account has never had one.
+         An account already in use still cannot be taken from its owner. */
       if (e !== asking && coaches()[e] !== undefined) {
-        return json({ error: 'That is another coach. They set their own password.' }, 403);
+        const seeding = isPrimary(asking) && !isPrimary(e) && !(await hashFor(db, e));
+        if (!seeding) {
+          return json({ error: 'That is another coach. They set their own password.' }, 403);
+        }
       }
       const hash = await pwHash(pw);
       const acct = await getAcct(e);
