@@ -3163,6 +3163,105 @@ function wkCpsHTML(stage, inp, btn){
     <button class="quiet" style="margin-top:12px" onclick="wkCpAdd(${stage})">Add a check point</button>
   </div>`;
 }
+/* ── what is missing, as one list ───────────────────────────────────
+   Thirty one drills with no dose and twenty eight with no level, spread
+   across six stage tabs, is a hunt. This is the same rows as one list with
+   an end, editable in place, and it empties as it is filled. */
+let wkGaps=false, gapBusy='';
+function wkGapRows(){
+  const out=[];
+  STAGES.forEach((s,i)=>{
+    wkPoolFor(i).forEach(row=>{
+      const noDose=wkNoDose(row.v), noLvl=!wkLvlOf(i,row.v);
+      if(noDose||noLvl) out.push({stage:i, v:row.v, g:row.g, noDose, noLvl});
+    });
+  });
+  return out;
+}
+function gapMeta(stage,v,f,val){
+  if(!val) return;
+  gapBusy=v; draw();
+  const body={stage, v};
+  if(f==='L') body.L=Number(val); else body.g=val;
+  fetch(API+'/drillmeta',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ if(d.ladderExtra) wkExtra=d.ladderExtra; gapBusy=''; draw(); })
+    .catch(e=>{ gapBusy=''; draw(); alert(String(e)); });
+}
+function wkGapsHTML(inp){
+  const rows=wkGapRows();
+  const byStage={}; rows.forEach(r=>{ (byStage[r.stage]=byStage[r.stage]||[]).push(r); });
+  const nDose=rows.filter(r=>r.noDose).length, nLvl=rows.filter(r=>r.noLvl).length;
+  const num=(v,f,val,ph,w)=>`<input type="number" min="0" value="${val==null?'':val}" placeholder="${ph}"
+    oninput="wkSet('${v}','${f}',this.value)" style="${inp};width:${w}px;font-weight:600">`;
+  const stages=Object.keys(byStage).map(k=>{
+    const i=Number(k);
+    return `<div style="margin-top:16px">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">${
+          (i+1)+'. '+esc(STAGES[i].n).toUpperCase()} · ${byStage[k].length}</span>
+        <span style="flex:1;height:1px;background:var(--line)"></span></div>
+      ${byStage[k].map(r=>{
+        const n=wkNums(r.v, r.g); const it=n.it;
+        const u=(it.unit!=null?it.unit:n.unit);
+        return `<div style="margin-top:8px;padding:10px 12px;border-radius:13px;background:#fff;
+          border:1px solid var(--line);display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap">
+          <span style="flex:1;min-width:170px;align-self:center">
+            <b style="font:600 13.5px/1.3 var(--sans)">${esc((libIndex||{})[r.v]||r.v)}</b>
+            <span style="display:block;font:400 11px/1.3 var(--sans);color:var(--grey2);margin-top:3px">${esc(r.g)}</span>
+          </span>
+          ${r.noDose?`
+            <label style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:#8a5a12">SETS</span>
+              ${num(r.v,'sets',it.sets,'3',58)}</label>
+            <label style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:#8a5a12">BUILD TO</span>
+              ${num(r.v,'amt',it.amt,'8',66)}</label>
+            <label style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:#8a5a12">IN</span>
+              <select onchange="wkSet('${r.v}','unit',this.value)" style="${inp};width:104px">
+                <option value=""${u===''?' selected':''}>reps</option>
+                <option value="s"${u==='s'?' selected':''}>seconds</option>
+                <option value="f"${u==='f'?' selected':''}>to failure</option>
+              </select></label>`
+          :`<span style="font:500 11px/1 var(--sans);color:var(--forest);align-self:center">dose written</span>`}
+          ${r.noLvl?`
+            <label style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:#8a5a12">LEVEL</span>
+              <select onchange="gapMeta(${i},'${r.v}','L',this.value)"${gapBusy===r.v?' disabled':''}
+                style="${inp};width:110px;border-color:var(--terra)">
+                <option value="" selected>not set</option>
+                ${[1,2,3,4].map(L=>`<option value="${L}">level ${L}</option>`).join('')}
+              </select></label>
+            <label style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">GROUP</span>
+              <select onchange="gapMeta(${i},'${r.v}','g',this.value)"${gapBusy===r.v?' disabled':''}
+                style="${inp};width:auto">
+                ${wkStageGroups(i).map(g=>`<option value="${esc(g)}"${r.g===g?' selected':''}>${esc(g)}</option>`).join('')}
+              </select></label>`
+          :`<span style="font:500 11px/1 var(--sans);color:var(--forest);align-self:center">level ${wkLvlOf(i,r.v)}</span>`}
+        </div>`;}).join('')}
+    </div>`;}).join('');
+  return `<div class="glass" style="padding:16px 18px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font:400 21px/1.1 var(--serif)">What is missing</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px;max-width:64ch">
+          ${rows.length
+            ? `${nDose} drill${nDose===1?'':'s'} with no dose and ${nLvl} with no level, across every stage. A dose is
+               saved with the button; a level saves the moment you pick it. A row leaves this list when it is done.`
+            : 'Nothing missing. Every ladder drill has a dose and a level.'}</div>
+      </div>
+      <span style="display:flex;gap:9px;align-items:center">
+        <button class="quiet" onclick="wkGaps=false;draw()">Back to the workouts</button>
+        ${(function(){ const n=Object.keys(wkEdits).length; const busy=wkBusy;
+          return `<button id="wkSaveBtn" class="send" onclick="wkSave()"${n&&!busy?'':' disabled'}
+            style="${n&&!busy?'':'opacity:.5'}">${busy?'Saving…':n?`Save ${n} dose${n===1?'':'s'}`:'Saved'}</button>`;})()}
+      </span>
+    </div>
+    ${stages}
+  </div>`;
+}
 function wkGrpSet(v,g){ wkNewGrp[v]=g; draw(); }
 /* The level a drill sits at inside this stage. It decides which share picks
    it up, so a drill added to a stage with no level was invisible to the
@@ -3413,10 +3512,16 @@ function workoutsHTML(){
       return bandTab(b, BAND_NAME[b], s.list.length+(s.written?'':' · from levels')); }).join('')}
     ${bandTab(0,'Every drill', all.length)}
     ${bandTab(-1,'Check points', wkCpList(wkStage).length)}
+    ${(function(){ const n=wkGapRows().length; return n?`<button onclick="wkGaps=true;draw()"
+      style="cursor:pointer;border-radius:999px;padding:7px 13px;font:600 11.5px/1 var(--sans);
+      border:1.5px solid rgba(243,169,73,.6);background:rgba(243,169,73,.14);color:#8a5a12;margin-left:auto">
+      ${n} missing</button>`:''; })()}
     </div>`;
 
   /* a stage with one workout should not open on a band it does not have */
   if(wkBand>0 && bandsFor(wkStage).indexOf(wkBand)<0) wkBand=bandsFor(wkStage)[0];
+
+  if(wkGaps) return wkGapsHTML(inp);
 
   /* ── the stage's check points ── */
   if(wkBand===-1){

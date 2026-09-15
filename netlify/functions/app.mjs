@@ -2653,6 +2653,26 @@ export default async (request) => {
       return json({ error: 'Nope' }, 405);
     }
 
+    /* a drill's level and grouping on one stage, on its own. The bands
+       route can do this but only alongside a written list, and the gaps
+       view is for stages that have no list yet. */
+    if (path === '/coach/drillmeta' && request.method === 'POST') {
+      const stage = String(Number(body.stage));
+      if (!/^[0-5]$/.test(stage)) return json({ error: 'Which stage?' }, 400);
+      const v = String(body.v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+      if (!v) return json({ error: 'Which drill?' }, 400);
+      const extra = (await getSetting('ladder:extra')) || {};
+      const list = (extra[stage] || []).slice();
+      const at = list.findIndex(x => x && x.v === v);
+      const prev = at > -1 ? list[at] : {};
+      const L = Math.max(1, Math.min(4, Number(body.L) || prev.L || 2));
+      const g = String(body.g || prev.g || 'Strength').slice(0, 40);
+      if (at > -1) list[at] = { v, g, L }; else list.push({ v, g, L });
+      extra[stage] = list;
+      await setSetting('ladder:extra', extra);
+      return json({ ok: true, ladderExtra: extra });
+    }
+
     if (path === '/coach/checkpoints') {
       const all = (await getSetting('ladder:checkpoints')) || {};
       if (request.method === 'GET') return json({ ladderCps: all });
