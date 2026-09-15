@@ -8903,12 +8903,23 @@ const PLANS=[
 let plansOn=null;
 function loadPlans(){
   fetch(AUTH.plans).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ plansOn=d.plans||[]; render(); } }).catch(()=>{ plansOn=[]; });
+    .then(d=>{ if(d){ plansOn=d.plans||[]; planLinks=(d&&d.links)||{}; render(); } }).catch(()=>{ plansOn=[]; });
 }
+let planLinks={};
 function buyPlan(k){
   if(!st.token){ st.tab='joinFree'; save(); render(); return; }
   const b=document.getElementById('buy-'+k);
   if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
+  track('checkout');
+  /* a payment link made in Stripe rather than a price id: open it with the
+     account's email filled in, so the webhook can find the account when the
+     money lands */
+  if(planLinks[k]){
+    const u=new URL(planLinks[k]);
+    if(st.email) u.searchParams.set('prefilled_email', st.email);
+    if(st.email) u.searchParams.set('client_reference_id', st.email.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,200));
+    location.href=u.toString(); return;
+  }
   fetch(AUTH.checkout,{method:'POST',headers:authed(),body:JSON.stringify({plan:k})})
     .then(r=>r.json())
     .then(d=>{ if(d.url) location.href=d.url; else throw new Error(d.error||''); })

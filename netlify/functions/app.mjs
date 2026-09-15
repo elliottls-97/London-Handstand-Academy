@@ -603,7 +603,11 @@ export default async (request) => {
       if (obj.customer) acct.stripe_customer = obj.customer;
       /* which product they are on, so the app can tell a ladder subscriber
          from a coached client without asking Stripe again */
-      const boughtPlan = (obj.metadata && obj.metadata.plan) || '';
+      /* the plan: from the metadata a checkout session carries, or, for a
+         payment link that carries none, from what was paid */
+      const byAmount = { 500: 'plus', 3500: 'check', 12000: 'online', 32000: 'inner' };
+      const boughtPlan = (obj.metadata && obj.metadata.plan)
+        || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
       /* Buying coaching or form checks makes a client, not just a payer.
          Before this the money arrived and nothing else happened: no roster
@@ -962,8 +966,19 @@ export default async (request) => {
     inner:  { price: () => process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
   };
 
+  /* A Stripe payment link is the other way in. Elliott makes those in the
+     Stripe dashboard without needing a price id, so a tier can go live from
+     a link alone; the checkout session route is used where a price id has
+     been set, because it can carry the account with it. */
+  const LINKS = {
+    check:  process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
+    online: process.env.STRIPE_LINK_ONLINE || '',
+    inner:  process.env.STRIPE_LINK_INNER  || '',
+  };
   if (path === '/plans') {
-    return json({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price()) });
+    return json({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price() || !!LINKS[k]),
+                  links: Object.fromEntries(Object.keys(LINKS).filter(k => !PLANS[k].price() && LINKS[k])
+                    .map(k => [k, LINKS[k]])) });
   }
 
   if (path === '/checkout' && request.method === 'POST') {
