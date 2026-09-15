@@ -3496,6 +3496,24 @@ export default async (request) => {
           }), 'replies');
       }
 
+      /* A verdict on a check point clip: reached, or not yet, with a line.
+         Written onto the submission and onto the client's own record of
+         that check point, matched on the clip, so the app can show what the
+         coach said beside what they logged. */
+      if (rec.kind === 'checkpoint' && ['reached', 'notyet'].includes(body.verdict)) {
+        const note = String(body.note || '').slice(0, 300);
+        const numbers = Object.assign({}, rec.numbers || {}, { verdict: body.verdict, verdictNote: note });
+        await supa.update('submissions', `id=eq.${enc(id)}`, { numbers });
+        const tkey = `track:${e}`;
+        const tr = (await getSetting(tkey)) || {};
+        const k = (rec.numbers || {}).k;
+        const uid = (rec.clips || [])[0];
+        if (k && tr.checkpoints && tr.checkpoints[k]) {
+          tr.checkpoints[k] = tr.checkpoints[k].map(r =>
+            (uid && r.video === uid) ? Object.assign({}, r, { verdict: body.verdict, note, by: asking || primaryCoach(), verdictAt: Date.now() }) : r);
+          await setSetting(tkey, tr);
+        }
+      }
       if (body.nextBlock) {
         await supa.upsert('cycles',
           { email: e, n: (rec.cycle || 1) + 1, started_at: nowISO() }, 'email');

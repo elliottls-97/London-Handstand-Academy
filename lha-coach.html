@@ -1045,6 +1045,20 @@ function subsHTML(email){
       <div style="margin-top:11px">${nums}</div>
       <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
         ${s.clips.length} clip${s.clips.length===1?'':'s'} — in the thread below.</div>
+      ${s.kind==='checkpoint'?`<div style="margin-top:12px;padding:11px 12px;border-radius:12px;background:rgba(0,64,61,.05)">
+        <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
+        <input id="vnote-${esc(s.id)}" placeholder="One line they will read beside it, optional"
+          style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
+          font:400 13px/1.3 var(--sans);background:#fff">
+        <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
+          <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+            onclick="markReviewed('${esc(email)}','${esc(s.id)}',false,'reached')">Reached, verified</button>
+          <button class="send" style="width:auto;padding:0 14px;font-size:12.5px;background:rgba(243,169,73,.25);color:#7a4a10"
+            onclick="markReviewed('${esc(email)}','${esc(s.id)}',false,'notyet')">Not there yet</button>
+        </div>
+        <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+          Either one marks it reviewed and shows on their check point beside the number. Reached counts as the check point met, whatever the number said.</div>
+      </div>`:''}
       <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
         ${s.clips.length?`<button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
           onclick="reviewClips('${esc(email)}',${JSON.stringify(s.clips).replace(/"/g,'&quot;')},'${esc((clients.find(c=>c.email===email)||{}).name||'Client')}')">
@@ -1498,11 +1512,13 @@ function formCheckHTML(email){
       ${st2.used?'Give it back':'Mark it used'}</button></div>`;
 }
 
-function markReviewed(email,id,nextBlock){
+function markReviewed(email,id,nextBlock,verdict){
   if(nextBlock && !confirm('Mark reviewed and start the next block? '
     + 'That resets their two-week clock from today.')) return;
+  const noteEl=document.getElementById('vnote-'+id);
+  const note=noteEl?noteEl.value.trim():'';
   fetch(API+'/submission/reviewed',{method:'POST',headers:hdr(),
-    body:JSON.stringify({email,id,nextBlock:!!nextBlock})})
+    body:JSON.stringify({email,id,nextBlock:!!nextBlock,...(verdict?{verdict,note}:{})})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not save that')))
     .then(()=>{
       subs[email]=(subs[email]||[]).map(s=>s.id===id
@@ -1936,7 +1952,7 @@ function summarise(email){
   if(a.holds.length>1){
     const f=a.holds[0].s, l=a.holds[a.holds.length-1].s;
     out.push(l>f ? `Hold up from ${f}s to ${l}s.` : l<f ? `Hold down from ${f}s to ${l}s.` : `Hold flat at ${l}s.`);
-  } else if(p.bestHold) out.push(`Best hold ${p.bestHold}s.`);
+  }
 
   const hard=Object.entries(p.flags||{}).filter(([,v])=>v.rate==='hard');
   if(hard.length) out.push(`Finding ${hard.map(([d])=>d).join(', ')} too hard.`);
@@ -4902,7 +4918,6 @@ function metricsHTML(email){
     ${statCard(a.adherence+'%','ADHERENCE', a.adherence<50?'warn':'')}
     ${statCard(a.done.length,'SESSIONS DONE')}
     ${statCard(a.perWeek[a.perWeek.length-1]??0,'THIS WEEK')}
-    ${statCard(p.bestHold?p.bestHold+'s':'—','BEST HOLD')}
     ${statCard(finishRate===null?'—':finishRate+'%','FINISH RATE', finishRate!==null&&finishRate<70?'warn':'')}
     ${statCard(((p.opens||[]).length),'DAYS ON THE APP')}
   </div>

@@ -1905,20 +1905,6 @@ function freeProgressBody(){
     <span style="font:600 8.5px/1 var(--sans);letter-spacing:.06em;color:var(--grey2)">${w.label}</span>
   </div>`).join('');
 
-  /* holds, newest last, so the line reads left to right like time does */
-  const kind=holdKind();
-  const holds=(((st.prog||{}).holds)||[])
-    .filter(h=>(h.kind||'ctw')===kind).slice(-10);
-  const goal=parseInt(S.hold,10)||30;
-  const hpeak=Math.max(goal,...holds.map(h=>h.s||0),1);
-  const hbars=holds.map(h=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;
-    gap:5px;min-width:0">
-    <div style="width:100%;height:52px;display:flex;align-items:flex-end">
-      <div style="width:100%;height:${Math.round((h.s||0)/hpeak*100)}%;min-height:3px;border-radius:4px;
-        background:${(h.s||0)>=goal?'var(--forest)':'var(--sage)'}"></div></div>
-    <span style="font:600 9px/1 var(--sans);color:var(--grey2)">${h.s||0}</span>
-  </div>`).join('');
-
   /* the drills you have actually counted reps on, best first */
   const logged=Object.keys(st.repsLog||{}).map(v=>{
     const h=st.repsLog[v]||[]; if(!h.length) return null;
@@ -1957,17 +1943,6 @@ function freeProgressBody(){
       <div style="display:flex;gap:5px;margin-top:14px;align-items:flex-end">${bars}</div>
     </div>
 
-    <div class="card" style="padding:18px 20px">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <span class="kick2">${esc(holdLabel().toUpperCase())}</span>
-        <span style="font:600 11px/1 var(--sans);color:var(--grey2)">BEST ${
-          bestHoldFor(holdKind())}s · GOAL ${esc(S.hold)}</span>
-      </div>
-      ${holds.length
-        ? `<div style="display:flex;gap:5px;margin-top:14px;align-items:flex-end">${hbars}</div>`
-        : `<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:8px">
-             Nothing logged yet. Log it as a check point and it turns up here.</div>`}
-    </div>
 
     ${logged.length?`<div class="card" style="padding:18px 20px">
       <div class="kick2">REPS YOU HAVE COUNTED</div>
@@ -2213,6 +2188,9 @@ function cpSendClip(k,file){
 /* has this one reached what it is asking for */
 function cpMet(c){
   const last=cpLast(c.k); if(!last) return false;
+  /* the coach has seen the clip and said: that wins over the number either way */
+  if(last.verdict==='reached') return true;
+  if(last.verdict==='notyet') return false;
   if(c.kind==='face') return Number(last.v)>=2;
   if(c.kind==='yn') return !!last.v;
   if(c.target==null) return false;
@@ -2442,6 +2420,7 @@ function cpCardTop(c, i, total){
       <span>${last?'Logged '+esc(cpWhen(last.at)):'Not logged yet'}</span>
       <span id="cpgo-${c.k}" style="color:${met?'var(--forest)':'var(--grey)'}">${esc(cpToGo(c))}</span>
     </div>
+    ${cpHistoryHTML(c)}
     <div ${drill&&drill.url?`onclick="toggleCpDemo('${c.k}')" style="cursor:pointer;`:'style="'}margin-top:11px;
       display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px;
       background:rgba(0,102,99,.06)">
@@ -2477,6 +2456,33 @@ function cpCardTop(c, i, total){
         text-align:center;color:${sent?'var(--forest)':'var(--grey)'}">${
         sent ? 'Clip sent '+esc(cpWhen(sent.at))+'. Elliott has it.'
              : 'A number says what happened. A clip says whether it was any good.'}</div>`:''}`;
+}
+/* ── the record ─────────────────────────────────────────────────────
+   Every reading, newest first, and beside any with a clip what the coach
+   said about it. For a form check client this is the point: not what they
+   logged, but what was seen and what was said. A verified one carries the
+   coach's tick. */
+function cpHistoryHTML(c){
+  const hist=(cpLog()[c.k]||[]).slice().reverse().slice(0,6);
+  if(hist.length<1) return '';
+  const unit=cpUnit(c);
+  const val=r=> c.kind==='face' ? cpFaceLabel(c,r.v) : c.kind==='yn' ? (r.v?'Yes':'Not yet') : r.v+unit;
+  const rows=hist.map(r=>{
+    const v=r.verdict;
+    return `<div style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-top:1px solid rgba(17,17,17,.06)">
+      <span style="flex:none;width:58px;font:400 11px/1.4 var(--sans);color:var(--grey2)">${esc(cpWhen(r.at))}</span>
+      <span style="flex:none;font:700 12.5px/1.4 var(--sans);color:${v==='reached'?'var(--forest)':'var(--ink)'}">${esc(String(val(r)))}</span>
+      ${r.video?`<span title="Clip sent" style="flex:none;font:600 10px/1.4 var(--sans);color:var(--grey2)">&#9654; clip</span>`:''}
+      <span style="flex:1;min-width:0;font:400 12px/1.4 var(--sans);color:var(--grey)">${
+        v==='reached' ? `<b style="color:var(--forest)">&#10003; Verified by ${esc((r.by||'').split('@')[0]||'your coach')}</b>${r.note?' &middot; '+esc(r.note):''}`
+        : v==='notyet' ? `<b style="color:#8a5a12">Not there yet</b>${r.note?' &middot; '+esc(r.note):''}`
+        : r.video ? `<span style="color:var(--grey2)">Waiting for a look</span>` : ''}</span>
+    </div>`;}).join('');
+  return `<details style="margin-top:8px">
+    <summary style="cursor:pointer;list-style:none;font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">
+      HISTORY &middot; ${(cpLog()[c.k]||[]).length}</summary>
+    <div style="margin-top:6px">${rows}</div>
+  </details>`;
 }
 /* how far off it is, said in the units it is measured in */
 function cpToGo(c){
@@ -2665,31 +2671,6 @@ function checkpointsCard(){
    and only when they have just hit the marker for it — the moment they
    have proved something, which is the only time the offer is a
    compliment rather than an interruption. */
-function milestoneCard(){
-  if(st.in) return '';
-  const i=curStage(), goal=parseInt((STAGES[i]||{}).hold,10)||0;
-  if(!goal || bestHoldFor(holdKind()) < goal) return '';
-  const seen=st.milestoneSeen||{};
-  if(seen[i]) return '';
-  const next=STAGES[i+1];
-  return `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
-    <div class="kick2" style="color:var(--forest)">YOU HIT THE MARKER</div>
-    <div class="h-md" style="font-size:21px;margin-top:9px">
-      ${esc((STAGES[i]||{}).ch||'That hold')}, ${bestHoldFor(holdKind())}s.</div>
-    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-      That is ${esc((STAGES[i]||{}).n)} done on the numbers.${next
-        ? ' '+esc(next.n)+' is where most people start guessing. It is the stage where what you cannot see about your own shape starts costing you.'
-        : ' You are at the top of the ladder.'}</div>
-    <button class="btn" style="width:100%;margin-top:14px" onclick="dismissMilestone();go('coaching')">
-      Get my eyes on it</button>
-    <button class="btn2" style="width:100%;margin-top:9px" onclick="dismissMilestone()">
-      Not now</button>
-  </div>`;
-}
-function dismissMilestone(){
-  st.milestoneSeen=st.milestoneSeen||{};
-  st.milestoneSeen[curStage()]=true; save(); render();
-}
 
 /* ── progress photos ───────────────────────────────────────────────
    A handstand does not change in a way you can feel, and a number does
@@ -3250,6 +3231,19 @@ function trainingCalendar(){
   const mSess=mDays.reduce((a,k)=>a+byDay[k].length,0);
   const mMins=mDays.reduce((a,k)=>a+byDay[k].reduce((b,x)=>b+(Number(x.actual)||Number(x.mins)||0),0),0);
   const mOpens=[...opens].filter(k=>k.slice(0,7)===ym).length;
+  /* drills and sets this month, and everything since the first session */
+  const sums=list=>list.reduce((a,x)=>{ a.drills+=(x.drills||new Set((x.items||[]).map(i=>i.v)).size||0);
+    a.sets+=(x.items||[]).reduce((b,it)=>b+(Number(it.got)||0),0) || (x.got||0); return a; },{drills:0,sets:0});
+  const mS=sums(mDays.flatMap(k=>byDay[k]));
+  const allS=sums(ss);
+  const allMins=ss.reduce((a,x)=>a+(Number(x.actual)||Number(x.mins)||0),0);
+  const firstAt=ss.length?Math.min(...ss.map(x=>x.at)):0;
+  const weeks=firstAt?Math.max(1,Math.round((Date.now()-firstAt)/(7*86400000))):0;
+  const sinceLine = ss.length
+    ? `Since ${new Date(firstAt).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}: `
+      +`${ss.length} session${ss.length===1?'':'s'} &middot; ${hm(allMins*60000)} &middot; ${allS.drills} drills &middot; ${allS.sets} sets`
+      +(weeks>1?` &middot; ${(ss.length/weeks).toFixed(1)} a week`:'')
+    : '';
 
   return `<div class="card" style="padding:20px">
     <div style="display:flex;align-items:center;gap:10px">
@@ -3258,8 +3252,9 @@ function trainingCalendar(){
         background:#fff;cursor:pointer;color:var(--deep);font:600 15px/1 var(--sans)">&lsaquo;</button>
       <span style="flex:1;text-align:center">
         <span style="display:block;font:400 19px/1.1 var(--serif)">${esc(title)}</span>
-        <span style="display:block;font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:5px">${
+        <span style="display:block;font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:5px">${
           mSess ? mSess+' session'+(mSess===1?'':'s')+(mMins?' &middot; '+hm(mMins*60000):'')
+                  +(mS.drills?' &middot; '+mS.drills+' drills':'')+(mS.sets?' &middot; '+mS.sets+' sets':'')
                 : 'Nothing logged'}</span></span>
       <button onclick="calShift(-1)" aria-label="Next month" ${(st.calOff|0)?'':'disabled'}
         style="flex:none;width:34px;height:34px;border-radius:11px;
@@ -3278,6 +3273,8 @@ function trainingCalendar(){
     <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
       ${mOpens} day${mOpens===1?'':'s'} opened, ${mDays.length} with a session logged.
       ${mDays.length?'Tap a day for the exercises.':''}</div>
+    ${sinceLine?`<div style="font:500 12px/1.5 var(--sans);color:var(--deep);margin-top:8px;padding-top:10px;
+      border-top:1px solid rgba(0,64,61,.1)">${sinceLine}</div>`:''}
     ${st.calDay?calDayDetail(byDay[st.calDay]||[], st.calDay, opens):''}
   </div>`;
 }
@@ -3677,7 +3674,7 @@ function screenProgress(){
       ${coachedView() ? photosCard() : ''}`;
 
   const marksBody = `
-      ${milestoneCard()}
+      
       <div data-tour="checkpoints">${checkpointsCard()}</div>
 
       ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
@@ -3713,7 +3710,7 @@ function screenProgress(){
      so the Training and Check points split only means something to a coached
      client who has no ladder. */
   if(!coachedView()) return `<div style="display:flex;flex-direction:column;gap:11px">
-    ${milestoneCard()}${trackBody}</div>`;
+    ${trackBody}</div>`;
   return `<div class="scroll s">
     <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
@@ -4937,7 +4934,6 @@ document.addEventListener('click',function(e){
 })();
 
 function drawOv(){
-  if(st.ov==='hold'){ drawHold(); return; }
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
            password:'Change password', account:'Your account', emailchange:'Change email',
@@ -5988,7 +5984,6 @@ function loadProgress(){
       if(d.repsLog) st.repsLog=d.repsLog;
       /* the best of each shape is derived from the account's own holds, so a
          new phone knows what they have already done */
-      if(d.bestHolds) st.bestHolds=Object.assign({}, d.bestHolds, st.bestHolds||{});
       save(); render();
     } })
     .catch(()=>{});
@@ -6136,7 +6131,7 @@ function reportProgress(extra){
   });
   /* hold used to be on every payload "for the coach's older reads", so the
      server appended a row for the same number on every visit and every flag
-     change, and the hundred-row cap pushed the real history out. saveHold
+     change, and the hundred-row cap pushed the real history out. The old hold timer
      sends it on its own, with the shape it was held in. */
   const payload=Object.assign({flags:flags}, extra||{});
   return fetch(AUTH.progress,{method:'POST',headers:authed(),body:JSON.stringify(payload)})
@@ -9421,49 +9416,6 @@ function skipJoin(){ st.joinSkipped=true; st.tab='home'; save(); render(); }
 
 function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizStep=0; st.quizAns=[]; save(); render(); }
 
-/* ── max hold timer (free tier) ── */
-let holdT=null,holdS=0;
-function drawHold(){
-  const mm=String(Math.floor(holdS/60)),ss=String(holdS%60).padStart(2,'0');
-  $('#ov').innerHTML=`<div class="ovhead"><button class="back" onclick="stopHold();closeOv()">← Back</button>
-    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:16px">Max <em
-      style="color:var(--forest);font-style:normal">hold.</em></div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-      ${esc(holdLabel())}. Best so far ${bestHoldFor(holdKind())}s.
-      Start it, kick up, stop it when you come down.</div></div>
-    <div style="padding:40px 18px;text-align:center">
-      <div class="h-xl" style="font-size:96px;color:var(--forest)">${holdS>=60?mm+':'+ss:holdS}</div>
-      <div class="kick2" style="margin-top:12px">SECONDS</div>
-      <button class="btn" style="margin-top:30px" onclick="toggleHold()">${holdT?'Stop':'Start'}</button>
-      ${holdS&&!holdT?`<button class="btn2" style="width:100%;margin-top:10px" onclick="saveHold()">Save ${holdS}s as my best</button>`:''}
-    </div>`;
-}
-function toggleHold(){ if(holdT){ clearInterval(holdT); holdT=null; } else { holdS=0; holdT=setInterval(()=>{holdS++;drawHold();},1000); } drawHold(); }
-function stopHold(){ if(holdT){clearInterval(holdT);holdT=null;} holdS=0; }
-/* ── holds belong to a shape ───────────────────────────────────────
-   One best-hold number across five stages was wrong in both directions:
-   a 45s chest-to-wall marked someone ready to leave Take-Off, whose
-   marker is five seconds of freestanding, and a freestanding hold could
-   never beat it so it never looked like progress. A hold is now filed
-   under the shape it was held in. */
-const HOLD_KINDS=['ctw','slide','pushing','takeoff','free','press'];
-const holdKind = i => HOLD_KINDS[i==null?curStage():i] || 'ctw';
-const holdLabel = i => (STAGES[i==null?curStage():i]||{}).ch || 'Hold';
-function bestHoldFor(kind){
-  const b=st.bestHolds||{};
-  if(b[kind]!=null) return b[kind];
-  /* one legacy number, and only the stage it was set on can claim it */
-  return (kind===HOLD_KINDS[0] && st.bestHold) ? st.bestHold : 0;
-}
-function saveHold(){
-  const kind=holdKind();
-  st.bestHolds=st.bestHolds||{};
-  if(holdS>bestHoldFor(kind)) st.bestHolds[kind]=holdS;
-  if(holdS>(st.bestHold||0)) st.bestHold=holdS;   /* kept for the coach's older reads */
-  save();
-  reportProgress({hold:holdS, holdKind:kind, holdStage:curStage()});
-  stopHold(); closeOv();
-}
 
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={

@@ -253,45 +253,7 @@ export default async () => {
       }
     }
 
-    /* 3 — a ladder client whose hold has not been retested in a month.
-       Not a sales email: the ladder moves on the marker, and a number
-       four weeks old is not telling them anything any more. */
-    if (c.lead) {
-      const prog = await supa.row('progress', `email=eq.${enc(c.email)}&select=*`)
-        .catch(() => null);
-      const holds = (prog && prog.holds) || [];
-      const sessions = ((prog && prog.sessions) || []).filter(x => x && x.done);
-      const lastHold = holds.length ? Math.max(...holds.map(h => h.at || 0)) : 0;
-      const lastSession = sessions.length ? Math.max(...sessions.map(x => x.at || 0)) : 0;
-      /* only someone still training — nudging a lapsed account to retest is
-         asking the wrong question */
-      const training = lastSession && (now - lastSession) < 10 * DAY;
-      const stale = lastHold && (now - lastHold) > 28 * DAY;
-      if (training && stale) {
-        const key = `retest:${c.email}:${Math.floor(lastHold / (28 * DAY))}`;
-        const sent = await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null);
-        if (!sent) {
-          const best = Math.max(0, ...holds.map(h => h.s || 0));
-          const ok = await email(c.email, 'Worth retesting your hold',
-            mail({
-              title: 'Worth retesting your hold.',
-              greeting: (c.name || '').split(' ')[0],
-              paras: [`Your best on record is <b>${best}s</b>, and it was set over a month ago.
-                You have trained since, so the number is almost certainly wrong.`,
-                `The max hold timer is on the ladder. One clean attempt is all it takes,
-                 and it decides when you move up.`],
-              cta: { href: `${SITE}/lha-app.html`, label: 'Retest it' },
-              footnote: 'If it has not moved, that is worth knowing too — it usually '
-                + 'means the drills underneath need the attention, not the hold itself.',
-            }), 'reminders');
-          if (ok) {
-            await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
-            (done.retest = done.retest || []).push(c.email);
-          }
-        }
-      }
-    }
-  }
+}
 
   try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
