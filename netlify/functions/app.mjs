@@ -605,7 +605,8 @@ export default async (request) => {
          from a coached client without asking Stripe again */
       /* the plan: from the metadata a checkout session carries, or, for a
          payment link that carries none, from what was paid */
-      const byAmount = { 500: 'plus', 3500: 'check', 12000: 'online', 32000: 'inner' };
+      /* 10000 is the old coaching price; the link may still carry it */
+      const byAmount = { 500: 'plus', 3500: 'check', 10000: 'online', 12000: 'online', 32000: 'inner' };
       const boughtPlan = (obj.metadata && obj.metadata.plan)
         || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
@@ -972,7 +973,7 @@ export default async (request) => {
      been set, because it can carry the account with it. */
   const LINKS = {
     check:  process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
-    online: process.env.STRIPE_LINK_ONLINE || '',
+    online: process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
     inner:  process.env.STRIPE_LINK_INNER  || '',
   };
   if (path === '/plans') {
