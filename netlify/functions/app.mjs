@@ -619,6 +619,12 @@ export default async (request) => {
         if (!stored[e2] && !clients()[e2]) {
           stored[e2] = { name: acct.name || e2, coach: '', tier: boughtPlan };
           await setSetting('roster', stored);
+          /* Joining the roster puts them behind the client email guard, which
+             is on by default and is there for two specific people. Someone
+             who has just paid is not one of them: they are allowed through
+             by name, and can be silenced from their thread like anyone. */
+          const off = (await getSetting('mailoff')) || {};
+          if (off[e2] === undefined) { off[e2] = false; await setSetting('mailoff', off); }
         }
         const tierName = { check: 'form checks', online: 'coaching', inner: 'Inner Circle' }[boughtPlan];
         const first = String(acct.name || '').split(' ')[0];

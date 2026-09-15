@@ -455,7 +455,8 @@ function trackOpen(){
   try{
     const q=new URLSearchParams(location.search);
     if(q.get('paid')==='1'){ track('subscribed'); st.justPaid=true; save();
-      history.replaceState(null,'',location.pathname); }
+      history.replaceState(null,'',location.pathname);
+      setTimeout(()=>{ if(st.justPaid) openOv('paid'); }, 500); }
     /* a code carried in the link, from the card at the end of a workshop:
        kept until there is an account to put it on */
     const code=(q.get('code')||'').toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,24);
@@ -2441,7 +2442,7 @@ function cpCardTop(c, i, total){
           drill ? esc(drill.n) : 'Not filmed yet'}</div>
       </div>
     </div>
-    ${(coachedView() && c.video!==false)?`
+    ${((st.coached||coachedView()) && c.video!==false)?`
       <button onclick="cpFilm('${c.k}')" style="width:100%;margin-top:9px;cursor:pointer;min-height:48px;
         border:0;border-radius:14px;padding:14px;display:flex;align-items:center;justify-content:center;
         gap:9px;font:700 13px/1 var(--sans);
@@ -4945,9 +4946,21 @@ function drawOv(){
            /* the chooser writes its own heading, and two titles one above
               the other is one title too many */
            mode:'',list:'Every drill',explainer:'Explainer',locked:'',intro:'',
-           checkin:'Your fortnight', feedback:''};
+           checkin:'Your fortnight', feedback:'', paid:''};
   let body='';
-  if(st.ov==='feedback'){ body=fbBody(); }
+  if(st.ov==='paid'){
+    st.justPaid=false; save();
+    body=`<div style="text-align:center;padding:14px 0 6px">
+      <div style="width:56px;height:56px;border-radius:50%;margin:0 auto;display:grid;place-items:center;
+        background:rgba(0,102,99,.1);color:var(--forest);font-size:26px">&#10003;</div>
+      <div class="h-lg" style="margin-top:16px">You are in.</div>
+      <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">
+        The whole ladder is open. Your first week is free, and a note comes three days before the
+        first charge so nothing is a surprise. Cancel any time from More.</div>
+      <button class="btn" style="margin-top:22px" onclick="closeOv();loadEntitlement()">Carry on</button>
+    </div>`;
+  }
+  else if(st.ov==='feedback'){ body=fbBody(); }
   else if(st.ov==='drill'){ const it=st.ovDrill||{};
     /* A panel announcing that there is no video is still a video-shaped
        hole at the top of the sheet. The cues are the drill either way, so
@@ -5867,7 +5880,7 @@ function doLogin(ev){
       /* a coach signing in here wants the coach view, not a client screen */
       if(d.coach){ location.href='/lha-coach.html'; return; }
       st.email=email; st.token=d.token; st.client=d.client;
-      st.in=!!d.coached;            /* coached tier only for actual coaching clients */
+      st.in=!!d.coached; st.coached=!!d.coached;            /* coached tier only for actual coaching clients */
       st.plus=!!d.plus;
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
@@ -5901,7 +5914,7 @@ function verifyCode(){
       /* this set st.in on everyone who came through the code door, so a
          coach was shown a coached client's screens with no programme behind
          them. The server says which they are. */
-      st.in = (d.coached!==undefined) ? !!d.coached : true;
+      st.in = (d.coached!==undefined) ? !!d.coached : true; st.coached=st.in;
       st.plus=!!d.plus;
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
@@ -6043,7 +6056,18 @@ function loadProgramme(){
     .catch(code=>{
       /* an expired token is the one failure worth acting on */
       if(code===401){ signOut(); return false; }
-      loadCachedProgramme(); render(); return false;
+      loadCachedProgramme();
+      /* A form check client is coached and has no programme, and never will
+         until they buy one. Left in the coached layout they got an empty
+         block with a Start button on it. They train on the ladder like
+         anyone, and keep the clip button and the thread because st.coached
+         is still true. */
+      if(!(DATA && DATA.days && DATA.days.length)){
+        st.in=false; st.mode='free';
+        if(['today','plan','ask'].indexOf(st.tab)>-1) st.tab='home';
+        save();
+      }
+      render(); return false;
     });
 }
 
@@ -8168,7 +8192,7 @@ function loadEntitlement(){
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
-      st.in=!!d.coached;
+      st.in=!!d.coached; st.coached=!!d.coached;
       if(!st.in && st.token){ st.mode='free'; st.quizDone=true; }
       if(d.name&&!st.client) st.client=d.name;
       /* the free-check flag has to be in here too: a coach clearing it
@@ -8913,8 +8937,10 @@ function buyPlan(k){
      money lands */
   if(planLinks[k]){
     const u=new URL(planLinks[k]);
+    /* the email only: a client_reference_id cannot hold an @, and the
+       webhook reads that field first, so a mangled one would beat the real
+       email sitting right beside it and the purchase would find no account */
     if(st.email) u.searchParams.set('prefilled_email', st.email);
-    if(st.email) u.searchParams.set('client_reference_id', st.email.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,200));
     location.href=u.toString(); return;
   }
   fetch(AUTH.checkout,{method:'POST',headers:authed(),body:JSON.stringify({plan:k})})
