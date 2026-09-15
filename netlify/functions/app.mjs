@@ -86,6 +86,15 @@ const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_E
 /* Whether an account has the tier right now. Stripe sets plus on and off; a
    code sets plus_until, and a date in the past is the same as off, so a
    month free ends on its own without a job to end it. */
+/* the shipped check point names, so an email can say "Crow pose" rather
+   than "crow" when the key is the ladder's rather than a client's */
+const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort':'Falling off the wall',
+  'wall-45':'45-degree wall hold', plank:'Plank pose', crow:'Crow pose', chaturanga:'Chaturanga push-ups',
+  'kickup-rate':'Kick up to the wall','ctw-hold':'Chest-to-wall handstand','scap-shrugs':'Wall scapula shrugs',
+  'sl-tuck':'Single-leg tuck slides','pike-neg':'Pike push-up negatives','pike-full':'Pike push-ups, full reps',
+  'nose-toes':'Nose to toes','assist-entry':'Assisted freestanding entries','tuck-depth':'Tuck slides',
+  'slide-count':'Slide aways','slide-off':'Coming off the wall','box-dist':'Knees on box, distance',
+  'box-time':'Knees on box, hold','step-ups':'Step ups','entry-clean':'Entries to eight clean' };
 const plusNow = a => !!a && (!!a.plus || (!!a.plus_until && ms(a.plus_until) > Date.now()));
 const coachOf = e => {
   const c = rosterList().find(x => x.email === norm(e));
@@ -1770,6 +1779,28 @@ export default async (request) => {
             hist[hist.length - 1] = row;
           } else hist.push(row);
           cur.checkpoints[k] = hist.slice(-20);
+          /* A clip on a check point was stored and then nothing happened: no
+             email, no place in the queue, only a small play button deep in
+             the client's analysis column. Hannah sent hers and Elliott never
+             saw them. A new clip is a submission like any other, so it lands
+             in "needs you now" and in Client reviews, and the coach is told. */
+          if (vid && !(last && last.video === vid)) {
+            const defs = (await getSetting(`programme:${who}`)) || programmes.clients[who] || {};
+            const cpName = ((defs.checkpoints || []).find(c => c && c.k === k) || {}).n
+              || (CHECKPOINT_NAMES[k] || k);
+            const plan = programmes.clients[who];
+            let cycleN = 1;
+            try { cycleN = (await cycleGet(db, who, plan)).n || 1; } catch {}
+            try {
+              await supa.insert('submissions', { email: who, kind: 'checkpoint', cycle: cycleN,
+                numbers: { k, v: row.v, name: cpName }, clips: [vid], status: 'submitted' });
+            } catch {}
+            await email(coachOf(who), `Check point clip from ${clients()[who] || who}`,
+              mail({ title: 'A check point clip came in.',
+                paras: [`<b>${esc(clients()[who] || who)}</b> sent a clip for <b>${esc(cpName)}</b>, logged at ${esc(String(row.v))}.`],
+                cta: { href: `${SITE}/lha-coach.html`, label: 'Watch it' },
+                signoff: { name: 'London Handstand Academy' } }));
+          }
         }
       }
       /* a progress photo, already uploaded — this records the reference */
@@ -3333,7 +3364,30 @@ export default async (request) => {
       const out = [];
       for (const e of Object.keys(roster)) {
         if (!owns(e)) continue;
-        for (const s of await subsFor(db, e)) {
+        let subs = await subsFor(db, e);
+        /* Clips sent on check points before there was a queue entry for them
+           are sitting in the client's track with nowhere to show. Bring each
+           one in as a submission the first time the queue is drawn, once. */
+        if (clients()[e]) {
+          const tr = (await getSetting(`track:${e}`)) || {};
+          const known = new Set(subs.flatMap(s => s.clips || []));
+          const defs = ((await getSetting(`programme:${e}`)) || programmes.clients[e] || {}).checkpoints || [];
+          let added = false;
+          for (const k of Object.keys(tr.checkpoints || {})) {
+            for (const r of tr.checkpoints[k] || []) {
+              if (!r.video || known.has(r.video)) continue;
+              const cpName = ((defs.find(c => c && c.k === k) || {}).n) || CHECKPOINT_NAMES[k] || k;
+              try {
+                await supa.insert('submissions', { email: e, kind: 'checkpoint', cycle: 1,
+                  numbers: { k, v: r.v, name: cpName }, clips: [r.video], status: 'submitted',
+                  created_at: new Date(r.at || Date.now()).toISOString() });
+                known.add(r.video); added = true;
+              } catch {}
+            }
+          }
+          if (added) subs = await subsFor(db, e);
+        }
+        for (const s of subs) {
           if (s.status !== 'submitted') continue;
           out.push({ email: e, name: clients()[e] || roster[e].name || e,
             coached: !!clients()[e], id: s.id, kind: s.kind, cycle: s.cycle,
