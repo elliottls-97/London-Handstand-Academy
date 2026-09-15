@@ -583,6 +583,89 @@ function questionsHTML(){
   </div>`;
 }
 
+/* ── the funnel ────────────────────────────────────────────────────
+   Counts, not people: how many opens, how many finished the quiz, how many
+   met the paywall, started a checkout, subscribed, started and finished a
+   session, came back a week later. Nothing was counted before this, so the
+   first fortnight of numbers is the baseline everything after is judged by. */
+let funnel=null, funnelAsked=false, funnelDays=30;
+function loadFunnel(force){
+  if(funnelAsked && !force) return; funnelAsked=true;
+  fetch(API+'/funnel?days='+funnelDays,{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ funnel=d; draw(); } })
+    .catch(()=>{});
+}
+function funnelHTML(){
+  loadFunnel();
+  if(!funnel) return `<div class="card"><div class="kick">THE FUNNEL</div>
+    <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">Counting…</div></div>`;
+  const t=funnel.totals||{}, a=funnel.acct||{};
+  const n=k=>Number(t[k]||0);
+  const pct=(x,y)=>y?Math.round(100*x/y)+'%':'';
+  const step=(label,val,of,note)=>`<div style="flex:1;min-width:112px;padding:12px 13px;border-radius:13px;
+      background:#fff;border:1px solid var(--line)">
+    <div style="font:600 24px/1 var(--sans);font-variant-numeric:tabular-nums">${val}</div>
+    <div style="font:600 9px/1.4 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:6px">${label}</div>
+    <div style="font:500 11px/1.4 var(--sans);color:${of?'var(--forest)':'var(--grey2)'};margin-top:4px">${
+      of?pct(val,of)+' of '+note:(note||'')}</div>
+  </div>`;
+  const arrow=`<span style="align-self:center;color:var(--grey2);font:400 16px/1 var(--sans)">&rarr;</span>`;
+  const byStage=(t.quizBy||{});
+  const placed=Object.keys(byStage).sort().map(k=>`${esc(STAGES[k]?STAGES[k].n:'?')} ${byStage[k]}`).join(' · ');
+  const rows=(funnel.rows||[]).slice(0,14);
+  const cell=v=>`<td style="text-align:right;font-variant-numeric:tabular-nums;color:${v?'var(--ink)':'var(--grey2)'}">${v||'·'}</td>`;
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">THE FUNNEL · LAST ${funnel.days} DAYS</div>
+      <span style="flex:1"></span>
+      ${[14,30,90].map(d=>`<button onclick="funnelDays=${d};loadFunnel(true)"
+        style="cursor:pointer;border-radius:999px;padding:6px 11px;font:600 11px/1 var(--sans);
+        border:1.5px solid ${funnelDays===d?'var(--forest)':'var(--line)'};
+        background:${funnelDays===d?'var(--forest)':'#fff'};color:${funnelDays===d?'#fff':'var(--ink)'}">${d} days</button>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:stretch">
+      ${step('OPENS', n('open'), 0, 'app opened')}${arrow}
+      ${step('QUIZ DONE', n('quiz'), n('open'), 'opens')}${arrow}
+      ${step('MET THE WALL', n('wall'), n('quiz'), 'quizzes')}${arrow}
+      ${step('CHECKOUT', n('checkout'), n('wall'), 'walls')}${arrow}
+      ${step('SUBSCRIBED', n('subscribed'), n('checkout'), 'checkouts')}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:stretch">
+      ${step('SESSIONS STARTED', n('start'), n('open'), 'opens')}${arrow}
+      ${step('FINISHED', n('finish'), n('start'), 'started')}
+      ${step('FREE TASTES', n('taste'), 0, 'sessions above the free stage')}
+      ${step('BACK AFTER 7 DAYS', n('ret7'), 0, 'first seen a week or more ago')}
+      ${step('INSTALLED', n('install'), 0, 'to a home screen')}
+    </div>
+    ${placed?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+      Where the quiz put them: ${placed}</div>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+      ${step('ACCOUNTS', a.total||0, 0, 'ever')}
+      ${step('ACTIVE', a.active14||0, a.total||0, 'accounts, seen in 14 days')}
+      ${step('NEW THIS WEEK', a.new7||0, 0, '')}
+      ${step('ON £5', a.plus||0, a.total||0, 'accounts')}
+    </div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font:600 12px/1 var(--sans);color:var(--forest)">Day by day</summary>
+      <div style="overflow-x:auto;margin-top:10px">
+      <table style="border-collapse:collapse;width:100%;min-width:640px;font:400 12px/1.4 var(--sans)">
+        <tr style="color:var(--grey2);font-size:9.5px;letter-spacing:.1em">
+          <th style="text-align:left;padding:6px 8px">DAY</th>
+          ${['OPEN','QUIZ','WALL','CHECKOUT','SUBSCRIBED','START','FINISH','RET 7','INSTALL','SIGNUP']
+            .map(h=>`<th style="text-align:right;padding:6px 8px">${h}</th>`).join('')}</tr>
+        ${rows.map(r=>`<tr style="border-top:1px solid var(--line)">
+          <td style="padding:6px 8px;white-space:nowrap">${esc(r.day.slice(5))}</td>
+          ${['open','quiz','wall','checkout','subscribed','start','finish','ret7','install','signup']
+            .map(k=>cell(r[k]||0)).join('')}</tr>`).join('')}
+      </table></div>
+    </details>
+    <div style="font:400 11.5px/1.6 var(--sans);color:var(--grey2);margin-top:12px;max-width:72ch">
+      Counts, not people. Nothing here identifies anyone and nothing is stored per person; the app
+      adds one to a daily total. Counting started on 15 September 2026, so earlier days are empty.</div>
+  </div>`;
+}
+
 /* ── everyone who ever signed up ───────────────────────────────────
    The dashboard showed coaching clients and enquiries, which is a handful
    of people. Everybody who did the quiz, used the free ladder and drifted
@@ -4979,7 +5062,7 @@ function draw(){
       view==='explain'?`<div style="margin-top:16px">${explainHTML()}</div>`:
       view==='questions'?`<div style="margin-top:16px">${questionsHTML()}</div>`:
       view==='feedback'?`<div style="margin-top:16px">${feedbackHTML()}</div>`:
-      view==='leads'?`<div style="margin-top:16px">${leadsHTML()}</div>`:
+      view==='leads'?`<div style="margin-top:16px">${funnelHTML()}<div style="margin-top:14px">${leadsHTML()}</div></div>`:
       view==='apps'?`<div style="margin-top:16px">${appsHTML()}</div>`:
       view==='free'||view==='paid'?`<div style="margin-top:16px">${queueHTML(view)}</div>
       ${sel?`<div style="margin-top:14px">${threadCardHTML(msgs)}</div>`:''}`:`

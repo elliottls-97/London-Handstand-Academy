@@ -424,6 +424,40 @@ const AUTH = {
   cycle:'/api/app/cycle'               // GET → where the client is in the block
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
+/* ── counting what happens ─────────────────────────────────────────
+   One call, fire and forget, no answer waited for. It sends a name and at
+   most a stage number: never who, never a cookie. The server adds one to a
+   daily total. That is the whole of it, and it is what makes the funnel on
+   the dashboard say something rather than nothing. */
+function track(n, s){
+  try{
+    const body=JSON.stringify(s==null?{n}:{n, s});
+    if(navigator.sendBeacon){
+      navigator.sendBeacon('/api/app/event', new Blob([body],{type:'application/json'}));
+    } else {
+      fetch('/api/app/event',{method:'POST',headers:{'Content-Type':'application/json'},
+        body, keepalive:true}).catch(()=>{});
+    }
+  }catch(e){}
+}
+/* A screen is drawn again on every interaction, so anything counted from
+   inside a render would count each repaint. Once per open, per name. */
+const tracked=new Set();
+function trackOnce(n, s){ const k=n+':'+(s==null?'':s); if(tracked.has(k)) return; tracked.add(k); track(n, s); }
+/* once per open, and once per person for the seven day return */
+function trackOpen(){
+  track('open');
+  const now=Date.now();
+  if(!st.firstOpen){ st.firstOpen=now; save(); }
+  else if(!st.ret7 && now-st.firstOpen > 7*86400000){ st.ret7=true; save(); track('ret7'); }
+  /* back from Stripe with the good news. Nothing read this before, so the
+     app had no idea a subscription had just happened. */
+  try{
+    const q=new URLSearchParams(location.search);
+    if(q.get('paid')==='1'){ track('subscribed'); st.justPaid=true; save();
+      history.replaceState(null,'',location.pathname); }
+  }catch(e){}
+}
 const DEV_CODE = '123456';
 
 const K='lha_app';
@@ -4656,6 +4690,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
+  if(done) track('finish');
   if(done && !st.in) advanceDay();
   save();
   if(done){ st.ovSummary=true; openOv('summary'); }
@@ -6301,6 +6336,7 @@ function finishChecklist(){
   st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
   st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
   logReps();
+  if(done) track('finish');
   st.qTick={}; st.reps={}; save(); closeOv(); openOv('summary');
 }
 
@@ -6615,6 +6651,7 @@ function finishIntake(){
      they were placed at rather than guessing. */
   st.stage=L.v; st.placed=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
   st.quizDone=true; st.oriented=false;
+  track('quiz', L.v);
   st.tab = st.email ? 'home' : 'joinFree';
   save(); saveState(); sendIntake(); render();
 }
@@ -7939,6 +7976,7 @@ const stageLocked = i => i >= FREE_STAGES && !isPlus();
 
 function screenUpgradeBody(si){
   const s=STAGES[si]||{n:''};
+  trackOnce('wall', si);
   return `<div style="text-align:center;padding:2px 0 4px">
       <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">STAGE ${
         si+1} OF ${STAGES.length}</div>
@@ -8000,6 +8038,7 @@ function startUpgrade(){
     return;
   }
   if(b){ b.textContent='Opening checkout…'; b.disabled=true; }
+  track('checkout');
   fetch(AUTH.checkout,{method:'POST',headers:authed(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start checkout')))
     .then(d=>{ if(d.url) location.href=d.url; else throw 'No checkout link came back'; })
@@ -8631,6 +8670,7 @@ function followDay(){ Q=queue(); startQueue(0); }
 
 function startQueue(from){
   qi=from||0; phase='work'; paused=false; sessionStart=Date.now();
+  if(!from) track('start');
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
   bindPlayer();
@@ -9238,7 +9278,7 @@ function doJoin(ev){
   fetch(AUTH.signup,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:em,password:pw,marketing:mk,stage:curStage()})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
-    .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus;
+    .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup');
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
       st.tab='ladder'; save(); render();
       /* they came here to buy a stage, so finish the errand rather than
@@ -9595,7 +9635,7 @@ const TOUR_VIRTUAL = ['modesheet','followalong','drilllist'];
    not, and never will, so there it is the instructions or nothing. */
 let installPrompt=null;
 window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installPrompt=e; });
-window.addEventListener('appinstalled', ()=>{ installPrompt=null; st.installed=true; save(); });
+window.addEventListener('appinstalled', ()=>{ installPrompt=null; st.installed=true; save(); track('install'); });
 const isStandalone = () => {
   try{ return window.matchMedia('(display-mode: standalone)').matches
     || window.navigator.standalone===true; }catch(e){ return false; }
@@ -9907,6 +9947,7 @@ document.addEventListener('DOMContentLoaded',function(){
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
   render();
+  trackOpen();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); }
   loadLadder();
   workshopWatch();

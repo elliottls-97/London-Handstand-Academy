@@ -1765,6 +1765,36 @@ export default async (request) => {
      no account and no coach, so it takes no sign in. It is kept rather than
      only emailed, because a bug reported twice by two people is a different
      thing from a bug reported once, and an inbox cannot tell you that. */
+  /* ── what is happening ───────────────────────────────────────────
+     Nothing was counted anywhere: not opens, not quiz completions, not how
+     many people met the paywall or came back a week later. Every decision
+     about the app was a guess. This counts, and keeps nothing about anyone:
+     one row per day of totals, in the settings table, no cookies, no third
+     party, no per-person record. */
+  const EVENTS = ['open', 'quiz', 'wall', 'checkout', 'subscribed', 'start',
+                  'finish', 'ret7', 'install', 'taste', 'signup', 'code'];
+  if (path === '/event' && request.method === 'POST') {
+    const n = String(body.n || '');
+    if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
+    /* loose, per address: enough for a real phone, not enough to fill a row */
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`ev:${ip}`, 3600000)) > 400) return json({ ok: true });
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `ev:${day}`;
+    const row = (await getSetting(key)) || {};
+    row[n] = (row[n] || 0) + 1;
+    /* where the quiz put them, which is the one breakdown that matters */
+    if (n === 'quiz' || n === 'wall') {
+      const st = Number(body.s);
+      if (Number.isInteger(st) && st >= 0 && st <= 5) {
+        row[n + 'By'] = row[n + 'By'] || {};
+        row[n + 'By'][st] = (row[n + 'By'][st] || 0) + 1;
+      }
+    }
+    await setSetting(key, row);
+    return json({ ok: true });
+  }
+
   if (path === '/feedback' && request.method === 'POST') {
     const who = await me();
     const kinds = ['bug', 'idea', 'review'];
@@ -2478,6 +2508,35 @@ export default async (request) => {
        target or point a check point at the right film was a deploy. Kept as
        an overlay on the shipped one, keyed by k, so anything untouched stays
        as it shipped and a future change to the file still lands. */
+    /* the last N days of counts, and the ratios between them */
+    if (path === '/coach/funnel') {
+      const days = Math.max(7, Math.min(90, Number(url.searchParams.get('days')) || 30));
+      const rows = [];
+      const totals = {};
+      for (let i = 0; i < days; i++) {
+        const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        const r = (await getSetting(`ev:${d}`)) || {};
+        rows.push({ day: d, ...r });
+        for (const k of Object.keys(r)) {
+          if (typeof r[k] === 'number') totals[k] = (totals[k] || 0) + r[k];
+          else if (r[k] && typeof r[k] === 'object') {
+            totals[k] = totals[k] || {};
+            for (const s2 of Object.keys(r[k])) totals[k][s2] = (totals[k][s2] || 0) + r[k][s2];
+          }
+        }
+      }
+      /* the accounts side, which is measured properly because it is a table */
+      const accts = (await supa.rows('accounts', 'select=email,plus,first_seen,last_seen')) || [];
+      const now = Date.now();
+      const acct = {
+        total: accts.length,
+        plus: accts.filter(a => a.plus).length,
+        active14: accts.filter(a => a.last_seen && now - ms(a.last_seen) < 14 * 86400000).length,
+        new7: accts.filter(a => a.first_seen && now - ms(a.first_seen) < 7 * 86400000).length,
+      };
+      return json({ days, rows, totals, acct });
+    }
+
     if (path === '/coach/checkpoints') {
       const all = (await getSetting('ladder:checkpoints')) || {};
       if (request.method === 'GET') return json({ ladderCps: all });
