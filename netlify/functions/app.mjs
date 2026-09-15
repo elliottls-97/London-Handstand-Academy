@@ -1662,7 +1662,7 @@ export default async (request) => {
     if (!who) return json({ error: 'Sign in first' }, 401);
     if (request.method === 'POST') {
       const cur = (await getSetting(`prefs:${who}`)) || {};
-      for (const k of ['replies', 'reminders', 'marketing']) {
+      for (const k of ['replies', 'reminders', 'marketing', 'promo']) {
         if (body[k] !== undefined) cur[k] = body[k] !== false;
       }
       await setSetting(`prefs:${who}`, cur);
@@ -1676,6 +1676,8 @@ export default async (request) => {
       replies: p.replies !== false,
       reminders: p.reminders !== false,
       marketing: p.marketing !== undefined ? p.marketing !== false : !!acct.marketing,
+      /* off unless they turned it on: consent is opt in, never assumed */
+      promo: p.promo === true,
     });
   }
 
@@ -2286,6 +2288,8 @@ export default async (request) => {
     return json(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen),
+  /* whether they have said their clips may be used in marketing: opt in */
+  promo: (((await getSetting(`prefs:${who}`)) || {}).promo === true),
   repsLog: repsLogFrom(prog.sessions), visits,
   bestHolds: bestHoldsFrom(prog.holds) } : { visits });
     }
