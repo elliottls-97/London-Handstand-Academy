@@ -772,7 +772,9 @@ export default async (request) => {
             paras: ['There is a message waiting for you in the app under Ask, and it is the first thing to do.',
                     'Everything happens in the app from here: your clips, my answers, and your programme when there is one.'],
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-            signoff: { name: coachName(coachOf(e2)) } }), 'replies');
+            /* no kind: somebody who has just paid is told they are in
+               whatever they have turned off, the same as a receipt */
+            signoff: { name: coachName(coachOf(e2)) } }));
       }
     } else if (off.includes(ev.type)) {
       acct.plus = false;
@@ -785,7 +787,10 @@ export default async (request) => {
           paras: ['After that it is £5 a month, and you can cancel from the app before then if it is not for you.',
                   'If it is, you need do nothing.'],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-          signoff: { name: 'London Handstand Academy' } }), 'replies');
+          /* a card is about to be charged, so this is a billing notice and
+             not something to opt out of. It is also the email that stops a
+             surprise charge becoming a refund and a complaint. */
+          signoff: { name: 'London Handstand Academy' } }));
       return json({ ok: true });
     } else {
       return json({ ok: true, ignored: ev.type });
