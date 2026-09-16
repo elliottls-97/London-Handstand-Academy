@@ -623,10 +623,15 @@ export default async (request) => {
         return json({ ok: true, note: 'workshop not filed' });
       }
       const book = (await getSetting(`wsbook:${slug}`)) || [];
+      const md = obj.metadata || {};
       if (!book.some(b => b.session === obj.id)) {
-        book.push({ email: e, name: nm, at: Date.now(), session: String(obj.id || ''), paid: Number(obj.amount_total) || 0 });
+        book.push({ email: e, name: nm, at: Date.now(), session: String(obj.id || ''), paid: Number(obj.amount_total) || 0,
+          pi: String(obj.payment_intent || ''), q: String(md.q || '').slice(0, 400), exp: String(md.exp || '').slice(0, 400),
+          code: String(md.code || '').slice(0, 24), status: 'booked' });
         await setSetting(`wsbook:${slug}`, book);
+        if (md.code) { const codes = (await getSetting('wscodes')) || {}; if (codes[md.code]) { codes[md.code].used = Number(codes[md.code].used || 0) + 1; await setSetting('wscodes', codes); } }
       }
+      const mine = (await getSetting(`wsmine:${e}`)) || []; if (!mine.includes(slug)) { mine.push(slug); await setSetting(`wsmine:${e}`, mine); }
       await ensureAcct(e, nm);
       const days = Number(w.appDays) || 0;
       if (days > 0) {
@@ -641,12 +646,13 @@ export default async (request) => {
           paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
                   w.desc ? esc(w.desc) : '',
                   days > 0 ? `The Handstand Ladder app is open for you for ${days} days, every stage. Sign in with this address and it is there.` : '',
-                  'A reminder comes the day before. Reply to this if anything changes.'].filter(Boolean),
-          cta: days > 0 ? { href: `${SITE}/lha-app.html`, label: 'Open the app' } : undefined,
+                  `A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it; cancel more than 48 hours before and it is refunded. <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.`].filter(Boolean),
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }));
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${w.title}`,
         mail({ title: `${esc(nm || e)} has booked.`,
-          paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${book.length} of ${w.places || '?'} places taken.`],
+          paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${wsLive(book).length} of ${w.places || '?'} places taken.${md.code ? ' Code ' + esc(md.code) + '.' : ''}`,
+                  md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : ''].filter(Boolean),
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, workshop: slug, booked: book.length });
     }
@@ -1540,42 +1546,112 @@ export default async (request) => {
       if (!w || !w.live) continue;
       if (w.when && ms(w.when) < Date.now() - 6 * 3600e3) continue;   /* over */
       const book = (await getSetting(`wsbook:${w.slug}`)) || [];
-      out.push(wsPublic(w, book.length));
+      out.push(wsPublic(w, wsLive(book).length));
     }
     out.sort((a, b) => ms(a.when) - ms(b.when));
     return json({ workshops: out });
+  }
+  /* a workshop discount code: pounds or percent off, for one workshop or all,
+     with a use count and an expiry. Kept apart from the app codes, which open
+     the ladder rather than take money off. */
+  const wsLive = book => book.filter(b => b.status !== 'cancelled' && b.status !== 'refunded');
+  const wsCodeCheck = async (slug, code, price) => {
+    const c = String(code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+    if (!c) return { off: 0 };
+    const codes = (await getSetting('wscodes')) || {};
+    const d = codes[c];
+    if (!d || d.off === false) return { error: 'That code is not one of ours' };
+    if (d.until && ms(d.until) < Date.now()) return { error: 'That code has expired' };
+    if (Number(d.max) > 0 && Number(d.used || 0) >= Number(d.max)) return { error: 'That code has been used up' };
+    if (d.workshop && d.workshop !== slug) return { error: 'That code is for a different workshop' };
+    const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
+    return { off, code: c };
+  };
+  const wsIcs = (w) => {
+    const dt = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const start = ms(w.when), end = start + 2 * 3600e3;
+    const escI = t => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+    return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//London Handstand Academy//EN', 'BEGIN:VEVENT',
+      `UID:ws-${w.slug}@londonhandstandacademy.com`, `DTSTAMP:${dt(Date.now())}`, `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`,
+      `SUMMARY:${escI(w.title)}`, `LOCATION:${escI(w.place)}`, `DESCRIPTION:${escI(w.desc)}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  };
+  if (path === '/workshop/ics' && request.method === 'GET') {
+    const slug = wsSlug(url.searchParams.get('slug'));
+    const w = ((await getSetting('workshops')) || {})[slug];
+    if (!w || !w.when) return json({ error: 'No such workshop' }, 404);
+    return new Response(wsIcs(w), { headers: { 'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${slug}.ics"` } });
+  }
+  if (path === '/workshop/code' && request.method === 'POST') {
+    const slug = wsSlug(body.slug);
+    const w = ((await getSetting('workshops')) || {})[slug];
+    if (!w) return json({ error: 'No such workshop' }, 404);
+    const r = await wsCodeCheck(slug, body.code, Number(w.price) || 0);
+    if (r.error) return json({ error: r.error }, 400);
+    const price = Math.max(0, (Number(w.price) || 0) - r.off);
+    return json({ ok: true, off: r.off, price, label: price ? '£' + (price / 100).toFixed(2).replace(/\.00$/, '') : 'Free' });
+  }
+  /* full: take a name for when a place frees up */
+  if (path === '/workshop/wait' && request.method === 'POST') {
+    const slug = wsSlug(body.slug);
+    const e = norm(body.email);
+    const nm = String(body.name || '').trim().slice(0, 60);
+    if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ error: 'A name and a real email address' }, 400);
+    const w = ((await getSetting('workshops')) || {})[slug];
+    if (!w || !w.live) return json({ error: 'That workshop is not open' }, 404);
+    const wait = (await getSetting(`wswait:${slug}`)) || [];
+    if (!wait.some(x => x.email === e)) { wait.push({ email: e, name: nm, at: Date.now() }); await setSetting(`wswait:${slug}`, wait); }
+    return json({ ok: true, position: wait.findIndex(x => x.email === e) + 1 });
   }
   if (path === '/workshop/book' && request.method === 'POST') {
     const slug = wsSlug(body.slug);
     const e = norm(body.email);
     const nm = String(body.name || '').trim().slice(0, 60);
-    if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ error: 'A name and a real email address' }, 400);
+    const qn = String(body.q || '').trim().slice(0, 400);
+    const exp = String(body.exp || '').trim().slice(0, 400);
+    if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
     const all = (await getSetting('workshops')) || {};
     const w = all[slug];
     if (!w || !w.live) return json({ error: 'That workshop is not open for booking' }, 404);
     const book = (await getSetting(`wsbook:${slug}`)) || [];
-    if (Number(w.places) > 0 && book.length >= Number(w.places)) return json({ error: 'That one is full' }, 409);
-    if (book.some(b => b.email === e)) return json({ error: 'You are already booked on this one. Check your email.' }, 409);
-    if (!stripeKey()) return json({ error: 'Booking is not switched on yet' }, 503);
-    if (!(Number(w.price) > 0)) {
-      /* a free one books straight away, no Stripe */
-      book.push({ email: e, name: nm, at: Date.now(), session: 'free-' + newId(), paid: 0 });
+    const live = wsLive(book);
+    if (Number(w.places) > 0 && live.length >= Number(w.places)) return json({ error: 'That one is full', full: true }, 409);
+    if (live.some(b => b.email === e)) return json({ error: 'You are already booked on this one. Check your email.' }, 409);
+    const disc = await wsCodeCheck(slug, body.code, Number(w.price) || 0);
+    if (disc.error) return json({ error: disc.error }, 400);
+    const price = Math.max(0, (Number(w.price) || 0) - disc.off);
+    if (!(price > 0)) {
+      /* free, or a code that made it free: booked straight away, no Stripe */
+      book.push({ email: e, name: nm, at: Date.now(), session: 'free-' + newId(), paid: 0, q: qn, exp, code: disc.code || '', status: 'booked' });
       await setSetting(`wsbook:${slug}`, book);
+      if (disc.code) { const codes = (await getSetting('wscodes')) || {}; if (codes[disc.code]) { codes[disc.code].used = Number(codes[disc.code].used || 0) + 1; await setSetting('wscodes', codes); } }
       await ensureAcct(e, nm);
+      const mine = (await getSetting(`wsmine:${e}`)) || []; if (!mine.includes(slug)) { mine.push(slug); await setSetting(`wsmine:${e}`, mine); }
+      const off = (await getSetting('mailoff')) || {}; if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
+      const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      await email(e, `You are booked: ${w.title}`, mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
+        paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+                'A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it.'],
+        cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' }, signoff: { name: 'Elliott, London Handstand Academy' } }));
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked.`,
+        paras: [`<b>${esc(w.title)}</b>. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''}`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
+        cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, free: true });
     }
+    if (!stripeKey()) return json({ error: 'Booking is not switched on yet' }, 503);
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`wsb:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
     try {
       const sess = await stripe('/checkout/sessions', {
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
-        'line_items[0][price_data][unit_amount]': String(Math.round(Number(w.price))),
+        'line_items[0][price_data][unit_amount]': String(Math.round(price)),
         'line_items[0][price_data][product_data][name]': String(w.title).slice(0, 120),
         ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(new Date(w.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
         'line_items[0][quantity]': '1',
         'metadata[workshop]': slug,
         'metadata[name]': nm,
+        'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '',
         customer_email: e,
         success_url: `${url.origin}/workshop.html?slug=${slug}&booked=1`,
         cancel_url: `${url.origin}/workshop.html?slug=${slug}`,
@@ -1592,7 +1668,8 @@ export default async (request) => {
       const out = [];
       for (const w of Object.values(all)) {
         const book = (await getSetting(`wsbook:${w.slug}`)) || [];
-        out.push(Object.assign({}, w, { bookings: book }));
+        const wait = (await getSetting(`wswait:${w.slug}`)) || [];
+        out.push(Object.assign({}, w, { bookings: book, waitlist: wait }));
       }
       return out.sort((a, b) => ms(b.when) - ms(a.when));
     };
@@ -1688,6 +1765,78 @@ export default async (request) => {
             signoff: { name: coachName(asking || primaryCoach()) } }));
       }
       return json({ ok: true, session: row, sessions: list.filter(x => owns(x.email)) });
+    }
+    return json({ error: 'Nope' }, 405);
+  }
+
+  /* what this account has booked, and cancelling one */
+  if (path === '/me/bookings' && request.method === 'GET') {
+    const who = await me(); if (!who) return json({ error: 'Sign in first' }, 401);
+    const mine = (await getSetting(`wsmine:${who}`)) || [];
+    const all = (await getSetting('workshops')) || {};
+    const out = [];
+    for (const slug of mine) {
+      const w = all[slug]; if (!w) continue;
+      const book = (await getSetting(`wsbook:${slug}`)) || [];
+      const b = book.slice().reverse().find(x => x.email === who); if (!b) continue;
+      out.push({ slug, title: w.title, when: w.when, place: w.place, status: b.status || 'booked', paid: b.paid || 0,
+        canCancel: (b.status || 'booked') === 'booked' && ms(w.when) > Date.now(),
+        refundable: (b.status || 'booked') === 'booked' && ms(w.when) - Date.now() > 48 * 3600e3 && (b.paid || 0) > 0 });
+    }
+    out.sort((a, b) => ms(a.when) - ms(b.when));
+    return json({ bookings: out });
+  }
+  if (path === '/workshop/cancel' && request.method === 'POST') {
+    const who = await me(); if (!who) return json({ error: 'Sign in first' }, 401);
+    const slug = wsSlug(body.slug);
+    const w = ((await getSetting('workshops')) || {})[slug];
+    if (!w) return json({ error: 'No such workshop' }, 404);
+    const book = (await getSetting(`wsbook:${slug}`)) || [];
+    const b = book.slice().reverse().find(x => x.email === who && (x.status || 'booked') === 'booked');
+    if (!b) return json({ error: 'No booking to cancel' }, 404);
+    if (ms(w.when) < Date.now()) return json({ error: 'That one has already happened' }, 400);
+    const early = ms(w.when) - Date.now() > 48 * 3600e3;
+    let refunded = false, refundErr = '';
+    if (early && b.pi && (b.paid || 0) > 0 && stripeKey()) {
+      try { await stripe('/refunds', { payment_intent: b.pi }); refunded = true; }
+      catch (err) { refundErr = String(err.message || err); }
+    }
+    b.status = refunded ? 'refunded' : 'cancelled'; b.cancelledAt = Date.now();
+    await setSetting(`wsbook:${slug}`, book);
+    const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+    await email(who, `Cancelled: ${w.title}`, mail({ title: 'Your place is cancelled.', greeting: String(b.name || '').split(' ')[0],
+      paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}.`,
+              refunded ? `Refunded in full to the card you paid with; it shows in a few days.`
+                : (b.paid || 0) > 0 ? (early ? 'The refund could not be made automatically, so Elliott will do it by hand.' : 'Inside 48 hours the place cannot be refilled, so it is not refunded automatically. If something serious has happened, reply to this.') : ''].filter(Boolean),
+      signoff: { name: 'Elliott, London Handstand Academy' } }));
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Cancelled: ${b.name || who}, ${w.title}`,
+      mail({ title: `${esc(b.name || who)} has cancelled.`, paras: [`<b>${esc(w.title)}</b>. ${refunded ? 'Refunded automatically.' : (early ? 'Refund it in Stripe: ' + esc(refundErr || 'no payment intent on the booking') : 'Inside 48 hours, not refunded.')} ${wsLive(book).length} of ${w.places || '?'} places taken now.`],
+        cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+    /* somebody waiting gets first go at the place */
+    const wait = (await getSetting(`wswait:${slug}`)) || [];
+    if (wait.length && Number(w.places) > 0 && wsLive(book).length < Number(w.places)) {
+      const first = wait.shift(); await setSetting(`wswait:${slug}`, wait);
+      await email(first.email, `A place has opened up: ${w.title}`, mail({ title: 'A place has opened up.', greeting: String(first.name || '').split(' ')[0],
+        paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. You were next on the list. It is first come, so book now if you still want it.`],
+        cta: { href: `${SITE}/workshop.html?slug=${slug}`, label: 'Book the place' }, signoff: { name: 'Elliott, London Handstand Academy' } }));
+    }
+    return json({ ok: true, status: b.status });
+  }
+  if (path === '/coach/wscodes') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const codes = (await getSetting('wscodes')) || {};
+    const list = () => Object.keys(codes).sort().map(k => Object.assign({ code: k }, codes[k]));
+    if (request.method === 'GET') return json({ codes: list() });
+    if (request.method === 'POST') {
+      const c = String(body.code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+      if (!c) return json({ error: 'A code needs letters' }, 400);
+      if (body.remove) { delete codes[c]; await setSetting('wscodes', codes); return json({ ok: true, codes: list() }); }
+      codes[c] = Object.assign({}, codes[c] || {}, {
+        pence: Math.max(0, Math.round(Number(body.pence) || 0)), pct: Math.max(0, Math.min(100, Math.round(Number(body.pct) || 0))),
+        max: Math.max(0, Math.round(Number(body.max) || 0)), until: ms(body.until) ? new Date(ms(body.until)).toISOString() : '',
+        workshop: wsSlug(body.workshop || ''), note: String(body.note || '').slice(0, 80), used: Number((codes[c] || {}).used || 0) });
+      await setSetting('wscodes', codes);
+      return json({ ok: true, codes: list() });
     }
     return json({ error: 'Nope' }, 405);
   }

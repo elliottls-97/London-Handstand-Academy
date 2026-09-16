@@ -68,35 +68,61 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
     if(booked){
       box.innerHTML='<div class="done"><div class="tick">&#10003;</div><h1 style="font-size:34px;margin-top:18px">You are booked.</h1>'
         +'<p style="margin:14px auto 0;max-width:40ch;text-align:center">'+esc(w.title)+', '+esc(when(w))+(w.place?', at '+esc(w.place):'')+'. A confirmation is on its way to your email, and a reminder comes the day before.</p>'
+        +'<p style="margin:14px auto 0;max-width:40ch;text-align:center"><a href="/api/app/workshop/ics?slug='+esc(w.slug)+'" style="color:var(--forest)">Add it to your calendar</a>. Sign in to the app with the same email to see the booking or cancel it; more than 48 hours before, it is refunded in full.</p>'
         +(w.appDays>0?'<p style="margin:14px auto 0;max-width:40ch;text-align:center">The Handstand Ladder app is open for you for '+esc(w.appDays)+' days, every stage. Sign in with the same email.</p><a class="btn" href="/lha-app.html" style="text-decoration:none">Open the app</a>':'<a class="btn" href="/" style="text-decoration:none">Back to the site</a>')
         +'</div>';
       return;
     }
     const full=w.places>0&&w.left<=0;
+    let price=w.price, priceLabel=w.priceLabel, code='';
     box.innerHTML='<div class="kick">Workshop'+(w.who?' · '+esc(w.who):'')+'</div><h1>'+esc(w.title)+'</h1>'
       +'<div class="when">'+esc(when(w))+'</div>'
       +(w.place?'<div class="meta">'+esc(w.place)+'</div>':'')
       +(w.desc?'<p>'+esc(w.desc)+'</p>':'')
       +'<div class="card"><div class="price"><b>'+esc(w.priceLabel)+'</b><span>'+(full?'Full':(w.places>0?w.left+' of '+w.places+' places left':'Places available'))+'</span></div>'
-      +(full?'<p style="color:var(--grey)">This one is full. The next date goes out by email first: <a href="/#newsletter" style="color:var(--forest)">join the list</a>.</p>'
+      +(full?'<p style="color:var(--grey)">This one is full. Leave your name and if a place opens up you are emailed first.</p>'
+        +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
+        +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
+        +'<button class="btn" id="wait">Put me on the list</button><div class="msg" id="msg"></div>'
         :'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
         +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
+        +'<label for="ex">Where you are with handstands, optional</label><input id="ex" placeholder="Never tried, or wall only, or a few seconds free">'
+        +'<label for="qq">Anything you want to ask, optional</label><input id="qq" placeholder="Injuries, what to bring, whether it is right for you">'
+        +(w.price>0?'<label for="cd">Discount code, optional</label><div style="display:flex;gap:8px"><input id="cd" placeholder="CODE" style="text-transform:uppercase"><button type="button" id="apply" style="flex:none;min-height:48px;padding:0 16px;border:1px solid var(--line);border-radius:14px;background:#fff;cursor:pointer;font:600 14px/1 var(--sans)">Apply</button></div><div class="msg" id="cmsg" style="color:var(--forest)"></div>':'')
         +'<button class="btn" id="go">'+(w.price>0?'Book, '+esc(w.priceLabel):'Book my place')+'</button>'
         +'<div class="msg" id="msg"></div>'
-        +'<div class="fine">'+(w.price>0?'Card payment on the next page, through Stripe. ':'')+'You get a confirmation by email, a reminder the day before'+(w.appDays>0?', and the Handstand Ladder app open for '+esc(w.appDays)+' days':'')+'.</div>')
+        +'<div class="fine">'+(w.price>0?'Card payment on the next page, through Stripe. ':'')+'You get a confirmation by email and a reminder the day before'+(w.appDays>0?', and the Handstand Ladder app open for '+esc(w.appDays)+' days':'')+'. Cancel more than 48 hours before and it is refunded in full.</div>')
       +'</div>'
       +'<div class="foot">Questions? <a href="mailto:info@londonhandstandacademy.com">info@londonhandstandacademy.com</a></div>';
+    const wait=document.getElementById('wait');
+    if(wait){ wait.onclick=()=>{
+      const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim(); const msg=document.getElementById('msg');
+      if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
+      wait.disabled=true;
+      fetch('/api/app/workshop/wait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug,name,email})})
+        .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not add you')))
+        .then(d=>{ wait.textContent='You are number '+d.position+' on the list'; msg.style.color='var(--forest)'; msg.textContent='If a place opens up, you are emailed first.'; })
+        .catch(e=>{ wait.disabled=false; msg.textContent=String(e); }); }; return; }
     const go=document.getElementById('go'); if(!go) return;
+    const apply=document.getElementById('apply');
+    if(apply){ apply.onclick=()=>{
+      const c=(document.getElementById('cd').value||'').trim().toUpperCase(); const cm=document.getElementById('cmsg');
+      if(!c){ code=''; price=w.price; priceLabel=w.priceLabel; go.textContent='Book, '+priceLabel; cm.textContent=''; return; }
+      fetch('/api/app/workshop/code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug,code:c})})
+        .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'That code did not work')))
+        .then(d=>{ code=c; price=d.price; priceLabel=d.label; cm.style.color='var(--forest)'; cm.textContent=c+' applied: '+w.priceLabel+' becomes '+d.label+'.'; go.textContent=price>0?'Book, '+priceLabel:'Book my place'; })
+        .catch(e=>{ code=''; price=w.price; priceLabel=w.priceLabel; cm.style.color='var(--terra)'; cm.textContent=String(e); go.textContent='Book, '+priceLabel; }); }; }
     go.onclick=()=>{
       const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim();
+      const exp=((document.getElementById('ex')||{}).value||'').trim(), q=((document.getElementById('qq')||{}).value||'').trim();
       const msg=document.getElementById('msg');
       if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
       go.disabled=true; go.textContent='One moment…'; msg.textContent='';
       beacon('workshopbook');
-      fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug,name,email})})
+      fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug,name,email,q,exp,code})})
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the booking')))
         .then(d=>{ if(d.url){ location.href=d.url; return; } if(d.free){ location.href='/workshop.html?slug='+slug+'&booked=1'; return; } throw 'Something went wrong'; })
-        .catch(e=>{ go.disabled=false; go.textContent=w.price>0?'Book, '+w.priceLabel:'Book my place'; msg.textContent=String(e); });
+        .catch(e=>{ go.disabled=false; go.textContent=price>0?'Book, '+priceLabel:'Book my place'; msg.textContent=String(e); });
     };
   }).catch(()=>{ box.innerHTML='<p style="color:var(--grey)">Could not load this. Try again in a moment.</p>'; });
 })();

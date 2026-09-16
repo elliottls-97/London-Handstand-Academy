@@ -4248,6 +4248,48 @@ function sendAsk(){
 }
 
 /* ── More ── */
+/* ── workshops this account has booked ───────────────────────────────
+   Booked on the site with an email, so the account already exists; here
+   they see the date and place, and can cancel. More than 48 hours out it
+   refunds itself; inside that it cancels and the coach decides. */
+let bookingsAsked=false;
+function loadBookings(){
+  if(!st.token) return;
+  fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ st.bookings=d.bookings||[]; save(); if(st.tab==='more') render(); } }).catch(()=>{});
+}
+function cancelBooking(slug){
+  const b=(st.bookings||[]).find(x=>x.slug===slug); if(!b) return;
+  const msg = b.refundable ? 'Cancel your place? It is more than 48 hours away, so it is refunded in full.'
+    : (b.paid ? 'Cancel your place? It is inside 48 hours, so it is not refunded automatically.' : 'Cancel your place?');
+  if(!confirm(msg)) return;
+  fetch('/api/app/workshop/cancel',{method:'POST',headers:authed(),body:JSON.stringify({slug})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not cancel')))
+    .then(()=>loadBookings())
+    .catch(e=>alert(String(e)));
+}
+function bookingsHTML(){
+  if(!st.token) return '';
+  if(!bookingsAsked){ bookingsAsked=true; loadBookings(); }
+  const list=(st.bookings||[]).filter(b=>b.status==='booked' || (Date.now()-new Date(b.when).getTime())<7*864e5);
+  if(!list.length) return '';
+  const when=b=>b.when?new Date(b.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+  return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
+    <div class="kick2">YOUR WORKSHOPS</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
+      ${list.map(b=>`<div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between">
+        <div style="min-width:0">
+          <div style="font:600 15px/1.3 var(--sans)">${esc(b.title)}</div>
+          <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:2px">${esc(when(b))}${b.place?' · '+esc(b.place):''}</div>
+          ${b.status!=='booked'?`<div style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:6px">${b.status==='refunded'?'CANCELLED, REFUNDED':'CANCELLED'}</div>`:''}
+        </div>
+        ${b.canCancel?`<button class="rt" style="flex:none" onclick="cancelBooking('${esc(b.slug)}')">Cancel</button>`:''}
+      </div>`).join('')}
+    </div>
+    ${list.some(b=>b.canCancel)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Cancel more than 48 hours before and it is refunded in full.</div>`:''}
+  </div>`;
+}
+
 function screenMore(){
   const all=libraryDrills();
   /* 88 drills in one flat grid is a wall. They already belong to a stage and
@@ -4317,6 +4359,7 @@ function screenMore(){
         :`<button class="act" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>`}
       </div>
       ${knowCard()}
+      ${bookingsHTML()}
 
       <!-- the tutorial, findable rather than once-only. Nobody remembers a
            tour they saw on day one. -->

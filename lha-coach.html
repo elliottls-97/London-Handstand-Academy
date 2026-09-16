@@ -6198,26 +6198,71 @@ function workshopsHTML(){
         <div class="field" style="grid-column:1/-1"><label>Review link, optional</label><input class="input" value="${esc(w.reviewUrl||'')}" placeholder="https://g.page/r/… the Google review link" oninput="wsSet('reviewUrl',this.value)"></div>
       </div>
       ${w.slug?`<p class="muted" style="font-size:12.5px;margin-top:12px">Booking page: <b style="font-family:ui-monospace,monospace">/workshop.html?slug=${esc(w.slug)}</b>. Everyone booked gets a confirmation, a reminder the day before, and a review ask the day after.</p>`:''}
-      ${(w.bookings||[]).length?`<h5 style="margin-top:var(--space-6)">Booked · ${w.bookings.length}${w.places?' of '+w.places:''}</h5>
-        <div style="font:400 13px/1.7 var(--sans)">${w.bookings.map(b=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:5px 0"><b style="min-width:140px">${esc(b.name||'')}</b><span>${esc(b.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(b.at))}</span></div>`).join('')}</div>
-        <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(w.bookings.map(b=>b.email).join(', '))}');flash('Emails copied')">Copy all emails</button>`
-        :(w.was?'<p class="muted" style="font-size:13px;margin-top:14px">Nobody booked yet.</p>':'')}
+      ${(()=>{ const live=(w.bookings||[]).filter(b=>b.status!=='cancelled'&&b.status!=='refunded'); const gone=(w.bookings||[]).filter(b=>b.status==='cancelled'||b.status==='refunded');
+        const row=b=>`<div style="padding:8px 0;border-bottom:1px solid rgba(17,17,17,.07)">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b style="min-width:140px">${esc(b.name||'')}</b><span>${esc(b.email)}</span>
+            ${b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:''}${b.status&&b.status!=='booked'?`<span class="tag tag-accent-2">${esc(b.status)}</span>`:''}
+            <span class="muted" style="margin-left:auto">${esc(ago(b.at))}${b.paid?' · £'+(b.paid/100).toFixed(2).replace(/\.00$/,''):' · free'}</span></div>
+          ${b.q?`<div class="muted" style="font-size:12.5px;margin-top:3px"><b style="color:var(--ink)">Asked:</b> ${esc(b.q)}</div>`:''}
+          ${b.exp?`<div class="muted" style="font-size:12.5px;margin-top:2px"><b style="color:var(--ink)">Experience:</b> ${esc(b.exp)}</div>`:''}</div>`;
+        return (live.length?`<h5 style="margin-top:var(--space-6)">Booked · ${live.length}${w.places?' of '+w.places:''}</h5>
+          <div style="font:400 13px/1.6 var(--sans)">${live.map(row).join('')}</div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(live.map(b=>b.email).join(', '))}');flash('Emails copied')">Copy all emails</button>`
+          :(w.was?'<p class="muted" style="font-size:13px;margin-top:14px">Nobody booked yet.</p>':''))
+        +(gone.length?`<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:13px">${gone.length} cancelled</summary><div style="font:400 13px/1.6 var(--sans)">${gone.map(row).join('')}</div></details>`:'')
+        +((w.waitlist||[]).length?`<h5 style="margin-top:var(--space-4)">Waiting for a place · ${w.waitlist.length}</h5>
+          <div style="font:400 13px/1.7 var(--sans)">${w.waitlist.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:5px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
+          <p class="muted" style="font-size:12px;margin-top:6px">When someone cancels, the first here is emailed a link to the place.</p>`:''); })()}
     </div>`; }
   const list=(wshops||[]);
   return `<div class="card">
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">WORKSHOPS</div><span style="flex:1"></span>
       <button class="btn btn-primary btn-sm" onclick="wsNew()">New workshop</button></div>
     <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">Live ones appear on the site and take bookings through Stripe with no login. Setmore stays for one to one sessions.</p>
-    ${list.map(w=>`<div class="row-hit" style="display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:10px 6px;border-bottom:1px solid rgba(17,17,17,.08)">
+    ${list.map(w=>{ const live=(w.bookings||[]).filter(b=>b.status!=='cancelled'&&b.status!=='refunded'); return `<div class="row-hit" style="display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:10px 6px;border-bottom:1px solid rgba(17,17,17,.08)">
       <div onclick="wsEdit('${esc(w.slug)}')" style="cursor:pointer;min-width:0">
         <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><span style="font:600 14.5px/1.3 var(--sans)">${esc(w.title)}</span>
           <span class="tag ${w.live?'tag-accent':'tag-neutral'}">${w.live?'live':'draft'}</span>${w.when&&new Date(w.when)<Date.now()?'<span class="tag tag-neutral">past</span>':''}</div>
-        <div class="muted" style="font-size:12.5px;margin-top:2px">${esc(wsWhen(w))} · ${w.price?'£'+(w.price/100).toFixed(2).replace(/\.00$/,''):'free'} · ${(w.bookings||[]).length}${w.places?' of '+w.places:''} booked</div></div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">${esc(wsWhen(w))} · ${w.price?'£'+(w.price/100).toFixed(2).replace(/\.00$/,''):'free'} · ${live.length}${w.places?' of '+w.places:''} booked${(w.waitlist||[]).length?' · '+w.waitlist.length+' waiting':''}</div></div>
       <button class="btn btn-ghost btn-sm" onclick="wsLive('${esc(w.slug)}')">${w.live?'Take off':'Go live'}</button>
       <a class="btn btn-ghost btn-sm" href="/workshop.html?slug=${esc(w.slug)}" target="_blank" rel="noopener">Page</a>
-      <button class="btn btn-secondary btn-sm" onclick="wsEdit('${esc(w.slug)}')">Edit</button></div>`).join('')
+      <button class="btn btn-secondary btn-sm" onclick="wsEdit('${esc(w.slug)}')">Edit</button></div>`; }).join('')
       ||(wshops?'<p class="muted" style="margin-top:12px">No workshops yet.</p>':'')}
+    ${wsCodesHTML()}
   </div>`;
+}
+/* ── discount codes for workshops: pounds or percent off ── */
+let wsCodes=null, wsCodeNew={code:'',pence:'',pct:'',max:'',until:'',workshop:'',note:''};
+function wsCodesLoad(){ if(wsCodes) return; wsCodes=[]; fetch(API+'/wscodes',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ wsCodes=d.codes||[]; draw(); } }).catch(()=>{}); }
+function wsCodeSave(body){
+  fetch(API+'/wscodes',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ wsCodes=d.codes||wsCodes; wsCodeNew={code:'',pence:'',pct:'',max:'',until:'',workshop:'',note:''}; draw(); })
+    .catch(e=>alert(String(e)));
+}
+function wsCodeAdd(){ const c=(wsCodeNew.code||'').toUpperCase().replace(/[^A-Z0-9-]/g,''); if(!c) return alert('Give it a code.');
+  const pence=Math.round((Number(wsCodeNew.pence)||0)*100), pct=Number(wsCodeNew.pct)||0; if(!pence&&!pct) return alert('Pounds off or percent off.');
+  wsCodeSave({code:c,pence,pct,max:Number(wsCodeNew.max)||0,until:wsCodeNew.until||'',workshop:wsCodeNew.workshop||'',note:wsCodeNew.note||''}); }
+function wsCodesHTML(){
+  wsCodesLoad();
+  const inp='class="input" style="min-height:36px;padding:6px 9px"';
+  return `<div style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--line)">
+    <div class="kick">DISCOUNT CODES</div>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the booking page. Pounds off or a percentage, for one workshop or all of them, with a use limit and an end date if you want them.</p>
+    ${(wsCodes||[]).map(c=>`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid rgba(17,17,17,.07);font:400 13px/1.4 var(--sans)">
+      <b style="font:700 13px/1 var(--sans);letter-spacing:.06em;color:var(--forest)">${esc(c.code)}</b>
+      <span>${c.pct?c.pct+'% off':'£'+((c.pence||0)/100).toFixed(2).replace(/\.00$/,'')+' off'}</span>
+      <span class="muted">${c.workshop?'for '+esc(c.workshop):'any workshop'}${c.max?' · '+(c.used||0)+' of '+c.max+' used':(c.used?' · used '+c.used:'')}${c.until?' · until '+esc(String(c.until).slice(0,10)):''}${c.note?' · '+esc(c.note):''}</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--terra)" onclick="if(confirm('Remove ${esc(c.code)}?')) wsCodeSave({code:'${esc(c.code)}',remove:true})">Remove</button></div>`).join('')}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px;align-items:end">
+      <div class="field"><label>Code</label><input ${inp} value="${esc(wsCodeNew.code)}" placeholder="EARLYBIRD" oninput="wsCodeNew.code=this.value"></div>
+      <div class="field"><label>£ off</label><input ${inp} value="${esc(wsCodeNew.pence)}" placeholder="5" oninput="wsCodeNew.pence=this.value"></div>
+      <div class="field"><label>or % off</label><input ${inp} value="${esc(wsCodeNew.pct)}" placeholder="20" oninput="wsCodeNew.pct=this.value"></div>
+      <div class="field"><label>Max uses</label><input ${inp} value="${esc(wsCodeNew.max)}" placeholder="any" oninput="wsCodeNew.max=this.value"></div>
+      <div class="field"><label>Until</label><input ${inp} type="date" value="${esc(wsCodeNew.until)}" oninput="wsCodeNew.until=this.value"></div>
+      <div class="field"><label>Workshop</label><select ${inp} onchange="wsCodeNew.workshop=this.value"><option value="">Any</option>${(wshops||[]).map(w=>`<option value="${esc(w.slug)}" ${wsCodeNew.workshop===w.slug?'selected':''}>${esc(w.title)}</option>`).join('')}</select></div>
+      <button class="btn btn-primary btn-sm" onclick="wsCodeAdd()">Add code</button>
+    </div></div>`;
 }
 
 /* ── Settings ─────────────────────────────────────────────────────── */
