@@ -397,6 +397,7 @@ const AUTH = {
   login:   '/api/app/login',   // POST {email,password} → {token, client}
   programme:'/api/app/programme', // GET → {client, plan, library} for the token
   ladder:  '/api/app/ladder',   // GET → {ladderExtra, timing} the coach has set, for everyone
+  fixes:   '/api/app/fixes',    // GET → {fixes} the live problem fixes, for everyone
   password:'/api/app/password',  // POST {current,next}
   emailReq:'/api/app/email/request',   // POST {next,password} → code to the new address
   emailGo: '/api/app/email/confirm',   // POST {code} → moves the account, new token
@@ -461,6 +462,10 @@ function trackOpen(){
        kept until there is an account to put it on */
     const code=(q.get('code')||'').toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,24);
     if(code){ st.pendingCode=code; save(); history.replaceState(null,'',location.pathname); }
+    /* a fix, from a reel or its page: opened the moment the fixes have loaded
+       and the quiz is out of the way */
+    const fxs=(q.get('fix')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
+    if(fxs){ st.fixPending=fxs; save(); history.replaceState(null,'',location.pathname); }
   }catch(e){}
 }
 const DEV_CODE = '123456';
@@ -2133,7 +2138,11 @@ function cpDue(){
   return (Date.now()-newest) > 14*864e5;
 }
 function saveCheckpoint(k,v,video){
-  const wasReady = coachedView() ? true : cpProgress(stageOfCp(k)).ready;
+  /* fix:<slug>:start and :finish are the before and after of a fix. They sit
+     in the same history and reach the coach the same way, but no stage owns
+     them, so nothing about clearing a stage applies. */
+  const isFix=String(k).startsWith('fix:');
+  const wasReady = (coachedView()||isFix) ? true : cpProgress(stageOfCp(k)).ready;
   st.track=st.track||{};
   st.track.checkpoints=st.track.checkpoints||{};
   const row=Object.assign({v:Number(v)||0,at:Date.now()}, video?{video}:{});
@@ -2152,7 +2161,7 @@ function saveCheckpoint(k,v,video){
   /* Reaching the last check point on a stage is the whole point of the
      stage, and nothing happened when you did: the counter read 7 of 7 and
      you stayed where you were. */
-  const sg = coachedView() ? -1 : stageOfCp(k);
+  const sg = (coachedView()||isFix) ? -1 : stageOfCp(k);
   const clearedNow = sg>-1 && sg===curStage() && !wasReady && cpProgress(sg).ready;
   save();
   /* under an open sheet render() bails out, so logging one used to change
@@ -3919,6 +3928,8 @@ function loadState(){
       }
       if(d.quizDone) st.quizDone=true;
       if(Number.isInteger(d.taste)) st.taste=d.taste;
+      /* sessions done on each fix, so a new phone does not start a fix again */
+      if(d.fixDone && typeof d.fixDone==='object') st.fixDone=Object.assign({}, d.fixDone, st.fixDone||{});
       /* Where they are on the ladder followed the phone, not the person. It
          was written to the account row by sendIntake and read back by the
          coach's dashboard and by nothing else, so a paying subscriber who
@@ -3939,7 +3950,8 @@ function saveState(){
       dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
       intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(),
       ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
-      ladderDone:st.ladderDone||{}
+      ladderDone:st.ladderDone||{},
+      fixDone:st.fixDone||{}
     })}).catch(()=>{});
   }, 800);
 }
@@ -4716,6 +4728,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
   if(done) track('finish');
+  fixSessionDone(done);
   if(done && !st.in) advanceDay();
   save();
   if(done){ st.ovSummary=true; openOv('summary'); }
@@ -6399,6 +6412,7 @@ function finishChecklist(){
   st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
   logReps();
   if(done) track('finish');
+  fixSessionDone(done);
   st.qTick={}; st.reps={}; save(); closeOv(); openOv('summary');
 }
 
@@ -7268,6 +7282,218 @@ function openCompare(){
    A sheet says the same thing and leaves you where you were. */
 function lockedExplainer(i){ st.exOpen=i; openOv('locked'); }
 
+/* ══ Fixes ════════════════════════════════════════════════════════════
+   A fix is a four week programme for one problem, written from the coach
+   dashboard: an article that says why, a pool of drills the session builder
+   spends, and a clip asked for before and after. The list is public and
+   carries everything a drill needs, so a free account plays a fix without
+   the library knowing about it. */
+function loadFixes(){
+  return fetch(AUTH.fixes)
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ st.fixes=(d&&d.fixes)||{}; save();
+      if(st.tab==='fix'||st.tab==='home'||st.fixPending) render(); return true; })
+    .catch(()=>false);
+}
+const fixList = () => Object.values(st.fixes||{});
+const fixDoneN = slug => Number((st.fixDone||{})[slug]||0);
+const fixTotal = f => (f.weeks||4)*(f.perWeek||3);
+const fixCover = f => (f.cover&&f.cover.uid) ? streamThumb(f.cover.uid)
+  : (f.cover&&f.cover.img) ? '/api/app/image/'+f.cover.img
+  : ((f.drills||[]).find(d=>d.url) ? streamThumb(uidOfUrl((f.drills||[]).find(d=>d.url).url)) : '');
+function openFix(slug){ st.fixSlug=slug; st.tab='fix'; st.fixMins=null; save(); render(); window.scrollTo(0,0); }
+function fixSessionDone(done){
+  const slug=st.fixActive; if(!slug) return;
+  st.fixActive=null;
+  if(done){ st.fixDone=Object.assign({}, st.fixDone||{}); st.fixDone[slug]=fixDoneN(slug)+1; track('fixdone'); }
+  save();
+}
+
+function fixesHomeHTML(){
+  const list=fixList(); if(!list.length) return '';
+  const card=f=>{
+    const n=fixDoneN(f.slug), tot=fixTotal(f), cover=fixCover(f);
+    const locked=f.access==='plus' && !isPlus();
+    return `<div onclick="openFix('${esc(f.slug)}')" style="flex:none;width:236px;scroll-snap-align:start;
+      background:#fff;border-radius:20px;overflow:hidden;cursor:pointer;box-shadow:0 10px 24px -18px rgba(28,32,25,.5)">
+      <div style="aspect-ratio:16/9;background:var(--mist);position:relative">
+        ${cover?`<img src="${esc(cover)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">`:''}
+        ${locked?`<span style="position:absolute;top:8px;left:8px;font:600 9px/1 var(--sans);letter-spacing:.12em;
+          padding:5px 7px;border-radius:5px;background:rgba(17,17,17,.7);color:#fff">£ TIER</span>`:''}
+      </div>
+      <div style="padding:12px 13px 14px">
+        <div style="font:600 14.5px/1.25 var(--sans)">${esc(f.name)}</div>
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:4px;overflow:hidden;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(f.tag||'')}</div>
+        <div style="font:600 11px/1 var(--sans);letter-spacing:.08em;color:var(--forest);margin-top:9px">${
+          n?(n>=tot?'DONE':n+' OF '+tot+' SESSIONS'):(f.weeks||4)+' WEEKS · '+(f.perWeek||3)+' A WEEK'}</div>
+      </div></div>`; };
+  return `<section class="rise rise-3" style="padding:26px 0 0">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 20px 12px">
+      <span style="font:400 26px/1.1 var(--serif)">Fix one thing.</span>
+      <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length} fix${list.length===1?'':'es'}</span>
+    </div>
+    <div style="display:flex;gap:12px;overflow-x:auto;padding:0 20px 14px;scroll-snap-type:x mandatory;
+      scrollbar-width:none;-webkit-overflow-scrolling:touch">${list.map(card).join('')}</div>
+  </section>`;
+}
+
+function fixBlockHTML(b){
+  if(b.t==='h') return `<h2 style="font:400 26px/1.15 var(--serif);letter-spacing:-.01em;margin:26px 0 8px">${esc(b.text||'')}</h2>`;
+  if(b.t==='p') return `<p style="font:400 16px/1.6 var(--sans);color:var(--ink);margin:0 0 14px;white-space:pre-wrap">${esc(b.text||'')}</p>`;
+  if(b.t==='quote') return `<blockquote style="margin:18px 0;padding:4px 0 4px 16px;border-left:3px solid var(--forest);
+    font:400 20px/1.35 var(--serif);color:var(--deep)">${esc(b.text||'')}</blockquote>`;
+  if(b.t==='img' && b.id) return `<figure style="margin:16px 0"><img src="/api/app/image/${esc(b.id)}" alt="${esc(b.cap||'')}" loading="lazy"
+    style="width:100%;border-radius:18px;display:block">${b.cap?`<figcaption style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${esc(b.cap)}</figcaption>`:''}</figure>`;
+  if(b.t==='vid' && b.uid) return `<figure style="margin:16px 0"><div style="border-radius:18px;overflow:hidden;background:#000;aspect-ratio:16/9">
+    <iframe src="${STREAM_CDN}${esc(b.uid)}/iframe?preload=metadata&poster=${encodeURIComponent(streamThumb(b.uid))}"
+      loading="lazy" allow="accelerometer;gyroscope;autoplay;encrypted-media;picture-in-picture;fullscreen"
+      style="display:block;width:100%;height:100%;border:0"></iframe></div>${
+    b.cap?`<figcaption style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${esc(b.cap)}</figcaption>`:''}</figure>`;
+  if(b.t==='drill' && b.v) return `<figure style="margin:16px 0">${b.url?drillFilm(b.url,'16/10'):''}
+    <figcaption style="font:400 13.5px/1.5 var(--sans);color:var(--ink);margin-top:${b.url?'-8px':'0'}"><b>${esc(b.n||b.v)}</b>${
+      b.cap?` · <span style="color:var(--grey)">${esc(b.cap)}</span>`:''}</figcaption></figure>`;
+  return '';
+}
+
+function screenFix(){
+  const f=(st.fixes||{})[st.fixSlug];
+  const back=`<button onclick="go('${coachedView()?'today':'home'}')" style="background:none;border:0;padding:0;cursor:pointer;
+      font:500 13px/1.4 var(--sans);color:var(--forest)">← Back</button>`;
+  if(!f) return `<div class="scroll s"><div style="padding:calc(env(safe-area-inset-top) + 84px) 20px 40px">${back}
+    <div style="font:400 30px/1.1 var(--serif);margin-top:14px">That fix is not here.</div>
+    <p style="font:400 15px/1.5 var(--sans);color:var(--grey)">It may have been taken down, or the link is wrong.</p></div></div>`;
+  trackOnce('fixopen', f.slug);
+  const locked=f.access==='plus' && !isPlus();
+  const n=fixDoneN(f.slug), tot=fixTotal(f), finished=n>=tot;
+  const cover=fixCover(f);
+  const kS='fix:'+f.slug+':start', kF='fix:'+f.slug+':finish';
+  const before=cpLast(kS), after=cpLast(kF);
+  const mins=st.fixMins||f.mins||20;
+  const clipRow=(k,title,note,have)=>`<div style="background:#fff;border-radius:18px;padding:14px 16px;margin-top:12px">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+        <div style="font:600 14.5px/1.3 var(--sans)">${esc(title)}</div>
+        ${have?`<span style="font:600 10px/1 var(--sans);letter-spacing:.12em;color:var(--forest)">${
+          have.verdict==='reached'?'SEEN, LOOKS GOOD':have.verdict==='notyet'?'SEEN, NOT YET':'SENT'}</span>`:''}</div>
+      ${note?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:4px">${esc(note)}</div>`:''}
+      <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <button class="rt" onclick="cpFilm('${k}')">${have?'Send another':'Film it'}</button>
+        <span id="cpup-${k}" style="font:500 12px/1.4 var(--sans);color:var(--grey2)"></span>
+        ${have&&have.video?`<span style="font:400 12px/1.4 var(--sans);color:var(--grey2)">${esc(agoShort(have.at))}</span>`:''}
+      </div></div>`;
+  return `<div class="scroll s">
+    <div style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">${back}</div>
+    ${cover?`<div style="margin:14px 20px 0;aspect-ratio:16/9;border-radius:22px;overflow:hidden;background:var(--mist)">
+      <img src="${esc(cover)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`:''}
+    <div class="rise" style="padding:18px 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">
+        A fix · ${f.weeks} weeks · ${f.perWeek} a week · about ${f.mins} min</div>
+      <div style="font:400 38px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">${esc(f.name)}</div>
+      ${f.tag?`<div style="font:400 17px/1.45 var(--sans);color:var(--grey);margin-top:10px">${esc(f.tag)}</div>`:''}
+      ${f.goal?`<div style="font:400 15px/1.5 var(--sans);color:var(--ink);margin-top:8px"><b style="color:var(--forest)">In ${f.weeks} weeks:</b> ${esc(f.goal)}</div>`:''}
+    </div>
+
+    ${locked?`<div class="rise rise-1" style="margin:20px 20px 0;padding:18px;border-radius:22px;background:var(--deep);color:#fff">
+        <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--sand)">IN THE FULL LADDER</div>
+        <div style="font:400 24px/1.15 var(--serif);margin-top:8px">This fix opens with the £5 a month tier.</div>
+        <div style="font:400 14px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:8px">Every fix, every stage of the ladder, and the first week is free.</div>
+        <button class="btn" style="width:100%;margin-top:14px;background:#fff;color:var(--deep)" onclick="openStage(FREE_STAGES)">See what is in it</button>
+      </div>`
+    :`<div class="rise rise-1" style="padding:20px 20px 0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+        <span style="font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--grey)">${
+          finished?'Done':'Sessions'}</span>
+        <span style="font:400 13px/1 var(--sans);color:var(--grey)">${n} of ${tot}</span>
+      </div>
+      <div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:8px;overflow:hidden">
+        <div style="height:100%;width:${Math.min(100,Math.round(n/tot*100))}%;background:var(--deep);border-radius:4px"></div></div>
+
+      ${!before && !n ? clipRow(kS, (f.start&&f.start.n)||'Film it before you start', (f.start&&f.start.note)||'So you can see the difference in four weeks. Elliott sees it too.', null) : ''}
+
+      <div style="display:flex;gap:8px;margin-top:16px">
+        ${[15,20,30].map(m=>`<button onclick="st.fixMins=${m};save();render()" style="flex:1;min-height:44px;border-radius:12px;
+          cursor:pointer;font:600 13px/1 var(--sans);border:1.5px solid ${mins===m?'var(--forest)':'rgba(0,64,61,.14)'};
+          background:${mins===m?'var(--forest)':'#fff'};color:${mins===m?'#fff':'var(--ink)'}">${m} min</button>`).join('')}
+      </div>
+      <button onclick="buildFixSession('${esc(f.slug)}',false)" style="height:64px;width:100%;border:0;border-radius:18px;margin-top:10px;
+        background:linear-gradient(180deg,#0a7a76,#006663);box-shadow:0 12px 30px rgba(0,102,99,.3);color:var(--on-primary);
+        display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 22px;cursor:pointer">
+        <span style="font:600 18px/1.15 var(--sans)">${finished?'Do it again':n?'Session '+(n+1):'Start the first session'}</span>
+        <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);display:grid;place-items:center">
+          <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+      </button>
+      <button onclick="buildFixSession('${esc(f.slug)}',true)" style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;
+        font:500 13.5px/1.4 var(--sans);color:var(--forest);padding:8px">See the drills, or work through the list</button>
+
+      ${finished ? clipRow(kF, (f.finish&&f.finish.n)||'Film it again', (f.finish&&f.finish.note)||'Same angle as before. Put the two side by side.', after) : ''}
+      ${before && !finished ? `<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Your before clip is in. The after comes at session ${tot}.</div>`:''}
+    </div>`}
+
+    <div class="rise rise-2" style="padding:6px 20px 0">${(f.article||[]).map(fixBlockHTML).join('')}</div>
+
+    ${(f.drills||[]).length?`<div class="rise rise-3" style="padding:22px 20px 0">
+      <div style="font:400 24px/1.1 var(--serif)">The drills.</div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${f.drills.length} in the pool. A session takes six to ten and starts further down each time.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+        ${f.drills.map(d=>`<div style="display:flex;gap:12px;align-items:center;background:#fff;border-radius:14px;padding:8px 10px 8px 8px">
+          <div style="width:72px;height:44px;border-radius:9px;background:#000;overflow:hidden;flex:none">${
+            d.url?`<img src="${esc(streamThumb(uidOfUrl(d.url)))}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">`:''}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font:600 14px/1.25 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.n||d.v)}</div>
+            <div style="font:400 12px/1.3 var(--sans);color:var(--grey2);margin-top:3px">${esc(d.g||'')}${d.g?' · ':''}level ${d.L||1}${d.d?' · '+esc(d.d):''}</div>
+          </div></div>`).join('')}
+      </div></div>`:''}
+    <div style="height:110px"></div>
+  </div>`;
+}
+
+/* The fix's own pool, spent the way a stage session is: a warm-up, then six
+   to ten drills starting one further down the list each time, easiest
+   first, one set each under thirty minutes and the drill's own sets above. */
+function buildFixSession(slug, listOnly){
+  const f=(st.fixes||{})[slug]; if(!f) return;
+  if(f.access==='plus' && !isPlus()){ openStage(FREE_STAGES); return; }
+  const mins=st.fixMins||f.mins||20, budget=mins*60;
+  const toIt=d=>Object.assign({}, d, {d: d.d || FREE_DOSE[d.v] || '3 × 8'});
+  let warm;
+  if((f.warmDrills||[]).length){
+    const items=f.warmDrills.map(w=>Object.assign({},w,{d:'30s'}));
+    warm={items, secs:items.reduce((t,it)=>t+work(it,'Warm-up')+rest({it,grp:'Warm-up',g:'Warm-up'}),0)};
+  } else warm=warmupFor(budget, f.stage||0, null);
+  const used=new Set(warm.items.map(x=>x.v));
+  const pool=(f.drills||[]).filter(d=>!used.has(d.v)).map(toIt);
+  if(!pool.length){ alert('Nothing in this fix yet.'); return; }
+  const out=warm.items.map((it,i)=>{
+    const nn=warm.items.filter(x=>x.v===it.v).length, k=warm.items.slice(0,i+1).filter(x=>x.v===it.v).length;
+    return {it,gi:0,ii:i,set:k,sets:nn,grp:'Warm-up'}; });
+  let secs=warm.secs;
+  const rot=Number((st.fixRot||{})[slug]||0);
+  const spin=(list,by)=>list.length?list.slice(by%list.length).concat(list.slice(0,by%list.length)):list;
+  const wantN = mins>=45 ? 10 : mins>=30 ? 8 : 6;
+  const picked=spin(pool, rot).slice(0, wantN).sort((a,b)=>(a.L||1)-(b.L||1));
+  const done={};
+  const add=it=>{
+    const t=work(it,it.g||f.name)+rest({it, grp:f.name, g:it.g});
+    if(secs+t>budget) return false;
+    done[it.v]=(done[it.v]||0)+1;
+    out.push({it,gi:0,ii:out.length,set:done[it.v],sets:done[it.v],grp:f.name,g:it.g}); secs+=t; return true; };
+  const oneSetOnly = mins<30;
+  const setsWanted = it => { if(oneSetOnly) return 1;
+    const m=timed(it), stated=Number(m.sets);
+    if(Number.isFinite(stated)&&stated>=1) return Math.min(stated,8);
+    const k=setsFor(it); return Math.min(k>1?k:3,4); };
+  let more=true;
+  while(more && secs<budget){ more=false;
+    for(const it of picked){ if((done[it.v]||0)>=setsWanted(it)) continue; if(add(it)) more=true; } }
+  if(out.length===warm.items.length) add(picked[0]);
+  const tally={}; out.forEach(q=>{ tally[q.it.v]=(tally[q.it.v]||0)+1; }); out.forEach(q=>{ q.sets=tally[q.it.v]; });
+  Q=out;
+  if(listOnly){ st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true; openOv('list'); return; }
+  st.fixRot=Object.assign({}, st.fixRot||{}); st.fixRot[slug]=(rot+1)%997;
+  st.fixActive=slug; save(); track('fixstart');
+  startQueue(0);
+}
+
 function screenHome(){
   const S=STAGES[curStage()]||STAGES[0];
   const done=sessionsThisWeek(), target=weekTarget();
@@ -7356,6 +7582,8 @@ function screenHome(){
           ? 'Your week has nothing on '+DAYL[todayWd()]+'.'
           : 'Then pick how long and how hard.'}</div>
     </div>
+
+    ${fixesHomeHTML()}
 
     <!-- the explainers, as the design has them: one question box, then a rail
          of video cards. The accordion this replaces held the same list; the
@@ -9539,7 +9767,7 @@ function topBar(){
      light ground now, so there is nothing left for it to invert over and the
      bar is the same dark teal on white everywhere. */
   const label = ({home:'TODAY',today:'TODAY',ladder:'LADDER',progress:'PROGRESS',
-    coaching:'COACHING',ask:'ASK',plan:'PLAN',more:'MORE'})[st.tab] || '';
+    coaching:'COACHING',ask:'ASK',plan:'PLAN',more:'MORE',fix:'FIX'})[st.tab] || '';
   const waiting = !!(st.lastReview && st.lastReview > (st.seenReview||0));
   const name = (st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
   const initials = (name||'?').slice(0,2).toUpperCase();
@@ -10046,9 +10274,12 @@ function render(){
   if(!st.in && st.quizDone && !st.email && !(st.joinSkipped && emailOptional())){
     swap(screenJoin()); return; }
   const coached=coachedView();
+  /* a fix asked for in the link opens once the list has arrived */
+  if(st.fixPending && (st.fixes||{})[st.fixPending]){
+    st.fixSlug=st.fixPending; delete st.fixPending; st.tab='fix'; save(); }
   const screens=coached
-    ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore}
-    : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore};
+    ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix}
+    : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix};
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
@@ -10071,6 +10302,7 @@ document.addEventListener('DOMContentLoaded',function(){
   trackOpen();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); }
   loadLadder();
+  loadFixes();
   workshopWatch();
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
   /* An open is a person opening the app, not a tab waking up. Wait for a

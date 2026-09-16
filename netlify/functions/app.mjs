@@ -1249,6 +1249,112 @@ export default async (request) => {
      edit the coach made reached coached clients only and did nothing at all
      to the app's own workouts. That is the whole point of the tab, so this
      route carries them on their own. Nothing personal is in it. */
+  /* ── fixes: a problem, an article, a workout ─────────────────────
+     A fix is a named four week programme for one problem: banana back,
+     shoulders that will not open, a kick up that goes over. Each has an
+     article that says why, blocks of text and film the coach arranges, a
+     pool of drills the session builder draws on, and a clip asked for at
+     the start and the end so the person can see it worked. Written entirely
+     from the dashboard. The app reads only what is live; drills are
+     hydrated here from the merged library so a fix can use a drill filmed
+     from the dashboard and a free account still gets its name and clip. */
+  const FIX_ACCESS = ['free', 'plus'];
+  const FIX_BLOCKS = ['h', 'p', 'img', 'vid', 'drill', 'quote'];
+  const fixSlug = x => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '').slice(0, 20);
+  const fixClean = (f) => {
+    const slug = fixSlug(f && f.slug || f && f.name);
+    if (!slug) return null;
+    const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+    const num = (v, d, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
+    const out = {
+      slug,
+      name: str(f.name, 60) || slug,
+      tag: str(f.tag, 140),                 /* the problem, in one line */
+      goal: str(f.goal, 200),               /* what four weeks gets you */
+      weeks: num(f.weeks, 4, 1, 12),
+      perWeek: num(f.perWeek, 3, 1, 7),
+      mins: num(f.mins, 20, 10, 60),
+      stage: num(f.stage, 0, 0, 5),         /* whose warm-up to borrow */
+      access: FIX_ACCESS.includes(f.access) ? f.access : 'plus',
+      live: !!f.live,
+      cover: (f.cover && typeof f.cover === 'object')
+        ? { uid: str(f.cover.uid, 64).replace(/[^a-zA-Z0-9]/g, ''), img: str(f.cover.img, 64).replace(/[^a-zA-Z0-9]/g, '') }
+        : { uid: '', img: '' },
+      article: (Array.isArray(f.article) ? f.article : []).slice(0, 40).map(b => {
+        if (!b || !FIX_BLOCKS.includes(b.t)) return null;
+        const o = { t: b.t };
+        if (b.t === 'h' || b.t === 'p' || b.t === 'quote') o.text = str(b.text, b.t === 'p' ? 2000 : 300);
+        if (b.t === 'img') { o.id = str(b.id, 64).replace(/[^a-zA-Z0-9]/g, ''); o.cap = str(b.cap, 200); }
+        if (b.t === 'vid') { o.uid = str(b.uid, 64).replace(/[^a-zA-Z0-9]/g, ''); o.cap = str(b.cap, 200); }
+        if (b.t === 'drill') { o.v = str(b.v, 64).replace(/[^a-z0-9-]/g, ''); o.cap = str(b.cap, 200); }
+        return o;
+      }).filter(Boolean),
+      drills: (Array.isArray(f.drills) ? f.drills : []).slice(0, 40).map(d => {
+        const v = str(d && d.v, 64).replace(/[^a-z0-9-]/g, '');
+        if (!v) return null;
+        return { v, L: num(d.L, 1, 1, 4), g: str(d.g, 40) || 'Strength', d: str(d.d, 40) };
+      }).filter(Boolean),
+      warm: (Array.isArray(f.warm) ? f.warm : []).slice(0, 12)
+        .map(v => str(v, 64).replace(/[^a-z0-9-]/g, '')).filter(Boolean),
+      start: { n: str(f.start && f.start.n, 80), note: str(f.start && f.start.note, 300) },
+      finish: { n: str(f.finish && f.finish.n, 80), note: str(f.finish && f.finish.note, 300) },
+      updatedAt: Date.now(),
+    };
+    return out;
+  };
+  /* names, clips, cues and a dose for every drill a fix names, so the app
+     never has to look one up itself */
+  const fixHydrate = async (fixes) => {
+    const lib = await libraryNow();
+    const timing = (await getSetting('timing:custom')) || {};
+    const one = f => Object.assign({}, f, {
+      drills: (f.drills || []).map(d => Object.assign({}, d, {
+        n: (lib.names || {})[d.v] || d.v.replace(/-/g, ' '),
+        url: (lib.video || {})[d.v] || '',
+        cues: (lib.cues || {})[d.v] || [],
+        desc: (lib.desc || {})[d.v] || '',
+        d: d.d || ((timing[d.v] || {}).d) || (lib.timing || {})[d.v] || '',
+      })),
+      warmDrills: (f.warm || []).map(v => ({ v, n: (lib.names || {})[v] || v, url: (lib.video || {})[v] || '' })),
+      article: (f.article || []).map(b => b.t === 'drill'
+        ? Object.assign({}, b, { n: (lib.names || {})[b.v] || b.v, url: (lib.video || {})[b.v] || '' })
+        : b),
+    });
+    return Object.fromEntries(Object.entries(fixes).map(([k, f]) => [k, one(f)]));
+  };
+
+  if (path === '/fixes' && request.method === 'GET') {
+    const all = (await getSetting('fixes')) || {};
+    const live = Object.fromEntries(Object.entries(all).filter(([, f]) => f && f.live));
+    return json({ fixes: await fixHydrate(live) });
+  }
+  if (path === '/coach/fixes') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const all = (await getSetting('fixes')) || {};
+    if (request.method === 'GET') {
+      return json({ fixes: all, library: await libraryNow() });
+    }
+    if (request.method === 'POST') {
+      if (body.remove) {
+        const slug = fixSlug(body.remove);
+        delete all[slug];
+        await setSetting('fixes', all);
+        return json({ ok: true, removed: slug, fixes: all });
+      }
+      const f = fixClean(body.fix);
+      if (!f) return json({ error: 'A fix needs a name' }, 400);
+      if (!all[f.slug] && Object.keys(all).length >= 40) return json({ error: 'That is a lot of fixes' }, 400);
+      /* a slug change is a rename, not a copy */
+      const was = fixSlug(body.was || '');
+      if (was && was !== f.slug) delete all[was];
+      all[f.slug] = Object.assign({}, all[f.slug] || {}, f, { createdAt: (all[f.slug] || {}).createdAt || Date.now() });
+      await setSetting('fixes', all);
+      return json({ ok: true, fix: all[f.slug], fixes: all });
+    }
+    return json({ error: 'Nope' }, 405);
+  }
+
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
                   timing:      (await getSetting('timing:custom')) || {},
@@ -1742,6 +1848,16 @@ export default async (request) => {
         }
         cur.ladderDone = m;
       }
+      /* sessions done per fix: a slug to a small count */
+      if (body.fixDone && typeof body.fixDone === 'object') {
+        const m = {};
+        for (const k of Object.keys(body.fixDone).slice(0, 60)) {
+          const n = Number(body.fixDone[k]);
+          const slug = String(k).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+          if (slug && Number.isFinite(n) && n > 0) m[slug] = Math.min(999, Math.round(n));
+        }
+        cur.fixDone = m;
+      }
       /* the quiz answers, so a new phone does not ask them all again */
       if (body.intake && typeof body.intake === 'object') {
         const i = body.intake, out = {};
@@ -1788,7 +1904,8 @@ export default async (request) => {
       intake: out.intake || {}, quizDone: !!out.quizDone,
       stage: Number.isInteger(out.stage) ? out.stage : null,
       taste: Number.isInteger(out.taste) ? out.taste : null,
-      ladderDone: out.ladderDone || {} });
+      ladderDone: out.ladderDone || {},
+      fixDone: out.fixDone || {} });
   }
 
   /* ── tracking: metrics, habits, check-ins ─────────────────────
@@ -1870,8 +1987,15 @@ export default async (request) => {
              in "needs you now" and in Client reviews, and the coach is told. */
           if (vid && !(last && last.video === vid)) {
             const defs = (await getSetting(`programme:${who}`)) || programmes.clients[who] || {};
-            const cpName = ((defs.checkpoints || []).find(c => c && c.k === k) || {}).n
-              || (CHECKPOINT_NAMES[k] || k);
+            let cpName = ((defs.checkpoints || []).find(c => c && c.k === k) || {}).n
+              || (CHECKPOINT_NAMES[k] || '');
+            /* fix:<slug>:start or :finish, named after the fix and the end */
+            if (!cpName && k.startsWith('fix:')) {
+              const [, slug, end] = k.split(':');
+              const fx = ((await getSetting('fixes')) || {})[slug] || {};
+              cpName = (fx.name || slug) + (end === 'finish' ? ', after' : ', before');
+            }
+            if (!cpName) cpName = k;
             const plan = programmes.clients[who];
             let cycleN = 1;
             try { cycleN = (await cycleGet(db, who, plan)).n || 1; } catch {}
@@ -1940,6 +2064,8 @@ export default async (request) => {
      party, no per-person record. */
   const EVENTS = ['open', 'quiz', 'wall', 'checkout', 'subscribed', 'start',
                   'finish', 'ret7', 'install', 'taste', 'signup', 'code',
+                  /* a fix opened, started and finished, and its public page */
+                  'fixopen', 'fixstart', 'fixdone', 'sitefix',
                   /* the website, before the app */
                   'site', 'sitequiz', 'siteapp', 'siteworkshop'];
   if (path === '/event' && request.method === 'POST') {

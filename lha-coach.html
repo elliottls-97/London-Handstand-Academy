@@ -5550,7 +5550,7 @@ function notesPaneHTML(){
 
 /* ── Library ──────────────────────────────────────────────────────── */
 function libraryHTML(){
-  const defs=[['ladder','Ladder workouts'],['programmes','Programmes'],
+  const defs=[['fixes','Fixes'],['ladder','Ladder workouts'],['programmes','Programmes'],
               ['drills','Drills'],['explainers','Explainers']];
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     <h1 style="margin:0 0 var(--space-4)">Library</h1>
@@ -5560,7 +5560,8 @@ function libraryHTML(){
         padding:9px 15px;cursor:pointer;font:600 13px/1 var(--sans);
         color:${libTab===id?'#fff':'var(--ink)'}">${label}</button>`).join('')}
     </div>
-    ${libTab==='ladder'?workoutsHTML()
+    ${libTab==='fixes'?fixesHTML()
+     :libTab==='ladder'?workoutsHTML()
      :libTab==='programmes'?libProgrammesHTML()
      :libTab==='drills'?libDrillsHTML()
      :explainHTML()}
@@ -5615,6 +5616,359 @@ function libDrillsHTML(){
         hasClip(r.v)?'has clip':'no clip'}</span>
     </div>`).join('')}`;
 }
+
+/* ── Fixes: a problem, an article, a workout ──────────────────────────
+   Banana back, shoulders that will not open, a kick up that goes over. Each
+   fix is a four week programme for one problem, sold by a reel about that
+   problem. It has an article the coach lays out in blocks, text and film in
+   whatever order, a pool of drills the app's session builder draws on, and
+   a clip asked for before and after. All of it is written here and reaches
+   the app on its next load. Nothing needs a deploy. */
+let fixes=null, fxOpen=null, fx=null, fxDirty=false, fxBusy=false, fxMsg='';
+let fxAdd=false, fxAddQ='', fxAddFor='drills', fxDragI=null, fxDragKind='';
+const FX_GROUPS=['Warm-up','Mobility','Strength','Balance','Entries','Wall','Chair','Falling','Press','Flexibility'];
+const FX_BLOCK_NAMES={h:'Heading',p:'Paragraph',quote:'Pull quote',img:'Photo',vid:'Video',drill:'A drill'};
+
+function fxLoad(){
+  if(fixes) return; fixes={};
+  fetch(API+'/fixes',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ fixes=d.fixes||{}; noteLibrary(d.library); draw(); } })
+    .catch(()=>{});
+}
+const fxSlug=x=>String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,20);
+function fxBlank(){
+  return {slug:'',name:'',tag:'',goal:'',weeks:4,perWeek:3,mins:20,stage:0,access:'plus',live:false,
+    cover:{uid:'',img:''},article:[{t:'h',text:''},{t:'p',text:''}],drills:[],warm:[],
+    start:{n:'Film your handstand side on',note:''},finish:{n:'Film it again, same angle',note:''}};
+}
+function fxNew(){ fx=fxBlank(); fxOpen='new'; fxDirty=false; fxMsg=''; fxAdd=false; draw(); }
+function fxEdit(slug){
+  const src=(fixes||{})[slug]; if(!src) return;
+  fx=JSON.parse(JSON.stringify(src)); fx.was=slug; fxOpen=slug; fxDirty=false; fxMsg=''; fxAdd=false; draw();
+}
+function fxClose(){
+  if(fxDirty && !confirm('Close without saving?')) return;
+  fxOpen=null; fx=null; fxDirty=false; draw();
+}
+function fxSet(k,v){
+  if(k==='weeks'||k==='perWeek'||k==='mins'||k==='stage') v=Number(v)||0;
+  if(k==='live'||k==='access'){} 
+  fx[k]=v;
+  if(k==='name' && (!fx.was)) fx.slug=fxSlug(v);
+  fxDirty=true;
+  const el=document.getElementById('fxSaveBtn'); if(el){ el.disabled=false; el.textContent='Save'; }
+  const sl=document.getElementById('fxSlugLine'); if(sl) sl.textContent=fx.slug?('/lha-app.html?fix='+fx.slug):'';
+}
+function fxSetDeep(a,b,v){ fx[a]=fx[a]||{}; fx[a][b]=v; fxDirty=true; }
+function fxSave(){
+  if(fxBusy) return;
+  if(!fx.name.trim()) return alert('Give the fix a name first.');
+  if(!fx.slug) fx.slug=fxSlug(fx.name);
+  fxBusy=true; fxMsg='Saving…'; draw();
+  fetch(API+'/fixes',{method:'POST',headers:hdr(),body:JSON.stringify({fix:fx, was:fx.was||''})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ fixes=d.fixes||fixes; fxBusy=false; fxDirty=false;
+      fx=JSON.parse(JSON.stringify(d.fix)); fx.was=d.fix.slug; fxOpen=d.fix.slug;
+      fxMsg='Saved. '+(fx.live?'It is live in the app.':'Still a draft, nobody sees it yet.'); draw(); })
+    .catch(e=>{ fxBusy=false; fxMsg=String(e); draw(); });
+}
+function fxDelete(slug){
+  const f=(fixes||{})[slug]||{};
+  if(!confirm('Delete '+(f.name||slug)+'?\n\nAnyone part way through it loses the fix, not their sessions.')) return;
+  fetch(API+'/fixes',{method:'POST',headers:hdr(),body:JSON.stringify({remove:slug})})
+    .then(r=>r.ok?r.json():Promise.reject('could not delete'))
+    .then(d=>{ fixes=d.fixes||{}; if(fxOpen===slug){ fxOpen=null; fx=null; } draw(); })
+    .catch(e=>alert(String(e)));
+}
+function fxLiveToggle(slug){
+  const f=(fixes||{})[slug]; if(!f) return;
+  const next=Object.assign({},f,{live:!f.live});
+  fetch(API+'/fixes',{method:'POST',headers:hdr(),body:JSON.stringify({fix:next, was:slug})})
+    .then(r=>r.ok?r.json():Promise.reject('could not save'))
+    .then(d=>{ fixes=d.fixes||fixes; draw(); flash(next.live?'Live in the app':'Taken off the app'); })
+    .catch(e=>alert(String(e)));
+}
+
+/* ── the article, block by block ── */
+function fxBlockAdd(t){
+  const b={t}; if(t==='h'||t==='p'||t==='quote') b.text=''; if(t==='img') { b.id=''; b.cap=''; }
+  if(t==='vid'){ b.uid=''; b.cap=''; } if(t==='drill'){ b.v=''; b.cap=''; fxAdd=true; fxAddFor='block:'+(fx.article.length); fxAddQ=''; }
+  fx.article.push(b); fxDirty=true; draw();
+}
+function fxBlockSet(i,k,v){ if(fx.article[i]){ fx.article[i][k]=v; fxDirty=true; } }
+function fxBlockDel(i){ fx.article.splice(i,1); fxDirty=true; draw(); }
+function fxBlockMove(i,d){ const j=i+d; if(j<0||j>=fx.article.length) return;
+  const [b]=fx.article.splice(i,1); fx.article.splice(j,0,b); fxDirty=true; draw(); }
+function fxBlockImg(i){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    fxMsg='Shrinking the photo…'; draw();
+    shrinkPhoto(f,1600,.84)
+      .then(data=>fetch(APP+'/image',{method:'POST',headers:hdr(),body:JSON.stringify({data})})
+        .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that photo'))))
+      .then(d=>{ fx.article[i].id=d.id; fxDirty=true; fxMsg=''; draw(); })
+      .catch(e=>{ fxMsg=String(e); draw(); }); };
+  inp.click();
+}
+function fxBlockVid(i){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    fxUpload(f, pct=>{ fxMsg='Uploading '+pct+'%'; const m=document.getElementById('fxMsg'); if(m) m.textContent=fxMsg; })
+      .then(uid=>{ fx.article[i].uid=uid; fxDirty=true; fxMsg='Uploaded. Cloudflare takes a minute to encode it.'; draw(); })
+      .catch(e=>{ fxMsg=String(e); draw(); }); };
+  inp.click();
+}
+function fxCoverImg(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    fxMsg='Shrinking the photo…'; draw();
+    shrinkPhoto(f,1200,.84)
+      .then(data=>fetch(APP+'/image',{method:'POST',headers:hdr(),body:JSON.stringify({data})})
+        .then(r=>r.ok?r.json():Promise.reject('Could not send that photo')))
+      .then(d=>{ fx.cover={uid:'',img:d.id}; fxDirty=true; fxMsg=''; draw(); })
+      .catch(e=>{ fxMsg=String(e); draw(); }); };
+  inp.click();
+}
+/* the same direct upload every clip uses */
+function fxUpload(file, onPct){
+  return fetch(APP+'/upload',{method:'POST',headers:hdr(),body:'{}'})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
+    .then(d=>new Promise((res,rej)=>{
+      const fd=new FormData(); fd.append('file',file);
+      const x=new XMLHttpRequest(); x.open('POST',d.uploadURL);
+      x.upload.onprogress=e=>{ if(e.lengthComputable&&onPct) onPct(Math.round(e.loaded/e.total*100)); };
+      x.onload=()=> (x.status>=200&&x.status<300)?res(d.uid):rej('Upload failed ('+x.status+')');
+      x.onerror=()=>rej('Upload failed, check your signal');
+      x.send(fd);
+    }));
+}
+/* drag to reorder, blocks and drills alike */
+function fxDragStart(e,kind,i){ fxDragKind=kind; fxDragI=i;
+  try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain',String(i)); }catch(err){} }
+function fxDragOver(e,kind,i){ if(fxDragKind!==kind||fxDragI===null||fxDragI===i) return;
+  e.preventDefault(); const el=e.currentTarget; if(el) el.style.boxShadow='inset 0 3px 0 var(--forest)'; }
+function fxDragLeave(e){ const el=e.currentTarget; if(el) el.style.boxShadow=''; }
+function fxDrop(e,kind,i){
+  e.preventDefault(); const from=fxDragI; fxDragI=null; fxDragKind='';
+  document.querySelectorAll('[data-fxrow]').forEach(el=>{ el.style.boxShadow=''; });
+  if(from===null||from===i) return;
+  const list=kind==='block'?fx.article:fx.drills;
+  const [b]=list.splice(from,1); list.splice(i,0,b); fxDirty=true; draw();
+}
+
+/* ── the drills ── */
+function fxDrillAdd(v){
+  if(fxAddFor.startsWith('block:')){ const i=Number(fxAddFor.split(':')[1]); if(fx.article[i]) fx.article[i].v=v; }
+  else if(fxAddFor==='warm'){ if(fx.warm.indexOf(v)<0) fx.warm.push(v); }
+  else if(!fx.drills.some(d=>d.v===v)){
+    const row=(typeof wkPoolFor==='function') ? [0,1,2,3,4,5].map(i=>wkPoolFor(i).find(x=>x.v===v)).find(Boolean) : null;
+    fx.drills.push({v, L:(row&&row.L)||1, g:(row&&row.g)||'Strength', d:''});
+  }
+  fxAdd=false; fxAddQ=''; fxDirty=true; draw();
+}
+function fxDrillSet(i,k,v){ if(!fx.drills[i]) return; fx.drills[i][k]=(k==='L')?Number(v)||1:v; fxDirty=true; }
+function fxDrillDel(i){ fx.drills.splice(i,1); fxDirty=true; draw(); }
+function fxWarmDel(v){ fx.warm=fx.warm.filter(x=>x!==v); fxDirty=true; draw(); }
+function fxPickerHTML(){
+  const q=fxAddQ.trim().toLowerCase();
+  const have=new Set(fx.drills.map(d=>d.v).concat(fx.warm));
+  const cands=Object.keys(libIndex||{})
+    .filter(v=>!have.has(v)||fxAddFor.startsWith('block:'))
+    .map(v=>({v,n:(libIndex||{})[v]||v,filmed:hasClip(v)}))
+    .filter(x=>!q||x.n.toLowerCase().indexOf(q)>-1||x.v.indexOf(q)>-1)
+    .sort((a,b)=>(b.filmed-a.filmed)||a.n.localeCompare(b.n)).slice(0,q?60:36);
+  return `<div style="margin-top:12px;padding:14px;border-radius:14px;background:var(--surface);border:1px solid var(--line)">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input autofocus class="input" value="${esc(fxAddQ)}" oninput="fxAddQ=this.value;draw()"
+        placeholder="Search the library" style="max-width:320px">
+      <span class="muted" style="font-size:12.5px">Filmed ones first. Grey means no clip yet.</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary btn-sm" onclick="fxAdd=false;fxAddQ='';draw()">Cancel</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+      ${cands.map(c=>`<button onclick="fxDrillAdd('${esc(c.v)}')" style="cursor:pointer;border-radius:999px;
+        padding:7px 12px;font:600 11.5px/1 var(--sans);background:#fff;
+        border:1.5px solid ${c.filmed?'var(--forest)':'var(--line)'};
+        color:${c.filmed?'var(--forest)':'var(--grey)'}">${esc(c.n)}</button>`).join('')
+        ||'<span class="muted" style="font-size:12.5px">Nothing matches.</span>'}
+    </div></div>`;
+}
+
+const fxThumb=uid=>uid?`https://${STREAM_SUB}/${uid}/thumbnails/thumbnail.jpg?time=3s&height=160`:'';
+
+function fixesHTML(){
+  fxLoad();
+  if(fxOpen&&fx) return fxEditorHTML();
+  const list=Object.values(fixes||{}).sort((a,b)=>(b.live-a.live)||String(a.name).localeCompare(String(b.name)));
+  return `<p class="muted" style="font:400 14px/1.6 var(--sans);max-width:66ch;margin-bottom:var(--space-4)">
+      A fix is a four week programme for one problem, sold by a reel about that problem.
+      Each has an article that says why, a pool of drills the app builds sessions from,
+      and a clip asked for before and after. Write it here, switch it live, and it is in
+      the app on its next load. The link for the reel is on each one.</p>
+    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3)">
+      <button class="btn btn-primary" onclick="fxNew()">New fix</button>
+      <span class="muted" style="font-size:12.5px">${list.length?list.filter(f=>f.live).length+' live, '+list.filter(f=>!f.live).length+' in draft':''}</span>
+    </div>
+    ${list.map(f=>`<div class="row-hit" style="display:grid;grid-template-columns:72px minmax(0,1fr) auto auto;
+      gap:var(--space-3);align-items:center;padding:var(--space-2) var(--space-1);border-bottom:1px solid rgba(17,17,17,.08)">
+      <div style="width:72px;height:44px;border-radius:9px;background:var(--mist);overflow:hidden">${
+        f.cover&&f.cover.uid?`<img src="${fxThumb(f.cover.uid)}" style="width:100%;height:100%;object-fit:cover" alt="">`
+        :f.cover&&f.cover.img?`<img src="${APP}/image/${esc(f.cover.img)}" style="width:100%;height:100%;object-fit:cover" alt="">`:''}</div>
+      <div onclick="fxEdit('${esc(f.slug)}')" style="cursor:pointer;min-width:0">
+        <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+          <span style="font:600 14.5px/1.3 var(--sans)">${esc(f.name)}</span>
+          <span class="tag ${f.live?'tag-accent':'tag-neutral'}">${f.live?'live':'draft'}</span>
+          <span class="tag tag-neutral">${f.access==='free'?'free':'£ tier'}</span>
+        </div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">${esc(f.tag||'')}${f.tag?' · ':''}${
+          (f.drills||[]).length} drills · ${f.weeks}w × ${f.perWeek} · ${(f.article||[]).length} blocks
+          ${(f.drills||[]).some(d=>!hasClip(d.v))?` · <span style="color:var(--terra)">${(f.drills||[]).filter(d=>!hasClip(d.v)).length} unfilmed</span>`:''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fxLiveToggle('${esc(f.slug)}')">${f.live?'Take off':'Go live'}</button>
+      <button class="btn btn-secondary btn-sm" onclick="fxEdit('${esc(f.slug)}')">Edit</button>
+    </div>`).join('')
+    || (fixes&&Object.keys(fixes).length===0?`<p class="muted" style="padding:var(--space-4) 0">No fixes yet. The first one is the banana back.</p>`:'')}`;
+}
+
+function fxEditorHTML(){
+  const f=fx;
+  const inp='class="input"';
+  const blockRow=(b,i)=>{
+    const body = b.t==='h' ? `<input ${inp} value="${esc(b.text||'')}" placeholder="Heading" oninput="fxBlockSet(${i},'text',this.value)" style="font:600 16px/1.3 var(--sans)">`
+      : b.t==='p' ? `<textarea ${inp} rows="4" placeholder="Say why. What is happening, why it happens, what the drills below do about it." oninput="fxBlockSet(${i},'text',this.value)" style="min-height:96px">${esc(b.text||'')}</textarea>`
+      : b.t==='quote' ? `<input ${inp} value="${esc(b.text||'')}" placeholder="One line worth remembering" oninput="fxBlockSet(${i},'text',this.value)" style="font:400 16px/1.4 var(--serif)">`
+      : b.t==='img' ? `<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div style="width:160px;height:110px;border-radius:10px;background:var(--mist);overflow:hidden;flex:none">${
+            b.id?`<img src="${APP}/image/${esc(b.id)}" style="width:100%;height:100%;object-fit:cover" alt="">`:''}</div>
+          <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="fxBlockImg(${i})" style="align-self:flex-start">${b.id?'Replace the photo':'Choose a photo'}</button>
+            <input ${inp} value="${esc(b.cap||'')}" placeholder="Caption, optional" oninput="fxBlockSet(${i},'cap',this.value)"></div></div>`
+      : b.t==='vid' ? `<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div style="width:160px;height:90px;border-radius:10px;background:#000;overflow:hidden;flex:none">${
+            b.uid?`<img src="${fxThumb(b.uid)}" style="width:100%;height:100%;object-fit:cover" alt="">`:''}</div>
+          <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn btn-secondary btn-sm" onclick="fxBlockVid(${i})">${b.uid?'Replace the video':'Upload a video'}</button>
+              <span class="muted" style="font-size:12px">or paste a Stream id</span>
+              <input ${inp} value="${esc(b.uid||'')}" placeholder="32 character id" oninput="fxBlockSet(${i},'uid',this.value.replace(/[^a-zA-Z0-9]/g,''))" style="max-width:300px;font-family:ui-monospace,monospace;font-size:12.5px">
+            </div>
+            <input ${inp} value="${esc(b.cap||'')}" placeholder="Caption, optional" oninput="fxBlockSet(${i},'cap',this.value)"></div></div>`
+      : `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span style="font:600 14px/1.3 var(--sans)">${b.v?esc((libIndex||{})[b.v]||b.v):'<span class="muted">No drill picked</span>'}</span>
+          ${b.v&&hasClip(b.v)?'<span class="tag tag-accent">filmed</span>':b.v?'<span class="tag tag-accent-2">no clip</span>':''}
+          <button class="btn btn-ghost btn-sm" onclick="fxAdd=true;fxAddFor='block:${i}';fxAddQ='';draw()">${b.v?'Change':'Pick a drill'}</button>
+          <input ${inp} value="${esc(b.cap||'')}" placeholder="Why this one, optional" oninput="fxBlockSet(${i},'cap',this.value)" style="flex:1;min-width:200px"></div>`;
+    return `<div data-fxrow draggable="true" ondragstart="fxDragStart(event,'block',${i})" ondragover="fxDragOver(event,'block',${i})"
+      ondragleave="fxDragLeave(event)" ondrop="fxDrop(event,'block',${i})"
+      style="display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:start;padding:12px 8px;
+      border-radius:12px;background:#fff;border:1px solid var(--line);margin-top:8px">
+      <span title="Drag to move" style="cursor:grab;color:var(--grey2);font-size:16px;line-height:1;padding-top:8px;user-select:none">⋮⋮</span>
+      <div style="min-width:0">
+        <div class="muted" style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px">${FX_BLOCK_NAMES[b.t]||b.t}</div>
+        ${body}
+        ${fxAdd&&fxAddFor==='block:'+i?fxPickerHTML():''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="btn btn-ghost btn-sm" onclick="fxBlockMove(${i},-1)" title="Up" ${i===0?'disabled':''}>↑</button>
+        <button class="btn btn-ghost btn-sm" onclick="fxBlockMove(${i},1)" title="Down" ${i===f.article.length-1?'disabled':''}>↓</button>
+        <button class="btn btn-ghost btn-sm" onclick="fxBlockDel(${i})" title="Remove" style="color:var(--terra)">×</button>
+      </div></div>`;
+  };
+  const drillRow=(d,i)=>`<div data-fxrow draggable="true" ondragstart="fxDragStart(event,'drill',${i})" ondragover="fxDragOver(event,'drill',${i})"
+      ondragleave="fxDragLeave(event)" ondrop="fxDrop(event,'drill',${i})"
+      style="display:grid;grid-template-columns:22px 72px minmax(0,1fr) 84px 130px 130px auto;gap:10px;align-items:center;
+      padding:8px;border-radius:12px;background:#fff;border:1px solid var(--line);margin-top:6px">
+      <span title="Drag to move" style="cursor:grab;color:var(--grey2);font-size:16px;line-height:1;user-select:none">⋮⋮</span>
+      <div style="width:72px;height:44px;border-radius:8px;background:#000;overflow:hidden">${
+        hasClip(d.v)?`<img src="${fxThumb(uidFromUrl(libVideo[d.v]))}" style="width:100%;height:100%;object-fit:cover" alt="">`:''}</div>
+      <div style="min-width:0"><div style="font:600 14px/1.3 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((libIndex||{})[d.v]||d.v)}</div>
+        <div class="muted" style="font-size:11.5px">${hasClip(d.v)?'filmed':'<span style="color:var(--terra)">no clip yet</span>'}</div></div>
+      <select class="input" style="min-height:36px;padding:6px 8px" onchange="fxDrillSet(${i},'L',this.value)">
+        ${[1,2,3,4].map(L=>`<option value="${L}" ${d.L===L?'selected':''}>Level ${L}</option>`).join('')}</select>
+      <select class="input" style="min-height:36px;padding:6px 8px" onchange="fxDrillSet(${i},'g',this.value)">
+        ${FX_GROUPS.concat(FX_GROUPS.indexOf(d.g)<0&&d.g?[d.g]:[]).map(g=>`<option ${d.g===g?'selected':''}>${esc(g)}</option>`).join('')}</select>
+      <input class="input" style="min-height:36px;padding:6px 8px" value="${esc(d.d||'')}" placeholder="dose, e.g. 3 × 8" oninput="fxDrillSet(${i},'d',this.value)">
+      <button class="btn btn-ghost btn-sm" onclick="fxDrillDel(${i})" style="color:var(--terra)">×</button>
+    </div>`;
+  const cover = f.cover&&f.cover.uid ? fxThumb(f.cover.uid) : f.cover&&f.cover.img ? APP+'/image/'+f.cover.img : '';
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:var(--space-4)">
+      <button class="ghostlink" onclick="fxClose()">← All fixes</button>
+      <span style="flex:1"></span>
+      <span id="fxMsg" class="muted" style="font-size:12.5px">${esc(fxMsg)}</span>
+      ${f.was?`<button class="btn btn-ghost btn-sm" onclick="fxDelete('${esc(f.was)}')" style="color:var(--terra)">Delete</button>`:''}
+      <button class="btn btn-secondary" onclick="fxSet('live',${f.live?'false':'true'});draw()">${f.live?'Live · take off':'Draft · go live'}</button>
+      <button id="fxSaveBtn" class="btn btn-primary" onclick="fxSave()" ${fxBusy?'disabled':''}>${fxBusy?'Saving…':fxDirty?'Save':'Saved'}</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--space-6)">
+      <div>
+        <h4>The problem</h4>
+        <div class="field"><label>Name</label><input class="input" value="${esc(f.name)}" placeholder="The Banana Fix" oninput="fxSet('name',this.value)"></div>
+        <div class="field" style="margin-top:10px"><label>The problem, in one line</label><input class="input" value="${esc(f.tag)}" placeholder="Your back arches the moment you are up" oninput="fxSet('tag',this.value)"></div>
+        <div class="field" style="margin-top:10px"><label>What four weeks gets you</label><input class="input" value="${esc(f.goal)}" placeholder="A straight line you can hold, and feel when you lose it" oninput="fxSet('goal',this.value)"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+          <div class="field" style="flex:1;min-width:90px"><label>Weeks</label><input class="input" type="number" min="1" max="12" value="${f.weeks}" oninput="fxSet('weeks',this.value)"></div>
+          <div class="field" style="flex:1;min-width:90px"><label>A week</label><input class="input" type="number" min="1" max="7" value="${f.perWeek}" oninput="fxSet('perWeek',this.value)"></div>
+          <div class="field" style="flex:1;min-width:90px"><label>Minutes</label><input class="input" type="number" min="10" max="60" step="5" value="${f.mins}" oninput="fxSet('mins',this.value)"></div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+          <div class="field" style="flex:1;min-width:150px"><label>Who can open it</label>
+            <select class="input" onchange="fxSet('access',this.value)">
+              <option value="plus" ${f.access==='plus'?'selected':''}>Paid tier</option>
+              <option value="free" ${f.access==='free'?'selected':''}>Everyone, free</option></select></div>
+          <div class="field" style="flex:1;min-width:150px"><label>Warm-up borrowed from</label>
+            <select class="input" onchange="fxSet('stage',this.value)">
+              ${STAGES.map((S,i)=>`<option value="${i}" ${f.stage===i?'selected':''}>${esc(S.n)}</option>`).join('')}</select></div>
+        </div>
+        <div class="field" style="margin-top:10px"><label>Link for the reel</label>
+          <div id="fxSlugLine" style="font:500 13px/1.4 ui-monospace,monospace;color:var(--forest)">${f.slug?'/lha-app.html?fix='+esc(f.slug):''}</div></div>
+      </div>
+      <div>
+        <h4>Cover</h4>
+        <div style="width:100%;max-width:320px;aspect-ratio:16/9;border-radius:14px;background:var(--mist);overflow:hidden">${
+          cover?`<img src="${cover}" style="width:100%;height:100%;object-fit:cover" alt="">`:''}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="fxCoverImg()">Photo</button>
+          <span class="muted" style="font-size:12px">or a Stream id</span>
+          <input class="input" value="${esc((f.cover||{}).uid||'')}" placeholder="32 character id" style="max-width:260px;font-family:ui-monospace,monospace;font-size:12.5px"
+            oninput="fxSetDeep('cover','uid',this.value.replace(/[^a-zA-Z0-9]/g,''));fxSetDeep('cover','img','')">
+        </div>
+        <h4 style="margin-top:var(--space-6)">Before and after</h4>
+        <div class="field"><label>Ask for at the start</label><input class="input" value="${esc((f.start||{}).n||'')}" oninput="fxSetDeep('start','n',this.value)"></div>
+        <input class="input" style="margin-top:6px" value="${esc((f.start||{}).note||'')}" placeholder="What angle, what to include, optional" oninput="fxSetDeep('start','note',this.value)">
+        <div class="field" style="margin-top:10px"><label>Ask for at the end</label><input class="input" value="${esc((f.finish||{}).n||'')}" oninput="fxSetDeep('finish','n',this.value)"></div>
+        <input class="input" style="margin-top:6px" value="${esc((f.finish||{}).note||'')}" placeholder="Optional" oninput="fxSetDeep('finish','note',this.value)">
+        <p class="muted" style="font-size:12.5px;margin-top:8px">Both clips land on Today as a check point, named after the fix, and in the client's thread.</p>
+      </div>
+    </div>
+
+    <h4 style="margin-top:var(--space-8)">The article</h4>
+    <p class="muted" style="font:400 13.5px/1.5 var(--sans);max-width:66ch">Why this happens and what the drills do about it. Drag the blocks into any order. A drill block shows its film with a line from you underneath.</p>
+    ${f.article.map(blockRow).join('')}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+      ${Object.keys(FX_BLOCK_NAMES).map(t=>`<button class="btn btn-secondary btn-sm" onclick="fxBlockAdd('${t}')">+ ${FX_BLOCK_NAMES[t]}</button>`).join('')}
+    </div>
+
+    <h4 style="margin-top:var(--space-8)">The drills</h4>
+    <p class="muted" style="font:400 13.5px/1.5 var(--sans);max-width:66ch">The pool a session draws on, in your order. Levels ramp the session, groups keep it spread. A dose left blank uses the drill's own. Sessions under 30 minutes take one set of each.</p>
+    ${f.drills.map(drillRow).join('')||'<p class="muted" style="margin-top:10px">Nothing yet.</p>'}
+    ${fxAdd&&fxAddFor==='drills'?fxPickerHTML():`<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="fxAdd=true;fxAddFor='drills';fxAddQ='';draw()">Add a drill</button>`}
+
+    <h4 style="margin-top:var(--space-8)">Warm-up</h4>
+    <p class="muted" style="font:400 13.5px/1.5 var(--sans);max-width:66ch">Leave empty to borrow the ${esc((STAGES[f.stage]||STAGES[0]).n)} warm-up. Name drills here and the session warms up with these instead, one pass each.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      ${f.warm.map(v=>`<span class="tag tag-neutral" style="font-size:11px;padding:7px 10px;text-transform:none;letter-spacing:0">${esc((libIndex||{})[v]||v)}
+        <button onclick="fxWarmDel('${esc(v)}')" style="border:0;background:none;cursor:pointer;color:var(--grey2);margin-left:6px;padding:0">×</button></span>`).join('')}
+      ${fxAdd&&fxAddFor==='warm'?'':`<button class="btn btn-ghost btn-sm" onclick="fxAdd=true;fxAddFor='warm';fxAddQ='';draw()">+ a warm-up drill</button>`}
+    </div>
+    ${fxAdd&&fxAddFor==='warm'?fxPickerHTML():''}
+    <div style="height:40px"></div>`;
+}
+const uidFromUrl=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]:''; };
 
 /* ── Settings ─────────────────────────────────────────────────────── */
 function settingsHTML(){
