@@ -2615,6 +2615,132 @@ function cpCardTop(c, i, total){
    said about it. For a form check client this is the point: not what they
    logged, but what was seen and what was said. A verified one carries the
    coach's tick. */
+/* ── everything they have sent, and what came back ────────────────
+   A client films a check point, a two week test and whatever else Elliott
+   asks for, and then had nowhere to see any of it. The clips lived in the
+   thread, scrolled away, and the coach's verdict on one was behind a
+   disclosure triangle inside a check point card. This is the record: every
+   clip they have ever sent, newest first, with what it was for and what
+   came back about it. */
+function myClips(){
+  const out=[], seen=new Set();
+  const add=o=>{ if(!o.uid || seen.has(o.uid)) return; seen.add(o.uid); out.push(o); };
+
+  /* check point clips carry the coach's verdict on the row itself */
+  const log=cpLog();
+  /* the ones the coach set, then the ladder's own, so a check point from a
+     stage they are no longer on still has its name rather than its key */
+  const nameOf=k=>{
+    const mine=(cpFor()||[]).find(x=>x&&x.k===k); if(mine&&mine.n) return mine.n;
+    try{ for(const st0 of Object.keys(CHECKPOINTS||{})){
+      const c=(CHECKPOINTS[st0]||[]).find(x=>x&&x.k===k); if(c&&c.n) return c.n; } }catch(e){}
+    return k;
+  };
+  Object.keys(log).forEach(k=>(log[k]||[]).forEach(r=>{
+    if(!r||!r.video) return;
+    add({uid:r.video, at:r.at||0, what:'Check point', which:nameOf(k),
+         value:(r.v!=null?String(r.v):''),
+         verdict:r.verdict||'', note:r.note||'', by:r.by||'', answeredAt:r.verdictAt||0});
+  }));
+
+  /* a test or a form check is answered as a whole, so the answer hangs off
+     every clip in it */
+  ((st.subs)||[]).forEach(sb=>{
+    const what = sb.kind==='assessment' ? 'Form check'
+      : sb.kind==='checkpoint' ? 'Check point' : 'Two-week test';
+    (sb.clips||[]).forEach(c=>{
+      const uid = typeof c==='string' ? c : (c&&(c.uid||c.video));
+      add({uid, at:sb.at||0, what, which:(sb.numbers&&sb.numbers.name)||'',
+           answer:(sb.answer&&sb.answer.text)||'', answeredAt:sb.reviewedAt||0,
+           waiting:sb.status==='submitted'});
+    });
+  });
+
+  /* and anything they simply sent in the thread */
+  (st.msgs||[]).forEach(m=>{ if(m.from!=='e' && m.video)
+    add({uid:m.video, at:m.at||0, what:'Sent to Elliott', which:'', text:m.text||''}); });
+
+  return out.sort((a,b)=>(b.at||0)-(a.at||0));
+}
+
+/* answers they have not seen: the dot on the Progress tab */
+function clipsNew(){
+  if(!coachedView()) return 0;
+  const since=st.seenClips||0;
+  return myClips().filter(c=>(c.answeredAt||0)>since).length;
+}
+function clipsBody(){
+  const list=myClips();
+  /* opening the tab is reading them */
+  if(clipsNew()){ st.seenClips=Date.now(); save(); }
+  if(!list.length) return `<div class="card" style="padding:20px">
+    <div class="kick2">YOUR CLIPS</div>
+    <div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">
+      Nothing yet. Every clip you film for a check point or a test is kept here, with what
+      Elliott said about it.</div>
+    <button class="btn2" style="width:100%;margin-top:14px" onclick="go('ask')">Send one now</button>
+  </div>`;
+  const answered=list.filter(c=>c.verdict||c.answer);
+  const row=c=>{
+    const said = c.verdict==='reached' ? ['Verified', 'var(--forest)', c.note]
+      : c.verdict==='notyet' ? ['Not there yet', '#8a5a12', c.note]
+      : c.answer ? ['Answered', 'var(--forest)', c.answer]
+      : c.waiting ? ['With Elliott', 'var(--grey2)', '']
+      : ['', '', ''];
+    return `<div class="card" style="padding:12px;display:flex;gap:12px;align-items:flex-start">
+      <button onclick="playClip('${esc(c.uid)}')" style="flex:none;width:104px;aspect-ratio:4/3;
+        border:0;padding:0;border-radius:12px;overflow:hidden;background:#101413;cursor:pointer;
+        position:relative">
+        <img src="${streamThumb(c.uid)}" alt="" loading="lazy"
+          style="width:100%;height:100%;object-fit:cover;display:block">
+        <span style="position:absolute;inset:0;display:grid;place-items:center">
+          <span style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.9);
+            display:grid;place-items:center">
+            <svg width="11" height="13" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+              1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></span>
+      </button>
+      <div style="flex:1;min-width:0">
+        <div style="font:600 13.5px/1.35 var(--sans)">${esc(c.which||c.what)}</div>
+        <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:3px">${
+          esc(c.which?c.what:'')}${c.which?' · ':''}${esc(cpWhen(c.at))}${
+          c.value?' · '+esc(c.value):''}</div>
+        ${said[0]?`<div style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;color:${said[1]};
+          margin-top:7px;text-transform:uppercase">${esc(said[0])}</div>`:''}
+        ${said[2]?`<div style="font:400 13px/1.5 var(--sans);color:var(--ink);margin-top:5px;
+          white-space:pre-wrap">${esc(String(said[2]).slice(0,400))}</div>`:''}
+      </div></div>`;
+  };
+  return `<div class="card" style="padding:18px 20px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span class="kick2">YOUR CLIPS</span>
+        <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${list.length} sent</span>
+      </div>
+      <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+        Everything you have filmed, newest first, and what Elliott said about it.${
+        answered.length?'':' Nothing has been answered yet.'}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">${
+      list.map(row).join('')}</div>`;
+}
+
+/* one clip, full size, over the screen */
+function playClip(uid){
+  const el=document.getElementById('player'); if(!el) return;
+  el.innerHTML=`<div onclick="closeClip(event)" style="position:fixed;inset:0;z-index:995;
+    background:rgba(12,16,14,.92);display:grid;place-items:center;padding:18px">
+    <div style="width:min(520px,100%);border-radius:20px;overflow:hidden;background:#000"
+      onclick="event.stopPropagation()">
+      <iframe src="${streamEmbed(esc(uid))}" allow="fullscreen"
+        style="display:block;width:100%;aspect-ratio:9/16;max-height:72vh;border:0"></iframe>
+    </div>
+    <button onclick="closeClip(event)" style="margin-top:16px;border:0;border-radius:12px;
+      padding:12px 22px;background:rgba(255,255,255,.14);color:#fff;
+      font:600 14px/1 var(--sans);cursor:pointer">Close</button>
+  </div>`;
+}
+function closeClip(e){ if(e) e.stopPropagation();
+  const el=document.getElementById('player'); if(el) el.innerHTML=''; }
+
 function cpHistoryHTML(c){
   const hist=(cpLog()[c.k]||[]).slice().reverse().slice(0,6);
   if(hist.length<1) return '';
@@ -3801,8 +3927,10 @@ function screenProgress(){
     <span style="font:600 9.5px/1 var(--sans);color:${w===thisWeek?'var(--ink)':'var(--grey2)'};margin-top:3px">W${w}</span></div>`).join('');
   /* Two different questions, and they were stacked in one column: am I
      turning up, and am I ready to move up. They get a tab each. */
-  const tab = (st.progTab==='marks') ? 'marks' : 'track';
-  const seg = [['track','Training'],['marks','Check points']].map(([k,l])=>
+  const tab = ['marks','clips'].includes(st.progTab) ? st.progTab : 'track';
+  const seg = (coachedView()
+      ? [['track','Training'],['marks','Check points'],['clips','Your clips']]
+      : [['track','Training'],['marks','Check points']]).map(([k,l])=>
     `<button onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;
       border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
       background:${tab===k?'#fff':'transparent'};
@@ -3869,7 +3997,7 @@ function screenProgress(){
       <div style="display:flex;gap:4px;padding:4px;border-radius:14px;
         background:rgba(0,64,61,.08)">${seg}</div></div>
     <div class="rise rise-2" style="padding:14px 16px 26px;display:flex;flex-direction:column;gap:11px">
-      ${tab==='marks' ? marksBody : trackBody}
+      ${tab==='clips' ? clipsBody() : tab==='marks' ? marksBody : trackBody}
     </div></div>`;
 }
 /* the free tier's progress, without the screen wrapper */
@@ -3891,12 +4019,14 @@ function loadThread(){
   fetch(AUTH.messages,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
     if(!d||!d.messages) return;
     const next=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,
-      ...(m.video?{video:m.video}:{}),...(m.image?{image:m.image}:{}),time:when(m.at)}));
+      ...(m.video?{video:m.video}:{}),...(m.image?{image:m.image}:{}),
+      at:m.at||0, time:when(m.at)}));
     /* forget the ones the server has caught up on, keep the rest on screen */
     const seen=new Set(next.map(msgKey));
     pendingMsgs=pendingMsgs.filter(p=>!seen.has(msgKey(p)) && Date.now()-p.sentAt<600000);
     const merged=next.concat(pendingMsgs.map(p=>({from:'me',text:p.text,
-      ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),time:when(p.sentAt)})));
+      ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),
+      at:p.sentAt||0, time:when(p.sentAt)})));
     /* a redraw rebuilds the input and loses half-typed text, reloads every
        video iframe and drops the scroll to the top — so only redraw when
        something was actually said. Relative times change on their own and
@@ -4206,6 +4336,11 @@ function loadSubmissions(){
     const done=d.submissions.find(s=>s.status==='reviewed')||{};
     st.lastReview = done.reviewedAt||0;
     st.lastAnswer = done.answer||null;
+    /* the whole list, so the clips screen can say what each one was for and
+       what came back about it */
+    st.subs = d.submissions.slice(0,40).map(x=>({id:x.id, kind:x.kind, cycle:x.cycle, at:x.at,
+      status:x.status, clips:x.clips||[], numbers:x.numbers||{},
+      reviewedAt:x.reviewedAt||0, answer:x.answer||null}));
     save(); if(was!==st.awaitingReview && (st.tab==='coaching'||st.tab==='progress')) render();
   }).catch(()=>{});
 }
@@ -10602,7 +10737,8 @@ function render(){
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
   const tabs=TABS[coached?'coached':'free'];
   if(!screens[st.tab]) st.tab=tabs[0][0];
-  const nCp = (typeof cpNew==='function') ? cpNew().length : 0;
+  const nCp = ((typeof cpNew==='function') ? cpNew().length : 0)
+            + ((typeof clipsNew==='function') ? clipsNew() : 0);
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span>${
     ((id==='progress'||(id==='ladder'&&!coached))&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
       border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
@@ -10623,7 +10759,14 @@ document.addEventListener('DOMContentLoaded',function(){
   loadFixes();
   workshopWatch();
   if(st.fbPending){ delete st.fbPending; save(); setTimeout(()=>{ if(st.in||st.token) openOv('feedback'); }, 900); }
-  if(st.in && st.token){ loadProgramme(); loadProgress(); }
+  /* The track holds every check point reading and the coach's verdict on
+     each clip, and the thread holds what he has said. Neither was loaded on
+     a cold start: they were fetched only at the moment of signing in, so
+     from the second open onwards the app showed whatever was in local
+     storage from the last time somebody happened to sign in. A verdict
+     written yesterday did not exist until they signed out and back in. */
+  if(st.token){ loadTrack(); }
+  if(st.in && st.token){ loadProgramme(); loadProgress(); loadThread(); }
   /* An open is a person opening the app, not a tab waking up. Wait for a
      real interaction before reporting one, and report how long they stayed
      when they leave. */
