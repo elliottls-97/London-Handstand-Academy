@@ -604,6 +604,51 @@ export default async (request) => {
        customer we stored when they checked out */
     /* stripeIdx used to be a hand-kept map from customer to email. It is a
        column with an index on it now, so the lookup is a query. */
+    /* ── a workshop booking ─────────────────────────────────────────
+       Paid through a checkout session this server made, with the workshop
+       in the metadata. It is a place on a date, not a subscription, so it
+       is recorded and answered here and never touches plus. The payer may
+       have no account yet; one is made for them, and the app is opened for
+       the days the workshop grants. */
+    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.workshop) {
+      const slug = String(obj.metadata.workshop).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
+      const all = (await getSetting('workshops')) || {};
+      const w = all[slug];
+      const nm = String((obj.metadata.name || (obj.customer_details && obj.customer_details.name) || '')).slice(0, 60);
+      if (!e || !w) {
+        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A workshop payment could not be filed',
+          `<p style="font:16px/1.6 system-ui">${esc(obj.id || '')} for ${esc(e || 'unknown')} on workshop "${esc(slug)}": ${w ? 'no email on the payment' : 'no such workshop'}. The money is in Stripe; the booking is not recorded.</p>`);
+        return json({ ok: true, note: 'workshop not filed' });
+      }
+      const book = (await getSetting(`wsbook:${slug}`)) || [];
+      if (!book.some(b => b.session === obj.id)) {
+        book.push({ email: e, name: nm, at: Date.now(), session: String(obj.id || ''), paid: Number(obj.amount_total) || 0 });
+        await setSetting(`wsbook:${slug}`, book);
+      }
+      await ensureAcct(e, nm);
+      const days = Number(w.appDays) || 0;
+      if (days > 0) {
+        const cur = await getAcct(e);
+        if (!plusNow(cur)) await setSetting(`plusuntil:${e}`, iso(Date.now() + days * DAY));
+      }
+      const off = (await getSetting('mailoff')) || {};
+      if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
+      const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      await email(e, `You are booked: ${w.title}`,
+        mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
+          paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+                  w.desc ? esc(w.desc) : '',
+                  days > 0 ? `The Handstand Ladder app is open for you for ${days} days, every stage. Sign in with this address and it is there.` : '',
+                  'A reminder comes the day before. Reply to this if anything changes.'].filter(Boolean),
+          cta: days > 0 ? { href: `${SITE}/lha-app.html`, label: 'Open the app' } : undefined,
+          signoff: { name: 'Elliott, London Handstand Academy' } }));
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${w.title}`,
+        mail({ title: `${esc(nm || e)} has booked.`,
+          paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${book.length} of ${w.places || '?'} places taken.`],
+          cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+      return json({ ok: true, workshop: slug, booked: book.length });
+    }
+
     let acct = e ? await getAcct(e) : null;
     if (!acct && obj.customer) {
       acct = await supa.row('accounts',
@@ -1430,6 +1475,118 @@ export default async (request) => {
     return json({ error: 'Nope' }, 405);
   }
 
+  /* ── workshops, without a booking tool ─────────────────────────────
+     A workshop has a date and a number of places, so it never needed a
+     calendar. Written from the dashboard; the site lists the live ones;
+     the booking is a Stripe checkout this server makes with the workshop
+     in the metadata; the webhook above turns the payment into a place, a
+     confirmation and an open app. The day before and the day after are
+     handled by the daily job. */
+  const wsSlug = x => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+  const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
+    priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
+    places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
+    desc: w.desc, appDays: w.appDays, who: w.who || '' });
+  if (path === '/workshops' && request.method === 'GET') {
+    const all = (await getSetting('workshops')) || {};
+    const out = [];
+    for (const w of Object.values(all)) {
+      if (!w || !w.live) continue;
+      if (w.when && ms(w.when) < Date.now() - 6 * 3600e3) continue;   /* over */
+      const book = (await getSetting(`wsbook:${w.slug}`)) || [];
+      out.push(wsPublic(w, book.length));
+    }
+    out.sort((a, b) => ms(a.when) - ms(b.when));
+    return json({ workshops: out });
+  }
+  if (path === '/workshop/book' && request.method === 'POST') {
+    const slug = wsSlug(body.slug);
+    const e = norm(body.email);
+    const nm = String(body.name || '').trim().slice(0, 60);
+    if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ error: 'A name and a real email address' }, 400);
+    const all = (await getSetting('workshops')) || {};
+    const w = all[slug];
+    if (!w || !w.live) return json({ error: 'That workshop is not open for booking' }, 404);
+    const book = (await getSetting(`wsbook:${slug}`)) || [];
+    if (Number(w.places) > 0 && book.length >= Number(w.places)) return json({ error: 'That one is full' }, 409);
+    if (book.some(b => b.email === e)) return json({ error: 'You are already booked on this one. Check your email.' }, 409);
+    if (!stripeKey()) return json({ error: 'Booking is not switched on yet' }, 503);
+    if (!(Number(w.price) > 0)) {
+      /* a free one books straight away, no Stripe */
+      book.push({ email: e, name: nm, at: Date.now(), session: 'free-' + newId(), paid: 0 });
+      await setSetting(`wsbook:${slug}`, book);
+      await ensureAcct(e, nm);
+      return json({ ok: true, free: true });
+    }
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`wsb:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(Math.round(Number(w.price))),
+        'line_items[0][price_data][product_data][name]': String(w.title).slice(0, 120),
+        ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(new Date(w.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
+        'line_items[0][quantity]': '1',
+        'metadata[workshop]': slug,
+        'metadata[name]': nm,
+        customer_email: e,
+        success_url: `${url.origin}/workshop.html?slug=${slug}&booked=1`,
+        cancel_url: `${url.origin}/workshop.html?slug=${slug}`,
+      });
+      return json({ url: sess.url });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
+  }
+  if (path === '/coach/workshops') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const all = (await getSetting('workshops')) || {};
+    const withBook = async () => {
+      const out = [];
+      for (const w of Object.values(all)) {
+        const book = (await getSetting(`wsbook:${w.slug}`)) || [];
+        out.push(Object.assign({}, w, { bookings: book }));
+      }
+      return out.sort((a, b) => ms(b.when) - ms(a.when));
+    };
+    if (request.method === 'GET') return json({ workshops: await withBook() });
+    if (request.method === 'POST') {
+      if (body.remove) {
+        const slug = wsSlug(body.remove);
+        delete all[slug];
+        await setSetting('workshops', all);
+        return json({ ok: true, workshops: await withBook() });
+      }
+      const f = body.workshop || {};
+      const slug = wsSlug(f.slug || f.title);
+      if (!slug) return json({ error: 'A workshop needs a title' }, 400);
+      const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+      const whenMs = ms(f.when);
+      const w = {
+        slug, title: str(f.title, 80) || slug,
+        when: whenMs ? new Date(whenMs).toISOString() : '',
+        place: str(f.place, 120), desc: str(f.desc, 600), who: str(f.who, 80),
+        price: Math.max(0, Math.round(Number(f.price) || 0)),
+        places: Math.max(0, Math.min(200, Math.round(Number(f.places) || 0))),
+        appDays: Math.max(0, Math.min(365, Math.round(Number(f.appDays) || 0))),
+        reviewUrl: /^https:\/\//.test(str(f.reviewUrl, 300)) ? str(f.reviewUrl, 300) : '',
+        live: !!f.live,
+        createdAt: (all[slug] || {}).createdAt || Date.now(),
+      };
+      const was = wsSlug(body.was || '');
+      if (was && was !== slug) {
+        delete all[was];
+        const oldBook = await getSetting(`wsbook:${was}`);
+        if (oldBook) await setSetting(`wsbook:${slug}`, oldBook);
+      }
+      all[slug] = w;
+      await setSetting('workshops', all);
+      return json({ ok: true, workshop: w, workshops: await withBook() });
+    }
+    return json({ error: 'Nope' }, 405);
+  }
+
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
                   timing:      (await getSetting('timing:custom')) || {},
@@ -2145,6 +2302,8 @@ export default async (request) => {
                   'finish', 'ret7', 'install', 'taste', 'signup', 'code',
                   /* a fix opened, started and finished, and its public page */
                   'fixopen', 'fixstart', 'fixdone', 'sitefix',
+                  /* a workshop page opened, a booking started, a booking paid */
+                  'siteworkshoppage', 'workshopbook', 'workshoppaid',
                   /* the website, before the app */
                   'site', 'sitequiz', 'siteapp', 'siteworkshop'];
   if (path === '/event' && request.method === 'POST') {

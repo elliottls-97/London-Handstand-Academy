@@ -6085,6 +6085,90 @@ function pricesHTML(){
   </div>`;
 }
 
+/* ── Workshops ────────────────────────────────────────────────────────
+   A date, a place, a price and a number of places, booked through a
+   Stripe checkout this server makes and confirmed by our own emails. No
+   booking tool, no login wall. The site lists the live ones; the booking
+   page is /workshop.html?slug=… */
+let wshops=null, wsOpen=null, wsf=null, wsBusy=false, wsMsg='';
+function wsLoad(){
+  if(wshops) return; wshops=[];
+  fetch(API+'/workshops',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ wshops=d.workshops||[]; draw(); } }).catch(()=>{});
+}
+function wsNew(){ const d=new Date(); d.setDate(d.getDate()+14); d.setHours(12,30,0,0);
+  wsf={slug:'',title:'',when:d.toISOString(),place:'OverGravity, Shadwell',desc:'',who:'',price:2500,places:16,appDays:30,reviewUrl:'',live:false}; wsOpen='new'; wsMsg=''; draw(); }
+function wsEdit(slug){ const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return; wsf=JSON.parse(JSON.stringify(w)); wsf.was=slug; wsOpen=slug; wsMsg=''; draw(); }
+function wsClose(){ wsOpen=null; wsf=null; draw(); }
+function wsSet(k,v){ if(k==='price') v=Math.round((Number(String(v).replace(/[^0-9.]/g,''))||0)*100); if(k==='places'||k==='appDays') v=Number(v)||0; if(k==='live') v=!!v; wsf[k]=v; }
+function wsSetWhen(){ const d=(document.getElementById('wsDate')||{}).value, t=(document.getElementById('wsTime')||{}).value||'12:30';
+  if(d) wsf.when=new Date(d+'T'+t+':00').toISOString(); }
+function wsSave(){
+  if(wsBusy) return; if(!wsf.title.trim()) return alert('Give it a title.');
+  wsSetWhen(); wsBusy=true; wsMsg='Saving…'; draw();
+  fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({workshop:wsf, was:wsf.was||''})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ wshops=d.workshops||wshops; wsBusy=false; wsf=JSON.parse(JSON.stringify(d.workshop)); wsf.was=d.workshop.slug; wsOpen=d.workshop.slug;
+      wsMsg='Saved. '+(wsf.live?'It is on the site and taking bookings.':'A draft, not on the site yet.'); draw(); })
+    .catch(e=>{ wsBusy=false; wsMsg=String(e); draw(); });
+}
+function wsDelete(slug){ const w=(wshops||[]).find(x=>x.slug===slug)||{};
+  if(!confirm('Delete '+(w.title||slug)+'?\n\nThe bookings list goes with it. Refunds are done in Stripe.')) return;
+  fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({remove:slug})})
+    .then(r=>r.ok?r.json():Promise.reject('could not delete')).then(d=>{ wshops=d.workshops||[]; if(wsOpen===slug){ wsOpen=null; wsf=null; } draw(); })
+    .catch(e=>alert(String(e))); }
+function wsLive(slug){ const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return;
+  fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({workshop:Object.assign({},w,{live:!w.live}), was:slug})})
+    .then(r=>r.ok?r.json():Promise.reject('could not save')).then(d=>{ wshops=d.workshops||wshops; draw(); flash(w.live?'Off the site':'On the site and taking bookings'); })
+    .catch(e=>alert(String(e))); }
+const wsWhen=w=>w.when?new Date(w.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'no date';
+function workshopsHTML(){
+  wsLoad();
+  if(wsOpen&&wsf){ const w=wsf; const d=w.when?new Date(w.when):new Date(); const pad=n=>String(n).padStart(2,'0');
+    const dateV=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()), timeV=pad(d.getHours())+':'+pad(d.getMinutes());
+    return `<div class="card">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="ghostlink" onclick="wsClose()">← Workshops</button><span style="flex:1"></span>
+        <span class="muted" style="font-size:12.5px">${esc(wsMsg)}</span>
+        ${w.was?`<button class="btn btn-ghost btn-sm" onclick="wsDelete('${esc(w.was)}')" style="color:var(--terra)">Delete</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="wsSet('live',${w.live?'false':'true'});draw()">${w.live?'Live · take off':'Draft · go live'}</button>
+        <button class="btn btn-primary btn-sm" onclick="wsSave()" ${wsBusy?'disabled':''}>${wsBusy?'Saving…':'Save'}</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:14px">
+        <div class="field" style="grid-column:1/-1"><label>Title</label><input class="input" value="${esc(w.title)}" placeholder="All-Levels Handstand Workshop" oninput="wsSet('title',this.value)"></div>
+        <div class="field"><label>Date</label><input id="wsDate" class="input" type="date" value="${dateV}" onchange="wsSetWhen()"></div>
+        <div class="field"><label>Time</label><input id="wsTime" class="input" type="time" value="${timeV}" onchange="wsSetWhen()"></div>
+        <div class="field"><label>Place</label><input class="input" value="${esc(w.place||'')}" oninput="wsSet('place',this.value)"></div>
+        <div class="field"><label>Price, pounds</label><input class="input" value="${w.price?(w.price/100).toFixed(2).replace(/\.00$/,''):''}" placeholder="25" oninput="wsSet('price',this.value)"></div>
+        <div class="field"><label>Places</label><input class="input" type="number" min="0" value="${w.places||0}" oninput="wsSet('places',this.value)"></div>
+        <div class="field"><label>App open for, days</label><input class="input" type="number" min="0" value="${w.appDays||0}" oninput="wsSet('appDays',this.value)"></div>
+        <div class="field"><label>Who it is for, one line</label><input class="input" value="${esc(w.who||'')}" placeholder="Everyone welcome, beginners to freestanding" oninput="wsSet('who',this.value)"></div>
+        <div class="field" style="grid-column:1/-1"><label>Description</label><textarea class="input" rows="3" oninput="wsSet('desc',this.value)">${esc(w.desc||'')}</textarea></div>
+        <div class="field" style="grid-column:1/-1"><label>Review link, optional</label><input class="input" value="${esc(w.reviewUrl||'')}" placeholder="https://g.page/r/… the Google review link" oninput="wsSet('reviewUrl',this.value)"></div>
+      </div>
+      ${w.slug?`<p class="muted" style="font-size:12.5px;margin-top:12px">Booking page: <b style="font-family:ui-monospace,monospace">/workshop.html?slug=${esc(w.slug)}</b>. Everyone booked gets a confirmation, a reminder the day before, and a review ask the day after.</p>`:''}
+      ${(w.bookings||[]).length?`<h5 style="margin-top:var(--space-6)">Booked · ${w.bookings.length}${w.places?' of '+w.places:''}</h5>
+        <div style="font:400 13px/1.7 var(--sans)">${w.bookings.map(b=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:5px 0"><b style="min-width:140px">${esc(b.name||'')}</b><span>${esc(b.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(b.at))}</span></div>`).join('')}</div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(w.bookings.map(b=>b.email).join(', '))}');flash('Emails copied')">Copy all emails</button>`
+        :(w.was?'<p class="muted" style="font-size:13px;margin-top:14px">Nobody booked yet.</p>':'')}
+    </div>`; }
+  const list=(wshops||[]);
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">WORKSHOPS</div><span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="wsNew()">New workshop</button></div>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">Live ones appear on the site and take bookings through Stripe with no login. Setmore stays for one to one sessions.</p>
+    ${list.map(w=>`<div class="row-hit" style="display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:10px 6px;border-bottom:1px solid rgba(17,17,17,.08)">
+      <div onclick="wsEdit('${esc(w.slug)}')" style="cursor:pointer;min-width:0">
+        <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><span style="font:600 14.5px/1.3 var(--sans)">${esc(w.title)}</span>
+          <span class="tag ${w.live?'tag-accent':'tag-neutral'}">${w.live?'live':'draft'}</span>${w.when&&new Date(w.when)<Date.now()?'<span class="tag tag-neutral">past</span>':''}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">${esc(wsWhen(w))} · ${w.price?'£'+(w.price/100).toFixed(2).replace(/\.00$/,''):'free'} · ${(w.bookings||[]).length}${w.places?' of '+w.places:''} booked</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="wsLive('${esc(w.slug)}')">${w.live?'Take off':'Go live'}</button>
+      <a class="btn btn-ghost btn-sm" href="/workshop.html?slug=${esc(w.slug)}" target="_blank" rel="noopener">Page</a>
+      <button class="btn btn-secondary btn-sm" onclick="wsEdit('${esc(w.slug)}')">Edit</button></div>`).join('')
+      ||(wshops?'<p class="muted" style="margin-top:12px">No workshops yet.</p>':'')}
+  </div>`;
+}
+
 /* ── Settings ─────────────────────────────────────────────────────── */
 function settingsHTML(){
   return `<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;
@@ -6095,6 +6179,7 @@ function settingsHTML(){
     ${newClientHTML()}
     ${codesHTML()}
     ${coachesHTML()}
+    ${workshopsHTML()}
     ${pricesHTML()}
     ${mailguardHTML()}
     ${stripeHTML()}

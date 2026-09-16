@@ -4135,6 +4135,7 @@ function subscribeNewsletter(emailId, msgId, source, nameId) {
 
     
 
+    <div id="wsLive"></div>
     <a class="cc-unsure" href="#newsletter" onclick="closeWsChoose()">Neither quite right? Get the next dates by email →</a>
   </div>
 </div>
@@ -5010,5 +5011,20 @@ window.addEventListener('resize', function () {
 (function(){ try{ fetch('/api/app/plans').then(function(r){return r.json();}).then(function(d){
   var p=(d&&d.prices)||{}; document.querySelectorAll('[data-price]').forEach(function(el){
     var t=p[el.getAttribute('data-price')]; if(t&&t.label) el.textContent=t.label; }); }).catch(function(){}); }catch(e){} })();
+</script>
+<script>
+/* Workshops written in the coach dashboard join the chooser here, booked on
+   our own page rather than through a login wall. The dated ones written into
+   this file stay as they are and hide themselves once they have passed. */
+(function(){ try{ fetch('/api/app/workshops').then(function(r){return r.json();}).then(function(d){
+  var box=document.getElementById('wsLive'); var list=(d&&d.workshops)||[]; if(!box||!list.length) return;
+  var esc=function(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+  box.innerHTML=list.map(function(w){ var when=w.when?new Date(w.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+    return '<a class="cc-opt cc-opt--feature" data-ws-date="'+esc(w.when||'')+'" href="/workshop.html?slug='+esc(w.slug)+'">'
+      +'<span class="cc-opt-name">'+esc(w.title)+'</span>'
+      +'<span class="cc-opt-desc">'+esc([w.who,when,w.place].filter(Boolean).join(' · '))+(w.left>0&&w.left<=5?' · '+w.left+' places left':'')+'</span>'
+      +'<span class="cc-opt-price">'+esc(w.priceLabel)+(w.left===0?' · full':'')+'</span></a>'; }).join('');
+  var sub=document.querySelector('#wsChoose .cc-sub'); if(sub&&list.length===1) sub.textContent='One coming up. Pick it and book in a minute, no account needed.';
+}).catch(function(){}); }catch(e){} })();
 </script>
 </body></html>

@@ -256,6 +256,7 @@ export default async () => {
 }
 
   try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
+  try { await workshopMail(done); } catch (e) { done.workshopError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
   return new Response(JSON.stringify(done), {
     headers: { 'Content-Type': 'application/json' } });
@@ -358,6 +359,59 @@ async function firstTenDays(done) {
       if (ok) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
                 done.tips = (done.tips || 0) + 1; }
       break;   /* one a day at most, whatever is owed */
+    }
+  }
+}
+
+/* ── workshops: the day before and the day after ──────────────────────
+   Setmore did the reminder and nothing did the review ask. Both run from
+   here: every booking gets one reminder when the workshop is 12 to 36
+   hours away, and one ask for a review when it was 10 to 40 hours ago.
+   The daily run at nine means each window is hit exactly once. */
+async function workshopMail(done) {
+  done.workshops = { reminded: 0, asked: 0 };
+  const row = await supa.row('settings', 'key=eq.workshops&select=value').catch(() => null);
+  const all = (row && row.value) || {};
+  const now = Date.now();
+  for (const w of Object.values(all)) {
+    if (!w || !w.live || !w.when) continue;
+    const at = ms(w.when);
+    const b = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
+    const book = (b && b.value) || [];
+    if (!book.length) continue;
+    const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+    const hoursTo = (at - now) / 3600e3;
+    if (hoursTo > 12 && hoursTo <= 36) {
+      const key = `wsremind:${w.slug}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        for (const p of book) {
+          await email(p.email, `Tomorrow: ${w.title}`,
+            mail({ title: 'See you tomorrow.', greeting: String(p.name || '').split(' ')[0],
+              paras: [`<b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}.`,
+                      'Wear something you can move in and bring water. Arrive ten minutes early so we start on time.',
+                      'If you cannot make it, reply to this and we will sort it.'],
+              signoff: { name: 'Elliott, London Handstand Academy' } }));
+          done.workshops.reminded++;
+        }
+        await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+      }
+    }
+    const hoursSince = (now - at) / 3600e3;
+    if (hoursSince > 10 && hoursSince <= 40) {
+      const key = `wsreview:${w.slug}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        for (const p of book) {
+          await email(p.email, `How was ${w.title}?`,
+            mail({ title: 'Thank you for coming.', greeting: String(p.name || '').split(' ')[0],
+              paras: ['Two things would help a lot.',
+                      w.reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
+                      w.appDays ? `The app is open for you for ${w.appDays} days from your booking, so the drills from today are in there to keep going with.` : 'The drills from today are in the Handstand Ladder app, and Foundations is free.'],
+              cta: w.reviewUrl ? { href: w.reviewUrl, label: 'Leave a review' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+              signoff: { name: 'Elliott, London Handstand Academy' } }));
+          done.workshops.asked++;
+        }
+        await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+      }
     }
   }
 }
