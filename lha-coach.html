@@ -1108,7 +1108,7 @@ function subsHTML(email){
       </div>
       <div style="margin-top:11px">${nums}</div>
       <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
-        ${s.clips.length} clip${s.clips.length===1?'':'s'} — in the thread below.</div>
+        ${s.clips.length} clip${s.clips.length===1?'':'s'}, in the thread below.</div>
       ${s.kind==='checkpoint'?`<div style="margin-top:12px;padding:11px 12px;border-radius:12px;background:rgba(0,64,61,.05)">
         <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
         <input id="vnote-${esc(s.id)}" placeholder="One line they will read beside it, optional"
@@ -2008,7 +2008,7 @@ function summarise(email){
   if(!a.all.length&&!a.opens.length) return ['Nothing recorded yet.'];
 
   const wks=a.weeks;
-  out.push(`${a.done.length} session${a.done.length===1?'':'s'} in ${wks} week${wks===1?'':'s'} — ${a.adherence}% of a ${a.target}-a-week plan.`);
+  out.push(`${a.done.length} session${a.done.length===1?'':'s'} in ${wks} week${wks===1?'':'s'}, ${a.adherence}% of a ${a.target}-a-week plan.`);
 
   /* direction of travel matters more than the total */
   if(a.perWeek.length>=4){
@@ -2045,7 +2045,7 @@ function summarise(email){
   if(avgA.length>2){
     const avg=Math.round(avgA.reduce((t,v)=>t+v,0)/avgA.length);
     const plan=Math.round(a.done.filter(x=>x.mins).reduce((t,x)=>t+x.mins,0)/Math.max(1,a.done.filter(x=>x.mins).length));
-    if(plan&&avg<plan*0.8) out.push(`Sessions run ${avg} min against ${plan} planned — the plan may be too long.`);
+    if(plan&&avg<plan*0.8) out.push(`Sessions run ${avg} min against ${plan} planned, so the plan may be too long.`);
   }
 
   if(a.holds.length>1){
@@ -2138,6 +2138,13 @@ function dayCompletion(list){
   return (list||[]).some(x=>x.done) ? 1 : 0;
 }
 
+/* Which way they trained. The follow-along player sent no mode at all until
+   now, so anything without one is the player: that is the only thing it can
+   have been. */
+const HOW_LABEL={ player:'Follow along', list:'Drill by drill', ticks:'Ticked off',
+                  checkin:'Said so', plan:'Opened the plan' };
+const HOW = x => HOW_LABEL[x && x.mode] || (x && x.mode ? x.mode : 'Follow along');
+
 function coachCalendar(email){
   const p=prog[email]||{};
   const opens=new Set(p.opens||[]);
@@ -2169,8 +2176,8 @@ function coachCalendar(email){
     })();
     const isSel=calDay===k;
     const future=new Date(y,m,dnum)>new Date();
-    const tip = done ? ('Finished the session'+(partsTip?' — '+partsTip:'')+' — click for detail')
-      : did ? ((partsTip||'Started a session')+' — click to see which')
+    const tip = done ? ('Finished the session'+(partsTip?', '+partsTip:'')+'. Click for detail')
+      : did ? ((partsTip||'Started a session')+'. Click to see which')
       : on ? 'Opened the app, no session logged'
       : future ? '' : 'Nothing';
     /* the design's squares: shading says what kind of day it was, the bar
@@ -2282,6 +2289,8 @@ function dayDetail(email,list,k,p){
         <span style="font:600 9px/1 var(--sans);letter-spacing:.1em;padding:3px 6px;border-radius:4px;
           background:${x.done?'var(--forest)':'var(--terra)'};color:#fff">
           ${x.done?'FINISHED':'STOPPED'}</span>
+        <span style="font:600 9px/1 var(--sans);letter-spacing:.1em;padding:3px 6px;border-radius:4px;
+          background:rgba(28,32,25,.08);color:var(--grey)">${esc(HOW(x))}</span>
       </div>
       <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:5px">
         ${x.got||0} of ${x.of||0} sets${x.actual?' · '+x.actual+' min'
@@ -4993,15 +5002,12 @@ function metricsHTML(email){
   const toneBg = a.tone==='bad'?'rgba(196,122,86,.13)':a.tone==='warn'?'rgba(168,121,47,.13)':'rgba(47,61,47,.09)';
   const toneFg = a.tone==='bad'?'var(--terra)':a.tone==='warn'?'#8a6524':'var(--forest)';
 
+  /* the calendar, the intake and the tracking card all have their own place
+     on the client screen now, so this panel is only the charts */
   return `
-  <div class="card">
-    <div class="kick">ACTIVITY</div>
-    ${coachCalendar(email)}</div>
   ${panelWeek(p)}
   ${panelVolume(p, email)}
   ${panelPhotos(email)}
-  ${intakeHTML(email)}
-  ${trackHTML(email)}
   <div style="margin-top:11px">
     <button onclick="openBuilder('${esc(email)}')" class="send">Edit programme</button>
   </div>
@@ -5735,9 +5741,17 @@ function progressPaneHTML(){
       ${stat(finish===null?'not yet':finish+'%','finish rate',finish!==null&&finish<70?'var(--terra)':null)}
       ${stat(a.sinceLast===null?'never':a.sinceLast+'d','since last',tone)}
     </div>
-    <button class="btn ${progMore?'btn-secondary':'btn-primary'}"
+    <div class="card" style="margin-top:var(--space-6)">
+      <div class="kick">WHAT THEY DID, DAY BY DAY</div>
+      <p class="muted" style="font:400 13px/1.6 var(--sans);margin:8px 0 0;max-width:66ch">
+        Shaded means a session, solid means they finished it, the bar is how much of it they got
+        through and the number is minutes. Press a day for every drill in it, the sets they reached
+        against the sets asked for, and whether they called it easy or hard.</p>
+      ${coachCalendar(sel)}
+    </div>
+    <button class="btn ${progMore?'btn-secondary':'btn-primary'}" style="margin-top:var(--space-4)"
       onclick="progMore=${progMore?'false':'true'};draw()">${
-      progMore?'Hide the detail':'The calendar, the charts and where they stop'}</button>
+      progMore?'Hide the charts':'The charts, the volume and where they stop'}</button>
     ${progMore?`<div style="margin-top:var(--space-6)">${metricsHTML(sel)}</div>`:''}
   </div>`;
 }
