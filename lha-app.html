@@ -3998,14 +3998,22 @@ function loadState(){
     })
     .catch(()=>{});
 }
+/* The server keeps the highest stage it has been told unless this says
+   otherwise, because an ordinary save runs before the stored state has come
+   back and would send 0. Only the two places that deliberately move somebody
+   down pass it. */
+let stageDown=false;
+function saveStateDown(){ stageDown=true; saveState(); }
 function saveState(){
   if(!st.token) return;
   clearTimeout(stateQueued);
+  const down=stageDown; stageDown=false;
   stateQueued=setTimeout(()=>{
     stateQueued=null;
     fetch(AUTH.state,{method:'POST',headers:authed(),body:JSON.stringify({
       dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
       intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(),
+      ...(down?{stageDown:true}:{}),
       ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
       ladderDone:st.ladderDone||{},
       fixDone:st.fixDone||{}
@@ -4308,15 +4316,22 @@ function loadBookings(){
   fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ st.bookings=d.bookings||[]; save(); if(st.tab==='more') render(); } }).catch(()=>{});
 }
+/* One cancel at a time. Two taps sent two requests, both found the same
+   booking, and both asked Stripe to refund the same payment. Stripe refuses
+   the second, so the money went back and the person was emailed to say it
+   had not. */
+let cancelling='';
 function cancelBooking(slug){
+  if(cancelling) return;
   const b=(st.bookings||[]).find(x=>x.slug===slug); if(!b) return;
   const msg = b.refundable ? 'Cancel your place? It is more than 48 hours away, so it is refunded in full.'
     : (b.paid ? 'Cancel your place? It is inside 48 hours, so it is not refunded automatically.' : 'Cancel your place?');
   if(!confirm(msg)) return;
+  cancelling=slug; render();
   fetch('/api/app/workshop/cancel',{method:'POST',headers:authed(),body:JSON.stringify({slug})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not cancel')))
-    .then(()=>loadBookings())
-    .catch(e=>alert(String(e)));
+    .then(()=>{ cancelling=''; loadBookings(); })
+    .catch(e=>{ cancelling=''; render(); alert(String(e)); });
 }
 function bookingsHTML(){
   if(!st.token) return '';
@@ -4333,7 +4348,8 @@ function bookingsHTML(){
           <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:2px">${esc(when(b))}${b.place?' · '+esc(b.place):''}</div>
           ${b.status!=='booked'?`<div style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:6px">${b.status==='refunded'?'CANCELLED, REFUNDED':'CANCELLED'}</div>`:''}
         </div>
-        ${b.canCancel?`<button class="rt" style="flex:none" onclick="cancelBooking('${esc(b.slug)}')">Cancel</button>`:''}
+        ${b.canCancel?`<button class="rt" style="flex:none" ${cancelling===b.slug?'disabled':''}
+          onclick="cancelBooking('${esc(b.slug)}')">${cancelling===b.slug?'Cancelling…':'Cancel'}</button>`:''}
       </div>`).join('')}
     </div>
     ${list.some(b=>b.canCancel)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Cancel more than 48 hours before and it is refunded in full.</div>`:''}
@@ -6026,7 +6042,10 @@ function doLogin(ev){
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
       if(st.in){ loadProgramme(); loadProgress(); loadThread(); }
-      loadLadder(); loadState(); loadTrack(); })
+      /* a code typed on the wall before signing in was parked and only ever
+         picked up on a cold start, so signing in landed them back on the
+         wall with nothing said */
+      loadLadder(); loadState(); loadTrack(); codeResume(); })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -6833,7 +6852,7 @@ function skipIntake(){
   st.stage=0; st.placed=0; st.time=st.time||30; st.perWeek=st.perWeek||(L&&L.def)||3;
   st.quizDone=true; st.oriented=false;
   st.tab = st.email ? 'home' : 'joinFree';
-  save(); saveState(); render();
+  save(); saveStateDown(); render();
 }
 function finishIntake(){
   const a=intake(), L=levelDef();
@@ -7148,16 +7167,20 @@ function goToStage(i){
      and being stranded on a locked one with no way back is not a paywall,
      it is a trap. */
   if(i>curStage() && stageLocked(i)){ st.ovStage=i; openOv('stage'); return; }
-  const down=i>curStage();
+  /* this read i>curStage() and called it "down", so moving up the ladder
+     congratulated you on moving down it */
+  const goingDown=i<curStage();
   st.stage=i; save();
   /* sendIntake talks to the server, and a throw here used to take the redraw
      with it, so the stage moved in memory and the screen did not */
   try{ sendIntake(); }catch(e){}
-  try{ saveState(); }catch(e){}
+  /* moving down is deliberate, so the server is allowed to take the stage
+     back rather than keeping the highest it has seen */
+  try{ goingDown?saveStateDown():saveState(); }catch(e){}
   render();
   /* No confirm. The screen promises you can move either way whenever you
      like, and stopping to ask every time is the opposite of that. */
-  toast((down?'Moved down to ':'Back up to ')+STAGES[i].n+'. Move again whenever you like.');
+  toast((goingDown?'Moved down to ':'Back up to ')+STAGES[i].n+'. Move again whenever you like.');
 }
 function advanceStage(){
   const next=curStage()+1;
@@ -8393,7 +8416,11 @@ const FREE_STAGES = 1;
    demos are part of training, and these stages train free. */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
 const isPlus = () => !!(st.plus || st.in);   /* st.plus is refreshed from /me */
-const stageLocked = i => i >= FREE_STAGES && !isPlus();
+/* This had no taste term while stageCap and tasting did, so somebody with
+   two free sessions at Take-Off was told on the wall that they had them and
+   then met the paywall when they tapped the stage, with no way to its check
+   points. */
+const stageLocked = i => i >= FREE_STAGES && !isPlus() && !(tasting() && i === placedStage());
 
 function screenUpgradeBody(si){
   const s=STAGES[si]||{n:''};
@@ -9799,7 +9826,11 @@ function doJoin(ev){
   if(pw.length<8){ joinSay('Password needs at least 8 characters.'); return; }
   joinSay('Creating your account…');
   fetch(AUTH.signup,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({email:em,password:pw,marketing:mk,stage:curStage(),ref:st.ref||''})})
+    /* curStage is capped by what they have paid for, and at this moment
+       there is no token, so it is always 0 and every self-serve signup
+       reached the dashboard with no stage at all. Where the quiz put them
+       is placedStage. */
+    body:JSON.stringify({email:em,password:pw,marketing:mk,stage:placedStage(),ref:st.ref||''})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
     .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup'); setTimeout(codeResume,0);
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */

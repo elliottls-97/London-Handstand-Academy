@@ -399,17 +399,27 @@ async function workshopMail(done) {
   const all = (row && row.value) || {};
   const now = Date.now();
   for (const w of Object.values(all)) {
-    if (!w || !w.live || !w.when) continue;
+    /* not w.live: taking a full workshop off the site is the obvious thing to
+       do once it fills, and it used to silently cancel the reminder and the
+       review ask for everyone already booked. A date is still needed. */
+    if (!w || !w.when) continue;
     const at = ms(w.when);
     const b = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
-    const book = (b && b.value) || [];
+    /* people who cancelled or were refunded stay in the list so the history
+       reads, and were being sent "see you tomorrow" and then "thank you for
+       coming" with a review ask */
+    const book = ((b && b.value) || [])
+      .filter(p => p && p.email && p.status !== 'cancelled' && p.status !== 'refunded');
     if (!book.length) continue;
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
     const hoursTo = (at - now) / 3600e3;
     if (hoursTo > 12 && hoursTo <= 36) {
-      const key = `wsremind:${w.slug}`;
-      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-        for (const p of book) {
+      /* the key was per workshop, so once the run had marked it, anyone who
+         booked afterwards got no reminder at all while the booking page, the
+         confirmation and this email all promise one. One key per person. */
+      for (const p of book) {
+        const key = `wsremind:${w.slug}:${p.email}`;
+        if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           await email(p.email, `Tomorrow: ${w.title}`,
             mail({ title: 'See you tomorrow.', greeting: String(p.name || '').split(' ')[0],
               paras: [`<b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}.`,
@@ -417,15 +427,15 @@ async function workshopMail(done) {
                       'If you cannot make it, reply to this and we will sort it.'],
               signoff: { name: 'Elliott, London Handstand Academy' } }));
           done.workshops.reminded++;
+          await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         }
-        await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
       }
     }
     const hoursSince = (now - at) / 3600e3;
     if (hoursSince > 10 && hoursSince <= 40) {
-      const key = `wsreview:${w.slug}`;
-      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-        for (const p of book) {
+      for (const p of book) {
+        const key = `wsreview:${w.slug}:${p.email}`;
+        if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           await email(p.email, `How was ${w.title}?`,
             mail({ title: 'Thank you for coming.', greeting: String(p.name || '').split(' ')[0],
               paras: ['Two things would help a lot.',
@@ -434,8 +444,8 @@ async function workshopMail(done) {
               cta: w.reviewUrl ? { href: w.reviewUrl, label: 'Leave a review' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
               signoff: { name: 'Elliott, London Handstand Academy' } }));
           done.workshops.asked++;
+          await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         }
-        await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
       }
     }
   }
@@ -450,7 +460,10 @@ async function sessionMail(done) {
   const list = (row && row.value) || [];
   const now = Date.now();
   for (const x of list) {
-    if (!x || x.status !== 'arranged' || !x.when) continue;
+    /* done, not only arranged: marking a session done the moment it finished
+       was cancelling the follow-up, which is the only place the offer of the
+       fee against the first month is ever made. Cancelled ones are out. */
+    if (!x || !x.when || !['arranged', 'done'].includes(x.status)) continue;
     const at = ms(x.when);
     const hoursTo = (at - now) / 3600e3, hoursSince = (now - at) / 3600e3;
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });

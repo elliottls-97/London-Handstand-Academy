@@ -96,6 +96,13 @@ const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort'
   'nose-toes':'Nose to toes','assist-entry':'Assisted freestanding entries','tuck-depth':'Tuck slides',
   'slide-count':'Slide aways','slide-off':'Coming off the wall','box-dist':'Knees on box, distance',
   'box-time':'Knees on box, hold','step-ups':'Step ups','entry-clean':'Entries to eight clean' };
+/* Who is actually holding a place: cancelled and refunded rows stay in the
+   list so the history is readable. This lived further down the handler than
+   two of the things that call it, and a const is not hoisted, so asking for
+   the workshop list and finishing a payment both threw before doing their
+   job. Out here it cannot happen again. */
+const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.status !== 'refunded');
+
 const plusNow = a => !!a && (!!a.plus || (!!a.plus_until && ms(a.plus_until) > Date.now()));
 const coachOf = e => {
   const c = rosterList().find(x => x.email === norm(e));
@@ -624,7 +631,16 @@ export default async (request) => {
       }
       const book = (await getSetting(`wsbook:${slug}`)) || [];
       const md = obj.metadata || {};
-      if (!book.some(b => b.session === obj.id)) {
+      /* Stripe delivers at least once, so everything here has to be safe to
+         run twice. Recording the place already was. The emails were not, so
+         one payment could send the same "you are booked" several times over
+         a day or two. */
+      const fresh = !book.some(b => b.session === obj.id);
+      /* the two things the checkout screens for but a payment can still
+         arrive against: someone in two tabs, and the last place going twice */
+      const dupPay = fresh && book.some(b => b.email === e && b.status === 'booked');
+      const over = fresh && Number(w.places) > 0 && wsLive(book).length >= Number(w.places);
+      if (fresh) {
         book.push({ email: e, name: nm, at: Date.now(), session: String(obj.id || ''), paid: Number(obj.amount_total) || 0,
           pi: String(obj.payment_intent || ''), q: String(md.q || '').slice(0, 400), exp: String(md.exp || '').slice(0, 400),
           code: String(md.code || '').slice(0, 24), status: 'booked' });
@@ -641,6 +657,16 @@ export default async (request) => {
       const off = (await getSetting('mailoff')) || {};
       if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
       const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      if (!fresh) return json({ ok: true, workshop: slug, note: 'already filed' });
+      if (dupPay || over) {
+        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+          `Look at this booking: ${nm || e} for ${w.title}`,
+          mail({ title: 'A booking that needs a look.',
+            paras: [`<b>${esc(nm || e)}</b> has paid for <b>${esc(w.title)}</b>.`,
+                    dupPay ? 'They already had a place, so this is a second payment from the same person. Refund it in Stripe: only one of the two can be cancelled from the app.' : '',
+                    over ? `That is ${wsLive(book).length} places taken against ${w.places}. Either make space or refund this one in Stripe.` : ''].filter(Boolean),
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+      }
       await email(e, `You are booked: ${w.title}`,
         mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
           paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
@@ -671,11 +697,15 @@ export default async (request) => {
         return json({ ok: true, note: 'session not filed' });
       }
       const list = (await getSetting('sessions')) || [];
-      if (!list.some(x => x.session === obj.id)) {
+      /* at least once again: a redelivery used to post a second opener into
+         the thread and send a second confirmation */
+      const freshSess = !list.some(x => x.session === obj.id);
+      if (freshSess) {
         list.unshift({ id: 's' + newId(), email: e, name: nm, kind, prefs, at: Date.now(), session: String(obj.id || ''),
           paid: Number(obj.amount_total) || 0, status: 'toArrange', when: '', place: 'OverGravity, Shadwell', note: '' });
         await setSetting('sessions', list.slice(0, 400));
       }
+      if (!freshSess) return json({ ok: true, note: 'session already filed' });
       await ensureAcct(e, nm);
       const off = (await getSetting('mailoff')) || {};
       if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
@@ -713,8 +743,14 @@ export default async (request) => {
     }
     const on  = ['checkout.session.completed', 'customer.subscription.created',
                  'customer.subscription.updated', 'invoice.paid'];
-    const off = ['customer.subscription.deleted', 'customer.subscription.paused',
-                 'invoice.payment_failed'];
+    /* A failed payment is not a cancelled subscription. Stripe keeps a
+       subscription alive in past_due through its whole retry schedule, and
+       most of those retries succeed. Switching plus off on the first bounce
+       walled a paying subscriber out of the app, then /subscription (which
+       counts past_due as paying) turned it back on when they opened the
+       Account sheet, and the next subscription.updated turned it off again.
+       Stripe ends it for real with subscription.deleted, which is here. */
+    const off = ['customer.subscription.deleted', 'customer.subscription.paused'];
 
     if (on.includes(ev.type)) {
       const status = obj.status || 'active';
@@ -778,6 +814,19 @@ export default async (request) => {
       }
     } else if (off.includes(ev.type)) {
       acct.plus = false;
+    } else if (ev.type === 'invoice.payment_failed') {
+      /* Not a cancellation, so nothing is switched off. But nobody was told
+         either, and a card that has expired stays expired until somebody
+         says so. Stripe retries for a fortnight; this is the only thing
+         that turns a bounce back into a payment. */
+      await email(acct.email, 'Your card did not go through',
+        mail({ title: 'Your card did not go through.',
+          greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
+          paras: ['Nothing has changed and the app still works. Your bank turned the payment down, which is usually an expired card or a new one.',
+                  'Update the card from Account in the app and it goes through on the next try. If it keeps failing the subscription ends on its own, and you can start again whenever.'],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: 'London Handstand Academy' } }));
+      return json({ ok: true });
     } else if (ev.type === 'customer.subscription.trial_will_end') {
       /* three days out. Nobody should meet the first charge as a surprise:
          that is what gets a small subscription refunded and reported. */
@@ -872,15 +921,20 @@ export default async (request) => {
       || ((acct && acct.name) ? acct.name : '');
 
     /* Always the same answer. Confirming whether an address is one of your
-       clients would let anyone map your client list by typing addresses. */
-    if (name) {
+       clients would let anyone map your client list by typing addresses.
+       The test is whether there is an account, not whether we know their
+       name: a row created by a thread message, a password reset or a
+       booking carries no name, and gating the send on the name meant those
+       people asked for a code, were told one was coming, and got nothing,
+       with no error anywhere. The name is only the greeting. */
+    if (acct || name) {
       const hits = await rateHit(`code:${e}`, 3600000);
       if (hits <= 5) {
         const code = String(Math.floor(100000 + Math.random() * 900000));
         await setCode(e, 'login',
           { code, tries: 0, expires_at: iso(Date.now() + CODE_TTL) });
         await email(e, `${code} is your London Handstand Academy code`,
-          `<p style="font:16px/1.5 system-ui">Hi ${name},</p>
+          `<p style="font:16px/1.5 system-ui">Hi ${name || 'there'},</p>
            <p style="font:16px/1.5 system-ui">Your code is</p>
            <p style="font:700 34px/1 system-ui;letter-spacing:6px">${code}</p>
            <p style="font:14px/1.5 system-ui;color:#666">It expires in 15 minutes.
@@ -978,7 +1032,10 @@ export default async (request) => {
       name: String(body.name || prev.name || '').slice(0, 60),
       hash: pw ? await pwHash(pw) : (prev.hash || null),
       marketing: body.marketing === true ? true : !!prev.marketing,
-      stage: Number(body.stage) || prev.stage || null,
+      /* Number(0) is falsy, so somebody the quiz placed on Foundations was
+         stored with no stage at all and arrived in the dashboard blank */
+      stage: (Number.isInteger(Number(body.stage)) ? Number(body.stage)
+              : (Number.isInteger(prev.stage) ? prev.stage : null)),
       plus: plusNow(prev),
       stripe_customer: prev.stripe_customer || null,
     };
@@ -1576,14 +1633,16 @@ export default async (request) => {
   /* a workshop discount code: pounds or percent off, for one workshop or all,
      with a use count and an expiry. Kept apart from the app codes, which open
      the ladder rather than take money off. */
-  const wsLive = book => book.filter(b => b.status !== 'cancelled' && b.status !== 'refunded');
   const wsCodeCheck = async (slug, code, price) => {
     const c = String(code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
     if (!c) return { off: 0 };
     const codes = (await getSetting('wscodes')) || {};
     const d = codes[c];
     if (!d || d.off === false) return { error: 'That code is not one of ours' };
-    if (d.until && ms(d.until) < Date.now()) return { error: 'That code has expired' };
+    /* the dashboard asks for a date, which arrives as midnight, so a code
+       set to run until the 30th was dead for the whole of the 30th. The last
+       day is a day the code works. */
+    if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That code has expired' };
     if (Number(d.max) > 0 && Number(d.used || 0) >= Number(d.max)) return { error: 'That code has been used up' };
     if (d.workshop && d.workshop !== slug) return { error: 'That code is for a different workshop' };
     const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
@@ -1649,11 +1708,21 @@ export default async (request) => {
       if (disc.code) { const codes = (await getSetting('wscodes')) || {}; if (codes[disc.code]) { codes[disc.code].used = Number(codes[disc.code].used || 0) + 1; await setSetting('wscodes', codes); } }
       await ensureAcct(e, nm);
       const mine = (await getSetting(`wsmine:${e}`)) || []; if (!mine.includes(slug)) { mine.push(slug); await setSetting(`wsmine:${e}`, mine); }
+      /* The paid path opens the app for the days the workshop grants and the
+         booked screen promises it either way. The free path did not, so a free
+         place, or a code that made it free, sent someone to an app that had
+         nothing in it. */
+      const freeDays = Number(w.appDays) || 0;
+      if (freeDays > 0) {
+        const cur = await getAcct(e);
+        if (!plusNow(cur)) await setSetting(`plusuntil:${e}`, iso(Date.now() + freeDays * DAY));
+      }
       const off = (await getSetting('mailoff')) || {}; if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
       const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
       await email(e, `You are booked: ${w.title}`, mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
         paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
-                'A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it.'],
+                freeDays > 0 ? `The Handstand Ladder app is open for you for ${freeDays} days, every stage. Sign in with this address and it is there.` : '',
+                'A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it.'].filter(Boolean),
         cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' }, signoff: { name: 'Elliott, London Handstand Academy' } }));
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked.`,
         paras: [`<b>${esc(w.title)}</b>. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''}`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
@@ -1706,6 +1775,15 @@ export default async (request) => {
       if (body.remove) {
         if (!owner) return json(ownerOnly, 403);
         const slug = wsSlug(body.remove);
+        /* the comment used to say bookings were money and then delete them
+           anyway: no refund, no email, and they vanished from the customer's
+           app. Take them off it one at a time first, or say so deliberately. */
+        const held = wsLive((await getSetting(`wsbook:${slug}`)) || []);
+        if (held.length && !body.evenWithBookings) {
+          return json({ error: `${held.length} ${held.length === 1 ? 'person has' : 'people have'} a place on that one. `
+            + 'Refund them in Stripe and cancel their places first, or tick the box to delete it anyway.',
+            bookings: held.length }, 409);
+        }
         delete all[slug];
         await setSetting('workshops', all);
         return json({ ok: true, workshops: await withBook() });
@@ -1735,6 +1813,18 @@ export default async (request) => {
         delete all[was];
         const oldBook = await getSetting(`wsbook:${was}`);
         if (oldBook) await setSetting(`wsbook:${slug}`, oldBook);
+        const oldWait = await getSetting(`wswait:${was}`);
+        if (oldWait) await setSetting(`wswait:${slug}`, oldWait);
+        /* every customer keeps their own list of what they have booked, by
+           slug. Renaming moved the booking list and left those behind, so the
+           booking disappeared out of their app and took the cancel button
+           with it. */
+        for (const b of (oldBook || [])) {
+          const mine = (await getSetting(`wsmine:${b.email}`)) || [];
+          const next = mine.map(x => (x === was ? slug : x));
+          if (!next.includes(slug)) next.push(slug);
+          await setSetting(`wsmine:${b.email}`, [...new Set(next)]);
+        }
       }
       all[slug] = w;
       await setSetting('workshops', all);
@@ -1772,6 +1862,14 @@ export default async (request) => {
   }
   if (path === '/coach/sessions') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    /* who is asking, and which of these are theirs. The block further down
+       works this out for every other coach route, and this one is not in
+       that block, so it has to do it for itself. It was reading those two
+       names out of a scope it cannot see, which threw on every call: the
+       dashboard swallowed the 500 and showed an empty inbox, so a paid
+       session never reached anybody. */
+    const asking = await me();
+    const owns = e => !asking || !clients()[norm(e)] || coachOf(e) === asking;
     const list = (await getSetting('sessions')) || [];
     if (request.method === 'GET') return json({ sessions: list.filter(x => owns(x.email)) });
     if (request.method === 'POST') {
@@ -1813,8 +1911,11 @@ export default async (request) => {
       const book = (await getSetting(`wsbook:${slug}`)) || [];
       const b = book.slice().reverse().find(x => x.email === who); if (!b) continue;
       out.push({ slug, title: w.title, when: w.when, place: w.place, status: b.status || 'booked', paid: b.paid || 0,
-        canCancel: (b.status || 'booked') === 'booked' && ms(w.when) > Date.now(),
-        refundable: (b.status || 'booked') === 'booked' && ms(w.when) - Date.now() > 48 * 3600e3 && (b.paid || 0) > 0 });
+        /* a workshop with no date yet reads as 1970, so it counted as already
+           over: it could be booked and paid for and never cancelled */
+        canCancel: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) > Date.now()),
+        refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0
+          && (!w.when || ms(w.when) - Date.now() > 48 * 3600e3) });
     }
     out.sort((a, b) => ms(a.when) - ms(b.when));
     return json({ bookings: out });
@@ -1827,8 +1928,10 @@ export default async (request) => {
     const book = (await getSetting(`wsbook:${slug}`)) || [];
     const b = book.slice().reverse().find(x => x.email === who && (x.status || 'booked') === 'booked');
     if (!b) return json({ error: 'No booking to cancel' }, 404);
-    if (ms(w.when) < Date.now()) return json({ error: 'That one has already happened' }, 400);
-    const early = ms(w.when) - Date.now() > 48 * 3600e3;
+    if (w.when && ms(w.when) < Date.now()) return json({ error: 'That one has already happened' }, 400);
+    /* no date set yet is not "48 hours away", it is "not arranged", and the
+       money should come back */
+    const early = !w.when || ms(w.when) - Date.now() > 48 * 3600e3;
     let refunded = false, refundErr = '';
     if (early && b.pi && (b.paid || 0) > 0 && stripeKey()) {
       try { await stripe('/refunds', { payment_intent: b.pi }); refunded = true; }
@@ -2415,7 +2518,14 @@ export default async (request) => {
          a second device put a paying subscriber back on Foundations. */
       if (body.stage !== undefined) {
         const n = Number(body.stage);
-        if (Number.isInteger(n) && n >= 0 && n <= 20) cur.stage = n;
+        /* Only ever upwards, unless the client says it means it. The app
+           sends this on every save, and a save that happens before the
+           stored state has loaded back sends 0, which wiped a subscriber's
+           place on the ladder on every device. Taking a stage back is a
+           deliberate act, so it says so. */
+        const back = body.stageDown === true;
+        if (Number.isInteger(n) && n >= 0 && n <= 20
+            && (back || !Number.isInteger(cur.stage) || n >= cur.stage)) cur.stage = n;
       }
       await setSetting(key, cur);
     }
@@ -2894,7 +3004,14 @@ export default async (request) => {
         ...(c.uid ? { video: c.uid } : {}), ...(c.image ? { image: c.image } : {}) });
     }
 
-    const them = clients()[who] || (acct.name || '').split(' ')[0] || '';
+    /* acct was never fetched in this route. A coached client short-circuits
+       on the first term so it never fired in testing, but a free account
+       sending its one free form check threw a ReferenceError here: the row,
+       the used-up free check and the thread entries were all written first,
+       so the check was spent, nobody was emailed, and the app said it could
+       not send. */
+    const sender = (await getAcct(who)) || {};
+    const them = clients()[who] || String(sender.name || '').split(' ')[0] || '';
     const cn = coachName(coachOf(who));
     await email(who, kind === 'assessment' ? 'Your clip is in' : 'Your test is in',
       mail({
