@@ -1780,7 +1780,11 @@ function analysis(email){
   const target=(intakes[email]&&Number(intakes[email].days))||3;
   const adherence=weeks?Math.round(done.length/(weeks*target)*100):0;
   const sinceLast=done.length?Math.max(0,Math.floor((Date.now()-Math.max(...done.map(x=>x.at)))/DAY)):null;
-  const abandoned=all.length-done.length;
+  /* a day they ticked some of and not all of is a part day, not an
+     abandoned session. Only a session actually started and walked out of
+     counts as abandoned, which is the one worth asking about. */
+  const part=all.filter(x=>!x.done&&(x.kind==='part'||x.mode==='ticks'||x.mode==='checkin'));
+  const abandoned=Math.max(0, all.length-done.length-part.length);
 
   /* status is the thing you want to see before anything else */
   let status='On track', tone='ok';
@@ -1788,7 +1792,7 @@ function analysis(email){
   else if(sinceLast>10){ status='At risk'; tone='bad'; }
   else if(sinceLast>6||adherence<50){ status='Slipping'; tone='warn'; }
 
-  return {p,done,all,opens,holds,start,weeks,perWeek,target,adherence,sinceLast,abandoned,status,tone};
+  return {p,done,all,opens,holds,start,weeks,perWeek,target,adherence,sinceLast,part,abandoned,status,tone};
 }
 
 function heatmap(opens,done){
@@ -1964,8 +1968,8 @@ function summarise(email){
     const half=Math.floor(a.perWeek.length/2);
     const early=a.perWeek.slice(0,half).reduce((t,v)=>t+v,0)/half;
     const late=a.perWeek.slice(half).reduce((t,v)=>t+v,0)/(a.perWeek.length-half);
-    if(late>early+0.4) out.push('Training more than she was a month ago.');
-    else if(early>late+0.4) out.push('Training less than she was a month ago — worth asking why.');
+    if(late>early+0.4) out.push('Training more than they were a month ago.');
+    else if(early>late+0.4) out.push('Training less than they were a month ago, worth asking why.');
     else out.push('Holding steady week to week.');
   }
 
@@ -1981,10 +1985,13 @@ function summarise(email){
       out.push(`Does ${top} most (${by[top].done}) and ${bot} least (${by[bot].done}).`);
   }
 
+  if(a.part.length){
+    out.push(`${a.part.length} day${a.part.length===1?'':'s'} part done, ticked off but not finished.`);
+  }
   if(a.abandoned){
     const st=a.all.filter(x=>!x.done&&x.stoppedAt);
     out.push(`${a.abandoned} session${a.abandoned===1?'':'s'} started and abandoned` +
-      (st.length?` — last one at ${st[st.length-1].stoppedAt}.`:'.'));
+      (st.length?`, last one at ${st[st.length-1].stoppedAt}.`:'.'));
   }
 
   const avgA=a.done.filter(x=>x.actual).map(x=>x.actual);
@@ -5673,7 +5680,8 @@ function progressPaneHTML(){
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
       gap:var(--space-4);margin:var(--space-6) 0">
       ${stat(a.adherence+'%','adherence',a.adherence<50?'var(--terra)':null)}
-      ${stat(a.done.length,'sessions done')}
+      ${stat(a.done.length,'workouts done')}
+      ${a.part.length?stat(a.part.length,'part days','var(--amber-d)'):''}
       ${stat(a.perWeek[a.perWeek.length-1]??0,'this week')}
       ${stat(finish===null?'not yet':finish+'%','finish rate',finish!==null&&finish<70?'var(--terra)':null)}
       ${stat(a.sinceLast===null?'never':a.sinceLast+'d','since last',tone)}

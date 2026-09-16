@@ -483,6 +483,12 @@ try{ st=JSON.parse(localStorage.getItem(K)||'{}')||{}; }catch(e){ st={}; }
 function save(){ try{ localStorage.setItem(K,JSON.stringify(st)); }catch(e){} }
 st.tab=st.tab||'today'; st.day=st.day|0; st.tick=st.tick||{}; st.rate=st.rate||{};
 st.note=st.note||{}; st.open=st.open||{}; st.why=st.why||{};
+/* which calendar day the ticks on screen belong to, and which day of the
+   plan was open when they were made. Without these a tick stayed on
+   forever: the keys are the day of the plan, so last Monday's ticks were
+   still there next Monday and the day looked done before it started. */
+st.tickDay=st.tickDay||''; st.tickIdx=(st.tickIdx==null?st.day:st.tickIdx|0);
+st.tickAt=st.tickAt||0;
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -647,6 +653,43 @@ function sendExAsk(){
     .then(r=>{ if(!r.ok) throw 0; setTimeout(loadThread,400); })
     .catch(()=>post({type:'Question',text}));
 }
+/* Ticks are for the day they were made. At the first sign of a new day,
+   write down what was ticked as that day's session and clear the board, so
+   every morning starts empty. Nothing is thrown away: what was ticked is
+   recorded before it goes, dated to the day it happened, and it reaches the
+   coach the same way a check-in does.
+
+   Yesterday with nothing ticked records nothing. A blank on the calendar
+   means "we do not know", which is not the same as "they did none of it",
+   and only the client saying so makes it a miss. */
+function rollTicks(){
+  /* the plan has to be loaded before anything can be written down about it,
+     so a cold start with no cached programme waits and tries again */
+  if(!DATA||!DATA.days||!DATA.days.length) return;
+  const today=dayKey(Date.now());
+  if(!st.tickDay){ st.tickDay=today; st.tickIdx=st.day; save(); return; }
+  if(st.tickDay===today) return;
+  const was=st.tickDay, idx=st.tickIdx|0;
+  const d=(DATA.days&&DATA.days[idx])||null;
+  const on=Object.keys(st.tick||{}).filter(k=>st.tick[k]);
+  /* only the ticks that belong to the day being closed */
+  const mine=on.filter(k=>k.slice(0, String(idx).length+1)===idx+'-');
+  if(d && mine.length && !loggedFor(was).length){
+    const of=allItems(d).length, got=Math.min(mine.length, of);
+    const at=st.tickAt||(new Date(was+'T18:00:00').getTime());
+    const kind=(of && got>=of) ? 'all' : 'part';
+    st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
+    st.prog.sessions.push({ at, done:kind==='all', kind, mins:0, mode:'ticks',
+      day:idx, name:d.label+(d.sub?', '+d.sub:''), drills:of, got, of });
+    reportProgress({session:{ at, day:idx, name:d.label+(d.sub?', '+d.sub:''),
+      done:kind==='all', mode:'ticks', kind, drills:of, mins:0, actual:0,
+      got, of, items:[] }});
+  }
+  st.tick={}; st.open={};
+  st.tickDay=today; st.tickIdx=st.day; st.tickAt=0;
+  save();
+}
+
 /* kind is all | part | none. A miss is logged too: a blank on the
    calendar means "we do not know", and that is a different fact. */
 function logDay(kind){
@@ -6143,6 +6186,7 @@ function loadProgramme(){
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ applyProgramme(d); cacheProgramme(d);
                if(d.client) st.client=d.client;
+               rollTicks();          /* first load of the day, on a cold start */
                save(); render(); return true; })
     .catch(code=>{
       /* an expired token is the one failure worth acting on */
@@ -6340,7 +6384,12 @@ function post(payload){
   return fetch(FORM,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
     body:JSON.stringify(Object.assign({client:st.client||'',email:st.email||''},payload))}).catch(()=>{});
 }
-function tick(k){ st.tick[k]=!st.tick[k]; save(); render(); }
+function tick(k){
+  rollTicks();
+  st.tick[k]=!st.tick[k];
+  st.tickDay=dayKey(Date.now()); st.tickIdx=st.day; st.tickAt=Date.now();
+  save(); render();
+}
 /* 'Good' was doing nothing useful — it is the default state, and it made
    every drill row carry three buttons. Only the two exceptions are worth
    a tap. Clear any that were already saved. */
@@ -10373,6 +10422,7 @@ document.addEventListener('DOMContentLoaded',function(){
   /* cache first so a signed-in client sees their plan instantly, then
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
+  rollTicks();
   render();
   trackOpen();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); }
@@ -10385,6 +10435,14 @@ document.addEventListener('DOMContentLoaded',function(){
      real interaction before reporting one, and report how long they stayed
      when they leave. */
   if(st.token) watchVisit();
+  /* a phone left open overnight never reloads, so the new day arrives while
+     the app is in the background */
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden) return;
+    const before=st.tickDay;
+    rollTicks();
+    if(st.tickDay!==before) render();
+  });
 });
 render();
 </script>

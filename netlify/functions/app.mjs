@@ -3009,7 +3009,17 @@ export default async (request) => {
                 rate: ['easy', 'hard'].includes(x && x.rate) ? x.rate : '',
               }))
             : [],
-          at: now
+          /* how it was recorded, and whether it was all of it. A day closed
+             out by the app's own tick rollover is written the next morning,
+             so it carries the day it actually happened and the calendar puts
+             it there. Anything outside the last week, or in the future, is
+             stamped now. */
+          mode: String(body.session.mode || '').slice(0, 20),
+          kind: ['all', 'part', 'none'].includes(body.session.kind) ? body.session.kind : '',
+          at: (() => {
+            const t = Number(body.session.at) || 0;
+            return (t > now - 8 * 24 * 60 * 60 * 1000 && t <= now) ? t : now;
+          })(),
         }]).slice(-200);
       }
       if (body.flags && typeof body.flags === 'object') {
