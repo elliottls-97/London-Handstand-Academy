@@ -527,7 +527,14 @@ const PROMISE_H=48;
 function loadQueue(){
   fetch(API+'/queue',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ queue=d.queue||[]; draw(); } })
+    .then(d=>{ if(d){ queue=d.queue||[]; draw();
+      /* drawing the queue is what turns a loose check point clip into a
+         submission, so anything already on screen for this client is a
+         read from before that happened */
+      if(sel) fetch(API+'/submissions?email='+encodeURIComponent(sel),{headers:hdr()})
+        .then(r=>r.ok?r.json():null)
+        .then(x=>{ if(x){ subs[sel]=x.submissions||[]; draw(); } }).catch(()=>{});
+    } })
     .catch(()=>{});
 }
 /* stay in the tab you are working through — bouncing back to Clients
@@ -4525,8 +4532,14 @@ const bGhost='border:1px solid var(--line);border-radius:9px;padding:7px 11px;ba
   +'font:600 11.5px/1 var(--sans);color:var(--grey);cursor:pointer';
 const bTiny='border:none;background:none;cursor:pointer;font:400 8px/1 var(--sans);color:var(--grey2);padding:1px';
 
-function trackHTML(email){
-  const t=tracks[email]; if(!t) return '';
+/* Two cards, not one. Check points are the thing that gets looked at every
+   day, so Progress shows them at the top; the habit squares and the metrics
+   sit under the notes where they belong. trackHTML(email,'cp') is the
+   check point half, trackHTML(email) is the rest. */
+function trackHTML(email, only){
+  /* the check point card is drawn from what the coach set, so it has
+     something to say before the client has logged anything at all */
+  const t=tracks[email]||{}; if(!tracks[email] && only!=='cp') return '';
   const HAB={wrists:'Wrist prep',shoulders:'Shoulder opener',hollow:'Hollow hold'};
   const MET={wall:['Distance from the wall','cm',true],
              press:['Press attempts held','reps',false],
@@ -4650,11 +4663,18 @@ function trackHTML(email){
     ${ci.note?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--ink);margin-top:8px">
       &ldquo;${esc(ci.note)}&rdquo;</div>`:''}</div>`:'';
 
-  if(!habits && !mets && !check && !cpBlock) return '';
+  if(only==='cp'){
+    if(!cps.length) return `<div class="glass" style="padding:15px 17px">
+      <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">CHECK POINTS</div>
+      <p class="muted" style="font:400 13px/1.5 var(--sans);margin:9px 0 0">Nothing set for them yet.
+      Open Check points from the menu on this client to write the ones you want to measure.</p></div>`;
+    return `<div class="glass" style="padding:15px 17px">${cpBlock.replace('margin-top:12px;padding-top:11px;border-top:1px solid var(--line)','')}</div>`;
+  }
+  if(!habits && !mets && !check) return '';
   return `<div class="glass" style="padding:15px 17px;margin-top:11px">
     <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">TRACKING</div>
     ${habits}${mets?`<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)">${mets}</div>`:''}
-    ${cpBlock}${check}</div>`;
+    ${check}</div>`;
 }
 
 function intakeHTML(email){
@@ -5126,8 +5146,12 @@ const hrsState = h => h>=PROMISE_H?'overdue':h>=PROMISE_H*0.6?'due soon':'in tim
 
 function headerHTML(){
   const n=inboxItems().length;
-  const active=(view==='client'||view==='review')?'clients':view;
+  const active=(view==='client')?'clients':view;
+  /* The review tool had no way in of its own after the redesign: you could
+     only reach it by finding a clip first, and once you left it there was no
+     way back to the clips already loaded. It is a tab again, with its count. */
   const items=[['today','Today',n],['clients','Clients',0],
+               ['review','Review',reviewQueue.length],
                ['library','Library',0],['settings','Settings',0]];
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
@@ -5468,6 +5492,13 @@ function clientClips(email){
     const what=s.kind==='assessment'?'Form check':s.kind==='checkpoint'?('Check point: '+((s.numbers||{}).name||'')):('Block '+(s.cycle||1)+' test');
     (s.clips||[]).forEach((u,i)=>add(u, what+((s.clips||[]).length>1?' · clip '+(i+1):''), s.at));
   });
+  /* A check point clip is written to the client's track the moment they send
+     it. It becomes a submission later, when the queue is next drawn, so
+     reading only the submissions made a clip sent this morning invisible. */
+  const tr=(tracks[email]||{}).checkpoints||{};
+  const cpName={}; (cpDefs[email]||[]).forEach(c=>{ cpName[c.k]=c.n; });
+  Object.keys(tr).forEach(k=>{ (tr[k]||[]).forEach(r=>{
+    if(r&&r.video) add(r.video,'Check point: '+(cpName[k]||k),r.at); }); });
   thread.forEach(m=>{ if(m.from!=='coach'&&m.video) add(m.video,'In the thread',m.at); });
   return out.sort((a,b)=>(b.at||0)-(a.at||0));
 }
@@ -5622,6 +5653,11 @@ function progressPaneHTML(){
     <div style="background:var(--surface);border-radius:var(--r-lg);padding:var(--space-4) var(--space-4) var(--space-2)">
       ${readRails(sel)}
     </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:var(--space-4) 0 var(--space-3)">
+      <button class="btn btn-secondary btn-sm" onclick="reviewAllFrom('${esc(sel)}')">Review their clips</button>
+      <button class="btn btn-ghost btn-sm" onclick="openCps('${esc(sel)}')">Edit check points</button>
+    </div>
+    ${trackHTML(sel,'cp')}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
       gap:var(--space-4);margin:var(--space-6) 0">
       ${stat(a.adherence+'%','adherence',a.adherence<50?'var(--terra)':null)}
