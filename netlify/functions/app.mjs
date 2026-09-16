@@ -948,7 +948,11 @@ export default async (request) => {
       coached: await isCoached(who),
       coach: coachList().includes(who),
       coachName: (await isCoached(who)) ? coachName(coachOf(who)) : '',
-      plus: !!acct.plus,
+      /* plusNow, not the column: a code's plus_until rides in settings and
+         is folded on by getAcct, and this is the read the app refreshes on
+         every open, so a WORKSHOP26 account was locking itself again the
+         next morning */
+      plus: plusNow(acct),
       canManage: !!acct.stripe_customer,
       canCancel: !!(acct.subscription || acct.stripe_customer),
       cancelAt: acct.cancel_at || 0,
@@ -1873,7 +1877,11 @@ export default async (request) => {
       /* the free sessions above the free stage, counted down */
       if (body.taste !== undefined) {
         const t = Number(body.taste);
-        if (Number.isInteger(t) && t >= 0 && t <= 5) cur.taste = t;
+        /* only ever downwards: the client says how many it has used and a
+           client that says fewer than last time is not to be believed */
+        if (Number.isInteger(t) && t >= 0 && t <= 5) {
+          cur.taste = Number.isInteger(cur.taste) ? Math.min(cur.taste, t) : t;
+        }
       }
       if (body.time !== undefined) {
         const t = Number(body.time);

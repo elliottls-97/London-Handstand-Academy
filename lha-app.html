@@ -6780,7 +6780,11 @@ const placedStage=()=>Math.max(0, Math.min(STAGES.length-1,
    showed the price to someone who had not done a single drill. */
 const TASTE_SESSIONS = 2;
 const tasteLeft = () => Number.isInteger(st.taste) ? st.taste : TASTE_SESSIONS;
-const tasting = () => !isPlus() && placedStage() > FREE_STAGES-1 && tasteLeft() > 0;
+/* Two free sessions at your stage, on an account. The count lived in the
+   phone's storage alone, so a private window or a cleared browser was two
+   more sessions at any stage, as often as anyone liked. It is keyed to the
+   account now, saved through /state, and the server only lets it go down. */
+const tasting = () => !isPlus() && !!st.token && placedStage() > FREE_STAGES-1 && tasteLeft() > 0;
 const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FREE_STAGES-1);
 /* one used, when a session above the free stage actually starts */
 function useTaste(){
@@ -8332,9 +8336,13 @@ function screenUpgradeBody(si){
           background:rgba(243,169,73,.14)">
           <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">
             Your answers put you at <b>${esc(STAGES[placed].n)}</b>, stage ${placed+1}.
-            ${tasteLeft()>0 && !isPlus()
+            ${!st.token
+              ? `Make a free account and you get <b>two free sessions</b> there, no card.`
+              : tasteLeft()>0 && !isPlus()
               ? `You have <b>${tasteLeft()} free session${tasteLeft()===1?'':'s'}</b> there before this opens.`
-              : `You have had your free sessions there. This is what opens it.`}</div></div>`;
+              : `You have had your free sessions there. This is what opens it.`}</div>
+          ${!st.token?`<button class="btn2" style="width:100%;margin-top:10px"
+            onclick="closeOv();st.tab='joinFree';save();render()">Make a free account</button>`:''}</div>`;
       })()}
       <button class="btn" style="width:100%;margin-top:20px" onclick="startUpgrade()">Start the free week</button>
       ${curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:9px"
