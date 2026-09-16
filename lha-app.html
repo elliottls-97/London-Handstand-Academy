@@ -466,6 +466,9 @@ function trackOpen(){
        and the quiz is out of the way */
     const fxs=(q.get('fix')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
     if(fxs){ st.fixPending=fxs; save(); history.replaceState(null,'',location.pathname); }
+    /* the end-of-block email: open the review sheet on that kind */
+    if(q.get('review')==='block'){ st.fb=Object.assign({}, st.fb||{}, {kind:'block', sent:false}); st.fbPending=true; save();
+      history.replaceState(null,'',location.pathname); }
   }catch(e){}
 }
 const DEV_CODE = '123456';
@@ -4791,7 +4794,15 @@ function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'
 const FB_KINDS=[
   ['bug',   'Something is broken',  'It crashed, a video will not play, a number looks wrong'],
   ['idea',  'I have an idea',       'Something missing, or something that would make it yours'],
-  ['review','How it is going',      'What is working, what is not, whether it is helping']
+  ['review','How it is going',      'What is working, what is not, whether it is helping'],
+  /* offered only to a coached client, at the end of a block, from the email */
+  ['block', 'How this block went',  'Three questions before the next one is written']
+];
+const FB_BLOCK=[
+  ['better','What got better?',null],
+  ['friction','What got in the way?',null],
+  ['next','What should change next block?',null],
+  ['quote','Happy for a line of this to be used publicly, first name only?',['Yes','No']]
 ];
 const FB_MORE=[
   ['often','How often are you actually training with it?',
@@ -4809,7 +4820,7 @@ function fbOpen(){
 function fbKind(k){ st.fb=Object.assign({}, st.fb||{}, {kind:k}); save(); drawOv(); }
 function fbSet(f,val){ st.fb=st.fb||{}; st.fb[f]=val; save(); }
 function fbExtra(k,val){ st.fb=st.fb||{}; st.fb.extra=Object.assign({}, st.fb.extra||{}); 
-  st.fb.extra[k]=val; save(); if(FB_MORE.some(r=>r[0]===k && r[2])) drawOv(); }
+  st.fb.extra[k]=val; save(); if(FB_MORE.concat(FB_BLOCK).some(r=>r[0]===k && r[2])) drawOv(); }
 function fbMore(){ st.fb=Object.assign({}, st.fb||{}, {more:!(st.fb||{}).more}); save(); drawOv(); }
 function fbSend(){
   const fb=st.fb||{};
@@ -4820,7 +4831,7 @@ function fbSend(){
   const extra=Object.assign({}, fb.extra||{});
   /* the free text answers live in the DOM until they are sent, so that
      typing in them does not repaint the sheet underneath the cursor */
-  FB_MORE.forEach(([k,,opts])=>{ if(opts) return;
+  ((fb.kind==='block')?FB_BLOCK:FB_MORE).forEach(([k,,opts])=>{ if(opts) return;
     const e3=document.getElementById('fbx-'+k);
     if(e3 && e3.value.trim()) extra[k]=e3.value.trim(); });
   fetch(AUTH.feedback,{method:'POST',
@@ -4849,7 +4860,7 @@ function fbBody(){
       <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px">
         Whichever one fits. It takes about twenty seconds.</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
-        ${FB_KINDS.map(([k,title,sub])=>`<button onclick="fbKind('${k}')"
+        ${FB_KINDS.filter(([k])=>k!=='block'||coachedView()).map(([k,title,sub])=>`<button onclick="fbKind('${k}')"
           style="text-align:left;cursor:pointer;border:1.5px solid rgba(0,64,61,.16);
           background:#fff;border-radius:18px;padding:15px 16px;min-height:44px">
           <div style="font:600 15.5px/1.3 var(--sans);color:var(--ink)">${esc(title)}</div>
@@ -4860,7 +4871,8 @@ function fbBody(){
   const meta=FB_KINDS.find(x=>x[0]===fb.kind)||FB_KINDS[2];
   const ph={bug:'What were you doing, and what happened instead?',
             idea:'What would you like it to do?',
-            review:'How is it going?'}[fb.kind];
+            review:'How is it going?',
+            block:'In a sentence or two, how did this block go?'}[fb.kind];
   const pill=(on)=>`cursor:pointer;border-radius:999px;padding:9px 13px;min-height:40px;
     font:600 13px/1 var(--sans);border:1.5px solid ${on?'var(--forest)':'rgba(0,64,61,.16)'};
     background:${on?'var(--forest)':'#fff'};color:${on?'var(--on-primary)':'var(--ink)'}`;
@@ -4874,11 +4886,11 @@ function fbBody(){
       border-radius:16px;padding:14px;font:400 15.5px/1.55 var(--sans);background:#fff;
       resize:vertical">${esc(fb.text||'')}</textarea>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
-      <button onclick="fbMore()" style="border:0;background:none;cursor:pointer;padding:0;
+      ${fb.kind==='block'?'':`<button onclick="fbMore()" style="border:0;background:none;cursor:pointer;padding:0;
         text-align:left;font:600 14px/1.4 var(--sans);color:var(--forest)">
-        ${fb.more?'Never mind those':'Got two more minutes? Four more questions'}</button>
-      ${!fb.more?'':`<div style="display:flex;flex-direction:column;gap:18px;margin-top:16px">
-        ${FB_MORE.map(([k,q,opts])=>`<div>
+        ${fb.more?'Never mind those':'Got two more minutes? Four more questions'}</button>`}
+      ${!(fb.more||fb.kind==='block')?'':`<div style="display:flex;flex-direction:column;gap:18px;margin-top:${fb.kind==='block'?'0':'16px'}">
+        ${(fb.kind==='block'?FB_BLOCK:FB_MORE).map(([k,q,opts])=>`<div>
           <div style="font:500 14px/1.45 var(--sans);color:var(--ink)">${esc(q)}</div>
           ${opts
             ? `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
@@ -10320,6 +10332,7 @@ document.addEventListener('DOMContentLoaded',function(){
   loadLadder();
   loadFixes();
   workshopWatch();
+  if(st.fbPending){ delete st.fbPending; save(); setTimeout(()=>{ if(st.in||st.token) openOv('feedback'); }, 900); }
   if(st.in && st.token){ loadProgramme(); loadProgress(); }
   /* An open is a person opening the app, not a tab waking up. Wait for a
      real interaction before reporting one, and report how long they stayed

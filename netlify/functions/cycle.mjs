@@ -232,6 +232,30 @@ export default async () => {
       }
     }
 
+    /* 1b — the block is over: ask how it went, once, whatever else happens.
+       Testimonials were only ever asked for when the coach remembered, so
+       the ask is automatic: three questions and a request for a filmed
+       line, answered in the app, landing on Today as a block review. */
+    if (!c.lead && cycle && now >= dueAt) {
+      const akey = `blockask:${c.email}:${cycle.n}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(akey)}&select=key`).catch(() => null))) {
+        const ok = await email(c.email, 'How did this block go?',
+          mail({
+            title: 'How did this block go?',
+            greeting: (c.name || '').split(' ')[0],
+            paras: ['Three quick questions before the next one is written, so it is built on what actually happened rather than what I guess.',
+                    '<b>What got better?</b> <b>What got in the way?</b> <b>What should change next block?</b>',
+                    'And if you have thirty seconds and the light is decent, a filmed line about how it has gone would mean a lot. Send it from Ask in the app.'],
+            cta: { href: `${SITE}/lha-app.html?review=block`, label: 'Answer in the app' },
+            signoff: { name: coachNameOf(coach) },
+          }), 'reminders');
+        if (ok) {
+          await supa.upsert('nudges', { key: akey, sent_at: new Date().toISOString() }, 'key');
+          (done.asked = done.asked || []).push(c.email);
+        }
+      }
+    }
+
     /* 2 — it arrived and nobody has looked at it */
     for (const s of mine) {
       if (s.status !== 'submitted') continue;

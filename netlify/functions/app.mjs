@@ -2364,7 +2364,7 @@ export default async (request) => {
 
   if (path === '/feedback' && request.method === 'POST') {
     const who = await me();
-    const kinds = ['bug', 'idea', 'review'];
+    const kinds = ['bug', 'idea', 'review', 'block'];   /* block: the end of a coaching block */
     const kind = kinds.includes(body.kind) ? body.kind : 'review';
     const text = String(body.text || '').trim().slice(0, 4000);
     if (!text) return json({ error: 'Say something first' }, 400);
@@ -2395,7 +2395,7 @@ export default async (request) => {
     };
     log.unshift(row);
     await setSetting('feedback:log', log.slice(0, 500));
-    const label = { bug: 'Bug', idea: 'Idea', review: 'Feedback' }[kind];
+    const label = { bug: 'Bug', idea: 'Idea', review: 'Feedback', block: 'Block review' }[kind];
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${label} from the app${who ? ': ' + who : ''}`,
       mail({ title: `${label} from the app.`,
