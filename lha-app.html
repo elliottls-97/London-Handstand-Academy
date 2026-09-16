@@ -747,6 +747,98 @@ function weekStreak(){
   return n;
 }
 
+/* ── the coached Today, in three parts ────────────────────────────
+   It was nine. A six week bar, the session, two buttons, an explainer
+   rail, a check in card, the block note, a streak, a test countdown and
+   a message card, in that order, every day, the same for everybody.
+
+   Now: the session first because that is what the screen is for, one
+   line of where you are, and one card that changes depending on what is
+   actually true for this person today. */
+
+function lastSessionAt(){
+  const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at&&x.kind!=='none');
+  return ss.length ? Math.max(...ss.map(x=>x.at)) : 0;
+}
+function awayDays(){ const t=lastSessionAt(); return t?Math.floor((Date.now()-t)/864e5):0; }
+function testSent(){ return !!(st.awaitingReview && (!st.testAt || st.testAt<=st.awaitingReview)); }
+function sessionsThisWeekN(){
+  const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7));
+  const from=d.getTime();
+  return ((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at>=from&&x.kind!=='none').length;
+}
+
+/* One line where a six week bar, a streak card and a countdown card used
+   to be. Which block, how far in, what you have done this week, and the
+   state of the test. Tapping it goes to the screen that holds the detail. */
+function todayStrip(){
+  const w=weekNow(), n=sessionsThisWeekN(), d=testIn();
+  const test = testSent() ? 'test with Elliott'
+    : d==null ? '' : d>0 ? 'test in '+d+' day'+(d===1?'':'s')
+    : d===0 ? 'test due today' : 'test overdue';
+  const warn = !testSent() && d!=null && d<=0;
+  const bits=['Block '+blockNo(), 'week '+w,
+    n+' session'+(n===1?'':'s')+' this week'].concat(test?[test]:[]);
+  return `<div class="pad" style="padding-top:18px">
+    <button onclick="go('progress')" style="width:100%;text-align:left;cursor:pointer;border:1px solid ${
+      warn?'rgba(243,169,73,.55)':'rgba(28,32,25,.10)'};border-radius:14px;padding:11px 14px;
+      background:${warn?'rgba(243,169,73,.12)':'rgba(255,255,255,.6)'};display:flex;gap:10px;
+      align-items:center">
+      <span style="flex:1;font:500 12.5px/1.45 var(--sans);color:${warn?'#7a5416':'var(--grey)'}">${
+        bits.map(esc).join(' · ')}</span>
+      <span style="flex:none;font:400 16px/1 var(--serif);color:var(--forest)">→</span>
+    </button></div>`;
+}
+
+/* The one card. Whatever is true right now, in the order it matters:
+   the answer that just came back, a test that is due, a fortnight of
+   silence, and otherwise the line Elliott wrote about what this block is
+   for. Nothing at all when none of them applies, which is the point. */
+function todayFocus(){
+  const fresh = st.lastReview && st.lastReview > (st.seenReview||0) && reviewCardHTML();
+  if(fresh) return `<div class="pad" style="padding-top:18px">${fresh}</div>`;
+
+  const d=testIn();
+  if(!testSent() && d!=null && d<=0){
+    const names=((DATA.test&&DATA.test.items)||[]).map(x=>x.n).filter(Boolean).slice(0,5);
+    return `<div class="pad" style="padding-top:18px">
+      <div class="card" style="padding:18px 20px;background:#fdf1dd;border-color:rgba(243,169,73,.5)">
+        <div class="kick2" style="color:#8a5a12">THE TEST IS DUE</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:#5c4a2a;margin-top:9px">${
+          d<0?'It was due '+(-d)+' day'+(-d===1?'':'s')+' ago. ':''}Five drills, one honest go at each,
+          filmed. It is what the next block gets written from.</div>
+        ${names.length?`<div style="font:400 13px/1.6 var(--sans);color:#7a5416;margin-top:9px">${
+          names.map(esc).join(' · ')}</div>`:''}
+        <button onclick="openOv('test')" style="margin-top:14px;width:100%;border:0;border-radius:14px;
+          padding:13px;background:var(--forest);color:var(--on-primary);font:600 15px/1 var(--sans);
+          cursor:pointer">Film the test</button>
+      </div></div>`;
+  }
+
+  const away=awayDays();
+  if(lastSessionAt() && away>=10){
+    return `<div class="pad" style="padding-top:18px">
+      <div class="card" style="padding:18px 20px">
+        <div class="kick2">${away} DAYS</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+          Nothing logged since then. If something got in the way, say so and the block gets
+          changed around it rather than you starting again.</div>
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn2" style="flex:1" onclick="go('ask')">Tell Elliott</button>
+          <button class="btn2" style="flex:1" onclick="openLog()">Log a day</button>
+        </div>
+      </div></div>`;
+  }
+
+  const p=String(DATA.priority||'').trim();
+  if(p) return `<div class="pad" style="padding-top:18px">
+    <div class="card" style="padding:18px 20px">
+      <div class="kick2">THE PRIORITY THIS BLOCK</div>
+      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">${esc(p)}</div>
+    </div></div>`;
+  return '';
+}
+
 function screenToday(){
   const d=day(), q=queue(), done=allItems(d).filter((_,i)=>false).length;
   const total=allItems(d).length;
@@ -770,40 +862,14 @@ function screenToday(){
       color:var(--forest)">Good ${greeting()}${name?', '+esc(name):''}</div>
     <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">${
       ticked>=total&&total ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
-      : nDone ? `Your next session <em style="color:var(--forest);font-style:normal">is ready.</em>`
-              : `Your first session <em style="color:var(--forest);font-style:normal">is ready.</em>`}</div>
+      : !nDone ? `Your first session <em style="color:var(--forest);font-style:normal">is ready.</em>`
+      : awayDays()>=10 ? `Good to <em style="color:var(--forest);font-style:normal">see you back.</em>`
+      : `Your next session <em style="color:var(--forest);font-style:normal">is ready.</em>`}</div>
   </div>
 
-  <!-- the block, as six weeks. Same shape as the stage rail on the free
-       side; the content is the block you are in rather than the stage.
-       Amber marks the week you are in, which is the one thing amber is for. -->
-  <div class="rise rise-1" data-tour="block" style="padding:26px 20px 0">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <span style="font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-        color:var(--grey)">Block ${blockNo()} · week ${hWeek}</span>
-      <span style="font:400 13px/1 var(--sans);color:var(--grey)">${
-        nDone?nDone+' session'+(nDone===1?'':'s')+' logged':'Nothing logged yet'}</span>
-    </div>
-    ${(function(){
-      /* The bar used to be six fixed weeks and stuck on the last one for
-         ever. A block runs until the coach ends it, so the bar runs to the
-         test and then says the test is the thing to do. */
-      const d=testIn(), total=((st.cycle&&st.cycle.days)||14)/7;
-      const n=Math.max(total, hWeek);
-      return `<div style="display:flex;gap:6px;margin-top:10px">
-      ${[...Array(Math.min(8,Math.ceil(n)))].map((_,i)=>{const w=i+1;
-        return `<div style="flex:1">
-        <div style="height:8px;border-radius:4px;background:${
-          w<hWeek?'var(--deep)':w===hWeek?'var(--amber)':'rgba(0,64,61,.1)'}"></div>
-        <span style="display:block;margin-top:7px;font:600 9.5px/1 var(--sans);letter-spacing:.1em;
-          text-align:center;color:${w===hWeek?'var(--ink)':'var(--grey2)'}">W${w}</span>
-      </div>`;}).join('')}
-    </div>
-    ${d!=null&&d<=0?`<div style="font:400 12.5px/1.5 var(--sans);color:#8a5a12;margin-top:9px">
-      ${d<0?'The test was due '+(-d)+' day'+(-d===1?'':'s')+' ago.':'The test is due today.'} It is what the next block is written from.</div>`:''}`;})()}
-  </div>
-
-  <div class="rise rise-2" style="padding:24px 20px 0">
+  
+  ${todayStrip()}
+<div class="rise rise-1" style="padding:22px 20px 0">
     <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
       <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
         d.sub?', '+esc(d.sub):''}</div>
@@ -844,6 +910,48 @@ function screenToday(){
   </div>
 
 
+
+  
+  ${todayFocus()}
+${/* Once it has been read it is a wall of last month's words at the top of
+     every day, and the whole of it is on the Plan screen anyway. New, it is
+     the most important thing here; read, it is one line. */
+   (pts.length||(DATA.read||[]).length) ? (blockNew()||st.readOpen ? `<div class="pad">
+    <div class="card" style="padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="kick2">ELLIOTT ON THIS BLOCK${blockNew()?`
+          <span style="display:inline-block;margin-left:7px;padding:3px 7px;border-radius:99px;
+            background:var(--amber);color:#fff;font:700 8.5px/1 var(--sans);letter-spacing:.1em;
+            vertical-align:1px">UPDATED</span>`:''}</span>
+
+      </div>
+      ${pts.length?`<div class="h-md" style="margin-top:12px">What changed this block</div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:15px">
+        ${pts.map(([t,x])=>`<div style="display:flex;gap:12px;align-items:baseline">
+          <span style="font:italic 400 15px/1.2 var(--serif);color:var(--forest);min-width:74px">${esc(t)}</span>
+          <span style="font:400 14px/1.45 var(--sans);flex:1">${esc(x)}</span></div>`).join('')}
+      </div>`:''}
+      ${(DATA.read||[]).length?(function(){
+        /* the first paragraph always, the rest behind Read more. It used to
+           be all of it or none of it, and all of it is a wall. */
+        const paras=DATA.read.map(p=>String(p).replace(/<[^>]+>/g,'').trim()).filter(Boolean);
+        const shown=st.readOpen?paras:paras.slice(0,1);
+        return `<div style="margin-top:${pts.length?16:12}px;${
+          pts.length?'border-top:1px solid rgba(28,32,25,.1);padding-top:15px;':''}display:flex;
+          flex-direction:column;gap:12px">
+          ${shown.map(t=>`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(t)}</div>`).join('')}
+        </div>
+        ${paras.length>1?`<button class="back" style="color:var(--forest);font-weight:700;font-size:12.5px;
+          margin-top:11px;padding:0" onclick="st.readOpen=!st.readOpen;markBlockSeen();render()">${
+          st.readOpen?'Show less':'Read more'}</button>`:''}`;})():''}
+    </div>
+  </div>` : `<div class="pad" style="padding-top:16px">
+    <button onclick="st.readOpen=true;markBlockSeen();render()" style="width:100%;text-align:left;
+      cursor:pointer;border:1px solid rgba(28,32,25,.10);border-radius:14px;padding:12px 14px;
+      background:rgba(255,255,255,.6);display:flex;gap:10px;align-items:center">
+      <span style="flex:1;font:500 12.5px/1.4 var(--sans);color:var(--grey)">What Elliott said about this block</span>
+      <span style="flex:none;font:400 16px/1 var(--serif);color:var(--forest)">→</span>
+    </button></div>`) : ''}
 
   <!-- the explainers she already has. They were only reachable as an
        accordion at the bottom of the plan, so nobody found them. -->
@@ -917,7 +1025,7 @@ function screenToday(){
        session, so a session that happened away from the phone did not
        exist. This is the record; ticking is just a way of keeping your
        place. -->
-  <div class="pad">
+  ${loggedToday().length?`<div class="pad">
     ${(function(){
       const logs=loggedToday();
       const lastLog=logs[logs.length-1];
@@ -945,74 +1053,8 @@ function screenToday(){
                padding:13px;background:var(--forest);color:var(--on-primary);font:600 15px/1 var(--sans);
                cursor:pointer">Log today</button>`}
       </div>`;})()}
-  </div>
-
-  ${(pts.length||(DATA.read||[]).length)?`<div class="pad">
-    <div class="card" style="padding:20px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span class="kick2">ELLIOTT ON THIS BLOCK${blockNew()?`
-          <span style="display:inline-block;margin-left:7px;padding:3px 7px;border-radius:99px;
-            background:var(--amber);color:#fff;font:700 8.5px/1 var(--sans);letter-spacing:.1em;
-            vertical-align:1px">UPDATED</span>`:''}</span>
-
-      </div>
-      ${pts.length?`<div class="h-md" style="margin-top:12px">What changed this block</div>
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:15px">
-        ${pts.map(([t,x])=>`<div style="display:flex;gap:12px;align-items:baseline">
-          <span style="font:italic 400 15px/1.2 var(--serif);color:var(--forest);min-width:74px">${esc(t)}</span>
-          <span style="font:400 14px/1.45 var(--sans);flex:1">${esc(x)}</span></div>`).join('')}
-      </div>`:''}
-      ${(DATA.read||[]).length?(function(){
-        /* the first paragraph always, the rest behind Read more. It used to
-           be all of it or none of it, and all of it is a wall. */
-        const paras=DATA.read.map(p=>String(p).replace(/<[^>]+>/g,'').trim()).filter(Boolean);
-        const shown=st.readOpen?paras:paras.slice(0,1);
-        return `<div style="margin-top:${pts.length?16:12}px;${
-          pts.length?'border-top:1px solid rgba(28,32,25,.1);padding-top:15px;':''}display:flex;
-          flex-direction:column;gap:12px">
-          ${shown.map(t=>`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(t)}</div>`).join('')}
-        </div>
-        ${paras.length>1?`<button class="back" style="color:var(--forest);font-weight:700;font-size:12.5px;
-          margin-top:11px;padding:0" onclick="st.readOpen=!st.readOpen;markBlockSeen();render()">${
-          st.readOpen?'Show less':'Read more'}</button>`:''}`;})():''}
-    </div>
   </div>`:''}
 
-  ${(st.lastReview && st.lastReview > (st.seenReview||0) && reviewCardHTML())
-    ? `<div class="pad" style="margin-top:14px">${reviewCardHTML()}</div>` : ''}
-
-  <div class="pad" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    ${(function(){
-      const n=weekStreak();
-      const missed=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.kind==='none').length;
-      return `<div class="card" style="border-radius:22px;padding:18px">
-        <div class="kick2">STREAK</div>
-        <div class="h-md" style="font-size:32px;margin-top:10px">${n} week${n===1?'':'s'}</div>
-        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">${
-          n===0 ? 'Log a session and it starts.'
-          : missed ? missed+' day'+(missed===1?'':'s')+' logged as missed.'
-          : 'Nothing missed.'}</div>
-      </div>`;})()}
-    ${(function(){
-      /* the coach's own clock, not a rolling fourteen days counted from the
-         client's first ever session */
-      const d=testIn();
-      const sent=st.awaitingReview && (!st.testAt || st.testAt<=st.awaitingReview);
-      const big = sent ? 'Sent' : d==null ? 'Ready' : d>0 ? d+' day'+(d===1?'':'s')
-        : d===0 ? 'Today' : 'Overdue';
-      const sub = sent ? 'With Elliott now.'
-        : d!=null && d<0 ? (-d)+' day'+(-d===1?'':'s')+' ago. Film it when you can.'
-        : 'Five drills, filmed.';
-      return `<div class="card" style="border-radius:22px;padding:18px;background:${
-        sent?'rgba(0,102,99,.07)':'#fdf1dd'};
-        border-color:${sent?'rgba(0,102,99,.25)':'rgba(243,169,73,.5)'};cursor:pointer"
-        onclick="openOv('test')">
-        <div class="kick2" style="color:${sent?'var(--forest)':'#8a5a12'}">TWO-WEEK TEST</div>
-        <div class="h-md" style="font-size:32px;margin-top:10px;color:var(--ink)">${big}</div>
-        <div style="font:400 12.5px/1.4 var(--sans);color:${sent?'var(--grey)':'#7a5416'};margin-top:5px">
-          ${sub}</div>
-      </div>`;})()}
-  </div>
   <div style="padding:10px 16px 26px">
     <div class="card" style="border-radius:22px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer" onclick="go('ask')">
       <div><div class="kick2">${(()=>{const m=(st.msgs||[]).filter(x=>x.from==='e').pop();
