@@ -841,6 +841,18 @@ export default async (request) => {
     const p = await verify(bearer);
     return p && p.scope === 'app' ? p.email : null;
   };
+  /* Anything that decides what something costs, or gives it away, is the
+     owner's alone. A coach added from the dashboard runs the coaching: they
+     answer, review, write programmes and run a workshop. They do not set
+     prices, mint discount codes, comp a tier or publish a workshop, because
+     each of those is money out of the business and none of them is visible
+     from the coaching screens. The shared key is the owner's own secret, so
+     it counts as the owner. */
+  const isOwner = async () => {
+    if (process.env.COACH_KEY && request.headers.get('x-coach-key') === process.env.COACH_KEY) return true;
+    return isPrimary(await me());
+  };
+  const ownerOnly = { error: 'That one is Elliott\'s. Prices, discount codes and what a workshop costs are set by the account that owns the business. Ask him and he can change it in a moment.' };
 
   /* ── email a code ── */
   if (path === '/code' && request.method === 'POST') {
@@ -1137,6 +1149,7 @@ export default async (request) => {
       plus: !!process.env.STRIPE_PRICE_PLUS, check: !!process.env.STRIPE_PRICE_CHECK,
       online: !!process.env.STRIPE_PRICE_ONLINE, inner: !!process.env.STRIPE_PRICE_INNER } });
     if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
       const next = {};
       const tier = (k) => {
         const t = (body.prices && body.prices[k]) || {};
@@ -1516,6 +1529,10 @@ export default async (request) => {
       }
       const f = fixClean(body.fix);
       if (!f) return json({ error: 'A fix needs a name' }, 400);
+      /* whether a fix is free or inside the paid tier is what it is worth,
+         so a coach writes the fix and the owner decides who gets it. A new
+         one written by a coach starts in the paid tier, never free. */
+      if (!(await isOwner())) f.access = (all[f.slug] || {}).access || 'plus';
       if (!all[f.slug] && Object.keys(all).length >= 40) return json({ error: 'That is a lot of fixes' }, 400);
       /* a slug change is a rename, not a copy */
       const was = fixSlug(body.was || '');
@@ -1675,7 +1692,14 @@ export default async (request) => {
     };
     if (request.method === 'GET') return json({ workshops: await withBook() });
     if (request.method === 'POST') {
+      /* A coach can write the workshop: the title, the date, the room, who
+         it is for, the words. What it costs and whether it goes on sale are
+         the owner's, so those three fields keep whatever is already stored
+         and a new workshop cannot be put on sale by anyone else. Deleting
+         one with bookings against it is money too. */
+      const owner = await isOwner();
       if (body.remove) {
+        if (!owner) return json(ownerOnly, 403);
         const slug = wsSlug(body.remove);
         delete all[slug];
         await setSetting('workshops', all);
@@ -1690,11 +1714,15 @@ export default async (request) => {
         slug, title: str(f.title, 80) || slug,
         when: whenMs ? new Date(whenMs).toISOString() : '',
         place: str(f.place, 120), desc: str(f.desc, 600), who: str(f.who, 80),
-        price: Math.max(0, Math.round(Number(f.price) || 0)),
+        /* on a rename the stored record is under the old slug, and reading
+           the new one would quietly make the workshop free */
+        price: owner ? Math.max(0, Math.round(Number(f.price) || 0))
+                     : Math.max(0, Math.round(Number(
+                         (all[slug] || all[wsSlug(body.was || '')] || {}).price) || 0)),
         places: Math.max(0, Math.min(200, Math.round(Number(f.places) || 0))),
         appDays: Math.max(0, Math.min(365, Math.round(Number(f.appDays) || 0))),
         reviewUrl: /^https:\/\//.test(str(f.reviewUrl, 300)) ? str(f.reviewUrl, 300) : '',
-        live: !!f.live,
+        live: owner ? !!f.live : !!(all[slug] || all[wsSlug(body.was || '')] || {}).live,
         createdAt: (all[slug] || {}).createdAt || Date.now(),
       };
       const was = wsSlug(body.was || '');
@@ -1828,6 +1856,7 @@ export default async (request) => {
     const list = () => Object.keys(codes).sort().map(k => Object.assign({ code: k }, codes[k]));
     if (request.method === 'GET') return json({ codes: list() });
     if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
       const c = String(body.code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
       if (!c) return json({ error: 'A code needs letters' }, 400);
       if (body.remove) { delete codes[c]; await setSetting('wscodes', codes); return json({ ok: true, codes: list() }); }
@@ -3396,6 +3425,7 @@ export default async (request) => {
         until: codes[k].until || '', off: !!codes[k].off, note: codes[k].note || '' }));
       if (request.method === 'GET') return json({ codes: list() });
       if (request.method === 'POST') {
+        if (!(await isOwner())) return json(ownerOnly, 403);
         const code = String(body.code || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
         if (!code) return json({ error: 'Need a code' }, 400);
         if (body.remove) { delete codes[code]; }
@@ -3807,6 +3837,7 @@ export default async (request) => {
     }
 
     if (path === '/coach/grant' && request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
       const e = norm(body.email);
       if (!e) return json({ error: 'Which account?' }, 400);
       const acct = await getAcct(e);
@@ -4228,7 +4259,12 @@ export default async (request) => {
         .filter(r => owns(r.email))
         .map(r => ({ ...r, coached: !!clients()[r.email],
           ...(clients()[r.email] ? { coach: coachOf(r.email) } : {}) }));
-      return json({ clients: rows.sort((a, b) => b.last - a.last) });
+      /* the dashboard asks this first, so it is where it learns whether the
+         person signed in owns the business. It hides the money panels on
+         the answer rather than letting a coach fill a form the server will
+         refuse. */
+      return json({ clients: rows.sort((a, b) => b.last - a.last),
+                    you: asking || '', youAreOwner: await isOwner() });
     }
 
     /* remove a clip from Stream — for a deletion request, or when a form
