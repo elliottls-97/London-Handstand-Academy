@@ -830,10 +830,14 @@ export default async (request) => {
     } else if (ev.type === 'customer.subscription.trial_will_end') {
       /* three days out. Nobody should meet the first charge as a surprise:
          that is what gets a small subscription refunded and reported. */
-      await email(acct.email, 'Your free week ends in three days',
-        mail({ title: 'Three days left on the free week.',
+      /* the length of the trial and the price are both settings now, so the
+         email says what the checkout actually did rather than £5 and a week */
+      const trialTxt = PRICES.trialDays === 7 ? 'free week' : `free ${PRICES.trialDays} days`;
+      const priceTxt = (PRICES.plus && PRICES.plus.label) || '£5';
+      await email(acct.email, `Your ${trialTxt} ends in three days`,
+        mail({ title: `Three days left on the ${trialTxt}.`,
           greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
-          paras: ['After that it is £5 a month, and you can cancel from the app before then if it is not for you.',
+          paras: [`After that it is ${priceTxt} a month, and you can cancel from the app before then if it is not for you.`,
                   'If it is, you need do nothing.'],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           /* a card is about to be charged, so this is a billing notice and
@@ -984,7 +988,9 @@ export default async (request) => {
       || (coachList().includes(e) ? (coaches()[e] || e.split('@')[0]) : '')
       || ((acct && acct.name) ? acct.name : '');
     const bad = () => json({ error: 'Wrong code' }, 401);
-    if (!e || !name) return bad();
+    /* the same mistake as /code: this asked for a name where it meant an
+       account, so a code that had been sent could not be typed back in */
+    if (!e || !(acct || name)) return bad();
 
     const rec = await getCode(e, 'login');
     if (!rec || Date.now() > ms(rec.expires_at) || rec.tries >= 5) {
@@ -997,7 +1003,7 @@ export default async (request) => {
     }
     await clearCode(e, 'login');
     return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
-                  client: name,
+                  client: name || e.split('@')[0],
                   /* /login has always said this and /verify never did, so the
                      code door could not reach the dashboard however the
                      account was configured */
@@ -1015,6 +1021,13 @@ export default async (request) => {
     if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) {
       return json({ error: 'That does not look like an email address' }, 400);
     }
+    /* every other route that creates something is rate limited and this was
+       not. An account is two free sessions, so an unlimited rate here is an
+       unlimited number of them from one machine. */
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`signup:${ip}`, 24 * 3600000)) > 10) {
+        return json({ error: 'That is a lot of accounts from one place. Try again tomorrow, or sign in.' }, 429);
+      } }
     const prev = (await getAcct(e)) || {};
 
     /* a password is optional: the email gate after the quiz just wants
@@ -1664,6 +1677,10 @@ export default async (request) => {
       'Content-Disposition': `attachment; filename="${slug}.ics"` } });
   }
   if (path === '/workshop/code' && request.method === 'POST') {
+    /* /workshop/book is rate limited and this was not, so the codes could be
+       guessed at any speed from the same page that redeems them */
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`wsc:${ip}`, 3600000)) > 40) return json({ error: 'Too many tries' }, 429); }
     const slug = wsSlug(body.slug);
     const w = ((await getSetting('workshops')) || {})[slug];
     if (!w) return json({ error: 'No such workshop' }, 404);

@@ -388,8 +388,10 @@ let DATA={
 
    Auth is a passwordless email code. The UI is real; the two calls it
    makes are documented in AUTH below and land on the existing worker
-   (lha-worker.js already does magic links + Resend). Until those routes
-   are deployed, DEV_CODE lets the flow be walked end to end. */
+   (lha-worker.js already does magic links + Resend). There was a hardcoded
+   code here that let the flow be walked before those routes existed. It
+   granted the coached shell to anyone who typed it and printed itself on
+   screen whenever the network hiccupped, so it is gone. */
 const AUTH = {
   request: '/api/app/code',    // POST {email} → emails a 6-digit code
   verify:  '/api/app/verify',  // POST {email, code} → {token, client}
@@ -475,8 +477,6 @@ function trackOpen(){
       history.replaceState(null,'',location.pathname); }
   }catch(e){}
 }
-const DEV_CODE = '123456';
-
 const K='lha_app';
 let st={};
 try{ st=JSON.parse(localStorage.getItem(K)||'{}')||{}; }catch(e){ st={}; }
@@ -5112,8 +5112,10 @@ function drawOv(){
         background:rgba(0,102,99,.1);color:var(--forest);font-size:26px">&#10003;</div>
       <div class="h-lg" style="margin-top:16px">You are in.</div>
       <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">
-        The whole ladder is open. Your first week is free, and a note comes three days before the
-        first charge so nothing is a surprise. Cancel any time from More.</div>
+        The whole ladder is open. ${PRICE_TRIAL()>0
+          ? 'Your first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' '+(PRICE_TRIAL()===7?'is':'are')
+            +' free, and a note comes three days before the first charge so nothing is a surprise.'
+          : 'That is '+PRICE('plus')+' a month from today.'} Cancel any time from More.</div>
       <button class="btn" style="margin-top:22px" onclick="closeOv();loadEntitlement()">Carry on</button>
     </div>`;
   }
@@ -6057,9 +6059,8 @@ function requestCode(){
   $('#authMsg').textContent='Sending…';
   fetch(AUTH.request,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:st.email})})
     .then(r=>{ if(!r.ok) throw 0; st.codeSent=true; save(); render(); })
-    .catch(()=>{ /* routes not deployed yet — let the flow be walked anyway */
-      st.codeSent=true; save(); render();
-      const m=$('#authMsg'); if(m) m.textContent='Dev mode: the code is '+DEV_CODE; });
+    .catch(()=>{ const m=$('#authMsg');
+      if(m) m.textContent='Could not send that just now. Try again in a moment.'; });
 }
 function verifyCode(){
   const c=(($('#codeIn')||{}).value||'').trim();
@@ -6081,11 +6082,24 @@ function verifyCode(){
       if(st.in){ loadProgramme(); loadProgress(); loadThread(); }
       loadLadder(); loadState(); loadTrack(); })
     .catch(()=>{
-      if(c===DEV_CODE){ st.in=true; st.client=nameFrom(st.email); save(); render(); return; }
       const m=$('#authMsg'); if(m) m.textContent='That code did not work. Check it, or send a new one.';
     });
 }
 const nameFrom=e=>{const n=(e||'').split('@')[0].split(/[._-]/)[0]; return n.charAt(0).toUpperCase()+n.slice(1);};
+
+/* The homepage runs this whole app inside an iframe, and Stripe refuses to
+   be framed, so sending checkout to location.href left the button saying
+   "Opening checkout…" for ever. Break out of the frame when there is one,
+   and open a tab if the browser will not let us. */
+function leaveTo(url){
+  try{
+    if(window.top && window.top!==window.self){ window.top.location.href=url; return true; }
+  }catch(e){
+    /* a cross-origin parent will not let us read it, let alone set it */
+    const w=window.open(url,'_blank','noopener'); if(w) return true; return false;
+  }
+  location.href=url; return true;
+}
 
 /* ── programme delivery ────────────────────────────────────────────
    The plan used to be baked into this file, so every client saw the
@@ -8570,7 +8584,8 @@ function startUpgrade(){
   track('checkout');
   fetch(AUTH.checkout,{method:'POST',headers:authed(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start checkout')))
-    .then(d=>{ if(d.url) location.href=d.url; else throw 'No checkout link came back'; })
+    .then(d=>{ if(!d.url) throw 'No checkout link came back';
+               if(!leaveTo(d.url)) throw 'Your browser blocked the checkout window. Open the app in its own tab and try again.'; })
     .catch(e=>{
       /* payments not switched on yet, or Stripe said no — fall back to
          telling Elliott rather than leaving a dead button */
@@ -8643,8 +8658,8 @@ function manageSubscription(){
   if(b){ b.textContent='Opening…'; b.disabled=true; }
   fetch(AUTH.portal,{method:'POST',headers:authed(),body:'{}'})
     .then(r=>r.ok?r.json():Promise.reject())
-    .then(d=>{ if(d.url) location.href=d.url; })
-    .catch(()=>{ if(b){ b.textContent='Could not open — message Elliott'; } });
+    .then(d=>{ if(d.url && !leaveTo(d.url)) throw 0; })
+    .catch(()=>{ if(b){ b.textContent='Could not open it, message Elliott'; b.disabled=false; } });
 }
 
 function openStage(i){ st.ovStage=i; st.stageView='summary'; openOv('stage'); }
