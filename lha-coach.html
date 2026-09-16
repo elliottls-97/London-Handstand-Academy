@@ -6027,6 +6027,64 @@ function fxEditorHTML(){
 }
 const uidFromUrl=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]:''; };
 
+/* ── Prices ───────────────────────────────────────────────────────────
+   One place for every price. The label is what the app and the site say;
+   the amount in pence is how the webhook files a payment; the price id or
+   the payment link is how Stripe takes the money. Change the label and the
+   amount here, make the matching change in Stripe, and nothing needs a
+   deploy. */
+let prices=null, pricesBusy=false, pricesMsg='', pricesEnv={};
+const PRICE_TIERS=[['plus','App, full ladder','a month, subscription'],['check','Form checks','a month, subscription'],
+  ['online','Online coaching','a month'],['inperson','Coaching with a session','a month'],['inner','Inner Circle','a month, by application']];
+function pricesLoad(){
+  if(prices) return; prices={};
+  fetch(API+'/prices',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ prices=d.prices||{}; pricesEnv=d.env||{}; draw(); } }).catch(()=>{});
+}
+function priceSet(k,f,v){ prices[k]=prices[k]||{}; prices[k][f]=(f==='amount')?Math.round(Number(String(v).replace(/[^0-9.]/g,''))*100)||0:(f==='founding'?!!v:v); pricesMsg='Not saved yet'; const m=document.getElementById('pricesMsg'); if(m) m.textContent=pricesMsg; }
+function priceTop(f,v){ prices[f]=(f==='trialDays')?Number(v)||0:v; pricesMsg='Not saved yet'; const m=document.getElementById('pricesMsg'); if(m) m.textContent=pricesMsg; }
+function pricesSave(){
+  if(pricesBusy) return; pricesBusy=true; pricesMsg='Saving…'; draw();
+  fetch(API+'/prices',{method:'POST',headers:hdr(),body:JSON.stringify({prices})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ prices=Object.assign({},prices,d.prices||{}); pricesBusy=false; pricesMsg='Saved. The app and the site read it on their next load.'; draw(); })
+    .catch(e=>{ pricesBusy=false; pricesMsg=String(e); draw(); });
+}
+function pricesHTML(){
+  pricesLoad();
+  if(!prices||!Object.keys(prices).length) return `<div class="card"><div class="kick">PRICES</div><p class="muted" style="margin-top:10px">Loading…</p></div>`;
+  const row=([k,name,unit])=>{ const t=prices[k]||{};
+    return `<div style="display:grid;grid-template-columns:minmax(120px,1.4fr) 84px 96px minmax(160px,2fr);gap:10px;align-items:center;
+      padding:10px 0;border-bottom:1px solid rgba(17,17,17,.08)">
+      <div><div style="font:600 14px/1.3 var(--sans)">${esc(name)}</div><div class="muted" style="font-size:11.5px">${esc(unit)}</div></div>
+      <input class="input" value="${esc(t.label||'')}" placeholder="£5" oninput="priceSet('${k}','label',this.value)" style="min-height:38px;padding:6px 9px" title="What the app and site say">
+      <input class="input" value="${t.amount!=null?(t.amount/100).toFixed(2).replace(/\\.00$/,''):''}" placeholder="5" oninput="priceSet('${k}','amount',this.value)" style="min-height:38px;padding:6px 9px" title="Pounds, exactly what Stripe charges">
+      <div style="display:flex;flex-direction:column;gap:5px">
+        ${k==='inperson'?'<span class="muted" style="font-size:12px">Paid by link on the site</span>'
+          :`<input class="input" value="${esc(t.priceId||'')}" placeholder="Stripe price id, price_…${pricesEnv[k]?' (one is set in Netlify)':''}" oninput="priceSet('${k}','priceId',this.value)" style="min-height:34px;padding:5px 9px;font:400 12px/1.3 ui-monospace,monospace">
+           <input class="input" value="${esc(t.link||'')}" placeholder="or a payment link, https://buy.stripe.com/…" oninput="priceSet('${k}','link',this.value)" style="min-height:34px;padding:5px 9px;font:400 12px/1.3 ui-monospace,monospace">`}
+      </div></div>`; };
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">PRICES</div><span style="flex:1"></span>
+      <span id="pricesMsg" class="muted" style="font-size:12.5px">${esc(pricesMsg)}</span>
+      <button class="btn btn-primary btn-sm" onclick="pricesSave()" ${pricesBusy?'disabled':''}>${pricesBusy?'Saving…':'Save prices'}</button>
+    </div>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">
+      The label is what people read. The pounds figure must be exactly what Stripe charges, because a
+      payment is filed to a tier by its amount. To change the app price: make the new price in Stripe,
+      paste its id here, change the label and the pounds, save. Existing subscribers stay on what they pay.</p>
+    <div style="margin-top:8px">${PRICE_TIERS.map(row).join('')}</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:14px">
+      <label class="radio"><input type="checkbox" ${(prices.plus||{}).founding!==false?'checked':''} onchange="priceSet('plus','founding',this.checked)">Show the founding price badge</label>
+      <label style="display:flex;gap:8px;align-items:center;font:400 14px/1.4 var(--sans)">Free trial, days
+        <input class="input" type="number" min="0" max="30" value="${prices.trialDays!=null?prices.trialDays:7}" oninput="priceTop('trialDays',this.value)" style="width:76px;min-height:36px;padding:6px 9px"></label>
+    </div>
+    <div class="field" style="margin-top:12px"><label>The line under the price</label>
+      <input class="input" value="${esc(prices.note||'')}" oninput="priceTop('note',this.value)" placeholder="The price goes up as the ladder fills out. Join now and yours does not."></div>
+  </div>`;
+}
+
 /* ── Settings ─────────────────────────────────────────────────────── */
 function settingsHTML(){
   return `<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;
@@ -6037,6 +6095,7 @@ function settingsHTML(){
     ${newClientHTML()}
     ${codesHTML()}
     ${coachesHTML()}
+    ${pricesHTML()}
     ${mailguardHTML()}
     ${stripeHTML()}
     ${dbHTML()}

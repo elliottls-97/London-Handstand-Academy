@@ -65,6 +65,7 @@ const clients = () => Object.fromEntries(rosterList().map(c => [c.email, c.name]
    variable is still the source of the first one: a database nobody can
    reach without a coach account is a poor place for the only way in. */
 let COACHES_STORED = {};
+let PRICES_STORED = {};
 const envCoaches = () => {
   const out = {};
   for (const p of (process.env.COACHES || '').split(',').map(x => x.trim()).filter(Boolean)) {
@@ -553,6 +554,36 @@ export default async (request) => {
   if (path !== '/ladder' && path !== '/stripe/webhook') {
     try { COACHES_STORED = (await getSetting('coaches')) || {}; } catch { COACHES_STORED = {}; }
   }
+  /* the prices, for every route that names one; the webhook needs them too */
+  if (path !== '/ladder') {
+    try { PRICES_STORED = (await getSetting('prices')) || {}; } catch { PRICES_STORED = {}; }
+  }
+  /* ── the prices ───────────────────────────────────────────────────
+     They lived in five places: the Stripe price ids in Netlify, the
+     payment links, the amount-to-plan map in the webhook, the app's copy
+     and the terms page. Changing £5 to £10 was a deploy. They are one
+     setting now, written from the dashboard, and everything below reads
+     it: the checkout picks up a new price id, the webhook files a payment
+     by the amount typed here, the app and the site read the labels. What
+     was in the environment stays as the fallback. */
+  const PRICE_DEFAULTS = {
+    plus:     { label: '£5',   amount: 500,   priceId: '', link: '', founding: true },
+    check:    { label: '£35',  amount: 3500,  priceId: '', link: '' },
+    online:   { label: '£120', amount: 12000, priceId: '', link: '' },
+    inperson: { label: '£190', amount: 19000, priceId: '', link: '' },
+    inner:    { label: '£320', amount: 32000, priceId: '', link: '' },
+    trialDays: 7,
+    note: 'The price goes up as the ladder fills out. Join now and yours does not.',
+  };
+  const PRICES = (() => {
+    const saved = PRICES_STORED || {};
+    const out = {};
+    for (const k of Object.keys(PRICE_DEFAULTS)) {
+      if (typeof PRICE_DEFAULTS[k] === 'object') out[k] = Object.assign({}, PRICE_DEFAULTS[k], saved[k] || {});
+      else out[k] = saved[k] != null ? saved[k] : PRICE_DEFAULTS[k];
+    }
+    return out;
+  })();
 
   /* ── Stripe tells us what happened ─────────────────────────────
      Before the JSON parse below, because the signature covers the raw
@@ -607,6 +638,10 @@ export default async (request) => {
          payment link that carries none, from what was paid */
       /* 10000 is the old coaching price; the link may still carry it */
       const byAmount = { 500: 'plus', 3500: 'check', 10000: 'online', 12000: 'online', 32000: 'inner' };
+      for (const k of ['plus', 'check', 'online', 'inperson', 'inner']) {
+        const amt = Number(PRICES[k] && PRICES[k].amount);
+        if (amt > 0) byAmount[amt] = (k === 'inperson' ? 'online' : k);
+      }
       const boughtPlan = (obj.metadata && obj.metadata.plan)
         || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
@@ -855,7 +890,7 @@ export default async (request) => {
         mail({ title: 'You are in.',
           greeting: nm,
           paras: ['This is the account your progress saves to, so it follows you between phones and survives a lost one.',
-                  'Foundations is free for as long as you want it. The five stages above it are £5 a month with the first week free, and you can put it on your home screen from the More tab so it opens like an app.',
+                  `Foundations is free for as long as you want it. The five stages above it are ${PRICES.plus.label} a month${Number(PRICES.trialDays) > 0 ? ' with the first ' + (Number(PRICES.trialDays) === 7 ? 'week' : PRICES.trialDays + ' days') + ' free' : ''}, and you can put it on your home screen from the More tab so it opens like an app.`,
                   'If something is wrong, or you have an idea, the pencil in the top bar reaches me directly.'],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
@@ -971,10 +1006,10 @@ export default async (request) => {
      only appears here once its Stripe price exists, so switching one on is
      setting an environment variable rather than a deploy of new code. */
   const PLANS = {
-    plus:   { price: () => process.env.STRIPE_PRICE_PLUS,   mode: 'subscription' },
-    check:  { price: () => process.env.STRIPE_PRICE_CHECK,  mode: 'subscription' },
-    online: { price: () => process.env.STRIPE_PRICE_ONLINE, mode: 'subscription' },
-    inner:  { price: () => process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
+    plus:   { price: () => PRICES.plus.priceId   || process.env.STRIPE_PRICE_PLUS,   mode: 'subscription' },
+    check:  { price: () => PRICES.check.priceId  || process.env.STRIPE_PRICE_CHECK,  mode: 'subscription' },
+    online: { price: () => PRICES.online.priceId || process.env.STRIPE_PRICE_ONLINE, mode: 'subscription' },
+    inner:  { price: () => PRICES.inner.priceId  || process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
   };
 
   /* A Stripe payment link is the other way in. Elliott makes those in the
@@ -982,14 +1017,49 @@ export default async (request) => {
      a link alone; the checkout session route is used where a price id has
      been set, because it can carry the account with it. */
   const LINKS = {
-    check:  process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
-    online: process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
-    inner:  process.env.STRIPE_LINK_INNER  || '',
+    check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
+    online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
+    inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
   };
+  /* what the app and the site say: labels only, never ids */
+  const pricesPublic = () => ({
+    plus: { label: PRICES.plus.label, founding: !!PRICES.plus.founding, note: PRICES.note },
+    check: { label: PRICES.check.label }, online: { label: PRICES.online.label },
+    inperson: { label: PRICES.inperson.label }, inner: { label: PRICES.inner.label },
+    trialDays: Number(PRICES.trialDays) || 0,
+  });
   if (path === '/plans') {
     return json({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price() || !!LINKS[k]),
                   links: Object.fromEntries(Object.keys(LINKS).filter(k => !PLANS[k].price() && LINKS[k])
-                    .map(k => [k, LINKS[k]])) });
+                    .map(k => [k, LINKS[k]])),
+                  prices: pricesPublic() });
+  }
+  if (path === '/coach/prices') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (request.method === 'GET') return json({ prices: PRICES, stored: PRICES_STORED || {}, env: {
+      plus: !!process.env.STRIPE_PRICE_PLUS, check: !!process.env.STRIPE_PRICE_CHECK,
+      online: !!process.env.STRIPE_PRICE_ONLINE, inner: !!process.env.STRIPE_PRICE_INNER } });
+    if (request.method === 'POST') {
+      const next = {};
+      const tier = (k) => {
+        const t = (body.prices && body.prices[k]) || {};
+        const o = {};
+        if (typeof t.label === 'string') o.label = t.label.trim().slice(0, 12);
+        const a = Number(t.amount); if (Number.isFinite(a) && a >= 0) o.amount = Math.round(a);
+        if (typeof t.priceId === 'string') o.priceId = t.priceId.trim().replace(/[^a-zA-Z0-9_]/g, '').slice(0, 60);
+        if (typeof t.link === 'string') o.link = /^https:\/\/buy\.stripe\.com\/[A-Za-z0-9]+$/.test(t.link.trim()) ? t.link.trim() : '';
+        if (t.founding !== undefined) o.founding = !!t.founding;
+        return o;
+      };
+      for (const k of ['plus', 'check', 'online', 'inperson', 'inner']) next[k] = tier(k);
+      const td = Number(body.prices && body.prices.trialDays);
+      next.trialDays = Number.isFinite(td) ? Math.max(0, Math.min(30, Math.round(td))) : 7;
+      if (typeof (body.prices || {}).note === 'string') next.note = body.prices.note.trim().slice(0, 160);
+      await setSetting('prices', next);
+      PRICES_STORED = next;
+      return json({ ok: true, prices: next });
+    }
+    return json({ error: 'Nope' }, 405);
   }
 
   if (path === '/checkout' && request.method === 'POST') {
@@ -1009,7 +1079,8 @@ export default async (request) => {
         'metadata[plan]': planKey,
         /* seven days before the first charge. Card up front, so the people
            who start it mean it, and it converts unless they cancel. */
-        ...(plan.mode === 'subscription' ? { 'subscription_data[trial_period_days]': '7' } : {}),
+        ...(plan.mode === 'subscription' && Number(PRICES.trialDays) > 0
+          ? { 'subscription_data[trial_period_days]': String(Number(PRICES.trialDays)) } : {}),
         customer_email: who,
         client_reference_id: who,
         allow_promotion_codes: 'true',
