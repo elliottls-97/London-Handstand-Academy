@@ -4050,8 +4050,20 @@ export default async (request) => {
       }
       const g = await getSetting('mailguard');
       const off = (await getSetting('mailoff')) || {};
+      /* EMAIL_ONLY fails closed and says nothing, which is right while
+         testing and dangerous afterwards: left set, every sign-in code,
+         receipt and booking confirmation goes nowhere and every screen
+         still says an email is on its way. The dashboard could not see it,
+         so it is reported here. The addresses are not returned, only how
+         many and whether they are Elliott's own. */
+      const only = mailList('EMAIL_ONLY');
       return json({ suppress: g ? !!g.suppress : true,
-                    clients: Object.keys(clients()).length, off });
+                    clients: Object.keys(clients()).length, off,
+                    only: only.length,
+                    onlyIsYou: only.length > 0 && only.every(a => coachList().includes(a)),
+                    block: mailList('EMAIL_BLOCK').length,
+                    resend: !!process.env.RESEND_API_KEY,
+                    from: process.env.FROM_EMAIL || '' });
     }
 
     if (path === '/coach/formcheck/reset' && request.method === 'POST') {

@@ -462,10 +462,51 @@ function loadMailguard(set,email){
 
 /* Deliberately loud. The failure mode is forgetting it is on and wondering
    for a week why a client never hears back. */
+/* The one line version, for wherever you happen to be looking. Email being
+   off is not a settings detail: it stops sign-ins, receipts and booking
+   confirmations without a single error anywhere. */
+function mailAlertHTML(){
+  if(!owner || !mailguard) return '';
+  const bad = !mailguard.resend ? 'Nothing is being emailed to anybody. Resend is not set up.'
+    : mailguard.only ? 'Email is going to '+mailguard.only+' test address'+(mailguard.only===1?'':'es')
+      +' and nobody else. New sign-ups get no code and cannot get in.'
+    : '';
+  if(!bad) return '';
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:var(--space-4);
+    background:rgba(200,122,86,.14);border:1.5px solid var(--terra);border-radius:14px;padding:11px 14px">
+    <span style="font:700 9.5px/1.4 var(--sans);letter-spacing:.14em;color:var(--terra)">EMAIL</span>
+    <span style="flex:1;min-width:200px;font:400 13px/1.5 var(--sans);color:#23281f">${esc(bad)}</span>
+    <button class="btn btn-secondary btn-sm" onclick="go('settings')">Settings</button>
+  </div>`;
+}
 function mailguardHTML(){
-  if(!mailguard || !mailguard.clients) return '';
+  if(!mailguard) return '';
+  /* EMAIL_ONLY is the testing switch that fails closed and says nothing.
+     Left set after a test run, every sign-in code, receipt and booking
+     confirmation is dropped while every screen still says an email is on
+     its way. It is not visible anywhere else, so it is shouted here. */
+  const gate = !mailguard.resend
+    ? ['NO EMAIL AT ALL', `Resend is not configured, so this site sends nothing to anybody.
+        Sign-in codes, receipts and booking confirmations are all being dropped.
+        Set RESEND_API_KEY in Netlify.`]
+    : mailguard.only
+    ? ['ONLY '+mailguard.only+' ADDRESS'+(mailguard.only===1?'':'ES'),
+       `EMAIL_ONLY is set in Netlify, so mail reaches ${mailguard.only} address${
+        mailguard.only===1?'':'es'}${mailguard.onlyIsYou?', yours,':''} and nobody else.
+        A new person signing up gets no code and cannot get in. Someone who books gets no
+        confirmation. Nothing errors, it is just silence. Clear EMAIL_ONLY in Netlify when
+        you have finished testing.`]
+    : null;
+  const warn = gate ? `<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;
+    background:rgba(200,122,86,.14);border:1.5px solid var(--terra);border-radius:14px;
+    padding:12px 15px;margin-top:16px">
+    <span style="font:700 9.5px/1.5 var(--sans);letter-spacing:.14em;color:var(--terra);
+      flex:0 0 auto">${esc(gate[0])}</span>
+    <span style="flex:1;min-width:220px;font:400 13px/1.55 var(--sans);color:#23281f">${esc(gate[1])}</span>
+  </div>` : '';
+  if(!mailguard.clients) return warn;
   const off=mailguard.suppress;
-  return `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  return warn+`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;
     background:${off?'rgba(200,122,86,.12)':'var(--mist)'};
     border:1.5px solid ${off?'var(--terra)':'transparent'};
     border-radius:14px;padding:12px 15px;margin-top:16px">
@@ -474,7 +515,7 @@ function mailguardHTML(){
       ${off?'CLIENT EMAIL OFF':'CLIENT EMAIL ON'}</span>
     <span style="flex:1;min-width:200px;font:400 13px/1.5 var(--sans);color:var(--grey)">
       ${off
-        ? `Nothing is being emailed to your ${mailguard.clients} coaching client${mailguard.clients===1?'':'s'}. Everyone else — you, testers, form checks — is unaffected.`
+        ? `Nothing is being emailed to your ${mailguard.clients} coaching client${mailguard.clients===1?'':'s'}. Everyone else, you, testers and form checks, is unaffected.`
         : `Your ${mailguard.clients} coaching client${mailguard.clients===1?'':'s'} will receive email normally.`}
     </span>
     <button onclick="loadMailguard(${off?'false':'true'})" class="send"
@@ -493,8 +534,8 @@ function mailFor(email){
   if(off[email]===false) return {on:true,why:'Email on for them specifically'};
   const isClient=(clients.find(c=>c.email===email)||{}).coached!==false;
   if(isClient && mailguard && mailguard.suppress)
-    return {on:false,why:'Off — client email is switched off globally'};
-  return {on:true,why:isClient?'On — via the global switch':'Not a coaching client, always reachable'};
+    return {on:false,why:'Off, client email is switched off globally'};
+  return {on:true,why:isClient?'On, via the global switch':'Not a coaching client, always reachable'};
 }
 function mailRowHTML(email){
   if(!mailguard) return '';
@@ -5333,6 +5374,7 @@ function todayHTML(){
     : over ? over+' past the '+PROMISE_H+' hours you promise. Oldest first.'
     : 'All inside the '+PROMISE_H+' hours you promise. Oldest first.';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
+    ${mailAlertHTML()}
     <p class="muted" style="font-size:13px;margin:0 0 var(--space-1)">${esc(date)}</p>
     <h1 style="margin:0 0 var(--space-2)">${all.length?all.length+' waiting':'Nothing waiting'}</h1>
     <p style="font:400 16px/1.5 var(--sans);max-width:60ch;margin:0 0 var(--space-6);
@@ -5409,6 +5451,7 @@ function rosterHTML(){
               ['unread','Unread'],['enquiries','Enquiries']];
   const cols='28px minmax(0,2fr) minmax(0,1fr) 92px 92px';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
+    ${mailAlertHTML()}
     <h1 style="margin:0 0 var(--space-4)">Clients</h1>
     <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3)">
       <input class="input" placeholder="Search by name or email" value="${esc(rosterQ)}"
