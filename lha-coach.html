@@ -315,7 +315,7 @@ function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[];
-      loadQueue(); loadApps(); loadQuestions(); loadFeedback();
+      loadQueue(); loadApps(); loadQuestions(); loadFeedback(); loadSessions();
       if(mailguard===null) loadMailguard();
       COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
       if(!sel&&clients.length) sel=clients[0].email; draw();
@@ -5154,8 +5154,26 @@ const INBOX_TYPE={
   question:   {label:'Question',    cls:'tag-neutral',  filter:'questions'},
   application:{label:'Application', cls:'tag-accent-2', filter:'applications'},
   feedback:   {label:'App feedback',cls:'tag-neutral',  filter:'feedback'},
+  session:    {label:'Session',     cls:'tag-accent-2', filter:'sessions'},
 };
 let inboxRow='';                   /* the row expanded in place, if any */
+/* one to one sessions paid for and waiting for a time */
+let sessions=[], sessBusy='';
+function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}); }
+const sessOpen = () => sessions.filter(x=>x.status==='toArrange');
+function sessSet(id, patch){
+  sessBusy=id; draw();
+  fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify(Object.assign({id},patch))})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ sessions=d.sessions||sessions; sessBusy=''; draw(); if(patch.when) flash('Confirmed, and they have been told'); })
+    .catch(e=>{ sessBusy=''; draw(); alert(String(e)); });
+}
+function sessConfirm(id){
+  const d=(document.getElementById('sd-'+id)||{}).value, t=(document.getElementById('st-'+id)||{}).value||'18:00';
+  const place=(document.getElementById('sp-'+id)||{}).value||'', note=(document.getElementById('sn-'+id)||{}).value||'';
+  if(!d) return alert('Pick the date first.');
+  sessSet(id,{when:new Date(d+'T'+t+':00').toISOString(), place, note, status:'arranged'});
+}
 let todayDone=false;               /* the history, which is not the job in hand */
 function inboxToggle(id){ inboxRow = inboxRow===id?'':id; draw(); }
 const clip=(s,n)=>{ s=String(s||'').replace(/\s+/g,' ').trim();
@@ -5180,6 +5198,9 @@ function inboxItems(){
   fbOpenList().forEach(f=>out.push({id:'F:'+f.id, type:'feedback', email:f.email||'',
     name:f.name||f.email||'Someone not signed in', at:f.at, action:'Read', fb:f,
     detail:((FB_LABEL[f.kind]||FB_LABEL.review)[0])+' · "'+clip(f.text,100)+'"'+(f.kind==='block'&&(f.extra||{}).quote==='Yes'?' · quote OK':'')}));
+  sessOpen().forEach(x=>out.push({id:'S:'+x.id, type:'session', email:x.email, name:x.name||x.email, at:x.at,
+    action:'Set the time', sess:x,
+    detail:x.kind+' minutes, paid'+(x.paid?' £'+(x.paid/100).toFixed(2).replace(/\.00$/,''):'')+(x.prefs?' · prefers: '+clip(x.prefs,80):' · no times given')}));
   newApps().forEach(a=>{ const A=a.answers||{};
     out.push({id:'A:'+a.id, type:'application', email:a.email,
       name:a.name||String(a.email||'').split('@')[0], at:a.at,
@@ -5217,6 +5238,21 @@ function inboxBodyHTML(r){
       <span class="muted" style="font-size:12px">stage ${f.stage||'?'}${f.plus?' · £5':''}</span>
     </div>`;
   }
+  if(r.type==='session'){ const x=r.sess; const busy=sessBusy===x.id;
+    return `
+    <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${x.kind} minute session</b>, paid ${esc(ago(x.at))}. ${x.prefs?'They said: <i>"'+esc(x.prefs)+'"</i>':'No preferred times given.'} Check the room, then set the time here and they get the confirmation in the thread and by email.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;max-width:640px">
+      <div class="field"><label>Date</label><input id="sd-${esc(x.id)}" class="input" type="date"></div>
+      <div class="field"><label>Time</label><input id="st-${esc(x.id)}" class="input" type="time" value="18:00"></div>
+      <div class="field" style="grid-column:1/-1"><label>Place</label><input id="sp-${esc(x.id)}" class="input" value="${esc(x.place||'OverGravity, Shadwell')}"></div>
+      <div class="field" style="grid-column:1/-1"><label>A line for them, optional</label><input id="sn-${esc(x.id)}" class="input" placeholder="Wear something you can move in. See you there."></div>
+    </div>
+    <div style="display:flex;gap:var(--space-2);align-items:center;margin-top:var(--space-3);flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="sessConfirm('${esc(x.id)}')" ${busy?'disabled':''}>${busy?'Sending…':'Confirm the time'}</button>
+      <button class="btn btn-secondary" onclick="openClient('${esc(x.email)}')">Open their thread</button>
+      <button class="btn btn-ghost" onclick="if(confirm('Cancel this session? Refund it in Stripe yourself.')) sessSet('${esc(x.id)}',{status:'cancelled'})" style="color:var(--terra)">Cancelled</button>
+    </div>`;
+  }
   if(r.type==='application'){ const a=r.app, A=a.answers||{};
     const rows=[['Goal',A.goal],['Level',A.level],['Format',A.format],
       ['Days',A.days||A.commitment],['Hours',A.hours],['Stops them',A.stops],
@@ -5241,7 +5277,7 @@ function todayHTML(){
   const all=inboxItems();
   const over=all.filter(x=>x.hrs>=PROMISE_H).length;
   const defs=[['all','Everything'],['checks','Form checks'],['reviews','Block tests'],
-              ['questions','Questions'],['applications','Applications'],['feedback','App feedback']];
+              ['questions','Questions'],['applications','Applications'],['sessions','Sessions'],['feedback','App feedback']];
   const rows=all.filter(x=>inboxFilter==='all'||INBOX_TYPE[x.type].filter===inboxFilter);
   const date=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
   const sub = !all.length ? 'Everything sent in has been answered.'
@@ -5260,7 +5296,7 @@ function todayHTML(){
     </div>
     <div style="display:flex;flex-direction:column">
       ${rows.map(r=>{ const T=INBOX_TYPE[r.type]; const on=inboxRow===r.id;
-        const inline=(r.type==='question'||r.type==='feedback'||r.type==='application');
+        const inline=(r.type==='question'||r.type==='feedback'||r.type==='application'||r.type==='session');
         const c=clients.find(x=>x.email===r.email);
         return `<div style="border-bottom:1px solid rgba(17,17,17,.08)">
         <div class="row-hit inboxRow" onclick="${inline?`inboxToggle('${esc(r.id)}')`
@@ -6048,7 +6084,8 @@ const uidFromUrl=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m
    deploy. */
 let prices=null, pricesBusy=false, pricesMsg='', pricesEnv={};
 const PRICE_TIERS=[['plus','App, full ladder','a month, subscription'],['check','Form checks','a month, subscription'],
-  ['online','Online coaching','a month'],['inperson','Coaching with a session','a month'],['inner','Inner Circle','a month, by application']];
+  ['online','Online coaching','a month'],['inperson','Coaching with a session','a month'],['inner','Inner Circle','a month, by application'],
+  ['session60','One-off session, 60 min','paid on the session page'],['session90','One-off session, 90 min','paid on the session page']];
 function pricesLoad(){
   if(prices) return; prices={};
   fetch(API+'/prices',{headers:hdr()}).then(r=>r.ok?r.json():null)
@@ -6074,6 +6111,7 @@ function pricesHTML(){
       <input class="input" value="${t.amount!=null?(t.amount/100).toFixed(2).replace(/\\.00$/,''):''}" placeholder="5" oninput="priceSet('${k}','amount',this.value)" style="min-height:38px;padding:6px 9px" title="Pounds, exactly what Stripe charges">
       <div style="display:flex;flex-direction:column;gap:5px">
         ${k==='inperson'?'<span class="muted" style="font-size:12px">Paid by link on the site</span>'
+          :k.startsWith('session')?'<span class="muted" style="font-size:12px">Charged by the session page from the pounds here</span>'
           :`<input class="input" value="${esc(t.priceId||'')}" placeholder="Stripe price id, price_…${pricesEnv[k]?' (one is set in Netlify)':''}" oninput="priceSet('${k}','priceId',this.value)" style="min-height:34px;padding:5px 9px;font:400 12px/1.3 ui-monospace,monospace">
            <input class="input" value="${esc(t.link||'')}" placeholder="or a payment link, https://buy.stripe.com/…" oninput="priceSet('${k}','link',this.value)" style="min-height:34px;padding:5px 9px;font:400 12px/1.3 ui-monospace,monospace">`}
       </div></div>`; };

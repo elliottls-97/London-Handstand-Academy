@@ -281,6 +281,7 @@ export default async () => {
 
   try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
   try { await workshopMail(done); } catch (e) { done.workshopError = String(e && e.message || e); }
+  try { await sessionMail(done); } catch (e) { done.sessionError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
   return new Response(JSON.stringify(done), {
     headers: { 'Content-Type': 'application/json' } });
@@ -435,6 +436,46 @@ async function workshopMail(done) {
           done.workshops.asked++;
         }
         await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+      }
+    }
+  }
+}
+
+/* ── one to one sessions: the day before, and the day after ─────────────
+   The reminder, and then the offer the site already makes: the session is
+   credited against the first month if they join within fourteen days. */
+async function sessionMail(done) {
+  done.sessions = { reminded: 0, followed: 0 };
+  const row = await supa.row('settings', 'key=eq.sessions&select=value').catch(() => null);
+  const list = (row && row.value) || [];
+  const now = Date.now();
+  for (const x of list) {
+    if (!x || x.status !== 'arranged' || !x.when) continue;
+    const at = ms(x.when);
+    const hoursTo = (at - now) / 3600e3, hoursSince = (now - at) / 3600e3;
+    const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+    if (hoursTo > 12 && hoursTo <= 36) {
+      const key = `sessremind:${x.id}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        await email(x.email, 'Tomorrow: your session', mail({ title: 'See you tomorrow.', greeting: String(x.name || '').split(' ')[0],
+          paras: [`<b>${esc(whenTxt)}</b>${x.place ? ', at ' + esc(x.place) : ''}. ${x.kind} minutes.`, 'Wear something you can move in and arrive a few minutes early. If you cannot make it, reply to this now rather than tomorrow.'],
+          signoff: { name: 'Elliott, London Handstand Academy' } }));
+        await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+        done.sessions.reminded++;
+      }
+    }
+    if (hoursSince > 10 && hoursSince <= 40) {
+      const key = `sessfollow:${x.id}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        const paid = x.paid ? '£' + (x.paid / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
+        await email(x.email, 'After your session', mail({ title: 'Thank you for coming.', greeting: String(x.name || '').split(' ')[0],
+          paras: ['What we worked on is in your thread in the app, so it is there when you train this week.',
+                  `If you want to keep going with a written programme, ${paid} comes off your first month of the Coaching Programme if you join within fourteen days. Reply to this and I will set it up.`,
+                  'And a sentence about how you found it, good or bad, would help me. Reply and I read it.'],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: 'Elliott, London Handstand Academy' } }));
+        await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+        done.sessions.followed++;
       }
     }
   }

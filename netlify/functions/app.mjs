@@ -572,6 +572,8 @@ export default async (request) => {
     online:   { label: '£120', amount: 12000, priceId: '', link: '' },
     inperson: { label: '£190', amount: 19000, priceId: '', link: '' },
     inner:    { label: '£320', amount: 32000, priceId: '', link: '' },
+    session60: { label: '£80',  amount: 8000 },     /* one-off, paid on the session page */
+    session90: { label: '£100', amount: 10000 },
     trialDays: 7,
     note: 'The price goes up as the ladder fills out. Join now and yours does not.',
   };
@@ -647,6 +649,46 @@ export default async (request) => {
           paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${book.length} of ${w.places || '?'} places taken.`],
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, workshop: slug, booked: book.length });
+    }
+
+    /* ── a one to one session ───────────────────────────────────────
+       The room is OverGravity's, not ours, so nobody picks a slot from a
+       calendar. They pay, say which days suit, and the time is agreed in
+       the thread. Paid first, so the ones who ask mean it. */
+    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.session) {
+      const kind = String(obj.metadata.session) === '90' ? '90' : '60';
+      const nm = String((obj.metadata.name || (obj.customer_details && obj.customer_details.name) || '')).slice(0, 60);
+      const prefs = String(obj.metadata.prefs || '').slice(0, 500);
+      if (!e) {
+        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A session payment had no email',
+          `<p style="font:16px/1.6 system-ui">${esc(obj.id || '')}, ${kind} minutes, no email on the payment. It is in Stripe; nothing else was recorded.</p>`);
+        return json({ ok: true, note: 'session not filed' });
+      }
+      const list = (await getSetting('sessions')) || [];
+      if (!list.some(x => x.session === obj.id)) {
+        list.unshift({ id: 's' + newId(), email: e, name: nm, kind, prefs, at: Date.now(), session: String(obj.id || ''),
+          paid: Number(obj.amount_total) || 0, status: 'toArrange', when: '', place: 'OverGravity, Shadwell', note: '' });
+        await setSetting('sessions', list.slice(0, 400));
+      }
+      await ensureAcct(e, nm);
+      const off = (await getSetting('mailoff')) || {};
+      if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
+      try {
+        await threadAdd(db, e, { from: 'coach', by: primaryCoach(),
+          text: `Thanks, your ${kind} minute session is paid for. ${prefs ? 'You said: "' + prefs + '". ' : ''}I will check the room at OverGravity against that and come back here with a time within 48 hours. If anything changes, say so here.` });
+      } catch {}
+      await email(e, `Your ${kind} minute session: sorting the time`,
+        mail({ title: 'Paid. Now the time.', greeting: nm.split(' ')[0] || '',
+          paras: [`Your ${kind} minute session in London is paid for. The room at OverGravity is booked around their timetable, so I check your times against it and confirm within 48 hours.`,
+                  prefs ? `You said: <b>${esc(prefs)}</b>.` : 'Reply to this with the days and times that suit you.',
+                  'You have an account in the Handstand Ladder app under this address, and the conversation carries on there under Ask as well as by email.'],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: 'Elliott, London Handstand Academy' } }));
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Session to arrange: ${nm || e}, ${kind} min`,
+        mail({ title: `${esc(nm || e)} has paid for a ${kind} minute session.`,
+          paras: [prefs ? `Prefers: <b>${esc(prefs)}</b>.` : 'No preferred times given.', 'Check the room, then set the time on Today and they get the confirmation.'],
+          cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+      return json({ ok: true, session: kind });
     }
 
     let acct = e ? await getAcct(e) : null;
@@ -1074,6 +1116,7 @@ export default async (request) => {
     plus: { label: PRICES.plus.label, founding: !!PRICES.plus.founding, note: PRICES.note },
     check: { label: PRICES.check.label }, online: { label: PRICES.online.label },
     inperson: { label: PRICES.inperson.label }, inner: { label: PRICES.inner.label },
+    session60: { label: PRICES.session60.label }, session90: { label: PRICES.session90.label },
     trialDays: Number(PRICES.trialDays) || 0,
   });
   if (path === '/plans') {
@@ -1099,7 +1142,7 @@ export default async (request) => {
         if (t.founding !== undefined) o.founding = !!t.founding;
         return o;
       };
-      for (const k of ['plus', 'check', 'online', 'inperson', 'inner']) next[k] = tier(k);
+      for (const k of ['plus', 'check', 'online', 'inperson', 'inner', 'session60', 'session90']) next[k] = tier(k);
       const td = Number(body.prices && body.prices.trialDays);
       next.trialDays = Number.isFinite(td) ? Math.max(0, Math.min(30, Math.round(td))) : 7;
       if (typeof (body.prices || {}).note === 'string') next.note = body.prices.note.trim().slice(0, 160);
@@ -1586,6 +1629,65 @@ export default async (request) => {
       all[slug] = w;
       await setSetting('workshops', all);
       return json({ ok: true, workshop: w, workshops: await withBook() });
+    }
+    return json({ error: 'Nope' }, 405);
+  }
+
+  /* ── one to one sessions: pay, then arrange ───────────────────────── */
+  if (path === '/session/book' && request.method === 'POST') {
+    const kind = String(body.kind) === '90' ? '90' : '60';
+    const e = norm(body.email);
+    const nm = String(body.name || '').trim().slice(0, 60);
+    const prefs = String(body.prefs || '').trim().slice(0, 500);
+    if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
+    if (!stripeKey()) return json({ error: 'Booking is not switched on yet' }, 503);
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`ssb:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
+    const price = PRICES[kind === '90' ? 'session90' : 'session60'];
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(Math.round(Number(price.amount) || 0)),
+        'line_items[0][price_data][product_data][name]': `One to one session, ${kind} minutes, London`,
+        'line_items[0][price_data][product_data][description]': 'Time arranged with you after payment, around the room at OverGravity.',
+        'line_items[0][quantity]': '1',
+        'metadata[session]': kind, 'metadata[name]': nm, 'metadata[prefs]': prefs,
+        customer_email: e,
+        success_url: `${url.origin}/session.html?booked=1&kind=${kind}`,
+        cancel_url: `${url.origin}/session.html?kind=${kind}`,
+      });
+      return json({ url: sess.url });
+    } catch (err) { return json({ error: String(err.message || err) }, 502); }
+  }
+  if (path === '/coach/sessions') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const list = (await getSetting('sessions')) || [];
+    if (request.method === 'GET') return json({ sessions: list.filter(x => owns(x.email)) });
+    if (request.method === 'POST') {
+      const id = String(body.id || '');
+      const row = list.find(x => x.id === id);
+      if (!row || !owns(row.email)) return json({ error: 'No such session' }, 404);
+      const wasArranged = row.status === 'arranged';
+      if (body.when !== undefined) { const t = ms(body.when); row.when = t ? new Date(t).toISOString() : ''; }
+      if (typeof body.place === 'string') row.place = body.place.slice(0, 120);
+      if (typeof body.note === 'string') row.note = body.note.slice(0, 300);
+      if (['toArrange', 'arranged', 'done', 'cancelled'].includes(body.status)) row.status = body.status;
+      else if (row.when && row.status === 'toArrange') row.status = 'arranged';
+      await setSetting('sessions', list);
+      /* the confirmation, once, when a time is set */
+      if (row.status === 'arranged' && row.when && !wasArranged) {
+        const whenTxt = new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+        try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
+          text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
+        await email(row.email, `Confirmed: your session, ${whenTxt}`,
+          mail({ title: 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
+            paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
+                    row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
+                    'A reminder comes the day before. If you need to move it, reply to this.'],
+            signoff: { name: coachName(asking || primaryCoach()) } }));
+      }
+      return json({ ok: true, session: row, sessions: list.filter(x => owns(x.email)) });
     }
     return json({ error: 'Nope' }, 405);
   }
@@ -2307,6 +2409,8 @@ export default async (request) => {
                   'fixopen', 'fixstart', 'fixdone', 'sitefix',
                   /* a workshop page opened, a booking started, a booking paid */
                   'siteworkshoppage', 'workshopbook', 'workshoppaid',
+                  /* a one to one session page opened, and a request started */
+                  'sitesessionpage', 'sessionbook',
                   /* the website, before the app */
                   'site', 'sitequiz', 'siteapp', 'siteworkshop'];
   if (path === '/event' && request.method === 'POST') {
