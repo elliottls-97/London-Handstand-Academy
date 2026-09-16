@@ -780,18 +780,27 @@ function screenToday(){
   <div class="rise rise-1" data-tour="block" style="padding:26px 20px 0">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
       <span style="font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-        color:var(--grey)">Block · week ${hWeek} of 6</span>
+        color:var(--grey)">Block ${blockNo()} · week ${hWeek}</span>
       <span style="font:400 13px/1 var(--sans);color:var(--grey)">${
         nDone?nDone+' session'+(nDone===1?'':'s')+' logged':'Nothing logged yet'}</span>
     </div>
-    <div style="display:flex;gap:6px;margin-top:10px">
-      ${[1,2,3,4,5,6].map(w=>`<div style="flex:1">
+    ${(function(){
+      /* The bar used to be six fixed weeks and stuck on the last one for
+         ever. A block runs until the coach ends it, so the bar runs to the
+         test and then says the test is the thing to do. */
+      const d=testIn(), total=((st.cycle&&st.cycle.days)||14)/7;
+      const n=Math.max(total, hWeek);
+      return `<div style="display:flex;gap:6px;margin-top:10px">
+      ${[...Array(Math.min(8,Math.ceil(n)))].map((_,i)=>{const w=i+1;
+        return `<div style="flex:1">
         <div style="height:8px;border-radius:4px;background:${
           w<hWeek?'var(--deep)':w===hWeek?'var(--amber)':'rgba(0,64,61,.1)'}"></div>
         <span style="display:block;margin-top:7px;font:600 9.5px/1 var(--sans);letter-spacing:.1em;
           text-align:center;color:${w===hWeek?'var(--ink)':'var(--grey2)'}">W${w}</span>
-      </div>`).join('')}
+      </div>`;}).join('')}
     </div>
+    ${d!=null&&d<=0?`<div style="font:400 12.5px/1.5 var(--sans);color:#8a5a12;margin-top:9px">
+      ${d<0?'The test was due '+(-d)+' day'+(-d===1?'':'s')+' ago.':'The test is due today.'} It is what the next block is written from.</div>`:''}`;})()}
   </div>
 
   <div class="rise rise-2" style="padding:24px 20px 0">
@@ -799,7 +808,15 @@ function screenToday(){
       <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
         d.sub?', '+esc(d.sub):''}</div>
       <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">
-        ${Math.round(mins/60)} min · ${total} drill${total===1?'':'s'}</span>
+        ${/* The coach writes a length on the day and the app was ignoring it,
+             showing its own sum of every set and rest instead. On Hannah's
+             first day that is 61 minutes against the 35 to 40 it was written
+             as, which turns a session somebody can fit into one they cannot.
+             What the coach wrote wins; the player still shows the real clock
+             running against its own estimate while they train. */
+          esc(d.mins ? String(d.mins).replace(/\s*min(utes)?\s*$/i,'').replace(/\s*[\u2013\u2014]\s*/g,' to ')
+             : Math.round(mins/60))} min
+        · ${total} drill${total===1?'':'s'}</span>
     </div>
 
     <button onclick="startPlayer()" style="margin-top:14px;height:68px;width:100%;border:0;border-radius:18px;
@@ -961,6 +978,9 @@ function screenToday(){
     </div>
   </div>`:''}
 
+  ${(st.lastReview && st.lastReview > (st.seenReview||0) && reviewCardHTML())
+    ? `<div class="pad" style="margin-top:14px">${reviewCardHTML()}</div>` : ''}
+
   <div class="pad" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
     ${(function(){
       const n=weekStreak();
@@ -974,18 +994,23 @@ function screenToday(){
           : 'Nothing missed.'}</div>
       </div>`;})()}
     ${(function(){
-      /* counted from the block start, or from the last test if one has
-         been done, rather than a number typed into the page */
-      const last=(st.tests||[]).length ? (st.testAt||0) : 0;
-      const from=last || blockStart() || 0;
-      const days=from ? Math.max(0, 14-Math.floor((Date.now()-from)/864e5)%14) : null;
-      return `<div class="card" style="border-radius:22px;padding:18px;background:#fdf1dd;
-        border-color:rgba(243,169,73,.5);cursor:pointer" onclick="openOv('test')">
-        <div class="kick2" style="color:#8a5a12">TWO-WEEK TEST</div>
-        <div class="h-md" style="font-size:32px;margin-top:10px;color:var(--ink)">${
-          days==null?'Ready':days===0?'Today':days+' day'+(days===1?'':'s')}</div>
-        <div style="font:400 12.5px/1.4 var(--sans);color:#7a5416;margin-top:5px">
-          Five drills, filmed.</div>
+      /* the coach's own clock, not a rolling fourteen days counted from the
+         client's first ever session */
+      const d=testIn();
+      const sent=st.awaitingReview && (!st.testAt || st.testAt<=st.awaitingReview);
+      const big = sent ? 'Sent' : d==null ? 'Ready' : d>0 ? d+' day'+(d===1?'':'s')
+        : d===0 ? 'Today' : 'Overdue';
+      const sub = sent ? 'With Elliott now.'
+        : d!=null && d<0 ? (-d)+' day'+(-d===1?'':'s')+' ago. Film it when you can.'
+        : 'Five drills, filmed.';
+      return `<div class="card" style="border-radius:22px;padding:18px;background:${
+        sent?'rgba(0,102,99,.07)':'#fdf1dd'};
+        border-color:${sent?'rgba(0,102,99,.25)':'rgba(243,169,73,.5)'};cursor:pointer"
+        onclick="openOv('test')">
+        <div class="kick2" style="color:${sent?'var(--forest)':'#8a5a12'}">TWO-WEEK TEST</div>
+        <div class="h-md" style="font-size:32px;margin-top:10px;color:var(--ink)">${big}</div>
+        <div style="font:400 12.5px/1.4 var(--sans);color:${sent?'var(--grey)':'#7a5416'};margin-top:5px">
+          ${sub}</div>
       </div>`;})()}
   </div>
   <div style="padding:10px 16px 26px">
@@ -3771,18 +3796,12 @@ function screenProgress(){
             <div class="kick2" style="color:var(--forest)">IN REVIEW</div>
             <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
               Sent ${esc(when(st.awaitingReview))}, an answer lands within 48 hours.</div></div>`
-        : (st.lastReview && st.lastReview > (st.seenReview||0))
-        ? `<div class="card" style="border:1.5px solid var(--forest);padding:18px;cursor:pointer"
-            onclick="st.seenReview=st.lastReview;save();go('${st.in?'ask':'coaching'}')">
-            <div class="kick2" style="color:var(--forest)">ANSWERED</div>
-            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-              Your answer is back, tap to read it.</div></div>`
-        : ''}
+        : reviewCardHTML()}
       <div class="card"><div class="kick2">CONSISTENCY</div>
         <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-top:16px">${weeks}</div>
         <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">${
           sessionsDone().length
-            ? sessionsDone().length+' session'+(sessionsDone().length===1?'':'s')+' logged. Week '+thisWeek+' of six.'
+            ? sessionsDone().length+' session'+(sessionsDone().length===1?'':'s')+' logged. Block '+blockNo()+', week '+thisWeek+'.'
             : 'Nothing logged yet. Finish a session and it turns up here.'}</div></div>` : ''}
       ${coachedView() ? '' : `<div class="card"><div class="kick2">HOW YOU MOVE UP</div>
         <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">
@@ -4105,6 +4124,34 @@ function prefsHTML(){
       Password resets and receipts always send, and those cannot be turned off.</div>
     <div class="kick2" style="margin-top:18px">YOUR CLIPS</div>
     ${row('promo','Use my clips and progress in LHA marketing','Off unless you say so. A clip you send is only ever seen by your coach otherwise, and you can turn this off again at any time.')}</div>`;
+}
+
+/* What the coach actually wrote about their test.
+
+   This was the single most valuable thing in the subscription and the client
+   could not read it. The answer was rendered in one place, on a screen only
+   the free tier can open, and the coached client got a card saying "tap to
+   read it" that took them to the chat, where the answer existed only if the
+   coach had also typed it there by hand. */
+function reviewCardHTML(){
+  const a=st.lastAnswer;
+  if(!a || !(a.text||a.video)) return '';
+  const fresh = st.lastReview && st.lastReview > (st.seenReview||0);
+  return `<div class="card" style="border:1.5px solid ${fresh?'var(--forest)':'var(--line)'};padding:18px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2" style="color:var(--forest)">WHAT ELLIOTT SAID</span>
+      <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(when(st.lastReview))}</span>
+    </div>
+    ${a.video?`<div style="border-radius:16px;overflow:hidden;background:#101413;margin-top:12px">
+      <iframe src="${streamEmbed(esc(a.video))}" loading="lazy" allow="fullscreen"
+        style="display:block;width:100%;aspect-ratio:9/16;max-height:460px;border:0"></iframe></div>`:''}
+    ${a.text?`<div style="font:400 15px/1.6 var(--sans);color:var(--ink);margin-top:12px;
+      white-space:pre-wrap">${esc(a.text)}</div>`:''}
+    <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn2" onclick="go('ask')">Reply to this</button>
+      ${fresh?`<button class="back" style="color:var(--grey);font-size:12.5px;padding:0 6px"
+        onclick="st.seenReview=st.lastReview;save();render()">Mark as read</button>`:''}
+    </div></div>`;
 }
 
 function loadSubmissions(){
@@ -4789,8 +4836,24 @@ function toast(msg){
    have stayed on level one forever, so the answer here moves every
    grouping the session touched. */
 function sessionFeel(f){
-  if(st.in) post({type:'Session feel',feel:f});
   const dir = f==='Too easy' ? +1 : f==='Too hard' ? -1 : 0;
+  /* Two different products behind one button. On the free ladder the app
+     owns the difficulty, so it moves the dial and says so. For a coached
+     client the programme is written by hand, and this is how they tell
+     Elliott to change it: nudging a ladder they do not train on and then
+     telling them to go and change it there was the wrong answer twice. */
+  if(coachedView()){
+    if(dir){
+      post({type:'Session feel',feel:f,day:(day()&&day().label)||'',
+            block:blockNo(),week:weekNow()});
+      reportProgress({feedback:{kind:'session feel', text:f+' · '+((day()&&day().label)||'')}});
+    }
+    closeOv();
+    if(dir) toast(f==='Too hard'
+      ? 'Told Elliott. He writes the next block from this.'
+      : 'Told Elliott. He writes the next block from this.');
+    return;
+  }
   const moved = dir ? nudgeStage(dir) : null;
   closeOv();
   /* say what it did, or the session quietly changing next week reads as the
@@ -6140,6 +6203,12 @@ function libToArray(lib){
 }
 function applyProgramme(d){
   if(d && d.plan && d.plan.days && d.plan.days.length) DATA = d.plan;
+  /* The server works out which block they are on, when it started and when
+     the test is due, and sends it on every load. This threw it away, so the
+     app guessed from the client's first ever session instead: the header
+     said week six of six for ever and the test countdown had nothing to do
+     with the coach's block. */
+  if(d && d.cycle && d.cycle.start) { st.cycle = d.cycle; save(); }
   const arr = libToArray(d && d.library);
   if(arr.length) LIBRARY = arr;
   if(d && d.ladderExtra) { st.ladderExtra = d.ladderExtra; save(); }
@@ -6153,7 +6222,7 @@ function applyProgramme(d){
 function cacheProgramme(d){
   try { localStorage.setItem('lha_plan', JSON.stringify(
     {at:Date.now(), email:st.email, plan:d.plan, library:d.library,
-     ladderExtra:d.ladderExtra, timing:d.timing})); } catch(e){}
+     cycle:d.cycle, ladderExtra:d.ladderExtra, timing:d.timing})); } catch(e){}
 }
 function loadCachedProgramme(){
   try {
@@ -6182,15 +6251,33 @@ function loadProgress(){
     .catch(()=>{});
 }
 function sessionsDone(){ return ((st.prog&&st.prog.sessions)||[]).filter(x=>x.done); }
+/* The block the coach is running: which one, when it started, when the test
+   in it is due. It comes from the server with the programme. Before there is
+   one, fall back to the client's first session so a brand new client is not
+   shown a blank. */
 function blockStart(){
+  const c=st.cycle;
+  if(c && c.start) return c.start;
   const p=st.prog||{};
-  const first=(p.sessions&&p.sessions.length&&p.sessions[0].at)
-    || (p.opens&&p.opens.length&&new Date(p.opens[0]+'T00:00:00').getTime());
-  return first||null;
+  return (p.sessions&&p.sessions.length&&p.sessions[0].at)
+    || (p.opens&&p.opens.length&&new Date(p.opens[0]+'T00:00:00').getTime())
+    || null;
 }
+function blockNo(){ return (st.cycle && st.cycle.n) || 1; }
+/* uncapped: "week 6 of 6" for ever was the old lie, and a block runs until
+   the coach starts the next one rather than for a fixed six weeks */
 function weekNow(){
   const st0=blockStart(); if(!st0) return 1;
-  return Math.min(6, Math.floor((Date.now()-st0)/(7*86400000))+1);
+  return Math.max(1, Math.floor((Date.now()-st0)/(7*86400000))+1);
+}
+/* days until the test, negative once it is overdue. null when we do not know
+   yet, which is not the same as zero. */
+function testIn(){
+  const c=st.cycle;
+  const due = (c && c.dueAt) ? c.dueAt
+    : (blockStart() ? blockStart() + ((c&&c.days)||14)*864e5 : 0);
+  if(!due) return null;
+  return Math.ceil((due-Date.now())/864e5);
 }
 /* completed sessions bucketed into the six weeks of a block */
 function weekGrid(){
@@ -6641,6 +6728,9 @@ function sendTest(){
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
     .then(()=>{
       st.tests=(st.tests||[]).concat([vals]); st.testDraft={}; st.testClips={};
+      /* the countdown read this and nothing ever wrote it, so sending a test
+         never changed the number on the card */
+      st.testAt=Date.now();
       st.awaitingReview=Date.now(); save();
       reportProgress({test:vals}); closeOv(); loadThread(); render();
     })
@@ -7233,6 +7323,10 @@ function retakeIntake(){
    at 85 per cent and the copy asked for a clip it gave you no way to send. */
 function profileGaps(){
   const a=intake(), out=[];
+  /* The quiz places somebody on the ladder. A coached client is not on the
+     ladder and has no quiz screen in their tabs, so this button dropped them
+     back on Today with no explanation. Their coach already knows all of it. */
+  if(coachedView()) return [];
   if(!a.goal || a.level==null) out.push({t:'Answer the quiz', d:'Your goal and where you are now.',
     go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"});
   else if(!a.niggles) out.push({t:'Anything sore?', d:'Thirty seconds, and it changes what you are given.',
@@ -10073,7 +10167,7 @@ const TOURS = {
       {t:'session', h:'Today, in one line',
        b:'The day your programme has for today, and how long it runs.'},
       {t:'block', h:'Where you are',
-       b:'Your block is six weeks. The taller bar is the week you are in. It gets rebuilt at the end of it.'},
+       b:'Which block you are on and how far into it you are. It gets rebuilt when Elliott has your test.'},
       {t:'modesheet', h:'Two ways to train it',
        b:'Every session comes both ways. Pick one and I will show you both.',
        pre:()=>{  save(); openOv('mode'); }},

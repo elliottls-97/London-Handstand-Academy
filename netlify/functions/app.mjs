@@ -3888,7 +3888,13 @@ export default async (request) => {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      /* the same block clock the client is shown, so the two screens cannot
+         disagree about which block it is or when the test is due */
+      const cyc = clients()[e]
+        ? await cycleGet(db, e, (await getSetting(`programme:${e}`)) || programmes.clients[e] || null)
+        : null;
       return json({ email: e, name: clients()[e] || e,
+                    cycle: cyc,
                     intake: (await getSetting(`intake:${e}`)) || null,
                     track: (await getSetting(`track:${e}`)) || null,
                     /* so the dashboard can name a check point the coach set

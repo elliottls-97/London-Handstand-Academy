@@ -225,6 +225,7 @@ const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
 let subs={};      /* what each client has sent for review */
+let cycles={};    /* which block each client is on, and when the test is due */
 /* Whether the person signed in owns the business. A coach added from here
    does the coaching; prices, discount codes, comping a tier and putting a
    workshop on sale stay with the owner. The server refuses them either way,
@@ -339,6 +340,7 @@ function openThread(email){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ prog[email]=d.progress||{}; intakes[email]=d.intake||null;
                       tracks[email]=d.track||null; cpDefs[email]=d.checkpoints||[];
+                      cycles[email]=d.cycle||null;
                       visitsBy[email]=d.visits||{}; draw(); } })
     .catch(()=>{});
   if(!fcState[email]) loadFormCheck(email);
@@ -4816,6 +4818,59 @@ function focusNote(){ const el=$('#cnote'); if(el){ el.scrollIntoView({block:'ce
    The flags with the client's own words next to them. The quote is the
    useful half — "shoulders burn out before the time is up" tells you
    what to change; a count does not. */
+/* What they have said about this block, which is what you rewrite it from:
+   the drills they called too hard or too easy with their own words, and how
+   each session felt. frictionHTML was written and then called from nowhere,
+   so every one of those flags went into the record and onto no screen. */
+/* Which block they are on and how long it has run. The client sees this
+   clock on their own Today screen, and nothing here showed it, so the one
+   question worth asking, is this block overdue a rewrite, had no answer on
+   the screen where you would answer it. */
+function blockLineHTML(email){
+  const c=cycles[email]; if(!c || !c.start) return '';
+  const D=86400000;
+  const wk=Math.max(1, Math.floor((Date.now()-c.start)/(7*D))+1);
+  const due=Math.ceil(((c.dueAt||0)-Date.now())/D);
+  const sent=(subs[email]||[]).some(s=>s.status==='submitted'&&s.kind!=='assessment');
+  const late=!sent && due<0;
+  const long=wk>=6;
+  return `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:var(--space-4);
+    padding:12px 15px;border-radius:14px;
+    background:${late||long?'rgba(243,169,73,.14)':'var(--surface)'};
+    border:1px solid ${late||long?'rgba(243,169,73,.5)':'var(--line)'}">
+    <span style="font:700 9.5px/1.4 var(--sans);letter-spacing:.14em;color:var(--grey2)">BLOCK ${c.n||1}</span>
+    <span style="flex:1;min-width:200px;font:400 13.5px/1.55 var(--sans);color:#23281f">
+      Week ${wk}. ${sent ? 'Their test is in and waiting on you.'
+        : due>0 ? 'Test due in '+due+' day'+(due===1?'':'s')+'.'
+        : due===0 ? 'Test due today.'
+        : 'Test was due '+(-due)+' day'+(-due===1?'':'s')+' ago and nothing has come in.'}${
+        long?' Six weeks in, so this block is due a rewrite.':''}</span>
+    <button class="btn btn-ghost btn-sm" onclick="openBuilder('${esc(email)}')">Edit programme</button>
+  </div>`;
+}
+
+function saidHTML(email){
+  const p=prog[email]||{};
+  const fric=frictionHTML(email);
+  const felt=(p.feedback||[]).filter(f=>f&&(f.kind==='session feel'||f.text)).slice(-6).reverse();
+  if(!fric && !felt.length) return '';
+  return `<div class="card" style="margin-top:var(--space-4)">
+    <div class="kick">WHAT THEY HAVE TOLD YOU</div>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);margin:8px 0 0;max-width:66ch">
+      Every drill they flagged and every word they left, newest first. This is what the next
+      block is written from.</p>
+    ${fric}
+    ${felt.length?`<div style="display:flex;flex-direction:column;gap:10px;margin-top:var(--space-4)">
+      ${felt.map(f=>`<div style="border-left:2px solid var(--mist);padding-left:12px">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">
+          ${esc(String(f.kind||'note').toUpperCase())} · ${ago(f.at)}</div>
+        ${f.reasons&&f.reasons.length?`<div style="font:500 13.5px/1.5 var(--sans);margin-top:6px;color:var(--terra)">
+          ${f.reasons.map(esc).join(' · ')}</div>`:''}
+        ${f.text?`<div style="font:400 13.5px/1.5 var(--sans);margin-top:5px">${esc(f.text)}</div>`:''}
+      </div>`).join('')}</div>`:''}
+  </div>`;
+}
+
 function frictionHTML(email){
   const p=prog[email]||{};
   const rows=Object.entries(p.flags||{})
@@ -5749,6 +5804,8 @@ function progressPaneHTML(){
         against the sets asked for, and whether they called it easy or hard.</p>
       ${coachCalendar(sel)}
     </div>
+    ${blockLineHTML(sel)}
+    ${saidHTML(sel)}
     <button class="btn ${progMore?'btn-secondary':'btn-primary'}" style="margin-top:var(--space-4)"
       onclick="progMore=${progMore?'false':'true'};draw()">${
       progMore?'Hide the charts':'The charts, the volume and where they stop'}</button>
