@@ -2187,6 +2187,7 @@ export default async (request) => {
     if (!plan) return json({ error: 'No programme yet' }, 404);
     const cycle = await cycleGet(db, who, plan);
     return json({ client: clients()[who] || plan.client, plan, cycle,
+                  week: (await getSetting(`week:${who}`)) || null,
                   library: await libraryNow(),
                   /* drills the coach has added to a ladder stage since the
                      last deploy, so the free ladder can pick them up too */
@@ -3488,6 +3489,24 @@ export default async (request) => {
     }
 
     /* the coach's own notes on a client — never shown in the client app */
+    /* One sentence, to one client, about this week. Everything else the app
+       tailors, it tailors from state or from the block: nothing let the
+       coach say a thing to a person. Private notes are for the coach, so
+       this is separate and deliberately visible. */
+    if (path === '/coach/week') {
+      const e = norm(url.searchParams.get('email') || body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const k = `week:${e}`;
+      if (request.method === 'POST') {
+        const text = String(body.text || '').trim().slice(0, 400);
+        if (text) await setSetting(k, { text, at: Date.now(), by: asking || primaryCoach() });
+        else await dropSetting(k);
+        return json({ ok: true, week: text ? await getSetting(k) : null });
+      }
+      return json({ week: (await getSetting(k)) || null });
+    }
+
     if (path === '/coach/notes') {
       const e = norm(url.searchParams.get('email') || body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
@@ -3895,6 +3914,7 @@ export default async (request) => {
         : null;
       return json({ email: e, name: clients()[e] || e,
                     cycle: cyc,
+                    week: (await getSetting(`week:${e}`)) || null,
                     intake: (await getSetting(`intake:${e}`)) || null,
                     track: (await getSetting(`track:${e}`)) || null,
                     /* so the dashboard can name a check point the coach set

@@ -771,6 +771,26 @@ function sessionsThisWeekN(){
 /* One line where a six week bar, a streak card and a countdown card used
    to be. Which block, how far in, what you have done this week, and the
    state of the test. Tapping it goes to the screen that holds the detail. */
+/* What the coach said to this person, this week. Everything else on this
+   screen is worked out from what they have done. This is the only part of
+   it that a person wrote, so it goes above the rest of it and stays until
+   it is changed. */
+function weekWordHTML(){
+  const w=st.week; if(!w || !w.text) return '';
+  const days=w.at?Math.floor((Date.now()-w.at)/864e5):0;
+  return `<div class="pad" style="padding-top:20px">
+    <div style="border-left:3px solid var(--forest);border-radius:0 14px 14px 0;
+      background:rgba(255,255,255,.7);padding:13px 15px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span style="font:700 9px/1.4 var(--sans);letter-spacing:.14em;color:var(--forest)">
+          ELLIOTT, THIS WEEK</span>
+        ${days>=8?`<span style="font:400 11px/1 var(--sans);color:var(--grey2)">${esc(cpWhen(w.at))}</span>`:''}
+      </div>
+      <div style="font:400 15px/1.55 var(--sans);color:var(--ink);margin-top:7px;
+        white-space:pre-wrap">${esc(w.text)}</div>
+    </div></div>`;
+}
+
 function todayStrip(){
   const w=weekNow(), n=sessionsThisWeekN(), d=testIn();
   const test = testSent() ? 'test with Elliott'
@@ -868,6 +888,7 @@ function screenToday(){
   </div>
 
   
+  ${weekWordHTML()}
   ${todayStrip()}
 <div class="rise rise-1" style="padding:22px 20px 0">
     <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
@@ -2158,12 +2179,21 @@ function postTrack(body){
 }
 const todayKey = () => new Date().toISOString().slice(0,10);
 
-function logMetric(m){
+/* which metric row is open for entry. A prompt() box is the wrong way to
+   ask somebody on a phone for a number, and it cannot say what the unit is
+   while they type. */
+let mOpen='';
+function openMetric(m){ mOpen = (mOpen===m) ? '' : m; render();
+  setTimeout(()=>{ const el=document.getElementById('m-'+m); if(el) el.focus(); },30); }
+function saveMetric(m){
+  const el=document.getElementById('m-'+m); if(!el) return;
+  const v=Number(String(el.value).replace(/[^0-9.]/g,''));
+  if(!Number.isFinite(v)||el.value===''){ mOpen=''; render(); return; }
+  mOpen=''; logMetric(m, v);
+}
+function logMetric(m, v){
   const def=METRICS.find(x=>x.m===m); if(!def) return;
-  const raw=prompt(def.n+' ('+def.unit+')\n\n'+def.help);
-  if(raw==null) return;
-  const v=Number(String(raw).replace(/[^0-9.]/g,''));
-  if(!Number.isFinite(v)){ return; }
+  if(!Number.isFinite(v)) return;
   st.track=st.track||{metrics:{},habits:{},checkins:[]};
   st.track.metrics=st.track.metrics||{};
   st.track.metrics[m]=(st.track.metrics[m]||[]).concat([{v,at:Date.now()}]).slice(-60);
@@ -3082,8 +3112,17 @@ function metricsCard(){
         <span style="font:400 12px/1.4 var(--sans);color:var(--grey2)">${
           prev ? (better?'Better than last time':last.v===prev.v?'Same as last time':'Down on last time')
                : esc(D.help)}</span>
-        <button class="rt" style="flex:none" onclick="logMetric('${D.m}')">Log</button>
+        <button class="rt" style="flex:none" onclick="openMetric('${D.m}')">${
+          mOpen===D.m?'Cancel':'Log'}</button>
       </div>
+      ${mOpen===D.m?`<div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <input id="m-${D.m}" type="number" inputmode="decimal" step="any" placeholder="${esc(D.unit)}"
+          onkeydown="if(event.key==='Enter')saveMetric('${D.m}')"
+          style="flex:1;min-width:0;border:1px solid rgba(17,17,17,.15);border-radius:12px;
+          padding:11px 12px;font:400 16px/1 var(--sans);background:#fff">
+        <button class="rt" onclick="saveMetric('${D.m}')">Save</button>
+      </div>
+      <div style="font:400 12px/1.45 var(--sans);color:var(--grey2);margin-top:6px">${esc(D.help)}</div>`:''}
     </div>`;
   }).join('');
   return `<div class="card" style="padding:18px 20px">
@@ -3945,10 +3984,17 @@ function screenProgress(){
      calendar below does. It says which days were trained, how much of each
      session was got through, how long it took, and, on a tap, every
      exercise with what was actually done against what was asked. */
+  /* adherenceCard, habitsCard and metricsCard were written, given tour steps
+     that describe them, and then rendered nowhere. The dashboard has been
+     drawing three habit strips and three metric trends off data the client
+     had no way to enter, so those grids could never hold anything. */
   const trackBody = `
       <div data-tour="calendar">${trainingCalendar()}</div>
       <div data-tour="volume">${volumeHero()}</div>
       ${volumeCard()}
+      <div data-tour="adherence">${adherenceCard()}</div>
+      ${coachedView()?`<div data-tour="habits">${habitsCard()}</div>`:''}
+      ${coachedView()?`<div data-tour="metrics">${metricsCard()}</div>`:''}
       ${coachedView()?`<div data-tour="checkin">${checkinCard()}</div>`:''}
       ${perDrillCard()}
       ${appUseCard()}
@@ -6386,6 +6432,8 @@ function applyProgramme(d){
      said week six of six for ever and the test countdown had nothing to do
      with the coach's block. */
   if(d && d.cycle && d.cycle.start) { st.cycle = d.cycle; save(); }
+  /* the one line the coach wrote to this person about this week */
+  if(d && Object.prototype.hasOwnProperty.call(d,'week')) { st.week = d.week || null; save(); }
   const arr = libToArray(d && d.library);
   if(arr.length) LIBRARY = arr;
   if(d && d.ladderExtra) { st.ladderExtra = d.ladderExtra; save(); }
@@ -6399,7 +6447,7 @@ function applyProgramme(d){
 function cacheProgramme(d){
   try { localStorage.setItem('lha_plan', JSON.stringify(
     {at:Date.now(), email:st.email, plan:d.plan, library:d.library,
-     cycle:d.cycle, ladderExtra:d.ladderExtra, timing:d.timing})); } catch(e){}
+     cycle:d.cycle, week:d.week, ladderExtra:d.ladderExtra, timing:d.timing})); } catch(e){}
 }
 function loadCachedProgramme(){
   try {

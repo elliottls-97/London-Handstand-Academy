@@ -226,6 +226,8 @@ const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'
 let drafts={};
 let subs={};      /* what each client has sent for review */
 let cycles={};    /* which block each client is on, and when the test is due */
+let weeks={};     /* the line the coach wrote to each client about this week */
+let weekDraft={}, weekBusy='', weekOpen='';
 /* Whether the person signed in owns the business. A coach added from here
    does the coaching; prices, discount codes, comping a tier and putting a
    workshop on sale stay with the owner. The server refuses them either way,
@@ -341,6 +343,7 @@ function openThread(email){
     .then(d=>{ if(d){ prog[email]=d.progress||{}; intakes[email]=d.intake||null;
                       tracks[email]=d.track||null; cpDefs[email]=d.checkpoints||[];
                       cycles[email]=d.cycle||null;
+                      if(weekOpen!==email) weeks[email]=d.week||null;
                       visitsBy[email]=d.visits||{}; draw(); } })
     .catch(()=>{});
   if(!fcState[email]) loadFormCheck(email);
@@ -5573,6 +5576,57 @@ const MORE_ITEMS = email => [
   ['Account and password','',`openAcct('${esc(email)}')`],
   ['Copy a programme in','from another client',`openCopy('','${esc(email)}')`],
 ];
+/* One sentence to this person about this week, on the top of their Today
+   screen. It is the only thing in the app that nobody but a coach can
+   produce: everything else is tailored from state or from the block. Ten
+   seconds a client a week, and it is the difference between a programme
+   and being coached. */
+function weekNoteHTML(email){
+  const w=weeks[email]||null;
+  const open=weekOpen===email;
+  const days=w&&w.at?Math.floor((Date.now()-w.at)/86400000):null;
+  const stale=days!=null&&days>=10;
+  if(!open) return `<button onclick="weekEdit('${esc(email)}')" style="display:flex;gap:9px;
+    align-items:center;width:100%;text-align:left;cursor:pointer;margin-top:var(--space-3);
+    border:1px solid ${stale?'rgba(243,169,73,.55)':'var(--line)'};border-radius:14px;
+    padding:11px 14px;background:${stale?'rgba(243,169,73,.12)':'var(--surface)'}">
+    <span style="flex:none;font:700 9px/1.4 var(--sans);letter-spacing:.14em;color:var(--grey2)">THIS WEEK</span>
+    <span style="flex:1;min-width:0;font:400 13.5px/1.5 var(--sans);color:${
+      w?'#23281f':'var(--grey2)'}">${w?esc(w.text):'Nothing said yet. One line they read at the top of Today.'}</span>
+    ${w?`<span style="flex:none;font:400 11.5px/1 var(--sans);color:${
+      stale?'#8a5a12':'var(--grey2)'}">${esc(ago(w.at))}</span>`:''}
+  </button>`;
+  const val = weekDraft[email]!==undefined ? weekDraft[email] : ((w&&w.text)||'');
+  return `<div style="margin-top:var(--space-3);border:1px solid var(--forest);border-radius:14px;
+    padding:12px 14px;background:#fff">
+    <div style="font:700 9px/1.4 var(--sans);letter-spacing:.14em;color:var(--grey2)">THIS WEEK</div>
+    <textarea class="input" rows="2" maxlength="400" placeholder="Four sessions if you can. Day 2 is the one that matters, do not skip it for Day 4."
+      oninput="weekDraft['${esc(email)}']=this.value"
+      onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))weekSave('${esc(email)}')"
+      style="margin-top:8px;min-height:64px;font-size:14.5px">${esc(val)}</textarea>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="weekSave('${esc(email)}')"${
+        weekBusy===email?' disabled':''}>${weekBusy===email?'Saving…':'Save'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="weekOpen='';draw()">Cancel</button>
+      ${(w&&w.text)?`<button class="btn btn-ghost btn-sm" style="color:var(--terra)"
+        onclick="weekDraft['${esc(email)}']='';weekSave('${esc(email)}')">Clear it</button>`:''}
+      <span class="muted" style="font-size:12px">They see it at the top of Today until you change it.</span>
+    </div></div>`;
+}
+function weekEdit(email){ weekOpen=email;
+  if(weekDraft[email]===undefined) weekDraft[email]=((weeks[email]||{}).text)||'';
+  draw(); }
+function weekSave(email){
+  if(weekBusy) return;
+  const text=String(weekDraft[email]||'').trim();
+  weekBusy=email; draw();
+  fetch(API+'/week',{method:'POST',headers:hdr(),body:JSON.stringify({email,text})})
+    .then(r=>r.ok?r.json():Promise.reject('could not save that'))
+    .then(d=>{ weeks[email]=d.week||null; delete weekDraft[email];
+      weekBusy=''; weekOpen=''; draw(); flash(text?'They will see it on Today':'Cleared'); })
+    .catch(e=>{ weekBusy=''; draw(); alert(String(e)); });
+}
+
 function clientScreenHTML(msgs){
   const c=clients.find(x=>x.email===sel)||{};
   if(!sel) return `<section class="glass" style="padding:26px 28px;border-radius:24px">
@@ -5590,6 +5644,7 @@ function clientScreenHTML(msgs){
         <h1 style="margin:0">${esc(c.name||sel)}</h1>
         <p class="muted" style="font:400 14px/1.5 var(--sans);margin:var(--space-1) 0 0">${
           esc(sel)}${c.coached===false?' · enquiry':''}${line?' · '+esc(line):''}</p>
+        ${weekNoteHTML(sel)}
       </div>
       ${w?`<div style="text-align:right">
         <div style="font:400 32px/1 var(--serif);color:${hrsColor(wh)}">${wh} h</div>
