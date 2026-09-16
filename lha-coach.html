@@ -243,6 +243,7 @@ let copyOpen=false, copyFrom='', copyTo='', copyDays=true, copyCps=true, copyEx=
 let moreOpen=false, attachOpen=false;
 let progMore=false;          /* the long analysis, behind a tap */
 let clientTools=false;       /* email, the free check, the coach, the reset */
+let clipPickOn=false, clipSel={};   /* choosing which of their clips go to the review tool */
 let toastMsg='', toastT=null;
 let mailguard=null;   /* null until loaded; {suppress, clients} after */
 let dbstate=null;
@@ -2797,7 +2798,7 @@ function ensureReview(){
     +'flex-direction:column;background:var(--bg)';
   wrap.innerHTML='<div id="reviewBar" style="flex:none;padding:8px 12px;display:flex;'
     +'align-items:center;gap:9px;flex-wrap:wrap;border-bottom:1px solid var(--line);'
-    +'background:var(--surface,#f7f4f1)"></div>'
+    +'max-height:104px;overflow:auto;background:var(--surface,#f7f4f1)"></div>'
     +'<iframe id="reviewFrame" src="/coach-review.html" allow="camera;microphone"'
     +' style="flex:1;width:100%;border:0;display:block"></iframe>';
   document.body.appendChild(wrap);
@@ -5407,6 +5408,57 @@ function clientScreenHTML(msgs){
   </section>`;
 }
 
+/* Every clip this person has sent: what came with a form check, a block test
+   or a check point, and anything dropped straight into the thread. Newest
+   first, each with what it was for, so you can take three of them into the
+   review tool and leave the rest. */
+function clientClips(email){
+  const out=[], seen=new Set();
+  const add=(uid,label,at)=>{ if(!uid||seen.has(uid)) return; seen.add(uid); out.push({uid,label,at:at||0}); };
+  (subs[email]||[]).forEach(s=>{
+    const what=s.kind==='assessment'?'Form check':s.kind==='checkpoint'?('Check point: '+((s.numbers||{}).name||'')):('Block '+(s.cycle||1)+' test');
+    (s.clips||[]).forEach((u,i)=>add(u, what+((s.clips||[]).length>1?' · clip '+(i+1):''), s.at));
+  });
+  thread.forEach(m=>{ if(m.from!=='coach'&&m.video) add(m.video,'In the thread',m.at); });
+  return out.sort((a,b)=>(b.at||0)-(a.at||0));
+}
+function clipPickToggle(uid){ if(clipSel[uid]) delete clipSel[uid]; else clipSel[uid]=true; draw(); }
+function clipPickAll(on){ clipSel={}; if(on) clientClips(sel).forEach(c=>{ clipSel[c.uid]=true; }); draw(); }
+function clipPickGo(){
+  const uids=clientClips(sel).map(c=>c.uid).filter(u=>clipSel[u]);
+  if(!uids.length) return alert('Tick the clips you want first.');
+  clipPickOn=false;
+  reviewClips(sel, uids, (clients.find(c=>c.email===sel)||{}).name||'Client');
+}
+function clipPickerHTML(){
+  const all=clientClips(sel);
+  if(!all.length) return `<p class="muted" style="font-size:13px;margin:10px 0 0">Nothing from them yet.</p>`;
+  const n=all.filter(c=>clipSel[c.uid]).length;
+  return `<div style="margin-top:10px;padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--line)">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span style="font:600 13px/1.3 var(--sans)">${all.length} clip${all.length===1?'':'s'} from them</span>
+      <button class="btn btn-ghost btn-sm" onclick="clipPickAll(true)">All</button>
+      <button class="btn btn-ghost btn-sm" onclick="clipPickAll(false)">None</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="clipPickGo()" ${n?'':'disabled'}>Review ${n||''} ${n===1?'clip':'clips'}</button>
+      <button class="btn btn-secondary btn-sm" onclick="clipPickOn=false;draw()">Close</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px">
+      ${all.map(c=>`<label style="cursor:pointer;display:block;border-radius:12px;overflow:hidden;background:#fff;
+        border:2px solid ${clipSel[c.uid]?'var(--forest)':'transparent'}">
+        <div style="position:relative;aspect-ratio:4/3;background:#000">
+          <img src="https://${STREAM_SUB}/${esc(c.uid)}/thumbnails/thumbnail.jpg?time=2s&height=240" alt="" loading="lazy"
+            style="width:100%;height:100%;object-fit:cover;display:block">
+          <input type="checkbox" ${clipSel[c.uid]?'checked':''} onchange="clipPickToggle('${esc(c.uid)}')"
+            style="position:absolute;top:8px;left:8px;width:22px;height:22px;accent-color:var(--forest);margin:0">
+        </div>
+        <div style="padding:7px 9px 8px">
+          <div style="font:600 12px/1.3 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.label)}</div>
+          <div class="muted" style="font-size:11px;margin-top:2px">${c.at?esc(ago(c.at)):''}</div>
+        </div></label>`).join('')}
+    </div></div>`;
+}
+
 function threadPaneHTML(msgs){
   const sub=openSub(sel);
   return `<div style="max-width:860px">
@@ -5416,7 +5468,12 @@ function threadPaneHTML(msgs){
         sub.kind==='assessment'?'Form check':'Block test'} waiting</b> · ${
         (sub.clips||[]).length} clip${(sub.clips||[]).length===1?'':'s'}</div>
       <button class="btn btn-secondary" onclick="reviewAllFrom('${esc(sel)}')">Review the clips</button>
+      <button class="btn btn-ghost" onclick="clipPickOn=!clipPickOn;draw()">Pick which</button>
     </div>`:''}
+    ${!sub?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3)">
+      <button class="btn btn-secondary btn-sm" onclick="clipPickOn=!clipPickOn;draw()">${clipPickOn?'Hide their clips':'Review their clips'}</button>
+    </div>`:''}
+    ${clipPickOn?clipPickerHTML():''}
     ${subsHTML(sel)}
     <div id="pane" style="display:flex;flex-direction:column;gap:14px;max-height:56vh;
       overflow-y:auto;padding-right:4px;margin-top:var(--space-3)">${msgs}</div>
