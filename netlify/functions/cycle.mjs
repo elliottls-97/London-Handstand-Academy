@@ -232,7 +232,7 @@ export default async () => {
       }
     }
 
-    /* 1b — the block is over: ask how it went, once, whatever else happens.
+    /* 1b, the block is over: ask how it went, once, whatever else happens.
        Testimonials were only ever asked for when the coach remembered, so
        the ask is automatic: three questions and a request for a filmed
        line, answered in the app, landing on Today as a block review. */

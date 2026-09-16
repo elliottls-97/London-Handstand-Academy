@@ -918,6 +918,9 @@ export default async (request) => {
       stripe_customer: prev.stripe_customer || null,
     };
     await saveAcct(acct);
+    /* where the account came from, kept beside it rather than in a column */
+    const ref = String(body.ref || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+    if (ref && !prev.email) await setSetting(`ref:${e}`, ref);
 
     if (!prev.email) {
       /* The thread opens with a line from the coach rather than an empty
@@ -2316,6 +2319,12 @@ export default async (request) => {
     const key = `ev:${day}`;
     const row = (await getSetting(key)) || {};
     row[n] = (row[n] || 0) + 1;
+    /* where they came from: a ref carried on the link, kept by the app as a
+       first touch, sent with every event after. And which fix, for a fix. */
+    const src = String(body.r || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+    if (src) { row.by = row.by || {}; row.by[src] = row.by[src] || {}; row.by[src][n] = (row.by[src][n] || 0) + 1; }
+    const fx = String(body.f || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+    if (fx && n.startsWith('fix') || fx && n === 'sitefix') { row.fix = row.fix || {}; row.fix[fx] = row.fix[fx] || {}; row.fix[fx][n] = (row.fix[fx][n] || 0) + 1; }
     /* where the quiz put them, which is the one breakdown that matters */
     if (n === 'quiz' || n === 'wall') {
       const st = Number(body.s);
@@ -3088,6 +3097,14 @@ export default async (request) => {
         rows.push({ day: d, ...r });
         for (const k of Object.keys(r)) {
           if (typeof r[k] === 'number') totals[k] = (totals[k] || 0) + r[k];
+          else if ((k === 'by' || k === 'fix') && r[k] && typeof r[k] === 'object') {
+            /* two levels: source, then event */
+            totals[k] = totals[k] || {};
+            for (const s1 of Object.keys(r[k])) {
+              totals[k][s1] = totals[k][s1] || {};
+              for (const s2 of Object.keys(r[k][s1] || {})) totals[k][s1][s2] = (totals[k][s1][s2] || 0) + (r[k][s1][s2] || 0);
+            }
+          }
           else if (r[k] && typeof r[k] === 'object') {
             totals[k] = totals[k] || {};
             for (const s2 of Object.keys(r[k])) totals[k][s2] = (totals[k][s2] || 0) + r[k][s2];
@@ -3541,12 +3558,15 @@ export default async (request) => {
          listing plus a fetch per account */
       const out = (await supa.rows('accounts',
         'select=*&order=last_seen.desc')) || [];
+      const refRows = (await supa.rows('settings', `select=key,value&key=like.ref%3A*`)) || [];
+      const refs = {}; for (const r of refRows) refs[r.key.slice(4)] = r.value;
       /* Named, not spread. The row carries the salted password hash, and
          spreading it sent every account's hash to the browser to draw a
          list that never needed it. */
       const untils = await plusUntilAll();
       return json({ leads: out.map(a => ({
         email: a.email, name: a.name || '',
+        ref: refs[a.email] || '',
         plus: plusNow(Object.assign({}, a, untils[a.email] ? { plus_until: untils[a.email] } : {})),
         plusAt: ms(a.plus_at),
         /* a code, not Stripe, and when it runs out */

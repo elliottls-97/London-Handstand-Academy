@@ -430,9 +430,9 @@ const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer
    most a stage number: never who, never a cookie. The server adds one to a
    daily total. That is the whole of it, and it is what makes the funnel on
    the dashboard say something rather than nothing. */
-function track(n, s){
+function track(n, s, f){
   try{
-    const body=JSON.stringify(s==null?{n}:{n, s});
+    const body=JSON.stringify(Object.assign({n}, s==null?{}:{s}, st.ref?{r:st.ref}:{}, f?{f}:{}));
     if(navigator.sendBeacon){
       navigator.sendBeacon('/api/app/event', new Blob([body],{type:'application/json'}));
     } else {
@@ -444,7 +444,7 @@ function track(n, s){
 /* A screen is drawn again on every interaction, so anything counted from
    inside a render would count each repaint. Once per open, per name. */
 const tracked=new Set();
-function trackOnce(n, s){ const k=n+':'+(s==null?'':s); if(tracked.has(k)) return; tracked.add(k); track(n, s); }
+function trackOnce(n, s, f){ const k=n+':'+(s==null?'':s)+':'+(f||''); if(tracked.has(k)) return; tracked.add(k); track(n, s, f); }
 /* once per open, and once per person for the seven day return */
 function trackOpen(){
   track('open');
@@ -464,6 +464,10 @@ function trackOpen(){
     if(code){ st.pendingCode=code; save(); history.replaceState(null,'',location.pathname); }
     /* a fix, from a reel or its page: opened the moment the fixes have loaded
        and the quiz is out of the way */
+    /* first touch only: the account that came from Suryava's reel stays his
+       whatever link they open next */
+    const ref=(q.get('ref')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
+    if(ref && !st.ref){ st.ref=ref; save(); }
     const fxs=(q.get('fix')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
     if(fxs){ st.fixPending=fxs; save(); history.replaceState(null,'',location.pathname); }
     /* the end-of-block email: open the review sheet on that kind */
@@ -7321,7 +7325,7 @@ function openFix(slug){ st.fixSlug=slug; st.tab='fix'; st.fixMins=null; save(); 
 function fixSessionDone(done){
   const slug=st.fixActive; if(!slug) return;
   st.fixActive=null;
-  if(done){ st.fixDone=Object.assign({}, st.fixDone||{}); st.fixDone[slug]=fixDoneN(slug)+1; track('fixdone'); }
+  if(done){ st.fixDone=Object.assign({}, st.fixDone||{}); st.fixDone[slug]=fixDoneN(slug)+1; track('fixdone', null, slug); }
   save();
 }
 
@@ -7379,7 +7383,7 @@ function screenFix(){
   if(!f) return `<div class="scroll s"><div style="padding:calc(env(safe-area-inset-top) + 84px) 20px 40px">${back}
     <div style="font:400 30px/1.1 var(--serif);margin-top:14px">That fix is not here.</div>
     <p style="font:400 15px/1.5 var(--sans);color:var(--grey)">It may have been taken down, or the link is wrong.</p></div></div>`;
-  trackOnce('fixopen', f.slug);
+  trackOnce('fixopen', null, f.slug);
   const locked=f.access==='plus' && !isPlus();
   const n=fixDoneN(f.slug), tot=fixTotal(f), finished=n>=tot;
   const cover=fixCover(f);
@@ -7506,7 +7510,7 @@ function buildFixSession(slug, listOnly){
   Q=out;
   if(listOnly){ st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true; openOv('list'); return; }
   st.fixRot=Object.assign({}, st.fixRot||{}); st.fixRot[slug]=(rot+1)%997;
-  st.fixActive=slug; save(); track('fixstart');
+  st.fixActive=slug; save(); track('fixstart', null, slug);
   startQueue(0);
 }
 
@@ -9696,7 +9700,7 @@ function doJoin(ev){
   if(pw.length<8){ joinSay('Password needs at least 8 characters.'); return; }
   joinSay('Creating your account…');
   fetch(AUTH.signup,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({email:em,password:pw,marketing:mk,stage:curStage()})})
+    body:JSON.stringify({email:em,password:pw,marketing:mk,stage:curStage(),ref:st.ref||''})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
     .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup'); setTimeout(codeResume,0);
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
