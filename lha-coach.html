@@ -524,6 +524,17 @@ const PROMISE_H=48;
    five-queue sidebar layout. Today's inbox, rosterHTML and threadPaneHTML do
    their jobs now, so they are gone rather than left to be edited by mistake. */
 
+/* Today is the inbox, and on a quiet day it is an empty page. Land on
+   Clients instead whenever nothing is waiting, unless the coach has already
+   pressed something. Five loaders feed the inbox, so the decision waits for
+   the last of them rather than guessing from a half-loaded list. */
+let homePending=5, homeSettled=false, userMoved=false;
+function homeStep(){
+  if(homeSettled || --homePending>0) return;
+  homeSettled=true;
+  if(!userMoved && view==='today' && !inboxItems().length){ view='clients'; draw(); }
+}
+
 function loadQueue(){
   fetch(API+'/queue',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
@@ -535,7 +546,7 @@ function loadQueue(){
         .then(r=>r.ok?r.json():null)
         .then(x=>{ if(x){ subs[sel]=x.submissions||[]; draw(); } }).catch(()=>{});
     } })
-    .catch(()=>{});
+    .catch(()=>{}).finally(homeStep);
 }
 /* stay in the tab you are working through — bouncing back to Clients
    loses your place in the queue */
@@ -551,7 +562,7 @@ function loadQuestions(){
   fetch(API+'/questions',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ questions=d.questions||[]; draw(); } })
-    .catch(()=>{});
+    .catch(()=>{}).finally(homeStep);
 }
 const qOpen = () => questions.filter(q=>q.status!=='answered');
 function qSet(id,v){ qDraft[id]=v; }
@@ -882,7 +893,7 @@ function loadFeedback(){
   fetch(API+'/feedback',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ feedback=d.feedback||[]; draw(); } })
-    .catch(()=>{});
+    .catch(()=>{}).finally(homeStep);
 }
 const fbOpenList = () => feedback.filter(f=>!f.done);
 function fbDone(id,on){
@@ -956,7 +967,7 @@ function loadApps(){
   fetch(API+'/applications',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ apps=d.applications||[]; draw(); } })
-    .catch(()=>{});
+    .catch(()=>{}).finally(homeStep);
 }
 function setAppStatus(id,status){
   fetch(API+'/application/status',{method:'POST',headers:hdr(),
@@ -5127,8 +5138,9 @@ function makeClient(){
    and a row of panels, the ladder and the explainers moved under Library
    and everything you touch twice a year is under Settings. */
 
-function go(v){ view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
+function go(v){ userMoved=true; view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
 function openClient(email, tab){
+  userMoved=true;
   if(view!=='client') cameFrom=(view==='today'?'today':'clients');
   ctab=tab||'thread'; moreOpen=false; attachOpen=false; progMore=false;
   view='client';
@@ -5183,7 +5195,7 @@ const INBOX_TYPE={
 let inboxRow='';                   /* the row expanded in place, if any */
 /* one to one sessions paid for and waiting for a time */
 let sessions=[], sessBusy='';
-function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}); }
+function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep); }
 const sessOpen = () => sessions.filter(x=>x.status==='toArrange');
 function sessSet(id, patch){
   sessBusy=id; draw();
