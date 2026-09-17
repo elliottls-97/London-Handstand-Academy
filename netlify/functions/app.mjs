@@ -766,7 +766,8 @@ export default async (request) => {
       /* the plan: from the metadata a checkout session carries, or, for a
          payment link that carries none, from what was paid */
       /* 10000 is the old coaching price; the link may still carry it */
-      const byAmount = { 500: 'plus', 3500: 'check', 10000: 'online', 12000: 'online', 32000: 'inner' };
+      /* 18000 is the link on the site until the £190 one replaces it */
+      const byAmount = { 500: 'plus', 3500: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
       for (const k of ['plus', 'check', 'online', 'inperson', 'inner']) {
         const amt = Number(PRICES[k] && PRICES[k].amount);
         if (amt > 0) byAmount[amt] = (k === 'inperson' ? 'online' : k);
@@ -774,6 +775,14 @@ export default async (request) => {
       const boughtPlan = (obj.metadata && obj.metadata.plan)
         || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
+      /* money that matches no tier used to switch the £5 app on and do
+         nothing else: no roster, no thread, no email, no alert */
+      if (!boughtPlan && ev.type === 'checkout.session.completed' && Number(obj.amount_total) > 500) {
+        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A payment matched no tier: ${acct.email}`,
+          mail({ title: 'A payment matched no tier.',
+            paras: [`<b>${esc(acct.email)}</b> paid £${(Number(obj.amount_total) / 100).toFixed(2)} and it matched nothing in the prices. They have the app switched on and nothing else. Add them to the roster from the dashboard, or refund it in Stripe.`],
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+      }
       /* Buying coaching or form checks makes a client, not just a payer.
          Before this the money arrived and nothing else happened: no roster
          entry, no thread, nobody told. */
@@ -802,11 +811,15 @@ export default async (request) => {
                     boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.'],
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
             signoff: { name: 'London Handstand Academy' } }));
+        /* somebody who bought from the website has an account and no
+           password, and the sign in screen used to claim one had been sent */
+        const noPw = !(await hashFor(db, e2));
         await email(e2, `You are in: ${tierName}`,
           mail({ title: 'You are in.',
             greeting: first,
-            paras: ['There is a message waiting for you in the app under Ask, and it is the first thing to do.',
-                    'Everything happens in the app from here: your clips, my answers, and your programme when there is one.'],
+            paras: [noPw ? 'First, a password. Open the app, press Set a password on the sign in screen, and a six digit code comes to this address. Sign in with that password from then on.' : '',
+                    'There is a message waiting for you in the app under Ask, and it is the first thing to do.',
+                    'Everything happens in the app from here: your clips, my answers, and your programme when there is one.'].filter(Boolean),
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             /* no kind: somebody who has just paid is told they are in
                whatever they have turned off, the same as a receipt */
@@ -1177,7 +1190,10 @@ export default async (request) => {
       /* the one free form check. Its own key, because nothing else writes
          it — folding it into acct would put it in the path of every other
          account write. */
-      freeCheckUsed: !!(await supa.row('free_checks', `email=eq.${enc(who)}&select=email`)),
+      /* a form check needs the paid tier or its free week; the old one
+         free check per account is gone, so nothing is ever "used" */
+      freeCheckUsed: false,
+      canCheck: !!clients()[who] || plusNow(acct),
     });
   }
 
@@ -2977,10 +2993,15 @@ export default async (request) => {
        limit enforced on only one of them is not a limit. */
     const coached = !!clients()[who];
     const kind = coached && body.kind !== 'assessment' ? 'test' : 'assessment';
+    /* A form check is part of the paid tier now, and the free week of it is
+       the way in. It used to be one free check per account for ever, which
+       was one free check per email address, and the wall said so. */
     if (!coached) {
-      if (await supa.row('free_checks', `email=eq.${enc(who)}&select=email`)) {
-        return json({ error: 'Your free assessment has already been used. '
-          + 'Coaching includes unlimited form checks.', gated: true }, 402);
+      const acct = await getAcct(who);
+      if (!plusNow(acct)) {
+        return json({ error: `Form checks are part of the ${PRICES.plus.label} a month tier, and the first `
+          + `${PRICES.trialDays === 7 ? 'week' : PRICES.trialDays + ' days'} is free. Start it and send this straight after.`,
+          gated: true }, 402);
       }
     }
     const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};
@@ -3000,16 +3021,8 @@ export default async (request) => {
     const [saved] = await supa.insert('submissions',
       { email: who, kind, cycle: cycle.n, numbers, clips, status: 'submitted' });
     const id = saved.id;
-    /* the primary key is the limit — two requests racing cannot both win */
-    if (!coached) {
-      const won = await supa.insertIfAbsent('free_checks',
-        { email: who, submission: id }, 'email');
-      if (!won) {
-        await supa.remove('submissions', `id=eq.${enc(id)}`);
-        return json({ error: 'Your free assessment has already been used. '
-          + 'Coaching includes unlimited form checks.', gated: true }, 402);
-      }
-    }
+    /* free_checks is no longer written: the tier is the limit now, not a
+       count. The table stays for the history it holds. */
 
     /* it lands in the thread too, so the coach reads it where they
        already reply rather than in a second inbox */
@@ -4317,6 +4330,24 @@ export default async (request) => {
         ? body.status : null;
       if (!id || !status) return json({ error: 'Which application, and what status?' }, 400);
       await supa.update('applications', `id=eq.${enc(id)}`, { status });
+      /* Accepted used to change a word in a list and nothing else. The
+         applicant found out only if the coach also wrote to them by hand,
+         and could not read that thread anyway, having no password. */
+      if (status === 'accepted') {
+        const app = await supa.row('applications', `id=eq.${enc(id)}&select=email,name`);
+        if (app && app.email) {
+          const noPw = !(await hashFor(db, norm(app.email)));
+          await email(norm(app.email), 'Yes. Let us start.',
+            mail({ title: 'Yes. Let us start.',
+              greeting: String(app.name || '').split(' ')[0] || '',
+              paras: ['I have read your application and I would like to coach you.',
+                      `Coaching is ${PRICES.online.label} a month online, or ${PRICES.inperson.label} with a session in London each month. Pick one on the site and pay there; the app opens the moment it goes through, with a message from me asking for your first two clips.`,
+                      noPw ? 'You have an account under this address with no password yet. On the app sign in screen press Set a password and a code comes here.' : '',
+                      'If you have questions before you decide, reply to this.'].filter(Boolean),
+              cta: { href: `${SITE}/#coaching`, label: 'Start coaching' },
+              signoff: { name: coachName(asking || primaryCoach()) } }));
+        }
+      }
       return json({ ok: true, id, status });
     }
 

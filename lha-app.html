@@ -4412,7 +4412,7 @@ function gateCheck(r){
   if(r.ok) return r;
   return r.json().catch(()=>({})).then(d=>{
     if(d && d.gated){
-      st.freeCheckUsed=true;
+      st.canCheck=false;
       st.intake=st.intake||{}; st.intake.baseline=st.intake.baseline||Date.now();
       /* only roll back an optimistic chat bubble if one was actually added */
       if(pendingMsgs.length){ pendingMsgs.pop(); st.msgs=(st.msgs||[]).slice(0,-1); }
@@ -6257,7 +6257,7 @@ function screenSignIn(){
       <div style="font:400 44px/1 var(--serif);letter-spacing:-.015em">Your
         <em style="color:var(--forest);font-style:normal">programme.</em></div>
       <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:14px">
-        Sign in with the email and password ${esc(coachLabel())} sent you.</div>
+        Sign in with the email you paid with. First time here? Set a password below and a code comes to that address.</div>
     </div>
 
     <form onsubmit="doLogin(event)" style="margin-top:26px;display:flex;flex-direction:column;gap:10px">
@@ -6288,10 +6288,15 @@ function screenSignIn(){
     </form>
 
     <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:20px;text-align:center">
-      <button onclick="st.tab='reset';resetStep=0;resetMsg='';save();render()"
+      <button onclick="resetFirst=true;st.tab='reset';resetStep=0;resetMsg='';save();render()"
         style="background:none;border:none;color:var(--forest);font:600 13px/1 var(--sans);
         text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:6px">
-        Forgotten your password?</button>
+        Set a password</button>
+      <span style="color:var(--grey2)"> · </span>
+      <button onclick="resetFirst=false;st.tab='reset';resetStep=0;resetMsg='';save();render()"
+        style="background:none;border:none;color:var(--forest);font:600 13px/1 var(--sans);
+        text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:6px">
+        Forgotten it?</button>
       <div style="height:1px;background:rgba(0,64,61,.12);margin:16px 0 14px"></div>
       <div>No account yet?</div>
       <button onclick="st.tab='joinFree';save();render()"
@@ -8923,8 +8928,8 @@ function loadEntitlement(){
   return fetch(AUTH.me,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const was=st.plus, wasIn=st.in, wasFC=st.freeCheckUsed;
-      st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed;
+      const was=st.plus, wasIn=st.in, wasFC=st.canCheck;
+      st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
       st.in=!!d.coached; st.coached=!!d.coached;
@@ -8932,7 +8937,7 @@ function loadEntitlement(){
       if(d.name&&!st.client) st.client=d.name;
       /* the free-check flag has to be in here too: a coach clearing it
          changed the server and left the screen saying USED */
-      save(); if(was!==st.plus || wasIn!==st.in || wasFC!==st.freeCheckUsed) render(); })
+      save(); if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck) render(); })
     .catch(()=>{});
 }
 
@@ -9641,7 +9646,7 @@ const PLANS=[
          'What to change, in writing, against your own footage',
          'The full ladder included']},
   {k:'online', n:'Coaching',      price:'£120', per:'a month', best:true,
-   for:'Your own programme, rewritten every fortnight.',
+   for:'Your own programme, reviewed every fortnight.',
    gets:['A programme built for your body and your week',
          'Form checks whenever you send them',
          'Ask me anything, any time',
@@ -9665,7 +9670,11 @@ function loadPlans(){
 let planLinks={};
 /* what the ladder costs, as the dashboard has it; the shipped words are the
    fallback for the first paint and for a copy of the app that is offline */
-const PRICE = () => ((st.prices||{}).plus||{}).label || '£5';
+/* PRICE('online') and friends read the prices setting the dashboard writes.
+   This took no argument and answered £5 to everything, so the coaching
+   card priced coaching at the app's own price. */
+const PRICE_DEFAULT={plus:'£5',check:'£35',online:'£120',inperson:'£190',inner:'£320',session60:'£80',session90:'£100'};
+const PRICE = (k='plus') => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
 const PRICE_TRIAL = () => { const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
 const trialLine = () => PRICE_TRIAL()>0 ? ('first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' free') : '';
 const PRICE_NOTE = () => ((st.prices||{}).plus||{}).note || 'The price goes up as the ladder fills out. Join now and yours does not.';
@@ -9700,7 +9709,7 @@ function pricingCard(){
       return `<div class="card" style="padding:20px${P.best?';border:1.5px solid var(--forest)':''}">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
           <span style="font:400 22px/1.1 var(--serif)">${esc(P.n)}</span>
-          <span style="flex:none;font:400 26px/1 var(--serif);color:var(--forest)">${esc(P.price)}
+          <span style="flex:none;font:400 26px/1 var(--serif);color:var(--forest)">${esc(PRICE(P.k)||P.price)}
             <span style="font:400 12px/1 var(--sans);color:var(--grey2)">${esc(P.per)}</span></span>
         </div>
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${esc(P.for)}</div>
@@ -9713,9 +9722,8 @@ function pricingCard(){
           ${(live && !P.apply)?'Start '+esc(P.n.toLowerCase()):'Apply for this'}</button>
       </div>`;}).join('')}
     <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);text-align:center">
-      Cancel any time from inside the app. A session in London each month is £70 on top,
-      so coaching is £120 online or £190 with one. Inner Circle includes the session.
-      No joining fees.</div>
+      Cancel any time from inside the app. Coaching is ${PRICE('online')} online or ${PRICE('inperson')}
+      with a session in London each month. Inner Circle includes the session. No joining fees.</div>
   </div>`;
 }
 
@@ -9725,7 +9733,10 @@ function screenCoaching(){
      relabel its own button — no upload, no account, no limit, under copy
      that promised one free check. */
   const signedIn=!!st.token;
-  const used=!!st.freeCheckUsed;
+  /* one free check per account for ever was one free check per email
+     address. A form check is part of the paid tier now, and its free week is
+     the way in; the server says whether this account can send one. */
+  const canCheck=!!st.canCheck || !!st.plus;
   const awaiting = !!st.awaitingReview;
   const tick = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:9px">
       <span style="flex:none;width:16px;height:16px;border-radius:999px;background:var(--forest);
@@ -9735,19 +9746,20 @@ function screenCoaching(){
   const checkCard = !signedIn
     ? `<div class="card" style="padding:22px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-          <span class="kick2">FREE FORM CHECK</span>
+          <span class="kick2">FORM CHECK</span>
           <span style="flex:none;padding:5px 10px;border-radius:999px;background:var(--sand);
-            font:600 11px/1 var(--sans);color:var(--deep)">Free once</span>
+            font:600 11px/1 var(--sans);color:var(--deep)">${trialLine()||'In the '+PRICE('plus')+' tier'}</span>
         </div>
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           One clip. One written answer, within 48 hours.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Film the skill you're stuck on. I'll tell you the one thing to change.
-          No card, nothing to cancel.</div>
+          Film the skill you're stuck on and I tell you the one thing to change. Form checks
+          come with the ${PRICE('plus')} a month tier, and the first ${PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days'} of it is free.</div>
         <button class="btn" style="width:100%;margin-top:16px"
-          onclick="st.tab='signin';save();render()">Send my free form check</button>
+          onclick="st.tab='joinFree';save();render()">Make an account and start the free week</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-          Takes a second — it's just so the answer has somewhere to land.</div></div>`
+          Already have one? <button onclick="st.tab='signin';save();render()" style="background:none;border:0;
+            padding:0;color:var(--forest);font:600 12px/1 var(--sans);cursor:pointer;text-decoration:underline">Sign in</button></div></div>`
     : awaiting || (st.lastReview && st.lastReview > (st.seenReview||0))
     ? (function(){
         /* three states, one line each, so it is obvious where the thing is:
@@ -9793,23 +9805,27 @@ function screenCoaching(){
             onclick="st.seenReview=st.lastReview;save();go('${st.in?'ask':'coaching'}')">Read the answer</button>`:''}
         </div>`;
       })()
-    : used
+    : !canCheck
     ? `<div class="card" style="padding:22px">
-        <div class="kick2">FREE ASSESSMENT · USED</div>
+        <div class="kick2">FORM CHECK</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">Send a clip, get the one thing to change.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          You've had your one. Coaching includes unlimited form checks — send
-          footage as often as you train and I'll come back on every one.</div>
-        <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Anything you want to ask in the meantime, use the box below.</div></div>`
+          Form checks come with the ${PRICE('plus')} a month tier, along with the whole ladder.
+          ${trialLine()?'The first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' is free, and you can send one the moment it starts.':''}</div>
+        ${tick('Watched by me, not a bot')}
+        ${tick('A reply within 48 hours')}
+        ${tick('Cancel from the app whenever')}
+        <button class="btn" style="width:100%;margin-top:16px" onclick="startUpgrade()">
+          ${trialLine()?'Start the free week':'Start for '+PRICE('plus')+' a month'}</button></div>`
     : `<div class="card" style="padding:22px">
-        <div class="kick2">FREE ASSESSMENT</div>
+        <div class="kick2">FORM CHECK</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">Find out what's holding you back.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           One clip of the skill you're stuck on. Side on, phone vertical, whole
           body in frame — don't crop the hands out.</div>
         ${tick('Watched by me, not a bot')}
         ${tick('A reply within 48 hours')}
-        ${tick('Free. No card, nothing to cancel')}
+        ${tick('As many as you train')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
           Send your clip</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -9903,7 +9919,7 @@ function screenCoaching(){
       <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:18px">
         Get Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em></div>
       <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-        Two ways in. One is free and takes a minute; the other is the whole programme.</div>
+        Two ways in. One is a clip and a written answer; the other is the whole programme.</div>
     </div>
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
@@ -9927,15 +9943,20 @@ function screenCoaching(){
       <div class="card" style="padding:22px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
           <span class="kick2">ONE-TO-ONE COACHING</span>
-          <span style="flex:none;font:600 12.5px/1 var(--sans);color:var(--grey)">£120&ndash;£250 a month</span>
+          <span style="flex:none;font:600 12.5px/1 var(--sans);color:var(--grey)">${PRICE('online')} to ${PRICE('inner')} a month</span>
         </div>
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           A programme written for you, and me on the other end of it.</div>
         ${tick('Unlimited form checks on your footage')}
-        ${tick('Two-week test reviewed by me, plan updated monthly')}
+        ${tick('A two week test reviewed by me, and the block rewritten from it')}
         ${tick('A thread where you can ask anything')}
         <button class="btn" style="width:100%;margin-top:16px"
-          onclick="openOv('apply')">Apply for coaching</button>
+          onclick="${(plansOn||[]).indexOf('online')>-1?"buyPlan('online')":"openOv('apply')"}">${
+          (plansOn||[]).indexOf('online')>-1?'Start coaching, '+PRICE('online')+' a month':'Apply for coaching'}</button>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:9px">
+          Pay today and the app opens with a message from me. Inner Circle is three places,
+          <button onclick="openOv('apply')" style="background:none;border:0;padding:0;color:var(--forest);
+            font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">by application</button>.</div>
         <div style="display:flex;gap:10px;margin-top:10px">
           <button onclick="go('ask')" style="flex:1;border:0;background:none;cursor:pointer;
             padding:11px;color:var(--forest);font:600 13.5px/1 var(--sans)">Ask me which tier</button>
@@ -10030,6 +10051,10 @@ let joinErr='';
 
 /* ── forgotten password ────────────────────────────────────────── */
 let resetStep=0, resetMsg='', resetEmail='';
+/* the same code flow serves a first password and a forgotten one; only the
+   words differ, and a new client should not be told they have forgotten
+   something they never had */
+let resetFirst=false;
 function screenReset(){
   return `<div class="scroll s" style="min-height:100dvh;background:transparent;color:var(--ink);
     padding:calc(env(safe-area-inset-top) + 40px) 26px 30px;
@@ -10038,9 +10063,11 @@ function screenReset(){
       onclick="resetStep=0;resetMsg='';st.tab='signin';save();render()">← Back</button>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:auto">${
       resetStep?`Check your <em style="color:var(--forest);font-style:normal">email.</em>`
+      : resetFirst?`Set a <em style="color:var(--forest);font-style:normal">password.</em>`
                :`Forgotten <em style="color:var(--forest);font-style:normal">it?</em>`}</div>
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
       resetStep ? 'I have sent a six digit code to '+esc(resetEmail)+'. It works for 15 minutes.'
+                : resetFirst ? 'The email you paid with. A six digit code comes to it, and you pick a password on the next screen.'
                 : 'Pop your email in and I will send you a code to set a new password.'}</div>
     <form onsubmit="${resetStep?'doResetConfirm':'doResetRequest'}(event)"
       style="display:flex;flex-direction:column;gap:10px;margin-top:22px">
@@ -10456,8 +10483,8 @@ const TOURS = {
   coaching: {
     n:'Coaching', next:null,
     steps:[
-      {t:'formcheck', h:'One free form check',
-       b:'Film one attempt, send it, and I write back. One per account, no card needed, and you do not have to be a client.'},
+      {t:'formcheck', h:'A form check',
+       b:'Film one attempt, send it, and I write back with the one thing to change. It comes with the paid tier, and the first week of that is free.'},
       {t:'tiers', h:'What coaching adds',
        b:'Side by side, what you get free and what changes when someone is building the programme rather than you picking it off a ladder.'},
       {t:'pricing', h:'What it costs',
