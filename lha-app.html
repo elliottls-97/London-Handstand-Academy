@@ -6332,7 +6332,7 @@ function doLogin(ev){
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
       /* a coach signing in here wants the coach view, not a client screen */
-      if(d.coach){ location.href='/lha-coach.html'; return; }
+      if(d.coach){ leaveTo('/lha-coach.html'); return; }
       st.email=email; st.token=d.token; st.client=d.client;
       st.in=!!d.coached; st.coached=!!d.coached;            /* coached tier only for actual coaching clients */
       st.plus=!!d.plus;
@@ -6365,7 +6365,7 @@ function verifyCode(){
     body:JSON.stringify({email:st.email,code:c})})
     .then(r=>r.ok?r.json():Promise.reject())
     .then(d=>{
-      if(d.coach){ location.href='/lha-coach.html'; return; }
+      if(d.coach){ leaveTo('/lha-coach.html'); return; }
       st.token=d.token; st.client=d.client||nameFrom(st.email);
       /* this set st.in on everyone who came through the code door, so a
          coach was shown a coached client's screens with no programme behind
@@ -9708,11 +9708,13 @@ function buyPlan(k){
        webhook reads that field first, so a mangled one would beat the real
        email sitting right beside it and the purchase would find no account */
     if(st.email) u.searchParams.set('prefilled_email', st.email);
-    location.href=u.toString(); return;
+    /* Stripe refuses to be framed, and the homepage runs this app in one */
+    if(!leaveTo(u.toString()) && b){ b.disabled=false; b.textContent='Your browser blocked it. Open the app in its own tab.'; }
+    return;
   }
   fetch(AUTH.checkout,{method:'POST',headers:authed(),body:JSON.stringify({plan:k})})
     .then(r=>r.json())
-    .then(d=>{ if(d.url) location.href=d.url; else throw new Error(d.error||''); })
+    .then(d=>{ if(d.url){ if(!leaveTo(d.url)) throw new Error('frame'); } else throw new Error(d.error||''); })
     .catch(()=>{ if(b){ b.disabled=false; b.textContent='Something went wrong — try again'; } });
 }
 function pricingCard(){
