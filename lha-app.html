@@ -2638,7 +2638,22 @@ function cpCardTop(c, i, total){
       <div id="cpup-${c.k}" style="margin-top:7px;font:500 12px/1.4 var(--sans);
         text-align:center;color:${sent?'var(--forest)':'var(--grey)'}">${
         sent ? 'Clip sent '+esc(cpWhen(sent.at))+'. Elliott has it.'
-             : 'A number says what happened. A clip says whether it was any good.'}</div>`:''}`;
+             : 'A number says what happened. A clip says whether it was any good.'}</div>`:''}
+    <!-- Every gate on the ladder is self-scored, and the moment somebody
+         drags a slider is the moment they wonder whether what they did
+         actually counted. That doubt is real and it is the honest way in to
+         a coach: not a banner on a tab, a question asked where it occurs.
+         The form check card on the coaching screen already handles both
+         the can-send and cannot-send cases, so this only has to get them
+         there with the doubt still fresh. -->
+    ${(!(st.coached||coachedView()) && last)?`
+      <button onclick="closeOv();go('coaching')" style="width:100%;margin-top:10px;cursor:pointer;
+        min-height:46px;border:0;border-radius:14px;padding:12px;background:none;
+        box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.22);color:var(--forest);
+        font:600 13px/1.35 var(--sans)">
+        Not sure that was right? Send Elliott ten seconds of it</button>
+      <div style="margin-top:6px;font:400 11.5px/1.4 var(--sans);text-align:center;color:var(--grey2)">
+        He watches it himself and writes back with the one thing to change.</div>`:''}`;
 }
 /* ── the record ─────────────────────────────────────────────────────
    Every reading, newest first, and beside any with a clip what the coach
@@ -7442,26 +7457,47 @@ function screenOriented(){
            been told where they belong and it is not where they can train.
            It is not a wall. Foundations is free and it is the button below,
            and they meet this again the day they clear it. -->
-      ${gated?`<div style="margin-top:22px;border-radius:22px;padding:20px;
-        background:#fdf1dd;border:1px solid rgba(243,169,73,.5)">
-        <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#8a5a12">
-          ${esc(PS.n.toUpperCase())} IS THE &pound;5 TIER</div>
-        <div style="font:400 22px/1.2 var(--serif);margin-top:11px">
-          &pound;5 a month opens ${STAGES.length-FREE_STAGES} stages${
-          STAGES.length-FREE_STAGES>1?', from the wall to a press':''}.</div>
-        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:9px">
-          Every drill with its cues and a demo, and your progress kept across
-          devices. Cancel any time.</div>
-        <button onclick="startUpgrade()" style="width:100%;margin-top:16px;border:0;
-          border-radius:16px;padding:17px;background:linear-gradient(180deg,#0a7a76,#006663);
-          box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-          color:var(--on-primary);font:600 16px/1 var(--sans);cursor:pointer">
-          Open ${esc(PS.n)} for &pound;5 a month</button>
-      </div>
-      <div style="font:400 15px/1.55 var(--sans);color:#333;margin-top:22px">
-        ${esc(STAGES[stageCap()].n)} is free and always will be. It is the stage
-        ${esc(PS.n)} opens from, and you start there either way, so nothing is
-        lost by training it first.</div>`:''}
+      <!-- This screen used to answer the quiz with a price. Somebody has
+           just described their handstand honestly and been placed; what
+           they want next is what happens to their handstand, and the free
+           sessions they already have at that stage. The price is a line
+           underneath, not the headline, and the ask lands after a session
+           rather than ninety seconds after the first question. -->
+      ${gated?(function(){
+        const list=(typeof cpsFor==='function' ? cpsFor(placed) : [])||[];
+        return `<div style="margin-top:22px;border-radius:22px;padding:20px;
+          background:#fff;border:1px solid rgba(0,64,61,.12);box-shadow:0 1px 2px rgba(0,64,61,.05)">
+          <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">
+            WHAT ${esc(PS.n.toUpperCase())} FIXES</div>
+          ${list.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:13px">
+            ${list.slice(0,4).map(c=>{
+              const K=CP_KIND[c.kind]||CP_KIND.count;
+              const aim = c.target!=null
+                ? (K.lower?'in ':'')+c.target+(c.unit!=null?c.unit:(K.unit||''))+(K.suffix||'') : '';
+              return `<div style="display:flex;gap:10px;align-items:baseline;font:400 14.5px/1.45 var(--sans)">
+                <span style="color:var(--forest)">&bull;</span><span style="flex:1">${esc(c.n||c.k)}</span>
+                ${aim?`<span style="flex:none;font:600 13px/1.45 var(--sans);color:var(--forest)">${esc(aim)}</span>`:''}
+              </div>`;}).join('')}
+            ${list.length>4?`<div style="font:400 13px/1.45 var(--sans);color:var(--grey2);padding-left:19px">
+              and ${list.length-4} more, in order.</div>`:''}
+          </div>`:`<div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:11px">
+            ${esc(PS.goal||'')}</div>`}
+          <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
+            <div style="font:400 20px/1.25 var(--serif)">
+              ${st.token
+                ? `Your first ${TASTE_SESSIONS} sessions at ${esc(PS.n)} are free.`
+                : `Make a free account and your first ${TASTE_SESSIONS} sessions there are free.`}</div>
+            <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+              No card. After that ${esc(PS.n)} is part of the ${PRICE()} a month
+              ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.</div>
+            <button onclick="${st.token?"st.oriented=true;save();go('home')":"st.oriented=true;save();st.tab='joinFree';save();render()"}"
+              style="width:100%;margin-top:14px;border:0;
+              border-radius:16px;padding:17px;background:linear-gradient(180deg,#0a7a76,#006663);
+              box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+              color:var(--on-primary);font:600 16px/1 var(--sans);cursor:pointer">
+              ${st.token?'Train at '+esc(PS.n):'Make a free account'}</button>
+          </div>
+        </div>`;})():''}
 
       <div style="background:#fff;border:1px solid rgba(17,17,17,.07);border-radius:20px;
         padding:4px 16px;margin-top:20px;box-shadow:0 1px 2px rgba(17,17,17,.04)">
@@ -7497,10 +7533,11 @@ function screenOriented(){
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);font:600 17px/1 var(--sans);cursor:pointer">
-        ${gated?'Start on '+esc(S.n):'Start your first session'}</button>
-      ${gated?`<button onclick="startUpgrade()" style="width:100%;background:none;border:none;
-        color:var(--forest);font:600 13.5px/1 var(--sans);cursor:pointer;margin-top:4px;padding:10px">
-        Or open ${esc(PS.n)} for &pound;5 a month</button>`:''}
+        ${gated?'Start on '+esc(S.n)+' instead':'Start your first session'}</button>
+      <!-- The £5 ask used to sit here too, so this screen asked twice before
+           anybody had done a drill. The card above offers the free sessions
+           at their own stage; this is the other free route. Neither asks for
+           money, and the wall is still there the moment they meet it. -->
     </div></div>`;
 }
 
@@ -7527,6 +7564,46 @@ function cpProgress(i){
   return {done, met, of:list.length, ready:list.length>0 && met>=list.length};
 }
 function stageReady(){ return cpProgress().ready; }
+/* ── stuck ──────────────────────────────────────────────────────────
+   Somebody part way through a stage whose last reached check point was
+   weeks ago is the person most likely to quietly stop, and the app was
+   already holding every reading and its date without ever saying so. This
+   says the true thing and offers the one thing that would actually help,
+   which is a coach looking at it. Never for a cleared stage, never for
+   somebody who has logged nothing, and never before three weeks. */
+const STUCK_DAYS = 21;
+function plateau(){
+  if(coachedView()) return null;
+  const i=curStage(), P=cpProgress(i);
+  if(!P.of || P.ready || !P.met) return null;
+  const list=cpFor(i)||[];
+  const log=cpLog();
+  let newest=0;
+  list.forEach(c=>{ if(!cpMet(c)) return;
+    (log[c.k]||[]).forEach(r=>{ if(r && r.at > newest) newest=r.at; }); });
+  if(!newest) return null;
+  const days=Math.floor((Date.now()-newest)/86400000);
+  if(days < STUCK_DAYS) return null;
+  return {met:P.met, of:P.of, days, weeks:Math.floor(days/7)};
+}
+function plateauHTML(){
+  const p=plateau();
+  if(!p || st.stuckHid===p.met) return '';
+  return `<div style="padding:18px 16px 0"><div class="card" style="padding:20px">
+    <div class="kick2" style="color:var(--forest)">STUCK?</div>
+    <div style="font:400 20px/1.25 var(--serif);margin-top:9px">
+      You have been at ${p.met} of ${p.of} for ${p.weeks>=4?'about a month':p.weeks+' weeks'}.</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+      That is usually alignment rather than effort, and it is the one thing you
+      cannot see from the inside. Send ten seconds and Elliott will tell you what
+      is actually happening.</div>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="go('coaching')">
+      Get him to look at it</button>
+    <button onclick="st.stuckHid=${p.met};save();render()" style="width:100%;background:none;border:0;
+      cursor:pointer;margin-top:4px;padding:10px;font:500 13px/1 var(--sans);color:var(--grey2)">
+      Not now</button>
+  </div></div>`;
+}
 /* Move to a named stage, either way. The sheet's button called advanceStage,
    which always went to the very next one, so opening Press from Wall Work and
    pressing it landed you on Pushing More. */
@@ -8674,6 +8751,7 @@ function screenLadder(){
          of which the calendar below counts by day. -->
     <div style="padding:18px 16px 26px;display:flex;flex-direction:column;gap:11px">${
       progressBody()}</div>` : `
+    ${plateauHTML()}
     <div class="rise" data-tour="stagegoal" style="padding:24px 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">You are here &middot; Stage ${cur+1} of ${STAGES.length}</div>
@@ -8830,7 +8908,9 @@ function screenUpgradeBody(si){
   trackOnce('wall', si);
   const placed=placedStage();
   const ids=(s.drillIds||[]);
-  const names=ids.slice(0,4).map(v=>{ const d=drillById(v); return d?d.n:''; }).filter(Boolean);
+  /* two ids can carry the same label, so the preview read "Tuck Slides,
+     Single Leg Tuck Slides, Tuck Handstand Slides, Single Leg Tuck Slides" */
+  const names=[...new Set(ids.map(v=>{ const d=drillById(v); return d?d.n:''; }).filter(Boolean))].slice(0,4);
   const cps=(typeof cpsFor==='function' ? cpsFor(si) : []).length;
   /* say how many are filmed rather than claiming all of them are: on the
      stages where filming is behind, "every one filmed" would be a lie on
@@ -8857,8 +8937,12 @@ function screenUpgradeBody(si){
         ${PRICE_FOUNDING()?`<span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.12em;border-radius:999px;padding:5px 9px;
           background:rgba(243,169,73,.22);color:#8a5a12">FOUNDING PRICE</span>`:''}
       </div>
+      <!-- "first week free" with a card form on the next screen is where
+           people stop. Say the date the money actually moves, and that
+           leaving is one tap, rather than leaving both to be guessed at. -->
       ${trialLine()?`<div style="font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">
-        ${trialLine()}, cancel any time from the app.</div>`:''}
+        ${trialLine()}. Nothing is charged until <b style="color:var(--ink)">${esc(firstCharge())}</b>,
+        and cancelling is one tap in the app before then.</div>`:''}
       <button class="btn" style="width:100%;margin-top:14px" onclick="startUpgrade()">${
         PRICE_TRIAL()>0?'Start the free '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days'):'Open the ladder'}</button>
       ${(function(){
@@ -8891,16 +8975,47 @@ function screenUpgradeBody(si){
       </div>
     </div>`:''}
 
+    <!-- The destination, not the tier. This stage has a written list of
+         things it makes you able to do, with a number on each, and the
+         paywall was describing a subscription instead. What somebody wants
+         to know at this moment is what changes about their handstand. -->
+    ${(function(){
+      const list=(typeof cpsFor==='function' ? cpsFor(si) : [])||[];
+      if(!list.length) return '';
+      return `<div class="card" style="margin-top:14px;padding:16px 18px">
+        <div class="kick2">WHAT ${esc(String(s.n||'').toUpperCase())} GETS YOU TO</div>
+        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+          ${list.length} things to reach, in order. Reach them and the stage after
+          this one opens.</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+          ${list.map((c,i)=>{
+            const K=CP_KIND[c.kind]||CP_KIND.count;
+            const aim = c.target!=null
+              ? (K.lower?'in ':'')+c.target+(c.unit!=null?c.unit:(K.unit||''))+(K.suffix||'')
+              : '';
+            return `<div style="display:flex;gap:10px;align-items:baseline;font:400 14px/1.45 var(--sans)">
+              <span style="flex:none;width:15px;font:400 13px/1.45 var(--sans);color:var(--grey2)">${i+1}</span>
+              <span style="flex:1">${esc(c.n||c.k)}</span>
+              ${aim?`<span style="flex:none;font:600 13px/1.45 var(--sans);color:var(--forest)">${esc(aim)}</span>`:''}
+            </div>`;}).join('')}
+        </div>
+      </div>`;
+    })()}
+
     <div class="card" style="margin-top:14px;padding:16px 18px">
       <div class="kick2">WHAT ELSE OPENS</div>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
-        ${['Five more stages, from the wall to a press',
-           'Every drill in the library, filmed, cued and captioned',
+        <!-- Two of these used to describe things a free account already has:
+             filmed and cued drills, and progress kept across devices. Naming
+             something as a paid feature when the person is already using it
+             for nothing is the fastest way to be disbelieved about the rest. -->
+        ${[(STAGES.length-FREE_STAGES)+' more stages, from the wall to a press',
+           'Every drill in those stages, filmed, cued and captioned',
            'Sessions built around the time you have, different each time',
-           'Your progress and check points tracked across devices',
+           'A form check: send a clip, get the one thing to change',
            'Cancel any time, from the app']
           .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
-            <span style="color:var(--forest)">&bull;</span><span>${x}</span></div>`).join('')}
+            <span style="color:var(--forest)">&bull;</span><span>${esc(x)}</span></div>`).join('')}
       </div>
       ${PRICE_NOTE()?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
         ${esc(PRICE_NOTE())}</div>`:''}
@@ -9782,6 +9897,10 @@ let planLinks={};
 const PRICE_DEFAULT={plus:'£5',check:'£35',online:'£120',inperson:'£190',inner:'£320',session60:'£80',session90:'£100'};
 const PRICE = (k='plus') => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
 const PRICE_TRIAL = () => { const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
+/* the day the first payment actually lands, which is the number somebody is
+   really asking for when a card form appears under the word "free" */
+const firstCharge = () => new Date(Date.now()+PRICE_TRIAL()*86400000)
+  .toLocaleDateString('en-GB',{day:'numeric',month:'long'});
 const trialLine = () => PRICE_TRIAL()>0 ? ('first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' free') : '';
 const PRICE_NOTE = () => ((st.prices||{}).plus||{}).note || 'The price goes up as the ladder fills out. Join now and yours does not.';
 const PRICE_FOUNDING = () => ((st.prices||{}).plus||{}).founding !== false;
