@@ -4287,7 +4287,21 @@ function setPref(k){
    be dropped in without rebuilding the sheet around it */
 function subscriptionHTML(){
           if(!subInfo) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-            Checking with Stripe…</div>`;
+            Checking with Stripe&hellip;</div>`;
+          /* Stripe would not answer. Never leave a paying account on a
+             spinner: say it plainly, keep the cancel button working, and
+             offer the try again rather than making them reload. */
+          if(subInfo.failed) return `<div style="font:400 13.5px/1.5 var(--sans);margin-top:8px">
+              ${st.cancelAt
+                ? 'Your renewal is already stopped. Access stays until <b>'+esc(whenEnds())+'</b>.'
+                : 'Your '+PRICE()+' a month subscription is active.'}</div>
+            <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">
+              We could not reach Stripe just now, so the exact date is not shown.
+              Nothing is wrong with your account.</div>
+            <button class="btn2" style="width:100%;margin-top:12px"
+              onclick="subInfo=null;paintSub();loadSubscription()">Try again</button>
+            ${st.cancelAt?'':`<button class="btn2" style="width:100%;margin-top:9px"
+              onclick="cancelSub(false)">Cancel subscription</button>`}`;
           if(subInfo.none) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
             No subscription found. If you have paid, message Elliott.</div>`;
           const amt = subInfo.amount!=null
@@ -4479,7 +4493,10 @@ function sendClip(file){
 
 function screenAsk(){
   /* never invent a message from Elliott — a client would read it as real */
-  const msgs=st.msgs||[];
+  /* and never draw an empty one either: a row carrying no words, no clip and
+     no photo rendered as a blank bubble with a timestamp under it */
+  const hasMsg=m=>!!(m && (m.video || m.image || String(m.text||'').trim()));
+  const msgs=(st.msgs||[]).filter(hasMsg);
   const bubbles=msgs.map(m=>{
     const mine=m.from==='me';
     return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'}">
@@ -4689,10 +4706,10 @@ function screenMore(){
     </div>
     <div style="padding:16px 14px 0">
       <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:20px">
-        ${st.in?`<button class="act" onclick="openOv('password')">Change password</button>
+        ${st.token?`<button class="act" onclick="openOv('password')">Change password</button>
         <button class="act" onclick="openOv('emailchange')">Change email</button>
         <button class="act" onclick="signOut()">Sign out</button>`
-        :`<button class="act" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>`}
+        :`<button class="act" onclick="st.tab='signin';save();render()">Already have an account? Sign in</button>`}
       </div>
       ${knowCard()}
       ${bookingsHTML()}
@@ -5832,7 +5849,7 @@ function drawOv(){
        are on or what it costs them */
     const tier = st.in ? {n:'Coaching', d:'Your own programme, written by Elliott.', c:'var(--amber)'}
       : st.plus ? {n:'Full ladder', d:PRICE()+' a month. Every stage including the Press.', c:'var(--amber)'}
-      : {n:'Free', d:'Stages 1 to 4. The Press is '+PRICE()+' a month.', c:'var(--sand)'};
+      : {n:'Free', d:freePlanLine(), c:'var(--sand)'};
     if(!st.prefs) loadPrefs();
     body=`<div class="card" style="padding:18px">
         <div style="display:flex;align-items:center;gap:11px">
@@ -6307,8 +6324,10 @@ function screenSignIn(){
 
 /* let people read what they typed — most sign-in failures here are just a
    fat-fingered password on a phone keyboard */
-function togglePw(){
-  const i=$('#pwIn'), b=$('#pwEye'), sl=$('#pwEyeSlash');
+/* the sign-up form's own eye, same behaviour, different ids */
+function toggleJoinPw(){ togglePw('#joinPw','#joinEye','#joinEyeSlash'); }
+function togglePw(iSel,bSel,sSel){
+  const i=$(iSel||'#pwIn'), b=$(bSel||'#pwEye'), sl=$(sSel||'#pwEyeSlash');
   if(!i) return;
   const show = i.type === 'password';
   i.type = show ? 'text' : 'password';
@@ -7047,7 +7066,8 @@ function screenQuiz(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
   const rails=INTAKE_STEPS.map((_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
     background:${n<i?'var(--deep)':n===i?'var(--amber)':'rgba(0,64,61,.15)'}"></i>`).join('');
-  const card=(on,body,click)=>`<button onclick="${click}" style="background:#fff;
+  /* the tick is drawn, so the pressed state has to be said as well */
+  const card=(on,body,click)=>`<button onclick="${click}" aria-pressed="${on?'true':'false'}" style="background:#fff;
     border:1.5px solid ${on?'var(--forest)':'rgba(0,64,61,.10)'};border-radius:16px;padding:15px 16px;
     box-shadow:${on?'0 0 0 3px rgba(0,102,99,.08)'
       :'0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)'};
@@ -7201,7 +7221,20 @@ function finishIntake(){
   st.quizDone=true; st.oriented=false;
   track('quiz', L.v);
   st.tab = st.email ? 'home' : 'joinFree';
-  save(); saveState(); sendIntake(); render();
+  save(); saveState(); sendIntake();
+  /* The home page runs this whole app inside an iframe, which is a fine
+     shop window and a bad place to actually use it: a refresh reloads the
+     marketing site instead of the app, the link cannot be bookmarked or
+     shared, it cannot be installed to a home screen, and Stripe refuses to
+     be framed at all. Finishing the quiz is the first real commitment, so
+     that is where the frame ends. Same origin, so everything just answered
+     is already in storage when the full page opens. */
+  if(inFrame()){ leaveTo(location.pathname + location.search); return; }
+  render();
+}
+/* one place to ask, so nothing has to reason about window.top twice */
+function inFrame(){
+  try{ return !!(window.top && window.top !== window.self); }catch(e){ return true; }
 }
 /* the answers are worth having on the coach's side, not just in a browser */
 function sendIntake(){
@@ -8284,6 +8317,16 @@ const workshopOn = () => !!WORKSHOP.uid && !coachedView()
 
 /* Time spent with the app in front of them, not time since it loaded. A
    backgrounded tab must not earn its way to a popup. */
+/* And not at any moment it likes. This fired on time-in-app alone, so it
+   landed full screen over the sign-up form with a video autoplaying while
+   somebody was one tap from creating an account, and pulled them toward a
+   £25 workshop in London that nothing had established they could get to.
+   It waits for a finished session now, which is also the first moment the
+   advert is aimed at somebody who has any reason to want it. */
+const WS_NOT_NOW = ['quiz','joinFree','signin','reset','welcome'];
+const wsMoment = () => !WS_NOT_NOW.includes(st.tab)
+  && !!st.mode && !!st.quizDone && !!st.oriented
+  && sessionsDone().length > 0;
 let wsUsed=0, wsTimer=0;
 function workshopWatch(){
   if(!workshopOn() || st.wsSeen===WORKSHOP.id) return;
@@ -8293,16 +8336,18 @@ function workshopWatch(){
     wsUsed+=5000;
     if(wsUsed>=WS_AFTER_MS){
       clearInterval(wsTimer);
-      /* never over the top of the player or an open sheet */
+      /* never over the top of the player, an open sheet, or somebody in
+         the middle of signing up */
       const ov=document.getElementById('ov');
       if(ov && ov.classList.contains('on')) { wsUsed=0; workshopWatch(); return; }
       if((document.getElementById('player')||{}).childElementCount) { wsUsed=0; workshopWatch(); return; }
+      if(!wsMoment()) { wsUsed=0; workshopWatch(); return; }
       openWorkshop();
     }
   },5000);
 }
 function openWorkshop(){
-  if(!workshopOn()) return;
+  if(!workshopOn() || !wsMoment()) return;
   const el=wsHost();
   el.innerHTML=workshopPopHTML();
   el.style.display='flex';
@@ -8472,22 +8517,29 @@ function screenLadder(){
      as a list rather than a climb. The price is stated once, above. */
   const rungs=STAGES.map((x,i)=>{
     if(i===cur) return '';
-    const passed=i<cur;
+    /* Behind you is a position. Passed is a claim, and it was being made on
+       position alone: a brand new account placed at Wall Work by the quiz
+       got a green tick against Foundations, having never done a drill.
+       A tick now means the check points were actually reached. */
+    const behind=i<cur;
     const p=cpProgress(i);
-    const opensAt = (i===cur+1) ? P.of : 0;
+    const passed=behind && p.ready;
+    /* and the gate label cleared once the gate is open, rather than still
+       reading "Opens at 7 / 7 above" beside a header saying all 7 are done */
+    const opensAt = (i===cur+1 && !(P.of && P.met>=P.of)) ? P.of : 0;
     return `<div style="display:grid;grid-template-columns:40px 1fr;column-gap:14px">
       <div style="display:flex;flex-direction:column;align-items:center">
         <span style="width:34px;height:34px;flex:none;border-radius:50%;display:flex;
           align-items:center;justify-content:center;font:600 14px/1 var(--sans);
-          background:${passed?'#0a7b74':'rgba(255,255,255,.8)'};
-          color:${passed?'var(--on-primary)':'var(--ink)'};
-          border:1.5px solid ${passed?'transparent':'rgba(0,64,61,.18)'}">${passed?'✓':i+1}</span>
+          background:${behind?'#0a7b74':'rgba(255,255,255,.8)'};
+          color:${behind?'var(--on-primary)':'var(--ink)'};
+          border:1.5px solid ${behind?'transparent':'rgba(0,64,61,.18)'}">${passed?'✓':i+1}</span>
         ${i<STAGES.length-1?`<i style="flex:1;width:2px;margin:6px 0 -14px;
-          background:${passed?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`:''}
+          background:${behind?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`:''}
       </div>
       <div onclick="openStage(${i})" style="cursor:pointer;padding-bottom:22px;display:flex;gap:10px">
         <div style="flex:1;min-width:0">
-          <div style="font:400 20px/1.1 var(--serif);color:${passed?'var(--ink)':'var(--grey)'}">${
+          <div style="font:400 20px/1.1 var(--serif);color:${behind?'var(--ink)':'var(--grey)'}">${
             esc(x.n)}</div>
           <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
             esc(x.goal)}</div>
@@ -8660,7 +8712,7 @@ function screenLadder(){
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2.4">
             <rect x="5" y="11" width="14" height="10" rx="2"></rect>
             <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
-          Stages ${cur+2} to ${STAGES.length} are the ${PRICE()} tier</span>`}
+          ${paidRangeLine()}</span>`}
       </div>
       <div data-tour="stagelist" style="margin-top:16px">${rungs}</div>
 
@@ -8748,12 +8800,21 @@ function ladderTick(v,el){
     hdr.textContent=dn+'/'+tot;
   }
 }
-/* Stages 1-3 are free. Stage 4 onwards is the £5 tier. Kept as one
-   constant so the line can move without hunting through the file. */
 /* Foundations is what free gets. Everything above it is the £5 ladder.
    Three stages were free, which meant most of the coached material was
    sitting there for nothing. */
 const FREE_STAGES = 1;
+/* Where the free tier ends, said once. A first-time user counted seven
+   different versions of this across seven screens, two of them one tap
+   apart, and nobody hands over a card to an app that cannot keep its own
+   offer straight. Every screen that states the boundary reads these. */
+const paidRangeLine = () =>
+  (FREE_STAGES+1===STAGES.length ? 'Stage '+STAGES.length+' is' : 'Stages '+(FREE_STAGES+1)+' to '+STAGES.length+' are')
+  + ' the '+PRICE()+' tier';
+const freePlanLine = () =>
+  (FREE_STAGES===1 ? esc(STAGES[0].n)+' is' : 'Stages 1 to '+FREE_STAGES+' are')
+  + ' free. The other '+(STAGES.length-FREE_STAGES)+' stage'+(STAGES.length-FREE_STAGES===1?' is':'s are')
+  + ' '+PRICE()+' a month.';
 /* The explainers are what an account opens — see FREE_EXPLAINERS. Drill
    demos are part of training, and these stages train free. */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
@@ -8855,10 +8916,18 @@ function screenUpgradeBody(si){
       <button onclick="codeToggle()" id="codeBtn" style="border:0;background:none;cursor:pointer;
         font:600 13px/1 var(--sans);color:var(--forest);padding:8px">Have a code?</button>
       <div id="codeBox" ${st.pendingCode?'':'hidden'} style="display:flex;gap:8px;margin-top:8px">
+        <!-- min-width:0, or the input keeps its default 20-character width,
+             refuses to shrink, and pushes "Use it" off the edge of a 375px
+             phone: tapping it side-scrolled the whole sheet and hid the
+             error message it had just written. -->
         <input id="codeIn" value="${esc(st.pendingCode||'')}" placeholder="WORKSHOP26" autocapitalize="characters" autocomplete="off"
-          style="flex:1;border:1px solid rgba(0,64,61,.16);border-radius:12px;padding:12px;
+          aria-label="Discount or workshop code"
+          style="flex:1;min-width:0;border:1px solid rgba(0,64,61,.16);border-radius:12px;padding:12px;
           font:600 15px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;background:#fff">
-        <button class="btn" style="flex:none;padding:0 18px" onclick="codeGo()">Use it</button>
+        <!-- .btn is width:100%, so flex:none gave the button the whole row and
+             squeezed the input to 26px. width:auto lets it size to its words. -->
+        <button class="btn" style="flex:none;width:auto;padding:0 18px;min-height:48px"
+          onclick="codeGo()">Use it</button>
       </div>
       <div id="codeMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px;min-height:18px"></div>
     </div>`;
@@ -8886,7 +8955,16 @@ function codeGo(){
       if(!ok){ say(d.error||'That did not work.'); return; }
       track('code');
       if(d.already){ say('You already have the whole ladder.'); return; }
-      st.plus=true; st.pendingCode=null; save();
+      /* not one of our comp codes but a real Stripe one: it is a discount
+         on the subscription, not free days, so it goes to checkout with
+         the code already applied */
+      if(d.stripe && d.promo){
+        st.promo=d.promo; st.pendingCode=null; save();
+        say((d.label?'That code is '+d.label+'. ':'')+'Taking you to checkout…');
+        setTimeout(()=>startUpgrade(), 700);
+        return;
+      }
+      st.plus=true; st.pendingCode=null; st.promo=null; save();
       say('Done. The whole ladder is open for '+(d.days||30)+' days.');
       setTimeout(()=>{ closeOv(); render(); }, 900);
     })
@@ -8898,7 +8976,8 @@ function codeResume(){
   const code=st.pendingCode; st.pendingCode=null; save();
   fetch('/api/app/redeem',{method:'POST',headers:authed(),body:JSON.stringify({code})})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d&&d.plus){ st.plus=true; save(); track('code'); render(); } })
+    .then(d=>{ if(d&&d.plus){ st.plus=true; save(); track('code'); render(); }
+               else if(d&&d.stripe&&d.promo){ st.promo=d.promo; save(); track('code'); } })
     .catch(()=>{});
 }
 function startUpgrade(){
@@ -8925,7 +9004,9 @@ function startUpgrade(){
   }
   if(b){ b.textContent='Opening checkout…'; b.disabled=true; }
   track('checkout');
-  fetch(AUTH.checkout,{method:'POST',headers:authed(),body:'{}'})
+  /* a Stripe promotion code the app has already validated arrives applied */
+  fetch(AUTH.checkout,{method:'POST',headers:authed(),
+    body:JSON.stringify(st.promo?{promo:st.promo}:{})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start checkout')))
     .then(d=>{ if(!d.url) throw 'No checkout link came back';
                if(!leaveTo(d.url)) throw 'Your browser blocked the checkout window. Open the app in its own tab and try again.'; })
@@ -8962,22 +9043,32 @@ function loadEntitlement(){
 /* the live picture, fetched when the account screen opens rather than
    trusted from whatever a webhook last wrote */
 let subInfo=null, subLoading=false;
-function loadSubscription(){
+/* Stripe answering 502 used to leave this at null for ever, and null is the
+   word "Checking with Stripe..." — so a paying customer looking for their
+   renewal date got a sentence that never finished, with no cancel button
+   under it, while the paywall was promising they could cancel from the app.
+   One retry, then say so and fall back to what the account already knows. */
+function paintSub(){
+  if(st.ov!=='account') return;
+  const b=document.getElementById('subblock');
+  if(b) b.innerHTML=subscriptionHTML(); else drawOv();
+}
+function loadSubscription(again){
   if(!st.token || subLoading) return;
   subLoading=true;
   fetch(AUTH.subscription,{headers:authed()})
-    .then(r=>r.ok?r.json():null)
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d&&d.error||'no')))
     .then(d=>{ subLoading=false;
-      if(!d||d.error) return;
       subInfo=d;
       if(d.plus!=null) st.plus=!!d.plus;
       st.cancelAt=d.cancelAt||0;
       save();
-      if(st.ov==='account'){
-        const b=document.getElementById('subblock');
-        if(b) b.innerHTML=subscriptionHTML(); else drawOv();
-      } })
-    .catch(()=>{ subLoading=false; });
+      paintSub(); })
+    .catch(()=>{ subLoading=false;
+      /* one more go: a 502 from Stripe is usually the call, not the account */
+      if(!again){ setTimeout(()=>loadSubscription(true), 1200); return; }
+      subInfo={failed:true};
+      paintSub(); });
 }
 const niceDate = t => t ? new Date(t).toLocaleDateString('en-GB',
   {day:'numeric',month:'long',year:'numeric'}) : '';
@@ -9712,7 +9803,8 @@ function buyPlan(k){
     if(!leaveTo(u.toString()) && b){ b.disabled=false; b.textContent='Your browser blocked it. Open the app in its own tab.'; }
     return;
   }
-  fetch(AUTH.checkout,{method:'POST',headers:authed(),body:JSON.stringify({plan:k})})
+  fetch(AUTH.checkout,{method:'POST',headers:authed(),
+    body:JSON.stringify(Object.assign({plan:k}, st.promo?{promo:st.promo}:{}))})
     .then(r=>r.json())
     .then(d=>{ if(d.url){ if(!leaveTo(d.url)) throw new Error('frame'); } else throw new Error(d.error||''); })
     .catch(()=>{ if(b){ b.disabled=false; b.textContent='Something went wrong — try again'; } });
@@ -9851,7 +9943,7 @@ function screenCoaching(){
 
   /* the same thread the coached app uses, so a question here reaches the
      same place a client's does */
-  const thread=(st.msgs||[]).map(m=>{
+  const thread=(st.msgs||[]).filter(m=>m && (m.video || m.image || String(m.text||'').trim())).map(m=>{
     const mine=m.from==='me';
     return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};gap:0">
       ${m.video?`<div style="max-width:86%;border-radius:16px;overflow:hidden;background:#11150f;margin-bottom:${m.text?'6px':'0'}">
@@ -10009,7 +10101,8 @@ function screenCoaching(){
               Sent ${esc(when(st.applied))}. Elliott reads every one himself and comes
               back within 48 hours.</div></div>`
         : ''}
-      <button class="btn2" style="width:100%" onclick="st.tab='signin';save();render()">Coaching client? Sign in</button>
+      ${st.token?'':`<button class="btn2" style="width:100%"
+        onclick="st.tab='signin';save();render()">Already have an account? Sign in</button>`}
     </div></div>`;
 }
 
@@ -10051,7 +10144,7 @@ function screenWelcome(){
         font:600 17px/1 var(--sans)">Start free &rarr;</button>
       <button onclick="st.tab='signin';save();render()" style="height:52px;border-radius:14px;
         border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);cursor:pointer;
-        font:600 16px/1 var(--sans)">Coaching client? Sign in</button>
+        font:600 16px/1 var(--sans)">Already have an account? Sign in</button>
     </div>
 
     <div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center">
@@ -10168,13 +10261,33 @@ function screenJoin(){
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
       <form onsubmit="doJoin(event)" style="display:flex;flex-direction:column;gap:10px">
         <input id="joinEm" type="email" inputmode="email" autocomplete="email" required
-          placeholder="you@example.com"
+          placeholder="you@example.com" aria-label="Your email address"
           style="background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:400 15px/1 var(--sans);color:var(--ink);outline:none;min-height:56px">
-        <input id="joinPw" type="password" autocomplete="new-password" required minlength="8"
-          placeholder="Pick a password (8+ characters)"
-          style="background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:400 15px/1 var(--sans);color:var(--ink);outline:none;min-height:56px">
+        <!-- Sign in has a show-password eye and this did not, and the error
+             was printed at the foot of the form under the Terms line, about
+             150px below the field it was about and off the bottom of a phone
+             with the keyboard up. It sits under the password now. -->
+        <div style="position:relative;display:flex">
+          <input id="joinPw" type="password" autocomplete="new-password" required minlength="8"
+            placeholder="Pick a password (8+ characters)" aria-label="Choose a password"
+            style="flex:1;background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:400 15px/1 var(--sans);color:var(--ink);outline:none;min-height:56px;padding-right:54px">
+          <button type="button" id="joinEye" onclick="toggleJoinPw()" aria-label="Show password"
+            aria-pressed="false"
+            style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:42px;height:42px;
+            display:flex;align-items:center;justify-content:center;background:none;border:none;
+            border-radius:14px;cursor:pointer;color:var(--grey);padding:0">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"></path>
+              <circle cx="12" cy="12" r="2.8"></circle>
+              <line id="joinEyeSlash" x1="4" y1="20" x2="20" y2="4" style="display:none"></line>
+            </svg>
+          </button>
+        </div>
+        <div id="joinMsg" role="alert" style="font:500 12.5px/1.5 var(--sans);color:var(--red);
+          min-height:0">${esc(joinErr)}</div>
         <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:2px 2px 0">
-          <input id="joinMk" type="checkbox"
+          <input id="joinMk" type="checkbox" aria-label="Send me handstand tips and workshop dates"
             style="width:19px;height:19px;margin:1px 0 0;accent-color:var(--forest);flex:none">
           <span style="font:400 13px/1.45 var(--sans);color:var(--grey)">
             Send me handstand tips and workshop dates. No more than twice a month.</span>
@@ -10188,8 +10301,6 @@ function screenJoin(){
           By joining you agree to our
           <a href="/terms" target="_blank" rel="noopener" style="color:var(--forest)">Terms</a> and
           <a href="/privacy" target="_blank" rel="noopener" style="color:var(--forest)">Privacy Policy</a>.</div>
-        <div id="joinMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--red);
-          text-align:center;min-height:18px">${esc(joinErr)}</div>
       </form>
       ${emailOptional()?`<button onclick="skipJoin()" style="width:100%;background:none;border:none;margin-top:6px;
         font:500 13px/1 var(--sans);color:var(--grey);cursor:pointer;padding:12px">
@@ -10471,7 +10582,12 @@ const TOURS = {
       {t:'stagegoal', h:'How you leave this stage',
        b:'Every stage has a handful of check points. The number beside the stage is how many you have reached, and the amber bar is the same thing drawn. Reach all of them and the next stage opens below.'},
       {t:'stagelist', h:'All six stages',
-       b:'Where you are is the white one, behind you is teal, ahead is grey. Tap any stage to see what it asks for, watch the walkthrough and log its check points. Nothing is locked, so you can move down early or come back up.'},
+       /* This said "Nothing is locked" over a list showing four padlocks.
+          It is true for a subscriber and plainly false for everybody else,
+          so it asks the tier rather than stating one answer for both. */
+       b:()=>'Where you are is the white one, behind you is teal, ahead is grey. Tap any stage to see what it asks for, watch the walkthrough and log its check points. '
+         +(isPlus() ? 'Nothing is locked, so you can move on early or come back.'
+                    : 'The padlocked ones open with the '+PRICE()+' tier, and you can move back to a free stage whenever you like.')},
       {t:'buildsession', h:'Train off the ladder',
        b:'Drag for how long you have got and press start. It builds a session for your stage that fits, warm-up included.'}
     ]
@@ -10831,7 +10947,8 @@ function render(){
   if(!screens[st.tab]) st.tab=tabs[0][0];
   const nCp = ((typeof cpNew==='function') ? cpNew().length : 0)
             + ((typeof clipsNew==='function') ? clipsNew() : 0);
-  const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"><i></i><span>${l}</span>${
+  const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"
+    aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
     ((id==='progress'||(id==='ladder'&&!coached))&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
       border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
   swap(topBar()+screens[st.tab]()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);

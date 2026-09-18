@@ -324,6 +324,27 @@ async function stripe(path, params, method = 'POST') {
   if (!res.ok) throw new Error((out.error && out.error.message) || 'Stripe error');
   return out;
 }
+/* Is this one of Stripe's own promotion codes? Returns the promotion code
+   object's id, which is what a Checkout session takes, plus a line a person
+   can read. Never throws: a code we cannot look up is simply not ours. */
+async function stripePromo(code) {
+  if (!stripeKey() || !code) return null;
+  try {
+    const out = await stripe(
+      `/promotion_codes?code=${encodeURIComponent(code)}&active=true&limit=1`, null, 'GET');
+    const p = (out.data || [])[0];
+    if (!p || !p.active) return null;
+    if (p.expires_at && Date.now() / 1000 > p.expires_at) return null;
+    if (p.max_redemptions && (p.times_redeemed || 0) >= p.max_redemptions) return null;
+    const co = p.coupon || {};
+    const off = co.percent_off ? `${co.percent_off}% off`
+      : co.amount_off ? `£${(co.amount_off / 100).toFixed(2)} off` : 'a discount';
+    const span = co.duration === 'forever' ? 'for as long as you stay'
+      : co.duration === 'repeating' ? `for ${co.duration_in_months} months` : 'on your first month';
+    return { id: p.id, label: `${off} ${span}` };
+  } catch (err) { return null; }
+}
+
 /* Stripe signs the raw body; verify it ourselves rather than trusting
    a webhook that anyone could POST to. */
 async function stripeSigOK(raw, header, secret) {
@@ -1268,6 +1289,9 @@ export default async (request) => {
     if (!who) return json({ error: 'Sign in first' }, 401);
     const planKey = Object.prototype.hasOwnProperty.call(PLANS, body.plan) ? body.plan : 'plus';
     const plan = PLANS[planKey];
+    /* only ever an id this server handed out from /redeem, never raw user
+       input, and Stripe rejects anything that is not a live promotion */
+    const promo = /^promo_[A-Za-z0-9]+$/.test(String(body.promo || '')) ? String(body.promo) : '';
     if (!stripeKey() || !plan.price()) {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
@@ -1284,7 +1308,12 @@ export default async (request) => {
           ? { 'subscription_data[trial_period_days]': String(Number(PRICES.trialDays)) } : {}),
         customer_email: who,
         client_reference_id: who,
-        allow_promotion_codes: 'true',
+        /* a code the app already checked with Stripe arrives applied, so
+           nobody has to type it a second time on the Stripe page. Stripe
+           refuses discounts and allow_promotion_codes together, so it is
+           one or the other. */
+        ...(promo ? { 'discounts[0][promotion_code]': promo }
+                  : { allow_promotion_codes: 'true' }),
         success_url: `${origin}/lha-app.html?paid=1`,
         cancel_url: `${origin}/lha-app.html?paid=0`,
       });
@@ -2782,7 +2811,19 @@ export default async (request) => {
     }
     const codes = (await getSetting('codes')) || {};
     const c = codes[code];
-    if (!c || c.off) return json({ error: 'That code is not one of ours' }, 404);
+    /* Two code systems exist and only one of them was being checked here.
+       These are our own comp codes, which hand out free days directly. A
+       code made in Stripe is a promotion code, and Stripe Checkout accepts
+       it happily, but this endpoint had never heard of it and told the
+       person it was fake. Anyone handed a code at a workshop and typing it
+       here got "That code is not one of ours" for a code that works.
+       So: not ours, ask Stripe, and if Stripe knows it, carry it into
+       checkout rather than rejecting it. */
+    if (!c || c.off) {
+      const promo = await stripePromo(code);
+      if (promo) return json({ ok: true, stripe: true, promo: promo.id, label: promo.label });
+      return json({ error: 'That code is not one of ours' }, 404);
+    }
     if (c.until && Date.now() > ms(c.until)) return json({ error: 'That code has expired' }, 410);
     if (c.max && (c.used || 0) >= c.max) return json({ error: 'That code has been used up' }, 410);
     const acct = await ensureAcct(who);
