@@ -5653,9 +5653,30 @@ function drawOv(){
       if(prev && prev.q.it.v===q.it.v){ prev.keys.push('q'+i); prev.idx.push(i); return; }
       groups.push({q, keys:['q'+i], idx:[i]});
     });
+    /* ── the rest, on the page ────────────────────────────────────────
+       The total at the top has always counted rest, but the list showed
+       only the work, so the arithmetic never added up on screen: fourteen
+       drills of thirty seconds is not twenty nine minutes, and the missing
+       eleven were the part you spend standing still. Rest is a step now,
+       drawn between the rows as the thing it is. */
+    const restChip=(secs,label)=>!secs?'':`<div style="display:flex;align-items:center;gap:10px;
+        padding:2px 4px" aria-label="${esc(label||('Rest '+secs+' seconds'))}">
+        <span style="flex:none;min-width:46px;height:34px;border-radius:12px;
+          background:rgba(0,64,61,.07);color:var(--deep);display:flex;align-items:center;
+          justify-content:center;font:700 13px/1 var(--sans);
+          font-variant-numeric:tabular-nums;padding:0 10px">${secs}s</span>
+        <span style="flex:1;height:1px;background:rgba(17,17,17,.08)"></span>
+        <span style="flex:none;font:600 10px/1 var(--sans);letter-spacing:.14em;
+          color:var(--grey2)">${esc(label||'REST')}</span>
+      </div>`;
     const rows=groups.map((grp,gi)=>{
       const q=grp.q, it=q.it, k=grp.keys[0];
       const nSets=grp.keys.length;
+      /* the rest after this drill's last set, which is the gap before the
+         next row, and the rest between this drill's own sets */
+      const lastIdx=grp.idx[grp.idx.length-1];
+      const after=(gi<groups.length-1) ? rest((Q||[])[lastIdx], lastIdx, Q) : 0;
+      const between=nSets>1 ? rest((Q||[])[grp.idx[0]], grp.idx[0], Q) : 0;
       const keysJson=grp.keys.join(',');
       const on=grp.keys.every(x=>(st.qTick||{})[x]);
       const someOn=!on && grp.keys.some(x=>(st.qTick||{})[x]);
@@ -5689,6 +5710,7 @@ function drawOv(){
                   && (nSets>1 || sets(it.d)<2);
                 const bits=[same?'':lab,
                   nSets>1?nSets+' sets':'',
+                  between?between+'s between':'',
                   someOn?grp.keys.filter(x=>(st.qTick||{})[x]).length+' of '+nSets+' done':''
                 ].filter(Boolean);
                 return bits.length?`<span style="font:500 12.5px/1 var(--sans);color:var(--grey2)">${
@@ -5776,8 +5798,8 @@ function drawOv(){
                 padding:9px 11px;font:400 13.5px/1.3 var(--sans);background:#fff"></div>`:''}
           </div>
         </div>
-      </div>`;}).join('');
-    const mins=Math.max(1,Math.round((Q||[]).reduce((a,q,_i)=>a+work(q.it,q.g||q.grp)+rest(q,_i,Q),0)/60));
+      </div>${restChip(after)}`;}).join('');
+    const mins=qMins();
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
     body=`<button class="fsbtn" id="ovFullBtn" onclick="toggleFull()">${
       st.ovFull?'Shrink':'Full screen'}</button>
@@ -5786,7 +5808,7 @@ function drawOv(){
         border-radius:50%;background:#fff;color:var(--ink);cursor:pointer;display:grid;place-items:center;
         padding:0">${soundOn()?VB_SPK:VB_MUTED}</button>
       <div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
-        ${qDrills()} drills · ${(Q||[]).length} sets · ${mins} minutes${
+        ${qDrills()} drills · ${(Q||[]).length} sets · ${mins} minutes including rest${
           ticked?' · '+ticked+' done':''}</div>
       <!-- the same workout, run for you. It is the first thing on the list
            rather than an alternative to it. -->
@@ -6852,11 +6874,19 @@ function qDrills(){
   const seen=[]; (Q||[]).forEach(q=>{ if(seen.indexOf(q.it.v)<0) seen.push(q.it.v); });
   return seen.length;
 }
+/* How long the built session takes, counted the same way in both places
+   that say it. The rest after the very last set was being counted, and
+   nobody rests after they have finished. */
+function qMins(){
+  const q=(Q||[]);
+  const secs=q.reduce((a,x,i)=>a+work(x.it,x.g||x.grp)+(i<q.length-1?rest(x,i,q):0),0);
+  return Math.max(1,Math.round(secs/60));
+}
 function qCount(){
   const n=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
   const el=document.getElementById('qcount');
   if(el) el.textContent = qDrills()+' drills · '+(Q||[]).length+' sets · '+
-    Math.max(1,Math.round((Q||[]).reduce((a,q,_i)=>a+work(q.it,q.g||q.grp)+rest(q,_i,Q),0)/60))+' minutes'+(n?' · '+n+' done':'');
+    qMins()+' minutes including rest'+(n?' · '+n+' done':'');
   const fin=document.getElementById('qdone');
   if(fin) fin.hidden = !n;
 }
