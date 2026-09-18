@@ -2848,18 +2848,27 @@ window.addEventListener('message', e=>{
 /* several at once: every clip in a submission, or everything a client has
    sent, loaded into the review tool together so one recording can walk
    through all of them and go back as one reply */
-function reviewClips(email, uids, name){
+function reviewClips(email, uids, name, titles){
   const list=(uids||[]).filter(Boolean);
   if(!list.length) return;
   reviewFor=email;
-  list.forEach((u,i)=>reviewClip(u, (name||'Client')+' · clip '+(i+1)+' of '+list.length));
+  /* name each one by what it is. "clip 4 of 6" is no help at all when you
+     are six clips into a recording trying to remember which is which. */
+  list.forEach((u,i)=>reviewClip(u, (titles&&titles[u])
+    || ((name||'Client')+' · clip '+(i+1)+' of '+list.length)));
 }
+/* This built its own list from submissions and the thread and never looked
+   at check point clips, which is most of what a client actually films.
+   clipRows knows about all three. */
 function reviewAllFrom(email){
   const name=(clients.find(c=>c.email===email)||{}).name||'Client';
-  const uids=[]; (subs[email]||[]).forEach(s=>(s.clips||[]).forEach(u=>{ if(uids.indexOf(u)<0) uids.push(u); }));
-  thread.forEach(m=>{ if(m.from!=='coach' && m.video && uids.indexOf(m.video)<0) uids.push(m.video); });
-  if(!uids.length) return alert('Nothing from them yet.');
-  reviewClips(email, uids, name);
+  const rows=clipRows(email);
+  if(!rows.length) return alert('Nothing from them yet.');
+  const first=(name||'').split(' ')[0]||'Client';
+  const titles={};
+  rows.forEach(r=>{ titles[r.uid]=first+' · '+(r.which||r.what)+' · '+dayLabel(dayKey(r.at||0)); });
+  const uids=rows.slice().sort((a,b)=>(a.at||0)-(b.at||0)).map(r=>r.uid);
+  reviewClips(email, uids, name, titles);
 }
 /* who the recording goes back to */
 let reviewFor='';
@@ -2883,6 +2892,196 @@ function reviewClip(uid, title){
 }
 function reviewDrop(uid){
   reviewQueue=reviewQueue.filter(c=>c.uid!==uid); draw();
+}
+
+/* ── picking a client's clips, from inside the review tool ──────────
+   Loading a review used to mean finding the client, scrolling their
+   thread and their check points, and pressing Review on each clip one at
+   a time. A client who films six check points in an evening is six trips
+   through that, and the clips are in three different places: submissions,
+   check point readings and the thread. This is the same job in one sheet:
+   pick a client, tick a day, load the lot. */
+let pick={open:false, email:'', loading:false, chosen:{}};
+
+/* every clip a client has sent, wherever it came from, newest first */
+function clipRows(email){
+  const out=[], seen={};
+  const add=r=>{ if(!r.uid || seen[r.uid]) return; seen[r.uid]=1; out.push(r); };
+  const defs=(cpDefs[email]||[]);
+  const cpName=k=>{ const d=defs.find(x=>x&&x.k===k); return (d&&d.n)||k; };
+  /* check point clips: what a client films most, and the one source the
+     old "everything from them" button did not look at */
+  const cps=((tracks[email]||{}).checkpoints)||{};
+  Object.keys(cps).forEach(k=>(cps[k]||[]).forEach(r=>{
+    if(r && r.video) add({uid:r.video, at:r.at||0, what:'Check point',
+      which:cpName(k), done:!!r.verdict}); }));
+  (subs[email]||[]).forEach(sb=>{
+    const what = sb.kind==='assessment' ? 'Form check'
+      : sb.kind==='checkpoint' ? 'Check point' : 'Two-week test';
+    (sb.clips||[]).forEach(c=>{
+      const uid = typeof c==='string' ? c : (c&&(c.uid||c.video));
+      add({uid, at:sb.at||0, what, which:(sb.numbers&&sb.numbers.name)||'',
+           done:sb.status==='reviewed'}); }); });
+  /* and anything they simply sent in the thread, which is only loaded for
+     whoever is open, so it is a bonus rather than the basis */
+  if(email===sel) thread.forEach(m=>{ if(m.from!=='coach' && m.video)
+    add({uid:m.video, at:m.at||0, what:'Sent in the thread', which:'', done:false}); });
+  return out.sort((a,b)=>(b.at||0)-(a.at||0));
+}
+/* dayKey is already defined above, for the calendar */
+function dayLabel(k){
+  const d=new Date(k+'T12:00:00'), now=new Date();
+  const days=Math.round((new Date(dayKey(now)+'T12:00:00')-d)/86400000);
+  if(days===0) return 'Today';
+  if(days===1) return 'Yesterday';
+  const when=d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+  return days<7 ? when : d.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:
+    d.getFullYear()===now.getFullYear()?undefined:'numeric'});
+}
+function pickOpen(email){
+  pick={open:true, email:email||'', loading:false, chosen:{}};
+  if(email) pickLoad(email);
+  pickPaint();
+}
+function pickClose(){ pick.open=false; pickPaint(); }
+/* a client the coach has not opened this session has none of their data
+   cached, so fetch the two that hold clips before drawing the list */
+function pickLoad(email){
+  pick.email=email; pick.chosen={};
+  const need=[];
+  if(!subs[email]) need.push(fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():null).then(d=>{ if(d) subs[email]=d.submissions||[]; }));
+  if(!tracks[email]) need.push(fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():null).then(d=>{ if(d){ tracks[email]=d.track||null;
+      if(!cpDefs[email]) cpDefs[email]=d.checkpoints||[]; } }));
+  if(!need.length){ pickPaint(); return; }
+  pick.loading=true; pickPaint();
+  Promise.all(need).catch(()=>{}).then(()=>{ pick.loading=false; pickPaint(); });
+}
+function pickToggle(uid){
+  if(pick.chosen[uid]) delete pick.chosen[uid]; else pick.chosen[uid]=1;
+  pickPaint();
+}
+/* the whole day at once, which is the thing he is actually trying to do */
+function pickDay(key){
+  const rows=clipRows(pick.email).filter(r=>dayKey(r.at||0)===key);
+  const allOn=rows.every(r=>pick.chosen[r.uid]);
+  rows.forEach(r=>{ if(allOn) delete pick.chosen[r.uid]; else pick.chosen[r.uid]=1; });
+  pickPaint();
+}
+function pickGo(){
+  const rows=clipRows(pick.email).filter(r=>pick.chosen[r.uid]);
+  if(!rows.length) return;
+  const name=(clients.find(c=>c.email===pick.email)||{}).name||'Client';
+  const first=(name||'').split(' ')[0]||'Client';
+  const titles={};
+  rows.forEach(r=>{ titles[r.uid]=first+' · '+(r.which||r.what)+' · '+dayLabel(dayKey(r.at||0)); });
+  pick.open=false; pickPaint();
+  /* oldest first, so a recording walks forwards through what they sent */
+  const uids=rows.slice().sort((a,b)=>(a.at||0)-(b.at||0)).map(r=>r.uid);
+  reviewClips(pick.email, uids, name, titles);
+}
+function pickHost(){
+  const wrap=document.getElementById('reviewWrap');
+  if(!wrap) return null;
+  let host=document.getElementById('pickHost');
+  if(host) return host;
+  host=document.createElement('div');
+  host.id='pickHost';
+  /* appended after the iframe rather than around it: re-parenting that
+     frame reloads it and takes the clips and any recording with it */
+  host.style.cssText='position:absolute;inset:0;z-index:5;display:none';
+  wrap.style.position='fixed';
+  wrap.appendChild(host);
+  return host;
+}
+function pickPaint(){
+  const host=pickHost();
+  if(!host) return;
+  if(!pick.open){ host.style.display='none'; host.innerHTML=''; return; }
+  host.style.display='block';
+  const list=clients.slice().sort((a,b)=>(b.unread||0)-(a.unread||0)
+    || String(a.name||a.email).localeCompare(String(b.name||b.email)));
+  let body='';
+  if(!pick.email){
+    body=`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-bottom:10px">
+        Whose clips are you reviewing?</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${list.map(c=>`<button onclick="pickLoad('${esc(c.email)}');pickPaint()"
+          style="cursor:pointer;text-align:left;border:1px solid var(--line);background:#fff;
+          border-radius:11px;padding:11px 13px;font:600 13.5px/1.2 var(--sans);display:flex;
+          justify-content:space-between;gap:10px;align-items:center">
+          <span>${esc(c.name||c.email)}</span>
+          ${c.unread?`<span style="flex:none;font:700 10px/1 var(--sans);padding:4px 7px;
+            border-radius:999px;background:var(--red);color:#fff">${c.unread}</span>`:''}
+        </button>`).join('')}
+      </div>`;
+  } else if(pick.loading){
+    body=`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);padding:20px 0">Loading their clips…</div>`;
+  } else {
+    const rows=clipRows(pick.email);
+    const days=[]; const by={};
+    rows.forEach(r=>{ const k=dayKey(r.at||0); if(!by[k]){ by[k]=[]; days.push(k); } by[k].push(r); });
+    const n=Object.keys(pick.chosen).length;
+    body = !rows.length
+      ? `<div style="font:400 13px/1.5 var(--sans);color:var(--grey);padding:20px 0">
+          Nothing from them yet.</div>`
+      : `<div style="display:flex;flex-direction:column;gap:14px">
+        ${days.map(k=>{
+          const all=by[k].every(r=>pick.chosen[r.uid]);
+          return `<div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
+              padding-bottom:6px;border-bottom:1px solid var(--line)">
+              <span style="font:600 12px/1 var(--sans);letter-spacing:.06em;color:var(--grey2);
+                text-transform:uppercase">${esc(dayLabel(k))} · ${by[k].length}</span>
+              <button onclick="pickDay('${k}')" style="cursor:pointer;border:0;background:none;
+                padding:2px 0;font:600 12px/1 var(--sans);color:var(--forest)">${
+                all?'Clear the day':'Select the day'}</button>
+            </div>
+            ${by[k].map(r=>`<button onclick="pickToggle('${esc(r.uid)}')"
+              style="cursor:pointer;width:100%;text-align:left;border:0;background:none;padding:9px 0;
+              display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line)">
+              <span style="flex:none;width:19px;height:19px;border-radius:6px;display:grid;
+                place-items:center;font:700 11px/1 var(--sans);color:#fff;
+                background:${pick.chosen[r.uid]?'var(--forest)':'transparent'};
+                border:1.5px solid ${pick.chosen[r.uid]?'var(--forest)':'var(--line)'}">${
+                pick.chosen[r.uid]?'✓':''}</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:block;font:600 13px/1.25 var(--sans)">${esc(r.which||r.what)}</span>
+                <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey2);margin-top:2px">${
+                  esc(r.which?r.what:'')}${r.which?' · ':''}${esc(new Date(r.at||0)
+                    .toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))}${
+                  r.done?' · answered':''}</span>
+              </span>
+            </button>`).join('')}
+          </div>`;}).join('')}
+      </div>`;
+    body += `<div style="position:sticky;bottom:0;padding-top:12px;background:var(--bg)">
+      <button onclick="pickGo()" ${n?'':'disabled'} style="width:100%;cursor:${n?'pointer':'default'};
+        border:0;border-radius:12px;padding:13px;background:var(--forest);color:#fff;
+        font:700 13.5px/1 var(--sans);opacity:${n?1:.45}">${
+        n?('Load '+n+' clip'+(n===1?'':'s')+' into the review'):'Pick some clips'}</button></div>`;
+  }
+  host.innerHTML=`<div onclick="if(event.target===this)pickClose()"
+      style="position:absolute;inset:0;background:rgba(10,20,18,.5);display:flex;
+      align-items:flex-start;justify-content:center;padding:18px;overflow:auto">
+      <div style="width:100%;max-width:520px;background:var(--bg);border-radius:16px;
+        padding:16px 18px 18px;box-shadow:0 30px 70px -30px rgba(0,0,0,.6)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="font:400 19px/1.15 var(--serif)">${pick.email
+            ? esc((clients.find(c=>c.email===pick.email)||{}).name||pick.email)+'&rsquo;s clips'
+            : 'Add clips'}</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            ${pick.email?`<button onclick="pick.email='';pick.chosen={};pickPaint()"
+              style="cursor:pointer;border:0;background:none;padding:4px;font:600 12px/1 var(--sans);
+              color:var(--forest)">Someone else</button>`:''}
+            <button onclick="pickClose()" style="cursor:pointer;border:0;background:none;padding:4px;
+              font-size:20px;line-height:1;color:var(--grey2)">×</button>
+          </div>
+        </div>
+        <div style="margin-top:12px">${body}</div>
+      </div>
+    </div>`;
 }
 /* The iframe is mounted once, outside #v, and never moves. draw() replaces
    the whole of #v on every keystroke, and an iframe that is re-created, or
@@ -2927,9 +3126,14 @@ function syncReview(){
       background:#fff;border-radius:9px;padding:6px 11px;font:600 12px/1 var(--sans)">
       ← Dashboard</button>
     <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">REVIEW</span>
+    <button onclick="pickOpen('${esc(reviewFor||sel||'')}')" style="cursor:pointer;border:0;
+      background:var(--forest);color:#fff;border-radius:9px;padding:7px 12px;
+      font:700 12px/1 var(--sans)">+ Add clips</button>
     ${reviewQueue.map(chip).join('')}
     ${reviewQueue.length?'':`<span style="font:400 11.5px/1.4 var(--sans);color:var(--grey2)">
-      Press Review on any clip a client has sent, or add files below.</span>`}`;
+      Add clips picks a client and a day. You can still press Review on a single
+      clip, or add files from this Mac below.</span>`}`;
+  pickPaint();
 }
 /* the tab body is only what shows for the split second before the panel
    opens, and what shows if the panel somehow cannot mount */
