@@ -5436,7 +5436,9 @@ function drawOv(){
            cleared:'Stage cleared',
            /* the chooser writes its own heading, and two titles one above
               the other is one title too many */
-           mode:'',list:'Every drill',explainer:'Explainer',locked:'',intro:'',
+           /* it is not "every drill" as opposed to something else any more,
+              it is the session */
+           mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'Explainer',locked:'',intro:'',
            checkin:'Your fortnight', feedback:'', paid:''};
   let body='';
   if(st.ov==='paid'){
@@ -5588,15 +5590,11 @@ function drawOv(){
           (!_wrist && stageLevel(_cur)===1 && easyCapped(_cur)) ? 'minutes · easier stops at '+EASY_CAP : 'minutes'}</div>
       </div>
 
-      <div>
-        <div style="${_kick}">HOW YOU WANT IT</div>
-        <div style="display:flex;gap:8px;margin-top:10px;background:var(--mist);
-          border-radius:14px;padding:4px">
-          ${[['prep','Follow along'],['work','Every drill']].map(([k,label])=>
-            `<button onclick="st.startAs='${k}';save();repaintMode()"
-              style="${_seg((st.startAs||'prep')===k)}">${label}</button>`).join('')}
-        </div>
-      </div>
+      <!-- "Follow along" and "Every drill" were offered here as a choice
+           between two things, to somebody who had seen neither, and they
+           were never two sessions: they were two ways of doing the same one.
+           There is one workout now. It opens as the list, and the follow
+           along player is a button at the top of it. -->
 
       ${(!_wrist && tasting()) ? `<div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;
         padding:11px 13px;border-radius:14px;background:rgba(243,169,73,.16)">
@@ -5605,7 +5603,7 @@ function drawOv(){
           ${tasteLeft()===1 ? 'Your last free session' : tasteLeft()+' free sessions'} at
           <b>${esc(STAGES[curStage()].n)}</b>, then it is ${PRICE()} a month${trialLine()?' with the '+trialLine():''}.</span>
       </div>` : ''}
-      <button onclick="closeOv();buildFreeSession(${_wrist},'${st.startAs||'prep'}',${_wrist?'null':_arg})"
+      <button onclick="closeOv();buildFreeSession(${_wrist},true,${_wrist?'null':_arg})"
         style="height:60px;width:100%;border:0;border-radius:16px;
         background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
@@ -5659,7 +5657,6 @@ function drawOv(){
       const q=grp.q, it=q.it, k=grp.keys[0];
       const nSets=grp.keys.length;
       const keysJson=grp.keys.join(',');
-      const mode=st.listMode||'work';
       const on=grp.keys.every(x=>(st.qTick||{})[x]);
       const someOn=!on && grp.keys.some(x=>(st.qTick||{})[x]);
       const rate=(st.rate||{})[it.v]||'', openD=(st.open||{})[k];
@@ -5672,7 +5669,7 @@ function drawOv(){
       return `<div style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
         border-radius:16px;padding:13px 14px">
         <div style="display:flex;gap:13px;align-items:flex-start">
-          ${mode==='work'?`<div class="box ${on?'on':''}" id="box-${k}"
+          ${true?`<div class="box ${on?'on':''}" id="box-${k}"
             onclick="qTickAll('${keysJson}',this)">✓</div>`
             :`<span style="flex:none;width:22px;font:600 11px/1.3 var(--sans);color:var(--grey2);
               padding-top:2px">${String(gi+1).padStart(2,'0')}</span>`}
@@ -5701,7 +5698,7 @@ function drawOv(){
                    something to press, and the unit was already said two
                    items to its left -->
               <button onclick="toggleStep('${k}')" id="dose-${k}"
-                style="${logLook(logged!=null)}">${mode==='work'
+                style="${logLook(logged!=null)}">${true
                   ? (logged==null?'Log':logged+doseUnit(it.d)+' done')
                   : 'Change time'}</button>
               ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" id="easy-${k}"
@@ -5728,18 +5725,18 @@ function drawOv(){
             </div>
             <div id="step-${k}" ${editing?'':'hidden'}
               style="display:flex;align-items:center;gap:10px;margin-top:11px">
-              <button onclick="${mode==='work'?`adjustReps('${k}',-1)`:`adjustSecs('${esc(it.v||'')}',-10,'${k}')`}"
+              <button onclick="${`adjustReps('${k}',-1)`}"
                 style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">−</button>
               <span id="secs-${k}" style="min-width:52px;text-align:center;font:400 20px/1 var(--serif);
-                color:var(--forest)">${mode==='work'?reps:work(it,q.g||q.grp)+'s'}</span>
-              <button onclick="${mode==='work'?`adjustReps('${k}',1)`:`adjustSecs('${esc(it.v||'')}',10,'${k}')`}"
+                color:var(--forest)">${reps}</span>
+              <button onclick="${`adjustReps('${k}',1)`}"
                 style="width:34px;height:34px;
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">+</button>
               <span style="margin-left:auto;font:600 10px/1 var(--sans);letter-spacing:.12em;
-                color:var(--grey2)">${mode==='work'?'REPS DONE':'SECONDS'}</span>
+                color:var(--grey2)">REPS DONE</span>
             </div>
             ${(()=>{
               const last=lastReps(it.v); if(!last) return '';
@@ -5782,7 +5779,6 @@ function drawOv(){
       </div>`;}).join('');
     const mins=Math.max(1,Math.round((Q||[]).reduce((a,q,_i)=>a+work(q.it,q.g||q.grp)+rest(q,_i,Q),0)/60));
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
-    const mode=st.listMode||'work';
     body=`<button class="fsbtn" id="ovFullBtn" onclick="toggleFull()">${
       st.ovFull?'Shrink':'Full screen'}</button>
       <button id="l-sound" onclick="toggleSound()" aria-label="${soundOn()?'Sound on':'Sound off'}"
@@ -5791,21 +5787,18 @@ function drawOv(){
         padding:0">${soundOn()?VB_SPK:VB_MUTED}</button>
       <div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
         ${qDrills()} drills · ${(Q||[]).length} sets · ${mins} minutes${
-          mode==='work'&&ticked?' · '+ticked+' done':''}</div>
-      ${mode==='prep'?`<button class="btn" style="width:100%;margin-bottom:14px"
+          ticked?' · '+ticked+' done':''}</div>
+      <!-- the same workout, run for you. It is the first thing on the list
+           rather than an alternative to it. -->
+      <button class="btn" style="width:100%;margin-bottom:6px"
         onclick="closeOv();startQueue(0)">Start follow along</button>
-        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:-6px 0 14px">
-          Tap a time to change it before you start.</div>`:''}
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:0 0 14px;text-align:center">
+        Or work down the list and tick them off.</div>
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
-      ${mode==='work'&&repsAreLocal()?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);
+      ${repsAreLocal()?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);
         text-align:center;margin-top:12px">Reps stay on this device until you have an account.</div>`:''}
-      ${mode==='prep'
-        ? `<button class="btn" style="width:100%;margin-top:14px"
-             onclick="closeOv();startQueue(0)">Start follow along</button>`
-        : `<button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:14px"
-             onclick="finishChecklist()">Done for today</button>
-           <button class="btn2" style="width:100%;margin-top:9px"
-             onclick="closeOv();buildFreeSession(st.ovList,'prep')">Follow along instead</button>`}`;
+      <button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:14px"
+        onclick="finishChecklist()">Done for today</button>`;
   }
   if(st.ov==='checkin'){
     const row=(id,label,lo,hi,def)=>`<div style="margin-top:16px">
@@ -7337,6 +7330,20 @@ const tasteLeft = () => Number.isInteger(st.taste) ? st.taste : TASTE_SESSIONS;
 const tasting = () => !isPlus() && !!st.token && placedStage() > FREE_STAGES-1 && tasteLeft() > 0;
 const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FREE_STAGES-1);
 /* one used, when a session above the free stage actually starts */
+/* A free session was only counted when the follow along player started, and
+   the drill list was the other half of the same workout: opening Every drill
+   at a locked stage spent nothing, so the whole stage was readable, filmed
+   and cued, for ever, without ever meeting the wall. One workout costs one
+   session however it is done, and doing it both ways costs one, not two. */
+let sessionSpent=false;
+function spendTaste(wristDay){
+  if(sessionSpent) return;
+  /* a mobility day is wrists and shoulders, not stage work, so it is not
+     one of the free looks at a stage somebody has not paid for */
+  if(wristDay) return;
+  sessionSpent=true;
+  if(!st.in) useTaste();
+}
 function useTaste(){
   if(!tasting()) return;
   if(curStage() < FREE_STAGES) return;
@@ -8054,8 +8061,10 @@ function screenFix(){
         <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);display:grid;place-items:center">
           <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
       </button>
+      <!-- one workout here too: the list is the session, and the button
+           above runs it for you -->
       <button onclick="buildFixSession('${esc(f.slug)}',true)" style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;
-        font:500 13.5px/1.4 var(--sans);color:var(--forest);padding:8px">See the drills, or work through the list</button>
+        font:500 13.5px/1.4 var(--sans);color:var(--forest);padding:8px">See the drills first</button>
 
       ${finished ? clipRow(kF, (f.finish&&f.finish.n)||'Film it again', (f.finish&&f.finish.note)||'Same angle as before. Put the two side by side.', after) : ''}
       ${before && !finished ? `<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Your before clip is in. The after comes at session ${tot}.</div>`:''}
@@ -8120,6 +8129,7 @@ function buildFixSession(slug, listOnly){
   if(out.length===warm.items.length) add(picked[0]);
   const tally={}; out.forEach(q=>{ tally[q.it.v]=(tally[q.it.v]||0)+1; }); out.forEach(q=>{ q.sets=tally[q.it.v]; });
   Q=out;
+  sessionSpent=false;
   if(listOnly){ st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true; openOv('list'); return; }
   st.fixRot=Object.assign({}, st.fixRot||{}); st.fixRot[slug]=(rot+1)%997;
   st.fixActive=slug; save(); track('fixstart', null, slug);
@@ -9787,10 +9797,12 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   out.forEach(q=>{ tally[q.it.v]=(tally[q.it.v]||0)+1; });
   out.forEach(q=>{ q.sets=tally[q.it.v]; });
   Q=out;
+  sessionSpent=false;          /* a fresh workout, not yet counted */
   if(listOnly){
     st.ovList=!!wristDay; st.ovRow=null;
-    st.listMode = (listOnly===true) ? 'work' : listOnly;
-    st.ovFull = st.listMode==='work';
+    st.listMode='work';   /* one workout, one shape */
+    st.ovFull=true;
+    track('start'); spendTaste(!!wristDay);
     openOv('list'); return;
   }
   startQueue(0);
@@ -9803,7 +9815,9 @@ function followDay(){ Q=queue(); startQueue(0); }
 
 function startQueue(from){
   qi=from||0; phase='work'; paused=false; sessionStart=Date.now();
-  if(!from){ track('start'); if(!st.in) useTaste(); }
+  /* spendTaste is once per built workout, so pressing Start follow along
+     from the list it was already counted on does not count it twice */
+  if(!from){ track('start'); spendTaste(!!st.ovList); }
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
   bindPlayer();
