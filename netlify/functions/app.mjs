@@ -330,8 +330,11 @@ async function stripe(path, params, method = 'POST') {
 async function stripePromo(code) {
   if (!stripeKey() || !code) return null;
   try {
+    /* the coupon is not expanded in a list response, so without this the
+       label falls back to "a discount" instead of saying 100% off */
     const out = await stripe(
-      `/promotion_codes?code=${encodeURIComponent(code)}&active=true&limit=1`, null, 'GET');
+      `/promotion_codes?code=${encodeURIComponent(code)}&active=true&limit=1&expand[]=data.coupon`,
+      null, 'GET');
     const p = (out.data || [])[0];
     if (!p || !p.active) return null;
     if (p.expires_at && Date.now() / 1000 > p.expires_at) return null;
