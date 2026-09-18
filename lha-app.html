@@ -5211,6 +5211,47 @@ function toggleSound(){
   });
   paintSound();
 }
+/* ── the clock on a row ──────────────────────────────────────────────
+   Working down the list meant timing your own holds on a phone clock,
+   which is the one thing a training app should never make you do. Tapping
+   the seconds runs that set down in place. One row at a time, counted on
+   wall-clock deltas so a backgrounded tab does not drift, and it ticks the
+   set off when it lands. Tap again to stop it. */
+let rowT=null;          /* {k, ends, raf, label, secs} */
+function rowClockStop(done){
+  if(!rowT) return;
+  clearInterval(rowT.raf);
+  const el=document.getElementById('clk-'+rowT.k);
+  if(el){ el.textContent=rowT.label; el.style.background='rgba(0,102,99,.08)';
+          el.style.color='var(--forest)'; }
+  const key=rowT.k; rowT=null;
+  if(done){ beep();
+    /* the same tick the box does, so one set is one tick wherever it came from */
+    const box=document.getElementById('box-'+key);
+    if(box && !box.classList.contains('on')) box.click();
+  }
+}
+function rowClock(k){
+  if(rowT && rowT.k===k) return rowClockStop(false);
+  if(rowT) rowClockStop(false);
+  const el=document.getElementById('clk-'+k);
+  if(!el) return;
+  const secs=Number(el.dataset.secs)||0;
+  if(secs<=0) return;                       /* a rep drill has nothing to count */
+  rowT={k, label:el.textContent, ends:Date.now()+secs*1000, raf:0};
+  const paint=()=>{
+    if(!rowT) return;
+    const el2=document.getElementById('clk-'+rowT.k);
+    if(!el2 || !el2.isConnected) return rowClockStop(false);
+    const left=Math.ceil((rowT.ends-Date.now())/1000);
+    if(left<=0) return rowClockStop(true);
+    el2.textContent=left+'s';
+    el2.style.background='var(--forest)';
+    el2.style.color='var(--on-primary)';
+  };
+  paint();
+  rowT.raf=setInterval(paint,200);
+}
 function beep(){ if(!soundOn()) return; try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
   o.frequency.value=660;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.0001,a.currentTime);
   g.gain.exponentialRampToValueAtTime(.2,a.currentTime+.01);g.gain.exponentialRampToValueAtTime(.0001,a.currentTime+.3);
@@ -5224,6 +5265,7 @@ function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on'
   if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
 function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
 function closeOv(){
+  rowClockStop(false);
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
   st.ov=null; st.ovFull=false; save();
   $('#ov').classList.remove('on'); $('#ov').classList.remove('full');
@@ -5700,8 +5742,17 @@ function drawOv(){
               <div id="name-${k}" style="font:600 15px/1.25 var(--sans);${
                 on?'color:var(--grey2);text-decoration:line-through':''}">${esc(it.n)}</div>
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:7px">
-              <span style="font:700 13px/1 var(--sans);color:var(--forest)">${
-                esc(perSet(it.d,nSets)||lenLabel(it,q.g||q.grp))}</span>
+              <!-- the dose is the clock. Tapping it counts the set down on
+                   the row, so somebody working through the list gets the
+                   timer without having to hand the whole session over to the
+                   follow along player. -->
+              <button id="clk-${k}" data-secs="${work(it,q.g||q.grp)|0}" data-key="${k}"
+                onclick="rowClock('${k}')"
+                aria-label="Time this set"
+                style="border:0;background:rgba(0,102,99,.08);border-radius:10px;padding:6px 10px;
+                cursor:pointer;font:700 13px/1 var(--sans);color:var(--forest);
+                font-variant-numeric:tabular-nums">${
+                esc(perSet(it.d,nSets)||lenLabel(it,q.g||q.grp))}</button>
               ${(()=>{
                 /* "1 x 30s  30s" says one thing twice; the clock earns its
                    place only where the dose does not already give it */
@@ -10457,6 +10508,13 @@ function screenJoin(){
      say so. */
   const taste = !want && st.joinFor==='taste' && STAGES[placedStage()] && placedStage()>stageCap();
   const PSJ = taste ? STAGES[placedStage()] : null;
+  /* Pressing "Start the free week" sent people to the same screen that
+     greets somebody who has just done the quiz: "Your starting point,
+     Stage 1, Foundations". That is not what they pressed. The free week is
+     its own errand and gets its own words, and the same words whether it
+     was the form check card or a locked stage that asked. */
+  const trial = PRICE_TRIAL()>0 && (st.joinFor==='check' || !!want);
+  const trialDays = PRICE_TRIAL()===7 ? 'week' : PRICE_TRIAL()+' days';
   const s = want || PSJ || STAGES[curStage()] || {n:''};
   /* This and screenOriented sit between the quiz and Today, so they are the
      first two things a new person sees after answering. They were still the
@@ -10465,16 +10523,22 @@ function screenJoin(){
   return `<div class="scroll s" style="min-height:100dvh;background:transparent;color:var(--ink);
     padding:calc(env(safe-area-inset-top) + 40px) 24px 30px;display:flex;flex-direction:column">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-      color:var(--forest)">${want?'To open '+esc(want.n)
+      color:var(--forest)">${trial?'Your free '+esc(trialDays)
+        :want?'To open '+esc(want.n)
         :taste?'Your free sessions at '+esc(PSJ.n):'Your starting point'}</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
-      want ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
+      trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
+       : want ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
        : taste ? `${esc(PSJ.n)}, <em style="color:var(--forest);font-style:normal">free.</em>`
            : `Stage ${curStage()+1}, <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em>`}</div>
     <!-- the stage goal used to be glued onto the end of the sentence about
          the payment page, so two unrelated statements ran together -->
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
-      want ? 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.'
+      trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
+               +'The account comes first, because the '+trialDays+' is attached to it and it is what you sign back in with. '
+               +'The card goes in on the next page, through Stripe, and nothing is charged until '
+               +firstCharge()+'. Cancelling before then is one tap in the app.'
+       : want ? 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.'
        : taste ? 'Your first '+TASTE_SESSIONS+' sessions there are free, and no card is asked for. '
                  +esc((PSJ.goal||'').replace(/\.$/,''))+'.'
            : esc(s.goal||'')}</div>
@@ -10485,7 +10549,9 @@ function screenJoin(){
 
     <div style="margin-top:auto;padding-top:30px">
       <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-bottom:14px">
-        ${want
+        ${trial
+          ? 'This is the account your '+trialDays+' sits on, so it is the one to sign in with on any phone.'
+          : want
           ? 'Your subscription is attached to this account, so it is the one you sign in with on any phone.'
           : taste
           ? 'The account is what holds the free sessions, so they are still there on any phone you sign in on.'
@@ -10528,8 +10594,8 @@ function screenJoin(){
         <button class="btn" type="submit" style="margin-top:4px;
           background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)">
-          ${(st.wantUpgrade!=null && STAGES[st.wantUpgrade])
-            ? 'Create it and open checkout' : 'Save and start'}</button>
+          ${trial ? 'Create it and start the free '+trialDays
+            : 'Save and start'}</button>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
           By joining you agree to our
           <a href="/terms" target="_blank" rel="noopener" style="color:var(--forest)">Terms</a> and
@@ -10562,8 +10628,13 @@ function doJoin(ev){
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
       st.tab='ladder'; save(); render();
       /* they came here to buy a stage, so finish the errand rather than
-         landing them on the ladder and making them find the button again */
-      if(st.token && st.wantUpgrade!=null){ st.wantUpgrade=null; save(); startUpgrade(); } })
+         landing them on the ladder and making them find the button again.
+         The form check card asks for the same free week without naming a
+         stage, and that errand was being dropped on the floor: the account
+         was created and they were left on the ladder wondering where the
+         week went. */
+      const wanted = st.wantUpgrade!=null || st.joinFor==='check';
+      if(st.token && wanted){ st.wantUpgrade=null; st.joinFor=''; save(); startUpgrade(); } })
     .catch(e=>{ joinSay(String(e)); });
 }
 /* letting them skip costs one address and keeps the app usable —
