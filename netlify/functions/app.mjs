@@ -108,7 +108,13 @@ const coachOf = e => {
   const c = rosterList().find(x => x.email === norm(e));
   return (c && c.coach) || primaryCoach();
 };
-const coachName = e => coaches()[norm(e)] || 'your coach';
+/* "your coach" is a description, and it was being handed to the app as a
+   name: the Ask screen printed it as the heading and took Y as the avatar
+   initial, so the coach was anonymous in the one screen that is the whole
+   point of coaching. Fall back to whoever is actually the coach here. */
+const coachName = e => coaches()[norm(e)]
+  || coaches()[primaryCoach()]
+  || 'Elliott';
 
 /* ── HMAC tokens, no dependencies ── */
 const b64url = buf => Buffer.from(buf).toString('base64')
@@ -454,6 +460,11 @@ const unreadCount = async who => (await supa.rows('messages',
 
 const markRead = who => supa.update('messages',
   `email=eq.${enc(who)}&sender=eq.client&read_at=is.null`, { read_at: nowISO() });
+
+/* PostgREST says PGRST205 when the relation does not exist. A table that
+   has been written but never created is a deploy that is not finished, and
+   it must not take a screen down with it. */
+const missingTable = err => /PGRST205/.test(String((err && err.message) || err));
 
 /* ── submissions ── */
 async function subsFor(db, who) {
@@ -1101,7 +1112,7 @@ export default async (request) => {
          starter there is and it was not being started. */
       try {
         await threadAdd(db, e, { from: 'coach',
-          text: `Welcome to the ladder. I'm ${coachName(primaryCoach()).replace(/^your coach$/, 'Elliott')}, I coach the people this app is built around. If anything about your handstand is confusing, or you want to know what to work on, ask it here. It comes straight to me.` });
+          text: `Welcome to the ladder. I'm ${coachName(primaryCoach())}, I coach the people this app is built around. If anything about your handstand is confusing, or you want to know what to work on, ask it here. It comes straight to me.` });
       } catch {}
       /* to them, not only to the coach. Transactional: it says what the
          account is and where the app lives, and nothing it did not ask for. */
@@ -2899,17 +2910,34 @@ export default async (request) => {
         return json({ error: 'That is a lot of questions at once. Try again shortly.' }, 429);
       }
       await ensureAcct(who);
-      await supa.insert('questions', { email: who, body: body2 });
+      /* The email is what actually reaches Elliott, so it goes first and
+         the row is the record. supabase/questions.sql has never been run
+         against the live database, so this insert throws PGRST205 and the
+         question was being lost with a 500 in front of the person who
+         asked it. Send it either way. */
+      let stored = true;
+      try { await supa.insert('questions', { email: who, body: body2 }); }
+      catch (err) { if (!missingTable(err)) throw err; stored = false; }
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Question from ${clients()[who] || who}`,
         mail({ title: 'A question came in.',
-          paras: [esc(body2)],
+          paras: [esc(body2)].concat(stored ? [] :
+            ['<b>This one is not in the dashboard.</b> The questions table does not '
+             + 'exist yet, so it is in this email only. Run supabase/questions.sql.']),
           cta: { href: `${SITE}/lha-coach.html`, label: 'Answer it' },
           signoff: { name: 'London Handstand Academy' } }));
-      return json({ ok: true });
+      return json({ ok: true, stored });
     }
-    const rows = await supa.rows('questions',
-      `email=eq.${enc(who)}&select=*&order=created_at.desc`);
+    let rows = [];
+    try {
+      rows = await supa.rows('questions',
+        `email=eq.${enc(who)}&select=*&order=created_at.desc`);
+    } catch (err) {
+      /* a table that does not exist yet must not take the whole app down:
+         this route runs on every boot for a signed-in account */
+      if (!missingTable(err)) throw err;
+      return json({ questions: [], off: true });
+    }
     return json({ questions: (rows || []).map(q => ({
       id: q.id, body: q.body, answer: q.answer || '', status: q.status,
       at: ms(q.created_at), answeredAt: ms(q.answered_at) })) });
@@ -4329,7 +4357,11 @@ export default async (request) => {
     }
 
     if (path === '/coach/questions') {
-      const rows = await supa.rows('questions', 'select=*&order=created_at.desc');
+      /* same missing table: the dashboard should say "nothing to answer",
+         not fall over on the tab that lists what needs answering */
+      let rows = [];
+      try { rows = await supa.rows('questions', 'select=*&order=created_at.desc'); }
+      catch (err) { if (!missingTable(err)) throw err; return json({ questions: [], off: true }); }
       const out = [];
       for (const q of (rows || [])) {
         if (!owns(q.email)) continue;

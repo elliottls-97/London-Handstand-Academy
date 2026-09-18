@@ -1717,7 +1717,7 @@ function screenPlan(){
     return `<div style="padding:20px 16px 0">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
         <span class="h-sm">${esc(g.name)}</span>
-        <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${g.items.length} DRILLS</span>
+        <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${g.items.length} DRILL${g.items.length===1?'':'S'}</span>
       </div>
       ${(function(){
         const wv=whyVideo(g.name);
@@ -2330,7 +2330,7 @@ function saveCheckpoint(k,v,video){
    the free tier has no one to send it to. */
 let cpUpBusy=null;
 function cpFilm(k){
-  if(!st.token){ st.tab='joinFree'; save(); render(); return; }
+  if(!st.token){ goJoin(); return; }
   const inp=document.createElement('input');
   inp.type='file'; inp.accept='video/*';
   inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(f) cpSendClip(k,f); };
@@ -3385,7 +3385,7 @@ function appUseCard(){
   const peak=Math.max(1,...days.map(d=>d.ms));
   return `<div class="card" style="padding:20px">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-      <span class="kick2">TIME IN THE APP</span>
+      <span class="kick2">TIME IN THE APP, THIS WEEK</span>
       <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${
         now.opens} visit${now.opens===1?'':'s'}${was.ms?', '+hm(was.ms)+' last week':''}</span>
     </div>
@@ -3572,10 +3572,18 @@ function trainingCalendar(){
   const allMins=ss.reduce((a,x)=>a+(Number(x.actual)||Number(x.mins)||0),0);
   const firstAt=ss.length?Math.min(...ss.map(x=>x.at)):0;
   const weeks=firstAt?Math.max(1,Math.round((Date.now()-firstAt)/(7*86400000))):0;
+  /* "6 sessions" here and "8% sticking to it" two cards away were counting
+     two different things and both calling it a session: this counted every
+     entry, adherence counts only the ones finished. A screen whose whole job
+     is to be believed cannot have two definitions of its own noun. Whole
+     sessions are sessions; the rest are named as what they are. */
+  const whole=ss.filter(x=>x.done).length, part=ss.length-whole;
   const sinceLine = ss.length
     ? `Since ${new Date(firstAt).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}: `
-      +`${ss.length} session${ss.length===1?'':'s'} &middot; ${hm(allMins*60000)} &middot; ${allS.drills} drills &middot; ${allS.sets} sets`
-      +(weeks>1?` &middot; ${(ss.length/weeks).toFixed(1)} a week`:'')
+      +`${whole} session${whole===1?'':'s'} finished`
+      +(part?` &middot; ${part} part`:'')
+      +` &middot; ${hm(allMins*60000)} &middot; ${allS.drills} drills &middot; ${allS.sets} sets`
+      +(weeks>1?` &middot; ${(whole/weeks).toFixed(1)} a week`:'')
     : '';
 
   return `<div class="card" style="padding:20px">
@@ -3604,7 +3612,7 @@ function trainingCalendar(){
       ${key('background:rgba(0,64,61,.07)','Opened only')}
     </div>
     <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
-      ${mOpens} day${mOpens===1?'':'s'} opened, ${mDays.length} with a session logged.
+      ${mOpens} day${mOpens===1?'':'s'} opened, ${mDays.filter(k=>byDay[k].some(x=>x.done)).length} with a session finished.
       ${mDays.length?'Tap a day for the exercises.':''}</div>
     ${sinceLine?`<div style="font:500 12px/1.5 var(--sans);color:var(--deep);margin-top:8px;padding-top:10px;
       border-top:1px solid rgba(0,64,61,.1)">${sinceLine}</div>`:''}
@@ -4065,7 +4073,11 @@ function screenProgress(){
 function progressBody(){ return screenProgress(); }
 
 /* Two coaches now, so the app cannot assume it is talking to Elliott. */
-function coachLabel(){ return st.coachName || 'Elliott'; }
+/* and never render a placeholder as a name, whatever the server sends */
+function coachLabel(){
+  const n=String(st.coachName||'').trim();
+  return (!n || /^your coach$/i.test(n)) ? 'Elliott' : n;
+}
 
 /* ── Ask ── */
 /* pull the thread from the worker; harmless if it isn't deployed yet */
@@ -4559,7 +4571,7 @@ function screenAsk(){
       <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;
         align-items:center;border:1px solid rgba(0,64,61,.10);
         box-shadow:0 1px 2px rgba(0,64,61,.05),0 10px 24px rgba(0,64,61,.07)">
-        <input id="askIn" placeholder="Ask about a drill, a niggle, a week off…"
+        <input id="askIn" placeholder="Ask about a drill or a niggle" aria-label="Your message"
           value="${esc(askDraft)}" oninput="askDraft=this.value"
           onkeydown="if(event.key==='Enter'){event.preventDefault();sendAsk();}"
           style="flex:1;border:none;outline:none;background:none;font:400 14px/1.3 var(--sans)">
@@ -5842,7 +5854,7 @@ function drawOv(){
       <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:12px">
         The first ${FREE_EXPLAINERS} are open to everybody. An account opens the rest,
         keeps your stage and your finished sessions, and costs nothing.</div>
-      <button onclick="closeOv();st.tab='joinFree';save();render()"
+      <button onclick="closeOv();goJoin()"
         style="width:100%;margin-top:20px;border:0;border-radius:16px;padding:17px;
         background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
@@ -6331,7 +6343,7 @@ function screenSignIn(){
         Forgotten it?</button>
       <div style="height:1px;background:rgba(0,64,61,.12);margin:16px 0 14px"></div>
       <div>No account yet?</div>
-      <button onclick="st.tab='joinFree';save();render()"
+      <button onclick="goJoin()"
         style="background:none;border:none;color:var(--forest);font:600 13px/1 var(--sans);
         text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:6px">Create one</button>
     </div></div>`;
@@ -6757,11 +6769,29 @@ function signOut(){
   st.ov=null;
   const ov=$('#ov'); if(ov){ ov.classList.remove('on'); ov.innerHTML=''; }
   document.querySelectorAll('video').forEach(v=>{try{v.pause()}catch(e){}});
-  st.in=false; st.codeSent=false; st.token=null;
-  st.client=null; st.msgs=null;      // nobody else's name or thread left behind
+  /* Clearing the token and the name left everything else behind: the stage
+     the last person reached, their check point log, their quiz answers,
+     their email, and st.plus — so the next person to pick up a shared phone
+     opened a fully unlocked ladder showing somebody else's 7 of 7, and a
+     reload did not shift it. Signing out is a clean device now. Anyone
+     signing back in gets it all again from the server, which is where it
+     actually lives. */
+  const keep={
+    sound: st.sound,                 /* a device preference, not a person */
+    ref:   st.ref,                   /* where this device first came from */
+  };
   try{ localStorage.removeItem('lha_plan'); }catch(e){}
+  try{ localStorage.removeItem(K); }catch(e){}
+  st={};
+  Object.keys(keep).forEach(k=>{ if(keep[k]!=null && keep[k]!==undefined) st[k]=keep[k]; });
+  st.day=0; st.tick={}; st.rate={}; st.note={}; st.open={}; st.why={};
   st.mode='free';                    // skip the welcome gate on the way out
   st.tab='ladder';                   // a screen they can actually use
+  /* back to the empty shape it ships with, not null: 29 places read
+     DATA.something and a null would throw on the way out */
+  DATA={days:[{id:'1',label:'Day 1',sub:'',title:'Day 1',when:'',mins:'0',groups:[]}],
+        read:[], test:{blurb:'',items:[]}};
+  subInfo=null; st.msgs=null;
   save(); render();
   window.scrollTo(0,0);
 }
@@ -7490,12 +7520,10 @@ function screenOriented(){
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
               No card. After that ${esc(PS.n)} is part of the ${PRICE()} a month
               ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.</div>
-            <button onclick="${st.token?"st.oriented=true;save();go('home')":"st.oriented=true;save();st.tab='joinFree';save();render()"}"
-              style="width:100%;margin-top:14px;border:0;
-              border-radius:16px;padding:17px;background:linear-gradient(180deg,#0a7a76,#006663);
-              box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-              color:var(--on-primary);font:600 16px/1 var(--sans);cursor:pointer">
-              ${st.token?'Train at '+esc(PS.n):'Make a free account'}</button>
+            <!-- the button for this lives in the sticky bar, which is the
+                 one thing always on screen. Two identical green buttons,
+                 one of them scrolling away, was the shape that made the
+                 escape route look like the offer. -->
           </div>
         </div>`;})():''}
 
@@ -7517,7 +7545,9 @@ function screenOriented(){
           'Every explainer is there whenever you want it. I will suggest one a day.')}
       </div>
 
-      <div style="height:8px"></div>
+      <!-- the sticky bar sits over the end of this, and was clipping the
+           card's last line mid-word -->
+      <div style="height:${gated?128:96}px"></div>
     </div>
 
     <!-- The film went to the top, which is right, and it pushed the way out
@@ -7529,15 +7559,23 @@ function screenOriented(){
     <div style="position:sticky;bottom:0;z-index:3;margin-top:auto;
       padding:30px 24px calc(env(safe-area-inset-bottom) + 14px);
       background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 46%)">
-      <button onclick="st.oriented=true;save();go('home')" style="width:100%;border:0;
+      <!-- The sticky button used to be "Start on Foundations instead": full
+           width, dark green, the same weight as a real call to action, and
+           the only one always on screen, while the offer it was an
+           alternative to scrolled away. The bar carries the offer now and
+           the other route is a link under it. Neither asks for money. -->
+      <button onclick="${gated
+          ? (st.token ? "st.oriented=true;save();go('home')" : "st.oriented=true;save();goJoin('taste')")
+          : "st.oriented=true;save();go('home')"}" style="width:100%;border:0;
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);font:600 17px/1 var(--sans);cursor:pointer">
-        ${gated?'Start on '+esc(S.n)+' instead':'Start your first session'}</button>
-      <!-- The £5 ask used to sit here too, so this screen asked twice before
-           anybody had done a drill. The card above offers the free sessions
-           at their own stage; this is the other free route. Neither asks for
-           money, and the wall is still there the moment they meet it. -->
+        ${gated ? (st.token ? 'Train at '+esc(PS.n) : 'Make a free account')
+                : 'Start your first session'}</button>
+      ${gated?`<button onclick="st.oriented=true;save();go('home')"
+        style="width:100%;background:none;border:none;cursor:pointer;margin-top:2px;padding:11px;
+        font:600 13.5px/1 var(--sans);color:var(--forest)">
+        Start on ${esc(S.n)} instead</button>`:''}
     </div></div>`;
 }
 
@@ -7792,7 +7830,7 @@ function askElliottRow(){
 }
 function askFromSearch(){
   const typed=((document.getElementById('askq')||{}).value||'').trim();
-  if(!st.token){ st.askDraft=typed; st.tab='joinFree'; save(); render(); return; }
+  if(!st.token){ st.askDraft=typed; goJoin(); return; }
   st.askDraft=typed; save();
   go('coaching');
   /* land them on the question box with it already filled in */
@@ -8287,8 +8325,10 @@ function screenHome(){
         ${FAQS_READY().map((_,i)=>`<span style="width:5px;height:5px;border-radius:99px;
           background:rgba(17,17,17,${i?0.14:0.42})"></span>`).join('')}
       </div>
+      <!-- "The first N are open" was already the label beside the heading,
+           and appeared again here as a caption under the same carousel -->
       ${st.token?'':`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);padding:10px 20px 0">
-        The first ${FREE_EXPLAINERS} are open. An account opens the rest.</div>`}
+        An account opens the rest.</div>`}
     </section>
 
     <!-- the workshop after the explainers, where the design puts it: it is an
@@ -8304,7 +8344,7 @@ function screenHome(){
         <p style="margin:6px 0 0;font:400 14px/1.5 var(--sans);color:#444">Everything here stays open.
           Add an email and your stage, holds and finished sessions come back on any device.</p>
         <button class="btn" style="width:100%;margin-top:14px"
-          onclick="st.tab='joinFree';save();render()">Save my progress</button>
+          onclick="goJoin()">Save my progress</button>
       </div>
     </section>`}
 
@@ -8660,7 +8700,7 @@ function screenLadder(){
             .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
               <span style="color:var(--forest)">&bull;</span><span>${x}</span></div>`).join('')}
         </div>
-        <button onclick="st.wantUpgrade=null;st.tab='joinFree';st.quizDone=true;save();render();window.scrollTo(0,0)"
+        <button onclick="st.wantUpgrade=null;st.quizDone=true;goJoin()"
           style="width:100%;margin-top:18px;border:0;border-radius:16px;padding:17px;
           background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
@@ -8957,7 +8997,7 @@ function screenUpgradeBody(si){
               ? `You have <b>${tasteLeft()} free session${tasteLeft()===1?'':'s'}</b> there before this opens.`
               : `You have had your free sessions there. This is what opens it.`}</div>
           ${!st.token?`<button class="btn2" style="width:100%;margin-top:10px"
-            onclick="closeOv();st.tab='joinFree';save();render()">Make a free account</button>`:''}</div>`;
+            onclick="closeOv();goJoin('taste')">Make a free account</button>`:''}</div>`;
       })()}
     </div>
 
@@ -9112,7 +9152,7 @@ function startUpgrade(){
       : (st.clearedFrom!=null ? st.clearedFrom+1
       : (placedStage()>stageCap() ? placedStage() : curStage()+1)));
     if(!STAGES[st.wantUpgrade]) st.wantUpgrade=Math.min(STAGES.length-1, curStage()+1);
-    if(!st.email){ st.tab='joinFree'; st.quizDone=true; }
+    if(!st.email){ joinErr=''; st.joinFor='buy'; st.tab='joinFree'; st.quizDone=true; }
     else st.tab='signin';
     save(); render(); window.scrollTo(0,0);
     return;
@@ -9905,7 +9945,7 @@ const trialLine = () => PRICE_TRIAL()>0 ? ('first '+(PRICE_TRIAL()===7?'week':PR
 const PRICE_NOTE = () => ((st.prices||{}).plus||{}).note || 'The price goes up as the ladder fills out. Join now and yours does not.';
 const PRICE_FOUNDING = () => ((st.prices||{}).plus||{}).founding !== false;
 function buyPlan(k){
-  if(!st.token){ st.tab='joinFree'; save(); render(); return; }
+  if(!st.token){ goJoin(); return; }
   const b=document.getElementById('buy-'+k);
   if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
   track('checkout');
@@ -9984,7 +10024,7 @@ function screenCoaching(){
           Film the skill you're stuck on and I tell you the one thing to change. Form checks
           come with the ${PRICE('plus')} a month tier, and the first ${PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days'} of it is free.</div>
         <button class="btn" style="width:100%;margin-top:16px"
-          onclick="st.tab='joinFree';save();render()">Make an account and start the free week</button>
+          onclick="goJoin('check')">Make an account and start the free week</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
           Already have one? <button onclick="st.tab='signin';save();render()" style="background:none;border:0;
             padding:0;color:var(--forest);font:600 12px/1 var(--sans);cursor:pointer;text-decoration:underline">Sign in</button></div></div>`
@@ -10104,7 +10144,7 @@ function screenCoaching(){
           Not sure which tier fits, or whether a niggle rules you out? Ask me directly —
           I answer these myself. An account first, so a reply has somewhere to land.</div>
         <button class="btn" style="width:100%;margin-top:14px"
-          onclick="st.tab='joinFree';save();render()">Create an account to ask</button>
+          onclick="goJoin()">Create an account to ask</button>
         <button class="btn2" style="width:100%;margin-top:9px"
           onclick="st.tab='signin';save();render()">I already have one</button>
       </div>`;
@@ -10277,6 +10317,19 @@ function screenWelcome(){
    Asked once they have a result to keep, so the address buys them
    something rather than blocking the door. */
 let joinErr='';
+/* Three problems with sign-up all came from there being no single way in.
+   joinErr survived from the last attempt, so the screen opened with a red
+   "Password needs at least 8 characters" before anything had been typed;
+   nothing recorded why the person was sent here, so somebody who had just
+   been promised two free Wall Work sessions landed on "Stage 1, Foundations"
+   whose first word was "Optional"; and a code typed at the paywall was
+   stashed silently with nothing on screen to say it had survived. */
+function goJoin(why){
+  joinErr='';
+  st.joinFor = why || '';
+  st.tab='joinFree';
+  save(); render(); window.scrollTo(0,0);
+}
 
 /* ── forgotten password ────────────────────────────────────────── */
 let resetStep=0, resetMsg='', resetEmail='';
@@ -10354,7 +10407,13 @@ function screenJoin(){
      here after the quiz, and the screen used to tell both of them the same
      thing: the stage they are already on, free. */
   const want = (st.wantUpgrade!=null && STAGES[st.wantUpgrade]) ? STAGES[st.wantUpgrade] : null;
-  const s = want || STAGES[curStage()] || {n:''};
+  /* "your first two sessions at Wall Work are free" and then a screen headed
+     "Stage 1, Foundations" whose first word is "Optional" reads as a switch,
+     at the exact moment of commitment. If they came for the free sessions,
+     say so. */
+  const taste = !want && st.joinFor==='taste' && STAGES[placedStage()] && placedStage()>stageCap();
+  const PSJ = taste ? STAGES[placedStage()] : null;
+  const s = want || PSJ || STAGES[curStage()] || {n:''};
   /* This and screenOriented sit between the quiz and Today, so they are the
      first two things a new person sees after answering. They were still the
      old green blocks while everything around them had moved, which is why
@@ -10362,19 +10421,30 @@ function screenJoin(){
   return `<div class="scroll s" style="min-height:100dvh;background:transparent;color:var(--ink);
     padding:calc(env(safe-area-inset-top) + 40px) 24px 30px;display:flex;flex-direction:column">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-      color:var(--forest)">${want?'To open '+esc(want.n):'Your starting point'}</div>
+      color:var(--forest)">${want?'To open '+esc(want.n)
+        :taste?'Your free sessions at '+esc(PSJ.n):'Your starting point'}</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
       want ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
+       : taste ? `${esc(PSJ.n)}, <em style="color:var(--forest);font-style:normal">free.</em>`
            : `Stage ${curStage()+1}, <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em>`}</div>
+    <!-- the stage goal used to be glued onto the end of the sentence about
+         the payment page, so two unrelated statements ran together -->
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
-      want ? 'The '+PRICE()+' a month rides on an account, so this takes a moment and then '
-             +'the payment page opens. '+esc((s.goal||'').replace(/\.$/,''))+'.'
+      want ? 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.'
+       : taste ? 'Your first '+TASTE_SESSIONS+' sessions there are free, and no card is asked for. '
+                 +esc((PSJ.goal||'').replace(/\.$/,''))+'.'
            : esc(s.goal||'')}</div>
+    ${st.pendingCode?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;
+      background:rgba(0,102,99,.08);font:400 13.5px/1.5 var(--sans)">
+      <b style="letter-spacing:.06em">${esc(st.pendingCode)}</b> is held and goes on
+      as soon as the account exists.</div>`:''}
 
     <div style="margin-top:auto;padding-top:30px">
       <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-bottom:14px">
         ${want
           ? 'Your subscription is attached to this account, so it is the one you sign in with on any phone.'
+          : taste
+          ? 'The account is what holds the free sessions, so they are still there on any phone you sign in on.'
           : emailOptional()
           ? 'Optional. It saves your progress, opens the rest of the explainers, and I send tips and new videos as they land.'
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
@@ -11107,6 +11177,20 @@ document.addEventListener('DOMContentLoaded',function(){
     rollTicks();
     if(st.tickDay!==before) render();
   });
+  /* ── offline ──────────────────────────────────────────────────────
+     sw.js has existed for months, with its cache version dutifully
+     bumped on every deploy, and nothing ever registered it. Only the
+     retired handstand-ladder-app.html had the two lines that turn it on,
+     so the landing page's "it works offline" and the More tab's "the
+     sessions work without signal" were both false: no worker, no caches,
+     and a gym with no signal got a browser error.
+     The worker is network-first for the shell, so an updated app still
+     arrives immediately; the cache is only reached when the network
+     cannot be. */
+  if('serviceWorker' in navigator
+     && (location.protocol==='https:' || location.hostname==='localhost')){
+    navigator.serviceWorker.register('/sw.js').catch(function(){});
+  }
 });
 render();
 </script>

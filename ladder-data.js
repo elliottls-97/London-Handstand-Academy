@@ -76,10 +76,10 @@ const STAGES=[
  {n:'Foundations',goal:'A 15-second chest-to-wall hold and a confident kick up.',hold:'15s',intro:'Everything you need before going upside down for real. Wrist and shoulder resilience, kicking up to the wall, and getting comfortable holding chest-to-wall.',
   ch:'Chest-to-wall hold',chSub:'Kick up to the wall and hold for 30 seconds. Do it with me.',
   drillIds:['wrist-circles-mob','plank-fingertip-lifts','shoulder-circles','downward-dog-pulses','chest-to-wall-bailouts','wall-walks','kick-up-bounces','scapula-shrugs','chest-to-wall-handstand','wall-kick-ups','p-l-handstand','chair-assisted-knee-lifts','chair-assisted-step-ups','dd-float-drills','p-dd-toe-taps','chaturganga-push-ups','p-pike-pushups-knees','dd-wrist-taps','palm-lifts-table-top','bunny-hops','knee-to-chest-kick-ups','fear-of-falling-cartwheel','proper-cartwheel','45-degree-wall-hold','push-ups-on-knees','wall-scapula-shrugs','floor-scapula-push-ups','chair-assisted-handstand-walks','chair-assisted-handstand-shoulder-adjustments','crow-pose','plank-pose']},
- {n:'Wall Work',goal:'Hold chest-to-wall 45–60s and start moving against the wall.',hold:'45s',intro:'Now you own the wall, get strong and mobile on it. Scapular strength, longer holds, and the first movements that take weight off the wall.',
+ {n:'Wall Work',goal:'Hold chest-to-wall 45 to 60s and start moving against the wall.',hold:'45s',intro:'Now you own the wall, get strong and mobile on it. Scapular strength, longer holds, and the first movements that take weight off the wall.',
   ch:'Slide away & hold',chSub:'Slide off the wall and hold your balance as long as you can. Aim for 15 seconds.',
   drillIds:['scapula-shrugs','wall-walks','tuck-slides','single-leg-tuck-slides','lateral-slide-outs','slide-away','pike-press-ups','knees-on-box','wall-kick-ups-progressions','p-tuck-handstand','p-tuck-slides','p-single-leg-tuck-slides','knees-on-box-single-leg-lifts','knees-on-box-knee-lift-offs','shoulder-pulses','p-pike-pushups','chair-assisted-handstand-shoulder-adjustments','chair-assisted-handstand-scapula-shrugs','wall-scapula-shrugs','floor-scapula-push-ups']},
- {n:'Pushing More',goal:'Own the assisted balance — slides, box work and clean entries.',hold:'20s',
+ {n:'Pushing More',goal:'Own the assisted balance: slides, box work and clean entries.',hold:'20s',
   intro:'A short refining stage. You can hold the wall and now you take weight off it deliberately: tuck slides with the shoulders stacked, sliding away under control, and entries clean enough to repeat. It is the difference between leaving the wall and being pushed off it.',
   ch:'Slide away & hold',chSub:'Slide off the wall and hold what you find. Aim for 20 seconds.',
   drillIds:['tuck-slides','single-leg-tuck-slides','p-tuck-slides','p-single-leg-tuck-slides','lateral-slide-outs','slide-away','knees-on-box','knees-on-box-single-leg-lifts','knees-on-box-knee-lift-offs','chair-assisted-step-ups','tuck-entries','straddle-entries','straight-entries','p-plank-slides','scapula-shrugs','wall-shape-changes']},
@@ -102,7 +102,7 @@ const FREE_DOSE={'wall-kick-ups':'2 × 10 reps each side','crow-pose':'2 × hold
  'p-pike-pushups-knees':'3 × 10 reps','p-tuck-slides':'3 × 8 reps',
  'p-single-leg-tuck-slides':'3 × 6 each side','p-tuck-handstand':'3 × 20s',
  'p-pike-pushups':'3 × 8 reps','wall-kick-ups-progressions':'2 × 10 reps each side',
- 'knees-on-box-single-leg-lifts':'3 × 8 each side','knees-on-box-knee-lift-offs':'3 × 5–8 reps',
+ 'knees-on-box-single-leg-lifts':'3 × 8 each side','knees-on-box-knee-lift-offs':'3 × 5 to 8 reps',
  'p-plank-slides':'3 × 8 reps','single-leg-tuck-take-offs':'3 × build to 5 reps',
  'wrist-circles-mob':'30s, both ways','scapula-shrugs':'3 × 10','wall-walks':'3 × 3 walks in',
  'chest-to-wall-bailouts':'3 × 3 each way','tuck-slides':'build to 5','single-leg-tuck-slides':'build to 5 each',
@@ -112,7 +112,7 @@ const FREE_DOSE={'wall-kick-ups':'2 × 10 reps each side','crow-pose':'2 × hold
  'single-leg-wall-removals':'build to 5','slide-away-2':'build to 5','tuck-take-offs':'build to 5',
  'tuck-entries':'10 reps','straight-entries':'10 reps','straddle-entries':'10 reps',
  'straddle-to-straight':'build to 6','straight-to-tuck-back':'build to 6','straddle-to-diamond':'build to 6',
- 'press-walks':'1 × up and down the mat','p-pancake':'3 × 60s','p-bench-zombies':'2 × 5–8',
+ 'press-walks':'1 × up and down the mat','p-pancake':'3 × 60s','p-bench-zombies':'2 × 5 to 8',
  'chest-to-wall-toe-taps':'3 × 8','chest-to-wall-handstand':'3 × 30s'};
 
 const WEEK = {
