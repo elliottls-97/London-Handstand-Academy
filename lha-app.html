@@ -2378,11 +2378,15 @@ function cpSendClip(k,file){
     .catch(err=>{ cpUpBusy=null; cpSay(k, String(err&&err.message||err||'Could not send it')); });
 }
 /* has this one reached what it is asking for */
-function cpMet(c){
-  const last=cpLast(c.k); if(!last) return false;
+/* Pass a value to ask "would this one count", which is what the bar needs
+   while a finger is still on it. With no value it answers for what is
+   logged, which is every other caller. */
+function cpMet(c, v){
+  const last = (v==null) ? cpLast(c.k) : {v:Number(v)||0};
+  if(!last) return false;
   /* the coach has seen the clip and said: that wins over the number either way */
-  if(last.verdict==='reached') return true;
-  if(last.verdict==='notyet') return false;
+  if(v==null && last.verdict==='reached') return true;
+  if(v==null && last.verdict==='notyet') return false;
   if(c.kind==='face') return Number(last.v)>=2;
   if(c.kind==='yn') return !!last.v;
   if(c.target==null) return false;
@@ -2431,6 +2435,23 @@ function cpWhen(at){
 /* A slider with the target marked on it, so a number is read against what it
    is aiming at rather than on its own. Drag or tap the track, and the step
    buttons stay for anyone who wants to be exact. */
+/* ── how far off, in colour ──────────────────────────────────────────
+   Red until you are halfway to the number, amber from there, and the
+   green the app already uses when you reach it. Nothing logged is the
+   pale track, because no colour is honest about a thing not attempted.
+   Lower-is-better runs the other way: a long bar is a bad bar there, so
+   the reading is always "how close to the target", never "how full". */
+function cpBarColour(c, val, met){
+  if(met) return 'linear-gradient(90deg,#0a7b74,#006663)';
+  const K=CP_KIND[c.kind]||CP_KIND.count;
+  const lower=(c.lower!=null)?c.lower:K.lower;
+  const v=Number(val)||0;
+  if(!v) return 'linear-gradient(90deg,#cfe6ec,#8fbeca)';
+  if(c.target==null) return 'linear-gradient(90deg,#cfe6ec,#8fbeca)';
+  const close = lower ? (v <= c.target*2) : (v >= c.target*0.5);
+  return close ? 'linear-gradient(90deg,#f3a949,#d98e2a)'
+               : 'linear-gradient(90deg,#c9705a,#a4503c)';
+}
 function cpInput(c){
   const K=CP_KIND[c.kind]||CP_KIND.count;
   const last=cpLast(c.k);
@@ -2476,10 +2497,14 @@ function cpInput(c){
   const notch = (c.target!=null && max>c.target) ? (c.target/max)*100 : null;
   const step=c.kind==='secs'?5:1;
   const unit=cpUnit(c);
-  /* The target label lives at the right-hand end of the track, so the thumb
-     has to stop short of it: at a full bar the two sat on top of each other
-     and the number you are aiming at was the one you could not read. */
-  const RES = c.target!=null ? 88 : 36;
+  /* The target label used to live inside the right-hand end of the track,
+     which meant the thumb had to stop short of it: a check point that was
+     reached drew a bar about eighty five per cent full, with a grey strip
+     after it. Dragging to the end never looked like getting to the end.
+     The end of the bar is the target now and nothing sits in front of it,
+     so a full bar is a reached check point. The number itself is on the
+     line under the track, which already says how far off it is. */
+  const RES = 36;
   const run = `(100% - ${RES}px) * ${(pct/100).toFixed(4)}`;
   return `<div>
     <div id="cptrack-${c.k}" data-res="${RES}" onpointerdown="cpDrag(event,'${c.k}',${max},${RES})"
@@ -2487,11 +2512,8 @@ function cpInput(c){
       cursor:pointer;touch-action:none;overflow:hidden">
       <i id="cpfill-${c.k}" style="position:absolute;left:0;top:0;bottom:0;border-radius:20px;
         width:calc(${run} + 36px);
-        background:${met?'linear-gradient(90deg,#0a7b74,#006663)':'linear-gradient(90deg,#cfe6ec,#8fbeca)'};
+        background:${cpBarColour(c,val,met)};
         transition:width .16s,background .35s"></i>
-      ${c.target!=null?`<span style="position:absolute;right:0;top:0;bottom:0;width:52px;display:flex;
-        align-items:center;justify-content:center;font:700 10.5px/1 var(--sans);color:var(--deep);
-        pointer-events:none">${c.target}${esc(unit)}</span>`:''}
       ${notch!=null?`<i style="position:absolute;left:calc((100% - ${RES}px) * ${
         (notch/100).toFixed(4)} + 18px);top:5px;bottom:5px;width:2px;
         background:rgba(0,64,61,.45)"></i>`:''}
@@ -2839,7 +2861,9 @@ function cpToGo(c){
   /* the left of this line already says whether it has been logged, so the
      right says nothing rather than saying it twice */
   if(c.kind==='yn'||c.kind==='face') return last ? (met?'Reached':'Not there yet') : '';
-  if(!last) return '';
+  /* the target used to be a label inside the track. Nothing logged yet, so
+     say what the end of the bar is worth reaching. */
+  if(!last) return c.target==null ? '' : 'Target '+c.target+unit;
   if(met) return 'Target reached';
   if(c.target==null) return '';
   return lower ? (last.v-c.target)+unit+' to lose' : (c.target-last.v)+unit+' to go';
@@ -2912,7 +2936,9 @@ function cpStep(k,by,max){
     const res=Number(el.dataset.res)||36, p=max?next/max:0;
     const run='(100% - '+res+'px) * '+p.toFixed(4);
     const fill=document.getElementById('cpfill-'+k), thumb=document.getElementById('cpthumb-'+k);
-    if(fill) fill.style.width='calc('+run+' + 36px)';
+    if(fill){ fill.style.width='calc('+run+' + 36px)';
+      const c0=cpDef(k);
+      if(c0) fill.style.background=cpBarColour(c0, next, cpMet(c0, next)); }
     if(thumb) thumb.style.left='calc('+run+' + 4px)';
   }
   ['cpval-','cpstep-'].forEach(pre=>{
@@ -2932,14 +2958,27 @@ function cpDrag(e,k,max,res){
   const set=ev=>{
     const r=el.getBoundingClientRect();
     const run=Math.max(1, r.width-RES);
-    const p=Math.max(0,Math.min(1,(ev.clientX-r.left-16)/run));
+    let p=Math.max(0,Math.min(1,(ev.clientX-r.left-16)/run));
+    /* The end of this track is the target, so getting there is the whole
+       point of dragging it. One unit of a 45 second hold is about six
+       pixels, so a finger that stopped a hair short logged 44 and the card
+       still said the check point was not reached, which read as the bar
+       being broken. The last stretch of the track is the target, and the
+       first is nought. Only the two ends snap: everything between them is
+       still the number they actually dragged to. */
+    const SNAP=0.04;
+    if(p>1-SNAP) p=1; else if(p<SNAP) p=0;
     st.cpDraft=Object.assign({},st.cpDraft,{[k]:Math.round(p*max)});
     /* paint without a full render, or the drag stutters. Addressed by id
        rather than by position: the track has a target label in it now, and
        counting children put the thumb on the wrong element. */
     const fill=document.getElementById('cpfill-'+k), thumb=document.getElementById('cpthumb-'+k);
-    const run2='(100% - '+RES+'px) * '+p.toFixed(4);
-    if(fill) fill.style.width='calc('+run2+' + 36px)';
+    const run2='(100% - '+RES+'px) * '+p.toFixed(4);   /* p is post-snap */
+    if(fill){ fill.style.width='calc('+run2+' + 36px)';
+      /* the colour follows the finger, so red turning green is the thing
+         that tells you it counted */
+      const c0=cpDef(k), nv=Math.round(p*max);
+      if(c0) fill.style.background=cpBarColour(c0, nv, cpMet(c0, nv)); }
     if(thumb) thumb.style.left='calc('+run2+' + 4px)';
     const lab=document.getElementById('cpval-'+k);
     if(lab) lab.textContent=Math.round(p*max)+(lab.dataset.u||'');
