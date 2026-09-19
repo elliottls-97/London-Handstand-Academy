@@ -1208,10 +1208,12 @@ export default async (request) => {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const acct = (await getAcct(who)) || {};
+    const coachedNow = await isCoached(who);
+    const usedCheck = !!(await supa.row('free_checks', `email=eq.${enc(who)}&select=email`));
     return json({
       email: who,
       name: clients()[who] || acct.name || '',
-      coached: await isCoached(who),
+      coached: coachedNow,
       coach: coachList().includes(who),
       coachName: (await isCoached(who)) ? coachName(coachOf(who)) : '',
       /* plusNow, not the column: a code's plus_until rides in settings and
@@ -1222,13 +1224,18 @@ export default async (request) => {
       canManage: !!acct.stripe_customer,
       canCancel: !!(acct.subscription || acct.stripe_customer),
       cancelAt: acct.cancel_at || 0,
-      /* the one free form check. Its own key, because nothing else writes
-         it — folding it into acct would put it in the path of every other
-         account write. */
-      /* a form check needs the paid tier or its free week; the old one
-         free check per account is gone, so nothing is ever "used" */
-      freeCheckUsed: false,
-      canCheck: !!clients()[who] || plusNow(acct),
+      /* the one included form check. Its own key, because nothing else
+         writes it: folding it into acct would put it in the path of every
+         other account write.
+         A form check is Elliott watching footage and writing back, which
+         costs him an hour of his week, not a server. One per account is
+         the limit and the ledger is the free_checks table, which is what
+         makes it a limit rather than a sentence in the copy. */
+      /* one per account, free. The plus tier is the ladder and does not
+         carry form checks; the check tier puts you on the roster, which is
+         what coachedNow reads. */
+      freeCheckUsed: !coachedNow && usedCheck,
+      canCheck: coachedNow || !usedCheck,
     });
   }
 
@@ -3068,12 +3075,25 @@ export default async (request) => {
     /* A form check is part of the paid tier now, and the free week of it is
        the way in. It used to be one free check per account for ever, which
        was one free check per email address, and the wall said so. */
+    /* ── one form check, free, and one only ────────────────────────
+       A form check is Elliott watching footage and writing back. It costs
+       an hour of his week, not a server, so the limit has to be a ledger
+       rather than a sentence in the copy.
+       The tiers: an account gets one, ever. The ${PRICES.check.label} a
+       month tier is the one that buys form checks, and buying it puts the
+       person on the roster, which is what `coached` reads above, so they
+       never reach this gate. The ${PRICES.plus.label} tier is the ladder
+       and does not include them.
+       This route used to check the tier and nothing else, which meant a
+       five pound subscriber could send a clip every day of the month.
+       insertIfAbsent is the claim: whoever wins the row gets the check,
+       and a second attempt cannot win it even if both arrive at once. */
     if (!coached) {
-      const acct = await getAcct(who);
-      if (!plusNow(acct)) {
-        return json({ error: `Form checks are part of the ${PRICES.plus.label} a month tier, and the first `
-          + `${PRICES.trialDays === 7 ? 'week' : PRICES.trialDays + ' days'} is free. Start it and send this straight after.`,
-          gated: true }, 402);
+      const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
+      if (!won) {
+        return json({ error: `That is your free form check used. Elliott watches every one himself, `
+          + `so there is one with an account. After that they are ${PRICES.check.label} a month.`,
+          gated: true, usedUp: true }, 402);
       }
     }
     const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};
@@ -3093,8 +3113,8 @@ export default async (request) => {
     const [saved] = await supa.insert('submissions',
       { email: who, kind, cycle: cycle.n, numbers, clips, status: 'submitted' });
     const id = saved.id;
-    /* free_checks is no longer written: the tier is the limit now, not a
-       count. The table stays for the history it holds. */
+    /* free_checks was claimed above, before anything was written, so a
+       refused check never costs the person their one. */
 
     /* it lands in the thread too, so the coach reads it where they
        already reply rather than in a second inbox */

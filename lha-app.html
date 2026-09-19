@@ -2551,6 +2551,11 @@ function cpDef(k){
   }
   return null;
 }
+/* One mark for a form check, used on every check point card and on the
+   form check screen itself, so the thing is recognisable before it is read. */
+const IC_FORMCHECK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+  + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
 function cpCard(c, i, total){
   return `<div id="cpcard-${c.k}" data-i="${i}" data-total="${total}"
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
@@ -2626,38 +2631,38 @@ function cpCardTop(c, i, total){
         <div style="margin-top:4px;font:400 12px/1.3 var(--sans);color:var(--grey)">${
           drill ? esc(drill.n) : 'Not filmed yet'}</div>
       </div>
+      <!-- A form check used to be a full width button under every check
+           point, which added forty eight pixels to a card that repeats
+           seven times. It is one icon at the end of the row that was
+           already here, so the card is the same height and the offer is
+           in the same place, drawn the same way, everywhere it appears. -->
+      ${c.video===false?'':`<button id="cpfc-${c.k}"
+        onclick="event.stopPropagation();${(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`}"
+        aria-label="${sent?'Send Elliott another clip of this'
+          :fcOpen()?'Send Elliott a clip of this':'Form checks, '+PRICE('check')+' a month'}"
+        title="${sent?'Clip sent. Send another'
+          :fcOpen()?'Send Elliott a clip of this':'Your free form check is used. '+PRICE('check')+' a month for more'}"
+        style="flex:none;width:40px;height:40px;border-radius:12px;cursor:pointer;border:0;
+        display:grid;place-items:center;padding:0;
+        background:${sent?'rgba(0,102,99,.12)':fcOpen()?'rgba(243,169,73,.20)':'rgba(17,17,17,.06)'};
+        color:${sent?'var(--forest)':fcOpen()?'#7a4a10':'var(--grey2)'}">${IC_FORMCHECK}</button>`}
     </div>
-    ${((st.coached||coachedView()) && c.video!==false)?`
-      <button onclick="cpFilm('${c.k}')" style="width:100%;margin-top:9px;cursor:pointer;min-height:48px;
-        border:0;border-radius:14px;padding:14px;display:flex;align-items:center;justify-content:center;
-        gap:9px;font:700 13px/1 var(--sans);
-        background:${sent?'transparent':'rgba(243,169,73,.18)'};
-        box-shadow:${sent?'inset 0 0 0 1.5px rgba(0,102,99,.3)':'none'};
-        color:${sent?'var(--forest)':'#7a4a10'}">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-        ${sent?'Send another clip':'Send Elliott a clip'}</button>
-      <div id="cpup-${c.k}" style="margin-top:7px;font:500 12px/1.4 var(--sans);
-        text-align:center;color:${sent?'var(--forest)':'var(--grey)'}">${
-        sent ? 'Clip sent '+esc(cpWhen(sent.at))+'. Elliott has it.'
-             : 'A number says what happened. A clip says whether it was any good.'}</div>`:''}
-    <!-- Every gate on the ladder is self-scored, and the moment somebody
-         drags a slider is the moment they wonder whether what they did
-         actually counted. That doubt is real and it is the honest way in to
-         a coach: not a banner on a tab, a question asked where it occurs.
-         The form check card on the coaching screen already handles both
-         the can-send and cannot-send cases, so this only has to get them
-         there with the doubt still fresh. -->
-    ${(!(st.coached||coachedView()) && last)?`
-      <button onclick="closeOv();go('coaching')" style="width:100%;margin-top:10px;cursor:pointer;
-        min-height:46px;border:0;border-radius:14px;padding:12px;background:none;
-        box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.22);color:var(--forest);
-        font:600 13px/1.35 var(--sans)">
-        Not sure that was right? Send Elliott ten seconds of it</button>
-      <div style="margin-top:6px;font:400 11.5px/1.4 var(--sans);text-align:center;color:var(--grey2)">
-        He watches it himself and writes back with the one thing to change.</div>`:''}`;
+    <!-- empty until an upload says something, so it costs no height -->
+    <div id="cpup-${c.k}" style="font:500 12px/1.4 var(--sans);color:${
+      sent?'var(--forest)':'var(--grey)'}">${
+      sent ? '<span style="display:block;margin-top:7px">Clip sent '+esc(cpWhen(sent.at))+'. Elliott has it.</span>' : ''}</div>`;
 }
+/* Somebody who is not a coaching client sends a clip as a form check, which
+   is its own screen and knows whether they can send one. Every gate on the
+   ladder is self-scored, and the moment somebody drags a slider is the
+   moment they wonder whether it counted, so the offer belongs on the card
+   rather than on a tab they never open. */
+function cpAsk(){ closeOv(); go('coaching'); }
+/* whether a form check is there to be sent right now: a coached client or
+   the check tier always, everybody else until they have used their one. The
+   icon stays on the card either way, because the offer is still real, it
+   just costs something once the free one is gone. */
+const fcOpen = () => coachedView() || !!st.coached || !!st.canCheck;
 /* ── the record ─────────────────────────────────────────────────────
    Every reading, newest first, and beside any with a clip what the coach
    said about it. For a form check client this is the point: not what they
@@ -8949,7 +8954,7 @@ function screenLadder(){
         <!-- with an account the check points are already on this page, so
              this walks you down to them rather than opening a sheet over
              the top of them -->
-        <button onclick="${st.token?'scrollToCps()':'openStage('+cur+')'}" style="flex:1;min-height:52px;border:0;background:none;
+        <button onclick="scrollToCps()" style="flex:1;min-height:52px;border:0;background:none;
           color:var(--forest);font:600 15px/1 var(--sans);cursor:pointer">
           Log a check point</button>
       </div>
@@ -8964,14 +8969,14 @@ function screenLadder(){
          The check points are the progression system and they were behind
          a text link next to a large green button, so most people never
          met them: the screen led with six stages, five of which are
-         months away. With an account they are the page. The ladder is
-         orientation, wanted occasionally, so it folds. Signed out there
-         is nothing to record yet and the ladder is the right thing to
-         see, so it stays open. -->
-    ${st.token?`<div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard()}</div>`:''}
+         months away. They are the page now, for everybody. The ladder is
+         orientation rather than the daily job, so it folds, and the tour
+         is where it gets explained the first time. The focus is what you
+         are working on, not where you could be in six months. -->
+    <div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard()}</div>
 
-    <div style="padding:${st.token?'22px':'30px'} 20px 40px">
-      ${st.token?`<button onclick="st.ladderOpen=!${!!st.ladderOpen};save();render()"
+    <div style="padding:22px 20px 40px">
+      <button onclick="st.ladderOpen=!${!!st.ladderOpen};save();render()"
         style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
         background:none;border:0;cursor:pointer;padding:12px 0;text-align:left">
         <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">
@@ -8983,8 +8988,8 @@ function screenLadder(){
             style="transform:rotate(${st.ladderOpen?180:0}deg);transition:transform .2s">
             <path d="M6 9l6 6 6-6"/></svg>
         </span>
-      </button>`:''}
-      ${(!st.token || st.ladderOpen)?`
+      </button>
+      ${st.ladderOpen?`
       ${rungsDone?`<div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">DONE</div>
       <div style="margin-top:16px">${rungsDone}</div>`:''}
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
@@ -9009,7 +9014,7 @@ function screenLadder(){
         <div style="flex:1;min-width:0">
           <div style="font:400 19px/1.2 var(--serif)">Want Elliott&rsquo;s eyes on it?</div>
           <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">
-            Send a clip, get a form check. Free once.</div>
+            Send a clip, get a form check. ${st.freeCheckUsed?PRICE('check')+' a month':'Free once'}.</div>
         </div>
         <span style="flex:none;height:44px;padding:0 16px;border-radius:22px;
           border:1.5px solid var(--forest);color:var(--deep);font:600 14px/1 var(--sans);
@@ -9218,7 +9223,7 @@ function screenUpgradeBody(si){
         ${[(STAGES.length-FREE_STAGES)+' more stages, from the wall to a press',
            'Every drill in those stages, filmed, cued and captioned',
            'Sessions built around the time you have, different each time',
-           'A form check: send a clip, get the one thing to change',
+           'Your progress and check points kept across devices',
            'Cancel any time, from the app']
           .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
             <span style="color:var(--forest)">&bull;</span><span>${esc(x)}</span></div>`).join('')}
@@ -10184,17 +10189,18 @@ function screenCoaching(){
   const checkCard = !signedIn
     ? `<div class="card" style="padding:22px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-          <span class="kick2">FORM CHECK</span>
+          <span class="kick2" style="display:inline-flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</span>
           <span style="flex:none;padding:5px 10px;border-radius:999px;background:var(--sand);
-            font:600 11px/1 var(--sans);color:var(--deep)">${trialLine()||'In the '+PRICE('plus')+' tier'}</span>
+            font:600 11px/1 var(--sans);color:var(--deep)">ONE FREE</span>
         </div>
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           One clip. One written answer, within 48 hours.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Film the skill you're stuck on and I tell you the one thing to change. Form checks
-          come with the ${PRICE('plus')} a month tier, and the first ${PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days'} of it is free.</div>
+          Film the skill you're stuck on and I tell you the one thing to change.
+          I watch every one myself, so there is one free with an account. After
+          that they are ${PRICE('check')} a month on top of the ladder.</div>
         <button class="btn" style="width:100%;margin-top:16px"
-          onclick="goJoin('check')">Make an account and start the free week</button>
+          onclick="goJoin()">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
           Already have one? <button onclick="st.tab='signin';save();render()" style="background:none;border:0;
             padding:0;color:var(--forest);font:600 12px/1 var(--sans);cursor:pointer;text-decoration:underline">Sign in</button></div></div>`
@@ -10245,18 +10251,20 @@ function screenCoaching(){
       })()
     : !canCheck
     ? `<div class="card" style="padding:22px">
-        <div class="kick2">FORM CHECK</div>
-        <div class="h-md" style="font-size:24px;margin-top:8px">Send a clip, get the one thing to change.</div>
+        <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">${
+          st.freeCheckUsed?'That is your free one used.':'Send a clip, get the one thing to change.'}</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Form checks come with the ${PRICE('plus')} a month tier, along with the whole ladder.
-          ${trialLine()?'The first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' is free, and you can send one the moment it starts.':''}</div>
+          Every one is watched by Elliott and answered in writing, so there is one
+          free with an account. Form checks after that are ${PRICE('check')} a month,
+          on top of the ${PRICE('plus')} ladder, and you can stop them any time.</div>
         ${tick('Watched by me, not a bot')}
         ${tick('A reply within 48 hours')}
-        ${tick('Cancel from the app whenever')}
-        <button class="btn" style="width:100%;margin-top:16px" onclick="startUpgrade()">
-          ${trialLine()?'Start the free week':'Start for '+PRICE('plus')+' a month'}</button></div>`
+        ${tick('As many as you train, while it runs')}
+        <button class="btn" style="width:100%;margin-top:16px" onclick="buyPlan('check')">
+          Form checks, ${PRICE('check')} a month</button></div>`
     : `<div class="card" style="padding:22px">
-        <div class="kick2">FORM CHECK</div>
+        <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">Find out what's holding you back.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           One clip of the skill you're stuck on. Side on, phone vertical, whole
@@ -10734,6 +10742,13 @@ const TABS={
      the second half of the ladder screen now. Four tabs, not five. */
   free:[['home','Today'],['ladder','Ladder'],['coaching','Coaching'],['more','More']]
 };
+/* Has Elliott ever written back about a clip of theirs? Until he has, the
+   coaching tab is an advert, and a tab that is an advert gets ignored.
+   Called Form check it is a thing they can use, which is also the honest
+   description of what is on it and the way in to the rest. */
+const hadFormCheck = () => !!st.lastReview
+  || ((st.subs||[]).some(x=>x && x.status==='reviewed'));
+const coachTabLabel = () => hadFormCheck() ? 'Coaching' : 'Form check';
 /* A coaching client is still a person who might want the ladder. The tab
    set follows the view they have chosen rather than what they pay for. */
 function coachedView(){ return !!st.in && !st.asFree; }
@@ -10912,7 +10927,8 @@ const TOURS = {
        b:'Type a question and it looks through the videos first. The rail underneath is every explainer.',
        pre:()=>{ tourLeaveMode(); }},
       {t:'tabs', h:'The rest of it',
-       b:'Ladder is every drill in every stage, Progress is what you have actually done, and Coaching is where you send a clip to me.'},
+       b:()=>'Ladder is every drill in every stage, Progress is what you have actually done, and '
+         +coachTabLabel()+' is where you send a clip to me.'},
       /* skipped entirely once it is installed, which is why it carries a
          test rather than sitting there telling people to do what they have
          already done */
@@ -10960,7 +10976,21 @@ const TOURS = {
     steps:[
       {t:'stagegoal', h:'How you leave this stage',
        b:'Every stage has a handful of check points. The number beside the stage is how many you have reached, and the amber bar is the same thing drawn. Reach all of them and the next stage opens below.'},
-      {t:'stagelist', h:'All six stages',
+      /* the check points are the page now, so the tour walks you onto them
+         rather than past them */
+      {t:'checkpoints', h:'This is the bit that moves you',
+       b:()=>'Each one is a thing to be able to do, with a number on it. Drag it to what you managed and it logs as you go. '
+         +'Nothing here is a guess: it is what decides when the next stage opens.',
+       pre:()=>{ if(st.ladderOpen){ st.ladderOpen=false; save(); render(); } }},
+      /* and the ladder gets explained here, once, because it is folded away
+         the rest of the time: the daily job is your own progress, not the
+         six stages you might be on in a year */
+      /* always, because the list it points at is folded away until its own
+         pre() opens it, and buildTourList drops any step whose target is not
+         in the DOM at the moment the list is built. Without this the one
+         place the ladder ever gets explained was silently skipped. */
+      {t:'stagelist', h:'All six stages', always:true,
+       pre:()=>{ if(!st.ladderOpen){ st.ladderOpen=true; save(); render(); } },
        /* This said "Nothing is locked" over a list showing four padlocks.
           It is true for a subscriber and plainly false for everybody else,
           so it asks the tier rather than stating one answer for both. */
@@ -11322,7 +11352,8 @@ function render(){
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
-  const tabs=TABS[coached?'coached':'free'];
+  const tabs=TABS[coached?'coached':'free'].map(([id,l])=>
+    (id==='coaching') ? [id, coachTabLabel()] : [id,l]);
   if(!screens[st.tab]) st.tab=tabs[0][0];
   const nCp = ((typeof cpNew==='function') ? cpNew().length : 0)
             + ((typeof clipsNew==='function') ? clipsNew() : 0);
