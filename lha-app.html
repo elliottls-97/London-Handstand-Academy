@@ -2940,6 +2940,11 @@ function cpDrag(e,k,max,res){
   el.addEventListener('pointermove',move);
   el.addEventListener('pointerup',up);
 }
+/* the card is on the page now, so "log a check point" is a scroll */
+function scrollToCps(){
+  const el=document.querySelector('[data-tour="checkpoints"]');
+  if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+}
 function checkpointsCard(){
   const list=cpFor(); if(!list.length) return '';
   const S=STAGES[curStage()]||{};
@@ -6300,7 +6305,7 @@ function drawOv(){
             last ? 'Last logged '+esc(cpWhen(last.at))+'. Log what you managed today.'
                  : 'It is one of the check points that opens the next stage. Log what you managed.'}</div>
           <button class="btn" style="width:100%;margin-top:13px"
-            onclick="closeOv();openStage(${curStage()})">Log it now</button>
+            onclick="closeOv();st.ladderTab='ladder';save();go('ladder');setTimeout(scrollToCps,140)">Log it now</button>
         </div>`;
       })()}
       <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
@@ -8941,7 +8946,10 @@ function screenLadder(){
           background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
           font:600 15px/1 var(--sans);cursor:pointer">Train at my level</button>
-        <button onclick="openStage(${cur})" style="flex:1;min-height:52px;border:0;background:none;
+        <!-- with an account the check points are already on this page, so
+             this walks you down to them rather than opening a sheet over
+             the top of them -->
+        <button onclick="${st.token?'scrollToCps()':'openStage('+cur+')'}" style="flex:1;min-height:52px;border:0;background:none;
           color:var(--forest);font:600 15px/1 var(--sans);cursor:pointer">
           Log a check point</button>
       </div>
@@ -8952,7 +8960,31 @@ function screenLadder(){
         and ${P.of} of those is what opens ${nxt?esc(nxt.n):'the next stage'}.</div>
     </div>
 
-    <div style="padding:30px 20px 40px">
+    <!-- ── what you are actually working on ──────────────────────────
+         The check points are the progression system and they were behind
+         a text link next to a large green button, so most people never
+         met them: the screen led with six stages, five of which are
+         months away. With an account they are the page. The ladder is
+         orientation, wanted occasionally, so it folds. Signed out there
+         is nothing to record yet and the ladder is the right thing to
+         see, so it stays open. -->
+    ${st.token?`<div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard()}</div>`:''}
+
+    <div style="padding:${st.token?'22px':'30px'} 20px 40px">
+      ${st.token?`<button onclick="st.ladderOpen=!${!!st.ladderOpen};save();render()"
+        style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+        background:none;border:0;cursor:pointer;padding:12px 0;text-align:left">
+        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">
+          THE WHOLE LADDER</span>
+        <span style="display:flex;align-items:center;gap:8px;font:600 13px/1 var(--sans);color:var(--forest)">
+          ${st.ladderOpen?'Hide':'Stage '+(cur+1)+' of '+STAGES.length}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+            style="transform:rotate(${st.ladderOpen?180:0}deg);transition:transform .2s">
+            <path d="M6 9l6 6 6-6"/></svg>
+        </span>
+      </button>`:''}
+      ${(!st.token || st.ladderOpen)?`
       ${rungsDone?`<div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">DONE</div>
       <div style="margin-top:16px">${rungsDone}</div>`:''}
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
@@ -8966,7 +8998,7 @@ function screenLadder(){
             <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
           ${paidRangeLine()}</span>`}
       </div>
-      <div data-tour="stagelist" style="margin-top:16px">${rungsAhead}</div>
+      <div data-tour="stagelist" style="margin-top:16px">${rungsAhead}</div>`:''}
 
       <!-- 6e puts both of these as plain rows rather than blocks. The amber
            panel competed with the ladder it was sitting under, and the stage
