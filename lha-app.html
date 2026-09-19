@@ -2615,12 +2615,19 @@ function cpCardTop(c, i, total){
     <div ${drill&&drill.url?`onclick="toggleCpDemo('${c.k}')" style="cursor:pointer;`:'style="'}margin-top:11px;
       display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px;
       background:rgba(0,102,99,.06)">
+      <!-- a teal gradient stood in for a thumbnail on every check point,
+           so the one row that is supposed to show you the movement showed
+           you nothing. The drill list has always used the real frame. -->
       <div style="position:relative;flex:none;width:74px;height:46px;border-radius:10px;overflow:hidden;
         background:linear-gradient(145deg,#0a7b74,#00403d)">
-        <div style="position:absolute;inset:0;background:radial-gradient(70% 80% at 70% 20%,
-          rgba(143,190,202,.35),transparent 70%)"></div>
+        ${(drill&&drill.url&&uidOfUrl(drill.url))?`<img src="${esc(streamThumb(uidOfUrl(drill.url)))}"
+          alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;
+          object-fit:cover;display:block">`
+          :`<div style="position:absolute;inset:0;background:radial-gradient(70% 80% at 70% 20%,
+          rgba(143,190,202,.35),transparent 70%)"></div>`}
         ${drill&&drill.url?`<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-          width:24px;height:24px;border-radius:50%;background:rgba(236,231,226,.22);
+          width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.5);
+          backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
           border:1px solid rgba(236,231,226,.5);display:flex;align-items:center;justify-content:center">
           <span style="display:block;width:0;height:0;margin-left:2px;border-left:8px solid #ece7e2;
             border-top:5px solid transparent;border-bottom:5px solid transparent"></span></div>`:''}
@@ -2883,6 +2890,7 @@ function toggleCpDemo(k){
          flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
          `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`
     : '';
+  if(open) mountCaptions();
   const lbl=document.getElementById('cpdlbl-'+k);
   if(lbl) lbl.textContent = open ? 'Hide the demo' : 'How to test this';
 }
@@ -6335,6 +6343,7 @@ function drawOv(){
   const sheet=$('#ov').querySelector('.sheet');
   if(sheet && sheetTop) sheet.scrollTop=sheetTop;
   if(sheet) bindSheetDrag(sheet);
+  mountCaptions();
 }
 
 /* Drag the sheet down to dismiss it. Only starts when the sheet is already
@@ -7376,6 +7385,10 @@ function finishIntake(){
      they were placed at rather than guessing. */
   st.stage=L.v; st.placed=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
   st.quizDone=true; st.oriented=false;
+  /* Write the week down rather than leaving it to a default computed on
+     every read. Somebody who has just said they train three times a week
+     has a week, and it should be the same week on their next phone. */
+  st.dayMap=defaultWeek();
   track('quiz', L.v);
   st.tab = st.email ? 'home' : 'joinFree';
   save(); saveState(); sendIntake();
@@ -8946,23 +8959,14 @@ function screenLadder(){
                  : 'All '+P.of+' reached. That is the whole ladder.')
           : nxt ? 'Reach all '+P.of+' check points and <strong style="font-weight:600">'+esc(nxt.n)+'</strong> opens below.'
                 : 'Reach all '+P.of+' check points and the ladder is done.'}</div>
-      <div style="display:flex;gap:10px;margin-top:14px">
-        <button onclick="startDay(-1,'full')" style="flex:1;min-height:52px;border:0;border-radius:14px;
-          background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
-          box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-          font:600 15px/1 var(--sans);cursor:pointer">Train at my level</button>
-        <!-- with an account the check points are already on this page, so
-             this walks you down to them rather than opening a sheet over
-             the top of them -->
-        <button onclick="scrollToCps()" style="flex:1;min-height:52px;border:0;background:none;
-          color:var(--forest);font:600 15px/1 var(--sans);cursor:pointer">
-          Log a check point</button>
-      </div>
-      <!-- these two carried equal weight with nothing saying one is the work
-           and the other is the record of it -->
-      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey2);margin-top:8px">
-        Train builds you a session. Log is where you record what you managed,
-        and ${P.of} of those is what opens ${nxt?esc(nxt.n):'the next stage'}.</div>
+      <!-- "Log a check point" scrolled to a card that is now directly below
+           this one, and the sentence under the pair explained a fork that
+           no longer exists. One button, for the one thing this card is for:
+           the record of it is the next thing you see. -->
+      <button onclick="startDay(-1,'full')" style="width:100%;min-height:52px;border:0;border-radius:14px;
+        margin-top:14px;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+        font:600 15px/1 var(--sans);cursor:pointer">Train at my level</button>
     </div>
 
     <!-- ── what you are actually working on ──────────────────────────
@@ -9562,16 +9566,37 @@ function defaultDay(i,total){
   if(s && s[i]!=null) return s[i];
   return Math.min(6, Math.round(i*(total>1?6/(total-1):0)));
 }
-function dayFor(i){
+/* ── the week, laid out ──────────────────────────────────────────────
+   This spread every cell as if they were the same thing, so three
+   sessions and two mobility days became five slots over seven and landed
+   on Mon, Tue, Thu, Fri, Sun: two training days back to back, and a
+   Wednesday with nothing on it at all. The sessions go where sessions
+   should go and the mobility days fill the gaps between them, so a week
+   reads train, mobility, train, mobility, train, and the only empty days
+   are the ones that are meant to be empty. */
+function defaultWeek(){
   const cells=weekCells();
+  const sess=[], rest=[];
+  cells.forEach((c,i)=>(isRestCell(c)?rest:sess).push(i));
+  const days=(DAY_SPREADS[sess.length]||[]).slice(0,sess.length);
+  const m={};
+  sess.forEach((ci,n)=>{ m[ci] = days[n]!=null ? days[n] : defaultDay(n,sess.length||1); });
+  const taken=new Set(Object.values(m));
+  const gaps=[0,1,2,3,4,5,6].filter(d=>!taken.has(d));
+  rest.forEach((ci,n)=>{ m[ci] = gaps.length ? gaps[n % gaps.length] : defaultDay(n,7); });
+  return m;
+}
+function dayFor(i){
   const m=st.dayMap||{};
-  return m[i]!=null ? m[i] : defaultDay(i,cells.length);
+  if(m[i]!=null) return m[i];
+  const d=defaultWeek();
+  return d[i]!=null ? d[i] : defaultDay(i,weekCells().length);
 }
 /* Moving one session onto a day another already holds swaps the two, so the
    week never quietly loses a session. */
 function moveWorkout(i,by){
-  const cells=weekCells(), m=Object.assign({},st.dayMap||{});
-  cells.forEach((_,k)=>{ if(m[k]==null) m[k]=defaultDay(k,cells.length); });
+  const cells=weekCells(), base=defaultWeek(), m=Object.assign({},st.dayMap||{});
+  cells.forEach((_,k)=>{ if(m[k]==null) m[k]=base[k]!=null?base[k]:defaultDay(k,cells.length); });
   const want=Math.max(0,Math.min(6,m[i]+by));
   if(want===m[i]) return;
   const clash=Object.keys(m).find(k=>+k!==i && m[k]===want);
@@ -10181,6 +10206,10 @@ function screenCoaching(){
      the way in; the server says whether this account can send one. */
   const canCheck=!!st.canCheck || !!st.plus;
   const awaiting = !!st.awaitingReview;
+  /* Has a form check been sent and answered? Until it has, this screen
+     sells nothing: the free one is the whole offer and the prices wait
+     underneath the answer it comes back with. */
+  const sold = !signedIn ? false : (hadFormCheck() || (!canCheck && !awaiting));
   const tick = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:9px">
       <span style="flex:none;width:16px;height:16px;border-radius:999px;background:var(--forest);
         color:var(--bg);display:grid;place-items:center;font:700 9px/1 var(--sans);margin-top:2px">&check;</span>
@@ -10303,8 +10332,9 @@ function screenCoaching(){
         ${st.msgs&&st.msgs.length
           ? `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${thread}</div>`
           : `<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-             Not sure which tier fits, or whether a niggle rules you out? Ask here —
-             it comes straight to me.</div>`}
+             Not sure which tier fits, or whether a niggle rules you out? Ask here
+             and it comes straight to me. Questions only: footage goes through a
+             form check, so it is watched properly.</div>`}
         <div style="background:var(--mist);border-radius:18px;padding:8px 8px 8px 15px;
           display:flex;gap:8px;align-items:center;margin-top:14px">
           <input id="askIn" placeholder="Ask about coaching…" value="${esc(askDraft)}"
@@ -10362,10 +10392,14 @@ function screenCoaching(){
             Watches every clip himself. Replies in writing.</span>
         </span>
       </div>
-      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:18px">
-        Get Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em></div>
-      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-        Two ways in. One is a clip and a written answer; the other is the whole programme.</div>
+      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:18px">${
+        sold ? `Get Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em>`
+             : `Send one clip. <em style="color:var(--forest);font-style:normal">Free.</em>`}</div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:10px">${
+        sold ? 'Two ways in. One is a clip and a written answer; the other is the whole programme.'
+        : awaiting ? 'It is with Elliott. He watches every one himself and comes back in writing.'
+        : 'Film the thing you are stuck on and Elliott tells you the one thing to change. '
+          +'One is free with an account, and nothing is asked for until you have had it back.'}</div>
     </div>
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
@@ -10383,9 +10417,12 @@ function screenCoaching(){
             </div>`).join('')}
         </div>
       </div>
-      <!-- The second route in. The screen offered the free check and then a
-           feature table, so the paid thing was a comparison grid rather than
-           an offer: 6g makes them two cards of equal weight. -->
+      <!-- ── nothing for sale until the free one has come back ────────
+           Somebody who has not yet had a form check has no idea what one is
+           worth, so a price beside it is an advert. Send it, read what came
+           back, and the offers appear underneath that. Until then this
+           screen has one job. -->
+      ${!sold ? '' : `
       <div class="card" style="padding:22px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
           <span class="kick2">ONE-TO-ONE COACHING</span>
@@ -10430,7 +10467,7 @@ function screenCoaching(){
            button, so the screen said £120 to £250 and then said it again as
            three cards, and offered Apply twice. Compare tiers opens the lot. -->
       <div data-tour="pricing" id="tierCards" style="${st.tiersOpen?'':'display:none'}">${
-        pricingCard()}</div>
+        pricingCard()}</div>`}
       ${st.applied
         ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
             <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
@@ -11362,6 +11399,11 @@ function render(){
     ((id==='progress'||(id==='ladder'&&!coached))&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
       border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
   swap(topBar()+screens[st.tab]()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
+  /* every film in the app carries the same caption plate. Individual mounts
+     called this themselves and one of them always forgot, so it runs after
+     any redraw instead: attachCaptions marks what it has done and a second
+     call over the same video is free. */
+  mountCaptions();
   watchScroll();
   lazyThumbs();
   maybeTour();

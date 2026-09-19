@@ -25,7 +25,7 @@ const CHECKPOINTS={
     {k:'pike-neg',    n:'Pike push-up negatives',   kind:'count', target:8,  demo:'pike-press-ups'},
     {k:'pike-full',   n:'Pike push-ups, full reps', kind:'count', target:5,  demo:'pike-press-ups'},
     {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, note:'The main drill for this stage.'},
-    {k:'assist-entry',n:'Assisted freestanding entries', kind:'count', target:10}
+    {k:'assist-entry',n:'Knee to chest kick ups', kind:'count', target:10}
   ],
   2:[
     {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
