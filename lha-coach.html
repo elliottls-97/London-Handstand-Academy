@@ -2904,7 +2904,7 @@ function reviewDrop(uid){
    through that, and the clips are in three different places: submissions,
    check point readings and the thread. This is the same job in one sheet:
    pick a client, tick a day, load the lot. */
-let pick={open:false, email:'', loading:false, chosen:{}};
+let revPick={open:false, email:'', loading:false, chosen:{}};
 
 /* every clip a client has sent, wherever it came from, newest first */
 function clipRows(email){
@@ -2941,50 +2941,50 @@ function dayLabel(k){
   return days<7 ? when : d.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:
     d.getFullYear()===now.getFullYear()?undefined:'numeric'});
 }
-function pickOpen(email){
-  pick={open:true, email:email||'', loading:false, chosen:{}};
-  if(email) pickLoad(email);
-  pickPaint();
+function revPickOpen(email){
+  revPick={open:true, email:email||'', loading:false, chosen:{}};
+  if(email) revPickLoad(email);
+  revPickPaint();
 }
-function pickClose(){ pick.open=false; pickPaint(); }
+function revPickClose(){ revPick.open=false; revPickPaint(); }
 /* a client the coach has not opened this session has none of their data
    cached, so fetch the two that hold clips before drawing the list */
-function pickLoad(email){
-  pick.email=email; pick.chosen={};
+function revPickLoad(email){
+  revPick.email=email; revPick.chosen={};
   const need=[];
   if(!subs[email]) need.push(fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null).then(d=>{ if(d) subs[email]=d.submissions||[]; }));
   if(!tracks[email]) need.push(fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null).then(d=>{ if(d){ tracks[email]=d.track||null;
       if(!cpDefs[email]) cpDefs[email]=d.checkpoints||[]; } }));
-  if(!need.length){ pickPaint(); return; }
-  pick.loading=true; pickPaint();
-  Promise.all(need).catch(()=>{}).then(()=>{ pick.loading=false; pickPaint(); });
+  if(!need.length){ revPickPaint(); return; }
+  revPick.loading=true; revPickPaint();
+  Promise.all(need).catch(()=>{}).then(()=>{ revPick.loading=false; revPickPaint(); });
 }
-function pickToggle(uid){
-  if(pick.chosen[uid]) delete pick.chosen[uid]; else pick.chosen[uid]=1;
-  pickPaint();
+function revPickToggle(uid){
+  if(revPick.chosen[uid]) delete revPick.chosen[uid]; else revPick.chosen[uid]=1;
+  revPickPaint();
 }
 /* the whole day at once, which is the thing he is actually trying to do */
-function pickDay(key){
-  const rows=clipRows(pick.email).filter(r=>dayKey(r.at||0)===key);
-  const allOn=rows.every(r=>pick.chosen[r.uid]);
-  rows.forEach(r=>{ if(allOn) delete pick.chosen[r.uid]; else pick.chosen[r.uid]=1; });
-  pickPaint();
+function revPickDay(key){
+  const rows=clipRows(revPick.email).filter(r=>dayKey(r.at||0)===key);
+  const allOn=rows.every(r=>revPick.chosen[r.uid]);
+  rows.forEach(r=>{ if(allOn) delete revPick.chosen[r.uid]; else revPick.chosen[r.uid]=1; });
+  revPickPaint();
 }
-function pickGo(){
-  const rows=clipRows(pick.email).filter(r=>pick.chosen[r.uid]);
+function revPickGo(){
+  const rows=clipRows(revPick.email).filter(r=>revPick.chosen[r.uid]);
   if(!rows.length) return;
-  const name=(clients.find(c=>c.email===pick.email)||{}).name||'Client';
+  const name=(clients.find(c=>c.email===revPick.email)||{}).name||'Client';
   const first=(name||'').split(' ')[0]||'Client';
   const titles={};
   rows.forEach(r=>{ titles[r.uid]=first+' · '+(r.which||r.what)+' · '+dayLabel(dayKey(r.at||0)); });
-  pick.open=false; pickPaint();
+  revPick.open=false; revPickPaint();
   /* oldest first, so a recording walks forwards through what they sent */
   const uids=rows.slice().sort((a,b)=>(a.at||0)-(b.at||0)).map(r=>r.uid);
-  reviewClips(pick.email, uids, name, titles);
+  reviewClips(revPick.email, uids, name, titles);
 }
-function pickHost(){
+function revPickHost(){
   const wrap=document.getElementById('reviewWrap');
   if(!wrap) return null;
   let host=document.getElementById('pickHost');
@@ -2998,19 +2998,19 @@ function pickHost(){
   wrap.appendChild(host);
   return host;
 }
-function pickPaint(){
-  const host=pickHost();
+function revPickPaint(){
+  const host=revPickHost();
   if(!host) return;
-  if(!pick.open){ host.style.display='none'; host.innerHTML=''; return; }
+  if(!revPick.open){ host.style.display='none'; host.innerHTML=''; return; }
   host.style.display='block';
   const list=clients.slice().sort((a,b)=>(b.unread||0)-(a.unread||0)
     || String(a.name||a.email).localeCompare(String(b.name||b.email)));
   let body='';
-  if(!pick.email){
+  if(!revPick.email){
     body=`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-bottom:10px">
         Whose clips are you reviewing?</div>
       <div style="display:flex;flex-direction:column;gap:6px">
-        ${list.map(c=>`<button onclick="pickLoad('${esc(c.email)}');pickPaint()"
+        ${list.map(c=>`<button onclick="revPickLoad('${esc(c.email)}');revPickPaint()"
           style="cursor:pointer;text-align:left;border:1px solid var(--line);background:#fff;
           border-radius:11px;padding:11px 13px;font:600 13.5px/1.2 var(--sans);display:flex;
           justify-content:space-between;gap:10px;align-items:center">
@@ -3019,36 +3019,36 @@ function pickPaint(){
             border-radius:999px;background:var(--red);color:#fff">${c.unread}</span>`:''}
         </button>`).join('')}
       </div>`;
-  } else if(pick.loading){
+  } else if(revPick.loading){
     body=`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);padding:20px 0">Loading their clips…</div>`;
   } else {
-    const rows=clipRows(pick.email);
+    const rows=clipRows(revPick.email);
     const days=[]; const by={};
     rows.forEach(r=>{ const k=dayKey(r.at||0); if(!by[k]){ by[k]=[]; days.push(k); } by[k].push(r); });
-    const n=Object.keys(pick.chosen).length;
+    const n=Object.keys(revPick.chosen).length;
     body = !rows.length
       ? `<div style="font:400 13px/1.5 var(--sans);color:var(--grey);padding:20px 0">
           Nothing from them yet.</div>`
       : `<div style="display:flex;flex-direction:column;gap:14px">
         ${days.map(k=>{
-          const all=by[k].every(r=>pick.chosen[r.uid]);
+          const all=by[k].every(r=>revPick.chosen[r.uid]);
           return `<div>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
               padding-bottom:6px;border-bottom:1px solid var(--line)">
               <span style="font:600 12px/1 var(--sans);letter-spacing:.06em;color:var(--grey2);
                 text-transform:uppercase">${esc(dayLabel(k))} · ${by[k].length}</span>
-              <button onclick="pickDay('${k}')" style="cursor:pointer;border:0;background:none;
+              <button onclick="revPickDay('${k}')" style="cursor:pointer;border:0;background:none;
                 padding:2px 0;font:600 12px/1 var(--sans);color:var(--forest)">${
                 all?'Clear the day':'Select the day'}</button>
             </div>
-            ${by[k].map(r=>`<button onclick="pickToggle('${esc(r.uid)}')"
+            ${by[k].map(r=>`<button onclick="revPickToggle('${esc(r.uid)}')"
               style="cursor:pointer;width:100%;text-align:left;border:0;background:none;padding:9px 0;
               display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line)">
               <span style="flex:none;width:19px;height:19px;border-radius:6px;display:grid;
                 place-items:center;font:700 11px/1 var(--sans);color:#fff;
-                background:${pick.chosen[r.uid]?'var(--forest)':'transparent'};
-                border:1.5px solid ${pick.chosen[r.uid]?'var(--forest)':'var(--line)'}">${
-                pick.chosen[r.uid]?'✓':''}</span>
+                background:${revPick.chosen[r.uid]?'var(--forest)':'transparent'};
+                border:1.5px solid ${revPick.chosen[r.uid]?'var(--forest)':'var(--line)'}">${
+                revPick.chosen[r.uid]?'✓':''}</span>
               <span style="flex:1;min-width:0">
                 <span style="display:block;font:600 13px/1.25 var(--sans)">${esc(r.which||r.what)}</span>
                 <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey2);margin-top:2px">${
@@ -3060,25 +3060,25 @@ function pickPaint(){
           </div>`;}).join('')}
       </div>`;
     body += `<div style="position:sticky;bottom:0;padding-top:12px;background:var(--bg)">
-      <button onclick="pickGo()" ${n?'':'disabled'} style="width:100%;cursor:${n?'pointer':'default'};
+      <button onclick="revPickGo()" ${n?'':'disabled'} style="width:100%;cursor:${n?'pointer':'default'};
         border:0;border-radius:12px;padding:13px;background:var(--forest);color:#fff;
         font:700 13.5px/1 var(--sans);opacity:${n?1:.45}">${
         n?('Load '+n+' clip'+(n===1?'':'s')+' into the review'):'Pick some clips'}</button></div>`;
   }
-  host.innerHTML=`<div onclick="if(event.target===this)pickClose()"
+  host.innerHTML=`<div onclick="if(event.target===this)revPickClose()"
       style="position:absolute;inset:0;background:rgba(10,20,18,.5);display:flex;
       align-items:flex-start;justify-content:center;padding:18px;overflow:auto">
       <div style="width:100%;max-width:520px;background:var(--bg);border-radius:16px;
         padding:16px 18px 18px;box-shadow:0 30px 70px -30px rgba(0,0,0,.6)">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-          <div style="font:400 19px/1.15 var(--serif)">${pick.email
-            ? esc((clients.find(c=>c.email===pick.email)||{}).name||pick.email)+'&rsquo;s clips'
+          <div style="font:400 19px/1.15 var(--serif)">${revPick.email
+            ? esc((clients.find(c=>c.email===revPick.email)||{}).name||revPick.email)+'&rsquo;s clips'
             : 'Add clips'}</div>
           <div style="display:flex;gap:8px;align-items:center">
-            ${pick.email?`<button onclick="pick.email='';pick.chosen={};pickPaint()"
+            ${revPick.email?`<button onclick="revPick.email='';revPick.chosen={};revPickPaint()"
               style="cursor:pointer;border:0;background:none;padding:4px;font:600 12px/1 var(--sans);
               color:var(--forest)">Someone else</button>`:''}
-            <button onclick="pickClose()" style="cursor:pointer;border:0;background:none;padding:4px;
+            <button onclick="revPickClose()" style="cursor:pointer;border:0;background:none;padding:4px;
               font-size:20px;line-height:1;color:var(--grey2)">×</button>
           </div>
         </div>
@@ -3129,14 +3129,14 @@ function syncReview(){
       background:#fff;border-radius:9px;padding:6px 11px;font:600 12px/1 var(--sans)">
       ← Dashboard</button>
     <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">REVIEW</span>
-    <button onclick="pickOpen('${esc(reviewFor||sel||'')}')" style="cursor:pointer;border:0;
+    <button onclick="revPickOpen('${esc(reviewFor||sel||'')}')" style="cursor:pointer;border:0;
       background:var(--forest);color:#fff;border-radius:9px;padding:7px 12px;
       font:700 12px/1 var(--sans)">+ Add clips</button>
     ${reviewQueue.map(chip).join('')}
     ${reviewQueue.length?'':`<span style="font:400 11.5px/1.4 var(--sans);color:var(--grey2)">
       Add clips picks a client and a day. You can still press Review on a single
       clip, or add files from this Mac below.</span>`}`;
-  pickPaint();
+  revPickPaint();
 }
 /* the tab body is only what shows for the split second before the panel
    opens, and what shows if the panel somehow cannot mount */
