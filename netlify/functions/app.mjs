@@ -1263,6 +1263,7 @@ export default async (request) => {
     inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
   };
   /* what the app and the site say: labels only, never ids */
+  const coplansPublic = () => getSetting('coplans').then(x => x || {});
   const pricesPublic = () => ({
     plus: { label: PRICES.plus.label, founding: !!PRICES.plus.founding, note: PRICES.note },
     check: { label: PRICES.check.label }, online: { label: PRICES.online.label },
@@ -1274,7 +1275,10 @@ export default async (request) => {
     return json({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price() || !!LINKS[k]),
                   links: Object.fromEntries(Object.keys(LINKS).filter(k => !PLANS[k].price() && LINKS[k])
                     .map(k => [k, LINKS[k]])),
-                  prices: pricesPublic() });
+                  prices: pricesPublic(),
+                  /* what each coaching tier says it includes, where the
+                     coach has changed it from what the app ships */
+                  coplans: await coplansPublic() });
   }
   if (path === '/coach/prices') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
@@ -2083,7 +2087,70 @@ export default async (request) => {
                      changed a wording, a target or the drill demonstrating it */
                   ladderCps:   (await getSetting('ladder:checkpoints')) || {},
                   /* the words the coach has added for finding an explainer */
-                  explainKeys: (await getSetting('explain:keys')) || {} });
+                  explainKeys: (await getSetting('explain:keys')) || {},
+                  /* how long a session may be, and what a short one does
+                     about sets. Shipped defaults until the coach sets them. */
+                  shortRules:  (await getSetting('ladder:short')) || {} });
+  }
+
+  /* ── the session lengths, and what a short one is ────────────────
+     The app shipped these as constants: the times on the chooser, the
+     length under which every drill gets one set, and how many of the last
+     drills are exempt from that because they are the work. They are the
+     coach's numbers, not the app's, so they are editable. */
+  if (path === '/coach/short') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (request.method === 'GET') return json({ shortRules: (await getSetting('ladder:short')) || {} });
+    if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const r = body.shortRules || {};
+      const num = (v, lo, hi, dflt) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : dflt;
+      };
+      const mins = Array.isArray(r.mins)
+        ? [...new Set(r.mins.map(x => num(x, 5, 120, 0)).filter(Boolean))].sort((a, b) => a - b).slice(0, 6)
+        : [];
+      const next = {
+        mins: mins.length ? mins : [15, 30, 45, 60],
+        oneSetUnder: num(r.oneSetUnder, 0, 120, 30),
+        tail: num(r.tail, 0, 6, 2),
+        tailSets: num(r.tailSets, 1, 6, 3),
+        easyCap: num(r.easyCap, 5, 120, 30),
+      };
+      await setSetting('ladder:short', next);
+      return json({ ok: true, shortRules: next });
+    }
+    return json({ error: 'Nope' }, 405);
+  }
+
+  /* ── what each coaching tier says it includes ────────────────────
+     The three plans and their feature lists were written into the app, so
+     changing a word Elliott sells on meant a deploy. */
+  if (path === '/coach/coplans') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (request.method === 'GET') return json({ coplans: (await getSetting('coplans')) || {} });
+    if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const src = (body.coplans && typeof body.coplans === 'object') ? body.coplans : {};
+      const txt = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
+      const next = {};
+      for (const k of ['online', 'inperson', 'inner']) {
+        const p = src[k] || {};
+        const o = {};
+        if (p.who  !== undefined) o.who  = txt(p.who, 40);
+        if (p.flag !== undefined) o.flag = txt(p.flag, 20);
+        if (p.line !== undefined) o.line = txt(p.line, 200);
+        if (p.name !== undefined) o.name = txt(p.name, 60);
+        if (p.for  !== undefined) o.for  = txt(p.for, 300);
+        if (p.note !== undefined) o.note = txt(p.note, 200);
+        if (Array.isArray(p.feats)) o.feats = p.feats.map(x => txt(x, 120)).filter(Boolean).slice(0, 8);
+        next[k] = o;
+      }
+      await setSetting('coplans', next);
+      return json({ ok: true, coplans: next });
+    }
+    return json({ error: 'Nope' }, 405);
   }
 
   /* ── the three workouts, as lists ────────────────────────────────

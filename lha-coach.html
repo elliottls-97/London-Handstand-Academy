@@ -6526,6 +6526,126 @@ let prices=null, pricesBusy=false, pricesMsg='', pricesEnv={};
 const PRICE_TIERS=[['plus','App, full ladder','a month, subscription'],['check','Form checks','a month, subscription'],
   ['online','Online coaching','a month'],['inperson','Coaching with a session','a month'],['inner','Inner Circle','a month, by application'],
   ['session60','One-off session, 60 min','paid on the session page'],['session90','One-off session, 90 min','paid on the session page']];
+/* ── the session lengths, and what a short one does ──────────────────
+   The app shipped these as constants: which times the chooser offers, the
+   length under which every drill gets one set, and how many of the last
+   drills are exempt from that because they are the work. Training
+   decisions, so they belong here rather than in a deploy. */
+let shortR=null, shortBusy=false, shortMsg='';
+function shortLoad(){
+  if(shortR) return; shortR={};
+  fetch(API+'/short',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ shortR=Object.assign({mins:[15,30,45,60],oneSetUnder:30,tail:2,tailSets:3,easyCap:30},
+      d.shortRules||{}); draw(); } }).catch(()=>{});
+}
+function shortSet(f,v){
+  if(f==='mins'){
+    shortR.mins=String(v).split(/[^0-9]+/).map(Number).filter(n=>n>0).slice(0,6);
+  } else shortR[f]=Math.max(0,Math.round(Number(String(v).replace(/[^0-9]/g,''))||0));
+  shortMsg='Not saved yet'; const m=document.getElementById('shortMsg'); if(m) m.textContent=shortMsg;
+}
+function shortSave(){
+  if(shortBusy) return; shortBusy=true; shortMsg='Saving…'; draw();
+  fetch(API+'/short',{method:'POST',headers:hdr(),body:JSON.stringify({shortRules:shortR})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ shortR=Object.assign({},shortR,d.shortRules||{}); shortBusy=false;
+      shortMsg='Saved. The app picks it up on its next load.'; draw(); })
+    .catch(e=>{ shortBusy=false; shortMsg=String(e); draw(); });
+}
+function shortHTML(){
+  shortLoad();
+  if(!shortR||!shortR.mins) return `<div class="card"><div class="kick">SESSION LENGTHS</div>
+    <p class="muted" style="margin-top:10px">Loading…</p></div>`;
+  const num=(f,label,hint,min,max)=>`<div style="display:grid;grid-template-columns:1fr 92px;gap:12px;
+    align-items:center;padding:10px 0;border-bottom:1px solid rgba(17,17,17,.08)">
+    <div><div style="font:600 14px/1.3 var(--sans)">${esc(label)}</div>
+      <div class="muted" style="font-size:11.5px">${esc(hint)}</div></div>
+    <input class="input" type="number" min="${min}" max="${max}" value="${shortR[f]}"
+      oninput="shortSet('${f}',this.value)" style="min-height:38px;padding:6px 9px"></div>`;
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">SESSION LENGTHS</div><span style="flex:1"></span>
+      <span id="shortMsg" class="muted" style="font-size:12px">${esc(shortMsg)}</span>
+      <button class="btn" ${shortBusy?'disabled':''} onclick="shortSave()">Save</button>
+    </div>
+    <p class="muted" style="margin:8px 0 14px;max-width:62ch">
+      What the app offers when somebody picks how long they have, and what a short
+      session does about sets. A short one gives one set of everything so it covers
+      the stage, except the last few drills, which are the work.</p>
+    <div style="display:grid;grid-template-columns:1fr 200px;gap:12px;align-items:center;
+      padding:10px 0;border-bottom:1px solid rgba(17,17,17,.08)">
+      <div><div style="font:600 14px/1.3 var(--sans)">The times offered</div>
+        <div class="muted" style="font-size:11.5px">Minutes, separated by commas. Up to six.</div></div>
+      <input class="input" value="${esc((shortR.mins||[]).join(', '))}" placeholder="15, 30, 45, 60"
+        oninput="shortSet('mins',this.value)" style="min-height:38px;padding:6px 9px"></div>
+    ${num('oneSetUnder','One set of everything under','Minutes. A session shorter than this gives one set of each drill.',0,120)}
+    ${num('tail','Except the last','How many drills at the end still get their full sets. Nought turns the exception off.',0,6)}
+    ${num('tailSets','and they get up to','Sets each, clock permitting.',1,6)}
+    ${num('easyCap','Easier stops at','Minutes. Easier caps here, because a long session of the gentlest work is longer, not easier.',5,120)}
+  </div>`;
+}
+
+/* ── what each coaching tier says it includes ────────────────────────
+   Three plans, their words and their feature lists, which were written
+   into the app so a wording change meant a deploy. */
+let coP=null, coBusy=false, coMsg='';
+const CO_KEYS=[['online','Online'],['inperson','Online and in person'],['inner','Inner Circle']];
+function coLoad(){
+  if(coP) return; coP={};
+  fetch(API+'/coplans',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ coP=d.coplans||{}; draw(); } }).catch(()=>{});
+}
+function coSet(k,f,v){
+  coP[k]=coP[k]||{};
+  coP[k][f]= f==='feats' ? String(v).split('\n').map(x=>x.trim()).filter(Boolean) : v;
+  coMsg='Not saved yet'; const m=document.getElementById('coMsg'); if(m) m.textContent=coMsg;
+}
+function coSave(){
+  if(coBusy) return; coBusy=true; coMsg='Saving…'; draw();
+  fetch(API+'/coplans',{method:'POST',headers:hdr(),body:JSON.stringify({coplans:coP})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ coP=d.coplans||coP; coBusy=false;
+      coMsg='Saved. The app reads it on its next load.'; draw(); })
+    .catch(e=>{ coBusy=false; coMsg=String(e); draw(); });
+}
+function coHTML(){
+  coLoad();
+  if(!coP) return `<div class="card"><div class="kick">WHAT COACHING INCLUDES</div>
+    <p class="muted" style="margin-top:10px">Loading…</p></div>`;
+  const fld=(k,f,label,ph,tall)=>{
+    const v=(coP[k]||{})[f];
+    const val=(f==='feats') ? (Array.isArray(v)?v.join('\n'):'') : (v==null?'':v);
+    return `<div style="margin-top:10px">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);
+        text-transform:uppercase">${esc(label)}</div>
+      ${tall?`<textarea class="input" rows="${tall}" placeholder="${esc(ph)}"
+        oninput="coSet('${k}','${f}',this.value)"
+        style="width:100%;margin-top:5px;padding:8px 10px;font:400 13px/1.5 var(--sans)">${esc(val)}</textarea>`
+      :`<input class="input" value="${esc(val)}" placeholder="${esc(ph)}"
+        oninput="coSet('${k}','${f}',this.value)" style="width:100%;margin-top:5px;min-height:38px;padding:6px 9px">`}
+    </div>`; };
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">WHAT COACHING INCLUDES</div><span style="flex:1"></span>
+      <span id="coMsg" class="muted" style="font-size:12px">${esc(coMsg)}</span>
+      <button class="btn" ${coBusy?'disabled':''} onclick="coSave()">Save</button>
+    </div>
+    <p class="muted" style="margin:8px 0 6px;max-width:62ch">
+      The three plans on the app's coaching screen. Leave a field empty and the app
+      uses the wording it ships with. Prices are set above.</p>
+    <div style="display:grid;gap:14px;margin-top:10px">
+      ${CO_KEYS.map(([k,name])=>`<div style="border:1px solid var(--line);border-radius:14px;padding:14px 16px">
+        <div style="font:400 18px/1.15 var(--serif)">${esc(name)}</div>
+        ${fld(k,'flag','Flag','Most people')}
+        ${fld(k,'line','One line, on the card','What this one is, in a sentence.',2)}
+        ${fld(k,'name','Heading, under the card','Once a month, in the room')}
+        ${fld(k,'for','Who it is for','Two sentences at most.',3)}
+        ${fld(k,'feats','What it includes, one per line','Everything in the online plan\nOne 60 minute session in London',5)}
+        ${fld(k,'note','The small line under the price','Month to month. Cancel any time from inside the app.',2)}
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
 function pricesLoad(){
   if(prices) return; prices={};
   fetch(API+'/prices',{headers:hdr()}).then(r=>r.ok?r.json():null)
@@ -6722,6 +6842,8 @@ function settingsHTML(){
     ${coachesHTML()}
     ${workshopsHTML()}
     ${owner?pricesHTML():''}
+    ${owner?coHTML():''}
+    ${owner?shortHTML():''}
     ${owner?mailguardHTML():''}
     ${owner?stripeHTML():''}
     ${owner?dbHTML():''}
