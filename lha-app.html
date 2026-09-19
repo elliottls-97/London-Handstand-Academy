@@ -491,7 +491,10 @@ st.tickDay=st.tickDay||''; st.tickIdx=(st.tickIdx==null?st.day:st.tickIdx|0);
 st.tickAt=st.tickAt||0;
 
 const $=s=>document.querySelector(s);
-const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* the apostrophe is escaped too. Nothing today puts a user value inside a
+   single-quoted attribute, so this changes nothing now; it is here so that
+   the day something does, it cannot break out of one. */
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const day=()=>DATA.days[st.day]||DATA.days[0];
 const allItems=d=>d.groups.flatMap(g=>g.items);
 const key=(di,gi,ii)=>di+'-'+gi+'-'+ii;
@@ -6278,6 +6281,28 @@ function drawOv(){
           ${installPrompt?`<button class="btn" style="width:100%;margin-top:12px"
             onclick="installPrompt.prompt()">Add it</button>`:''}
         </div>`; })() : ''}
+      <!-- The session loop and the progression loop never touched. A person
+           did the work on one screen, recorded it on another, and was left
+           to join the two up alone; most never found the check points at
+           all. A session now ends on the one it just trained. -->
+      ${(function(){
+        if(st.in) return '';
+        const trained=new Set((Q||[]).map(x=>x.it&&x.it.v).filter(Boolean));
+        const list=(cpFor(curStage())||[]).filter(c=>c && c.demo && trained.has(c.demo));
+        if(!list.length) return '';
+        /* the one still to reach, else the one they can beat */
+        const c=list.find(x=>!cpMet(x)) || list[0];
+        const last=cpLast(c.k);
+        return `<div class="card" style="margin-top:18px;padding:16px;border:1.5px solid var(--forest)">
+          <div class="kick2" style="color:var(--forest)">YOU JUST TRAINED THIS</div>
+          <div style="font:400 20px/1.25 var(--serif);margin-top:8px">${esc(c.n||c.k)}</div>
+          <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${
+            last ? 'Last logged '+esc(cpWhen(last.at))+'. Log what you managed today.'
+                 : 'It is one of the check points that opens the next stage. Log what you managed.'}</div>
+          <button class="btn" style="width:100%;margin-top:13px"
+            onclick="closeOv();openStage(${curStage()})">Log it now</button>
+        </div>`;
+      })()}
       <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
       <div style="display:flex;gap:9px;margin-top:12px">
       ${['Too easy','About right','Too hard'].map(f=>`<button class="btn2" style="flex:1"
@@ -8723,7 +8748,12 @@ function screenLadder(){
      identical to each other, each carrying its own £5/MO tag, so the loudest
      thing on the ladder was the price repeated five times and the ladder read
      as a list rather than a climb. The price is stated once, above. */
-  const rungs=STAGES.map((x,i)=>{
+  /* The whole list sat under one heading reading BELOW YOU, and the first
+     thing in it was the stage you had already finished, drawn with a filled
+     node and reached by pressing Up. A stage you have cleared is not below
+     you, so it is not filed there any more: done and ahead are two lists
+     with their own headings. */
+  const rung=(x,i,last)=>{
     if(i===cur) return '';
     /* Behind you is a position. Passed is a claim, and it was being made on
        position alone: a brand new account placed at Wall Work by the quiz
@@ -8742,8 +8772,8 @@ function screenLadder(){
           background:${behind?'#0a7b74':'rgba(255,255,255,.8)'};
           color:${behind?'var(--on-primary)':'var(--ink)'};
           border:1.5px solid ${behind?'transparent':'rgba(0,64,61,.18)'}">${passed?'✓':i+1}</span>
-        ${i<STAGES.length-1?`<i style="flex:1;width:2px;margin:6px 0 -14px;
-          background:${behind?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`:''}
+        ${last?'':`<i style="flex:1;width:2px;margin:6px 0 -14px;
+          background:${behind?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`}
       </div>
       <div onclick="openStage(${i})" style="cursor:pointer;padding-bottom:22px;display:flex;gap:10px">
         <div style="flex:1;min-width:0">
@@ -8759,7 +8789,11 @@ function screenLadder(){
           <path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:''}
       </div>
     </div>`;
-  }).join('');
+  };
+  const doneIdx  = STAGES.map((x,i)=>i).filter(i=>i<cur);
+  const aheadIdx = STAGES.map((x,i)=>i).filter(i=>i>cur);
+  const rungsDone  = doneIdx.map((i,n)=>rung(STAGES[i],i,n===doneIdx.length-1)).join('');
+  const rungsAhead = aheadIdx.map((i,n)=>rung(STAGES[i],i,n===aheadIdx.length-1)).join('');
 
   const nxt=STAGES[cur+1];
   return `<div class="scroll s">
@@ -8909,13 +8943,22 @@ function screenLadder(){
           font:600 15px/1 var(--sans);cursor:pointer">Train at my level</button>
         <button onclick="openStage(${cur})" style="flex:1;min-height:52px;border:0;background:none;
           color:var(--forest);font:600 15px/1 var(--sans);cursor:pointer">
-          See the check points</button>
+          Log a check point</button>
       </div>
+      <!-- these two carried equal weight with nothing saying one is the work
+           and the other is the record of it -->
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey2);margin-top:8px">
+        Train builds you a session. Log is where you record what you managed,
+        and ${P.of} of those is what opens ${nxt?esc(nxt.n):'the next stage'}.</div>
     </div>
 
     <div style="padding:30px 20px 40px">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
-        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">BELOW YOU</span>
+      ${rungsDone?`<div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">DONE</div>
+      <div style="margin-top:16px">${rungsDone}</div>`:''}
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+        margin-top:${rungsDone?'10px':'0'}">
+        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">${
+          rungsAhead?'STILL TO COME':'THE LADDER'}</span>
         ${isPlus()?'':`<span style="font:400 13px/1 var(--sans);color:var(--grey);display:flex;
           align-items:center;gap:6px">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2.4">
@@ -8923,7 +8966,7 @@ function screenLadder(){
             <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
           ${paidRangeLine()}</span>`}
       </div>
-      <div data-tour="stagelist" style="margin-top:16px">${rungs}</div>
+      <div data-tour="stagelist" style="margin-top:16px">${rungsAhead}</div>
 
       <!-- 6e puts both of these as plain rows rather than blocks. The amber
            panel competed with the ladder it was sitting under, and the stage
