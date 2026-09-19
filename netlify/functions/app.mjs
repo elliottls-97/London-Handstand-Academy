@@ -946,12 +946,30 @@ export default async (request) => {
   const coachList = () => Object.keys(coaches());
   const isCoach = async () => {
     if (process.env.COACH_KEY && request.headers.get('x-coach-key') === process.env.COACH_KEY) return true;
-    const who = await me();
+    /* realMe: a preview token names a client, and a client is never a coach */
+    const who = await realMe();
     return !!who && coachList().includes(who);
+  };
+  /* Who is signed in. Only an app token can write anything.
+     A coach previewing a client's app carries a preview token instead:
+     it names the client, so every GET answers exactly as it would for
+     them, and it is nobody at all the moment a request tries to change
+     something. That is the whole of the read-only guarantee, in one
+     place, rather than a flag every route has to remember. */
+  const realMe = async () => {
+    const p = await verify(bearer);
+    return p && p.scope === 'app' ? p.email : null;
   };
   const me = async () => {
     const p = await verify(bearer);
-    return p && p.scope === 'app' ? p.email : null;
+    if (!p) return null;
+    if (p.scope === 'app') return p.email;
+    if (p.scope === 'preview' && request.method === 'GET') return p.email;
+    return null;
+  };
+  const previewing = async () => {
+    const p = await verify(bearer);
+    return !!(p && p.scope === 'preview');
   };
   /* Anything that decides what something costs, or gives it away, is the
      owner's alone. A coach added from the dashboard runs the coaching: they
@@ -1210,7 +1228,9 @@ export default async (request) => {
   if (path === '/me') {
     /* the app asks this on open, so this is the honest moment to say they
        were here — not whenever some row of theirs happened to be written */
-    await (async () => { const w = await me(); if (w) await touchSeen(w); })();
+    /* realMe, not me: a coach looking at somebody's app must not make
+       that person look like they opened it. */
+    await (async () => { const w = await realMe(); if (w) await touchSeen(w); })();
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const acct = (await getAcct(who)) || {};
@@ -3768,6 +3788,19 @@ export default async (request) => {
         tests,
       };
       return json({ days, rows, totals, acct });
+    }
+
+    /* ── see it as they see it ───────────────────────────────────────
+       A token that names the client and can only read. The coach opens
+       the client's own app with it, in an iframe, so anything broken on
+       their page is visible rather than described. Half an hour, because
+       it is for looking at something now. */
+    if (path === '/coach/preview' && request.method === 'GET') {
+      const e = norm(url.searchParams.get('email'));
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      return json({ email: e,
+        token: await sign({ scope: 'preview', email: e, exp: Date.now() + 30 * 60000 }) });
     }
 
     /* Which accounts are not people. A list Elliott keeps, on top of the

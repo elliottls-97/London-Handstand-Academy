@@ -433,6 +433,7 @@ const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer
    daily total. That is the whole of it, and it is what makes the funnel on
    the dashboard say something rather than nothing. */
 function track(n, s, f){
+  if(st.preview) return;   /* a coach looking is not a visit */
   try{
     const body=JSON.stringify(Object.assign({n}, s==null?{}:{s}, st.ref?{r:st.ref}:{}, f?{f}:{}));
     if(navigator.sendBeacon){
@@ -477,9 +478,49 @@ function trackOpen(){
       history.replaceState(null,'',location.pathname); }
   }catch(e){}
 }
-const K='lha_app';
+/* ── previewing somebody else's app ─────────────────────────────────
+   The dashboard opens this file in an iframe with a read-only token that
+   names a client, so Elliott sees exactly what they see rather than a
+   description of it. Two things have to be true for that to be safe.
+   The token can only read: the server refuses it on anything that is not
+   a GET, so nothing here can change their account however hard it tries.
+   And it must not tread on whoever owns this browser, so the preview
+   keeps its own storage: without that, opening a client's app would
+   overwrite the coach's own. */
+const PREVIEW = (function(){
+  try{
+    const t=new URLSearchParams(location.search).get('preview');
+    return (t && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) ? t : '';
+  }catch(e){ return ''; }
+})();
+const K = PREVIEW ? 'lha_preview' : 'lha_app';
+/* In a preview, anything that goes wrong is the point of looking, so it
+   is sent out to the panel rather than dying quietly in a console nobody
+   has open. Same origin, and only ever upward to the dashboard. */
+if(PREVIEW){
+  const tell=t=>{ try{ parent.postMessage({type:'lha-preview-error',text:String(t)}, location.origin); }catch(e){} };
+  window.addEventListener('error', e=>tell(
+    (e.message||'Error')+' · '+((e.filename||'').split('/').pop())+':'+(e.lineno||0)));
+  window.addEventListener('unhandledrejection', e=>tell('Unhandled: '+((e.reason&&e.reason.message)||e.reason)));
+  const warn=console.error;
+  console.error=function(){ try{ tell([].slice.call(arguments).join(' ')); }catch(e){}
+    return warn.apply(console, arguments); };
+  /* a failed request is the commonest way one person's page is broken */
+  const realFetch=window.fetch;
+  window.fetch=function(u,o){
+    return realFetch.apply(this,arguments).then(r=>{
+      if(!r.ok && String(u).indexOf('/api/app/')>=0) tell(r.status+' on '+String(u).split('?')[0]);
+      return r;
+    }).catch(err=>{ tell('Network failed on '+String(u).split('?')[0]); throw err; });
+  };
+}
 let st={};
 try{ st=JSON.parse(localStorage.getItem(K)||'{}')||{}; }catch(e){ st={}; }
+if(PREVIEW){
+  /* start from nothing every time, or the last client previewed bleeds
+     into the next one */
+  st={ token:PREVIEW, preview:true };
+}
 function save(){ try{ localStorage.setItem(K,JSON.stringify(st)); }catch(e){} }
 st.tab=st.tab||'today'; st.day=st.day|0; st.tick=st.tick||{}; st.rate=st.rate||{};
 st.note=st.note||{}; st.open=st.open||{}; st.why=st.why||{};
@@ -4342,6 +4383,7 @@ function loadState(){
 let stageDown=false;
 function saveStateDown(){ stageDown=true; saveState(); }
 function saveState(){
+  if(st.preview) return;   /* read only: the server would refuse it anyway */
   if(!st.token) return;
   clearTimeout(stateQueued);
   const down=stageDown; stageDown=false;
@@ -11749,7 +11791,11 @@ function render(){
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
     ((id==='progress'||(id==='ladder'&&!coached))&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
       border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
-  swap(topBar()+screens[st.tab]()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
+  swap((st.preview?`<div style="position:fixed;top:0;left:0;right:0;z-index:2000;
+      background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
+      font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
+      pointer-events:none">Preview &middot; ${esc(st.client||st.email||'client')} &middot; read only</div>`:'')
+    +topBar()+screens[st.tab]()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
   /* every film in the app carries the same caption plate. Individual mounts
      called this themselves and one of them always forgot, so it runs after
      any redraw instead: attachCaptions marks what it has done and a second
@@ -11758,7 +11804,7 @@ function render(){
   coRest();
   watchScroll();
   lazyThumbs();
-  maybeTour();
+  if(!st.preview) maybeTour();
 }
 document.addEventListener('DOMContentLoaded',function(){
   /* cache first so a signed-in client sees their plan instantly, then

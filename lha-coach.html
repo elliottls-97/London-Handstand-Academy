@@ -2911,6 +2911,74 @@ function reviewDrop(uid){
   reviewQueue=reviewQueue.filter(c=>c.uid!==uid); draw();
 }
 
+/* ── their app, as they see it ───────────────────────────────────────
+   Describing a bug on somebody's screen is slower than looking at it, and
+   half the faults in this app only appear for one person's data. This is
+   their own app, in an iframe, running on a token that names them and can
+   only read: the server refuses it on anything that is not a GET, so
+   nothing here can touch their account.
+   Anything the page logs to the console comes back out to the panel, so a
+   script error on their data is visible rather than silent. */
+let prevOn=false, prevEmail='', prevErrs=[];
+function openPreview(email){
+  prevEmail=email; prevErrs=[];
+  const wrap=previewHost();
+  wrap.style.display='flex';
+  prevOn=true; paintPreview();
+  fetch(API+'/preview?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{
+      const f=document.getElementById('prevFrame');
+      if(f) f.src='/lha-app.html?preview='+encodeURIComponent(d.token);
+      paintPreview();
+    })
+    .catch(e=>{ prevErrs.push('Could not start the preview: '+e); paintPreview(); });
+}
+function closePreview(){
+  prevOn=false;
+  const w=document.getElementById('prevWrap');
+  if(w){ w.style.display='none'; const f=document.getElementById('prevFrame'); if(f) f.src='about:blank'; }
+}
+function previewHost(){
+  let w=document.getElementById('prevWrap');
+  if(w) return w;
+  w=document.createElement('div');
+  w.id='prevWrap';
+  w.style.cssText='position:fixed;inset:0;z-index:80;display:none;flex-direction:column;'
+    +'background:rgba(10,20,18,.72)';
+  w.innerHTML='<div id="prevBar" style="flex:none;padding:10px 14px;display:flex;align-items:center;'
+    +'gap:10px;background:var(--surface,#f7f4f1);border-bottom:1px solid var(--line)"></div>'
+    +'<div style="flex:1;display:flex;justify-content:center;align-items:stretch;padding:14px;overflow:auto">'
+    +'<iframe id="prevFrame" title="Their app" style="width:390px;max-width:100%;border:0;'
+    +'border-radius:22px;background:#fff;box-shadow:0 30px 70px -30px rgba(0,0,0,.6)"></iframe></div>'
+    +'<div id="prevLog" style="flex:none;max-height:26vh;overflow:auto;background:#12100f;color:#f0d8d2;'
+    +'font:400 11.5px/1.6 ui-monospace,monospace;padding:10px 14px"></div>';
+  document.body.appendChild(w);
+  /* anything the app logs while it is in there */
+  window.addEventListener('message', e=>{
+    if(e.origin!==location.origin || !e.data || e.data.type!=='lha-preview-error') return;
+    prevErrs.push(String(e.data.text||'').slice(0,400));
+    paintPreview();
+  });
+  return w;
+}
+function paintPreview(){
+  const bar=document.getElementById('prevBar');
+  if(bar) bar.innerHTML=`<button onclick="closePreview()" style="cursor:pointer;border:1px solid var(--line);
+      background:#fff;border-radius:9px;padding:6px 11px;font:600 12px/1 var(--sans)">← Back</button>
+    <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">THEIR APP</span>
+    <span style="font:600 13px/1 var(--sans)">${esc((clients.find(c=>c.email===prevEmail)||{}).name||prevEmail)}</span>
+    <span style="font:400 12px/1 var(--sans);color:var(--grey2)">read only, nothing you do in here reaches them</span>
+    <span style="flex:1"></span>
+    <span style="font:600 12px/1 var(--sans);color:${prevErrs.length?'var(--red,#a4503c)':'var(--grey2)'}">${
+      prevErrs.length? prevErrs.length+' error'+(prevErrs.length===1?'':'s') : 'no errors'}</span>`;
+  const log=document.getElementById('prevLog');
+  if(log){
+    log.style.display = prevErrs.length ? 'block' : 'none';
+    log.innerHTML = prevErrs.map(x=>`<div>${esc(x)}</div>`).join('');
+  }
+}
+
 /* ── picking a client's clips, from inside the review tool ──────────
    Loading a review used to mean finding the client, scrolling their
    thread and their check points, and pressing Review on each clip one at
@@ -5877,11 +5945,21 @@ function clientScreenHTML(msgs){
           wh>=PROMISE_H?'past the '+PROMISE_H+' you promise':(PROMISE_H-wh)+' h left on the promise'}</div>
       </div>`:''}
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:var(--space-4);flex-wrap:wrap">
+    <div style="display:flex;gap:6px;margin-bottom:var(--space-4);flex-wrap:wrap;align-items:center">
       ${tabs.map(([id,label])=>`<button onclick="setCtab('${id}')"
         style="background:${ctab===id?'var(--forest)':'transparent'};border:0;border-radius:999px;
         padding:9px 15px;cursor:pointer;font:600 13px/1 var(--sans);
         color:${ctab===id?'#fff':'var(--ink)'}">${label}</button>`).join('')}
+      <span style="flex:1"></span>
+      <!-- their app, as they see it. Read only, and it says so. -->
+      <button onclick="openPreview('${esc(sel)}')"
+        style="background:transparent;border:1px solid var(--line);border-radius:999px;
+        padding:9px 15px;cursor:pointer;font:600 13px/1 var(--sans);color:var(--deep);
+        display:inline-flex;align-items:center;gap:7px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="6" y="2" width="12" height="20" rx="2.5"/><line x1="10.5" y1="18.5" x2="13.5" y2="18.5"/></svg>
+        See their app</button>
     </div>
     ${ctab==='thread'?threadPaneHTML(msgs)
      :ctab==='programme'?progrPaneHTML()
