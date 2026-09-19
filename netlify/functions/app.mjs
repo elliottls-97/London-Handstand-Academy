@@ -112,6 +112,12 @@ const coachOf = e => {
    name: the Ask screen printed it as the heading and took Y as the avatar
    initial, so the coach was anonymous in the one screen that is the whole
    point of coaching. Fall back to whoever is actually the coach here. */
+/* Addresses that cannot belong to a person. Deliberately narrow: it
+   catches the reserved example domains and the prefixes used for testing
+   this app, and nothing else. Anything more clever would eventually hide
+   a real client whose address happens to contain the word test. */
+const TEST_EMAIL = /@example\.(com|org|net)$|@test\.|^claude-paytest|^lha-test|^livecheck|^paytest/i;
+
 const coachName = e => coaches()[norm(e)]
   || coaches()[primaryCoach()]
   || 'Elliott';
@@ -3738,18 +3744,49 @@ export default async (request) => {
           }
         }
       }
-      /* the accounts side, which is measured properly because it is a table */
-      const accts = (await supa.rows('accounts', 'select=email,plus,first_seen,last_seen')) || [];
+      /* ── the accounts side, minus the ones that are not people ──────
+         Every test sign-up lands in the same table as a real client, so
+         the owner's headline numbers counted them: fifteen signed up, of
+         which nine were mine and Elliott's own test accounts, and the one
+         account on the £5 tier was a test card. A number nobody can trust
+         is worse than no number. Excluded ones are counted and named, so
+         the filter is visible rather than quietly shrinking the figure. */
+      const all = (await supa.rows('accounts', 'select=email,plus,first_seen,last_seen')) || [];
       const untils = await plusUntilAll();
-      accts.forEach(a => { if (untils[a.email]) a.plus_until = untils[a.email]; });
+      all.forEach(a => { if (untils[a.email]) a.plus_until = untils[a.email]; });
+      const marked = (await getSetting('testers')) || {};
+      const isTest = a => !!marked[norm(a.email)] || TEST_EMAIL.test(a.email || '');
+      const accts = all.filter(a => !isTest(a));
+      const tests = all.filter(isTest).map(a => a.email).sort();
       const now = Date.now();
       const acct = {
         total: accts.length,
         plus: accts.filter(plusNow).length,
         active14: accts.filter(a => a.last_seen && now - ms(a.last_seen) < 14 * 86400000).length,
         new7: accts.filter(a => a.first_seen && now - ms(a.first_seen) < 7 * 86400000).length,
+        excluded: tests.length,
+        tests,
       };
       return json({ days, rows, totals, acct });
+    }
+
+    /* Which accounts are not people. A list Elliott keeps, on top of the
+       addresses that are obviously not real. */
+    if (path === '/coach/testers') {
+      if (request.method === 'GET') {
+        const marked = (await getSetting('testers')) || {};
+        return json({ testers: Object.keys(marked).filter(k => marked[k]).sort(),
+                      pattern: String(TEST_EMAIL) });
+      }
+      if (request.method === 'POST') {
+        const list = Array.isArray(body.testers) ? body.testers : [];
+        const next = {};
+        list.map(x => norm(x)).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))
+            .slice(0, 200).forEach(e => { next[e] = true; });
+        await setSetting('testers', next);
+        return json({ ok: true, testers: Object.keys(next).sort() });
+      }
+      return json({ error: 'Nope' }, 405);
     }
 
     /* ── the codes ───────────────────────────────────────────────────── */

@@ -715,6 +715,9 @@ function funnelHTML(){
   return `<div class="card">
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <div class="kick">THE FUNNEL · LAST ${funnel.days} DAYS</div>
+      ${a.excluded?`<span style="font:500 11.5px/1 var(--sans);color:var(--grey2)"
+        title="${esc((a.tests||[]).join(', '))}">${a.excluded} test account${
+        a.excluded===1?'':'s'} left out</span>`:''}
       <span style="flex:1"></span>
       ${[14,30,90].map(d=>`<button onclick="funnelDays=${d};loadFunnel(true)"
         style="cursor:pointer;border-radius:999px;padding:6px 11px;font:600 11px/1 var(--sans);
@@ -1060,7 +1063,7 @@ function appsHTML(){
           <span style="font:600 9px/1 var(--sans);letter-spacing:.11em;padding:4px 7px;
             border-radius:4px;background:var(--mist);color:${badge[a.status]||'var(--grey)'}">
             ${a.status.toUpperCase()}</span>
-          <span style="font:400 12px/1 var(--sans);color:var(--grey2)">${hrs}h ago</span>
+          <span style="font:400 12px/1 var(--sans);color:var(--grey2)">${since(a.at)}</span>
         </div>
         <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:4px">${esc(a.email)}</div>
         <div style="margin-top:11px">${rows||'<span style="color:var(--grey2)">No answers.</span>'}</div>
@@ -1112,7 +1115,7 @@ function subsHTML(email){
           color:${late?'var(--terra)':'var(--forest)'}">
           ${s.kind==='assessment'?'FREE ASSESSMENT':s.kind==='checkpoint'?'CHECK POINT · '+esc(((s.numbers||{}).name||'').toUpperCase()):'TWO-WEEK TEST · BLOCK '+(s.cycle||1)}</span>
         <span style="font:400 12px/1 var(--sans);color:${late?'var(--terra)':'var(--grey2)'}">
-          ${hrs}h ago${late?' · past the 48 you promise':''}</span>
+          ${since(s.at)}${late?' · past the 48 you promise':''}</span>
       </div>
       <div style="margin-top:11px">${nums}</div>
       <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
@@ -2108,6 +2111,17 @@ function statCard(n,l,tone){
    any new instrumentation — the app has been collecting both all along
    and showing three numbers. */
 function dayKey(d){ return new Date(d).toISOString().slice(0,10); }
+/* Hours are the right unit for the first day or two, which is the window
+   Elliott answers in. Past that they stop meaning anything: a declined
+   application read "400h ago" rather than seventeen days. */
+function since(at){
+  const h=Math.max(0,Math.round((Date.now()-(at||0))/3600000));
+  if(h<48) return h+'h ago';
+  const d=Math.round(h/24);
+  if(d<14) return d+' days ago';
+  const w=Math.round(d/7);
+  return w<9 ? w+' weeks ago' : Math.round(d/30)+' months ago';
+}
 
 let rosterFilter='all';
 let calOff=0;      /* months back from this one */
@@ -4885,7 +4899,11 @@ function trackHTML(email, only){
     const h=(t.checkpoints||{})[k]||[];
     const last=h.length?h[h.length-1]:null, prev=h.length>1?h[h.length-2]:null;
     const clips=h.filter(x=>x.video).slice(-3).reverse();
-    const tgt=def&&def.target!=null?def.target:null;
+    /* A target of nought is a target nobody set. It printed as "90s / 0s"
+       against a real logged value, and no check point can ever be met
+       against it: the app needs a value at or above it, and for the
+       lower-is-better ones a value above nought. Unset means unset. */
+    const tgt=(def && Number(def.target)>0) ? Number(def.target) : null;
     const met = last && tgt!=null
       ? (def&&def.lower ? (last.v>0 && last.v<=tgt) : last.v>=tgt)
       : (last && def && (def.kind==='face') ? Number(last.v)>=2
@@ -6646,6 +6664,47 @@ function coHTML(){
     </div>
   </div>`;
 }
+/* ── accounts that are not people ────────────────────────────────────
+   Every test sign-up lands in the same table as a real client, so the
+   headline numbers counted them. The obvious ones are matched by the
+   server; anything else Elliott names here. */
+let testers=null, testersBusy=false, testersMsg='', testersDraft=null;
+function testersLoad(){
+  if(testers) return; testers=[];
+  fetch(API+'/testers',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ testers=d.testers||[]; testersDraft=null; draw(); } }).catch(()=>{});
+}
+function testersSet(v){ testersDraft=v; testersMsg='Not saved yet';
+  const m=document.getElementById('testersMsg'); if(m) m.textContent=testersMsg; }
+function testersSave(){
+  if(testersBusy) return; testersBusy=true; testersMsg='Saving…'; draw();
+  const list=String(testersDraft==null?testers.join('\n'):testersDraft)
+    .split(/[\n,]+/).map(x=>x.trim()).filter(Boolean);
+  fetch(API+'/testers',{method:'POST',headers:hdr(),body:JSON.stringify({testers:list})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ testers=d.testers||[]; testersDraft=null; testersBusy=false;
+      testersMsg='Saved. The funnel leaves them out from now on.';
+      funnel=null; loadFunnel(); draw(); })
+    .catch(e=>{ testersBusy=false; testersMsg=String(e); draw(); });
+}
+function testersHTML(){
+  testersLoad();
+  const val = testersDraft==null ? (testers||[]).join('\n') : testersDraft;
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">ACCOUNTS THAT ARE NOT PEOPLE</div><span style="flex:1"></span>
+      <span id="testersMsg" class="muted" style="font-size:12px">${esc(testersMsg)}</span>
+      <button class="btn" ${testersBusy?'disabled':''} onclick="testersSave()">Save</button>
+    </div>
+    <p class="muted" style="margin:8px 0 10px;max-width:62ch">
+      One address per line. These are left out of every figure on the funnel above.
+      Anything at example.com, or starting claude-paytest, lha-test, livecheck or
+      paytest, is left out already without being listed here.</p>
+    <textarea class="input" rows="5" placeholder="someone@example.com"
+      oninput="testersSet(this.value)"
+      style="width:100%;padding:9px 11px;font:400 12.5px/1.6 ui-monospace,monospace">${esc(val)}</textarea>
+  </div>`;
+}
 function pricesLoad(){
   if(prices) return; prices={};
   fetch(API+'/prices',{headers:hdr()}).then(r=>r.ok?r.json():null)
@@ -6841,6 +6900,7 @@ function settingsHTML(){
     ${owner?codesHTML():''}
     ${coachesHTML()}
     ${workshopsHTML()}
+    ${owner?testersHTML():''}
     ${owner?pricesHTML():''}
     ${owner?coHTML():''}
     ${owner?shortHTML():''}
