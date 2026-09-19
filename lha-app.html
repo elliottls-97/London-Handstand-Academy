@@ -3000,8 +3000,45 @@ let cpStepT_=null;
 function cpDrag(e,k,max,res){
   const el=document.getElementById('cptrack-'+k); if(!el) return;
   const RES=res||36;
+  /* ── everything that does not change while a finger is down ─────────
+     This looked four elements up, measured the track, searched the check
+     point list and wrote a fresh gradient on every pointermove, and the
+     fill carries a 350ms transition on background, so each move started
+     another one. That is the lag. All of it is resolved once here, the
+     geometry is re-measured only if the page moves under the finger, and
+     the colour is written only when the band actually changes. */
+  const fill=document.getElementById('cpfill-'+k);
+  const thumb=document.getElementById('cpthumb-'+k);
+  const lab=document.getElementById('cpval-'+k);
+  const st2=document.getElementById('cpstep-'+k);
+  const c0=cpDef(k);
+  const unit=(lab&&lab.dataset.u)||'';
+  let r=el.getBoundingClientRect();
+  let lastBg = fill ? fill.style.background : '';
+  let lastV = null, pending = null, raf = 0;
+
+  const paint=()=>{
+    raf=0;
+    const p=pending; if(p==null) return;
+    const v=Math.round(p*max);
+    const run2='(100% - '+RES+'px) * '+p.toFixed(4);
+    if(fill){
+      fill.style.width='calc('+run2+' + 36px)';
+      if(c0){
+        const bg=cpBarColour(c0, v, cpMet(c0, v));
+        if(bg!==lastBg){ fill.style.background=bg; lastBg=bg; }
+      }
+    }
+    if(thumb) thumb.style.left='calc('+run2+' + 4px)';
+    if(v!==lastV){
+      lastV=v;
+      if(lab) lab.textContent=v+unit;
+      if(st2) st2.textContent=v+(st2.dataset.u||'');
+      /* one object per changed value, not one per move event */
+      st.cpDraft=Object.assign({},st.cpDraft,{[k]:v});
+    }
+  };
   const set=ev=>{
-    const r=el.getBoundingClientRect();
     const run=Math.max(1, r.width-RES);
     let p=Math.max(0,Math.min(1,(ev.clientX-r.left-16)/run));
     /* The end of this track is the target, so getting there is the whole
@@ -3013,27 +3050,29 @@ function cpDrag(e,k,max,res){
        still the number they actually dragged to. */
     const SNAP=0.04;
     if(p>1-SNAP) p=1; else if(p<SNAP) p=0;
-    st.cpDraft=Object.assign({},st.cpDraft,{[k]:Math.round(p*max)});
-    /* paint without a full render, or the drag stutters. Addressed by id
-       rather than by position: the track has a target label in it now, and
-       counting children put the thumb on the wrong element. */
-    const fill=document.getElementById('cpfill-'+k), thumb=document.getElementById('cpthumb-'+k);
-    const run2='(100% - '+RES+'px) * '+p.toFixed(4);   /* p is post-snap */
-    if(fill){ fill.style.width='calc('+run2+' + 36px)';
-      /* the colour follows the finger, so red turning green is the thing
-         that tells you it counted */
-      const c0=cpDef(k), nv=Math.round(p*max);
-      if(c0) fill.style.background=cpBarColour(c0, nv, cpMet(c0, nv)); }
-    if(thumb) thumb.style.left='calc('+run2+' + 4px)';
-    const lab=document.getElementById('cpval-'+k);
-    if(lab) lab.textContent=Math.round(p*max)+(lab.dataset.u||'');
-    const st2=document.getElementById('cpstep-'+k);
-    if(st2) st2.textContent=Math.round(p*max)+(st2.dataset.u||'');
+    pending=p;
+    /* one paint per frame however fast the pointer reports */
+    if(!raf) raf=requestAnimationFrame(paint);
   };
-  set(e);
-  el.setPointerCapture&&el.setPointerCapture(e.pointerId);
+  /* The fill and the thumb ease into place, which is right for a tap on
+     the plus button and wrong under a finger: the bar arrives a sixth of
+     a second after the thumb and the whole thing feels heavy. Off while
+     dragging, back on when the finger lifts. */
+  if(fill) fill.style.transition='background .35s';
+  if(thumb) thumb.style.transition='none';
+  const ease=()=>{ if(fill) fill.style.transition='width .16s,background .35s';
+                   if(thumb) thumb.style.transition='left .16s'; };
+  r=el.getBoundingClientRect();
+  set(e); paint();
+  /* capture is a nicety: it keeps the drag alive if the finger slides off
+     the track. It throws on some synthetic and stale pointer ids, and an
+     exception here used to abandon the whole gesture and leave the easing
+     switched off. */
+  try{ el.setPointerCapture && el.setPointerCapture(e.pointerId); }catch(err){}
   const move=ev=>set(ev);
   const up=()=>{ el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+                 if(raf){ cancelAnimationFrame(raf); raf=0; paint(); }
+                 ease();
                  /* Letting go logs it. Dragging all the way to the target and
                     watching the card still say NOT STARTED made the slider look
                     broken: there was no way to finish one without noticing a
