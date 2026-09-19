@@ -1308,6 +1308,11 @@ export default async (request) => {
   if (path === '/checkout' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
+    /* an unknown plan used to fall back to 'plus', so a button wired to a
+       tier with no price id would quietly take five pounds for it */
+    if (body.plan && !Object.prototype.hasOwnProperty.call(PLANS, body.plan)) {
+      return json({ error: 'That one is not switched on yet' }, 503);
+    }
     const planKey = Object.prototype.hasOwnProperty.call(PLANS, body.plan) ? body.plan : 'plus';
     const plan = PLANS[planKey];
     /* only ever an id this server handed out from /redeem, never raw user

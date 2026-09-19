@@ -847,7 +847,7 @@ function todayFocus(){
           Nothing logged since then. If something got in the way, say so and the block gets
           changed around it rather than you starting again.</div>
         <div style="display:flex;gap:10px;margin-top:14px">
-          <button class="btn2" style="flex:1" onclick="go('ask')">Tell Elliott</button>
+          <button class="btn2" style="flex:1" onclick="goAsk()">Tell Elliott</button>
           <button class="btn2" style="flex:1" onclick="openLog()">Log a day</button>
         </div>
       </div></div>`;
@@ -1010,7 +1010,7 @@ ${/* Once it has been read it is a wall of last month's words at the top of
             </div>
             <p style="margin:10px 2px 0;font:400 15px/1.25 var(--serif);color:var(--ink)">${esc(a.q||'')}</p>
           </div>`;}).join('')}
-        <div onclick="go('ask')" style="flex:none;width:198px;scroll-snap-align:center;cursor:pointer">
+        <div onclick="goAsk()" style="flex:none;width:198px;scroll-snap-align:center;cursor:pointer">
           <div style="aspect-ratio:16/10;border-radius:18px;border:1.5px dashed rgba(0,102,99,.32);
             display:grid;place-items:center;background:rgba(0,102,99,.05)">
             <span style="font:400 26px/1 var(--serif);color:var(--forest)">+</span>
@@ -1080,7 +1080,7 @@ ${/* Once it has been read it is a wall of last month's words at the top of
   </div>`:''}
 
   <div style="padding:10px 16px 26px">
-    <div class="card" style="border-radius:22px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer" onclick="go('ask')">
+    <div class="card" style="border-radius:22px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer" onclick="goAsk()">
       <div><div class="kick2">${(()=>{const m=(st.msgs||[]).filter(x=>x.from==='e').pop();
         return m?('ELLIOTT · '+String(m.time||'').toUpperCase()):'ASK ELLIOTT';})()}</div>
       <div style="font:400 14px/1.45 var(--sans);margin-top:7px">${(()=>{const m=(st.msgs||[]).filter(x=>x.from==='e').pop();
@@ -2738,7 +2738,7 @@ function clipsBody(){
     <div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">
       Nothing yet. Every clip you film for a check point or a test is kept here, with what
       Elliott said about it.</div>
-    <button class="btn2" style="width:100%;margin-top:14px" onclick="go('ask')">Send one now</button>
+    <button class="btn2" style="width:100%;margin-top:14px" onclick="goAsk()">Send one now</button>
   </div>`;
   const answered=list.filter(c=>c.verdict||c.answer);
   const row=c=>{
@@ -4431,7 +4431,7 @@ function reviewCardHTML(){
     ${a.text?`<div style="font:400 15px/1.6 var(--sans);color:var(--ink);margin-top:12px;
       white-space:pre-wrap">${esc(a.text)}</div>`:''}
     <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
-      <button class="btn2" onclick="go('ask')">Reply to this</button>
+      <button class="btn2" onclick="goAsk()">Reply to this</button>
       ${fresh?`<button class="back" style="color:var(--grey);font-size:12.5px;padding:0 6px"
         onclick="st.seenReview=st.lastReview;save();render()">Mark as read</button>`:''}
     </div></div>`;
@@ -10214,6 +10214,18 @@ function pricingCard(){
    In person has no Stripe link and no price id, so it is not buyable in
    the app: that one asks, rather than sending somebody to a checkout that
    does not exist. Inner Circle is three places and by application anyway. */
+/* Which plan the screen is on. Nothing has been chosen until somebody
+   chooses, and until then it rests on one that can actually be bought: in
+   person is the site's "most people" and has no Stripe link, so defaulting
+   to it opened the screen with no way to buy anything, which is the one
+   thing the old single card always had. */
+const coBuyable = p => p.k!=='inner' && (plansOn||[]).indexOf(p.k)>-1
+  && (p.k!=='inperson' || !!planLinks.inperson);
+function coPickK(){
+  if(st.coPick && CO_PLANS.some(p=>p.k===st.coPick)) return st.coPick;
+  const b=CO_PLANS.find(coBuyable);
+  return b ? b.k : CO_PLANS[0].k;
+}
 const CO_PLANS = [
   { k:'online', who:'Online', price:'online', flag:'',
     line:'The full programme, form checks every two weeks, questions answered. Train anywhere.',
@@ -10265,10 +10277,31 @@ function coScroll(k, smooth){
 /* The rail opens on whichever card is chosen. In person is the default and
    it is the middle one, so starting at scroll zero showed it half cut off
    at the right edge with the unchosen first card in full. */
+/* The question box lives further down this same screen for a free account
+   and on the Ask tab for a coached one. Either way it opens with the plan
+   they were looking at already typed, so the question starts itself. */
+/* "ask" is a tab for a coached client and not one of the four a free
+   account has, so go('ask') quietly fell back to Today from every button
+   that used it. One helper, and it lands on the conversation either way. */
+function goAsk(){
+  if(coachedView()){ go('ask'); return; }
+  if(st.tab!=='coaching'){ go('coaching'); }
+  setTimeout(()=>{ const el=document.getElementById('askelliott');
+    if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); }, 180);
+}
+function askAbout(k){
+  const p=CO_PLANS.find(x=>x.k===k);
+  if(!askDraft) askDraft='About '+(p?p.who.toLowerCase():'coaching')+': ';
+  if(coachedView()){ go('ask'); return; }
+  const el=document.getElementById('askelliott');
+  if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(()=>{ const i=document.getElementById('askIn');
+    if(i){ i.value=askDraft; i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} } },420);
+}
 function coRest(){
   const rail=document.getElementById('coRail');
   if(!rail) return;
-  const el=document.getElementById('copick-'+(st.coPick||'inperson'));
+  const el=document.getElementById('copick-'+coPickK());
   if(!el) return;
   const want=el.offsetLeft-(rail.clientWidth-el.clientWidth)/2;
   if(Math.abs(rail.scrollLeft-want)>4) rail.scrollLeft=want;
@@ -10298,20 +10331,21 @@ function coDots(){
   },90);
 }
 function coachingPicker(){
-  const on=plansOn||[];
-  const pick=CO_PLANS.find(p=>p.k===st.coPick) || CO_PLANS[1];
-  const buyable = p => p.k!=='inner' && on.indexOf(p.k)>-1 && (p.k!=='inperson' || !!planLinks.inperson);
-  const tickLine = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:9px">
+  /* pricingCard used to be the only thing that asked the server which
+     tiers are switched on, and it is not drawn any more, so plansOn stayed
+     null and every plan looked unbuyable: the screen offered Ask about
+     this for a tier that has had a working Stripe link all along. */
+  if(plansOn===null) loadPlans();
+  const buyable = coBuyable;
+  const pick = CO_PLANS.find(p=>p.k===coPickK()) || CO_PLANS[0];
+  const tickLine = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:7px">
       <span style="flex:none;width:16px;height:16px;border-radius:999px;background:#0a7b74;
         color:#fff;display:grid;place-items:center;font:700 9px/1 var(--sans);margin-top:2px">&check;</span>
-      <span style="font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(t)}</span></div>`;
-  return `<div class="card" style="padding:22px">
+      <span style="font:400 13px/1.4 var(--sans);color:var(--grey)">${esc(t)}</span></div>`;
+  return `<div class="card" style="padding:18px 20px">
     <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
       color:#0a7b74">Monthly coaching</div>
-    <div style="font:400 32px/1.06 var(--serif);letter-spacing:-.015em;margin-top:10px">Which one is you?</div>
-    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-      Everything is month to month. The programme is the same either way. In person is one
-      session a month in London on top, and you can add or drop it whenever.</div>
+    <div style="font:400 30px/1.06 var(--serif);letter-spacing:-.015em;margin-top:8px">Which one is you?</div>
 
     <!-- Stacked, the three options were 264px of scrolling before the panel
          that describes the one you picked, so you could never see the choice
@@ -10321,12 +10355,12 @@ function coachingPicker(){
          under it so it is obvious there are three. -->
     <div id="coRail" class="rail s" data-tour="pricing" onscroll="coDots()"
       style="display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;
-      -webkit-overflow-scrolling:touch;margin:16px -22px 0;padding:4px 22px 6px">
+      -webkit-overflow-scrolling:touch;margin:14px -20px 0;padding:4px 20px 6px">
       ${CO_PLANS.map((p,i)=>{
         const on2 = p.k===pick.k;
         return `<button id="copick-${p.k}" onclick="coPick('${p.k}')" aria-pressed="${on2}"
           style="flex:0 0 76%;scroll-snap-align:center;text-align:left;cursor:pointer;
-          border-radius:20px;padding:20px 18px 18px;
+          border-radius:18px;padding:16px 15px 14px;
           border:1px solid ${on2?'var(--forest)':'rgba(17,17,17,.12)'};
           background:#fff;
           box-shadow:${on2?'0 0 0 3px rgba(0,102,99,.1),0 18px 40px -30px rgba(0,48,46,.6)'
@@ -10335,15 +10369,15 @@ function coachingPicker(){
           ${p.flag?`<span style="align-self:flex-start;font:700 9.5px/1 var(--sans);letter-spacing:.13em;
             text-transform:uppercase;color:var(--deep);background:var(--amber);
             border-radius:999px;padding:4px 10px">${esc(p.flag)}</span>`:''}
-          <span style="font:400 21px/1.12 var(--serif);color:var(--ink)">${esc(p.who)}</span>
-          <span style="flex:1;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(p.line)}</span>
+          <span style="font:400 19px/1.12 var(--serif);color:var(--ink)">${esc(p.who)}</span>
+          <span style="flex:1;font:400 12.5px/1.4 var(--sans);color:var(--grey)">${esc(p.line)}</span>
           <span style="display:flex;align-items:baseline;gap:3px">
-            <span style="font:400 27px/1 var(--serif);letter-spacing:-.02em;color:var(--forest)">${PRICE(p.price)}</span>
-            <span style="font:600 13px/1 var(--sans);color:var(--grey)">/mo</span>
+            <span style="font:400 24px/1 var(--serif);letter-spacing:-.02em;color:var(--forest)">${PRICE(p.price)}</span>
+            <span style="font:600 12px/1 var(--sans);color:var(--grey)">/mo</span>
           </span>
         </button>`;}).join('')}
     </div>
-    <div id="coDots" style="display:flex;justify-content:center;gap:6px;margin-top:10px">
+    <div id="coDots" style="display:flex;justify-content:center;gap:6px;margin-top:8px">
       ${CO_PLANS.map(p=>`<i style="width:${p.k===pick.k?18:6}px;height:6px;border-radius:99px;display:block;
         background:${p.k===pick.k?'var(--forest)':'rgba(17,17,17,.18)'};
         transition:width .25s,background .25s"></i>`).join('')}
@@ -10354,37 +10388,47 @@ function coachingPicker(){
          where the decision is, so it is the last thing and it holds the
          price, the note and both buttons rather than spreading them down
          the page. -->
-    <div style="margin:18px -22px -22px;border-radius:0 0 26px 26px;overflow:hidden">
-      <div style="padding:18px 22px 20px;background:#fff;border-top:1px solid rgba(0,64,61,.1)">
+    <div style="margin:14px -20px -18px;border-radius:0 0 26px 26px;overflow:hidden">
+      <div style="padding:16px 20px 16px;background:#fff;border-top:1px solid rgba(0,64,61,.1)">
         <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
           color:#0a7b74">${esc(pick.who)}</div>
-        <div style="font:400 25px/1.12 var(--serif);margin-top:9px">${esc(pick.name)}</div>
-        <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${esc(pick.for)}</div>
+        <div style="font:400 22px/1.12 var(--serif);margin-top:7px">${esc(pick.name)}</div>
+        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(pick.for)}</div>
         ${pick.feats.map(tickLine).join('')}
       </div>
-      <div style="padding:20px 22px 22px;background:linear-gradient(180deg,#0a7a76,#006663);
+      <div style="padding:16px 20px 18px;background:linear-gradient(180deg,#0a7a76,#006663);
         color:var(--on-primary)">
         <div style="display:flex;align-items:baseline;gap:6px">
-          <span style="font:400 40px/1 var(--serif);letter-spacing:-.02em">${PRICE(pick.price)}</span>
+          <span style="font:400 34px/1 var(--serif);letter-spacing:-.02em">${PRICE(pick.price)}</span>
           <span style="font:600 13px/1 var(--sans);opacity:.8">/ month</span>
         </div>
-        <div style="font:400 13px/1.5 var(--sans);opacity:.82;margin-top:8px">${esc(pick.note)}</div>
+        <div style="font:400 12.5px/1.45 var(--sans);opacity:.82;margin-top:6px">${esc(pick.note)}</div>
         <button onclick="${buyable(pick)?`buyPlan('${pick.k}')`:`openOv('apply')`}"
-          style="width:100%;margin-top:15px;min-height:52px;border:0;border-radius:15px;cursor:pointer;
-          background:var(--bg);color:var(--deep);font:600 15.5px/1 var(--sans)">${
+          style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
+          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${
           buyable(pick) ? 'Start now, '+PRICE(pick.price)+'/mo &rarr;'
             : pick.k==='inner' ? 'Apply for Inner Circle &rarr;' : 'Ask about this &rarr;'}</button>
-        <button onclick="go('ask')"
-          style="width:100%;margin-top:9px;min-height:48px;border:1px solid rgba(255,255,255,.35);
-          border-radius:15px;cursor:pointer;background:rgba(255,255,255,.1);color:var(--on-primary);
-          font:600 14px/1 var(--sans)">Ask me which one</button>
+        <!-- go('ask') on a free account falls through to Today, because
+             ask is not one of its four tabs. The question box is on this
+             screen; walk them to it. -->
+        ${(!buyable(pick) && pick.k==='inperson' && buyable(CO_PLANS[0]))?`
+        <button onclick="buyPlan('online')" style="width:100%;margin-top:8px;min-height:44px;
+          border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;
+          background:transparent;color:var(--on-primary);font:600 13.5px/1 var(--sans)">
+          Or start online now, ${PRICE('online')}/mo</button>
+        <div style="font:400 11.5px/1.45 var(--sans);opacity:.75;margin-top:7px;text-align:center">
+          The London session goes on top once we have picked a date.</div>`:''}
+        <button onclick="askAbout('${pick.k}')"
+          style="width:100%;margin-top:8px;min-height:44px;border:1px solid rgba(255,255,255,.35);
+          border-radius:14px;cursor:pointer;background:rgba(255,255,255,.1);color:var(--on-primary);
+          font:600 13.5px/1 var(--sans)">Ask me about this one</button>
         <button onclick="openCompare()" style="width:100%;margin-top:12px;background:none;border:0;
           cursor:pointer;padding:4px;color:var(--on-primary);font:600 13px/1 var(--sans);
           text-decoration:underline;opacity:.9">Compare every way in &rarr;</button>
         <!-- the site's own line: the way in for somebody not ready to
              commit to a month of anything -->
-        <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.2);
-          font:400 12.5px/1.55 var(--sans);opacity:.86">
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.2);
+          font:400 12px/1.5 var(--sans);opacity:.86">
           Rather try one session first?
           <button onclick="leaveTo('/session.html?kind=60')" style="background:none;border:0;padding:0;
             color:var(--on-primary);font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">60 min, ${PRICE('session60')}</button>
@@ -11606,6 +11650,7 @@ document.addEventListener('DOMContentLoaded',function(){
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); }
   loadLadder();
   loadFixes();
+  loadPlans();
   workshopWatch();
   if(st.fbPending){ delete st.fbPending; save(); setTimeout(()=>{ if(st.in||st.token) openOv('feedback'); }, 900); }
   /* The track holds every check point reading and the coach's verdict on
