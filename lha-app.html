@@ -10202,6 +10202,115 @@ function pricingCard(){
 }
 
 /* ── coaching pitch (free tier's 4th tab) ── */
+/* ── the coaching offer, as the site puts it ─────────────────────────
+   index.html asks one question, "which one is you", and answers it with
+   three options you pick between rather than a paragraph with a price
+   range in it. The app was showing "£120 to £320 a month" and one button,
+   which is a range nobody can act on. Same three options here, in the
+   same order and the same words, sized for a phone.
+   In person has no Stripe link and no price id, so it is not buyable in
+   the app: that one asks, rather than sending somebody to a checkout that
+   does not exist. Inner Circle is three places and by application anyway. */
+const CO_PLANS = [
+  { k:'online', who:'Online', price:'online', flag:'',
+    line:'The full programme, form checks every two weeks, questions answered. Train anywhere.',
+    name:'The programme, anywhere',
+    for:'Everything is written for you and reviewed on your own footage. No session in the room.',
+    feats:['Your own programme, rewritten every block',
+           'Form checks on your footage every two weeks',
+           'A two week test I read, and the block adjusted from it',
+           'A thread where you can ask me anything'],
+    note:'Month to month. Cancel any time from inside the app.' },
+  { k:'inperson', who:'Online and in person', price:'inperson', flag:'Most people',
+    line:'Everything in the online plan, plus one 60 minute session with me in London each month.',
+    name:'Once a month, in the room',
+    for:'One session a month is where I see how you are really moving. The other weeks I see your video.',
+    feats:['Everything in the online plan',
+           'One 60 minute session with me in London each month',
+           'Hands on corrections a camera cannot give you',
+           'Add or drop the session whenever you like'],
+    note:'The session is £70 a month on top of the online plan, and you can drop it any time.' },
+  { k:'inner', who:'Inner Circle', price:'inner', flag:'3 places',
+    line:'Everything in person and online, plus accountability and feedback every week. By application.',
+    name:'Chased, every week',
+    for:'For people who know the plan is not the problem. You get chased rather than left to drift.',
+    feats:['Everything in person and online, session included',
+           'Chased each week to finish the plan, and it is adjusted weekly',
+           'Clips come back with a voice over and a video reply',
+           'An optional 20 minute call each month'],
+    note:'Three places, so it is by application. I will tell you honestly whether it fits.' },
+];
+function coachingPicker(){
+  const on=plansOn||[];
+  const pick=CO_PLANS.find(p=>p.k===st.coPick) || CO_PLANS[1];
+  const buyable = p => p.k!=='inner' && on.indexOf(p.k)>-1 && (p.k!=='inperson' || !!planLinks.inperson);
+  const tickLine = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:9px">
+      <span style="flex:none;width:16px;height:16px;border-radius:999px;background:var(--forest);
+        color:var(--bg);display:grid;place-items:center;font:700 9px/1 var(--sans);margin-top:2px">&check;</span>
+      <span style="font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(t)}</span></div>`;
+  return `<div class="card" style="padding:22px">
+    <div class="kick2">MONTHLY COACHING</div>
+    <div style="font:400 26px/1.1 var(--serif);margin-top:9px">Which one is you?</div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
+      Everything is month to month. The programme is the same either way. In person is one
+      session a month in London on top, and you can add or drop it whenever.</div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+      ${CO_PLANS.map(p=>{
+        const on2 = p.k===pick.k;
+        return `<button onclick="st.coPick='${p.k}';save();render()" aria-pressed="${on2}"
+          style="width:100%;text-align:left;cursor:pointer;border-radius:16px;padding:14px 15px;
+          border:1.5px solid ${on2?'var(--forest)':'rgba(0,64,61,.12)'};
+          background:${on2?'rgba(0,102,99,.05)':'#fff'};display:flex;gap:12px;align-items:flex-start">
+          <span style="flex:1;min-width:0">
+            ${p.flag?`<span style="display:inline-block;font:700 9px/1 var(--sans);letter-spacing:.12em;
+              text-transform:uppercase;color:#8a5a12;background:rgba(243,169,73,.22);
+              border-radius:999px;padding:4px 8px;margin-bottom:7px">${esc(p.flag)}</span>`:''}
+            <span style="display:block;font:600 15px/1.2 var(--sans)">${esc(p.who)}</span>
+            <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">${
+              esc(p.line)}</span>
+          </span>
+          <span style="flex:none;text-align:right">
+            <span style="display:block;font:400 21px/1 var(--serif);color:var(--deep)">${PRICE(p.price)}</span>
+            <span style="display:block;font:400 11px/1 var(--sans);color:var(--grey2);margin-top:4px">/mo</span>
+          </span>
+        </button>`;}).join('')}
+    </div>
+
+    <div style="margin-top:18px;padding-top:16px;border-top:1px solid rgba(0,64,61,.1)">
+      <div class="kick2" style="color:var(--forest)">${esc(pick.who.toUpperCase())}</div>
+      <div style="font:400 22px/1.2 var(--serif);margin-top:8px">${esc(pick.name)}</div>
+      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${esc(pick.for)}</div>
+      ${pick.feats.map(tickLine).join('')}
+      <div style="display:flex;align-items:baseline;gap:7px;margin-top:16px">
+        <span style="font:400 32px/1 var(--serif);color:var(--ink)">${PRICE(pick.price)}</span>
+        <span style="font:400 13px/1 var(--sans);color:var(--grey)">a month</span>
+      </div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">${esc(pick.note)}</div>
+      <button class="btn" style="width:100%;margin-top:14px"
+        onclick="${buyable(pick)?`buyPlan('${pick.k}')`:`openOv('apply')`}">${
+        buyable(pick) ? 'Start now, '+PRICE(pick.price)+' a month'
+          : pick.k==='inner' ? 'Apply for Inner Circle' : 'Ask about this'}</button>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <button onclick="go('ask')" style="flex:1;border:0;background:none;cursor:pointer;
+          padding:11px;color:var(--forest);font:600 13.5px/1 var(--sans)">Ask me which one</button>
+        <button onclick="openCompare()" style="flex:1;border:0;background:none;cursor:pointer;
+          padding:11px;color:var(--forest);font:600 13.5px/1 var(--sans)">Compare them &#8964;</button>
+      </div>
+      <!-- the site's own line: the way in for somebody not ready to commit
+           to a month of anything -->
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(0,64,61,.1);
+        font:400 13px/1.5 var(--sans);color:var(--grey)">
+        Rather try one session first?
+        <button onclick="leaveTo('/session.html?kind=60')" style="background:none;border:0;padding:0;
+          color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;text-decoration:underline">60 min, ${PRICE('session60')}</button>
+        or
+        <button onclick="leaveTo('/session.html?kind=90')" style="background:none;border:0;padding:0;
+          color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;text-decoration:underline">90 min, ${PRICE('session90')}</button>.
+        Credited to your first month if you join within fourteen days.</div>
+    </div>
+  </div>`;
+}
 function screenCoaching(){
   /* the free form check, for real this time. It used to fire an email and
      relabel its own button — no upload, no account, no limit, under copy
@@ -10428,32 +10537,9 @@ function screenCoaching(){
            worth, so a price beside it is an advert. Send it, read what came
            back, and the offers appear underneath that. Until then this
            screen has one job. -->
-      ${!sold ? '' : `
-      <div class="card" style="padding:22px">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-          <span class="kick2">ONE-TO-ONE COACHING</span>
-          <span style="flex:none;font:600 12.5px/1 var(--sans);color:var(--grey)">${PRICE('online')} to ${PRICE('inner')} a month</span>
-        </div>
-        <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
-          A programme written for you, and me on the other end of it.</div>
-        ${tick('Unlimited form checks on your footage')}
-        ${tick('A two week test reviewed by me, and the block rewritten from it')}
-        ${tick('A thread where you can ask anything')}
-        <button class="btn" style="width:100%;margin-top:16px"
-          onclick="${(plansOn||[]).indexOf('online')>-1?"buyPlan('online')":"openOv('apply')"}">${
-          (plansOn||[]).indexOf('online')>-1?'Start coaching, '+PRICE('online')+' a month':'Apply for coaching'}</button>
-        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:9px">
-          Pay today and the app opens with a message from me. Inner Circle is three places,
-          <button onclick="openOv('apply')" style="background:none;border:0;padding:0;color:var(--forest);
-            font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">by application</button>.</div>
-        <div style="display:flex;gap:10px;margin-top:10px">
-          <button onclick="go('ask')" style="flex:1;border:0;background:none;cursor:pointer;
-            padding:11px;color:var(--forest);font:600 13.5px/1 var(--sans)">Ask me which tier</button>
-          <button onclick="openCompare()" style="flex:1;border:0;background:none;cursor:pointer;
-            padding:11px;color:var(--forest);font:600 13.5px/1 var(--sans)">Compare tiers &#8964;</button>
-        </div>
-      </div>
+      ${!sold ? '' : coachingPicker()}
       ${askCard}
+      ${!sold ? '' : `
       <div class="card" data-tour="tiers" id="tierTable"
         style="padding:20px;${st.tiersOpen?'':'display:none'}">
         <div class="kick2">WHAT EACH TIER GETS</div>
