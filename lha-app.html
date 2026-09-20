@@ -5800,6 +5800,22 @@ function drawOv(){
            There is one workout now. It opens as the list, and the follow
            along player is a button at the top of it. -->
 
+      ${(function(){
+        /* the coach's set workouts for this stage live in Fixes, so a fix
+           written for the stage is offered here beside the built session */
+        if(_wrist) return '';
+        const fx=fixList().filter(f=>f && f.live!==false && Number(f.stage)===_cur && (f.drills||[]).length);
+        if(!fx.length) return '';
+        return `<div>
+        <div style="${_kick}">WRITTEN FOR ${esc(((STAGES[_cur]||{}).n||'').toUpperCase())}</div>
+        <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:6px">
+          Set by Elliott. Go, below, builds a session to your level and time instead.</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+          ${fx.map(f=>`<button onclick="closeOv();buildFixSession('${esc(f.slug)}',true)"
+            style="${_row};background:#fff;border:1px solid rgba(17,17,17,.10)">
+            <span style="min-width:0"><span style="display:block">${esc(f.name)}</span>${f.tag?`<span style="display:block;font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:2px">${esc(f.tag)}</span>`:''}</span>
+            <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">${(f.drills||[]).length} drills${(f.access==='plus'&&!isPlus())?' &middot; &#128274;':''} &rarr;</span></button>`).join('')}
+        </div></div>`; })()}
       ${(!_wrist && tasting()) ? `<div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;
         padding:11px 13px;border-radius:14px;background:rgba(243,169,73,.16)">
         <span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.12em;color:#8a5a12">FREE</span>
@@ -8448,7 +8464,11 @@ function buildFixSession(slug, listOnly){
   const rot=Number((st.fixRot||{})[slug]||0);
   const spin=(list,by)=>list.length?list.slice(by%list.length).concat(list.slice(0,by%list.length)):list;
   const wantN = mins>=45 ? 10 : mins>=30 ? 8 : 6;
-  const picked=spin(pool, rot).slice(0, wantN).sort((a,b)=>(a.L||1)-(b.L||1));
+  /* A set workout is the fix as written: every drill, in the coach's
+     order, the same every time. Otherwise the drills are a pool and the
+     session rotates through it, as the fixes have always done. */
+  const picked = f.set ? pool.slice()
+    : spin(pool, rot).slice(0, wantN).sort((a,b)=>(a.L||1)-(b.L||1));
   const done={};
   const add=it=>{
     const t=work(it,it.g||f.name)+rest({it, grp:f.name, g:it.g});
@@ -9583,12 +9603,13 @@ function paywallBody(){
   const cur=rows.some(r=>r.k===st.payPeriod) ? st.payPeriod : (rows[0]||{}).k;
   const label = ({month:'a month',quarter:'a quarter',year:'a year'})[cur]||'a month';
   const price = (rows.find(r=>r.k===cur)||{}).price || PRICE('plus');
+  const one = rows.length<2;
   return `<div class="kick2">THE WHOLE LADDER</div>
-    <div class="h-lg" style="margin-top:8px">Every stage, every drill.</div>
+    <div class="h-lg" style="margin-top:8px">Every stage, every drill.${one?' '+esc(PRICE('plus'))+' a month.':''}</div>
     <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">
       Six stages from the wall to the press, every drill filmed and cued, the check points that move you up,
       and a session built for whatever time you have. Cancel any time from More.</div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+    <div style="display:${one?'none':'flex'};flex-direction:column;gap:10px;margin-top:18px">
       ${rows.map(r=>{ const on=r.k===cur;
         return `<button onclick="payPick('${r.k}')" aria-pressed="${on}" style="position:relative;width:100%;
           text-align:left;cursor:pointer;display:flex;align-items:center;gap:10px;padding:16px 16px;
@@ -9625,6 +9646,14 @@ function payMount(){
   const period=st.payPeriod||'month';
   const req=++payReq;
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
+  /* a payment link made in Stripe takes the money for the month; the
+     embedded form needs a price id, so the link wins where there is one */
+  if(period==='month' && planLinks.plus){
+    host.innerHTML=`<button class="btn" style="width:100%" onclick="payLink()">Subscribe, ${esc(PRICE('plus'))} a month &rarr;</button>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+        Apple Pay or card on the next page, through Stripe.</div>`;
+    return;
+  }
   host.innerHTML=`<div style="font:500 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:20px 0">Loading secure payment&hellip;</div>`;
   const hosted = why => {
     if(req!==payReq) return;
@@ -9643,6 +9672,12 @@ function payMount(){
           payCo=co; host.innerHTML=''; co.mount('#payMount'); });
     })
     .catch(hosted);
+}
+function payLink(){
+  const u=new URL(planLinks.plus);
+  if(st.email) u.searchParams.set('prefilled_email', st.email);
+  const b=document.querySelector('#payMount .btn');
+  if(!leaveTo(u.toString()) && b){ b.textContent='Your browser blocked it. Open the app in its own tab.'; }
 }
 function payHosted(){
   const period=st.payPeriod||'month';
@@ -10137,11 +10172,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
        session, so fall back to the stage rather than hand over nothing */
     if(fromList.length) cands = fromList;
   }
-  /* A written workout is the workout: every drill, in the coach's order,
-     the same every time. It used to be a pool the shares picked from and
-     the rotation spun, so the list Elliott wrote was never the session
-     anyone got. The clock still decides sets, as it does for everything. */
-  const scripted = !!(written && cands!==inPool);
+  const scripted = false;
   /* ── a different session each time ──────────────────────────────
      The order is the coach's and the shares are the coach's, so the only
      honest way to vary it is where in the pool it starts. Each session

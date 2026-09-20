@@ -1295,6 +1295,8 @@ export default async (request) => {
      a link alone; the checkout session route is used where a price id has
      been set, because it can carry the account with it. */
   const LINKS = {
+    /* the app, a month at a time, as a payment link Elliott made */
+    plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
     check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
     online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
     inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || '',
@@ -1319,7 +1321,9 @@ export default async (request) => {
                     .map(k => [k, LINKS[k]])),
                   prices: pricesPublic(),
                   /* which ways of paying for the ladder exist in Stripe */
-                  periods: ['month'].concat(PLANS.plusq.price() ? ['quarter'] : [], PLANS.plusy.price() ? ['year'] : []),
+                  /* monthly only for now. The quarterly and yearly prices
+                     stay wired so switching them back on is this one line. */
+                  periods: ['month'],
                   /* what each coaching tier says it includes, where the
                      coach has changed it from what the app ships */
                   coplans: await coplansPublic() });
@@ -1669,6 +1673,9 @@ export default async (request) => {
       stage: num(f.stage, 0, 0, 5),         /* whose warm-up to borrow */
       access: FIX_ACCESS.includes(f.access) ? f.access : 'plus',
       live: !!f.live,
+      /* a set workout: every drill in this order, the same every time,
+         rather than a pool the app rotates through */
+      set: !!f.set,
       cover: (f.cover && typeof f.cover === 'object')
         ? { uid: str(f.cover.uid, 64).replace(/[^a-zA-Z0-9]/g, ''), img: str(f.cover.img, 64).replace(/[^a-zA-Z0-9]/g, '') }
         : { uid: '', img: '' },
