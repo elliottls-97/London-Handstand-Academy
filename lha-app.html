@@ -3193,7 +3193,14 @@ function checkpointsCard(){
         Every check point reached.${coached?' Nicely done.':' Move down whenever you are ready.'}</span>
     </div>`:''}
     <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">
-      ${list.map((c,i)=>cpCard(c,i,list.length)).join('')}
+      ${(!coached && stageLocked(curStage()))
+        ? `<div class="card" style="padding:20px;text-align:center">
+            <div class="kick2">${esc((STAGES[curStage()]||{}).n||'This stage').toUpperCase()}</div>
+            <div class="h-md" style="margin-top:8px">The check points come with the stage.</div>
+            <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
+              Your free session here is the workout. The check points, the drill list and the cues open with the whole ladder.</div>
+            <button class="btn" style="width:100%;margin-top:14px" onclick="openStage(${curStage()})">See what is in it</button></div>`
+        : list.map((c,i)=>cpCard(c,i,list.length)).join('')}
     </div>
   </div>`;
 }
@@ -4991,13 +4998,15 @@ function moreLibrary(){
   const rest=all.map((it,i)=>({i,it})).filter(x=>!claimed.has(x.i));
   if(rest.length) groups.push({stage:'', title:'Everything else', sub:'', items:rest});
 
-  const card=x=>`<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer"
+  const card=x=>{ const lock=drillLocked(x.it.v); return `<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer"
       onclick="openLib(${x.i})">
-    ${x.it.url?`<video data-lazy="${sig(x.it.url)}#t=0.6" muted playsinline preload="none"
+    ${lock?`<div style="aspect-ratio:4/3;display:grid;place-items:center;background:var(--mist);color:var(--grey2)">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>`
+      : x.it.url?`<video data-lazy="${sig(x.it.url)}#t=0.6" muted playsinline preload="none"
               style="aspect-ratio:4/3;object-fit:cover;display:block;width:100%;background:var(--mist)"></video>`
             :''}
     <div style="padding:11px 12px 13px"><div style="font:600 13.5px/1.2 var(--sans)">${esc(x.it.n)}</div>
-    <div style="font:500 10px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:6px">${esc(String(x.it.d||'').toUpperCase())}</div></div></div>`;
+    <div style="font:500 10px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:6px">${lock?'WITH THE LADDER':esc(String(x.it.d||'').toUpperCase())}</div></div></div>`; };
 
   st.libOpen = st.libOpen || {};
   const cards=groups.map((g,gi)=>{
@@ -5167,7 +5176,10 @@ function lazyThumbs(){
 
 function openLib(i){
   const all=libraryDrills();
-  st.ovDrill=all[i]; openOv('drill');
+  const it=all[i]; if(!it) return;
+  /* a paid drill opens the wall, not the film */
+  if(drillLocked(it.v)){ closeMenu(); openStage(FREE_STAGES); return; }
+  st.ovDrill=it; openOv('drill');
 }
 
 /* ── the guided player ── */
@@ -9591,7 +9603,19 @@ const isPlus = () => !!(st.plus || st.in);   /* st.plus is refreshed from /me */
    two free sessions at Take-Off was told on the wall that they had them and
    then met the paywall when they tapped the stage, with no way to its check
    points. */
-const stageLocked = i => i >= FREE_STAGES && !isPlus() && !(tasting() && i === placedStage());
+/* The one free session is a session, not a stage: it builds and runs from
+   Today, and everything else about a paid stage stays behind the wall. It
+   used to open the stage sheet, its drill list and its check points too,
+   so a free account moved to Take-Off and read the whole programme for
+   nothing, as long as it never actually pressed start. */
+const stageLocked = i => i >= FREE_STAGES && !isPlus();
+/* a drill that only paid stages use is a paid drill, wherever it is shown */
+const drillLocked = v => {
+  if(isPlus()) return false;
+  const st_=STAGES.map((S,i)=>(S.drillIds||[]).indexOf(v)>-1 ? i : -1).filter(i=>i>=0);
+  if(!st_.length) return false;
+  return st_.every(i=>i>=FREE_STAGES);
+};
 
 function screenUpgradeBody(si){
   const s=STAGES[si]||{n:''};
