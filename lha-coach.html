@@ -6453,6 +6453,49 @@ function fxPickerHTML(){
 }
 
 const fxThumb=uid=>uid?`https://${STREAM_SUB}/${uid}/thumbnails/thumbnail.jpg?time=3s&height=160`:'';
+/* ── the preview ───────────────────────────────────────────────────
+   fix-preview.html is the fix as a page, on its own, so its look can be
+   worked on without the app around it. The draft is posted into it as
+   it is typed, names and clips filled in from the library the way the
+   server does before the app gets a fix. */
+let fxPrev=false, fxPrevTimer=null, fxPrevLast='';
+function fxHydrated(){
+  if(!fx) return null;
+  const f=JSON.parse(JSON.stringify(fx));
+  f.drills=(f.drills||[]).map(d=>Object.assign({}, d, {n:(libIndex||{})[d.v]||d.n||d.v, url:(libVideo||{})[d.v]||d.url||''}));
+  f.warmDrills=(f.warm||[]).map(v=>({v, n:(libIndex||{})[v]||v, url:(libVideo||{})[v]||''}));
+  f.article=(f.article||[]).map(b=>b&&b.t==='drill'?Object.assign({},b,{n:(libIndex||{})[b.v]||b.v, url:(libVideo||{})[b.v]||''}):b);
+  return f;
+}
+function fxPreviewPost(){
+  const fr=document.getElementById('fxPrevFrame'); if(!fr||!fr.contentWindow) return;
+  const f=fxHydrated(); if(!f) return;
+  const j=JSON.stringify(f); if(j===fxPrevLast) return; fxPrevLast=j;
+  try{ fr.contentWindow.postMessage({type:'lha-fix-draft', fix:f}, location.origin); }catch(e){}
+}
+function fxPreviewToggle(){
+  fxPrev=!fxPrev; fxPrevLast='';
+  clearInterval(fxPrevTimer); fxPrevTimer=null;
+  let w=document.getElementById('fxPrevWrap');
+  if(!fxPrev){ if(w) w.remove(); draw(); return; }
+  if(!w){
+    w=document.createElement('div'); w.id='fxPrevWrap';
+    w.style.cssText='position:fixed;top:0;right:0;bottom:0;width:430px;max-width:100vw;z-index:900;background:#dcdad6;'
+      +'box-shadow:-20px 0 50px -30px rgba(0,0,0,.5);display:flex;flex-direction:column';
+    w.innerHTML='<div style="flex:none;display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid rgba(0,0,0,.08)">'
+      +'<b style="font:600 13px/1 var(--sans)">What it looks like</b><span style="flex:1"></span>'
+      +'<a href="/fix-preview.html" target="_blank" rel="noopener" style="font:500 12px/1 var(--sans);color:var(--forest)">Open in a tab</a>'
+      +'<button class="btn btn-ghost btn-sm" onclick="fxPreviewToggle()">Close</button></div>'
+      +'<iframe id="fxPrevFrame" src="/fix-preview.html" title="Fix preview" style="flex:1;width:100%;border:0;background:#dcdad6"></iframe>';
+    document.body.appendChild(w);
+    const fr=document.getElementById('fxPrevFrame');
+    fr.addEventListener('load', ()=>{ fxPrevLast=''; fxPreviewPost(); });
+  }
+  /* the editor writes into fx without redrawing on every keystroke, so
+     the preview looks for itself */
+  fxPrevTimer=setInterval(fxPreviewPost, 600);
+  draw();
+}
 
 function fixesHTML(){
   fxLoad();
@@ -6561,6 +6604,7 @@ function fxEditorHTML(){
       <button class="ghostlink" onclick="fxClose()">← All fixes</button>
       <span style="flex:1"></span>
       <span id="fxMsg" class="muted" style="font-size:12.5px">${esc(fxMsg)}</span>
+      <button class="btn btn-ghost btn-sm" onclick="fxPreviewToggle()">${fxPrev?'Hide preview':'Preview'}</button>
       ${f.was?`<button class="btn btn-ghost btn-sm" onclick="fxDelete('${esc(f.was)}')" style="color:var(--terra)">Delete</button>`:''}
       <button class="btn btn-secondary" onclick="fxSet('live',${f.live?'false':'true'});draw()">${f.live?'Live · take off':'Draft · go live'}</button>
       <button id="fxSaveBtn" class="btn btn-primary" onclick="fxSave()" ${fxBusy?'disabled':''}>${fxBusy?'Saving…':fxDirty?'Save':'Saved'}</button>
