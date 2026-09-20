@@ -4406,14 +4406,93 @@ function uploadClip(file, say){
    One clip of the thing you are stuck on, watched by a person, answered
    within 48 hours. It goes in as a submission rather than a loose
    message, so it carries a status and chases itself up. */
+/* ── what the form check is for ───────────────────────────────────
+   It used to be a file picker and nothing else, so Elliott got a clip with
+   no idea what the person wanted to know. Now it asks: one clip with a
+   question, or every check point of the stage filmed in turn, so the
+   answer can say where they are on the ladder as well as what to change. */
 function pickAssessment(){
+  st.fcDraft = st.fcDraft || {mode:'one', q:'', clips:{}};
+  st.ovFull=true; openOv('fcask');
+}
+function fcSet(k,v){ st.fcDraft=st.fcDraft||{mode:'one',q:'',clips:{}}; st.fcDraft[k]=v; save(); if(k==='mode') drawOv(); }
+function fcPickOne(){
   const inp=document.createElement('input');
   inp.type='file'; inp.accept='video/*,image/*'; inp.style.display='none';
   document.body.appendChild(inp);
-  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(f) sendAssessment(f); };
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(f){ closeOv(); sendAssessment(f, (st.fcDraft||{}).q||''); } };
   inp.click();
 }
-function sendAssessment(file){
+let fcUpBusy='';
+function fcFilmCp(k){
+  if(fcUpBusy) return;
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    fcUpBusy=k; drawOv();
+    const say=m=>{ const el=document.getElementById('fcup-'+k); if(el) el.textContent=m; };
+    uploadClip(f, say).then(uid=>{ st.fcDraft.clips=st.fcDraft.clips||{}; st.fcDraft.clips[k]=uid; save(); fcUpBusy=''; drawOv(); })
+      .catch(e=>{ fcUpBusy=''; drawOv(); const el=document.getElementById('fcup-'+k); if(el) el.textContent=String(e); });
+  };
+  inp.click();
+}
+function fcSendCps(){
+  const d=st.fcDraft||{}; const cps=cpsFor(curStage())||[];
+  const clips=cps.filter(c=>d.clips&&d.clips[c.k]).map(c=>({drill:c.k, name:c.n, uid:d.clips[c.k]}));
+  if(!clips.length) return;
+  const btn=document.getElementById('fcSendBtn'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
+  fetch(AUTH.submission,{method:'POST',headers:authed(),
+    body:JSON.stringify({kind:'assessment', clips, numbers:Object.assign({stage:curStage()+1}, d.q?{question:d.q}:{})})})
+    .then(gateCheck)
+    .then(()=>{ st.freeCheckUsed=true; st.awaitingReview=Date.now(); st.fcDraft=null;
+      st.intake=st.intake||{}; st.intake.baseline=Date.now();
+      save(); closeOv(); loadSubmissions(); loadThread(); loadEntitlement(); render(); })
+    .catch(e=>{ if(btn){ btn.disabled=false; btn.textContent='Send them'; } const el=document.getElementById('fcMsg'); if(el) el.textContent=String(e); });
+}
+function fcAskBody(){
+  const d=st.fcDraft||{mode:'one',q:'',clips:{}};
+  const S=STAGES[curStage()]||{}; const cps=cpsFor(curStage())||[];
+  const seg=(k,l)=>`<button onclick="fcSet('mode','${k}')" aria-pressed="${d.mode===k}" style="flex:1;min-height:44px;border:0;
+    border-radius:11px;cursor:pointer;font:600 13.5px/1 var(--sans);
+    background:${d.mode===k?'#fff':'transparent'};color:${d.mode===k?'var(--deep)':'var(--grey)'};
+    box-shadow:${d.mode===k?'0 1px 2px rgba(0,64,61,.10)':'none'}">${l}</button>`;
+  const done=cps.filter(c=>d.clips&&d.clips[c.k]).length;
+  return `<div class="kick2">FORM CHECK</div>
+    <div class="h-lg" style="margin-top:8px">What do you want me to look at?</div>
+    <div style="display:flex;background:rgba(0,64,61,.07);border-radius:14px;padding:4px;gap:4px;margin-top:16px">
+      ${seg('one','One clip')}${seg('cps','My check points')}</div>
+    ${d.mode==='one' ? `
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:16px">
+      Film the thing you are stuck on, side on, whole body in frame. Say what you want to know and I answer that.</div>
+    <textarea id="fcQ" placeholder="What is going wrong, or what you want to know. Optional, but it helps." oninput="fcSet('q',this.value)"
+      style="width:100%;min-height:96px;margin-top:12px;padding:12px 14px;border:1px solid rgba(0,64,61,.14);border-radius:14px;
+      font:400 15px/1.5 var(--sans);background:#fff;resize:vertical">${esc(d.q||'')}</textarea>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="fcPickOne()">Choose the clip and send</button>
+    <div id="askMsg" style="font:500 12px/1.5 var(--sans);color:var(--forest);text-align:center;margin-top:8px;min-height:16px"></div>`
+    : `
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:16px">
+      Film each check point for ${esc(S.n||'this stage')} and I tell you which ones you have, which you are close on, and the one thing to change.
+      One attempt each. Send whichever you have filmed.</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+      ${cps.map(c=>{ const have=d.clips&&d.clips[c.k]; const busy=fcUpBusy===c.k;
+        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#fff;
+          border:1px solid ${have?'var(--forest)':'rgba(0,64,61,.12)'}">
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font:600 14px/1.3 var(--sans)">${esc(c.n)}</span>
+            <span id="fcup-${esc(c.k)}" style="display:block;font:400 12px/1.4 var(--sans);color:${have?'var(--forest)':'var(--grey2)'};margin-top:2px">${
+              have?'Filmed and uploaded':busy?'Uploading…':(c.target!=null&&c.target>0?'Target '+esc(String(c.target))+' '+esc(cpUnit(c)):'')}</span></span>
+          <button class="rt" onclick="fcFilmCp('${esc(c.k)}')" ${busy?'disabled':''}>${have?'Again':'Film'}</button></div>`; }).join('')
+        || `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey)">No check points on this stage yet.</div>`}
+    </div>
+    <textarea placeholder="Anything to add. Optional." oninput="fcSet('q',this.value)"
+      style="width:100%;min-height:64px;margin-top:12px;padding:12px 14px;border:1px solid rgba(0,64,61,.14);border-radius:14px;
+      font:400 15px/1.5 var(--sans);background:#fff;resize:vertical">${esc(d.q||'')}</textarea>
+    <button id="fcSendBtn" class="btn" style="width:100%;margin-top:14px" onclick="fcSendCps()" ${done?'':'disabled'}>${
+      done?'Send '+done+' clip'+(done===1?'':'s'):'Film at least one'}</button>
+    <div id="fcMsg" style="font:500 12px/1.5 var(--sans);color:var(--red);text-align:center;margin-top:8px;min-height:16px"></div>`}`;
+}
+function sendAssessment(file, question){
   if(upBusy) return;
   upBusy=true;
   const photo=(file.type||'').startsWith('image/');
@@ -4428,12 +4507,12 @@ function sendAssessment(file){
     upSay('Sending…');
     return fetch(AUTH.submission,{method:'POST',headers:authed(),
       body:JSON.stringify({kind:'assessment',
-        clips:[got.uid?{uid:got.uid,name:'Assessment clip'}
-                      :{image:got.image,name:'Assessment photo'}],
-        numbers:{}})})
+        clips:[got.uid?{uid:got.uid,name:'Form check clip'}
+                      :{image:got.image,name:'Form check photo'}],
+        numbers:Object.assign({stage:curStage()+1}, question?{question:String(question).slice(0,600)}:{})})})
       .then(gateCheck);
   })
-  .then(()=>{ upBusy=false; upSay(''); st.freeCheckUsed=true; st.awaitingReview=Date.now();
+  .then(()=>{ upBusy=false; upSay(''); st.freeCheckUsed=true; st.awaitingReview=Date.now(); st.fcDraft=null;
       /* a filmed clip is the baseline. Nothing used to set this, so the
          profile bar stopped at 85% with no way to move it. */
       st.intake=st.intake||{}; st.intake.baseline=Date.now();
@@ -5797,9 +5876,10 @@ function drawOv(){
            /* it is not "every drill" as opposed to something else any more,
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
-           checkin:'Your fortnight', feedback:'', paid:'', paywall:''};
+           checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:''};
   let body='';
   if(st.ov==='paywall'){ body=paywallBody(); }
+  else if(st.ov==='fcask'){ body=fcAskBody(); }
   else if(st.ov==='paid'){
     st.justPaid=false; save();
     body=`<div style="text-align:center;padding:14px 0 6px">
@@ -9760,11 +9840,27 @@ function paywallBody(){
   const label = ({month:'a month',quarter:'a quarter',year:'a year'})[cur]||'a month';
   const price = (rows.find(r=>r.k===cur)||{}).price || PRICE('plus');
   const one = rows.length<2;
+  const days = PRICE_TRIAL();
+  const week = days===7 ? 'week' : days+' days';
   return `<div class="kick2">THE WHOLE LADDER</div>
-    <div class="h-lg" style="margin-top:8px">Every stage, every drill.${one?' '+esc(PRICE('plus'))+' a month.':''}</div>
+    <div class="h-lg" style="margin-top:8px">${days>0
+      ? `Free for a ${week}. <span style="color:var(--forest)">Then ${esc(PRICE('plus'))} a month.</span>`
+      : `Every stage, every drill.${one?' '+esc(PRICE('plus'))+' a month.':''}`}</div>
     <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">
       Six stages from the wall to the press, every drill filmed and cued, the check points that move you up,
-      and a session built for whatever time you have. Cancel any time from your account.</div>
+      and a session built for whatever time you have.</div>
+    <!-- the two things people are actually checking before they put a card
+         in: whether the free bit is real, and whether they can get out -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px">
+      ${days>0?`<div style="background:rgba(0,102,99,.08);border-radius:16px;padding:14px 14px">
+        <div style="font:400 26px/1 var(--serif);color:var(--forest)">${days} days</div>
+        <div style="font:600 12.5px/1.35 var(--sans);color:var(--ink);margin-top:6px">free, nothing charged until ${esc(firstCharge())}</div>
+      </div>`:''}
+      <div style="background:rgba(0,102,99,.08);border-radius:16px;padding:14px 14px${days>0?'':';grid-column:1/-1'}">
+        <div style="font:400 26px/1 var(--serif);color:var(--forest)">Cancel</div>
+        <div style="font:600 12.5px/1.35 var(--sans);color:var(--ink);margin-top:6px">any time, from your account, in two taps${days>0?'. Cancel inside the '+week+' and you pay nothing':''}</div>
+      </div>
+    </div>
     <div style="display:${one?'none':'flex'};flex-direction:column;gap:10px;margin-top:18px">
       ${rows.map(r=>{ const on=r.k===cur;
         return `<button onclick="payPick('${r.k}')" aria-pressed="${on}" style="position:relative;width:100%;
@@ -9786,8 +9882,7 @@ function paywallBody(){
     </div>
     <div id="payMount" style="margin-top:18px;min-height:96px"></div>
     <div style="font:400 12.5px/1.55 var(--sans);color:var(--grey2);margin-top:14px;text-align:center">
-      By subscribing you authorise London Handstand Academy to charge you ${esc(price)} ${label} until you cancel.
-      Cancel any time from your account.</div>`;
+      ${days>0?`Card now, ${esc(price)} ${label} from ${esc(firstCharge())}, and a note comes three days before so nothing is a surprise. `:''}By subscribing you authorise London Handstand Academy to charge you ${esc(price)} ${label} until you cancel.</div>`;
 }
 function loadStripeJs(){
   if(window.Stripe) return Promise.resolve();
@@ -9799,23 +9894,30 @@ function loadStripeJs(){
 }
 function payMount(){
   const host=document.getElementById('payMount'); if(!host || !st.token) return;
+  /* the link comes from /plans, and on a cold open it has not answered
+     yet: mounting before it did fell through to the hosted checkout */
+  if(plansOn===null){ host.innerHTML=`<div style="font:500 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:20px 0">One moment&hellip;</div>`;
+    Promise.resolve(loadPlans()).then(()=>{ if(st.ov==='paywall') payMount(); }); return; }
   const period=st.payPeriod||'month';
   const req=++payReq;
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   /* a payment link made in Stripe takes the money for the month; the
      embedded form needs a price id, so the link wins where there is one */
   if(period==='month' && planLinks.plus){
-    host.innerHTML=`<button class="btn" style="width:100%" onclick="payLink()">Subscribe, ${esc(PRICE('plus'))} a month &rarr;</button>
+    const days=PRICE_TRIAL();
+    host.innerHTML=`<button class="btn" style="width:100%" onclick="payLink()">${days>0
+        ? 'Start '+days+' days free &rarr;' : 'Subscribe, '+esc(PRICE('plus'))+' a month &rarr;'}</button>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-        Apple Pay or card on the next page, through Stripe.</div>`;
+        Apple Pay or card on the next page, through Stripe.${days>0?' Nothing is charged today.':''}</div>`;
     return;
   }
   host.innerHTML=`<div style="font:500 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:20px 0">Loading secure payment&hellip;</div>`;
   const hosted = why => {
     if(req!==payReq) return;
-    host.innerHTML=`<button class="btn" style="width:100%" onclick="payHosted()">Subscribe &rarr;</button>
+    host.innerHTML=`<button class="btn" style="width:100%" onclick="payHosted()">${PRICE_TRIAL()>0
+        ? 'Start '+PRICE_TRIAL()+' days free &rarr;' : 'Subscribe &rarr;'}</button>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-        Apple Pay or card on the next page, through Stripe.</div>`;
+        Apple Pay or card on the next page, through Stripe.${PRICE_TRIAL()>0?' Nothing is charged today.':''}</div>`;
   };
   fetch(AUTH.checkout,{method:'POST',headers:authed(),
     body:JSON.stringify(Object.assign({plan:'plus',period,embedded:true}, st.promo?{promo:st.promo}:{}))})
@@ -10657,7 +10759,7 @@ const PLANS=[
 ];
 let plansOn=null;
 function loadPlans(){
-  fetch(AUTH.plans).then(r=>r.ok?r.json():null)
+  return fetch(AUTH.plans).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ plansOn=d.plans||[]; planLinks=(d&&d.links)||{};
       if(d.prices){ st.prices=d.prices; save(); }
       if(Array.isArray(d.periods)){ st.periods=d.periods; save(); }
@@ -11588,6 +11690,9 @@ const coachTabLabel = () => hadFormCheck() ? 'Coaching' : 'Form check';
 const coachMsgs = () => (st.msgs||[]).filter(m=>m && m.from==='e' && m.at);
 const unreadMsgs = () => coachMsgs().filter(m=>m.at > (st.seenMsgAt||0)).length;
 const hasNew = () => unreadMsgs()>0 || !!(st.lastReview && st.lastReview > (st.seenReview||0));
+/* how many things are waiting: unread messages, plus an unread answer that
+   is not already one of them */
+const newCount = () => Math.max(1, unreadMsgs() + ((st.lastReview && st.lastReview > (st.seenReview||0) && !unreadMsgs()) ? 1 : 0));
 function markChatSeen(){
   const t=Math.max(0, ...coachMsgs().map(m=>m.at));
   if(t>(st.seenMsgAt||0)){ st.seenMsgAt=t; save(); }
@@ -11711,8 +11816,9 @@ function topBar(){
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H8l-5
         3 1.5-4.5A8 8 0 1 1 21 12z"/></svg>
-      ${waiting?`<span style="position:absolute;top:-1px;right:-1px;width:9px;height:9px;border-radius:999px;
-        background:var(--amber);border:2px solid #fff"></span>`:''}
+      ${waiting?`<span style="position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;padding:0 5px;
+        border-radius:999px;background:var(--amber);color:var(--ink);border:2px solid #fff;
+        display:grid;place-items:center;font:700 10.5px/1 var(--sans)">${newCount()}</span>`:''}
     </button>
     ${st.token?`<button onclick="openOv('account')" aria-label="Your account"
       style="${chip};border-radius:999px;padding:4px 12px 4px 4px;display:flex;align-items:center;gap:8px">
@@ -11733,6 +11839,34 @@ function topBar(){
 /* the bar sits over the hero and inverts once you scroll past it. Rendering
    from st.scrolled would redraw the whole screen on every scroll tick, so the
    bar is restyled in place and only the flag is kept. */
+/* pull down from the top of any screen to fetch everything again. The
+   screens scroll inside their own box, so the browser's own pull to
+   refresh never fires in here, and an installed app has no reload button. */
+let pullBusy=false;
+function refreshAll(){
+  if(pullBusy) return; pullBusy=true;
+  toast('Refreshing…');
+  const jobs=[loadLadder()];
+  if(st.token){ jobs.push(loadEntitlement()); loadThread(); loadSubmissions(); loadTrack(); loadQuestions(); loadSign();
+    if(st.in){ jobs.push(loadProgramme()); loadProgress(); } }
+  if(typeof loadPlans==='function') loadPlans();
+  if(typeof loadFixes==='function') loadFixes();
+  Promise.all(jobs.map(p=>Promise.resolve(p).catch(()=>null))).then(()=>{ pullBusy=false; render(); toast('Up to date.'); });
+}
+function watchPull(){
+  const sc=$('#app .scroll'); if(!sc) return;
+  let y0=0, armed=false, pulled=0;
+  const tip=()=>{ let el=document.getElementById('pulltip'); if(!el){ el=document.createElement('div'); el.id='pulltip';
+    el.style.cssText='position:absolute;left:50%;transform:translateX(-50%);z-index:45;top:calc(env(safe-area-inset-top) + 64px);'
+      +'background:#fff;color:var(--deep);border:1px solid rgba(0,64,61,.14);border-radius:999px;padding:8px 14px;'
+      +'font:600 12px/1 var(--sans);box-shadow:0 8px 20px rgba(0,64,61,.12);opacity:0;transition:opacity .15s;pointer-events:none';
+    document.getElementById('app').appendChild(el); } return el; };
+  sc.addEventListener('touchstart',e=>{ armed = sc.scrollTop<=0 && !st.ov; y0=e.touches[0].clientY; pulled=0; },{passive:true});
+  sc.addEventListener('touchmove',e=>{ if(!armed) return; pulled=e.touches[0].clientY-y0;
+    const t=tip(); if(pulled>30){ t.textContent = pulled>90 ? 'Let go to refresh' : 'Pull to refresh'; t.style.opacity='1'; } else t.style.opacity='0'; },{passive:true});
+  sc.addEventListener('touchend',()=>{ const t=document.getElementById('pulltip'); if(t) t.style.opacity='0';
+    if(armed && pulled>90) refreshAll(); armed=false; pulled=0; },{passive:true});
+}
 function watchScroll(){
   const sc=$('#app .scroll'); if(!sc) return;
   const apply=()=>{
@@ -11762,6 +11896,12 @@ const TOURS = {
   home: {
     n:'The ladder app', next:'ladder',
     steps:[
+      /* first, not last: an app on the home screen opens full screen,
+         works in a gym with no signal, and is the one people come back to.
+         Skipped once it is installed. */
+      {t:'menu', h:'First, make it an app', when:canInstall,
+       b:()=>'Two minutes, once, and it opens from your home screen like any other app: full screen, no browser bar, and the sessions work in a gym with no signal. '+installCopy(),
+       go:()=>{ doInstall(); }},
       {t:'session', h:'Today, in one line',
        b:'One button. How long and how hard come next, on the sheet it opens.'},
       {t:'ladder', h:'Where you are',
@@ -11772,11 +11912,11 @@ const TOURS = {
       {t:'week', h:'Moving a day',
        b:'Open it and each day is a card. The arrows move that day to another day of the week, and whatever ends up on today is what the banner gives you. Tap a card to open its drills.',
        pre:()=>{ st.weekOpen=true; save(); render(); }},
-      {t:'modesheet', h:'Two ways to train it',
-       b:'Every session comes both ways. Pick one and I will show you both.',
+      {t:'modesheet', h:'How long, how hard',
+       b:'Every session is built to the time you have and the level you pick. Any workout Elliott has written for the stage is listed here too.',
        pre:()=>{ st.pickDay=todayCellIdx(); save(); openOv('mode'); }},
       {t:'followalong', h:'Follow along',
-       b:'The session runs itself. Each set counted down, each rest timed, the clip playing and the cues on screen. You train instead of reading.',
+       b:'The session runs itself. Each set counted down, each rest timed, the clip playing. Swipe to move between sets, tap the film to pause, and the cues are one tap away at the bottom.',
        pre:()=>{ closeOv(); buildFreeSession(false,false,todayCellIdx()); }},
       {t:'drilllist', h:'Or drill by drill',
        b:'The same session as a list. Tick drills off as you go, change a dose before you start, open the demo, and flag one that was too easy or too hard. Work at your own pace.',
@@ -11791,7 +11931,8 @@ const TOURS = {
       /* skipped entirely once it is installed, which is why it carries a
          test rather than sitting there telling people to do what they have
          already done */
-      {t:'tabs', h:'Keep it on your home screen', when:canInstall, b:installCopy,
+      {t:'menu', h:'Last thing: put it on your home screen', when:canInstall,
+       b:()=>'Everything else is in the menu, top left, including how to install it if you skipped it. '+installCopy(),
        go:()=>{ doInstall(); }}
     ]
   },
@@ -12229,9 +12370,13 @@ function render(){
             + ((typeof clipsNew==='function') ? clipsNew() : 0);
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
-    (((id==='progress'||(id==='ladder'&&!coached))&&nCp) || ((id==='coaching'||id==='ask')&&hasNew()))
+    ((id==='coaching'||id==='ask')&&hasNew())
+      ?`<b style="position:absolute;top:4px;left:50%;margin-left:6px;min-width:18px;height:18px;padding:0 5px;
+      border-radius:999px;background:var(--amber);color:var(--ink);display:grid;place-items:center;
+      font:700 10px/1 var(--sans)">${newCount()}</b>`
+    : (((id==='progress'||(id==='ladder'&&!coached))&&nCp)
       ?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
-      border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
+      border-radius:99px;background:var(--amber)"></b>`:'')}</button>`).join('');
   swap((st.preview?`<div style="position:fixed;top:0;left:0;right:0;z-index:2000;
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
@@ -12244,6 +12389,7 @@ function render(){
   mountCaptions();
   coRest();
   watchScroll();
+  watchPull();
   lazyThumbs();
   if(menuOpen) paintMenu();
   if(!st.preview) maybeTour();

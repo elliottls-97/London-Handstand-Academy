@@ -1344,7 +1344,10 @@ export default async (request) => {
   });
   if (path === '/plans') {
     return json({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price() || !!LINKS[k]),
-                  links: Object.fromEntries(Object.keys(LINKS).filter(k => !PLANS[k].price() && LINKS[k])
+                  /* the app's month goes through the payment link whenever
+                     there is one: a price id left in the environment from
+                     the £5 days was quietly winning over the £15 link */
+                  links: Object.fromEntries(Object.keys(LINKS).filter(k => LINKS[k] && (k === 'plus' || !PLANS[k].price()))
                     .map(k => [k, LINKS[k]])),
                   prices: pricesPublic(),
                   /* which ways of paying for the ladder exist in Stripe */
@@ -3413,8 +3416,12 @@ export default async (request) => {
 
     /* it lands in the thread too, so the coach reads it where they
        already reply rather than in a second inbox */
-    const label = kind === 'assessment' ? 'Baseline assessment' : `Two-week test · cycle ${cycle.n}`;
-    const lines = Object.entries(numbers).map(([k2, v]) => `${k2}: ${v}`).join(', ');
+    const label = kind === 'assessment' ? 'Form check' : `Two-week test · cycle ${cycle.n}`;
+    /* a question sent with the clip is the thing to answer, so it is the
+       message, not a number in a list */
+    const question = String(numbers.question || '').trim().slice(0, 600);
+    const lines = question ? question
+      : Object.entries(numbers).map(([k2, v]) => `${k2}: ${v}`).join(', ');
     await threadAdd(db, who, { from: 'client',
       text: `${label}${lines ? ' — ' + lines : ''}`, sub: id });
     for (const c of clips) {
