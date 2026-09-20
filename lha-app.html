@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#006663">
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -106,6 +106,10 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
   100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--d)*-1)) scale(1) }}
 @media(prefers-reduced-motion:reduce){.burst{display:none}}
 .scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:8px}
+/* no double tap zoom, and no zoom on focusing a field: iOS zooms into any
+   input under 16px, which is how the app kept ending up at 110% */
+html,body{touch-action:manipulation}
+@supports (-webkit-touch-callout:none){ input,textarea,select{font-size:16px !important} }
 /* The top bar is fixed and 67px tall: 10 + a 44px control + 12. Anything
    less than that here puts the first line of the hero underneath it, which
    is how the greeting and the stage title both ended up sliced. */
@@ -2076,7 +2080,20 @@ function panelWeek(p){
         <div class="h-sm" style="font-size:19px;margin-top:5px">${v}</div></div>`).join('')}
     </div>
     ${thisWk?'':`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
-      Nothing logged this week yet. Finish a session and it turns up here.</div>`}</div>`;
+      Nothing logged this week yet. Finish a session and it turns up here.</div>`}
+    <button class="btn2" style="width:100%;margin-top:12px" onclick="logByHand()">${
+      trainedToday()?'Log another session today':'I trained today, log it'}</button></div>`;
+}
+/* a session done off the app, at a class or from memory, still counts */
+function logByHand(){
+  const mins=st.time||30;
+  st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
+  st.prog.sessions.push({ at:Date.now(), done:true, kind:'all', mins, mode:'manual',
+    name:(STAGES[curStage()]||{}).n||'Session', drills:0, got:0, of:0 });
+  save();
+  try{ reportProgress({session:{ name:(STAGES[curStage()]||{}).n||'Session', done:true, mode:'manual', kind:'all',
+    drills:0, mins, actual:mins, got:0, of:0, items:[] }}); }catch(e){}
+  render(); toast('Logged. '+mins+' minutes on '+((STAGES[curStage()]||{}).n||'the ladder')+'.');
 }
 
 /* ── how much of each stage you can actually do ────────────────────
@@ -2398,6 +2415,36 @@ function cpDue(){
   if(!all.length) return true;
   const newest=Math.max(...all.map(x=>x.at));
   return (Date.now()-newest) > 14*864e5;
+}
+/* A drill that is one of the stage's check points says so in the workout,
+   with the target, and reaching it there logs it there: no separate trip
+   to the ladder to drag a slider for a thing they have just done. */
+function cpOfDrill(v){
+  if(coachedView() || !v) return null;
+  return (cpFor(curStage())||[]).find(c=>c && (c.demo===v || c.k===v)) || null;
+}
+function cpAim(c){
+  if(!c || c.target==null || !(Number(c.target)>0)) return '';
+  const K=CP_KIND[c.kind]||CP_KIND.count;
+  return (K.lower?'in ':'')+c.target+cpUnit(c)+(K.suffix||'');
+}
+function cpRow(it){
+  const c=cpOfDrill(it&&it.v); if(!c) return '';
+  const met=cpMet(c), aim=cpAim(c);
+  return `<div data-cpin="${esc(c.k)}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+    <span style="font:700 9.5px/1 var(--sans);letter-spacing:.12em;padding:5px 8px;border-radius:999px;
+      background:${met?'var(--forest)':'rgba(243,169,73,.22)'};color:${met?'var(--on-primary)':'#7a4a10'}">${met?'&check; CHECK POINT REACHED':'CHECK POINT'}</span>
+    ${aim&&!met?`<span style="font:600 12.5px/1 var(--sans);color:var(--grey)">target ${esc(aim)}</span>`:''}
+    ${!met&&aim?`<button onclick="event.stopPropagation();cpReach('${esc(c.k)}')" style="margin-left:auto;border:0;cursor:pointer;
+      border-radius:999px;padding:8px 12px;background:var(--forest);color:var(--on-primary);font:600 12px/1 var(--sans)">I got ${esc(aim)}</button>`:''}
+  </div>`;
+}
+function cpReach(k){
+  const c=(cpFor(curStage())||[]).find(x=>x.k===k); if(!c) return;
+  saveCheckpoint(k, Number(c.target)||0);
+  const it={v:c.demo||c.k};
+  document.querySelectorAll('[data-cpin="'+k+'"]').forEach(el=>{ el.outerHTML=cpRow(it); });
+  toast(esc(c.n)+': reached.');
 }
 function saveCheckpoint(k,v,video){
   /* fix:<slug>:start and :finish are the before and after of a fix. They sit
@@ -5418,6 +5465,7 @@ function showStep(){
         <div class="p-repcol"><div class="p-repnum${tTotal>0?'':' small'}" id="p-repnum">${tTotal>0?fmtT(left):'Hold'}</div>
           <div class="p-repunit">${tTotal>0?'left &middot; '+dose:dose}</div></div>
         <div class="p-info"><h2 class="p-name">${esc(it.n)}</h2>
+          ${cpRow(it)}
           ${it.desc?`<div class="p-rule"></div><div class="p-cues"><b>${esc(it.desc)}</b></div>`:''}
         </div>
       </div>`;
@@ -6166,6 +6214,7 @@ function drawOv(){
               <div style="flex:1;min-width:0">
               <div id="name-${k}" style="font:600 15px/1.25 var(--sans);${
                 on?'color:var(--grey2);text-decoration:line-through':''}">${esc(it.n)}</div>
+              ${cpRow(it)}
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:7px">
               <!-- the dose is the clock. Tapping it counts the set down on
                    the row, so somebody working through the list gets the
@@ -7628,7 +7677,7 @@ const levelDef = () => LEVELS.find(l=>l.v===intake().level) || LEVELS[0];
 function profilePct(){
   const a=intake(); let n=20;                 /* opening the app is the first rung */
   if(a.goal) n+=15; if(a.level!=null) n+=20;
-  if(a.niggles) n+=15; if(a.mins&&(a.days||intakeWhen().length)) n+=15;
+  if(a.niggles) n+=15; if(a.mins) n+=15;
   if(a.baseline) n+=15;
   return Math.min(100,n);
 }
@@ -7641,7 +7690,7 @@ const INTAKE_STEPS=[
   {id:'niggles',kick:'ANYTHING SORE', q:'Anything I should know about?',
    sub:'Pick any that apply. It changes what you get given, not whether you can start.'},
   {id:'train', kick:'YOUR WEEK',      q:'How do you want to train?',
-   sub:"Nothing binding — it just tells me what's realistic."},
+   sub:"Nothing binding. It just tells me what is realistic."},
 ];
 
 /* has this step got an answer yet, so Next can be offered rather than sat
@@ -7651,7 +7700,7 @@ function stepAnswered(i){
   if(id==='goal')    return !!a.goal;
   if(id==='level')   return a.level!=null;
   if(id==='niggles') return true;          /* nothing to flag is an answer */
-  if(id==='week')    return !!(a.mins && (a.days||intakeWhen().length));
+  if(id==='week')    return !!a.mins;
   return true;
 }
 function screenQuiz(){
@@ -7708,18 +7757,6 @@ function screenQuiz(){
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:10px">
         ${MINS.filter(([m])=>L.mins.indexOf(m)>=0)
           .map(([m,d])=>card(a.mins===m, two(m+' minutes',d), `pickIntake('mins',${m})`)).join('')}</div>
-      <!-- Which days, not how many. Asking for a number pushed a target on
-           people; asking for the days is the same information and it is theirs. -->
-      <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2);margin-top:20px">WHICH DAYS</div>
-      <div style="display:flex;gap:6px;margin-top:10px">
-        ${DAYL.map((d,i)=>{ const on=intakeWhen().indexOf(i)>-1;
-          return `<button onclick="toggleWhen(${i})" aria-pressed="${on}" style="flex:1;min-width:0;
-          background:${on?'var(--forest)':'#fff'};color:${on?'var(--on-primary)':'var(--ink)'};
-          border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};border-radius:14px;padding:14px 0;
-          font:700 12px/1 var(--sans);letter-spacing:.04em;cursor:pointer">${d.slice(0,1)}${d.slice(1,3).toLowerCase()}</button>`; }).join('')}</div>
-      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-        ${intakeWhen().length} session${intakeWhen().length===1?'':'s'} a week, plus short wrist and mobility
-        days in the gaps. Move any of them later from Today.</div>
       <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2);margin-top:20px">HOW HARD</div>
       <div style="display:flex;gap:9px;margin-top:10px">
         ${[[1,'Easier'],[2,'As written'],[3,'Harder']].map(([n,l])=>{ const on=(a.hard||2)===n;
@@ -7729,7 +7766,7 @@ function screenQuiz(){
           font:600 13px/1 var(--sans);cursor:pointer">${l}</button>`; }).join('')}</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
         How the sessions at your stage run. Change it any time from the chooser.</div>
-      ${a.mins&&intakeWhen().length?`<button class="btn" style="width:100%;margin-top:18px"
+      ${a.mins?`<button class="btn" style="width:100%;margin-top:18px"
         onclick="finishIntake()">See where you land</button>`:''}`;
   }
 
@@ -7843,6 +7880,11 @@ function finishIntake(){
   st.dayMap=weekOn(when);
   track('quiz', L.v);
   st.tab = st.email ? 'home' : 'joinFree';
+  /* Placed above the free stage, the next thing is the wall for that
+     stage, with the free week on it. It used to land on Foundations and
+     say nothing, which read as the quiz having been ignored. */
+  const wall = L.v >= FREE_STAGES && !isPlus();
+  if(wall){ if(st.email) st.openWallFor=L.v; else { st.joinFor='taste'; st.wantUpgrade=L.v; } }
   save(); saveState(); sendIntake();
   /* The home page runs this whole app inside an iframe, which is a fine
      shop window and a bad place to actually use it: a refresh reloads the
@@ -7853,6 +7895,11 @@ function finishIntake(){
      is already in storage when the full page opens. */
   if(inFrame()){ leaveTo(location.pathname + location.search); return; }
   render();
+  /* not in the frame: the wall opens now rather than on the next boot */
+  if(st.openWallFor!=null && STAGES[st.openWallFor]){
+    const w=st.openWallFor; delete st.openWallFor; save();
+    setTimeout(()=>{ st.ovStage=w; openOv('stage'); }, 250);
+  }
 }
 /* one place to ask, so nothing has to reason about window.top twice */
 function inFrame(){
@@ -8436,13 +8483,17 @@ function askElliottRow(){
 function askFromSearch(){
   const typed=((document.getElementById('askq')||{}).value||'').trim();
   if(!st.token){ st.askDraft=typed; goJoin(); return; }
-  st.askDraft=typed; save();
-  go('coaching');
-  /* land them on the question box with it already filled in */
-  setTimeout(()=>{
-    const el=document.getElementById('askQ');
-    if(el){ el.value=typed; el.scrollIntoView({block:'center',behavior:'smooth'}); el.focus(); }
-  }, 160);
+  if(!typed){ toast('Type the question first.'); return; }
+  /* it sends. It used to open the chat with the words typed in, which on a
+     phone meant the keyboard, a scroll, and the button hiding under it. */
+  pendingMsgs.push({text:typed,sentAt:Date.now()});
+  st.msgs=(st.msgs||[]).concat([{from:'me',text:typed,time:'Just now'}]); save();
+  const q=document.getElementById('askq'); if(q){ q.value=''; q.blur(); }
+  st.q=''; save(); render();
+  toast('Sent to Elliott. His reply lands in the chat.');
+  fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text:typed})})
+    .then(r=>{ if(!r.ok) throw 0; setTimeout(loadThread,400); })
+    .catch(()=>post({type:'Question',text:typed}));
 }
 
 /* the coach's own words for a film, from the dashboard, keyed on id */
@@ -8479,7 +8530,8 @@ function askMatches(q){
     <p style="margin:0 0 8px;font:500 13.5px/1.45 var(--sans);color:var(--grey)">
       No video on that one yet.</p>${askElliottRow()}</div>`;
   return `<div style="margin-top:10px">
-    <p style="margin:0 0 8px;font:600 10px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">
+    ${askElliottRow()}
+    <p style="margin:12px 0 8px;font:600 10px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">
       ${hits.length} VIDEO${hits.length===1?'':'S'}</p>
     <div style="display:flex;flex-direction:column;gap:7px">
     ${hits.map(({f,i})=>`<div onclick="${explainerOpen(i)?`openExplainer(${i})`
@@ -9387,7 +9439,11 @@ function screenLadder(){
             border-radius:50%;background:var(--sand)"></i>Part of it</span>
           <span style="display:flex;align-items:center;gap:6px"><i style="width:10px;height:10px;
             border-radius:50%;border:2px solid var(--forest)"></i>Today</span>
-        </div>`;})()}
+        </div>
+        <!-- a session done off the app, at a class or from memory, counts;
+             there was no way to say so, so the week read empty when it was not -->
+        <button class="btn2" style="width:100%;margin-top:14px" onclick="logByHand()">${
+          trainedToday()?'Log another session today':'Trained today without the app? Log it'}</button>`;})()}
     </div>
 
     <!-- CHECK-IN DUE sat here asking for three sliders before the person had
@@ -9621,142 +9677,50 @@ function screenUpgradeBody(si){
   const s=STAGES[si]||{n:''};
   trackOnce('wall', si);
   const placed=placedStage();
-  const ids=(s.drillIds||[]);
-  /* two ids can carry the same label, so the preview read "Tuck Slides,
-     Single Leg Tuck Slides, Tuck Handstand Slides, Single Leg Tuck Slides" */
-  const names=[...new Set(ids.map(v=>{ const d=drillById(v); return d?d.n:''; }).filter(Boolean))].slice(0,4);
-  const cps=(typeof cpsFor==='function' ? cpsFor(si) : []).length;
-  /* say how many are filmed rather than claiming all of them are: on the
-     stages where filming is behind, "every one filmed" would be a lie on
-     the paywall, which is the worst place for one */
-  const filmed=ids.filter(v=>{ const d=drillById(v); return d && d.url; }).length;
-  const filmLine = filmed>=ids.length ? 'every one filmed and cued'
-    : filmed ? filmed+' of them filmed, all of them cued' : 'all of them cued';
-  /* The decision first. This used to open with the stage goal, then what is
-     in the stage, then the price, then five bullets, and the button that
-     buys it was at the bottom of all of it. On a phone that is a wall of
-     text between somebody who has decided and the thing they decided to do,
-     on the one screen where that matters most. Price and button are above
-     the fold now; everything that was here is still here, underneath. */
+  /* the phase's own explainer, where one is filmed: what this stage is
+     about, from Elliott, instead of a page of text about it */
+  const ex=((typeof EXPLAIN!=='undefined' && EXPLAIN[si])||[]).find(x=>x && x.uid);
+  const days=PRICE_TRIAL(), week=days===7?'week':days+' days';
+  /* Short on purpose. This used to be the price, the trial, what is in the
+     stage, every check point with its target, five bullets on what opens
+     and a code box, on the one screen where somebody has just decided.
+     One film, one sentence, one button. */
   return `<div style="text-align:center;padding:2px 0 0">
-      <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">STAGE ${
-        si+1} OF ${STAGES.length}</div>
-      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">
-        ${esc(s.goal||'')}</div>
+      <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">STAGE ${si+1} OF ${STAGES.length}</div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">${esc(s.goal||'')}</div>
     </div>
-
+    ${ex?`<div style="margin:16px -18px 0">${qaVideo(ex,true)}</div>
+      <div style="font:500 12px/1.4 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">${esc(ex.q||'What this phase is about')}</div>`:''}
+    ${s.soon?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;background:rgba(243,169,73,.14);font:400 13.5px/1.5 var(--sans)">
+      ${esc(s.n)} is being filmed and opens for everyone on the ladder the day it is ready.</div>`:''}
     <div class="card" style="margin-top:16px;padding:18px 20px">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <div style="font:400 26px/1.1 var(--serif)">${PRICE()} a month</div>
-        ${PRICE_FOUNDING()?`<span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.12em;border-radius:999px;padding:5px 9px;
-          background:rgba(243,169,73,.22);color:#8a5a12">FOUNDING PRICE</span>`:''}
-      </div>
-      <!-- "first week free" with a card form on the next screen is where
-           people stop. Say the date the money actually moves, and that
-           leaving is one tap, rather than leaving both to be guessed at. -->
-      ${trialLine()?`<div style="font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">
-        ${trialLine()}. Nothing is charged until <b style="color:var(--ink)">${esc(firstCharge())}</b>,
-        and cancelling is one tap in the app before then.</div>`:''}
+      <div style="font:400 26px/1.1 var(--serif)">${days>0?`Free for a ${week}.`:'The whole ladder.'}
+        <span style="color:var(--forest)">Then ${PRICE()} a month.</span></div>
+      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${
+        days>0?`Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps in your account before then. `:''}${
+        (STAGES.length-FREE_STAGES)} stages, every drill filmed and cued, the check points that move you up.</div>
       <button class="btn" style="width:100%;margin-top:14px" onclick="startUpgrade()">${
-        PRICE_TRIAL()>0?'Start the free '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days'):'Open the ladder'}</button>
+        days>0?'Start the free '+week:'Open the ladder'}</button>
       ${(function(){
         if(placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
-        return `<div style="margin-top:12px;border-radius:14px;padding:12px 14px;
-          background:rgba(243,169,73,.14)">
-          <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">
-            Your answers put you at <b>${esc(STAGES[placed].n)}</b>, stage ${placed+1}.
-            ${!st.token
-              ? `Make a free account and you get <b>one free session</b> there, no card.`
-              : tasteLeft()>0 && !isPlus()
-              ? `You have <b>${tasteLeft()} free session${tasteLeft()===1?'':'s'}</b> there before this opens.`
-              : `You have had your free sessions there. This is what opens it.`}</div>
-          ${!st.token?`<button class="btn2" style="width:100%;margin-top:10px"
-            onclick="closeOv();goJoin('taste')">Make a free account</button>`:''}</div>`;
+        const free = !st.token ? 'Make a free account and you get one free session there first, no card.'
+          : (tasteLeft()>0 && !isPlus()) ? 'You have one free session there before this opens.' : '';
+        return free?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:10px">
+          Your answers put you at <b style="color:var(--ink)">${esc(STAGES[placed].n)}</b>. ${free}</div>
+          ${!st.token?`<button class="btn2" style="width:100%;margin-top:10px" onclick="closeOv();goJoin('taste')">Make a free account</button>`:''}`:'';
       })()}
     </div>
-
-    ${s.soon?`<div class="card" style="margin-top:14px;padding:16px 18px;background:rgba(243,169,73,.14);border:0">
-      <div class="kick2" style="color:#8a5a12">COMING SOON</div>
-      <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:8px">
-        ${esc(s.n)} is being filmed. It is part of the full ladder and opens for everyone on it the day it is ready, at no extra cost.</div>
-    </div>`:''}
-
-    ${ids.length?`<div class="card" style="margin-top:14px;padding:16px 18px">
-      <div class="kick2">WHAT IS IN ${esc(String(s.n||'').toUpperCase())}</div>
-      <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:9px">
-        ${ids.length} drill${ids.length===1?'':'s'}, ${filmLine}${cps?`, and ${cps} check point${cps===1?'':'s'} that open the stage after it`:''}.
-        ${names.length?`<span style="color:var(--grey)">${esc(names.join(', '))}${ids.length>names.length?', and more':''}.</span>`:''}
-      </div>
-    </div>`:''}
-
-    <!-- The destination, not the tier. This stage has a written list of
-         things it makes you able to do, with a number on each, and the
-         paywall was describing a subscription instead. What somebody wants
-         to know at this moment is what changes about their handstand. -->
-    ${(function(){
-      const list=(typeof cpsFor==='function' ? cpsFor(si) : [])||[];
-      if(!list.length) return '';
-      return `<div class="card" style="margin-top:14px;padding:16px 18px">
-        <div class="kick2">WHAT ${esc(String(s.n||'').toUpperCase())} GETS YOU TO</div>
-        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-          ${list.length} things to reach, in order. Reach them and the stage after
-          this one opens.</div>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
-          ${list.map((c,i)=>{
-            const K=CP_KIND[c.kind]||CP_KIND.count;
-            const aim = c.target!=null
-              ? (K.lower?'in ':'')+c.target+(c.unit!=null?c.unit:(K.unit||''))+(K.suffix||'')
-              : '';
-            return `<div style="display:flex;gap:10px;align-items:baseline;font:400 14px/1.45 var(--sans)">
-              <span style="flex:none;width:15px;font:400 13px/1.45 var(--sans);color:var(--grey2)">${i+1}</span>
-              <span style="flex:1">${esc(c.n||c.k)}</span>
-              ${aim?`<span style="flex:none;font:600 13px/1.45 var(--sans);color:var(--forest)">${esc(aim)}</span>`:''}
-            </div>`;}).join('')}
-        </div>
-      </div>`;
-    })()}
-
-    <div class="card" style="margin-top:14px;padding:16px 18px">
-      <div class="kick2">WHAT ELSE OPENS</div>
-      <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
-        <!-- Two of these used to describe things a free account already has:
-             filmed and cued drills, and progress kept across devices. Naming
-             something as a paid feature when the person is already using it
-             for nothing is the fastest way to be disbelieved about the rest. -->
-        ${[(STAGES.length-FREE_STAGES)+' more stages, from the wall to a press',
-           'Every drill in those stages, filmed, cued and captioned',
-           'Sessions built around the time you have, different each time',
-           'Your progress and check points kept across devices',
-           'Cancel any time, from the app']
-          .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
-            <span style="color:var(--forest)">&bull;</span><span>${esc(x)}</span></div>`).join('')}
-      </div>
-      ${PRICE_NOTE()?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">
-        ${esc(PRICE_NOTE())}</div>`:''}
-      ${curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:14px"
-        onclick="closeOv();goToStage(0)">Train on ${esc(STAGES[0].n)} instead</button>`:''}
-      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:12px">
-        ${FREE_STAGES===1 ? esc(STAGES[0].n)+' stays free, always.'
-          : 'Stages 1 to '+FREE_STAGES+' stay free, always.'}
-        Written by the coach who trains people in London, not a content team.</div>
-    </div>
-
-    <div style="margin-top:14px;text-align:center">
+    ${curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:12px" onclick="closeOv();goToStage(0)">Stay on ${esc(STAGES[0].n)} for now</button>`
+      :`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">${esc(STAGES[0].n)} stays free, always.</div>`}
+    <div style="margin-top:10px;text-align:center">
       <button onclick="codeToggle()" id="codeBtn" style="border:0;background:none;cursor:pointer;
         font:600 13px/1 var(--sans);color:var(--forest);padding:8px">Have a code?</button>
       <div id="codeBox" ${st.pendingCode?'':'hidden'} style="display:flex;gap:8px;margin-top:8px">
-        <!-- min-width:0, or the input keeps its default 20-character width,
-             refuses to shrink, and pushes "Use it" off the edge of a 375px
-             phone: tapping it side-scrolled the whole sheet and hid the
-             error message it had just written. -->
         <input id="codeIn" value="${esc(st.pendingCode||'')}" placeholder="WORKSHOP26" autocapitalize="characters" autocomplete="off"
           aria-label="Discount or workshop code"
           style="flex:1;min-width:0;border:1px solid rgba(0,64,61,.16);border-radius:12px;padding:12px;
           font:600 15px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;background:#fff">
-        <!-- .btn is width:100%, so flex:none gave the button the whole row and
-             squeezed the input to 26px. width:auto lets it size to its words. -->
-        <button class="btn" style="flex:none;width:auto;padding:0 18px;min-height:48px"
-          onclick="codeGo()">Use it</button>
+        <button class="btn" style="flex:none;width:auto;padding:0 18px;min-height:48px" onclick="codeGo()">Use it</button>
       </div>
       <div id="codeMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px;min-height:18px"></div>
     </div>`;
@@ -11267,7 +11231,7 @@ function screenCoaching(){
         thread || `<div style="text-align:center;padding:40px 22px;color:var(--grey);font:400 15px/1.6 var(--sans)">
           Nothing here yet.<br>Ask about a drill, a niggle, or which plan fits.</div>`}
         <div id="chatEnd"></div></div>
-      <div style="position:sticky;bottom:0;z-index:3;padding:10px 14px calc(env(safe-area-inset-bottom) + 14px);
+      <div style="position:sticky;bottom:0;z-index:3;padding:10px 14px 10px;
         background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)">
         <div style="background:#fff;border-radius:22px;padding:8px 8px 8px 16px;display:flex;gap:8px;
           align-items:center;border:1px solid rgba(0,64,61,.10);
@@ -11337,12 +11301,14 @@ function screenCoaching(){
         : 'Film the thing you are stuck on and Elliott tells you the one thing to change. '
           +'One is free with an account, and nothing is asked for until you have had it back.'}</div>`}
     </div>`;
+  /* the Form check / Chat switch stays on screen whichever way they scroll */
+  const segStick=`<div style="position:sticky;top:0;z-index:4;background:#f4f4f5;padding-bottom:6px;margin-top:-6px">${seg}</div>`;
   if(tab==='chat'){
-    return `<div class="scroll s" style="display:flex;flex-direction:column">
-      <div style="flex:none">${head}${seg}</div>${chatBody}</div>`;
+    return `<div class="scroll s" style="display:flex;flex-direction:column;padding-bottom:0">
+      <div style="flex:none">${head}</div>${segStick}${chatBody}</div>`;
   }
   return `<div class="scroll s">
-    ${head}${seg}
+    ${head}${segStick}
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
       <!-- what actually happens, for somebody who has not had one. Once
@@ -11668,7 +11634,10 @@ function doJoin(ev){
          was created and they were left on the ladder wondering where the
          week went. */
       const wanted = st.wantUpgrade!=null || st.joinFor==='check';
-      if(st.token && wanted){ st.wantUpgrade=null; st.joinFor=''; save(); startUpgrade(); } })
+      if(st.token && wanted){ const w=st.wantUpgrade; st.wantUpgrade=null; st.joinFor=''; save();
+        /* placed on a paid stage by the quiz: the stage, with the free
+           week on it, rather than straight to a card form */
+        if(w!=null && STAGES[w] && w>stageCap()){ st.ovStage=w; openOv('stage'); } else startUpgrade(); } })
     .catch(e=>{ joinSay(String(e)); });
 }
 /* letting them skip costs one address and keeps the app usable —
@@ -11695,11 +11664,11 @@ function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizS
 
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
-  coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask']],
+  coached:[['today','Train'],['plan','Plan'],['progress','Progress'],['ask','Ask']],
   /* Progress used to be its own tab and the ladder is where a free client
      actually lives, so the two were competing for the same trip. Progress is
      the second half of the ladder screen now. Four tabs, not five. */
-  free:[['home','Today'],['ladder','Ladder'],['coaching','Coaching']]
+  free:[['home','Train'],['ladder','Ladder'],['coaching','Coaching']]
 };
 /* Has Elliott ever written back about a clip of theirs? Until he has, the
    coaching tab is an advert, and a tab that is an advert gets ignored.
@@ -11801,7 +11770,7 @@ function topBar(){
      kept their green heroes after the free side lost its. They are on the
      light ground now, so there is nothing left for it to invert over and the
      bar is the same dark teal on white everywhere. */
-  const label = ({home:'TODAY',today:'TODAY',ladder:'LADDER',progress:'PROGRESS',
+  const label = ({home:'TRAIN',today:'TRAIN',ladder:'LADDER',progress:'PROGRESS',
     coaching:'COACHING',ask:'ASK',plan:'PLAN',more:'MORE',fix:'FIX'})[st.tab] || '';
   const waiting = hasNew();
   const name = (st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
@@ -11920,43 +11889,24 @@ const TOURS = {
   home: {
     n:'The ladder app', next:'ladder',
     steps:[
-      /* first, not last: an app on the home screen opens full screen,
-         works in a gym with no signal, and is the one people come back to.
-         Skipped once it is installed. */
       {t:'menu', h:'First, make it an app', when:canInstall,
-       b:()=>'Two minutes, once, and it opens from your home screen like any other app: full screen, no browser bar, and the sessions work in a gym with no signal. '+installCopy(),
+       b:()=>'Full screen, and it works with no signal. '+installCopy(),
        go:()=>{ doInstall(); }},
-      {t:'session', h:'Today, in one line',
-       b:'One button. How long and how hard come next, on the sheet it opens.'},
-      {t:'ladder', h:'Where you are',
-       b:'The stage you are on and how many of its check points you have reached. Tap it for the whole ladder.'},
-      {t:'week', h:'Your week',
-       b:'Green days are sessions, blue days are wrists and mobility. Grey is nothing scheduled.',
+      {t:'session', h:'Train', b:'One button. Time and level come next.'},
+      {t:'ladder', h:'Where you are', b:'Your stage and its check points. Tap for the ladder.'},
+      {t:'week', h:'Your week', b:'Green is a session, blue is wrists and mobility.',
        pre:()=>{ st.weekOpen=false; save(); render(); }},
-      {t:'week', h:'Moving a day',
-       b:'Open it and each day is a card. The arrows move that day to another day of the week, and whatever ends up on today is what the banner gives you. Tap a card to open its drills.',
-       pre:()=>{ st.weekOpen=true; save(); render(); }},
-      {t:'modesheet', h:'How long, how hard',
-       b:'Every session is built to the time you have and the level you pick. Any workout Elliott has written for the stage is listed here too.',
+      {t:'modesheet', h:'How long, how hard', b:'Every session is built to the time and level you pick.',
        pre:()=>{ st.pickDay=todayCellIdx(); save(); openOv('mode'); }},
-      {t:'followalong', h:'Follow along',
-       b:'The session runs itself. Each set counted down, each rest timed, the clip playing. Swipe to move between sets, tap the film to pause, and the cues are one tap away at the bottom.',
+      {t:'followalong', h:'Follow along', b:'It runs itself. Swipe between sets, tap the film to pause, cues at the bottom.',
        pre:()=>{ closeOv(); buildFreeSession(false,false,todayCellIdx()); }},
-      {t:'drilllist', h:'Or drill by drill',
-       b:'The same session as a list. Tick drills off as you go, change a dose before you start, open the demo, and flag one that was too easy or too hard. Work at your own pace.',
+      {t:'drilllist', h:'Or drill by drill', b:'The same session as a list. Tick, time a set, open a demo.',
        pre:()=>{ tourLeaveMode(); buildFreeSession(false,'work',todayCellIdx()); }},
-
-      {t:'explainers', h:'Ask, or watch',
-       b:'Type a question and it looks through the videos first. The rail underneath is every explainer.',
+      {t:'explainers', h:'Ask, or watch', b:'Type a question. Videos first, then Elliott.',
        pre:()=>{ tourLeaveMode(); }},
-      {t:'tabs', h:'The rest of it',
-       b:()=>'Ladder is every drill in every stage, Progress is what you have actually done, and '
-         +coachTabLabel()+' is where you send a clip to me.'},
-      /* skipped entirely once it is installed, which is why it carries a
-         test rather than sitting there telling people to do what they have
-         already done */
-      {t:'menu', h:'Last thing: put it on your home screen', when:canInstall,
-       b:()=>'Everything else is in the menu, top left, including how to install it if you skipped it. '+installCopy(),
+      {t:'tabs', h:'The rest', b:()=>'Ladder, Progress, and '+coachTabLabel()+' for sending me a clip.'},
+      {t:'menu', h:'Last thing: your home screen', when:canInstall,
+       b:()=>'Everything else is in the menu, top left. '+installCopy(),
        go:()=>{ doInstall(); }}
     ]
   },
@@ -12426,6 +12376,11 @@ document.addEventListener('DOMContentLoaded',function(){
   render();
   trackOpen();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); setTimeout(loadSign, 800); }
+  /* the quiz placed them on a paid stage: show it, with the free week on it */
+  if(st.openWallFor!=null && STAGES[st.openWallFor]){
+    const w=st.openWallFor; delete st.openWallFor; save();
+    setTimeout(()=>{ if(!st.ov){ st.ovStage=w; openOv('stage'); } }, 500);
+  }
   loadLadder();
   loadFixes();
   loadPlans();

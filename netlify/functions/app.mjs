@@ -783,6 +783,17 @@ export default async (request) => {
       acct = await supa.row('accounts',
         `stripe_customer=eq.${enc(obj.customer)}&select=*`);
     }
+    /* A subscription event carries a customer id and no email, and a
+       payment link never wrote the customer onto the account, so every
+       later renewal or change from a link buyer came here as "no matching
+       account". Ask Stripe who the customer is. */
+    if (!acct && obj.customer && stripeKey()) {
+      try {
+        const cust = await stripe(`/customers/${obj.customer}`, null, 'GET');
+        const ce = norm((cust && cust.email) || '');
+        if (ce) acct = await getAcct(ce);
+      } catch (err) { console.warn('customer lookup', err && err.message); }
+    }
     /* writing {plus:true} into a key with no account behind it would create a
        stub with no password and lock the real person out */
     if (!acct) {
