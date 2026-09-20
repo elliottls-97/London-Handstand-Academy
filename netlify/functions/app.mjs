@@ -619,7 +619,9 @@ export default async (request) => {
     /* the same ladder paid a quarter or a year at a time */
     plusq:    { label: '£39',  amount: 3900,  priceId: '', link: '' },
     plusy:    { label: '£129', amount: 12900, priceId: '', link: '' },
-    check:    { label: '£35',  amount: 3500,  priceId: '', link: '' },
+    /* one form check, bought one at a time. Not a subscription any more:
+       a clip is an hour of Elliott's week, so each one is paid for. */
+    check:    { label: '£20',  amount: 2000,  priceId: '', link: '' },
     online:   { label: '£120', amount: 12000, priceId: '', link: '' },
     inperson: { label: '£190', amount: 19000, priceId: '', link: '' },
     inner:    { label: '£320', amount: 32000, priceId: '', link: '' },
@@ -803,6 +805,7 @@ export default async (request) => {
 
     if (on.includes(ev.type)) {
       const status = obj.status || 'active';
+      const plusBefore = !!acct.plus;
       acct.plus = !['canceled', 'unpaid', 'incomplete_expired'].includes(status);
       /* the subscription id is what an in-app cancel needs */
       if (obj.subscription) acct.subscription = obj.subscription;
@@ -816,13 +819,34 @@ export default async (request) => {
          payment link that carries none, from what was paid */
       /* 10000 is the old coaching price; the link may still carry it */
       /* 18000 is the link on the site until the £190 one replaces it */
-      const byAmount = { 500: 'plus', 3500: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
+      const byAmount = { 500: 'plus', 1500: 'plus', 2000: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
       for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inner', 'inneronline']) {
         const amt = Number(PRICES[k] && PRICES[k].amount);
         if (amt > 0) byAmount[amt] = ({ inperson: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
       }
       const boughtPlan = (obj.metadata && obj.metadata.plan)
         || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
+      /* ── a form check, bought one at a time ──────────────────────
+         Twenty pounds is one clip, not a tier: it adds a credit to the
+         account and changes nothing else. A checkout session's status is
+         "complete", which the line above read as a paid subscription and
+         switched the whole ladder on for the price of one clip. */
+      if (boughtPlan === 'check') {
+        acct.plus = plusBefore;
+        if (ev.type === 'checkout.session.completed') {
+          const ck = `fccredits:${acct.email}`;
+          const cur = (await getSetting(ck)) || {};
+          await setSetting(ck, { n: (Number(cur.n) || 0) + 1, bought: (Number(cur.bought) || 0) + 1, at: Date.now() });
+          const first = String(acct.name || '').split(' ')[0];
+          await email(acct.email, 'Your form check is ready to send',
+            mail({ title: 'Your form check is ready to send.',
+              greeting: first,
+              paras: ['Open the app, go to Form check, and send the clip: side on, whole body in frame, one clean attempt. Elliott watches it himself and writes back within 48 hours.'],
+              cta: { href: `${SITE}/lha-app.html`, label: 'Send the clip' },
+              signoff: { name: 'London Handstand Academy' } }), 'replies');
+        }
+        return json({ ok: true, credit: true });
+      }
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
       /* money that matches no tier used to switch the £5 app on and do
          nothing else: no roster, no thread, no email, no alert */
@@ -835,7 +859,7 @@ export default async (request) => {
       /* Buying coaching or form checks makes a client, not just a payer.
          Before this the money arrived and nothing else happened: no roster
          entry, no thread, nobody told. */
-      if (['check', 'online', 'inner'].includes(boughtPlan) && ev.type === 'checkout.session.completed') {
+      if (['online', 'inner'].includes(boughtPlan) && ev.type === 'checkout.session.completed') {
         const e2 = acct.email;
         const stored = (await getSetting('roster')) || {};
         if (!stored[e2] && !clients()[e2]) {
@@ -1244,6 +1268,7 @@ export default async (request) => {
     const acct = (await getAcct(who)) || {};
     const coachedNow = await isCoached(who);
     const usedCheck = !!(await supa.row('free_checks', `email=eq.${enc(who)}&select=email`));
+    const credits = Number(((await getSetting(`fccredits:${who}`)) || {}).n) || 0;
     return json({
       email: who,
       name: clients()[who] || acct.name || '',
@@ -1269,7 +1294,9 @@ export default async (request) => {
          carry form checks; the check tier puts you on the roster, which is
          what coachedNow reads. */
       freeCheckUsed: !coachedNow && usedCheck,
-      canCheck: coachedNow || !usedCheck,
+      /* checks bought one at a time and not yet sent */
+      checkCredits: credits,
+      canCheck: coachedNow || !usedCheck || credits > 0,
     });
   }
 
@@ -1285,7 +1312,7 @@ export default async (request) => {
     plusq:  { price: () => (PRICES.plusq||{}).priceId || process.env.STRIPE_PRICE_PLUS_Q, mode: 'subscription' },
     plusy:  { price: () => (PRICES.plusy||{}).priceId || process.env.STRIPE_PRICE_PLUS_Y, mode: 'subscription' },
     inperson: { price: () => PRICES.inperson.priceId || process.env.STRIPE_PRICE_INPERSON, mode: 'subscription' },
-    check:  { price: () => PRICES.check.priceId  || process.env.STRIPE_PRICE_CHECK,  mode: 'subscription' },
+    check:  { price: () => PRICES.check.priceId  || process.env.STRIPE_PRICE_CHECK,  mode: 'payment' },
     online: { price: () => PRICES.online.priceId || process.env.STRIPE_PRICE_ONLINE, mode: 'subscription' },
     inner:  { price: () => PRICES.inner.priceId  || process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
   };
@@ -1691,7 +1718,15 @@ export default async (request) => {
       drills: (Array.isArray(f.drills) ? f.drills : []).slice(0, 40).map(d => {
         const v = str(d && d.v, 64).replace(/[^a-z0-9-]/g, '');
         if (!v) return null;
-        return { v, L: num(d.L, 1, 1, 4), g: str(d.g, 40) || 'Strength', d: str(d.d, 40) };
+        const o = { v, L: num(d.L, 1, 1, 4), g: str(d.g, 40) || 'Strength', d: str(d.d, 40) };
+        /* sets, reps or seconds, and rest, typed rather than read out of the
+           dose. Only kept where the coach set them, so an untouched drill
+           behaves as it always did. */
+        const sets = Number(d.sets), amt = Number(d.amt), r = Number(d.r);
+        if (Number.isFinite(sets) && sets >= 1) o.sets = Math.min(12, Math.round(sets));
+        if (Number.isFinite(amt) && amt > 0) { o.amt = Math.min(600, Math.round(amt)); o.unit = d.unit === 's' ? 's' : ''; }
+        if (Number.isFinite(r) && r >= 0) o.r = Math.min(300, Math.round(r));
+        return o;
       }).filter(Boolean),
       warm: (Array.isArray(f.warm) ? f.warm : []).slice(0, 12)
         .map(v => str(v, 64).replace(/[^a-z0-9-]/g, '')).filter(Boolean),
@@ -3226,9 +3261,18 @@ export default async (request) => {
     if (!coached) {
       const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
       if (!won) {
-        return json({ error: `That is your free form check used. Elliott watches every one himself, `
-          + `so there is one with an account. After that they are ${PRICES.check.label} a month.`,
-          gated: true, usedUp: true }, 402);
+        /* the free one is gone: a bought credit pays for this clip, and
+           the row is read and written here so two clips sent together
+           cannot both spend the same one */
+        const ck = `fccredits:${who}`;
+        const cur = (await getSetting(ck)) || {};
+        const n = Number(cur.n) || 0;
+        if (n <= 0) {
+          return json({ error: `That is your free form check used. Elliott watches every one himself, `
+            + `so there is one with an account. After that they are ${PRICES.check.label} each, or included with coaching.`,
+            gated: true, usedUp: true }, 402);
+        }
+        await setSetting(ck, Object.assign({}, cur, { n: n - 1, spentAt: Date.now() }));
       }
     }
     const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};

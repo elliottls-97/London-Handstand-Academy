@@ -6411,6 +6411,20 @@ function fxDrillAdd(v){
   fxAdd=false; fxAddQ=''; fxDirty=true; draw();
 }
 function fxDrillSet(i,k,v){ if(!fx.drills[i]) return; fx.drills[i][k]=(k==='L')?Number(v)||1:v; fxDirty=true; }
+/* sets, the amount and its unit, and the rest, as numbers. The dose the
+   rest of the app reads is written from them, so a fix drill with numbers
+   typed here prints "3 x 8" or "3 x 30s" everywhere the dose shows. */
+function fxDoseSet(i,k,v){
+  const d=fx.drills[i]; if(!d) return;
+  if(k==='unit') d.unit = v==='s' ? 's' : '';
+  else { const n=Number(String(v).replace(/[^0-9.]/g,'')); d[k] = (Number.isFinite(n) && String(v).trim()!=='') ? n : undefined; }
+  const sets=Number(d.sets), amt=Number(d.amt);
+  if(Number.isFinite(amt) && amt>0){
+    d.d = (Number.isFinite(sets)&&sets>=1 ? Math.round(sets)+' x ' : '') + Math.round(amt) + (d.unit==='s'?'s':'');
+  }
+  fxDirty=true;
+  const line=document.getElementById('fxdose-'+i); if(line) line.textContent=d.d||'';
+}
 function fxDrillDel(i){ fx.drills.splice(i,1); fxDirty=true; draw(); }
 function fxWarmDel(v){ fx.warm=fx.warm.filter(x=>x!==v); fxDirty=true; draw(); }
 function fxPickerHTML(){
@@ -6520,7 +6534,7 @@ function fxEditorHTML(){
   };
   const drillRow=(d,i)=>`<div data-fxrow draggable="true" ondragstart="fxDragStart(event,'drill',${i})" ondragover="fxDragOver(event,'drill',${i})"
       ondragleave="fxDragLeave(event)" ondrop="fxDrop(event,'drill',${i})"
-      style="display:grid;grid-template-columns:22px 72px minmax(0,1fr) 84px 130px 130px auto;gap:10px;align-items:center;
+      style="display:grid;grid-template-columns:22px 72px minmax(0,1fr) 84px 120px auto auto;gap:10px;align-items:center;
       padding:8px;border-radius:12px;background:#fff;border:1px solid var(--line);margin-top:6px">
       <span title="Drag to move" style="cursor:grab;color:var(--grey2);font-size:16px;line-height:1;user-select:none">⋮⋮</span>
       <div style="width:72px;height:44px;border-radius:8px;background:#000;overflow:hidden">${
@@ -6531,7 +6545,15 @@ function fxEditorHTML(){
         ${[1,2,3,4].map(L=>`<option value="${L}" ${d.L===L?'selected':''}>Level ${L}</option>`).join('')}</select>
       <select class="input" style="min-height:36px;padding:6px 8px" onchange="fxDrillSet(${i},'g',this.value)">
         ${FX_GROUPS.concat(FX_GROUPS.indexOf(d.g)<0&&d.g?[d.g]:[]).map(g=>`<option ${d.g===g?'selected':''}>${esc(g)}</option>`).join('')}</select>
-      <input class="input" style="min-height:36px;padding:6px 8px" value="${esc(d.d||'')}" placeholder="dose, e.g. 3 × 8" oninput="fxDrillSet(${i},'d',this.value)">
+      <span style="display:flex;gap:6px;align-items:center;white-space:nowrap">
+        <input class="input" type="number" min="1" max="12" style="min-height:36px;padding:6px 6px;width:52px" value="${d.sets!=null?esc(String(d.sets)):''}" placeholder="sets" title="Sets" oninput="fxDoseSet(${i},'sets',this.value)">
+        <span class="muted">x</span>
+        <input class="input" type="number" min="1" max="600" style="min-height:36px;padding:6px 6px;width:60px" value="${d.amt!=null?esc(String(d.amt)):''}" placeholder="8" title="Reps, or seconds" oninput="fxDoseSet(${i},'amt',this.value)">
+        <select class="input" style="min-height:36px;padding:6px 6px;width:74px" title="Reps or seconds" onchange="fxDoseSet(${i},'unit',this.value)">
+          <option value="" ${d.unit==='s'?'':'selected'}>reps</option><option value="s" ${d.unit==='s'?'selected':''}>secs</option></select>
+        <input class="input" type="number" min="0" max="300" style="min-height:36px;padding:6px 6px;width:60px" value="${d.r!=null?esc(String(d.r)):''}" placeholder="rest" title="Rest after each set, seconds" oninput="fxDoseSet(${i},'r',this.value)">
+        <span id="fxdose-${i}" class="muted" style="font-size:11.5px;min-width:52px">${esc(d.d||'')}</span>
+      </span>
       <button class="btn btn-ghost btn-sm" onclick="fxDrillDel(${i})" style="color:var(--terra)">×</button>
     </div>`;
   const cover = f.cover&&f.cover.uid ? fxThumb(f.cover.uid) : f.cover&&f.cover.img ? APP+'/image/'+f.cover.img : '';
@@ -6624,7 +6646,7 @@ const uidFromUrl=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m
    amount here, make the matching change in Stripe, and nothing needs a
    deploy. */
 let prices=null, pricesBusy=false, pricesMsg='', pricesEnv={};
-const PRICE_TIERS=[['plus','App, full ladder','a month, subscription'],['check','Form checks','a month, subscription'],
+const PRICE_TIERS=[['plus','App, full ladder','a month, subscription'],['check','One form check','a clip, one off'],
   ['online','Online coaching','a month'],['inperson','Online coaching with the session','a month'],
   ['inner','Inner Circle with the session','a month, by application'],['inneronline','Inner Circle, no session','a month, by application'],
   ['session','The London session, as an add on','a month on top of either plan'],

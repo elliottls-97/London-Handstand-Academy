@@ -2720,9 +2720,9 @@ function cpCardTop(c, i, total){
       ${c.video===false?'':`<button id="cpfc-${c.k}"
         onclick="event.stopPropagation();${(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`}"
         aria-label="${sent?'Send Elliott another clip of this'
-          :fcOpen()?'Send Elliott a clip of this':'Form checks, '+PRICE('check')+' a month'}"
+          :fcOpen()?'Send Elliott a clip of this':'A form check is '+PRICE('check')}"
         title="${sent?'Clip sent. Send another'
-          :fcOpen()?'Send Elliott a clip of this':'Your free form check is used. '+PRICE('check')+' a month for more'}"
+          :fcOpen()?'Send Elliott a clip of this':'Your free form check is used. '+PRICE('check')+' a clip after that'}"
         style="flex:none;width:40px;height:40px;border-radius:12px;cursor:pointer;border:0;
         display:grid;place-items:center;padding:0;
         background:${sent?'rgba(0,102,99,.12)':fcOpen()?'rgba(243,169,73,.20)':'rgba(17,17,17,.06)'};
@@ -5183,7 +5183,8 @@ function showStep(){
   } else {
     tTotal=left=work(it, s.g||s.grp);
     if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
-      `<video src="${it.url}" autoplay loop playsinline ${soundOn()?'':'muted'}></video>`;
+      `<video src="${it.url}" autoplay loop playsinline ${soundOn()?'':'muted'}
+         onclick="togglePause()" style="cursor:pointer" title="Tap to pause"></video>`;
       /* The explainers were captioned and the drill you are mid-set on was
          not, which is the one place the words matter most. Captions only, not
          the theatre: the player has its own chrome and a second control bar
@@ -7621,7 +7622,7 @@ const TIERS=[['The six-stage ladder','Foundations free','✓'],['Level-finder qu
  ['Guided follow-along player','✓','✓'],['Drill library','Foundations only','All drills'],['Check points','✓','✓'],
  ['Offline use','✓','✓'],['Programme written for you','—','✓'],["Coach's read on the block",'—','✓'],
  ['Too easy / too hard flags','Self only','To Elliott'],['Chat with Elliott','About coaching','Anything'],
- ['Form check on your footage','One free','Unlimited'],['Two-week test reviewed','Self-scored','By Elliott'],
+ ['Form check on your footage',()=>'One free, then '+PRICE('check')+' a clip','Included'],['Two-week test reviewed','Self-scored','By Elliott'],
  ['Session summary to coach','—','✓'],['Workshops','Book','Member price']];
 
 /* every drill the app knows about, from the programme data */
@@ -9257,7 +9258,7 @@ function screenLadder(){
         <div style="flex:1;min-width:0">
           <div style="font:400 19px/1.2 var(--serif)">Want Elliott&rsquo;s eyes on it?</div>
           <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">
-            Send a clip, get a form check. ${st.freeCheckUsed?PRICE('check')+' a month':'Free once'}.</div>
+            Send a clip, get a form check. ${st.freeCheckUsed?PRICE('check')+' a clip':'Free once'}.</div>
         </div>
         <span style="flex:none;height:44px;padding:0 16px;border-radius:22px;
           border:1.5px solid var(--forest);color:var(--deep);font:600 14px/1 var(--sans);
@@ -9701,6 +9702,7 @@ function loadEntitlement(){
     .then(d=>{ if(!d) return;
       const was=st.plus, wasIn=st.in, wasFC=st.canCheck;
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
+      st.checkCredits=Number(d.checkCredits)||0;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
       st.in=!!d.coached; st.coached=!!d.coached;
@@ -10478,11 +10480,10 @@ function adjustSecs(v,by,k){
    programming is too far to jump, and what people actually want at that
    point is someone to look at their handstand. */
 const PLANS=[
-  {k:'check', n:'Form checks',   price:'£35', per:'a month',
+  {k:'check', n:'A form check',   price:'£20', per:'a clip',
    for:'You have the ladder and you want eyes on it.',
-   gets:['A filmed check every fortnight, answered within 48 hours',
-         'What to change, in writing, against your own footage',
-         'The full ladder included']},
+   gets:['One clip, answered within 48 hours',
+         'What to change, in writing, against your own footage']},
   {k:'online', n:'Coaching',      price:'£120', per:'a month', best:true,
    for:'Your own programme, reviewed every fortnight.',
    gets:['A programme built for your body and your week',
@@ -10515,7 +10516,7 @@ let planLinks={};
 /* PRICE('online') and friends read the prices setting the dashboard writes.
    This took no argument and answered £5 to everything, so the coaching
    card priced coaching at the app's own price. */
-const PRICE_DEFAULT={plus:'£15',plusq:'£39',plusy:'£129',check:'£35',online:'£120',inperson:'£190',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
+const PRICE_DEFAULT={plus:'£15',plusq:'£39',plusy:'£129',check:'£20',online:'£120',inperson:'£190',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1500,plusq:3900,plusy:12900})[k] || 0;
 const PRICE = (k='plus') => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
 const PRICE_TRIAL = () => { const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
@@ -10859,7 +10860,7 @@ function screenCoaching(){
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           Film the skill you're stuck on and I tell you the one thing to change.
           I watch every one myself, so there is one free with an account. After
-          that they are ${PRICE('check')} a month on top of the ladder.</div>
+          that they are ${PRICE('check')} a clip, or included with coaching.</div>
         <button class="btn" style="width:100%;margin-top:16px"
           onclick="goJoin()">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -10923,16 +10924,19 @@ function screenCoaching(){
           st.freeCheckUsed?'That is your free one used.':'Send a clip, get the one thing to change.'}</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           Every one is watched by Elliott and answered in writing, so there is one
-          free with an account. Form checks after that are ${PRICE('check')} a month,
-          on top of the ${PRICE('plus')} ladder, and you can stop them any time.</div>
+          free with an account. After that a form check is ${PRICE('check')} a clip,
+          paid before he watches it, or included with coaching.</div>
         ${tick('Watched by me, not a bot')}
         ${tick('A reply within 48 hours')}
-        ${tick('As many as you train, while it runs')}
+        ${tick('One clip, one written change to make')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="buyPlan('check')">
-          Form checks, ${PRICE('check')} a month</button></div>`
+          Buy a form check, ${PRICE('check')}</button>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+          Sending one most fortnights? Coaching is ${PRICE('online')} a month and they are included.</div></div>`
     : `<div class="card" style="padding:22px">
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
-        <div class="h-md" style="font-size:24px;margin-top:8px">Find out what's holding you back.</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">${
+          (st.freeCheckUsed && st.checkCredits>0) ? (st.checkCredits===1?'One form check paid for.':st.checkCredits+' form checks paid for.') : 'Find out what\'s holding you back.'}</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           One clip of the skill you're stuck on. Side on, phone vertical, whole
           body in frame — don't crop the hands out.</div>
@@ -11000,7 +11004,7 @@ function screenCoaching(){
           Questions here. Footage goes through a form check, so it is watched properly.</div>
       </div>`;
 
-  const rows=TIERS.map(([n,f,c],i)=>`<div style="background:#fff;padding:11px 13px;display:flex;
+  const rows=TIERS.map(([n,f0,c],i)=>{ const f=(typeof f0==='function')?f0():f0; return `<div style="background:#fff;padding:11px 13px;display:flex;
     align-items:stretch;gap:8px;${i?'border-top:1px solid rgba(17,17,17,.06)':''}">
     <span style="flex:1;align-self:center;font:500 12.5px/1.3 var(--sans)">${esc(n)}</span>
     <span style="flex:none;width:62px;align-self:center;text-align:center;font:500 11px/1.2 var(--sans);
@@ -11008,7 +11012,7 @@ function screenCoaching(){
     <span style="flex:none;width:62px;text-align:center;font:600 11px/1.2 var(--sans);
       display:grid;place-items:center;background:rgba(0,102,99,.05);
       color:${c==='—'?'var(--grey2)':'var(--forest)'}">${c}</span>
-  </div>`).join('');
+  </div>`; }).join('');
   const faqs=[['What actually changes?','You stop guessing. The programme is written for your body and your week, and it changes every fortnight based on what you send me.'],
    ['Do I need to be at a certain level?','No. Most people start somewhere between "can kick up" and "can\'t hold it". Complete beginners are welcome.'],
    ['Can I do it fully online?','Yes. Programming and form checks work anywhere. In-person in London is an optional add-on.'],
@@ -11725,7 +11729,7 @@ const TOURS = {
       {t:'formcheck', h:'A form check',
        b:()=>'Film one attempt, send it, and I write back with the one thing to change. '
          +'I watch every one myself, so there is one free with an account. '
-         +'After that they are '+PRICE('check')+' a month.'},
+         +'After that they are '+PRICE('check')+' a clip, or included with coaching.'},
       {t:'pricing', h:'If you want the whole thing',
        b:()=>'Swipe the three across to see what each one is, and what it costs. '
          +'Everything is month to month, and it only turns up once you have had your form check back.'},
