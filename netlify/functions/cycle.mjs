@@ -289,45 +289,79 @@ export default async () => {
 
 /* 9am UTC daily — early enough that a reminder lands before training,
    late enough that it is not a 3am push */
-/* ── 4: a free account gone quiet ─────────────────────────────────
-   Everything above is about coaching clients. A free user who stopped on
-   day four heard nothing, ever, and a reminder is the cheapest retention
-   there is. Three days of silence, one note, named at their stage, never
-   more than one a week, and only to someone who has actually trained: a
-   nudge to retest sent to a lapsed account is spam. */
+/* ── 4: an account gone quiet ──────────────────────────────────────
+   Everything above is about coaching clients. A free user who stopped
+   heard nothing, ever, and a reminder is the cheapest retention there is.
+   Four notes, at five days, a fortnight, a month and three months of
+   silence, each sent once, each a different thing to say. Coaching clients
+   are skipped: their coach is the reminder. The mail guard still applies
+   underneath, so nobody who is suppressed gets one. */
+const QUIET_STEPS = [
+  { days: 5,  key: '5d',
+    subject: 'Your next session is ready',
+    title: 'Your next session is ready.',
+    paras: (stage) => [`It has been five days. ${stage} is where you left it, and the next session is built and waiting: fifteen minutes is enough.`,
+                       'Two sessions a week is what moves a handstand. One is what keeps it.'] },
+  { days: 14, key: '14d',
+    subject: 'Two weeks off a handstand',
+    title: 'Two weeks is where it starts to slip.',
+    paras: (stage) => [`A fortnight without going upside down and the wrists and shoulders start to forget. ${stage} is still where you were, and a short session today is worth more than a long one next month.`,
+                       'Open it, pick fifteen minutes, and let the timer run.'] },
+  { days: 30, key: '30d',
+    subject: 'Still want the handstand?',
+    title: 'Still want the handstand?',
+    paras: (stage) => [`It has been a month. Nothing has moved, which is fine, because nothing has been lost either: ${stage} is exactly where you left it.`,
+                       'If the sessions were too long, choose fifteen minutes. If they were too hard, choose Easier from the chooser. If it is something else, reply to this and tell me.'] },
+  { days: 90, key: '90d',
+    subject: 'Three months on',
+    title: 'Three months on.',
+    paras: (stage) => [`Your account is still here and so is ${stage}. Most people who get a handstand had two or three false starts first, so this is not a failed attempt, it is the gap between attempts.`,
+                       'One session. See how it feels. That is the whole ask.'] },
+];
 async function quietFreeAccounts(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',
-    'select=email,name,last_seen,first_seen&order=last_seen.desc&limit=500')) || [];
+    'select=email,name,last_seen,first_seen&order=last_seen.desc&limit=1000')) || [];
   const roster = new Set(parseClients().map(c => c.email));
+  const names = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
   for (const a of rows) {
     if (!a.email || roster.has(a.email)) continue;
     const last = ms(a.last_seen), first = ms(a.first_seen);
     if (!last || !first) continue;
     const quiet = now - last;
-    if (quiet < 3 * DAY || quiet > 21 * DAY) continue;
-    /* somebody who opened it once and left is not a lapsed trainer */
-    if (last - first < DAY) continue;
-    const key = `quiet:${a.email}`;
-    const sent = await supa.row('nudges', `key=eq.${enc(key)}&select=*`).catch(() => null);
-    if (sent && now - ms(sent.sent_at) < 7 * DAY) continue;
+    /* the longest step that is due; one per run, and each step once ever.
+       Somebody back after 40 days has passed the 5 and 14 day marks, and
+       hearing about all three in one morning would be spam. The older
+       steps are marked as sent so they do not fire on a later lapse. */
+    const due = QUIET_STEPS.filter(q => quiet >= q.days * DAY);
+    if (!due.length) continue;
+    const step = due[due.length - 1];
+    const key = `quiet:${step.key}:${a.email}`;
+    if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+    /* a legacy weekly quiet note counts as the five day one */
+    if (step.key === '5d'
+        && await supa.row('nudges', `key=eq.${enc('quiet:' + a.email)}&select=key`).catch(() => null)) {
+      await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+      continue;
+    }
     const st = await supa.row('settings', `key=eq.${enc('state:' + a.email)}&select=value`).catch(() => null);
     const stage = st && st.value && Number.isInteger(st.value.stage) ? st.value.stage : 0;
-    const names = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
     const first_ = (a.name || '').split(' ')[0];
-    const ok = await email(a.email, 'Your next session is ready',
-      mail({ title: 'Your next session is ready.',
+    const ok = await email(a.email, step.subject,
+      mail({ title: step.title,
         greeting: first_,
-        paras: [`It has been a few days. ${names[stage] || 'The ladder'} is where you left it, and the next session is built and waiting: fifteen minutes is enough.`,
-                'Two sessions a week is what moves a handstand. One is what keeps it.'],
+        paras: step.paras(names[stage] || 'The ladder'),
         cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'London Handstand Academy' },
         footnote: 'These stop the moment you turn reminders off in the app, under More.' }),
       'reminders');
-    if (ok) {
-      await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
-      done.quiet = (done.quiet || 0) + 1;
+    /* every step at or before this one is done with, whether or not the
+       mail went: a suppressed address must not be retried daily */
+    for (const q of due) {
+      const k2 = `quiet:${q.key}:${a.email}`;
+      await supa.upsert('nudges', { key: k2, sent_at: new Date().toISOString() }, 'key');
     }
+    if (ok) done.quiet = (done.quiet || 0) + 1;
   }
 }
 

@@ -615,11 +615,19 @@ export default async (request) => {
      by the amount typed here, the app and the site read the labels. What
      was in the environment stays as the fallback. */
   const PRICE_DEFAULTS = {
-    plus:     { label: '£5',   amount: 500,   priceId: '', link: '', founding: true },
+    plus:     { label: '£15',  amount: 1500,  priceId: '', link: '', founding: false },
+    /* the same ladder paid a quarter or a year at a time */
+    plusq:    { label: '£39',  amount: 3900,  priceId: '', link: '' },
+    plusy:    { label: '£129', amount: 12900, priceId: '', link: '' },
     check:    { label: '£35',  amount: 3500,  priceId: '', link: '' },
     online:   { label: '£120', amount: 12000, priceId: '', link: '' },
     inperson: { label: '£190', amount: 19000, priceId: '', link: '' },
     inner:    { label: '£320', amount: 32000, priceId: '', link: '' },
+    /* the Inner Circle without the monthly session. The session is an add
+       on to either coaching plan now rather than a third plan of its own. */
+    inneronline: { label: '£250', amount: 25000, priceId: '', link: '' },
+    /* the monthly London session, as the add on it is */
+    session:  { label: '£70',  amount: 7000 },
     session60: { label: '£80',  amount: 8000 },     /* one-off, paid on the session page */
     session90: { label: '£100', amount: 10000 },
     trialDays: 7,
@@ -809,9 +817,9 @@ export default async (request) => {
       /* 10000 is the old coaching price; the link may still carry it */
       /* 18000 is the link on the site until the £190 one replaces it */
       const byAmount = { 500: 'plus', 3500: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
-      for (const k of ['plus', 'check', 'online', 'inperson', 'inner']) {
+      for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inner', 'inneronline']) {
         const amt = Number(PRICES[k] && PRICES[k].amount);
-        if (amt > 0) byAmount[amt] = (k === 'inperson' ? 'online' : k);
+        if (amt > 0) byAmount[amt] = ({ inperson: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
       }
       const boughtPlan = (obj.metadata && obj.metadata.plan)
         || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
@@ -1274,6 +1282,9 @@ export default async (request) => {
      setting an environment variable rather than a deploy of new code. */
   const PLANS = {
     plus:   { price: () => PRICES.plus.priceId   || process.env.STRIPE_PRICE_PLUS,   mode: 'subscription' },
+    plusq:  { price: () => (PRICES.plusq||{}).priceId || process.env.STRIPE_PRICE_PLUS_Q, mode: 'subscription' },
+    plusy:  { price: () => (PRICES.plusy||{}).priceId || process.env.STRIPE_PRICE_PLUS_Y, mode: 'subscription' },
+    inperson: { price: () => PRICES.inperson.priceId || process.env.STRIPE_PRICE_INPERSON, mode: 'subscription' },
     check:  { price: () => PRICES.check.priceId  || process.env.STRIPE_PRICE_CHECK,  mode: 'subscription' },
     online: { price: () => PRICES.online.priceId || process.env.STRIPE_PRICE_ONLINE, mode: 'subscription' },
     inner:  { price: () => PRICES.inner.priceId  || process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
@@ -1286,14 +1297,19 @@ export default async (request) => {
   const LINKS = {
     check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
     online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
+    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || '',
     inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
   };
   /* what the app and the site say: labels only, never ids */
   const coplansPublic = () => getSetting('coplans').then(x => x || {});
   const pricesPublic = () => ({
-    plus: { label: PRICES.plus.label, founding: !!PRICES.plus.founding, note: PRICES.note },
+    plus: { label: PRICES.plus.label, amount: PRICES.plus.amount, founding: !!PRICES.plus.founding, note: PRICES.note },
+    plusq: { label: (PRICES.plusq||{}).label || '£39', amount: (PRICES.plusq||{}).amount || 3900 },
+    plusy: { label: (PRICES.plusy||{}).label || '£129', amount: (PRICES.plusy||{}).amount || 12900 },
     check: { label: PRICES.check.label }, online: { label: PRICES.online.label },
     inperson: { label: PRICES.inperson.label }, inner: { label: PRICES.inner.label },
+    inneronline: { label: (PRICES.inneronline||{}).label || '£250' },
+    session: { label: (PRICES.session||{}).label || '£70' },
     session60: { label: PRICES.session60.label }, session90: { label: PRICES.session90.label },
     trialDays: Number(PRICES.trialDays) || 0,
   });
@@ -1302,6 +1318,8 @@ export default async (request) => {
                   links: Object.fromEntries(Object.keys(LINKS).filter(k => !PLANS[k].price() && LINKS[k])
                     .map(k => [k, LINKS[k]])),
                   prices: pricesPublic(),
+                  /* which ways of paying for the ladder exist in Stripe */
+                  periods: ['month'].concat(PLANS.plusq.price() ? ['quarter'] : [], PLANS.plusy.price() ? ['year'] : []),
                   /* what each coaching tier says it includes, where the
                      coach has changed it from what the app ships */
                   coplans: await coplansPublic() });
@@ -1324,7 +1342,7 @@ export default async (request) => {
         if (t.founding !== undefined) o.founding = !!t.founding;
         return o;
       };
-      for (const k of ['plus', 'check', 'online', 'inperson', 'inner', 'session60', 'session90']) next[k] = tier(k);
+      for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inner', 'inneronline', 'session', 'session60', 'session90']) next[k] = tier(k);
       const td = Number(body.prices && body.prices.trialDays);
       next.trialDays = Number.isFinite(td) ? Math.max(0, Math.min(30, Math.round(td))) : 7;
       if (typeof (body.prices || {}).note === 'string') next.note = body.prices.note.trim().slice(0, 160);
@@ -1343,8 +1361,17 @@ export default async (request) => {
     if (body.plan && !Object.prototype.hasOwnProperty.call(PLANS, body.plan)) {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
-    const planKey = Object.prototype.hasOwnProperty.call(PLANS, body.plan) ? body.plan : 'plus';
+    let planKey = Object.prototype.hasOwnProperty.call(PLANS, body.plan) ? body.plan : 'plus';
+    /* the ladder, paid quarterly or yearly: its own Stripe price, the same
+       entitlement. The app sends the period; the plan stays 'plus'. */
+    const period = ['month', 'quarter', 'year'].includes(body.period) ? body.period : 'month';
+    if (planKey === 'plus' && period === 'quarter') planKey = 'plusq';
+    if (planKey === 'plus' && period === 'year') planKey = 'plusy';
     const plan = PLANS[planKey];
+    /* Stripe's embedded checkout: the form draws inside the app, and the
+       app needs the publishable key and the session's client secret rather
+       than a URL. Only when the key is set; otherwise the hosted page. */
+    const embedded = !!body.embedded && !!process.env.STRIPE_PUBLISHABLE_KEY;
     /* only ever an id this server handed out from /redeem, never raw user
        input, and Stripe rejects anything that is not a live promotion */
     const promo = /^promo_[A-Za-z0-9]+$/.test(String(body.promo || '')) ? String(body.promo) : '';
@@ -1357,7 +1384,9 @@ export default async (request) => {
         mode: plan.mode,
         'line_items[0][price]': plan.price(),
         'line_items[0][quantity]': '1',
-        'metadata[plan]': planKey,
+        'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
+        'metadata[period]': period,
+        ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?paid=1` } : {}),
         /* seven days before the first charge. Card up front, so the people
            who start it mean it, and it converts unless they cancel. */
         ...(plan.mode === 'subscription' && Number(PRICES.trialDays) > 0
@@ -1370,9 +1399,10 @@ export default async (request) => {
            one or the other. */
         ...(promo ? { 'discounts[0][promotion_code]': promo }
                   : { allow_promotion_codes: 'true' }),
-        success_url: `${origin}/lha-app.html?paid=1`,
-        cancel_url: `${origin}/lha-app.html?paid=0`,
+        ...(embedded ? {} : { success_url: `${origin}/lha-app.html?paid=1`,
+                              cancel_url: `${origin}/lha-app.html?paid=0` }),
       });
+      if (embedded) return json({ clientSecret: sess.client_secret, pk: process.env.STRIPE_PUBLISHABLE_KEY });
       return json({ url: sess.url });
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
@@ -3615,16 +3645,34 @@ export default async (request) => {
          coaching. Footage is the thing that costs time to review, so a
          free account gets exactly one, and coaching gets the rest. */
       const coached = !!clients()[who];
+      let subId = '';
       if ((video || image) && !coached) {
         const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
         if (!won) {
           return json({ error: 'Your free form check has already been used. '
             + 'Form checks come with coaching.', gated: true }, 402);
         }
+        /* This claimed the free check and then filed the clip as a chat
+           message, so it never appeared in the review queue and the app's
+           own form check card carried on saying "send one" while the server
+           said it was used. A clip from a free account is the form check,
+           wherever it was sent from, so it is a submission as well. */
+        try {
+          const plan = programmes.clients[who];
+          const cycle = await cycleGet(db, who, plan);
+          await ensureAcct(who);
+          const [saved] = await supa.insert('submissions',
+            { email: who, kind: 'assessment', cycle: cycle.n, numbers: {},
+              clips: [{ drill: '', name: text.slice(0, 80) || 'Form check clip',
+                        uid: video || '', image: image || '' }],
+              status: 'submitted' });
+          subId = saved && saved.id ? saved.id : '';
+        } catch (err) { console.warn('chat clip not filed as a submission', err && err.message); }
       }
 
       await threadAdd(db, who, { from: 'client', text,
-        ...(video ? { video } : {}), ...(image ? { image } : {}) });
+        ...(video ? { video } : {}), ...(image ? { image } : {}),
+        ...(subId ? { sub: subId } : {}) });
 
       const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,

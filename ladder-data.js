@@ -133,6 +133,37 @@ const WEEK = {
   ],
 };
 
+
+/* ── what each explainer covers ──────────────────────────────────
+   Written from the captions of the film, not from its title, so the line
+   under the video says what is actually said in it. Keyed by Stream uid. */
+const EXPLAIN_SUM = {
+  'bf9ca9d217d21dbd588318d479d9507c':
+    'Most of the fear of falling goes once the body knows, consciously, that it can get out of any position. Elliott and Suryava go through the ways out: drills that start on the floor, the cartwheel out, chest to wall bailouts, and why the forward roll is fine in a gym and painful on a hard floor. Practise falling until it stops needing a thought, and keep the exit low effort so you can go straight back up.',
+  '780eb706b9607047da0fd92103f09cf0':
+    'The wrists hurt because they have never carried you, and the legs have had decades of practice. Soreness is normal for a while and is not a reason to stop, but it is a reason to be kind to yourself and to know when to. The wrist and forearm routine, forearm massage and the small muscles of the hand all strengthen with regular attention, and Elliott reckons on about eighteen months of regular wrist work before it stops being a thing. Two minutes at a desk with a water bottle counts.',
+  'a74fc970945b633f71bc7457893baf25':
+    'Two to three half hour sessions a week is the recommendation for a beginner, with recovery in between: every day for an hour fatigues you and the progress stalls. Further up, freestanding and shape changes want three to four sessions of 45 minutes to an hour, and one arm work wants four or five a week at an hour each, plus mobility. The honest answer is how much you can commit and what you want out of it.',
+  '7467f41353ab66c13b57543f0a7105d6':
+    'Short answer no, long answer it helps, but not the way you think. Gym strength does not carry over much; handstand strength comes from handstands, the way climbing strength comes from climbing. The ladder is built for someone with a small training background. Big strong people usually lack shoulder mobility and very flexible people usually lack strength, so everybody has one limiting factor, and coaching is where it gets found and worked on.',
+  'd692864081a3d4976dbafaaaff314213':
+    'It depends on you, how much you can commit, and what you mean by a handstand: one lucky ten second hold, or holding it any day, anywhere. Some people get five or ten seconds in ten days, some in six months, Elliott took eighteen. Perfecting it takes years. The time passes anyway, so start now. And it is not zero or one: there are dozens of steps between the wall and a handstand, which is why the ladder exists, so celebrate the small wins along it.',
+  'f84f53ba8026f8bd0348cb6836a46aad':
+    'Stacked, and relaxed. Suryava describes the shoulders engaging and the rest of the body no longer feeling like weight on the hands, able to breathe and talk. Elliott explains why: standing is effortless because the hips are over the feet, and a handstand gets the same efficiency when the shoulders stack over the hands and the hips over the shoulders. The banana back is a symptom, not the cause: the shoulders cannot open, so the body leans and the back arches to pull the weight back in. Fix the shoulder position and the hold gets lighter.',
+  '99806cf5a01e65ef29f786bb4e50453b':
+    'Wall work is where you spend real time upside down, with the wall as the assistance. Chest to wall handstands until they are comfortable and relaxed, wall scapular shrugs to build the push through the shoulders, the pike push up taken a step on from wherever you are, and the knee tuck entry so you can kick up in the middle of the room and get most of the way there. The check points for this stage are on the ladder, and you still choose how long and how hard each session is.',
+  'e1ff0eb98d4c9721ede040f7db994acf':
+    "Between the hands, at the centre point, with a relaxed head rather than a flared one or eyes pushed up. Almost every drill in the programme asks for it, because seeing where you are is how you learn to balance and build coordination in that position. Gaze shifts and looking back are targeted exercises for shoulder positioning and mobility, later. Suryava's rule of thumb: the push is directional, and you push where you look.",
+  'a366aa047568153b2db238333eb43e8f':
+    "Build to is Elliott's answer to handstands feeling like failure. If the set asks for thirty seconds or eight reps and you come down at ten, that is not the end of the set: rest ten or thirty seconds and go back up until the number is reached. Handstands are learned by time upside down, and coming down early on every set means never getting enough of it. Progress is a jagged line, and your bad balance days a year from now will be better than your good days today.",
+  '681e59df476ca15c136c365cbd2cec72':
+    'Why not just kick up in the middle of the room once wall work is done? Because wall work teaches you what the line feels like, and Pushing More teaches you to take yourself a little off the wall while keeping it, with the shrug and the scapular elevation most people have not quite got yet. Plenty of people can get their legs off the wall while lying on it with the chest sunk in. This phase is about getting off it properly, so the balance work in the next two phases already has that ability underneath it. Entries still level up alongside, so you keep kicking up and learning to get in and out consistently.',
+  '7cca146ef4826328688d1c00693b7b4a':
+    'Take-Off is where the fun starts: weight on the hands, balancing it yourself, the wall as a friend rather than a bed. Kicking up and hoping gives one hold in ten and almost no time upside down; here you use the shoulders and the hips to shift your centre of mass away from the wall and create balance, touching back when you fall. Knees on box leg lifts, shape changes against the wall relying on it less each week, and five minutes of freestanding attempts at the start or end so you find out where you are. Aim for a ten second freestanding hold by the end of it.',
+  'ea06b266a4ed68ce5f8ee0c180d01827':
+    'Easier because the centre of mass is lower, as with crow pose, so there is less to balance. Harder because tucking the knees shifts your mass forward, and a good tuck handstand opens the shoulders even more than a straight one to compensate; most people close the shoulder and planche instead. It needs more strength and more shoulder mobility, which is why this phase adds active and weighted mobility drills, and why the tuck carries into press and one arm later and makes your straight handstand feel easier.',
+};
+
 const WRIST_DAY = {n:'Mobility day', sub:'Wrists and shoulders, and it is the one that keeps you training',
   drills:['forearm-massage','wrist-circles-mob','dd-wrist-taps','palm-lifts-table-top',
           'shoulder-circles','heart-melting-pose']};

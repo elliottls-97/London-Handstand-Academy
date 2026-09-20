@@ -1672,14 +1672,15 @@ function mountCaptions(){
    somewhere under the film. */
 const ccWrap = (inner, extra) =>
   `<div style="position:relative;line-height:0;${extra||''}">${inner}</div>`;
-function qaVideo(a){
+function qaVideo(a, full){
   const src = a.uid ? streamMp4(a.uid) : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
   if(!src) return '';
   setTimeout(mountCaptions,0);
-  return ccWrap(`<video src="${src}" controls playsinline preload="none"
+  /* full: most of the screen, whichever way the film was shot */
+  return ccWrap(`<video src="${src}" controls playsinline preload="${full?'metadata':'none'}"
     ${a.uid?`poster="${streamThumb(a.uid)}" data-cc="${esc(a.uid)}"`:''}
-    style="width:100%;border-radius:14px;background:#11150f;display:block"></video>`,
-    'margin-top:11px;border-radius:14px;overflow:hidden');
+    style="width:100%;${full?'max-height:64vh;object-fit:contain;':'border-radius:14px;'}background:#11150f;display:block"></video>`,
+    full ? 'background:#11150f' : 'margin-top:11px;border-radius:14px;overflow:hidden');
 }
 
 function screenPlan(){
@@ -4260,7 +4261,12 @@ function loadThread(){
     const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
     const same=shape(merged)===shape(st.msgs);
     st.msgs=merged; save();
-    if((st.tab==='ask'||st.tab==='coaching') && !same) render();
+    const onChat = !document.hidden && (st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat'));
+    if(onChat) markChatSeen();
+    if(!same){
+      if(st.tab==='ask'||st.tab==='coaching') render();
+      else if(unreadMsgs()>0) render();   /* the dot on the chat button */
+    }
   }).catch(()=>{});
 }
 function when(t){
@@ -4719,7 +4725,7 @@ function screenAsk(){
     <div class="rise rise-2" style="flex:1;padding:22px 14px 8px;display:flex;flex-direction:column;gap:14px">${
       msgs.length ? bubbles : `<div style="text-align:center;padding:40px 22px;color:var(--grey);
         font:400 15px/1.6 var(--sans)">No messages yet.<br>Ask me anything about the training.</div>`
-    }</div>
+    }<div id="chatEnd"></div></div>
     <div style="position:sticky;bottom:0;z-index:3;padding:10px 14px calc(env(safe-area-inset-bottom) + 14px);
       background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)">
       <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;
@@ -5420,6 +5426,7 @@ function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on'
 function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
 function closeOv(){
   rowClockStop(false);
+  if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
   st.ov=null; st.ovFull=false; save();
   $('#ov').classList.remove('on'); $('#ov').classList.remove('full');
@@ -5634,10 +5641,11 @@ function drawOv(){
               the other is one title too many */
            /* it is not "every drill" as opposed to something else any more,
               it is the session */
-           mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'Explainer',locked:'',intro:'',
-           checkin:'Your fortnight', feedback:'', paid:''};
+           mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
+           checkin:'Your fortnight', feedback:'', paid:'', paywall:''};
   let body='';
-  if(st.ov==='paid'){
+  if(st.ov==='paywall'){ body=paywallBody(); }
+  else if(st.ov==='paid'){
     st.justPaid=false; save();
     body=`<div style="text-align:center;padding:14px 0 6px">
       <div style="width:56px;height:56px;border-radius:50%;margin:0 auto;display:grid;place-items:center;
@@ -6085,11 +6093,20 @@ function drawOv(){
     </div>`;
   }
   if(st.ov==='explainer'){
+    /* The film fills the screen and the paragraph under it says what is
+       covered, written from the captions rather than guessed from the
+       title. It was a small card in a half height sheet, which swallowed
+       the picture and said nothing about what was in it. */
     const q=FAQS[st.exOpen]||FAQS[0];
-    body=`<div class="card" style="padding:20px">
-      <div class="h-md" style="font-size:21px">${esc(q.q)}</div>
-      ${(q.uid||q.v)?qaVideo(q):''}
-    </div>`;
+    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || '';
+    const stg=(q.stage!=null && STAGES[q.stage]) ? STAGES[q.stage].n : '';
+    body=`<div style="margin:0 -18px">${(q.uid||q.v)?qaVideo(q,true):''}</div>
+      <div style="padding:16px 2px 0">
+        <div class="kick2">EXPLAINER${stg?' &middot; '+esc(stg.toUpperCase()):''}</div>
+        <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px">${esc(q.q)}</div>
+        ${sum?`<div class="kick2" style="margin-top:20px">WHAT IS COVERED</div>
+        <div style="font:400 15px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(sum)}</div>`:''}
+      </div>`;
   }
   if(st.ov==='account'){
     /* three tiers, and people should never have to guess which one they
@@ -7347,7 +7364,7 @@ const levelDef = () => LEVELS.find(l=>l.v===intake().level) || LEVELS[0];
 function profilePct(){
   const a=intake(); let n=20;                 /* opening the app is the first rung */
   if(a.goal) n+=15; if(a.level!=null) n+=20;
-  if(a.niggles) n+=15; if(a.mins&&a.days) n+=15;
+  if(a.niggles) n+=15; if(a.mins&&(a.days||intakeWhen().length)) n+=15;
   if(a.baseline) n+=15;
   return Math.min(100,n);
 }
@@ -7370,7 +7387,7 @@ function stepAnswered(i){
   if(id==='goal')    return !!a.goal;
   if(id==='level')   return a.level!=null;
   if(id==='niggles') return true;          /* nothing to flag is an answer */
-  if(id==='week')    return !!(a.mins && a.days);
+  if(id==='week')    return !!(a.mins && (a.days||intakeWhen().length));
   return true;
 }
 function screenQuiz(){
@@ -7427,16 +7444,28 @@ function screenQuiz(){
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:10px">
         ${MINS.filter(([m])=>L.mins.indexOf(m)>=0)
           .map(([m,d])=>card(a.mins===m, two(m+' minutes',d), `pickIntake('mins',${m})`)).join('')}</div>
-      <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2);margin-top:20px">HOW OFTEN</div>
-      <div style="display:flex;gap:9px;margin-top:10px;flex-wrap:wrap">
-        ${L.days.map(n=>`<button onclick="pickIntake('days',${n})" style="flex:1;min-width:74px;
-          background:${a.days===n?'var(--forest)':'#fff'};
-          color:${a.days===n?'var(--on-primary)':'var(--ink)'};
-          border:1px solid ${a.days===n?'var(--forest)':'rgba(17,17,17,.08)'};border-radius:16px;padding:16px 8px;
-          font:700 16px/1 var(--sans);cursor:pointer">${n}×</button>`).join('')}</div>
-      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:12px">
-        Plus two short wrist and mobility days. ${esc(capLine())}</div>
-      ${a.mins&&a.days?`<button class="btn" style="width:100%;margin-top:18px"
+      <!-- Which days, not how many. Asking for a number pushed a target on
+           people; asking for the days is the same information and it is theirs. -->
+      <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2);margin-top:20px">WHICH DAYS</div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        ${DAYL.map((d,i)=>{ const on=intakeWhen().indexOf(i)>-1;
+          return `<button onclick="toggleWhen(${i})" aria-pressed="${on}" style="flex:1;min-width:0;
+          background:${on?'var(--forest)':'#fff'};color:${on?'var(--on-primary)':'var(--ink)'};
+          border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};border-radius:14px;padding:14px 0;
+          font:700 12px/1 var(--sans);letter-spacing:.04em;cursor:pointer">${d.slice(0,1)}${d.slice(1,3).toLowerCase()}</button>`; }).join('')}</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+        ${intakeWhen().length} session${intakeWhen().length===1?'':'s'} a week, plus short wrist and mobility
+        days in the gaps. Move any of them later from Today.</div>
+      <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2);margin-top:20px">HOW HARD</div>
+      <div style="display:flex;gap:9px;margin-top:10px">
+        ${[[1,'Easier'],[2,'As written'],[3,'Harder']].map(([n,l])=>{ const on=(a.hard||2)===n;
+          return `<button onclick="pickIntake('hard',${n})" aria-pressed="${on}" style="flex:1;
+          background:${on?'var(--forest)':'#fff'};color:${on?'var(--on-primary)':'var(--ink)'};
+          border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};border-radius:14px;padding:14px 6px;
+          font:600 13px/1 var(--sans);cursor:pointer">${l}</button>`; }).join('')}</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
+        How the sessions at your stage run. Change it any time from the chooser.</div>
+      ${a.mins&&intakeWhen().length?`<button class="btn" style="width:100%;margin-top:18px"
         onclick="finishIntake()">See where you land</button>`:''}`;
   }
 
@@ -7492,12 +7521,23 @@ function capLine(){
     : 'More than five stops helping and starts costing you wrists.';
 }
 
+/* the days they picked, as weekday indices, Monday first. Until they pick,
+   the level's usual spread, so the buttons open with a sensible week on. */
+function intakeWhen(){
+  const a=intake();
+  if(Array.isArray(a.when)) return a.when.slice().sort((x,y)=>x-y);
+  const L=levelDef();
+  return (DAY_SPREADS[(L&&L.def)||3]||[0,2,4]).slice();
+}
+function toggleWhen(i){
+  const a=intake(); const cur=intakeWhen();
+  const next = cur.indexOf(i)>-1 ? cur.filter(x=>x!==i) : cur.concat([i]);
+  a.when=next.sort((x,y)=>x-y); a.days=a.when.length; save(); render();
+}
 function pickIntake(k,v){
   intake()[k]=v; save();
   if(k==='goal'||k==='level'){ nextIntake(); return; }
-  /* changing level can invalidate a frequency that is no longer offered */
   const L=levelDef();
-  if(L.days.indexOf(intake().days)<0) delete intake().days;
   if(L.mins.indexOf(intake().mins)<0) delete intake().mins;
   render();
 }
@@ -7528,12 +7568,15 @@ function finishIntake(){
   /* where the answers place them, which a free account may not be able to
      reach yet. curStage caps it; this is kept so the upgrade can say what
      they were placed at rather than guessing. */
-  st.stage=L.v; st.placed=L.v; st.time=a.mins||30; st.perWeek=a.days||L.def;
+  const when=intakeWhen();
+  st.stage=L.v; st.placed=L.v; st.time=a.mins||30; st.perWeek=when.length||L.def;
   st.quizDone=true; st.oriented=false;
+  /* how hard, as the stage's own dial */
+  if(a.hard){ st.lvl=Object.assign({}, st.lvl||{}); st.lvl[L.v]=Math.max(1,Math.min(3,a.hard|0)); }
   /* Write the week down rather than leaving it to a default computed on
-     every read. Somebody who has just said they train three times a week
-     has a week, and it should be the same week on their next phone. */
-  st.dayMap=defaultWeek();
+     every read: the sessions on the days they chose, the wrist and
+     mobility days in the gaps between them. */
+  st.dayMap=weekOn(when);
   track('quiz', L.v);
   st.tab = st.email ? 'home' : 'joinFree';
   save(); saveState(); sendIntake();
@@ -7598,7 +7641,7 @@ const placedStage=()=>Math.max(0, Math.min(STAGES.length-1,
 /* The free sessions at the stage the quiz placed you on. Two of them, then
    the wall. Nobody pays for a thing they have not felt, and the old shape
    showed the price to someone who had not done a single drill. */
-const TASTE_SESSIONS = 2;
+const TASTE_SESSIONS = 1;
 const tasteLeft = () => Number.isInteger(st.taste) ? st.taste : TASTE_SESSIONS;
 /* Two free sessions at your stage, on an account. The count lived in the
    phone's storage alone, so a private window or a cleared browser was two
@@ -7799,12 +7842,12 @@ function screenOriented(){
           <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
             <div style="font:400 20px/1.25 var(--serif)">
               ${st.token
-                ? `Your first ${TASTE_SESSIONS} sessions at ${esc(PS.n)} are free.`
+                ? `Your first session at ${esc(PS.n)} is free.`
                 : `Your first session is free, and nothing is asked for.`}</div>
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
               ${st.token
                 ? `No card. After that ${esc(PS.n)} is part of the ${PRICE()} a month ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.`
-                : `Train it and see. An account after that keeps what you did, and opens ${TASTE_SESSIONS} free sessions at ${esc(PS.n)}.`}</div>
+                : `Train it and see. An account after that keeps what you did, and opens one free session at any stage.`}</div>
             <!-- the button for this lives in the sticky bar, which is the
                  one thing always on screen. Two identical green buttons,
                  one of them scrolling away, was the shape that made the
@@ -7936,7 +7979,21 @@ function goToStage(i){
      here. Moving back up never is: it is a stage you have already been on,
      and being stranded on a locked one with no way back is not a paywall,
      it is a trap. */
-  if(i>curStage() && stageLocked(i)){ st.ovStage=i; openOv('stage'); return; }
+  if(i>curStage() && stageLocked(i)){
+    /* One free session at any stage, on an account, and then the wall.
+       It used to be two at the stage the quiz placed you on, which is how
+       somebody on Foundations found themselves training Wall Work without
+       paying: the placing moved and the free sessions moved with it. */
+    if(st.token && !isPlus() && tasteLeft()>0){
+      st.stage=i; save();
+      try{ sendIntake(); }catch(e){}
+      try{ saveState(); }catch(e){}
+      render();
+      toast('One free session at '+STAGES[i].n+'. After it, the whole ladder is '+PRICE('plus')+' a month.');
+      return;
+    }
+    st.ovStage=i; openOv('stage'); return;
+  }
   /* this read i>curStage() and called it "down", so moving up the ladder
      congratulated you on moving down it */
   const goingDown=i<curStage();
@@ -8180,7 +8237,7 @@ function askFilter(v){
   const box=document.getElementById('askmatches');
   if(box) box.innerHTML=askMatches(v);
 }
-function openExplainer(i){ st.exOpen=i; openOv('explainer'); }
+function openExplainer(i){ st.exOpen=i; st.ovFull=true; openOv('explainer'); }
 /* the tier table is the answer to a question, so it opens when asked */
 /* The three tier cards this used to open are the picker above now, so
    opening them again put the same three prices on the screen twice.
@@ -9329,7 +9386,7 @@ function screenUpgradeBody(si){
           <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">
             Your answers put you at <b>${esc(STAGES[placed].n)}</b>, stage ${placed+1}.
             ${!st.token
-              ? `Make a free account and you get <b>two free sessions</b> there, no card.`
+              ? `Make a free account and you get <b>one free session</b> there, no card.`
               : tasteLeft()>0 && !isPlus()
               ? `You have <b>${tasteLeft()} free session${tasteLeft()===1?'':'s'}</b> there before this opens.`
               : `You have had your free sessions there. This is what opens it.`}</div>
@@ -9494,19 +9551,110 @@ function startUpgrade(){
     save(); render(); window.scrollTo(0,0);
     return;
   }
-  if(b){ b.textContent='Opening checkout…'; b.disabled=true; }
-  track('checkout');
-  /* a Stripe promotion code the app has already validated arrives applied */
+  openPaywall();
+}
+/* ── the paywall ─────────────────────────────────────────────────
+   One screen: the three ways to pay across the top, the card form on the
+   same page underneath. Stripe's embedded checkout draws the form (Apple
+   Pay, then card) inside the sheet; where it cannot load, the same button
+   opens Stripe's own page instead, so nobody is ever stuck. */
+let payCo=null, payReq=0;
+function openPaywall(){
+  if(!st.token){ startUpgrade(); return; }
+  if(!st.payPeriod) st.payPeriod = (st.periods||[]).indexOf('year')>-1 ? 'year' : 'month';
+  st.ovFull=true; openOv('paywall'); track('checkout');
+  if(plansOn===null) loadPlans();
+  setTimeout(payMount, 0);
+}
+function payPick(p){ st.payPeriod=p; save(); drawOv(); payMount(); }
+function payPeriods(){
+  const on=st.periods||['month'];
+  const m=PRICE_AMT('plus'), q=PRICE_AMT('plusq'), y=PRICE_AMT('plusy');
+  const save_=(per,n)=> m&&per ? Math.max(0,Math.round((1-(per/n)/m)*100)) : 0;
+  const rows=[
+    {k:'month',   n:'Monthly',   price:PRICE('plus'),  per:'/month'},
+    {k:'quarter', n:'Quarterly', price:PRICE('plusq'), per:'/quarter', mo:q?q/3:0,  save:save_(q,3)},
+    {k:'year',    n:'Yearly',    price:PRICE('plusy'), per:'/year',    mo:y?y/12:0, save:save_(y,12)},
+  ];
+  return rows.filter(r=>on.indexOf(r.k)>-1);
+}
+function paywallBody(){
+  const rows=payPeriods();
+  const cur=rows.some(r=>r.k===st.payPeriod) ? st.payPeriod : (rows[0]||{}).k;
+  const label = ({month:'a month',quarter:'a quarter',year:'a year'})[cur]||'a month';
+  const price = (rows.find(r=>r.k===cur)||{}).price || PRICE('plus');
+  return `<div class="kick2">THE WHOLE LADDER</div>
+    <div class="h-lg" style="margin-top:8px">Every stage, every drill.</div>
+    <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">
+      Six stages from the wall to the press, every drill filmed and cued, the check points that move you up,
+      and a session built for whatever time you have. Cancel any time from More.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+      ${rows.map(r=>{ const on=r.k===cur;
+        return `<button onclick="payPick('${r.k}')" aria-pressed="${on}" style="position:relative;width:100%;
+          text-align:left;cursor:pointer;display:flex;align-items:center;gap:10px;padding:16px 16px;
+          border-radius:18px;background:#fff;
+          border:${on?'2px solid var(--ink)':'1px solid rgba(17,17,17,.10)'};
+          ${on?'':'margin:1px;'}">
+          <span style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font:600 17px/1.2 var(--sans);color:var(--ink)">${r.n}</span>
+            ${r.save&&!on?`<span style="font:600 12.5px/1 var(--sans);color:var(--forest)">Save ${r.save}%</span>`:''}
+          </span>
+          <span style="text-align:right">
+            <span style="display:block;font:600 24px/1 var(--sans);letter-spacing:-.02em;color:var(--ink)">${esc(r.price)}<span style="font:400 13px/1 var(--sans);color:var(--grey)">${r.per}</span></span>
+            ${r.mo?`<span style="display:block;font:400 12.5px/1.3 var(--sans);color:var(--grey);margin-top:3px">£${(r.mo/100).toFixed(2)}/mo</span>`:''}
+          </span>
+          ${r.save&&on?`<span style="position:absolute;top:-11px;right:14px;padding:6px 11px;border-radius:999px;
+            background:var(--ink);color:#fff;font:600 11.5px/1 var(--sans)">Save ${r.save}%</span>`:''}
+        </button>`; }).join('')}
+    </div>
+    <div id="payMount" style="margin-top:18px;min-height:96px"></div>
+    <div style="font:400 12.5px/1.55 var(--sans);color:var(--grey2);margin-top:14px;text-align:center">
+      By subscribing you authorise London Handstand Academy to charge you ${esc(price)} ${label} until you cancel.
+      Cancel any time from More.</div>`;
+}
+function loadStripeJs(){
+  if(window.Stripe) return Promise.resolve();
+  return new Promise((res,rej)=>{
+    const sc=document.createElement('script'); sc.src='https://js.stripe.com/v3/';
+    sc.onload=()=>res(); sc.onerror=()=>rej(new Error('stripe.js'));
+    document.head.appendChild(sc);
+  });
+}
+function payMount(){
+  const host=document.getElementById('payMount'); if(!host || !st.token) return;
+  const period=st.payPeriod||'month';
+  const req=++payReq;
+  if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
+  host.innerHTML=`<div style="font:500 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:20px 0">Loading secure payment&hellip;</div>`;
+  const hosted = why => {
+    if(req!==payReq) return;
+    host.innerHTML=`<button class="btn" style="width:100%" onclick="payHosted()">Subscribe &rarr;</button>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
+        Apple Pay or card on the next page, through Stripe.</div>`;
+  };
   fetch(AUTH.checkout,{method:'POST',headers:authed(),
-    body:JSON.stringify(st.promo?{promo:st.promo}:{})})
+    body:JSON.stringify(Object.assign({plan:'plus',period,embedded:true}, st.promo?{promo:st.promo}:{}))})
+    .then(r=>r.json())
+    .then(d=>{
+      if(req!==payReq) return;
+      if(!d || !d.clientSecret || !d.pk) throw new Error((d&&d.error)||'hosted');
+      return loadStripeJs().then(()=>Stripe(d.pk).initEmbeddedCheckout({clientSecret:d.clientSecret}))
+        .then(co=>{ if(req!==payReq){ try{co.destroy();}catch(e){} return; }
+          payCo=co; host.innerHTML=''; co.mount('#payMount'); });
+    })
+    .catch(hosted);
+}
+function payHosted(){
+  const period=st.payPeriod||'month';
+  const b=document.querySelector('#payMount .btn'); if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
+  fetch(AUTH.checkout,{method:'POST',headers:authed(),
+    body:JSON.stringify(Object.assign({plan:'plus',period}, st.promo?{promo:st.promo}:{}))})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start checkout')))
     .then(d=>{ if(!d.url) throw 'No checkout link came back';
                if(!leaveTo(d.url)) throw 'Your browser blocked the checkout window. Open the app in its own tab and try again.'; })
     .catch(e=>{
-      /* payments not switched on yet, or Stripe said no — fall back to
-         telling Elliott rather than leaving a dead button */
-      post({type:'Wants the £5 tier',email:st.email||'',text:String(e)});
-      if(b){ b.textContent='Thanks — I will be in touch'; }
+      post({type:'Wants the app tier',email:st.email||'',text:String(e)});
+      if(b){ b.disabled=false; b.textContent='Thanks, I will be in touch'; }
     });
 }
 /* the server is the authority on what has been paid for; local storage
@@ -9748,6 +9896,20 @@ function defaultWeek(){
   rest.forEach((ci,n)=>{ m[ci] = gaps.length ? gaps[n % gaps.length] : defaultDay(n,7); });
   return m;
 }
+/* the week, with the sessions on the days somebody actually chose */
+function weekOn(when){
+  const days=(when||[]).slice().sort((x,y)=>x-y);
+  if(!days.length) return defaultWeek();
+  const cells=weekCells();
+  const sess=[], rest=[];
+  cells.forEach((c,i)=>(isRestCell(c)?rest:sess).push(i));
+  const m={};
+  sess.forEach((ci,n)=>{ m[ci] = days[n % days.length]; });
+  const taken=new Set(Object.values(m));
+  const gaps=[0,1,2,3,4,5,6].filter(d=>!taken.has(d));
+  rest.forEach((ci,n)=>{ m[ci] = gaps.length ? gaps[n % gaps.length] : defaultDay(n,7); });
+  return m;
+}
 function dayFor(i){
   const m=st.dayMap||{};
   if(m[i]!=null) return m[i];
@@ -9975,6 +10137,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
        session, so fall back to the stage rather than hand over nothing */
     if(fromList.length) cands = fromList;
   }
+  /* A written workout is the workout: every drill, in the coach's order,
+     the same every time. It used to be a pool the shares picked from and
+     the rotation spun, so the list Elliott wrote was never the session
+     anyone got. The clock still decides sets, as it does for everything. */
+  const scripted = !!(written && cands!==inPool);
   /* ── a different session each time ──────────────────────────────
      The order is the coach's and the shares are the coach's, so the only
      honest way to vary it is where in the pool it starts. Each session
@@ -9988,7 +10155,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
      is still wall work. Somebody who has found the stage hard is better off
      consolidating the top of the stage below, so a third of the session is
      that, and it comes first, straight after the warm-up. */
-  const backFrom = (!wristDay && stageLevel(stage)===1 && stage>0) ? stage-1 : -1;
+  const backFrom = (!wristDay && !scripted && stageLevel(stage)===1 && stage>0) ? stage-1 : -1;
   let backItems=[];
   if(backFrom>=0){
     const backIds=poolFor(backFrom)
@@ -10006,7 +10173,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   }
   const known  = cands.filter(it=>lvlOf(it.v));
   let picked;
-  if(!known.length){
+  if(scripted){
+    picked = cands.slice();
+  } else if(!known.length){
     /* a stage the workbook has not given levels to yet, and the mobility day:
        no shares to apply, so take the day as it is written */
     picked = wristDay ? cands.slice() : spin(cands, rot).slice(0, wantN);
@@ -10304,6 +10473,7 @@ function loadPlans(){
   fetch(AUTH.plans).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ plansOn=d.plans||[]; planLinks=(d&&d.links)||{};
       if(d.prices){ st.prices=d.prices; save(); }
+      if(Array.isArray(d.periods)){ st.periods=d.periods; save(); }
       /* what each tier says it includes, where the dashboard has changed it */
       if(d.coplans){ st.coplans=d.coplans; save(); }
       render(); } }).catch(()=>{ plansOn=[]; });
@@ -10314,7 +10484,8 @@ let planLinks={};
 /* PRICE('online') and friends read the prices setting the dashboard writes.
    This took no argument and answered £5 to everything, so the coaching
    card priced coaching at the app's own price. */
-const PRICE_DEFAULT={plus:'£5',check:'£35',online:'£120',inperson:'£190',inner:'£320',session60:'£80',session90:'£100'};
+const PRICE_DEFAULT={plus:'£15',plusq:'£39',plusy:'£129',check:'£35',online:'£120',inperson:'£190',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
+const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1500,plusq:3900,plusy:12900})[k] || 0;
 const PRICE = (k='plus') => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
 const PRICE_TRIAL = () => { const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
 /* the day the first payment actually lands, which is the number somebody is
@@ -10326,6 +10497,9 @@ const PRICE_NOTE = () => ((st.prices||{}).plus||{}).note || 'The price goes up a
 const PRICE_FOUNDING = () => ((st.prices||{}).plus||{}).founding !== false;
 function buyPlan(k){
   if(!st.token){ goJoin(); return; }
+  /* the ladder has its own page: monthly, quarterly or yearly, and the
+     card form on the same screen */
+  if(k==='plus'){ openPaywall(); return; }
   const b=document.getElementById('buy-'+k);
   if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
   track('checkout');
@@ -10390,53 +10564,59 @@ function pricingCard(){
    person is the site's "most people" and has no Stripe link, so defaulting
    to it opened the screen with no way to buy anything, which is the one
    thing the old single card always had. */
-const coBuyable = p => p.k!=='inner' && (plansOn||[]).indexOf(p.k)>-1
-  && (p.k!=='inperson' || !!planLinks.inperson);
+const coBuyable = p => p.k!=='inner' && (plansOn||[]).indexOf(coSessionOn()?p.buySession:p.buy)>-1;
 function coPickK(){
   if(st.coPick && CO_PLANS.some(p=>p.k===st.coPick)) return st.coPick;
   const b=CO_PLANS.find(coBuyable);
   return b ? b.k : CO_PLANS[0].k;
 }
 const CO_PLANS = [
-  { k:'online', who:'Online', price:'online', flag:'',
+  { k:'online', who:'Online coaching', price:'online', withSession:'inperson', buy:'online', buySession:'inperson', flag:'Most people',
     line:'The full programme, form checks every two weeks, questions answered. Train anywhere.',
     name:'The programme, anywhere',
-    for:'Everything is written for you and reviewed on your own footage. No session in the room.',
+    for:'Everything is written for you and reviewed on your own footage.',
     feats:['Your own programme, rewritten every block',
            'Form checks on your footage every two weeks',
            'A two week test I read, and the block adjusted from it',
            'A thread where you can ask me anything'],
     note:'Month to month. Cancel any time from inside the app.' },
-  { k:'inperson', who:'Online and in person', price:'inperson', flag:'Most people',
-    line:'Everything in the online plan, plus one 60 minute session with me in London each month.',
-    name:'Once a month, in the room',
-    for:'One session a month is where I see how you are really moving. The other weeks I see your video.',
-    feats:['Everything in the online plan',
-           'One 60 minute session with me in London each month',
-           'Hands on corrections a camera cannot give you',
-           'Add or drop the session whenever you like'],
-    note:'The session is £70 a month on top of the online plan, and you can drop it any time.' },
-  { k:'inner', who:'Inner Circle', price:'inner', flag:'3 places',
-    line:'Everything in person and online, plus accountability and feedback every week. By application.',
+  { k:'inner', who:'Inner Circle', price:'inneronline', withSession:'inner', flag:'3 places',
+    line:'Everything in online coaching, plus accountability and feedback every week. By application.',
     name:'Chased, every week',
     for:'For people who know the plan is not the problem. You get chased rather than left to drift.',
-    feats:['Everything in person and online, session included',
+    feats:['Everything in online coaching',
            'Chased each week to finish the plan, and it is adjusted weekly',
            'Clips come back with a voice over and a video reply',
            'An optional 20 minute call each month'],
     note:'Three places, so it is by application. I will tell you honestly whether it fits.' },
 ];
+/* the London session is an add on to either plan, not a plan of its own.
+   Three tiers where one was the second plus a session was confusing. */
+const coSessionOn = () => !!st.coSession;
+const coPriceKey = p => coSessionOn() ? p.withSession : p.price;
+function coSessionToggle(){ st.coSession=!st.coSession; save(); coPaint(); }
 /* Picking one scrolls it to the middle, so a tap and a swipe end up in the
    same place. render() rebuilds the rail, so the scroll has to happen after
    it, and the detail below is what the person is here to read: keep the
    panel where it was rather than jumping the page to the top. */
-function coPick(k){
-  st.coPick=k; save();
-  const host=document.querySelector('.scroll.s');
-  const keep=host?host.scrollTop:0;
-  render();
-  const h2=document.querySelector('.scroll.s'); if(h2) h2.scrollTop=keep;
-  coScroll(k, true);
+/* Choosing repaints the three things that change, in place. It used to
+   redraw the whole screen from a scroll event, so the rail you were
+   swiping was rebuilt under your finger and snapped back, which is what
+   "bugging out" looked like. */
+function coPick(k){ st.coPick=k; save(); coPaint(); coScroll(k, true); }
+function coPaint(){
+  const PLANSC=coPlans();
+  const pick=PLANSC.find(p=>p.k===coPickK())||PLANSC[0];
+  PLANSC.forEach(p=>{
+    const el=document.getElementById('copick-'+p.k); if(!el) return;
+    const on=p.k===pick.k;
+    el.setAttribute('aria-pressed', on?'true':'false');
+    el.style.borderColor = on?'var(--forest)':'rgba(17,17,17,.12)';
+    el.style.boxShadow = on?'0 0 0 3px rgba(0,102,99,.1),0 18px 40px -30px rgba(0,48,46,.6)':'0 1px 2px rgba(0,64,61,.05)';
+    const pr=el.querySelector('[data-coprice]'); if(pr) pr.textContent=PRICE(coPriceKey(p));
+  });
+  const dots=document.getElementById('coDots'); if(dots) dots.innerHTML=coDotsHTML(PLANSC,pick);
+  const panel=document.getElementById('coPanel'); if(panel) panel.innerHTML=coPanelHTML(pick);
 }
 function coScroll(k, smooth){
   const rail=document.getElementById('coRail'), el=document.getElementById('copick-'+k);
@@ -10456,16 +10636,14 @@ function coScroll(k, smooth){
    that used it. One helper, and it lands on the conversation either way. */
 function goAsk(){
   if(coachedView()){ go('ask'); return; }
-  if(st.tab!=='coaching'){ go('coaching'); }
-  setTimeout(()=>{ const el=document.getElementById('askelliott');
-    if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); }, 180);
+  st.coTab='chat'; save();
+  if(st.tab!=='coaching') go('coaching'); else setCoTab('chat');
 }
 function askAbout(k){
   const p=CO_PLANS.find(x=>x.k===k);
   if(!askDraft) askDraft='About '+(p?p.who.toLowerCase():'coaching')+': ';
   if(coachedView()){ go('ask'); return; }
-  const el=document.getElementById('askelliott');
-  if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
+  setCoTab('chat');
   setTimeout(()=>{ const i=document.getElementById('askIn');
     if(i){ i.value=askDraft; i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} } },420);
 }
@@ -10491,14 +10669,7 @@ function coDots(){
       const d=Math.abs((el.offsetLeft+el.clientWidth/2)-mid);
       if(d<bestD){ bestD=d; best=p.k; }
     });
-    if(best && best!==st.coPick){
-      st.coPick=best; save();
-      const host=document.querySelector('.scroll.s');
-      const keep=host?host.scrollTop:0, left=rail.scrollLeft;
-      render();
-      const h2=document.querySelector('.scroll.s'); if(h2) h2.scrollTop=keep;
-      const r2=document.getElementById('coRail'); if(r2) r2.scrollLeft=left;
-    }
+    if(best && best!==st.coPick){ st.coPick=best; save(); coPaint(); }
   },90);
 }
 /* The shipped words, with anything the dashboard has rewritten on top.
@@ -10516,34 +10687,92 @@ function coPlans(){
     return m;
   });
 }
-function coachingPicker(){
-  /* pricingCard used to be the only thing that asked the server which
-     tiers are switched on, and it is not drawn any more, so plansOn stayed
-     null and every plan looked unbuyable: the screen offered Ask about
-     this for a tier that has had a working Stripe link all along. */
-  if(plansOn===null) loadPlans();
+function coDotsHTML(PLANSC, pick){
+  return PLANSC.map(p=>`<i style="width:${p.k===pick.k?18:6}px;height:6px;border-radius:99px;display:block;
+        background:${p.k===pick.k?'var(--forest)':'rgba(17,17,17,.18)'};
+        transition:width .25s,background .25s"></i>`).join('');
+}
+function coPanelHTML(pick){
   const buyable = coBuyable;
-  const PLANSC = coPlans();
-  const pick = PLANSC.find(p=>p.k===coPickK()) || PLANSC[0];
+  const sess = coSessionOn();
   const tickLine = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:7px">
       <span style="flex:none;width:16px;height:16px;border-radius:999px;background:#0a7b74;
         color:#fff;display:grid;place-items:center;font:700 9px/1 var(--sans);margin-top:2px">&check;</span>
       <span style="font:400 13px/1.4 var(--sans);color:var(--grey)">${esc(t)}</span></div>`;
+  return `<div style="padding:16px 20px 16px;background:#fff;border-top:1px solid rgba(0,64,61,.1)">
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+          color:#0a7b74">${esc(pick.who)}</div>
+        <div style="font:400 22px/1.12 var(--serif);margin-top:7px">${esc(pick.name)}</div>
+        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(pick.for)}</div>
+        ${pick.feats.map(tickLine).join('')}
+        <!-- the add on. One row, a switch, and the price moves with it. -->
+        <button onclick="coSessionToggle()" aria-pressed="${sess}" style="width:100%;margin-top:14px;
+          display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;padding:12px 14px;
+          border-radius:14px;background:${sess?'rgba(0,102,99,.07)':'#fff'};
+          border:1px solid ${sess?'var(--forest)':'rgba(17,17,17,.12)'}">
+          <span style="flex:none;width:40px;height:24px;border-radius:999px;position:relative;
+            background:${sess?'var(--forest)':'rgba(17,17,17,.18)'};transition:background .2s">
+            <span style="position:absolute;top:3px;left:${sess?19:3}px;width:18px;height:18px;border-radius:999px;
+              background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)"></span></span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font:600 13.5px/1.3 var(--sans);color:var(--ink)">Add a session in London each month</span>
+            <span style="display:block;font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:2px">
+              60 minutes with me, hands on. ${PRICE('session')} a month on top, add or drop it whenever you like.</span>
+          </span>
+        </button>
+      </div>
+      <div style="padding:16px 20px 18px;background:linear-gradient(180deg,#0a7a76,#006663);
+        color:var(--on-primary)">
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <span style="font:400 34px/1 var(--serif);letter-spacing:-.02em">${PRICE(coPriceKey(pick))}</span>
+          <span style="font:600 13px/1 var(--sans);opacity:.8">/ month${sess?', session included':''}</span>
+        </div>
+        <div style="font:400 12.5px/1.45 var(--sans);opacity:.82;margin-top:6px">${esc(pick.note)}</div>
+        <button onclick="${buyable(pick)?`buyPlan('${sess?pick.buySession:pick.buy}')`:`openOv('apply')`}"
+          style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
+          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${
+          buyable(pick) ? 'Start now, '+PRICE(coPriceKey(pick))+'/mo &rarr;'
+            : pick.k==='inner' ? 'Apply for Inner Circle &rarr;' : 'Ask about this &rarr;'}</button>
+        ${(!buyable(pick) && pick.k!=='inner' && sess && (plansOn||[]).indexOf(pick.buy)>-1)?`
+        <button onclick="buyPlan('${pick.buy}')" style="width:100%;margin-top:8px;min-height:44px;
+          border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;
+          background:transparent;color:var(--on-primary);font:600 13.5px/1 var(--sans)">
+          Or start online now, ${PRICE(pick.price)}/mo</button>
+        <div style="font:400 11.5px/1.45 var(--sans);opacity:.75;margin-top:7px;text-align:center">
+          The London session goes on top once we have picked a date.</div>`:''}
+        <button onclick="askAbout('${pick.k}')"
+          style="width:100%;margin-top:8px;min-height:44px;border:1px solid rgba(255,255,255,.35);
+          border-radius:14px;cursor:pointer;background:rgba(255,255,255,.1);color:var(--on-primary);
+          font:600 13.5px/1 var(--sans)">Ask me about this one</button>
+        <button onclick="openCompare()" style="width:100%;margin-top:12px;background:none;border:0;
+          cursor:pointer;padding:4px;color:var(--on-primary);font:600 13px/1 var(--sans);
+          text-decoration:underline;opacity:.9">Compare every way in &rarr;</button>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.2);
+          font:400 12px/1.5 var(--sans);opacity:.86">
+          Rather try one session first?
+          <button onclick="leaveTo('/session.html?kind=60')" style="background:none;border:0;padding:0;
+            color:var(--on-primary);font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">60 min, ${PRICE('session60')}</button>
+          or
+          <button onclick="leaveTo('/session.html?kind=90')" style="background:none;border:0;padding:0;
+            color:var(--on-primary);font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">90 min, ${PRICE('session90')}</button>.
+          Credited to your first month if you join within fourteen days.</div>
+      </div>`;
+}
+function coachingPicker(){
+  if(plansOn===null) loadPlans();
+  const PLANSC = coPlans();
+  const pick = PLANSC.find(p=>p.k===coPickK()) || PLANSC[0];
   return `<div class="card" style="padding:18px 20px">
     <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
       color:#0a7b74">Monthly coaching</div>
     <div style="font:400 30px/1.06 var(--serif);letter-spacing:-.015em;margin-top:8px">Which one is you?</div>
-
-    <!-- Stacked, the three options were 264px of scrolling before the panel
-         that describes the one you picked, so you could never see the choice
-         and its detail at the same time. The site solved this on a phone by
-         swiping all three across in one row with the next peeking in, which
-         keeps the detail on screen. Same here: 76% wide, snapped, and dots
-         under it so it is obvious there are three. -->
+    <!-- Two plans across in one row, swiped, the next peeking in, so the
+         choice and its detail stay on screen together. The London session
+         is a switch on the panel below rather than a third card. -->
     <div id="coRail" class="rail s" data-tour="pricing" onscroll="coDots()"
       style="display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;
       -webkit-overflow-scrolling:touch;margin:14px -20px 0;padding:4px 20px 6px">
-      ${PLANSC.map((p,i)=>{
+      ${PLANSC.map(p=>{
         const on2 = p.k===pick.k;
         return `<button id="copick-${p.k}" onclick="coPick('${p.k}')" aria-pressed="${on2}"
           style="flex:0 0 76%;scroll-snap-align:center;text-align:left;cursor:pointer;
@@ -10559,72 +10788,13 @@ function coachingPicker(){
           <span style="font:400 19px/1.12 var(--serif);color:var(--ink)">${esc(p.who)}</span>
           <span style="flex:1;font:400 12.5px/1.4 var(--sans);color:var(--grey)">${esc(p.line)}</span>
           <span style="display:flex;align-items:baseline;gap:3px">
-            <span style="font:400 24px/1 var(--serif);letter-spacing:-.02em;color:var(--forest)">${PRICE(p.price)}</span>
+            <span data-coprice style="font:400 24px/1 var(--serif);letter-spacing:-.02em;color:var(--forest)">${PRICE(coPriceKey(p))}</span>
             <span style="font:600 12px/1 var(--sans);color:var(--grey)">/mo</span>
           </span>
         </button>`;}).join('')}
     </div>
-    <div id="coDots" style="display:flex;justify-content:center;gap:6px;margin-top:8px">
-      ${PLANSC.map(p=>`<i style="width:${p.k===pick.k?18:6}px;height:6px;border-radius:99px;display:block;
-        background:${p.k===pick.k?'var(--forest)':'rgba(17,17,17,.18)'};
-        transition:width .25s,background .25s"></i>`).join('')}
-    </div>
-
-    <!-- The site splits this: what you get on white, what it costs on a
-         solid green block. On a phone that stacks, and the green block is
-         where the decision is, so it is the last thing and it holds the
-         price, the note and both buttons rather than spreading them down
-         the page. -->
-    <div style="margin:14px -20px -18px;border-radius:0 0 26px 26px;overflow:hidden">
-      <div style="padding:16px 20px 16px;background:#fff;border-top:1px solid rgba(0,64,61,.1)">
-        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-          color:#0a7b74">${esc(pick.who)}</div>
-        <div style="font:400 22px/1.12 var(--serif);margin-top:7px">${esc(pick.name)}</div>
-        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(pick.for)}</div>
-        ${pick.feats.map(tickLine).join('')}
-      </div>
-      <div style="padding:16px 20px 18px;background:linear-gradient(180deg,#0a7a76,#006663);
-        color:var(--on-primary)">
-        <div style="display:flex;align-items:baseline;gap:6px">
-          <span style="font:400 34px/1 var(--serif);letter-spacing:-.02em">${PRICE(pick.price)}</span>
-          <span style="font:600 13px/1 var(--sans);opacity:.8">/ month</span>
-        </div>
-        <div style="font:400 12.5px/1.45 var(--sans);opacity:.82;margin-top:6px">${esc(pick.note)}</div>
-        <button onclick="${buyable(pick)?`buyPlan('${pick.k}')`:`openOv('apply')`}"
-          style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
-          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${
-          buyable(pick) ? 'Start now, '+PRICE(pick.price)+'/mo &rarr;'
-            : pick.k==='inner' ? 'Apply for Inner Circle &rarr;' : 'Ask about this &rarr;'}</button>
-        <!-- go('ask') on a free account falls through to Today, because
-             ask is not one of its four tabs. The question box is on this
-             screen; walk them to it. -->
-        ${(!buyable(pick) && pick.k==='inperson' && buyable(PLANSC[0]))?`
-        <button onclick="buyPlan('online')" style="width:100%;margin-top:8px;min-height:44px;
-          border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;
-          background:transparent;color:var(--on-primary);font:600 13.5px/1 var(--sans)">
-          Or start online now, ${PRICE('online')}/mo</button>
-        <div style="font:400 11.5px/1.45 var(--sans);opacity:.75;margin-top:7px;text-align:center">
-          The London session goes on top once we have picked a date.</div>`:''}
-        <button onclick="askAbout('${pick.k}')"
-          style="width:100%;margin-top:8px;min-height:44px;border:1px solid rgba(255,255,255,.35);
-          border-radius:14px;cursor:pointer;background:rgba(255,255,255,.1);color:var(--on-primary);
-          font:600 13.5px/1 var(--sans)">Ask me about this one</button>
-        <button onclick="openCompare()" style="width:100%;margin-top:12px;background:none;border:0;
-          cursor:pointer;padding:4px;color:var(--on-primary);font:600 13px/1 var(--sans);
-          text-decoration:underline;opacity:.9">Compare every way in &rarr;</button>
-        <!-- the site's own line: the way in for somebody not ready to
-             commit to a month of anything -->
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.2);
-          font:400 12px/1.5 var(--sans);opacity:.86">
-          Rather try one session first?
-          <button onclick="leaveTo('/session.html?kind=60')" style="background:none;border:0;padding:0;
-            color:var(--on-primary);font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">60 min, ${PRICE('session60')}</button>
-          or
-          <button onclick="leaveTo('/session.html?kind=90')" style="background:none;border:0;padding:0;
-            color:var(--on-primary);font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">90 min, ${PRICE('session90')}</button>.
-          Credited to your first month if you join within fourteen days.</div>
-      </div>
-    </div>
+    <div id="coDots" style="display:flex;justify-content:center;gap:6px;margin-top:8px">${coDotsHTML(PLANSC,pick)}</div>
+    <div id="coPanel" style="margin:14px -20px -18px;border-radius:0 0 26px 26px;overflow:hidden">${coPanelHTML(pick)}</div>
   </div>`;
 }
 function screenCoaching(){
@@ -10635,7 +10805,7 @@ function screenCoaching(){
   /* one free check per account for ever was one free check per email
      address. A form check is part of the paid tier now, and its free week is
      the way in; the server says whether this account can send one. */
-  const canCheck=!!st.canCheck || !!st.plus;
+  const canCheck=!!st.canCheck;
   const awaiting = !!st.awaitingReview;
   /* Has a form check been sent and answered? Until it has, this screen
      sells nothing: the free one is the whole offer and the prices wait
@@ -10676,7 +10846,7 @@ function screenCoaching(){
             ? 'Watched.'
             : "He's watching it and picking the one thing to change.", true],
           ['Answer ready', done
-            ? 'It\'s in the chat below.'
+            ? 'It is in the Chat tab.'
             : 'Within 48 hours. You\'ll get an email the moment it lands.', done],
         ];
         return `<div class="card" style="padding:22px;border:1.5px solid ${done?'var(--forest)':'var(--amber)'}">
@@ -10710,9 +10880,9 @@ function screenCoaching(){
                is above; this just marks it read. -->
           ${done?`<button class="btn" style="width:100%;margin-top:16px"
             onclick="st.seenReview=st.lastReview;save();render()">Got it</button>
-          <button onclick="go('${st.in?'ask':'coaching'}');setTimeout(()=>{const e=document.getElementById('askelliott');if(e)e.scrollIntoView({behavior:'smooth',block:'center'});},160)"
+          <button onclick="goAsk()"
             style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;padding:10px;
-            color:var(--forest);font:600 13.5px/1 var(--sans)">Reply to Elliott</button>`:''}
+            color:var(--forest);font:600 13.5px/1 var(--sans)">Read it in the chat</button>`:''}
         </div>`;
       })()
     : !canCheck
@@ -10763,35 +10933,40 @@ function screenCoaching(){
       <div style="font:500 10px/1 var(--sans);color:var(--grey2);margin:6px 0 0">${esc(m.time||'')}</div></div>`;
   }).join('');
 
-  const askCard = signedIn
-    ? `<div class="card" style="padding:20px">
-        <div class="kick2" id="askelliott">ASK ELLIOTT ABOUT COACHING</div>
-        ${st.msgs&&st.msgs.length
-          ? `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${thread}</div>`
-          : `<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-             Not sure which tier fits, or whether a niggle rules you out? Ask here
-             and it comes straight to me. Questions only: footage goes through a
-             form check, so it is watched properly.</div>`}
-        <div style="background:var(--mist);border-radius:18px;padding:8px 8px 8px 15px;
-          display:flex;gap:8px;align-items:center;margin-top:14px">
-          <input id="askIn" placeholder="Ask about coaching…" value="${esc(askDraft)}"
-            oninput="askDraft=this.value"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();sendAsk();}"
-            style="flex:1;border:none;outline:none;background:none;font:400 14px/1.3 var(--sans)">
-          <button onclick="sendAsk()" style="flex:none;width:38px;height:38px;border-radius:999px;
-            background:var(--forest);border:none;color:var(--bg);font:400 17px/1 var(--serif);
-            cursor:pointer">&rarr;</button></div>
-        <div id="askMsg" style="font:500 11.5px/1.5 var(--sans);color:var(--forest);
-          text-align:center;margin-top:8px;min-height:16px"></div></div>`
-    : `<div class="card" style="padding:20px">
-        <div class="kick2" id="askelliott">ASK ELLIOTT ABOUT COACHING</div>
+  /* the chat, as its own tab. It was a card two folds down a screen that
+     sold coaching, so a reply from Elliott was the third thing on a page
+     about buying something. */
+  const chatBody = !signedIn
+    ? `<div style="padding:18px 16px 30px"><div class="card" style="padding:20px">
+        <div class="kick2">CHAT WITH ELLIOTT</div>
         <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Not sure which tier fits, or whether a niggle rules you out? Ask me directly —
+          Not sure which plan fits, or whether a niggle rules you out? Ask me directly.
           I answer these myself. An account first, so a reply has somewhere to land.</div>
         <button class="btn" style="width:100%;margin-top:14px"
           onclick="goJoin()">Create an account to ask</button>
         <button class="btn2" style="width:100%;margin-top:9px"
           onclick="st.tab='signin';save();render()">I already have one</button>
+      </div></div>`
+    : `<div style="flex:1;padding:18px 14px 8px;display:flex;flex-direction:column;gap:12px">${
+        thread || `<div style="text-align:center;padding:40px 22px;color:var(--grey);font:400 15px/1.6 var(--sans)">
+          Nothing here yet.<br>Ask about a drill, a niggle, or which plan fits.</div>`}
+        <div id="chatEnd"></div></div>
+      <div style="position:sticky;bottom:0;z-index:3;padding:10px 14px calc(env(safe-area-inset-bottom) + 14px);
+        background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)">
+        <div style="background:#fff;border-radius:22px;padding:8px 8px 8px 16px;display:flex;gap:8px;
+          align-items:center;border:1px solid rgba(0,64,61,.10);
+          box-shadow:0 1px 2px rgba(0,64,61,.05),0 10px 24px rgba(0,64,61,.07)">
+          <input id="askIn" placeholder="Message Elliott" aria-label="Your message" value="${esc(askDraft)}"
+            oninput="askDraft=this.value"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();sendAsk();}"
+            style="flex:1;border:none;outline:none;background:none;font:400 14px/1.3 var(--sans);min-height:36px">
+          <button onclick="sendAsk()" aria-label="Send" style="flex:none;width:40px;height:40px;border-radius:999px;
+            background:linear-gradient(180deg,#0a7a76,#006663);border:none;color:var(--on-primary);
+            font:400 17px/1 var(--serif);cursor:pointer">&rarr;</button></div>
+        <div id="askMsg" style="font:500 11.5px/1.5 var(--sans);color:var(--forest);
+          text-align:center;margin-top:8px;min-height:16px"></div>
+        <div style="font:500 11px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
+          Questions here. Footage goes through a form check, so it is watched properly.</div>
       </div>`;
 
   const rows=TIERS.map(([n,f,c],i)=>`<div style="background:#fff;padding:11px 13px;display:flex;
@@ -10814,21 +10989,29 @@ function screenCoaching(){
         <span style="font:400 15px/1 var(--serif);color:var(--forest)">${(st.faq||{})[i]?'−':'+'}</span></div>
       ${(st.faq||{})[i]?`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">${esc(a)}</div>`:''}
     </div>`).join('');
-  return `<div class="scroll s">
-    <!-- The green banner is gone, as everywhere else. What sells this is that
-         a person watches your clip and writes back, so he is the first thing
-         on the screen and the two routes in sit level with each other rather
-         than one being a card and the other a table. -->
-    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+  const tab=coTab();
+  const nUnread=unreadMsgs();
+  const seg=`<div class="rise rise-1" style="margin:18px 20px 0;display:flex;background:rgba(0,64,61,.07);
+      border-radius:14px;padding:4px;gap:4px">
+    ${[['check',hadFormCheck()?'Form checks':'Form check'],['chat','Chat']].map(([k,l])=>`<button onclick="setCoTab('${k}')" aria-pressed="${tab===k}"
+      style="flex:1;min-height:40px;border:0;border-radius:11px;cursor:pointer;
+      background:${tab===k?'#fff':'transparent'};box-shadow:${tab===k?'0 1px 2px rgba(0,64,61,.10)':'none'};
+      font:600 13.5px/1 var(--sans);color:${tab===k?'var(--deep)':'var(--grey)'}">${l}${
+      (k==='chat'&&nUnread)?`<span style="margin-left:7px;display:inline-grid;place-items:center;min-width:18px;
+        height:18px;padding:0 5px;border-radius:999px;background:var(--amber);color:var(--ink);
+        font:700 10.5px/1 var(--sans);vertical-align:middle">${nUnread}</span>`:''}</button>`).join('')}
+  </div>`;
+  const head=`<div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
       <div style="display:flex;align-items:center;gap:12px">
         <span style="width:46px;height:46px;flex:none;border-radius:50%;background:var(--forest);
           color:var(--on-primary);display:grid;place-items:center;font:400 22px/1 var(--serif)">E</span>
         <span style="flex:1;min-width:0">
           <span style="display:block;font:600 15px/1.2 var(--sans)">Elliott Staley</span>
           <span style="display:block;margin-top:3px;font:400 13px/1.4 var(--sans);color:var(--grey)">
-            Watches every clip himself. Replies in writing.</span>
+            ${tab==='chat' ? 'Usually replies within 48 hours.' : 'Watches every clip himself. Replies in writing.'}</span>
         </span>
       </div>
+      ${tab==='chat' ? '' : `
       <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:18px">${
         sold ? `Get Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em>`
              : `Send one clip. <em style="color:var(--forest);font-style:normal">Free.</em>`}</div>
@@ -10836,8 +11019,14 @@ function screenCoaching(){
         sold ? 'Two ways in. One is a clip and a written answer; the other is the whole programme.'
         : awaiting ? 'It is with Elliott. He watches every one himself and comes back in writing.'
         : 'Film the thing you are stuck on and Elliott tells you the one thing to change. '
-          +'One is free with an account, and nothing is asked for until you have had it back.'}</div>
-    </div>
+          +'One is free with an account, and nothing is asked for until you have had it back.'}</div>`}
+    </div>`;
+  if(tab==='chat'){
+    return `<div class="scroll s" style="display:flex;flex-direction:column">
+      <div style="flex:none">${head}${seg}</div>${chatBody}</div>`;
+  }
+  return `<div class="scroll s">
+    ${head}${seg}
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
       <!-- what actually happens, for somebody who has not had one. Once
@@ -10862,7 +11051,6 @@ function screenCoaching(){
            back, and the offers appear underneath that. Until then this
            screen has one job. -->
       ${!sold ? '' : coachingPicker()}
-      ${askCard}
       ${!sold ? '' : `
       <div class="card" data-tour="tiers" id="tierTable"
         style="padding:20px;${st.tiersOpen?'':'display:none'}">
@@ -10877,10 +11065,7 @@ function screenCoaching(){
           </div>${rows}</div>
       </div>
       <div class="card" style="padding:20px">
-        <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
-      <!-- pricingCard's three tier cards were here. They are the picker at
-           the top of this screen now, so drawing them again said the same
-           three prices twice, one fold apart. -->`}
+        <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>`}
       ${st.applied
         ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
             <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
@@ -11072,7 +11257,7 @@ function screenJoin(){
                +'The card goes in on the next page, through Stripe, and nothing is charged until '
                +firstCharge()+'. Cancelling before then is one tap in the app.'
        : want ? 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.'
-       : taste ? 'Your first '+TASTE_SESSIONS+' sessions there are free, and no card is asked for. '
+       : taste ? 'Your first session there is free, and no card is asked for. '
                  +esc((PSJ.goal||'').replace(/\.$/,''))+'.'
            : esc(s.goal||'')}</div>
     ${st.pendingCode?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;
@@ -11207,6 +11392,25 @@ const TABS={
 const hadFormCheck = () => !!st.lastReview
   || ((st.subs||[]).some(x=>x && x.status==='reviewed'));
 const coachTabLabel = () => hadFormCheck() ? 'Coaching' : 'Form check';
+/* What Elliott has said that has not been looked at. The chat is the one
+   place a reply lands, so this is the one signal: the dot on the chat
+   button, the dot on the tab, the count on the Chat segment. */
+const coachMsgs = () => (st.msgs||[]).filter(m=>m && m.from==='e' && m.at);
+const unreadMsgs = () => coachMsgs().filter(m=>m.at > (st.seenMsgAt||0)).length;
+const hasNew = () => unreadMsgs()>0 || !!(st.lastReview && st.lastReview > (st.seenReview||0));
+function markChatSeen(){
+  const t=Math.max(0, ...coachMsgs().map(m=>m.at));
+  if(t>(st.seenMsgAt||0)){ st.seenMsgAt=t; save(); }
+}
+/* the coaching screen is two things now, the form check and the chat.
+   It opens on the chat when something is waiting there. */
+const coTab = () => st.coTab || (unreadMsgs()>0 ? 'chat' : 'check');
+function setCoTab(k){
+  st.coTab=k; save();
+  if(k==='chat') markChatSeen();
+  render();
+  if(k==='chat') setTimeout(()=>{ const el=document.getElementById('chatEnd'); if(el) el.scrollIntoView({block:'end'}); },60);
+}
 /* A coaching client is still a person who might want the ladder. The tab
    set follows the view they have chosen rather than what they pay for. */
 function coachedView(){ return !!st.in && !st.asFree; }
@@ -11216,7 +11420,13 @@ function switchView(toFree){
   go(toFree ? 'ladder' : 'today');
 }
 
-function go(t){ st.tab=t; save(); render();
+function go(t){ st.tab=t; save();
+  if(t==='coaching' && !st.coTab) st.coTab=coTab();
+  const chat = t==='ask' || (t==='coaching' && st.coTab==='chat');
+  if(chat) markChatSeen();
+  render();
+  /* the newest message is the one they came for, so open on it */
+  if(chat) setTimeout(()=>{ const el=document.getElementById('chatEnd'); if(el) el.scrollIntoView({block:'end'}); },60);
   if(t==='home') loadQuestions();
   if(t==='ask'||t==='coaching'){ loadThread(); loadEntitlement(); loadSubmissions(); }
   if(t==='progress') loadSubmissions(); }
@@ -11255,11 +11465,7 @@ function videoPlaceholder(label,dur,dark){
 /* the chat button lands on the chat, not the top of the page it is buried in */
 function openChat(){
   if(st.in){ go('ask'); return; }
-  go('coaching');
-  setTimeout(()=>{
-    const a=document.getElementById('askelliott');
-    if(a) a.scrollIntoView({behavior:'smooth',block:'start'});
-  },60);
+  st.coTab='chat'; save(); go('coaching');
 }
 
 function topBar(){
@@ -11275,7 +11481,7 @@ function topBar(){
      bar is the same dark teal on white everywhere. */
   const label = ({home:'TODAY',today:'TODAY',ladder:'LADDER',progress:'PROGRESS',
     coaching:'COACHING',ask:'ASK',plan:'PLAN',more:'MORE',fix:'FIX'})[st.tab] || '';
-  const waiting = !!(st.lastReview && st.lastReview > (st.seenReview||0));
+  const waiting = hasNew();
   const name = (st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
   const initials = (name||'?').slice(0,2).toUpperCase();
   const sub = st.in ? 'COACHED' : 'STAGE '+(curStage()+1);
@@ -11828,7 +12034,8 @@ function render(){
             + ((typeof clipsNew==='function') ? clipsNew() : 0);
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
-    ((id==='progress'||(id==='ladder'&&!coached))&&nCp)?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
+    (((id==='progress'||(id==='ladder'&&!coached))&&nCp) || ((id==='coaching'||id==='ask')&&hasNew()))
+      ?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
       border-radius:99px;background:var(--amber)"></b>`:''}</button>`).join('');
   swap((st.preview?`<div style="position:fixed;top:0;left:0;right:0;z-index:2000;
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
@@ -11864,8 +12071,21 @@ document.addEventListener('DOMContentLoaded',function(){
      from the second open onwards the app showed whatever was in local
      storage from the last time somebody happened to sign in. A verdict
      written yesterday did not exist until they signed out and back in. */
-  if(st.token){ loadTrack(); }
-  if(st.in && st.token){ loadProgramme(); loadProgress(); loadThread(); }
+  if(st.token){ loadTrack(); loadThread(); }
+  if(st.in && st.token){ loadProgramme(); loadProgress(); }
+  /* Elliott's reply landed in the thread and nothing went to fetch it: a
+     free account loaded the chat only when it tapped the coaching tab, so
+     the answer to a form check sat on the server with no dot anywhere.
+     Every ten seconds while the chat is open, so a reply lands while they
+     are looking at it; once a minute elsewhere, for the dot; nothing while
+     the tab is hidden. */
+  let lastPoll=0;
+  setInterval(()=>{
+    if(!st.token || document.hidden || st.preview) return;
+    const onChat = st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat');
+    if(!onChat && Date.now()-lastPoll<60000) return;
+    lastPoll=Date.now(); loadThread(); loadSubmissions();
+  },10000);
   /* An open is a person opening the app, not a tab waking up. Wait for a
      real interaction before reporting one, and report how long they stayed
      when they leave. */
