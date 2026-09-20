@@ -7,9 +7,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* What a fix looks like, on its own, so the shape of one can be worked on
-   without the app around it. Reads a live fix by ?slug=, or a draft posted
-   in from the dashboard editor while it is being written. */
+/* A fix as a page of its own. Reads a live fix by ?slug=, or a draft posted
+   in from the dashboard editor. In edit mode it is the canvas: blocks are
+   typed into in place, dragged into order, and added between each other,
+   and every change is posted back to the dashboard, which owns the save. */
 :root{--bg:#f4f4f5;--forest:#006663;--deep:#00403d;--ink:#111111;--sand:#cfe6ec;--amber:#f3a949;--on-primary:#f7f4f1;
  --grey:#5c6660;--grey2:#8a8f8c;--mist:#e6e3de;--serif:Newsreader,Georgia,serif;--sans:Figtree,system-ui,-apple-system,sans-serif}
 *{box-sizing:border-box}
@@ -46,7 +47,32 @@ figcaption{font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:7px}
 .drill span{display:block;font:400 12px/1.3 var(--sans);color:var(--grey2);margin-top:3px}
 .sub{font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px}
 .empty{padding:60px 20px;text-align:center;color:var(--grey)}
-.note{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:var(--deep);color:#fff;border-radius:999px;padding:8px 14px;font:600 11.5px/1 var(--sans);opacity:.9}
+.note{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:var(--deep);color:#fff;border-radius:999px;padding:8px 14px;font:600 11.5px/1 var(--sans);opacity:.9;z-index:20}
+/* ── editing ── */
+.blk{position:relative;border-radius:14px;transition:box-shadow .15s}
+.blk:hover,.blk.sel{box-shadow:0 0 0 2px var(--forest)}
+.blk.drag{opacity:.4}
+.blk .tools{position:absolute;top:-14px;right:8px;display:none;gap:4px;z-index:5}
+.blk:hover .tools,.blk.sel .tools{display:flex}
+.tools b{font:700 9px/1 var(--sans);letter-spacing:.1em;color:#fff;background:var(--forest);border-radius:999px;padding:7px 9px;text-transform:uppercase}
+.tools button{width:28px;height:28px;border-radius:999px;border:1px solid rgba(0,64,61,.2);background:#fff;color:var(--deep);cursor:pointer;font:600 13px/1 var(--sans);padding:0}
+.tools .grab{cursor:grab}
+[contenteditable]{outline:none;min-height:1em}
+[contenteditable]:empty:before{content:attr(data-ph);color:var(--grey2)}
+.ins{display:flex;align-items:center;gap:8px;margin:2px 0;height:14px;opacity:.35;transition:opacity .15s;cursor:pointer}
+.ins:hover,.ins.open{opacity:1;height:auto}
+.ins i{flex:1;height:1px;background:var(--forest)}
+.ins b{width:22px;height:22px;border-radius:999px;background:var(--forest);color:#fff;display:grid;place-items:center;font:600 15px/1 var(--sans)}
+.menu{background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);padding:8px;margin:6px 0 10px;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.menu button{border:1px solid rgba(0,64,61,.12);background:#fff;border-radius:10px;padding:10px;text-align:left;cursor:pointer;font:600 12.5px/1.2 var(--sans);color:var(--ink)}
+.menu button small{display:block;font:400 11px/1.3 var(--sans);color:var(--grey2);margin-top:3px}
+.pick{grid-column:1/-1;max-height:260px;overflow:auto;border-top:1px solid rgba(0,0,0,.08);padding-top:6px}
+.pick input{width:100%;padding:8px 10px;border:1px solid rgba(0,64,61,.16);border-radius:9px;font:400 14px/1.3 var(--sans);margin-bottom:6px}
+.pick .row{display:flex;gap:10px;align-items:center;padding:6px;border-radius:9px;cursor:pointer}
+.pick .row:hover{background:rgba(0,102,99,.07)}
+.pick .row img{width:52px;height:32px;object-fit:cover;border-radius:6px;background:#000;flex:none}
+.pick .row span{font:500 13px/1.3 var(--sans)}
+.pick .row small{display:block;font:400 11px/1.2 var(--sans);color:var(--grey2)}
 </style></head><body>
 <div class="phone" id="p"><div class="empty">Waiting for a fix. Open this from the dashboard editor, or add ?slug=the-fix to the address.</div></div>
 <div class="note" id="note" hidden></div>
@@ -58,21 +84,80 @@ const uidOf=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]
 const dose=d=>{ const sets=Number(d.sets), amt=Number(d.amt);
   if(Number.isFinite(amt)&&amt>0) return (Number.isFinite(sets)&&sets>=1?Math.round(sets)+' x ':'')+Math.round(amt)+(d.unit==='s'?'s':'');
   return d.d||''; };
-function block(b){
+let F=null, EDIT=false, EXP=[], DR=[], openIns=-1, pickKind='', dragFrom=-1;
+let sayT=null; const say=t=>{ const n=document.getElementById('note'); n.textContent=t; n.hidden=!t; clearTimeout(sayT); sayT=setTimeout(()=>{ n.hidden=true; },4000); };
+const send=m=>{ try{ parent.postMessage(Object.assign({}, m), location.origin); }catch(e){} };
+const emit=()=>send({type:'lha-fix-edit', article:F.article});
+const ed=(i,k)=>EDIT?` contenteditable="plaintext-only" data-i="${i}" data-k="${k}" oninput="edText(this)" onfocus="sel(${i})"`:'';
+function block(b,i){
   if(!b) return '';
-  if(b.t==='h') return `<h2>${esc(b.text)}</h2>`;
-  if(b.t==='p') return `<p>${esc(b.text)}</p>`;
-  if(b.t==='quote') return `<blockquote>${esc(b.text)}</blockquote>`;
-  if(b.t==='img'&&b.id) return `<figure><img src="/api/app/image/${esc(b.id)}" alt="">${b.cap?`<figcaption>${esc(b.cap)}</figcaption>`:''}</figure>`;
-  if(b.t==='vid'&&b.uid) return `<figure><div class="frame"><iframe src="${STREAM}${esc(b.uid)}/iframe?preload=metadata" allow="fullscreen" loading="lazy"></iframe></div>${b.cap?`<figcaption>${esc(b.cap)}</figcaption>`:''}</figure>`;
-  if(b.t==='drill'&&b.v) return `<figure>${b.url?`<video src="${esc(b.url)}" controls playsinline loop muted poster="${thumb(uidOf(b.url))}" style="aspect-ratio:16/10;object-fit:contain"></video>`:''}
-    <figcaption><b style="color:var(--ink)">${esc(b.n||b.v)}</b>${b.cap?` · ${esc(b.cap)}`:''}</figcaption></figure>`;
-  return '';
+  const cap=b.cap||'';
+  let inner='';
+  if(b.t==='h') inner=`<h2${ed(i,'text')} data-ph="Heading">${esc(b.text)}</h2>`;
+  else if(b.t==='p') inner=`<p${ed(i,'text')} data-ph="Say why. What is happening, why it happens, what the drills do about it.">${esc(b.text)}</p>`;
+  else if(b.t==='quote') inner=`<blockquote${ed(i,'text')} data-ph="One line to remember">${esc(b.text)}</blockquote>`;
+  else if(b.t==='img') inner=`<figure>${b.id?`<img src="/api/app/image/${esc(b.id)}" alt="">`:`<div style="aspect-ratio:4/3;border-radius:18px;background:var(--mist);display:grid;place-items:center;color:var(--grey)">No photo yet</div>`}<figcaption${ed(i,'cap')} data-ph="Caption, optional">${esc(cap)}</figcaption></figure>`;
+  else if(b.t==='vid') inner=`<figure><div class="frame">${b.uid?`<iframe src="${STREAM}${esc(b.uid)}/iframe?preload=metadata" allow="fullscreen" loading="lazy"></iframe>`:''}</div><figcaption${ed(i,'cap')} data-ph="Caption, optional">${esc(cap)}</figcaption></figure>`;
+  else if(b.t==='drill') inner=`<figure>${b.url?`<video src="${esc(b.url)}" controls playsinline loop muted poster="${thumb(uidOf(b.url))}" style="aspect-ratio:16/10;object-fit:contain"></video>`:''}
+    <figcaption><b style="color:var(--ink)">${esc(b.n||b.v)}</b> · <span${ed(i,'cap')} data-ph="what to notice">${esc(cap)}</span></figcaption></figure>`;
+  else return '';
+  if(!EDIT) return inner;
+  const label={h:'Heading',p:'Text',quote:'Quote',img:'Photo',vid:'Film',drill:'Drill'}[b.t]||b.t;
+  return `<div class="blk" data-blk="${i}" draggable="true" ondragstart="dragStart(event,${i})" ondragend="dragEnd()" ondragover="dragOver(event,${i})" ondrop="drop(event,${i})" onclick="sel(${i})">
+    <div class="tools"><b>${label}</b><button class="grab" title="Drag to move">⋮⋮</button><button onclick="event.stopPropagation();move(${i},-1)" title="Up">↑</button><button onclick="event.stopPropagation();move(${i},1)" title="Down">↓</button><button onclick="event.stopPropagation();del(${i})" title="Remove" style="color:#a4503c">✕</button></div>
+    ${inner}</div>`;
 }
-function draw(f){
+function insBar(i){
+  if(!EDIT) return '';
+  const open=openIns===i;
+  return `<div class="ins ${open?'open':''}" onclick="if(!${open}) openMenu(${i})"><i></i><b>+</b><i></i></div>${open?menu(i):''}`;
+}
+function menu(i){
+  const opt=(k,l,s)=>`<button onclick="event.stopPropagation();add(${i},'${k}')">${l}<small>${s}</small></button>`;
+  let pick='';
+  if(pickKind==='vid'){
+    pick=`<div class="pick"><input placeholder="Find an explainer" oninput="filterPick(this.value)"><div id="pickList">${pickRows('')}</div></div>`;
+  } else if(pickKind==='drill'){
+    pick=`<div class="pick"><input placeholder="Find a drill" oninput="filterPick(this.value)"><div id="pickList">${pickRows('')}</div></div>`;
+  }
+  return `<div class="menu" onclick="event.stopPropagation()">
+    ${opt('h','Heading','A section title')}${opt('p','Text','A paragraph')}${opt('quote','Quote','One line to remember')}
+    <button onclick="event.stopPropagation();pickKind='vid';draw()">Explainer film<small>One of the filmed explainers</small></button>
+    <button onclick="event.stopPropagation();pickKind='drill';draw()">Drill film<small>A drill from the library</small></button>
+    <button onclick="event.stopPropagation();send({type:'lha-fix-photo',at:${i}})">Photo<small>Upload from your phone or computer</small></button>
+    <button onclick="event.stopPropagation();send({type:'lha-fix-video',at:${i}})">Your own film<small>Upload a clip to Stream</small></button>
+    <button onclick="event.stopPropagation();closeMenu()" style="color:var(--grey)">Cancel</button>
+    ${pick}</div>`;
+}
+function pickRows(q){
+  q=(q||'').toLowerCase();
+  if(pickKind==='vid') return EXP.filter(x=>x.uid && (!q||String(x.q).toLowerCase().includes(q))).slice(0,40).map(x=>
+    `<div class="row" onclick="addVid(${openIns},'${esc(x.uid)}','${esc(x.q)}')"><img src="${thumb(x.uid)}" alt=""><span>${esc(x.q)}<small>${esc(x.stage||'')}</small></span></div>`).join('')||'<small>Nothing matches.</small>';
+  return DR.filter(x=>!q||String(x.n).toLowerCase().includes(q)).slice(0,40).map(x=>
+    `<div class="row" onclick="addDrill(${openIns},'${esc(x.v)}')"><img src="${x.url?thumb(uidOf(x.url)):''}" alt=""><span>${esc(x.n)}<small>${x.url?'filmed':'no clip yet'}</small></span></div>`).join('')||'<small>Nothing matches.</small>';
+}
+function filterPick(q){ const l=document.getElementById('pickList'); if(l) l.innerHTML=pickRows(q); }
+function openMenu(i){ openIns=i; pickKind=''; draw(); }
+function closeMenu(){ openIns=-1; pickKind=''; draw(); }
+function add(i,t){ const b={t}; if(t==='h'||t==='p'||t==='quote') b.text=''; F.article.splice(i,0,b); openIns=-1; pickKind=''; emit(); draw(); focusBlk(i); }
+function addVid(i,uid,q){ F.article.splice(i,0,{t:'vid',uid,cap:q}); openIns=-1; pickKind=''; emit(); draw(); }
+function addDrill(i,v){ const d=DR.find(x=>x.v===v)||{}; F.article.splice(i,0,{t:'drill',v,n:d.n||v,url:d.url||'',cap:''}); openIns=-1; pickKind=''; emit(); draw(); }
+function del(i){ F.article.splice(i,1); emit(); draw(); }
+function move(i,d){ const j=i+d; if(j<0||j>=F.article.length) return; const [b]=F.article.splice(i,1); F.article.splice(j,0,b); emit(); draw(); }
+function sel(i){ document.querySelectorAll('.blk').forEach(el=>el.classList.toggle('sel', Number(el.dataset.blk)===i)); }
+function focusBlk(i){ const el=document.querySelector(`.blk[data-blk="${i}"] [contenteditable]`); if(el) el.focus(); }
+function edText(el){ const i=Number(el.dataset.i), k=el.dataset.k; if(F.article[i]){ F.article[i][k]=el.innerText.replace(/\n$/,''); emit(); } }
+function dragStart(e,i){ dragFrom=i; e.dataTransfer.effectAllowed='move'; setTimeout(()=>{ const el=document.querySelector(`.blk[data-blk="${i}"]`); if(el) el.classList.add('drag'); },0); }
+function dragEnd(){ dragFrom=-1; document.querySelectorAll('.blk.drag').forEach(el=>el.classList.remove('drag')); }
+function dragOver(e,i){ if(dragFrom<0) return; e.preventDefault(); }
+function drop(e,i){ e.preventDefault(); if(dragFrom<0||dragFrom===i) return; const [b]=F.article.splice(dragFrom,1); F.article.splice(i,0,b); dragFrom=-1; emit(); draw(); }
+function draw(){
+  const f=F; if(!f) return;
   const cover=(f.cover&&f.cover.uid)?thumb(f.cover.uid):(f.cover&&f.cover.img)?'/api/app/image/'+f.cover.img
     :((f.drills||[]).find(d=>d.url)?thumb(uidOf((f.drills||[]).find(d=>d.url).url)):'');
   const drills=(f.drills||[]);
+  f.article=f.article||[];
+  const art=f.article.map((b,i)=>insBar(i)+block(b,i)).join('')+insBar(f.article.length);
   document.getElementById('p').innerHTML=`
     <div class="hero">${cover?`<img src="${esc(cover)}" alt="">`:''}<div class="shade"></div>
       <div class="over"><div class="kick">${f.live?'A fix':'A fix · draft'}${f.access==='free'?' · free':''}</div></div></div>
@@ -84,19 +169,24 @@ function draw(f){
       <div class="start"><span>Start the first session</span><i><svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></div>
       <div class="link">See the drills first</div>
       <div class="clip"><b>${esc((f.start&&f.start.n)||'Film it before you start')}</b><span>${esc((f.start&&f.start.note)||'So you can see the difference in four weeks. Elliott sees it too.')}</span></div>
-      ${(f.article||[]).map(block).join('')}
+      <div id="art">${art}</div>
       ${drills.length?`<h2 style="font-size:24px">The drills.</h2>
         <div class="sub">${f.set?drills.length+' drills, in this order, the same every time.':drills.length+' in the pool. A session takes six to ten and starts further down each time.'}</div>
         <div class="drills">${drills.map(d=>`<div class="drill"><div class="th">${d.url?`<img src="${thumb(uidOf(d.url))}" alt="">`:''}</div>
-          <div style="flex:1;min-width:0"><b>${esc(d.n||d.v)}</b><span>${esc(d.g||'')}${d.g?' · ':''}level ${esc(d.L||1)}${dose(d)?' · '+esc(dose(d)):''}${d.r!=null?' · rest '+esc(d.r)+'s':''}</span></div></div>`).join('')}</div>`:''}
+          <div style="flex:1;min-width:0"><b>${esc(d.n||d.v)}</b><span>${esc(d.g||'')}${d.g?' · ':''}level ${esc(d.L||1)}${dose(d)?' · '+esc(dose(d)):''}${d.r!=null?' · rest '+esc(d.r)+'s':''}</span></div></div>`).join('')}</div>`
+        :(EDIT?`<div class="sub" style="margin-top:18px">No drills yet. Add them in the editor on the left.</div>`:'')}
       ${(f.warmDrills||f.warm||[]).length?`<div class="sub" style="margin-top:14px"><span class="kick">Warm-up</span><br>${(f.warmDrills||f.warm).map(w=>esc(w.n||w.v||w)).join(', ')}</div>`:''}
       <div class="clip" style="margin-top:22px"><b>${esc((f.finish&&f.finish.n)||'Film it again')}</b><span>${esc((f.finish&&f.finish.note)||'Same angle as before. Put the two side by side.')}</span></div>
       <div style="height:60px"></div>
     </div>`;
 }
-const say=t=>{ const n=document.getElementById('note'); n.textContent=t; n.hidden=!t; };
 window.addEventListener('message',e=>{ if(e.origin!==location.origin) return; const d=e.data||{};
-  if(d.type==='lha-fix-draft' && d.fix){ draw(d.fix); say('Draft, as it is in the editor'); } });
+  if(d.type==='lha-fix-draft' && d.fix){
+    /* while a block is being typed into, a redraw would take the caret;
+       the dashboard only re-posts when something other than the words changed */
+    F=d.fix; EDIT=!!d.edit; if(Array.isArray(d.explainers)) EXP=d.explainers; if(Array.isArray(d.drills)) DR=d.drills;
+    draw(); say(EDIT?'Tap a block to edit it. Drag ⋮⋮ to move it. + adds one.':'Draft, as it is in the editor'); } });
+document.addEventListener('click',e=>{ if(!e.target.closest('.menu') && !e.target.closest('.ins') && openIns>=0) closeMenu(); });
 const slug=new URLSearchParams(location.search).get('slug');
-if(slug){ fetch('/api/app/fixes').then(r=>r.json()).then(d=>{ const f=(d.fixes||{})[slug]; if(f) draw(f); else say('No live fix called '+slug); }).catch(()=>say('Could not load the fixes')); }
+if(slug){ fetch('/api/app/fixes').then(r=>r.json()).then(d=>{ const f=(d.fixes||{})[slug]; if(f){ F=f; draw(); } else say('No live fix called '+slug); }).catch(()=>say('Could not load the fixes')); }
 </script></body></html>

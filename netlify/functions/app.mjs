@@ -2184,6 +2184,7 @@ export default async (request) => {
 
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
+                  homeOrder:   (await getSetting('home:order')) || 'explainersFirst',
                   timing:      (await getSetting('timing:custom')) || {},
                   /* the three workouts, written out drill by drill where the
                      coach has written them. Empty means the stage is still
@@ -2210,6 +2211,17 @@ export default async (request) => {
      length under which every drill gets one set, and how many of the last
      drills are exempt from that because they are the work. They are the
      coach's numbers, not the app's, so they are editable. */
+  /* where the fixes sit on the Train screen: above or below the explainers */
+  if (path === '/coach/home') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (request.method === 'GET') return json({ homeOrder: (await getSetting('home:order')) || 'explainersFirst' });
+    if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const v = body.homeOrder === 'fixesFirst' ? 'fixesFirst' : 'explainersFirst';
+      await setSetting('home:order', v);
+      return json({ ok: true, homeOrder: v });
+    }
+  }
   if (path === '/coach/short') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     if (request.method === 'GET') return json({ shortRules: (await getSetting('ladder:short')) || {} });

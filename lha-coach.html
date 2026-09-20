@@ -6471,8 +6471,32 @@ function fxPreviewPost(){
   const fr=document.getElementById('fxPrevFrame'); if(!fr||!fr.contentWindow) return;
   const f=fxHydrated(); if(!f) return;
   const j=JSON.stringify(f); if(j===fxPrevLast) return; fxPrevLast=j;
-  try{ fr.contentWindow.postMessage({type:'lha-fix-draft', fix:f}, location.origin); }catch(e){}
+  /* the canvas can add explainers and drills itself, so it gets the lists */
+  const explainers=[]; Object.keys(EXPLAIN||{}).forEach(s0=>(EXPLAIN[s0]||[]).forEach(x=>{ if(x&&x.uid) explainers.push({uid:x.uid,q:x.q,stage:(STAGES[s0]||{}).n||''}); }));
+  const drills=Object.keys(libIndex||{}).sort((a,b)=>(libIndex[a]||a).localeCompare(libIndex[b]||b)).map(v=>({v,n:libIndex[v]||v,url:(libVideo||{})[v]||''}));
+  try{ fr.contentWindow.postMessage({type:'lha-fix-draft', fix:f, edit:true, explainers, drills}, location.origin); }catch(e){}
 }
+/* ── edits made on the canvas ────────────────────────────────────────
+   The preview page is the editor for the article: words typed in place,
+   blocks dragged, added and removed. It posts the article back and this
+   side owns it from there: the form, the dirty flag and Save. */
+window.addEventListener('message', e=>{
+  if(e.origin!==location.origin || !e.data || !fx) return;
+  const d=e.data;
+  if(d.type==='lha-fix-edit' && Array.isArray(d.article)){
+    const structural = JSON.stringify(d.article.map(b=>b&&b.t)) !== JSON.stringify((fx.article||[]).map(b=>b&&b.t));
+    fx.article=d.article.map(b=>{ const o=Object.assign({},b); delete o.n; delete o.url; return o; });
+    fxDirty=true;
+    /* what it holds now is what the canvas shows, so do not post it back
+       and take the caret away mid word */
+    fxPrevLast=JSON.stringify(fxHydrated());
+    if(structural) draw(); else { const b=document.getElementById('fxSaveBtn'); if(b) b.textContent='Save'; }
+  }
+  if(d.type==='lha-fix-photo'){ const at=Math.max(0,Math.min(fx.article.length, Number(d.at)||0));
+    fx.article.splice(at,0,{t:'img',id:'',cap:''}); fxDirty=true; fxBlockImg(at); }
+  if(d.type==='lha-fix-video'){ const at=Math.max(0,Math.min(fx.article.length, Number(d.at)||0));
+    fx.article.splice(at,0,{t:'vid',uid:'',cap:''}); fxDirty=true; fxBlockVid(at); }
+});
 function fxPreviewToggle(){
   fxPrev=!fxPrev; fxPrevLast='';
   clearInterval(fxPrevTimer); fxPrevTimer=null;
@@ -6483,7 +6507,7 @@ function fxPreviewToggle(){
     w.style.cssText='position:fixed;top:0;right:0;bottom:0;width:430px;max-width:100vw;z-index:900;background:#dcdad6;'
       +'box-shadow:-20px 0 50px -30px rgba(0,0,0,.5);display:flex;flex-direction:column';
     w.innerHTML='<div style="flex:none;display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid rgba(0,0,0,.08)">'
-      +'<b style="font:600 13px/1 var(--sans)">What it looks like</b><span style="flex:1"></span>'
+      +'<b style="font:600 13px/1 var(--sans)">The page, as they will see it</b><span class="muted" style="font-size:11.5px">Tap to type, drag to move, + to add</span><span style="flex:1"></span>'
       +'<a href="/fix-preview.html" target="_blank" rel="noopener" style="font:500 12px/1 var(--sans);color:var(--forest)">Open in a tab</a>'
       +'<button class="btn btn-ghost btn-sm" onclick="fxPreviewToggle()">Close</button></div>'
       +'<iframe id="fxPrevFrame" src="/fix-preview.html" title="Fix preview" style="flex:1;width:100%;border:0;background:#dcdad6"></iframe>';
@@ -6720,6 +6744,27 @@ function shortSave(){
     .then(d=>{ shortR=Object.assign({},shortR,d.shortRules||{}); shortBusy=false;
       shortMsg='Saved. The app picks it up on its next load.'; draw(); })
     .catch(e=>{ shortBusy=false; shortMsg=String(e); draw(); });
+}
+/* ── the Train screen: fixes above or below the explainers ── */
+let homeOrder=null, homeBusy=false, homeMsg='';
+function homeLoad(){ if(homeOrder!==null) return; homeOrder='';
+  fetch(API+'/home',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ homeOrder=d.homeOrder||'explainersFirst'; draw(); } }).catch(()=>{}); }
+function homeSet(v){ if(homeBusy) return; homeBusy=true; homeMsg='Saving…'; draw();
+  fetch(API+'/home',{method:'POST',headers:hdr(),body:JSON.stringify({homeOrder:v})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ homeOrder=d.homeOrder; homeBusy=false; homeMsg='Saved. The app picks it up on its next load.'; draw(); })
+    .catch(e=>{ homeBusy=false; homeMsg=String(e); draw(); }); }
+function homeHTML(){
+  homeLoad();
+  const on=v=>homeOrder===v;
+  const b=(v,l)=>`<button class="btn ${on(v)?'':'btn-secondary'}" ${homeBusy?'disabled':''} onclick="homeSet('${v}')">${l}</button>`;
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">THE TRAIN SCREEN</div><span style="flex:1"></span>
+      <span class="muted" style="font-size:12px">${esc(homeMsg)}</span></div>
+    <p class="muted" style="margin:8px 0 12px;max-width:62ch">Where the fixes sit on the first screen. With one or two fixes, under the explainers reads better; once there are several, above.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${b('explainersFirst','Explainers first, then fixes')}${b('fixesFirst','Fixes first, then explainers')}</div>
+  </div>`;
 }
 function shortHTML(){
   shortLoad();
@@ -7100,6 +7145,7 @@ function settingsHTML(){
     ${owner?pricesHTML():''}
     ${owner?coHTML():''}
     ${owner?shortHTML():''}
+    ${owner?homeHTML():''}
     ${owner?mailguardHTML():''}
     ${owner?stripeHTML():''}
     ${owner?dbHTML():''}
