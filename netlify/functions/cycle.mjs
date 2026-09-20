@@ -353,7 +353,7 @@ async function quietFreeAccounts(done) {
         paras: step.paras(names[stage] || 'The ladder'),
         cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'London Handstand Academy' },
-        footnote: 'These stop the moment you turn reminders off in the app, under More.' }),
+        footnote: 'These stop the moment you turn reminders off in the app, in the menu at the top left.' }),
       'reminders');
     /* every step at or before this one is done with, whether or not the
        mail went: a suppressed address must not be retried daily */
@@ -413,7 +413,7 @@ async function firstTenDays(done) {
           paras: t.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' },
-          footnote: 'Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, under More, stops all of it.' }),
+          footnote: 'Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it.' }),
         'reminders');
       if (ok) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
                 done.tips = (done.tips || 0) + 1; }

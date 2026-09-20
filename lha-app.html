@@ -134,6 +134,16 @@ h1,h2,h3{margin:0;font-family:var(--serif);font-weight:400}
 .btn2{flex:1;text-align:center;font:600 13px/1 var(--sans);color:var(--forest);padding:14px;cursor:pointer;
  border-radius:16px;border:1.5px solid var(--line);background:none}
 .pill{font:600 9.5px/1 var(--sans);letter-spacing:.14em;padding:7px 10px;border-radius:999px}
+/* the menu: everything that was on the More tab, slid in from the left.
+   Above the top bar, below every sheet, so a password change opens over it. */
+.menu{position:fixed;inset:0;z-index:50;display:none;background:rgba(0,30,28,.45);
+ backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.menu.on{display:block;animation:fade .25s both}
+.menu .panel{position:absolute;top:0;bottom:0;left:0;width:min(86vw,360px);overflow-y:auto;
+ background:#f4f4f5;padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 26px);
+ box-shadow:24px 0 60px -30px rgba(0,0,0,.45);animation:slideIn .32s cubic-bezier(.2,.9,.2,1) both}
+@keyframes slideIn{from{transform:translateX(-100%)}to{transform:none}}
+@media (prefers-reduced-motion:reduce){.menu.on,.menu .panel{animation:none!important}}
 .tabbar{flex:none;display:flex;background:#fff;border-top:1px solid rgba(28,32,25,.08);
  padding-bottom:env(safe-area-inset-bottom);position:relative;z-index:5}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0 12px;cursor:pointer;
@@ -4788,7 +4798,7 @@ let bookingsAsked=false;
 function loadBookings(){
   if(!st.token) return;
   fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.bookings=d.bookings||[]; save(); if(st.tab==='more') render(); } }).catch(()=>{});
+    .then(d=>{ if(d){ st.bookings=d.bookings||[]; save(); if(st.tab==='more'||menuOpen) render(); } }).catch(()=>{});
 }
 /* One cancel at a time. Two taps sent two requests, both found the same
    booking, and both asked Stripe to refund the same payment. Stripe refuses
@@ -4831,6 +4841,10 @@ function bookingsHTML(){
 }
 
 function screenMore(){
+  const {all, cards}=moreLibrary();
+  return screenMoreWrap(all, cards);
+}
+function moreLibrary(){
   const all=libraryDrills();
   /* 88 drills in one flat grid is a wall. They already belong to a stage and
      a section in STAGE_SECTIONS, so group them by that and let each group
@@ -4881,17 +4895,47 @@ function screenMore(){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${g.items.map(card).join('')}</div>
       </div>`:''}
     </div>`;}).join('');
-
+  return {all, cards};
+}
+function screenMoreWrap(all, cards){
   return `<div class="scroll s">
-    <!-- the last green block in the app. Every other screen is on the ground
-         now, so this one was the odd page out. -->
     <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">Everything else</div>
       <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:8px">Library &amp;
         <em style="color:var(--forest);font-style:normal">more.</em></div>
     </div>
-    <div style="padding:16px 14px 0">
+    ${moreBody(all, cards)}</div>`;
+}
+/* ── the menu ─────────────────────────────────────────────────────
+   The More tab is a drawer now, opened from the mark at the top left, so
+   the bottom bar is only the screens people actually live on. The content
+   is the same; it is drawn into #menu, which sits outside #app and so
+   survives a render, and is redrawn by render() while it is open. */
+let menuOpen=false;
+function openMenu(){ menuOpen=true; paintMenu(); $('#menu').classList.add('on'); }
+function closeMenu(){ menuOpen=false; const m=$('#menu'); if(!m) return; m.classList.remove('on'); m.innerHTML=''; }
+function menuScrim(e){ if(e.target && e.target.id==='menu') closeMenu(); }
+function paintMenu(){
+  const m=$('#menu'); if(!m || !menuOpen) return;
+  const was=m.querySelector('.panel'); const keep=was?was.scrollTop:0;
+  m.innerHTML=`<div class="panel">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
+        background:var(--deep);color:var(--on-primary);font:700 11px/1 var(--sans)">LHA</span>
+      <span style="flex:1;font:400 22px/1 var(--serif);letter-spacing:-.01em">Library &amp;
+        <em style="color:var(--forest);font-style:normal">more</em></span>
+      <button onclick="closeMenu()" aria-label="Close menu" style="flex:none;width:40px;height:40px;
+        border-radius:999px;border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);
+        cursor:pointer;font:400 18px/1 var(--sans)">&times;</button>
+    </div>
+    ${moreBody()}</div>`;
+  const now=m.querySelector('.panel'); if(now) now.scrollTop=keep;
+  if(typeof lazyThumbs==='function') lazyThumbs();
+}
+function moreBody(all, cards){
+  if(!all){ const m=moreLibrary(); all=m.all; cards=m.cards; }
+  return `<div style="padding:16px 0 0">
       <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:20px">
         ${st.token?`<button class="act" onclick="openOv('password')">Change password</button>
         <button class="act" onclick="openOv('emailchange')">Change email</button>
@@ -4968,7 +5012,7 @@ function screenMore(){
             min-height:44px;display:inline-flex;align-items:center;padding:0 6px">${n}</a>`).join('')}
       </div>
       <div style="height:26px"></div>
-    </div></div>`;
+    </div>`;
 }
 /* 88 thumbnails is 88 video downloads if you let it. Only the ones coming
    into view get a src, which keeps the library scrollable on mobile data. */
@@ -5656,7 +5700,7 @@ function drawOv(){
         The whole ladder is open. ${PRICE_TRIAL()>0
           ? 'Your first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' '+(PRICE_TRIAL()===7?'is':'are')
             +' free, and a note comes three days before the first charge so nothing is a surprise.'
-          : 'That is '+PRICE('plus')+' a month from today.'} Cancel any time from More.</div>
+          : 'That is '+PRICE('plus')+' a month from today.'} Cancel any time from your account.</div>
       <button class="btn" style="margin-top:22px" onclick="closeOv();loadEntitlement()">Carry on</button>
     </div>`;
   }
@@ -7052,6 +7096,7 @@ function closeWhy(send){
 let whyStopContext='';
 
 function signOut(){
+  closeMenu();
   /* clearing the token alone left the old tab on screen, so signing out
      looked like nothing had happened. Drop right back to the free app. */
   if(typeof tick_!=='undefined' && tick_){ clearInterval(tick_); tick_=null; }
@@ -7697,7 +7742,7 @@ function loadQuestions(){
   if(!st.token) return;
   fetch(AUTH.questions,{headers:authed()}).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d&&d.questions){ st.qs=d.questions; save();
-      if(st.tab==='home'||st.tab==='more') render(); } }).catch(()=>{});
+      if(st.tab==='home'||st.tab==='more'||menuOpen) render(); } }).catch(()=>{});
 }
 function askQuestion(){
   const el=$('#askQ'); const t=((el&&el.value)||'').trim();
@@ -9609,7 +9654,7 @@ function paywallBody(){
     <div class="h-lg" style="margin-top:8px">Every stage, every drill.${one?' '+esc(PRICE('plus'))+' a month.':''}</div>
     <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">
       Six stages from the wall to the press, every drill filmed and cued, the check points that move you up,
-      and a session built for whatever time you have. Cancel any time from More.</div>
+      and a session built for whatever time you have. Cancel any time from your account.</div>
     <div style="display:${one?'none':'flex'};flex-direction:column;gap:10px;margin-top:18px">
       ${rows.map(r=>{ const on=r.k===cur;
         return `<button onclick="payPick('${r.k}')" aria-pressed="${on}" style="position:relative;width:100%;
@@ -9632,7 +9677,7 @@ function paywallBody(){
     <div id="payMount" style="margin-top:18px;min-height:96px"></div>
     <div style="font:400 12.5px/1.55 var(--sans);color:var(--grey2);margin-top:14px;text-align:center">
       By subscribing you authorise London Handstand Academy to charge you ${esc(price)} ${label} until you cancel.
-      Cancel any time from More.</div>`;
+      Cancel any time from your account.</div>`;
 }
 function loadStripeJs(){
   if(window.Stripe) return Promise.resolve();
@@ -11414,11 +11459,11 @@ function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizS
 
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
-  coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask'],['more','More']],
+  coached:[['today','Today'],['plan','Plan'],['progress','Progress'],['ask','Ask']],
   /* Progress used to be its own tab and the ladder is where a free client
      actually lives, so the two were competing for the same trip. Progress is
      the second half of the ladder screen now. Four tabs, not five. */
-  free:[['home','Today'],['ladder','Ladder'],['coaching','Coaching'],['more','More']]
+  free:[['home','Today'],['ladder','Ladder'],['coaching','Coaching']]
 };
 /* Has Elliott ever written back about a clip of theirs? Until he has, the
    coaching tab is an advert, and a tab that is an advert gets ignored.
@@ -11455,7 +11500,10 @@ function switchView(toFree){
   go(toFree ? 'ladder' : 'today');
 }
 
-function go(t){ st.tab=t; save();
+function go(t){
+  if(t==='more'){ openMenu(); return; }
+  if(menuOpen) closeMenu();
+  st.tab=t; save();
   if(t==='coaching' && !st.coTab) st.coTab=coTab();
   const chat = t==='ask' || (t==='coaching' && st.coTab==='chat');
   if(chat) markChatSeen();
@@ -11531,10 +11579,12 @@ function topBar(){
     backdrop-filter:blur(${sc?22:0}px) saturate(180%);
     -webkit-backdrop-filter:blur(${sc?22:0}px) saturate(180%);
     border-bottom:1px solid rgba(0,64,61,${sc?.10:0})">
-    <span style="flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
-      transition:background .3s,color .3s;
-      background:var(--deep);
-      color:var(--on-primary);font:700 11px/1 var(--sans)">LHA</span>
+    <button onclick="openMenu()" aria-label="Menu" title="Library and more" data-tour="menu"
+      style="flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
+      border:0;cursor:pointer;transition:background .3s,color .3s;padding:0;
+      background:var(--deep);color:var(--on-primary)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
     <span style="flex:1;font:600 11px/1 var(--sans);letter-spacing:.14em;transition:color .3s;
       color:var(--deep)">${label}</span>
     <button onclick="fbOpen()" aria-label="Tell us what you think"
@@ -12085,6 +12135,7 @@ function render(){
   coRest();
   watchScroll();
   lazyThumbs();
+  if(menuOpen) paintMenu();
   if(!st.preview) maybeTour();
 }
 document.addEventListener('DOMContentLoaded',function(){
@@ -12152,4 +12203,5 @@ render();
 </script>
 <div id="player"></div>
 <div id="ov" class="ov s" onclick="ovScrim(event)"></div>
+<div id="menu" class="menu s" onclick="menuScrim(event)"></div>
 </body></html>
