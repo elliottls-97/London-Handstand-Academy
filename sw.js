@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v97';
+const CACHE_VERSION = 'lha-v99';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 const VIDEO_CACHE   = CACHE_VERSION + '-video';
 
@@ -80,13 +80,26 @@ self.addEventListener('fetch', event => {
   const isVideo = /\.(mp4|webm|mov)$/i.test(url.pathname);
   if (isVideo) {
     if (req.headers.has('range')) return;
+    /* A locked drill arrives with a signed token where its uid used to
+       be, and the token changes every few hours. Cached under the token
+       the same clip would be fetched again each time, so the cache key is
+       the URL with the uid put back: the token is a JWT and its payload
+       names the video. */
+    const key = (function(){
+      const m = /\/(eyJ[A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\//.exec(url.pathname);
+      if (!m) return req.url;
+      try {
+        const pl = JSON.parse(atob(m[2].replace(/-/g, '+').replace(/_/g, '/')));
+        return pl && pl.sub ? req.url.replace(m[0], '/' + pl.sub + '/') : req.url;
+      } catch (e) { return req.url; }
+    })();
     event.respondWith(
       caches.open(VIDEO_CACHE).then(cache =>
-        cache.match(req).then(hit => {
+        cache.match(key).then(hit => {
           if (hit) return hit;
           return fetch(req).then(res => {
             if (res && res.status === 200) {
-              cache.put(req, res.clone());
+              cache.put(key, res.clone());
               trim(VIDEO_CACHE, MAX_VIDEOS);
             }
             return res;

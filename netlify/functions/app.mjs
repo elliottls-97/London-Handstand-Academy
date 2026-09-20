@@ -2518,12 +2518,128 @@ export default async (request) => {
      Downloads are off per video until asked for, so this asks first. Stream
      builds the file in the background, which is why a clip can 404 for a
      minute after the first request. */
+  /* ── the paid library, signed ────────────────────────────────────
+     Stream can refuse any request that does not carry a token signed with
+     a key it issued. The key is made once, from the dashboard, and kept in
+     settings; the app asks /sign for tokens for the drills it has, and only
+     an account that has paid, is coached, or still has its free session
+     gets them. Free drills are never switched to need one, so the free app
+     is exactly as it was. */
+  const CF_ACCT = () => process.env.CF_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || '3dee8d34bba73b3bbb4f7dfd2e2e4f91';
+  const CF_TOK  = () => process.env.CF_STREAM_TOKEN || process.env.CLOUDFLARE_STREAM_TOKEN || '';
+  const cfStream = (p, init) => fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCT()}/stream${p}`,
+    Object.assign({ headers: { Authorization: `Bearer ${CF_TOK()}`, 'content-type': 'application/json' } }, init || {}))
+    .then(r => r.json()).catch(err => ({ success: false, errors: [{ message: String(err && err.message || err) }] }));
+  const b64u = buf => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  let streamKeyCache = null;
+  const streamKey = async () => {
+    if (streamKeyCache) return streamKeyCache;
+    const k = await getSetting('stream:key');
+    if (!k || !k.id || !k.jwk) return null;
+    const jwk = JSON.parse(Buffer.from(k.jwk, 'base64').toString('utf8'));
+    const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+    streamKeyCache = { id: k.id, key };
+    return streamKeyCache;
+  };
+  const signUid = async (k, uid, exp) => {
+    const header = b64u(JSON.stringify({ alg: 'RS256', kid: k.id }));
+    const payload = b64u(JSON.stringify({ sub: uid, kid: k.id, exp, nbf: Math.floor(Date.now() / 1000) - 60 }));
+    const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', k.key, new TextEncoder().encode(header + '.' + payload));
+    return header + '.' + payload + '.' + b64u(sig);
+  };
+  /* the uid, or a token for it where the library is locked: for the
+     server's own requests to Stream */
+  const signedSeg = async uid => {
+    const k = await streamKey();
+    return k ? signUid(k, uid, Math.floor(Date.now() / 1000) + 3600) : uid;
+  };
+
+  if (path === '/sign' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const k = await streamKey();
+    if (!k) return json({ tokens: {}, off: true });
+    const acct = (await getAcct(who)) || {};
+    let ok = plusNow(acct) || await isCoached(who) || coachList().includes(who);
+    if (!ok) {
+      /* the one free session at a locked stage still has to play */
+      const stt = (await getSetting(`state:${who}`)) || {};
+      const taste = Number.isInteger(stt.taste) ? stt.taste : 1;
+      ok = taste > 0;
+    }
+    if (!ok) return json({ tokens: {}, exp: 0 });
+    const uids = (Array.isArray(body.uids) ? body.uids : []).slice(0, 400)
+      .map(u => String(u || '').replace(/[^a-f0-9]/g, '')).filter(u => u.length === 32);
+    const exp = Math.floor(Date.now() / 1000) + 6 * 3600;
+    const tokens = {};
+    for (const uid of uids) tokens[uid] = await signUid(k, uid, exp);
+    return json({ tokens, exp: exp * 1000 });
+  }
+
+  if (path === '/coach/stream/status' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const k = await getSetting('stream:key');
+    const locked = (await getSetting('stream:locked')) || {};
+    return json({ token: !!CF_TOK(), key: !!(k && k.id), keyId: k ? k.id : '', locked: (locked.uids || []).length, at: locked.at || 0 });
+  }
+  if (path === '/coach/stream/lock' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    if (!CF_TOK()) return json({ error: 'No Cloudflare Stream token in the environment' }, 503);
+    /* the signing key, made once */
+    let k = await getSetting('stream:key');
+    if (!k || !k.id) {
+      const made = await cfStream('/keys', { method: 'POST', body: '{}' });
+      if (!made.success || !made.result || !made.result.id) {
+        return json({ error: 'Cloudflare would not make a signing key: ' + JSON.stringify(made.errors || made) }, 502);
+      }
+      k = { id: made.result.id, jwk: made.result.jwk, at: Date.now() };
+      await setSetting('stream:key', k);
+      streamKeyCache = null;
+    }
+    const lib = await libraryNow();
+    const uidOf = u => { const m = /\/([a-f0-9]{32})\//.exec(String(u || '')); return m ? m[1] : ''; };
+    const all = new Set(Object.values(lib.video || {}).map(uidOf).filter(Boolean));
+    /* what stays open: the free stage's drills, the mobility day, drills in
+       a free fix, and anything a client's own programme page still plays
+       unsigned, because those pages are outside the app */
+    const free = new Set();
+    for (const v of (Array.isArray(body.freeDrills) ? body.freeDrills : [])) {
+      const u = uidOf((lib.video || {})[String(v)]); if (u) free.add(u);
+    }
+    const fixes = (await getSetting('fixes')) || {};
+    for (const f of Object.values(fixes)) {
+      if (!f || f.access !== 'free') continue;
+      for (const d of (f.drills || [])) { const u = uidOf((lib.video || {})[d.v]); if (u) free.add(u); }
+    }
+    const walk = (o, depth) => { if (!o || depth > 8) return;
+      if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1)); return; }
+      if (typeof o === 'object') { if (o.url) { const u = uidOf(o.url); if (u) free.add(u); } Object.values(o).forEach(x => walk(x, depth + 1)); } };
+    walk(programmes.clients || {}, 0);
+    const unlockAll = !!body.unlockAll;
+    const lock = unlockAll ? [] : [...all].filter(u => !free.has(u));
+    const unlock = unlockAll ? [...all] : [...all].filter(u => free.has(u));
+    const results = { locked: 0, unlocked: 0, failed: [] };
+    const flip = async (uid, on) => {
+      const r = await cfStream(`/${uid}`, { method: 'POST', body: JSON.stringify({ requireSignedURLs: on }) });
+      if (r && r.success) results[on ? 'locked' : 'unlocked']++;
+      else results.failed.push(uid + ': ' + JSON.stringify((r && r.errors) || r).slice(0, 120));
+    };
+    const jobs = lock.map(u => [u, true]).concat(unlock.map(u => [u, false]));
+    for (let i = 0; i < jobs.length; i += 8) {
+      await Promise.all(jobs.slice(i, i + 8).map(([u, on]) => flip(u, on)));
+    }
+    await setSetting('stream:locked', { uids: unlockAll ? [] : lock.filter(u => !results.failed.some(f => f.startsWith(u))), at: Date.now() });
+    return json(Object.assign({ ok: true, keyId: k.id, free: free.size, total: all.size }, results));
+  }
+
   if (path === '/coach/clip' && request.method === 'GET') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
     if (!uid) return json({ error: 'Which clip?' }, 400);
 
-    const base = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4`;
+    /* signed where the library is locked, or the resolve below is a 403 */
+    const base = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${await signedSeg(uid)}/downloads/default.mp4`;
     const ask = async () => {
       if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) return;
       await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,

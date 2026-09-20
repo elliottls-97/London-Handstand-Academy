@@ -338,6 +338,21 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 .p-btns .ghost{flex:0 0 96px;background:var(--mist);color:var(--ink)}
 .p-btns .green{background:var(--forest);color:var(--bg)}
 .p-subrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px}
+.p-repnum.urgent{color:var(--amber)}
+/* the cues live behind a button and slide up from the bottom, so the set
+   on screen is the film, the clock and the name, and the words are one
+   tap away rather than under the fold */
+.p-cuesbtn{background:var(--forest);color:var(--on-primary);border:none;border-radius:999px;
+ padding:10px 15px;font:600 12.5px/1 var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.p-cuesbtn[hidden]{display:none}
+.p-cuescrim{position:absolute;inset:0;z-index:4;background:rgba(0,30,28,.35);display:none}
+.p-cuescrim.open{display:block}
+.p-cuesheet{position:absolute;left:0;right:0;bottom:0;z-index:5;max-height:72%;overflow-y:auto;
+ background:#fff;border-radius:22px 22px 0 0;padding:12px 20px calc(env(safe-area-inset-bottom,0px) + 24px);
+ box-shadow:0 -14px 44px rgba(0,0,0,.18);transform:translateY(105%);
+ transition:transform .3s cubic-bezier(.2,.9,.2,1)}
+.p-cuesheet.open{transform:none}
+@media (prefers-reduced-motion:reduce){.p-cuesheet{transition:none}}
 .p-skip{background:none;border:none;font:500 12.5px/1 var(--sans);color:var(--grey2);
  cursor:pointer;text-decoration:underline;padding:6px 0}
 .p-extend{display:flex;gap:7px}
@@ -410,6 +425,7 @@ const AUTH = {
   programme:'/api/app/programme', // GET → {client, plan, library} for the token
   ladder:  '/api/app/ladder',   // GET → {ladderExtra, timing} the coach has set, for everyone
   fixes:   '/api/app/fixes',    // GET → {fixes} the live problem fixes, for everyone
+  sign:    '/api/app/sign',     // POST {uids} → {tokens} for the locked library, if allowed
   password:'/api/app/password',  // POST {current,next}
   emailReq:'/api/app/email/request',   // POST {next,password} → code to the new address
   emailGo: '/api/app/email/confirm',   // POST {code} → moves the account, new token
@@ -1201,11 +1217,42 @@ const EXPLAINERS='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/explainer-
    image never needs uploading: 37 of them were, as JPGs, and Stream cannot
    ingest a JPG as video so not one of them will ever be ready. */
 const STREAM_CDN='https://customer-pns1oongdltmkjwa.cloudflarestream.com/';
-const streamMp4   = uid => STREAM_CDN+uid+'/downloads/default.mp4';
-const streamThumb = uid => STREAM_CDN+uid+'/thumbnails/thumbnail.jpg?time=3s&height=320';
+/* ── the paid library, signed ────────────────────────────────────
+   Locked drills only play with a token in place of the uid. The tokens
+   come from /sign for an account that may have them, last six hours, and
+   are kept in storage so a reload does not start with a blank library.
+   Every URL the app builds goes through sigUid or sig on its way out, and
+   the data itself stays unsigned, so uidOfUrl keeps working. */
+let SIGN={t:{},exp:0};
+try{ const s0=JSON.parse(localStorage.getItem('lha_sign')||'null'); if(s0 && s0.exp>Date.now()) SIGN=s0; }catch(e){}
+const sigUid = uid => (SIGN.exp>Date.now() && SIGN.t[uid]) ? SIGN.t[uid] : uid;
+const sig = url => { const m=/\/([a-f0-9]{32})\//.exec(String(url||'')); return (m && sigUid(m[1])!==m[1]) ? String(url).replace('/'+m[1]+'/', '/'+sigUid(m[1])+'/') : url; };
+let signTimer=null;
+function loadSign(){
+  if(!st.token || st.preview) return;
+  const uids=new Set();
+  const take=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); if(m) uids.add(m[1]); };
+  (LIBRARY||[]).forEach(d=>take(d.url));
+  allDrills().forEach(d=>take(d.url));
+  Object.values(st.fixes||{}).forEach(f=>(f.drills||[]).forEach(d=>take(d.url)));
+  if(!uids.size) return;
+  fetch(AUTH.sign,{method:'POST',headers:authed(),body:JSON.stringify({uids:[...uids]})})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(!d) return;
+      const had=Object.keys(SIGN.t).length;
+      SIGN={t:d.tokens||{}, exp:Number(d.exp)||0};
+      try{ localStorage.setItem('lha_sign', JSON.stringify(SIGN)); }catch(e){}
+      if(Object.keys(SIGN.t).length!==had) render();
+      clearTimeout(signTimer);
+      /* an hour before they run out, quietly */
+      if(SIGN.exp) signTimer=setTimeout(loadSign, Math.max(60000, SIGN.exp-Date.now()-3600000));
+    }).catch(()=>{});
+}
+const streamMp4   = uid => STREAM_CDN+sigUid(uid)+'/downloads/default.mp4';
+const streamThumb = uid => STREAM_CDN+sigUid(uid)+'/thumbnails/thumbnail.jpg?time=3s&height=320';
 /* no extension on this one: /captions/en.vtt is a 404 and /captions/en is
    the file. An hour went into that difference. */
-const streamVtt   = uid => STREAM_CDN+uid+'/captions/en';
+const streamVtt   = uid => STREAM_CDN+sigUid(uid)+'/captions/en';
 /* The library stores a whole URL for a drill and a bare uid for an
    explainer, and captions, posters and the player all key off the uid. */
 const uidOfUrl = u => { const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]:''; };
@@ -4867,7 +4914,7 @@ function moreLibrary(){
 
   const card=x=>`<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer"
       onclick="openLib(${x.i})">
-    ${x.it.url?`<video data-lazy="${x.it.url}#t=0.6" muted playsinline preload="none"
+    ${x.it.url?`<video data-lazy="${sig(x.it.url)}#t=0.6" muted playsinline preload="none"
               style="aspect-ratio:4/3;object-fit:cover;display:block;width:100%;background:var(--mist)"></video>`
             :''}
     <div style="padding:11px 12px 13px"><div style="font:600 13.5px/1.2 var(--sans)">${esc(x.it.n)}</div>
@@ -5110,15 +5157,48 @@ function playerShell(){
         <button class="green" id="p-next">Done →</button>
       </div>
       <div class="p-subrow">
-        <button class="p-skip" id="p-skip">Skip this drill</button>
+        <span style="display:flex;align-items:center;gap:10px">
+          <button class="p-cuesbtn" id="p-cuesbtn" onclick="cueSheet()" aria-controls="p-cuesheet" aria-expanded="false">Form cues</button>
+          <button class="p-skip" id="p-skip">Skip</button>
+        </span>
         <span class="p-extend">
           <button data-ext="15">+15s</button><button data-ext="30">+30s</button>
         </span>
       </div>
+    </div>
+    <div class="p-cuescrim" id="p-cuescrim" onclick="cueSheet(false)"></div>
+    <div class="p-cuesheet" id="p-cuesheet" role="dialog" aria-label="Form cues">
+      <div class="grab"></div>
+      <div id="p-cuesbody"></div>
+      <button class="btn2" style="width:100%;margin-top:16px" onclick="cueSheet(false)">Back to the set</button>
     </div>`;
+}
+function cueSheet(force){
+  const sh=$('#p-cuesheet'), sc=$('#p-cuescrim'), b=$('#p-cuesbtn');
+  if(!sh) return;
+  const open = force===undefined ? !sh.classList.contains('open') : !!force;
+  sh.classList.toggle('open', open); if(sc) sc.classList.toggle('open', open);
+  if(b) b.setAttribute('aria-expanded', open?'true':'false');
 }
 function bindPlayer(){
   $('#p-pause').onclick=togglePause;
+  /* a swipe moves a set: left is on to the next, right is back. Sixty
+     pixels, mostly sideways, inside a moment, so a scroll or a tap on the
+     film never counts as one. */
+  const sc=$('#p-scroll'); let sx=0, sy=0, st0=0;
+  if(sc){
+    sc.addEventListener('touchstart',e=>{ const t=e.touches[0]; sx=t.clientX; sy=t.clientY; st0=Date.now(); },{passive:true});
+    sc.addEventListener('touchend',e=>{
+      const t=e.changedTouches[0]; const dx=t.clientX-sx, dy=t.clientY-sy;
+      if(Date.now()-st0>700 || Math.abs(dx)<60 || Math.abs(dx)<Math.abs(dy)*1.5) return;
+      swipeStep(dx<0 ? 1 : -1);
+    },{passive:true});
+  }
+  const sh=$('#p-cuesheet'); let shy=0;
+  if(sh){
+    sh.addEventListener('touchstart',e=>{ shy=e.touches[0].clientY; },{passive:true});
+    sh.addEventListener('touchend',e=>{ if(e.changedTouches[0].clientY-shy>50 && sh.scrollTop<=0) cueSheet(false); },{passive:true});
+  }
   $('#p-exit').onclick=()=>endPlayer(false);
   $('#p-next').onclick=()=>{ clearInterval(tick_); tick_=null; advance(); };
   $('#p-prev').onclick=stepBack;
@@ -5163,7 +5243,7 @@ function upNextHTML(){
       return `<div class="p-upblock" data-up="${i}">
         <button class="p-uprow p-upbtn" onclick="toggleUp(${i})">
           <span class="p-upnum">${qi+2+i}</span>
-          ${it.url?`<span class="p-upthumb"><video src="${it.url}#t=0.6" muted playsinline preload="metadata"></video></span>`
+          ${it.url?`<span class="p-upthumb"><video src="${sig(it.url)}#t=0.6" muted playsinline preload="metadata"></video></span>`
                   :'<span class="p-upthumb"></span>'}
           <span style="flex:1;min-width:0;text-align:left">
             <span style="display:block;font:600 14.5px/1.2 var(--sans)">${esc(it.n)}</span>
@@ -5224,10 +5304,11 @@ function showStep(){
       </div>
       ${upNextHTML()}`;
     $('#p-next').textContent='Skip rest →';
+    const cbtn=$('#p-cuesbtn'); if(cbtn) cbtn.hidden=true;
   } else {
     tTotal=left=work(it, s.g||s.grp);
     if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
-      `<video src="${it.url}" autoplay loop playsinline ${soundOn()?'':'muted'}
+      `<video src="${sig(it.url)}" autoplay loop playsinline ${soundOn()?'':'muted'}
          onclick="togglePause()" style="cursor:pointer" title="Tap to pause"></video>`;
       /* The explainers were captioned and the drill you are mid-set on was
          not, which is the one place the words matter most. Captions only, not
@@ -5238,21 +5319,33 @@ function showStep(){
     else { vw.className='p-vwrap novideo';
       vw.innerHTML=''; vw.classList.add('novideo'); }
     const rp=repOf(it), cues=it.cues||[];
+    const dose=esc(String(rp.n)+(rp.u?' '+rp.u:''));
+    /* The clock is the big number now. It was 21px in the top bar, and the
+       big number was the dose, which does not change while you work. */
     body.innerHTML=`<span class="p-phase">${s.sets>1?'Set '+s.set+' of '+s.sets:esc(s.grp||'Exercise')}</span>
       <div class="p-main">
-        <div class="p-repcol"><div class="p-repnum${rp.small?' small':''}">${esc(rp.n)}</div>
-          ${rp.u?`<div class="p-repunit">${rp.u}</div>`:''}</div>
+        <div class="p-repcol"><div class="p-repnum${tTotal>0?'':' small'}" id="p-repnum">${tTotal>0?fmtT(left):'Hold'}</div>
+          <div class="p-repunit">${tTotal>0?'left &middot; '+dose:dose}</div></div>
         <div class="p-info"><h2 class="p-name">${esc(it.n)}</h2>
-          <div class="p-rule"></div>
-          <div class="p-cues">
-            ${it.desc?`<b>${esc(it.desc)}</b>`:''}
-            ${cues.map(c=>`<span class="cl">${esc(c)}</span>`).join('')}
-            ${it.nt?`<span class="cl">${esc(it.nt)}</span>`:''}
-          </div></div>
+          ${it.desc?`<div class="p-rule"></div><div class="p-cues"><b>${esc(it.desc)}</b></div>`:''}
+        </div>
       </div>`;
+    const cb=$('#p-cuesbody');
+    const nCues=cues.length+(it.nt?1:0);
+    if(cb) cb.innerHTML=`<div class="kick2">FORM CUES</div>
+      <div style="font:400 22px/1.15 var(--serif);margin-top:8px">${esc(it.n)}</div>
+      <div class="p-cues" style="margin-top:14px">
+        ${it.desc?`<b>${esc(it.desc)}</b>`:''}
+        ${cues.map(c=>`<span class="cl">${esc(c)}</span>`).join('')}
+        ${it.nt?`<span class="cl">${esc(it.nt)}</span>`:''}
+        ${!nCues&&!it.desc?`<span class="cl">No cues written for this one yet.</span>`:''}
+      </div>`;
+    const cbtn=$('#p-cuesbtn');
+    if(cbtn){ cbtn.hidden=false; cbtn.textContent='Form cues'+(nCues?' · '+nCues:''); }
     $('#p-next').textContent = s.sets>1 ? 'Set done →' : 'Done →';
   }
 
+  cueSheet(false);
   $('#p-prev').style.visibility = (qi===0&&phase==='work') ? 'hidden' : '';
   $('#p-fill').style.width=((qi/Q.length)*100).toFixed(1)+'%';
   $('#p-scroll').scrollTop=0;
@@ -5267,7 +5360,9 @@ function step(){
   if(paused){ lastT=Date.now(); return; }
   const now=Date.now(); left-=(now-lastT)/1000; lastT=now;
   paintClock();
-  const rn=$('#p-repnum'); if(rn&&phase==='rest') rn.textContent=Math.max(0,Math.round(left));
+  const rn=$('#p-repnum');
+  if(rn){ rn.textContent = phase==='rest' ? Math.max(0,Math.round(left)) : fmtT(Math.max(0,left));
+          rn.classList.toggle('urgent', left<=5 && left>0); }
   if(left>0) return;
   clearInterval(tick_); tick_=null; beep(); advance();
 }
@@ -5284,6 +5379,21 @@ function advance(){
   showStep();
 }
 function skip(){ clearInterval(tick_); tick_=null; advance(); }
+/* on to the next set or back to the last one, by swipe. Never off the end:
+   the session ends by pressing Done on the last set, not by a flick. */
+function swipeStep(dir){
+  const sc=$('#p-scroll');
+  if(dir>0){
+    if(qi>=Q.length-1 && phase==='work') return;
+    clearInterval(tick_); tick_=null;
+    if(sc) sc.animate([{transform:'translateX(0)',opacity:1},{transform:'translateX(-26px)',opacity:.35},{transform:'translateX(0)',opacity:1}],{duration:280,easing:'ease-out'});
+    phase='work'; qi++; showStep();
+  } else {
+    if(qi===0 && phase==='work') return;
+    if(sc) sc.animate([{transform:'translateX(0)',opacity:1},{transform:'translateX(26px)',opacity:.35},{transform:'translateX(0)',opacity:1}],{duration:280,easing:'ease-out'});
+    stepBack();
+  }
+}
 /* A line that says what just happened and then goes away. There was no
    such thing in here, and alert() stops the app dead to say one sentence. */
 let toast_=null;
@@ -5619,7 +5729,7 @@ function drillFilm(url, ratio){
   const uid=uidOfUrl(url);
   if(!uid) return vidBlock(url, ratio, 'contain');
   setTimeout(mountCaptions,0);
-  return ccWrap(`<video src="${url}" controls playsinline loop muted
+  return ccWrap(`<video src="${sig(url)}" controls playsinline loop muted
     poster="${streamThumb(uid)}" data-cc="${uid}"
     style="width:100%;aspect-ratio:${ratio||'4/3'};object-fit:contain;
     background:#11150f;display:block"></video>`,
@@ -5628,7 +5738,7 @@ function drillFilm(url, ratio){
 function vidBlock(url, ratio, fit){
   return `<div class="vb" data-vb style="position:relative;border-radius:22px;overflow:hidden;
     background:#000;margin-bottom:18px;cursor:pointer">
-    <video src="${url}#t=0.6" ${soundOn()?'':'muted'} loop playsinline preload="metadata" autoplay
+    <video src="${sig(url)}#t=0.6" ${soundOn()?'':'muted'} loop playsinline preload="metadata" autoplay
       style="display:block;width:100%;aspect-ratio:${ratio||'4/3'};object-fit:${fit||'cover'};background:#11150f"></video>
     <div data-vb-play style="position:absolute;inset:0;display:grid;place-items:center;
       background:rgba(0,0,0,.18);opacity:0;transition:opacity .18s;pointer-events:none">
@@ -7223,7 +7333,7 @@ function toggleListDemo(k,btn){
        the caption line low in the frame and the player's own fullscreen and
        rotate along with it. */
     box.innerHTML = uid
-      ? ccWrap(`<video src="${url}" controls playsinline autoplay loop muted
+      ? ccWrap(`<video src="${sig(url)}" controls playsinline autoplay loop muted
           poster="${streamThumb(uid)}" data-cc="${uid}"
           style="width:100%;background:#11150f;display:block"></video>`,
           'border-radius:16px;overflow:hidden')
@@ -9755,7 +9865,7 @@ function loadEntitlement(){
       if(d.name&&!st.client) st.client=d.name;
       /* the free-check flag has to be in here too: a coach clearing it
          changed the server and left the screen saying USED */
-      save(); if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck) render(); })
+      save(); if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck){ render(); loadSign(); } })
     .catch(()=>{});
 }
 
@@ -12145,7 +12255,7 @@ document.addEventListener('DOMContentLoaded',function(){
   rollTicks();
   render();
   trackOpen();
-  if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); }
+  if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); setTimeout(loadSign, 800); }
   loadLadder();
   loadFixes();
   loadPlans();

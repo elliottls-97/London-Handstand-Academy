@@ -6794,6 +6794,50 @@ function testersSave(){
       funnel=null; loadFunnel(); draw(); })
     .catch(e=>{ testersBusy=false; testersMsg=String(e); draw(); });
 }
+/* ── the paid library ─────────────────────────────────────────────
+   One button. It makes the signing key if there is not one, then asks
+   Stream to refuse unsigned requests for every library clip except the
+   free stage, the mobility day, drills in a free fix and anything a
+   client's programme page still plays. The app signs the rest. */
+let streamSt=null, streamBusy=false, streamMsg='';
+function streamLoad(){
+  if(streamSt) return; streamSt={};
+  fetch(API+'/stream/status',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ streamSt=d; draw(); } }).catch(()=>{});
+}
+function streamLock(unlockAll){
+  if(streamBusy) return;
+  const free=(STAGES[0].drillIds||[]).concat((typeof WRIST_DAY!=='undefined'&&WRIST_DAY.drills)||[]);
+  if(!confirm(unlockAll?'Open every clip to the public again?'
+    :'Lock every library clip except Foundations, the mobility day and the free fixes? The app signs the rest for paid and coached accounts.')) return;
+  streamBusy=true; streamMsg=unlockAll?'Unlocking…':'Locking… this takes a few seconds'; draw();
+  fetch(API+'/stream/lock',{method:'POST',headers:hdr(),body:JSON.stringify(unlockAll?{unlockAll:true}:{freeDrills:free})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ streamBusy=false; streamSt=null;
+      streamMsg=(unlockAll?d.unlocked+' opened.':d.locked+' locked, '+d.free+' left open of '+d.total+'.')
+        +(d.failed&&d.failed.length?' '+d.failed.length+' failed: '+d.failed.slice(0,3).join('; '):'');
+      draw(); })
+    .catch(e=>{ streamBusy=false; streamMsg=String(e); draw(); });
+}
+function streamHTML(){
+  streamLoad();
+  const s=streamSt||{};
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">THE PAID LIBRARY</div><span style="flex:1"></span>
+      <span id="streamMsg" class="muted" style="font-size:12px">${esc(streamMsg)}</span>
+    </div>
+    <p class="muted" style="margin:8px 0 10px;max-width:62ch">
+      ${s.token===false?'No Cloudflare Stream token in the environment yet, so nothing here can run.'
+        : s.locked ? s.locked+' clips need a signed link. Locked '+(s.at?new Date(s.at).toLocaleDateString('en-GB'):'')+'.'
+        : 'Every clip is public: anyone with the link can download it. Locking asks Stream to refuse unsigned links for the paid stages; the app signs them for accounts that may watch.'}
+      ${s.key?' Signing key '+esc(String(s.keyId||'').slice(0,8))+'.':''}</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" ${streamBusy||s.token===false?'disabled':''} onclick="streamLock(false)">${s.locked?'Lock again':'Lock the paid library'}</button>
+      ${s.locked?`<button class="btn btn-secondary" ${streamBusy?'disabled':''} onclick="streamLock(true)">Open everything</button>`:''}
+    </div>
+  </div>`;
+}
 function testersHTML(){
   testersLoad();
   const val = testersDraft==null ? (testers||[]).join('\n') : testersDraft;
@@ -7008,6 +7052,7 @@ function settingsHTML(){
     ${coachesHTML()}
     ${workshopsHTML()}
     ${owner?testersHTML():''}
+    ${owner?streamHTML():''}
     ${owner?pricesHTML():''}
     ${owner?coHTML():''}
     ${owner?shortHTML():''}
