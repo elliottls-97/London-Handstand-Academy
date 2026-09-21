@@ -6294,7 +6294,14 @@ function clientScreenHTML(msgs){
   const wh=w?Math.round((Date.now()-(w.at||0))/3600000):0;
   const line=a?(a.sinceLast===null?'no sessions yet':a.sinceLast===0?'trained today'
     :a.sinceLast===1?'trained yesterday':a.sinceLast+' days since last'):'';
-  const tabs=[['thread','Thread'],['programme','Programme'],['progress','Progress'],['notes','Notes']];
+  /* Check points were a short panel down the side of the Programme tab,
+     under the days and the blocks, which is where you look to write a
+     programme rather than to see whether somebody can do what it asks.
+     They have a tab, and it says how many clips are waiting on you. */
+  const cpWait=cpsWaiting(sel);
+  const tabs=[['thread','Thread'],['programme','Programme'],
+              ['marks','Check points'+(cpWait?' · '+cpWait:'')],
+              ['progress','Progress'],['notes','Notes']];
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     <button class="ghostlink" onclick="goBack()">← ${cameFrom==='today'?'Today':'Clients'}</button>
     <div style="display:flex;gap:var(--space-4);align-items:flex-end;flex-wrap:wrap;margin:var(--space-2) 0 var(--space-4)">
@@ -6328,6 +6335,7 @@ function clientScreenHTML(msgs){
     </div>
     ${ctab==='thread'?threadPaneHTML(msgs)
      :ctab==='programme'?progrPaneHTML()
+     :ctab==='marks'?marksPaneHTML()
      :ctab==='progress'?progressPaneHTML()
      :notesPaneHTML()}
   </section>`;
@@ -6511,6 +6519,109 @@ function progrPaneHTML(){
       <h4 style="margin-top:var(--space-6)">Their account</h4>
       <div>${acctBtnHTML(sel)}</div>
     </div>
+  </div>`;
+}
+
+/* ── check points, as their own screen ─────────────────────────────
+   What each one asks for, what they have actually managed, and the clip
+   if they filmed it, with the two buttons that answer it. This was a list
+   of names down the side of the Programme tab with no numbers, no clips
+   and nothing to press. */
+function cpsWaiting(email){
+  const tr=((tracks[email]||{}).checkpoints)||{};
+  let n=0;
+  Object.keys(tr).forEach(k=>{
+    const clip=(tr[k]||[]).filter(r=>r&&r.video).slice(-1)[0];
+    if(clip && !clip.verdict) n++;
+  });
+  return n;
+}
+/* the submission a clip arrived as, so the verdict lands on the same row
+   the review queue is holding */
+function cpSubFor(email, uid){
+  return ((subs[email]||[]).find(s=>s && s.kind==='checkpoint'
+    && (s.clips||[]).some(c=>(c&&c.uid)===uid || c===uid))) || null;
+}
+function marksPaneHTML(){
+  const defs=cpDefs[sel]||[];
+  const tr=((tracks[sel]||{}).checkpoints)||{};
+  if(!defs.length) return `<div class="card">
+    <h4 style="margin:0">Check points</h4>
+    <p class="muted" style="font:400 13.5px/1.6 var(--sans);margin-top:8px;max-width:60ch">
+      None written for this client yet. Until there are, they see the free ladder's own
+      markers. A check point is one thing they must be able to do, with a number on it and,
+      if you want it, a clip.</p>
+    <div style="margin-top:var(--space-3)">${cpsBtnHTML(sel)}</div></div>`;
+
+  const card=k=>{
+    const hist=(tr[k.k]||[]).slice();
+    const last=hist[hist.length-1]||null;
+    const clip=hist.filter(r=>r&&r.video).slice(-1)[0]||null;
+    const unit=k.unit||'';
+    const waiting=!!(clip && !clip.verdict);
+    const met = clip && clip.verdict==='reached' ? true
+      : (last && k.target!=null && Number(k.target)>0
+         && (k.lower ? Number(last.v)<=Number(k.target) : Number(last.v)>=Number(k.target)));
+    const sub = clip ? cpSubFor(sel, clip.video) : null;
+    const recent=hist.slice(-6).map(r=>`<span style="font:400 12px/1.4 var(--sans);color:var(--grey2)">${
+      esc(String(r.v))+esc(unit)}<span style="opacity:.6"> ${esc(ago(r.at))}</span></span>`).join(
+      `<span style="color:var(--line)">&nbsp;·&nbsp;</span>`);
+    return `<div class="card" style="margin-bottom:var(--space-3);
+      ${waiting?'border:1.5px solid var(--forest)':''}">
+      <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
+        <span class="tag ${waiting?'tag-accent':met?'tag-accent':'tag-neutral'}">${
+          waiting?'clip to watch':met?'reached':last?'in progress':'nothing yet'}</span>
+        <b style="flex:1;min-width:160px;font:600 15px/1.3 var(--sans)">${esc(k.n||k.k)}</b>
+        <span class="muted" style="font:400 13px/1.4 var(--sans)">${
+          k.target!=null&&k.target!=='' ? (k.lower?'under ':'')+esc(String(k.target))+esc(unit) : 'no target'}</span>
+      </div>
+      ${k.note?`<p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:6px">${esc(k.note)}</p>`:''}
+      <div style="margin-top:10px;font:400 13.5px/1.5 var(--sans)">${
+        last ? `Best they have logged: <b>${esc(String(Math.max(...hist.map(r=>Number(r.v)||0))))}${esc(unit)}</b>
+                 &middot; last ${esc(ago(last.at))}` : 'Nothing logged yet.'}</div>
+      ${hist.length>1?`<div style="margin-top:6px">${recent}</div>`:''}
+      ${clip?`<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
+        <div style="flex:0 0 150px">${clipPoster(clip.video,'4/3')}</div>
+        <div style="flex:1;min-width:190px">
+          ${clip.verdict?`<div style="font:600 12.5px/1.4 var(--sans);color:${
+            clip.verdict==='reached'?'var(--forest)':'var(--terra)'}">${
+            clip.verdict==='reached'?'You verified this':'You said not there yet'}${
+            clip.note?': ':''}${esc(clip.note||'')}</div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:8px"
+              onclick="reviewClip('${esc(clip.video)}','${esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(k.n||'')}')">Draw on it</button>`
+          : sub ? `<div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
+            <input id="vnote-${esc(sub.id)}" placeholder="One line they will read beside it, optional"
+              style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
+              font:400 13px/1.3 var(--sans);background:#fff">
+            <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
+              <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+                onclick="markReviewed('${esc(sel)}','${esc(sub.id)}',false,'reached')">Reached, verified</button>
+              <button class="btn btn-ghost btn-sm"
+                onclick="markReviewed('${esc(sel)}','${esc(sub.id)}',false,'notyet')">Not there yet</button>
+              <button class="btn btn-ghost btn-sm"
+                onclick="reviewClip('${esc(clip.video)}','${esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(k.n||'')}')">Draw on it</button>
+            </div>`
+          : `<div class="muted" style="font:400 13px/1.5 var(--sans)">A clip came in with this, and
+             there is no review row against it. Watch it here, or answer it in the thread.</div>`}
+        </div></div>`:''}
+    </div>`;
+  };
+  /* anything waiting on you first, then the rest in the order you wrote them */
+  const wait=defs.filter(k=>{ const c=(tr[k.k]||[]).filter(r=>r&&r.video).slice(-1)[0];
+    return c && !c.verdict; });
+  const rest=defs.filter(k=>wait.indexOf(k)<0);
+  return `<div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+      flex-wrap:wrap;margin-bottom:var(--space-3)">
+      <div>
+        <h4 style="margin:0">Check points</h4>
+        <p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:4px;max-width:60ch">
+          What they must be able to do before the next block.${
+          wait.length?' '+wait.length+' clip'+(wait.length===1?'':'s')+' waiting on you.':''}</p>
+      </div>
+      ${cpsBtnHTML(sel)}
+    </div>
+    ${wait.map(card).join('')}${rest.map(card).join('')}
   </div>`;
 }
 
