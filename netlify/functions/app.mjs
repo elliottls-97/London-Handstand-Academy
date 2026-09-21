@@ -282,6 +282,15 @@ function mayEmail(to) {
    a test email to a paying client is not. */
 async function clientMailAllowed(to) {
   const t = norm(to);
+  /* ── a coach is never suppressed ──────────────────────────────────
+     This guard exists so a test email cannot reach a paying client while
+     the switch is off. It was also silencing the coach: every address in
+     the roster is held, and Elliott has an account of his own in there,
+     so the one message that says a client has sent a clip was being
+     dropped as though it were marketing. Whoever coaches here is told,
+     whatever the switch says. */
+  if (t && (coaches()[t] !== undefined || t === norm(process.env.COACH_EMAIL || '')
+            || t === norm(process.env.FROM_EMAIL || ''))) return true;
   try {
     /* a per-person setting beats the global one in both directions, so a
        single client can be silenced while the rest carry on, or allowed
@@ -443,6 +452,11 @@ async function threadLoad(db, who) {
     `email=eq.${enc(who)}&select=*&order=created_at.asc`);
   return (rows || []).map(m => ({
     id: m.id, from: m.sender, text: m.body || '', at: ms(m.created_at),
+    /* the coach opening the thread stamps this, and it has been stamped for
+       months without ever reaching the person who sent the clip. Somebody
+       who films a wall hold wants to know it was watched, not that it was
+       transmitted. */
+    ...(m.sender === 'client' && m.read_at ? { seen: ms(m.read_at) } : {}),
     ...(m.video ? { video: m.video } : {}),
     ...(m.image ? { image: m.image } : {}),
     ...(m.submission ? { sub: m.submission } : {}),
@@ -4078,21 +4092,28 @@ export default async (request) => {
          free account gets exactly one, and coaching gets the rest. */
       const coached = !!clients()[who];
       let subId = '';
-      if ((video || image) && !coached) {
-        const gate = await fcGate(who);
-        if (!gate.ok) return json({ error: gate.error, gated: true }, 402);
-        /* This claimed the free check and then filed the clip as a chat
-           message, so it never appeared in the review queue and the app's
-           own form check card carried on saying "send one" while the server
-           said it was used. A clip from a free account is the form check,
-           wherever it was sent from, so it is a submission as well. */
+      if (video || image) {
+        /* ── a clip is a clip, whoever sent it ────────────────────────
+           Only a free account's clip was filed as a submission, so a
+           coached client's footage landed in the thread and nowhere else:
+           not in the review queue, not in "needs you now", nothing to
+           chase it. The only signal was an email, and the email had three
+           silent switches in front of it. Marina sent clips and they were
+           never seen. Everyone's clip is filed now. The free account's is
+           also its form check, which is the only difference. */
+        if (!coached) {
+          const gate = await fcGate(who);
+          if (!gate.ok) return json({ error: gate.error, gated: true }, 402);
+        }
         try {
           const plan = programmes.clients[who];
           const cycle = await cycleGet(db, who, plan);
           await ensureAcct(who);
           const [saved] = await supa.insert('submissions',
             { email: who, kind: 'assessment', cycle: cycle.n, numbers: {},
-              clips: [{ drill: '', name: text.slice(0, 80) || 'Form check clip',
+              clips: [{ drill: '',
+                        name: text.slice(0, 80)
+                          || (coached ? 'Clip sent in the chat' : 'Form check clip'),
                         uid: video || '', image: image || '' }],
               status: 'submitted' });
           subId = saved && saved.id ? saved.id : '';

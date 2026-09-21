@@ -4403,6 +4403,47 @@ function coachLabel(){
    back without the new message — and replacing the thread with that answer
    is what made a client's own video disappear out of their chat. */
 let pendingMsgs=[];
+/* ── did it arrive ─────────────────────────────────────────────────
+   A clip appeared in the thread the moment the upload finished, whether
+   or not the server ever took it, and if the send failed the bubble sat
+   there looking sent until it quietly vanished ten minutes later. That
+   is how somebody ends up believing they have sent four clips that were
+   never received. Every message of your own now says where it got to. */
+function msgStatus(m){
+  if(!m || m.from!=='me') return '';
+  if(m.failed) return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
+    Not sent.${m.video?` <button onclick="retrySend('${esc(m.video)}','',${JSON.stringify(m.text||'')
+      .replace(/"/g,'&quot;')})" style="border:0;background:none;padding:0 0 0 4px;cursor:pointer;
+      color:var(--terra);font:700 11px/1.4 var(--sans);text-decoration:underline">Send it again</button>`:''}</div>`;
+  if(m.pending) return `<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:2px 2px 0">
+    Sending&hellip;</div>`;
+  return `<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:2px 2px 0">
+    Sent${m.seen?' &middot; seen':''}</div>`;
+}
+/* the upload survived, only the send failed, so there is nothing to
+   upload again */
+function retrySend(video, image, text){
+  const say=upSay;
+  say('Sending…');
+  fetch(AUTH.messages,{method:'POST',headers:authed(),
+    body:JSON.stringify(Object.assign({text:text||''}, video?{video}:{}, image?{image}:{}))})
+    .then(gateCheck)
+    .then(()=>{ markSent(video||image); say(''); setTimeout(loadThread,800); })
+    .catch(e=>{ say(String(e)); });
+}
+/* mark the bubble that carries this clip as failed, or as gone through */
+function markFailed(key){
+  pendingMsgs.forEach(p=>{ if(p.video===key||p.image===key) p.failed=true; });
+  st.msgs=(st.msgs||[]).map(m=>((m.video===key||m.image===key)&&m.from==='me')
+    ? Object.assign({}, m, {failed:true, pending:false}) : m);
+  save(); render();
+}
+function markSent(key){
+  pendingMsgs.forEach(p=>{ if(p.video===key||p.image===key) delete p.failed; });
+  st.msgs=(st.msgs||[]).map(m=>((m.video===key||m.image===key)&&m.from==='me')
+    ? Object.assign({}, m, {failed:false, pending:true}) : m);
+  save(); render();
+}
 const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
 function loadThread(){
   if(!st.token) return;
@@ -4410,18 +4451,22 @@ function loadThread(){
     if(!d||!d.messages) return;
     const next=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,
       ...(m.video?{video:m.video}:{}),...(m.image?{image:m.image}:{}),
+      ...(m.seen?{seen:m.seen}:{}),
       at:m.at||0, time:when(m.at)}));
     /* forget the ones the server has caught up on, keep the rest on screen */
     const seen=new Set(next.map(msgKey));
     pendingMsgs=pendingMsgs.filter(p=>!seen.has(msgKey(p)) && Date.now()-p.sentAt<600000);
     const merged=next.concat(pendingMsgs.map(p=>({from:'me',text:p.text,
       ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),
+      /* on screen but not yet acknowledged by the server, or refused by it */
+      pending:!p.failed, ...(p.failed?{failed:true}:{}),
       at:p.sentAt||0, time:when(p.sentAt)})));
     /* a redraw rebuilds the input and loses half-typed text, reloads every
        video iframe and drops the scroll to the top — so only redraw when
        something was actually said. Relative times change on their own and
        must not count as a change. */
-    const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
+    const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'',
+      m.pending?1:0, m.failed?1:0, m.seen?1:0]));
     const same=shape(merged)===shape(st.msgs);
     st.msgs=merged; save();
     const onChat = !document.hidden && (st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat'));
@@ -4925,12 +4970,15 @@ function sendPhoto(file){
       const text=(($('#askIn')||{}).value||'').trim();
       askDraft=''; const el=$('#askIn'); if(el) el.value='';
       pendingMsgs.push({text,image:d.id,sentAt:Date.now()});
-      st.msgs=(st.msgs||[]).concat([{from:'me',text,image:d.id,time:'Just now'}]);
+      st.msgs=(st.msgs||[]).concat([{from:'me',text,image:d.id,time:'Just now',pending:true}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,image:d.id})}).then(gateCheck);
+        body:JSON.stringify({text,image:d.id})}).then(gateCheck)
+        .catch(e=>{ markFailed(d.id); throw e; });
     })
-    .then(()=>{ upBusy=false; upSay(''); loadEntitlement(); setTimeout(loadThread,1200); })
+    .then(()=>{ upBusy=false; upSay('Sent. Elliott has it.');
+      setTimeout(()=>upSay(''), 4000);
+      loadEntitlement(); setTimeout(loadThread,1200); })
     .catch(e=>{ upBusy=false; upSay(String(e)); });
 }
 
@@ -4959,12 +5007,15 @@ function sendClip(file){
       const text=(($('#askIn')||{}).value||'').trim();
       askDraft=''; const el=$('#askIn'); if(el) el.value='';
       pendingMsgs.push({text,video:uid,sentAt:Date.now()});
-      st.msgs=(st.msgs||[]).concat([{from:'me',text,video:uid,time:'Just now'}]);
+      st.msgs=(st.msgs||[]).concat([{from:'me',text,video:uid,time:'Just now',pending:true}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,video:uid})}).then(gateCheck);
+        body:JSON.stringify({text,video:uid})}).then(gateCheck)
+        .catch(e=>{ markFailed(uid); throw e; });
     })
-    .then(()=>{ upBusy=false; upSay(''); loadEntitlement(); setTimeout(loadThread,1200); })
+    .then(()=>{ upBusy=false; upSay('Sent. Elliott has it.');
+      setTimeout(()=>upSay(''), 4000);
+      loadEntitlement(); setTimeout(loadThread,1200); })
     .catch(e=>{ upBusy=false; upSay(String(e)); });
 }
 
@@ -4990,7 +5041,8 @@ function screenAsk(){
         border:${mine?'0':'1px solid rgba(0,64,61,.10)'};
         box-shadow:${mine?'0 8px 20px rgba(0,102,99,.22)':'0 1px 2px rgba(0,64,61,.05),0 6px 16px rgba(0,64,61,.06)'};
         font:400 14.5px/1.5 var(--sans)">${esc(m.text)}</div>`:''}
-      <div style="font:500 10.5px/1 var(--sans);color:var(--grey2);margin-top:6px">${esc(m.time)}</div></div>`;
+      <div style="font:500 10.5px/1 var(--sans);color:var(--grey2);margin-top:6px">${esc(m.time)}</div>
+      ${msgStatus(m)}</div>`;
   }).join('');
   return `<div class="scroll s" style="display:flex;flex-direction:column">
     <div class="rise" style="flex:none;padding:calc(env(safe-area-inset-top) + 84px) 20px 0;
@@ -5060,7 +5112,7 @@ function sendAsk(){
   const text=el.value.trim();
   askDraft=''; el.value='';
   pendingMsgs.push({text,sentAt:Date.now()});
-  st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now'}]); save(); render();
+  st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now',pending:true}]); save(); render();
   fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
     .then(r=>{ if(!r.ok) throw 0; setTimeout(loadThread,400); })
     .catch(()=>post({type:'Question',text}));   /* worker not up yet — email it */
@@ -11605,7 +11657,8 @@ function screenCoaching(){
       ${m.text?`<div style="max-width:86%;border-radius:${mine?'18px 18px 5px 18px':'18px 18px 18px 5px'};
         padding:12px 14px;background:${mine?'var(--forest)':'#fff'};color:${mine?'var(--bg)':'var(--ink)'};
         font:400 14px/1.5 var(--sans)">${esc(m.text)}</div>`:''}
-      <div style="font:500 10px/1 var(--sans);color:var(--grey2);margin:6px 0 0">${esc(m.time||'')}</div></div>`;
+      <div style="font:500 10px/1 var(--sans);color:var(--grey2);margin:6px 0 0">${esc(m.time||'')}</div>
+      ${msgStatus(m)}</div>`;
   }).join('');
 
   /* the chat, as its own tab. It was a card two folds down a screen that
