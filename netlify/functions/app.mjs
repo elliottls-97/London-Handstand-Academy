@@ -3796,7 +3796,14 @@ export default async (request) => {
      out of their own account and stops a stolen session moving it. */
   const EMAIL_TABLES = ['messages', 'progress', 'coach_notes', 'cycles',
                         'submissions', 'free_checks', 'applications', 'questions'];
-  const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs'];
+  /* Everything held in settings under the person's own address. Five of
+     these were listed and eight were not, so moving an account quietly left
+     behind their form check credits, their week, their visits, the plan they
+     bought and where they came from. One list, used by the move and by the
+     delete, so neither can forget a key the other knows about. */
+  const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs',
+                        'fccredits', 'plusuntil', 'visits', 'week', 'wsmine',
+                        'plan', 'ref'];
 
   /* The only order that works, given the foreign keys cascade on delete and
      not on update: the new row first so there is something to point at, then
@@ -3840,6 +3847,43 @@ export default async (request) => {
 
     await supa.remove('codes', `email=eq.${enc(from)}`).catch(() => {});
     await supa.remove('accounts', `email=eq.${enc(from)}`);
+    return { ok: true, name: old.name || '' };
+  }
+
+  /* ── deleting an account ─────────────────────────────────────────
+     A test account and three duplicates of the same person had no way out
+     of the dashboard, so the only route was typing delete statements
+     against the live database. This is the same walk as the move without
+     the destination: the children go with the row because every one of
+     them cascades, and the settings and the roster have to be taken by
+     hand because they carry the address in a key rather than a column.
+
+     It does not touch Stripe. A live subscription keeps billing whatever
+     happens here, so the caller has to have dealt with that first. */
+  async function deleteAccount(e) {
+    const old = await getAcct(e);
+    if (!old) return { error: 'No account on that address', status: 404 };
+
+    for (const k of SETTING_KEYS) await dropSetting(`${k}:${e}`).catch(() => {});
+    await dropSetting(`emailchange:${e}`).catch(() => {});
+
+    /* applications do not hang off the account row, so nothing takes them */
+    await supa.remove('applications', `email=eq.${enc(e)}`).catch(() => {});
+    await supa.remove('codes', `email=eq.${enc(e)}`).catch(() => {});
+    await supa.remove('nudges', `key=like.remind%3A${enc(e)}%3A*`).catch(() => {});
+
+    const roster = (await getSetting('roster')) || {};
+    if (roster[e] !== undefined || parseClients().some(c => c.email === e)) {
+      /* a seeded address cannot simply be dropped, the CLIENTS variable puts
+         it straight back, so it is marked gone rather than removed */
+      if (parseClients().some(c => c.email === e)) roster[e] = null; else delete roster[e];
+      await setSetting('roster', roster);
+    }
+
+    /* last, because everything above reads better while the row is there,
+       and because this is the one that takes the messages, the progress,
+       the submissions, the check point history and the questions with it */
+    await supa.remove('accounts', `email=eq.${enc(e)}`);
     return { ok: true, name: old.name || '' };
   }
 
@@ -4550,6 +4594,43 @@ export default async (request) => {
           signoff: { name: coachName(coachOf(to) || primaryCoach()) } }));
 
       return json({ ok: true, from, to, name: moved.name });
+    }
+
+    /* ── deleting somebody's account ────────────────────────────
+       The owner's alone, and gone for good: the messages, the progress,
+       the check point history, the submissions and the questions go with
+       the row. The address has to be typed again to confirm, because a
+       button that deletes a person on one press is a button that will
+       eventually be pressed by accident.
+
+       Two refusals are worth more than the button itself. A coach is not
+       deleted here, or one could remove the other. An account still on a
+       live subscription is not deleted either: Stripe would carry on
+       taking the money with nothing left to show for it, so that has to
+       be cancelled first, deliberately, somewhere that can actually do
+       it. */
+    if (path === '/coach/account/delete' && request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which account?' }, 400);
+      if (norm(body.confirm) !== e) {
+        return json({ error: 'Type the address again to confirm it' }, 400);
+      }
+      if (e === asking) return json({ error: 'That is your own account' }, 400);
+      if (coaches()[e] !== undefined || coachList().includes(e)) {
+        return json({ error: 'That is a coach. Remove them from the coaches list instead.' }, 400);
+      }
+      const acct = await getAcct(e);
+      if (!acct) return json({ error: 'No account on that address' }, 404);
+      const live = acct.subscription && !acct.cancel_at;
+      if (live && !body.force) {
+        return json({ error: 'That account is still on a live subscription. '
+          + 'Cancel it in Stripe first, or the card keeps being charged.' }, 409);
+      }
+
+      const gone = await deleteAccount(e);
+      if (gone.error) return json({ error: gone.error }, gone.status || 400);
+      return json({ ok: true, email: e, name: gone.name });
     }
 
     if (path === '/coach/setpw' && request.method === 'POST') {

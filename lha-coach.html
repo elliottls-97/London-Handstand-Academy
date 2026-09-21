@@ -1352,6 +1352,31 @@ function acctDetails(email){
       .catch(()=>say('Could not set that.'));
   };
 
+  /* ── deleting them ──────────────────────────────────────────────
+     Gone for good, and the address has to be typed again to get there. The
+     server refuses a coach and refuses a live subscription, so the second
+     press is only ever offered after it has said why. */
+  window.adDelete=function(force){
+    const v=(document.getElementById('adDel')||{}).value.trim().toLowerCase();
+    if(v!==email) return say('Type '+email+' to confirm.');
+    if(!force && !confirm('Delete '+email+'?\n\nTheir messages, progress, check point '
+      +'history, submissions and questions go with it. This cannot be undone.')) return;
+    say(force?'Deleting anyway…':'Deleting…');
+    fetch(API+'/coach/account/delete',{method:'POST',headers:hdr(),
+      body:JSON.stringify(force?{email,confirm:v,force:true}:{email,confirm:v})})
+      .then(r=>r.json().then(d=>r.ok?d:Promise.reject(Object.assign(d,{status:r.status}))))
+      .then(()=>{ acct=null; if(sel===email) sel=''; thread=[]; load();
+                  flash('Deleted '+email+'.'); })
+      .catch(e=>{
+        if(e && e.status===409){
+          say(String(e.error||'Still on a live subscription.'));
+          const b=document.getElementById('adDelForce'); if(b) b.hidden=false;
+          return;
+        }
+        say(String((e&&e.error)||'Could not delete that.'));
+      });
+  };
+
   const fld=(id,val,ph,btn,fn)=>`<div style="display:flex;gap:8px;margin-top:9px">
     <input id="${id}" value="${esc(val||'')}" placeholder="${esc(ph)}"
       style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
@@ -1385,6 +1410,23 @@ function acctDetails(email){
         Sets it outright and clears any lockout from failed attempts. It is not emailed,
         so tell them what it is.</div>
       ${fld('adPw','','New password, 8+ characters','Set','adPw()')}
+
+      <div class="kick" style="margin-top:22px;color:var(--terra)">DELETE</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+        Their messages, progress, check point history, submissions and questions go
+        with the account and cannot be brought back. Use it for a test account or a
+        duplicate. If this is the one with the real history and only the address is
+        wrong, move the address instead. It does not touch Stripe, so cancel a paying
+        subscription there first.</div>
+      <div style="display:flex;gap:8px;margin-top:9px">
+        <input id="adDel" placeholder="Type ${esc(email)} to confirm"
+          style="flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+          font:400 14px/1 var(--sans);background:#fff">
+        <button onclick="adDelete(false)" style="${bGhost};flex:none;
+          border-color:rgba(164,80,60,.5);color:var(--terra)">Delete</button></div>
+      <button id="adDelForce" hidden onclick="adDelete(true)" style="${bGhost};margin-top:9px;
+        width:100%;border-color:var(--terra);color:var(--terra)">
+        Delete anyway, I have cancelled it in Stripe</button>
 
       <div id="adMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--forest);
         text-align:center;min-height:18px;margin-top:16px"></div>
