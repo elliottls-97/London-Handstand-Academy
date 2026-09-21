@@ -339,7 +339,12 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 .p-btns{display:flex;gap:9px}
 .p-btns button{flex:1;padding:17px;border-radius:16px;border:none;cursor:pointer;
  font:600 14.5px/1 var(--sans)}
-.p-btns .ghost{flex:0 0 96px;background:var(--mist);color:var(--ink)}
+.p-btns .ghost{flex:0 0 80px;background:var(--mist);color:var(--ink)}
+/* the pause is the control people reach for mid set, so it is the big
+   round one in the middle of the row, not 34px in the corner */
+.p-btns .p-bigpause{flex:0 0 64px;width:64px;height:64px;padding:0;border-radius:999px;background:var(--amber);color:var(--ink);
+ font:700 20px/1 var(--sans);letter-spacing:-.05em;box-shadow:0 10px 24px rgba(243,169,73,.35)}
+.p-btns .p-bigpause.play{background:var(--forest);color:var(--on-primary)}
 .p-btns .green{background:var(--forest);color:var(--bg)}
 .p-subrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px}
 .p-repnum.urgent{color:var(--amber)}
@@ -5292,6 +5297,7 @@ function playerShell(){
     <div class="p-foot">
       <div class="p-btns">
         <button class="ghost" id="p-prev">Back</button>
+        <button class="p-bigpause" id="p-bigpause" onclick="togglePause()" aria-label="Pause the set">II</button>
         <button class="green" id="p-next">Done →</button>
       </div>
       <div class="p-subrow">
@@ -5348,9 +5354,11 @@ function bindPlayer(){
 function togglePause(){
   paused=!paused; lastT=Date.now();
   const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II';
+  const B=$('#p-bigpause'); if(B){ B.textContent=paused?'▶':'II'; B.classList.toggle('play',paused); B.setAttribute('aria-label',paused?'Resume the set':'Pause the set'); }
   document.querySelectorAll('#player video').forEach(v=>{ try{ paused?v.pause():v.play(); }catch(e){} });
 }
-function paintPause(){ const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II'; }
+function paintPause(){ const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II';
+  const B=$('#p-bigpause'); if(B){ B.textContent=paused?'▶':'II'; B.classList.toggle('play',paused); } }
 function stepBack(){
   clearInterval(tick_); tick_=null;
   if(phase==='rest'){ phase='work'; }
@@ -5446,8 +5454,7 @@ function showStep(){
   } else {
     tTotal=left=work(it, s.g||s.grp);
     if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
-      `<video src="${sig(it.url)}" autoplay loop playsinline ${soundOn()?'':'muted'}
-         onclick="togglePause()" style="cursor:pointer" title="Tap to pause"></video>`;
+      `<video src="${sig(it.url)}" autoplay loop playsinline controls ${soundOn()?'':'muted'}></video>`;
       /* The explainers were captioned and the drill you are mid-set on was
          not, which is the one place the words matter most. Captions only, not
          the theatre: the player has its own chrome and a second control bar
@@ -6410,10 +6417,14 @@ function drawOv(){
        title. It was a small card in a half height sheet, which swallowed
        the picture and said nothing about what was in it. */
     const q=FAQS[st.exOpen]||FAQS[0];
-    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || '';
+    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
     const stg=(q.stage!=null && STAGES[q.stage]) ? STAGES[q.stage].n : '';
     body=`<div style="margin:0 -18px">${(q.uid||q.v)?qaVideo(q,true):''}</div>
-      <div style="padding:16px 2px 0">
+      <div style="display:flex;gap:6px;justify-content:flex-end;padding:10px 2px 0">
+        ${[1,1.5,2].map(r=>`<button onclick="exSpeed(${r})" aria-pressed="${(st.exSpeed||1)===r}" style="border:1px solid ${(st.exSpeed||1)===r?'var(--forest)':'rgba(0,64,61,.16)'};
+          background:${(st.exSpeed||1)===r?'var(--forest)':'#fff'};color:${(st.exSpeed||1)===r?'var(--on-primary)':'var(--deep)'};
+          border-radius:999px;padding:8px 12px;font:600 12px/1 var(--sans);cursor:pointer">${r}x</button>`).join('')}</div>
+      <div style="padding:8px 2px 0">
         <div class="kick2">EXPLAINER${stg?' &middot; '+esc(stg.toUpperCase()):''}</div>
         <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px">${esc(q.q)}</div>
         ${sum?`<div class="kick2" style="margin-top:20px">WHAT IS COVERED</div>
@@ -7170,6 +7181,7 @@ function loadLadder(){
       if(d && d.ladderCps)   { st.ladderCps=d.ladderCps;     moved=true; }
       if(d && d.shortRules)  { st.shortRules=d.shortRules;   moved=true; }
       if(d && d.homeOrder)   { st.homeOrder=d.homeOrder;     moved=true; }
+      if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; rebuildFaqs(); moved=true; }
       if(moved){ save(); render(); }
       return true;
     })
@@ -8408,17 +8420,28 @@ function placementLinks(){
 /* One flat list, built from the per-phase one in ladder-data.js, filmed
    first. The rail is a rail: an unfilmed placeholder at the front of it is
    the first thing a new person sees, and there are eighteen of them. */
-const FAQS = (()=>{
+/* the shipped list plus the ones the coach has added from the dashboard,
+   each of those on every phase it was given */
+function explainersFor(si){
+  const own=(EXPLAIN[si]||[]).slice();
+  ((st&&st.explainExtra)||[]).forEach(x=>{ if(x && x.uid && (x.stages||[]).indexOf(si)>-1) own.push({id:'x-'+x.uid, q:x.q, uid:x.uid, k:x.k||[], sum:x.sum||'', own:true}); });
+  return own;
+}
+let FAQS = [];
+function rebuildFaqs(){
   const out=[];
-  Object.keys(EXPLAIN).map(Number).sort((a,b)=>a-b).forEach(st0=>{
-    (EXPLAIN[st0]||[]).forEach(x=>{
+  const stages=Object.keys(EXPLAIN).map(Number);
+  ((st&&st.explainExtra)||[]).forEach(x=>(x.stages||[]).forEach(s0=>{ if(stages.indexOf(s0)<0) stages.push(s0); }));
+  stages.sort((a,b)=>a-b).forEach(st0=>{
+    explainersFor(st0).forEach(x=>{
       /* the same film answers a question in two phases; show it once */
       if(x.uid && out.some(y=>y.uid===x.uid)) return;
       out.push(Object.assign({stage:st0, v:''}, x));
     });
   });
-  return out.filter(x=>x.uid).concat(out.filter(x=>!x.uid));
-})();
+  FAQS = out.filter(x=>x.uid).concat(out.filter(x=>!x.uid));
+}
+rebuildFaqs();
 const FREE_EXPLAINERS=3;
 const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token;
 /* v is a filename in the R2 bucket the explainers already live in */
@@ -8554,7 +8577,12 @@ function askFilter(v){
   const box=document.getElementById('askmatches');
   if(box) box.innerHTML=askMatches(v);
 }
-function openExplainer(i){ st.exOpen=i; st.ovFull=true; openOv('explainer'); }
+function openExplainer(i){ st.exOpen=i; st.ovFull=true; openOv('explainer'); setTimeout(applyExSpeed,50); }
+/* 1x, 1.5x, 2x on the explainers, remembered */
+function applyExSpeed(){ const v=document.querySelector('#ov video'); if(v) v.playbackRate=st.exSpeed||1; }
+function exSpeed(r){ st.exSpeed=r; save(); applyExSpeed();
+  document.querySelectorAll('#ov [aria-pressed]').forEach(b=>{ const on=b.textContent===r+'x'; b.setAttribute('aria-pressed',on?'true':'false');
+    b.style.background=on?'var(--forest)':'#fff'; b.style.color=on?'var(--on-primary)':'var(--deep)'; b.style.borderColor=on?'var(--forest)':'rgba(0,64,61,.16)'; }); }
 /* the tier table is the answer to a question, so it opens when asked */
 /* The three tier cards this used to open are the picker above now, so
    opening them again put the same three prices on the screen twice.
@@ -8836,7 +8864,7 @@ function screenHome(){
       <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">${
         didToday ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
         : (_restDay&&!_override) ? `Nothing due <em style="color:var(--forest);font-style:normal">today.</em>`
-        : `Get upside <em style="color:var(--forest);font-style:normal">down.</em>`}</div>
+        : `Handstand <em style="color:var(--forest);font-style:normal">Ladder.</em>`}</div>
     </div>
 
     <!-- the stage and how far through it, on one line. Six segments in the
@@ -9681,7 +9709,7 @@ function screenUpgradeBody(si){
   const placed=placedStage();
   /* the phase's own explainer, where one is filmed: what this stage is
      about, from Elliott, instead of a page of text about it */
-  const ex=((typeof EXPLAIN!=='undefined' && EXPLAIN[si])||[]).find(x=>x && x.uid);
+  const ex=explainersFor(si).find(x=>x && x.uid);
   const days=PRICE_TRIAL(), week=days===7?'week':days+' days';
   /* Short on purpose. This used to be the price, the trial, what is in the
      stage, every check point with its target, five bullets on what opens
@@ -10763,7 +10791,7 @@ let planLinks={};
 /* PRICE('online') and friends read the prices setting the dashboard writes.
    This took no argument and answered £5 to everything, so the coaching
    card priced coaching at the app's own price. */
-const PRICE_DEFAULT={plus:'£15',plusq:'£39',plusy:'£129',check:'£20',online:'£120',inperson:'£190',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
+const PRICE_DEFAULT={plus:'£15',plusq:'£39',plusy:'£129',check:'£20',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1500,plusq:3900,plusy:12900})[k] || 0;
 const PRICE = (k='plus') => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
 const PRICE_TRIAL = () => { const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
@@ -10843,7 +10871,8 @@ function pricingCard(){
    person is the site's "most people" and has no Stripe link, so defaulting
    to it opened the screen with no way to buy anything, which is the one
    thing the old single card always had. */
-const coBuyable = p => p.k!=='inner' && (plansOn||[]).indexOf(coSessionOn()?p.buySession:p.buy)>-1;
+/* buyable when Stripe has a price or a link for exactly this combination */
+const coBuyable = p => (plansOn||[]).indexOf(coBuyKey(p))>-1;
 function coPickK(){
   if(st.coPick && CO_PLANS.some(p=>p.k===st.coPick)) return st.coPick;
   const b=CO_PLANS.find(coBuyable);
@@ -10871,9 +10900,16 @@ const CO_PLANS = [
 ];
 /* the London session is an add on to either plan, not a plan of its own.
    Three tiers where one was the second plus a session was confusing. */
-const coSessionOn = () => !!st.coSession;
-const coPriceKey = p => coSessionOn() ? p.withSession : p.price;
-function coSessionToggle(){ st.coSession=!st.coSession; save(); coPaint(); }
+/* how many London sessions a month go with the plan: none, one, two or
+   four. Two and four only exist once the dashboard has priced them. */
+const coSessN = () => { const n=Number(st.coSession)||0; return [0,1,2,4].indexOf(n)>-1 ? n : 0; };
+const coSessionOn = () => coSessN()>0;
+const coSessOptions = () => [0,1].concat(PRICE('inperson2')?[2]:[], PRICE('inperson4')?[4]:[]);
+const coPriceKey = p => { const n=coSessN();
+  if(p.k==='online') return ({0:'online',1:'inperson',2:'inperson2',4:'inperson4'})[n]||'online';
+  return n ? 'inner' : 'inneronline'; };
+const coBuyKey = p => coPriceKey(p);
+function coSessionSet(n){ st.coSession=n; save(); coPaint(); }
 /* Picking one scrolls it to the middle, so a tap and a swipe end up in the
    same place. render() rebuilds the rail, so the scroll has to happen after
    it, and the detail below is what the person is here to read: keep the
@@ -10973,7 +11009,7 @@ function coDotsHTML(PLANSC, pick){
 }
 function coPanelHTML(pick){
   const buyable = coBuyable;
-  const sess = coSessionOn();
+  const sess = coSessN();
   const tickLine = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:7px">
       <span style="flex:none;width:16px;height:16px;border-radius:999px;background:#0a7b74;
         color:#fff;display:grid;place-items:center;font:700 9px/1 var(--sans);margin-top:2px">&check;</span>
@@ -10984,36 +11020,32 @@ function coPanelHTML(pick){
         <div style="font:400 22px/1.12 var(--serif);margin-top:7px">${esc(pick.name)}</div>
         <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(pick.for)}</div>
         ${pick.feats.map(tickLine).join('')}
-        <!-- the add on. One row, a switch, and the price moves with it. -->
-        <button onclick="coSessionToggle()" aria-pressed="${sess}" style="width:100%;margin-top:14px;
-          display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;padding:12px 14px;
-          border-radius:14px;background:${sess?'rgba(0,102,99,.07)':'#fff'};
-          border:1px solid ${sess?'var(--forest)':'rgba(17,17,17,.12)'}">
-          <span style="flex:none;width:40px;height:24px;border-radius:999px;position:relative;
-            background:${sess?'var(--forest)':'rgba(17,17,17,.18)'};transition:background .2s">
-            <span style="position:absolute;top:3px;left:${sess?19:3}px;width:18px;height:18px;border-radius:999px;
-              background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)"></span></span>
-          <span style="flex:1;min-width:0">
-            <span style="display:block;font:600 13.5px/1.3 var(--sans);color:var(--ink)">Add a session in London each month</span>
-            <span style="display:block;font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:2px">
-              60 minutes with me, hands on. ${PRICE('session')} a month on top, add or drop it whenever you like.</span>
-          </span>
-        </button>
+        <!-- the add on: sessions in London each month, and the price moves with it -->
+        <div style="margin-top:14px">
+          <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--grey2)">Sessions in London each month</div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            ${coSessOptions().map(n=>`<button onclick="coSessionSet(${n})" aria-pressed="${sess===n}" style="flex:1;min-height:44px;border-radius:12px;cursor:pointer;
+              border:1px solid ${sess===n?'var(--forest)':'rgba(17,17,17,.12)'};background:${sess===n?'var(--forest)':'#fff'};
+              color:${sess===n?'var(--on-primary)':'var(--ink)'};font:600 13px/1 var(--sans)">${n===0?'None':n}</button>`).join('')}
+          </div>
+          <div style="font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:7px">
+            60 minutes with me, hands on, ${PRICE('session')} each on top. Add or drop them whenever you like.</div>
+        </div>
       </div>
       <div style="padding:16px 20px 18px;background:linear-gradient(180deg,#0a7a76,#006663);
         color:var(--on-primary)">
         <div style="display:flex;align-items:baseline;gap:6px">
           <span style="font:400 34px/1 var(--serif);letter-spacing:-.02em">${PRICE(coPriceKey(pick))}</span>
-          <span style="font:600 13px/1 var(--sans);opacity:.8">/ month${sess?', session included':''}</span>
+          <span style="font:600 13px/1 var(--sans);opacity:.8">/ month${sess?', '+(sess===1?'session':sess+' sessions')+' included':''}</span>
         </div>
         <div style="font:400 12.5px/1.45 var(--sans);opacity:.82;margin-top:6px">${esc(pick.note)}</div>
-        <button onclick="${buyable(pick)?`buyPlan('${sess?pick.buySession:pick.buy}')`:`openOv('apply')`}"
+        <button onclick="${buyable(pick)?`buyPlan('${coBuyKey(pick)}')`:`openOv('apply')`}"
           style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
           background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${
-          buyable(pick) ? 'Start now, '+PRICE(coPriceKey(pick))+'/mo &rarr;'
+          buyable(pick) ? (pick.k==='inner'?'Join Inner Circle, ':'Start now, ')+PRICE(coPriceKey(pick))+'/mo &rarr;'
             : pick.k==='inner' ? 'Apply for Inner Circle &rarr;' : 'Ask about this &rarr;'}</button>
-        ${(!buyable(pick) && pick.k!=='inner' && sess && (plansOn||[]).indexOf(pick.buy)>-1)?`
-        <button onclick="buyPlan('${pick.buy}')" style="width:100%;margin-top:8px;min-height:44px;
+        ${(!buyable(pick) && pick.k!=='inner' && sess && (plansOn||[]).indexOf('online')>-1)?`
+        <button onclick="buyPlan('online')" style="width:100%;margin-top:8px;min-height:44px;
           border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;
           background:transparent;color:var(--on-primary);font:600 13.5px/1 var(--sans)">
           Or start online now, ${PRICE(pick.price)}/mo</button>
@@ -11283,7 +11315,7 @@ function screenCoaching(){
         height:18px;padding:0 5px;border-radius:999px;background:var(--amber);color:var(--ink);
         font:700 10.5px/1 var(--sans);vertical-align:middle">${nUnread}</span>`:''}</button>`).join('')}
   </div>`;
-  const head=`<div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+  const head=`<div class="rise" style="padding:calc(env(safe-area-inset-top) + 140px) 20px 0">
       <div style="display:flex;align-items:center;gap:12px">
         <span style="width:46px;height:46px;flex:none;border-radius:50%;background:var(--forest);
           color:var(--on-primary);display:grid;place-items:center;font:400 22px/1 var(--serif)">E</span>
@@ -11303,14 +11335,14 @@ function screenCoaching(){
         : 'Film the thing you are stuck on and Elliott tells you the one thing to change. '
           +'One is free with an account, and nothing is asked for until you have had it back.'}</div>`}
     </div>`;
-  /* the Form check / Chat switch stays on screen whichever way they scroll */
-  const segStick=`<div style="position:sticky;top:0;z-index:4;background:#f4f4f5;padding-bottom:6px;margin-top:-6px">${seg}</div>`;
+  /* the Form check / Chat switch is drawn by the top bar, so it is on
+     screen whatever is scrolled, on every phone */
   if(tab==='chat'){
     return `<div class="scroll s" style="display:flex;flex-direction:column;padding-bottom:0">
-      <div style="flex:none">${head}</div>${segStick}${chatBody}</div>`;
+      <div style="flex:none">${head}</div>${chatBody}</div>`;
   }
   return `<div class="scroll s">
-    ${head}${segStick}
+    ${head}
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
       <!-- what actually happens, for somebody who has not had one. Once
@@ -11828,6 +11860,21 @@ function topBar(){
     :`<button onclick="st.tab='signin';save();render()" style="${chip};border-radius:22px;
       height:44px;padding:0 16px;display:inline-flex;align-items:center;
       font:600 14px/1 var(--sans)">Sign in</button>`}
+  </div>${coachSegHTML()}`;
+}
+/* the Form check / Chat switch, under the top bar on the coaching screen */
+function coachSegHTML(){
+  if(st.tab!=='coaching' || coachedView()) return '';
+  const tab=coTab(), n=unreadMsgs();
+  return `<div style="position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:20px;right:20px;z-index:40;
+      display:flex;background:rgba(0,64,61,.10);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+      border-radius:14px;padding:4px;gap:4px">
+    ${[['check',hadFormCheck()?'Form checks':'Form check'],['chat','Chat']].map(([k,l])=>`<button onclick="setCoTab('${k}')" aria-pressed="${tab===k}"
+      style="flex:1;min-height:40px;border:0;border-radius:11px;cursor:pointer;
+      background:${tab===k?'#fff':'transparent'};box-shadow:${tab===k?'0 1px 2px rgba(0,64,61,.10)':'none'};
+      font:600 13.5px/1 var(--sans);color:${tab===k?'var(--deep)':'var(--deep)'}">${l}${
+      (k==='chat'&&n)?`<span style="margin-left:7px;display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;
+        border-radius:999px;background:var(--amber);color:var(--ink);font:700 10.5px/1 var(--sans);vertical-align:middle">${n}</span>`:''}</button>`).join('')}
   </div>`;
 }
 

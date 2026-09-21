@@ -624,6 +624,10 @@ export default async (request) => {
     check:    { label: '£20',  amount: 2000,  priceId: '', link: '' },
     online:   { label: '£120', amount: 12000, priceId: '', link: '' },
     inperson: { label: '£190', amount: 19000, priceId: '', link: '' },
+    /* online with two or four sessions a month. Labels and amounts are the
+       dashboard's to set; until they are, the app does not offer them. */
+    inperson2: { label: '', amount: 0, priceId: '', link: '' },
+    inperson4: { label: '', amount: 0, priceId: '', link: '' },
     inner:    { label: '£320', amount: 32000, priceId: '', link: '' },
     /* the Inner Circle without the monthly session. The session is an add
        on to either coaching plan now rather than a third plan of its own. */
@@ -831,9 +835,9 @@ export default async (request) => {
       /* 10000 is the old coaching price; the link may still carry it */
       /* 18000 is the link on the site until the £190 one replaces it */
       const byAmount = { 500: 'plus', 1500: 'plus', 2000: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
-      for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inner', 'inneronline']) {
+      for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline']) {
         const amt = Number(PRICES[k] && PRICES[k].amount);
-        if (amt > 0) byAmount[amt] = ({ inperson: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
+        if (amt > 0) byAmount[amt] = ({ inperson: 'online', inperson2: 'online', inperson4: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
       }
       const boughtPlan = (obj.metadata && obj.metadata.plan)
         || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
@@ -1323,6 +1327,9 @@ export default async (request) => {
     plusq:  { price: () => (PRICES.plusq||{}).priceId || process.env.STRIPE_PRICE_PLUS_Q, mode: 'subscription' },
     plusy:  { price: () => (PRICES.plusy||{}).priceId || process.env.STRIPE_PRICE_PLUS_Y, mode: 'subscription' },
     inperson: { price: () => PRICES.inperson.priceId || process.env.STRIPE_PRICE_INPERSON, mode: 'subscription' },
+    inperson2: { price: () => (PRICES.inperson2||{}).priceId || process.env.STRIPE_PRICE_INPERSON2, mode: 'subscription' },
+    inperson4: { price: () => (PRICES.inperson4||{}).priceId || process.env.STRIPE_PRICE_INPERSON4, mode: 'subscription' },
+    inneronline: { price: () => (PRICES.inneronline||{}).priceId || process.env.STRIPE_PRICE_INNERONLINE, mode: 'subscription' },
     check:  { price: () => PRICES.check.priceId  || process.env.STRIPE_PRICE_CHECK,  mode: 'payment' },
     online: { price: () => PRICES.online.priceId || process.env.STRIPE_PRICE_ONLINE, mode: 'subscription' },
     inner:  { price: () => PRICES.inner.priceId  || process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
@@ -1337,7 +1344,10 @@ export default async (request) => {
     plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
     check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
     online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
-    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || '',
+    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || 'https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01',
+    inperson2: (PRICES.inperson2||{}).link || process.env.STRIPE_LINK_INPERSON2 || 'https://buy.stripe.com/fZueVdc996Ek7LpdhfefC0d',
+    inperson4: (PRICES.inperson4||{}).link || process.env.STRIPE_LINK_INPERSON4 || 'https://buy.stripe.com/bJebJ11uv9QwfdRb97efC0e',
+    inneronline: (PRICES.inneronline||{}).link || process.env.STRIPE_LINK_INNERONLINE || 'https://buy.stripe.com/fZufZha115Ag4zdb97efC0c',
     inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
   };
   /* what the app and the site say: labels only, never ids */
@@ -1349,6 +1359,7 @@ export default async (request) => {
     check: { label: PRICES.check.label }, online: { label: PRICES.online.label },
     inperson: { label: PRICES.inperson.label }, inner: { label: PRICES.inner.label },
     inneronline: { label: (PRICES.inneronline||{}).label || '£250' },
+    inperson2: { label: (PRICES.inperson2||{}).label || '' }, inperson4: { label: (PRICES.inperson4||{}).label || '' },
     session: { label: (PRICES.session||{}).label || '£70' },
     session60: { label: PRICES.session60.label }, session90: { label: PRICES.session90.label },
     trialDays: Number(PRICES.trialDays) || 0,
@@ -1387,7 +1398,7 @@ export default async (request) => {
         if (t.founding !== undefined) o.founding = !!t.founding;
         return o;
       };
-      for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inner', 'inneronline', 'session', 'session60', 'session90']) next[k] = tier(k);
+      for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline', 'session', 'session60', 'session90']) next[k] = tier(k);
       const td = Number(body.prices && body.prices.trialDays);
       next.trialDays = Number.isFinite(td) ? Math.max(0, Math.min(30, Math.round(td))) : 7;
       if (typeof (body.prices || {}).note === 'string') next.note = body.prices.note.trim().slice(0, 160);
@@ -2185,6 +2196,8 @@ export default async (request) => {
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
                   homeOrder:   (await getSetting('home:order')) || 'explainersFirst',
+                  /* explainers the coach added from the dashboard, by phase */
+                  explainExtra: (await getSetting('explain:extra')) || [],
                   timing:      (await getSetting('timing:custom')) || {},
                   /* the three workouts, written out drill by drill where the
                      coach has written them. Empty means the stage is still
@@ -2426,7 +2439,20 @@ export default async (request) => {
   if (path === '/coach/explain') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('explain:keys')) || {};
-    if (request.method === 'GET') return json({ explainKeys: all });
+    if (request.method === 'GET') return json({ explainKeys: all, extra: (await getSetting('explain:extra')) || [] });
+    if (request.method === 'POST' && Array.isArray(body.extra)) {
+      /* the coach's own explainers: a Stream clip, the question it answers,
+         which phases it belongs to, and a line on what is covered */
+      const extra = body.extra.slice(0, 80).map(x => ({
+        uid: String((x && x.uid) || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64),
+        q: String((x && x.q) || '').trim().slice(0, 140),
+        sum: String((x && x.sum) || '').trim().slice(0, 900),
+        stages: (Array.isArray(x && x.stages) ? x.stages : []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 5).slice(0, 6),
+        k: (Array.isArray(x && x.k) ? x.k : String((x && x.k) || '').split(',')).map(s => String(s || '').trim().toLowerCase().slice(0, 40)).filter(Boolean).slice(0, 40),
+      })).filter(x => x.uid && x.q);
+      await setSetting('explain:extra', extra);
+      return json({ ok: true, extra });
+    }
     if (request.method === 'POST') {
       const rows = Array.isArray(body.rows) ? body.rows : [];
       rows.slice(0, 200).forEach(r => {

@@ -3239,13 +3239,72 @@ function reviewHTML(){
    after watching what people actually type reaches the app on its next
    load rather than the next deploy. */
 let exKeyEdits={}, exKeyStore=null, exKeyBusy=false;
+let exExtra=null, exExtraBusy=false, exExtraMsg='';
 function exLoad(){
   if(exKeyStore) return;
   exKeyStore={};
   fetch(API+'/explain',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ exKeyStore=(d&&d.explainKeys)||{}; draw(); })
-    .catch(()=>{ exKeyStore={}; });
+    .then(d=>{ exKeyStore=(d&&d.explainKeys)||{}; exExtra=(d&&d.extra)||[]; draw(); })
+    .catch(()=>{ exKeyStore={}; exExtra=[]; });
+}
+/* ── the coach's own explainers ──────────────────────────────────────
+   A Stream clip, the question it answers, the phases it belongs to (as
+   many as apply), and a line on what is covered. Live in the app on its
+   next load, in the rail, the search and the phase's wall. */
+function exxTouch(){ exExtraMsg='Not saved yet'; const m=document.getElementById('exxMsg'); if(m) m.textContent=exExtraMsg; }
+function exxAdd(){ exExtra=exExtra||[]; exExtra.push({uid:'',q:'',sum:'',stages:[0],k:[]}); exxTouch(); draw(); }
+function exxDel(i){ if(!confirm('Remove this explainer?')) return; exExtra.splice(i,1); exxTouch(); draw(); }
+function exxSet(i,k,v){ if(!exExtra[i]) return; exExtra[i][k]= k==='k' ? String(v).split(',').map(x=>x.trim()).filter(Boolean) : v; exxTouch(); }
+function exxStage(i,s0,on){ const x=exExtra[i]; if(!x) return; x.stages=(x.stages||[]).filter(n=>n!==s0); if(on) x.stages.push(s0); x.stages.sort(); exxTouch(); }
+function exxFilm(i){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    exExtraMsg='Uploading…'; draw();
+    fxUpload(f, pct=>{ const m=document.getElementById('exxMsg'); if(m) m.textContent='Uploading '+pct+'%'; })
+      .then(uid=>{ exExtra[i].uid=uid; exExtraMsg='Uploaded. Cloudflare takes a minute to encode it. Save when ready.'; draw(); })
+      .catch(e=>{ exExtraMsg=String(e); draw(); }); };
+  inp.click();
+}
+function exxSave(){
+  if(exExtraBusy) return; exExtraBusy=true; exExtraMsg='Saving…'; draw();
+  fetch(API+'/explain',{method:'POST',headers:hdr(),body:JSON.stringify({extra:exExtra||[]})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ exExtra=d.extra||[]; exExtraBusy=false; exExtraMsg='Saved. The app picks it up on its next load.'; draw(); })
+    .catch(e=>{ exExtraBusy=false; exExtraMsg=String(e); draw(); });
+}
+function exxHTML(inp){
+  const list=exExtra||[];
+  const rows=list.map((x,i)=>`<div style="margin-top:10px;padding:12px;border-radius:13px;background:#fff;border:1px solid var(--line)">
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center">
+      <input value="${esc(x.q||'')}" placeholder="The question it answers, e.g. Why does my elbow bend?" oninput="exxSet(${i},'q',this.value)" style="${inp};font-weight:600">
+      <button onclick="exxDel(${i})" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--terra)">&times;</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      ${x.uid?`<img src="${fxThumb(x.uid)}" alt="" style="width:72px;height:44px;object-fit:cover;border-radius:8px;background:#000">`:''}
+      <input value="${esc(x.uid||'')}" placeholder="Stream video id, or upload" oninput="exxSet(${i},'uid',this.value)" style="${inp};flex:1;min-width:180px;font-family:ui-monospace,monospace;font-size:12px">
+      <button class="send" style="width:auto;padding:0 13px;min-height:34px;font-size:12px" onclick="exxFilm(${i})">Upload a film</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      ${STAGES.map((S,s0)=>`<label style="display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:999px;border:1px solid ${(x.stages||[]).indexOf(s0)>-1?'var(--forest)':'var(--line)'};
+        background:${(x.stages||[]).indexOf(s0)>-1?'rgba(0,102,99,.08)':'#fff'};font:600 11.5px/1 var(--sans);cursor:pointer">
+        <input type="checkbox" ${(x.stages||[]).indexOf(s0)>-1?'checked':''} onchange="exxStage(${i},${s0},this.checked);draw()" style="margin:0">${esc(S.n)}</label>`).join('')}
+    </div>
+    <textarea placeholder="What is covered, one short paragraph. Shown under the film." oninput="exxSet(${i},'sum',this.value)" rows="2" style="${inp};margin-top:8px;resize:vertical">${esc(x.sum||'')}</textarea>
+    <input value="${esc((x.k||[]).join(', '))}" placeholder="Words people might search, separated by commas" oninput="exxSet(${i},'k',this.value)" style="${inp};margin-top:8px">
+  </div>`).join('');
+  return `<div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line)">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div style="font:400 18px/1.1 var(--serif)">Your own explainers</div>
+      <span style="flex:1"></span>
+      <span id="exxMsg" class="muted" style="font-size:12px">${esc(exExtraMsg)}</span>
+      <button class="send" style="width:auto;padding:0 14px" onclick="exxAdd()">+ Add one</button>
+      <button class="send" style="width:auto;padding:0 14px" ${exExtraBusy?'disabled':''} onclick="exxSave()">${exExtraBusy?'Saving…':'Save'}</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:4px;max-width:66ch">A film, the question it answers, and every phase it belongs to. It appears in the rail, the search, and as the film on that phase's wall if the phase has no shipped one.</div>
+    ${rows||'<div class="muted" style="font-size:12.5px;margin-top:10px">None yet.</div>'}
+  </div>`;
 }
 const exOwn = id => (exKeyEdits[id]!=null) ? exKeyEdits[id]
   : ((exKeyStore||{})[id]||[]).join(', ');
@@ -3318,6 +3377,7 @@ function explainHTML(){
         exKeyBusy?'Saving…':dirty?`Save ${dirty} change${dirty===1?'':'s'}`:'Saved'}</button>
     </div>
     ${body}
+    ${exxHTML(inp)}
   </div>`;
 }
 
@@ -6715,7 +6775,8 @@ const uidFromUrl=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m
    deploy. */
 let prices=null, pricesBusy=false, pricesMsg='', pricesEnv={};
 const PRICE_TIERS=[['plus','App, full ladder','a month, subscription'],['check','One form check','a clip, one off'],
-  ['online','Online coaching','a month'],['inperson','Online coaching with the session','a month'],
+  ['online','Online coaching','a month'],['inperson','Online coaching with one session a month','a month'],
+  ['inperson2','Online coaching with two sessions a month','a month, blank hides it in the app'],['inperson4','Online coaching with four sessions a month','a month, blank hides it in the app'],
   ['inner','Inner Circle with the session','a month, by application'],['inneronline','Inner Circle, no session','a month, by application'],
   ['session','The London session, as an add on','a month on top of either plan'],
   ['session60','One-off session, 60 min','paid on the session page'],['session90','One-off session, 90 min','paid on the session page']];
