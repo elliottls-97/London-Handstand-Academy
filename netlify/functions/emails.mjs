@@ -333,12 +333,37 @@ export const EMAILS = {
 
 /* the words for one email, with the dashboard's changes on top and the
    placeholders filled. Callers escape their values first. */
+const SITE = 'https://londonhandstandacademy.com';
+const STREAM = 'https://customer-pns1oongdltmkjwa.cloudflarestream.com/';
+const escH = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/* an email written as blocks on the canvas: each block becomes one
+   paragraph of HTML. A film cannot play inside an email, so it is its
+   still, linked to the film. */
+export function blocksToParas(blocks) {
+  return (Array.isArray(blocks) ? blocks : []).map(b => {
+    if (!b) return '';
+    if (b.t === 'h') return `<b style="font-size:19px;line-height:1.3">${escH(b.text)}</b>`;
+    if (b.t === 'p') return escH(b.text).replace(/\n/g, '<br>');
+    if (b.t === 'quote') return `<span style="display:block;border-left:3px solid #006663;padding-left:14px;font-size:18px;line-height:1.4;color:#00403d">${escH(b.text)}</span>`;
+    if (b.t === 'img' && b.id) return `<img src="${SITE}/api/app/image/${escH(b.id)}" alt="${escH(b.cap || '')}" style="width:100%;border-radius:14px;display:block">${b.cap ? `<span style="display:block;font-size:13px;color:#5c6660;margin-top:6px">${escH(b.cap)}</span>` : ''}`;
+    if (b.t === 'vid' && (b.uid || b.url)) {
+      const href = b.uid ? `${STREAM}${escH(b.uid)}/watch` : escH(b.url);
+      const still = b.uid ? `${STREAM}${escH(b.uid)}/thumbnails/thumbnail.jpg?time=3s&height=480` : '';
+      return `<a href="${href}" style="display:block;text-decoration:none">${still ? `<img src="${still}" alt="" style="width:100%;border-radius:14px;display:block">` : ''}<span style="display:block;font-size:14px;color:#006663;margin-top:6px">&#9654; ${escH(b.cap || 'Watch the film')}</span></a>`;
+    }
+    if (b.t === 'drill' && b.v) {
+      const uid = /\/([a-f0-9]{32})\//.exec(String(b.url || '')); const still = uid ? `${STREAM}${uid[1]}/thumbnails/thumbnail.jpg?time=3s&height=480` : '';
+      return `<a href="${SITE}/lha-app.html" style="display:block;text-decoration:none">${still ? `<img src="${still}" alt="" style="width:100%;border-radius:14px;display:block">` : ''}<span style="display:block;font-size:14px;color:#111;margin-top:6px"><b>${escH(b.n || b.v)}</b>${b.cap ? ' &middot; ' + escH(b.cap) : ''}</span></a>`;
+    }
+    return '';
+  }).filter(Boolean);
+}
 export function renderEmail(key, vars, over) {
   const d = EMAILS[key] || {};
   const o = (over && over[key]) || {};
   const pick = f => (o[f] != null && String(o[f]).trim() !== '') ? o[f] : d[f];
   const fill = s => String(s == null ? '' : s).replace(/\{(\w+)\}/g, (m, k) => (vars && vars[k] != null) ? String(vars[k]) : '');
-  const rawParas = pick('paras');
+  const rawParas = (Array.isArray(o.blocks) && o.blocks.length) ? blocksToParas(o.blocks) : pick('paras');
   const paras = (Array.isArray(rawParas) ? rawParas : String(rawParas || '').split(/\n\s*\n/))
     .map(fill).map(p => p.trim()).filter(Boolean);
   return { subject: fill(pick('subject')), title: fill(pick('title')), paras, footnote: fill(pick('footnote') || '') };

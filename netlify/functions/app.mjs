@@ -2277,6 +2277,21 @@ export default async (request) => {
         if (typeof body.paras === 'string') o.paras = body.paras.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).slice(0, 12).map(p => p.slice(0, 1500));
         if (Array.isArray(body.paras)) o.paras = body.paras.map(p => String(p || '').trim()).filter(Boolean).slice(0, 12).map(p => p.slice(0, 1500));
         if (typeof body.footnote === 'string') o.footnote = body.footnote.trim().slice(0, 300);
+        /* written on the canvas: the same blocks a fix uses */
+        if (Array.isArray(body.blocks)) {
+          const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+          o.blocks = body.blocks.slice(0, 30).map(b => {
+            if (!b || !['h', 'p', 'quote', 'img', 'vid', 'drill'].includes(b.t)) return null;
+            const x = { t: b.t };
+            if (b.t === 'h' || b.t === 'p' || b.t === 'quote') x.text = str(b.text, b.t === 'p' ? 2000 : 300);
+            if (b.t === 'img') { x.id = str(b.id, 64).replace(/[^a-zA-Z0-9]/g, ''); x.cap = str(b.cap, 200); }
+            if (b.t === 'vid') { x.uid = str(b.uid, 64).replace(/[^a-zA-Z0-9]/g, ''); x.cap = str(b.cap, 200);
+              const u = str(b.url, 300); if (/^https:\/\/pub-[a-z0-9]+\.r2\.dev\/[^\s"'<>]+\.(mp4|mov|webm|m4v)$/i.test(u)) x.url = u; }
+            if (b.t === 'drill') { x.v = str(b.v, 64).replace(/[^a-z0-9-]/g, ''); x.n = str(b.n, 80); x.url = str(b.url, 300); x.cap = str(b.cap, 200); }
+            return x;
+          }).filter(Boolean);
+          if (!o.blocks.length) delete o.blocks;
+        }
         over[key] = o;
       }
       await setSetting('emails', over);

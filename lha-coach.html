@@ -6543,6 +6543,25 @@ function fxPreviewPost(){
 window.addEventListener('message', e=>{
   if(e.origin!==location.origin || !e.data || !fx) return;
   const d=e.data;
+  if(d.type==='lha-fix-edit' && Array.isArray(d.article) && emCanvasKey){
+    const k=emCanvasKey; emDraft[k]=emDraft[k]||{}; emDraft[k].blocks=d.article; emMsg='Not saved yet';
+    emCanvasLast=JSON.stringify({key:k, subject:emVal(k,'subject'), title:emVal(k,'title'), footnote:emVal(k,'footnote'), blocks:d.article, vars:(emDefs[k]||{}).vars||[], cta:'Open the app'});
+    const m=document.getElementById('emMsg'); if(m) m.textContent=emMsg;
+    return;
+  }
+  if(d.type==='lha-fix-photo' && emCanvasKey){ const k=emCanvasKey; const bl=(emBlocks(k)||[]).slice(); const at=Math.max(0,Math.min(bl.length, Number(d.at)||0));
+    bl.splice(at,0,{t:'img',id:'',cap:''}); emDraft[k]=emDraft[k]||{}; emDraft[k].blocks=bl;
+    const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.style.display='none'; document.body.appendChild(inp);
+    inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+      shrinkPhoto(f,1600,.84).then(data=>fetch(APP+'/image',{method:'POST',headers:hdr(),body:JSON.stringify({data})}).then(r=>r.ok?r.json():Promise.reject('Could not send that photo')))
+        .then(x=>{ emDraft[k].blocks[at].id=x.id; emCanvasLast=''; emCanvasPost(); }).catch(e=>alert(String(e))); };
+    inp.click(); return; }
+  if(d.type==='lha-fix-video' && emCanvasKey){ const k=emCanvasKey; const bl=(emBlocks(k)||[]).slice(); const at=Math.max(0,Math.min(bl.length, Number(d.at)||0));
+    bl.splice(at,0,{t:'vid',uid:'',cap:''}); emDraft[k]=emDraft[k]||{}; emDraft[k].blocks=bl;
+    const inp=document.createElement('input'); inp.type='file'; inp.accept='video/*'; inp.style.display='none'; document.body.appendChild(inp);
+    inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+      fxUpload(f, ()=>{}).then(uid=>{ emDraft[k].blocks[at].uid=uid; emCanvasLast=''; emCanvasPost(); }).catch(e=>alert(String(e))); };
+    inp.click(); return; }
   if(d.type==='lha-fix-edit' && Array.isArray(d.article)){
     const structural = JSON.stringify(d.article.map(b=>b&&b.t)) !== JSON.stringify((fx.article||[]).map(b=>b&&b.t));
     fx.article=d.article.map(b=>{ const o=Object.assign({},b); delete o.n; delete o.url; return o; });
@@ -6823,6 +6842,7 @@ function emSet(k,f,v){ emDraft[k]=emDraft[k]||{}; emDraft[k][f]=v; emMsg='Not sa
 function emToggle(k){ emOpen = emOpen===k ? '' : k; draw(); }
 function emSave(k){ if(emBusy) return; emBusy=true; emMsg='Saving…'; draw();
   const body={key:k, subject:emVal(k,'subject'), title:emVal(k,'title'), paras:emVal(k,'paras'), footnote:emVal(k,'footnote')};
+  const bl=emBlocks(k); if(bl && bl.length) body.blocks=bl.map(b=>{ const o=Object.assign({},b); if(o.t!=='drill'){ delete o.n; } return o; }); else if(bl) body.blocks=[];
   fetch(API+'/emails',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ emOver=d.overrides||{}; delete emDraft[k]; emBusy=false; emMsg='Saved. The next one that goes out uses these words.'; draw(); })
@@ -6832,6 +6852,35 @@ function emReset(k){ if(emBusy || !confirm('Put the shipped words back for this 
     .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
     .then(d=>{ emOver=d.overrides||{}; delete emDraft[k]; emBusy=false; emMsg='Back to the shipped words.'; draw(); })
     .catch(e=>{ emBusy=false; emMsg=String(e); draw(); }); }
+/* the email on the canvas: the same page, the same tools, blocks that
+   become the paragraphs when it goes */
+let emCanvasKey='', emCanvasTimer=null, emCanvasLast='';
+function emBlocks(k){ const dr=emDraft[k]||{}; if(dr.blocks) return dr.blocks; return ((emOver[k]||{}).blocks)||null; }
+function emCanvasPost(){
+  const fr=document.getElementById('fxPrevFrame'); if(!fr||!fr.contentWindow||!emCanvasKey) return;
+  const k=emCanvasKey, d=emDefs[k]||{};
+  let blocks=emBlocks(k);
+  if(!blocks){ blocks=String(emVal(k,'paras')||'').split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean).map(p=>({t:'p',text:p.replace(/<[^>]+>/g,'')})); }
+  const email={key:k, subject:emVal(k,'subject'), title:emVal(k,'title'), footnote:emVal(k,'footnote'), blocks, vars:d.vars||[], cta:'Open the app'};
+  const j=JSON.stringify(email); if(j===emCanvasLast) return; emCanvasLast=j;
+  const explainers=[]; Object.keys(EXPLAIN||{}).forEach(s0=>(EXPLAIN[s0]||[]).forEach(x=>{ if(x&&x.uid) explainers.push({uid:x.uid,q:x.q,stage:(STAGES[s0]||{}).n||''}); }));
+  const drills=Object.keys(libIndex||{}).sort((a,b)=>(libIndex[a]||a).localeCompare(libIndex[b]||b)).map(v=>({v,n:libIndex[v]||v,url:(libVideo||{})[v]||''}));
+  try{ fr.contentWindow.postMessage({type:'lha-fix-draft', email, edit:true, explainers, drills}, location.origin); }catch(e){}
+}
+function emCanvasOpen(k){
+  emCanvasClose(); emCanvasKey=k; emCanvasLast='';
+  const w=document.createElement('div'); w.id='fxPrevWrap';
+  w.style.cssText='position:fixed;top:0;right:0;bottom:0;width:430px;max-width:100vw;z-index:900;background:#dcdad6;box-shadow:-20px 0 50px -30px rgba(0,0,0,.5);display:flex;flex-direction:column';
+  w.innerHTML='<div style="flex:none;display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid rgba(0,0,0,.08)">'
+    +'<b style="font:600 13px/1 var(--sans)">The email, as it lands</b><span class="muted" style="font-size:11.5px">Tap to type, drag to move, + to add</span><span style="flex:1"></span>'
+    +'<button class="btn btn-ghost btn-sm" onclick="emCanvasClose()">Close</button></div>'
+    +'<iframe id="fxPrevFrame" src="/fix-preview.html" title="Email" style="flex:1;width:100%;border:0;background:#dcdad6"></iframe>';
+  document.body.appendChild(w);
+  document.getElementById('fxPrevFrame').addEventListener('load', ()=>{ emCanvasLast=''; emCanvasPost(); });
+  emCanvasTimer=setInterval(emCanvasPost, 600);
+}
+function emCanvasClose(){ clearInterval(emCanvasTimer); emCanvasTimer=null; emCanvasKey=''; const w=document.getElementById('fxPrevWrap'); if(w && !fxPrev) w.remove(); }
+function emPlain(k){ if(!confirm('Go back to plain paragraphs for this email? The page layout is dropped when you save.')) return; emDraft[k]=emDraft[k]||{}; emDraft[k].blocks=[]; emDraft[k].dropBlocks=true; emMsg='Not saved yet'; emCanvasClose(); draw(); }
 function emailsHTML(){
   emLoad();
   const keys=Object.keys(emDefs||{});
@@ -6852,8 +6901,10 @@ function emailsHTML(){
         <textarea rows="7" oninput="emSet('${k}','paras',this.value)" style="${inp};resize:vertical;margin-bottom:8px">${esc(emVal(k,'paras'))}</textarea>
         <label class="muted" style="font-size:11px">Small print at the bottom, optional</label>
         <input value="${esc(emVal(k,'footnote'))}" oninput="emSet('${k}','footnote',this.value)" style="${inp};margin-bottom:10px">
+        ${(emBlocks(k)||[]).length?`<div class="muted" style="font-size:11.5px;margin:-4px 0 10px">This one is laid out on the canvas, ${(emBlocks(k)||[]).length} blocks. The paragraphs box above is ignored while it is. <button class="ghostlink" onclick="emPlain('${k}')">Back to plain paragraphs</button></div>`:''}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" ${emBusy?'disabled':''} onclick="emSave('${k}')">Save this email</button>
+          <button class="btn btn-secondary" onclick="emCanvasOpen('${k}')">Edit as a page, with photos and films</button>
           ${changed?`<button class="btn btn-secondary" ${emBusy?'disabled':''} onclick="emReset('${k}')">Back to the shipped words</button>`:''}
         </div></div>`:''}
     </div>`; }).join('');

@@ -159,7 +159,30 @@ function dragStart(e,i){ dragFrom=i; e.dataTransfer.effectAllowed='move'; setTim
 function dragEnd(){ dragFrom=-1; document.querySelectorAll('.blk.drag').forEach(el=>el.classList.remove('drag')); }
 function dragOver(e,i){ if(dragFrom<0) return; e.preventDefault(); }
 function drop(e,i){ e.preventDefault(); if(dragFrom<0||dragFrom===i) return; const [b]=F.article.splice(dragFrom,1); F.article.splice(i,0,b); dragFrom=-1; emit(); draw(); }
+/* an email, drawn the way it lands: the greeting, the big line, the
+   blocks, the button. Edited with the same tools as a fix. */
+let EM=null;
+function drawEmail(){
+  const e=EM; if(!e) return;
+  F=F||{}; F.article=e.blocks||[];
+  const art=F.article.map((b,i)=>insBar(i)+block(b,i)).join('')+insBar(F.article.length);
+  document.getElementById('p').innerHTML=`
+    <div style="background:#e9e6e1;padding:22px 12px 40px;min-height:100vh">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--grey2);text-align:center">Subject: ${esc(e.subject||'')}</div>
+      <div style="background:#fff;border-radius:18px;padding:26px 22px;margin-top:14px;box-shadow:0 12px 40px -24px rgba(0,0,0,.35)">
+        <div class="kick">London Handstand Academy</div>
+        <div style="font:400 15px/1.5 var(--sans);margin-top:18px">Hi {name},</div>
+        <h1 style="font-size:28px;margin-top:10px">${esc(e.title||'')}</h1>
+        <div id="art" style="margin-top:6px">${art}</div>
+        ${e.cta?`<div style="margin-top:18px;background:var(--forest);color:#fff;border-radius:12px;padding:14px;text-align:center;font:600 15px/1 var(--sans)">${esc(e.cta)}</div>`:''}
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:22px">Elliott, London Handstand Academy</div>
+        ${e.footnote?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:18px;border-top:1px solid rgba(0,0,0,.08);padding-top:12px">${esc(e.footnote)}</div>`:''}
+      </div>
+      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:14px">Placeholders in braces are filled in when it goes: ${(e.vars||[]).map(v=>'{'+esc(v)+'}').join(', ')}</div>
+    </div>`;
+}
 function draw(){
+  if(EM) return drawEmail();
   const f=F; if(!f) return;
   const cover=(f.cover&&f.cover.uid)?thumb(f.cover.uid):(f.cover&&f.cover.img)?'/api/app/image/'+f.cover.img
     :((f.drills||[]).find(d=>d.url)?thumb(uidOf((f.drills||[]).find(d=>d.url).url)):'');
@@ -189,7 +212,10 @@ function draw(){
     </div>`;
 }
 window.addEventListener('message',e=>{ if(e.origin!==location.origin) return; const d=e.data||{};
-  if(d.type==='lha-fix-draft' && d.fix){
+  if(d.type==='lha-fix-draft' && d.email){
+    EM=d.email; F={article:d.email.blocks||[]}; EDIT=true; if(Array.isArray(d.explainers)) EXP=d.explainers; if(Array.isArray(d.drills)) DR=d.drills;
+    draw(); say('Tap a block to edit it. Drag ⋮⋮ to move it. + adds one.'); return; }
+  if(d.type==='lha-fix-draft' && d.fix){ EM=null;
     /* while a block is being typed into, a redraw would take the caret;
        the dashboard only re-posts when something other than the words changed */
     F=d.fix; EDIT=!!d.edit; if(Array.isArray(d.explainers)) EXP=d.explainers; if(Array.isArray(d.drills)) DR=d.drills;
