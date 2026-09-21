@@ -3862,13 +3862,39 @@ export default async (request) => {
         }]).slice(-200);
       }
       if (body.flags && typeof body.flags === 'object') {
+        /* ── too hard, too easy ──────────────────────────────────────
+           Every flag was stamped with the time of whatever save happened
+           to carry it, so they all looked new on every write and none of
+           them looked new to anybody. A flag keeps the moment it was
+           made, and a flag that has just been made or changed is worth
+           an email, because the coach had no other way of finding out.
+           Marina said several exercises were too hard and nobody knew. */
+        const was = p.flags || {};
+        const fresh = [];
         p.flags = {};
         for (const [drill, v] of Object.entries(body.flags).slice(0, 120)) {
           if (v && (v.rate === 'easy' || v.rate === 'hard')) {
-            p.flags[String(drill).slice(0, 60)] = {
-              rate: v.rate, note: String(v.note || '').slice(0, 300), at: now
-            };
+            const k = String(drill).slice(0, 60);
+            const note = String(v.note || '').slice(0, 300);
+            const old0 = was[k];
+            const same = old0 && old0.rate === v.rate && (old0.note || '') === note;
+            p.flags[k] = { rate: v.rate, note, at: same ? (old0.at || now) : now };
+            if (!same) fresh.push({ k, rate: v.rate, note });
           }
+        }
+        if (fresh.length) {
+          const lib = await libraryNow();
+          const nm = clients()[who] || who;
+          const line = f => `<b>${esc((lib.names || {})[f.k] || f.k)}</b>: too ${esc(f.rate)}`
+            + (f.note ? `<br>&ldquo;${esc(f.note)}&rdquo;` : '');
+          await email(coachOf(who),
+            `${nm}: ${fresh.length === 1 ? 'a drill is too ' + fresh[0].rate
+              : fresh.length + ' drills flagged'}`,
+            mail({ title: `${nm} flagged ${fresh.length === 1 ? 'a drill' : fresh.length + ' drills'}.`,
+              paras: [fresh.map(line).join('<br><br>'),
+                      'It is on their plan in the dashboard, against the drill.'],
+              cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
+              signoff: { name: 'London Handstand Academy' } }));
         }
       }
       if (body.hold != null) {
@@ -4807,7 +4833,9 @@ export default async (request) => {
           return prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {};
-        })()) });
+        })()),
+        /* when this coach last said they had read the flags */
+        flagSeen: Number((await getSetting(`flagseen:${e}`)) || 0) });
     }
 
     /* which Stripe settings actually reached this deploy — booleans only,
@@ -5404,6 +5432,15 @@ export default async (request) => {
         { method: 'DELETE',
           headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } });
       return json({ ok: res.ok });
+    }
+
+    /* the coach has read this client's too hard and too easy flags */
+    if (path === '/coach/flagseen' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      await setSetting(`flagseen:${e}`, Date.now());
+      return json({ ok: true, at: Date.now() });
     }
 
     if (path === '/coach/thread') {

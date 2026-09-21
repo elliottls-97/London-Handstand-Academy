@@ -5560,7 +5560,8 @@ function frictionHTML(email){
       </div>`;}).join('')}
     </div>`;
 }
-const drillName=v=>String(v||'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+const drillName=v=>((libIndex||{})[v])
+  || String(v||'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 
 let wideActivity=false;   /* activity across the whole width, not a column */
 let openSess=null;   /* which session row is expanded */
@@ -5959,6 +5960,26 @@ function headerHTML(){
    and app feedback were five tabs you had to remember to visit. They are
    one list, oldest first, because the oldest is the one closest to
    breaking the 48 hours we promise. */
+/* every client with a flag they have not been told about, newest first */
+function flagItems(){
+  const out=[];
+  clients.forEach(c=>{
+    const p=prog[c.email]||{};
+    const seen=Number(p.flagSeen||0);
+    const list=Object.keys(p.flags||{})
+      .map(k=>Object.assign({k}, p.flags[k]))
+      .filter(x=>x && (x.rate==='easy'||x.rate==='hard') && Number(x.at||0)>seen)
+      .sort((a,b)=>(b.at||0)-(a.at||0));
+    if(list.length) out.push({email:c.email, name:c.name, at:list[0].at||0, list});
+  });
+  return out;
+}
+function flagsSeen(email){
+  fetch(API+'/flagseen',{method:'POST',headers:hdr(),body:JSON.stringify({email})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ if(prog[email]) prog[email].flagSeen=d.at||Date.now(); draw(); })
+    .catch(()=>{});
+}
 const INBOX_TYPE={
   check:      {label:'Form check',  cls:'tag-accent',   filter:'checks'},
   review:     {label:'Block test',  cls:'tag-accent',   filter:'reviews'},
@@ -5967,6 +5988,7 @@ const INBOX_TYPE={
   application:{label:'Application', cls:'tag-accent-2', filter:'applications'},
   feedback:   {label:'App feedback',cls:'tag-neutral',  filter:'feedback'},
   session:    {label:'Session',     cls:'tag-accent-2', filter:'sessions'},
+  flag:       {label:'Too hard / easy', cls:'tag-accent-2', filter:'flags'},
 };
 let inboxRow='';                   /* the row expanded in place, if any */
 /* one to one sessions paid for and waiting for a time */
@@ -6013,6 +6035,16 @@ function inboxItems(){
   sessOpen().forEach(x=>out.push({id:'S:'+x.id, type:'session', email:x.email, name:x.name||x.email, at:x.at,
     action:'Set the time', sess:x,
     detail:x.kind+' minutes, paid'+(x.paid?' £'+(x.paid/100).toFixed(2).replace(/\.00$/,''):'')+(x.prefs?' · prefers: '+clip(x.prefs,80):' · no times given')}));
+  /* ── too hard, too easy ───────────────────────────────────────
+     A client flagging a drill is the most useful thing they do between
+     blocks and it appeared nowhere: not here, not in an email, only on
+     the drill itself inside their plan, where you would have to go
+     looking for something you did not know existed. Marina flagged
+     several and nobody knew. */
+  flagItems().forEach(f=>out.push({id:'L:'+f.email, type:'flag', email:f.email,
+    name:f.name||f.email, at:f.at, action:'See their plan', flags:f.list,
+    detail:f.list.slice(0,3).map(x=>drillName(x.k)+': too '+x.rate).join(' · ')
+      +(f.list.length>3?' · and '+(f.list.length-3)+' more':'')}));
   newApps().forEach(a=>{ const A=a.answers||{};
     out.push({id:'A:'+a.id, type:'application', email:a.email,
       name:a.name||String(a.email||'').split('@')[0], at:a.at,
@@ -6025,6 +6057,25 @@ function inboxItems(){
 }
 
 function inboxBodyHTML(r){
+  if(r.type==='flag'){
+    return `
+    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:var(--space-3)">
+      ${r.flags.map(f=>`<div style="padding:11px 13px;border-radius:12px;
+        background:${f.rate==='hard'?'rgba(164,80,60,.09)':'rgba(0,102,99,.06)'}">
+        <div style="font:600 13.5px/1.35 var(--sans)">${esc(drillName(f.k))}
+          <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;margin-left:8px;
+            color:${f.rate==='hard'?'var(--terra)':'var(--forest)'}">TOO ${esc(f.rate.toUpperCase())}</span></div>
+        ${f.note?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">
+          &ldquo;${esc(f.note)}&rdquo;</div>`:''}
+        <div class="muted" style="font:400 11.5px/1.4 var(--sans);margin-top:5px">${esc(ago(f.at))}</div>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="openBuilder('${esc(r.email)}')">Change their plan</button>
+      <button class="btn btn-secondary" onclick="openClient('${esc(r.email)}')">Open their thread</button>
+      <button class="btn btn-ghost" onclick="flagsSeen('${esc(r.email)}')">Read, clear it</button>
+    </div>`;
+  }
   if(r.type==='question') return `
     <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-3);white-space:pre-wrap">${esc(r.body)}</p>
     <textarea class="input" placeholder="Answer it…" style="min-height:96px"
@@ -6085,10 +6136,43 @@ function inboxBodyHTML(r){
   return '';
 }
 
+/* ── what has come in since last week ──────────────────────────────
+   Counted from what the dashboard already holds, answered or not, so a
+   quiet week and a week you kept up with stop looking the same. */
+function weekBehindHTML(){
+  const since=Date.now()-7*864e5;
+  const n={clips:0, questions:0, flags:0, sessions:0, trained:0, who:{}};
+  const mark=e=>{ if(e) n.who[e]=true; };
+  clients.forEach(c=>{
+    const p=prog[c.email]||{};
+    (p.sessions||[]).forEach(x=>{ if((x.at||0)>since && x.done){ n.trained++; mark(c.email); } });
+    Object.keys(p.flags||{}).forEach(k=>{ const f=p.flags[k];
+      if(f && (f.at||0)>since){ n.flags++; mark(c.email); } });
+    (subs[c.email]||[]).forEach(x=>{ if((x.at||0)>since){ n.clips+=(x.clips&&x.clips.length)||1; mark(c.email); } });
+  });
+  questions.forEach(q=>{ if((q.at||0)>since){ n.questions++; mark(q.email); } });
+  sessions.forEach(x=>{ if((x.at||0)>since) n.sessions++; });
+  const bits=[];
+  if(n.trained) bits.push(n.trained+' session'+(n.trained===1?'':'s')+' finished');
+  if(n.clips) bits.push(n.clips+' clip'+(n.clips===1?'':'s')+' in');
+  if(n.questions) bits.push(n.questions+' question'+(n.questions===1?'':'s'));
+  if(n.flags) bits.push(n.flags+' drill'+(n.flags===1?'':'s')+' flagged');
+  if(n.sessions) bits.push(n.sessions+' session booking'+(n.sessions===1?'':'s'));
+  const people=Object.keys(n.who).length;
+  return `<div style="margin-top:var(--space-5);padding:13px 15px;border-radius:14px;
+    background:var(--surface);border:1px solid var(--line)">
+    <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">THE LAST SEVEN DAYS</div>
+    <div style="font:400 13.5px/1.6 var(--sans);color:var(--ink);margin-top:7px">${
+      bits.length
+        ? esc(bits.join(' · '))+', from '+people+' '+(people===1?'person':'people')+'.'
+        : 'Nothing has come in from anybody for a week.'}</div>
+  </div>`;
+}
 function todayHTML(){
   const all=inboxItems();
   const over=all.filter(x=>x.hrs>=PROMISE_H).length;
   const defs=[['all','Everything'],['checks','Form checks'],['reviews','Block tests'],
+              ['flags','Too hard / easy'],
               ['questions','Questions'],['applications','Applications'],['sessions','Sessions'],['feedback','App feedback']];
   const rows=all.filter(x=>inboxFilter==='all'||INBOX_TYPE[x.type].filter===inboxFilter);
   const date=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
@@ -6142,6 +6226,12 @@ function todayHTML(){
     </div>
     <!-- The five queues each had their own history. One toggle keeps all of
          it reachable without putting yesterday's work in front of today's. -->
+    <!-- ── the last week, not just today ────────────────────────────
+         This screen only ever showed what was still outstanding, so a week
+         where everything got answered looked identical to a week where
+         nothing happened, and there was no way to see that somebody had
+         sent three clips on Friday. -->
+    ${weekBehindHTML()}
     <div style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--line)">
       <button class="ghostlink" onclick="todayDone=${todayDone?'false':'true'};draw()">${
         todayDone?'Hide what you have dealt with'
