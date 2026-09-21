@@ -6078,7 +6078,7 @@ function playerShell(){
       <span class="p-clock" id="p-clock"></span>
       <span class="p-ctrls">
         <span class="p-elapsed" id="p-elapsed"></span>
-        <button class="p-sound" id="p-sound" onclick="toggleSound()"></button>
+        <button class="p-sound" id="p-sound" onclick="toggleCue()"></button>
         <button class="p-x" id="p-pause" title="Pause">II</button>
         <button class="p-x" id="p-exit" title="End">✕</button>
       </span>
@@ -6305,7 +6305,7 @@ function step(){
   if(rn){ rn.textContent = phase==='rest' ? Math.max(0,Math.round(left)) : fmtT(Math.max(0,left));
           rn.classList.toggle('urgent', left<=5 && left>0); }
   if(left>0) return;
-  clearInterval(tick_); tick_=null; beep(); advance();
+  clearInterval(tick_); tick_=null; cue(); advance();
 }
 function advance(){
   if(phase==='work'){
@@ -6387,7 +6387,7 @@ function sessionFeel(f){
   else if(dir<0) toast('Already on the easiest workouts for this stage.');
 }
 
-function endPlayer(done){ clearInterval(tick_); tick_=null;
+function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.remove('on'); $('#player').innerHTML='';
   const d=day();
@@ -6463,9 +6463,11 @@ const soundOn = () => st.sound !== false;
 function paintSound(){
   const b=document.getElementById('p-sound');
   if(b){
-    b.classList.toggle('on', soundOn());
-    b.innerHTML=(soundOn()?VB_SPK:VB_MUTED)+'<span>Sound '+(soundOn()?'on':'off')+'</span>';
-    b.setAttribute('aria-label', soundOn()?'Sound is on, turn it off':'Sound is off, turn it on');
+    b.classList.toggle('on', cueOn());
+    b.innerHTML=(cueOn()?VB_SPK:VB_MUTED)+'<span>Cue '+(cueOn()?'on':'off')+'</span>';
+    b.setAttribute('aria-label', cueOn()
+      ? 'The end of each set sounds and buzzes. Turn it off'
+      : 'The end of each set is silent. Turn it on');
   }
   const l=document.getElementById('l-sound');
   if(l){ l.innerHTML=soundOn()?VB_SPK:VB_MUTED;
@@ -6496,7 +6498,7 @@ function rowClockStop(done){
   if(el){ el.textContent=rowT.label; el.style.background='rgba(0,102,99,.08)';
           el.style.color='var(--forest)'; }
   const key=rowT.k; rowT=null;
-  if(done){ beep();
+  if(done){ cue();
     /* the same tick the box does, so one set is one tick wherever it came from */
     const box=document.getElementById('box-'+key);
     if(box && !box.classList.contains('on')) box.click();
@@ -6523,12 +6525,54 @@ function rowClock(k){
   paint();
   rowT.raf=setInterval(paint,200);
 }
-function beep(){ if(!soundOn()) return; try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
+/* ── the cue at the end of a set ───────────────────────────────────
+   One switch used to mute the films and silence the timer together, so
+   the combination everybody actually wants, a silent demo and a loud
+   cue, was the one you could not have. The cue has its own switch now,
+   and it buzzes as well as sounds, because a 660Hz blip does not carry
+   in a gym and you are upside down looking at the floor. */
+const cueOn = () => st.cue !== false;
+function toggleCue(){ st.cue=!cueOn(); save(); paintSound();
+  if(cueOn()) cue(); }
+function cue(){
+  if(!cueOn()) return;
+  try{ if(navigator.vibrate) navigator.vibrate([45,60,45]); }catch(e){}
+  beep();
+}
+function beep(){ if(!cueOn()) return; try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
   o.frequency.value=660;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.0001,a.currentTime);
   g.gain.exponentialRampToValueAtTime(.2,a.currentTime+.01);g.gain.exponentialRampToValueAtTime(.0001,a.currentTime+.3);
   o.start();o.stop(a.currentTime+.31);}catch(e){} }
-document.addEventListener('visibilitychange',()=>{ if(document.hidden&&tick_){ paused=true;
-  document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}}); paintPause(); }});
+/* ── the screen has to stay on ─────────────────────────────────────
+   Nothing held the screen awake, and the player pauses itself when the
+   screen goes dark. So you propped the phone, kicked up, and half a
+   minute later it dimmed, locked, and the session sat paused while you
+   were upside down looking at the floor. A wake lock is dropped by the
+   browser whenever the tab is hidden, so it is taken again every time
+   the tab comes back. */
+let wakeLock=null;
+function keepAwake(){
+  try{
+    if(!navigator.wakeLock || wakeLock) return;
+    navigator.wakeLock.request('screen').then(l=>{
+      wakeLock=l;
+      l.addEventListener('release', ()=>{ wakeLock=null; });
+    }).catch(()=>{});
+  }catch(e){}
+}
+function letSleep(){
+  try{ if(wakeLock) wakeLock.release(); }catch(e){}
+  wakeLock=null;
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){
+    if(tick_){ paused=true;
+      document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}}); paintPause(); }
+    return;
+  }
+  const pl=document.getElementById('player');
+  if(pl && pl.classList.contains('on')) keepAwake();
+});
 
 /* ── overlays ── */
 function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
@@ -7068,7 +7112,12 @@ function drawOv(){
               ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" id="easy-${k}"
                 onclick="rateRow('${it.v}','${k}','easy')">Too easy</button>
               <button class="rt hard ${rate==='hard'?'on':''}" id="hard-${k}"
-                onclick="rateRow('${it.v}','${k}','hard')">Too hard</button>`:''}
+                onclick="rateRow('${it.v}','${k}','hard')">Too hard</button>`
+              /* a sore wrist, no wall, or a drill they simply cannot do this
+                 week. It leaves this session and the ones after it for seven
+                 days, rather than being skipped again every time. */
+              :`<button class="rt" onclick="asideRow('${esc(it.v)}')"
+                title="Out of your sessions for a week">Not today</button>`}
             </div>
               </div>
               ${it.url?`<button class="rt" style="flex:none;padding:0;width:96px;height:56px;
@@ -7159,6 +7208,18 @@ function drawOv(){
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:0 0 14px;text-align:center">
         Or work down the list and tick them off.</div>
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
+      ${(function(){ const a=asideList(); if(!a.length) return '';
+        /* so a shorter session is explained rather than mysterious, and
+           there is one place to change your mind */
+        return `<div style="margin-top:14px;padding:12px 14px;border-radius:14px;
+          background:rgba(0,102,99,.05);border:1px solid rgba(0,102,99,.10)">
+          <div style="font:600 12.5px/1.4 var(--sans);color:var(--ink)">${a.length} put aside
+            this week</div>
+          <div style="font:400 12px/1.5 var(--sans);color:var(--grey);margin-top:4px">${
+            esc(a.map(v=>(drillById(v)||{}).n||v).join(', '))}. ${
+            a.length===1?'It comes back on its own':'They come back on their own'} after seven days.</div>
+          <button class="btn2" style="width:100%;margin-top:10px" onclick="bringBackAll();closeOv()">
+            Bring ${a.length===1?'it':'them'} back now</button></div>`; })()}
       ${repsAreLocal()?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);
         text-align:center;margin-top:12px">Reps stay on this device until you have an account.</div>`:''}
       <button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:14px"
@@ -11197,13 +11258,15 @@ const RAMP_ALL = [].concat(RAMP.wrists, RAMP.shoulders, RAMP.general);
    each that is three minutes, and it is capped at a quarter of the session
    so choosing 15 minutes still leaves time for the thing they came to train. */
 function warmupFor(budgetSecs, stage, written){
-  const take=(list,n)=>list.map(drillById).filter(Boolean).slice(0,n);
+  /* a drill put aside is out of the warm-up as well: a sore wrist is a
+     reason to skip wrist circles more than anything else in the session */
+  const take=(list,n)=>list.filter(v=>!asideOn(v)).map(drillById).filter(Boolean).slice(0,n);
   /* A coach who writes a workout out writes its warm-up out too, and it is
      the top of the list, the first thing they touch. This built its own from
      the stage and the general ramp whatever they had written, so swapping a
      warm-up drill in the dashboard changed nothing anybody could see: the
      session still opened with the six it had always opened with. */
-  const said = (written||[]).filter(x=>WARM_GRP.test(String(x.g||'')))
+  const said = (written||[]).filter(x=>WARM_GRP.test(String(x.g||'')) && !asideOn(x.v))
     .map(x=>drillById(x.v)).filter(Boolean);
   /* the stage's own warm-up group if the workbook wrote one, otherwise the
      general ramp — wrists first in both cases */
@@ -11272,7 +11335,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   const spare=[];
   if(!wristDay) stageGroups(stage).forEach(g=>groupDrills(stage,g).forEach(v=>{
     if(ids.indexOf(v)<0 && spare.indexOf(v)<0) spare.push(v); }));
-  const mk=list=>list.filter(v=>!used.has(v)).map(drillById).filter(Boolean)
+  /* put aside this week, so it is not built into anything */
+  const mk=list=>list.filter(v=>!used.has(v) && !asideOn(v)).map(drillById).filter(Boolean)
     .map(d=>Object.assign({},d,{d:((st.timing||{})[d.v]||{}).d || d.d || FREE_DOSE[d.v] || '3 × 8'}));
   const focus=mk(ids), pool=focus.concat(mk(spare));
   if(!pool.length){ alert('Nothing filmed for this stage yet.'); return; }
@@ -11544,20 +11608,90 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
    another day entirely. Build this day's queue before running it. */
 function followDay(){ Q=queue(); startQueue(0); }
 
+/* ── the films, before you need them ───────────────────────────────
+   A session used to fetch each film at the moment it came round, so a
+   drill you reached in a lift or a basement showed a black box. Pressing
+   Start now pulls this session's films down in the background while the
+   warm-up runs, so by the time the third drill arrives the rest of the
+   workout is already on the phone.
+
+   It has to be no-cors: the clip URL redirects, and the redirect carries
+   no CORS header, so asking to read the bytes fails and fills the console
+   with errors. Nothing here wants to read them. The point is that the
+   phone has fetched the file, so the video element finds it in the
+   browser's own cache rather than on the network.
+
+   Deliberately quiet: nobody waits for it and a failure costs exactly
+   what not trying would have cost. */
+function cacheSession(list){
+  try{
+    const urls=[...new Set((list||[]).map(x=>x && x.it && x.it.url).filter(Boolean))].slice(0,20);
+    let i=0;
+    const next=()=>{
+      if(i>=urls.length) return;
+      const u=urls[i++];
+      fetch(sig(u), {mode:'no-cors', credentials:'omit'})
+        .catch(()=>{}).then(()=>setTimeout(next, 150));
+    };
+    /* two at a time: enough to get ahead of the session, not enough to
+       fight the film that is playing right now for the connection */
+    next(); setTimeout(next, 80);
+  }catch(e){}
+}
 function startQueue(from){
   qi=from||0; phase='work'; paused=false; sessionStart=Date.now();
+  if(!from) cacheSession(Q);
   /* spendTaste is once per built workout, so pressing Start follow along
      from the list it was already counted on does not count it twice */
   if(!from){ track('start'); spendTaste(!!st.ovList); }
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
   bindPlayer();
+  keepAwake();
   showStep();
 }
 
 /* ── what you did last time ───────────────────────────────────────
    Reps are only worth logging if you can see them again. Kept per drill,
    newest first, capped so the record cannot grow without end. */
+/* ── not today ─────────────────────────────────────────────────────
+   A sore wrist, no wall, a drill somebody simply cannot do this week.
+   There was nothing to press: they skipped it in the player and the next
+   session offered it again, and the one after that. Put aside, a drill is
+   out of what the app builds for seven days and then comes back on its
+   own, because a week is long enough for the reason to have passed and
+   short enough that nobody has to remember to undo it. */
+const ASIDE_DAYS=7;
+function asideMap(){ return st.aside||{}; }
+function asideOn(v){
+  const t=asideMap()[v];
+  return !!(t && (Date.now()-t) < ASIDE_DAYS*864e5);
+}
+function asideList(){
+  return Object.keys(asideMap()).filter(asideOn);
+}
+function setAside(v){
+  if(!v) return;
+  st.aside=Object.assign({}, asideMap()); st.aside[v]=Date.now(); save();
+  const d=drillById(v);
+  toast(((d&&d.n)||'That drill')+' put aside for a week.');
+}
+function bringBack(v){
+  if(!v) return;
+  st.aside=Object.assign({}, asideMap()); delete st.aside[v]; save(); render();
+}
+/* from inside a built session: out of this one, and out of the next
+   week's. The queue is rebuilt so the session in front of them is the
+   session they are about to do. */
+function asideRow(v){
+  setAside(v);
+  const wrist = st.sessionKind==='wrist';
+  buildFreeSession(wrist, true, st.pickDay);
+}
+function bringBackAll(){
+  st.aside={}; save(); render();
+  toast('All of them are back.');
+}
 const REPS_KEPT=8;
 /* "3 × 10" is ten, "30s each way" is thirty, "10 reps" is ten. The last
    number in the dose is the one being counted. */
