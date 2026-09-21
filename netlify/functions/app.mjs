@@ -2705,22 +2705,53 @@ export default async (request) => {
     return k ? signUid(k, uid, Math.floor(Date.now() / 1000) + 3600) : uid;
   };
 
+  /* ── the keys to the films ────────────────────────────────────────
+     This decided whether somebody may play a locked film and then signed
+     every id it was handed, four hundred at a time, six hours apiece,
+     without once asking which films they were. An account starts with one
+     unused free session, and having one is enough to be signed, so a new
+     free account could ask for the entire paid library and be given it.
+     The films are the only thing here that costs money to serve.
+
+     Two things close it. A free account is held to one session's worth of
+     films at a time and a handful of requests a day, which is true even
+     with nothing else known. And where the coach has locked the library
+     since this shipped, the lock records which films belong to which
+     stage, so a free account is only signed the free stage and the one
+     stage it was placed on. The cap is the floor; the map is the ceiling. */
+  const FREE_SIGN_MAX = 24;          /* a long session is about twenty films */
+  const FREE_SIGN_TRIES = 12;        /* a day of training, not a library raid */
   if (path === '/sign' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const k = await streamKey();
     if (!k) return json({ tokens: {}, off: true });
     const acct = (await getAcct(who)) || {};
-    let ok = plusNow(acct) || await isCoached(who) || coachList().includes(who);
+    const stt = (await getSetting(`state:${who}`)) || {};
+    const paid = plusNow(acct) || await isCoached(who) || coachList().includes(who);
+    let ok = paid;
     if (!ok) {
       /* the one free session at a locked stage still has to play */
-      const stt = (await getSetting(`state:${who}`)) || {};
       const taste = Number.isInteger(stt.taste) ? stt.taste : 1;
       ok = taste > 0;
     }
     if (!ok) return json({ tokens: {}, exp: 0 });
-    const uids = (Array.isArray(body.uids) ? body.uids : []).slice(0, 400)
+
+    let uids = (Array.isArray(body.uids) ? body.uids : []).slice(0, 400)
       .map(u => String(u || '').replace(/[^a-f0-9]/g, '')).filter(u => u.length === 32);
+
+    if (!paid) {
+      if ((await rateHit(`sign:${who}`, 24 * 3600000)) > FREE_SIGN_TRIES) {
+        return json({ tokens: {}, exp: 0, slow: true });
+      }
+      /* which films this account is allowed to be given at all */
+      const map = (await getSetting('stream:stages')) || {};
+      const stage = Math.max(0, Math.min(20, Number(stt.stage) || 0));
+      const allowed = new Set([].concat(map['0'] || [], map[String(stage)] || [], map.free || []));
+      if (allowed.size) uids = uids.filter(u => allowed.has(u));
+      uids = uids.slice(0, FREE_SIGN_MAX);
+    }
+
     const exp = Math.floor(Date.now() / 1000) + 6 * 3600;
     const tokens = {};
     for (const uid of uids) tokens[uid] = await signUid(k, uid, exp);
@@ -2767,6 +2798,30 @@ export default async (request) => {
       if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1)); return; }
       if (typeof o === 'object') { if (o.url) { const u = uidOf(o.url); if (u) free.add(u); } Object.values(o).forEach(x => walk(x, depth + 1)); } };
     walk(programmes.clients || {}, 0);
+    /* ── which film belongs to which stage ──────────────────────
+       The server has never known: the pools live in the app's own data
+       file, which is why this route is handed the free drills rather
+       than working them out. It is handed the whole map now and writes
+       it down, so /sign can give a free account the films for the free
+       stage and the one stage it was placed on, and nothing else. */
+    if (body.stageDrills && typeof body.stageDrills === 'object') {
+      const byStage = {};
+      for (const key of Object.keys(body.stageDrills).slice(0, 24)) {
+        const st0 = String(Number(key));
+        if (st0 === 'NaN') continue;
+        const list = Array.isArray(body.stageDrills[key]) ? body.stageDrills[key] : [];
+        const out = [];
+        for (const v of list.slice(0, 400)) {
+          const u = uidOf((lib.video || {})[String(v)]);
+          if (u && out.indexOf(u) < 0) out.push(u);
+        }
+        if (out.length) byStage[st0] = out;
+      }
+      /* the free fixes travel with the free stage: a fix anybody can read
+         has films anybody can play */
+      byStage.free = [...free];
+      await setSetting('stream:stages', byStage);
+    }
     const unlockAll = !!body.unlockAll;
     const lock = unlockAll ? [] : [...all].filter(u => !free.has(u));
     const unlock = unlockAll ? [...all] : [...all].filter(u => free.has(u));

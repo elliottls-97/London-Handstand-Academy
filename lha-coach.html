@@ -7268,10 +7268,25 @@ function streamLoad(){
 function streamLock(unlockAll){
   if(streamBusy) return;
   const free=(STAGES[0].drillIds||[]).concat((typeof WRIST_DAY!=='undefined'&&WRIST_DAY.drills)||[]);
+  /* ── which drill belongs to which stage ────────────────────────
+     The server has never known: the pools are in the app's data file,
+     which is why this hands it the free ones. It hands over the whole
+     map now, so a free account can only ever be given the films for the
+     free stage and the one stage it was placed on. */
+  const stageDrills={};
+  STAGES.forEach((_,i)=>{
+    const ids=[];
+    (wkPoolFor(i)||[]).forEach(x=>{ if(x&&x.v&&ids.indexOf(x.v)<0) ids.push(x.v); });
+    ((STAGES[i].drillIds)||[]).forEach(v=>{ if(ids.indexOf(v)<0) ids.push(v); });
+    /* the workouts as written, which can reach outside the stage's pool */
+    [1,2,3].forEach(b=>{ const w=((wkBands[String(i)]||{})[String(b)]);
+      if(Array.isArray(w)) w.forEach(v=>{ if(ids.indexOf(v)<0) ids.push(v); }); });
+    if(ids.length) stageDrills[i]=ids;
+  });
   if(!confirm(unlockAll?'Open every clip to the public again?'
     :'Lock every library clip except Foundations, the mobility day and the free fixes? The app signs the rest for paid and coached accounts.')) return;
   streamBusy=true; streamMsg=unlockAll?'Unlocking…':'Locking… this takes a few seconds'; draw();
-  fetch(API+'/stream/lock',{method:'POST',headers:hdr(),body:JSON.stringify(unlockAll?{unlockAll:true}:{freeDrills:free})})
+  fetch(API+'/stream/lock',{method:'POST',headers:hdr(),body:JSON.stringify(unlockAll?{unlockAll:true}:{freeDrills:free, stageDrills})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ streamBusy=false; streamSt=null;
       streamMsg=(unlockAll?d.unlocked+' opened.':d.locked+' locked, '+d.free+' left open of '+d.total+'.')

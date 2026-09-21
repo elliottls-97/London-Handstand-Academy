@@ -1263,13 +1263,30 @@ const sig = url => { const m=/\/([a-f0-9]{32})\//.exec(String(url||'')); return 
 let signTimer=null;
 function loadSign(){
   if(!st.token || st.preview) return;
-  const uids=new Set();
-  const take=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); if(m) uids.add(m[1]); };
-  (LIBRARY||[]).forEach(d=>take(d.url));
-  allDrills().forEach(d=>take(d.url));
+  /* tokens last six hours and are kept in storage, so opening the app
+     again inside that window is not a reason to ask for a new set. It was
+     asking on every single open. */
+  if(SIGN && SIGN.exp && Object.keys(SIGN.t||{}).length && SIGN.exp-Date.now() > 3600000){
+    clearTimeout(signTimer);
+    signTimer=setTimeout(loadSign, Math.max(60000, SIGN.exp-Date.now()-3600000));
+    return;
+  }
+  /* ── in the order they are needed ─────────────────────────────────
+     This asked for every film in the library in one request, which was
+     fine while the server signed whatever it was handed and is not now:
+     a free account is given one session's worth, so the session's own
+     films have to be at the front of the list rather than wherever the
+     library happens to put them. */
+  const uids=[]; const seen=new Set();
+  const take=u=>{ const m=/\/([a-f0-9]{32})\//.exec(String(u||''));
+    if(m && !seen.has(m[1])){ seen.add(m[1]); uids.push(m[1]); } };
+  (Q||[]).forEach(x=>take(x && x.it && x.it.url));          /* the session in hand */
+  try{ poolFor(curStage()).forEach(x=>take((drillById(x.v)||{}).url)); }catch(e){}
   Object.values(st.fixes||{}).forEach(f=>(f.drills||[]).forEach(d=>take(d.url)));
-  if(!uids.size) return;
-  fetch(AUTH.sign,{method:'POST',headers:authed(),body:JSON.stringify({uids:[...uids]})})
+  allDrills().forEach(d=>take(d.url));
+  (LIBRARY||[]).forEach(d=>take(d.url));
+  if(!uids.length) return;
+  fetch(AUTH.sign,{method:'POST',headers:authed(),body:JSON.stringify({uids})})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
       const had=Object.keys(SIGN.t).length;
