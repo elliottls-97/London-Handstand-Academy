@@ -4289,7 +4289,11 @@ function sessionCalendar(){
 
 function screenProgress(){
   const t=st.tests||[];
-  const rows=DATA.test.items.map((it,i)=>{
+  /* belt as well as braces: one screen reading a key that is not there
+     took the whole tab down, and the tab is where a coached client goes to
+     see what they have done */
+  const testItems=((DATA&&DATA.test&&DATA.test.items)||[]);
+  const rows=testItems.map((it,i)=>{
     const was=(t[0]&&t[0][it.id]), now=(t[t.length-1]&&t[t.length-1][it.id]);
     const pct=(was&&now&&+was>0)?Math.min(100,Math.round(+now/Math.max(+was,+now)*100)):0;
     return `<div><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -6757,9 +6761,9 @@ function drawOv(){
           Everything moves with it: your programme, your progress and the whole chat.</div>`;
   }
   if(st.ov==='test'){
-    body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey)">${esc(DATA.test.blurb)}</div>
+    body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey)">${esc((DATA.test||{}).blurb||'')}</div>
       <div style="margin-top:18px;display:flex;flex-direction:column;gap:14px">
-      ${DATA.test.items.map(t=>{
+      ${(((DATA.test||{}).items)||[]).map(t=>{
         const filmed=(st.testClips||{})[t.id];
         return `<div class="card" style="padding:18px">
         <div style="font:600 15px/1.2 var(--sans)">${esc(t.n)}</div>
@@ -7305,7 +7309,22 @@ function libToArray(lib){
   }));
 }
 function applyProgramme(d){
-  if(d && d.plan && d.plan.days && d.plan.days.length) DATA = d.plan;
+  /* ── a plan is merged, not swapped in ─────────────────────────────
+     This assigned the server's plan over DATA whole. A programme written
+     in the builder has no test block, so DATA.test went undefined, and
+     the Progress screen reads DATA.test.items on its first line. It threw
+     the moment the plan arrived: tapping Progress did nothing, and for
+     anyone already on it the Check points and Your clips buttons did
+     nothing either, because every redraw threw before it got anywhere.
+     Nothing on screen said so. The shape is kept and the plan fills it. */
+  if(d && d.plan && d.plan.days && d.plan.days.length){
+    const p=d.plan;
+    const t=(p.test && typeof p.test==='object') ? p.test : {};
+    DATA = Object.assign({}, p, {
+      read: Array.isArray(p.read) ? p.read : [],
+      test: { blurb: String(t.blurb||''), items: Array.isArray(t.items) ? t.items : [] },
+    });
+  }
   /* The server works out which block they are on, when it started and when
      the test is due, and sends it on every load. This threw it away, so the
      app guessed from the client's first ever session instead: the header
@@ -7853,7 +7872,7 @@ function filmTest(id,name){
 function sendTest(){
   const vals=st.testDraft||{};
   const clips=Object.entries(st.testClips||{}).map(([id,c])=>({drill:id,name:c.name,uid:c.uid}));
-  const named={}; DATA.test.items.forEach(t=>{ if(vals[t.id]) named[t.n]=vals[t.id]+' '+t.u; });
+  const named={}; (((DATA.test||{}).items)||[]).forEach(t=>{ if(vals[t.id]) named[t.n]=vals[t.id]+' '+t.u; });
   if(!clips.length && !Object.keys(named).length){
     const m=$('#testMsg'); if(m) m.textContent='Add a number or a clip first.'; return;
   }
