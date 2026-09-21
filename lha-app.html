@@ -56,7 +56,7 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
    centred, so it paints over whatever body is doing underneath it. The
    gradient was on body and this flat fill sat on top of it, which is why
    the glass never showed. */
-#app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;
+#app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;position:relative;
  /* The base is #f4f4f5, a cool near white, exactly as the frames have it, not
     the warm --bg cream. That is the whole difference: three washes at .05 to
     .12 read against a near white and vanish into a warm mid tone, which is
@@ -105,7 +105,10 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
   15%{opacity:1}
   100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--d)*-1)) scale(1) }}
 @media(prefers-reduced-motion:reduce){.burst{display:none}}
-.scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:8px}
+.scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;
+ /* the bar floats over the page, so the last thing on every screen has to
+    have room to sit above it rather than under it */
+ padding-bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}
 /* no double tap zoom, and no zoom on focusing a field: iOS zooms into any
    input under 16px, which is how the app kept ending up at 110% */
 html,body{touch-action:manipulation}
@@ -148,20 +151,41 @@ h1,h2,h3{margin:0;font-family:var(--serif);font-weight:400}
  box-shadow:24px 0 60px -30px rgba(0,0,0,.45);animation:slideIn .32s cubic-bezier(.2,.9,.2,1) both}
 @keyframes slideIn{from{transform:translateX(-100%)}to{transform:none}}
 @media (prefers-reduced-motion:reduce){.menu.on,.menu .panel{animation:none!important}}
-.tabbar{flex:none;display:flex;background:#fff;border-top:1px solid rgba(28,32,25,.08);
- padding-bottom:env(safe-area-inset-bottom);position:relative;z-index:5}
-.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0 12px;cursor:pointer;
- border:none;background:none;position:relative;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
-.tab:active{transform:scale(.94)}
-.tab i{transition:background .35s}
-.tab span{transition:color .35s,font-weight .35s}
-.tab i{width:7px;height:7px;border-radius:999px;background:transparent;display:block}
-.tab.on i{background:var(--amber)}
-body[data-tier=free] .tab.on i{background:var(--sand)}
+/* ── the bar at the bottom ─────────────────────────────────────────
+   It was a white strip welded to the bottom of the screen with a hairline
+   over it, which is how an app looked in 2016. It floats now: a rounded
+   bar of frosted glass sitting over the page with the content sliding
+   underneath it, the way the bar in WhatsApp and Instagram does. Words,
+   not icons, because the four words are the four screens and a picture of
+   a ladder is a guess at what Ladder means.
+
+   The blur is the point, so the bar takes its colour from whatever is
+   behind it. Where a browser cannot blur, the fallback is a solid bar
+   rather than a transparent one you cannot read. */
+.tabbar{position:absolute;left:12px;right:12px;z-index:20;display:flex;gap:4px;padding:5px;
+ bottom:calc(env(safe-area-inset-bottom,0px) + 10px);
+ border-radius:26px;background:rgba(252,252,251,.92);
+ border:1px solid rgba(255,255,255,.75);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.85),
+   0 18px 40px -20px rgba(0,64,61,.5), 0 3px 12px rgba(0,64,61,.10)}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .tabbar{background:rgba(252,252,251,.62);
+    backdrop-filter:blur(26px) saturate(190%);-webkit-backdrop-filter:blur(26px) saturate(190%)}
+}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;
+ min-height:46px;padding:13px 4px;cursor:pointer;
+ border:none;background:transparent;border-radius:19px;position:relative;
+ transition:background .28s ease,transform .3s cubic-bezier(.2,.8,.2,1)}
+.tab:active{transform:scale(.96)}
+.tab span{transition:color .3s,font-weight .3s}
+/* the dot said which tab you were on. The pill says it now. */
+.tab i{display:none}
+.tab.on{background:#fff;box-shadow:0 1px 3px rgba(0,64,61,.16),0 0 0 .5px rgba(0,64,61,.06)}
+@media (prefers-reduced-motion:reduce){.tab{transition:none}}
 /* primary navigation: the quiet grey is too quiet for the one control
    that is always on screen */
-.tab span{font:500 11.5px/1 var(--sans);color:var(--grey)}
-.tab.on span{font-weight:700;color:var(--ink)}
+.tab span{font:600 12.5px/1 var(--sans);color:var(--grey)}
+.tab.on span{font-weight:700;color:var(--deep)}
 .ov{position:fixed;inset:0;z-index:60;display:none;background:rgba(0,30,28,.45);
  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
  align-items:flex-end;justify-content:center}
@@ -12503,11 +12527,11 @@ function render(){
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
     ((id==='coaching'||id==='ask')&&hasNew())
-      ?`<b style="position:absolute;top:4px;left:50%;margin-left:6px;min-width:18px;height:18px;padding:0 5px;
+      ?`<b style="position:absolute;top:3px;left:50%;margin-left:9px;min-width:17px;height:17px;padding:0 5px;
       border-radius:999px;background:var(--amber);color:var(--ink);display:grid;place-items:center;
       font:700 10px/1 var(--sans)">${newCount()}</b>`
     : (((id==='progress'||(id==='ladder'&&!coached))&&nCp)
-      ?`<b style="position:absolute;top:6px;left:50%;margin-left:9px;width:8px;height:8px;
+      ?`<b style="position:absolute;top:6px;left:50%;margin-left:14px;width:7px;height:7px;
       border-radius:99px;background:var(--amber)"></b>`:'')}</button>`).join('');
   swap((st.preview?`<div style="position:fixed;top:0;left:0;right:0;z-index:2000;
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
