@@ -3731,7 +3731,7 @@ function perDrillCard(){
       <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${rows.length} logged</span>
     </div>
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-      The last set of each, against what it asked for. Short of it is
+      The last time you did each, against what it asked for. Short of it is
       information, not a failure.</div>
     <div style="margin-top:12px">
     ${shown.map((r,i)=>`<div style="display:flex;align-items:baseline;gap:10px;
@@ -5692,13 +5692,28 @@ function endPlayer(done){ clearInterval(tick_); tick_=null;
       }
       const r=m.get(k); r.of++; if(idx<qi||done) r.got++;
     });
-    return [...m.values()].slice(0,40).map(r=>Object.assign(r,{
-      rate:(st.rate||{})[r.v]||'',
-      /* what they actually did: the per-set amount for every set they got
-         through. An adjusted count from the working list wins over it. */
-      reps:r.per*r.got,
-      want:r.per*r.of,
-      secs:r.secsPer*r.got}));
+    /* ── the number they counted ──────────────────────────────────
+       The comment under this said an adjusted count wins, and the line
+       it sat on multiplied the dose by the sets and ignored it. So
+       eleven typed where the dose asked for eight was saved as eight,
+       the account rebuilt the history from that, and the number came
+       back wrong on the next open. The working list keeps one figure
+       per drill, what a set of it was actually counted at, so that is
+       the figure a set is worth here. */
+    const typedOf={};
+    (Q||[]).forEach((x,i)=>{
+      const v=(x.it&&x.it.v)||(x.it&&x.it.n)||('#'+i);
+      const n=Number((st.reps||{})['q'+i]);
+      if(typedOf[v]==null && Number.isFinite(n) && n>0) typedOf[v]=n;
+    });
+    return [...m.values()].slice(0,40).map(r=>{
+      const each = typedOf[r.v]!=null ? typedOf[r.v] : (typedOf[r.n]!=null ? typedOf[r.n] : r.per);
+      return Object.assign(r,{
+        rate:(st.rate||{})[r.v]||'',
+        reps:each*r.got,
+        want:r.per*r.of,
+        secs:r.secsPer*r.got});
+    });
   })();
   reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done, items:rows,
     /* how they trained, so the coach's calendar can say whether this was the
@@ -7759,14 +7774,49 @@ const MINS=[[15,'Short and focused'],[30,'A proper session'],[45,"I'm ready to p
 const intake = () => (st.intake=st.intake||{});
 const levelDef = () => LEVELS.find(l=>l.v===intake().level) || LEVELS[0];
 
-/* "How well we know you", never "how far along you are" — a training bar
-   that starts above zero is a lie, and one that drops when we add a
-   question later is worse than none. */
+/* ── how well I know you ───────────────────────────────────────────
+   It was four things, three of them the quiz, and it opened at twenty per
+   cent for having opened the app, which is exactly the lie the comment
+   above it warned against. Worse, it only counted what somebody tells
+   me. What actually makes the next thing I write better is what they do:
+   a clip I can watch, a check point with a number against it, and enough
+   sessions to see a pattern.
+
+   So it is six things, each worth what it is worth, starting at nothing
+   and reaching a hundred only when all six are in. Every one of them is
+   something they can go and do, and the card names the next one. */
+function profileBits(){
+  const a=intake();
+  const cps=Object.keys(cpLog()||{}).length;
+  const done=sessionsDone().length;
+  return [
+    {k:'goal', w:10, got:!!a.goal,
+     t:'Say what you are after', d:'One tap, and it changes how everything is explained.',
+     go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"},
+    {k:'level', w:15, got:a.level!=null,
+     t:'Say where you are now', d:'This is the one that puts you on a stage.',
+     go:"st.tab='quiz';st.quizDone=false;st.quizStep=1;save();render()"},
+    {k:'sore', w:10, got:!!(a.niggles&&a.niggles.length),
+     t:'Tell me what is sore', d:'Thirty seconds, and it changes what you are given.',
+     go:"st.tab='quiz';st.quizDone=false;st.quizStep=2;save();render()"},
+    {k:'baseline', w:25, got:!!a.baseline,
+     t:'Send a clip', d:'One attempt on film, and I can place you properly rather than taking your word for it.',
+     go:"go(coachedView()?'ask':'coaching')"},
+    {k:'cp', w:20, got:cps>0,
+     t:'Log a check point', d:'A number against one of the check points on your stage, so progress is measured rather than felt.',
+     go:"st.tab='ladder';st.ladderTab='ladder';save();render()"},
+    {k:'trained', w:20, got:done>=3,
+     /* "Train -4 more sessions" once they were past three: the number left
+        was worked out without a floor under it */
+     t:(done>=3) ? 'Three sessions in'
+        : done ? 'Train '+(3-done)+' more session'+((3-done)===1?'':'s')
+               : 'Train three sessions',
+     d:'Three sessions is the point where what you do starts to say more than what you said.',
+     go:"go('home')"}
+  ];
+}
 function profilePct(){
-  const a=intake(); let n=20;                 /* opening the app is the first rung */
-  if(a.goal) n+=15; if(a.level!=null) n+=20;
-  if(a.niggles) n+=20; if(a.baseline) n+=25;
-  return Math.min(100,n);
+  return profileBits().reduce((n,b)=>n+(b.got?b.w:0), 0);
 }
 
 const INTAKE_STEPS=[
@@ -8422,37 +8472,50 @@ function retakeIntake(){
    there with no way to move it: nothing set baseline at all, so it stopped
    at 85 per cent and the copy asked for a clip it gave you no way to send. */
 function profileGaps(){
-  const a=intake(), out=[];
   /* The quiz places somebody on the ladder. A coached client is not on the
      ladder and has no quiz screen in their tabs, so this button dropped them
      back on Today with no explanation. Their coach already knows all of it. */
   if(coachedView()) return [];
-  if(!a.goal || a.level==null) out.push({t:'Answer the quiz', d:'Your goal and where you are now.',
-    go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"});
-  else if(!a.niggles) out.push({t:'Anything sore?', d:'Thirty seconds, and it changes what you are given.',
-    go:"st.tab='quiz';st.quizDone=false;st.quizStep=2;save();render()"});
-  if(!a.baseline) out.push({t:'Film a baseline clip', d:'One attempt, and I can place you properly rather than taking your word for it.',
-    go:"go(coachedView()?'ask':'coaching')"});
-  return out;
+  return profileBits().filter(b=>!b.got);
 }
 function knowCard(){
-  const pct=profilePct();
-  if(pct>=100) return '';
-  const gaps=profileGaps(), next=gaps[0];
+  if(coachedView()) return '';
+  const bits=profileBits(), pct=profilePct();
+  const gaps=bits.filter(b=>!b.got), next=gaps[0];
+  /* Full, it says so once and then goes, rather than sitting on the page
+     as a finished bar nobody needs to look at again. */
+  if(!next) return st.knowDone ? '' : `<div class="card" style="padding:16px 18px;margin-bottom:16px">
+    <div class="kick2">HOW WELL I KNOW YOU</div>
+    <div style="font:400 19px/1.25 var(--serif);margin-top:8px">That is everything I need.</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+      Your answers, a clip, a check point with a number on it and three sessions in.
+      Anything you log from here makes the next thing I write better.</div>
+    <button onclick="st.knowDone=1;save();render()" class="btn2" style="width:100%;margin-top:12px">
+      Got it</button></div>`;
+  /* every step, so the bar is a list of things to do rather than a number
+     that moves for reasons nobody can see */
+  const rows=bits.map(b=>`<div style="display:flex;align-items:center;gap:9px;padding:6px 0">
+    <span style="flex:none;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;
+      background:${b.got?'var(--forest)':'transparent'};
+      border:${b.got?'0':'1.5px solid rgba(0,64,61,.22)'};color:#fff;font:700 9px/1 var(--sans)">${
+      b.got?'&check;':''}</span>
+    <span style="flex:1;min-width:0;font:${b.got?'500':'600'} 13px/1.3 var(--sans);
+      color:${b.got?'var(--grey2)':'var(--ink)'}">${esc(b.t)}</span>
+    <span style="flex:none;font:600 10.5px/1 var(--sans);color:var(--grey2)">${b.w}%</span>
+  </div>`).join('');
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
       <span class="kick2">HOW WELL I KNOW YOU</span>
       <span style="font:700 13px/1 var(--sans)">${pct}%</span></div>
     <div style="height:6px;border-radius:3px;background:var(--mist);margin-top:10px;overflow:hidden">
-      <i style="display:block;height:100%;width:${pct}%;background:var(--forest)"></i></div>
-    ${next?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">
-        ${esc(next.d)}</div>
-      <button onclick="${next.go}" style="margin-top:12px;width:100%;border:0;border-radius:12px;
-        padding:12px;background:var(--forest);color:var(--on-primary);font:600 14px/1 var(--sans);
-        cursor:pointer">${esc(next.t)}</button>
-      ${gaps.length>1?`<div style="font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:9px;
-        text-align:center">${gaps.length-1} more after that</div>`:''}`
-    :''}</div>`;
+      <i style="display:block;height:100%;width:${pct}%;background:var(--forest);
+        transition:width .6s cubic-bezier(.2,.8,.2,1)"></i></div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">${esc(next.d)}</div>
+    <button onclick="${next.go}" style="margin-top:12px;width:100%;border:0;border-radius:12px;
+      padding:12px;background:var(--forest);color:var(--on-primary);font:600 14px/1 var(--sans);
+      cursor:pointer">${esc(next.t)}</button>
+    <div style="margin-top:12px;padding-top:6px;border-top:1px solid rgba(0,64,61,.08)">${rows}</div>
+  </div>`;
 }
 
 /* the two escape hatches, small and at the foot of the page rather than
@@ -9573,6 +9636,11 @@ function screenLadder(){
     <!-- CHECK-IN DUE sat here asking for three sliders before the person had
          seen a single thing they had done. Progress is the record, not
          another form: it leads with the calendar and what is in it. -->
+
+    <!-- how well I know you. It lived in the drawer behind the menu, which
+         is the one place nobody looks, so a bar measuring how much I have
+         to go on sat where nothing could ever move it. -->
+    ${knowCard()?`<div style="padding:22px 16px 0">${knowCard()}</div>`:''}
 
     <div style="padding:22px 20px 0">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
