@@ -2973,7 +2973,8 @@ function playClip(uid){
     background:rgba(12,16,14,.92);display:grid;place-items:center;padding:18px">
     <div style="width:min(520px,100%);border-radius:20px;overflow:hidden;background:#000"
       onclick="event.stopPropagation()">
-      <iframe src="${streamEmbed(esc(uid))}" allow="fullscreen"
+      <iframe src="${streamEmbed(esc(uid))}&autoplay=true" allow="accelerometer; gyroscope;
+        autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
         style="display:block;width:100%;aspect-ratio:9/16;max-height:72vh;border:0"></iframe>
     </div>
     <button onclick="closeClip(event)" style="margin-top:16px;border:0;border-radius:12px;
@@ -3828,13 +3829,15 @@ function trainingCalendar(){
 
   /* the month, as one line */
   const mDays=Object.keys(byDay).filter(k=>k.slice(0,7)===ym);
-  const mSess=mDays.reduce((a,k)=>a+byDay[k].length,0);
+  const mAll=mDays.flatMap(k=>byDay[k]);
+  const mSess=mAll.filter(x=>x.done).length;
+  const mPart=mAll.length-mSess;
   const mMins=mDays.reduce((a,k)=>a+byDay[k].reduce((b,x)=>b+(Number(x.actual)||Number(x.mins)||0),0),0);
   const mOpens=[...opens].filter(k=>k.slice(0,7)===ym).length;
   /* drills and sets this month, and everything since the first session */
   const sums=list=>list.reduce((a,x)=>{ a.drills+=(x.drills||new Set((x.items||[]).map(i=>i.v)).size||0);
     a.sets+=(x.items||[]).reduce((b,it)=>b+(Number(it.got)||0),0) || (x.got||0); return a; },{drills:0,sets:0});
-  const mS=sums(mDays.flatMap(k=>byDay[k]));
+  const mS=sums(mAll);
   const allS=sums(ss);
   const allMins=ss.reduce((a,x)=>a+(Number(x.actual)||Number(x.mins)||0),0);
   const firstAt=ss.length?Math.min(...ss.map(x=>x.at)):0;
@@ -3861,9 +3864,12 @@ function trainingCalendar(){
       <span style="flex:1;text-align:center">
         <span style="display:block;font:400 19px/1.1 var(--serif)">${esc(title)}</span>
         <span style="display:block;font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:5px">${
-          mSess ? mSess+' session'+(mSess===1?'':'s')+(mMins?' &middot; '+hm(mMins*60000):'')
-                  +(mS.drills?' &middot; '+mS.drills+' drills':'')+(mS.sets?' &middot; '+mS.sets+' sets':'')
-                : 'Nothing logged'}</span></span>
+          (mSess||mPart)
+            ? (mSess?mSess+' session'+(mSess===1?'':'s')+' finished':'')
+              +(mPart?(mSess?' &middot; ':'')+mPart+' part':'')
+              +(mMins?' &middot; '+hm(mMins*60000):'')
+              +(mS.drills?' &middot; '+mS.drills+' drills':'')+(mS.sets?' &middot; '+mS.sets+' sets':'')
+            : 'Nothing logged'}</span></span>
       <button onclick="calShift(-1)" aria-label="Next month" ${(st.calOff|0)?'':'disabled'}
         style="flex:none;width:34px;height:34px;border-radius:11px;
         border:1px solid rgba(0,64,61,${(st.calOff|0)?'.14':'.06'});background:#fff;
@@ -4400,6 +4406,38 @@ let askDraft='';
    cannot carry a 60MB video, and it should not have to. */
 const STREAM_SUB='customer-pns1oongdltmkjwa.cloudflarestream.com';
 const streamEmbed = uid => `https://${STREAM_SUB}/${uid}/iframe?preload=metadata`;
+/* ── a clip in the chat ────────────────────────────────────────────
+   Elliott's video reply was a bare Stream iframe, and when the player did
+   not paint, which is most of the reasons a player does not paint, what a
+   coached client saw was a black rectangle with no poster and nothing to
+   press. The thing they pay for, looking broken.
+
+   So the still comes first, as an image, with a play button over it. That
+   is a picture of their own handstand either way, and the player is only
+   asked for once somebody presses it, with the permissions it actually
+   wants rather than fullscreen alone. */
+function clipPoster(uid, ratio, cap){
+  const u=esc(String(uid||''));
+  if(!u) return '';
+  return `<div id="cc-${u}" style="position:relative;width:100%;aspect-ratio:${ratio||'4/5'};
+    ${cap?'max-height:'+cap+';':''}background:#11150f">
+    <img src="${esc(streamThumb(u))}" alt="" loading="lazy"
+      style="display:block;width:100%;height:100%;object-fit:cover">
+    <button onclick="playChatClip('${u}')" aria-label="Play this clip"
+      style="position:absolute;inset:0;width:100%;border:0;cursor:pointer;padding:0;
+      background:rgba(10,14,12,.16);display:grid;place-items:center">
+      <span style="width:58px;height:58px;border-radius:50%;background:rgba(255,255,255,.94);
+        display:grid;place-items:center;box-shadow:0 10px 26px -12px rgba(0,0,0,.7)">
+        <svg width="18" height="20" viewBox="0 0 17 19" fill="#006663" style="margin-left:3px">
+          <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path>
+        </svg></span></button></div>`;
+}
+function playChatClip(uid){
+  const box=document.getElementById('cc-'+uid); if(!box) return;
+  box.innerHTML=`<iframe src="${streamEmbed(uid)}&autoplay=true" allow="accelerometer; gyroscope;
+    autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+    style="display:block;width:100%;height:100%;border:0"></iframe>`;
+}
 let upPct=0, upBusy=false;
 
 function pickClip(){ pickFile('video/*'); }
@@ -4773,9 +4811,8 @@ function reviewCardHTML(){
       <span class="kick2" style="color:var(--forest)">WHAT ELLIOTT SAID</span>
       <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(when(st.lastReview))}</span>
     </div>
-    ${a.video?`<div style="border-radius:16px;overflow:hidden;background:#101413;margin-top:12px">
-      <iframe src="${streamEmbed(esc(a.video))}" loading="lazy" allow="fullscreen"
-        style="display:block;width:100%;aspect-ratio:9/16;max-height:460px;border:0"></iframe></div>`:''}
+    ${a.video?`<div style="border-radius:16px;overflow:hidden;margin-top:12px">${
+      clipPoster(a.video,'9/16','460px')}</div>`:''}
     ${a.text?`<div style="font:400 15px/1.6 var(--sans);color:var(--ink);margin-top:12px;
       white-space:pre-wrap">${esc(a.text)}</div>`:''}
     <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
@@ -4899,11 +4936,8 @@ function screenAsk(){
   const bubbles=msgs.map(m=>{
     const mine=m.from==='me';
     return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'}">
-      ${m.video?`<div style="max-width:82%;border-radius:18px;overflow:hidden;background:#11150f;
-        margin-bottom:${m.text?'6px':'0'}">
-        <iframe src="${streamEmbed(m.video)}" loading="lazy" allow="fullscreen"
-          style="display:block;width:100%;aspect-ratio:4/5;max-height:56vh;border:0"></iframe>
-      </div>`:''}
+      ${m.video?`<div style="max-width:82%;width:82%;border-radius:18px;overflow:hidden;
+        margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','56vh')}</div>`:''}
       ${m.image?`<a href="${AUTH.image}/${esc(m.image)}" target="_blank" rel="noopener"
         style="max-width:82%;border-radius:18px;overflow:hidden;background:#11150f;
         margin-bottom:${m.text?'6px':'0'};display:block">
@@ -8777,14 +8811,17 @@ function screenFix(){
 
     ${(f.drills||[]).length?`<div class="rise rise-3" style="padding:22px 20px 0">
       <div style="font:400 24px/1.1 var(--serif)">The drills.</div>
-      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${f.drills.length} in the pool. A session takes six to ten and starts further down each time.</div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${
+        f.drills.length<=6
+          ? `${f.drills.length} drill${f.drills.length===1?'':'s'}, and a session is all of them.`
+          : `${f.drills.length} in the pool. A session takes six to ten and starts further down each time.`}</div>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
         ${f.drills.map(d=>`<div style="display:flex;gap:12px;align-items:center;background:#fff;border-radius:14px;padding:8px 10px 8px 8px">
           <div style="width:72px;height:44px;border-radius:9px;background:#000;overflow:hidden;flex:none">${
             d.url?`<img src="${esc(streamThumb(uidOfUrl(d.url)))}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">`:''}</div>
           <div style="flex:1;min-width:0">
             <div style="font:600 14px/1.25 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.n||d.v)}</div>
-            <div style="font:400 12px/1.3 var(--sans);color:var(--grey2);margin-top:3px">${esc(d.g||'')}${d.g?' · ':''}level ${d.L||1}${d.d?' · '+esc(d.d):''}</div>
+            <div style="font:400 12px/1.3 var(--sans);color:var(--grey2);margin-top:3px">${esc(d.g||'')}${d.g?' · ':''}level ${d.L||1}${typeof d.d==='string'&&d.d?' · '+esc(d.d):''}</div>
           </div></div>`).join('')}
       </div></div>`:''}
     <div style="height:110px"></div>
@@ -9139,24 +9176,41 @@ function setMins(m){ st.time=m; save(); saveState(); if(!st.ov) render(); }
    for and gets closed without being read. Dismissed is dismissed, and the
    strip on Today is how it stays reachable afterwards, because most people
    reading this are not in London and should be asked exactly once. */
-const WORKSHOP = {
-  id:'ws-2026-09-26',
-  n:'All-levels handstand workshop',
-  when:'Saturday 26 September · 12:30 to 2:00',
-  where:'OverGravity, Shadwell, London',
-  price:'£25 early bird',
-  blurb:'Ninety minutes, genuinely all levels. Never been upside down through to freestanding, every drill scaled to you. Coached by Elliott and Suryava, in a small group.',
-  uid:'d64459ceab007129244814ac6733d02a',
-  url:'https://londonhandstandacademy.com/workshop-handstand-26-sept',
-  until:'2026-09-26T14:00:00+01:00',
-};
+/* ── the workshop, as the dashboard has it ─────────────────────────
+   This was a dated block typed into the app: a title, a date, a price and
+   a film uid, which had to be edited and deployed for every workshop and
+   went on advertising one that had happened. It comes from the same place
+   the site takes them from now, which is the Workshops section of the
+   dashboard. Nothing written here, nothing to take out again.
+
+   WS is null until the list arrives and null when nothing is on sale, and
+   everything below reads it rather than a constant. */
+let WS=null, wsAsked=false;
+function loadWorkshops(){
+  if(wsAsked) return; wsAsked=true;
+  fetch('/api/app/workshops').then(r=>r.ok?r.json():null)
+    .then(d=>{
+      const list=(d&&d.workshops)||[];
+      const next=list.filter(w=>w && w.left!==0)[0] || list[0] || null;
+      if(!next) return;
+      WS={ id:'ws-'+next.slug, slug:next.slug, n:next.title||'Workshop',
+           when: next.when ? new Date(next.when).toLocaleString('en-GB',
+             {weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}) : '',
+           where: next.place||'', price: next.priceLabel||'',
+           blurb: next.desc||'', uid: next.film||'',
+           url: '/workshop.html?slug='+encodeURIComponent(next.slug),
+           until: next.when || '' };
+      render();
+    }).catch(()=>{});
+}
+
 const WS_AFTER_MS = 3*60*1000;   /* three minutes of looking at it */
 /* Somebody paying for coaching is not a lead, and a workshop advert on the
    page they opened to look at their own programme reads as one. It is a
    funnel for the free tier; the coached tier is the end of the funnel. They
    hear about a workshop from Elliott, in the thread. */
-const workshopOn = () => !!WORKSHOP.uid && !coachedView()
-  && new Date() < new Date(WORKSHOP.until);
+const workshopOn = () => { loadWorkshops();
+  return !!WS && !coachedView() && (!WS.until || new Date() < new Date(WS.until)); };
 
 /* Time spent with the app in front of them, not time since it loaded. A
    backgrounded tab must not earn its way to a popup. */
@@ -9166,13 +9220,18 @@ const workshopOn = () => !!WORKSHOP.uid && !coachedView()
    £25 workshop in London that nothing had established they could get to.
    It waits for a finished session now, which is also the first moment the
    advert is aimed at somebody who has any reason to want it. */
-const WS_NOT_NOW = ['quiz','joinFree','signin','reset','welcome'];
+/* And never on top of a conversation. A £25 workshop landing in the middle
+   of somebody writing to their coach is an advert interrupting the thing
+   they are paying for, which is true of a free account waiting on a form
+   check as well as a coached one. */
+const WS_NOT_NOW = ['quiz','joinFree','signin','reset','welcome','ask','coaching'];
 const wsMoment = () => !WS_NOT_NOW.includes(st.tab)
+  && !(st.tab==='coaching' && st.coTab==='chat')
   && !!st.mode && !!st.quizDone && !!st.oriented
   && sessionsDone().length > 0;
 let wsUsed=0, wsTimer=0;
 function workshopWatch(){
-  if(!workshopOn() || st.wsSeen===WORKSHOP.id) return;
+  if(!workshopOn() || st.wsSeen===WS.id) return;
   clearInterval(wsTimer);
   wsTimer=setInterval(()=>{
     if(document.hidden) return;
@@ -9199,7 +9258,7 @@ function openWorkshop(){
 function closeWorkshop(seen){
   const el=document.getElementById('wsPop');
   if(el){ el.style.display='none'; el.innerHTML=''; }
-  if(seen){ st.wsSeen=WORKSHOP.id; save(); render(); }
+  if(seen && WS){ st.wsSeen=WS.id; save(); render(); }
 }
 function wsHost(){
   let el=document.getElementById('wsPop');
@@ -9220,31 +9279,40 @@ function wsHost(){
    is told how tall it may be rather than left to push the buttons off the
    bottom of a phone. */
 function workshopPopHTML(){
+  const w=WS||{};
+  /* The film is optional: it belongs to the workshop in the dashboard, and
+     a workshop written without one still has a card. */
+  const film = w.uid ? ccWrap(`<video src="${streamMp4(w.uid)}" autoplay muted playsinline loop
+        poster="${streamThumb(w.uid)}" data-cc="${esc(w.uid)}"
+        style="width:100%;aspect-ratio:9/16;max-height:52vh;object-fit:cover;display:block;
+        background:#0f1a19"></video>`, 'border-radius:22px 22px 0 0;overflow:hidden') : '';
+  const chips=[w.when, w.where, w.price].filter(Boolean);
   return `<div style="width:100%;max-width:380px;max-height:calc(100vh - 36px);overflow:auto;
     background:var(--bg,#ece7e2);border-radius:22px;box-shadow:0 30px 70px -20px rgba(0,0,0,.6)"
     onclick="event.stopPropagation()">
     <div style="position:relative">
-      ${ccWrap(`<video src="${streamMp4(WORKSHOP.uid)}" autoplay muted playsinline loop
-        poster="${streamThumb(WORKSHOP.uid)}" data-cc="${esc(WORKSHOP.uid)}"
-        style="width:100%;aspect-ratio:9/16;max-height:52vh;object-fit:cover;display:block;
-        background:#0f1a19"></video>`, 'border-radius:22px 22px 0 0;overflow:hidden')}
+      ${film}
+      <!-- 44px and above everything else in the card. At 34px, sitting level
+           with the film, the press was landing on the video instead and all
+           it did was pause it, which left no way out but the small grey line
+           at the bottom. -->
       <button onclick="closeWorkshop(true)" aria-label="Close"
-        style="position:absolute;top:10px;right:10px;z-index:4;width:34px;height:34px;border:0;
-        border-radius:50%;background:rgba(8,20,18,.55);color:#fff;cursor:pointer;
-        font:400 18px/1 var(--sans)">×</button>
+        style="position:absolute;top:8px;right:8px;z-index:9;width:44px;height:44px;border:0;
+        border-radius:50%;background:rgba(8,20,18,.62);color:#fff;cursor:pointer;
+        font:400 20px/1 var(--sans)">&times;</button>
     </div>
-    <div style="padding:15px 17px 17px">
-      <span class="kick2" style="color:#a86b16">IN PERSON · LONDON</span>
-      <div style="font:600 20px/1.2 var(--serif);margin-top:7px">${esc(WORKSHOP.n)}</div>
-      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-        ${esc(WORKSHOP.blurb)}</div>
-      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
-        ${[WORKSHOP.when, WORKSHOP.where, WORKSHOP.price].map((x,i)=>
+    <div style="padding:${film?'15px':'42px'} 17px 17px">
+      <span class="kick2" style="color:#a86b16">IN PERSON &middot; LONDON</span>
+      <div style="font:600 20px/1.2 var(--serif);margin-top:7px">${esc(w.n||'')}</div>
+      ${w.blurb?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+        ${esc(w.blurb)}</div>`:''}
+      ${chips.length?`<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
+        ${chips.map((x,i)=>
           `<span style="padding:7px 11px;border-radius:999px;font:700 11px/1 var(--sans);
-            background:${i===2?'rgba(168,107,22,.14)':'rgba(17,17,17,.055)'};
-            color:${i===2?'#a86b16':'var(--ink)'}">${esc(x)}</span>`).join('')}
-      </div>
-      <a href="${esc(WORKSHOP.url)}" target="_blank" rel="noopener" onclick="closeWorkshop(true)"
+            background:${x===w.price?'rgba(168,107,22,.14)':'rgba(17,17,17,.055)'};
+            color:${x===w.price?'#a86b16':'var(--ink)'}">${esc(x)}</span>`).join('')}
+      </div>`:''}
+      <a href="${esc(w.url||'')}" target="_blank" rel="noopener" onclick="closeWorkshop(true)"
         style="display:block;text-align:center;text-decoration:none;margin-top:14px;border-radius:14px;
         padding:15px;background:#a86b16;color:#fff;font:700 14px/1 var(--sans)">Book a place</a>
       <button onclick="closeWorkshop(true)" style="width:100%;margin-top:6px;border:0;background:none;
@@ -9255,17 +9323,19 @@ function workshopPopHTML(){
 /* one line on Today, so a dismissed advert is not a lost one */
 function workshopStrip(){
   if(!workshopOn()) return '';
+  const w=WS;
+  const short = w.when ? w.when.replace(/(\d{2}):(\d{2}).*$/,'').trim().replace(/,$/,'') : '';
   return `<button onclick="openWorkshop()" style="width:100%;display:flex;align-items:center;gap:10px;
     border:1px solid rgba(168,107,22,.3);background:rgba(168,107,22,.07);border-radius:14px;
     padding:11px 13px;cursor:pointer;text-align:left">
     <span style="flex:none;width:26px;height:26px;border-radius:50%;background:#a86b16;color:#fff;
-      display:grid;place-items:center;font:600 11px/1 var(--sans)">▶</span>
+      display:grid;place-items:center;font:600 11px/1 var(--sans)">&#9654;</span>
     <span style="flex:1;min-width:0">
       <span style="display:block;font:700 12.5px/1.2 var(--sans);color:#8a5712">In person, London</span>
       <span style="display:block;margin-top:3px;font:400 11.5px/1.3 var(--sans);color:var(--grey)">
-        ${esc(WORKSHOP.n)} · Sat 26 Sept · ${esc(WORKSHOP.price)}</span>
+        ${esc([w.n, short, w.price].filter(Boolean).join(' · '))}</span>
     </span>
-    <span style="flex:none;font:400 15px/1 var(--sans);color:var(--grey2)">›</span>
+    <span style="flex:none;font:400 15px/1 var(--sans);color:var(--grey2)">&rsaquo;</span>
   </button>`;
 }
 
@@ -9373,7 +9443,9 @@ function screenLadder(){
     const p=cpProgress(i);
     const passed=behind && p.ready;
     /* and the gate label cleared once the gate is open, rather than still
-       reading "Opens at 7 / 7 above" beside a header saying all 7 are done */
+       reading "Opens at 7 / 7 above" beside a header saying all 7 are done.
+       "Above" was a claim about the screen rather than the ladder, and the
+       ladder reads the other way: it names the stage now. */
     const opensAt = (i===cur+1 && !(P.of && P.met>=P.of)) ? P.of : 0;
     return `<div style="display:grid;grid-template-columns:40px 1fr;column-gap:14px">
       <div style="display:flex;flex-direction:column;align-items:center">
@@ -9392,7 +9464,7 @@ function screenLadder(){
           <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
             esc(x.goal)}</div>
           ${opensAt?`<div style="margin-top:8px;font:600 12px/1 var(--sans);color:var(--forest)">
-            Opens at ${P.of} / ${P.of} above</div>`:''}
+            Opens when you reach ${P.of} of ${P.of} on ${esc((STAGES[cur]||{}).n||'this stage')}</div>`:''}
         </div>
         ${stageLocked(i)?`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a"
           stroke-width="2.2" style="flex:none;margin-top:6px"><rect x="5" y="11" width="14" height="10" rx="2"/>
@@ -9514,7 +9586,12 @@ function screenLadder(){
            /* the adherence percentage went with its card: it was a number
               against a target most people never set, and it read 0% beside
               six logged sessions. What they have actually done is a count. */
-           [sessionsDone().length+'','Sessions logged']
+           /* "1 Sessions logged" against "6 sessions" in the calendar
+              underneath: a plural that did not agree with itself, over a
+              number that did not agree with the card below it. This counts
+              finished sessions and says so, and the calendar now counts the
+              same way. */
+           [sessionsDone().length+'','Session'+(sessionsDone().length===1?'':'s')+' finished']
           ].map(([n,l])=>`<div>
             <div style="font:400 32px/1 var(--serif);color:var(--deep)">${n}</div>
             <div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:5px">${l}</div>
@@ -9621,13 +9698,17 @@ function screenLadder(){
 
       <div style="margin:22px 0 24px;display:flex;justify-content:space-between;align-items:center;
         gap:12px;min-height:44px;font:400 14px/1.4 var(--sans);color:var(--grey)">
-        <span>${isPlus() ? 'Nothing is locked.' : 'Come back up whenever you like.'}</span>
+        <span>${isPlus() ? 'Nothing is locked.' : 'Drop back a stage whenever you like.'}</span>
         <span style="display:flex;gap:14px;flex:none">
+          <!-- These read the wrong way round: the harder stage was "Down to"
+               and the easier one was "Up", on a ladder you climb. Harder is
+               up it, and the stage you have already passed is back down. -->
           ${cur>0?`<button onclick="goToStage(${cur-1})" style="border:0;background:none;cursor:pointer;
-            padding:0;font:600 14px/1 var(--sans);color:var(--grey)">&larr; Up</button>`:''}
+            padding:0;font:600 14px/1 var(--sans);color:var(--grey)">&darr; Back to ${
+            esc(STAGES[cur-1].n)}</button>`:''}
           ${cur<STAGES.length-1?`<button onclick="goToStage(${cur+1})" style="border:0;background:none;
-            cursor:pointer;padding:0;font:600 14px/1 var(--sans);color:var(--deep)">Down to ${
-            esc(STAGES[cur+1].n)} &rarr;</button>`:''}
+            cursor:pointer;padding:0;font:600 14px/1 var(--sans);color:var(--deep)">Up to ${
+            esc(STAGES[cur+1].n)} &uarr;</button>`:''}
         </span>
       </div>
     </div>`}
@@ -11264,7 +11345,10 @@ function screenCoaching(){
           body in frame — don't crop the hands out.</div>
         ${tick('Watched by me, not a bot')}
         ${tick('A reply within 48 hours')}
-        ${tick('As many as you train')}
+        ${tick(st.coached ? 'As many as you train'
+          : st.checkCredits>0 ? (st.checkCredits===1?'One paid for, ready to send':st.checkCredits+' paid for, ready to send')
+          : st.freeCheckUsed ? PRICE('check')+' a clip, or included with coaching'
+          : 'Your first one is free')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
           Send your clip</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -11276,9 +11360,8 @@ function screenCoaching(){
   const thread=(st.msgs||[]).filter(m=>m && (m.video || m.image || String(m.text||'').trim())).map(m=>{
     const mine=m.from==='me';
     return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};gap:0">
-      ${m.video?`<div style="max-width:86%;border-radius:16px;overflow:hidden;background:#11150f;margin-bottom:${m.text?'6px':'0'}">
-        <iframe src="${streamEmbed(m.video)}" loading="lazy" allow="fullscreen"
-          style="display:block;width:100%;aspect-ratio:4/5;max-height:46vh;border:0"></iframe></div>`:''}
+      ${m.video?`<div style="max-width:86%;width:86%;border-radius:16px;overflow:hidden;
+        margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','46vh')}</div>`:''}
       ${m.image?`<a href="${AUTH.image}/${esc(m.image)}" target="_blank" rel="noopener"
         style="max-width:86%;border-radius:16px;overflow:hidden;background:#11150f;display:block;
         margin-bottom:${m.text?'6px':'0'}">

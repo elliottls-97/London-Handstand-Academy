@@ -1634,6 +1634,19 @@ export default async (request) => {
     if (!CUSTOM_NOW) CUSTOM_NOW = (await getSetting('drills:custom')) || {};
     return CUSTOM_NOW;
   };
+  /* ── a dose in words, from a timing row ──────────────────────────
+     library.timing is {work, rest, sets}, not a sentence, and two places
+     reached for it as though it were one. A drill in a fix printed
+     "[object Object]" where "1 x 60s" belonged, and hydrateItem put the
+     same thing on a programme through String(). One reader, so neither
+     can do it again. */
+  const doseWords = (t) => {
+    if (typeof t === 'string') return t;
+    if (!t || typeof t !== 'object') return '';
+    const sets = Number(t.sets) >= 1 ? Math.round(t.sets) : 1;
+    const work = Number(t.work) > 0 ? Math.round(t.work) : 0;
+    return work ? `${sets} × ${work}s` : '';
+  };
   const libGet = (m, v) => {
     const c = CUSTOM_NOW && CUSTOM_NOW[v];
     if (c) {
@@ -1650,7 +1663,7 @@ export default async (request) => {
     return {
       v,
       n: libGet('names', v) || v,
-      d: String(it.d || libGet('timing', v) || '').slice(0, 60),
+      d: String(it.d || doseWords(libGet('timing', v)) || '').slice(0, 60),
       nt: String(it.nt || '').slice(0, 300),
       url: libGet('video', v) || '',
       cues: libGet('cues', v) || [],
@@ -1808,7 +1821,7 @@ export default async (request) => {
         url: (lib.video || {})[d.v] || '',
         cues: (lib.cues || {})[d.v] || [],
         desc: (lib.desc || {})[d.v] || '',
-        d: d.d || ((timing[d.v] || {}).d) || (lib.timing || {})[d.v] || '',
+        d: d.d || ((timing[d.v] || {}).d) || doseWords((lib.timing || {})[d.v]) || '',
       })),
       warmDrills: (f.warm || []).map(v => ({ v, n: (lib.names || {})[v] || v, url: (lib.video || {})[v] || '' })),
       article: (f.article || []).map(b => b.t === 'drill'
@@ -1864,7 +1877,7 @@ export default async (request) => {
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
     places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
-    desc: w.desc, appDays: w.appDays, who: w.who || '' });
+    desc: w.desc, appDays: w.appDays, who: w.who || '', film: w.film || '' });
   if (path === '/workshops' && request.method === 'GET') {
     const all = (await getSetting('workshops')) || {};
     const out = [];
@@ -2056,6 +2069,10 @@ export default async (request) => {
         places: Math.max(0, Math.min(200, Math.round(Number(f.places) || 0))),
         appDays: Math.max(0, Math.min(365, Math.round(Number(f.appDays) || 0))),
         reviewUrl: /^https:\/\//.test(str(f.reviewUrl, 300)) ? str(f.reviewUrl, 300) : '',
+        /* the film that sells it, as a Stream id. The app's card was built
+           around one typed into the app itself, which is why it went on
+           advertising a workshop that had happened. */
+        film: /^[a-f0-9]{32}$/.test(str(f.film, 40)) ? str(f.film, 40) : '',
         live: owner ? !!f.live : !!(all[slug] || all[wsSlug(body.was || '')] || {}).live,
         createdAt: (all[slug] || {}).createdAt || Date.now(),
       };

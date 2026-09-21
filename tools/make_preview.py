@@ -110,7 +110,7 @@ SHIM = """
 
   addEventListener('DOMContentLoaded', function(){
     const b=document.createElement('div');
-    b.textContent='PREVIEW — invented data, nothing is sent';
+    b.textContent='PREVIEW · invented data, nothing is sent';
     b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#c2703d;'
       +'color:#fff;font:600 10px/1 Manrope,system-ui,sans-serif;letter-spacing:.14em;'
       +'text-align:center;padding:6px;pointer-events:none';
@@ -123,8 +123,19 @@ SHIM = """
 shim = (SHIM.replace('__PLAN__', json.dumps(DEMO_PLAN))
             .replace('__PROG__', DEMO_PROG_JS))
 
+# ── one file, because that is how it gets opened ──────────────────
+# The app loads ladder-data.js and timing.js as siblings. A preview handed
+# to somebody as a single file has no siblings, so every screen died on
+# "STAGES is not defined" before it drew anything. Both go inline here.
+for name in ('ladder-data.js', 'timing.js'):
+    tag = f'<script src="{name}"></script>'
+    if tag not in src:
+        raise SystemExit(f'{name} is not loaded the way this expects: {tag}')
+    body = (pathlib.Path.home()/'lha'/name).read_text(encoding='utf-8')
+    src = src.replace(tag, f'<script>/* {name}, inlined so the preview opens on its own */\n{body}\n</script>', 1)
+
 # the shim must run before the app's own script boots
-i = src.index('<script>')
+i = src.index('<script>', src.index('</script>'))
 out = src[:i] + shim + src[i:]
 out = out.replace('<title>', '<title>PREVIEW · ', 1) if '<title>' in out else out
 

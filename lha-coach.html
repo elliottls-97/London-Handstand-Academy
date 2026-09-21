@@ -1677,6 +1677,31 @@ function markReviewed(email,id,nextBlock,verdict){
 /* ── clips ─────────────────────────────────────────────────────── */
 const STREAM_SUB='customer-pns1oongdltmkjwa.cloudflarestream.com';
 const streamEmbed = uid => `https://${STREAM_SUB}/${uid}/iframe?preload=metadata`;
+const streamStill = uid => `https://${STREAM_SUB}/${uid}/thumbnails/thumbnail.jpg?time=3s&height=320`;
+/* The still first, with a play button over it, because a Stream player that
+   does not paint is a black rectangle with nothing to press, and that is
+   what the thread looked like. */
+function clipPoster(uid, ratio, cap){
+  const u=esc(String(uid||'')); if(!u) return '';
+  return `<div id="cc-${u}" style="position:relative;width:100%;aspect-ratio:${ratio||'4/5'};
+    ${cap?'max-height:'+cap+';':''}background:#101413">
+    <img src="${streamStill(u)}" alt="" loading="lazy"
+      style="display:block;width:100%;height:100%;object-fit:cover">
+    <button onclick="playPoster('${u}')" aria-label="Play this clip"
+      style="position:absolute;inset:0;width:100%;border:0;cursor:pointer;padding:0;
+      background:rgba(10,14,12,.16);display:grid;place-items:center">
+      <span style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.94);
+        display:grid;place-items:center">
+        <svg width="17" height="19" viewBox="0 0 17 19" fill="#006663" style="margin-left:3px">
+          <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path>
+        </svg></span></button></div>`;
+}
+function playPoster(uid){
+  const box=document.getElementById('cc-'+uid); if(!box) return;
+  box.innerHTML=`<iframe src="${streamEmbed(uid)}&autoplay=true" allow="accelerometer; gyroscope;
+    autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+    style="display:block;width:100%;height:100%;border:0"></iframe>`;
+}
 /* check point clips open where they are, rather than sending you to the
    thread to hunt for the right one */
 function playCp(uid){
@@ -7404,6 +7429,11 @@ function workshopsHTML(){
         <div class="field"><label>App open for, days</label><input class="input" type="number" min="0" value="${w.appDays||0}" oninput="wsSet('appDays',this.value)"></div>
         <div class="field"><label>Who it is for, one line</label><input class="input" value="${esc(w.who||'')}" placeholder="Everyone welcome, beginners to freestanding" oninput="wsSet('who',this.value)"></div>
         <div class="field" style="grid-column:1/-1"><label>Description</label><textarea class="input" rows="3" oninput="wsSet('desc',this.value)">${esc(w.desc||'')}</textarea></div>
+        <div class="field" style="grid-column:1/-1"><label>The film, optional</label>
+          <input class="input" value="${esc(w.film||'')}" placeholder="the Cloudflare Stream id, 32 characters"
+            oninput="wsSet('film',this.value.trim())">
+          <span class="muted" style="font-size:11.5px">The app shows this above the card when it
+            offers the workshop. Leave it empty and the card is words alone.</span></div>
         <div class="field" style="grid-column:1/-1"><label>Review link, optional</label><input class="input" value="${esc(w.reviewUrl||'')}" placeholder="https://g.page/r/… the Google review link" oninput="wsSet('reviewUrl',this.value)"></div>
       </div>
       ${w.slug?`<p class="muted" style="font-size:12.5px;margin-top:12px">Booking page: <b style="font-family:ui-monospace,monospace">/workshop.html?slug=${esc(w.slug)}</b>. Everyone booked gets a confirmation, a reminder the day before, and a review ask the day after.</p>`:''}
@@ -7615,10 +7645,8 @@ function toastHTML(){
 
 function drawNow(){
   const msgs=thread.map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.from==='coach'?'flex-end':'flex-start'}">
-    ${m.video?`<div style="width:min(260px,80%);border-radius:16px;overflow:hidden;background:#101413;
-      margin-bottom:${m.text?'6px':'0'}">
-      <iframe src="${streamEmbed(m.video)}" loading="lazy" allow="fullscreen"
-        style="display:block;width:100%;aspect-ratio:4/5;border:0"></iframe></div>
+    ${m.video?`<div style="width:min(260px,80%);border-radius:16px;overflow:hidden;
+      margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5')}</div>
     ${m.from!=='coach'?`<button onclick="reviewClip('${esc(m.video)}','${
       esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(ago(m.at))}')"
       style="margin-bottom:6px;border:1px solid rgba(0,102,99,.3);border-radius:9px;background:#fff;
