@@ -4720,6 +4720,38 @@ function bRowLen(it, grp){
   return (n.w?`${sets} × ${n.w}s`:`${sets} × untimed`)
     + ` · ${n.r}s rest · ${Math.round(secs/60*10)/10} min`;
 }
+/* ── a number with arrows, in the builder ──────────────────────────
+   Lifted from the Workouts tab, which got them first. One tap either
+   side, a box you can still type into, and 16px so a phone does not zoom
+   the page in to reach it. */
+const B_STEP={sets:1, amt:1, w:5, r:5};
+function bStepBox(di,gi,k,fld,val,ph,w){
+  const id='bf-'+di+'-'+gi+'-'+k+'-'+fld;
+  const b='width:28px;height:34px;flex:none;border-radius:9px;border:1px solid var(--line);'
+    +'background:#fff;cursor:pointer;font:600 15px/1 var(--sans);color:var(--forest);padding:0';
+  return `<span style="display:flex;align-items:center;gap:3px">
+    <button type="button" aria-label="Less" onclick="bStep(${di},${gi},${k},'${fld}',-1)"
+      style="${b}">&minus;</button>
+    <input id="${id}" type="number" inputmode="numeric" min="0" value="${val==null?'':val}"
+      placeholder="${ph}" oninput="bItem(${di},${gi},${k},'${fld}',this.value)"
+      style="border:1px solid var(--line);border-radius:9px;padding:8px 6px;text-align:center;
+      font:600 16px/1 var(--sans);background:#fff;width:${Math.max(54,(w||60)-24)}px">
+    <button type="button" aria-label="More" onclick="bStep(${di},${gi},${k},'${fld}',1)"
+      style="${b}">&plus;</button></span>`;
+}
+function bStep(di,gi,k,fld,dir){
+  const d=bDays()[di]; if(!d) return;
+  const g=(d.groups||[])[gi]; if(!g) return;
+  const it=(g.items||[])[k]; if(!it) return;
+  const n=bNums(it, g.name||'');
+  const cur = it[fld]!=null ? Number(it[fld])
+    : (fld==='sets'?n.sets : fld==='amt'?n.amt : fld==='w'?n.w : n.r);
+  const lo=(fld==='sets'||fld==='amt')?1:0;
+  const next=Math.max(lo, Math.round((Number(cur)||0) + (B_STEP[fld]||1)*dir));
+  bItem(di,gi,k,fld,String(next));
+  const box=document.getElementById('bf-'+di+'-'+gi+'-'+k+'-'+fld);
+  if(box) box.value=next;
+}
 function bItem(i,g,k,f,v){
   const it=bDays()[i].groups[g].items[k];
   /* the numbers are numbers, the text is text, and an emptied field means
@@ -5110,6 +5142,149 @@ function drillOptions(sel){
     `<option value="${esc(v)}"${v===sel?' selected':''}>${esc(libIndex[v]||v)}</option>`).join('');
 }
 
+/* ── a programme said out loud ─────────────────────────────────────
+   Writing a block a drill at a time is twenty minutes of picking from a
+   list. Saying it is one minute. Dictate it into anything that writes
+   what you say, paste it here, and this turns it into days, blocks and
+   drills, matching every drill name against the library.
+
+   The shape it reads is the shape people dictate in:
+
+     Day 1, The chair, 45 min
+     Warm-up
+     Wrist circles 30s each way
+     Plank pose 2 x 20s
+     The chair
+     Chair assisted handstand build to 30 seconds
+     Day 2, The wall
+     ...
+
+   A line with a day on it starts a day. A line on its own that matches
+   no drill starts a block. Everything else is a drill and whatever
+   follows its name is what they read. Nothing is guessed: a line that
+   matches nothing in the library is listed back so you can fix it. */
+let pasteText='', pasteOn=false, pasteSeen=null;
+function pasteOpen(){ pasteOn=true; pasteSeen=null; draw(); }
+function pasteClose(){ pasteOn=false; pasteSeen=null; draw(); }
+/* the drill whose name is closest to what was said, or nothing */
+function drillMatch(line){
+  const norm=x=>String(x||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const t=norm(line);
+  if(!t) return null;
+  let best=null, bestN=0;
+  Object.keys(libIndex||{}).forEach(v=>{
+    const n=norm(libIndex[v]||v);
+    if(!n) return;
+    /* the name has to be in the line, longest name wins, so "chair
+       assisted handstand" beats "handstand" */
+    if(t.indexOf(n)===0 || t===n){ if(n.length>bestN){ best=v; bestN=n.length; } }
+  });
+  if(best) return {v:best, rest:String(line).slice(bestN).replace(/^[\s,:.-]+/,'').trim()};
+  /* a looser pass: every word of the name somewhere in the line */
+  Object.keys(libIndex||{}).forEach(v=>{
+    const words=norm(libIndex[v]||v).split(' ').filter(w=>w.length>2);
+    if(words.length<2) return;
+    if(words.every(w=>t.indexOf(w)>-1) && words.join(' ').length>bestN){
+      best=v; bestN=words.join(' ').length;
+    }
+  });
+  return best ? {v:best, rest:''} : null;
+}
+function pasteParse(text){
+  const days=[], unknown=[];
+  let day=null, grp=null;
+  String(text||'').split(/\r?\n/).forEach(raw=>{
+    const line=raw.trim();
+    if(!line) return;
+    const dm=/^day\s*(\d+)\s*[,:.-]?\s*(.*)$/i.exec(line);
+    if(dm){
+      const rest=dm[2]||'';
+      const mins=(/(\d+)\s*min/i.exec(rest)||[])[1]||'';
+      const sub=rest.replace(/[,]?\s*\d+\s*min(ute)?s?\.?/i,'').replace(/^[,\s]+|[,\s]+$/g,'');
+      day={id:String(days.length+1), label:'Day '+dm[1], sub, title:'', when:'', mins, groups:[]};
+      days.push(day); grp=null;
+      return;
+    }
+    if(!day){ day={id:'1', label:'Day 1', sub:'', title:'', when:'', mins:'', groups:[]}; days.push(day); }
+    const hit=drillMatch(line);
+    if(hit){
+      if(!grp){ grp={name:'Main', items:[]}; day.groups.push(grp); }
+      grp.items.push({v:hit.v, d:hit.rest||'', nt:''});
+      return;
+    }
+    /* A heading is short, has no numbers in it and is a handful of words.
+       Without the numbers test a drill that matched nothing, "some drill I
+       have not filmed yet 3 x 10", became a block heading and was never
+       reported as unmatched. */
+    if(line.length<=32 && !/\d/.test(line) && line.split(/\s+/).length<=5){
+      grp={name:line.replace(/[:.]$/,''), items:[]}; day.groups.push(grp); return;
+    }
+    unknown.push(line);
+  });
+  return {days:days.filter(d=>(d.groups||[]).some(g=>(g.items||[]).length)), unknown};
+}
+function pasteRead(){
+  const el=document.getElementById('pasteBox');
+  pasteText=el?el.value:'';
+  pasteSeen=pasteParse(pasteText);
+  draw();
+}
+function pasteApply(){
+  if(!pasteSeen || !pasteSeen.days.length) return;
+  if(!confirm('Put these '+pasteSeen.days.length+' day'+(pasteSeen.days.length===1?'':'s')
+    +' into the builder?\n\nWhatever is in it now is replaced. Nothing reaches them until you save.')) return;
+  builder.plan.days=pasteSeen.days;
+  builder.day=0; builder.grp=0;
+  bMark(); pasteOn=false; pasteSeen=null; draw();
+}
+function pasteHTML(){
+  if(!pasteOn) return '';
+  const r=pasteSeen;
+  return `<div class="glass" style="padding:16px 18px;margin-top:12px">
+    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+      <b style="flex:1;font:600 14px/1.3 var(--sans)">Say it, paste it</b>
+      <button class="btn btn-ghost btn-sm" onclick="pasteClose()">Close</button>
+    </div>
+    <p class="muted" style="font:400 12.5px/1.6 var(--sans);margin-top:6px;max-width:66ch">
+      Dictate the block into anything that writes down what you say, then paste it here.
+      A line starting Day 1 starts a day, a short line on its own is a block heading,
+      and everything else is a drill with whatever you said after its name as the dose.
+      Every name is matched against the library and anything that matches nothing is
+      listed back rather than guessed at.</p>
+    <textarea id="pasteBox" class="input" rows="7" placeholder="Day 1, the chair, 45 min
+Warm-up
+Wrist circles 30s each way
+Plank pose 2 x 20s
+The chair
+Chair assisted handstand build to 30 seconds"
+      style="margin-top:10px;font:400 13.5px/1.6 var(--sans)">${esc(pasteText)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="pasteRead()">Read it</button>
+      ${r&&r.days.length?`<button class="btn btn-primary btn-sm" onclick="pasteApply()">
+        Put ${r.days.length} day${r.days.length===1?'':'s'} in the builder</button>`:''}
+    </div>
+    ${!r?'':`<div style="margin-top:12px">
+      ${r.days.length?r.days.map(d=>`<div style="padding:9px 0;border-top:1px solid var(--line)">
+        <b style="font:600 13px/1.3 var(--sans)">${esc(d.label)}${d.sub?', '+esc(d.sub):''}${
+          d.mins?' · '+esc(d.mins)+' min':''}</b>
+        ${(d.groups||[]).map(g=>`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:3px">
+          <b style="color:var(--ink);font-weight:600">${esc(g.name)}:</b> ${
+          (g.items||[]).map(it=>esc(drillName(it.v))+(it.d?' ('+esc(it.d)+')':'')).join(', ')}</div>`).join('')}
+      </div>`).join('')
+       :`<p class="muted" style="font:400 13px/1.5 var(--sans)">Nothing in that matched a drill.</p>`}
+      ${r.unknown.length?`<div style="margin-top:10px;padding:11px 13px;border-radius:12px;
+        background:rgba(243,169,73,.12)">
+        <b style="font:600 12.5px/1.4 var(--sans);color:#8a5a12">${r.unknown.length} line${
+          r.unknown.length===1?'':'s'} matched nothing and ${r.unknown.length===1?'was':'were'} left out</b>
+        <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:5px">${
+          r.unknown.slice(0,8).map(x=>esc(x)).join('<br>')}</div>
+        <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:6px">
+          Either the drill is not in the library yet, in which case add it under Library,
+          or the words were different enough that it could not be sure.</div>
+      </div>`:''}
+    </div>`}
+  </div>`;
+}
 function builderHTML(){
   if(!builder) return '';
   const days=bDays();
@@ -5192,9 +5367,10 @@ function builderHTML(){
                 const f=(lab,html)=>`<label style="flex:none;display:flex;flex-direction:column;gap:4px">
                   <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;
                     color:var(--grey2)">${lab}</span>${html}</label>`;
-                const num=(fld,val,ph,w)=>`<input type="number" min="0" value="${val==null?'':val}"
-                  placeholder="${ph}" oninput="bItem(${di},${gi},${k},'${fld}',this.value)"
-                  style="${bInput};width:${w}px;font-weight:600">`;
+                /* the same box with arrows either side that the Workouts
+                   tab has, because changing three sets to four should not
+                   need a keyboard */
+                const num=(fld,val,ph,w)=>bStepBox(di,gi,k,fld,val,ph,w);
                 return f('SETS', n.warm
                     ? `<span style="${bInput};width:60px;display:inline-flex;align-items:center;
                          color:var(--grey2);font-weight:600">1</span>`
@@ -5245,10 +5421,12 @@ function builderHTML(){
               : (builder.edited?'Edited here':'From the original file')+' · this is what they train today'}${
             builder.dirty?' · unsaved changes':''}</div>
         </div>
+        <button onclick="pasteOpen()" style="${bGhost}">Say it, paste it</button>
         <button onclick="closeBuilder()" style="${bGhost}">Close</button>
         <button id="bSave" class="send" onclick="saveBuilder()">${
           builder.slot?'Save draft':'Save programme'}</button>
       </div>
+      ${pasteHTML()}
       ${body}
       ${bExHTML()}
       ${bCpHTML()}
@@ -8062,8 +8240,30 @@ function draw(){
   const was=document.activeElement, key=focusKey(was);
   let a=null, b=null;
   if(key){ try{ a=was.selectionStart; b=was.selectionEnd; }catch(e){} }
-  const y=window.scrollY;
+  /* ── stay where you were ──────────────────────────────────────────
+     Every change redraws the whole screen, and the browser puts a
+     replaced page back at the top. So changing the reps on the ninth
+     drill of day two threw you to the top of the builder and you had to
+     scroll back down to change the tenth. The page scroll and any panel
+     with its own scrollbar are both put back. */
+  const y=window.scrollY || document.documentElement.scrollTop || 0;
+  const tops=[];
+  document.querySelectorAll('#v [style*="overflow"]').forEach(el=>{
+    if(el.scrollTop) tops.push([el.id||'', el.className||'', el.scrollTop]);
+  });
   drawNow();
+  const back=()=>{
+    if(y && Math.abs((window.scrollY||0)-y)>1) window.scrollTo(0,y);
+    tops.forEach(([id,cls,top])=>{
+      const el = id ? document.getElementById(id)
+        : (cls ? document.querySelector('#v .'+String(cls).trim().split(/\s+/).join('.')) : null);
+      if(el) el.scrollTop=top;
+    });
+  };
+  back();
+  /* one frame later as well: a panel that is drawn and then measured can
+     lose the position it was just given */
+  requestAnimationFrame(back);
   if(!key) return;
   let now=null;
   if(key.slice(0,3)==='id:') now=document.getElementById(key.slice(3));
@@ -8074,7 +8274,7 @@ function draw(){
   if(!now || now===document.activeElement) return;
   try{ now.focus({preventScroll:true}); }catch(e){ try{ now.focus(); }catch(e2){} }
   if(a!=null){ try{ now.setSelectionRange(a,b); }catch(e){} }
-  if(window.scrollY!==y) window.scrollTo(0,y);
+  back();
 }
 TOKEN?load():gate('');
 </script></body></html>
