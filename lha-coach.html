@@ -2637,15 +2637,112 @@ const LEVEL_LABEL=['Never done handstands',"Stuck at the wall",
    was a code deploy. This writes it. Drills are stored as an id and a
    dose; the name, clip and cues come from the library when it is read,
    so nothing can drift out of sync again. */
+/* ── blocks ───────────────────────────────────────────────────────
+   One programme meant editing the block somebody is training today. A
+   draft is the next block, written here, seen by nobody, until it is put
+   live. The one coming off is kept so it can go back on. */
+let blocks={}, blocksBusy='';
+function blocksLoad(email, force){
+  if(!email) return;
+  if(blocks[email] && !force) return;
+  if(!blocks[email]) blocks[email]={loading:true};
+  fetch(API+'/blocks?email='+encodeURIComponent(email),{headers:hdr()})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ blocks[email]=d; draw(); })
+    .catch(()=>{ blocks[email]={error:true}; draw(); });
+}
+function blocksDo(email, body, ask){
+  if(blocksBusy) return;
+  if(ask && !confirm(ask)) return;
+  blocksBusy=email; draw();
+  fetch(API+'/blocks',{method:'POST',headers:hdr(),
+    body:JSON.stringify(Object.assign({email}, body))})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ blocks[email]=d; blocksBusy=''; draw();
+      if(body.action==='promote') flash('Live. They see it on their next open.');
+      if(body.action==='restore') flash('Back on.'); })
+    .catch(e=>{ blocksBusy=''; draw(); alert(String(e)); });
+}
+function blocksNew(email){
+  const label=prompt('What is this block called?', 'Block '+(((blocks[email]||{}).block||1)+1));
+  if(label===null) return;
+  const from=confirm('Start from a copy of what they are training now?\n\nOK copies it. Cancel starts empty.')
+    ? 'live' : '';
+  blocksDo(email, {action:'new', label, from});
+}
+/* a block written somewhere else, pasted in whole. The server cleans it
+   the same way it cleans anything the builder saves, so nothing can come
+   in that the builder could not have made. */
+function blocksPaste(email){
+  const txt=prompt('Paste the block. It is the JSON with a days list in it.');
+  if(!txt) return;
+  let d=null;
+  try{ d=JSON.parse(txt); }catch(e){ alert('That is not JSON I can read.'); return; }
+  const days=Array.isArray(d)?d:(d.days||[]);
+  if(!days.length){ alert('No days in that.'); return; }
+  const label=(d&&d.label)||prompt('What is this block called?','Next block')||'Next block';
+  blocksDo(email, {action:'import', days, label});
+}
+function blocksHTML(email){
+  if(!email) return '';
+  blocksLoad(email);
+  const b=blocks[email]||{};
+  if(b.loading) return '';
+  if(b.error) return '';
+  const when=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
+  const row=(title, sub, right)=>`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    padding:10px 0;border-top:1px solid var(--line)">
+    <span style="flex:1;min-width:150px">
+      <!-- the callers escape what is theirs, so the separator survives -->
+      <b style="font:600 13.5px/1.3 var(--sans)">${title}</b>
+      <span style="display:block;font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:3px">${sub}</span>
+    </span>${right}</div>`;
+  const busy=blocksBusy===email;
+  return `<div class="card" style="margin-top:var(--space-4)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <h4 style="margin:0">Blocks</h4>
+      <span style="display:flex;gap:7px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+          onclick="blocksPaste('${esc(email)}')">Paste a block</button>
+        <button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+          onclick="blocksNew('${esc(email)}')">Write the next block</button>
+      </span>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin-top:6px">A draft is theirs to train only once you
+      put it live. The block coming off is kept and can go back on.</p>
+    ${row('Block '+(b.block||1)+' &middot; live',
+      ((b.live||{}).days||0)+' days, '+((b.live||{}).drills||0)+' drills'
+        +((b.live||{}).editedAt?' &middot; edited '+when(b.live.editedAt):''),
+      `<button class="btn btn-ghost btn-sm" onclick="openBuilder('${esc(email)}')">Edit</button>`)}
+    ${(b.drafts||[]).map(d=>row(esc(d.label)+' &middot; draft',
+      d.days+' days, '+d.drills+' drills'+(d.at?' &middot; saved '+when(d.at):''),
+      `<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+         onclick="openBuilder('${esc(email)}','${esc(d.id)}','${esc(d.label)}')">Edit</button>
+       <button class="btn btn-primary btn-sm" ${busy||!d.days?'disabled':''}
+         onclick="blocksDo('${esc(email)}',{action:'promote',id:'${esc(d.id)}'},'Put ${esc(d.label)} live for ${esc((clients.find(c=>c.email===email)||{}).name||email)}?\n\nThe block they are on comes off and is kept. The block number moves on and they are emailed.')">Put it live</button>
+       <button class="btn btn-ghost btn-sm" style="color:var(--terra)" ${busy?'disabled':''}
+         onclick="blocksDo('${esc(email)}',{action:'discard',id:'${esc(d.id)}'},'Throw this draft away?')">Delete</button>`)).join('')}
+    ${(b.archive||[]).length?`<details style="margin-top:8px">
+      <summary class="muted" style="cursor:pointer;font-size:12.5px">${b.archive.length} block${
+        b.archive.length===1?'':'s'} taken off</summary>
+      ${b.archive.map(a=>row(esc(a.label||'A block'),
+        a.days+' days, '+a.drills+' drills &middot; came off '+when(a.at),
+        `<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+          onclick="blocksDo('${esc(email)}',{action:'restore',i:${a.i}},'Put this one back on?\n\nWhat they are training now comes off and is kept.')">Put it back on</button>`)).join('')}
+    </details>`:''}
+  </div>`;
+}
 let builder=null;          /* {email, plan, dirty} while a programme is open */
 let libIndex=null;         /* id → name, for the picker */
 
-function openBuilder(email){
-  fetch(API+'/programme?email='+encodeURIComponent(email),{headers:hdr()})
+function openBuilder(email, slot, slotLabel){
+  fetch(API+'/programme?email='+encodeURIComponent(email)+(slot?'&slot='+encodeURIComponent(slot):''),
+    {headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
       noteLibrary(d.library);
       builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited, day:0, grp:0,
+               slot:slot||'', slotLabel:slotLabel||'',
                exLib:d.explainerLib||{}, exOn:(d.explainersOn||[]).slice()};
       draw();
     })
@@ -4757,6 +4854,7 @@ function saveBuilder(){
   const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
     body:JSON.stringify({email:builder.email, days:bDays(), checkpoints:bCps(),
+                         ...(builder.slot?{slot:builder.slot}:{}),
                          explainers:(builder.exOn||[])})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.edited=true;
@@ -5136,13 +5234,20 @@ function builderHTML(){
       border-radius:22px;padding:22px;box-shadow:0 30px 70px -30px rgba(0,0,0,.5)">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
-          <div style="font:400 24px/1.1 var(--serif);color:var(--ink)">${esc(name)}</div>
+          <div style="font:400 24px/1.1 var(--serif);color:var(--ink)">${esc(name)}${
+            builder.slot?`<span style="font:600 10px/1 var(--sans);letter-spacing:.12em;
+            margin-left:10px;padding:5px 8px;border-radius:999px;vertical-align:4px;
+            background:rgba(243,169,73,.2);color:#8a5a12">DRAFT</span>`:''}</div>
           <div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin-top:4px">
-            ${builder.edited?'Edited here':'From the original file'}${
+            ${builder.slot
+              ? esc(builder.slotLabel||'A block they are not training yet')
+                +' · nothing here reaches them until you put it live'
+              : (builder.edited?'Edited here':'From the original file')+' · this is what they train today'}${
             builder.dirty?' · unsaved changes':''}</div>
         </div>
         <button onclick="closeBuilder()" style="${bGhost}">Close</button>
-        <button id="bSave" class="send" onclick="saveBuilder()">Save programme</button>
+        <button id="bSave" class="send" onclick="saveBuilder()">${
+          builder.slot?'Save draft':'Save programme'}</button>
       </div>
       ${body}
       ${bExHTML()}
@@ -6367,6 +6472,7 @@ function progrPaneHTML(){
         <button class="btn btn-primary" onclick="openBuilder('${esc(sel)}')">Edit programme</button>
         <button class="btn btn-secondary" onclick="openCopy('','${esc(sel)}')">Copy from another client…</button>
       </div>
+      ${blocksHTML(sel)}
     </div>
     <div>
       <h4>Check points</h4>

@@ -511,6 +511,41 @@ async function subsFor(db, who) {
 const DAY = 24 * 60 * 60 * 1000;
 const REVIEW_HOURS = 48;
 
+/* ── a programme's days, cleaned ──────────────────────────────────
+   Written once and used by the builder's save and by a block pasted in
+   whole, so a block that arrives as JSON cannot carry anything the
+   builder could not have produced. */
+function cleanDays(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 14).map((d, i) => ({
+    id: String(d.id || (i + 1)).slice(0, 8),
+    label: String(d.label || `Day ${i + 1}`).slice(0, 40),
+    sub: String(d.sub || '').slice(0, 60),
+    title: String(d.title || '').slice(0, 80),
+    when: String(d.when || '').slice(0, 120),
+    mins: String(d.mins || '').slice(0, 8),
+    groups: (Array.isArray(d.groups) ? d.groups : []).slice(0, 12).map(g => ({
+      name: String(g.name || '').slice(0, 60),
+      items: (Array.isArray(g.items) ? g.items : []).slice(0, 40).map(it => {
+        const num = (x, cap) => {
+          const n = Number(x);
+          return Number.isFinite(n) && n >= 0 && n <= cap ? Math.round(n) : null;
+        };
+        const w = num(it.w, 600), r = num(it.r, 600);
+        const sets = num(it.sets, 12), amt = num(it.amt, 3600);
+        const unit = it.unit === 's' ? 's' : (it.unit === '' ? '' : null);
+        return Object.assign(
+          { v: String(it.v || '').slice(0, 64),
+            d: String(it.d || '').slice(0, 60),
+            nt: String(it.nt || '').slice(0, 300) },
+          w != null ? { w } : {}, r != null ? { r } : {},
+          sets != null ? { sets } : {}, amt != null ? { amt } : {},
+          unit != null ? { unit } : {},
+          it.star ? { star: String(it.star).slice(0, 40) } : {});
+      }).filter(it => it.v),
+    })),
+  }));
+}
+
 async function cycleGet(db, who, plan) {
   let row = await supa.row('cycles', `email=eq.${enc(who)}&select=*`);
   if (!row) {
@@ -4509,16 +4544,141 @@ export default async (request) => {
       }
     }
 
+    /* ── blocks ───────────────────────────────────────────────────
+       A client trains one programme and the coach writes the next one
+       while they are still on it. Until now there was one copy: editing
+       it changed what they were doing today, halfway through being
+       written. A draft is the same programme under its own name. Putting
+       it live swaps the two, keeps the old one where it can be brought
+       back, and moves the block number on so the app says which block
+       they are in. */
+    if (path === '/coach/blocks') {
+      const e = norm(url.searchParams.get('email') || body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const dkey = `progdrafts:${e}`, akey = `progarchive:${e}`;
+      const sum = p => ({ days: (p && p.days || []).length,
+        drills: (p && p.days || []).reduce((n, d) =>
+          n + (d.groups || []).reduce((m, g) => m + (g.items || []).length, 0), 0) });
+      const state = async () => {
+        const drafts = (await getSetting(dkey)) || {};
+        const arch = (await getSetting(akey)) || [];
+        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        let n = 1;
+        try { n = (await cycleGet(db, e, programmes.clients[e])).n || 1; } catch {}
+        return json({
+          block: n,
+          live: Object.assign({ label: live.label || `Block ${n}`, editedAt: live.editedAt || 0 }, sum(live)),
+          drafts: Object.keys(drafts).map(id => Object.assign(
+            { id, label: (drafts[id] || {}).label || id, at: (drafts[id] || {}).at || 0 },
+            sum((drafts[id] || {}).prog))),
+          archive: arch.map((a, i) => Object.assign({ i, label: a.label || '', at: a.at || 0 }, sum(a.prog))),
+        });
+      };
+      if (request.method === 'GET') return state();
+      if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+
+      const act = String(body.action || '');
+      const drafts = (await getSetting(dkey)) || {};
+
+      if (act === 'new') {
+        const id = 'b' + Date.now().toString(36);
+        const from = String(body.from || '');
+        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        const prog = from === 'live' ? JSON.parse(JSON.stringify(live))
+          : Object.assign({}, live, { days: [] });
+        prog.label = String(body.label || '').slice(0, 40) || 'Next block';
+        drafts[id] = { label: prog.label, prog, at: Date.now() };
+        await setSetting(dkey, drafts);
+        return state();
+      }
+      /* a whole block pasted in, rather than built a drill at a time */
+      if (act === 'import') {
+        const days = cleanDays(body.days);
+        if (!days.length) return json({ error: 'No days in that.' }, 400);
+        const id = 'b' + Date.now().toString(36);
+        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        const prog = Object.assign({}, live, { days,
+          label: String(body.label || '').slice(0, 40) || 'Pasted block' });
+        drafts[id] = { label: prog.label, prog, at: Date.now() };
+        await setSetting(dkey, drafts);
+        return state();
+      }
+      if (act === 'rename') {
+        const id = String(body.id || '');
+        if (!drafts[id]) return json({ error: 'No such draft' }, 404);
+        drafts[id].label = String(body.label || '').slice(0, 40) || drafts[id].label;
+        if (drafts[id].prog) drafts[id].prog.label = drafts[id].label;
+        await setSetting(dkey, drafts);
+        return state();
+      }
+      if (act === 'discard') {
+        const id = String(body.id || '');
+        delete drafts[id];
+        await setSetting(dkey, drafts);
+        return state();
+      }
+      if (act === 'promote') {
+        const id = String(body.id || '');
+        const d = drafts[id];
+        if (!d || !d.prog) return json({ error: 'No such draft' }, 404);
+        if (!(d.prog.days || []).length) {
+          return json({ error: 'That block has no days in it yet.' }, 400);
+        }
+        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        let n = 1;
+        try { n = (await cycleGet(db, e, programmes.clients[e])).n || 1; } catch {}
+        /* the one coming off is kept, named, so it can go back on */
+        const arch = (await getSetting(akey)) || [];
+        arch.unshift({ at: Date.now(), label: live.label || `Block ${n}`, prog: live });
+        await setSetting(akey, arch.slice(0, 12));
+        const next = Object.assign({}, d.prog, { label: d.label || `Block ${n + 1}`, editedAt: Date.now() });
+        await setSetting(`programme:${e}`, next);
+        delete drafts[id];
+        await setSetting(dkey, drafts);
+        /* a new block starts its own clock, which is what the test date and
+           "week 3 of 6" are counted from */
+        await supa.upsert('cycles', { email: e, n: n + 1, started_at: nowISO() }, 'email');
+        const nm = clients()[e] || '';
+        await email(e, 'Your next block is in the app',
+          mail({ title: 'Block ' + (n + 1) + ' is ready.',
+            paras: [`${esc(nm ? nm.split(' ')[0] : 'Hello')}, the next block is in the app now. `
+              + `Same place, new days.`],
+            cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            signoff: { name: coachName(coachOf(e) || primaryCoach()) } }), 'reminders');
+        return state();
+      }
+      if (act === 'restore') {
+        const arch = (await getSetting(akey)) || [];
+        const i = Number(body.i);
+        const a = arch[i];
+        if (!a || !a.prog) return json({ error: 'Nothing to bring back' }, 404);
+        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        arch.splice(i, 1);
+        arch.unshift({ at: Date.now(), label: live.label || 'Was live', prog: live });
+        await setSetting(akey, arch.slice(0, 12));
+        await setSetting(`programme:${e}`, Object.assign({}, a.prog, { editedAt: Date.now() }));
+        return state();
+      }
+      return json({ error: 'Nope' }, 400);
+    }
+
     if (path === '/coach/programme') {
       if (request.method === 'GET') {
         const e = norm(url.searchParams.get('email'));
         if (!e) return json({ error: 'Which client?' }, 400);
         if (!owns(e)) return json({ error: 'Not your client' }, 403);
         await ensureCustom();
+        const slot = String(url.searchParams.get('slot') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 24);
         const saved = await getSetting(`programme:${e}`);
-        const cur = saved || programmes.clients[e] || { days: [] };
+        let cur = saved || programmes.clients[e] || { days: [] };
+        if (slot) {
+          const d = ((await getSetting(`progdrafts:${e}`)) || {})[slot];
+          if (d && d.prog) cur = d.prog;
+        }
         return json({
           email: e,
+          slot: slot || '',
           edited: !!saved,
           plan: hydratePlan(cur),
           library: await libraryNow(),
@@ -4533,7 +4693,15 @@ export default async (request) => {
         const e = norm(body.email);
         if (!e) return json({ error: 'Which client?' }, 400);
         if (!owns(e)) return json({ error: 'Not your client' }, 403);
-        const base = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        /* ── which copy is being written ──────────────────────────
+           A block was edited in place, so there was no way to write the
+           next one without the client training it while it was half
+           written. A draft is the same shape stored under its own name,
+           and the dashboard puts one live when it is ready. */
+        const slot = String(body.slot || '').replace(/[^a-z0-9-]/gi, '').slice(0, 24);
+        const drafts = (await getSetting(`progdrafts:${e}`)) || {};
+        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        const base = slot ? ((drafts[slot] || {}).prog || live) : live;
         /* only what the builder edits is taken from the request; the rest of
            the plan — the read, the test, the coach's notes — carries over */
         const next = Object.assign({}, base, {
@@ -4542,41 +4710,7 @@ export default async (request) => {
           /* Only what was sent is replaced. Posting check points on their
              own used to blank the programme, because days defaulted to an
              empty list rather than to what was already there. */
-          days: (Array.isArray(body.days) ? body.days : (base.days || [])).slice(0, 14).map((d, i) => ({
-            id: String(d.id || (i + 1)).slice(0, 8),
-            label: String(d.label || `Day ${i + 1}`).slice(0, 40),
-            sub: String(d.sub || '').slice(0, 60),
-            title: String(d.title || '').slice(0, 80),
-            when: String(d.when || '').slice(0, 120),
-            mins: String(d.mins || '').slice(0, 8),
-            groups: (Array.isArray(d.groups) ? d.groups : []).slice(0, 12).map(g => ({
-              name: String(g.name || '').slice(0, 60),
-              items: (Array.isArray(g.items) ? g.items : []).slice(0, 40)
-                .map(it => {
-                  /* This kept v, d and nt and dropped everything else, so the
-                     seconds and rests the specs write onto items, thirty and
-                     seventy-four of them across the two live programmes, were
-                     destroyed the first time the builder saved that client.
-                     Nothing said so; the session simply got slower or faster.
-                     The builder can set them now, so they have to survive. */
-                  const num = (x, cap) => {
-                    const n = Number(x);
-                    return Number.isFinite(n) && n >= 0 && n <= cap ? Math.round(n) : null;
-                  };
-                  const w = num(it.w, 600), r = num(it.r, 600);
-                  const sets = num(it.sets, 12), amt = num(it.amt, 3600);
-                  const unit = it.unit === 's' ? 's' : (it.unit === '' ? '' : null);
-                  return Object.assign(
-                    { v: String(it.v || '').slice(0, 64),
-                      d: String(it.d || '').slice(0, 60),
-                      nt: String(it.nt || '').slice(0, 300) },
-                    w != null ? { w } : {}, r != null ? { r } : {},
-                    sets != null ? { sets } : {}, amt != null ? { amt } : {},
-                    unit != null ? { unit } : {});
-                })
-                .filter(it => it.v),
-            })),
-          })),
+          days: cleanDays(Array.isArray(body.days) ? body.days : (base.days || [])),
           /* the coach's check points for this client. Left alone when the
              builder does not send them, so saving a programme cannot wipe
              them. */
@@ -4617,6 +4751,12 @@ export default async (request) => {
             : (base.checkpoints || []),
           editedAt: Date.now(),
         });
+        if (slot) {
+          drafts[slot] = Object.assign({}, drafts[slot] || {}, { prog: next, at: Date.now() });
+          await setSetting(`progdrafts:${e}`, drafts);
+          /* nobody is training a draft, so nothing is announced */
+          return json({ ok: true, draft: slot, plan: hydratePlan(next) });
+        }
         await setSetting(`programme:${e}`, next);
 
         /* Tell them a new one has landed. Only genuinely new keys, and only
