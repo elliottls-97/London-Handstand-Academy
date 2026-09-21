@@ -3051,6 +3051,14 @@ function loadTrack(){
 }
 function postTrack(body){
   if(!st.token) return Promise.resolve();
+  /* The dashboard's See their app opens the client's own app with a read
+     only token. Everything drew, nothing saved, and nothing said so: a
+     check point logged in there moved on screen, posted, was refused and
+     the refusal was swallowed. */
+  if(st.preview){
+    toast('Preview only. Nothing you do in here is saved.');
+    return Promise.resolve();
+  }
   return fetch(AUTH.track,{method:'POST',headers:authed(),body:JSON.stringify(body)})
     .then(r=>r.ok?r.json():null)
     .then(d=>{
@@ -5059,7 +5067,10 @@ function screenProgress(){
       ${coachedView()?`<div data-tour="checkin">${checkinCard()}</div>`:''}
       ${perDrillCard()}
       ${appUseCard()}
-      ${coachedView() ? photosCard() : ''}`;
+      ${/* Progress photos were asked for and then nobody sent any. Two
+            empty grey boxes reading "Nothing yet" on the screen a paying
+            client opens to see what they have done, and a card asking
+            somebody to photograph themselves in their kit. Gone. */''}`;
 
   const marksBody = `
       
@@ -10413,7 +10424,8 @@ function screenLadder(){
     <!-- The green hero has gone the way of Today's. The stage you are on is
          the page, not a banner over it, and the stages below it are a spine
          rather than five cards that each carried the price. -->
-    <div style="padding:calc(env(safe-area-inset-top) + 84px) 0 0">${ladderSeg()}</div>
+    ${viewSwitch()}
+    <div style="padding:${st.coached?'10px':'calc(env(safe-area-inset-top) + 84px)'} 0 0">${ladderSeg()}</div>
     ${st.ladderTab==='progress' && !st.token ? `
     <!-- Everything on this tab is a record of what somebody has done, and
          without an account it lives in one browser and goes when that
