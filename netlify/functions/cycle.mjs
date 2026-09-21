@@ -11,6 +11,16 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes from './programmes.mjs';
 import * as supa from './supa.mjs';
+import { renderEmail } from './emails.mjs';
+/* the words for an email, with whatever the dashboard has changed on top */
+let EMAIL_OVER = null;
+async function emailCopy(key, vars) {
+  if (EMAIL_OVER === null) {
+    const r = await supa.row('settings', 'key=eq.emails&select=value').catch(() => null);
+    EMAIL_OVER = (r && r.value) || {};
+  }
+  return renderEmail(key, vars, EMAIL_OVER);
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 const REVIEW_HOURS = 48;
@@ -239,15 +249,15 @@ export default async () => {
     if (!c.lead && cycle && now >= dueAt) {
       const akey = `blockask:${c.email}:${cycle.n}`;
       if (!(await supa.row('nudges', `key=eq.${enc(akey)}&select=key`).catch(() => null))) {
-        const ok = await email(c.email, 'How did this block go?',
+        const T = await emailCopy('blockAsk', { name: esc((c.name || '').split(' ')[0]), coach: esc(coachNameOf(coach)) });
+        const ok = await email(c.email, T.subject,
           mail({
-            title: 'How did this block go?',
+            title: T.title,
             greeting: (c.name || '').split(' ')[0],
-            paras: ['Three quick questions before the next one is written, so it is built on what actually happened rather than what I guess.',
-                    '<b>What got better?</b> <b>What got in the way?</b> <b>What should change next block?</b>',
-                    'And if you have thirty seconds and the light is decent, a filmed line about how it has gone would mean a lot. Send it from Ask in the app.'],
+            paras: T.paras,
             cta: { href: `${SITE}/lha-app.html?review=block`, label: 'Answer in the app' },
             signoff: { name: coachNameOf(coach) },
+            footnote: T.footnote || undefined,
           }), 'reminders');
         if (ok) {
           await supa.upsert('nudges', { key: akey, sent_at: new Date().toISOString() }, 'key');
@@ -297,26 +307,7 @@ export default async () => {
    are skipped: their coach is the reminder. The mail guard still applies
    underneath, so nobody who is suppressed gets one. */
 const QUIET_STEPS = [
-  { days: 5,  key: '5d',
-    subject: 'Your next session is ready',
-    title: 'Your next session is ready.',
-    paras: (stage) => [`It has been five days. ${stage} is where you left it, and the next session is built and waiting: fifteen minutes is enough.`,
-                       'Two sessions a week is what moves a handstand. One is what keeps it.'] },
-  { days: 14, key: '14d',
-    subject: 'Two weeks off a handstand',
-    title: 'Two weeks is where it starts to slip.',
-    paras: (stage) => [`A fortnight without going upside down and the wrists and shoulders start to forget. ${stage} is still where you were, and a short session today is worth more than a long one next month.`,
-                       'Open it, pick fifteen minutes, and let the timer run.'] },
-  { days: 30, key: '30d',
-    subject: 'Still want the handstand?',
-    title: 'Still want the handstand?',
-    paras: (stage) => [`It has been a month. Nothing has moved, which is fine, because nothing has been lost either: ${stage} is exactly where you left it.`,
-                       'If the sessions were too long, choose fifteen minutes. If they were too hard, choose Easier from the chooser. If it is something else, reply to this and tell me.'] },
-  { days: 90, key: '90d',
-    subject: 'Three months on',
-    title: 'Three months on.',
-    paras: (stage) => [`Your account is still here and so is ${stage}. Most people who get a handstand had two or three false starts first, so this is not a failed attempt, it is the gap between attempts.`,
-                       'One session. See how it feels. That is the whole ask.'] },
+  { days: 5, key: '5d' }, { days: 14, key: '14d' }, { days: 30, key: '30d' }, { days: 90, key: '90d' },
 ];
 async function quietFreeAccounts(done) {
   const now = Date.now();
@@ -347,13 +338,14 @@ async function quietFreeAccounts(done) {
     const st = await supa.row('settings', `key=eq.${enc('state:' + a.email)}&select=value`).catch(() => null);
     const stage = st && st.value && Number.isInteger(st.value.stage) ? st.value.stage : 0;
     const first_ = (a.name || '').split(' ')[0];
-    const ok = await email(a.email, step.subject,
-      mail({ title: step.title,
+    const T = await emailCopy('quiet' + step.key, { name: esc(first_), stage: esc(names[stage] || 'The ladder') });
+    const ok = await email(a.email, T.subject,
+      mail({ title: T.title,
         greeting: first_,
-        paras: step.paras(names[stage] || 'The ladder'),
+        paras: T.paras,
         cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'London Handstand Academy' },
-        footnote: 'These stop the moment you turn reminders off in the app, in the menu at the top left.' }),
+        footnote: T.footnote || undefined }),
       'reminders');
     /* every step at or before this one is done with, whether or not the
        mail went: a suppressed address must not be retried daily */
@@ -371,28 +363,8 @@ async function quietFreeAccounts(done) {
    handstands and one thing the app does. Five in ten days is a welcome;
    one a day for ever is the thing people unsubscribe from. Drafted from the
    cue text in the app: Elliott's to rewrite, and they live only here. */
-const TIPS = [
-  { day: 1, subject: 'Fingers first',
-    title: 'Your wrists carry the whole thing.',
-    paras: ['Most handstand pain in the first month is wrists, and most of it is skipped warm-ups. Circles, then flexion and extension with the other hand helping, then weight shifts on all fours. Two minutes. The app puts these at the top of every session for a reason.',
-            'On a day the rest of you is not up to it, there is a mobility day in the app: wrists and shoulders, ten minutes, no stage work. It still counts, and it is the day that keeps a habit alive.'] },
-  { day: 2, subject: 'Push the floor away',
-    title: 'One cue, for everything.',
-    paras: ['Chest to wall, chair assisted, crow, the press: the cue underneath all of them is the same. Push the floor away. Shoulders up by the ears, arms straight, the whole body reaching upwards rather than sitting in the joints.',
-            'Every film in the app has captions, so you can put the phone on the floor with the sound off and still catch the cue as it is said.'] },
-  { day: 4, subject: 'Twice a week is the number',
-    title: 'Two sessions a week moves a handstand. One keeps it.',
-    paras: ['Nobody needs an hour. A fifteen minute session in the app is six drills at one set each, and two of those a week beats one heroic Sunday every time.',
-            'Say how long you have and it builds one. It starts further down your stage each time, so Tuesday and Thursday are different workouts, not the same one again.'] },
-  { day: 7, subject: 'Film yourself, from the side',
-    title: 'You cannot feel a bent hip. You can see one.',
-    paras: ['Phone on the floor, side on, whole body in frame. What feels straight almost never is, and thirty seconds of footage teaches more than a month of guessing.',
-            'Each stage in the app has check points, the things you have to be able to do before the next stage opens. Log them as you go, and if you are being coached, send the clip with it.'] },
-  { day: 10, subject: 'Falling is a skill',
-    title: 'Learn to come down before you try to stay up.',
-    paras: ['The fear of falling is what keeps people leaning on the wall for a year. A cartwheel out is the answer: practise it on purpose, low and slow, until it is boring. Then kicking up freestanding stops being a leap.',
-            'Your Progress tab keeps a calendar of every session, what was in it and how long it took. Ten days in is a good moment to look at it.'] },
-];
+/* the words live in emails.mjs now, where the dashboard can change them */
+const TIPS = [ { day: 1 }, { day: 2 }, { day: 4 }, { day: 7 }, { day: 10 } ];
 async function firstTenDays(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',
@@ -408,12 +380,13 @@ async function firstTenDays(done) {
       if (ageDays < t.day) continue;
       const key = `tip:${a.email}:${i}`;
       if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
-      const ok = await email(a.email, t.subject,
-        mail({ title: t.title, greeting: (a.name || '').split(' ')[0] || '',
-          paras: t.paras,
+      const T = await emailCopy('tip' + t.day, { name: esc((a.name || '').split(' ')[0] || '') });
+      const ok = await email(a.email, T.subject,
+        mail({ title: T.title, greeting: (a.name || '').split(' ')[0] || '',
+          paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' },
-          footnote: 'Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it.' }),
+          footnote: T.footnote || undefined }),
         'reminders');
       if (ok) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
                 done.tips = (done.tips || 0) + 1; }
@@ -454,12 +427,11 @@ async function workshopMail(done) {
       for (const p of book) {
         const key = `wsremind:${w.slug}:${p.email}`;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-          await email(p.email, `Tomorrow: ${w.title}`,
-            mail({ title: 'See you tomorrow.', greeting: String(p.name || '').split(' ')[0],
-              paras: [`<b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}.`,
-                      'Wear something you can move in and bring water. Arrive ten minutes early so we start on time.',
-                      'If you cannot make it, reply to this and we will sort it.'],
-              signoff: { name: 'Elliott, London Handstand Academy' } }));
+          const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '' });
+          await email(p.email, T.subject,
+            mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
+              paras: T.paras,
+              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
           done.workshops.reminded++;
           await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         }
@@ -470,13 +442,14 @@ async function workshopMail(done) {
       for (const p of book) {
         const key = `wsreview:${w.slug}:${p.email}`;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-          await email(p.email, `How was ${w.title}?`,
-            mail({ title: 'Thank you for coming.', greeting: String(p.name || '').split(' ')[0],
-              paras: ['Two things would help a lot.',
-                      w.reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
-                      w.appDays ? `The app is open for you for ${w.appDays} days from your booking, so the drills from today are in there to keep going with.` : 'The drills from today are in the Handstand Ladder app, and Foundations is free.'],
+          const T = await emailCopy('wsThanks', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title),
+            review_line: w.reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
+            app_line: w.appDays ? `The app is open for you for ${w.appDays} days from your booking, so the drills from today are in there to keep going with.` : 'The drills from today are in the Handstand Ladder app, and Foundations is free.' });
+          await email(p.email, T.subject,
+            mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
+              paras: T.paras,
               cta: w.reviewUrl ? { href: w.reviewUrl, label: 'Leave a review' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-              signoff: { name: 'Elliott, London Handstand Academy' } }));
+              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
           done.workshops.asked++;
           await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         }
@@ -504,9 +477,10 @@ async function sessionMail(done) {
     if (hoursTo > 12 && hoursTo <= 36) {
       const key = `sessremind:${x.id}`;
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-        await email(x.email, 'Tomorrow: your session', mail({ title: 'See you tomorrow.', greeting: String(x.name || '').split(' ')[0],
-          paras: [`<b>${esc(whenTxt)}</b>${x.place ? ', at ' + esc(x.place) : ''}. ${x.kind} minutes.`, 'Wear something you can move in and arrive a few minutes early. If you cannot make it, reply to this now rather than tomorrow.'],
-          signoff: { name: 'Elliott, London Handstand Academy' } }));
+        const T = await emailCopy('sessRemind', { name: esc(String(x.name || '').split(' ')[0]), when: esc(whenTxt), place: x.place ? ', at ' + esc(x.place) : '', kind: esc(x.kind) });
+        await email(x.email, T.subject, mail({ title: T.title, greeting: String(x.name || '').split(' ')[0],
+          paras: T.paras,
+          signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
         await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         done.sessions.reminded++;
       }
@@ -515,12 +489,11 @@ async function sessionMail(done) {
       const key = `sessfollow:${x.id}`;
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
         const paid = x.paid ? '£' + (x.paid / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
-        await email(x.email, 'After your session', mail({ title: 'Thank you for coming.', greeting: String(x.name || '').split(' ')[0],
-          paras: ['What we worked on is in your thread in the app, so it is there when you train this week.',
-                  `If you want to keep going with a written programme, ${paid} comes off your first month of the Coaching Programme if you join within fourteen days. Reply to this and I will set it up.`,
-                  'And a sentence about how you found it, good or bad, would help me. Reply and I read it.'],
+        const T = await emailCopy('sessThanks', { name: esc(String(x.name || '').split(' ')[0]), paid: esc(paid) });
+        await email(x.email, T.subject, mail({ title: T.title, greeting: String(x.name || '').split(' ')[0],
+          paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-          signoff: { name: 'Elliott, London Handstand Academy' } }));
+          signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
         await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         done.sessions.followed++;
       }

@@ -6806,6 +6806,63 @@ function shortSave(){
       shortMsg='Saved. The app picks it up on its next load.'; draw(); })
     .catch(e=>{ shortBusy=false; shortMsg=String(e); draw(); });
 }
+/* ── the automated emails ─────────────────────────────────────────
+   Every email the app sends on its own, editable: the subject, the big
+   line, the paragraphs and the small print. Placeholders in braces are
+   filled in when it goes. Reset puts the shipped words back. */
+let emDefs=null, emOver={}, emOpen='', emBusy=false, emMsg='', emDraft={};
+function emLoad(){ if(emDefs) return; emDefs={};
+  fetch(API+'/emails',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ emDefs=d.defaults||{}; emOver=d.overrides||{}; draw(); } }).catch(()=>{}); }
+function emVal(k,f){ const o=(emOver[k]||{}), d=(emDefs[k]||{});
+  if(emDraft[k] && emDraft[k][f]!=null) return emDraft[k][f];
+  const v=(o[f]!=null && String(o[f]).trim()!=='') ? o[f] : d[f];
+  return Array.isArray(v) ? v.join('\n\n') : (v||''); }
+function emSet(k,f,v){ emDraft[k]=emDraft[k]||{}; emDraft[k][f]=v; emMsg='Not saved yet'; const m=document.getElementById('emMsg'); if(m) m.textContent=emMsg; }
+function emToggle(k){ emOpen = emOpen===k ? '' : k; draw(); }
+function emSave(k){ if(emBusy) return; emBusy=true; emMsg='Saving…'; draw();
+  const body={key:k, subject:emVal(k,'subject'), title:emVal(k,'title'), paras:emVal(k,'paras'), footnote:emVal(k,'footnote')};
+  fetch(API+'/emails',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ emOver=d.overrides||{}; delete emDraft[k]; emBusy=false; emMsg='Saved. The next one that goes out uses these words.'; draw(); })
+    .catch(e=>{ emBusy=false; emMsg=String(e); draw(); }); }
+function emReset(k){ if(emBusy || !confirm('Put the shipped words back for this email?')) return; emBusy=true; draw();
+  fetch(API+'/emails',{method:'POST',headers:hdr(),body:JSON.stringify({key:k,reset:true})})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ emOver=d.overrides||{}; delete emDraft[k]; emBusy=false; emMsg='Back to the shipped words.'; draw(); })
+    .catch(e=>{ emBusy=false; emMsg=String(e); draw(); }); }
+function emailsHTML(){
+  emLoad();
+  const keys=Object.keys(emDefs||{});
+  const inp='border:1px solid var(--line);border-radius:9px;padding:8px 9px;font:400 13px/1.4 var(--sans);background:#fff;width:100%';
+  const rows=keys.map(k=>{ const d=emDefs[k]; const changed=!!emOver[k]; const open=emOpen===k;
+    return `<div style="margin-top:8px;border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden">
+      <button onclick="emToggle('${k}')" style="width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:11px 13px;display:flex;gap:10px;align-items:center">
+        <span style="flex:1;min-width:0"><b style="font:600 13.5px/1.3 var(--sans)">${esc(d.name)}</b>
+          <span class="muted" style="display:block;font-size:11.5px;margin-top:2px">${esc(d.when)}</span></span>
+        ${changed?'<span class="tag tag-accent">edited</span>':''}<span class="muted">${open?'▴':'▾'}</span></button>
+      ${open?`<div style="padding:0 13px 13px;border-top:1px solid var(--line)">
+        <div class="muted" style="font-size:11.5px;margin:10px 0 8px">Placeholders you can use: ${(d.vars||[]).map(v=>'<code>{'+esc(v)+'}</code>').join(' ')}. The greeting line and the button are fixed.</div>
+        <label class="muted" style="font-size:11px">Subject</label>
+        <input value="${esc(emVal(k,'subject'))}" oninput="emSet('${k}','subject',this.value)" style="${inp};margin-bottom:8px">
+        <label class="muted" style="font-size:11px">The big line</label>
+        <input value="${esc(emVal(k,'title'))}" oninput="emSet('${k}','title',this.value)" style="${inp};margin-bottom:8px">
+        <label class="muted" style="font-size:11px">Paragraphs, a blank line between each</label>
+        <textarea rows="7" oninput="emSet('${k}','paras',this.value)" style="${inp};resize:vertical;margin-bottom:8px">${esc(emVal(k,'paras'))}</textarea>
+        <label class="muted" style="font-size:11px">Small print at the bottom, optional</label>
+        <input value="${esc(emVal(k,'footnote'))}" oninput="emSet('${k}','footnote',this.value)" style="${inp};margin-bottom:10px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" ${emBusy?'disabled':''} onclick="emSave('${k}')">Save this email</button>
+          ${changed?`<button class="btn btn-secondary" ${emBusy?'disabled':''} onclick="emReset('${k}')">Back to the shipped words</button>`:''}
+        </div></div>`:''}
+    </div>`; }).join('');
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">AUTOMATED EMAILS</div><span style="flex:1"></span>
+      <span id="emMsg" class="muted" style="font-size:12px">${esc(emMsg)}</span></div>
+    <p class="muted" style="margin:8px 0 4px;max-width:62ch">Every email the app sends by itself. Open one, change the words, save. Placeholders in braces are filled in when it goes. Sign in codes and receipts are not here on purpose.</p>
+    ${rows||'<p class="muted">Loading…</p>'}
+  </div>`;
+}
 /* ── the Train screen: fixes above or below the explainers ── */
 let homeOrder=null, homeBusy=false, homeMsg='';
 function homeLoad(){ if(homeOrder!==null) return; homeOrder='';
@@ -7207,6 +7264,7 @@ function settingsHTML(){
     ${owner?coHTML():''}
     ${owner?shortHTML():''}
     ${owner?homeHTML():''}
+    ${owner?emailsHTML():''}
     ${owner?mailguardHTML():''}
     ${owner?stripeHTML():''}
     ${owner?dbHTML():''}

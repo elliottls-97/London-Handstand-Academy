@@ -23,6 +23,7 @@
 import { getStore } from '@netlify/blobs';
 import programmes from './programmes.mjs';
 import * as supa from './supa.mjs';
+import { EMAILS, renderEmail } from './emails.mjs';
 
 const CODE_TTL = 15 * 60 * 1000;          // a code lasts 15 minutes
 const TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
@@ -513,6 +514,12 @@ const getSetting = async k => {
   const r = await supa.row('settings', `key=eq.${enc(k)}&select=value`);
   return r ? r.value : null;
 };
+/* the words for an automated email, with the dashboard's changes on top */
+let EMAIL_OVER = null;
+async function emailCopy(key, vars) {
+  if (EMAIL_OVER === null) EMAIL_OVER = (await getSetting('emails')) || {};
+  return renderEmail(key, vars, EMAIL_OVER);
+}
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
 /* a setting that is gone reads as absent, which is not the same as one
@@ -853,12 +860,13 @@ export default async (request) => {
           const cur = (await getSetting(ck)) || {};
           await setSetting(ck, { n: (Number(cur.n) || 0) + 1, bought: (Number(cur.bought) || 0) + 1, at: Date.now() });
           const first = String(acct.name || '').split(' ')[0];
-          await email(acct.email, 'Your form check is ready to send',
-            mail({ title: 'Your form check is ready to send.',
+          const T = await emailCopy('checkCredit', { name: esc(first) });
+          await email(acct.email, T.subject,
+            mail({ title: T.title,
               greeting: first,
-              paras: ['Open the app, go to Form check, and send the clip: side on, whole body in frame, one clean attempt. Elliott watches it himself and writes back within 48 hours.'],
+              paras: T.paras,
               cta: { href: `${SITE}/lha-app.html`, label: 'Send the clip' },
-              signoff: { name: 'London Handstand Academy' } }), 'replies');
+              signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), 'replies');
         }
         return json({ ok: true, credit: true });
       }
@@ -902,16 +910,16 @@ export default async (request) => {
         /* somebody who bought from the website has an account and no
            password, and the sign in screen used to claim one had been sent */
         const noPw = !(await hashFor(db, e2));
-        await email(e2, `You are in: ${tierName}`,
-          mail({ title: 'You are in.',
+        const T = await emailCopy('welcomeCoaching', { name: esc(first), tier: esc(tierName), coach: esc(coachName(coachOf(e2))),
+          password_line: noPw ? 'First, a password. Open the app, press Set a password on the sign in screen, and a six digit code comes to this address. Sign in with that password from then on.' : '' });
+        await email(e2, T.subject,
+          mail({ title: T.title,
             greeting: first,
-            paras: [noPw ? 'First, a password. Open the app, press Set a password on the sign in screen, and a six digit code comes to this address. Sign in with that password from then on.' : '',
-                    'There is a message waiting for you in the app under Ask, and it is the first thing to do.',
-                    'Everything happens in the app from here: your clips, my answers, and your programme when there is one.'].filter(Boolean),
+            paras: T.paras,
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             /* no kind: somebody who has just paid is told they are in
                whatever they have turned off, the same as a receipt */
-            signoff: { name: coachName(coachOf(e2)) } }));
+            signoff: { name: coachName(coachOf(e2)) }, footnote: T.footnote || undefined }));
       }
     } else if (off.includes(ev.type)) {
       acct.plus = false;
@@ -920,13 +928,13 @@ export default async (request) => {
          either, and a card that has expired stays expired until somebody
          says so. Stripe retries for a fortnight; this is the only thing
          that turns a bounce back into a payment. */
-      await email(acct.email, 'Your card did not go through',
-        mail({ title: 'Your card did not go through.',
+      const T = await emailCopy('cardFailed', { name: esc((clients()[acct.email] || acct.name || '').split(' ')[0] || '') });
+      await email(acct.email, T.subject,
+        mail({ title: T.title,
           greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
-          paras: ['Nothing has changed and the app still works. Your bank turned the payment down, which is usually an expired card or a new one.',
-                  'Update the card from Account in the app and it goes through on the next try. If it keeps failing the subscription ends on its own, and you can start again whenever.'],
+          paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-          signoff: { name: 'London Handstand Academy' } }));
+          signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
       return json({ ok: true });
     } else if (ev.type === 'customer.subscription.trial_will_end') {
       /* three days out. Nobody should meet the first charge as a surprise:
@@ -935,16 +943,15 @@ export default async (request) => {
          email says what the checkout actually did rather than £5 and a week */
       const trialTxt = PRICES.trialDays === 7 ? 'free week' : `free ${PRICES.trialDays} days`;
       const priceTxt = (PRICES.plus && PRICES.plus.label) || '£5';
-      await email(acct.email, `Your ${trialTxt} ends in three days`,
-        mail({ title: `Three days left on the ${trialTxt}.`,
+      const T = await emailCopy('trialEnds', { name: esc((clients()[acct.email] || acct.name || '').split(' ')[0] || ''), trial: esc(trialTxt), price: esc(priceTxt) });
+      await email(acct.email, T.subject,
+        mail({ title: T.title,
           greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
-          paras: [`After that it is ${priceTxt} a month, and you can cancel from the app before then if it is not for you.`,
-                  'If it is, you need do nothing.'],
+          paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           /* a card is about to be charged, so this is a billing notice and
-             not something to opt out of. It is also the email that stops a
-             surprise charge becoming a refund and a complaint. */
-          signoff: { name: 'London Handstand Academy' } }));
+             not something to opt out of */
+          signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
       return json({ ok: true });
     } else {
       return json({ ok: true, ignored: ev.type });
@@ -2224,6 +2231,30 @@ export default async (request) => {
      length under which every drill gets one set, and how many of the last
      drills are exempt from that because they are the work. They are the
      coach's numbers, not the app's, so they are editable. */
+  /* ── the automated emails, editable ── */
+  if (path === '/coach/emails') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const over = (await getSetting('emails')) || {};
+    if (request.method === 'GET') return json({ defaults: EMAILS, overrides: over });
+    if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const key = String(body.key || '');
+      if (!EMAILS[key]) return json({ error: 'No such email' }, 400);
+      if (body.reset) { delete over[key]; }
+      else {
+        const o = {};
+        if (typeof body.subject === 'string') o.subject = body.subject.trim().slice(0, 140);
+        if (typeof body.title === 'string') o.title = body.title.trim().slice(0, 200);
+        if (typeof body.paras === 'string') o.paras = body.paras.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).slice(0, 12).map(p => p.slice(0, 1500));
+        if (Array.isArray(body.paras)) o.paras = body.paras.map(p => String(p || '').trim()).filter(Boolean).slice(0, 12).map(p => p.slice(0, 1500));
+        if (typeof body.footnote === 'string') o.footnote = body.footnote.trim().slice(0, 300);
+        over[key] = o;
+      }
+      await setSetting('emails', over);
+      EMAIL_OVER = null;
+      return json({ ok: true, overrides: over });
+    }
+  }
   /* where the fixes sit on the Train screen: above or below the explainers */
   if (path === '/coach/home') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
@@ -3487,20 +3518,19 @@ export default async (request) => {
     const sender = (await getAcct(who)) || {};
     const them = clients()[who] || String(sender.name || '').split(' ')[0] || '';
     const cn = coachName(coachOf(who));
-    await email(who, kind === 'assessment' ? 'Your clip is in' : 'Your test is in',
+    const T = await emailCopy('clipIn', { name: esc(them), coach: esc(cn), clips: clips.length === 1 ? 'that' : 'those' });
+    await email(who, kind === 'assessment' ? T.subject : T.subject.replace(/clip/i, 'test'),
       mail({
-        title: kind === 'assessment' ? 'Your clip is in.' : 'Your test is in.',
+        title: kind === 'assessment' ? T.title : T.title.replace(/clip/i, 'test'),
         greeting: them,
-        paras: [`Thanks for sending ${clips.length === 1 ? 'that' : 'those'} over.
-          ${esc(cn)} watches every one personally — you will hear back within
-          <b>48 hours</b>.`],
+        paras: T.paras,
         box: { title: 'What happens next', numbered: true, items: [
           `${cn} watches your ${clips.length === 1 ? 'clip' : 'clips'} and picks the one thing holding you back.`,
           'You get that back in the app, and an email to tell you it has landed.',
         ] },
         cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: cn },
-        footnote: 'Sit tight — the next email from us is the one with your answer.',
+        footnote: T.footnote || undefined,
       }));
 
     await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
@@ -4401,19 +4431,15 @@ export default async (request) => {
           .filter(c => !hadKeys.has(c.k) && (!c.from || c.from <= today));
         if (fresh.length) {
           const nm = clients()[e] || '';
-          await email(e, fresh.length === 1
-              ? 'A new check point in your app'
-              : `${fresh.length} new check points in your app`,
+          const T = await emailCopy('newCheckpoints', { name: esc(nm ? nm.split(' ')[0] : 'Hello'),
+            n: fresh.length === 1 ? 'a check point' : fresh.length + ' check points',
+            list: fresh.map(c => `<b>${esc(c.n)}</b>${c.note ? '<br>' + esc(c.note) : ''}`).join('<br><br>') });
+          await email(e, T.subject,
             mail({
-              title: fresh.length === 1 ? 'Something new to test.' : 'A few things to test.',
-              paras: [
-                `${esc(nm ? nm.split(' ')[0] : 'Hello')}, I have added ${
-                  fresh.length === 1 ? 'a check point' : fresh.length + ' check points'} to your app.`,
-                fresh.map(c => `<b>${esc(c.n)}</b>${c.note ? '<br>' + esc(c.note) : ''}`).join('<br><br>'),
-                'They are on the Progress tab under Check points. Log the number when you test it, and send a clip so I can see it.',
-              ],
+              title: T.title,
+              paras: T.paras,
               cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-              signoff: { name: coachName(coachOf(e) || primaryCoach()) },
+              signoff: { name: coachName(coachOf(e) || primaryCoach()) }, footnote: T.footnote || undefined,
             }), 'reminders');
         }
         await ensureCustom();
@@ -4931,14 +4957,14 @@ export default async (request) => {
       const replied = thread.some(m => m.from === 'coach' && (m.at || 0) > (rec.at || 0));
       if (!replied) {
         const nm = coachName(asking || coachOf(e));
-        await email(e, 'Your answer is ready',
+        const T = await emailCopy('answerReady', { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm) });
+        await email(e, T.subject,
           mail({
-            title: 'Your answer is ready.',
+            title: T.title,
             greeting: (clients()[e] || '').split(' ')[0] || '',
-            paras: [`${esc(nm)} has been through what you sent and written it up.
-              It is waiting in the app.`],
+            paras: T.paras,
             cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
-            signoff: { name: nm },
+            signoff: { name: nm }, footnote: T.footnote || undefined,
           }), 'replies');
       }
 
@@ -5031,13 +5057,14 @@ export default async (request) => {
         const who2 = coachName(asking || coachOf(e));
         const sent = video ? `${who2} has sent you a video.`
           : image ? `${who2} has sent you a photo.` : `${who2} has replied.`;
-        await email(e, `${who2} has replied`,
+        const T = await emailCopy('coachReplied', { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(who2), text: text ? esc(text.slice(0, 600)) : esc(sent) });
+        await email(e, T.subject,
           mail({
-            title: `${who2} has replied.`,
+            title: T.title,
             greeting: (clients()[e] || '').split(' ')[0] || '',
-            paras: [text ? esc(text.slice(0, 600)) : esc(sent)],
+            paras: T.paras,
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-            signoff: { name: who2 },
+            signoff: { name: who2 }, footnote: T.footnote || undefined,
           }), 'replies');
         return json({ ok: true });
       }
