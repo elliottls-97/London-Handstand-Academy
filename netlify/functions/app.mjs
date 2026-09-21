@@ -514,6 +514,26 @@ const getSetting = async k => {
   const r = await supa.row('settings', `key=eq.${enc(k)}&select=value`);
   return r ? r.value : null;
 };
+/* ── may this account send footage now? ───────────────────────────
+   A form check is one credit, not one clip: opening it spends the free
+   one or a bought one, and until the coach closes it every check point
+   clip and every clip in the chat goes in for nothing more. That is how
+   somebody sends each check point as they get to it, or a photo to
+   follow a question up, without buying the same check twice. */
+async function fcGate(who) {
+  const ck = `fccredits:${who}`;
+  const cur = (await getSetting(ck)) || {};
+  if (cur.open) return { ok: true, open: true };
+  const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
+  if (won) { await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'free' })); return { ok: true, opened: true }; }
+  const n = Number(cur.n) || 0;
+  if (n <= 0) {
+    return { ok: false, error: `That is your free form check used. Elliott watches every one himself, `
+      + `so there is one with an account. After that they are ${PRICES.check.label} each, or included with coaching.` };
+  }
+  await setSetting(ck, Object.assign({}, cur, { n: n - 1, spentAt: Date.now(), open: true, openedAt: Date.now(), openedWith: 'credit' }));
+  return { ok: true, opened: true };
+}
 /* the words for an automated email, with the dashboard's changes on top */
 let EMAIL_OVER = null;
 async function emailCopy(key, vars) {
@@ -622,7 +642,7 @@ export default async (request) => {
      by the amount typed here, the app and the site read the labels. What
      was in the environment stays as the fallback. */
   const PRICE_DEFAULTS = {
-    plus:     { label: '£15',  amount: 1500,  priceId: '', link: '', founding: false },
+    plus:     { label: '£10',  amount: 1000,  priceId: '', link: '', founding: false },
     /* the same ladder paid a quarter or a year at a time */
     plusq:    { label: '£39',  amount: 3900,  priceId: '', link: '' },
     plusy:    { label: '£129', amount: 12900, priceId: '', link: '' },
@@ -841,7 +861,7 @@ export default async (request) => {
          payment link that carries none, from what was paid */
       /* 10000 is the old coaching price; the link may still carry it */
       /* 18000 is the link on the site until the £190 one replaces it */
-      const byAmount = { 500: 'plus', 1500: 'plus', 2000: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
+      const byAmount = { 500: 'plus', 1000: 'plus', 1500: 'plus', 2000: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
       for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline']) {
         const amt = Number(PRICES[k] && PRICES[k].amount);
         if (amt > 0) byAmount[amt] = ({ inperson: 'online', inperson2: 'online', inperson4: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
@@ -1290,7 +1310,11 @@ export default async (request) => {
     const acct = (await getAcct(who)) || {};
     const coachedNow = await isCoached(who);
     const usedCheck = !!(await supa.row('free_checks', `email=eq.${enc(who)}&select=email`));
-    const credits = Number(((await getSetting(`fccredits:${who}`)) || {}).n) || 0;
+    const fcc = (await getSetting(`fccredits:${who}`)) || {};
+    const credits = Number(fcc.n) || 0;
+    /* a form check that has been opened and not yet closed by the coach:
+       clips and check points go in without spending anything more */
+    const checkOpen = !coachedNow && !!fcc.open;
     return json({
       email: who,
       name: clients()[who] || acct.name || '',
@@ -1318,7 +1342,8 @@ export default async (request) => {
       freeCheckUsed: !coachedNow && usedCheck,
       /* checks bought one at a time and not yet sent */
       checkCredits: credits,
-      canCheck: coachedNow || !usedCheck || credits > 0,
+      checkOpen,
+      canCheck: coachedNow || !usedCheck || credits > 0 || checkOpen,
     });
   }
 
@@ -3458,21 +3483,8 @@ export default async (request) => {
        insertIfAbsent is the claim: whoever wins the row gets the check,
        and a second attempt cannot win it even if both arrive at once. */
     if (!coached) {
-      const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
-      if (!won) {
-        /* the free one is gone: a bought credit pays for this clip, and
-           the row is read and written here so two clips sent together
-           cannot both spend the same one */
-        const ck = `fccredits:${who}`;
-        const cur = (await getSetting(ck)) || {};
-        const n = Number(cur.n) || 0;
-        if (n <= 0) {
-          return json({ error: `That is your free form check used. Elliott watches every one himself, `
-            + `so there is one with an account. After that they are ${PRICES.check.label} each, or included with coaching.`,
-            gated: true, usedUp: true }, 402);
-        }
-        await setSetting(ck, Object.assign({}, cur, { n: n - 1, spentAt: Date.now() }));
-      }
+      const gate = await fcGate(who);
+      if (!gate.ok) return json({ error: gate.error, gated: true, usedUp: true }, 402);
     }
     const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};
     const clips = Array.isArray(body.clips) ? body.clips.slice(0, 12).map(c => ({
@@ -3900,11 +3912,8 @@ export default async (request) => {
       const coached = !!clients()[who];
       let subId = '';
       if ((video || image) && !coached) {
-        const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
-        if (!won) {
-          return json({ error: 'Your free form check has already been used. '
-            + 'Form checks come with coaching.', gated: true }, 402);
-        }
+        const gate = await fcGate(who);
+        if (!gate.ok) return json({ error: gate.error, gated: true }, 402);
         /* This claimed the free check and then filed the clip as a chat
            message, so it never appeared in the review queue and the app's
            own form check card carried on saying "send one" while the server
@@ -4972,6 +4981,13 @@ export default async (request) => {
          Written onto the submission and onto the client's own record of
          that check point, matched on the clip, so the app can show what the
          coach said beside what they logged. */
+      /* marking a free account's clip reviewed closes the form check: the
+         next clip they send needs the next credit */
+      if (!clients()[e]) {
+        const ck = `fccredits:${e}`;
+        const cur = (await getSetting(ck)) || {};
+        if (cur.open) await setSetting(ck, Object.assign({}, cur, { open: false, closedAt: Date.now() }));
+      }
       if (rec.kind === 'checkpoint' && ['reached', 'notyet'].includes(body.verdict)) {
         const note = String(body.note || '').slice(0, 300);
         const numbers = Object.assign({}, rec.numbers || {}, { verdict: body.verdict, verdictNote: note });
