@@ -980,13 +980,14 @@ function screenToday(){
      the same thing about their own block whatever their block said */
   const pts=(DATA.changed||[]).map(x=>Array.isArray(x)?x:[x.t||'',x.p||'']).filter(x=>x[0]||x[1]);
   return `<div class="scroll s">
+  ${viewSwitch()}
   <!-- The green hero has gone, the same way the free side's did. It was a
        third of the screen before a word had been said, and the one control
        this screen exists for, Start, was a flat panel the size of a chip.
        Nothing here has been dropped: the greeting, the six week block, the
        day, its length and the time it is due are all still on the first
        screen, on the ground rather than on a slab of green. -->
-  <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+  <div class="rise" style="padding:${st.coached?'16px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
       color:var(--forest)">Good ${greeting()}${name?', '+esc(name):''}</div>
     <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">${
@@ -9130,7 +9131,8 @@ function screenHome(){
          warm neutral now, the greeting is the only large type, and Start is the
          size of the decision it represents. How long and how hard moved into
          the sheet behind it, because they are the second question. -->
-    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+    ${viewSwitch()}
+    <div class="rise" style="padding:${st.coached?'16px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">${hello}${name?', '+esc(name):''}</div>
       <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">${
@@ -10000,7 +10002,11 @@ const freePlanLine = () =>
 /* The explainers are what an account opens — see FREE_EXPLAINERS. Drill
    demos are part of training, and these stages train free. */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
-const isPlus = () => !!(st.plus || st.in);   /* st.plus is refreshed from /me */
+/* st.plus is refreshed from /me. st.coached carries on being true when a
+   coaching client has no programme yet and the app drops them back to the
+   ladder, and without it here they paid for coaching and met the paywall
+   on Wall Work while waiting for block one to be written. */
+const isPlus = () => !!(st.plus || st.in || st.coached);
 /* This had no taste term while stageCap and tasting did, so somebody with
    two free sessions at Take-Off was told on the wall that they had them and
    then met the paywall when they tapped the stage, with no way to its check
@@ -12155,11 +12161,31 @@ function setCoTab(k){
 }
 /* A coaching client is still a person who might want the ladder. The tab
    set follows the view they have chosen rather than what they pay for. */
+/* ── two things, one account ───────────────────────────────────────
+   Somebody can be coached and also want the ladder, and the switch
+   between them was a card in the drawer behind the menu, which is the one
+   place nobody looks. It sits at the top of the screen now for anyone who
+   has both. Not in the bar: two words and the account chip do not fit
+   across a phone, and a clipped word is worse than a row. */
+function viewSwitch(){
+  if(!st.coached) return '';
+  return `<div style="padding:calc(env(safe-area-inset-top) + 78px) 16px 0">
+    <div style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.07)">
+      ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>`<button onclick="switchView(${f})"
+        aria-pressed="${(!!st.asFree)===f}" style="flex:1;min-height:40px;border:0;cursor:pointer;
+        border-radius:11px;font:600 13px/1 var(--sans);
+        background:${(!!st.asFree)===f?'#fff':'transparent'};
+        box-shadow:${(!!st.asFree)===f?'0 1px 2px rgba(0,64,61,.12)':'none'};
+        color:${(!!st.asFree)===f?'var(--deep)':'var(--grey)'}">${l}</button>`).join('')}
+    </div>
+  </div>`;
+}
 function coachedView(){ return !!st.in && !st.asFree; }
 function switchView(toFree){
   st.asFree=!!toFree;
-  closeOv();
-  go(toFree ? 'ladder' : 'today');
+  save();
+  closeOv(); closeMenu();
+  go(toFree ? 'home' : 'today');
 }
 
 function go(t){
