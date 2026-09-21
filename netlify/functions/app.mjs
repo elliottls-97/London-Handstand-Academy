@@ -2366,7 +2366,7 @@ export default async (request) => {
   }
 
   /* ── the three workouts, as lists ────────────────────────────────
-     Easier, As written and Harder were a share of each difficulty level
+     Easier, Standard and Harder were a share of each difficulty level
      rather than three sessions, so the only way to change what was in one
      was to move a drill between levels and work out what that did to the
      other two. This stores each of them as an ordered list of drills, which
@@ -2471,9 +2471,13 @@ export default async (request) => {
         const bt = (await getSetting('ladder:bandtiming')) || {};
         const forStage = bt[stage] || {};
         const rows = {};
-        for (const k of Object.keys(body.bandTiming).slice(0, 80)) {
-          const v = String(k).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
-          if (!v) continue;
+        for (const k of Object.keys(body.bandTiming).slice(0, 90)) {
+          /* "*" is every drill in this workout and "*l3" is everything at
+             that difficulty inside it, so the star has to survive the
+             cleaning that keeps the rest of a key to a drill id */
+          const v = String(k).toLowerCase().replace(/[^a-z0-9*-]/g, '').slice(0, 60);
+          if (!v || (v[0] === '*' && !/^\*(l[1-4])?$/.test(v))) continue;
+          const wide = v[0] === '*';
           const r = body.bandTiming[k] || {};
           const one = {};
           const num = (x, lo, hi) => {
@@ -2485,11 +2489,14 @@ export default async (request) => {
           const w    = num(r.w, 0, 600);    if (w !== null) one.w = w;
           const rest = num(r.r, 0, 600);    if (rest !== null) one.r = rest;
           if (['s', '', 'f'].includes(r.unit)) one.unit = r.unit;
-          if (['straight','buildto','failure','eachside','maxhold'].includes(r.style)) {
+          if (!wide && ['straight','buildto','failure','eachside','maxhold'].includes(r.style)) {
             one.style = r.style;
           }
-          if (typeof r.d === 'string') one.d = r.d.slice(0, 80);
-          if (typeof r.dx === 'string' && r.dx.trim()) one.dx = r.dx.slice(0, 60);
+          /* a line of words belongs to one drill: "build to 8" written
+             across a whole workout would say the same thing about a plank
+             and a press, so the wide keys carry numbers only */
+          if (!wide && typeof r.d === 'string') one.d = r.d.slice(0, 80);
+          if (!wide && typeof r.dx === 'string' && r.dx.trim()) one.dx = r.dx.slice(0, 60);
           if (Object.keys(one).length) rows[v] = one; else delete forStage[v];
         }
         forStage[band] = Object.assign({}, forStage[band], rows);

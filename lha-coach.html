@@ -2720,17 +2720,30 @@ function wkMixCounts(stage, band, n){
   if(!q[lvls[0]]) q[lvls[0]]=1;
   return lvls.map(L=>'L'+L+' × '+q[L]).join(', ');
 }
+/* Three places can set a number inside one workout, and the narrower one
+   wins: the whole workout ("*"), everything at one difficulty in it
+   ("*l3"), then the drill's own row. */
 function wkBandNums(stage,band,v){
-  const saved=((wkBandTiming[stage]||wkBandTiming[String(stage)]||{})[band]||{})[v]||{};
-  const pend=((wkBandEdits[wkBandKey(stage,band)]||{})[v])||{};
-  return Object.assign({}, saved, pend);
+  const key=wkBandKey(stage,band);
+  const store=((wkBandTiming[stage]||wkBandTiming[String(stage)]||{})[band])||{};
+  const one=k=>Object.assign({}, store[k]||{}, ((wkBandEdits[key]||{})[k])||{});
+  if(String(v).charAt(0)==='*') return one(v);
+  const L=wkLvlOf(stage,v);
+  return Object.assign({}, one('*'), L?one('*l'+L):{}, one(v));
+}
+/* what one key says on its own, with nothing inherited folded in. Editing a
+   row seeds it from this: seeding from the cascade instead copied the
+   workout's numbers onto the row, and the row then stopped following it. */
+function wkBandOwn(stage,band,v){
+  const store=((wkBandTiming[stage]||wkBandTiming[String(stage)]||{})[band])||{};
+  return Object.assign({}, store[v]||{}, ((wkBandEdits[wkBandKey(stage,band)]||{})[v])||{});
 }
 function wkSet(v,f,val){
   /* a band selected means the numbers belong to that band */
   if(wkBand){
     const k=wkBandKey(wkStage,wkBand);
     wkBandEdits[k]=wkBandEdits[k]||{};
-    wkBandEdits[k][v]=Object.assign({}, wkBandNums(wkStage,wkBand,v));
+    wkBandEdits[k][v]=wkBandOwn(wkStage,wkBand,v);
     /* an empty box is "go back to the rule", except the unit, where the
        empty string is reps and deleting it lost the choice */
     if((val===''||val==null) && f!=='unit') delete wkBandEdits[k][v][f];
@@ -2746,6 +2759,14 @@ function wkSet(v,f,val){
 }
 /* repaint only the lines that changed, or the field loses focus mid-type */
 function wkRepaintRow(v){
+  /* a number set across the whole workout changes every line in it */
+  if(String(v).charAt(0)==='*'){
+    const all=document.querySelectorAll('[id^="wk-"]');
+    for(let i=0;i<all.length;i++){
+      const id=all[i].id.slice(3);
+      if(id && id.charAt(0)!=='*') all[i].textContent=wkRowLen(id);
+    }
+  }
   const row=document.getElementById('wk-'+v);
   if(row) row.textContent=wkRowLen(v);
   const tot=document.getElementById('wkTotal');
@@ -3385,7 +3406,7 @@ function explainHTML(){
    The tab tuned dose and rest, and what was actually in a session came
    from each drill's level and the share BAND_MIX gives that level. So the
    only way to change what was in Harder was to move a drill between levels
-   and then work out what that did to Easier and As written.
+   and then work out what that did to Easier and Standard.
 
    These are the three sessions written out instead. A list wins over the
    shares for that stage and that band, and a stage with no list carries on
@@ -3427,6 +3448,47 @@ function wkPoolFor(stage){
    is thirty of them. Collapsed, a row is the drill and what it comes to;
    open it for the numbers. */
 let wkOpenRow={};
+/* the workout's own numbers, folded away until they are wanted */
+let wkDefOpen=false;
+/* ── numbers you can change with a thumb ───────────────────────────
+   Every number here used to be a box you had to open a keyboard for,
+   select the 3 in, and type a 4 over. The arrows do it in one tap, the
+   box is still there to type into, and 16px is the size iOS stops
+   zooming the page in to reach. */
+const WK_STEP={sets:1, amt:1, w:5, r:5};
+function wkNumBox(v,f,val,ph,w,grp){
+  const id='wkf-'+f+'-'+String(v).replace(/[^a-z0-9*-]/g,'');
+  const b='width:30px;height:34px;flex:none;border-radius:9px;border:1px solid var(--line);'
+    +'background:#fff;cursor:pointer;font:600 15px/1 var(--sans);color:var(--forest);padding:0';
+  return `<span style="display:flex;align-items:center;gap:3px">
+    <button type="button" aria-label="Less" onclick="wkStep('${v}','${f}',-1,'${esc(grp||'')}')"
+      style="${b}">&minus;</button>
+    <input id="${id}" type="number" inputmode="numeric" min="0" value="${val==null?'':val}"
+      placeholder="${ph}" oninput="wkSet('${v}','${f}',this.value)"
+      style="border:1px solid var(--line);border-radius:9px;padding:8px 6px;text-align:center;
+      font:600 16px/1 var(--sans);background:#fff;width:${Math.max(56,w)}px">
+    <button type="button" aria-label="More" onclick="wkStep('${v}','${f}',1,'${esc(grp||'')}')"
+      style="${b}">&plus;</button></span>`;
+}
+/* one tap up or down, from whatever the row is running at now, stated or
+   inherited, so the first tap never jumps to a number nobody chose */
+function wkStep(v,f,dir,grp){
+  const step=WK_STEP[f]||1;
+  let cur;
+  if(String(v).charAt(0)==='*'){
+    const own=wkBandNums(wkStage, wkBand, v)[f];
+    cur = own!=null ? Number(own)
+      : (f==='sets'?3 : f==='amt'?8 : f==='w'?30 : 45);
+  }else{
+    const n=wkNums(v, grp||'');
+    cur = f==='sets' ? wkSetsOf(n) : f==='amt' ? n.amt : f==='w' ? n.w : n.r;
+  }
+  const lo=(f==='sets'||f==='amt')?1:0;
+  const next=Math.max(lo, Math.round((Number(cur)||0) + step*dir));
+  wkSet(v,f,String(next));
+  const box=document.getElementById('wkf-'+f+'-'+String(v).replace(/[^a-z0-9*-]/g,''));
+  if(box) box.value=next;
+}
 function wkRowToggle(v){ if(wkOpenRow[v]) delete wkOpenRow[v]; else wkOpenRow[v]=true; draw(); }
 /* ── dragging ──────────────────────────────────────────────────────
    Arrows move a drill one place at a time, which is fine for a nudge and
@@ -3939,7 +4001,9 @@ function wkBandSave(){
     if(wkBandEdits[k] && Object.keys(wkBandEdits[k]).length){
       const bt={};
       Object.keys(wkBandEdits[k]).forEach(v=>{
-        bt[v]=Object.assign({}, wkBandEdits[k][v], {d:wkDoseText(v, grpOf(v))});
+        bt[v]= v.charAt(0)==='*'
+          ? Object.assign({}, wkBandEdits[k][v])
+          : Object.assign({}, wkBandEdits[k][v], {d:wkDoseText(v, grpOf(v))});
       });
       body.bandTiming=bt;
     }
@@ -4068,9 +4132,7 @@ function workoutsHTML(){
     const fld=(lab,html)=>`<label style="flex:none;display:flex;flex-direction:column;gap:4px">
       <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${lab}</span>
       ${html}</label>`;
-    const num=(v,f,val,ph,w)=>`<input type="number" min="0" value="${val==null?'':val}"
-      placeholder="${ph}" oninput="wkSet('${v}','${f}',this.value)"
-      style="${inp};width:${w}px;font-weight:600">`;
+    const num=(v,f,val,ph,w,grp)=>wkNumBox(v,f,val,ph,w,grp);
     /* The workout is one ordered list, because a short session takes from
        the top of it. Showing the groupings as headings down that list keeps
        the order honest and still says which part of the session a row is in. */
@@ -4123,8 +4185,8 @@ function workoutsHTML(){
         </div>
         ${!open?'':`
         <div style="display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-top:9px">
-          ${fld('SETS', num(v,'sets',it.sets!=null?it.sets:n.sets,n.warm?'1':'3',62))}
-          ${fld('BUILD TO', num(v,'amt',it.amt!=null?it.amt:n.amt,'8',72))}
+          ${fld('SETS', num(v,'sets',it.sets!=null?it.sets:n.sets,n.warm?'1':'3',62,row?row.g:''))}
+          ${fld('BUILD TO', num(v,'amt',it.amt!=null?it.amt:n.amt,'8',72,row?row.g:''))}
           ${fld('IN', (function(){ const u=(it.unit!=null?it.unit:n.unit);
             return `<select onchange="wkSet('${v}','unit',this.value)"
               style="${inp};width:110px">
@@ -4132,8 +4194,8 @@ function workoutsHTML(){
               <option value="s"${u==='s'?' selected':''}>seconds</option>
               <option value="f"${u==='f'?' selected':''}>to failure</option>
             </select>`; })())}
-          ${fld('SECONDS TO DO IT', num(v,'w',it.w!=null?it.w:n.w,String(n.w),86))}
-          ${fld('REST', num(v,'r',it.r!=null?it.r:n.r,String(n.r),66))}
+          ${fld('SECONDS TO DO IT', num(v,'w',it.w!=null?it.w:n.w,String(n.w),86,row?row.g:''))}
+          ${fld('REST', num(v,'r',it.r!=null?it.r:n.r,String(n.r),66,row?row.g:''))}
           <span style="flex:1;min-width:120px;text-align:right;font:500 11.5px/1.4 var(--sans);
             color:var(--grey)" id="wk-${v}">${wkRowLen(v)}</span>
         </div>
@@ -4269,6 +4331,73 @@ function workoutsHTML(){
                 +'at the same level is untouched.'
               : 'Every level is at zero, so there is nothing for a session to draw on.'}</div>
         </div>`;})()}
+      ${(function(){
+        /* ── the numbers for the whole workout ──────────────────────
+           Easier meant an easier pick of drills and nothing else: the same
+           three sets of eight, on easier work. Sets and reps belong to the
+           workout as much as the list does, so they are set here, once,
+           and a row below only has to say where it differs. The levels in
+           between are for "everything hard in this one drops a set". */
+        const lvls=[];
+        list.forEach(v=>{ const L=wkLvlOf(wkStage,v); if(L && lvls.indexOf(L)<0) lvls.push(L); });
+        lvls.sort();
+        const wide=wkBandNums(wkStage,wkBand,'*');
+        const said=['sets','amt','w','r'].filter(f=>wide[f]!=null).length;
+        const lvlSaid=lvls.filter(L=>{ const o=wkBandNums(wkStage,wkBand,'*l'+L);
+          return ['sets','amt','w','r'].some(f=>o[f]!=null); }).length;
+        const sum = said||lvlSaid
+          ? said+' set across the workout'+(lvlSaid?', '+lvlSaid+' level'+(lvlSaid===1?'':'s')+' of its own':'')
+          : 'Nothing set, so every drill runs at its own numbers';
+        const ph=f=>{ const n=wide[f]; return n==null ? 'per drill' : String(n); };
+        const fld=(lab,html)=>`<label style="flex:none;display:flex;flex-direction:column;gap:4px">
+          <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${lab}</span>
+          ${html}</label>`;
+        if(!wkDefOpen) return `<div style="margin-top:12px;padding:11px 13px;border-radius:13px;
+          border:1px solid var(--line);background:#fff;display:flex;gap:10px;align-items:center;
+          flex-wrap:wrap">
+          <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">
+            SETS AND REPS FOR THIS WORKOUT</span>
+          <span style="flex:1;min-width:150px;font:400 12px/1.4 var(--sans);color:var(--grey)">${
+            esc(sum)}</span>
+          <button class="quiet" style="flex:none" onclick="wkDefOpen=true;draw()">Set them</button>
+        </div>`;
+        return `<div style="margin-top:12px;padding:12px 14px;border-radius:13px;
+          border:1px solid var(--line);background:#fff">
+          <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+            <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">
+              SETS AND REPS FOR THIS WORKOUT</span>
+            <button class="quiet" style="margin-left:auto" onclick="wkDefOpen=false;draw()">Done</button>
+          </div>
+          <div style="font:400 12px/1.6 var(--sans);color:var(--grey);margin-top:6px;max-width:66ch">
+            Every drill in ${esc(BAND_NAME[wkBand])} runs at these, whatever it does in the
+            other two. Leave one empty and that drill keeps its own number. A row below
+            beats both.</div>
+          <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+            ${fld('SETS', wkNumBox('*','sets',wide.sets==null?'':wide.sets,'per drill',56))}
+            ${fld('BUILD TO', wkNumBox('*','amt',wide.amt==null?'':wide.amt,'per drill',56))}
+            ${fld('SECONDS', wkNumBox('*','w',wide.w==null?'':wide.w,'per drill',56))}
+            ${fld('REST', wkNumBox('*','r',wide.r==null?'':wide.r,'per drill',56))}
+          </div>
+          ${!lvls.length?'':`
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+            <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">
+              AND BY DIFFICULTY, INSIDE IT</div>
+            <div style="font:400 12px/1.6 var(--sans);color:var(--grey);margin-top:6px;max-width:66ch">
+              The level is how hard a drill is inside this phase, one to four. Anything
+              here beats the line above for drills at that level.</div>
+            ${lvls.map(L=>{ const o=wkBandNums(wkStage,wkBand,'*l'+L);
+              const n=list.filter(v=>wkLvlOf(wkStage,v)===L).length;
+              return `<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+                <span style="flex:none;width:96px;font:600 11.5px/1.3 var(--sans);color:var(--ink)">
+                  Level ${L}<span style="display:block;font:400 10.5px/1.3 var(--sans);
+                  color:var(--grey2)">${n} drill${n===1?'':'s'}</span></span>
+                ${fld('SETS', wkNumBox('*l'+L,'sets',o.sets==null?'':o.sets,ph('sets'),56))}
+                ${fld('BUILD TO', wkNumBox('*l'+L,'amt',o.amt==null?'':o.amt,ph('amt'),56))}
+                ${fld('SECONDS', wkNumBox('*l'+L,'w',o.w==null?'':o.w,ph('w'),56))}
+                ${fld('REST', wkNumBox('*l'+L,'r',o.r==null?'':o.r,ph('r'),56))}
+              </div>`; }).join('')}
+          </div>`}
+        </div>`; })()}
       ${rows||`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:16px">
         Nothing in this workout. Add a drill below and it becomes the session.</div>`}
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
@@ -4316,15 +4445,19 @@ function workoutsHTML(){
           <label style="flex:0 0 116px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
             color:var(--grey2)">DOSE</span>
             <input value="${esc(it.d||'')}" oninput="wkSet('${x.v}','d',this.value)"
-              style="${inp};margin-top:4px"></label>
-          <label style="flex:0 0 74px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+              style="${inp};margin-top:4px;font-size:16px"></label>
+          <label style="flex:0 0 132px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+            color:var(--grey2)">SETS</span>
+            <span style="display:block;margin-top:4px">${
+              wkNumBox(x.v,'sets',it.sets==null?'':it.sets,String(wkNums(x.v,g).sets),56,g)}</span></label>
+          <label style="flex:0 0 132px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
             color:var(--grey2)">SECONDS</span>
-            <input type="number" min="0" value="${it.w==null?'':it.w}" placeholder="auto"
-              oninput="wkSet('${x.v}','w',this.value)" style="${inp};margin-top:4px"></label>
-          <label style="flex:0 0 74px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
+            <span style="display:block;margin-top:4px">${
+              wkNumBox(x.v,'w',it.w==null?'':it.w,String(wkNums(x.v,g).w),56,g)}</span></label>
+          <label style="flex:0 0 132px"><span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
             color:var(--grey2)">REST</span>
-            <input type="number" min="0" value="${it.r==null?'':it.r}" placeholder="auto"
-              oninput="wkSet('${x.v}','r',this.value)" style="${inp};margin-top:4px"></label>
+            <span style="display:block;margin-top:4px">${
+              wkNumBox(x.v,'r',it.r==null?'':it.r,String(wkNums(x.v,g).r),56,g)}</span></label>
           <span id="wk-${x.v}" style="flex:0 0 168px;text-align:right;font:500 11.5px/1.3 var(--sans);
             color:var(--grey)">${wkRowLen(x.v)}</span>
         </div>`;}).join('')}
@@ -4360,7 +4493,7 @@ function workoutsHTML(){
       <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:5px">
         Every drill the day's groupings hold, at three sets each. Nobody is given
         this: a session takes as much of it as the time they picked allows, and
-        which part it takes depends on whether they chose Easier, As written or
+        which part it takes depends on whether they chose Easier, Standard or
         Harder. Read it as the size of the pool you are tuning, not as a session
         length.</div>
     </div>
@@ -7438,7 +7571,7 @@ function toastHTML(){
     esc(toastMsg)}</div>`;
 }
 
-function draw(){
+function drawNow(){
   const msgs=thread.map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.from==='coach'?'flex-end':'flex-start'}">
     ${m.video?`<div style="width:min(260px,80%);border-radius:16px;overflow:hidden;background:#101413;
       margin-bottom:${m.text?'6px':'0'}">
@@ -7478,6 +7611,35 @@ function draw(){
     + bulkHTML() + copyHTML() + toastHTML()
     + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML();
   syncReview();
+}
+/* ── typing has to survive a redraw ────────────────────────────────
+   draw() replaces the whole of #v, so the box being typed into is gone
+   and a new one stands in its place: on a phone that closes the keyboard
+   on every keystroke, which is what "it unclicks" was. The handler a box
+   carries names it exactly, so it can be found again afterwards and the
+   caret put back where it was. */
+function focusKey(el){
+  if(!el || !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName||'')) return null;
+  if(el.id) return 'id:'+el.id;
+  return el.getAttribute('oninput') || el.getAttribute('onchange') || null;
+}
+function draw(){
+  const was=document.activeElement, key=focusKey(was);
+  let a=null, b=null;
+  if(key){ try{ a=was.selectionStart; b=was.selectionEnd; }catch(e){} }
+  const y=window.scrollY;
+  drawNow();
+  if(!key) return;
+  let now=null;
+  if(key.slice(0,3)==='id:') now=document.getElementById(key.slice(3));
+  else{
+    const all=document.querySelectorAll('input,textarea,select');
+    for(let i=0;i<all.length;i++){ if(focusKey(all[i])===key){ now=all[i]; break; } }
+  }
+  if(!now || now===document.activeElement) return;
+  try{ now.focus({preventScroll:true}); }catch(e){ try{ now.focus(); }catch(e2){} }
+  if(a!=null){ try{ now.setSelectionRange(a,b); }catch(e){} }
+  if(window.scrollY!==y) window.scrollTo(0,y);
 }
 TOKEN?load():gate('');
 </script></body></html>

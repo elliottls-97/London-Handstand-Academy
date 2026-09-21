@@ -268,10 +268,12 @@ const EXPLAIN = {
 
 const BAND_MIX = {
   1: {1:55, 2:30, 3:15},          /* Easier: mostly level one, some two, a little three to finish on */
-  2: {1:25, 2:40, 3:35},          /* As written: a mixture, building to three */
+  2: {1:25, 2:40, 3:35},          /* Standard: a mixture, building to three */
   3: {1:10, 2:25, 3:35, 4:30},    /* Harder: opens easy, then far more three and four */
 };
-const BAND_NAME   = {1:'Easier', 2:'As written', 3:'Harder'};
+/* "As written" asked people to know what had been written, and where.
+   Standard says the same thing without the question. */
+const BAND_NAME   = {1:'Easier', 2:'Standard', 3:'Harder'};
 
 const POOL = {
   /* Foundations */
@@ -415,11 +417,21 @@ function mixFor(stage, band){
   if(own && Object.keys(own).length) return own;
   return BAND_MIX[band] || BAND_MIX[2];
 }
-/* Sets and reps for a drill inside one band. The band's own numbers win,
-   then the drill's, then whatever the dose says. */
+/* Sets and reps for a drill inside one band. Three places can say, and the
+   narrower one wins: the whole workout ("*"), everything at one difficulty
+   inside it ("*l3"), then the drill itself. Whatever none of them says
+   falls back to the drill's own numbers and then to the dose. */
 function bandTimingFor(stage, band, v){
   const bt=(typeof st!=='undefined' && st.bandTiming) || {};
-  return ((bt[stage]||{})[band]||{})[v] || null;
+  const forStage=bt[stage] || bt[String(stage)] || {};
+  const b=forStage[band] || forStage[String(band)] || {};
+  /* the dashboard loads this file too, where there is no st for poolFor
+     to read, so asking for the row must never take the page down */
+  let row=null;
+  try{ row=poolRow(stage, v); }catch(e){ row=null; }
+  const byLvl=(row && row.L) ? b['*l'+row.L] : null;
+  const out=Object.assign({}, b['*']||{}, byLvl||{}, b[v]||{});
+  return Object.keys(out).length ? out : null;
 }
 /* Which bands a stage offers. Foundations is the one being tuned and has
    three; everywhere else there is one workout and the chooser should not
