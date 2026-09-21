@@ -27,8 +27,7 @@ const SHELL = [
   '/icons/icon-512.png',
   '/icons/icon-180.png',
   '/icons/icon-192-maskable.png',
-  '/icons/icon-512-maskable.png',
-  '/icons/mark.png'
+  '/icons/icon-512-maskable.png'
 ];
 
 /* Cap the video cache so a long session cannot fill up the device. */
