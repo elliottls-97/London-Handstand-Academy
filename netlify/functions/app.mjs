@@ -1768,7 +1768,11 @@ export default async (request) => {
         const o = { t: b.t };
         if (b.t === 'h' || b.t === 'p' || b.t === 'quote') o.text = str(b.text, b.t === 'p' ? 2000 : 300);
         if (b.t === 'img') { o.id = str(b.id, 64).replace(/[^a-zA-Z0-9]/g, ''); o.cap = str(b.cap, 200); }
-        if (b.t === 'vid') { o.uid = str(b.uid, 64).replace(/[^a-zA-Z0-9]/g, ''); o.cap = str(b.cap, 200); }
+        if (b.t === 'vid') { o.uid = str(b.uid, 64).replace(/[^a-zA-Z0-9]/g, ''); o.cap = str(b.cap, 200);
+          /* a file in the R2 bucket, for a long film that would cost by the
+             minute on Stream. The bucket's own address only, nothing else. */
+          const u = str(b.url, 300);
+          if (/^https:\/\/pub-[a-z0-9]+\.r2\.dev\/[^\s"'<>]+\.(mp4|mov|webm|m4v)$/i.test(u)) o.url = u; }
         if (b.t === 'drill') { o.v = str(b.v, 64).replace(/[^a-z0-9-]/g, ''); o.cap = str(b.cap, 200); }
         return o;
       }).filter(Boolean),

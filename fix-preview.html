@@ -97,7 +97,8 @@ function block(b,i){
   else if(b.t==='p') inner=`<p${ed(i,'text')} data-ph="Say why. What is happening, why it happens, what the drills do about it.">${esc(b.text)}</p>`;
   else if(b.t==='quote') inner=`<blockquote${ed(i,'text')} data-ph="One line to remember">${esc(b.text)}</blockquote>`;
   else if(b.t==='img') inner=`<figure>${b.id?`<img src="/api/app/image/${esc(b.id)}" alt="">`:`<div style="aspect-ratio:4/3;border-radius:18px;background:var(--mist);display:grid;place-items:center;color:var(--grey)">No photo yet</div>`}<figcaption${ed(i,'cap')} data-ph="Caption, optional">${esc(cap)}</figcaption></figure>`;
-  else if(b.t==='vid') inner=`<figure><div class="frame">${b.uid?`<iframe src="${STREAM}${esc(b.uid)}/iframe?preload=metadata" allow="fullscreen" loading="lazy"></iframe>`:''}</div><figcaption${ed(i,'cap')} data-ph="Caption, optional">${esc(cap)}</figcaption></figure>`;
+  else if(b.t==='vid') inner=`<figure>${b.url&&!b.uid?`<video src="${esc(b.url)}" controls playsinline preload="metadata" style="aspect-ratio:16/9;object-fit:contain"></video>`
+      :`<div class="frame">${b.uid?`<iframe src="${STREAM}${esc(b.uid)}/iframe?preload=metadata" allow="fullscreen" loading="lazy"></iframe>`:''}</div>`}<figcaption${ed(i,'cap')} data-ph="Caption, optional">${esc(cap)}</figcaption></figure>`;
   else if(b.t==='drill') inner=`<figure>${b.url?`<video src="${esc(b.url)}" controls playsinline loop muted poster="${thumb(uidOf(b.url))}" style="aspect-ratio:16/10;object-fit:contain"></video>`:''}
     <figcaption><b style="color:var(--ink)">${esc(b.n||b.v)}</b> · <span${ed(i,'cap')} data-ph="what to notice">${esc(cap)}</span></figcaption></figure>`;
   else return '';
@@ -126,6 +127,7 @@ function menu(i){
     <button onclick="event.stopPropagation();pickKind='drill';draw()">Drill film<small>A drill from the library</small></button>
     <button onclick="event.stopPropagation();send({type:'lha-fix-photo',at:${i}})">Photo<small>Upload from your phone or computer</small></button>
     <button onclick="event.stopPropagation();send({type:'lha-fix-video',at:${i}})">Your own film<small>Upload a clip to Stream</small></button>
+    <button onclick="event.stopPropagation();addFile(${i})">A film from the bucket<small>Paste its R2 address, for a long one</small></button>
     <button onclick="event.stopPropagation();closeMenu()" style="color:var(--grey)">Cancel</button>
     ${pick}</div>`;
 }
@@ -140,6 +142,12 @@ function filterPick(q){ const l=document.getElementById('pickList'); if(l) l.inn
 function openMenu(i){ openIns=i; pickKind=''; draw(); }
 function closeMenu(){ openIns=-1; pickKind=''; draw(); }
 function add(i,t){ const b={t}; if(t==='h'||t==='p'||t==='quote') b.text=''; F.article.splice(i,0,b); openIns=-1; pickKind=''; emit(); draw(); focusBlk(i); }
+function addFile(i){
+  const u=prompt('The film\'s address in the R2 bucket, ending .mp4');
+  if(!u) return;
+  if(!/^https:\/\/pub-[a-z0-9]+\.r2\.dev\/.+\.(mp4|mov|webm|m4v)$/i.test(u.trim())){ say('That is not an address in the bucket.'); return; }
+  F.article.splice(i,0,{t:'vid',uid:'',url:u.trim(),cap:''}); openIns=-1; pickKind=''; emit(); draw();
+}
 function addVid(i,uid,q){ F.article.splice(i,0,{t:'vid',uid,cap:q}); openIns=-1; pickKind=''; emit(); draw(); }
 function addDrill(i,v){ const d=DR.find(x=>x.v===v)||{}; F.article.splice(i,0,{t:'drill',v,n:d.n||v,url:d.url||'',cap:''}); openIns=-1; pickKind=''; emit(); draw(); }
 function del(i){ F.article.splice(i,1); emit(); draw(); }
