@@ -8461,8 +8461,7 @@ const levelDef = () => LEVELS.find(l=>l.v===intake().level) || LEVELS[0];
 function profilePct(){
   const a=intake(); let n=20;                 /* opening the app is the first rung */
   if(a.goal) n+=15; if(a.level!=null) n+=20;
-  if(a.niggles) n+=15; if(a.mins) n+=15;
-  if(a.baseline) n+=15;
+  if(a.niggles) n+=20; if(a.baseline) n+=25;
   return Math.min(100,n);
 }
 
@@ -8473,8 +8472,11 @@ const INTAKE_STEPS=[
    sub:'This is the one that sets your stage.'},
   {id:'niggles',kick:'ANYTHING SORE', q:'Anything I should know about?',
    sub:'Pick any that apply. It changes what you get given, not whether you can start.'},
-  {id:'train', kick:'YOUR WEEK',      q:'How do you want to train?',
-   sub:"Nothing binding. It just tells me what is realistic."},
+  /* "Your week" was the fourth: how long and how hard, before they had seen
+     a single drill. Both are asked again by the chooser every time they
+     press Start, where the question means something, and the week it was
+     really asking about went with the rest of the day allocating. Three
+     questions, and the last one is the one that places them. */
 ];
 
 /* has this step got an answer yet, so Next can be offered rather than sat
@@ -8484,7 +8486,6 @@ function stepAnswered(i){
   if(id==='goal')    return !!a.goal;
   if(id==='level')   return a.level!=null;
   if(id==='niggles') return true;          /* nothing to flag is an answer */
-  if(id==='week')    return !!a.mins;
   return true;
 }
 function screenQuiz(){
@@ -8535,25 +8536,6 @@ function screenQuiz(){
       </div>`:''}`;
   }
 
-  if(step.id==='train'){
-    const L=levelDef();
-    body=`<div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)">HOW LONG</div>
-      <div style="display:flex;flex-direction:column;gap:9px;margin-top:10px">
-        ${MINS.filter(([m])=>L.mins.indexOf(m)>=0)
-          .map(([m,d])=>card(a.mins===m, two(m+' minutes',d), `pickIntake('mins',${m})`)).join('')}</div>
-      <div style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2);margin-top:20px">HOW HARD</div>
-      <div style="display:flex;gap:9px;margin-top:10px">
-        ${[[1,'Easier'],[2,'Standard'],[3,'Harder']].map(([n,l])=>{ const on=(a.hard||2)===n;
-          return `<button onclick="pickIntake('hard',${n})" aria-pressed="${on}" style="flex:1;
-          background:${on?'var(--forest)':'#fff'};color:${on?'var(--on-primary)':'var(--ink)'};
-          border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};border-radius:14px;padding:14px 6px;
-          font:600 13px/1 var(--sans);cursor:pointer">${l}</button>`; }).join('')}</div>
-      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">
-        How the sessions at your stage run. Change it any time from the chooser.</div>
-      ${a.mins?`<button class="btn" style="width:100%;margin-top:18px"
-        onclick="finishIntake()">See where you land</button>`:''}`;
-  }
-
   /* .scroll, because #app is a fixed-height flex column with overflow
      hidden — without it the last step runs past the fold and the button
      that finishes the quiz cannot be reached. */
@@ -8562,7 +8544,7 @@ function screenQuiz(){
     display:flex;flex-direction:column;
     animation:${i%2?'riseB':'rise'} .5s cubic-bezier(.2,.8,.2,1) both">
     <div style="display:flex;gap:5px">${rails}</div>
-    <!-- how many are left and how long it takes, said out loud. Four
+    <!-- how many are left and how long it takes, said out loud. Three
          questions unannounced is where a cold visitor leaves. -->
     <div style="margin-top:22px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
       <span style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)">${
@@ -8583,6 +8565,8 @@ function screenQuiz(){
          question, so answering reads as progress rather than as a form. It
          only appears once this step has an answer, because a Next that does
          nothing is worse than no Next. -->
+    ${(!INTAKE_STEPS[i+1] && stepAnswered(i))?`<button class="btn" style="width:100%;margin-top:22px"
+      onclick="finishIntake()">See where you land</button>`:''}
     ${(INTAKE_STEPS[i+1] && stepAnswered(i))?`<button onclick="nextIntake()"
       style="width:100%;height:56px;margin-top:22px;border:0;border-radius:14px;cursor:pointer;
       background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
@@ -8622,8 +8606,6 @@ function toggleWhen(i){
 function pickIntake(k,v){
   intake()[k]=v; save();
   if(k==='goal'||k==='level'){ nextIntake(); return; }
-  const L=levelDef();
-  if(L.mins.indexOf(intake().mins)<0) delete intake().mins;
   render();
 }
 function toggleNiggle(x){
@@ -8638,7 +8620,7 @@ function nextIntake(){
   if(!a.niggles && (st.quizStep|0)===2) a.niggles=[];
   st.quizStep=Math.min((st.quizStep|0)+1, INTAKE_STEPS.length-1); save(); render();
 }
-/* Some people will not answer four questions and should not be made to. The
+/* Some people will not answer three questions and should not be made to. The
    ladder starts at Foundations for everyone anyway, so a skip is a real
    answer: stage one, the default week, and they can retake it from Today. */
 function skipIntake(){
@@ -8822,7 +8804,7 @@ function questionsCard(){
    dropped onto a ladder of five cards with no explanation of what a
    ladder is or what to do first. The words do the orienting; the video
    is optional and deepens it, because a video in front of someone who
-   has just answered four questions is a wall at the moment they are
+   has just answered three questions is a wall at the moment they are
    keenest. It works with the slot empty, and gets better when it is not. */
 const LADDER_INTRO_VIDEO = 'ca0c240ddea6010e5b376d7c6147d29c';   /* intro to the handstand ladder */
 /* One walkthrough per stage, once they are past the first. "New here? Watch
@@ -8975,7 +8957,7 @@ function screenOriented(){
 
     <!-- The film went to the top, which is right, and it pushed the way out
          of this screen below the fold, which is not. Somebody has just
-         answered four questions; making them scroll past a video to find the
+         answered three questions; making them scroll past a video to find the
          button is the wrong thing to ask next. It sits at the foot of the
          screen from the moment it loads, over a fade so the page reads as
          continuing underneath rather than ending there. -->
@@ -8987,7 +8969,7 @@ function screenOriented(){
            the only one always on screen, while the offer it was an
            alternative to scrolled away. The bar carries the offer now and
            the other route is a link under it. Neither asks for money. -->
-      <!-- this used to send somebody who had just answered four questions
+      <!-- this used to send somebody who had just answered three questions
            to a sign-up form. They get the session first now. -->
       <button onclick="st.oriented=true;save();go('home')" style="width:100%;border:0;
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);
@@ -9145,8 +9127,6 @@ function profileGaps(){
     go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"});
   else if(!a.niggles) out.push({t:'Anything sore?', d:'Thirty seconds, and it changes what you are given.',
     go:"st.tab='quiz';st.quizDone=false;st.quizStep=2;save();render()"});
-  else if(!(a.mins&&a.days)) out.push({t:'How much can you train?', d:'Minutes and days a week.',
-    go:"st.tab='quiz';st.quizDone=false;st.quizStep=3;save();render()"});
   if(!a.baseline) out.push({t:'Film a baseline clip', d:'One attempt, and I can place you properly rather than taking your word for it.',
     go:"go(coachedView()?'ask':'coaching')"});
   return out;
@@ -12271,7 +12251,7 @@ function screenWelcome(){
         ${[0,1,2,3].map(i=>`<i style="width:22px;height:3px;border-radius:2px;
           background:${i?'rgba(0,64,61,.15)':'var(--amber)'}"></i>`).join('')}
       </span>
-      <span>4 questions, about a minute. You come out on your stage.</span>
+      <span>3 questions, about a minute. You come out on your stage.</span>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
@@ -13219,7 +13199,7 @@ function render(){
   if(st.tab==='joinFree' && !st.in){ swap(screenJoin()); return; }
   /* ── one workout first, then the address ─────────────────────────
      The quiz used to hand straight over to a sign-up form, so a stranger
-     who had answered four questions honestly was asked for an email
+     who had answered three questions honestly was asked for an email
      before the app had done a single thing for them. They get a whole
      session first now. The ask comes when they go back for a second one,
      which is the first moment there is anything worth keeping. */
