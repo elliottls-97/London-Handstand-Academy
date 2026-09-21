@@ -1831,10 +1831,35 @@ export default async (request) => {
     return Object.fromEntries(Object.entries(fixes).map(([k, f]) => [k, one(f)]));
   };
 
+  /* ── a paid fix is paid ───────────────────────────────────────────
+     This handed every live fix to anybody who asked, with no account at
+     all: the whole article, every drill, the doses, the cues and the film
+     links, including the ones written for the paid tier. The app knew to
+     hide them and the server did not, which is the wrong way round.
+
+     A free fix is still whole and open, because those are the ones doing
+     the advertising. A paid one comes back as what it is and what is in
+     it, and nothing you could train from. */
+  const fixTeaser = f => ({
+    slug: f.slug, name: f.name, tag: f.tag, goal: f.goal, stage: f.stage,
+    mins: f.mins, weeks: f.weeks, perWeek: f.perWeek, access: f.access,
+    live: true, cover: f.cover || {},
+    /* enough to say what it is worth, nothing to do it with */
+    drillsN: (f.drills || []).length, locked: true,
+  });
   if (path === '/fixes' && request.method === 'GET') {
     const all = (await getSetting('fixes')) || {};
     const live = Object.fromEntries(Object.entries(all).filter(([, f]) => f && f.live));
-    return json({ fixes: await fixHydrate(live) });
+    const full = await fixHydrate(live);
+    const who = await me();
+    const acct = who ? ((await getAcct(who)) || {}) : {};
+    const paid = !!who && (plusNow(acct) || (await isCoached(who)) || coachList().includes(who));
+    if (paid) return json({ fixes: full });
+    const out = {};
+    for (const [k, f] of Object.entries(full)) {
+      out[k] = (f && f.access === 'plus') ? fixTeaser(f) : f;
+    }
+    return json({ fixes: out });
   }
   if (path === '/coach/fixes') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);

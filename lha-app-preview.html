@@ -6987,7 +6987,7 @@ function drawOv(){
           ${fx.map(f=>`<button onclick="closeOv();buildFixSession('${esc(f.slug)}',true)"
             style="${_row};background:#fff;border:1px solid rgba(17,17,17,.10)">
             <span style="min-width:0"><span style="display:block">${esc(f.name)}</span>${f.tag?`<span style="display:block;font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:2px">${esc(f.tag)}</span>`:''}</span>
-            <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">${(f.drills||[]).length} drills${(f.access==='plus'&&!isPlus())?' &middot; &#128274;':''} &rarr;</span></button>`).join('')}
+            <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">${fixDrillN(f)} drills${(f.access==='plus'&&!isPlus())?' &middot; &#128274;':''} &rarr;</span></button>`).join('')}
         </div></div>`; })()}
       ${(!_wrist && tasting()) ? `<div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;
         padding:11px 13px;border-radius:14px;background:rgba(243,169,73,.16)">
@@ -9535,6 +9535,9 @@ function loadFixes(){
 const fixList = () => Object.values(st.fixes||{});
 const fixDoneN = slug => Number((st.fixDone||{})[slug]||0);
 const fixTotal = f => (f.weeks||4)*(f.perWeek||3);
+/* a paid fix a free account has not bought arrives without its drills, so
+   the count comes with it instead */
+const fixDrillN = f => (f && f.drills) ? f.drills.length : Number((f&&f.drillsN)||0);
 const fixCover = f => (f.cover&&f.cover.uid) ? streamThumb(f.cover.uid)
   : (f.cover&&f.cover.img) ? '/api/app/image/'+f.cover.img
   : ((f.drills||[]).find(d=>d.url) ? streamThumb(uidOfUrl((f.drills||[]).find(d=>d.url).url)) : '');
@@ -9671,7 +9674,19 @@ function screenFix(){
       ${before && !finished ? `<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Your before clip is in. The after comes at session ${tot}.</div>`:''}
     </div>`}
 
-    <div class="rise rise-2" style="padding:6px 20px 0">${(f.article||[]).map(fixBlockHTML).join('')}</div>
+    <!-- a locked fix arrives from the server as its name, its cover and
+         how much is in it. There is nothing to draw and nothing to read,
+         so this says what it is instead of rendering an empty page. -->
+    ${locked ? `<div class="rise rise-2" style="padding:18px 20px 0">
+      <div style="font:400 24px/1.1 var(--serif)">What is in it.</div>
+      <div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">${
+        esc(f.tag||'')}${f.tag?' ':''}${fixDrillN(f)} drills, filmed and cued, written as
+        ${f.weeks||4} weeks of short sessions you can fit around your training.
+        ${esc(f.goal||'')}</div>
+      <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey2);margin-top:10px">
+        The drills, the order and the films open with the tier.</div>
+    </div>`
+    : `<div class="rise rise-2" style="padding:6px 20px 0">${(f.article||[]).map(fixBlockHTML).join('')}</div>`}
 
     ${(f.drills||[]).length?`<div class="rise rise-3" style="padding:22px 20px 0">
       <div style="font:400 24px/1.1 var(--serif)">The drills.</div>
