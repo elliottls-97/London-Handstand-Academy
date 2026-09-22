@@ -510,6 +510,25 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .trk .calcard{max-width:none}
   .trk-cal{display:block}
   .trk-side{display:flex;flex-direction:column;gap:12px}
+
+  /* ── a drill on one line ──────────────────────────────────────────
+     A drill row was a name, then a line of dose and buttons under it,
+     then the note under that, which is three lines and 130 pixels for
+     one exercise, sixteen times over. On a wide screen the name, what
+     it asks for and the two buttons sit on one line with the still at
+     the end, and anything opened out appears underneath. */
+  .rowbody{display:flex;flex-wrap:wrap;align-items:center;column-gap:14px;row-gap:6px}
+  /* the row's own inline display:flex would otherwise win */
+  .rowhead{display:contents!important}
+  .rowhead>div:first-child{order:1;flex:1 1 140px;min-width:0}
+  .rowhead>button,.rowhead>span{order:3;flex:none}
+  .rowdose{order:2;flex:none;margin-top:0!important;flex-wrap:nowrap!important}
+  /* everything that opens out goes on its own line under all of that */
+  .rowbody>*:not(.rowhead):not(.rowdose){order:4;flex:0 0 100%}
+  .row{padding:9px 18px!important}
+  /* a mouse does not need a forty four pixel target */
+  .row .rt{min-height:34px;padding:0 12px}
+  .rowhead .rt{height:44px}
   .rail.cards.all + #raildots{display:none!important}
 
   /* the floating glass bar becomes the rail. Same buttons, same tab
@@ -2017,8 +2036,8 @@ function screenPlan(){
       return `<div class="row" style="${on?'background:rgba(0,64,61,.035)':''}">
         <div style="display:flex;gap:13px;align-items:flex-start">
           <div class="box ${on?'on':''}" onclick="tick('${k}')">✓</div>
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <div class="rowbody" style="flex:1;min-width:0">
+            <div class="rowhead" style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
               <div style="font:600 15px/1.25 var(--sans);${on?'color:var(--grey2);text-decoration:line-through':''}"
                    onclick="openDrill(${gi},${ii})">${esc(it.n)}</div>
               <!-- A still of the film rather than the word "Demo", the same
@@ -2045,7 +2064,7 @@ function screenPlan(){
                     openD?'Hide':(it.url?'▶ Demo':'How to')}</button>`
                 : `<span class="rt" style="flex:none;opacity:.55">Soon</span>`}
             </div>
-            <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
+            <div class="rowdose" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${esc(it.d)}</span>
               ${planLogBtn(k,it)}
               <button class="rt ${st.howOpen===k?'on':''}" onclick="st.howOpen=st.howOpen==='${k}'?null:'${k}';save();render()">How did it go?</button>
@@ -4039,6 +4058,46 @@ function appUseCard(){
    was asked, so everything done as prescribed was invisible and the card
    read as a list of failures. It is the whole log now, best first, with
    what was asked for beside it. */
+/* ── what they have said is too hard or too easy ──────────────────
+   The flags are set on a drill row deep inside a day and then never seen
+   again by the person who set them, so there is no way of knowing what
+   Elliott has been told. Every one of them, in one place, with whatever
+   was written next to it. */
+function flaggedCard(){
+  const r=st.rate||{};
+  const keys=Object.keys(r).filter(v=>r[v]==='easy'||r[v]==='hard');
+  if(!keys.length) return '';
+  const nameOf=v=>{
+    for(const d of (DATA.days||[])) for(const g of (d.groups||[]))
+      for(const it of (g.items||[])) if(it.v===v && it.n) return it.n;
+    return (typeof LIBN!=='undefined' && LIBN[v]) || String(v).replace(/-/g,' ');
+  };
+  const row=(v,i)=>{
+    const hard=r[v]==='hard', note=(st.note||{})[v]||'';
+    return `<div style="padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="flex:1;min-width:0;font:600 14px/1.3 var(--sans)">${esc(nameOf(v))}</span>
+        <span style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.14em;
+          padding:5px 8px;border-radius:999px;
+          background:${hard?'rgba(243,169,73,.2)':'rgba(143,190,202,.25)'};
+          color:${hard?'#7a4a10':'#235968'}">${hard?'TOO HARD':'TOO EASY'}</span>
+      </div>
+      ${note?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">
+        &ldquo;${esc(note)}&rdquo;</div>`:''}
+    </div>`;
+  };
+  return `<div class="card" style="padding:18px 20px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span class="kick2">WHAT YOU HAVE FLAGGED</span>
+      <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${keys.length}</span>
+    </div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+      ${coachedView()
+        ? 'Elliott has these. They are what he changes the next block from.'
+        : 'These move the level of your next session on their own.'}</div>
+    <div style="margin-top:10px">${keys.map(row).join('')}</div>
+  </div>`;
+}
 function perDrillCard(){
   const log=(st.prog&&st.prog.repsLog)||st.repsLog||{};
   const rows=[];
@@ -4662,6 +4721,7 @@ function screenProgress(){
             the calendar and the check points. */''}
       ${coachedView()?`<div data-tour="checkin">${checkinCard()}</div>`:''}
       ${perDrillCard()}
+      ${flaggedCard()}
       ${appUseCard()}
       </div></div>
       ${/* Progress photos were asked for and then nobody sent any. Two
