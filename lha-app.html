@@ -1969,6 +1969,11 @@ let ccSyncs=[], ccBound=false;
 function attachCaptions(v, uid){
   if(!v || !uid || v.dataset.ccDone) return;
   v.dataset.ccDone='1';
+  /* the follow along keeps one element and changes the film in it, so the
+     loop drawing the last film's words has to know it has been replaced */
+  const gen=String(Date.now())+Math.random().toString(36).slice(2,6);
+  v.dataset.ccGen=gen;
+  const live=()=>v.dataset.ccGen===gen;
   fetch(streamVtt(uid))
     .then(r=>r.ok?r.text():Promise.reject(r.status))
     .then(txt=>{
@@ -2015,17 +2020,18 @@ function attachCaptions(v, uid){
          back onto a node that is no longer on the page, so the caption on
          the drill you are actually doing disappeared */
       const tick=()=>{
-        if(!v.isConnected){ cancelAnimationFrame(raf); raf=0; return; }
+        if(!v.isConnected || !live()){ cancelAnimationFrame(raf); raf=0; return; }
         if(!inFs()) ccDraw(v,cues);
         raf=requestAnimationFrame(tick);
       };
       const stop=()=>{ cancelAnimationFrame(raf); raf=0;
         const el=document.getElementById('ccPlate');
         if(el && el.parentElement===v.parentElement) el.style.opacity='0'; };
-      v.addEventListener('play', ()=>{ if(!raf) tick(); });
-      v.addEventListener('pause', stop);
-      v.addEventListener('ended', stop);
-      v.addEventListener('seeked', ()=>{ if(!inFs()) ccDraw(v,cues); });
+      v.addEventListener('play', ()=>{ if(live() && !raf) tick(); });
+      v.addEventListener('pause', ()=>{ if(live()) stop(); });
+      v.addEventListener('ended', ()=>{ if(live()) stop(); });
+      v.addEventListener('seeked', ()=>{ if(live() && !inFs()) ccDraw(v,cues); });
+      if(!live()) return;
       if(!v.paused) tick();
     })
     .catch(()=>{});
@@ -6089,7 +6095,10 @@ function showStep(){
   const vw=$('#p-vwrap'), body=$('#p-body');
   if(resting){
     tTotal=left=rest(Q[qi], qi, Q);
-    vw.className='p-vwrap novideo'; vw.innerHTML='';
+    /* the film is kept, paused and hidden, not thrown away: see below */
+    vw.className='p-vwrap novideo';
+    const rv=vw.querySelector('video'); if(rv){ try{ rv.pause(); }catch(e){} rv.style.display='none';
+      const rb=vw.querySelector('.vp-bar'); if(rb) rb.style.display='none'; }
     /* only preview a genuinely different drill — the line above already
        names the next set of the current one */
     const nx=Q[qi+1];
@@ -6109,18 +6118,38 @@ function showStep(){
     const cbtn=$('#p-cuesbtn'); if(cbtn) cbtn.hidden=true;
   } else {
     tTotal=left=work(it, s.g||s.grp);
-    if(it.url){ vw.className='p-vwrap'; vw.innerHTML=
-      `<video src="${sig(it.url)}" autoplay loop playsinline controls ${soundOn()?'':'muted'}></video>`;
-      /* The explainers were captioned and the drill you are mid-set on was
-         not, which is the one place the words matter most. Captions only, not
-         the theatre: the player has its own chrome and a second control bar
-         over a running set is one too many. */
-      const uid=uidOfUrl(it.url);
-      const vEl=vw.querySelector('video');
-      if(uid && vEl) attachCaptions(vEl, uid);
-      if(vEl) startFilm(vEl); }
+    if(it.url){ vw.className='p-vwrap';
+      /* ── one film element for the whole session ─────────────────
+         Every set used to write a fresh <video autoplay> into the page,
+         and an iPhone only lets a film start with sound inside the tap
+         that asked for it. The first set got that tap; every set after
+         it was a new element on a timer, so it sat on its first frame
+         with the browser's own controls until somebody pressed play and
+         turned the sound on themselves. An element that has once played
+         from a tap stays allowed, so there is one, made and started by
+         the tap that started the session, and each set only changes
+         what it is showing. */
+      let vEl=vw.querySelector('video');
+      if(!vEl){
+        vw.innerHTML=`<video playsinline loop preload="auto"></video>`;
+        vEl=vw.querySelector('video');
+        vpBuild(vEl);
+      }
+      vEl.style.display=''; const bar=vw.querySelector('.vp-bar'); if(bar) bar.style.display='';
+      vEl.muted=!soundOn();
+      const src=sig(it.url);
+      if(vEl.getAttribute('data-src')!==src){
+        vEl.setAttribute('data-src',src); vEl.src=src;
+        /* captions belong to the film, not the element */
+        delete vEl.dataset.ccDone;
+        const uid=uidOfUrl(it.url);
+        if(uid){ vEl.setAttribute('data-cc',uid); attachCaptions(vEl, uid); }
+        else { vEl.removeAttribute('data-cc'); const pl=document.getElementById('ccPlate'); if(pl) pl.style.opacity='0'; }
+      }
+      startFilm(vEl); }
     else { vw.className='p-vwrap novideo';
-      vw.innerHTML=''; vw.classList.add('novideo'); }
+      const rv=vw.querySelector('video'); if(rv){ try{ rv.pause(); }catch(e){} rv.style.display='none';
+        const rb=vw.querySelector('.vp-bar'); if(rb) rb.style.display='none'; } }
     const rp=repOf(it), cues=it.cues||[];
     const dose=esc(String(rp.n)+(rp.u?' '+rp.u:''));
     /* The clock is the big number now. It was 21px in the top bar, and the
