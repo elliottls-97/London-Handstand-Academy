@@ -438,7 +438,14 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   #app{max-width:none}
   #app.harail{padding-left:var(--rail)}
   #app:not(.harail) #topbar{left:0!important}
-  #app:not(.harail) .scroll.s:not(.full)>*{max-width:620px}
+  /* Sign in, the password reset and the quiz have no rail and no column
+     beside them, and they were a phone laid down the middle of a monitor:
+     bottom anchored, because that is where a thumb is. They are a card in
+     the middle of the window now. */
+  #app:not(.harail) .scroll.s:not(.full){display:flex;flex-direction:column;
+    justify-content:center;padding-top:40px;padding-bottom:40px}
+  #app:not(.harail) .scroll.s:not(.full)>*{max-width:460px}
+  #app:not(.harail) .scroll.s:not(.full)>[style*="margin-top:auto"]{margin-top:0!important}
   .scroll.s.full>*{max-width:none}
   /* the page gives the right hand column its room only on the screens
      that have one, so a screen without one is not a page with a hole.
@@ -465,7 +472,7 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
      which on a wide screen is on top of the rail. */
   .coachseg{left:calc(var(--rail) + 40px)!important;right:auto!important;width:340px!important;
     z-index:30}
-  .segrow{max-width:420px}
+  .segrow,.scroll.s>.segrow{max-width:420px}
   /* the explainers are a shelf you drag on a phone. On a monitor they are
      simply all there, which is what the frames show. */
   .rail.cards{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
@@ -476,7 +483,13 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
      screen each, and there are seven of them */
   /* the demo stands beside the check point rather than on top of it, so
      showing it costs the card no height at all */
-  .cptop{display:grid;grid-template-columns:minmax(0,1fr) 300px;column-gap:20px;align-items:start}
+  .cptop{display:grid;grid-template-columns:minmax(0,1fr) 250px;column-gap:18px;align-items:start}
+  /* the film is right there, so two cues is the reminder and the third is
+     a third line of the card, seven times over */
+  .cptop .cpfilm li:nth-child(n+3){display:none}
+  .cpcard{padding:13px 14px 14px!important}
+  .cpsend{padding:8px 11px!important;margin-top:9px!important}
+  .cpsend>span:first-child{width:26px!important;height:26px!important}
   .cptop>*{grid-column:1;min-width:0}
   .cptop>.cpfilm{grid-column:2;grid-row:1 / span 60;margin-top:0;max-width:none}
   /* a month stretched to the width of a page gives you seven columns of
@@ -550,6 +563,13 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 
   /* the tutorial card was as wide as the monitor */
   #tour .tour-card{left:calc(50% - 280px);right:auto;width:560px}
+
+  /* the menu slid in from the left edge of the window, which on a phone is
+     the edge of the screen and on a monitor is the far side of the rail */
+  .menu .panel{left:50%;top:50%;bottom:auto;transform:translate(-50%,-50%);
+    width:min(600px,86vw);max-height:84vh;border-radius:26px;
+    padding:22px 22px 26px;box-shadow:0 30px 80px -30px rgba(0,0,0,.45);
+    animation:fade .22s both}
 
   /* a sheet is a dialog on a desktop, not something slid up from a thumb */
   .ov{align-items:center}
@@ -2940,7 +2960,7 @@ const IC_FORMCHECK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none
   + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
 function cpCard(c, i, total){
-  return `<div id="cpcard-${c.k}" data-i="${i}" data-total="${total}"
+  return `<div id="cpcard-${c.k}" class="cpcard" data-i="${i}" data-total="${total}"
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
     box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
     <div id="cptop-${c.k}" class="cptop">${cpCardTop(c,i,total)}</div>
@@ -3067,7 +3087,7 @@ function cpClipHTML(c, sent){
       : st.freeCheckUsed ? 'Your free one is used. '+esc(PRICE('check'))+' a clip after that.'
       : !st.token ? 'One free with an account.'
       : 'One free with your account.';
-    return `<button onclick="${send}" style="width:100%;margin-top:11px;display:flex;align-items:center;
+    return `<button onclick="${send}" class="cpsend" style="width:100%;margin-top:11px;display:flex;align-items:center;
       gap:11px;padding:11px 13px;border-radius:14px;cursor:pointer;text-align:left;
       border:1.5px solid ${can?'rgba(243,169,73,.5)':'rgba(17,17,17,.12)'};
       background:${can?'rgba(243,169,73,.10)':'transparent'}">
@@ -7883,7 +7903,11 @@ function signOut(){
   Object.keys(keep).forEach(k=>{ if(keep[k]!=null && keep[k]!==undefined) st[k]=keep[k]; });
   st.day=0; st.tick={}; st.rate={}; st.note={}; st.open={}; st.why={};
   st.mode='free';                    // skip the welcome gate on the way out
-  st.tab='ladder';                   // a screen they can actually use
+  /* It used to drop out onto the ladder, which for a device with nothing
+     on it means the quiz, so signing out read as being handed somebody
+     else's sign up. Signing out is almost always the first half of
+     signing in as somebody else. */
+  st.tab='signin';
   /* back to the empty shape it ships with, not null: 29 places read
      DATA.something and a null would throw on the way out */
   DATA={days:[{id:'1',label:'Day 1',sub:'',title:'Day 1',when:'',mins:'0',groups:[]}],
@@ -10140,7 +10164,7 @@ function screenLadder(){
          are working on, not where you could be in six months. -->
     <div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard()}</div>
 
-    <div style="padding:22px 20px 40px">
+    <div data-ladderall style="padding:22px 20px 40px">
       <button onclick="st.ladderOpen=!${!!st.ladderOpen};save();render()"
         style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
         background:none;border:0;cursor:pointer;padding:14px 0;text-align:left">
@@ -12549,6 +12573,15 @@ if(WIDEQ && WIDEQ.addEventListener) WIDEQ.addEventListener('change', ()=>{ try{ 
    so none of it can go wrong on one. */
 let sideVid=null;
 function closeSideVid(){ sideVid=null; render(); }
+/* "See the ladder" landed on the check points, which is the middle of the
+   ladder screen and not the ladder. It opens the six stages and goes to
+   them. */
+function seeLadder(){
+  st.ladderTab='ladder'; st.ladderOpen=true; save();
+  if(st.tab!=='ladder') go('ladder'); else render();
+  setTimeout(()=>{ const el=document.querySelector('[data-ladderall]');
+    if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 90);
+}
 /* the speed buttons repaint themselves rather than redrawing the column,
    because redrawing it rebuilds the video element and starts the film
    again from nought */
@@ -12631,9 +12664,9 @@ function sideStageCard(){
       esc(next.n)}.</div>`
       :(P.of?`<div style="font:400 14px/1.5 var(--sans);color:var(--forest);margin-top:12px">
         Every check point reached.</div>`:'')}
-    <button onclick="go('${co?'progress':'ladder'}')" style="margin-top:13px;background:none;border:0;
+    <button onclick="${co?"go('progress')":'seeLadder()'}" style="margin-top:13px;background:none;border:0;
       padding:0;cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
-      co?'See your progress':'See the ladder'} &rarr;</button>
+      co?'See your progress':'See the whole ladder'} &rarr;</button>
   </div>`;
 }
 
