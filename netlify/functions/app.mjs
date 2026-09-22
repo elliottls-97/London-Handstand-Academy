@@ -5401,10 +5401,48 @@ export default async (request) => {
             coached: !!clients()[e], id: s.id, kind: s.kind, cycle: s.cycle,
             at: s.at, clips: (s.clips || []).length, numbers: s.numbers || {} });
         }
+        /* ── a check point logged with no clip ───────────────────────
+           A clip files a submission and lands here. A number does not,
+           and nothing anywhere told the coach it had happened: a client
+           could log three check points and the dashboard would say
+           nothing waiting. It is not a review, there is nothing to
+           watch, but it is the thing they came to do and it belongs on
+           the screen the coach opens. Cleared by opening their check
+           points. */
+        if (clients()[e]) {
+          const tr = (await getSetting(`track:${e}`)) || {};
+          const since = Number(await getSetting(`cpseen:${e}`)) || 0;
+          const defs = ((await getSetting(`programme:${e}`)) || programmes.clients[e] || {}).checkpoints || [];
+          const nameOf = k => ((defs.find(c => c && c.k === k) || {}).n) || CHECKPOINT_NAMES[k] || k;
+          const fresh = [];
+          for (const k of Object.keys(tr.checkpoints || {})) {
+            for (const r of tr.checkpoints[k] || []) {
+              if (!r || r.video || !(r.at > since)) continue;
+              fresh.push({ k, n: nameOf(k), v: r.v, at: r.at });
+            }
+          }
+          if (fresh.length) {
+            fresh.sort((a, b) => b.at - a.at);
+            out.push({ email: e, name: clients()[e] || roster[e].name || e, coached: true,
+              id: 'cplog:' + e, kind: 'cplog', at: fresh[fresh.length - 1].at,
+              clips: 0, n: fresh.length,
+              numbers: { name: fresh.slice(0, 4).map(x => x.n + ' ' + x.v).join(' \u00b7 ') } });
+          }
+        }
       }
       /* oldest first: the one closest to breaking the 48-hour promise */
       out.sort((a, b) => (a.at || 0) - (b.at || 0));
       return json({ queue: out });
+    }
+
+    /* the coach has looked at their check points: stop counting the ones
+       logged before now */
+    if (path === '/coach/cpseen' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      await setSetting(`cpseen:${e}`, Date.now());
+      return json({ ok: true });
     }
 
     if (path === '/coach/submissions') {

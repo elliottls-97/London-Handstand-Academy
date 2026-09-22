@@ -217,6 +217,11 @@ const APP='/api/app';
 let TOKEN=localStorage.getItem('lha_coach_token')||'';
 let WHO=localStorage.getItem('lha_coach_email')||'';
 let sel=null, clients=[], thread=[];
+/* whose thread the array above is holding, and whether it has arrived.
+   One global array for every client meant opening somebody new showed the
+   last person's conversation until the fetch came back: a coach could read
+   it, and reply into it, believing it was theirs. */
+let threadFor='', threadLoaded=false;
 /* which coaches appear in the list at all — only worth labelling when there is more than one */
 const COACHES=new Set();
 /* replies sent but not yet echoed back by Blobs — see openThread */
@@ -340,6 +345,8 @@ function load(){
     .catch(e=>gate(e===401?'Sign in again — that session has expired.':'Could not reach the server.'));
 }
 function openThread(email){
+  /* nothing from the last person survives the switch */
+  if(threadFor!==email){ thread=[]; threadFor=email; threadLoaded=false; }
   sel=email; draw();
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
@@ -376,8 +383,11 @@ function openThread(email){
         ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),at:p.at})));
       /* redrawing rebuilds the reply box and loses what is half-typed */
       const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
-      const same=shape(merged)===shape(thread);
-      thread=merged;
+      /* a slow answer for somebody we have since navigated away from must
+         not land in the thread now on screen */
+      if(threadFor!==email) return;
+      const same=shape(merged)===shape(thread) && threadLoaded;
+      thread=merged; threadLoaded=true;
       const c=clients.find(x=>x.email===email);
       const cleared=!!(c&&c.unread); if(c) c.unread=0;
       if(!same||cleared) draw();
@@ -6244,7 +6254,8 @@ function flagsSeen(email){
 const INBOX_TYPE={
   check:      {label:'Form check',  cls:'tag-accent',   filter:'checks'},
   review:     {label:'Block test',  cls:'tag-accent',   filter:'reviews'},
-  point:      {label:'Check point', cls:'tag-accent',   filter:'reviews'},
+  point:      {label:'Check point', cls:'tag-accent',   filter:'checkpoints'},
+  logged:     {label:'Logged',      cls:'tag-neutral',  filter:'checkpoints'},
   question:   {label:'Question',    cls:'tag-neutral',  filter:'questions'},
   application:{label:'Application', cls:'tag-accent-2', filter:'applications'},
   feedback:   {label:'App feedback',cls:'tag-neutral',  filter:'feedback'},
@@ -6277,6 +6288,15 @@ const clip=(s,n)=>{ s=String(s||'').replace(/\s+/g,' ').trim();
 function inboxItems(){
   const out=[];
   queue.forEach(q=>{
+    /* a check point logged with no clip: nothing to watch, but it is the
+       thing they came to do and it used to reach nobody */
+    if(q.kind==='cplog'){
+      out.push({id:'C:'+q.email, type:'logged', email:q.email, name:q.name||q.email, at:q.at,
+        action:'See their check points', cplog:true,
+        detail:q.n+' check point'+(q.n===1?'':'s')+' logged'
+          +((q.numbers||{}).name?' · '+q.numbers.name:'')});
+      return;
+    }
     const t = q.kind==='assessment'?'check' : q.kind==='checkpoint'?'point' : 'review';
     const nums=Object.entries(q.numbers||{}).filter(([k])=>k!=='photo'&&k!=='k'&&k!=='name')
       .map(([k,v])=>k+' '+v).join(' · ');
@@ -6433,7 +6453,7 @@ function todayHTML(){
   const all=inboxItems();
   const over=all.filter(x=>x.hrs>=PROMISE_H).length;
   const defs=[['all','Everything'],['checks','Form checks'],['reviews','Block tests'],
-              ['flags','Too hard / easy'],
+              ['checkpoints','Check points'],['flags','Too hard / easy'],
               ['questions','Questions'],['applications','Applications'],['sessions','Sessions'],['feedback','App feedback']];
   const rows=all.filter(x=>inboxFilter==='all'||INBOX_TYPE[x.type].filter===inboxFilter);
   const date=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
@@ -6458,6 +6478,7 @@ function todayHTML(){
         const c=clients.find(x=>x.email===r.email);
         return `<div style="border-bottom:1px solid rgba(17,17,17,.08)">
         <div class="row-hit inboxRow" onclick="${inline?`inboxToggle('${esc(r.id)}')`
+            : r.cplog ? `openCpLog('${esc(r.email)}')`
             :`openClient('${esc(r.email)}')`}"
           style="display:grid;grid-template-columns:88px minmax(0,1fr) auto;gap:var(--space-3);
           align-items:baseline;padding:var(--space-3) var(--space-1);cursor:pointer">
@@ -6893,6 +6914,14 @@ function strayName(k){
     const c=(CHECKPOINTS[stg]||[]).find(x=>x&&x.k===k); if(c&&c.n) return c.n;
   } }catch(e){}
   return String(k).replace(/^fix:/,'').replace(/[:-]/g,' ');
+}
+/* opening their check points from a Logged row: go there, and stop
+   counting what was logged before now */
+function openCpLog(email){
+  fetch(API+'/cpseen',{method:'POST',headers:hdr(),body:JSON.stringify({email})})
+    .then(()=>{ queue=queue.filter(q=>!(q.kind==='cplog'&&q.email===email)); })
+    .catch(()=>{})
+    .finally(()=>{ openClient(email,'marks'); });
 }
 function cpsWaitKeys(email){
   const tr=((tracks[email]||{}).checkpoints)||{};
@@ -8327,7 +8356,8 @@ function drawNow(){
       /* read receipts both ways: theirs says you have seen it, yours says
          they have opened it, so a reply sitting unread is visible */
       m.seen ? ' · '+(m.from==='coach'?'read':'you read it') : (m.from==='coach'?' · sent':'')}</div></div>`).join('')
-    || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">Nothing here yet.</div>`;
+    || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">${
+      threadLoaded && threadFor===sel ? 'Nothing here yet.' : 'Loading their thread&hellip;'}</div>`;
   $('#v').innerHTML=`<div class="shell">
     ${headerHTML()}
     <main class="main">${
