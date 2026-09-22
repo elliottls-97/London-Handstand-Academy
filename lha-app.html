@@ -463,7 +463,11 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .rail.cards{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
     overflow:visible!important;padding-bottom:0!important}
   .rail.cards>div{width:auto!important;flex:none}
-  #raildots{display:none}
+  .rail.cards:not(.all)>div:nth-child(n+7){display:none}
+  /* a check point's demo at the full width of a monitor is most of a
+     screen each, and there are seven of them */
+  .cpfilm{max-width:430px}
+  #raildots{display:none!important}
 
   /* the floating glass bar becomes the rail. Same buttons, same tab
      state, stood up on its side. */
@@ -1202,7 +1206,7 @@ ${/* Once it has been read it is a wall of last month's words at the top of
         <span class="kick2">EXPLAINERS</span>
         <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${ex.length} video${ex.length===1?'':'s'}</span>
       </div>
-      <div class="rail cards" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      <div class="rail cards${st.exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:2px 16px 8px;-webkit-overflow-scrolling:touch">
         ${ex.map((a,i)=>{
           const grad = i%2 ? '#DCECF0,#9FC9D4' : '#CFE6EC,#5E9DB2';
@@ -2901,7 +2905,6 @@ function cpCard(c, i, total){
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
     box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
     <div id="cptop-${c.k}">${cpCardTop(c,i,total)}</div>
-    <div id="cpdemo-${c.k}"></div>
   </div>`;
 }
 function cpCardTop(c, i, total){
@@ -2911,7 +2914,6 @@ function cpCardTop(c, i, total){
   const met=cpMet(c);
   const lower=(c.lower!=null)?c.lower:K.lower;
   const drill=c.demo?drillById(c.demo):null;
-  const openD=(st.cpOpen||{})[c.k];
   const unit=cpUnit(c);
   /* The number at the top is what the slider is holding, not what was logged
      last time: they diverge the moment you drag, and a card arguing with
@@ -2945,71 +2947,91 @@ function cpCardTop(c, i, total){
     </div>
     ${c.note?`<div style="margin-top:6px;padding-left:28px;font:400 12.5px/1.4 var(--sans);
       color:var(--grey)">${esc(c.note)}</div>`:''}
-    <div style="margin-top:12px">${cpInput(c)}</div>
+    <!-- ── how to test it, shown ──────────────────────────────────
+         This was a strip you had to notice and press, so the one thing
+         on the card that tells you what the movement actually is went
+         unopened. It is the film, at the size of a film, above the
+         thing it is asking you to measure. Nothing downloads until it
+         is played: the poster is the drill's own first frame. -->
+    ${drill&&drill.url?`<div class="cpfilm" style="margin-top:13px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+        margin-bottom:8px">
+        <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">HOW TO TEST THIS</span>
+        <span style="flex:none;font:400 12px/1 var(--sans);color:var(--grey)">${esc(drill.n)}</span>
+      </div>
+      ${drillFilm(drill.url,'16/10',true)}
+      ${(drill.cues||[]).length?`<ul style="margin:-8px 0 0;padding-left:17px;display:flex;
+        flex-direction:column;gap:5px">${drill.cues.slice(0,3).map(x=>
+        `<li style="font:400 12.5px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}
+    </div>`:`<div style="margin-top:12px;padding:10px 12px;border-radius:12px;
+      background:rgba(17,17,17,.04);font:400 12.5px/1.4 var(--sans);color:var(--grey2)">
+      ${drill?'Demo coming soon.':'No demo on this one.'}</div>`}
+    <div style="margin-top:14px">${cpInput(c)}</div>
     <div style="margin-top:9px;display:flex;justify-content:space-between;gap:10px;
       font:400 11.5px/1 var(--sans);color:var(--grey)">
       <span>${last?'Logged '+esc(cpWhen(last.at)):'Not logged yet'}</span>
       <span id="cpgo-${c.k}" style="color:${met?'var(--forest)':'var(--grey)'}">${esc(cpToGo(c))}</span>
     </div>
     ${cpHistoryHTML(c)}
-    <div ${drill&&drill.url?`onclick="toggleCpDemo('${c.k}')" style="cursor:pointer;`:'style="'}margin-top:11px;
-      display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px;
-      background:rgba(0,102,99,.06)">
-      <!-- a teal gradient stood in for a thumbnail on every check point,
-           so the one row that is supposed to show you the movement showed
-           you nothing. The drill list has always used the real frame. -->
-      <div style="position:relative;flex:none;width:74px;height:46px;border-radius:10px;overflow:hidden;
-        background:linear-gradient(145deg,#0a7b74,#00403d)">
-        ${(drill&&drill.url&&uidOfUrl(drill.url))?`<img src="${esc(streamThumb(uidOfUrl(drill.url)))}"
-          alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;
-          object-fit:cover;display:block">`
-          :`<div style="position:absolute;inset:0;background:radial-gradient(70% 80% at 70% 20%,
-          rgba(143,190,202,.35),transparent 70%)"></div>`}
-        ${drill&&drill.url?`<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-          width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.5);
-          backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
-          border:1px solid rgba(236,231,226,.5);display:flex;align-items:center;justify-content:center">
-          <span style="display:block;width:0;height:0;margin-left:2px;border-left:8px solid #ece7e2;
-            border-top:5px solid transparent;border-bottom:5px solid transparent"></span></div>`:''}
-      </div>
-      <div style="flex:1;min-width:0">
-        <div id="cpdlbl-${c.k}" style="font:600 13px/1.2 var(--sans)">${
-          drill&&drill.url?(openD?'Hide the demo':'How to test this'):'Demo coming soon'}</div>
-        <div style="margin-top:4px;font:400 12px/1.3 var(--sans);color:var(--grey)">${
-          drill ? esc(drill.n) : 'Not filmed yet'}</div>
-      </div>
-      <!-- A form check used to be a full width button under every check
-           point, which added forty eight pixels to a card that repeats
-           seven times. It is one icon at the end of the row that was
-           already here, so the card is the same height and the offer is
-           in the same place, drawn the same way, everywhere it appears. -->
-      ${c.video===false?'':`<button id="cpfc-${c.k}"
-        onclick="event.stopPropagation();${(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`}"
-        aria-label="${sent?'Send Elliott another clip of this'
-          :fcOpen()?'Send Elliott a clip of this':'A form check is '+PRICE('check')}"
-        title="${sent?'Clip sent. Send another'
-          :fcOpen()?'Send Elliott a clip of this':'Your free form check is used. '+PRICE('check')+' a clip after that'}"
-        style="flex:none;width:40px;height:40px;border-radius:12px;cursor:pointer;border:0;
-        display:grid;place-items:center;padding:0;
-        background:${sent?'rgba(0,102,99,.12)':fcOpen()?'rgba(243,169,73,.20)':'rgba(17,17,17,.06)'};
-        color:${sent?'var(--forest)':fcOpen()?'#7a4a10':'var(--grey2)'}">${IC_FORMCHECK}</button>`}
-    </div>
-    <!-- empty until an upload says something, so it costs no height -->
-    <!-- ── what happened to the clip ────────────────────────────────
-         This said "Elliott has it" from the second it uploaded, whether or
-         not he had opened it, and carried on saying it after he had
-         watched it and written back. It says where the clip actually got
-         to now, and what he said if he has said anything. -->
-    <div id="cpup-${c.k}" style="font:500 12px/1.4 var(--sans);color:${
-      sent?'var(--forest)':'var(--grey)'}">${ !sent ? '' : (function(){
-        const v=sent.verdict;
-        const head = v==='reached' ? [esc(coachLabel())+' watched it. That one counts.','var(--forest)']
-          : v==='notyet' ? [esc(coachLabel())+' watched it. Not there yet.','#8a5a12']
-          : ['Clip sent '+esc(cpWhen(sent.at))+'. Waiting on '+esc(coachLabel())+'.','var(--grey)'];
-        return `<span style="display:block;margin-top:7px;color:${head[1]}">${head[0]}</span>`
-          + (sent.note?`<span style="display:block;margin-top:4px;font:400 12.5px/1.5 var(--sans);
-             color:var(--ink)">&ldquo;${esc(sent.note)}&rdquo;</span>`:'');
-      })()}</div>`;
+    <!-- Where the upload writes to while it is going. The clip's whole
+         story is the block under it. -->
+    <div id="cpup-${c.k}" style="margin-top:9px;font:500 12px/1.4 var(--sans);color:var(--grey)"></div>
+    ${c.video===false?'':cpClipHTML(c,sent)}</div>`;
+}
+/* ── where their clip got to ──────────────────────────────────────
+   A check point is marked by the person doing it until somebody else has
+   watched it, so the thing they actually want to know is whether the clip
+   went and what came back. That was a line of small grey text at the
+   bottom of the card and an icon at the end of a row they had to guess
+   at. It is the same three steps the form check screen uses, because it
+   is the same journey. */
+function cpClipHTML(c, sent){
+  const who=coachLabel();
+  const send=(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`;
+  if(!sent){
+    const can=fcOpen();
+    return `<button onclick="${send}" style="width:100%;margin-top:11px;display:flex;align-items:center;
+      gap:11px;padding:11px 13px;border-radius:14px;cursor:pointer;text-align:left;
+      border:1.5px solid ${can?'rgba(243,169,73,.5)':'rgba(17,17,17,.12)'};
+      background:${can?'rgba(243,169,73,.10)':'transparent'}">
+      <span style="flex:none;display:grid;place-items:center;width:31px;height:31px;border-radius:9px;
+        background:${can?'rgba(243,169,73,.3)':'rgba(17,17,17,.06)'};
+        color:${can?'#7a4a10':'var(--grey2)'}">${IC_FORMCHECK}</span>
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font:600 13px/1.2 var(--sans)">Send ${esc(who)} a clip of this</span>
+        <span style="display:block;margin-top:3px;font:400 11.5px/1.35 var(--sans);color:var(--grey)">${
+          can ? 'He watches it himself and says whether it counts.'
+              : 'Your free one is used. '+esc(PRICE('check'))+' a clip after that.'}</span>
+      </span></button>`;
+  }
+  const v=sent.verdict, done=!!v;
+  const tone = v==='reached' ? 'var(--forest)' : v==='notyet' ? '#a86b16' : 'var(--grey2)';
+  const steps=[
+    ['Clip sent', cpWhen(sent.at), true],
+    [esc(who)+' watched it', done?'':'Usually within 48 hours', done],
+    [done ? (v==='reached' ? 'It counts. Check point reached.' : 'Not there yet.') : 'What he says',
+     done ? '' : 'It lands here and in the chat', done],
+  ];
+  return `<div style="margin-top:11px;padding:13px 14px;border-radius:14px;background:${
+      done ? (v==='reached'?'rgba(0,102,99,.07)':'rgba(168,107,22,.09)') : 'rgba(17,17,17,.04)'}">
+    ${steps.map(([t,d,on],i)=>`<div style="display:flex;gap:11px">
+      <span style="flex:none;display:flex;flex-direction:column;align-items:center;width:18px">
+        <span style="width:18px;height:18px;border-radius:999px;display:grid;place-items:center;
+          background:${on?(i===2?tone:'var(--forest)'):'transparent'};
+          border:${on?'none':'2px solid rgba(28,32,25,.18)'};
+          color:#fff;font:700 10px/1 var(--sans)">${on?(i===2&&v==='notyet'?'!':'&check;'):''}</span>
+        ${i<2?`<span style="flex:1;width:2px;min-height:16px;background:rgba(28,32,25,.12)"></span>`:''}
+      </span>
+      <span style="flex:1;min-width:0;padding-bottom:${i<2?'9px':'0'}">
+        <span style="display:block;font:600 12.5px/1.25 var(--sans);color:${on?'var(--ink)':'var(--grey2)'}">${t}</span>
+        ${d?`<span style="display:block;margin-top:2px;font:400 11.5px/1.35 var(--sans);
+          color:var(--grey)">${esc(d)}</span>`:''}
+      </span></div>`).join('')}
+    ${sent.note?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(28,32,25,.08);
+      font:400 12.5px/1.5 var(--sans);color:var(--ink)">&ldquo;${esc(sent.note)}&rdquo;</div>`:''}
+    <button onclick="${send}" style="margin-top:10px;background:none;border:0;padding:0;cursor:pointer;
+      font:600 12.5px/1 var(--sans);color:var(--forest)">Send another clip &rarr;</button>
+  </div>`;
 }
 /* Somebody who is not a coaching client sends a clip as a form check, which
    is its own screen and knows whether they can send one. Every gate on the
@@ -3230,24 +3252,6 @@ function repaintCp(k){
   if(bar) bar.style.width=(p.of?Math.round(p.met/p.of*100):0)+'%';
   const num=document.getElementById('cpnum');
   if(num) num.textContent=p.met+'/'+p.of;
-}
-/* opens the clip in place — nothing else on the card is rebuilt */
-function toggleCpDemo(k){
-  const box=document.getElementById('cpdemo-'+k); if(!box) return;
-  const open=!((st.cpOpen||{})[k]);
-  st.cpOpen=Object.assign({},st.cpOpen,{[k]:open});
-  save();
-  const c=cpDef(k);
-  const drill=c&&c.demo?drillById(c.demo):null;
-  box.innerHTML = (open && drill && drill.url)
-    ? `<div style="margin-top:10px">${drillFilm(drill.url,'16/10')}</div>
-       ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
-         flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
-         `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`
-    : '';
-  if(open) mountCaptions();
-  const lbl=document.getElementById('cpdlbl-'+k);
-  if(lbl) lbl.textContent = open ? 'Hide the demo' : 'How to test this';
 }
 
 function cpStep(k,by,max){
@@ -6218,12 +6222,14 @@ const VB_MUTED='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stro
 /* A drill clip, with the caption plate and the player's own fullscreen and
    rotate. The explainers have had both since the player was built; the
    drills were still the bare loop. */
-function drillFilm(url, ratio){
+/* lazy leaves the poster on screen and downloads nothing until it is
+   played, which is what lets seven check points each show their film */
+function drillFilm(url, ratio, lazy){
   const uid=uidOfUrl(url);
   if(!uid) return vidBlock(url, ratio, 'contain');
   setTimeout(mountCaptions,0);
   return ccWrap(`<video src="${sig(url)}" controls playsinline loop muted
-    poster="${streamThumb(uid)}" data-cc="${uid}"
+    ${lazy?'preload="none"':''} poster="${streamThumb(uid)}" data-cc="${uid}"
     style="width:100%;aspect-ratio:${ratio||'4/3'};object-fit:contain;
     background:#11150f;display:block"></video>`,
     'border-radius:22px;overflow:hidden;margin-bottom:18px');
@@ -9397,7 +9403,7 @@ function screenHome(){
         <div id="askmatches">${askMatches(st.q||'')}</div>
       </div>
 
-      <div class="rail cards" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      <div class="rail cards${st.exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:4px 16px 8px;-webkit-overflow-scrolling:touch">
         <!-- 7a leads the rail with this, and rebuilding Today dropped it, which
              left the ladder intro and all six stage films with nowhere to be
@@ -9479,6 +9485,7 @@ function screenHome(){
             </div>
           </div>`;}).join('')}
       </div>
+      ${railMore(FAQS_READY().length)}
       <div id="raildots" style="display:flex;gap:5px;justify-content:center;padding:6px 0 0">
         ${FAQS_READY().map((_,i)=>`<span style="width:5px;height:5px;border-radius:99px;
           background:rgba(17,17,17,${i?0.14:0.42})"></span>`).join('')}
@@ -12516,7 +12523,15 @@ function sideHTML(){
   const t=st.tab, co=coachedView();
   const bits=[sideVideoCard()];
   if(t==='home'||t==='ladder'||t==='today'||t==='plan'){
-    bits.push(sideStageCard(), sideWeekCard());
+    bits.push(sideStageCard());
+    /* the month, and a day opens to what was actually done in it. Not on
+       the screen that already has it further down the page. */
+    const onProgress = (t==='ladder' && st.ladderTab==='progress');
+    if(!onProgress && typeof trainingCalendar==='function'){
+      try{ bits.push(trainingCalendar()); }catch(e){}
+    } else {
+      bits.push(sideWeekCard());
+    }
     if(!st.in && !st.plus) bits.push(sideCheckCard());
   }
   const h=bits.filter(Boolean).join('');
@@ -12570,6 +12585,17 @@ function chooserPills(d){
 /* On a phone Start opens the sheet that asks how long and how hard. On a
    wide screen those two questions are already answered on the page, so
    Start starts. */
+/* On a phone the explainers are a shelf you drag, so there is no such
+   thing as too many. Laid out as a grid they are a wall of them, and two
+   rows is as much as anybody wants before deciding. */
+function railMore(n){
+  if(!wide() || !(n>6)) return '';
+  return `<div style="padding:12px 16px 0">
+    <button onclick="st.exAll=!st.exAll;save();render()" style="background:none;border:0;padding:0;
+      cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
+      st.exAll ? 'Show fewer' : 'See all '+n+' explainers'} &rarr;</button></div>`;
+}
+
 function startNow(d){
   const wrist = st.sessionKind==='wrist';
   const plan=weekPlan(), cells=weekCells();
