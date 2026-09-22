@@ -5494,6 +5494,74 @@ export default async (request) => {
       return json({ ok: true, cycle: rec.cycle, nextBlock: !!body.nextBlock });
     }
 
+    /* ── a verdict on a check point clip, with or without a review row ──
+       The check points pane could only answer a clip that had a submission
+       row behind it, and a clip sent before that filing existed, or one
+       whose insert failed quietly, had no buttons at all: the card said
+       "there is no review row against it" and left the coach with nothing
+       to press. The verdict belongs to the check point, so it is written
+       there by name, and any submission carrying the same clip is marked
+       reviewed so the queue clears with it. */
+    if (path === '/coach/checkpoint/verdict' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const k = String(body.k || '').slice(0, 64);
+      const uid = String(body.uid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+      const verdict = ['reached', 'notyet'].includes(body.verdict) ? body.verdict : '';
+      const note = String(body.note || '').slice(0, 300);
+      if (!k || !verdict) return json({ error: 'Which check point, and reached or not?' }, 400);
+      const tkey = `track:${e}`;
+      const tr = (await getSetting(tkey)) || {};
+      const rows = (tr.checkpoints || {})[k];
+      if (!Array.isArray(rows) || !rows.length) return json({ error: 'Nothing logged against that one' }, 404);
+      const by = asking || primaryCoach();
+      const stamp = r => Object.assign({}, r,
+        { verdict, note, by, verdictAt: Date.now(), watchedAt: Date.now() });
+      let hit = false;
+      tr.checkpoints[k] = rows.map(r => (uid && r && r.video === uid) ? (hit = true, stamp(r)) : r);
+      if (!hit) {
+        /* no clip named, or the clip is not on a row any more: the reading
+           it is a verdict on is the last one they logged */
+        const i = tr.checkpoints[k].length - 1;
+        tr.checkpoints[k][i] = stamp(tr.checkpoints[k][i]);
+      }
+      await setSetting(tkey, tr);
+
+      /* the same clip may be sitting in the review queue */
+      let cleared = '';
+      if (uid) {
+        const open = await supa.rows('submissions',
+          `email=eq.${enc(e)}&status=eq.submitted&select=*`);
+        const row = (open || []).find(x => (x.clips || []).some(c =>
+          (c && typeof c === 'object' ? (c.uid || c.video) : c) === uid));
+        if (row) {
+          await supa.update('submissions', `id=eq.${enc(row.id)}`, {
+            status: 'reviewed', reviewed_at: nowISO(), reviewed_by: by,
+            numbers: Object.assign({}, row.numbers || {}, { verdict, verdictNote: note }),
+          });
+          cleared = row.id;
+        }
+      }
+
+      /* and they are told, unless a reply is already on its way to them */
+      const thread = await threadLoad(db, e);
+      const lastCoach = Math.max(0, ...thread.filter(m => m.from === 'coach').map(m => m.at || 0));
+      if (Date.now() - lastCoach > 6 * 3600000) {
+        const nm = coachName(by);
+        const T = await emailCopy('answerReady', { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm) });
+        await email(e, T.subject,
+          mail({
+            title: T.title,
+            greeting: (clients()[e] || '').split(' ')[0] || '',
+            paras: T.paras,
+            cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
+            signoff: { name: nm }, footnote: T.footnote || undefined,
+          }), 'replies');
+      }
+      return json({ ok: true, cleared, checkpoints: tr.checkpoints });
+    }
+
     if (path === '/coach/clients') {
       /* CLIENTS alone was not enough: a free account can now send a form
          check and ask about coaching, and one that never appeared here

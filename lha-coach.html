@@ -352,8 +352,12 @@ function openThread(email){
   if(!fcState[email]) loadFormCheck(email);
   fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ subs[email]=d.submissions||[]; draw(); } })
-    .catch(()=>{});
+    .then(d=>{ if(d){ subs[email]=d.submissions||[]; } })
+    .catch(()=>{})
+    /* whether or not it answered: "we asked and got nothing" and "we have
+       not asked yet" are different things and the screen said the same
+       for both */
+    .finally(()=>{ subsLoaded[email]=true; draw(); });
   fetch(API+'/notes?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d&&notes[email]===undefined){ notes[email]=d; draw(); } })
@@ -599,7 +603,8 @@ function loadQueue(){
          read from before that happened */
       if(sel) fetch(API+'/submissions?email='+encodeURIComponent(sel),{headers:hdr()})
         .then(r=>r.ok?r.json():null)
-        .then(x=>{ if(x){ subs[sel]=x.submissions||[]; draw(); } }).catch(()=>{});
+        .then(x=>{ if(x){ subs[sel]=x.submissions||[]; } }).catch(()=>{})
+        .finally(()=>{ subsLoaded[sel]=true; draw(); });
     } })
     .catch(()=>{}).finally(homeStep);
 }
@@ -1149,6 +1154,8 @@ function subsHTML(email){
 }
 
 let fcState={};   /* email -> whether their free form check is spent */
+/* email -> we have had an answer about their submissions, empty or not */
+let subsLoaded={};
 function loadFormCheck(email){
   fetch(API+'/formcheck?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null).then(d=>{ if(d){ fcState[email]=d; draw(); } })
@@ -1311,7 +1318,7 @@ function cpsBtnHTML(email){
   const n=(cpDefs[email]||[]).length;
   return `<button onclick="openCps('${esc(email)}')" style="background:none;border:none;cursor:pointer;
     padding:8px 0;font:500 12px/1 var(--sans);color:var(--forest);text-decoration:underline;
-    text-underline-offset:3px">Check points${n?' · '+n:''}</button>`;
+    text-underline-offset:3px">Edit check points${n?' · '+n:''}</button>`;
 }
 
 /* Name, address and password in one place. All three were scattered: the
@@ -1658,6 +1665,30 @@ function formCheckHTML(email){
       ${st2.used?'Give it back':'Mark it used'}</button></div>`;
 }
 
+/* ── answer a clip from the check points page ──────────────────────
+   The verdict belongs to the check point, not to a review row, so this
+   posts the check point and the clip and lets the server find whatever
+   submission is carrying it. Works whether or not one exists. */
+let cpVerdictBusy='';
+function cpVerdict(email,k,uid,verdict){
+  if(cpVerdictBusy) return;
+  const el=document.getElementById('vnote-cp-'+k);
+  const note=el?el.value.trim():'';
+  cpVerdictBusy=k; draw();
+  fetch(API+'/checkpoint/verdict',{method:'POST',headers:hdr(),
+    body:JSON.stringify({email,k,uid,verdict,note})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not save that')))
+    .then(d=>{
+      if(d.checkpoints){ tracks[email]=Object.assign({}, tracks[email]||{}, {checkpoints:d.checkpoints}); }
+      if(d.cleared){
+        subs[email]=(subs[email]||[]).map(x=>x.id===d.cleared
+          ? {...x,status:'reviewed',reviewedAt:Date.now()} : x);
+        queue=queue.filter(q=>q.id!==d.cleared);
+      }
+      cpVerdictBusy=''; draw();
+    })
+    .catch(e=>{ cpVerdictBusy=''; draw(); alert(String(e)); });
+}
 function markReviewed(email,id,nextBlock,verdict){
   if(nextBlock && !confirm('Mark reviewed and start the next block? '
     + 'That resets their two-week clock from today.')) return;
@@ -3221,7 +3252,8 @@ function revPickLoad(email){
   revPick.email=email; revPick.chosen={};
   const need=[];
   if(!subs[email]) need.push(fetch(API+'/submissions?email='+encodeURIComponent(email),{headers:hdr()})
-    .then(r=>r.ok?r.json():null).then(d=>{ if(d) subs[email]=d.submissions||[]; }));
+    .then(r=>r.ok?r.json():null).then(d=>{ if(d) subs[email]=d.submissions||[]; })
+    .finally(()=>{ subsLoaded[email]=true; }));
   if(!tracks[email]) need.push(fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null).then(d=>{ if(d){ tracks[email]=d.track||null;
       if(!cpDefs[email]) cpDefs[email]=d.checkpoints||[]; } }));
@@ -6846,15 +6878,30 @@ function progrPaneHTML(){
    if they filmed it, with the two buttons that answer it. This was a list
    of names down the side of the Programme tab with no numbers, no clips
    and nothing to press. */
-function cpsWaiting(email){
-  const tr=((tracks[email]||{}).checkpoints)||{};
-  let n=0;
-  Object.keys(tr).forEach(k=>{
-    const clip=(tr[k]||[]).filter(r=>r&&r.video).slice(-1)[0];
-    if(clip && !clip.verdict) n++;
-  });
-  return n;
+/* Clips waiting on a verdict. This counted every key in their whole
+   record, including check points they are no longer on and the ladder's
+   own, while the pane below only listed the ones written for this block:
+   the tab said seven and the page said four. Both count what the page
+   shows, and the page shows everything that is waiting. */
+/* A check point that is no longer in this block still has a name
+   somewhere: an older draft of their programme, or the shipped ladder. */
+function strayName(k){
+  for(const list of Object.values(cpDefs||{})){
+    const d=(list||[]).find(x=>x&&x.k===k); if(d&&d.n) return d.n;
+  }
+  try{ for(const stg of Object.keys(CHECKPOINTS||{})){
+    const c=(CHECKPOINTS[stg]||[]).find(x=>x&&x.k===k); if(c&&c.n) return c.n;
+  } }catch(e){}
+  return String(k).replace(/^fix:/,'').replace(/[:-]/g,' ');
 }
+function cpsWaitKeys(email){
+  const tr=((tracks[email]||{}).checkpoints)||{};
+  return Object.keys(tr).filter(k=>{
+    const clip=(tr[k]||[]).filter(r=>r&&r.video).slice(-1)[0];
+    return clip && !clip.verdict;
+  });
+}
+function cpsWaiting(email){ return cpsWaitKeys(email).length; }
 /* the submission a clip arrived as, so the verdict lands on the same row
    the review queue is holding */
 function cpSubFor(email, uid){
@@ -6862,6 +6909,10 @@ function cpSubFor(email, uid){
     && (s.clips||[]).some(c=>(c&&c.uid)===uid || c===uid))) || null;
 }
 function marksPaneHTML(){
+  /* nothing has come back yet: say so rather than drawing an empty screen
+     that reads as "this client has none" */
+  if(tracks[sel]===undefined && cpDefs[sel]===undefined)
+    return `<div class="card"><p class="muted">Loading their check points&hellip;</p></div>`;
   const defs=cpDefs[sel]||[];
   const tr=((tracks[sel]||{}).checkpoints)||{};
   if(!defs.length) return `<div class="card">
@@ -6906,29 +6957,41 @@ function marksPaneHTML(){
             clip.verdict==='reached'?'var(--forest)':'var(--terra)'}">${
             clip.verdict==='reached'?'You verified this':'You said not there yet'}${
             clip.note?': ':''}${esc(clip.note||'')}</div>
+            <div class="muted" style="font:400 11.5px/1.5 var(--sans);margin-top:5px">On their
+              check point${clip.verdictAt?' since '+esc(ago(clip.verdictAt)):''}, and they were emailed.</div>
             <button class="btn btn-ghost btn-sm" style="margin-top:8px"
               onclick="reviewClip('${esc(clip.video)}','${esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(k.n||'')}')">Draw on it</button>`
-          : sub ? `<div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
-            <input id="vnote-${esc(sub.id)}" placeholder="One line they will read beside it, optional"
+          : `<div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
+            <input id="vnote-cp-${esc(k.k)}" placeholder="One line they will read beside it, optional"
               style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
               font:400 13px/1.3 var(--sans);background:#fff">
             <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
               <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
-                onclick="markReviewed('${esc(sel)}','${esc(sub.id)}',false,'reached')">Reached, verified</button>
-              <button class="btn btn-ghost btn-sm"
-                onclick="markReviewed('${esc(sel)}','${esc(sub.id)}',false,'notyet')">Not there yet</button>
+                ${cpVerdictBusy===k.k?'disabled':''}
+                onclick="cpVerdict('${esc(sel)}','${esc(k.k)}','${esc(clip.video)}','reached')">${
+                cpVerdictBusy===k.k?'Saving…':'Reached, verified'}</button>
+              <button class="btn btn-ghost btn-sm" ${cpVerdictBusy===k.k?'disabled':''}
+                onclick="cpVerdict('${esc(sel)}','${esc(k.k)}','${esc(clip.video)}','notyet')">Not there yet</button>
               <button class="btn btn-ghost btn-sm"
                 onclick="reviewClip('${esc(clip.video)}','${esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(k.n||'')}')">Draw on it</button>
-            </div>`
-          : `<div class="muted" style="font:400 13px/1.5 var(--sans)">A clip came in with this, and
-             there is no review row against it. Watch it here, or answer it in the thread.</div>`}
+            </div>
+            <div class="muted" style="font:400 11.5px/1.5 var(--sans);margin-top:8px">${
+              sub ? 'Either one answers the clip in their app and clears it from your queue.'
+                  : subsLoaded[sel]===undefined ? 'Checking your review queue&hellip;'
+                  : 'No review row came with this clip, which does not stop you answering it: the verdict goes on their check point either way.'}</div>`}
         </div></div>`:''}
     </div>`;
   };
   /* anything waiting on you first, then the rest in the order you wrote them */
-  const wait=defs.filter(k=>{ const c=(tr[k.k]||[]).filter(r=>r&&r.video).slice(-1)[0];
+  /* a clip waiting on you is never hidden because the check point it
+     belongs to is not in this block's list any more */
+  const known=new Set(defs.map(k=>k.k));
+  const strays=cpsWaitKeys(sel).filter(k=>!known.has(k))
+    .map(k=>({k, n:strayName(k), unit:'', target:null, stray:true}));
+  const all=defs.concat(strays);
+  const wait=all.filter(k=>{ const c=(tr[k.k]||[]).filter(r=>r&&r.video).slice(-1)[0];
     return c && !c.verdict; });
-  const rest=defs.filter(k=>wait.indexOf(k)<0);
+  const rest=all.filter(k=>wait.indexOf(k)<0);
   return `<div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
       flex-wrap:wrap;margin-bottom:var(--space-3)">
