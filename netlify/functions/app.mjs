@@ -3281,7 +3281,19 @@ export default async (request) => {
              the client's analysis column. Hannah sent hers and Elliott never
              saw them. A new clip is a submission like any other, so it lands
              in "needs you now" and in Client reviews, and the coach is told. */
-          if (vid && !(last && last.video === vid)) {
+          /* ── the same gate as every other way of sending footage ──
+             A check point clip is a clip for Elliott to watch, so it costs
+             what one costs. The app only offers the camera here to a
+             coached client, but the route was open to anybody with a token
+             and filed a submission and emailed the coach for every one. The
+             number is theirs either way: what the gate decides is whether
+             it reaches him. */
+          let cpFcOk = true;
+          if (vid && !clients()[who]) {
+            const g = await fcGate(who);
+            cpFcOk = !!g.ok;
+          }
+          if (vid && cpFcOk && !(last && last.video === vid)) {
             const defs = (await getSetting(`programme:${who}`)) || programmes.clients[who] || {};
             let cpName = ((defs.checkpoints || []).find(c => c && c.k === k) || {}).n
               || (CHECKPOINT_NAMES[k] || '');
