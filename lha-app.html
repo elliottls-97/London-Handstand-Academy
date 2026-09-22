@@ -1028,8 +1028,11 @@ function sendDayFeedback(skip){
       + (rate?'. Felt '+rate:'') + (note?'. '+note:'');
     st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now'}]);
     save();
-    fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
-      .catch(()=>post({type:'Session feedback',text}));
+    sendAndSay(
+      fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
+        .then(r=>!!(r&&r.ok))
+        .catch(()=>post({type:'Session feedback',text})),
+      'Sent to Elliott. It is in your chat with him.');
   }
   st.fbRate=''; st.fbNote=''; save(); closeOv(); render();
 }
@@ -2090,12 +2093,27 @@ function screenPlan(){
                 style="width:100%;background:#fff;border:1px solid rgba(0,64,61,.14);border-radius:14px;
                 padding:12px;margin-top:10px;min-height:44px;
                 font:400 13.5px/1.45 var(--sans);color:var(--ink)">
-              <div style="display:flex;gap:9px;margin-top:10px">
-                <button onclick="sendFlags()" style="flex:1;border:none;min-height:44px;
-                  background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
-                  box-shadow:0 8px 18px rgba(0,102,99,.24),inset 0 1px 0 rgba(255,255,255,.3);
-                  border-radius:999px;padding:12px;font:600 12.5px/1 var(--sans);cursor:pointer">Send to Elliott</button>
-              </div></div>`:''}
+              ${flagSentOK(it.v)
+                ? `<div style="display:flex;align-items:flex-start;gap:9px;margin-top:11px">
+                    <span style="flex:none;width:19px;height:19px;border-radius:999px;background:var(--forest);
+                      color:#fff;display:grid;place-items:center;font:700 10px/1 var(--sans);
+                      margin-top:1px">&check;</span>
+                    <span style="flex:1;min-width:0;font:500 12.5px/1.45 var(--sans);color:var(--forest)">
+                      Sent to ${esc(coachLabel())} ${esc(cpWhen(flagAt(it.v)))}.${
+                      flagNote(it.v)?' He has what you wrote with it.':''}</span>
+                  </div>`
+                : `<div style="display:flex;gap:9px;margin-top:10px">
+                    <button id="flagbtn-${esc(it.v)}" onclick="sendFlags('${esc(it.v)}')"
+                      style="flex:1;border:none;min-height:44px;
+                      background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+                      box-shadow:0 8px 18px rgba(0,102,99,.24),inset 0 1px 0 rgba(255,255,255,.3);
+                      border-radius:999px;padding:12px;font:600 12.5px/1 var(--sans);cursor:pointer">${
+                      flagAt(it.v)?'Send the update':'Send to Elliott'}</button>
+                  </div>
+                  <div id="flagst-${esc(it.v)}" style="font:500 12px/1.45 var(--sans);color:var(--grey);
+                    margin-top:8px;min-height:1px">${
+                    flagAt(it.v)?'Sent '+esc(cpWhen(flagAt(it.v)))+'. You have written more since.':''}</div>`}
+              </div>`:''}
           </div></div></div>`;
     }).join('');
     return `<div style="padding:20px 16px 0">
@@ -2651,7 +2669,9 @@ function sendCheckin(){
   st.track=st.track||{};
   st.track.checkins=(st.track.checkins||[]).concat([Object.assign({at:Date.now()},body)]);
   save();
-  postTrack({checkin:body}).then(()=>{ closeOv(); render(); });
+  sendAndSay(postTrack({checkin:body}).then(()=>true),
+    st.in ? 'Check-in sent to Elliott.' : 'Check-in saved.')
+    .then(()=>{ closeOv(); render(); });
   if(st.in) post({type:'Check-in', ...body});
 }
 
@@ -6088,6 +6108,19 @@ function swipeStep(dir){
 /* A line that says what just happened and then goes away. There was no
    such thing in here, and alert() stops the app dead to say one sentence. */
 let toast_=null;
+/* ── did it go, or did it not ─────────────────────────────────────
+   Everything a client can send to Elliott goes through this. A send
+   says "Sending", then either that it landed or that it did not, rather
+   than closing the screen and leaving them to work it out. A toast that
+   claims success before the request has finished is worse than nothing,
+   because it is believed. */
+function sendAndSay(p, okMsg, failMsg){
+  const bad = failMsg || 'Not sent. Check your signal and try again.';
+  toast('Sending\u2026');
+  return Promise.resolve(p)
+    .then(ok=>{ toast(ok===false ? bad : okMsg); return ok!==false; })
+    .catch(()=>{ toast(bad); return false; });
+}
 function toast(msg){
   let el=document.getElementById('toast');
   if(!el){
@@ -6117,14 +6150,14 @@ function sessionFeel(f){
      telling them to go and change it there was the wrong answer twice. */
   if(coachedView()){
     if(dir){
-      post({type:'Session feel',feel:f,day:(day()&&day().label)||'',
-            block:blockNo(),week:weekNow()});
       reportProgress({feedback:{kind:'session feel', text:f+' · '+((day()&&day().label)||'')}});
+      /* it used to say "Told Elliott" the instant the button was pressed,
+         which is a claim about a request that had not finished */
+      sendAndSay(post({type:'Session feel',feel:f,day:(day()&&day().label)||'',
+            block:blockNo(),week:weekNow()}),
+        'Told Elliott. He writes the next block from this.');
     }
     closeOv();
-    if(dir) toast(f==='Too hard'
-      ? 'Told Elliott. He writes the next block from this.'
-      : 'Told Elliott. He writes the next block from this.');
     return;
   }
   const moved = dir ? nudgeStage(dir) : null;
@@ -7309,7 +7342,7 @@ function drawOv(){
          ['Just not feeling it','Do the warm-up and one set of entries. If it still feels wrong, stop. That is a real answer.']]
         .map(([h,x])=>`<div class="card" style="padding:18px"><div style="font:600 15px/1.2 var(--sans)">${h}</div>
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${x}</div></div>`).join('')}
-      <button class="btn" onclick="post({type:'Cannot train'});closeOv()">Tell Elliott I'm skipping</button></div>`;
+      <button class="btn" onclick="sendAndSay(post({type:'Cannot train'}),'Told Elliott you are skipping today.');closeOv()">Tell Elliott I&rsquo;m skipping</button></div>`;
   }
   if(st.ov==='stage'&&S){
     const si=st.ovStage||0;
@@ -8106,8 +8139,8 @@ function closeWhy(send){
     if(whyPicked.length||t.trim()){
       reportProgress({feedback:{kind:'Stopped early',reasons:whyPicked,text:t,
         context:whyStopContext}});
-      post({type:'Stopped early',reasons:whyPicked.join(', '),text:t,
-            where:whyStopContext,_reported:true});
+      sendAndSay(post({type:'Stopped early',reasons:whyPicked.join(', '),text:t,
+            where:whyStopContext,_reported:true}), 'Told Elliott why you stopped.');
     }
   }
   whyPicked=[]; closeOv();
@@ -8166,8 +8199,11 @@ function post(payload){
       text:[payload.text,payload.results,payload.flags,payload.reasons]
         .filter(Boolean).join(' · ').slice(0,900)}});
   }
+  /* resolves true when it actually landed. It used to swallow the result,
+     so anything built on top of it could only claim to have sent. */
   return fetch(FORM,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify(Object.assign({client:st.client||'',email:st.email||''},payload))}).catch(()=>{});
+    body:JSON.stringify(Object.assign({client:st.client||'',email:st.email||''},payload))})
+    .then(r=>!!(r&&r.ok)).catch(()=>false);
 }
 function tick(k){
   rollTicks();
@@ -8354,12 +8390,44 @@ function rateRow(v,k,r){
 }
 
 function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); reportSoon(); render(); }
-function sendFlags(){
-  const f=Object.keys(st.rate).filter(v=>st.rate[v]==='easy'||st.rate[v]==='hard');
+/* ── too easy, too hard, and whether he actually got it ───────────
+   Pressing Send to Elliott set a date on a property nothing read, so the
+   screen did not change by a pixel: the same button, the same box, no
+   way of telling whether anything had left the phone. It says which of
+   the three it is now, and the note that went with it is part of the
+   record, so typing more after sending offers to send the update rather
+   than pretending the first one covered it. */
+const flagAt   = v => ((st.flagAt||{})[v]||0);
+const flagNote = v => ((st.flagNote||{})[v]||'');
+const flagDirty= v => String((st.note||{})[v]||'') !== flagNote(v);
+const flagSentOK = v => !!flagAt(v) && !flagDirty(v);
+
+function sendFlags(v){
+  const f=Object.keys(st.rate||{}).filter(x=>st.rate[x]==='easy'||st.rate[x]==='hard');
   if(!f.length) return;
-  const names={}; DATA.days.forEach(d=>d.groups.forEach(g=>g.items.forEach(i=>names[i.v]=i.n)));
-  post({type:'Drill flags',flags:f.map(v=>st.rate[v].toUpperCase()+': '+(names[v]||v)+(st.note[v]?' ("'+st.note[v]+'")':'')).join('\n')});
-  st.flagSent=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'}); save(); render();
+  const btn=v?document.getElementById('flagbtn-'+v):null;
+  if(btn){
+    if(btn.disabled) return;
+    btn.disabled=true; btn.style.opacity='.72'; btn.textContent='Sending\u2026';
+  }
+  if(v) sentLine('flagst-'+v, 'Sending\u2026');
+  const names={}; (DATA.days||[]).forEach(d=>(d.groups||[]).forEach(g=>(g.items||[]).forEach(i=>names[i.v]=i.n)));
+  const note=x=>String((st.note||{})[x]||'');
+  post({type:'Drill flags',
+    flags:f.map(x=>st.rate[x].toUpperCase()+': '+(names[x]||x)+(note(x)?' ("'+note(x)+'")':'')).join('\n')})
+    .then(ok=>{
+      if(ok===false){
+        if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent='Send to Elliott'; }
+        if(v) sentLine('flagst-'+v, 'Not sent. Check your signal and press it again.');
+        return;
+      }
+      const at=Date.now();
+      const A=Object.assign({}, st.flagAt||{}), N=Object.assign({}, st.flagNote||{});
+      f.forEach(x=>{ A[x]=at; N[x]=note(x); });
+      st.flagAt=A; st.flagNote=N;
+      st.flagSent=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+      save(); render();
+    });
 }
 function filmTest(id,name){
   if(upBusy) return;
@@ -13443,7 +13511,21 @@ const TOURS = {
 };
 let tourStep = 0, tourKey = null, tourBound = false;
 
-const tourSeen = () => (st.tourSeen && st.tourSeen.v === TOUR_V) ? st.tourSeen : {v:TOUR_V};
+/* ── what they have already been shown ────────────────────────────
+   Two things used to start the whole tour again for somebody who had
+   been through it: bumping TOUR_V threw the record away wholesale, and
+   the record lived on the device rather than on the account, so a second
+   phone or a reinstall began from nothing. Keys are kept across a version
+   change, and anything the account already knows about is folded in. */
+const tourSeen = () => {
+  let s = (st.tourSeen && typeof st.tourSeen==='object') ? st.tourSeen : {v:TOUR_V};
+  let changed = (s!==st.tourSeen);
+  if(s.v!==TOUR_V){ s=Object.assign({}, s, {v:TOUR_V}); changed=true; }
+  const srv=(st.track && st.track.tours) || {};
+  Object.keys(srv).forEach(k=>{ if(!s[k]){ s[k]=1; changed=true; } });
+  if(changed){ st.tourSeen=s; save(); }
+  return s;
+};
 /* ── who has actually been through it ─────────────────────────────
    Whether somebody has seen the tour, and when. Skipping counts: they
    were shown it and said no, which is the thing worth knowing. Kept on
@@ -13713,6 +13795,10 @@ function paintTour(){
 /* the screen moved out from under a running tour, so stop pointing at
    things that are no longer there. Not marked as seen: it never finished. */
 function abortTour(){
+  /* Walking away from a tour used to leave no record of it, so it started
+     again the next time that tab was opened, and the next, and the next.
+     Being shown it is being shown it: it does not ask twice. */
+  if(tourKey) markTourSeen(tourKey);
   tourKey = null; tourList = [];
   tourLeaveMode();
   const el = document.getElementById('tour'); if(el) el.remove();
