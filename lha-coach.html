@@ -6915,6 +6915,32 @@ function strayName(k){
   } }catch(e){}
   return String(k).replace(/^fix:/,'').replace(/[:-]/g,' ');
 }
+/* ── the review tool, from a check point ────────────────────────────
+   The tool takes a clip and a name for it. Named by the check point it
+   belongs to, so six clips into a recording you still know which is
+   which, and the recording goes back to the right client. */
+function reviewCp(email, uid, name){
+  const who=((clients.find(c=>c.email===email)||{}).name||'Client').split(' ')[0]||'Client';
+  reviewFor=email;
+  reviewClip(uid, who+' · '+(name||'check point'));
+}
+/* everything on this page that is still waiting on a verdict, in one
+   recording, oldest first */
+function reviewCpWaiting(email){
+  const tr=((tracks[email]||{}).checkpoints)||{};
+  const defs=cpDefs[email]||[];
+  const nameOf=k=>((defs.find(x=>x&&x.k===k)||{}).n)||strayName(k);
+  const rows=[];
+  cpsWaitKeys(email).forEach(k=>{
+    const c=(tr[k]||[]).filter(r=>r&&r.video).slice(-1)[0];
+    if(c) rows.push({uid:c.video, at:c.at||0, n:nameOf(k)});
+  });
+  if(!rows.length) return;
+  rows.sort((a,b)=>a.at-b.at);
+  const who=((clients.find(c=>c.email===email)||{}).name||'Client').split(' ')[0]||'Client';
+  const titles={}; rows.forEach(r=>{ titles[r.uid]=who+' · '+r.n; });
+  reviewClips(email, rows.map(r=>r.uid), who, titles);
+}
 /* opening their check points from a Logged row: go there, and stop
    counting what was logged before now */
 function openCpLog(email){
@@ -6989,7 +7015,7 @@ function marksPaneHTML(){
             <div class="muted" style="font:400 11.5px/1.5 var(--sans);margin-top:5px">On their
               check point${clip.verdictAt?' since '+esc(ago(clip.verdictAt)):''}, and they were emailed.</div>
             <button class="btn btn-ghost btn-sm" style="margin-top:8px"
-              onclick="reviewClip('${esc(clip.video)}','${esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(k.n||'')}')">Draw on it</button>`
+              onclick="reviewCp('${esc(sel)}','${esc(clip.video)}','${esc(k.n||k.k)}')">Open in the review tool &rarr;</button>`
           : `<div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
             <input id="vnote-cp-${esc(k.k)}" placeholder="One line they will read beside it, optional"
               style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
@@ -7001,8 +7027,8 @@ function marksPaneHTML(){
                 cpVerdictBusy===k.k?'Saving…':'Reached, verified'}</button>
               <button class="btn btn-ghost btn-sm" ${cpVerdictBusy===k.k?'disabled':''}
                 onclick="cpVerdict('${esc(sel)}','${esc(k.k)}','${esc(clip.video)}','notyet')">Not there yet</button>
-              <button class="btn btn-ghost btn-sm"
-                onclick="reviewClip('${esc(clip.video)}','${esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(k.n||'')}')">Draw on it</button>
+              <button class="btn btn-secondary btn-sm"
+                onclick="reviewCp('${esc(sel)}','${esc(clip.video)}','${esc(k.n||k.k)}')">Open in the review tool &rarr;</button>
             </div>
             <div class="muted" style="font:400 11.5px/1.5 var(--sans);margin-top:8px">${
               sub ? 'Either one answers the clip in their app and clears it from your queue.'
@@ -7030,7 +7056,11 @@ function marksPaneHTML(){
           What they must be able to do before the next block.${
           wait.length?' '+wait.length+' clip'+(wait.length===1?'':'s')+' waiting on you.':''}</p>
       </div>
-      ${cpsBtnHTML(sel)}
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        ${wait.length?`<button class="btn btn-primary btn-sm"
+          onclick="reviewCpWaiting('${esc(sel)}')">Review ${wait.length===1?'the clip':'all '+wait.length+' clips'} &rarr;</button>`:''}
+        ${cpsBtnHTML(sel)}
+      </div>
     </div>
     ${wait.map(card).join('')}${rest.map(card).join('')}
   </div>`;
