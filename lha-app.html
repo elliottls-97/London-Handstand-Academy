@@ -467,18 +467,30 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .startrow{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
     gap:22px;align-items:center}
   .startrow>button{height:68px!important}
+  /* the coached day, laid out the same way: start it on the left, the two
+     things you might do instead beside it */
+  .costart{display:grid;grid-template-columns:minmax(0,1fr) 230px;
+    column-gap:20px;align-items:start}
+  .costart>[data-tour="session"]{grid-column:1 / -1}
+  .costart>button{margin-top:14px!important}
+  .costart-side{grid-column:2;grid-row:2 / span 2;margin-top:14px;
+    display:flex;flex-direction:column;gap:10px}
+  .costart-side .btn2{width:100%;min-height:68px}
+  /* a message the width of a monitor stops reading as a message */
+  .bub>div,.bub>a{max-width:62%!important}
+  .bub>div[style*="width:82%"],.bub>div[style*="width:86%"]{width:62%!important}
   /* a two button switch stretched to the width of a monitor stops reading
      as a switch. It was also sitting 20px from the left of the window,
      which on a wide screen is on top of the rail. */
   .coachseg{left:calc(var(--rail) + 40px)!important;right:auto!important;width:340px!important;
     z-index:30}
   .segrow,.scroll.s>.segrow{max-width:420px}
-  /* the explainers are a shelf you drag on a phone. On a monitor they are
-     simply all there, which is what the frames show. */
-  .rail.cards{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
+  /* The explainers stay a shelf you push sideways, on a monitor as well as
+     a phone, so the whole library is reachable without the page growing a
+     screen for it. See all opens the same list out as a grid. */
+  .rail.cards.all{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
     overflow:visible!important;padding-bottom:0!important}
-  .rail.cards>div{width:auto!important;flex:none}
-  .rail.cards:not(.all)>div:nth-child(n+4){display:none}
+  .rail.cards.all>div{width:auto!important;flex:none}
   /* a check point's demo at the full width of a monitor is most of a
      screen each, and there are seven of them */
   /* the demo stands beside the check point rather than on top of it, so
@@ -496,7 +508,7 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
      nearly nothing. In the right hand column it fills what it is given. */
   .calcard{max-width:470px}
   #side .calcard{max-width:none}
-  #raildots{display:none!important}
+  .rail.cards.all + #raildots{display:none!important}
 
   /* the floating glass bar becomes the rail. Same buttons, same tab
      state, stood up on its side. */
@@ -510,6 +522,8 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
     box-shadow:none;overflow-y:auto}
   .tabbar::before{content:"Handstand Ladder.";display:block;
     padding:0 14px 22px;font:400 24px/1.05 var(--serif);color:var(--ink)}
+  /* a coached client is in the coaching, not in the ladder */
+  body[data-tier=coached] .tabbar::before{content:"Coaching."}
   .tab{flex:none;flex-direction:row;justify-content:flex-start;align-items:center;gap:12px;
     min-height:0;padding:12px 14px;border-radius:14px;text-align:left}
   .tab span{font:500 14px/1 var(--sans);color:var(--grey)}
@@ -1158,7 +1172,7 @@ function screenToday(){
   
   ${weekWordHTML()}
   ${todayStrip()}
-<div class="rise rise-1" style="padding:22px 20px 0">
+<div class="rise rise-1${wide()?' costart':''}" style="padding:22px 20px 0">
     <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
       <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
         d.sub?', '+esc(d.sub):''}</div>
@@ -1189,14 +1203,18 @@ function screenToday(){
     </button>
     <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>
+    ${!wide()?'':`<div class="costart-side">
+      <button class="btn2" onclick="go('plan')">See the drills</button>
+      <button class="btn2" onclick="openLog()">Log today</button>
+    </div>`}
   </div>
 
-  <div class="rise rise-3 pad" style="padding-top:20px">
+  ${wide()?'':`<div class="rise rise-3 pad" style="padding-top:20px">
     <div style="display:flex;gap:10px">
       <button class="btn2" style="flex:1" onclick="go('plan')">See the drills</button>
       <button class="btn2" style="flex:1" onclick="openLog()">Log today</button>
     </div>
-  </div>
+  </div>`}
 
 
 
@@ -5329,7 +5347,7 @@ function screenAsk(){
   const msgs=(st.msgs||[]).filter(hasMsg);
   const bubbles=msgs.map(m=>{
     const mine=m.from==='me';
-    return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'}">
+    return `<div class="bub" style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'}">
       ${m.video?`<div style="max-width:82%;width:82%;border-radius:18px;overflow:hidden;
         margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','56vh')}</div>`:''}
       ${m.image?`<a href="${AUTH.image}/${esc(m.image)}" target="_blank" rel="noopener"
@@ -9710,7 +9728,7 @@ function screenHome(){
           </div>`;}).join('')}
       </div>
       ${railMore(FAQS_READY().length)}
-      <div id="raildots" style="display:flex;gap:5px;justify-content:center;padding:6px 0 0">
+      <div id="raildots" style="display:${st.exAll&&wide()?'none':'flex'};gap:5px;justify-content:center;padding:6px 0 0">
         ${FAQS_READY().map((_,i)=>`<span style="width:5px;height:5px;border-radius:99px;
           background:rgba(17,17,17,${i?0.14:0.42})"></span>`).join('')}
       </div>
@@ -12134,7 +12152,7 @@ function screenCoaching(){
      same place a client's does */
   const thread=(st.msgs||[]).filter(m=>m && (m.video || m.image || String(m.text||'').trim())).map(m=>{
     const mine=m.from==='me';
-    return `<div style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};gap:0">
+    return `<div class="bub" style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};gap:0">
       ${m.video?`<div style="max-width:86%;width:86%;border-radius:16px;overflow:hidden;
         margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','46vh')}</div>`:''}
       ${m.image?`<a href="${AUTH.image}/${esc(m.image)}" target="_blank" rel="noopener"
@@ -12979,15 +12997,16 @@ function chooserPills(d){
 /* On a phone Start opens the sheet that asks how long and how hard. On a
    wide screen those two questions are already answered on the page, so
    Start starts. */
-/* On a phone the explainers are a shelf you drag, so there is no such
-   thing as too many. Laid out as a grid they are a wall of them, and one
-   row is as much as anybody wants before the next thing on the page. */
+/* A shelf holds as many as you like because it costs one row whatever is
+   on it, so that is what a wide screen gets too, with the mouse wheel or a
+   trackpad pushing it sideways. The grid is there for anybody who would
+   rather see the lot at once. */
 function railMore(n){
   if(!wide() || !(n>3)) return '';
   return `<div style="padding:12px 16px 0">
     <button onclick="st.exAll=!st.exAll;save();render()" style="background:none;border:0;padding:0;
       cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
-      st.exAll ? 'Show fewer' : 'See all '+n+' explainers'} &rarr;</button></div>`;
+      st.exAll ? 'Back to the shelf' : 'See all '+n+' at once'} &rarr;</button></div>`;
 }
 
 function startNow(d){
