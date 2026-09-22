@@ -422,6 +422,10 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
  padding:12px 14px;margin-top:10px}
 .p-upthumb{width:64px;height:44px;border-radius:10px;overflow:hidden;background:#11150f;flex:none}
 .p-upthumb video{width:100%;height:100%;object-fit:cover;display:block}
+/* Two wrappers that do nothing at all on a phone: display:contents takes
+   them out of the layout, so what was a single column stays a single
+   column in the same order. A wide screen turns them into two. */
+.trk,.trk-cal,.trk-side{display:contents}
 
 /* ── Desktop, 1080px and up ─────────────────────────────────────────
    Every rule below lives inside the media query, so a phone renders
@@ -467,15 +471,6 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .startrow{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
     gap:22px;align-items:center}
   .startrow>button{height:68px!important}
-  /* the coached day, laid out the same way: start it on the left, the two
-     things you might do instead beside it */
-  .costart{display:grid;grid-template-columns:minmax(0,1fr) 230px;
-    column-gap:20px;align-items:start}
-  .costart>[data-tour="session"]{grid-column:1 / -1}
-  .costart>button{margin-top:14px!important}
-  .costart-side{grid-column:2;grid-row:2 / span 2;margin-top:14px;
-    display:flex;flex-direction:column;gap:10px}
-  .costart-side .btn2{width:100%;min-height:68px}
   /* a message the width of a monitor stops reading as a message */
   .bub>div,.bub>a{max-width:62%!important}
   .bub>div[style*="width:82%"],.bub>div[style*="width:86%"]{width:62%!important}
@@ -508,6 +503,13 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
      nearly nothing. In the right hand column it fills what it is given. */
   .calcard{max-width:470px}
   #side .calcard{max-width:none}
+  /* the month on the left, what is in it on the right, rather than a
+     column of cards each the width of the page */
+  .trk{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,320px);
+    gap:16px;align-items:start}
+  .trk .calcard{max-width:none}
+  .trk-cal{display:block}
+  .trk-side{display:flex;flex-direction:column;gap:12px}
   .rail.cards.all + #raildots{display:none!important}
 
   /* the floating glass bar becomes the rail. Same buttons, same tab
@@ -1172,7 +1174,7 @@ function screenToday(){
   
   ${weekWordHTML()}
   ${todayStrip()}
-<div class="rise rise-1${wide()?' costart':''}" style="padding:22px 20px 0">
+<div class="rise rise-1" style="padding:22px 20px 0">
     <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
       <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
         d.sub?', '+esc(d.sub):''}</div>
@@ -1188,33 +1190,31 @@ function screenToday(){
         · ${total} drill${total===1?'':'s'}</span>
     </div>
 
-    <button onclick="startPlayer()" style="margin-top:14px;height:68px;width:100%;border:0;border-radius:18px;
-      background:linear-gradient(180deg,#0a7a76,#006663);
-      box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-      color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
-      padding:0 12px 0 22px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
-      onpointerdown="this.style.transform='scale(.985)'"
-      onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
-      <span style="font:600 19px/1.15 var(--sans)">${ticked>=total&&total?'Go again':'Start the session'}</span>
-      <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);
-        display:grid;place-items:center">
-        <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
-          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
-    </button>
+    <!-- One button, and it asks how. Start and See the drills were two
+         buttons for the same session, one of them large and green and the
+         other a quiet outline, so the choice read as a main thing and a
+         lesser thing rather than two ways of doing it. Log today is the
+         other thing you might do, so it sits on the same line. -->
+    <div style="display:flex;gap:10px;margin-top:14px;align-items:stretch">
+      <button onclick="openOv('daystart')" style="flex:1;min-width:0;height:68px;border:0;border-radius:18px;
+        background:linear-gradient(180deg,#0a7a76,#006663);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+        color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
+        padding:0 12px 0 22px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
+        onpointerdown="this.style.transform='scale(.985)'"
+        onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
+        <span style="font:600 19px/1.15 var(--sans)">${ticked>=total&&total?'Go again':'Start the session'}</span>
+        <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);
+          display:grid;place-items:center">
+          <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+      </button>
+      <button class="btn2" onclick="openLog()"
+        style="flex:none;width:${wide()?'170px':'118px'}">Log today</button>
+    </div>
     <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>
-    ${!wide()?'':`<div class="costart-side">
-      <button class="btn2" onclick="go('plan')">See the drills</button>
-      <button class="btn2" onclick="openLog()">Log today</button>
-    </div>`}
   </div>
-
-  ${wide()?'':`<div class="rise rise-3 pad" style="padding-top:20px">
-    <div style="display:flex;gap:10px">
-      <button class="btn2" style="flex:1" onclick="go('plan')">See the drills</button>
-      <button class="btn2" style="flex:1" onclick="openLog()">Log today</button>
-    </div>
-  </div>`}
 
 
 
@@ -2558,6 +2558,8 @@ function postTrack(body){
         checkpoints: Object.assign({}, d.checkpoints||{}, cur.checkpoints||{}),
         checkins:    (d.checkins&&d.checkins.length)?d.checkins:(cur.checkins||[]),
         photos:      (d.photos&&d.photos.length)?d.photos:(cur.photos||[]),
+        /* a key the merge did not name was dropped on every reply */
+        tours:       Object.assign({}, d.tours||{},       cur.tours||{}),
       };
       save();
     })
@@ -4648,13 +4650,20 @@ function screenProgress(){
            STICKING TO IT was a percentage against a target most people never
            set, reading 0% beside six logged sessions. Neither said anything
            the calendar and the week's own numbers do not. -->
-      <div data-tour="calendar">${trainingCalendar()}</div>
+      <div class="trk">
+      <div class="trk-cal"><div data-tour="calendar">${trainingCalendar()}</div></div>
+      <div class="trk-side">
       <div data-tour="volume">${volumeHero()}</div>
-      ${coachedView()?`<div data-tour="habits">${habitsCard()}</div>`:''}
-      ${coachedView()?`<div data-tour="metrics">${metricsCard()}</div>`:''}
+      ${/* DAILY HABITS and YOUR NUMBERS are gone. Three tick boxes nobody
+            ticked over a row of 28 empty squares reading 0%, and three
+            numbers reading "not yet" with a Log button beside them: two
+            cards asking a paying client to do data entry, on the screen
+            they open to see what they have done. What they have done is
+            the calendar and the check points. */''}
       ${coachedView()?`<div data-tour="checkin">${checkinCard()}</div>`:''}
       ${perDrillCard()}
       ${appUseCard()}
+      </div></div>
       ${/* Progress photos were asked for and then nobody sent any. Two
             empty grey boxes reading "Nothing yet" on the screen a paying
             client opens to see what they have done, and a card asking
@@ -6493,6 +6502,7 @@ function drawOv(){
            /* it is not "every drill" as opposed to something else any more,
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
+           daystart:'',
            checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:''};
   let body='';
   if(st.ov==='paywall'){ body=paywallBody(); }
@@ -6959,6 +6969,36 @@ function drawOv(){
         style="width:100%;background:#11150f;display:block"></video>`,
         'margin-top:12px;border-radius:16px;overflow:hidden')
         : ''}
+    </div>`;
+  }
+  if(st.ov==='daystart'){
+    /* ── follow along, or work down the list ──────────────────────
+       Two ways of doing the same session. They were two buttons on the
+       screen, one large and green and the other a quiet outline, which
+       reads as a main thing and a lesser thing rather than a choice. */
+    const d0=day();
+    const row=(go,t,sub,primary)=>`<button onclick="closeOv();${go}"
+      style="width:100%;margin-top:10px;display:flex;align-items:center;gap:14px;
+      padding:16px 18px;border-radius:18px;cursor:pointer;text-align:left;
+      border:${primary?'0':'1.5px solid rgba(17,17,17,.12)'};
+      background:${primary?'linear-gradient(180deg,#0a7a76,#006663)':'#fff'};
+      ${primary?'box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)':''}">
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font:600 16.5px/1.2 var(--sans);
+          color:${primary?'var(--on-primary)':'var(--ink)'}">${t}</span>
+        <span style="display:block;margin-top:5px;font:400 13px/1.45 var(--sans);
+          color:${primary?'rgba(247,244,241,.82)':'var(--grey)'}">${sub}</span></span>
+      <span style="flex:none;font:400 18px/1 var(--serif);
+        color:${primary?'var(--on-primary)':'var(--forest)'}">&rarr;</span>
+    </button>`;
+    body=`<div style="padding:2px">
+      <div class="kick2">${esc(d0.label)}${d0.sub?' &middot; '+esc(d0.sub):''}</div>
+      <div style="font:400 30px/1.04 var(--serif);margin-top:9px">How do you want
+        <em style="color:var(--forest);font-style:normal">it?</em></div>
+      ${row('startPlayer()','Follow along',
+        'Timed, one drill at a time, with the film for every set.',true)}
+      ${row("go('plan')",'See the drills',
+        'The whole list, tick them off in your own time.',false)}
     </div>`;
   }
   if(st.ov==='locked'){
@@ -13317,10 +13357,6 @@ const TOURS = {
        b:'Three sliders and a sentence. It takes a minute and it is what tells me whether to push you or back off.'},
       {t:'adherence', h:'Sticking to it',
        b:'Sessions done against the number you set yourself, over four weeks. It is the number that predicts progress better than any other on this screen.'},
-      {t:'habits', h:'The small daily things',
-       b:'Wrist prep, shoulder opener, hollow hold. Two minutes each, and they are what decide whether your wrists last the month.'},
-      {t:'metrics', h:'Numbers worth tracking',
-       b:'A few things that move before your hold does, so you can see progress on a week where the hold has not budged.'},
       {t:'checkpoints', h:'The other tab', always:true,
        b:st.in
          ? 'What Elliott wants you to be able to do. Log whatever you manage, and send a clip with it so he can see the thing rather than take your word for it.'
@@ -13348,9 +13384,19 @@ const TOURS = {
 let tourStep = 0, tourKey = null, tourBound = false;
 
 const tourSeen = () => (st.tourSeen && st.tourSeen.v === TOUR_V) ? st.tourSeen : {v:TOUR_V};
+/* ── who has actually been through it ─────────────────────────────
+   Whether somebody has seen the tour, and when. Skipping counts: they
+   were shown it and said no, which is the thing worth knowing. Kept on
+   the account rather than the device, so Elliott can see it against a
+   client and so a second phone does not run the tour again. */
 function markTourSeen(key){
-  const seen = tourSeen(); seen[key] = 1;
-  st.tourSeen = seen; save();
+  const seen = tourSeen();
+  if(seen[key]) return;                 /* already recorded, say nothing */
+  seen[key] = 1;
+  st.tourSeen = seen;
+  st.tourAt = Object.assign({}, st.tourAt||{}, {[key]: Date.now()});
+  save();
+  try{ postTrack({tour:{k:key, skipped: tourStep < (tourSteps().length-1)}}); }catch(e){}
 }
 /* steps that open something rather than pointing at part of a screen. They
    have no data-tour anywhere, so they must not be filtered out as missing. */

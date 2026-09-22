@@ -3226,6 +3226,18 @@ export default async (request) => {
           cur.habits[h] = Array.from(set).sort().slice(-180);
         }
       }
+      /* ── the tutorial ────────────────────────────────────────────
+         Whether they have been through it and when. Skipping counts as
+         having seen it: they were shown it and said no, which is the
+         thing worth knowing. First time only, so a reinstall does not
+         rewrite the date. */
+      if (body.tour && typeof body.tour === 'object') {
+        const k = String(body.tour.k || '').slice(0, 24);
+        if (k && /^[a-z]+$/.test(k)) {
+          cur.tours = cur.tours || {};
+          if (!cur.tours[k]) cur.tours[k] = { at: now, skipped: !!body.tour.skipped };
+        }
+      }
       /* a fortnightly check-in */
       if (body.checkin && typeof body.checkin === 'object') {
         const c = body.checkin;
