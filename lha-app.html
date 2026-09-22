@@ -12391,11 +12391,22 @@ function coPanelHTML(pick){
           <span style="font:600 13px/1 var(--sans);opacity:.8">/ month${sess?', '+(sess===1?'session':sess+' sessions')+' included':''}</span>
         </div>
         <div style="font:400 12.5px/1.45 var(--sans);opacity:.82;margin-top:6px">${esc(pick.note)}</div>
-        <button onclick="${buyable(pick)?`buyPlan('${coBuyKey(pick)}')`:`openOv('apply')`}"
+        <!-- Inner Circle is three places and by application, so it is
+             Apply whether or not Stripe has a link for it: the link is what
+             Elliott sends once he has said yes. Online is Start now when
+             there is a link, and while the plans are still loading the
+             button says so rather than guessing at Ask. -->
+        ${(function(){
+          const loading = plansOn===null;
+          const inner = pick.k==='inner';
+          const go = inner ? `openOv('apply')` : buyable(pick) ? `buyPlan('${coBuyKey(pick)}')` : `openOv('apply')`;
+          const label = inner ? 'Apply for Inner Circle &rarr;'
+            : loading ? 'One moment&hellip;'
+            : buyable(pick) ? 'Start now, '+PRICE(coPriceKey(pick))+'/mo &rarr;'
+            : 'Apply for coaching &rarr;';
+          return `<button onclick="${go}" ${loading?'disabled':''}
           style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
-          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${
-          buyable(pick) ? (pick.k==='inner'?'Join Inner Circle, ':'Start now, ')+PRICE(coPriceKey(pick))+'/mo &rarr;'
-            : pick.k==='inner' ? 'Apply for Inner Circle &rarr;' : 'Ask about this &rarr;'}</button>
+          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${label}</button>`; })()}
         ${(!buyable(pick) && pick.k!=='inner' && sess && (plansOn||[]).indexOf('online')>-1)?`
         <button onclick="buyPlan('online')" style="width:100%;margin-top:8px;min-height:44px;
           border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;
