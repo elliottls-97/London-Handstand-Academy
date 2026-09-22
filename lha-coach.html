@@ -1921,9 +1921,30 @@ window.addEventListener('message', e=>{
 });
 
 /* the oldest thing they are waiting on, if anything */
+/* everything of theirs still waiting on an answer, oldest first */
+function openSubs(email){
+  return (subs[email]||[]).filter(s=>s.status==='submitted')
+    .sort((a,b)=>(a.at||0)-(b.at||0));
+}
+/* ── which one Send and close answers ─────────────────────────────
+   This took the oldest open submission whatever the coach was actually
+   looking at. Six check point clips in and every reply closed the
+   first one and was filed against it, so the client saw the same
+   answer arrive on a check point it was never about. The coach picks
+   when there is more than one, and the box says which it will be. */
+let answerFor={};
+function setAnswerFor(email, id){ answerFor[email]=id; draw(); }
 function openSub(email){
-  return ((subs[email]||[]).filter(s=>s.status==='submitted')
-    .sort((a,b)=>(a.at||0)-(b.at||0)))[0]||null;
+  const list=openSubs(email);
+  const want=answerFor[email];
+  return (want && list.find(s=>s.id===want)) || list[0] || null;
+}
+function subLabel(s){
+  if(!s) return '';
+  const n=(s.numbers||{}).name||'';
+  return (s.kind==='checkpoint' ? 'Check point'+(n?': '+n:'')
+    : s.kind==='assessment' ? 'Form check'
+    : 'Block '+(s.cycle||1)+' test') + (s.at?' · '+ago(s.at):'');
 }
 
 function reply(answers){
@@ -1934,7 +1955,9 @@ function reply(answers){
   thread.push({from:'coach',text,at:Date.now()}); 
   if(sub){ subs[sel]=(subs[sel]||[]).map(s=>s.id===sub.id
     ? {...s,status:'reviewed',reviewedAt:Date.now()} : s);
-    queue=queue.filter(q=>q.id!==sub.id); }
+    queue=queue.filter(q=>q.id!==sub.id);
+    /* it is answered, so the next reply must not aim at it again */
+    if(answerFor[sel]===sub.id) delete answerFor[sel]; }
   draw();
   fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
     body:JSON.stringify({text, ...(sub?{answers:sub.id}:{})})})
@@ -6886,8 +6909,18 @@ function threadPaneHTML(msgs){
         </div>`:''}
       </div>
       <div id="upMsg" style="font:500 12px/1.4 var(--sans);color:var(--terra);margin-top:6px;min-height:16px"></div>
+      ${(function(){ const list=openSubs(sel); if(list.length<2) return '';
+        return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:var(--space-2)">
+          <span class="muted" style="font:600 11px/1.4 var(--sans);letter-spacing:.08em">SEND AND CLOSE ANSWERS</span>
+          <select class="input" style="max-width:320px;padding:7px 10px;font-size:13px"
+            onchange="setAnswerFor('${esc(sel)}',this.value)">
+            ${list.map(s=>`<option value="${esc(s.id)}"${
+              sub&&s.id===sub.id?' selected':''}>${esc(subLabel(s))}</option>`).join('')}
+          </select>
+          <span class="muted" style="font:400 12px/1.4 var(--sans)">${list.length} waiting</span>
+        </div>`; })()}
       <p class="muted" style="font-size:12px;margin:var(--space-2) 0 0">⌘ Enter sends${
-        sub?' · Send and close answers what they sent in and tells them it is ready':''}</p>
+        sub?' · Send and close answers '+esc(subLabel(sub).toLowerCase())+' and tells them it is ready':''}</p>
       <!-- Four switches that are read once a month sat under the reply box on
            every visit. They are one tap away instead. -->
       <div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--line)">

@@ -1165,22 +1165,13 @@ function todayFocus(){
   const fresh = st.lastReview && st.lastReview > (st.seenReview||0) && reviewCardHTML();
   if(fresh) return `<div class="pad" style="padding-top:18px">${fresh}</div>`;
 
-  const d=testIn();
-  if(!testSent() && d!=null && d<=0){
-    const names=((DATA.test&&DATA.test.items)||[]).map(x=>x.n).filter(Boolean).slice(0,5);
-    return `<div class="pad" style="padding-top:18px">
-      <div class="card" style="padding:18px 20px;background:#fdf1dd;border-color:rgba(243,169,73,.5)">
-        <div class="kick2" style="color:#8a5a12">THE TEST IS DUE</div>
-        <div style="font:400 14.5px/1.55 var(--sans);color:#5c4a2a;margin-top:9px">${
-          d<0?'It was due '+(-d)+' day'+(-d===1?'':'s')+' ago. ':''}Five drills, one honest go at each,
-          filmed. It is what the next block gets written from.</div>
-        ${names.length?`<div style="font:400 13px/1.6 var(--sans);color:#7a5416;margin-top:9px">${
-          names.map(esc).join(' · ')}</div>`:''}
-        <button onclick="openOv('test')" style="margin-top:14px;width:100%;border:0;border-radius:14px;
-          padding:13px;background:var(--forest);color:var(--on-primary);font:600 15px/1 var(--sans);
-          cursor:pointer">Film the test</button>
-      </div></div>`;
-  }
+  /* ── the two week test is not the check points ───────────────────
+     This nagged about a separate five drill test written into the
+     programme, on the same screen as somebody who had just filmed every
+     check point they were asked for. Two different things asking for
+     footage, and only one of them is what moves them on. The check
+     points are that one, and they have their own card and their own
+     notice. The test is still in How to film for anyone who wants it. */
 
   /* ── a check point the coach has just set ────────────────────────
      Setting one showed a dot on the Progress tab and put a line inside a
@@ -3339,12 +3330,17 @@ function cpClipState(sent){
     (c && (c.uid||c.video))===uid || c===uid)) || null;
   const watchedAt = sent.verdictAt || sent.watchedAt
     || (sub && sub.status==='reviewed' ? (sub.reviewedAt||sub.at||0) : 0);
-  /* Anything from him after the clip went is an answer to it. This asked
-     for words, so a reply that was a clip of him demonstrating the fix,
-     which is the most useful answer he sends, counted as nothing and the
-     card stayed on "Clip sent". */
-  const reply=((st.msgs)||[]).filter(m=>m && m.from==='e' && (m.at||0) > (sent.at||0)
-    && (String(m.text||'').trim() || m.video || m.image)).slice(0,1)[0] || null;
+  /* ── the reply has to belong to THIS clip ─────────────────────────
+     This took the first thing the coach said after the clip went, which
+     is not a fact about this check point at all: send six clips in a
+     morning, get one answer, and the same answer appeared on all six as
+     though each had been looked at. A message carries the submission it
+     answers, so a reply belongs here only when it names this clip's
+     submission. Anything else stays in the chat where it was written. */
+  const reply = (sub && sub.id)
+    ? (((st.msgs)||[]).filter(m=>m && m.from==='e' && String(m.sub||'')===String(sub.id)
+        && (String(m.text||'').trim() || m.video || m.image)).slice(-1)[0] || null)
+    : null;
   return {
     verdict: sent.verdict||'',
     note: sent.note || (sub && sub.answer) || '',
@@ -5070,6 +5066,9 @@ function loadThread(){
     const next=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,
       ...(m.video?{video:m.video}:{}),...(m.image?{image:m.image}:{}),
       ...(m.seen?{seen:m.seen}:{}),
+      /* which submission this answers, so a check point can tell whether a
+         reply was about its clip or somebody else's */
+      ...(m.sub?{sub:m.sub}:{}),
       at:m.at||0, time:when(m.at)}));
     /* forget the ones the server has caught up on, keep the rest on screen */
     const seen=new Set(next.map(msgKey));
