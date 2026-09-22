@@ -2322,6 +2322,8 @@ export default async (request) => {
 
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
+                  /* drills the coach has taken off a stage */
+                  ladderOff:   (await getSetting('ladder:off')) || {},
                   homeOrder:   (await getSetting('home:order')) || 'explainersFirst',
                   /* explainers the coach added from the dashboard, by phase */
                   explainExtra: (await getSetting('explain:extra')) || [],
@@ -2480,10 +2482,48 @@ export default async (request) => {
                        same pool the app builds from rather than the shipped
                        file on its own */
                     ladderExtra: (await getSetting('ladder:extra')) || {},
+                    ladderOff:   (await getSetting('ladder:off')) || {},
                     ladderMix:   (await getSetting('ladder:mix')) || {},
                     bandTiming:  (await getSetting('ladder:bandtiming')) || {} });
     }
     if (request.method === 'POST') {
+      /* ── taking a drill off a stage ──────────────────────────────
+         The tab could add a drill and change one and never take one
+         away, so a drill on the wrong stage stayed on it. A shipped
+         drill cannot be deleted from the file, so the stage lists it
+         as off and every pool the app builds from skips it. It goes
+         out of the stage's workouts at the same time, or it would be
+         off the stage and still in a session. */
+      if (Array.isArray(body.offStage)) {
+        const st0 = String(Number(body.stage));
+        if (!/^[0-5]$/.test(st0)) return json({ error: 'Which stage?' }, 400);
+        const off = (await getSetting('ladder:off')) || {};
+        const cur = new Set(off[st0] || []);
+        const extra = (await getSetting('ladder:extra')) || {};
+        let extraTouched = false;
+        for (const x of body.offStage.slice(0, 60)) {
+          const v = String((x && x.v) || x || '').toLowerCase()
+            .replace(/[^a-z0-9-]/g, '').slice(0, 60);
+          if (!v) continue;
+          if (x && x.back) { cur.delete(v); continue; }
+          cur.add(v);
+          if (Array.isArray(extra[st0])) {
+            const n0 = extra[st0].length;
+            extra[st0] = extra[st0].filter(y => !(y && y.v === v));
+            if (extra[st0].length !== n0) extraTouched = true;
+          }
+          for (const b of ['1', '2', '3']) {
+            if (all[st0] && Array.isArray(all[st0][b])) {
+              all[st0][b] = all[st0][b].filter(y => y !== v);
+            }
+          }
+        }
+        off[st0] = [...cur];
+        await setSetting('ladder:off', off);
+        if (extraTouched) await setSetting('ladder:extra', extra);
+        await setSetting('ladder:bands', all);
+        return json({ ok: true, ladderOff: off, ladderExtra: extra, bands: all });
+      }
       const stage = String(Number(body.stage));
       const band = String(Number(body.band));
       if (!/^[0-5]$/.test(stage) || !/^[123]$/.test(band)) {

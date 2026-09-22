@@ -377,7 +377,11 @@ const POOL = {
    or another level from the dashboard was saved and then ignored. It now
    replaces the shipped row rather than being dropped beside it. */
 function poolFor(stage){
-  const base=POOL[stage]||[];
+  /* a drill the coach has taken off this stage is not in its pool, so no
+     session can pick it up and no workout can hold it */
+  const off=new Set((((typeof st!=='undefined' && st.ladderOff)||{})[stage])
+    || (((typeof st!=='undefined' && st.ladderOff)||{})[String(stage)]) || []);
+  const base=(POOL[stage]||[]).filter(x=>!off.has(x.v));
   const extra=((st.ladderExtra||{})[stage]||[])
     .filter(x=>x&&x.v&&drillById(x.v))
     .map(x=>({v:x.v, g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
@@ -385,7 +389,7 @@ function poolFor(stage){
   const by={}; extra.forEach(x=>{ by[x.v]=x; });
   const out=base.map(row=>by[row.v] || row);
   const seen=new Set(base.map(x=>x.v));
-  return out.concat(extra.filter(x=>!seen.has(x.v)));
+  return out.concat(extra.filter(x=>!seen.has(x.v) && !off.has(x.v)));
 }
 /* ── the ladder's own check points, as the coach has them ──────────
    CHECKPOINTS is the shipped list. The coach can change a wording, a

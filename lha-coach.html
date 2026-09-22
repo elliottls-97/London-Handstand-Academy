@@ -3594,18 +3594,43 @@ function wkPoolFor(stage){
      three stages as empty when the app was building sessions from them.
      They come in with no level, which is the truth and is now something that
      can be set here row by row. */
-  let base=POOL[stage]||[];
+  const off=new Set((wkOff[stage]||wkOff[String(stage)]||[]));
+  let base=(POOL[stage]||[]).filter(x=>!off.has(x.v));
   if(!base.length){
     base=(((typeof STAGES!=='undefined' && STAGES[stage])||{}).drillIds||[])
       .map(v=>({v, g:'Strength', L:0}));
   }
   const extra=(wkExtra[stage]||wkExtra[String(stage)]||[])
-    .filter(x=>x&&x.v).map(x=>({v:x.v, g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
+    .filter(x=>x&&x.v&&!off.has(x.v))
+    .map(x=>({v:x.v, g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
   if(!extra.length) return base;
   const by={}; extra.forEach(x=>{ by[x.v]=x; });
   const out=base.map(row=>by[row.v]||row);
   const seen=new Set(base.map(x=>x.v));
   return out.concat(extra.filter(x=>!seen.has(x.v)));
+}
+/* ── taking a drill off a stage ────────────────────────────────────
+   The tab could add a drill and change one and never take one away, so
+   the only delete on this whole screen was inside a single workout. It
+   goes off the stage and out of all three workouts at once, and it is
+   still in the library and still on any other stage that has it. */
+let wkOff={}, wkOffBusy='';
+function wkPoolDrop(stage, v){
+  if(wkOffBusy) return;
+  const n=((libIndex||{})[v])||String(v).replace(/-/g,' ');
+  if(!confirm('Take '+n+' off '+((STAGES[stage]||{}).n||'this stage')+'?'
+    +'\n\nIt comes out of all three workouts here. It stays in the library and on'
+    +' any other stage that uses it.')) return;
+  wkOffBusy=v; draw();
+  fetch(API+'/bands',{method:'POST',headers:hdr(),
+    body:JSON.stringify({stage:Number(stage), offStage:[{v}]})})
+    .then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ if(d.ladderOff) wkOff=d.ladderOff;
+      if(d.ladderExtra) wkExtra=d.ladderExtra;
+      if(d.bands) wkBands=d.bands;
+      wkBandDirty={};
+      wkOffBusy=''; draw(); })
+    .catch(e=>{ wkOffBusy=''; alert(String(e)); draw(); });
 }
 /* ── one row at a time ─────────────────────────────────────────────
    Every row open at once is six fields and two selects apiece, and a stage
@@ -4035,6 +4060,7 @@ function wkBandsLoad(){
     .then(d=>{ if(!d) return; wkBandsErr='';
       if(d.bands) wkBands=d.bands;
       if(d.ladderExtra) wkExtra=d.ladderExtra;
+      if(d.ladderOff) wkOff=d.ladderOff;
       if(d.ladderMix) wkMix=d.ladderMix;
       if(d.bandTiming) wkBandTiming=d.bandTiming;
       /* the picker shows names, and libIndex was only ever filled by opening
@@ -4178,6 +4204,7 @@ function wkBandSave(){
         /* POOL is the shipped file; ladderExtra is what the coach has added.
            Fold it in so the row stops saying the drill is not on the stage. */
         if(d.ladderExtra) wkExtra=d.ladderExtra;
+        if(d.ladderOff) wkOff=d.ladderOff;
         if(d.ladderMix) wkMix=d.ladderMix;
         if(d.bandTiming) wkBandTiming=d.bandTiming;
         delete wkBandDirty[k]; delete wkBandEdits[k]; delete wkMixEdits[k];
@@ -4624,6 +4651,11 @@ function workoutsHTML(){
               wkNumBox(x.v,'r',it.r==null?'':it.r,String(wkNums(x.v,g).r),56,g)}</span></label>
           <span id="wk-${x.v}" style="flex:0 0 168px;text-align:right;font:500 11.5px/1.3 var(--sans);
             color:var(--grey)">${wkRowLen(x.v)}</span>
+          <button onclick="wkPoolDrop(${wkStage},'${x.v}')" aria-label="Take it off this stage"
+            title="Take it off this stage"${wkOffBusy?' disabled':''}
+            style="flex:none;width:34px;height:34px;border-radius:11px;cursor:pointer;
+            border:1px solid var(--line);background:#fff;color:var(--terra);
+            font:600 14px/1 var(--sans)">${wkOffBusy===x.v?'&hellip;':'&times;'}</button>
         </div>`;}).join('')}
     </div>`).join('')
     : `<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:16px">
