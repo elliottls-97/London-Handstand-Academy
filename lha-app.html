@@ -468,9 +468,14 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   #side .vb,#side video{border-radius:16px}
   /* Start on the left, how long and how hard on the right, which is the
      one thing a phone cannot do and the reason the sheet existed */
+  /* The chooser reads first and Start is the thing you press when you
+     have answered it, so Start is on the right. It fills the height of
+     the two questions rather than floating in the middle of them, which
+     is where the gap came from and why it did not read as the button. */
   .startrow{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-    gap:22px;align-items:center}
-  .startrow>button{height:68px!important}
+    gap:22px;align-items:stretch}
+  .startrow>button{grid-column:2;grid-row:1;height:auto!important;min-height:112px}
+  .startrow>div{grid-column:1;grid-row:1}
   /* a message the width of a monitor stops reading as a message */
   .bub>div,.bub>a{max-width:62%!important}
   .bub>div[style*="width:82%"],.bub>div[style*="width:86%"]{width:62%!important}
@@ -1293,7 +1298,7 @@ ${/* Once it has been read it is a wall of last month's words at the top of
         <span class="kick2">EXPLAINERS</span>
         <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${ex.length} video${ex.length===1?'':'s'}</span>
       </div>
-      <div class="rail cards${st.exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      <div class="rail cards${exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:2px 16px 8px;-webkit-overflow-scrolling:touch">
         ${ex.map((a,i)=>{
           const grad = i%2 ? '#DCECF0,#9FC9D4' : '#CFE6EC,#5E9DB2';
@@ -9834,7 +9839,7 @@ function screenHome(){
         <div id="askmatches">${askMatches(st.q||'')}</div>
       </div>
 
-      <div class="rail cards${st.exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      <div class="rail cards${exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:4px 16px 8px;-webkit-overflow-scrolling:touch">
         <!-- 7a leads the rail with this, and rebuilding Today dropped it, which
              left the ladder intro and all six stage films with nowhere to be
@@ -9917,7 +9922,7 @@ function screenHome(){
           </div>`;}).join('')}
       </div>
       ${railMore(FAQS_READY().length)}
-      <div id="raildots" style="display:${st.exAll&&wide()?'none':'flex'};gap:5px;justify-content:center;padding:6px 0 0">
+      <div id="raildots" style="display:${exAll&&wide()?'none':'flex'};gap:5px;justify-content:center;padding:6px 0 0">
         ${FAQS_READY().map((_,i)=>`<span style="width:5px;height:5px;border-radius:99px;
           background:rgba(17,17,17,${i?0.14:0.42})"></span>`).join('')}
       </div>
@@ -13014,35 +13019,6 @@ function sideVideoCard(){
     <div style="margin-top:13px">${body}</div></div>`;
 }
 
-function sideStageCard(){
-  const co=coachedView();
-  const i=curStage();
-  const S=(typeof STAGES!=='undefined' && STAGES[i]) || {n:''};
-  const P=cpProgress(i);
-  const list=cpFor(i)||[];
-  const next=list.find(c=>!cpMet(c));
-  const pct=P.of?Math.round(P.met/P.of*100):0;
-  return `<div class="card sidecard">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <span class="kick2">${co?'CHECK POINTS':'STAGE '+(i+1)}</span>
-      <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">${
-        P.of ? P.met+' of '+P.of : 'None set'}</span>
-    </div>
-    ${co?'':`<div style="font:400 28px/1.05 var(--serif);margin-top:9px">${esc(S.n)}<em
-      style="color:var(--forest);font-style:normal">.</em></div>`}
-    ${P.of?`<div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:12px;overflow:hidden">
-      <div style="height:100%;width:${pct}%;background:var(--deep);border-radius:4px;
-        transition:width .5s cubic-bezier(.2,.8,.2,1)"></div></div>`:''}
-    ${next?`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:12px">Next up: ${
-      esc(next.n)}.</div>`
-      :(P.of?`<div style="font:400 14px/1.5 var(--sans);color:var(--forest);margin-top:12px">
-        Every check point reached.</div>`:'')}
-    <button onclick="${co?"go('progress')":'seeLadder()'}" style="margin-top:13px;background:none;border:0;
-      padding:0;cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
-      co?'See your progress':'See the whole ladder'} &rarr;</button>
-  </div>`;
-}
-
 function sideWeekCard(){
   const done=sessionsThisWeek(), target=weekTarget();
   const all=(typeof sessionsDone==='function')?sessionsDone().length:0;
@@ -13132,7 +13108,9 @@ function sideHTML(){
   const t=st.tab, co=coachedView();
   const bits=[sideVideoCard()];
   if(t==='home'||t==='ladder'||t==='today'||t==='plan'){
-    bits.push(sideStageCard());
+    /* The stage card was here and on the Train screen, twice on one page,
+       and it pulled the eye off the calendar under it. Train says where
+       they are; this column says what they have done. */
     /* the month, and a day opens to what was actually done in it. Not on
        the screen that already has it further down the page. */
     const onProgress = (t==='ladder' && ladderTab()==='progress');
@@ -13197,12 +13175,15 @@ function chooserPills(d){
    on it, so that is what a wide screen gets too, with the mouse wheel or a
    trackpad pushing it sideways. The grid is there for anybody who would
    rather see the lot at once. */
+/* Opened out for a look, not for good: it is not saved, so every visit
+   starts as the shelf it is meant to be. */
+let exAll=false;
 function railMore(n){
   if(!wide() || !(n>3)) return '';
   return `<div style="padding:12px 16px 0">
-    <button onclick="st.exAll=!st.exAll;save();render()" style="background:none;border:0;padding:0;
+    <button onclick="exAll=!exAll;render()" style="background:none;border:0;padding:0;
       cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
-      st.exAll ? 'Back to the shelf' : 'See all '+n+' at once'} &rarr;</button></div>`;
+      exAll ? 'Back to the shelf' : 'See all '+n+' at once'} &rarr;</button></div>`;
 }
 
 function startNow(d){
