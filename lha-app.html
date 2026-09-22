@@ -434,8 +434,36 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
    across to clear it, and the page itself held to a column a person can
    read rather than stretched across a monitor. */
 @media (min-width:1080px){
-  :root{--rail:248px}
+  :root{--rail:248px;--aside:372px}
   #app{max-width:none;padding-left:var(--rail)}
+  /* the page gives the right hand column its room only on the screens
+     that have one, so a screen without one is not a page with a hole */
+  #app:has(#side){padding-right:var(--aside)}
+  #app:has(#side) #topbar{right:var(--aside)!important}
+  #side{position:absolute;right:0;top:0;bottom:0;width:var(--aside);z-index:10;
+    overflow-y:auto;overscroll-behavior:contain;
+    padding:92px 28px 32px;display:flex;flex-direction:column;gap:14px;
+    border-left:1px solid rgba(0,64,61,.10);background:rgba(255,255,255,.55);
+    backdrop-filter:blur(22px) saturate(160%);
+    -webkit-backdrop-filter:blur(22px) saturate(160%)}
+  #side .sidecard{border-radius:22px;padding:18px 19px;box-shadow:0 1px 2px rgba(0,64,61,.05)}
+  #side .vb,#side video{border-radius:16px}
+  /* Start on the left, how long and how hard on the right, which is the
+     one thing a phone cannot do and the reason the sheet existed */
+  .startrow{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:22px;align-items:center}
+  .startrow>button{height:76px!important}
+  /* a two button switch stretched to the width of a monitor stops reading
+     as a switch. It was also sitting 20px from the left of the window,
+     which on a wide screen is on top of the rail. */
+  .coachseg{left:calc(var(--rail) + 40px)!important;right:auto!important;width:340px!important}
+  .segrow{max-width:420px}
+  /* the explainers are a shelf you drag on a phone. On a monitor they are
+     simply all there, which is what the frames show. */
+  .rail.cards{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
+    overflow:visible!important;padding-bottom:0!important}
+  .rail.cards>div{width:auto!important;flex:none}
+  #raildots{display:none}
 
   /* the floating glass bar becomes the rail. Same buttons, same tab
      state, stood up on its side. */
@@ -466,7 +494,7 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 
   /* one column, held to a readable width and centred in what is left */
   .scroll{padding-bottom:40px}
-  .scroll.s>*{max-width:820px;margin-left:auto;margin-right:auto;width:100%}
+  .scroll.s>*{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
 
   /* the rail is short and the bottom of it was a lot of nothing */
   .tabbar::after{content:"London Handstand Academy";display:block;margin-top:auto;
@@ -1174,7 +1202,7 @@ ${/* Once it has been read it is a wall of last month's words at the top of
         <span class="kick2">EXPLAINERS</span>
         <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${ex.length} video${ex.length===1?'':'s'}</span>
       </div>
-      <div class="rail" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      <div class="rail cards" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:2px 16px 8px;-webkit-overflow-scrolling:touch">
         ${ex.map((a,i)=>{
           const grad = i%2 ? '#DCECF0,#9FC9D4' : '#CFE6EC,#5E9DB2';
@@ -6031,7 +6059,16 @@ document.addEventListener('visibilitychange',()=>{
 });
 
 /* ── overlays ── */
-function openOv(kind){ st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
+function openOv(kind){
+  /* a wide screen has a column standing free beside the page, so a film
+     opens in that rather than as a sheet over the thing being read. Not
+     when a sheet or the menu is already open: the column is behind both,
+     so the film would play where nobody can see it. */
+  if(wide() && !st.ov && !menuOpen && (kind==='drill'||kind==='explainer')){
+    openSideVid(kind==='drill' ? {k:'drill', it:st.ovDrill||{}} : {k:'explainer', i:st.exOpen|0});
+    return;
+  }
+  st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
   $('#ov').classList.toggle('full', !!st.ovFull);
   if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
 function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
@@ -9312,9 +9349,9 @@ function screenHome(){
       </div>
     </div>
 
-    <div class="rise rise-2" style="padding:20px 20px 0;display:flex;flex-direction:column;gap:10px">
+    <div class="rise rise-2 startrow" style="padding:20px 20px 0;display:flex;flex-direction:column;gap:10px">
       <button data-tour="buildsession" onclick="${
-        `startDay(${_cellIdx},'full')`}"
+        wide() ? `startNow(${_cellIdx})` : `startDay(${_cellIdx},'full')`}"
         style="height:68px;width:100%;border:0;border-radius:18px;
         background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
@@ -9331,8 +9368,9 @@ function screenHome(){
           <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
       </button>
-      <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center">Then pick
-        how long and how hard.</div>
+      ${wide() ? chooserPills(_cellIdx)
+        : `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center">Then pick
+        how long and how hard.</div>`}
     </div>
 
     ${st.homeOrder==='fixesFirst'?fixesHomeHTML():''}
@@ -9359,7 +9397,7 @@ function screenHome(){
         <div id="askmatches">${askMatches(st.q||'')}</div>
       </div>
 
-      <div class="rail" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      <div class="rail cards" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:4px 16px 8px;-webkit-overflow-scrolling:touch">
         <!-- 7a leads the rail with this, and rebuilding Today dropped it, which
              left the ladder intro and all six stage films with nowhere to be
@@ -10095,7 +10133,7 @@ function ladderSeg(){
     transition:background .25s,color .25s;
     background:${on===k?'#fff':'transparent'};
     color:${on===k?'var(--deep)':'var(--grey)'}">${l}</button>`;
-  return `<div style="padding:16px 16px 0"><div style="display:flex;gap:5px;padding:4px;
+  return `<div style="padding:16px 16px 0"><div class="segrow" style="display:flex;gap:5px;padding:4px;
     border-radius:15px;background:rgba(17,17,17,.055)">${b('ladder','The ladder')}${b('progress','Progress')}</div></div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
@@ -12345,7 +12383,7 @@ function setCoTab(k){
 function viewSwitch(){
   if(!st.coached) return '';
   return `<div style="padding:calc(env(safe-area-inset-top) + 78px) 16px 0">
-    <div style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.07)">
+    <div class="segrow" style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.07)">
       ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>`<button onclick="switchView(${f})"
         aria-pressed="${(!!st.asFree)===f}" style="flex:1;min-height:40px;border:0;cursor:pointer;
         border-radius:11px;font:600 13px/1 var(--sans);
@@ -12356,6 +12394,189 @@ function viewSwitch(){
   </div>`;
 }
 function coachedView(){ return !!st.in && !st.asFree; }
+
+/* ── the wide screen ───────────────────────────────────────────────
+   One query and one answer, so a screen that draws itself differently
+   on a monitor and the stylesheet that lays it out can never disagree.
+   Crossing the line redraws, because a window dragged from wide to
+   narrow with desktop markup in it is a broken screen either way. */
+const WIDEQ = (typeof matchMedia==='function') ? matchMedia('(min-width:1080px)') : null;
+function wide(){ return !!(WIDEQ && WIDEQ.matches); }
+if(WIDEQ && WIDEQ.addEventListener) WIDEQ.addEventListener('change', ()=>{ try{ render(); }catch(e){} });
+
+/* ── the right hand column ─────────────────────────────────────────
+   Not a copy of the page at a different width: the things a phone has
+   to hide behind a tab or a sheet, stood next to the page because
+   there is room for them. A film opens in here rather than over the
+   top of what you were reading. Nothing in here is built on a phone,
+   so none of it can go wrong on one. */
+let sideVid=null;
+function closeSideVid(){ sideVid=null; render(); }
+function openSideVid(v){ sideVid=v; render();
+  setTimeout(()=>{ const el=document.querySelector('#side video'); if(el){ el.playbackRate=st.exSpeed||1; } },60); }
+
+function sideVideoCard(){
+  if(!sideVid) return '';
+  let body='', kick='', title='';
+  if(sideVid.k==='drill'){
+    const it=sideVid.it||{};
+    kick='DEMO'; title=it.n||'Drill';
+    body=`${it.url?drillFilm(it.url,'4/3'):''}
+      ${it.d?`<div class="kick2" style="margin-top:14px">DOSE</div>
+        <div style="font:400 19px/1.15 var(--serif);margin-top:7px">${esc(it.d)}</div>`:''}
+      ${it.desc?`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:12px">${esc(it.desc)}</div>`:''}
+      ${(it.cues||[]).length?`<div class="kick2" style="margin-top:18px">COACHING CUES</div>
+        <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
+        ${it.cues.map(c=>`<div style="display:flex;gap:9px"><span style="color:var(--forest)">&bull;</span>
+          <span style="font:400 14px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
+  } else if(sideVid.k==='explainer'){
+    const q=(typeof FAQS!=='undefined' && FAQS[sideVid.i]) || {};
+    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
+    kick='EXPLAINER'; title=q.q||'';
+    body=`${(q.uid||q.v)?qaVideo(q,true):''}
+      ${sum?`<div class="kick2" style="margin-top:16px">WHAT IS COVERED</div>
+      <div style="font:400 14px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(sum)}</div>`:''}`;
+  }
+  if(!body) return '';
+  return `<div class="card sidecard">
+    <div style="display:flex;align-items:flex-start;gap:10px">
+      <span style="flex:1;min-width:0">
+        <span class="kick2" style="display:block">${kick}</span>
+        <span style="display:block;font:400 20px/1.15 var(--serif);margin-top:7px">${esc(title)}</span></span>
+      <button onclick="closeSideVid()" aria-label="Close" title="Close"
+        style="flex:none;width:32px;height:32px;border:0;border-radius:999px;background:var(--mist);
+        color:var(--ink);cursor:pointer;font:600 15px/1 var(--sans)">&times;</button>
+    </div>
+    <div style="margin-top:13px">${body}</div></div>`;
+}
+
+function sideStageCard(){
+  const co=coachedView();
+  const i=curStage();
+  const S=(typeof STAGES!=='undefined' && STAGES[i]) || {n:''};
+  const P=cpProgress(i);
+  const list=cpFor(i)||[];
+  const next=list.find(c=>!cpMet(c));
+  const pct=P.of?Math.round(P.met/P.of*100):0;
+  return `<div class="card sidecard">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span class="kick2">${co?'CHECK POINTS':'STAGE '+(i+1)}</span>
+      <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">${
+        P.of ? P.met+' of '+P.of : 'None set'}</span>
+    </div>
+    ${co?'':`<div style="font:400 28px/1.05 var(--serif);margin-top:9px">${esc(S.n)}<em
+      style="color:var(--forest);font-style:normal">.</em></div>`}
+    ${P.of?`<div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:12px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:var(--deep);border-radius:4px;
+        transition:width .5s cubic-bezier(.2,.8,.2,1)"></div></div>`:''}
+    ${next?`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:12px">Next up: ${
+      esc(next.n)}.</div>`
+      :(P.of?`<div style="font:400 14px/1.5 var(--sans);color:var(--forest);margin-top:12px">
+        Every check point reached.</div>`:'')}
+    <button onclick="go('${co?'progress':'ladder'}')" style="margin-top:13px;background:none;border:0;
+      padding:0;cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
+      co?'See your progress':'See the ladder'} &rarr;</button>
+  </div>`;
+}
+
+function sideWeekCard(){
+  const done=sessionsThisWeek(), target=weekTarget();
+  const all=(typeof sessionsDone==='function')?sessionsDone().length:0;
+  const P=cpProgress(curStage());
+  const num=(v,l)=>`<span style="display:flex;flex-direction:column;gap:6px">
+    <span style="font:400 27px/1 var(--serif)">${v}</span>
+    <span class="kick2">${l}</span></span>`;
+  return `<div class="card sidecard">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span class="kick2">THIS WEEK</span>
+      <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">${done} of ${target}</span>
+    </div>
+    <div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:12px;overflow:hidden">
+      <div style="height:100%;width:${Math.min(100,Math.round(done/Math.max(1,target)*100))}%;
+        background:var(--forest);border-radius:4px"></div></div>
+    <div style="display:flex;gap:22px;margin-top:17px">
+      ${num(all,'SESSIONS')}${num(P.met,'CHECK POINTS')}</div>
+  </div>`;
+}
+
+function sideCheckCard(){
+  return `<div class="card sidecard" style="border:1.5px solid var(--amber)">
+    <span class="kick2" style="color:#a86b16">ONE FREE FORM CHECK</span>
+    <div style="font:400 21px/1.12 var(--serif);margin-top:9px">Want Elliott&rsquo;s eyes on it?</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+      Film the thing you are stuck on and he tells you the one thing to change.</div>
+    <button class="btn2" style="width:100%;margin-top:13px" onclick="go('coaching')">Send a clip</button>
+  </div>`;
+}
+
+/* what belongs beside each screen, and nothing at all where there is
+   nothing worth putting there */
+function sideHTML(){
+  if(!wide()) return '';
+  const t=st.tab, co=coachedView();
+  const bits=[sideVideoCard()];
+  if(t==='home'||t==='ladder'||t==='today'||t==='plan'){
+    bits.push(sideStageCard(), sideWeekCard());
+    if(!st.in && !st.plus) bits.push(sideCheckCard());
+  }
+  const h=bits.filter(Boolean).join('');
+  return h ? `<aside id="side">${h}</aside>` : '';
+}
+
+/* the pills the sheet asks for, put on the page where there is room.
+   Same two questions, same two functions behind them. */
+function chooserPills(d){
+  const cur=curStage(), mins=ladderMins();
+  const wrist = st.sessionKind==='wrist';
+  const pill='flex:1;min-height:44px;border:0;border-radius:12px;cursor:pointer;'
+    +'font:700 12.5px/1.15 var(--sans);display:flex;align-items:center;justify-content:center;'
+    +'transition:background .25s,color .25s,box-shadow .25s;padding:6px 4px';
+  const on ='background:#fff;color:var(--deep);box-shadow:0 1px 3px rgba(17,17,17,.12)';
+  const off='background:transparent;color:var(--grey)';
+  const tray='display:flex;gap:5px;padding:5px;border-radius:15px;background:rgba(17,17,17,.055)';
+  const bands=(typeof bandsFor==='function')?bandsFor(cur):[];
+  return `<div style="display:flex;flex-direction:column;gap:12px">
+    <div>
+      <span class="kick2">HOW LONG</span>
+      <div style="${tray};margin-top:8px;${wrist?'opacity:.45;pointer-events:none':''}">
+        ${LADDER_MINS.map(m=>{
+          const capped = !wrist && stageLevel(cur)===1 && easyCapped(cur) && m>EASY_CAP;
+          return `<button onclick="setMins(${capped?EASY_CAP:m})"
+            title="${capped?'Easier tops out at '+EASY_CAP+' min':''}"
+            style="${pill};${(!capped&&mins===m)?on:off};${capped?'opacity:.4':''}">${m} min</button>`;
+        }).join('')}
+      </div>
+    </div>
+    ${bands.length<2?'':`<div>
+      <span class="kick2">HOW HARD</span>
+      <div style="${tray};margin-top:8px;${wrist?'opacity:.45;pointer-events:none':''}">
+        ${bands.map(l=>`<button onclick="setKind(${l})"
+          style="${pill};${(!wrist&&stageLevel(cur)===l)?on:off}">${BAND_NAME[l]}</button>`).join('')}
+      </div>
+    </div>`}
+    <button onclick="setKind(${wrist?'null':"'wrist'"})" style="cursor:pointer;display:flex;
+      align-items:center;gap:10px;padding:10px 12px;border-radius:14px;min-height:46px;text-align:left;
+      border:1.5px solid ${wrist?'#7fb2c2':'rgba(143,190,202,.5)'};
+      background:${wrist?'rgba(143,190,202,.22)':'transparent'}">
+      <span style="flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
+        background:${wrist?'#2c5f6e':'rgba(143,190,202,.3)'};color:${wrist?'#fff':'#2c5f6e'};
+        font:700 12px/1 var(--sans)">${wrist?'&check;':'+'}</span>
+      <span style="flex:1;min-width:0;font:700 12.5px/1.2 var(--sans);color:#2c5f6e">
+        Mobility day instead</span>
+    </button>
+  </div>`;
+}
+
+/* On a phone Start opens the sheet that asks how long and how hard. On a
+   wide screen those two questions are already answered on the page, so
+   Start starts. */
+function startNow(d){
+  const wrist = st.sessionKind==='wrist';
+  const plan=weekPlan(), cells=weekCells();
+  const cell=(d>=0 && d<cells.length)?cells[d]:null;
+  const arg=(plan && d>=0 && d<plan.length && !isRestCell(cell)) ? d : null;
+  buildFreeSession(wrist, true, wrist?null:arg);
+}
 function switchView(toFree){
   st.asFree=!!toFree;
   save();
@@ -12487,7 +12708,7 @@ function topBar(){
 function coachSegHTML(){
   if(st.tab!=='coaching' || coachedView()) return '';
   const tab=coTab(), n=unreadMsgs();
-  return `<div style="position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:20px;right:20px;z-index:40;
+  return `<div class="coachseg" style="position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:20px;right:20px;z-index:40;
       display:flex;background:rgba(0,64,61,.10);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
       border-radius:14px;padding:4px;gap:4px">
     ${[['check',hadFormCheck()?'Form checks':'Form check'],['chat','Chat']].map(([k,l])=>`<button onclick="setCoTab('${k}')" aria-pressed="${tab===k}"
@@ -13025,7 +13246,7 @@ function render(){
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
       pointer-events:none">Preview &middot; ${esc(st.client||st.email||'client')} &middot; read only</div>`:'')
-    +topBar()+screens[st.tab]()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
+    +topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
   /* every film in the app carries the same caption plate. Individual mounts
      called this themselves and one of them always forgot, so it runs after
      any redraw instead: attachCaptions marks what it has done and a second
