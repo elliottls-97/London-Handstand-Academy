@@ -470,25 +470,9 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   #side .vb,#side video{border-radius:16px}
   /* Start on the left, how long and how hard on the right, which is the
      one thing a phone cannot do and the reason the sheet existed */
-  /* one card that says what it is, the two questions in it, and a button
-     the size of a button */
-  .startcard{max-width:560px;background:#fff;border-radius:22px;padding:17px 19px 19px;
-    border:1px solid rgba(0,64,61,.10);
-    box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
-  /* Start beside the two questions rather than under the second one:
-     bottom aligned it left a block of nothing above it half the height
-     of the card. */
-  .startgrid{display:grid;grid-template-columns:minmax(0,1fr) 138px;gap:16px;
-    align-items:center;margin-top:12px}
-  .startgo{height:62px;border:0;border-radius:16px;cursor:pointer;
-    background:linear-gradient(180deg,#0a7a76,#006663);
-    box-shadow:0 10px 24px rgba(0,102,99,.28),inset 0 1px 0 rgba(255,255,255,.35);
-    color:var(--on-primary);display:flex;align-items:center;justify-content:center;gap:11px;
-    font:600 16px/1 var(--sans);transition:transform .18s cubic-bezier(.2,.8,.2,1)}
-  .startgo:hover{transform:translateY(-1px)}
-  .startgo:active{transform:scale(.985)}
-  .startgo-p{width:32px;height:32px;border-radius:50%;background:var(--on-primary);
-    display:grid;place-items:center;flex:none}
+  /* one thing to press, the size of the decision, not the width of the
+     page */
+  .startrow{max-width:460px}
   /* a message the width of a monitor stops reading as a message */
   .bub>div,.bub>a{max-width:62%!important}
   .bub>div[style*="width:82%"],.bub>div[style*="width:86%"]{width:62%!important}
@@ -9817,7 +9801,7 @@ function screenHome(){
          that says what it is, the two questions inside it, and a button
          the size of a button at the end. -->
     <div class="rise rise-2" style="padding:20px 20px 0">
-    ${!wide() ? `<div class="startrow" style="display:flex;flex-direction:column;gap:10px">
+    <div class="startrow" style="display:flex;flex-direction:column;gap:10px">
       <button data-tour="buildsession" onclick="startDay(${_cellIdx},'full')"
         style="height:68px;width:100%;border:0;border-radius:18px;
         background:linear-gradient(180deg,#0a7a76,#006663);
@@ -9832,25 +9816,18 @@ function screenHome(){
           <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
       </button>
-      <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center">Then pick
-        how long and how hard.</div>
-    </div>`
-    : `<div class="startcard" data-tour="buildsession">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <span class="kick2">BUILD ${_partOfDay.toUpperCase()}&rsquo;S SESSION</span>
-        <span style="flex:none;font:400 12.5px/1 var(--sans);color:var(--grey)">${
-          esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</span>
-      </div>
-      <div class="startgrid">
-        ${chooserPills(_cellIdx)}
-        <button class="startgo" onclick="startNow(${_cellIdx})">
-          <span>Start</span>
-          <span class="startgo-p">
-            <svg width="14" height="16" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
-              1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
-        </button>
-      </div>
-    </div>`}
+      <!-- What it is, and that the two questions come next. They used to
+           be two controls on the page, which reads as two things you have
+           to set before you are allowed to start, and a session is one
+           press for nearly everybody: the length and the level are the
+           ones they chose last time. -->
+      ${wide()
+        ? `<div style="font:400 13px/1.45 var(--sans);color:var(--grey);text-align:center">${
+            esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''
+            } &middot; how long and how hard comes next</div>`
+        : `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center">Then pick
+        how long and how hard.</div>`}
+    </div>
     </div>
 
     ${st.homeOrder==='fixesFirst'?fixesHomeHTML():''}
@@ -13163,48 +13140,6 @@ function sideHTML(){
   return h ? `<aside id="side">${h}</aside>` : '';
 }
 
-/* the pills the sheet asks for, put on the page where there is room.
-   Same two questions, same two functions behind them. */
-function chooserPills(d){
-  const cur=curStage(), mins=ladderMins();
-  const wrist = st.sessionKind==='wrist';
-  const pill='flex:1;min-height:40px;border:0;border-radius:11px;cursor:pointer;'
-    +'font:700 12.5px/1.15 var(--sans);display:flex;align-items:center;justify-content:center;'
-    +'transition:background .25s,color .25s,box-shadow .25s;padding:5px 4px';
-  const on ='background:#fff;color:var(--deep);box-shadow:0 1px 3px rgba(17,17,17,.12)';
-  const off='background:transparent;color:var(--grey)';
-  const tray='display:flex;gap:5px;padding:5px;border-radius:15px;background:rgba(17,17,17,.055)';
-  const bands=(typeof bandsFor==='function')?bandsFor(cur):[];
-  return `<div style="display:flex;flex-direction:column;gap:9px">
-    <div>
-      <span class="kick2">HOW LONG</span>
-      <div style="${tray};margin-top:6px;${wrist?'opacity:.45;pointer-events:none':''}">
-        ${LADDER_MINS.map(m=>{
-          const capped = !wrist && stageLevel(cur)===1 && easyCapped(cur) && m>EASY_CAP;
-          return `<button onclick="setMins(${capped?EASY_CAP:m})"
-            title="${capped?'Easier tops out at '+EASY_CAP+' min':''}"
-            style="${pill};${(!capped&&mins===m)?on:off};${capped?'opacity:.4':''}">${m} min</button>`;
-        }).join('')}
-      </div>
-    </div>
-    ${bands.length<2?'':`<div>
-      <span class="kick2">HOW HARD</span>
-      <div style="${tray};margin-top:6px;${wrist?'opacity:.45;pointer-events:none':''}">
-        ${bands.map(l=>`<button onclick="setKind(${l})"
-          style="${pill};${(!wrist&&stageLevel(cur)===l)?on:off}">${BAND_NAME[l]}</button>`).join('')}
-      </div>
-    </div>`}
-    <button onclick="setKind(${wrist?'null':"'wrist'"})" style="cursor:pointer;display:flex;
-      align-items:center;gap:8px;padding:6px 2px;border:0;background:none;text-align:left;
-      align-self:flex-start">
-      <span style="flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;
-        background:${wrist?'#2c5f6e':'rgba(143,190,202,.35)'};color:${wrist?'#fff':'#2c5f6e'};
-        font:700 11px/1 var(--sans)">${wrist?'&check;':'+'}</span>
-      <span style="font:600 12.5px/1.2 var(--sans);color:#2c5f6e">${
-        wrist?'Mobility day, tap to undo':'Mobility day instead'}</span>
-    </button>
-  </div>`;
-}
 
 /* On a phone Start opens the sheet that asks how long and how hard. On a
    wide screen those two questions are already answered on the page, so
@@ -13224,13 +13159,6 @@ function railMore(n){
       exAll ? 'Back to the shelf' : 'See all '+n+' at once'} &rarr;</button></div>`;
 }
 
-function startNow(d){
-  const wrist = st.sessionKind==='wrist';
-  const plan=weekPlan(), cells=weekCells();
-  const cell=(d>=0 && d<cells.length)?cells[d]:null;
-  const arg=(plan && d>=0 && d<plan.length && !isRestCell(cell)) ? d : null;
-  buildFreeSession(wrist, true, wrist?null:arg);
-}
 /* ── the ladder, for somebody who is coached ──────────────────────
    A coached client pressing The ladder watched their programme, their
    days and their check points all disappear and be replaced by a six
