@@ -3769,7 +3769,7 @@ function checkpointsCard(){
     fresh.length?';border:1.5px solid var(--amber)':due?';border:1.5px solid var(--forest)':''}">
     ${fresh.length?`<div style="display:flex;align-items:center;gap:10px;margin:-4px 0 12px">
       <span style="flex:1;font:600 12.5px/1.4 var(--sans);color:#8a6524">${
-        fresh.length===1?'A new check point from Elliott':fresh.length+' new check points from Elliott'}</span>
+        fresh.length===1?'A new check point from '+esc(coachLabel()):fresh.length+' new check points from '+esc(coachLabel())}</span>
       <button class="back" style="flex:none;color:var(--forest);font-weight:700;font-size:12.5px"
         onclick="cpMarkSeen();render()">Got it</button>
     </div>`:''}
@@ -13274,10 +13274,26 @@ const coachTabLabel = () => hadFormCheck() ? 'Coaching' : 'Form check';
    button, the dot on the tab, the count on the Chat segment. */
 const coachMsgs = () => (st.msgs||[]).filter(m=>m && m.from==='e' && m.at);
 const unreadMsgs = () => coachMsgs().filter(m=>m.at > (st.seenMsgAt||0)).length;
-const hasNew = () => unreadMsgs()>0 || !!(st.lastReview && st.lastReview > (st.seenReview||0));
-/* how many things are waiting: unread messages, plus an unread answer that
-   is not already one of them */
-const newCount = () => Math.max(1, unreadMsgs() + ((st.lastReview && st.lastReview > (st.seenReview||0) && !unreadMsgs()) ? 1 : 0));
+/* ── two kinds of waiting, and they are not the same thing ─────────
+   A form check coming back was counted on the chat button as though it
+   were a message, and a check point being set or answered was a bare
+   amber dot on another tab with no number on it, so nothing on screen
+   told you which of the two had happened. They are separate now and
+   they look it: messages are amber and carry a count, check points are
+   teal and carry a count, and the word under the badge says which is
+   which because it is the name of the tab it sits on. */
+const msgsNew = () => unreadMsgs();
+/* a check point set, a clip of one answered, or a form check answered:
+   all of it is a verdict on where they are, not a conversation */
+function checksNew(){
+  const set = (typeof cpNew==='function') ? cpNew().length : 0;
+  const clips = (typeof clipsNew==='function') ? clipsNew() : 0;
+  const answer = (st.lastReview && st.lastReview > (st.seenReview||0)) ? 1 : 0;
+  return set + clips + answer;
+}
+/* anything at all, for the one place that only asks whether to show a dot */
+const hasNew = () => msgsNew()>0 || checksNew()>0;
+const newCount = () => msgsNew() + checksNew();
 function markChatSeen(){
   const t=Math.max(0, ...coachMsgs().map(m=>m.at));
   if(t>(st.seenMsgAt||0)){ st.seenMsgAt=t; save(); }
@@ -13460,7 +13476,9 @@ function railSwitch(){
 }
 function railFoot(){
   if(!wide()) return '';
-  const waiting = hasNew();
+  /* this row opens the chat, so it counts messages. Check points are
+     counted on the tab they live on, in teal. */
+  const waiting = msgsNew()>0;
   const name=(st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
   const initials=(name||'?').slice(0,2).toUpperCase();
   const sub = st.in ? 'COACHED' : 'STAGE '+(curStage()+1);
@@ -13472,7 +13490,7 @@ function railFoot(){
     ${extra||''}</button>`;
   const dot = waiting ? `<span style="flex:none;min-width:18px;height:18px;padding:0 5px;
     border-radius:999px;background:var(--amber);color:var(--ink);display:grid;place-items:center;
-    font:700 10px/1 var(--sans)">${newCount()}</span>` : '';
+    font:700 10px/1 var(--sans)">${msgsNew()}</span>` : '';
   return `<div class="railfoot">
     ${row("openMenu()",'Library and more',
       `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -13629,7 +13647,9 @@ function topBar(){
      bar is the same dark teal on white everywhere. */
   const label = ({home:'TRAIN',today:'TRAIN',ladder:'LADDER',progress:'PROGRESS',
     coaching:'COACHING',ask:'ASK',plan:'PLAN',more:'MORE',fix:'FIX'})[st.tab] || '';
-  const waiting = hasNew();
+  /* the chat button, so the chat's own count: a form check coming back
+     used to light this up as though Elliott had written */
+  const waiting = msgsNew()>0;
   const name = (st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
   const initials = (name||'?').slice(0,2).toUpperCase();
   const sub = st.in ? 'COACHED' : 'STAGE '+(curStage()+1);
@@ -13673,7 +13693,7 @@ function topBar(){
         3 1.5-4.5A8 8 0 1 1 21 12z"/></svg>
       ${waiting?`<span style="position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;padding:0 5px;
         border-radius:999px;background:var(--amber);color:var(--ink);border:2px solid #fff;
-        display:grid;place-items:center;font:700 10.5px/1 var(--sans)">${newCount()}</span>`:''}
+        display:grid;place-items:center;font:700 10.5px/1 var(--sans)">${msgsNew()}</span>`:''}
     </button>
     ${st.token?`<button onclick="openOv('account')" aria-label="Your account"
       style="${chip};border-radius:999px;padding:4px 12px 4px 4px;display:flex;align-items:center;gap:8px">
@@ -14276,17 +14296,18 @@ function render(){
   const tabs=TABS[coached?'coached':'free'].map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l]);
   if(!screens[st.tab]) st.tab=tabs[0][0];
-  const nCp = ((typeof cpNew==='function') ? cpNew().length : 0)
-            + ((typeof clipsNew==='function') ? clipsNew() : 0);
+  const nMsg=msgsNew(), nChk=checksNew();
+  const pill=(n,bg,fg,aria)=>`<b aria-label="${esc(aria)}"
+    style="position:absolute;top:3px;left:50%;margin-left:9px;min-width:17px;height:17px;padding:0 5px;
+    border-radius:999px;background:${bg};color:${fg};display:grid;place-items:center;
+    font:700 10px/1 var(--sans)">${n}</b>`;
   const bar=tabs.map(([id,l])=>`<button class="tab ${st.tab===id?'on':''}" onclick="go('${id}')"
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
-    ((id==='coaching'||id==='ask')&&hasNew())
-      ?`<b style="position:absolute;top:3px;left:50%;margin-left:9px;min-width:17px;height:17px;padding:0 5px;
-      border-radius:999px;background:var(--amber);color:var(--ink);display:grid;place-items:center;
-      font:700 10px/1 var(--sans)">${newCount()}</b>`
-    : (((id==='progress'||(id==='ladder'&&!coached))&&nCp)
-      ?`<b style="position:absolute;top:6px;left:50%;margin-left:14px;width:7px;height:7px;
-      border-radius:99px;background:var(--amber)"></b>`:'')}</button>`).join('');
+    ((id==='coaching'||id==='ask') && nMsg)
+      ? pill(nMsg,'var(--amber)','var(--ink)', nMsg+' unread message'+(nMsg===1?'':'s'))
+    : (((id==='progress'||(id==='ladder'&&!coached)) && nChk)
+      ? pill(nChk,'var(--forest)','var(--on-primary)', nChk+' check point update'+(nChk===1?'':'s'))
+      : '')}</button>`).join('');
   swap((st.preview?`<div style="position:fixed;top:0;left:0;right:0;z-index:2000;
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
