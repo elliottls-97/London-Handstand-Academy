@@ -3035,7 +3035,7 @@ function cpCardTop(c, i, total){
     <!-- Where the upload writes to while it is going. The clip's whole
          story is the block under it. -->
     <div id="cpup-${c.k}" style="margin-top:9px;font:500 12px/1.4 var(--sans);color:var(--grey)"></div>
-    ${c.video===false?'':cpClipHTML(c,sent)}</div>`;
+    ${c.video===false?'':cpClipHTML(c,sent)}`;
 }
 /* ── the demo, without seven video players ────────────────────────
    Showing the film on every check point meant seven <video> elements,
@@ -7276,7 +7276,7 @@ function drawOv(){
             last ? 'Last logged '+esc(cpWhen(last.at))+'. Log what you managed today.'
                  : 'It is one of the check points that opens the next stage. Log what you managed.'}</div>
           <button class="btn" style="width:100%;margin-top:13px"
-            onclick="closeOv();st.ladderTab='ladder';save();go('ladder');setTimeout(scrollToCps,140)">Log it now</button>
+            onclick="closeOv();st.ladderTab='checks';save();go('ladder');setTimeout(scrollToCps,140)">Log it now</button>
         </div>`;
       })()}
       <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
@@ -8236,7 +8236,7 @@ function profileBits(){
      go:"go(coachedView()?'ask':'coaching')"},
     {k:'cp', w:20, got:cps>0,
      t:'Log a check point', d:'A number against one of the check points on your stage, so progress is measured rather than felt.',
-     go:"st.tab='ladder';st.ladderTab='ladder';save();render()"},
+     go:"st.tab='ladder';st.ladderTab='checks';save();render()"},
     {k:'trained', w:20, got:done>=3,
      /* "Train -4 more sessions" once they were past three: the number left
         was worked out without a floor under it */
@@ -9933,6 +9933,7 @@ function startChosen(day){
 }
 
 function screenLadder(){
+  const ltab=ladderTab();
   const cur=curStage(), s=STAGES[cur]||STAGES[0];
   const P=cpProgress(cur);
   const pct=P.of?Math.round(P.met/P.of*100):0;
@@ -9998,7 +9999,7 @@ function screenLadder(){
          rather than five cards that each carried the price. -->
     ${viewSwitch()}
     <div style="padding:${st.coached?'10px':'calc(env(safe-area-inset-top) + 84px)'} 0 0">${ladderSeg()}</div>
-    ${st.ladderTab==='progress' && !st.token ? `
+    ${ltab==='progress' && !st.token ? `
     <!-- Everything on this tab is a record of what somebody has done, and
          without an account it lives in one browser and goes when that
          browser is cleared. Rather than build the record and lose it, ask
@@ -10034,7 +10035,7 @@ function screenLadder(){
       </div>
     </div>
     <div style="height:28px"></div>`
-    : st.ladderTab==='progress' ? `
+    : ltab==='progress' ? `
     <!-- 6f. One number leads: the sessions you have done against the target you
          set yourself. Then the week as seven circles, the check-in if one is
          due, where that sits on the ladder, and your bests. The month calendar
@@ -10124,7 +10125,7 @@ function screenLadder(){
          of which the calendar below counts by day. -->
     <div style="padding:18px 16px 26px;display:flex;flex-direction:column;gap:11px">${
       progressBody()}</div>` : `
-    ${plateauHTML()}
+    ${ltab!=='checks' ? '' : `${plateauHTML()}
     <div class="rise" data-tour="stagegoal" style="padding:24px 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">You are here &middot; Stage ${cur+1} of ${STAGES.length}</div>
@@ -10162,33 +10163,47 @@ function screenLadder(){
          orientation rather than the daily job, so it folds, and the tour
          is where it gets explained the first time. The focus is what you
          are working on, not where you could be in six months. -->
-    <div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard()}</div>
+    <div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard()}</div>`}
 
-    <div data-ladderall style="padding:22px 20px 40px">
-      <button onclick="st.ladderOpen=!${!!st.ladderOpen};save();render()"
-        style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
-        background:none;border:0;cursor:pointer;padding:14px 0;text-align:left">
-        <!-- it reads as a thing to press now, and says what pressing it
-             shows you, rather than being a heading with a number beside it -->
-        <span style="font:600 14px/1.2 var(--sans);color:var(--deep)">${
-          st.ladderOpen?'The whole ladder'
-            :'See the whole ladder'}<span style="display:block;font:400 12.5px/1.35 var(--sans);
-          color:var(--grey);margin-top:3px">${
-            st.ladderOpen?'All '+STAGES.length+' stages, and what each one asks for.'
-              :'Where this stage sits, and what comes after it.'}</span></span>
-        <span style="display:flex;align-items:center;gap:8px;font:600 13px/1 var(--sans);color:var(--forest)">
-          ${st.ladderOpen?'Hide':'Stage '+(cur+1)+' of '+STAGES.length}
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
-            style="transform:rotate(${st.ladderOpen?180:0}deg);transition:transform .2s">
-            <path d="M6 9l6 6 6-6"/></svg>
-        </span>
-      </button>
-      ${st.ladderOpen?`
+    ${ltab!=='ladder' ? '' : `<div data-ladderall style="padding:22px 20px 40px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+        padding:0 0 14px">
+        <span style="font:400 26px/1.1 var(--serif)">The whole ladder<em
+          style="color:var(--forest);font-style:normal">.</em><span style="display:block;
+          font:400 12.5px/1.35 var(--sans);color:var(--grey);margin-top:5px">All ${
+          STAGES.length} stages, and what each one asks for.</span></span>
+        <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">Stage ${
+          cur+1} of ${STAGES.length}</span>
+      </div>
       ${rungsDone?`<div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">DONE</div>
       <div style="margin-top:16px">${rungsDone}</div>`:''}
+      <!-- The stage you are on was left out of the list, because the list
+           used to sit under a hero that named it. On a tab of its own the
+           whole ladder has to include the rung you are standing on. -->
+      <div style="display:flex;gap:14px;align-items:flex-start;padding:16px 0;margin-top:${
+        rungsDone?'14px':'0'};border-top:1px solid rgba(0,64,61,.10);
+        border-bottom:1px solid rgba(0,64,61,.10)">
+        <span style="flex:none;width:28px;height:28px;border-radius:999px;display:grid;
+          place-items:center;background:var(--deep);color:var(--on-primary);
+          font:700 12px/1 var(--sans)">${cur+1}</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+            <span style="font:600 16px/1.2 var(--sans)">${esc(s.n)}</span>
+            <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;
+              color:var(--forest)">YOU ARE HERE</span></span>
+          <span style="display:block;margin-top:6px;font:400 13.5px/1.45 var(--sans);
+            color:var(--grey)">${esc(s.goal)}</span>
+          <span style="display:block;height:7px;border-radius:4px;background:rgba(0,64,61,.1);
+            margin-top:11px;overflow:hidden"><span style="display:block;height:100%;width:${pct}%;
+            border-radius:4px;background:var(--deep)"></span></span>
+          <button onclick="st.ladderTab='checks';save();render()" style="margin-top:11px;
+            background:none;border:0;padding:0;cursor:pointer;font:600 13px/1 var(--sans);
+            color:var(--forest)">${P.met} of ${P.of} check points &rarr;</button>
+        </span>
+      </div>
+
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-        margin-top:${rungsDone?'10px':'0'}">
+        margin-top:${rungsDone?'10px':'16px'}">
         <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">${
           rungsAhead?'STILL TO COME':'THE LADDER'}</span>
         ${isPlus()?'':`<span style="font:400 13px/1 var(--sans);color:var(--grey);display:flex;
@@ -10198,7 +10213,7 @@ function screenLadder(){
             <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
           ${paidRangeLine()}</span>`}
       </div>
-      <div data-tour="stagelist" style="margin-top:16px">${rungsAhead}</div>`:''}
+      <div data-tour="stagelist" style="margin-top:16px">${rungsAhead}</div>
 
       <!-- 6e puts both of these as plain rows rather than blocks. The amber
            panel competed with the ladder it was sitting under, and the stage
@@ -10231,20 +10246,34 @@ function screenLadder(){
             esc(STAGES[cur+1].n)} &uarr;</button>`:''}
         </span>
       </div>
-    </div>`}
+    </div>`}`}
   </div>`;
 }
-/* The two halves of the one tab. A segmented control rather than a second
-   row of tabs, because the hero above it belongs to both. */
+/* ── three things, three tabs ──────────────────────────────────────
+   The check points are what you are working on, the ladder is where that
+   sits, and progress is what you have done. The first two were stacked on
+   one tab with the ladder folded away under a disclosure, so the six
+   stages were something most people never saw.
+
+   It was two tabs before, and 'ladder' meant the check points, because
+   that is what that tab led with. Anybody who left it there is moved
+   across once so they land where they left off rather than on a list of
+   stages they did not ask for. */
+function ladderTab(){
+  if(st.ladderTab==='ladder' && !st.ladder3){ st.ladderTab='checks'; st.ladder3=1; save(); }
+  if(!st.ladder3){ st.ladder3=1; save(); }
+  return (st.ladderTab==='ladder'||st.ladderTab==='progress') ? st.ladderTab : 'checks';
+}
 function ladderSeg(){
-  const on=st.ladderTab==='progress'?'progress':'ladder';
+  const on=ladderTab();
   const b=(k,l)=>`<button onclick="st.ladderTab='${k}';save();render()" style="flex:1;cursor:pointer;
     border:0;border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
     transition:background .25s,color .25s;
     background:${on===k?'#fff':'transparent'};
     color:${on===k?'var(--deep)':'var(--grey)'}">${l}</button>`;
   return `<div style="padding:16px 16px 0"><div class="segrow" style="display:flex;gap:5px;padding:4px;
-    border-radius:15px;background:rgba(17,17,17,.055)">${b('ladder','The ladder')}${b('progress','Progress')}</div></div>`;
+    border-radius:15px;background:rgba(17,17,17,.055)">${b('checks','Check points')}${
+    b('ladder','The ladder')}${b('progress','Progress')}</div></div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
    back loses your spot, which is the thing the programme pages get right */
@@ -12577,7 +12606,7 @@ function closeSideVid(){ sideVid=null; render(); }
    ladder screen and not the ladder. It opens the six stages and goes to
    them. */
 function seeLadder(){
-  st.ladderTab='ladder'; st.ladderOpen=true; save();
+  st.ladderTab='ladder'; save();
   if(st.tab!=='ladder') go('ladder'); else render();
   setTimeout(()=>{ const el=document.querySelector('[data-ladderall]');
     if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 90);
@@ -12762,7 +12791,7 @@ function sideHTML(){
     bits.push(sideStageCard());
     /* the month, and a day opens to what was actually done in it. Not on
        the screen that already has it further down the page. */
-    const onProgress = (t==='ladder' && st.ladderTab==='progress');
+    const onProgress = (t==='ladder' && ladderTab()==='progress');
     if(!onProgress && typeof trainingCalendar==='function'){
       try{ bits.push(trainingCalendar()); }catch(e){}
     } else {
