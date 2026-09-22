@@ -91,6 +91,13 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @keyframes sheetUp{from{transform:translateY(101%)}to{transform:none}}
 @keyframes breathe{0%,100%{opacity:.45}50%{opacity:1}}
+/* the explainer, folded into a corner while you carry on: above the tab
+   bar, under a sheet, out of the way of the top bar */
+#dock{position:fixed;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:50;width:176px;
+ border-radius:14px;box-shadow:0 16px 40px -14px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.18);
+ background:#11150f;cursor:pointer;animation:rise .4s cubic-bezier(.2,.8,.2,1) both}
+#dock video{display:block;width:100%}
+#dock .vp-bar{transform:scale(.8);transform-origin:left bottom}
 /* one class so a section can be given the design's entrance and its delay */
 #app[data-still="1"] .rise,
 #app[data-still="1"] [style*="animation:rise"],
@@ -102,6 +109,13 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 @media (prefers-reduced-motion:reduce){
   .rise,[style*="animation:rise"],[style*="animation:shimmer"]{animation:none!important}
 }
+/* the climb: the marker goes from the rung you were on to the one above,
+   and the new rung lights as it lands */
+@keyframes climb{0%{transform:translateY(var(--y0))}35%{transform:translateY(var(--y0))}
+  75%{transform:translateY(calc(var(--y1) - 6px))}100%{transform:translateY(var(--y1))}}
+@keyframes rungon{0%,70%{background:rgba(0,64,61,.14);color:var(--grey)}100%{background:var(--forest);color:#fff}}
+@keyframes rungtxt{0%,70%{color:var(--grey);font-weight:500}100%{color:var(--forest);font-weight:700}}
+@media (prefers-reduced-motion:reduce){.climber,.rung,.rungl{animation:none!important}}
 @keyframes pop{0%{opacity:0;transform:rotate(var(--a)) translateY(0) scale(.4)}
   15%{opacity:1}
   100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--d)*-1)) scale(1) }}
@@ -1753,8 +1767,22 @@ const vpTime = s => { s=Math.max(0,Math.floor(s||0));
    an iPhone does it its own way from the native controls, which this
    player replaces. Ask the browser rather than guessing. */
 function vpPipOk(v){
-  try{ return !!document.pictureInPictureEnabled && !v.disablePictureInPicture
-    && typeof v.requestPictureInPicture==='function'; }catch(e){ return false; }
+  try{
+    if(v.webkitSupportsPresentationMode && typeof v.webkitSetPresentationMode==='function'
+       && v.webkitSupportsPresentationMode('picture-in-picture')) return true;
+    return !!document.pictureInPictureEnabled && !v.disablePictureInPicture
+      && typeof v.requestPictureInPicture==='function'; }catch(e){ return false; }
+}
+/* the two spellings of the same thing: Safari's, and everybody else's */
+function pipToggle(v){
+  try{
+    if(v.webkitSupportsPresentationMode && typeof v.webkitSetPresentationMode==='function'){
+      v.webkitSetPresentationMode(v.webkitPresentationMode==='picture-in-picture' ? 'inline' : 'picture-in-picture');
+      return;
+    }
+    if(document.pictureInPictureElement===v) document.exitPictureInPicture();
+    else { const r=v.requestPictureInPicture(); if(r&&r.catch) r.catch(()=>{}); }
+  }catch(err){}
 }
 function vpBar(v, theatre){
   const bar=document.createElement('div');
@@ -1783,12 +1811,7 @@ function vpBar(v, theatre){
   play.onclick=e=>{ e.stopPropagation(); v.paused?v.play():v.pause(); paint(); };
   q('full').onclick=e=>{ e.stopPropagation(); theatre?vpClose():vpOpen(v); };
   const pip=q('pip');
-  if(pip) pip.onclick=e=>{ e.stopPropagation();
-    try{
-      if(document.pictureInPictureElement===v) document.exitPictureInPicture();
-      else { const r=v.requestPictureInPicture(); if(r&&r.catch) r.catch(()=>{}); }
-    }catch(err){}
-  };
+  if(pip) pip.onclick=e=>{ e.stopPropagation(); pipToggle(v); };
   if(theatre) q('turn').onclick=e=>{ e.stopPropagation(); vpRotate(); };
   /* scrub by pointer, so a drag works as well as a tap */
   const seek=ev=>{
@@ -2916,6 +2939,31 @@ function cpWhen(at){
    pale track, because no colour is honest about a thing not attempted.
    Lower-is-better runs the other way: a long bar is a bad bar there, so
    the reading is always "how close to the target", never "how full". */
+/* ── where a reading sits on the track ─────────────────────────────
+   The end of the track is the target, whichever way the number runs. A
+   count down (goes to reach it, fewer is better) used to run the other
+   way on a scale of twenty five with the target as a notch half way
+   along, which on Freestanding was every single check point: dragging
+   to the end was the worst score you could give yourself. It runs from
+   the most goes it could take, empty, to the target, full. */
+function cpGeom(c){
+  const K=CP_KIND[c.kind]||CP_KIND.count;
+  const last=cpLast(c.k);
+  const lower=(c.lower!=null)?c.lower:K.lower;
+  const draft=(st.cpDraft||{})[c.k];
+  const val=Number(draft!=null?draft:(last?last.v:0))||0;
+  const t=Number(c.target);
+  if(lower && t>0){
+    const from=Math.max(Number(c.from)||K.max||25, t+1, val, last?Number(last.v)||0:0);
+    return {lower:true, max:from, t,
+      pct:v=>(Number(v)>0 ? Math.max(0,Math.min(1,(from-Number(v))/(from-t))) : 0),
+      at:p=>Math.round(from-p*(from-t))};
+  }
+  const max=Math.max(c.target||K.max||20, val, last?Number(last.v)||0:0);
+  return {lower:false, max, t,
+    pct:v=>Math.max(0,Math.min(1,(Number(v)||0)/max)),
+    at:p=>Math.round(p*max)};
+}
 function cpBarColour(c, val, met){
   if(met) return 'linear-gradient(90deg,#0a7b74,#006663)';
   const K=CP_KIND[c.kind]||CP_KIND.count;
@@ -2968,12 +3016,13 @@ function cpInput(c){
      only grows past it if someone actually beats it, so the usual case
      reads as "how close am I to the end". Lower-is-better runs the other
      way, from wherever they started down to the target. */
-  const max = lower
-    ? Math.max(c.from||K.max||25, val, last?last.v:0)
-    : Math.max(c.target||K.max||20, val, last?last.v:0);
-  const pct=Math.max(0,Math.min(100,(val/max)*100));
+  const G=cpGeom(c);
+  const max=G.max;
+  const pct=G.pct(val)*100;
   const met = c.target==null ? false : (lower ? (val>0 && val<=c.target) : val>=c.target);
-  const notch = (c.target!=null && max>c.target) ? (c.target/max)*100 : null;
+  /* a notch only when somebody has beaten a count up target and the scale
+     has grown past it; a count down ends at its target by construction */
+  const notch = (!G.lower && c.target!=null && max>c.target) ? (c.target/max)*100 : null;
   const step=c.kind==='secs'?5:1;
   const unit=cpUnit(c);
   /* The target label used to live inside the right-hand end of the track,
@@ -3515,13 +3564,14 @@ function repaintCp(k){
 
 function cpStep(k,by,max){
   const cur=(st.cpDraft||{})[k]!=null?st.cpDraft[k]:((cpLast(k)||{}).v||0);
-  const next=Math.max(0,Math.min(max,cur+by));
+  const c1=cpDef(k); const G=c1?cpGeom(c1):null;
+  const next=Math.max(0,Math.min(G?G.max:max,cur+by));
   st.cpDraft=Object.assign({},st.cpDraft,{[k]:next});
   save();
   /* paint the three places the number shows rather than redrawing the sheet */
   const el=document.getElementById('cptrack-'+k);
   if(el){
-    const res=Number(el.dataset.res)||36, p=max?next/max:0;
+    const res=Number(el.dataset.res)||36, p=G?G.pct(next):(max?next/max:0);
     const run='(100% - '+res+'px) * '+p.toFixed(4);
     const fill=document.getElementById('cpfill-'+k), thumb=document.getElementById('cpthumb-'+k);
     if(fill){ fill.style.width='calc('+run+' + 36px)';
@@ -3560,10 +3610,11 @@ function cpDrag(e,k,max,res){
   let lastBg = fill ? fill.style.background : '';
   let lastV = null, pending = null, raf = 0;
 
+  const G=c0?cpGeom(c0):null;
   const paint=()=>{
     raf=0;
     const p=pending; if(p==null) return;
-    const v=Math.round(p*max);
+    const v=G?G.at(p):Math.round(p*max);
     const run2='(100% - '+RES+'px) * '+p.toFixed(4);
     if(fill){
       fill.style.width='calc('+run2+' + 36px)';
@@ -7267,10 +7318,21 @@ function drawOv(){
     const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
     const stg=(q.stage!=null && STAGES[q.stage]) ? STAGES[q.stage].n : '';
     body=`<div style="margin:0 -18px">${(q.uid||q.v)?qaVideo(q,true):''}</div>
-      <div style="display:flex;gap:6px;justify-content:flex-end;padding:10px 2px 0">
-        ${[1,1.5,2].map(r=>`<button onclick="exSpeed(${r})" aria-pressed="${(st.exSpeed||1)===r}" style="border:1px solid ${(st.exSpeed||1)===r?'var(--forest)':'rgba(0,64,61,.16)'};
+      <div style="display:flex;gap:6px;align-items:center;padding:10px 2px 0">
+        <!-- The film had the whole screen and the app behind it was out of
+             reach until it was closed. Keep watching folds it into a small
+             window over the page, so a film can run while you look at the
+             session it is talking about. -->
+        <button onclick="dockExplainer()" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;
+          border:1px solid rgba(0,64,61,.16);background:#fff;color:var(--deep);border-radius:999px;
+          padding:8px 12px;font:600 12px/1 var(--sans);cursor:pointer;text-align:left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/>
+            <rect x="12" y="11" width="8" height="6.5" rx="1" fill="currentColor" stroke="none"/></svg>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Keep watching, carry on</span></button>
+        ${[1,1.5,2].map(r=>`<button onclick="exSpeed(${r})" aria-pressed="${(st.exSpeed||1)===r}" style="flex:none;border:1px solid ${(st.exSpeed||1)===r?'var(--forest)':'rgba(0,64,61,.16)'};
           background:${(st.exSpeed||1)===r?'var(--forest)':'#fff'};color:${(st.exSpeed||1)===r?'var(--on-primary)':'var(--deep)'};
-          border-radius:999px;padding:8px 12px;font:600 12px/1 var(--sans);cursor:pointer">${r}x</button>`).join('')}</div>
+          border-radius:999px;padding:8px 10px;font:600 12px/1 var(--sans);cursor:pointer">${r}x</button>`).join('')}</div>
       <div style="padding:8px 2px 0">
         <div class="kick2">EXPLAINER${stg?' &middot; '+esc(stg.toUpperCase()):''}</div>
         <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px">${esc(q.q)}</div>
@@ -7544,18 +7606,49 @@ function drawOv(){
     const next=STAGES[(st.clearedFrom||0)+1];
     const moved=next && curStage()===(st.clearedFrom||0)+1;
     const P=cpProgress(st.clearedFrom||0);
-    body=`<div style="position:relative;text-align:center;padding:22px 0 4px;overflow:hidden">
-      <div class="burst">${Array.from({length:18},(_,i)=>
-        `<i style="--a:${(i*20)}deg;--d:${60+(i%5)*22}px;--t:${(i%6)*90}ms;
+    /* ── the climb ───────────────────────────────────────────────
+       A number and a sentence did not read as having moved anywhere:
+       people cleared a stage and asked whether they had. The ladder is
+       drawn, the marker climbs a rung, the rung lights, and the film
+       that introduces the new stage is right there to press. */
+    const fi=st.clearedFrom||0, ti=moved?fi+1:fi;
+    const RH=34, n=STAGES.length;
+    const ladder=`<div style="position:relative;margin:14px auto 0;width:min(100%,300px)">
+      ${STAGES.map((S,i)=>{ const on=i<ti, now=i===ti, lit=moved&&i===ti;
+        return `<div style="display:flex;align-items:center;gap:12px;height:${RH}px">
+          <span class="rung" style="flex:none;width:30px;height:24px;border-radius:8px;display:grid;place-items:center;
+            font:700 11px/1 var(--sans);${lit?'animation:rungon 1.6s ease both;':''}
+            background:${on||now?'var(--forest)':'rgba(0,64,61,.14)'};color:${on||now?'#fff':'var(--grey)'}">${i+1}</span>
+          <span class="rungl" style="flex:1;text-align:left;font:${on||now?'700':'500'} 14px/1.2 var(--sans);
+            ${lit?'animation:rungtxt 1.6s ease both;':''}color:${on||now?'var(--forest)':'var(--grey)'}">${esc(S.n)}</span>
+          ${i>ti&&stageLocked(i)?`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--grey2)" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:''}
+        </div>`; }).reverse().join('')}
+      <span class="climber" style="position:absolute;left:-2px;top:${(n-1-fi)*RH+2}px;width:34px;height:30px;border-radius:10px;
+        border:2.5px solid var(--amber);box-shadow:0 0 0 4px rgba(243,169,73,.25);pointer-events:none;
+        --y0:0px;--y1:${moved?-RH:0}px;animation:climb 1.6s cubic-bezier(.3,.9,.3,1) both"></span>
+    </div>`;
+    const film=moved ? ((STAGE_VIDEO[ti]||'') || LADDER_INTRO_VIDEO) : '';
+    body=`<div style="position:relative;text-align:center;padding:16px 0 4px;overflow:hidden">
+      <div class="burst">${Array.from({length:22},(_,i)=>
+        `<i style="--a:${(i*16.4)}deg;--d:${70+(i%5)*26}px;--t:${900+(i%6)*90}ms;
           background:${['var(--amber)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
-      <div class="h-xl" style="font-size:52px;color:var(--forest);position:relative">${P.of}</div>
-      <div class="kick2" style="margin-top:8px">CHECK POINTS REACHED</div>
-      <div class="h-lg" style="margin-top:18px">That is ${esc(from.n)} done.</div>
-      <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">${
-        moved ? 'You are on '+esc(next.n)+' now. '+esc((next.goal||'').replace(/\.$/,''))+'.'
+      <div class="kick2">${P.met} OF ${P.of} CHECK POINTS REACHED</div>
+      <div class="h-lg" style="margin-top:10px">${moved
+        ? `You are on <em style="color:var(--forest);font-style:normal">${esc(next.n)}.</em>`
+        : `That is ${esc(from.n)} done.`}</div>
+      ${ladder}
+      <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px">${
+        moved ? esc((next.goal||'').replace(/\.$/,''))+'.'
         : next ? esc(next.n)+' is the '+PRICE()+' tier. You stay on '+esc(from.n)+' until you open it.'
         : 'That is the whole ladder. There is nothing below this one.'}</div>
     </div>
+    ${film?`<div style="margin-top:14px;border-radius:18px;overflow:hidden;background:#fff;border:1px solid rgba(0,64,61,.10)">
+      ${qaVideo({uid:film},false).replace('margin-top:11px;border-radius:14px;overflow:hidden','')}
+      <div style="padding:11px 14px 13px">
+        <div class="kick2">WATCH FIRST &middot; 3 MIN</div>
+        <div style="font:600 14.5px/1.3 var(--sans);margin-top:5px">${esc(next.n)}, explained</div>
+        <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">What this stage is for and what the check points are asking.</div>
+      </div></div>`:''}
     ${moved?`<button class="btn" style="width:100%;margin-top:20px"
         onclick="st.clearedFrom=null;closeOv();startDay(-1)">Train ${esc(next.n)} now</button>
       <button class="btn2" style="width:100%;margin-top:9px" onclick="clearedStay()">
@@ -9573,7 +9666,51 @@ function askFilter(v){
   const box=document.getElementById('askmatches');
   if(box) box.innerHTML=askMatches(v);
 }
-function openExplainer(i){ st.exOpen=i; st.ovFull=true; openOv('explainer'); setTimeout(applyExSpeed,50); }
+function openExplainer(i){
+  st.exOpen=i; st.ovFull=true; openOv('explainer'); setTimeout(applyExSpeed,50);
+  /* the same film is already running in the corner: put that one back in
+     the sheet rather than starting it again from nought */
+  const dock=document.getElementById('dock');
+  if(dock && Number(dock.dataset.i)===i){
+    const nv=document.querySelector('#ov video');
+    const host=dock.querySelector('[data-dockhost]');
+    if(nv && host){ nv.parentElement.replaceWith(host); host.removeAttribute('data-dockhost'); host.style.cssText='position:relative;line-height:0;background:#11150f'; }
+    dock.remove();
+  } else if(dock) undockClose();
+}
+/* ── the film in the corner ──────────────────────────────────────
+   The video element itself is moved, not copied, so it keeps playing
+   from where it was. A tap on it brings the sheet back with the same
+   element in it; the cross stops it. On a wide screen the film already
+   has a column of its own, so this is only offered on a phone. */
+function dockExplainer(){
+  const v=document.querySelector('#ov video'); if(!v){ closeOv(); return; }
+  const host=v.parentElement;
+  /* Safari can put it in its own floating window, which is better still */
+  if(vpPipOk(v) && /iPhone|iPad/.test(navigator.userAgent)){
+    try{ pipToggle(v); }catch(e){}
+  }
+  let dock=document.getElementById('dock');
+  if(dock) dock.remove();
+  dock=document.createElement('div'); dock.id='dock'; dock.dataset.i=String(st.exOpen|0);
+  dock.innerHTML=`<button onclick="undockClose()" aria-label="Stop watching"
+      style="position:absolute;top:-10px;right:-10px;z-index:2;width:28px;height:28px;border-radius:999px;border:0;
+      background:var(--ink);color:#fff;font:600 14px/1 var(--sans);cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)">&times;</button>`;
+  host.setAttribute('data-dockhost','1');
+  host.style.cssText='position:relative;line-height:0;background:#11150f;border-radius:14px;overflow:hidden';
+  v.style.maxHeight='none'; v.style.aspectRatio='16/10'; v.style.objectFit='cover';
+  dock.appendChild(host);
+  dock.addEventListener('click',e=>{ if(e.target.closest('.vp-bar')||e.target.closest('button')) return; openExplainer(Number(dock.dataset.i)); });
+  document.body.appendChild(dock);
+  const was=v.paused, t=v.currentTime;
+  st.ovFull=false; closeOv();
+  if(!was){ try{ v.currentTime=t; v.play().catch(()=>{}); }catch(e){} }
+}
+function undockClose(){
+  const dock=document.getElementById('dock'); if(!dock) return;
+  const v=dock.querySelector('video'); if(v){ try{ v.pause(); }catch(e){} }
+  dock.remove();
+}
 /* 1x, 1.5x, 2x on the explainers, remembered */
 function applyExSpeed(){ const v=document.querySelector('#ov video'); if(v) v.playbackRate=st.exSpeed||1; }
 function exSpeed(r){ st.exSpeed=r; save(); applyExSpeed();
@@ -9622,7 +9759,7 @@ function fixesHomeHTML(){
   const card=f=>{
     const n=fixDoneN(f.slug), tot=fixTotal(f), cover=fixCover(f);
     const locked=f.access==='plus' && !isPlus();
-    return `<div onclick="openFix('${esc(f.slug)}')" style="flex:none;width:236px;scroll-snap-align:start;
+    return `<div onclick="openFix('${esc(f.slug)}')" style="flex:none;width:${wide()?236:176}px;scroll-snap-align:start;
       background:#fff;border-radius:20px;overflow:hidden;cursor:pointer;box-shadow:0 10px 24px -18px rgba(28,32,25,.5)">
       <div style="aspect-ratio:16/9;background:var(--mist);position:relative">
         ${cover?`<img src="${esc(cover)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">`:''}
@@ -9636,12 +9773,12 @@ function fixesHomeHTML(){
         <div style="font:600 11px/1 var(--sans);letter-spacing:.08em;color:var(--forest);margin-top:9px">${
           n?(n>=tot?'DONE':n+' OF '+tot+' SESSIONS'):(f.weeks||4)+' WEEKS · '+(f.perWeek||3)+' A WEEK'}</div>
       </div></div>`; };
-  return `<section class="rise rise-3" style="padding:26px 0 0">
+  return `<section class="rise rise-3" style="padding:${wide()?26:18}px 0 0">
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 20px 4px">
-      <span style="font:400 26px/1.1 var(--serif)">Fix one thing.</span>
+      <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">Fix one thing.</span>
       <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length} fix${list.length===1?'':'es'}</span>
     </div>
-    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);padding:0 20px 12px;max-width:62ch">
+    <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 20px ${wide()?12:8}px;max-width:62ch">
       The things that go wrong at this stage, each one a few weeks of films, explainers and
       workouts that walk you out of it. Some go deeper into one subject, like shoulder mobility.</div>
     <div style="display:flex;gap:12px;overflow-x:auto;padding:0 20px 14px;scroll-snap-type:x mandatory;
@@ -9862,6 +9999,20 @@ function screenHome(){
   const sessCount=_rest ? (typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills ? WRIST_DAY.drills.length : 0)
                         : ((_day && dayDrills(_day, curStage())) || S.drillIds || []).length;
 
+    /* the question box, under the rail on a phone so the films come first
+     and the screen still holds the session, the films and the fixes */
+  const searchBox=`<div style="padding:0 16px ${wide()?12:8}px">
+        <div style="position:relative">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"
+            stroke-linecap="round" style="position:absolute;left:15px;top:50%;transform:translateY(-50%)">
+            <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+          <input id="askq" value="${esc(st.q||'')}" oninput="askFilter(this.value)"
+            placeholder="Search wrists, bailing, kick up&hellip;"
+            style="width:100%;border:0;border-radius:14px;padding:14px 14px 14px 42px;min-height:48px;
+            background:#fff;font:400 14.5px/1.3 var(--sans)">
+        </div>
+        <div id="askmatches">${askMatches(st.q||'')}</div>
+      </div>`;
   return `<div class="scroll s">
     <!-- The green hero is gone. It was a third of the screen before anything
          had been said, and the one thing this screen exists for, starting, was
@@ -9874,7 +10025,7 @@ function screenHome(){
          app you are already in. The greeting is the heading now, smaller,
          and the session under it gets the room. -->
     <div class="rise" style="padding:${st.coached?'16px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
-      <div style="font:400 30px/1.1 var(--serif);letter-spacing:-.01em">${
+      <div style="font:400 ${wide()?30:26}px/1.1 var(--serif);letter-spacing:-.01em">${
         didToday ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
         : `${esc(hello)}<em style="color:var(--forest);font-style:normal">${
             name?', '+esc(name):''}.</em>`}</div>
@@ -9884,7 +10035,7 @@ function screenHome(){
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->
     <div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
-      style="padding:24px 20px 0;cursor:pointer">
+      style="padding:${wide()?24:14}px 20px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
         <span style="font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;
           color:var(--grey)">Stage ${cs+1} &middot; ${esc(S.n)}</span>
@@ -9904,10 +10055,10 @@ function screenHome(){
          them made a slab of green that read as a picture. It is a card
          that says what it is, the two questions inside it, and a button
          the size of a button at the end. -->
-    <div class="rise rise-2" style="padding:20px 20px 0">
-    <div class="startrow" style="display:flex;flex-direction:column;gap:10px">
+    <div class="rise rise-2" style="padding:${wide()?20:14}px 20px 0">
+    <div class="startrow" style="display:flex;flex-direction:column;gap:${wide()?10:7}px">
       <button data-tour="buildsession" onclick="startDay(${_cellIdx},'full')"
-        style="height:68px;width:100%;border:0;border-radius:18px;
+        style="height:${wide()?68:60}px;width:100%;border:0;border-radius:18px;
         background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
@@ -9938,29 +10089,17 @@ function screenHome(){
     <!-- the explainers, as the design has them: one question box, then a rail
          of video cards. The accordion this replaces held the same list; the
          lock is unchanged — the first few are open, an account opens the rest. -->
-    <section class="rise rise-3" data-tour="explainers" style="padding:26px 0 0">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 20px 12px">
-        <span style="font:400 26px/1.1 var(--serif)">Before you ask.</span>
+    <section class="rise rise-3" data-tour="explainers" style="padding:${wide()?26:18}px 0 0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 20px ${wide()?12:6}px">
+        <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">Before you ask.</span>
         <span style="font:600 13px/1 var(--sans);color:var(--forest)">${
           st.token?FAQS_READY().length+' to watch':'The first '+FREE_EXPLAINERS+' are open'}</span>
       </div>
       <!-- what they are, for somebody who has not pressed one -->
-      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);padding:0 20px 12px;max-width:62ch">
+      <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 20px ${wide()?12:8}px;max-width:62ch">
         Short films where Elliott and Suryava answer the questions people actually ask.
         Yours is not on the list? Ask it below and he will film it.</div>
-      <div style="padding:0 16px 12px">
-        <div style="position:relative">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"
-            stroke-linecap="round" style="position:absolute;left:15px;top:50%;transform:translateY(-50%)">
-            <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
-          <input id="askq" value="${esc(st.q||'')}" oninput="askFilter(this.value)"
-            placeholder="Search wrists, bailing, kick up&hellip;"
-            style="width:100%;border:0;border-radius:14px;padding:14px 14px 14px 42px;min-height:48px;
-            background:#fff;font:400 14.5px/1.3 var(--sans)">
-        </div>
-        <div id="askmatches">${askMatches(st.q||'')}</div>
-      </div>
-
+      ${wide()?searchBox:''}
       <div class="rail cards${exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
         padding:4px 16px 8px;-webkit-overflow-scrolling:touch">
         <!-- 7a leads the rail with this, and rebuilding Today dropped it, which
@@ -9968,7 +10107,7 @@ function screenHome(){
              opened from. It is the first card because it is the one to watch
              before any of the others. -->
         ${introOffer().url?`<div onclick="st.introOpen=true;save();openOv('intro')"
-          style="flex:none;width:214px;scroll-snap-align:center;cursor:pointer">
+          style="flex:none;width:${wide()?214:156}px;scroll-snap-align:center;cursor:pointer">
           <div style="position:relative;aspect-ratio:16/10;border-radius:20px;overflow:hidden;
             background:var(--sand)">
             <img src="${streamThumb(introOffer().url)}" alt="" loading="lazy"
@@ -9996,7 +10135,7 @@ function screenHome(){
           const open=explainerOpen(i);
           const grad = i%2 ? '#DCECF0,#9FC9D4' : '#CFE6EC,#5E9DB2';
           return `<div onclick="${open?`openExplainer(${i})`:`lockedExplainer(${i})`}"
-            style="flex:none;width:214px;scroll-snap-align:center;cursor:pointer">
+            style="flex:none;width:${wide()?214:156}px;scroll-snap-align:center;cursor:pointer">
             <div style="position:relative;aspect-ratio:16/10;border-radius:20px;overflow:hidden;
               opacity:${open?1:.74};background:linear-gradient(150deg,${grad})">
               ${q.uid?`<img src="${streamThumb(q.uid)}" alt="" loading="lazy"
@@ -10044,6 +10183,7 @@ function screenHome(){
           </div>`;}).join('')}
       </div>
       ${railMore(FAQS_READY().length)}
+      ${wide()?'':`<div style="padding-top:10px">${searchBox}</div>`}
       <div id="raildots" style="display:${exAll&&wide()?'none':'flex'};gap:5px;justify-content:center;padding:6px 0 0">
         ${FAQS_READY().map((_,i)=>`<span style="width:5px;height:5px;border-radius:99px;
           background:rgba(17,17,17,${i?0.14:0.42})"></span>`).join('')}
