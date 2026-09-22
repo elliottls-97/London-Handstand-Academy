@@ -473,6 +473,44 @@ function dbHTML(){
     ${migHTML()}</div>`;
 }
 
+/* ── what has actually been emailed ────────────────────────────────
+   Every send returned quietly on four different conditions, so an email
+   that never went looked exactly like one that did. The server keeps the
+   last sixty attempts with their outcome; this is how you see them. */
+let maillog=null;
+function loadMaillog(){
+  fetch(API+'/maillog',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ maillog=d.log||[]; draw(); } })
+    .catch(()=>{});
+}
+function maillogHTML(){
+  if(!owner) return '';
+  if(maillog===null){ loadMaillog(); return `<div class="card"><h4 style="margin:0">Emails sent</h4>
+    <p class="muted" style="margin-top:8px">Loading&hellip;</p></div>`; }
+  const bad=maillog.filter(x=>!x.ok);
+  const rows=maillog.slice(0,25);
+  return `<div class="card">
+    <h4 style="margin:0">Emails sent</h4>
+    <p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:6px;max-width:62ch">
+      The last ${maillog.length} this site tried to send, newest first, and what happened to
+      each one. ${bad.length?bad.length+' of them did not go.':'All of them went.'}</p>
+    <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="maillog=null;draw()">Refresh</button>
+    ${rows.length?`<div style="margin-top:var(--space-3);display:flex;flex-direction:column">
+      ${rows.map(x=>`<div style="display:grid;grid-template-columns:78px minmax(0,1fr) auto;gap:10px;
+        align-items:baseline;padding:8px 0;border-top:1px solid rgba(17,17,17,.07)">
+        <span class="muted" style="font:400 12px/1.4 var(--sans)">${esc(ago(x.at))}</span>
+        <span style="min-width:0">
+          <span style="display:block;font:500 13px/1.4 var(--sans);overflow:hidden;
+            text-overflow:ellipsis;white-space:nowrap">${esc(x.subject||'(no subject)')}</span>
+          <span class="muted" style="display:block;font:400 12px/1.4 var(--sans)">${esc(x.to)}${
+            x.kind?' · '+esc(x.kind):''}</span></span>
+        <span style="font:600 11.5px/1.3 var(--sans);text-align:right;
+          color:${x.ok?'var(--forest)':'var(--terra)'}">${x.ok?'sent':esc(x.why||'not sent')}</span>
+      </div>`).join('')}
+    </div>`:`<p class="muted" style="margin-top:10px">Nothing has been sent since this was switched on.</p>`}
+  </div>`;
+}
 function loadMailguard(set,email){
   const body = email!==undefined ? {email,off:set} : {suppress:set};
   fetch(API+'/mailguard',set===undefined&&email===undefined?{headers:hdr()}
@@ -492,6 +530,8 @@ function mailAlertHTML(){
   const bad = !mailguard.resend ? 'Nothing is being emailed to anybody. Resend is not set up.'
     : mailguard.only ? 'Email is going to '+mailguard.only+' test address'+(mailguard.only===1?'':'es')
       +' and nobody else. New sign-ups get no code and cannot get in.'
+    /* the switch that silences clients is the one that gets left on */
+    : mailguard.suppress ? 'Coaching clients are not being emailed. Replies, answers and reminders reach nobody.'
     : '';
   if(!bad) return '';
   return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:var(--space-4);
@@ -8267,7 +8307,7 @@ function settingsHTML(){
   : setTab==='app' ? `${owner?shortHTML():''}${owner?homeHTML():''}${owner?streamHTML():''}
       ${owner?emailsHTML():''}`
   : setTab==='workshops' ? workshopsHTML()
-  : `${owner?mailguardHTML():''}${owner?dbHTML():''}
+  : `${owner?mailguardHTML():''}${owner?maillogHTML():''}${owner?dbHTML():''}
       <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);max-width:62ch">
         The database check and the copy are one-time setup. The copy reads the old Blobs store,
         so running it now would push stale data over live records. Leave it alone unless

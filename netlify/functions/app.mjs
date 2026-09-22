@@ -315,18 +315,37 @@ async function wantsEmail(to, kind) {
   } catch { return true; }
 }
 
-async function email(to, subject, html, kind) {
-  if (!process.env.RESEND_API_KEY) return;
-  if (!mayEmail(to)) return;                 // suppressed on purpose, not a failure
-  if (!(await clientMailAllowed(to))) return;
-  if (!(await wantsEmail(to, kind))) return;
+/* ── every send, and why it did not go ─────────────────────────────
+   This returned quietly on four different conditions, so an email that
+   was never sent looked exactly like one that was: nothing on any screen
+   said whether a client had been told anything. The last sixty attempts
+   are kept with their outcome, and the dashboard reads them. */
+async function mailNote(to, subject, kind, ok, why) {
   try {
-    await fetch('https://api.resend.com/emails', {
+    const log = (await getSetting('maillog')) || [];
+    log.push({ at: Date.now(), to: norm(to), kind: kind || '', ok: !!ok,
+      why: why || '', subject: String(subject || '').slice(0, 80) });
+    await setSetting('maillog', log.slice(-60));
+  } catch { /* a log that fails must never break a send */ }
+}
+async function email(to, subject, html, kind) {
+  if (!process.env.RESEND_API_KEY) return mailNote(to, subject, kind, false, 'Resend is not set up');
+  if (!mayEmail(to)) return mailNote(to, subject, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
+  if (!(await clientMailAllowed(to))) return mailNote(to, subject, kind, false, 'client email is switched off');
+  if (!(await wantsEmail(to, kind))) return mailNote(to, subject, kind, false, 'they have turned off ' + kind);
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: process.env.FROM_EMAIL, to, subject, html }),
     });
-  } catch { /* never let a mail failure break the request */ }
+    if (r.ok) return mailNote(to, subject, kind, true, '');
+    const d = await r.json().catch(() => ({}));
+    return mailNote(to, subject, kind, false,
+      (d && d.message) || ('Resend said ' + r.status));
+  } catch (err) {
+    return mailNote(to, subject, kind, false, String((err && err.message) || err));
+  }
 }
 
 /* ── Stripe, over plain fetch ────────────────────────────────────
@@ -5223,6 +5242,12 @@ export default async (request) => {
 
     if (path === '/coach/dbcheck') {
       return json(await supa.ping());
+    }
+
+    /* the last sixty emails this site tried to send, and what happened */
+    if (path === '/coach/maillog' && request.method === 'GET') {
+      const log = (await getSetting('maillog')) || [];
+      return json({ log: log.slice(-40).reverse() });
     }
 
     if (path === '/coach/mailguard') {

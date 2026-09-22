@@ -3323,9 +3323,12 @@ function cpClipState(sent){
     (c && (c.uid||c.video))===uid || c===uid)) || null;
   const watchedAt = sent.verdictAt || sent.watchedAt
     || (sub && sub.status==='reviewed' ? (sub.reviewedAt||sub.at||0) : 0);
-  /* a message from him after the clip went is an answer to it */
-  const reply=((st.msgs)||[]).filter(m=>m && m.from==='e' && String(m.text||'').trim()
-    && (m.at||0) > (sent.at||0)).slice(0,1)[0] || null;
+  /* Anything from him after the clip went is an answer to it. This asked
+     for words, so a reply that was a clip of him demonstrating the fix,
+     which is the most useful answer he sends, counted as nothing and the
+     card stayed on "Clip sent". */
+  const reply=((st.msgs)||[]).filter(m=>m && m.from==='e' && (m.at||0) > (sent.at||0)
+    && (String(m.text||'').trim() || m.video || m.image)).slice(0,1)[0] || null;
   return {
     verdict: sent.verdict||'',
     note: sent.note || (sub && sub.answer) || '',
@@ -3368,7 +3371,7 @@ function cpClipHTML(c, sent){
   const steps=[
     ['Clip sent', cpWhen(sent.at), true],
     [esc(who)+' watched it', watched?cpWhen(S.watchedAt):'Usually within 48 hours', watched],
-    [said, done ? (S.reply&&!v ? 'In the chat, and below.' : '') : 'It lands here and in the chat', done],
+    [said, done ? (S.reply&&!v ? ((S.reply.video?'He sent a clip back. ':S.reply.image?'He sent a photo back. ':'')+'In the chat.') : '') : 'It lands here and in the chat', done],
   ];
   return `<div style="margin-top:11px;padding:13px 14px;border-radius:14px;background:${
       done ? (v==='notyet'?'rgba(168,107,22,.09)':'rgba(0,102,99,.07)') : 'rgba(17,17,17,.04)'}">
@@ -3385,10 +3388,13 @@ function cpClipHTML(c, sent){
         ${d?`<span style="display:block;margin-top:2px;font:400 11.5px/1.35 var(--sans);
           color:var(--grey)">${esc(d)}</span>`:''}
       </span></div>`).join('')}
-    ${(S.note||S.reply)?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(28,32,25,.08);
-      font:400 12.5px/1.5 var(--sans);color:var(--ink)">&ldquo;${
-        esc(String(S.note||(S.reply&&S.reply.text)||'').slice(0,240))}${
-        String(S.note||(S.reply&&S.reply.text)||'').length>240?'&hellip;':''}&rdquo;</div>`:''}
+    ${(function(){
+      const words=String(S.note||(S.reply&&S.reply.text)||'').trim();
+      if(!words) return '';
+      return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(28,32,25,.08);
+        font:400 12.5px/1.5 var(--sans);color:var(--ink)">&ldquo;${esc(words.slice(0,240))}${
+        words.length>240?'&hellip;':''}&rdquo;</div>`;
+    })()}
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">
       ${done?`<button onclick="openChat()" style="background:none;border:0;padding:0;cursor:pointer;
         font:600 12.5px/1 var(--sans);color:var(--forest)">Read it in the chat &rarr;</button>`:''}
