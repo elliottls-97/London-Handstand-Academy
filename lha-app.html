@@ -7233,6 +7233,19 @@ function drawOv(){
         style="width:100%;background:#11150f;display:block"></video>`,
         'margin-top:12px;border-radius:16px;overflow:hidden')
         : ''}
+      <div style="display:flex;gap:6px;align-items:center;padding:10px 0 0">
+        ${wide()?'':`<button onclick="dockExplainer('intro')" style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;
+          border:1px solid rgba(0,64,61,.16);background:#fff;color:var(--deep);border-radius:999px;
+          padding:8px 12px;font:600 12px/1 var(--sans);cursor:pointer;text-align:left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/>
+            <rect x="12" y="11" width="8" height="6.5" rx="1" fill="currentColor" stroke="none"/></svg>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Keep watching, carry on</span></button>`}
+        ${[1,1.5,2].map(r=>`<button onclick="exSpeed(${r})" aria-pressed="${(st.exSpeed||1)===r}" style="flex:none;border:1px solid ${(st.exSpeed||1)===r?'var(--forest)':'rgba(0,64,61,.16)'};
+          background:${(st.exSpeed||1)===r?'var(--forest)':'#fff'};color:${(st.exSpeed||1)===r?'var(--on-primary)':'var(--deep)'};
+          border-radius:999px;padding:8px 10px;font:600 12px/1 var(--sans);cursor:pointer">${r}x</button>`).join('')}</div>
+      ${STAGE_SUM[o.url]?`<div class="kick2" style="margin-top:18px">WHAT IS COVERED</div>
+        <div style="font:400 15px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(STAGE_SUM[o.url])}</div>`:''}
     </div>`;
   }
   if(st.ov==='ladderswitch'){
@@ -9171,6 +9184,12 @@ const STAGE_VIDEO = [
   '', '', '', ''
 ];
 const stageFilm = () => STAGE_VIDEO[curStage()] || '';
+/* what each of those films covers, written from its captions, so the
+   sheet says what you are about to watch the way the explainers do */
+const STAGE_SUM = {
+  [LADDER_INTRO_VIDEO]: 'Elliott and Suryava walk through how the ladder works: the quiz that places you, a workout built at your level that you can follow along or do drill by drill, and the check points on every stage, several of them rather than one test, so you know when you are ready to climb. Then the ways to get help when the generic plan is not quite working: form checks on your footage, a programme written for you, and coaching in person.',
+  '99806cf5a01e65ef29f786bb4e50453b': 'Stage two is time upside down against the wall. Chest to wall handstands held long enough that you are relaxed in them, wall scapular shrugs to build the push through the shoulders, the pike push up taken a step past wherever you were, and knee tuck entries from the middle of the room so you can kick up and get most of the way there. All of it foundation for the balance work that follows.',
+};
 /* what the button on Today offers, and what opening it plays */
 function introOffer(){
   const i=curStage(), S=STAGES[i]||STAGES[0];
@@ -9699,20 +9718,28 @@ function openExplainer(i){
   st.exOpen=i; st.ovFull=true; openOv('explainer'); setTimeout(applyExSpeed,50);
   /* the same film is already running in the corner: put that one back in
      the sheet rather than starting it again from nought */
-  const dock=document.getElementById('dock');
-  if(dock && Number(dock.dataset.i)===i){
+  dockRestore('explainer', i);
+}
+/* the sheet is open again: put the running film back into it, or stop a
+   different one that was in the corner */
+function dockRestore(kind, i){
+  const dock=document.getElementById('dock'); if(!dock) return;
+  if(dock.dataset.kind===kind && Number(dock.dataset.i)===(i|0)){
     const nv=document.querySelector('#ov video');
     const host=dock.querySelector('[data-dockhost]');
-    if(nv && host){ nv.parentElement.replaceWith(host); host.removeAttribute('data-dockhost'); host.style.cssText='position:relative;line-height:0;background:#11150f'; }
+    if(nv && host){ nv.parentElement.replaceWith(host); host.removeAttribute('data-dockhost');
+      host.style.cssText='position:relative;line-height:0;background:#11150f'+(kind==='intro'?';margin-top:12px;border-radius:16px;overflow:hidden':''); }
     dock.remove();
-  } else if(dock) undockClose();
+  } else undockClose();
 }
+function openIntroAgain(){ openOv('intro'); dockRestore('intro', 0); }
 /* ── the film in the corner ──────────────────────────────────────
    The video element itself is moved, not copied, so it keeps playing
    from where it was. A tap on it brings the sheet back with the same
    element in it; the cross stops it. On a wide screen the film already
    has a column of its own, so this is only offered on a phone. */
-function dockExplainer(){
+function dockExplainer(kind){
+  kind = kind==='intro' ? 'intro' : 'explainer';
   const v=document.querySelector('#ov video'); if(!v){ closeOv(); return; }
   const host=v.parentElement;
   /* Safari can put it in its own floating window, which is better still */
@@ -9721,7 +9748,8 @@ function dockExplainer(){
   }
   let dock=document.getElementById('dock');
   if(dock) dock.remove();
-  dock=document.createElement('div'); dock.id='dock'; dock.dataset.i=String(st.exOpen|0);
+  dock=document.createElement('div'); dock.id='dock'; dock.dataset.kind=kind;
+  dock.dataset.i=kind==='intro' ? '0' : String(st.exOpen|0);
   dock.innerHTML=`<button onclick="undockClose()" aria-label="Stop watching"
       style="position:absolute;top:-10px;right:-10px;z-index:2;width:28px;height:28px;border-radius:999px;border:0;
       background:var(--ink);color:#fff;font:600 14px/1 var(--sans);cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)">&times;</button>`;
@@ -9729,7 +9757,8 @@ function dockExplainer(){
   host.style.cssText='position:relative;line-height:0;background:#11150f;border-radius:14px;overflow:hidden';
   v.style.maxHeight='none'; v.style.aspectRatio='16/10'; v.style.objectFit='cover';
   dock.appendChild(host);
-  dock.addEventListener('click',e=>{ if(e.target.closest('.vp-bar')||e.target.closest('button')) return; openExplainer(Number(dock.dataset.i)); });
+  dock.addEventListener('click',e=>{ if(e.target.closest('.vp-bar')||e.target.closest('button')) return;
+    if(dock.dataset.kind==='intro') openIntroAgain(); else openExplainer(Number(dock.dataset.i)); });
   document.body.appendChild(dock);
   const was=v.paused, t=v.currentTime;
   st.ovFull=false; closeOv();
