@@ -573,6 +573,8 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .scroll.s>*{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
 
   /* everything the top bar used to carry, at the bottom of the rail */
+  .railswitch{display:flex;gap:4px;padding:4px;margin:0 0 12px;border-radius:13px;
+    background:rgba(0,64,61,.07)}
   .railfoot{margin-top:auto;padding-top:14px;border-top:1px solid rgba(0,64,61,.08);
     display:flex;flex-direction:column;gap:2px}
   .railfoot button:hover{background:rgba(0,64,61,.05)}
@@ -1103,24 +1105,6 @@ function weekWordHTML(){
     </div></div>`;
 }
 
-function todayStrip(){
-  const w=weekNow(), n=sessionsThisWeekN(), d=testIn();
-  const test = testSent() ? 'test with Elliott'
-    : d==null ? '' : d>0 ? 'test in '+d+' day'+(d===1?'':'s')
-    : d===0 ? 'test due today' : 'test overdue';
-  const warn = !testSent() && d!=null && d<=0;
-  const bits=['Block '+blockNo(), 'week '+w,
-    n+' session'+(n===1?'':'s')+' this week'].concat(test?[test]:[]);
-  return `<div class="pad" style="padding-top:18px">
-    <button onclick="go('progress')" style="width:100%;text-align:left;cursor:pointer;border:1px solid ${
-      warn?'rgba(243,169,73,.55)':'rgba(28,32,25,.10)'};border-radius:14px;padding:11px 14px;
-      background:${warn?'rgba(243,169,73,.12)':'rgba(255,255,255,.6)'};display:flex;gap:10px;
-      align-items:center">
-      <span style="flex:1;font:500 12.5px/1.45 var(--sans);color:${warn?'#7a5416':'var(--grey)'}">${
-        bits.map(esc).join(' · ')}</span>
-      <span style="flex:none;font:400 16px/1 var(--serif);color:var(--forest)">→</span>
-    </button></div>`;
-}
 
 /* The one card. Whatever is true right now, in the order it matters:
    the answer that just came back, a test that is due, a fortnight of
@@ -1162,12 +1146,9 @@ function todayFocus(){
       </div></div>`;
   }
 
-  const p=String(DATA.priority||'').trim();
-  if(p) return `<div class="pad" style="padding-top:18px">
-    <div class="card" style="padding:18px 20px">
-      <div class="kick2">THE PRIORITY THIS BLOCK</div>
-      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">${esc(p)}</div>
-    </div></div>`;
+  /* THE PRIORITY THIS BLOCK was a card repeating what the block note
+     above it already says, on the screen somebody opens to train. It is
+     still on the Plan screen with the rest of what Elliott wrote. */
   return '';
 }
 
@@ -1190,19 +1171,25 @@ function screenToday(){
        Nothing here has been dropped: the greeting, the six week block, the
        day, its length and the time it is due are all still on the first
        screen, on the ground rather than on a slab of green. -->
+  <!-- The greeting was an eyebrow over a line announcing that a session
+       was ready, which the button underneath already says. The greeting
+       is the heading now, at a size that leaves room for the thing this
+       screen is actually for. -->
   <div class="rise" style="padding:${st.coached?'16px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
-    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-      color:var(--forest)">Good ${greeting()}${name?', '+esc(name):''}</div>
-    <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">${
-      ticked>=total&&total ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
-      : !nDone ? `Your first session <em style="color:var(--forest);font-style:normal">is ready.</em>`
-      : awayDays()>=10 ? `Good to <em style="color:var(--forest);font-style:normal">see you back.</em>`
-      : `Your next session <em style="color:var(--forest);font-style:normal">is ready.</em>`}</div>
+    <div style="font:400 30px/1.1 var(--serif);letter-spacing:-.01em">${
+      ticked>=total&&total
+        ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
+        : awayDays()>=10
+        ? `Good to <em style="color:var(--forest);font-style:normal">see you back${name?', '+esc(name):''}.</em>`
+        : `Good ${greeting()}<em style="color:var(--forest);font-style:normal">${
+            name?', '+esc(name):''}.</em>`}</div>
   </div>
 
   
   ${weekWordHTML()}
-  ${todayStrip()}
+  ${/* "Block 1 · week 1 · 0 sessions this week" sat between the greeting
+        and the day, three counters nobody came here for. What they have
+        done is a screen of its own. */''}
 <div class="rise rise-1" style="padding:22px 20px 0">
     <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
       <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
@@ -4708,7 +4695,9 @@ function screenProgress(){
     <span style="font:600 9.5px/1 var(--sans);color:${w===thisWeek?'var(--ink)':'var(--grey2)'};margin-top:3px">W${w}</span></div>`).join('');
   /* Two different questions, and they were stacked in one column: am I
      turning up, and am I ready to move up. They get a tab each. */
-  const tab = ['marks','clips'].includes(st.progTab) ? st.progTab : 'track';
+  /* Check points are what a coached client comes here to move, so they
+     are the tab it opens on rather than the third one along. */
+  const tab = ['track','clips'].includes(st.progTab) ? st.progTab : 'marks';
   const seg = (coachedView()
       ? [['track','Training'],['marks','Check points'],['clips','Your clips']]
       : [['track','Training'],['marks','Check points']]).map(([k,l])=>
@@ -9779,12 +9768,14 @@ function screenHome(){
          size of the decision it represents. How long and how hard moved into
          the sheet behind it, because they are the second question. -->
     ${viewSwitch()}
+    <!-- The name of the app was the biggest thing on the screen of the
+         app you are already in. The greeting is the heading now, smaller,
+         and the session under it gets the room. -->
     <div class="rise" style="padding:${st.coached?'16px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
-      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-        color:var(--forest)">${hello}${name?', '+esc(name):''}</div>
-      <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">${
+      <div style="font:400 30px/1.1 var(--serif);letter-spacing:-.01em">${
         didToday ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
-        : `Handstand <em style="color:var(--forest);font-style:normal">Ladder.</em>`}</div>
+        : `${esc(hello)}<em style="color:var(--forest);font-style:normal">${
+            name?', '+esc(name):''}.</em>`}</div>
     </div>
 
     <!-- the stage and how far through it, on one line. Six segments in the
@@ -12942,7 +12933,9 @@ function setCoTab(k){
    has both. Not in the bar: two words and the account chip do not fit
    across a phone, and a clipped word is worse than a row. */
 function viewSwitch(){
-  if(!st.coached) return '';
+  /* On a wide screen this lives in the rail, with the rest of the
+     navigation, rather than as a bar across the top of three screens. */
+  if(!st.coached || wide()) return '';
   return `<div style="padding:calc(env(safe-area-inset-top) + 78px) 16px 0">
     <div class="segrow" style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.07)">
       ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>`<button onclick="switchView(${f})"
@@ -13085,6 +13078,19 @@ function sideCheckCard(){
    the top, because there is nowhere else for them. On a wide screen
    that bar is a strip of chrome over the page for no reason: the rail
    has room underneath the tabs, and the page gets the height back. */
+/* which of the two products you are in, at the top of the rail */
+function railSwitch(){
+  if(!wide() || !st.coached) return '';
+  return `<div class="railswitch">
+    ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>`<button onclick="switchView(${f})"
+      aria-pressed="${(!!st.asFree)===f}"
+      style="flex:1;min-height:34px;border:0;cursor:pointer;border-radius:10px;
+      font:600 12px/1 var(--sans);
+      background:${(!!st.asFree)===f?'#fff':'transparent'};
+      box-shadow:${(!!st.asFree)===f?'0 1px 2px rgba(0,64,61,.12)':'none'};
+      color:${(!!st.asFree)===f?'var(--deep)':'var(--grey)'}">${l}</button>`).join('')}
+  </div>`;
+}
 function railFoot(){
   if(!wide()) return '';
   const waiting = hasNew();
@@ -13236,8 +13242,11 @@ function videoPlaceholder(label,dur,dark){
 
 /* the chat button lands on the chat, not the top of the page it is buried in */
 function openChat(){
-  if(st.in){ go('ask'); return; }
-  st.coTab='chat'; save(); go('coaching');
+  /* st.in is true for a coached account even while it is looking at the
+     ladder, and Ask is not a tab that exists over there, so the render
+     fell back to the first tab: pressing Messages took you to Train.
+     coachedView is the one that knows which app is on screen. */
+  goAsk();
 }
 
 function topBar(){
@@ -13900,7 +13909,7 @@ function render(){
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
       pointer-events:none">Preview &middot; ${esc(st.client||st.email||'client')} &middot; read only</div>`:'')
-    +topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${bar}${railFoot()}</nav>`);
+    +topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${railSwitch()}${bar}${railFoot()}</nav>`);
   /* every film in the app carries the same caption plate. Individual mounts
      called this themselves and one of them always forgot, so it runs after
      any redraw instead: attachCaptions marks what it has done and a second
