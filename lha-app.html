@@ -268,7 +268,7 @@ video{width:100%;display:block;background:#000}
 #theatre .vp-bar{background:none;padding:14px 16px calc(env(safe-area-inset-bottom) + 16px)}
 #theatre .vp-btn{width:40px;height:40px}
 #theatre .vp-t{font-size:12px}
-.row{padding:11px 16px;border-bottom:1px solid rgba(0,64,61,.08)}
+.row{padding:10px 16px;border-bottom:1px solid rgba(0,64,61,.08)}
 .row:last-child{border-bottom:none}
 /* ── a drill, on a phone ───────────────────────────────────────────
    The still sat beside the name and the dose sat under the whole of
@@ -280,12 +280,14 @@ video{width:100%;display:block;background:#000}
 .rowhead{display:contents}
 .rowhead>div:first-child{grid-column:1;grid-row:1}
 .rowhead>button,.rowhead>span{grid-column:2;grid-row:1;align-self:center}
-/* the dose and its two buttons get the whole width, or they wrap onto
-   three lines beside the still and the row is taller than it started */
-.rowdose{grid-column:1 / -1;grid-row:2;margin-top:5px!important}
+/* The dose and its two buttons need the whole width: in the column beside
+   the still they wrap onto three lines and the row grows by fifty pixels.
+   So the still takes the space left of the name instead, which is where
+   the row was empty. */
+.rowdose{grid-column:1 / -1;grid-row:2;margin-top:4px!important}
 .rowbody>*:not(.rowhead):not(.rowdose){grid-column:1 / -1}
 /* a secondary control on a drill row: still a real target, not a slab */
-.row .rt{min-height:40px;padding:0 11px;font-size:11.5px}
+.row .rt{min-height:38px;padding:0 11px;font-size:11.5px}
 .box{width:24px;height:24px;border-radius:8px;border:2px solid rgba(0,64,61,.22);flex:none;
  display:grid;place-items:center;font-size:13px;color:transparent;cursor:pointer;background:#fff}
 .box.on{background:var(--forest);border-color:var(--forest);color:#fff}
@@ -578,7 +580,9 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .row{padding:9px 18px!important}
   /* a mouse does not need a forty four pixel target */
   .row .rt{min-height:34px;padding:0 12px}
-  .rowhead .rt{height:44px}
+  /* the still is taller on a phone, where the row has two lines to fill.
+     On one line it would only make every row taller. */
+  .rowhead .rt{height:44px!important;width:76px!important}
   .rail.cards.all + #raildots{display:none!important}
 
   /* the floating glass bar becomes the rail. Same buttons, same tab
@@ -2212,8 +2216,8 @@ function screenPlan(){
                    nothing about which drill this was. Text stays for a drill
                    with cues and no clip, and for one with neither. -->
               ${(it.url && uidOfUrl(it.url))
-                ? `<button class="rt" style="flex:none;padding:0;width:76px;height:44px;
-                    border-radius:10px;overflow:hidden;position:relative;background:#000;border:0"
+                ? `<button class="rt" style="flex:none;padding:0;width:96px;height:52px;min-height:0;
+                    border-radius:11px;overflow:hidden;position:relative;background:#000;border:0"
                     aria-label="${openD?'Hide the demo':'Watch the demo'}"
                     onclick="st.open['${k}']=!st.open['${k}'];save();render()">
                     <img src="${esc(streamThumb(uidOfUrl(it.url)))}" alt="" loading="lazy"
@@ -5486,8 +5490,12 @@ function saveState(){
 function loadPrefs(){
   if(!st.token) return;
   fetch(AUTH.prefs,{headers:authed()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.prefs=d; save();
-      if(st.ov==='account') ['replies','reminders','marketing','promo'].forEach(paintPref); } })
+    .then(d=>{
+      /* a read that lands while a switch is being saved is out of date
+         by definition, and applying it is what flicks it back */
+      if(!d || prefBusy) return;
+      st.prefs=d; save();
+      if(st.ov==='account') ['replies','reminders','marketing','promo'].forEach(paintPref); })
     .catch(()=>{});
 }
 /* the switch is the only thing that changed, so redraw the switch. Rebuilding
@@ -5500,17 +5508,39 @@ function paintPref(k){
   b.style.background = on ? 'var(--forest)' : 'rgba(28,32,25,.18)';
   b.style.justifyContent = on ? 'flex-end' : 'flex-start';
 }
+/* ── a switch that stays where it was put ─────────────────────────
+   Every answer about preferences replaced the whole set, and there are
+   three ways for a stale one to arrive: a read that was already in
+   flight when the switch was pressed, a second press before the first
+   reply, and the account sheet asking again on open. Any of them put
+   the switch back, and the next reply put it forward, which is the
+   flicking. Each key now carries the number of the press it belongs to
+   and an older answer about that key is dropped. */
+let prefSeq={}, prefBusy=0;
 function setPref(k){
   const v=((st.prefs||{})[k]===false);
   st.prefs=Object.assign({},st.prefs,{[k]:v}); save(); paintPref(k);
+  const n=(prefSeq[k]=(prefSeq[k]||0)+1);
+  prefBusy++;
   fetch(AUTH.prefs,{method:'POST',headers:authed(),body:JSON.stringify({[k]:v})})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.prefs=d; save(); ['replies','reminders','marketing','promo'].forEach(paintPref); } })
-    .catch(()=>{});
+    .then(d=>{
+      if(!d || prefSeq[k]!==n) return;      /* a newer press has happened */
+      /* only the key this answer was about: the others may have moved */
+      st.prefs=Object.assign({},st.prefs,{[k]:d[k]}); save(); paintPref(k);
+    })
+    .catch(()=>{})
+    .finally(()=>{ prefBusy=Math.max(0,prefBusy-1); });
 }
 /* what Stripe says about this subscription, on its own so a late answer can
    be dropped in without rebuilding the sheet around it */
 function subscriptionHTML(){
+          /* Coaching is not the ladder. This printed the app's own price
+             at a coached client whatever they actually pay, so Hannah and
+             Marina were told their coaching was ten pounds a month. Where
+             Stripe knows the figure it is used; where it does not, no
+             figure is invented. */
+          const coachedSub = !!st.in;
           if(!subInfo) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
             Checking with Stripe&hellip;</div>`;
           /* Stripe would not answer. Never leave a paying account on a
@@ -5519,6 +5549,7 @@ function subscriptionHTML(){
           if(subInfo.failed) return `<div style="font:400 13.5px/1.5 var(--sans);margin-top:8px">
               ${st.cancelAt
                 ? 'Your renewal is already stopped. Access stays until <b>'+esc(whenEnds())+'</b>.'
+                : coachedSub ? 'Your coaching is active.'
                 : 'Your '+PRICE()+' a month subscription is active.'}</div>
             <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">
               We could not reach Stripe just now, so the exact date is not shown.
@@ -5527,10 +5558,13 @@ function subscriptionHTML(){
               onclick="subInfo=null;paintSub();loadSubscription()">Try again</button>
             ${st.cancelAt?'':`<button class="btn2" style="width:100%;margin-top:9px"
               onclick="cancelSub(false)">Cancel subscription</button>`}`;
-          if(subInfo.none) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-            No subscription found. If you have paid, message Elliott.</div>`;
+          if(subInfo.none) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">${
+            coachedSub
+              ? 'Your coaching is arranged with '+esc(coachLabel())+' directly rather than through a card on file here, so there is nothing to change on this screen.'
+              : 'No subscription found. If you have paid, message '+esc(coachLabel())+'.'}</div>`;
           const amt = subInfo.amount!=null
-            ? '£'+subInfo.amount.toFixed(2)+' a '+subInfo.interval : PRICE()+' a month';
+            ? '£'+subInfo.amount.toFixed(2)+' a '+subInfo.interval
+            : (coachedSub ? '' : PRICE()+' a month');
           if(subInfo.willCancel) return `
             <div style="background:rgba(196,122,86,.1);border-radius:12px;padding:13px 14px;margin-top:10px">
               <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">CANCELLED</div>
@@ -5547,11 +5581,11 @@ function subscriptionHTML(){
               <span style="color:var(--grey)">Next payment</span>
               <span style="font-weight:600;text-align:right">${esc(niceDate(subInfo.renewsAt))}</span>
             </div>
-            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:4px;
+            ${amt?`<div style="display:flex;justify-content:space-between;gap:12px;margin-top:4px;
               font:400 14px/1.5 var(--sans)">
               <span style="color:var(--grey)">Amount</span>
               <span style="font-weight:600">${esc(amt)}</span>
-            </div>
+            </div>`:''}
             ${subInfo.status&&subInfo.status!=='active'?`<div style="font:400 13px/1.5 var(--sans);
               color:var(--forest);margin-top:8px">Status: ${esc(subInfo.status)}</div>`:''}
             <button class="btn2" style="width:100%;margin-top:14px" onclick="cancelSub(false)">
@@ -11003,20 +11037,47 @@ function screenLadder(){
       <div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:16px;overflow:hidden">
         <div id="heroBar" style="height:100%;width:${pct}%;border-radius:4px;background:var(--deep);
           transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
-      <div style="font:400 14px/1.5 var(--sans);margin-top:10px">${
-        P.of && P.met>=P.of
-          ? (nxt ? 'All '+P.of+' reached. <strong style="font-weight:600">'+esc(nxt.n)+'</strong> is open below.'
-                 : 'All '+P.of+' reached. That is the whole ladder.')
-          : nxt ? 'Reach all '+P.of+' check points and <strong style="font-weight:600">'+esc(nxt.n)+'</strong> opens below.'
-                : 'Reach all '+P.of+' check points and the ladder is done.'}</div>
-      <!-- "Log a check point" scrolled to a card that is now directly below
-           this one, and the sentence under the pair explained a fork that
-           no longer exists. One button, for the one thing this card is for:
-           the record of it is the next thing you see. -->
-      <button onclick="startDay(-1,'full')" style="width:100%;min-height:52px;border:0;border-radius:14px;
-        margin-top:14px;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
-        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-        font:600 15px/1 var(--sans);cursor:pointer">Train at my level</button>
+      ${(function(){
+        /* ── they have finished the free stage ────────────────────────
+           Somebody who reaches every check point on Foundations and has
+           not started the trial was told the next stage "opens below",
+           which is true and useless: below is a locked row with a padlock
+           on it. This is the one moment the offer means something, so the
+           top of the screen is the offer. */
+        const done = P.of && P.met>=P.of;
+        const gated = nxt && stageLocked(cur+1);
+        if(!(done && gated)) return `<div style="font:400 14px/1.5 var(--sans);margin-top:10px">${
+          done
+            ? (nxt ? 'All '+P.of+' reached. <strong style="font-weight:600">'+esc(nxt.n)+'</strong> is open below.'
+                   : 'All '+P.of+' reached. That is the whole ladder.')
+            : nxt ? 'Reach all '+P.of+' check points and <strong style="font-weight:600">'+esc(nxt.n)+'</strong> opens below.'
+                  : 'Reach all '+P.of+' check points and the ladder is done.'}</div>
+          <button onclick="startDay(-1,'full')" style="width:100%;min-height:52px;border:0;border-radius:14px;
+            margin-top:14px;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+            box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+            font:600 15px/1 var(--sans);cursor:pointer">Train at my level</button>`;
+        const days=PRICE_TRIAL();
+        const left=STAGES.length-cur-1;
+        return `<div class="card" style="margin-top:16px;padding:18px 20px;
+          border-color:rgba(243,169,73,.55);background:rgba(243,169,73,.08)">
+          <div class="kick2" style="color:#8a5a12">ALL ${P.of} REACHED</div>
+          <div style="font:400 26px/1.1 var(--serif);margin-top:9px">You have finished
+            <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em></div>
+          <div style="font:400 14.5px/1.55 var(--sans);color:var(--ink);margin-top:10px">
+            ${esc(nxt.n)} is next: ${esc(String(nxt.goal||'').replace(/\.$/,''))}. It and the
+            ${left===1?'stage':left+' stages'} after it ${left===1?'is':'are'} the ${esc(PRICE())} a
+            month tier${days>0?', and the first '+days+' days are free':''}.</div>
+          <button onclick="openStage(${cur+1})" style="width:100%;min-height:52px;border:0;border-radius:14px;
+            margin-top:15px;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+            box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+            font:600 15px/1 var(--sans);cursor:pointer">${days>0
+              ? 'Start the '+days+' day free trial' : 'Open '+esc(nxt.n)}</button>
+          <button class="btn2" style="width:100%;margin-top:9px"
+            onclick="startDay(-1,'full')">Train ${esc(s.n)} again</button>
+          ${days>0?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:10px">
+            Nothing is charged today. Cancel inside the ${days} days and you pay nothing.</div>`:''}
+        </div>`;
+      })()}
     </div>
 
     <!-- ── what you are actually working on ──────────────────────────
