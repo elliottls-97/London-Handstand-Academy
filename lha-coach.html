@@ -3116,23 +3116,47 @@ function reviewAllFrom(email){
 }
 /* who the recording goes back to */
 let reviewFor='';
-function reviewClip(uid, title){
+function reviewClip(uid, title, tries){
   uid=String(uid||''); if(!uid) return;
   const have=reviewQueue.find(c=>c.uid===uid);
   if(have && have.src){ view='review'; draw(); setTimeout(()=>reviewPost(have),0); return; }
-  const row={uid, title:title||'Client clip', src:'', sent:false};
+  const row=have || {uid, title:title||'Client clip', src:'', sent:false};
   if(!have) reviewQueue.push(row);
+  row.error=''; row.building=false;
+  const n=Number(tries)||0;
   reviewBusy=uid; view='review'; draw();
   fetch(API+'/clip?uid='+encodeURIComponent(uid),{headers:hdr()})
-    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    /* ── 202 is not success ──────────────────────────────────────
+       Stream keeps the MP4 unbuilt until it is asked for, and the
+       server answers 202 with no src while it builds. r.ok is true
+       for a 202, so that answer was taken as a loaded clip with no
+       address in it and the chip sat on "fetching" for ever with
+       nothing coming. It waits and asks again, up to a point, and
+       then says so with a way to try again. */
+    .then(r=>r.json().then(d=>{
+      if(r.status===202 || (r.ok && !d.src)) return Promise.reject({building:true, msg:d.error||'Stream is still building this one.'});
+      return r.ok ? d : Promise.reject({msg:d.error||('the server said '+r.status)});
+    }))
     .then(d=>{
       const c=reviewQueue.find(x=>x.uid===uid)||row;
-      c.src=d.src; reviewBusy='';
+      c.src=d.src; c.error=''; c.building=false; reviewBusy='';
       if(reviewReady && reviewPost(c)) c.sent=true;
       draw();
     })
-    .catch(err=>{ reviewBusy=''; const c=reviewQueue.find(x=>x.uid===uid);
-      if(c) c.error=String(err); draw(); });
+    .catch(err=>{
+      reviewBusy='';
+      const c=reviewQueue.find(x=>x.uid===uid); if(!c){ draw(); return; }
+      const building=!!(err && err.building);
+      if(building && n<6){
+        c.building=true; c.error=''; c.tries=n+1; draw();
+        setTimeout(()=>reviewClip(uid, c.title, n+1), 5000);
+        return;
+      }
+      c.building=false;
+      c.error = building ? 'still building, try again'
+        : String((err && err.msg) || err);
+      draw();
+    });
 }
 function reviewDrop(uid){
   reviewQueue=reviewQueue.filter(c=>c.uid!==uid); draw();
@@ -3431,7 +3455,13 @@ function syncReview(){
     <span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
       esc(c.title)}</span>
     <span style="font-weight:500;color:var(--grey2)">${
-      c.error?esc(c.error):(c.src?'loaded':'fetching…')}</span>
+      c.error?esc(c.error)
+      : c.src?'loaded'
+      : c.building?('building'+(c.tries?' · try '+c.tries+' of 6':'')+'…')
+      : 'fetching…'}</span>
+    ${(c.error&&!c.src)?`<button onclick="reviewClip('${esc(c.uid)}',${JSON.stringify(c.title||'').replace(/"/g,'&quot;')})"
+      title="Try again" style="cursor:pointer;border:0;background:none;color:var(--forest);padding:0;
+      font:700 11px/1 var(--sans);text-decoration:underline">retry</button>`:''}
     <button onclick="reviewDrop('${esc(c.uid)}')" title="Remove"
       style="cursor:pointer;border:0;background:none;color:var(--grey2);padding:0;
       font-size:14px;line-height:1">×</button></span>`;
@@ -8388,7 +8418,13 @@ function drawNow(){
       m.seen ? ' · '+(m.from==='coach'?'read':'you read it') : (m.from==='coach'?' · sent':'')}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">${
       threadLoaded && threadFor===sel ? 'Nothing here yet.' : 'Loading their thread&hellip;'}</div>`;
-  $('#v').innerHTML=`<div class="shell">
+  /* ── the same screen is not drawn twice ────────────────────────
+     Opening a client fires four requests and each one redraws the whole
+     dashboard when it lands, whether or not it changed anything on it.
+     Every redraw throws away every poster and iframe in the thread and
+     fetches them again, which is the flicker. If the screen would come
+     out identical, nothing is touched. */
+  const html=`<div class="shell">
     ${headerHTML()}
     <main class="main">${
       view==='today'    ? todayHTML()
@@ -8400,8 +8436,10 @@ function drawNow(){
     : todayHTML()}</main></div>`
     + bulkHTML() + copyHTML() + toastHTML()
     + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML();
+  if(html!==lastHTML){ lastHTML=html; $('#v').innerHTML=html; }
   syncReview();
 }
+let lastHTML='';
 /* ── typing has to survive a redraw ────────────────────────────────
    draw() replaces the whole of #v, so the box being typed into is gone
    and a new one stands in its place: on a phone that closes the keyboard
