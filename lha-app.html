@@ -1561,6 +1561,52 @@ function loadSign(){
     }).catch(()=>{});
 }
 const streamMp4   = uid => STREAM_CDN+sigUid(uid)+'/downloads/default.mp4';
+/* ── the film at the size the connection can carry ─────────────────
+   Every clip played from downloads/default.mp4, which is one file at
+   whatever it was filmed at: a fourteen second warm up drill is nine
+   megabytes and a thirty second one is five and a half, the same on a
+   train as on wifi. Cloudflare has already made a 720, 480, 360 and 240
+   of each, and the manifest lets the player pick as it goes.
+
+   Only where the browser genuinely plays it. canPlayType answers
+   "maybe" for HLS in Chrome and then cannot play a frame of it, so the
+   test is iOS, where every browser is WebKit, or a browser that both
+   claims it and is not Chromium. Everywhere else keeps the MP4, and a
+   manifest that fails anyway drops back to it. */
+const streamHls   = uid => STREAM_CDN+sigUid(uid)+'/manifest/video.m3u8';
+/* Whether this browser plays the ladder is a question about the browser,
+   and sniffing the user agent answers it wrongly in both directions:
+   canPlayType says "maybe" in Chrome and then plays nothing, and some
+   Chromium builds play it perfectly. So the app asks one real film for
+   its metadata, once, and remembers the answer. Until it knows, the MP4
+   is used, so the first film of the very first open is never a gamble. */
+const HLS_PROBE='a7cd457020f580093be946524a84c3af';
+let _hlsOk=null;
+try{ const v=localStorage.getItem('lha_hls'); if(v==='1'||v==='0') _hlsOk=(v==='1'); }catch(e){}
+function hlsOk(){ return _hlsOk===true; }
+function probeHls(){
+  if(_hlsOk!=null) return;
+  _hlsOk=false;                       /* until proven otherwise */
+  let done=false;
+  const v=document.createElement('video');
+  v.muted=true; v.preload='metadata'; v.playsInline=true;
+  const end=ok=>{
+    if(done) return; done=true;
+    _hlsOk=!!ok;
+    try{ localStorage.setItem('lha_hls', ok?'1':'0'); }catch(e){}
+    try{ v.removeAttribute('src'); v.load(); }catch(e){}
+  };
+  v.addEventListener('loadedmetadata',()=>end(v.videoWidth>0));
+  v.addEventListener('error',()=>end(false));
+  setTimeout(()=>end(false), 4000);
+  try{ v.src=streamHls(HLS_PROBE); }catch(e){ end(false); }
+}
+/* what to put in a video's src: the ladder where it plays, the file where
+   it does not */
+function filmSrc(url){
+  const uid=uidOfUrl(url);
+  return (uid && hlsOk()) ? streamHls(uid) : sig(url);
+}
 const streamThumb = uid => STREAM_CDN+sigUid(uid)+'/thumbnails/thumbnail.jpg?time=3s&height=320';
 /* no extension on this one: /captions/en.vtt is a 404 and /captions/en is
    the file. An hour went into that difference. */
@@ -1853,6 +1899,19 @@ function vpBar(v, theatre){
   };
   play.onclick=e=>{ e.stopPropagation(); v.paused?v.play():v.pause(); paint(); };
   q('full').onclick=e=>{ e.stopPropagation(); theatre?vpClose():vpOpen(v); };
+  /* ── a manifest that cannot play falls back to the file ──────────
+     The test for native HLS is conservative, but a browser that says
+     yes and then cannot decode would leave a black box with no way out.
+     One retry on the plain MP4 and it behaves as it always did. */
+  v.addEventListener('error', ()=>{
+    const cur=String(v.currentSrc||v.src||'');
+    if(cur.indexOf('/manifest/')<0 || v.dataset.mp4Fallback) return;
+    const m=/\/([A-Za-z0-9._-]{20,})\/manifest\//.exec(cur);
+    if(!m) return;
+    v.dataset.mp4Fallback='1';
+    v.src=STREAM_CDN+m[1]+'/downloads/default.mp4';
+    v.load(); try{ v.play().catch(()=>{}); }catch(e){}
+  });
   /* one setting for the whole app, so turning a drill's sound on leaves it
      on for the next drill and for the explainers */
   if(mute) mute.onclick=e=>{ e.stopPropagation();
@@ -2112,7 +2171,8 @@ function mountCaptions(){
 const ccWrap = (inner, extra) =>
   `<div style="position:relative;line-height:0;${extra||''}">${inner}</div>`;
 function qaVideo(a, full){
-  const src = a.uid ? streamMp4(a.uid) : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
+  const src = a.uid ? (hlsOk()?streamHls(a.uid):streamMp4(a.uid))
+    : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
   if(!src) return '';
   setTimeout(mountCaptions,0);
   /* full: most of the screen, whichever way the film was shot */
@@ -6269,7 +6329,7 @@ function showStep(){
       }
       vEl.style.display=''; const bar=vw.querySelector('.vp-bar'); if(bar) bar.style.display='';
       vEl.muted=!soundOn();
-      const src=sig(it.url);
+      const src=filmSrc(it.url);
       if(vEl.getAttribute('data-src')!==src){
         vEl.setAttribute('data-src',src); vEl.src=src;
         /* the drill's own first frame while it loads: a black rectangle
@@ -6829,7 +6889,7 @@ function drillFilm(url, ratio, lazy){
   const uid=uidOfUrl(url);
   if(!uid) return vidBlock(url, ratio, 'contain');
   setTimeout(mountCaptions,0);
-  return ccWrap(`<video src="${sig(url)}" controls playsinline loop muted
+  return ccWrap(`<video src="${filmSrc(url)}" controls playsinline loop muted
     ${lazy?'preload="none"':''} poster="${streamThumb(uid)}" data-cc="${uid}"
     style="width:100%;aspect-ratio:${ratio||'4/3'};object-fit:contain;
     background:#11150f;display:block"></video>`,
@@ -7374,7 +7434,7 @@ function drawOv(){
       <div style="font:400 26px/1.1 var(--serif);margin-top:8px">${esc(o.title)}</div>
       <div style="font:400 12px/1 var(--sans);color:var(--grey2);margin-top:6px">${
         esc(o.len)} &middot; captions on</div>
-      ${o.url ? ccWrap(`<video src="${streamMp4(o.url)}" controls playsinline autoplay
+      ${o.url ? ccWrap(`<video src="${hlsOk()?streamHls(o.url):streamMp4(o.url)}" controls playsinline autoplay
         poster="${streamThumb(o.url)}" data-cc="${esc(o.url)}"
         style="width:100%;background:#11150f;display:block"></video>`,
         'margin-top:12px;border-radius:16px;overflow:hidden')
@@ -7745,7 +7805,7 @@ function drawOv(){
           <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--grey)">
             STAGE WALKTHROUGH</div>
           <div style="font:400 17px/1.2 var(--serif);margin-top:5px">${esc(St.n)}, explained</div>
-          ${ccWrap(`<video src="${streamMp4(uid)}" controls playsinline preload="none"
+          ${ccWrap(`<video src="${hlsOk()?streamHls(uid):streamMp4(uid)}" controls playsinline preload="none"
             poster="${streamThumb(uid)}" data-cc="${esc(uid)}"
             style="width:100%;background:#11150f;display:block"></video>`,
             'margin-top:10px;border-radius:16px;overflow:hidden')}
@@ -10595,7 +10655,7 @@ function workshopPopHTML(){
   const w=WS||{};
   /* The film is optional: it belongs to the workshop in the dashboard, and
      a workshop written without one still has a card. */
-  const film = w.uid ? ccWrap(`<video src="${streamMp4(w.uid)}" autoplay muted playsinline loop
+  const film = w.uid ? ccWrap(`<video src="${hlsOk()?streamHls(w.uid):streamMp4(w.uid)}" autoplay muted playsinline loop
         poster="${streamThumb(w.uid)}" data-cc="${esc(w.uid)}"
         style="width:100%;aspect-ratio:9/16;max-height:52vh;object-fit:cover;display:block;
         background:#0f1a19"></video>`, 'border-radius:22px 22px 0 0;overflow:hidden') : '';
@@ -14426,6 +14486,9 @@ document.addEventListener('DOMContentLoaded',function(){
   loadLadder();
   loadFixes();
   loadPlans();
+  /* ask one film whether this browser plays the adaptive ladder. The
+     answer is kept, so it is asked once per device rather than per open. */
+  probeHls();
   workshopWatch();
   if(st.fbPending){ delete st.fbPending; save(); setTimeout(()=>{ if(st.in||st.token) openOv('feedback'); }, 900); }
   /* The track holds every check point reading and the coach's verdict on
