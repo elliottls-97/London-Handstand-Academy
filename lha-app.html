@@ -573,6 +573,12 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .scroll.s>*{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
 
   /* everything the top bar used to carry, at the bottom of the rail */
+  /* both ways in on the screen at the same time: a choice you have to
+     swipe to see the other half of is not a choice you can make */
+  .corail{overflow:visible!important;margin-left:0!important;margin-right:0!important;
+    padding-left:0!important;padding-right:0!important}
+  .corail>button{flex:1 1 0!important}
+  .codots{display:none!important}
   .railswitch{display:flex;gap:4px;padding:4px;margin:0 0 12px;border-radius:13px;
     background:rgba(0,64,61,.07)}
   .railfoot{margin-top:auto;padding-top:14px;border-top:1px solid rgba(0,64,61,.08);
@@ -8796,12 +8802,6 @@ function sendIntake(){
     body:JSON.stringify({intake:st.intake||{},stage:st.stage})}).catch(()=>{});
 }
 
-const TIERS=[['The six-stage ladder','Foundations free','✓'],['Level-finder quiz','✓','✕'],['Quick session builder','✓','✓'],
- ['Guided follow-along player','✓','✓'],['Drill library','Foundations only','All drills'],['Check points','✓','✓'],
- ['Offline use','✓','✓'],['Programme written for you','✕','✓'],["Coach's read on the block",'✕','✓'],
- ['Too easy / too hard flags','Self only','To Elliott'],['Chat with Elliott','About coaching','Anything'],
- ['Form check on your footage',()=>'One free, then '+PRICE('check')+' a clip','Included'],['Two-week test reviewed','Self-scored','By Elliott'],
- ['Session summary to coach','✕','✓'],['Workshops','Book','Member price']];
 
 /* every drill the app knows about, from the programme data */
 function allDrills(){ const out=[];
@@ -9466,18 +9466,6 @@ function exSpeed(r){ st.exSpeed=r; save(); applyExSpeed();
   document.querySelectorAll('#ov [aria-pressed]').forEach(b=>{ const on=b.textContent===r+'x'; b.setAttribute('aria-pressed',on?'true':'false');
     b.style.background=on?'var(--forest)':'#fff'; b.style.color=on?'var(--on-primary)':'var(--deep)'; b.style.borderColor=on?'var(--forest)':'rgba(0,64,61,.16)'; }); }
 /* the tier table is the answer to a question, so it opens when asked */
-/* The three tier cards this used to open are the picker above now, so
-   opening them again put the same three prices on the screen twice.
-   Compare opens the one thing the picker does not show, which is the
-   feature grid: what free gets against what coached gets. */
-function openCompare(){
-  st.tiersOpen=!st.tiersOpen; save();
-  const el=document.getElementById('tierTable');
-  if(el){
-    el.style.display=st.tiersOpen?'':'none';
-    if(st.tiersOpen) el.scrollIntoView({behavior:'smooth',block:'nearest'});
-  }
-}
 /* A locked explainer used to run st.tab='joinFree' and render(), which threw
    you off Today onto the account screen. Twenty three of the twenty six cards
    did it, so the commonest thing you could press on the main screen replaced
@@ -12164,9 +12152,7 @@ function coPanelHTML(pick){
           style="width:100%;margin-top:8px;min-height:44px;border:1px solid rgba(255,255,255,.35);
           border-radius:14px;cursor:pointer;background:rgba(255,255,255,.1);color:var(--on-primary);
           font:600 13.5px/1 var(--sans)">Ask me about this one</button>
-        <button onclick="openCompare()" style="width:100%;margin-top:12px;background:none;border:0;
-          cursor:pointer;padding:4px;color:var(--on-primary);font:600 13px/1 var(--sans);
-          text-decoration:underline;opacity:.9">Compare every way in &rarr;</button>
+
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.2);
           font:400 12px/1.5 var(--sans);opacity:.86">
           Rather try one session first?
@@ -12189,7 +12175,7 @@ function coachingPicker(){
     <!-- Two plans across in one row, swiped, the next peeking in, so the
          choice and its detail stay on screen together. The London session
          is a switch on the panel below rather than a third card. -->
-    <div id="coRail" class="rail s" data-tour="pricing" onscroll="coDots()"
+    <div id="coRail" class="rail s corail" data-tour="pricing" onscroll="coDots()"
       style="display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;
       -webkit-overflow-scrolling:touch;margin:14px -20px 0;padding:4px 20px 6px">
       ${PLANSC.map(p=>{
@@ -12213,7 +12199,7 @@ function coachingPicker(){
           </span>
         </button>`;}).join('')}
     </div>
-    <div id="coDots" style="display:flex;justify-content:center;gap:6px;margin-top:8px">${coDotsHTML(PLANSC,pick)}</div>
+    <div id="coDots" class="codots" style="display:flex;justify-content:center;gap:6px;margin-top:8px">${coDotsHTML(PLANSC,pick)}</div>
     <div id="coPanel" style="margin:14px -20px -18px;border-radius:0 0 26px 26px;overflow:hidden">${coPanelHTML(pick)}</div>
   </div>`;
 }
@@ -12423,18 +12409,15 @@ function screenCoaching(){
           ${(st.checkOpen||st.coached)?'Your form check is open: clips and photos sent here go into it.':'Questions here. Footage goes through a form check, so it is watched properly.'}</div>
       </div>`;
 
-  const rows=TIERS.map(([n,f0,c],i)=>{ const f=(typeof f0==='function')?f0():f0; return `<div style="background:#fff;padding:11px 13px;display:flex;
-    align-items:stretch;gap:8px;${i?'border-top:1px solid rgba(17,17,17,.06)':''}">
-    <span style="flex:1;align-self:center;font:500 12.5px/1.3 var(--sans)">${esc(n)}</span>
-    <span style="flex:none;width:62px;align-self:center;text-align:center;font:500 11px/1.2 var(--sans);
-      color:${f==='✕'?'var(--grey2)':'var(--grey)'}">${f}</span>
-    <span style="flex:none;width:62px;text-align:center;font:600 11px/1.2 var(--sans);
-      display:grid;place-items:center;background:rgba(0,102,99,.05);
-      color:${c==='✕'?'var(--grey2)':'var(--forest)'}">${c}</span>
-  </div>`; }).join('');
-  const faqs=[['What actually changes?','You stop guessing. The programme is written for your body and your week, and it changes every fortnight based on what you send me.'],
-   ['Do I need to be at a certain level?','No. Most people start somewhere between "can kick up" and "can\'t hold it". Complete beginners are welcome.'],
-   ['Can I do it fully online?','Yes. Programming and form checks work anywhere. In-person in London is an optional add-on.'],
+  /* Questions people actually ask before they buy, answered against what
+     the thing does today: it arrives in this app, it starts with a clip,
+     and it is a month at a time. The old set answered none of those. */
+  const faqs=[['What happens after I pay?','Your programme appears in this app, on the Train tab. The first thing I ask for is a clip of where you are now, and block one is written from it, usually within a few days.'],
+   ['What actually changes?','You stop guessing. The programme is written for your body and your week, and it changes every fortnight from what you send me.'],
+   ['Do I need to be at a certain level?','No. Most people start somewhere between "can kick up" and "cannot hold it". Complete beginners are welcome.'],
+   ['Do I need a gym?','No. Almost everything is a floor, a wall and a chair. If you have a gym, some days use a box.'],
+   ['Can I do it fully online?','Yes. The programme and the form checks work anywhere. A session with me in London is '+PRICE('session')+' a month on top, and you can add or drop it whenever.'],
+   ['Can I stop?','It is a month at a time. Cancel from your account and it runs to the end of the month you have paid for.'],
    ['What if I have a niggle?','Tell me at the start. We build around it, and Beth, our Chartered Physio, is on the team.']]
    .map(([q,a],i)=>`<div style="padding:14px 0;border-top:1px solid rgba(28,32,25,.08);cursor:pointer"
       onclick="st.faq=st.faq||{};st.faq[${i}]=!st.faq[${i}];save();render()">
@@ -12478,8 +12461,12 @@ function screenCoaching(){
   /* the Form check / Chat switch is drawn by the top bar, so it is on
      screen whatever is scrolled, on every phone */
   if(tab==='chat'){
+    /* The switch was wrapped here and bare on the other tab, so the rules
+       that hold a direct child of the page to its column landed on the
+       wrapper on one and on the switch itself on the other: pressing Chat
+       moved the switch 216 pixels across and 26 down. Same shape on both. */
     return `<div class="scroll s" style="display:flex;flex-direction:column;padding-bottom:0">
-      ${wide()?`<div style="flex:none">${seg}</div>`:''}
+      ${wide()?seg:''}
       <div style="flex:none">${head}</div>${chatBody}</div>`;
   }
   return `<div class="scroll s">
@@ -12510,18 +12497,6 @@ function screenCoaching(){
            screen has one job. -->
       ${!sold ? '' : coachingPicker()}
       ${!sold ? '' : `
-      <div class="card" data-tour="tiers" id="tierTable"
-        style="padding:20px;${st.tiersOpen?'':'display:none'}">
-        <div class="kick2">WHAT EACH TIER GETS</div>
-        <div style="margin-top:14px;border-radius:16px;overflow:hidden;border:1px solid rgba(28,32,25,.08)">
-          <div style="background:rgba(0,102,99,.06);padding:10px 13px;display:flex;gap:8px">
-            <span style="flex:1"></span>
-            <span style="flex:none;width:62px;text-align:center;font:700 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">FREE</span>
-            <span style="flex:none;width:62px;text-align:center;font:700 9.5px/1 var(--sans);
-              letter-spacing:.12em;color:var(--forest);background:rgba(0,102,99,.07);
-              display:grid;place-items:center">COACHED</span>
-          </div>${rows}</div>
-      </div>
       <div class="card" style="padding:20px">
         <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>`}
       ${st.applied
