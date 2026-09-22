@@ -435,11 +435,18 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
    read rather than stretched across a monitor. */
 @media (min-width:1080px){
   :root{--rail:248px;--aside:372px}
-  #app{max-width:none;padding-left:var(--rail)}
+  #app{max-width:none}
+  #app.harail{padding-left:var(--rail)}
+  #app:not(.harail) #topbar{left:0!important}
+  #app:not(.harail) .scroll.s:not(.full)>*{max-width:620px}
+  .scroll.s.full>*{max-width:none}
   /* the page gives the right hand column its room only on the screens
-     that have one, so a screen without one is not a page with a hole */
-  #app:has(#side){padding-right:var(--aside)}
-  #app:has(#side) #topbar{right:var(--aside)!important}
+     that have one, so a screen without one is not a page with a hole.
+     The class is set by the render, because :has is silently missing on
+     browsers people are still using and a missing rule here would put
+     the column on top of the page. */
+  #app.haside{padding-right:var(--aside)}
+  #app.haside #topbar{right:var(--aside)!important}
   #side{position:absolute;right:0;top:0;bottom:0;width:var(--aside);z-index:10;
     overflow-y:auto;overscroll-behavior:contain;
     padding:92px 28px 32px;display:flex;flex-direction:column;gap:14px;
@@ -467,6 +474,10 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   /* a check point's demo at the full width of a monitor is most of a
      screen each, and there are seven of them */
   .cpfilm{max-width:430px}
+  /* a month stretched to the width of a page gives you seven columns of
+     nearly nothing. In the right hand column it fills what it is given. */
+  .calcard{max-width:470px}
+  #side .calcard{max-width:none}
   #raildots{display:none!important}
 
   /* the floating glass bar becomes the rail. Same buttons, same tab
@@ -494,7 +505,8 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
     margin-left:auto!important;flex:none}
 
   /* the top bar starts where the rail ends */
-  #topbar{left:var(--rail)!important;padding:20px 40px 14px!important}
+  #app.harail #topbar{left:var(--rail)!important}
+  #topbar{padding:20px 40px 14px!important}
 
   /* one column, held to a readable width and centred in what is left */
   .scroll{padding-bottom:40px}
@@ -2990,6 +3002,14 @@ function cpClipHTML(c, sent){
   const send=(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`;
   if(!sent){
     const can=fcOpen();
+    /* Three states, not two. fcOpen is false both for somebody whose free
+       one is gone and for somebody the server has not answered about yet,
+       and telling a person who has just arrived that their free form check
+       is used is the worst of the three things this line can say. */
+    const line = can ? 'He watches it himself and says whether it counts.'
+      : st.freeCheckUsed ? 'Your free one is used. '+esc(PRICE('check'))+' a clip after that.'
+      : !st.token ? 'One free with an account.'
+      : 'One free with your account.';
     return `<button onclick="${send}" style="width:100%;margin-top:11px;display:flex;align-items:center;
       gap:11px;padding:11px 13px;border-radius:14px;cursor:pointer;text-align:left;
       border:1.5px solid ${can?'rgba(243,169,73,.5)':'rgba(17,17,17,.12)'};
@@ -2999,9 +3019,7 @@ function cpClipHTML(c, sent){
         color:${can?'#7a4a10':'var(--grey2)'}">${IC_FORMCHECK}</span>
       <span style="flex:1;min-width:0">
         <span style="display:block;font:600 13px/1.2 var(--sans)">Send ${esc(who)} a clip of this</span>
-        <span style="display:block;margin-top:3px;font:400 11.5px/1.35 var(--sans);color:var(--grey)">${
-          can ? 'He watches it himself and says whether it counts.'
-              : 'Your free one is used. '+esc(PRICE('check'))+' a clip after that.'}</span>
+        <span style="display:block;margin-top:3px;font:400 11.5px/1.35 var(--sans);color:var(--grey)">${line}</span>
       </span></button>`;
   }
   const v=sent.verdict, done=!!v;
@@ -4029,7 +4047,7 @@ function trainingCalendar(){
       +(weeks>1?` &middot; ${(whole/weeks).toFixed(1)} a week`:'')
     : '';
 
-  return `<div class="card" style="padding:20px">
+  return `<div class="card calcard" style="padding:20px">
     <div style="display:flex;align-items:center;gap:10px">
       <button onclick="calShift(1)" aria-label="Previous month"
         style="flex:none;width:34px;height:34px;border-radius:11px;border:1px solid rgba(0,64,61,.14);
@@ -6069,6 +6087,10 @@ function openOv(kind){
      when a sheet or the menu is already open: the column is behind both,
      so the film would play where nobody can see it. */
   if(wide() && !st.ov && !menuOpen && (kind==='drill'||kind==='explainer')){
+    /* openExplainer sets this on the way in, for a full screen sheet that
+       is no longer being opened. Left standing it makes the NEXT sheet,
+       whatever it is, open full screen. */
+    st.ovFull=false; save();
     openSideVid(kind==='drill' ? {k:'drill', it:st.ovDrill||{}} : {k:'explainer', i:st.exOpen|0});
     return;
   }
@@ -8150,7 +8172,7 @@ function profilePct(){
 
 const INTAKE_STEPS=[
   {id:'goal',  kick:'WHAT YOU WANT',  q:'What are you here to achieve?',
-   sub:'This shapes how I explain things — not where you start.'},
+   sub:'This shapes how I explain things, not where you start.'},
   {id:'level', kick:'WHERE YOU ARE',  q:'Tell us about your handstand.',
    sub:'This is the one that sets your stage.'},
   {id:'niggles',kick:'ANYTHING SORE', q:'Anything I should know about?',
@@ -8269,7 +8291,7 @@ function screenQuiz(){
 function capLine(){
   const L=levelDef(), max=L.days[L.days.length-1];
   return max<=3
-    ? 'Three sessions of up to 45 minutes is the most that helps at this stage — wrists adapt slower than everything else.'
+    ? 'Three sessions of up to 45 minutes is the most that helps at this stage. Wrists adapt slower than everything else.'
     : 'More than five stops helping and starts costing you wrists.';
 }
 
@@ -8361,12 +8383,12 @@ function sendIntake(){
     body:JSON.stringify({intake:st.intake||{},stage:st.stage})}).catch(()=>{});
 }
 
-const TIERS=[['The six-stage ladder','Foundations free','✓'],['Level-finder quiz','✓','—'],['Quick session builder','✓','✓'],
+const TIERS=[['The six-stage ladder','Foundations free','✓'],['Level-finder quiz','✓','✕'],['Quick session builder','✓','✓'],
  ['Guided follow-along player','✓','✓'],['Drill library','Foundations only','All drills'],['Check points','✓','✓'],
- ['Offline use','✓','✓'],['Programme written for you','—','✓'],["Coach's read on the block",'—','✓'],
+ ['Offline use','✓','✓'],['Programme written for you','✕','✓'],["Coach's read on the block",'✕','✓'],
  ['Too easy / too hard flags','Self only','To Elliott'],['Chat with Elliott','About coaching','Anything'],
  ['Form check on your footage',()=>'One free, then '+PRICE('check')+' a clip','Included'],['Two-week test reviewed','Self-scored','By Elliott'],
- ['Session summary to coach','—','✓'],['Workshops','Book','Member price']];
+ ['Session summary to coach','✕','✓'],['Workshops','Book','Member price']];
 
 /* every drill the app knows about, from the programme data */
 function allDrills(){ const out=[];
@@ -8790,7 +8812,7 @@ function dropToStage(i){
   st.stage=i; save(); sendIntake(); render();
 }
 function retakeIntake(){
-  if(!confirm('Retake the questions?\n\nYour training history stays — this only changes where you are placed.')) return;
+  if(!confirm('Retake the questions?\n\nYour training history stays. This only changes where you are placed.')) return;
   st.quizDone=false; st.oriented=false; st.quizStep=0; save(); st.tab='quiz'; render();
 }
 
@@ -11442,7 +11464,7 @@ function buyPlan(k){
     body:JSON.stringify(Object.assign({plan:k}, st.promo?{promo:st.promo}:{}))})
     .then(r=>r.json())
     .then(d=>{ if(d.url){ if(!leaveTo(d.url)) throw new Error('frame'); } else throw new Error(d.error||''); })
-    .catch(()=>{ if(b){ b.disabled=false; b.textContent='Something went wrong — try again'; } });
+    .catch(()=>{ if(b){ b.disabled=false; b.textContent='Something went wrong, try again'; } });
 }
 function pricingCard(){
   if(plansOn===null) loadPlans();
@@ -11855,7 +11877,7 @@ function screenCoaching(){
           (st.freeCheckUsed && st.checkCredits>0) ? (st.checkCredits===1?'One form check paid for.':st.checkCredits+' form checks paid for.') : 'Find out what\'s holding you back.'}</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           One clip of the skill you're stuck on. Side on, phone vertical, whole
-          body in frame — don't crop the hands out.</div>
+          body in frame, don't crop the hands out.</div>
         ${tick('Watched by me, not a bot')}
         ${tick('A reply within 48 hours')}
         ${tick(st.coached ? 'As many as you train'
@@ -11933,15 +11955,15 @@ function screenCoaching(){
     align-items:stretch;gap:8px;${i?'border-top:1px solid rgba(17,17,17,.06)':''}">
     <span style="flex:1;align-self:center;font:500 12.5px/1.3 var(--sans)">${esc(n)}</span>
     <span style="flex:none;width:62px;align-self:center;text-align:center;font:500 11px/1.2 var(--sans);
-      color:${f==='—'?'var(--grey2)':'var(--grey)'}">${f}</span>
+      color:${f==='✕'?'var(--grey2)':'var(--grey)'}">${f}</span>
     <span style="flex:none;width:62px;text-align:center;font:600 11px/1.2 var(--sans);
       display:grid;place-items:center;background:rgba(0,102,99,.05);
-      color:${c==='—'?'var(--grey2)':'var(--forest)'}">${c}</span>
+      color:${c==='✕'?'var(--grey2)':'var(--forest)'}">${c}</span>
   </div>`; }).join('');
   const faqs=[['What actually changes?','You stop guessing. The programme is written for your body and your week, and it changes every fortnight based on what you send me.'],
    ['Do I need to be at a certain level?','No. Most people start somewhere between "can kick up" and "can\'t hold it". Complete beginners are welcome.'],
    ['Can I do it fully online?','Yes. Programming and form checks work anywhere. In-person in London is an optional add-on.'],
-   ['What if I have a niggle?','Tell me at the start. We build around it, and Beth — our Chartered Physio — is on the team.']]
+   ['What if I have a niggle?','Tell me at the start. We build around it, and Beth, our Chartered Physio, is on the team.']]
    .map(([q,a],i)=>`<div style="padding:14px 0;border-top:1px solid rgba(28,32,25,.08);cursor:pointer"
       onclick="st.faq=st.faq||{};st.faq[${i}]=!st.faq[${i}];save();render()">
       <div style="display:flex;justify-content:space-between;gap:10px">
@@ -12047,6 +12069,76 @@ function screenWelcome(){
      a different app. The four bars are the quiz, and the same strip carries
      through it, so the thing you are about to do is visible before you
      agree to it. */
+  const brand=`<div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+      color:var(--forest)">London Handstand Academy</div>`;
+  const strip=`<div style="display:flex;gap:10px;margin-top:28px;align-items:center;
+      color:var(--grey);font:400 13px/1.45 var(--sans)">
+      <span style="display:flex;gap:4px;flex:none">
+        ${[0,1,2,3].map(i=>`<i style="width:22px;height:3px;border-radius:2px;
+          background:${i?'rgba(0,64,61,.15)':'var(--amber)'}"></i>`).join('')}
+      </span>
+      <span>3 questions, about a minute. You come out on your stage.</span>
+    </div>`;
+  const cta=`<div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+      <button onclick="startFree()" style="height:56px;border:0;border-radius:14px;cursor:pointer;
+        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+        font:600 17px/1 var(--sans)">Start free &rarr;</button>
+      <button onclick="st.tab='signin';save();render()" style="height:52px;border-radius:14px;
+        border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);cursor:pointer;
+        font:600 16px/1 var(--sans)">Already have an account? Sign in</button>
+    </div>`;
+  const foot=`<div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center">
+      ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account opens every
+      clip and keeps your progress; the ${STAGES.length-FREE_STAGES} stages below it are
+      ${PRICE()} a month.</div>`;
+
+  /* ── the front door on a monitor ──────────────────────────────────
+     The phone screen is anchored to the bottom, which is right under a
+     thumb and wrong under a mouse: on a laptop it left two thirds of the
+     window empty above the only sentence that sells anything. The pitch
+     stands beside the thing it is selling, which is the ladder itself. */
+  if(wide()){
+    return `<div class="scroll s full" style="min-height:100dvh;display:grid;place-content:center;
+      padding:48px 56px;background:transparent;color:var(--ink)">
+      <div style="width:min(1060px,100%);display:grid;
+        grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:64px;align-items:center">
+        <div>
+          ${brand}
+          <div style="font:400 62px/.96 var(--serif);letter-spacing:-.018em;margin-top:26px">Get upside
+            <em style="color:var(--forest);font-style:normal">down.</em></div>
+          <div style="font:400 18px/1.45 var(--sans);color:var(--grey);max-width:34ch;margin-top:16px">
+            ${STAGES.length} stages, from your first wall hold to a freestanding press.
+            Free, and it works offline.</div>
+          ${strip}${cta}${foot}
+        </div>
+        <div style="background:#fff;border-radius:26px;padding:26px 28px;
+          border:1px solid rgba(0,64,61,.10);
+          box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+          <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+            color:var(--forest)">The ladder</div>
+          <div style="margin-top:16px;display:flex;flex-direction:column">
+            ${STAGES.map((S,i)=>`<div style="display:flex;gap:14px;align-items:flex-start;
+              padding:${i?'14px':'0'} 0 ${i===STAGES.length-1?'0':'14px'};
+              ${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+              <span style="flex:none;width:24px;height:24px;border-radius:999px;display:grid;
+                place-items:center;font:700 11px/1 var(--sans);
+                background:${i<FREE_STAGES?'var(--forest)':'rgba(0,64,61,.07)'};
+                color:${i<FREE_STAGES?'var(--on-primary)':'var(--grey2)'}">${i+1}</span>
+              <span style="flex:1;min-width:0">
+                <span style="display:flex;align-items:baseline;gap:8px">
+                  <span style="font:600 14.5px/1.2 var(--sans)">${esc(S.n)}</span>
+                  ${i<FREE_STAGES?`<span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.14em;
+                    color:var(--forest)">FREE</span>`:''}</span>
+                <span style="display:block;margin-top:4px;font:400 13px/1.45 var(--sans);
+                  color:var(--grey)">${esc(S.goal||'')}</span>
+              </span></div>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
   return `<div class="scroll s" style="min-height:100dvh;display:flex;flex-direction:column;
     justify-content:flex-end;padding:calc(env(safe-area-inset-top) + 44px) 26px 40px;
     position:relative;background:transparent;color:var(--ink)">
@@ -12061,30 +12153,9 @@ function screenWelcome(){
         ${STAGES.length} stages, from your first wall hold to a freestanding press.
         Free, and it works offline.</div>
     </div>
-
-    <div style="display:flex;gap:10px;margin-top:28px;align-items:center;
-      color:var(--grey);font:400 13px/1.45 var(--sans)">
-      <span style="display:flex;gap:4px;flex:none">
-        ${[0,1,2,3].map(i=>`<i style="width:22px;height:3px;border-radius:2px;
-          background:${i?'rgba(0,64,61,.15)':'var(--amber)'}"></i>`).join('')}
-      </span>
-      <span>3 questions, about a minute. You come out on your stage.</span>
-    </div>
-
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
-      <button onclick="startFree()" style="height:56px;border:0;border-radius:14px;cursor:pointer;
-        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
-        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-        font:600 17px/1 var(--sans)">Start free &rarr;</button>
-      <button onclick="st.tab='signin';save();render()" style="height:52px;border-radius:14px;
-        border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);cursor:pointer;
-        font:600 16px/1 var(--sans)">Already have an account? Sign in</button>
-    </div>
-
-    <div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center">
-      ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account opens every
-      clip and keeps your progress; the ${STAGES.length-FREE_STAGES} stages below it are
-      ${PRICE()} a month.</div>
+    ${strip}
+    ${cta}
+    ${foot}
   </div>`;
 }
 
@@ -12419,6 +12490,20 @@ if(WIDEQ && WIDEQ.addEventListener) WIDEQ.addEventListener('change', ()=>{ try{ 
    so none of it can go wrong on one. */
 let sideVid=null;
 function closeSideVid(){ sideVid=null; render(); }
+/* the speed buttons repaint themselves rather than redrawing the column,
+   because redrawing it rebuilds the video element and starts the film
+   again from nought */
+function sideSpeed(r){
+  st.exSpeed=r; save();
+  const v=document.querySelector('#side video'); if(v) v.playbackRate=r;
+  document.querySelectorAll('#side [data-spd]').forEach(b=>{
+    const on=Number(b.dataset.spd)===r;
+    b.setAttribute('aria-pressed', on?'true':'false');
+    b.style.background=on?'var(--forest)':'#fff';
+    b.style.color=on?'var(--on-primary)':'var(--deep)';
+    b.style.borderColor=on?'var(--forest)':'rgba(0,64,61,.16)';
+  });
+}
 function openSideVid(v){ sideVid=v; render();
   setTimeout(()=>{ const el=document.querySelector('#side video'); if(el){ el.playbackRate=st.exSpeed||1; } },60); }
 
@@ -12440,7 +12525,14 @@ function sideVideoCard(){
     const q=(typeof FAQS!=='undefined' && FAQS[sideVid.i]) || {};
     const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
     kick='EXPLAINER'; title=q.q||'';
+    const spd=st.exSpeed||1;
     body=`${(q.uid||q.v)?qaVideo(q,true):''}
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+        ${[1,1.5,2].map(r=>`<button data-spd="${r}" onclick="sideSpeed(${r})"
+          aria-pressed="${spd===r}" style="border:1px solid ${spd===r?'var(--forest)':'rgba(0,64,61,.16)'};
+          background:${spd===r?'var(--forest)':'#fff'};color:${spd===r?'var(--on-primary)':'var(--deep)'};
+          border-radius:999px;padding:7px 11px;font:600 11.5px/1 var(--sans);cursor:pointer">${r}x</button>`).join('')}
+      </div>
       ${sum?`<div class="kick2" style="margin-top:16px">WHAT IS COVERED</div>
       <div style="font:400 14px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(sum)}</div>`:''}`;
   }
@@ -13212,6 +13304,15 @@ function render(){
        feel choppy. */
     app.dataset.still = same ? '1' : '';
     app.innerHTML=html; app.dataset.screen=st.tab;
+    /* The page only gives up its right hand margin on the screens that
+       have a column to put there. This was :has(#side) in the stylesheet,
+       which is a quiet no-op on an older browser: the column then lands
+       on top of the page rather than beside it. A class cannot fail. */
+    app.classList.toggle('haside', !!app.querySelector('#side'));
+    /* and the left margin only where the rail is. The welcome, the quiz
+       and the sign in have no tab bar, so on a wide screen they were
+       indented by 248 pixels of nothing. */
+    app.classList.toggle('harail', !!app.querySelector('.tabbar'));
     const now=app.querySelector('.scroll'); if(now && keepTop) now.scrollTop=keepTop;
     /* There used to be a requestAnimationFrame here setting still='1' straight
        after an arrival, which killed the entrance animation about sixteen
