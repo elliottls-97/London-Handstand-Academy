@@ -444,13 +444,27 @@ function bandTimingFor(stage, band, v){
    Take-Off have Easier as well, because Easier there means something plain:
    go back a stage for part of the session. Freestanding and Press have one
    workout until they have any drills at all. */
+/* Which of Easier, Standard and Harder a stage can build. This was a
+   hand written map, and it went stale the moment a stage got a pool:
+   Press has fifty drills across all four levels and offered one button,
+   and Wall Work has ten at levels three and four that Harder never
+   reached. A band is on when the stage has the levels to fill it. */
 const BANDS_ON = { 0:[1,2,3], 1:[1,2], 2:[1,2], 3:[1,2] };
 /* How much of an Easier session on a later stage is drawn from the stage
    below it, at that stage's hardest. Somebody finding Wall Work hard is
    better served by the top of Foundations than by the bottom of Wall Work. */
 const BACK_SHARE = 0.30;
 const BACK_MIN_LEVEL = 3;
-function bandsFor(stage){ return BANDS_ON[stage] || [2]; }
+function bandsFor(stage, rows){
+  let pool=rows;
+  if(!pool){ try{ pool=poolFor(stage); }catch(e){ pool=POOL[stage]||[]; } }
+  const has={};
+  (pool||[]).forEach(r=>{ const L=Number(r&&r.L)||0; if(L>0) has[Math.min(4,L)]=1; });
+  const n=Object.keys(has).length;
+  if(n<2) return [2];
+  if(n>=3) return [1,2,3];
+  return [1,2];
+}
 function poolRow(stage, v){ return poolFor(stage).find(x=>x.v===v) || null; }
 /* ── Press, seeded ─────────────────────────────────────────────────
    The stage is marked coming soon in the app, and its pool is filled in

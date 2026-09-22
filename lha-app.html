@@ -94,7 +94,8 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 /* one class so a section can be given the design's entrance and its delay */
 #app[data-still="1"] .rise,
 #app[data-still="1"] [style*="animation:rise"],
-#app[data-still="1"] [style*="animation:riseB"]{animation:none!important}
+#app[data-still="1"] [style*="animation:riseB"],
+#app[data-still="1"] [style*="animation:lhaRow"]{animation:none!important}
 .rise{animation:rise .7s cubic-bezier(.2,.8,.2,1) both}
 .rise-1{animation-delay:.1s}.rise-2{animation-delay:.16s}
 .rise-3{animation-delay:.3s}.rise-4{animation-delay:.36s}
@@ -109,6 +110,13 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
  /* the bar floats over the page, so the last thing on every screen has to
     have room to sit above it rather than under it */
  padding-bottom:calc(env(safe-area-inset-bottom,0px) + 84px)}
+/* ── the message box ───────────────────────────────────────────────
+   A sticky bottom:0 sticks to the bottom of the scroll box, and the tab
+   bar floats over exactly that, so the one control on the chat you have
+   to reach was the one thing underneath it. It clears the bar itself. */
+.composer{position:sticky;bottom:0;z-index:3;
+ padding:10px 14px calc(env(safe-area-inset-bottom,0px) + 78px);
+ background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)}
 /* no double tap zoom, and no zoom on focusing a field: iOS zooms into any
    input under 16px, which is how the app kept ending up at 110% */
 html,body{touch-action:manipulation}
@@ -120,6 +128,11 @@ body[data-tier=free] .btn{background:#0a7b74}
 .kick{font:600 10px/1 var(--sans);letter-spacing:.2em;color:var(--sage-t)}
 .kick2{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
 h1,h2,h3{margin:0;font-family:var(--serif);font-weight:400}
+/* Safari paints a button's text in the system accent unless it is told
+   otherwise, so every button that set a background and no colour came out
+   blue on an iPhone and black everywhere else. Anything that wants its own
+   colour still sets one inline, which beats this. */
+button{color:var(--ink)}
 .h-xl{font:400 40px/1.02 var(--serif)} .h-lg{font:400 34px/1.06 var(--serif)}
 .h-md{font:400 26px/1.1 var(--serif)} .h-sm{font:400 22px/1 var(--serif)}
 .card{background:#fff;border-radius:26px;padding:22px 20px;
@@ -593,6 +606,8 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   #app.harail .scroll.s>*:first-child{padding-top:26px!important}
   /* the sticky rows inside a screen used to start below that bar */
   #app.harail .scroll.s [style*="position:sticky"]{top:0!important}
+  /* the rail is down the side, so nothing floats over the bottom */
+  #app.harail .composer{padding-bottom:16px}
   .coachseg{top:24px!important}
 
   /* the session: the film on the left, the clock and the cues beside it,
@@ -2001,6 +2016,12 @@ function mountCaptions(){
     vpBuild(v);
     attachCaptions(v, v.getAttribute('data-cc'));
   });
+  /* and anything marked autoplay actually starts, sound or no sound */
+  document.querySelectorAll('video[autoplay]').forEach(v=>{
+    if(v.dataset.started) return;
+    v.dataset.started='1';
+    if(v.paused) startFilm(v);
+  });
 }
 /* The plate is positioned against the video's own box, so every captioned
    video gets a wrapper that is exactly the video and nothing else. Dropped
@@ -2569,7 +2590,13 @@ function loadTrack(){
   if(!st.token) return Promise.resolve();
   return fetch(AUTH.track,{headers:authed()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.track=d; save(); render(); } })
+    .then(d=>{ if(!d) return;
+      /* it redrew the whole screen on every reply, and it is asked on every
+         open and after every send, so a screen you were reading blinked
+         for a record that had not changed */
+      const same=JSON.stringify(d)===JSON.stringify(st.track||null);
+      st.track=d; save();
+      if(!same) render(); })
     .catch(()=>{});
 }
 function postTrack(body){
@@ -3041,8 +3068,21 @@ function cpCard(c, i, total){
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
     box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
     <div id="cptop-${c.k}" class="cptop">${cpCardTop(c,i,total)}</div>
-    ${wide()?'':`<div id="cpdemo-${c.k}"></div>`}
+    ${wide()?'':`<div id="cpdemo-${c.k}">${cpDemoHTML(c)}</div>`}
   </div>`;
+}
+/* The phone's demo is drawn into the card on the press, and any redraw of
+   the screen after that, a reply landing, a count moving, rebuilt the card
+   without it: the strip still said Hide the demo over nothing at all. The
+   card draws what st.cpOpen says. */
+function cpDemoHTML(c){
+  if(!c || !((st.cpOpen||{})[c.k])) return '';
+  const drill=c.demo?drillById(c.demo):null;
+  if(!drill || !drill.url) return '';
+  return `<div style="margin-top:10px">${drillFilm(drill.url,'16/10')}</div>
+    ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
+      flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
+      `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`;
 }
 function cpCardTop(c, i, total){
   const last=cpLast(c.k);
@@ -3166,13 +3206,7 @@ function toggleCpDemo(k){
   st.cpOpen=Object.assign({},st.cpOpen,{[k]:open});
   save();
   const c=cpDef(k);
-  const drill=c&&c.demo?drillById(c.demo):null;
-  box.innerHTML = (open && drill && drill.url)
-    ? `<div style="margin-top:10px">${drillFilm(drill.url,'16/10')}</div>
-       ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
-         flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
-         `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`
-    : '';
+  box.innerHTML = cpDemoHTML(c);
   if(open) mountCaptions();
   const lbl=document.getElementById('cpdlbl-'+k);
   if(lbl) lbl.textContent = open ? 'Hide the demo' : 'How to test this';
@@ -3207,7 +3241,7 @@ function cpClipHTML(c, sent){
       : !st.token ? 'One free with an account.'
       : 'One free with your account.';
     return `<button onclick="${send}" class="cpsend" style="width:100%;margin-top:11px;display:flex;align-items:center;
-      gap:11px;padding:11px 13px;border-radius:14px;cursor:pointer;text-align:left;
+      gap:11px;padding:11px 13px;border-radius:14px;cursor:pointer;text-align:left;color:var(--ink);
       border:1.5px solid ${can?'rgba(243,169,73,.5)':'rgba(17,17,17,.12)'};
       background:${can?'rgba(243,169,73,.10)':'transparent'}">
       <span style="flex:none;display:grid;place-items:center;width:31px;height:31px;border-radius:9px;
@@ -4905,7 +4939,9 @@ function when(t){
   if(m<1) return 'Just now';
   if(m<60) return m+' min ago';
   const h=Math.round(m/60);
-  return h<24 ? h+' hr ago' : Math.round(h/24)+' days ago';
+  if(h<24) return h+' hr ago';
+  const d=Math.round(h/24);
+  return d===1 ? 'Yesterday' : d+' days ago';
 }
 let askDraft='';
 
@@ -5154,6 +5190,7 @@ function loadState(){
   return fetch(AUTH.state,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
+      const before=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone]);
       if(d.dayMap && Object.keys(d.dayMap).length) st.dayMap=d.dayMap;
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
@@ -5175,7 +5212,10 @@ function loadState(){
          way to see why, and every stage they had cleared was gone. */
       if(d.stage!=null && Number.isFinite(Number(d.stage))) st.stage=Number(d.stage);
     if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
-      save(); render();
+      save();
+      /* same as loadTrack: a redraw for a reply that changed nothing is a blink */
+      const after=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone]);
+      if(after!==before) render();
     })
     .catch(()=>{});
 }
@@ -5450,13 +5490,13 @@ function screenAsk(){
   const bubbles=msgs.map(m=>{
     const mine=m.from==='me';
     return `<div class="bub" style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'}">
-      ${m.video?`<div style="max-width:82%;width:82%;border-radius:18px;overflow:hidden;
-        margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','56vh')}</div>`:''}
+      ${m.video?`<div style="max-width:60%;width:60%;border-radius:18px;overflow:hidden;
+        margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','34vh')}</div>`:''}
       ${m.image?`<a href="${AUTH.image}/${esc(m.image)}" target="_blank" rel="noopener"
-        style="max-width:82%;border-radius:18px;overflow:hidden;background:#11150f;
+        style="max-width:60%;border-radius:18px;overflow:hidden;background:#11150f;
         margin-bottom:${m.text?'6px':'0'};display:block">
         <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" loading="lazy"
-          style="display:block;width:100%;max-height:56vh;object-fit:contain"></a>`:''}
+          style="display:block;width:100%;max-height:34vh;object-fit:contain"></a>`:''}
       ${m.text?`<div style="max-width:82%;border-radius:${mine?'20px 20px 6px 20px':'20px 20px 20px 6px'};padding:14px 16px;
         background:${mine?'linear-gradient(180deg,#0a7a76,#006663)':'#fff'};
         color:${mine?'var(--on-primary)':'var(--ink)'};
@@ -5487,8 +5527,7 @@ function screenAsk(){
       msgs.length ? bubbles : `<div style="text-align:center;padding:40px 22px;color:var(--grey);
         font:400 15px/1.6 var(--sans)">No messages yet.<br>Ask me anything about the training.</div>`
     }<div id="chatEnd"></div></div>
-    <div style="position:sticky;bottom:0;z-index:3;padding:10px 14px calc(env(safe-area-inset-bottom) + 14px);
-      background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)">
+    <div class="composer">
       <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;
         align-items:center;border:1px solid rgba(0,64,61,.10);
         box-shadow:0 1px 2px rgba(0,64,61,.05),0 10px 24px rgba(0,64,61,.07)">
@@ -6026,7 +6065,9 @@ function showStep(){
          the theatre: the player has its own chrome and a second control bar
          over a running set is one too many. */
       const uid=uidOfUrl(it.url);
-      if(uid){ const vEl=vw.querySelector('video'); if(vEl) attachCaptions(vEl, uid); } }
+      const vEl=vw.querySelector('video');
+      if(uid && vEl) attachCaptions(vEl, uid);
+      if(vEl) startFilm(vEl); }
     else { vw.className='p-vwrap novideo';
       vw.innerHTML=''; vw.classList.add('novideo'); }
     const rp=repOf(it), cues=it.cues||[];
@@ -6255,6 +6296,24 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
    demo. It was per video and reset on each render, so turning sound on was
    something you did over and over. */
 const soundOn = () => st.sound !== false;
+/* ── a film that starts ───────────────────────────────────────────
+   An iPhone will not start a film with sound on its own, whatever the
+   autoplay attribute says: it sits on its first frame with the browser's
+   own controls showing, which reads as the player having gone. So the app
+   asks it to play, and if the answer is no, it plays without sound, which
+   is always allowed, and the speaker button is there to turn it up. */
+function startFilm(v){
+  if(!v) return;
+  try{
+    const p=v.play();
+    if(p && p.catch) p.catch(()=>{
+      if(!v.isConnected) return;
+      v.muted=true;
+      const q=v.play(); if(q && q.catch) q.catch(()=>{});
+      if(typeof paintSound==='function') try{ paintSound(); }catch(e){}
+    });
+  }catch(e){}
+}
 /* the icon and the word together: an icon alone is a state nobody can read */
 function paintSound(){
   const b=document.getElementById('p-sound');
@@ -6386,6 +6445,10 @@ function openOv(kind){
   }
   st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
   $('#ov').classList.toggle('full', !!st.ovFull);
+  /* now, inside the tap that opened it, not on a timer afterwards: an
+     iPhone only lets a film start with sound while the finger is still
+     the reason, so the player is built and started here */
+  mountCaptions();
   if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
 function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
 function closeOv(){
@@ -6585,16 +6648,23 @@ document.addEventListener('click',function(e){
 },true);
 /* one loop keeps every visible scrub line in sync — cheaper than a
    timeupdate listener per clip, and it stops when nothing is on screen */
-(function vbLoop(){
-  document.querySelectorAll('[data-vb]').forEach(function(box){
-    const v=box.querySelector('video'); if(!v) return;
-    const f=box.querySelector('[data-vb-fill]');
-    if(f && v.duration) f.style.width=((v.currentTime/v.duration)*100).toFixed(1)+'%';
-    const pl=box.querySelector('[data-vb-play]');
-    if(pl) pl.style.opacity = v.paused ? '1' : '0';
-  });
+/* Ten times a second, not sixty: a scrub line does not need more, and this
+   was a whole document query on every frame the page was open, whether or
+   not a single clip was on it. */
+let vbLast=0;
+(function vbLoop(t){
+  if(t-vbLast>100){
+    vbLast=t;
+    document.querySelectorAll('[data-vb]').forEach(function(box){
+      const v=box.querySelector('video'); if(!v) return;
+      const f=box.querySelector('[data-vb-fill]');
+      if(f && v.duration) f.style.width=((v.currentTime/v.duration)*100).toFixed(1)+'%';
+      const pl=box.querySelector('[data-vb-play]');
+      if(pl) pl.style.opacity = v.paused ? '1' : '0';
+    });
+  }
   requestAnimationFrame(vbLoop);
-})();
+})(0);
 
 function drawOv(){
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
@@ -12366,13 +12436,13 @@ function screenCoaching(){
   const thread=(st.msgs||[]).filter(m=>m && (m.video || m.image || String(m.text||'').trim())).map(m=>{
     const mine=m.from==='me';
     return `<div class="bub" style="display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};gap:0">
-      ${m.video?`<div style="max-width:86%;width:86%;border-radius:16px;overflow:hidden;
-        margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','46vh')}</div>`:''}
+      ${m.video?`<div style="max-width:60%;width:60%;border-radius:16px;overflow:hidden;
+        margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5','34vh')}</div>`:''}
       ${m.image?`<a href="${AUTH.image}/${esc(m.image)}" target="_blank" rel="noopener"
-        style="max-width:86%;border-radius:16px;overflow:hidden;background:#11150f;display:block;
+        style="max-width:60%;border-radius:16px;overflow:hidden;background:#11150f;display:block;
         margin-bottom:${m.text?'6px':'0'}">
         <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" loading="lazy"
-          style="display:block;width:100%;max-height:46vh;object-fit:contain"></a>`:''}
+          style="display:block;width:100%;max-height:34vh;object-fit:contain"></a>`:''}
       ${m.text?`<div style="max-width:86%;border-radius:${mine?'18px 18px 5px 18px':'18px 18px 18px 5px'};
         padding:12px 14px;background:${mine?'var(--forest)':'#fff'};color:${mine?'var(--bg)':'var(--ink)'};
         font:400 14px/1.5 var(--sans)">${esc(m.text)}</div>`:''}
@@ -12398,8 +12468,7 @@ function screenCoaching(){
         thread || `<div style="text-align:center;padding:40px 22px;color:var(--grey);font:400 15px/1.6 var(--sans)">
           Nothing here yet.<br>Ask about a drill, a niggle, or which plan fits.</div>`}
         <div id="chatEnd"></div></div>
-      <div style="position:sticky;bottom:0;z-index:3;padding:10px 14px 10px;
-        background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)">
+      <div class="composer">
         <div style="background:#fff;border-radius:22px;padding:8px 8px 8px 16px;display:flex;gap:8px;
           align-items:center;border:1px solid rgba(0,64,61,.10);
           box-shadow:0 1px 2px rgba(0,64,61,.05),0 10px 24px rgba(0,64,61,.07)">
@@ -13258,13 +13327,18 @@ function topBar(){
     background:#fff;
     border:1px solid rgba(0,64,61,.14);
     color:var(--deep)`;
+  /* The Form check / Chat switch used to hang under this bar as its own
+     floating strip with a tenth of a shade of green behind it, so once the
+     chat scrolled a film under it the words vanished. It is a second row
+     of the bar now, and the bar's frosted ground covers both rows. */
   return `<div id="topbar" style="position:absolute;top:0;left:0;right:0;z-index:40;
-    padding:calc(env(safe-area-inset-top) + 14px) 20px 12px;display:flex;align-items:center;gap:10px;
+    padding:calc(env(safe-area-inset-top) + 14px) 20px 12px;display:flex;flex-direction:column;gap:10px;
     transition:background .3s,border-color .3s,backdrop-filter .3s;
-    background:${sc?'rgba(244,244,245,.82)':'transparent'};
+    background:${sc?'rgba(244,244,245,.94)':'transparent'};
     backdrop-filter:blur(${sc?22:0}px) saturate(180%);
     -webkit-backdrop-filter:blur(${sc?22:0}px) saturate(180%);
     border-bottom:1px solid rgba(0,64,61,${sc?.10:0})">
+    <div style="display:flex;align-items:center;gap:10px">
     <button onclick="openMenu()" aria-label="Menu" title="Library and more" data-tour="menu"
       style="flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
       border:0;cursor:pointer;transition:background .3s,color .3s;padding:0;
@@ -13304,7 +13378,8 @@ function topBar(){
     :`<button onclick="st.tab='signin';save();render()" style="${chip};border-radius:22px;
       height:44px;padding:0 16px;display:inline-flex;align-items:center;
       font:600 14px/1 var(--sans)">Sign in</button>`}
-  </div>${coachSegHTML()}`;
+    </div>${coachSegHTML()}
+  </div>`;
 }
 /* the Form check / Chat switch, under the top bar on the coaching screen */
 function coachSegHTML(){
@@ -13312,8 +13387,7 @@ function coachSegHTML(){
      draws it in the page instead and this stays out of the way. */
   if(st.tab!=='coaching' || coachedView() || wide()) return '';
   const tab=coTab(), n=unreadMsgs();
-  return `<div class="coachseg" style="position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:20px;right:20px;z-index:40;
-      display:flex;background:rgba(0,64,61,.10);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  return `<div class="coachseg" style="display:flex;background:rgba(0,64,61,.08);
       border-radius:14px;padding:4px;gap:4px">
     ${[['check',hadFormCheck()?'Form checks':'Form check'],['chat','Chat']].map(([k,l])=>`<button onclick="setCoTab('${k}')" aria-pressed="${tab===k}"
       style="flex:1;min-height:40px;border:0;border-radius:11px;cursor:pointer;
@@ -13370,6 +13444,7 @@ function watchScroll(){
 }
 
 let renderPending=false;
+let lastDrawn='';
 /* ── the tutorial ──────────────────────────────────────────────────
    A tour that points at the real screen rather than describing it in a
    wall of text. Each step dims everything, cuts a hole around one thing
@@ -13822,7 +13897,16 @@ function render(){
   const was=app.querySelector('.scroll');
   const keepTop=(was && app.dataset.screen===st.tab) ? was.scrollTop : 0;
   const same = app.dataset.screen===st.tab;
+  let skipped=false;
   const swap=html=>{
+    /* ── the same screen, word for word, is not redrawn ─────────────
+       Ten things load on an open and each one redrew the whole screen
+       when its reply came back, whether or not the reply changed a thing
+       on it. Every redraw throws away every image and film on the page
+       and fetches them again, which on a phone is a blink. If the screen
+       would come out identical, nothing is touched. */
+    if(same && html===lastDrawn){ skipped=true; return; }
+    lastDrawn=html;
     /* redrawing the screen you are already on is a state change, not an
        arrival — entrance animations replaying on every tap is what made it
        feel choppy. */
@@ -13898,6 +13982,14 @@ function render(){
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
       pointer-events:none">Preview &middot; ${esc(st.client||st.email||'client')} &middot; read only</div>`:'')
     +topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${railSwitch()}${bar}${railFoot()}</nav>`);
+  /* nothing was redrawn, so there is nothing to wire up again: watchScroll
+     and watchPull add listeners, and would add a second set to the same box */
+  if(skipped) return;
+  /* arriving on the chat lands on the latest message, not the oldest */
+  if(!same && (st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat'))){
+    const end=document.getElementById('chatEnd');
+    if(end) setTimeout(()=>{ try{ end.scrollIntoView({block:'end'}); }catch(e){} },30);
+  }
   /* every film in the app carries the same caption plate. Individual mounts
      called this themselves and one of them always forgot, so it runs after
      any redraw instead: attachCaptions marks what it has done and a second
