@@ -456,7 +456,10 @@ async function threadLoad(db, who) {
        months without ever reaching the person who sent the clip. Somebody
        who films a wall hold wants to know it was watched, not that it was
        transmitted. */
-    ...(m.sender === 'client' && m.read_at ? { seen: ms(m.read_at) } : {}),
+    /* both ways now: the coach's own messages carry when the client
+       opened them, so the dashboard can say whether a reply was read
+       rather than only that it was sent */
+    ...(m.read_at ? { seen: ms(m.read_at) } : {}),
     ...(m.video ? { video: m.video } : {}),
     ...(m.image ? { image: m.image } : {}),
     ...(m.submission ? { sub: m.submission } : {}),
@@ -478,6 +481,12 @@ async function threadAdd(db, who, msg) {
 
 const unreadCount = async who => (await supa.rows('messages',
   `email=eq.${enc(who)}&sender=eq.client&read_at=is.null&select=id`) || []).length;
+/* the client opened the thread: every reply of the coach's that was still
+   unread is read now. This is what puts a receipt under Elliott's own
+   bubbles in the dashboard. */
+const markCoachRead = who => supa.update('messages',
+  `email=eq.${enc(who)}&sender=eq.coach&read_at=is.null`, { read_at: nowISO() })
+  .catch(() => {});
 
 const markRead = who => supa.update('messages',
   `email=eq.${enc(who)}&sender=eq.client&read_at=is.null`, { read_at: nowISO() });
@@ -4204,7 +4213,13 @@ export default async (request) => {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     if (request.method === 'GET') {
-      return json({ messages: await threadLoad(db, who) });
+      const out = await threadLoad(db, who);
+      /* reading it is what marks it read, and only when the person
+         themselves is reading: a coach previewing a client's app must not
+         make their replies look opened. */
+      if (out.some(m => m.from === 'coach' && !m.seen)
+          && (await realMe()) === who) await markCoachRead(who);
+      return json({ messages: out });
     }
     if (request.method === 'POST') {
       const text = String(body.text || '').slice(0, 4000);
@@ -5445,17 +5460,30 @@ export default async (request) => {
         const cur = (await getSetting(ck)) || {};
         if (cur.open) await setSetting(ck, Object.assign({}, cur, { open: false, closedAt: Date.now() }));
       }
-      if (rec.kind === 'checkpoint' && ['reached', 'notyet'].includes(body.verdict)) {
+      if (rec.kind === 'checkpoint') {
+        const verdict = ['reached', 'notyet'].includes(body.verdict) ? body.verdict : '';
         const note = String(body.note || '').slice(0, 300);
-        const numbers = Object.assign({}, rec.numbers || {}, { verdict: body.verdict, verdictNote: note });
-        await supa.update('submissions', `id=eq.${enc(id)}`, { numbers });
+        if (verdict) {
+          const numbers = Object.assign({}, rec.numbers || {}, { verdict, verdictNote: note });
+          await supa.update('submissions', `id=eq.${enc(id)}`, { numbers });
+        }
+        /* ── watched is worth saying even with no verdict ────────────
+           Marking a check point clip reviewed without picking reached or
+           not yet wrote nothing onto the client's own record of it, so
+           their card sat on "Clip sent" for ever while the reply was in
+           the chat. Whatever else happens, the row now carries when it
+           was watched and by whom. */
         const tkey = `track:${e}`;
         const tr = (await getSetting(tkey)) || {};
         const k = (rec.numbers || {}).k;
-        const uid = (rec.clips || [])[0];
+        const c0 = (rec.clips || [])[0];
+        const uid = (c0 && typeof c0 === 'object') ? (c0.uid || c0.video || '') : c0;
         if (k && tr.checkpoints && tr.checkpoints[k]) {
           tr.checkpoints[k] = tr.checkpoints[k].map(r =>
-            (uid && r.video === uid) ? Object.assign({}, r, { verdict: body.verdict, note, by: asking || primaryCoach(), verdictAt: Date.now() }) : r);
+            (uid && r.video === uid)
+              ? Object.assign({}, r, { watchedAt: Date.now(), by: asking || primaryCoach() },
+                  verdict ? { verdict, note, verdictAt: Date.now() } : {})
+              : r);
           await setSetting(tkey, tr);
         }
       }
