@@ -459,21 +459,26 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
      one thing a phone cannot do and the reason the sheet existed */
   .startrow{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
     gap:22px;align-items:center}
-  .startrow>button{height:76px!important}
+  .startrow>button{height:68px!important}
   /* a two button switch stretched to the width of a monitor stops reading
      as a switch. It was also sitting 20px from the left of the window,
      which on a wide screen is on top of the rail. */
-  .coachseg{left:calc(var(--rail) + 40px)!important;right:auto!important;width:340px!important}
+  .coachseg{left:calc(var(--rail) + 40px)!important;right:auto!important;width:340px!important;
+    z-index:30}
   .segrow{max-width:420px}
   /* the explainers are a shelf you drag on a phone. On a monitor they are
      simply all there, which is what the frames show. */
   .rail.cards{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
     overflow:visible!important;padding-bottom:0!important}
   .rail.cards>div{width:auto!important;flex:none}
-  .rail.cards:not(.all)>div:nth-child(n+7){display:none}
+  .rail.cards:not(.all)>div:nth-child(n+4){display:none}
   /* a check point's demo at the full width of a monitor is most of a
      screen each, and there are seven of them */
-  .cpfilm{max-width:430px}
+  /* the demo stands beside the check point rather than on top of it, so
+     showing it costs the card no height at all */
+  .cptop{display:grid;grid-template-columns:minmax(0,1fr) 300px;column-gap:20px;align-items:start}
+  .cptop>*{grid-column:1;min-width:0}
+  .cptop>.cpfilm{grid-column:2;grid-row:1 / span 60;margin-top:0;max-width:none}
   /* a month stretched to the width of a page gives you seven columns of
      nearly nothing. In the right hand column it fills what it is given. */
   .calcard{max-width:470px}
@@ -512,10 +517,20 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   .scroll{padding-bottom:40px}
   .scroll.s>*{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
 
-  /* the rail is short and the bottom of it was a lot of nothing */
-  .tabbar::after{content:"London Handstand Academy";display:block;margin-top:auto;
-    padding:0 14px;font:600 9.5px/1.5 var(--sans);letter-spacing:.16em;
+  /* everything the top bar used to carry, at the bottom of the rail */
+  .railfoot{margin-top:auto;padding-top:14px;border-top:1px solid rgba(0,64,61,.08);
+    display:flex;flex-direction:column;gap:2px}
+  .railfoot button:hover{background:rgba(0,64,61,.05)}
+  .tabbar::after{content:"London Handstand Academy";display:block;
+    padding:14px 14px 0;font:600 9.5px/1.5 var(--sans);letter-spacing:.16em;
     text-transform:uppercase;color:var(--grey2)}
+
+  /* and so there is no bar over the page at all */
+  #app.harail #topbar{display:none!important}
+  #app.harail .scroll.s>*:first-child{padding-top:34px!important}
+  /* the sticky rows inside a screen used to start below that bar */
+  #app.harail .scroll.s [style*="position:sticky"]{top:0!important}
+  .coachseg{top:24px!important}
 
   /* the session: the film on the left, the clock and the cues beside it,
      which is the one place a wide screen genuinely helps */
@@ -1834,6 +1849,7 @@ function vpFit(){
 window.addEventListener('resize', ()=>{ if(vpFrom) vpFit(); });
 window.addEventListener('orientationchange', ()=>{ if(vpFrom) setTimeout(vpFit,120); });
 
+let ccSyncs=[], ccBound=false;
 function attachCaptions(v, uid){
   if(!v || !uid || v.dataset.ccDone) return;
   v.dataset.ccDone='1';
@@ -1861,8 +1877,19 @@ function attachCaptions(v, uid){
         if(el && inFs()) el.style.opacity='0';
         if(!inFs()) ccDraw(v, cues);
       };
-      ['fullscreenchange','webkitfullscreenchange'].forEach(e=>
-        document.addEventListener(e, sync));
+      /* These used to be added to the document once per film and never
+         removed. Every render of a screen carrying films added another
+         set, each one holding a video that had already been thrown away,
+         and the ladder tab carries seven of them. Four listeners now,
+         for the life of the page, over a list that prunes itself. */
+      ccSyncs.push({v, sync});
+      if(!ccBound){
+        ccBound=true;
+        const all=()=>{ ccSyncs=ccSyncs.filter(x=>x.v && x.v.isConnected);
+          ccSyncs.forEach(x=>{ try{ x.sync(); }catch(e){} }); };
+        ['fullscreenchange','webkitfullscreenchange'].forEach(e=>
+          document.addEventListener(e, all));
+      }
       ['webkitbeginfullscreen','webkitendfullscreen'].forEach(e=>
         v.addEventListener(e, sync));
 
@@ -2916,7 +2943,7 @@ function cpCard(c, i, total){
   return `<div id="cpcard-${c.k}" data-i="${i}" data-total="${total}"
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
     box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
-    <div id="cptop-${c.k}">${cpCardTop(c,i,total)}</div>
+    <div id="cptop-${c.k}" class="cptop">${cpCardTop(c,i,total)}</div>
   </div>`;
 }
 function cpCardTop(c, i, total){
@@ -2971,8 +2998,8 @@ function cpCardTop(c, i, total){
         <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">HOW TO TEST THIS</span>
         <span style="flex:none;font:400 12px/1 var(--sans);color:var(--grey)">${esc(drill.n)}</span>
       </div>
-      ${drillFilm(drill.url,'16/10',true)}
-      ${(drill.cues||[]).length?`<ul style="margin:-8px 0 0;padding-left:17px;display:flex;
+      <div id="cpvid-${c.k}">${cpPoster(c.k, drill)}</div>
+      ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:17px;display:flex;
         flex-direction:column;gap:5px">${drill.cues.slice(0,3).map(x=>
         `<li style="font:400 12.5px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}
     </div>`:`<div style="margin-top:12px;padding:10px 12px;border-radius:12px;
@@ -2990,6 +3017,36 @@ function cpCardTop(c, i, total){
     <div id="cpup-${c.k}" style="margin-top:9px;font:500 12px/1.4 var(--sans);color:var(--grey)"></div>
     ${c.video===false?'':cpClipHTML(c,sent)}</div>`;
 }
+/* ── the demo, without seven video players ────────────────────────
+   Showing the film on every check point meant seven <video> elements,
+   seven caption files fetched and seven custom control bars built on
+   every single render of the ladder, which is what made the tab feel
+   stuck. The frame is what people need to see; the player is what they
+   need after they press it. So the card carries the drill's own first
+   frame and builds the film on the press. */
+function cpPoster(k, drill){
+  const uid=uidOfUrl(drill.url);
+  return `<button onclick="cpPlay('${k}')" aria-label="Play the demo"
+    style="display:block;width:100%;aspect-ratio:16/10;border:0;padding:0;cursor:pointer;
+    border-radius:16px;overflow:hidden;position:relative;background:#11150f">
+    ${uid?`<img src="${esc(streamThumb(uid))}" alt="" loading="lazy"
+      style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">`:''}
+    <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+      width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.92);
+      display:grid;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.28)">
+      <svg width="17" height="19" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+        1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+  </button>`;
+}
+function cpPlay(k){
+  const box=document.getElementById('cpvid-'+k); if(!box) return;
+  const c=cpDef(k); const drill=c&&c.demo?drillById(c.demo):null;
+  if(!drill||!drill.url) return;
+  box.innerHTML=drillFilm(drill.url,'16/10');
+  mountCaptions();
+  const v=box.querySelector('video'); if(v){ try{ v.play(); }catch(e){} }
+}
+
 /* ── where their clip got to ──────────────────────────────────────
    A check point is marked by the person doing it until somebody else has
    watched it, so the thing they actually want to know is whether the clip
@@ -11973,7 +12030,7 @@ function screenCoaching(){
     </div>`).join('');
   const tab=coTab();
   const nUnread=unreadMsgs();
-  const seg=`<div class="rise rise-1" style="margin:18px 20px 0;display:flex;background:rgba(0,64,61,.07);
+  const seg=`<div class="rise rise-1 segrow" style="margin:18px 20px 0;display:flex;background:rgba(0,64,61,.07);
       border-radius:14px;padding:4px;gap:4px">
     ${[['check',hadFormCheck()?'Form checks':'Form check'],['chat','Chat']].map(([k,l])=>`<button onclick="setCoTab('${k}')" aria-pressed="${tab===k}"
       style="flex:1;min-height:40px;border:0;border-radius:11px;cursor:pointer;
@@ -11983,7 +12040,7 @@ function screenCoaching(){
         height:18px;padding:0 5px;border-radius:999px;background:var(--amber);color:var(--ink);
         font:700 10.5px/1 var(--sans);vertical-align:middle">${nUnread}</span>`:''}</button>`).join('')}
   </div>`;
-  const head=`<div class="rise" style="padding:calc(env(safe-area-inset-top) + 140px) 20px 0">
+  const head=`<div class="rise" style="padding:${wide()?'6px':'calc(env(safe-area-inset-top) + 140px)'} 20px 0">
       <div style="display:flex;align-items:center;gap:12px">
         <span style="width:46px;height:46px;flex:none;border-radius:50%;background:var(--forest);
           color:var(--on-primary);display:grid;place-items:center;font:400 22px/1 var(--serif)">E</span>
@@ -12007,9 +12064,11 @@ function screenCoaching(){
      screen whatever is scrolled, on every phone */
   if(tab==='chat'){
     return `<div class="scroll s" style="display:flex;flex-direction:column;padding-bottom:0">
+      ${wide()?`<div style="flex:none">${seg}</div>`:''}
       <div style="flex:none">${head}</div>${chatBody}</div>`;
   }
   return `<div class="scroll s">
+    ${wide()?seg:''}
     ${head}
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
@@ -12610,6 +12669,58 @@ function sideCheckCard(){
 
 /* what belongs beside each screen, and nothing at all where there is
    nothing worth putting there */
+/* ── the top bar, stood on its end ────────────────────────────────
+   On a phone the menu, the messages and the account sit in a bar across
+   the top, because there is nowhere else for them. On a wide screen
+   that bar is a strip of chrome over the page for no reason: the rail
+   has room underneath the tabs, and the page gets the height back. */
+function railFoot(){
+  if(!wide()) return '';
+  const waiting = hasNew();
+  const name=(st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
+  const initials=(name||'?').slice(0,2).toUpperCase();
+  const sub = st.in ? 'COACHED' : 'STAGE '+(curStage()+1);
+  const row=(onclick,label,svg,extra)=>`<button onclick="${onclick}" title="${esc(label)}"
+    style="display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;border:0;
+    border-radius:14px;background:none;cursor:pointer;color:var(--grey);text-align:left;
+    position:relative">${svg}
+    <span style="flex:1;min-width:0;font:500 13.5px/1 var(--sans);color:var(--grey)">${esc(label)}</span>
+    ${extra||''}</button>`;
+  const dot = waiting ? `<span style="flex:none;min-width:18px;height:18px;padding:0 5px;
+    border-radius:999px;background:var(--amber);color:var(--ink);display:grid;place-items:center;
+    font:700 10px/1 var(--sans)">${newCount()}</span>` : '';
+  return `<div class="railfoot">
+    ${row("openMenu()",'Library and more',
+      `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>`)}
+    ${row("openChat()",'Messages',
+      `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H8l-5
+        3 1.5-4.5A8 8 0 1 1 21 12z"/></svg>`, dot)}
+    ${row("fbOpen()",'Tell us what you think',
+      `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>`)}
+    ${st.token
+      ? `<button onclick="openOv('account')" title="Your account"
+          style="display:flex;align-items:center;gap:10px;width:100%;margin-top:6px;padding:9px 11px;
+          border:1px solid rgba(0,64,61,.10);border-radius:15px;background:#fff;cursor:pointer;
+          text-align:left">
+          <span style="flex:none;width:30px;height:30px;border-radius:999px;background:var(--deep);
+            color:var(--on-primary);display:grid;place-items:center;
+            font:700 11px/1 var(--sans)">${esc(initials)}</span>
+          <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+            <span style="font:600 13px/1 var(--sans);color:var(--ink)">${esc(name||'You')}</span>
+            <span style="font:600 9px/1 var(--sans);letter-spacing:.14em;
+              color:var(--grey2)">${esc(sub)}</span></span></button>`
+      : `<button onclick="st.tab='signin';save();render()"
+          style="width:100%;margin-top:6px;min-height:44px;border-radius:14px;
+          border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);cursor:pointer;
+          font:600 14px/1 var(--sans)">Sign in</button>`}
+  </div>`;
+}
+
 function sideHTML(){
   if(!wide()) return '';
   const t=st.tab, co=coachedView();
@@ -12635,17 +12746,17 @@ function sideHTML(){
 function chooserPills(d){
   const cur=curStage(), mins=ladderMins();
   const wrist = st.sessionKind==='wrist';
-  const pill='flex:1;min-height:44px;border:0;border-radius:12px;cursor:pointer;'
+  const pill='flex:1;min-height:40px;border:0;border-radius:11px;cursor:pointer;'
     +'font:700 12.5px/1.15 var(--sans);display:flex;align-items:center;justify-content:center;'
-    +'transition:background .25s,color .25s,box-shadow .25s;padding:6px 4px';
+    +'transition:background .25s,color .25s,box-shadow .25s;padding:5px 4px';
   const on ='background:#fff;color:var(--deep);box-shadow:0 1px 3px rgba(17,17,17,.12)';
   const off='background:transparent;color:var(--grey)';
   const tray='display:flex;gap:5px;padding:5px;border-radius:15px;background:rgba(17,17,17,.055)';
   const bands=(typeof bandsFor==='function')?bandsFor(cur):[];
-  return `<div style="display:flex;flex-direction:column;gap:12px">
+  return `<div style="display:flex;flex-direction:column;gap:9px">
     <div>
       <span class="kick2">HOW LONG</span>
-      <div style="${tray};margin-top:8px;${wrist?'opacity:.45;pointer-events:none':''}">
+      <div style="${tray};margin-top:6px;${wrist?'opacity:.45;pointer-events:none':''}">
         ${LADDER_MINS.map(m=>{
           const capped = !wrist && stageLevel(cur)===1 && easyCapped(cur) && m>EASY_CAP;
           return `<button onclick="setMins(${capped?EASY_CAP:m})"
@@ -12656,20 +12767,19 @@ function chooserPills(d){
     </div>
     ${bands.length<2?'':`<div>
       <span class="kick2">HOW HARD</span>
-      <div style="${tray};margin-top:8px;${wrist?'opacity:.45;pointer-events:none':''}">
+      <div style="${tray};margin-top:6px;${wrist?'opacity:.45;pointer-events:none':''}">
         ${bands.map(l=>`<button onclick="setKind(${l})"
           style="${pill};${(!wrist&&stageLevel(cur)===l)?on:off}">${BAND_NAME[l]}</button>`).join('')}
       </div>
     </div>`}
     <button onclick="setKind(${wrist?'null':"'wrist'"})" style="cursor:pointer;display:flex;
-      align-items:center;gap:10px;padding:10px 12px;border-radius:14px;min-height:46px;text-align:left;
-      border:1.5px solid ${wrist?'#7fb2c2':'rgba(143,190,202,.5)'};
-      background:${wrist?'rgba(143,190,202,.22)':'transparent'}">
-      <span style="flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
-        background:${wrist?'#2c5f6e':'rgba(143,190,202,.3)'};color:${wrist?'#fff':'#2c5f6e'};
-        font:700 12px/1 var(--sans)">${wrist?'&check;':'+'}</span>
-      <span style="flex:1;min-width:0;font:700 12.5px/1.2 var(--sans);color:#2c5f6e">
-        Mobility day instead</span>
+      align-items:center;gap:8px;padding:6px 2px;border:0;background:none;text-align:left;
+      align-self:flex-start">
+      <span style="flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;
+        background:${wrist?'#2c5f6e':'rgba(143,190,202,.35)'};color:${wrist?'#fff':'#2c5f6e'};
+        font:700 11px/1 var(--sans)">${wrist?'&check;':'+'}</span>
+      <span style="font:600 12.5px/1.2 var(--sans);color:#2c5f6e">${
+        wrist?'Mobility day, tap to undo':'Mobility day instead'}</span>
     </button>
   </div>`;
 }
@@ -12678,10 +12788,10 @@ function chooserPills(d){
    wide screen those two questions are already answered on the page, so
    Start starts. */
 /* On a phone the explainers are a shelf you drag, so there is no such
-   thing as too many. Laid out as a grid they are a wall of them, and two
-   rows is as much as anybody wants before deciding. */
+   thing as too many. Laid out as a grid they are a wall of them, and one
+   row is as much as anybody wants before the next thing on the page. */
 function railMore(n){
-  if(!wide() || !(n>6)) return '';
+  if(!wide() || !(n>3)) return '';
   return `<div style="padding:12px 16px 0">
     <button onclick="st.exAll=!st.exAll;save();render()" style="background:none;border:0;padding:0;
       cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
@@ -12824,7 +12934,9 @@ function topBar(){
 }
 /* the Form check / Chat switch, under the top bar on the coaching screen */
 function coachSegHTML(){
-  if(st.tab!=='coaching' || coachedView()) return '';
+  /* On a wide screen there is no top bar to hang it under, so the screen
+     draws it in the page instead and this stays out of the way. */
+  if(st.tab!=='coaching' || coachedView() || wide()) return '';
   const tab=coTab(), n=unreadMsgs();
   return `<div class="coachseg" style="position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:20px;right:20px;z-index:40;
       display:flex;background:rgba(0,64,61,.10);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
@@ -13216,10 +13328,24 @@ function tourDom(){
   return box;
 }
 function paintTour(){
-  const steps = tourSteps(), step = steps[tourStep];
+  const steps = tourSteps();
+  let step = steps[tourStep];
   if(!tourKey || !step) return;
-  const el = tourTarget(step);
-  if(!el) return;
+  let el = tourTarget(step);
+  /* A step whose target is not on this screen used to leave the whole
+     overlay standing over the page pointing at nothing, and the scrim
+     swallows every tap, so the app looks frozen. Move on to the next step
+     that has something to point at, and if there is none, end the tour
+     rather than sitting on top of a screen nobody can use. */
+  let guard = 0;
+  while(!el && guard++ < steps.length + 1){
+    tourStep++;
+    step = steps[tourStep];
+    if(!step){ endTour(); return; }
+    if(step.pre){ try{ step.pre(); }catch(e){} }
+    el = tourTarget(step);
+  }
+  if(!el){ endTour(); return; }
 
   const box = tourDom();
   const hole = document.getElementById('tourHole');
@@ -13373,7 +13499,7 @@ function render(){
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
       pointer-events:none">Preview &middot; ${esc(st.client||st.email||'client')} &middot; read only</div>`:'')
-    +topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${bar}</nav>`);
+    +topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${bar}${railFoot()}</nav>`);
   /* every film in the app carries the same caption plate. Individual mounts
      called this themselves and one of them always forgot, so it runs after
      any redraw instead: attachCaptions marks what it has done and a second
