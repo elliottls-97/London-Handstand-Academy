@@ -1685,6 +1685,7 @@ const VP_PLAY='<svg width="15" height="17" viewBox="0 0 17 19" fill="currentColo
 const VP_PAUSE='<svg width="14" height="16" viewBox="0 0 14 16" fill="currentColor"><rect x="1" y="0" width="4" height="16" rx="1.4"/><rect x="9" y="0" width="4" height="16" rx="1.4"/></svg>';
 const VP_EXPAND='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5"/><path d="M16 3h5v5"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/></svg>';
 const VP_CLOSE='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
+const VP_PIP='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/><rect x="12" y="11" width="8" height="6.5" rx="1" fill="currentColor" stroke="none"/></svg>';
 const VP_TURN='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M8 3.5l2-2 2 2"/><path d="M10 1.5A7.5 7.5 0 0 1 17 7"/></svg>';
 
 const vpTime = s => { s=Math.max(0,Math.floor(s||0));
@@ -1693,6 +1694,13 @@ const vpTime = s => { s=Math.max(0,Math.floor(s||0));
 /* the bar under a captioned film, in place of the browser's own controls.
    The browser's carry a fullscreen button, and that button is the whole
    problem this is here to avoid. */
+/* Picture in picture is Chrome, Edge and Safari on a Mac, and Safari on
+   an iPhone does it its own way from the native controls, which this
+   player replaces. Ask the browser rather than guessing. */
+function vpPipOk(v){
+  try{ return !!document.pictureInPictureEnabled && !v.disablePictureInPicture
+    && typeof v.requestPictureInPicture==='function'; }catch(e){ return false; }
+}
 function vpBar(v, theatre){
   const bar=document.createElement('div');
   bar.className='vp-bar';
@@ -1703,6 +1711,9 @@ function vpBar(v, theatre){
    +'<div class="vp-track" data-a="track"><i></i></div>'
    +'<span class="vp-t" data-a="dur">0:00</span>'
    +(theatre?'<button class="vp-btn" data-a="turn" aria-label="Rotate">'+VP_TURN+'</button>':'')
+   /* a film you can keep watching while you carry on reading the page,
+      or while you set yourself up on the floor */
+   +(vpPipOk(v)?'<button class="vp-btn" data-a="pip" aria-label="Picture in picture">'+VP_PIP+'</button>':'')
    +'<button class="vp-btn" data-a="full" aria-label="'+(theatre?'Close':'Full screen')+'">'
    +(theatre?VP_CLOSE:VP_EXPAND)+'</button>';
   const q=a=>bar.querySelector('[data-a="'+a+'"]');
@@ -1716,6 +1727,13 @@ function vpBar(v, theatre){
   };
   play.onclick=e=>{ e.stopPropagation(); v.paused?v.play():v.pause(); paint(); };
   q('full').onclick=e=>{ e.stopPropagation(); theatre?vpClose():vpOpen(v); };
+  const pip=q('pip');
+  if(pip) pip.onclick=e=>{ e.stopPropagation();
+    try{
+      if(document.pictureInPictureElement===v) document.exitPictureInPicture();
+      else { const r=v.requestPictureInPicture(); if(r&&r.catch) r.catch(()=>{}); }
+    }catch(err){}
+  };
   if(theatre) q('turn').onclick=e=>{ e.stopPropagation(); vpRotate(); };
   /* scrub by pointer, so a drag works as well as a tap */
   const seek=ev=>{
@@ -5852,6 +5870,16 @@ function showStep(){
         <div class="p-info"><h2 class="p-name">${esc(it.n)}</h2>
           ${cpRow(it)}
           ${it.desc?`<div class="p-rule"></div><div class="p-cues"><b>${esc(it.desc)}</b></div>`:''}
+          <!-- On a phone the cues are behind a button because the film and
+               the clock have the screen. Beside them, on a monitor, there
+               is room to simply read them. -->
+          ${!wide()?'':`<div class="p-rule"></div>
+          <div class="kick2">FORM CUES</div>
+          <div class="p-cues" style="margin-top:10px">
+            ${cues.map(c=>`<span class="cl">${esc(c)}</span>`).join('')}
+            ${it.nt?`<span class="cl">${esc(it.nt)}</span>`:''}
+            ${!(cues.length||it.nt)?`<span class="cl">No cues written for this one yet.</span>`:''}
+          </div>`}
         </div>
       </div>`;
     const cb=$('#p-cuesbody');
@@ -5865,7 +5893,9 @@ function showStep(){
         ${!nCues&&!it.desc?`<span class="cl">No cues written for this one yet.</span>`:''}
       </div>`;
     const cbtn=$('#p-cuesbtn');
-    if(cbtn){ cbtn.hidden=false; cbtn.textContent='Form cues'+(nCues?' · '+nCues:''); }
+    /* they are on the screen on a wide one, so the button would open a
+       sheet over the thing it is offering */
+    if(cbtn){ cbtn.hidden=wide(); cbtn.textContent='Form cues'+(nCues?' · '+nCues:''); }
     $('#p-next').textContent = s.sets>1 ? 'Set done →' : 'Done →';
   }
 
@@ -6864,12 +6894,45 @@ function drawOv(){
     </div>`;
   }
   if(st.ov==='locked'){
+    /* ── what you are being asked to sign up for ──────────────────
+       This was a title, a sentence about accounts and a button. Nobody
+       hands over an email for a title. It shows the still from the film,
+       what is actually covered in it, and how many more come with it. */
     const q=FAQS[st.exOpen]||FAQS[0];
+    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
+    const locked=FAQS.map((x,n)=>({x,n})).filter(o=>filmed(o.x) && !explainerOpen(o.n));
+    const others=locked.filter(o=>o.n!==st.exOpen).slice(0,6);
     body=`<div style="padding:2px">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">Needs an account</div>
       <div style="font:400 28px/1.06 var(--serif);margin-top:10px">${esc(q.q)}</div>
-      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:12px">
+      ${q.uid?`<div style="position:relative;margin-top:14px;border-radius:18px;overflow:hidden;
+        aspect-ratio:16/10;background:#11150f">
+        <img src="${esc(streamThumb(q.uid))}" alt="" loading="lazy"
+          style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+        <span style="position:absolute;inset:0;background:linear-gradient(180deg,
+          rgba(0,0,0,.04),rgba(0,0,0,.30))"></span>
+        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+          width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.9);
+          display:grid;place-items:center;color:var(--forest)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"></rect>
+            <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></span>
+        ${q.dur?`<span style="position:absolute;right:12px;bottom:12px;padding:6px 10px;
+          border-radius:999px;background:rgba(0,0,0,.55);color:#fff;
+          font:600 11px/1 var(--sans)">${esc(q.dur)}</span>`:''}
+      </div>`:''}
+      ${sum?`<div class="kick2" style="margin-top:16px">WHAT IS COVERED</div>
+      <div style="font:400 14.5px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(sum)}</div>`:''}
+      ${others.length?`<div class="kick2" style="margin-top:18px">AND ${
+        locked.length-1} MORE WITH IT</div>
+      <div style="margin-top:9px;display:flex;flex-direction:column;gap:7px">
+        ${others.map(o=>`<div style="display:flex;gap:9px;align-items:baseline">
+          <span style="flex:none;color:var(--forest)">&bull;</span>
+          <span style="font:400 14px/1.45 var(--sans);color:var(--grey)">${esc(o.x.q)}</span>
+        </div>`).join('')}
+      </div>`:''}
+      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:16px">
         The first ${FREE_EXPLAINERS} are open to everybody. An account opens the rest,
         keeps your stage and your finished sessions, and costs nothing.</div>
       <button onclick="closeOv();goJoin()"
