@@ -1830,20 +1830,36 @@ function vpBar(v, theatre){
    +(theatre?'<button class="vp-btn" data-a="turn" aria-label="Rotate">'+VP_TURN+'</button>':'')
    /* a film you can keep watching while you carry on reading the page,
       or while you set yourself up on the floor */
+   /* the film's sound. The follow along had no control for it at all, so
+      people reached for Cue on, which is the beep at the end of a set and
+      a different thing. Same button on every player now. */
+   +'<button class="vp-btn" data-a="mute" aria-label="Sound"></button>'
    +(vpPipOk(v)?'<button class="vp-btn" data-a="pip" aria-label="Picture in picture">'+VP_PIP+'</button>':'')
    +'<button class="vp-btn" data-a="full" aria-label="'+(theatre?'Close':'Full screen')+'">'
    +(theatre?VP_CLOSE:VP_EXPAND)+'</button>';
   const q=a=>bar.querySelector('[data-a="'+a+'"]');
   const play=q('play'), now=q('now'), dur=q('dur'), track=q('track'), fill=track.firstChild;
+  const mute=q('mute');
   const paint=()=>{
     play.innerHTML = v.paused ? VP_PLAY : VP_PAUSE;
     play.setAttribute('aria-label', v.paused?'Play':'Pause');
+    if(mute){
+      mute.innerHTML = v.muted ? VB_MUTED : VB_SPK;
+      mute.setAttribute('aria-label', v.muted?'Sound off, turn it on':'Sound on, turn it off');
+    }
     now.textContent=vpTime(v.currentTime);
     dur.textContent=vpTime(v.duration);
     fill.style.width=(v.duration?(v.currentTime/v.duration*100):0).toFixed(2)+'%';
   };
   play.onclick=e=>{ e.stopPropagation(); v.paused?v.play():v.pause(); paint(); };
   q('full').onclick=e=>{ e.stopPropagation(); theatre?vpClose():vpOpen(v); };
+  /* one setting for the whole app, so turning a drill's sound on leaves it
+     on for the next drill and for the explainers */
+  if(mute) mute.onclick=e=>{ e.stopPropagation();
+    const want=v.muted;                    /* muted now, so they want it on */
+    toggleSound(want);
+    if(want && v.paused) { try{ v.play().catch(()=>{}); }catch(err){} }
+    paint(); };
   const pip=q('pip');
   if(pip) pip.onclick=e=>{ e.stopPropagation(); pipToggle(v); };
   if(theatre) q('turn').onclick=e=>{ e.stopPropagation(); vpRotate(); };
@@ -1871,6 +1887,9 @@ function vpBuild(v){
   v.dataset.vp='1';
   v.removeAttribute('controls'); v.controls=false;
   v.setAttribute('playsinline','');
+  /* one sound setting across the app, so a drill and an explainer behave
+     the same way and the choice carries from one to the next */
+  try{ v.muted = !soundOn(); }catch(e){}
   host.classList.add('vp');
   const bar=vpBar(v,false);
   host.appendChild(bar);
@@ -6204,8 +6223,12 @@ function showStep(){
   const vw=$('#p-vwrap'), body=$('#p-body');
   if(resting){
     tTotal=left=rest(Q[qi], qi, Q);
-    /* the film is kept, paused and hidden, not thrown away: see below */
-    vw.className='p-vwrap novideo';
+    /* the film is kept, paused and hidden, not thrown away: see below.
+       classList, not className: the app's own player adds .vp to this
+       box and setting the class wholesale threw it away, which dropped
+       the bar out of the film and left it lying across the bottom of the
+       window looking like the browser's own. */
+    vw.classList.add('novideo');
     const rv=vw.querySelector('video'); if(rv){ try{ rv.pause(); }catch(e){} rv.style.display='none';
       const rb=vw.querySelector('.vp-bar'); if(rb) rb.style.display='none'; }
     /* only preview a genuinely different drill — the line above already
@@ -6227,7 +6250,7 @@ function showStep(){
     const cbtn=$('#p-cuesbtn'); if(cbtn) cbtn.hidden=true;
   } else {
     tTotal=left=work(it, s.g||s.grp);
-    if(it.url){ vw.className='p-vwrap';
+    if(it.url){ vw.classList.remove('novideo');
       /* ── one film element for the whole session ─────────────────
          Every set used to write a fresh <video autoplay> into the page,
          and an iPhone only lets a film start with sound inside the tap
@@ -6249,6 +6272,10 @@ function showStep(){
       const src=sig(it.url);
       if(vEl.getAttribute('data-src')!==src){
         vEl.setAttribute('data-src',src); vEl.src=src;
+        /* the drill's own first frame while it loads: a black rectangle
+           for two seconds on every set reads as a broken player */
+        const pu=uidOfUrl(it.url);
+        if(pu) vEl.poster=streamThumb(pu); else vEl.removeAttribute('poster');
         /* captions belong to the film, not the element */
         delete vEl.dataset.ccDone;
         const uid=uidOfUrl(it.url);
@@ -6256,7 +6283,7 @@ function showStep(){
         else { vEl.removeAttribute('data-cc'); const pl=document.getElementById('ccPlate'); if(pl) pl.style.opacity='0'; }
       }
       startFilm(vEl); }
-    else { vw.className='p-vwrap novideo';
+    else { vw.classList.add('novideo');
       const rv=vw.querySelector('video'); if(rv){ try{ rv.pause(); }catch(e){} rv.style.display='none';
         const rb=vw.querySelector('.vp-bar'); if(rb) rb.style.display='none'; } }
     const rp=repOf(it), cues=it.cues||[];
@@ -6517,10 +6544,20 @@ function paintSound(){
   if(l){ l.innerHTML=soundOn()?VB_SPK:VB_MUTED;
          l.setAttribute('aria-label', soundOn()?'Sound on':'Sound off'); }
 }
-function toggleSound(){
-  st.sound = !soundOn(); save();
-  document.querySelectorAll('#player video, .vb video').forEach(v=>{
+/* on is optional: without it this flips the setting, with it the button
+   goes by what the film is actually doing. A film the browser refused to
+   start with sound is muted while the setting still says on, and a toggle
+   that only flips the setting would need pressing twice to be heard. */
+function toggleSound(on){
+  st.sound = (on==null) ? !soundOn() : !!on; save();
+  /* every film on the page, not only the follow along and the old scrub
+     player: the drills and the explainers use the app's own bar too */
+  document.querySelectorAll('video').forEach(v=>{
     try{ v.muted = !soundOn(); }catch(e){}
+  });
+  document.querySelectorAll('.vp-bar [data-a="mute"]').forEach(b=>{
+    b.innerHTML = soundOn()?VB_SPK:VB_MUTED;
+    b.setAttribute('aria-label', soundOn()?'Sound on, turn it off':'Sound off, turn it on');
   });
   document.querySelectorAll('[data-vb-sound]').forEach(b=>{
     b.innerHTML = soundOn()?VB_SPK:VB_MUTED;
