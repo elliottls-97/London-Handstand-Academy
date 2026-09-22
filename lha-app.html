@@ -6595,7 +6595,7 @@ function drawOv(){
            /* it is not "every drill" as opposed to something else any more,
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
-           daystart:'',
+           daystart:'', ladderswitch:'',
            checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:''};
   let body='';
   if(st.ov==='paywall'){ body=paywallBody(); }
@@ -7062,6 +7062,27 @@ function drawOv(){
         style="width:100%;background:#11150f;display:block"></video>`,
         'margin-top:12px;border-radius:16px;overflow:hidden')
         : ''}
+    </div>`;
+  }
+  if(st.ov==='ladderswitch'){
+    body=`<div style="padding:2px">
+      <div class="kick2">THE LADDER</div>
+      <div style="font:400 30px/1.05 var(--serif);margin-top:9px">Not your
+        <em style="color:var(--forest);font-style:normal">programme.</em></div>
+      <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+        The ladder is the six stage app anybody can follow, and it comes with your
+        coaching. It is a different thing from the programme ${esc(coachLabel())} wrote
+        for you, so the days, the drills and the check points all look different in
+        there.</div>
+      <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:12px">
+        Your programme is not going anywhere. Nothing you do on the ladder changes it,
+        and <b style="color:var(--ink);font-weight:600">My coaching</b> at the top of the
+        screen brings you straight back.</div>
+      <button class="btn" style="width:100%;margin-top:20px"
+        onclick="switchView(true,true)">Show me the ladder</button>
+      <button onclick="closeOv()" style="width:100%;margin-top:8px;border:0;background:none;
+        color:var(--grey);font:500 14px/1 var(--sans);cursor:pointer;padding:12px">
+        Stay on my coaching</button>
     </div>`;
   }
   if(st.ov==='daystart'){
@@ -12897,6 +12918,13 @@ function viewSwitch(){
         box-shadow:${(!!st.asFree)===f?'0 1px 2px rgba(0,64,61,.12)':'none'};
         color:${(!!st.asFree)===f?'var(--deep)':'var(--grey)'}">${l}</button>`).join('')}
     </div>
+    ${!st.asFree?'':`<div style="display:flex;align-items:baseline;gap:7px;margin-top:8px;
+      font:400 12.5px/1.45 var(--sans);color:var(--grey)">
+      <span style="flex:1;min-width:0">This is the ladder, not the programme ${
+        esc(coachLabel())} wrote you.</span>
+      <button onclick="switchView(false)" style="flex:none;border:0;background:none;padding:0;
+        cursor:pointer;font:600 12.5px/1 var(--sans);color:var(--forest)">Take me back</button>
+    </div>`}
   </div>`;
 }
 function coachedView(){ return !!st.in && !st.asFree; }
@@ -13184,7 +13212,16 @@ function startNow(d){
   const arg=(plan && d>=0 && d<plan.length && !isRestCell(cell)) ? d : null;
   buildFreeSession(wrist, true, wrist?null:arg);
 }
-function switchView(toFree){
+/* ── the ladder, for somebody who is coached ──────────────────────
+   A coached client pressing The ladder watched their programme, their
+   days and their check points all disappear and be replaced by a six
+   stage app they have never seen, with no explanation and no obvious
+   way back. It is the same account and nothing has happened to their
+   programme, but there is no way of knowing that from the screen. So
+   the first time, it says what it is before it does it. */
+function switchView(toFree, ok){
+  if(toFree && !ok && !st.sawLadder){ openOv('ladderswitch'); return; }
+  if(toFree) st.sawLadder=1;
   st.asFree=!!toFree;
   save();
   closeOv(); closeMenu();
