@@ -59,6 +59,7 @@ const parseClients = () => (process.env.CLIENTS || '')
   .filter(c => c.email);
 
 let ROSTER = null;                 /* set once per request, never across them */
+let REMOVED = new Set();           /* taken off the roster on purpose, this request */
 const rosterList = () => ROSTER || parseClients();
 const clients = () => Object.fromEntries(rosterList().map(c => [c.email, c.name]));
 
@@ -1150,13 +1151,44 @@ export default async (request) => {
      dashboard is live immediately rather than at the next deploy. */
   ROSTER = await (async () => {
     const seed = parseClients();
-    const stored = (await getSetting('roster')) || {};
+    const [stored0, planRows] = await Promise.all([
+      getSetting('roster'),
+      supa.rows('settings', 'key=like.programme%3A*&select=key').catch(() => []),
+    ]);
+    const stored = stored0 || {};
     const byEmail = new Map(seed.map(c => [c.email, c]));
+    REMOVED = new Set();
     for (const [e, v] of Object.entries(stored)) {
       const email = norm(e);
-      if (!email || v === null) { byEmail.delete(email); continue; }
+      if (!email) continue;
+      if (v === null) { byEmail.delete(email); REMOVED.add(email); continue; }
       byEmail.set(email, { email, name: String(v.name || email).slice(0, 60),
                            coach: norm(v.coach || '') });
+    }
+    /* ── a programme makes a client ─────────────────────────────────
+       The app has always counted someone with a written programme as
+       coached, and the dashboard counted only the roster, so an account
+       given a programme without being added showed as an enquiry on one
+       screen and a client on the other. They are added to the roster the
+       first time this sees them, under the name on their account, and
+       from then on both screens agree. Taking someone off the roster
+       marks them removed, so this does not put them back. */
+    const planned = new Set((planRows || []).map(r => norm(String(r.key || '').slice('programme:'.length)))
+      .concat(Object.keys(programmes.clients || {}).map(norm)));
+    const missing = [...planned].filter(e => e && e.includes('@') && !byEmail.has(e) && !REMOVED.has(e));
+    if (missing.length) {
+      const accts = (await supa.rows('accounts',
+        `email=in.(${enc(missing.map(e => '"' + e + '"').join(','))})&select=email,name`).catch(() => [])) || [];
+      let added = 0;
+      for (const a of accts) {
+        const email = norm(a.email);
+        if (!email || byEmail.has(email)) continue;
+        const name = String(a.name || email.split('@')[0]).slice(0, 60);
+        byEmail.set(email, { email, name, coach: '' });
+        stored[email] = { name, coach: '' };
+        added++;
+      }
+      if (added) await setSetting('roster', stored).catch(() => {});
     }
     return Array.from(byEmail.values());
   })();
@@ -1168,7 +1200,7 @@ export default async (request) => {
      is the more reliable fact of the two, so either one counts. */
   const hasPlan = async e =>
     !!(programmes.clients[e] || (await getSetting(`programme:${e}`)));
-  const isCoached = async e => !!clients()[e] || await hasPlan(e);
+  const isCoached = async e => !REMOVED.has(norm(e)) && (!!clients()[e] || await hasPlan(e));
 
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   /* a coach signs in with their own email and password like anyone else;
@@ -4883,8 +4915,9 @@ export default async (request) => {
         if (body.remove) {
           /* a seeded client cannot simply be dropped from the object — the
              variable would put them straight back, so mark the removal */
-          const seeded = parseClients().some(c => c.email === e);
-          if (seeded) stored[e] = null; else delete stored[e];
+          /* marked, not deleted, seeded or not: a client with a programme
+             would otherwise be put straight back on by the roster check */
+          stored[e] = null;
         } else {
           if (Object.keys(stored).length >= 200) return json({ error: 'Roster is full' }, 400);
           stored[e] = { name: String(body.name || '').slice(0, 60) || e,

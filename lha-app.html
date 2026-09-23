@@ -15293,7 +15293,7 @@ document.addEventListener('DOMContentLoaded',function(){
        app does, and fetches what it was about */
     if(e.data && e.data.type==='lha-push'){
       if(!document.hidden) toast(String(e.data.title||'')+(e.data.body?': '+String(e.data.body).slice(0,90):''));
-      if(st.token && !st.preview){ try{ loadThread(); }catch(_){} }
+      if(st.token && !st.preview){ try{ loadThread(); loadSubmissions(); loadTrack(); }catch(_){} }
     } }); }catch(e){}
   /* which films are on this phone: the list and the player both ask */
   dlLoad().then(()=>{ if(dlSet.size) render(); });
@@ -15324,13 +15324,32 @@ document.addEventListener('DOMContentLoaded',function(){
      Every ten seconds while the chat is open, so a reply lands while they
      are looking at it; once a minute elsewhere, for the dot; nothing while
      the tab is hidden. */
-  let lastPoll=0;
+  let lastPoll=0, lastTrackPoll=Date.now(), lastTouch=0;
+  /* a check point being dragged must not be redrawn under the finger by a
+     poll that happens to land mid drag */
+  ['pointerdown','input','keydown'].forEach(ev=>document.addEventListener(ev,
+    ()=>{ lastTouch=Date.now(); },{passive:true,capture:true}));
+  /* Sign-offs and replies to check points live in the track, and the track
+     was fetched when the app opened and never again: a verdict written
+     while the app was open only appeared after closing and reopening it.
+     It is asked once a minute now for a coached client, as the chat is. */
+  const pollTrack = () => { if(Date.now()-lastTouch<8000) return;
+    lastTrackPoll=Date.now(); loadTrack(); };
   setInterval(()=>{
     if(!st.token || document.hidden || st.preview) return;
     const onChat = st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat');
+    if(st.in && Date.now()-lastTrackPoll>=60000) pollTrack();
     if(!onChat && Date.now()-lastPoll<60000) return;
     lastPoll=Date.now(); loadThread(); loadSubmissions();
   },10000);
+  /* coming back to the app is when news is most likely waiting: the phone
+     stops the clock above while it is away, so nothing was asked until the
+     next tick, or at all if they only glanced */
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden || !st.token || st.preview) return;
+    if(Date.now()-lastPoll<5000) return;
+    lastPoll=Date.now(); loadThread(); loadSubmissions(); pollTrack();
+  });
   /* An open is a person opening the app, not a tab waking up. Wait for a
      real interaction before reporting one, and report how long they stayed
      when they leave. */
