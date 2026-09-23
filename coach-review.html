@@ -317,6 +317,7 @@
   .tool-grid button { padding: 6px 4px; font-size: 14px; }
   #stage.pan-cursor { cursor: grab; }
   #stage.pan-cursor:active { cursor: grabbing; }
+  #stage.title-hover { cursor: move; }
   .status {
     font-size: 11.5px;
     padding: 7px 9px;
@@ -408,10 +409,59 @@
     transition: width 0.06s linear;
   }
   .meter-fill.hot { background: var(--red); }
+
+  /* ── the dashboard's look ────────────────────────────────────────────
+     It lives inside the dashboard and wore its own older look: a warm
+     beige page, flat grey panels, small type and its own buttons. These
+     are the dashboard's ground, cards, section labels, buttons and inputs,
+     so it reads as one of its screens. Inside the dashboard its own
+     header goes, because the bar above already says where you are. */
+  :root { --bg: #f4f4f5; --surface: #fff; }
+  body { background:
+      radial-gradient(circle at 15% 8%, rgba(0,102,99,.07), transparent 40%),
+      radial-gradient(circle at 90% 30%, rgba(143,190,202,.12), transparent 45%),
+      radial-gradient(circle at 30% 80%, rgba(243,169,73,.05), transparent 40%), #f4f4f5;
+    -webkit-font-smoothing: antialiased; padding: 12px 14px 12px; }
+  .embedded header { display: none; }
+  h1 { font: 400 24px/1.1 var(--serif); }
+  .layout { gap: 14px; grid-template-columns: minmax(0, 1fr) 300px; }
+  .col-left, .col-right { gap: 12px; }
+  .panel { background: #fff; border: 1px solid rgba(0,64,61,.10); border-radius: 16px; padding: 14px 15px;
+    box-shadow: 0 1px 2px rgba(0,64,61,.05), 0 8px 20px rgba(0,64,61,.06); }
+  .panel h2 { font: 600 9.5px/1 var(--sans); letter-spacing: .16em; color: var(--grey2); margin: 0 0 11px; }
+  .stage-wrap { background: #11150f; border-radius: 12px; }
+  button { background: #fff; border: 1px solid rgba(0,64,61,.16); border-radius: 999px; padding: 8px 14px;
+    font: 600 12.5px/1.2 var(--sans); color: var(--ink); min-height: 34px;
+    transition: background .25s, border-color .25s, transform .25s cubic-bezier(.2,.8,.2,1); }
+  button:hover:not(:disabled) { background: rgba(0,102,99,.05); border-color: rgba(0,64,61,.24); }
+  button:active:not(:disabled) { transform: scale(.98); }
+  button:disabled { opacity: .45; }
+  button.active, button.primary { background: var(--forest); border-color: var(--forest); color: var(--on-primary); }
+  button.active:hover:not(:disabled), button.primary:hover:not(:disabled) { background: #007A75; border-color: #007A75; }
+  button.record { background: var(--forest); border-color: var(--forest); color: var(--on-primary);
+    min-height: 46px; font-size: 14px; }
+  button.record:hover:not(:disabled) { background: #007A75; border-color: #007A75; }
+  button.record.recording { background: var(--red); border-color: var(--red); }
+  label { font-size: 12.5px; color: var(--grey); }
+  select, input[type="text"] { background: #fff; border: 1px solid rgba(0,64,61,.16); border-radius: 12px;
+    padding: 8px 10px; font: 400 13px/1.3 var(--sans); color: var(--ink); min-height: 36px;
+    transition: border-color .2s, box-shadow .2s; }
+  select:hover, input[type="text"]:hover { border-color: rgba(0,64,61,.3); }
+  select:focus, input[type="text"]:focus { border-color: var(--forest); outline: none; box-shadow: 0 0 0 3px rgba(0,102,99,.12); }
+  .hint { font-size: 11.5px; line-height: 1.5; margin-top: 6px; }
+  .timecode { font-size: 12px; }
+  .swatch.active { border-color: var(--forest); box-shadow: 0 0 0 3px rgba(0,102,99,.14); }
+  a.download-link { font-weight: 600; padding: 11px 14px; font-size: 13px; }
+  input[type="file"] { font: 400 12px/1.4 var(--sans); color: var(--grey); }
+  input[type="file"]::file-selector-button { border: 1px solid rgba(0,64,61,.16); background: #fff; border-radius: 999px;
+    padding: 8px 14px; margin-right: 10px; font: 600 12.5px/1.2 var(--sans); color: var(--ink); cursor: pointer;
+    transition: background .25s, border-color .25s; }
+  input[type="file"]::file-selector-button:hover { background: rgba(0,102,99,.05); border-color: rgba(0,64,61,.24); }
 </style>
 </head>
 <body>
 
+<script>if (window.parent !== window) document.documentElement.classList.add('embedded');</script>
 <header>
   <div>
     <div class="brand">London Handstand Academy</div>
@@ -487,6 +537,11 @@
       <div class="row" style="margin-top:6px;">
         <label><input type="checkbox" id="showTitleToggle" checked> Show clip title on video</label>
       </div>
+      <div class="row" style="margin-top:6px;gap:10px;align-items:center">
+        <label style="flex:1;">Title size <input type="range" id="titleSize" min="70" max="160" step="5" value="100" style="flex:1"></label>
+        <button type="button" id="titleReset">Put it back</button>
+      </div>
+      <div class="hint">Drag the title on the video to move it. It shrinks to fit, then goes onto two lines.</div>
       <div class="hint">Click a clip to switch to it, even while recording. Click its name to rename it.</div>
       <div class="row" style="margin-top:6px;">
         <label style="flex:1;">Format
@@ -603,6 +658,15 @@
   const clipList = document.getElementById('clipList');
   const clipEmpty = document.getElementById('clipEmpty');
   const showTitleToggle = document.getElementById('showTitleToggle');
+  /* the title's size and where it was dragged to, kept between reviews */
+  let titleScale = 1, titlePos = null, titleRect = null, titleDrag = null;
+  try { const t = JSON.parse(localStorage.getItem('lhaReviewTitle') || '{}');
+    if (t.scale) titleScale = t.scale; if (t.pos) titlePos = t.pos; } catch (e) {}
+  function titleSave() { try { localStorage.setItem('lhaReviewTitle', JSON.stringify({ scale: titleScale, pos: titlePos })); } catch (e) {} }
+  const titleSizeInput = document.getElementById('titleSize');
+  titleSizeInput.value = Math.round(titleScale * 100);
+  titleSizeInput.addEventListener('input', () => { titleScale = Number(titleSizeInput.value) / 100 || 1; titleSave(); });
+  document.getElementById('titleReset').addEventListener('click', () => { titlePos = null; titleScale = 1; titleSizeInput.value = 100; titleSave(); });
 
   const meterFill = document.getElementById('meterFill');
   const audioTestBtn = document.getElementById('audioTestBtn');
@@ -987,8 +1051,22 @@
 
   let panDragStart = null;
 
+  /* where the pointer is on the stage canvas itself, which is where the
+     title is drawn; the drawing tools work in the video's own pixels */
+  function stagePoint(e) {
+    const r = stage.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * stage.width / r.width, y: (e.clientY - r.top) * stage.height / r.height };
+  }
+  const onTitle = p => !!(titleRect && showTitleToggle.checked && p.x >= titleRect.x && p.x <= titleRect.x + titleRect.w
+    && p.y >= titleRect.y && p.y <= titleRect.y + titleRect.h);
   stage.addEventListener('pointerdown', (e) => {
     if (!videoLoaded) return;
+    const sp = stagePoint(e);
+    if (onTitle(sp)) {
+      stage.setPointerCapture(e.pointerId);
+      titleDrag = { dx: sp.x - (titleRect.x + titleRect.w / 2), dy: sp.y - (titleRect.y + titleRect.h / 2) };
+      return;
+    }
     stage.setPointerCapture(e.pointerId);
     drawing = true;
 
@@ -1013,7 +1091,12 @@
   });
 
   stage.addEventListener('pointermove', (e) => {
-    if (!drawing) return;
+    if (titleDrag) {
+      const sp = stagePoint(e);
+      titlePos = { x: (sp.x - titleDrag.dx) / stage.width, y: (sp.y - titleDrag.dy) / stage.height };
+      return;
+    }
+    if (!drawing) { stage.classList.toggle('title-hover', onTitle(stagePoint(e))); return; }
 
     if (currentTool === 'pan') {
       if (!panDragStart) return;
@@ -1056,8 +1139,8 @@
     }
   });
 
-  stage.addEventListener('pointerup', () => { drawing = false; panDragStart = null; });
-  stage.addEventListener('pointercancel', () => { drawing = false; panDragStart = null; });
+  stage.addEventListener('pointerup', () => { drawing = false; panDragStart = null; if (titleDrag) { titleDrag = null; titleSave(); } });
+  stage.addEventListener('pointercancel', () => { drawing = false; panDragStart = null; if (titleDrag) { titleDrag = null; titleSave(); } });
 
   undoBtn.addEventListener('click', () => {
     if (undoStack.length === 0) return;
@@ -1272,86 +1355,99 @@
     return t + '...';
   }
 
+  /* The title at the largest size that fits: shrink it first, down to seven
+     tenths; then two lines split where they balance, shrinking again if
+     need be; only a single word too long for anything is cut. */
+  function titleLayout(text, base, maxW) {
+    const pad = f => f * 1.9;
+    const font = f => '500 ' + f + 'px Newsreader, Georgia, serif';
+    for (let f = base; f >= Math.round(base * 0.72) && f >= 12; f = Math.floor(f * 0.96)) {
+      ctx.font = font(f);
+      if (ctx.measureText(text).width + pad(f) <= maxW) return { size: f, lines: [text] };
+    }
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length > 1) {
+      for (let f = base; f >= Math.max(12, Math.round(base * 0.6)); f = Math.floor(f * 0.96)) {
+        ctx.font = font(f);
+        let best = null;
+        for (let i = 1; i < words.length; i++) {
+          const one = words.slice(0, i).join(' '), two = words.slice(i).join(' ');
+          const w = Math.max(ctx.measureText(one).width, ctx.measureText(two).width);
+          if (!best || w < best.w) best = { one, two, w };
+        }
+        if (best.w + pad(f) <= maxW) return { size: f, lines: [best.one, best.two] };
+      }
+    }
+    const f = Math.max(12, Math.round(base * 0.6));
+    ctx.font = font(f);
+    const half = Math.ceil(words.length / 2);
+    return { size: f, lines: [words.slice(0, half).join(' '), words.slice(half).join(' ')]
+      .filter(Boolean).map(l => fitText(ctx, l, maxW - pad(f))) };
+  }
   function drawTitleCaption() {
+    titleRect = null;
     if (!showTitleToggle.checked) return;
     const clip = clips[activeClipIndex];
     if (!clip || !clip.title.trim()) return;
-
-    // A header over the captions: the same frosted pill, in Newsreader, a
-    // size up from them, and in the case it was typed rather than spaced
-    // capitals. Scaled off the caption size, which scales off the short edge.
-    const fontSize = Math.round(ccSize() * 1.15);
+    const W = stage.width, H = stage.height;
+    // a header over the captions: the same frosted pill, in Newsreader, a
+    // size up from them, as typed; the slider scales it from there
+    const base = Math.round(ccSize() * 1.15 * titleScale);
+    const text = clip.title.trim();
     ctx.save();
-    ctx.font = '500 ' + fontSize + 'px Newsreader, Georgia, serif';
-    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     ctx.textBaseline = 'middle';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
 
-    let text = clip.title.trim();
-    const padX = fontSize * 0.95;
-    const padY = fontSize * 0.5;
-    const boxH = fontSize + padY * 2;
-
-    const geom = getCamBubbleGeom();
+    // where it goes, if it has not been dragged: beside the camera bubble
+    // when the whole title fits there, under it when it does not, else top
+    const geom = titlePos ? null : getCamBubbleGeom();
     const topBubble = geom && (geom.corner === 'tl' || geom.corner === 'tr');
-
-    let boxX, boxY, boxW, textX;
-
+    let maxW = W * 0.9, where = 'top';
     if (topBubble) {
-      const gap = geom.r * 0.28;
-      const edge = geom.margin;
-      const beside = geom.corner === 'tl'
-        ? stage.width - (geom.cx + geom.r + gap) - edge
-        : (geom.cx - geom.r - gap) - edge;
+      const gap = geom.r * 0.28, edge = geom.margin;
+      const beside = geom.corner === 'tl' ? W - (geom.cx + geom.r + gap) - edge : (geom.cx - geom.r - gap) - edge;
+      const t = titleLayout(text, base, beside);
+      if (t.lines.length === 1 && t.size >= Math.round(base * 0.85)) { maxW = beside; where = 'beside'; }
+      else { maxW = W - edge * 2; where = 'under'; }
+    }
+    const L = titleLayout(text, base, maxW);
+    const fs = L.size, padX = fs * 0.95, padY = fs * 0.5, lh = fs * 1.15;
+    ctx.font = '500 ' + fs + 'px Newsreader, Georgia, serif';
+    const textW = Math.max(...L.lines.map(l => ctx.measureText(l).width));
+    const boxW = Math.min(maxW, textW + padX * 2);
+    const boxH = fs + (L.lines.length - 1) * lh + padY * 2;
+    if (boxW <= padX) { ctx.restore(); return; }
 
-      // Only sit it beside the head if the whole title actually fits there,
-      // otherwise it goes underneath where there is far more room
-      if (ctx.measureText(text).width + padX * 2 <= beside) {
-        boxW = ctx.measureText(text).width + padX * 2;
-        boxY = geom.cy - boxH / 2; // vertically centred on the bubble
-        if (geom.corner === 'tl') {
-          boxX = geom.cx + geom.r + gap;
-          ctx.textAlign = 'left';
-          textX = boxX + padX;
-        } else {
-          boxX = (geom.cx - geom.r - gap) - boxW;
-          ctx.textAlign = 'right';
-          textX = boxX + boxW - padX;
-        }
-      } else {
-        // Narrow frame (vertical): tuck the title under the head, same side
-        const maxW = stage.width - edge * 2;
-        text = fitText(ctx, text, maxW - padX * 2);
-        boxW = Math.min(maxW, ctx.measureText(text).width + padX * 2);
-        boxY = geom.cy + geom.r + gap;
-        if (geom.corner === 'tl') {
-          boxX = edge;
-          ctx.textAlign = 'left';
-          textX = boxX + padX;
-        } else {
-          boxX = stage.width - edge - boxW;
-          ctx.textAlign = 'right';
-          textX = boxX + boxW - padX;
-        }
-      }
+    let boxX, boxY, align;
+    if (titlePos) {
+      boxX = Math.min(W - boxW - 4, Math.max(4, titlePos.x * W - boxW / 2));
+      boxY = Math.min(H - boxH - 4, Math.max(4, titlePos.y * H - boxH / 2));
+      align = 'center';
+    } else if (where === 'beside') {
+      const gap = geom.r * 0.28;
+      boxY = geom.cy - boxH / 2;
+      if (geom.corner === 'tl') { boxX = geom.cx + geom.r + gap; align = 'left'; }
+      else { boxX = (geom.cx - geom.r - gap) - boxW; align = 'right'; }
+    } else if (where === 'under') {
+      const gap = geom.r * 0.28, edge = geom.margin;
+      boxY = geom.cy + geom.r + gap;
+      if (geom.corner === 'tl') { boxX = edge; align = 'left'; }
+      else { boxX = W - edge - boxW; align = 'right'; }
     } else {
-      // No head up top, so centre the title as normal
-      text = fitText(ctx, text, stage.width * 0.9 - padX * 2);
-      boxW = Math.min(stage.width * 0.9, ctx.measureText(text).width + padX * 2);
-      boxX = stage.width / 2 - boxW / 2;
-      boxY = stage.height * 0.04;
-      ctx.textAlign = 'center';
-      textX = stage.width / 2;
+      boxX = W / 2 - boxW / 2; boxY = H * 0.04; align = 'center';
     }
 
-    if (boxW <= padX) { ctx.restore(); return; } // no room, skip it
-
-    ccPill(boxX, boxY, boxW, boxH, fontSize);
+    ccPill(boxX, boxY, boxW, boxH, fs);
+    ctx.textAlign = align;
+    const tx = align === 'left' ? boxX + padX : align === 'right' ? boxX + boxW - padX : boxX + boxW / 2;
     ctx.shadowColor = 'rgba(0,0,0,0.55)';
-    ctx.shadowBlur = fontSize * 0.6; ctx.shadowOffsetY = fontSize * 0.1;
+    ctx.shadowBlur = fs * 0.6; ctx.shadowOffsetY = fs * 0.1;
     ctx.fillStyle = 'rgba(255,255,255,0.96)';
-    ctx.fillText(text, textX, boxY + boxH / 2);
+    L.lines.forEach((l, i) => ctx.fillText(l, tx, boxY + padY + fs / 2 + i * lh));
     ctx.restore();
+    titleRect = { x: boxX, y: boxY, w: boxW, h: boxH };
   }
+
 
   /* ── the caption plate, as the app's explainers wear it ──────────────
      A frosted pill in the bottom fifth of the frame, Newsreader, white words
