@@ -975,7 +975,16 @@ function planDay(i, dk){
   if(!d || d.noWarm || !W || !(W.items||[]).length || typeof lhaWarmPick!=='function') return d;
   const items=lhaWarmPick(W, i, dk).filter(x=>!(typeof asideOn==='function' && asideOn(x.v)));
   if(!items.length) return d;
-  return Object.assign({}, d, {groups:[{name:'Warm-up', warm:true, items}].concat(d.groups||[])});
+  /* Last in the list, so every block written for the day keeps its place:
+     ticks, rep logs and notes are kept by position, and putting the warm-up
+     first moved each of them onto the drill above. It is shown and trained
+     first all the same (groupOrder). */
+  return Object.assign({}, d, {groups:(d.groups||[]).concat([{name:'Warm-up', warm:true, items}])});
+}
+/* a day's blocks in the order they are trained, each with its place in the list */
+function groupOrder(d){
+  const all=((d&&d.groups)||[]).map((g,gi)=>[g,gi]);
+  return all.filter(x=>x[0].warm).concat(all.filter(x=>!x[0].warm));
 }
 const day=()=>planDay(DATA.days[st.day] ? st.day : 0, dayKey(Date.now()));
 const allItems=d=>d.groups.flatMap(g=>g.items);
@@ -1102,7 +1111,7 @@ function rest(x, i, list){
 
 function queue(){
   const d=day(), q=[];
-  d.groups.forEach((g,gi)=>g.items.forEach((it,ii)=>{
+  groupOrder(d).forEach(([g,gi])=>g.items.forEach((it,ii)=>{
     /* the rotating warm-up is one pass through, as the builder shows it,
        unless the coach set a number of sets on the drill */
     const n=g.warm ? Math.max(1, Number(it.sets)||1) : setsFor(it);
@@ -1430,8 +1439,17 @@ function screenToday(){
     </div>
     <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>
-    ${dlRow('day'+st.day+'-'+dlHash(allItems(d).map(it=>it.v||'')), allItems(d).map(itUrl),
-      {kind:'day', day:st.day, name:d.label+(d.sub?', '+d.sub:'')})}
+    ${(function(){
+      /* The warm-up turns over every day, so a saved day is its written
+         blocks plus every drill the warm-up can draw on: the key stays the
+         same from one day to the next, and whichever warm-up comes round
+         plays with no signal. */
+      const own=(d.groups||[]).filter(g=>!g.warm).flatMap(g=>g.items||[]);
+      const pool=d.noWarm ? [] : ((DATA.warmup&&DATA.warmup.items)||[]);
+      const all=own.concat(pool.filter(p=>!own.some(o=>o.v===p.v)));
+      return dlRow('day'+st.day+'-'+dlHash(all.map(it=>it.v||'')), all.map(itUrl),
+        {kind:'day', day:st.day, name:d.label+(d.sub?', '+d.sub:'')});
+    })()}
   </div>
 
 
@@ -2591,7 +2609,7 @@ function screenPlan(){
     ${esc(x.label)}<span style="display:block;font:600 9px/1 var(--sans);letter-spacing:.1em;margin-top:5px;
     color:${i===st.day?'var(--forest)':'var(--grey2)'}">${esc(x.sub.toUpperCase())}</span></button>`).join('');
 
-  const groups=d.groups.map((g,gi)=>{
+  const groups=groupOrder(d).map(([g,gi])=>{
     const wk=st.why[st.day+'-'+gi];
     const rows=g.items.map((it,ii)=>{
       const k=key(st.day,gi,ii), on=st.tick[k], rate=st.rate[it.v]||'', openD=st.open[k];
@@ -2629,7 +2647,7 @@ function screenPlan(){
             </div>
             <div class="rowdose" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${esc(it.d)}</span>
-              ${planLogBtn(k,it)}
+              ${g.warm?'':planLogBtn(k,it)}
               <button class="rt ${st.howOpen===k?'on':''}" onclick="st.howOpen=st.howOpen==='${k}'?null:'${k}';save();render()">How did it go?</button>
             </div>
             ${st.howOpen===k?`<div style="display:flex;gap:7px;margin-top:8px">
@@ -4796,6 +4814,7 @@ function sendPlanReps(){
   if(!st.token) return;
   const d=day(), out=[];
   (d.groups||[]).forEach((g,gi)=>(g.items||[]).forEach((it,ii)=>{
+    if(g.warm) return;                  /* it rotates, so a count on it would move */
     const k=key(st.day,gi,ii), r=(st.planReps||{})[k];
     if(r==null) return;
     const a=doseAmount(it);
@@ -5757,8 +5776,14 @@ function markSent(key){
   save(); render();
 }
 const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
+let threadInFlight=0;
 function loadThread(){
   if(!st.token) return;
+  /* one at a time: on a slow gym signal a second check started before the
+     first had answered, and an older answer landing after a newer one took a
+     message off the screen for a few seconds */
+  if(threadInFlight && Date.now()-threadInFlight<10000) return;
+  threadInFlight=Date.now();
   /* only the chat itself counts as reading it: a check from another screen
      says so, and the coach's replies stay unread until they are looked at */
   const reading=!document.hidden && onChatScreen();
@@ -5808,7 +5833,7 @@ function loadThread(){
       else if(!same && (st.tab==='ask'||st.tab==='coaching')) render();
       else if(!same && unreadMsgs()>0) render();   /* the dot on the chat button */
     }
-  }).catch(()=>{});
+  }).catch(()=>{}).finally(()=>{ threadInFlight=0; });
 }
 function when(t){
   if(!t) return '';
@@ -6391,11 +6416,12 @@ function sendPhoto(file){
       upSay('Sending…');
       const text=(($('#askIn')||{}).value||'').trim();
       askDraft=''; const el=$('#askIn'); if(el) el.value='';
-      pendingMsgs.push({text,image:d.id,sentAt:Date.now()});
-      st.msgs=(st.msgs||[]).concat([{from:'me',text,image:d.id,time:'Just now',pending:true}]);
+      const re=chatReplyTo; chatReply('');
+      pendingMsgs.push({text,image:d.id,sentAt:Date.now(),...(re?{re}:{})});
+      st.msgs=(st.msgs||[]).concat([{from:'me',text,image:d.id,time:'Just now',pending:true,at:Date.now(),...(re?{re}:{})}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,image:d.id})}).then(gateCheck)
+        body:JSON.stringify({text,image:d.id,...(re?{re}:{})})}).then(gateCheck)
         .catch(e=>{ markFailed(d.id); throw e; });
     })
     .then(()=>{ upBusy=false; upSay('Sent. Elliott has it.');
@@ -6428,11 +6454,12 @@ function sendClip(file){
       upSay('Sending…');
       const text=(($('#askIn')||{}).value||'').trim();
       askDraft=''; const el=$('#askIn'); if(el) el.value='';
-      pendingMsgs.push({text,video:uid,sentAt:Date.now()});
-      st.msgs=(st.msgs||[]).concat([{from:'me',text,video:uid,time:'Just now',pending:true}]);
+      const re=chatReplyTo; chatReply('');
+      pendingMsgs.push({text,video:uid,sentAt:Date.now(),...(re?{re}:{})});
+      st.msgs=(st.msgs||[]).concat([{from:'me',text,video:uid,time:'Just now',pending:true,at:Date.now(),...(re?{re}:{})}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,video:uid})}).then(gateCheck)
+        body:JSON.stringify({text,video:uid,...(re?{re}:{})})}).then(gateCheck)
         .catch(e=>{ markFailed(uid); throw e; });
     })
     .then(()=>{ upBusy=false; upSay('Sent. Elliott has it.');
@@ -6540,11 +6567,28 @@ function repaintChat(added){
   if(!el || !onChatScreen()){ render(); return; }
   const sc=chatScroller();
   const near=!sc || sc.scrollHeight-sc.scrollTop-sc.clientHeight<160;
-  el.innerHTML=chatThreadHTML(el.dataset.empty||'');
+  chatPatch(el, chatThreadHTML(el.dataset.empty||''));
   try{ mountCaptions(); }catch(e){}
   const hs=document.getElementById('chatStatus');
   if(hs) hs.textContent=Date.now()-chatTypingAt<8000 ? 'typing…' : hs.dataset.idle||'';
   if(near) chatToEnd(false); else { chatNewBelow+=added||0; chatJumpPaint(); }
+}
+/* Redraw the list, except any message with a clip playing in it: that one
+   stays exactly where it is and the rest is rebuilt around it. Replacing it,
+   or even moving it, reloads the player, so a clip being watched restarted
+   whenever a message arrived or the dots came and went. */
+function chatPatch(el, html){
+  const keep=new Map();
+  el.querySelectorAll(':scope > .crow').forEach(r=>{ if(r.id && r.querySelector('iframe')) keep.set(r.id, r); });
+  if(!keep.size){ el.innerHTML=html; return; }
+  const tpl=document.createElement('template'); tpl.innerHTML=html;
+  [...el.childNodes].forEach(n=>{ if(!(n.nodeType===1 && keep.has(n.id))) el.removeChild(n); });
+  let at=el.firstChild;
+  [...tpl.content.childNodes].forEach(n=>{
+    if(n.nodeType===1 && keep.has(n.id)){ at=keep.get(n.id).nextSibling; keep.delete(n.id); return; }
+    el.insertBefore(n, at);
+  });
+  keep.forEach(r=>r.remove());           /* gone from the thread: deleted or taken back */
 }
 function chatGrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,132)+'px';
   el.style.overflowY=el.scrollHeight>132?'auto':'hidden'; chatFit(); }
@@ -6623,7 +6667,8 @@ function chMenu(k){
     try{ navigator.clipboard.writeText(m.text).then(()=>toast('Copied'),()=>toast('Could not copy that')); }catch(e){ toast('Could not copy that'); } }});
   if(m.from==='me' && m.id && !st.preview) items.push({label:'Delete for everyone', danger:true, fn:()=>chatDelete(m.id)});
   if(m.from==='me' && m.failed) items.push({label:'Remove', danger:true, fn:()=>{
-    pendingMsgs=pendingMsgs.filter(p=>p.id!==m.pid); st.msgs=(st.msgs||[]).filter(x=>x!==m); save(); repaintChat(); }});
+    pendingMsgs=pendingMsgs.filter(p=>m.pid ? p.id!==m.pid : msgKey(p)!==msgKey(m));
+    st.msgs=(st.msgs||[]).filter(x=>x!==m); save(); repaintChat(); }});
   if(items.length) chatSheet(items);
 }
 function chatDelete(id){
@@ -6670,7 +6715,9 @@ function chUp(){
 }
 /* arriving on the chat: note what was unread, then land on the newest */
 function chatOpened(){
-  chatSeenAtOpen=st.seenMsgAt||0; chatHot();
+  /* what was unread was noted before it was marked read, by go() and
+     setCoTab(); noting it again here, after, made the divider vanish */
+  chatHot();
   setTimeout(()=>{ const g=document.getElementById('askIn'); if(g) chatGrow(g); chatFit(); chatToEnd(false); }, 60);
 }
 
