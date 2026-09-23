@@ -131,9 +131,12 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
    A sticky bottom:0 sticks to the bottom of the scroll box, and the tab
    bar floats over exactly that, so the one control on the chat you have
    to reach was the one thing underneath it. It clears the bar itself. */
-.composer{position:sticky;bottom:0;z-index:3;
- padding:10px 14px calc(env(safe-area-inset-bottom,0px) + 78px);
- background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 26%)}
+.composer{position:absolute;left:0;right:0;z-index:15;
+ bottom:calc(env(safe-area-inset-bottom,0px) + 72px);
+ padding:12px 14px 6px;
+ background:linear-gradient(180deg,rgba(244,244,245,0),#f4f4f5 24%)}
+/* the thread's last message clears the pinned box and the bar under it */
+.scroll.chat{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 172px)!important}
 /* no double tap zoom, and no zoom on focusing a field: iOS zooms into any
    input under 16px, which is how the app kept ending up at 110% */
 html,body{touch-action:manipulation}
@@ -643,8 +646,12 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   #app.harail .scroll.s>*:first-child{padding-top:26px!important}
   /* the sticky rows inside a screen used to start below that bar */
   #app.harail .scroll.s [style*="position:sticky"]{top:0!important}
-  /* the rail is down the side, so nothing floats over the bottom */
-  #app.harail .composer{padding-bottom:16px}
+  /* the rail is down the side, so nothing floats over the bottom: the box
+     sits on the bottom edge, between the rail and the column */
+  #app.harail .composer{left:var(--rail);bottom:0;padding:12px 40px 16px}
+  #app.harail.haside .composer{right:var(--aside)}
+  #app.harail .composer>*{max-width:760px;margin-left:auto;margin-right:auto}
+  #app.harail .scroll.chat{padding-bottom:110px!important}
   .coachseg{top:24px!important}
 
   /* the session: the film on the left, the clock and the cues beside it,
@@ -5797,7 +5804,7 @@ function screenAsk(){
      floating tab bar, and the message box keeps its own. Both at once put
      the box a third of the way up the screen with the thread spilling
      past it. The box owns that room here, as it does on the other chat. */
-  return `<div class="scroll s" style="display:flex;flex-direction:column;padding-bottom:0">
+  return `<div class="scroll s chat" style="display:flex;flex-direction:column">
     <div class="rise" style="flex:none;padding:calc(env(safe-area-inset-top) + 84px) 20px 0;
       display:flex;align-items:center;gap:14px">
       <span style="flex:none;width:52px;height:52px;border-radius:999px;
@@ -5818,6 +5825,9 @@ function screenAsk(){
       msgs.length ? bubbles : `<div style="text-align:center;padding:40px 22px;color:var(--grey);
         font:400 15px/1.6 var(--sans)">No messages yet.<br>Ask me anything about the training.</div>`
     }<div id="chatEnd"></div></div>
+    </div>
+    <!-- outside the scroll box, pinned above the tab bar: it does not move
+         with the thread, with a short thread or a long one -->
     <div class="composer">
       <div style="background:#fff;border-radius:22px;padding:12px 12px 12px 18px;display:flex;gap:10px;
         align-items:center;border:1px solid rgba(0,64,61,.10);
@@ -5853,12 +5863,8 @@ function screenAsk(){
           border:none;color:var(--on-primary);font:400 18px/1 var(--serif);cursor:pointer">→</button>
       </div>
       <div id="askMsg" style="font:500 11.5px/1.5 var(--sans);color:var(--forest);
-        text-align:center;margin-top:9px;min-height:16px"></div>
-      <!-- one line: two lines of small print push the message box up the
-           screen, and this is the thing a thumb is reaching for -->
-      <div style="font:500 11px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:4px">
-        Side on, whole body in frame. Photos work too.</div>
-    </div></div>`;
+        text-align:center;margin-top:6px"></div>
+    </div>`;
 }
 /* ── a question, and what became of it ─────────────────────────────
    A failed send fell back to emailing the question and told nobody: the
@@ -13037,9 +13043,7 @@ function screenCoaching(){
             background:linear-gradient(180deg,#0a7a76,#006663);border:none;color:var(--on-primary);
             font:400 17px/1 var(--serif);cursor:pointer">&rarr;</button></div>
         <div id="askMsg" style="font:500 11.5px/1.5 var(--sans);color:var(--forest);
-          text-align:center;margin-top:8px;min-height:16px"></div>
-        <div style="font:500 11px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
-          ${(st.checkOpen||st.coached)?'Your form check is open: clips and photos sent here go into it.':'Questions here. Footage goes through a form check, so it is watched properly.'}</div>
+          text-align:center;margin-top:6px"></div>
       </div>`;
 
   /* Questions people actually ask before they buy, answered against what
@@ -13098,9 +13102,14 @@ function screenCoaching(){
        that hold a direct child of the page to its column landed on the
        wrapper on one and on the switch itself on the other: pressing Chat
        moved the switch 216 pixels across and 26 down. Same shape on both. */
-    return `<div class="scroll s" style="display:flex;flex-direction:column;padding-bottom:0">
+    /* the box goes outside the scroll box, so it is pinned rather than
+       riding on the end of the thread */
+    const cut=chatBody.indexOf('<div class="composer">');
+    const chatThread = cut>-1 ? chatBody.slice(0,cut) : chatBody;
+    const chatBox = cut>-1 ? chatBody.slice(cut) : '';
+    return `<div class="scroll s chat" style="display:flex;flex-direction:column">
       ${wide()?seg:''}
-      <div style="flex:none">${head}</div>${chatBody}</div>`;
+      <div style="flex:none">${head}</div>${chatThread}</div>${chatBox}`;
   }
   return `<div class="scroll s">
     ${wide()?seg:''}
