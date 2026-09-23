@@ -3395,7 +3395,7 @@ function wkLoad(){
     .then(d=>{ wkTiming=(d&&d.timing)||{}; draw(); })
     .catch(()=>{ wkTiming={}; });
 }
-function wkPick(i){ wkStage=i; wkLevel=0; wkAdd=false; wkAddQ=''; draw(); }
+function wkPick(i){ wkStage=i; wkLevel=0; wkAdd=false; wkAddQ=''; wkMediaMsg=''; draw(); }
 function wkBandPick(n){ wkBand=n; wkAdd=false; wkAddQ=''; draw(); }
 /* 0 is every level, 1 to 4 is that difficulty on its own */
 function wkLvl(n){ wkLevel=n; draw(); }
@@ -4459,6 +4459,79 @@ function wkCpReset(stage){
     .then(d=>{ wkCpsData=d.ladderCps||{}; wkCpBusy=false; delete wkCpWork[stage]; draw(); })
     .catch(e=>{ wkCpBusy=false; draw(); alert(String(e)); });
 }
+/* ── a picture or a film for each stage ────────────────────────────
+   What the app shows on that stage in the Ladder tab: a thumbnail on the
+   stage's row, across the top of the card when it is the stage someone
+   is on, and at the top of the stage's sheet. One per stage; adding
+   another replaces it. Empty, the app looks exactly as it did. */
+let wkMedia=null, wkMediaBusy=false, wkMediaMsg='';
+function wkMediaLoad(){
+  if(wkMedia) return;
+  wkMedia={};
+  fetch(API+'/ladder-media',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ wkMedia=(d&&d.ladderMedia)||{}; draw(); })
+    .catch(()=>{});
+}
+function wkMediaSet(stage, m){
+  wkMediaBusy=true; draw();
+  return fetch(API+'/ladder-media',{method:'POST',headers:hdr(),
+    body:JSON.stringify(Object.assign({stage:Number(stage)}, m||{kind:''}))})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ wkMedia=d.ladderMedia||{}; wkMediaBusy=false; draw(); })
+    .catch(e=>{ wkMediaBusy=false; wkMediaMsg=String(e); draw(); });
+}
+function wkMediaPaint(t){ wkMediaMsg=t; const el=document.getElementById('wkMediaMsg'); if(el) el.textContent=t; }
+function wkMediaImg(stage){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    wkMediaMsg='Shrinking the photo…'; draw();
+    shrinkPhoto(f,1600,.84)
+      .then(data=>fetch(APP+'/image',{method:'POST',headers:hdr(),body:JSON.stringify({data})})
+        .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that photo'))))
+      .then(d=>{ wkMediaMsg='Saved. It is on the Ladder tab now.'; return wkMediaSet(stage,{kind:'img',id:d.id}); })
+      .catch(e=>{ wkMediaMsg=String(e); draw(); }); };
+  inp.click();
+}
+function wkMediaVid(stage){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    wkMediaMsg='Uploading 0%'; draw();
+    fxUpload(f, pct=>wkMediaPaint('Uploading '+pct+'%'))
+      .then(uid=>{ wkMediaMsg='Uploaded. Cloudflare takes a minute to get it ready, then it plays in the app.';
+        return wkMediaSet(stage,{kind:'vid',uid}); })
+      .catch(e=>{ wkMediaMsg=String(e); draw(); }); };
+  inp.click();
+}
+function wkMediaHTML(stage){
+  const m=(wkMedia||{})[stage];
+  const pill='cursor:pointer;border-radius:999px;padding:9px 15px;font:600 12.5px/1 var(--sans);'
+    +'border:1.5px solid var(--forest);background:#fff;color:var(--forest)';
+  const still = !m ? '' : m.kind==='img' ? APP+'/image/'+encodeURIComponent(m.id)
+    : 'https://'+STREAM_SUB+'/'+encodeURIComponent(m.uid)+'/thumbnails/thumbnail.jpg?time=2s&height=360';
+  return `<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:14px;max-width:62ch">
+      Shown on this stage in the app&rsquo;s Ladder tab: a thumbnail on its row, across the top of the
+      card for anyone on this stage, and at the top of the stage&rsquo;s sheet. Films up to three minutes.
+      Leave it empty and the stage looks as it does now.</div>
+    ${m?`<div style="margin-top:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <div style="position:relative;width:220px;aspect-ratio:16/10;border-radius:14px;overflow:hidden;background:#dfe5e3">
+        <img src="${esc(still)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"
+          onerror="this.remove()">
+        ${m.kind==='vid'?`<span style="position:absolute;left:10px;bottom:10px;padding:5px 9px;border-radius:999px;
+          background:rgba(0,0,0,.55);color:#fff;font:600 11px/1 var(--sans)">&#9654; Film</span>`:''}</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">${m.kind==='vid'?'A film':'A picture'}, added ${
+        esc(new Date(m.at||Date.now()).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}.</div>
+    </div>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button style="${pill}" ${wkMediaBusy?'disabled':''} onclick="wkMediaImg(${stage})">${m&&m.kind==='img'?'Change the picture':'Add a picture'}</button>
+      <button style="${pill}" ${wkMediaBusy?'disabled':''} onclick="wkMediaVid(${stage})">${m&&m.kind==='vid'?'Change the film':'Add a film'}</button>
+      ${m?`<button style="${pill};border-color:var(--line);color:var(--grey)" ${wkMediaBusy?'disabled':''}
+        onclick="if(confirm('Take it off ${esc(STAGES[stage].n)}? The stage goes back to how it looked.'))wkMediaSet(${stage},null)">Remove</button>`:''}
+    </div>
+    <div id="wkMediaMsg" style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px;min-height:18px">${esc(wkMediaMsg)}</div>`;
+}
 function wkCpSave(stage){
   if(wkCpBusy) return;
   const list=wkCpList(stage);
@@ -4885,7 +4958,7 @@ function workoutsHTML(){
     background:${wkStage===i?'var(--forest)':'#fff'};color:${wkStage===i?'#fff':'var(--ink)'}">
     ${i+1}. ${esc(x.n)}</button>`).join('');
 
-  wkBandsLoad();
+  wkBandsLoad(); wkMediaLoad();
   /* No library means every drill picker on this tab is an empty box, which is
      exactly what it looked like: blank selectors and "not in the library" on
      every row, and no clue that a request had failed. */
@@ -4915,6 +4988,7 @@ function workoutsHTML(){
       return bandTab(b, BAND_NAME[b], s.list.length+(s.written?'':' · from levels')); }).join('')}
     ${bandTab(0,'Every drill', all.length)}
     ${bandTab(-1,'Check points', wkCpList(wkStage).length)}
+    ${bandTab(-2,'Picture or film', (wkMedia||{})[wkStage]?'added':'')}
     ${(function(){ const n=wkGapRows().length; return n?`<button onclick="wkGaps=true;draw()"
       style="cursor:pointer;border-radius:999px;padding:7px 13px;font:600 11.5px/1 var(--sans);
       border:1.5px solid rgba(243,169,73,.6);background:rgba(243,169,73,.14);color:#8a5a12;margin-left:auto">
@@ -4925,6 +4999,16 @@ function workoutsHTML(){
   if(wkBand>0 && bandsFor(wkStage, wkPoolFor(wkStage)).indexOf(wkBand)<0) wkBand=bandsFor(wkStage, wkPoolFor(wkStage))[0];
 
   if(wkGaps) return wkGapsHTML(inp);
+
+  /* ── the stage's picture or film, on the app's Ladder tab ── */
+  if(wkBand===-2){
+    return `<div class="glass" style="padding:16px 18px">
+      <div style="font:400 21px/1.1 var(--serif)">Picture or film, ${esc(STAGES[wkStage].n)}</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
+      ${levelTabs}
+      ${wkMediaHTML(wkStage)}
+    </div>`;
+  }
 
   /* ── the stage's check points ── */
   if(wkBand===-1){

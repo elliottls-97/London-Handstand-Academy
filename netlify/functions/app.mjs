@@ -2546,7 +2546,10 @@ export default async (request) => {
                   explainKeys: (await getSetting('explain:keys')) || {},
                   /* how long a session may be, and what a short one does
                      about sets. Shipped defaults until the coach sets them. */
-                  shortRules:  (await getSetting('ladder:short')) || {} });
+                  shortRules:  (await getSetting('ladder:short')) || {},
+                  /* a picture or a film per stage, from the dashboard. A
+                     stage without one looks exactly as it always has. */
+                  ladderMedia: (await getSetting('ladder:media')) || {} });
   }
 
   /* ── the session lengths, and what a short one is ────────────────
@@ -4893,6 +4896,34 @@ export default async (request) => {
       extra[stage] = list;
       await setSetting('ladder:extra', extra);
       return json({ ok: true, ladderExtra: extra });
+    }
+
+    /* ── a picture or a film for each stage of the ladder ──────────
+       Shown on the app's Ladder tab and at the top of the stage's sheet.
+       The photo is one already uploaded through /image, the film one
+       already uploaded to Stream through /upload; this only says which
+       stage each belongs to. Nothing set means nothing shown. */
+    if (path === '/coach/ladder-media') {
+      const all = (await getSetting('ladder:media')) || {};
+      if (request.method === 'GET') return json({ ladderMedia: all });
+      if (request.method === 'POST') {
+        const stage = String(Number(body.stage));
+        if (!/^[0-5]$/.test(stage)) return json({ error: 'Which stage?' }, 400);
+        if (body.kind === 'img') {
+          const id = String(body.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+          if (!id) return json({ error: 'Which photo?' }, 400);
+          all[stage] = { kind: 'img', id, at: Date.now() };
+        } else if (body.kind === 'vid') {
+          const uid = String(body.uid || '').toLowerCase();
+          if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That is not a Stream film' }, 400);
+          all[stage] = { kind: 'vid', uid, at: Date.now() };
+        } else {
+          delete all[stage];
+        }
+        await setSetting('ladder:media', all);
+        return json({ ok: true, ladderMedia: all });
+      }
+      return json({ error: 'Nope' }, 405);
     }
 
     if (path === '/coach/checkpoints') {

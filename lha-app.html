@@ -8872,7 +8872,7 @@ function drawOv(){
   }
   if(st.ov==='stage'&&S){
     const si=st.ovStage||0;
-    if(stageLocked(si)){ body=screenUpgradeBody(si); }
+    if(stageLocked(si)){ body=stageMediaHTML(si,'sheet')+screenUpgradeBody(si); }
     else {
     const St=STAGES[si]||STAGES[0];
     const isNow=si===curStage(), isDone=si<curStage();
@@ -8897,6 +8897,7 @@ function drawOv(){
             transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
         <span id="cpnum" style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${p.met}/${p.of}</span>
       </div>
+      ${stageMediaHTML(si,'sheet')}
 
       <!-- the film for this stage, where there is one. It was a dark green
            panel with "filming soon" written across it, which is the old
@@ -9509,6 +9510,7 @@ function loadLadder(){
       if(d && d.ladderCps)   { st.ladderCps=d.ladderCps;     moved=true; }
       if(d && d.shortRules)  { st.shortRules=d.shortRules;   moved=true; }
       if(d && d.homeOrder)   { st.homeOrder=d.homeOrder;     moved=true; }
+      if(d && d.ladderMedia) { st.ladderMedia=d.ladderMedia; moved=true; }
       if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; rebuildFaqs(); moved=true; }
       if(moved){ save(); render(); }
       return true;
@@ -10501,6 +10503,38 @@ const STAGE_VIDEO = [
   '', '', '', ''
 ];
 const stageFilm = () => STAGE_VIDEO[curStage()] || '';
+/* ── a picture or a film for a stage, set from the dashboard ────────────
+   Nothing set, nothing drawn: every place that shows one checks first, so
+   a stage without one looks exactly as it did. A film is its poster with a
+   play button until pressed, then Stream's own player, the way the fixes
+   play theirs, so it needs no MP4 switched on for it. */
+function stageMedia(i){
+  const m=(st.ladderMedia||{})[i];
+  return (m && ((m.kind==='img' && m.id) || (m.kind==='vid' && m.uid))) ? m : null;
+}
+function stageMediaHTML(i, size){
+  const m=stageMedia(i); if(!m) return '';
+  const src = m.kind==='img' ? '/api/app/image/'+encodeURIComponent(m.id) : streamThumb(m.uid);
+  const play = sz=>`<span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:${sz}px;height:${sz}px;border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center;
+    box-shadow:0 6px 18px rgba(0,0,0,.25)"><svg width="${sz*.36}" height="${sz*.36}" viewBox="0 0 24 24"
+    fill="var(--deep)"><path d="M7 4.5v15l13-7.5z"/></svg></span>`;
+  if(size==='thumb') return `<span style="flex:none;position:relative;width:64px;height:64px;border-radius:14px;
+    overflow:hidden;background:#dfe5e3"><img src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()"
+    style="width:100%;height:100%;object-fit:cover;display:block">${m.kind==='vid'?play(26):''}</span>`;
+  return `<div style="position:relative;aspect-ratio:16/10;background:#dfe5e3;overflow:hidden;${
+    size==='sheet'?'border-radius:16px;margin-top:14px;':''}${m.kind==='vid'?'cursor:pointer':''}"${m.kind==='vid'
+      ?` onclick="event.stopPropagation();playStageFilm(this,'${esc(m.uid)}')"`:''}>
+    <img src="${esc(src)}" alt="${esc((STAGES[i]||{}).n||'')}" loading="lazy" onerror="this.remove()"
+      style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">${m.kind==='vid'?play(54):''}</div>`;
+}
+function playStageFilm(el, uid){
+  if(!/^[a-f0-9]{32}$/.test(uid)) return;
+  el.onclick=null; el.style.cursor='';
+  el.innerHTML=`<iframe src="${STREAM_CDN}${uid}/iframe?autoplay=true&preload=auto"
+    allow="accelerometer;gyroscope;autoplay;encrypted-media;picture-in-picture;fullscreen"
+    style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe>`;
+}
 /* what each of those films covers, written from its captions, so the
    sheet says what you are about to watch the way the explainers do */
 const STAGE_SUM = {
@@ -11967,8 +12001,9 @@ function screenLadder(){
           background:${behind?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`}
       </div>
       ${here ? `<div style="padding-bottom:24px">
-        <div style="background:#fff;border-radius:18px;padding:14px 16px 15px;margin-top:-6px;
+        <div style="background:#fff;border-radius:18px;padding:14px 16px 15px;margin-top:-6px;overflow:hidden;
           border:1px solid rgba(0,64,61,.08);box-shadow:0 14px 30px -20px rgba(0,48,46,.45)">
+          ${stageMedia(i)?`<div style="margin:-14px -16px 14px">${stageMediaHTML(i,'card')}</div>`:''}
           <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">YOU ARE HERE</div>
           <div style="font:400 22px/1.1 var(--serif);margin-top:7px">${esc(x.n)}</div>
           <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(x.goal)}</div>
@@ -11978,13 +12013,14 @@ function screenLadder(){
             border:0;padding:0;cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
             P.met} of ${P.of} check points &rarr;</button>
         </div></div>`
-      : `<div onclick="openStage(${i})" style="cursor:pointer;padding:5px 0 24px">
+      : `<div onclick="openStage(${i})" style="cursor:pointer;padding:5px 0 24px${
+          stageMedia(i)?';display:flex;gap:12px;align-items:flex-start':''}">${stageMedia(i)?'<div style="flex:1;min-width:0">':''}
           <div style="font:400 20px/1.1 var(--serif);color:var(--ink)">${esc(x.n)}</div>
           <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(x.goal)}</div>
           ${opensAt?`<div style="display:inline-block;margin-top:9px;padding:6px 10px;border-radius:999px;
             background:rgba(0,102,99,.08);font:600 12px/1.25 var(--sans);color:var(--forest)">
             Opens when you reach ${P.of} of ${P.of} on ${esc((STAGES[cur]||{}).n||'this stage')}</div>`:''}
-        </div>`}
+        ${stageMedia(i)?'</div>'+stageMediaHTML(i,'thumb'):''}</div>`}
     </div>`;
   };
   const rungs = STAGES.map((x,i)=>rung(x,i,i===STAGES.length-1)).join('');
