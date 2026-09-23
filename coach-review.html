@@ -1353,52 +1353,92 @@
     ctx.restore();
   }
 
+  /* ── the caption plate, as the app's explainers wear it ──────────────
+     A frosted pill in the bottom fifth of the frame, Newsreader, white words
+     with the newest one lit in the explainer teal. It was a solid dark teal
+     box in bold Figtree, so a review and an explainer looked like two
+     different products. Live speech gives no word timings, so the word just
+     spoken stands in for the lit one. The frost needs Chrome's canvas
+     filter, which the live captions need anyway; elsewhere it is a clear
+     pill with the same edge and shadow. */
+  const CC_ACCENT = '#3f8f8c';
+  let ccFrost = null;
   function drawCaptions() {
     if (!captionsToggle.checked || !currentCaptionText) return;
-    const fontSize = Math.max(14, Math.round(stage.height * 0.042));
+    const W = stage.width, H = stage.height, wide = W / H > 1.2;
+    const fs = Math.max(14, Math.round(H * (wide ? 0.05 : 0.042)));
+    const gap = fs * 0.32, padY = fs * 0.5, padX = fs * 0.92, lh = fs * 1.18;
     ctx.save();
-    ctx.font = '700 ' + fontSize + 'px Figtree, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.font = '600 ' + fs + 'px Newsreader, Georgia, serif';
+    const maxW = W * 0.9 - padX * 2;
+    const words = currentCaptionText.split(/\s+/).filter(Boolean);
+    const lines = []; let cur = [], curW = 0;
+    words.forEach(w => {
+      const ww = ctx.measureText(w).width, add = cur.length ? gap + ww : ww;
+      if (cur.length && curW + add > maxW) { lines.push({ words: cur, w: curW }); cur = [w]; curW = ww; }
+      else { cur.push(w); curW += add; }
+    });
+    if (cur.length) lines.push({ words: cur, w: curW });
+    const shown = lines.slice(-2);
+    if (!shown.length) { ctx.restore(); return; }
+    const boxW = Math.max(...shown.map(l => l.w)) + padX * 2;
+    const boxH = shown.length * lh + padY * 2;
+    const x = (W - boxW) / 2, y = H - H * 0.03 - boxH, r = boxH / 2;
 
-    const maxWidth = stage.width * 0.84;
-    const words = currentCaptionText.split(/\s+/);
-    let lines = [];
-    let line = '';
-    for (const w of words) {
-      const test = line ? line + ' ' + w : w;
-      if (ctx.measureText(test).width > maxWidth && line) {
-        lines.push(line);
-        line = w;
-      } else {
-        line = test;
-      }
-    }
-    if (line) lines.push(line);
-    lines = lines.slice(-2);
+    /* what is behind the pill, kept before anything is drawn over it */
+    const m = Math.ceil(fs * 1.2);
+    const sx = Math.max(0, Math.floor(x - m)), sy = Math.max(0, Math.floor(y - m));
+    const sw = Math.min(W - sx, Math.ceil(boxW + m * 2)), sh = Math.min(H - sy, Math.ceil(boxH + m * 2));
+    if (!ccFrost) ccFrost = document.createElement('canvas');
+    ccFrost.width = sw; ccFrost.height = sh;
+    const fc = ccFrost.getContext('2d');
+    fc.clearRect(0, 0, sw, sh);
+    fc.drawImage(stage, sx, sy, sw, sh, 0, 0, sw, sh);
 
-    const lineHeight = fontSize * 1.3;
-    const blockHeight = lines.length * lineHeight + fontSize * 0.5;
-    const bottomMargin = stage.height * 0.07;
-    const blockTop = stage.height - bottomMargin - blockHeight;
-
-    let maxLineWidth = 0;
-    lines.forEach(l => { maxLineWidth = Math.max(maxLineWidth, ctx.measureText(l).width); });
-    const padX = fontSize * 0.7;
-    const boxW = Math.min(maxWidth + padX * 2, maxLineWidth + padX * 2);
-    const boxX = stage.width / 2 - boxW / 2;
-    const boxY = blockTop - fontSize * 0.25;
-
-    ctx.fillStyle = 'rgba(0,64,61,0.82)';
-    roundRectPath(ctx, boxX, boxY, boxW, blockHeight, blockHeight * 0.22);
-    ctx.fill();
-
-    ctx.fillStyle = '#f7f4f1';
+    /* the shadow under it */
+    ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.35)';
-    ctx.shadowBlur = 4;
-    lines.forEach((l, i) => {
-      const y = blockTop + lineHeight * i + lineHeight / 2 + fontSize * 0.15;
-      ctx.fillText(l, stage.width / 2, y);
+    ctx.shadowBlur = fs * 2.5; ctx.shadowOffsetY = fs * 0.75;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    roundRectPath(ctx, x, y, boxW, boxH, r); ctx.fill();
+    ctx.restore();
+
+    /* the frost: the picture behind, blurred and a little richer, then a
+       tenth of white over it */
+    ctx.save();
+    roundRectPath(ctx, x, y, boxW, boxH, r); ctx.clip();
+    ctx.filter = 'blur(' + Math.round(fs * 1.1) + 'px) saturate(160%)';
+    ctx.drawImage(ccFrost, sx, sy);
+    ctx.filter = 'none';
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(x, y, boxW, boxH);
+    ctx.restore();
+
+    /* the edge: brighter along the top, as the explainers' inset light is */
+    const edge = ctx.createLinearGradient(0, y, 0, y + boxH);
+    edge.addColorStop(0, 'rgba(255,255,255,0.40)');
+    edge.addColorStop(1, 'rgba(255,255,255,0.14)');
+    ctx.strokeStyle = edge; ctx.lineWidth = Math.max(1, fs / 16);
+    roundRectPath(ctx, x, y, boxW, boxH, r); ctx.stroke();
+
+    /* the words, the newest one lit */
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    const lastLine = shown.length - 1;
+    shown.forEach((l, li) => {
+      let wx = W / 2 - l.w / 2;
+      const wy = y + padY + lh * li + lh / 2;
+      l.words.forEach((w, wi) => {
+        const lit = li === lastLine && wi === l.words.length - 1;
+        ctx.save();
+        ctx.shadowColor = lit ? 'rgba(63,143,140,0.55)' : 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur = lit ? fs * 1.25 : fs * 0.62;
+        ctx.shadowOffsetY = lit ? 0 : fs * 0.12;
+        ctx.fillStyle = lit ? CC_ACCENT : 'rgba(255,255,255,0.88)';
+        ctx.fillText(w, wx, wy);
+        ctx.restore();
+        wx += ctx.measureText(w).width + gap;
+      });
     });
     ctx.restore();
   }
