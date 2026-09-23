@@ -5560,7 +5560,7 @@ function workoutsHTML(){
   </div>`;
 }
 
-function bPickDay(i){ builder.day=i; builder.grp=0; builder.warm=false; draw(); }
+function bPickDay(i){ builder.day=i; builder.grp=0; builder.warm=false; builder.note=false; draw(); }
 function bPickGrp(g){ builder.grp=g; draw(); }
 
 function bAddDay(){
@@ -5806,11 +5806,12 @@ function saveBuilder(){
   const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
     body:JSON.stringify({email:builder.email, days:bDays(), ...(builder.cpDirty?{checkpoints:bCps()}:{}),
+                         ...(builder.noteDirty?{read:builder.plan.read||[], changed:bChanged()}:{}),
                          warmup:(builder.plan.warmup && (builder.plan.warmup.items||[]).some(x=>x.v)) ? builder.plan.warmup : null,
                          ...(builder.slot?{slot:builder.slot}:{}),
                          explainers:(builder.exOn||[])})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.cpDirty=false; builder.edited=true;
+    .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.cpDirty=false; builder.noteDirty=false; builder.edited=true;
                /* A draft saved here was still counted as empty on the Blocks
                   panel until the page was reloaded, so Put it live stayed
                   greyed out on a block that was ready. */
@@ -6218,7 +6219,38 @@ Chair-Assisted Handstand Walks 3 x 10 steps"
    timing.js), so what is shown here is what they get. */
 const WARM_BLOCK = /warm/i;
 function bWarm(){ return (builder.plan.warmup = builder.plan.warmup || {n:5, items:[]}); }
-function bPickWarm(){ builder.warm=true; draw(); }
+function bPickWarm(){ builder.warm=true; builder.note=false; draw(); }
+/* ── Elliott on this block ──────────────────────────────────────────
+   The card at the top of their Today: what changed this block, and a few
+   paragraphs from the coach. It was only ever written in the programme
+   files. Changing it here marks it UPDATED on their phone. */
+function bPickNote(){ builder.note=true; builder.warm=false; draw(); }
+const bChanged=()=>{ const c=builder.plan.changed=builder.plan.changed||[];
+  c.forEach((x,i)=>{ if(!Array.isArray(x)) c[i]=[(x&&x.t)||'', (x&&x.p)||'']; }); return c; };
+function bNoteMark(){ builder.noteDirty=true; bMark(); }
+function bChangeSet(i,k,v){ const c=bChanged(); if(c[i]){ c[i][k]=v; bNoteMark(); } }
+function bChangeAdd(){ bChanged().push(['','']); bNoteMark(); draw(); }
+function bChangeDel(i){ bChanged().splice(i,1); bNoteMark(); draw(); }
+function bReadSet(v){ builder.plan.read=String(v||'').split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean); bNoteMark(); }
+function noteHTML(){
+  const c=bChanged(), read=(builder.plan.read||[]).map(p=>String(p).replace(/<[^>]+>/g,'').trim()).join('\n\n');
+  return `<div class="glass" style="padding:15px 17px;margin-top:12px">
+    <div style="font:400 19px/1.2 var(--serif)">Elliott on this block</div>
+    <div style="font:400 12.5px/1.55 var(--sans);color:var(--grey);margin-top:5px;max-width:64ch">
+      The card at the top of their Today. Saving a change marks it UPDATED on their phone until they have read it.</div>
+    <div style="font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-top:16px">WHAT CHANGED THIS BLOCK</div>
+    ${c.map((x,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      <input value="${esc(x[0]||'')}" oninput="bChangeSet(${i},0,this.value)" placeholder="Day 1" style="flex:0 0 110px;${bInput}">
+      <input value="${esc(x[1]||'')}" oninput="bChangeSet(${i},1,this.value)" placeholder="Chest to wall is now 45 seconds, three times."
+        style="flex:1;min-width:200px;${bInput}">
+      <button onclick="bChangeDel(${i})" title="Remove" style="${bGhost};padding:6px 10px">&times;</button>
+    </div>`).join('')}
+    <button onclick="bChangeAdd()" style="${bGhost};margin-top:9px">+ A change</button>
+    <div style="font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-top:18px">YOUR NOTES</div>
+    <textarea oninput="bReadSet(this.value)" rows="6" placeholder="What this block is for, and anything to watch. A blank line between paragraphs."
+      style="width:100%;margin-top:8px;resize:vertical;${bInput};font:400 14px/1.55 var(--sans)">${esc(read)}</textarea>
+  </div>`;
+}
 function bWarmAdd(){ bWarm().items.push({v:'', d:'', must:false}); bMark(); draw(); }
 function bWarmDel(k){ bWarm().items.splice(k,1); bWarmClamp(); bMark(); draw(); }
 function bWarmMove(k,by){
@@ -6353,14 +6385,16 @@ function builderHTML(){
   </span>`;
 
   const W=builder.plan.warmup, wn=W&&W.items?W.items.filter(x=>x.v).length:0;
+  const nNote=(builder.plan.changed||[]).length+(builder.plan.read||[]).length;
   const dayTabs=`<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:14px">
+    ${tab(!!builder.note, 'On this block', nNote?'Elliott\u2019s note':'nothing yet', 'bPickNote()', '')}
     ${tab(!!builder.warm, 'Warm-up', wn?(Math.min(W.n,wn)+' of '+wn+' a day'):'every day', 'bPickWarm()', '')}
-    ${days.map((x,i)=>tab(!builder.warm && i===di, x.label||('Day '+(i+1)), x.sub||'',
+    ${days.map((x,i)=>tab(!builder.warm && !builder.note && i===di, x.label||('Day '+(i+1)), x.sub||'',
         'bPickDay('+i+')', 'bDelDay('+i+')')).join('')}
     <button onclick="bAddDay()" style="${bGhost}">+ Day</button>
   </div>`;
 
-  const body = builder.warm ? `${dayTabs}${warmHTML()}` : days.length ? `${dayTabs}
+  const body = builder.note ? `${dayTabs}${noteHTML()}` : builder.warm ? `${dayTabs}${warmHTML()}` : days.length ? `${dayTabs}
     <div class="glass" style="padding:15px 17px;margin-top:12px">
       <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
         <input value="${esc(d.label||'')}" oninput="bField(${di},'label',this.value)"

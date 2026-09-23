@@ -5427,6 +5427,18 @@ export default async (request) => {
           /* the warm-up, only when it was sent: saving check points on
              their own must not take it away */
           warmup: body.warmup !== undefined ? cleanWarmup(body.warmup) : (base.warmup || null),
+          /* "Elliott on this block": the notes and what changed, written in
+             the builder now rather than only in the programme files. Kept
+             as they were unless the builder sends them. */
+          read: Array.isArray(body.read)
+            ? body.read.slice(0, 12).map(x => String(x || '').slice(0, 2000)).filter(x => x.trim())
+            : (base.read || []),
+          changed: Array.isArray(body.changed)
+            ? body.changed.slice(0, 12).map(x => Array.isArray(x)
+                ? [String(x[0] || '').slice(0, 60), String(x[1] || '').slice(0, 400)]
+                : [String((x && x.t) || '').slice(0, 60), String((x && x.p) || '').slice(0, 400)])
+                .filter(x => x[0].trim() || x[1].trim())
+            : (base.changed || []),
           /* the coach's check points for this client. Left alone when the
              builder does not send them, so saving a programme cannot wipe
              them. */
