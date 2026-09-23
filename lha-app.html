@@ -1695,7 +1695,9 @@ function dlRow(key, urls, meta){
   if(rec && have===uids.length){
     return wrap(`<span style="flex:1;min-width:0">
       <span style="display:block;font:600 13px/1.3 var(--sans);color:var(--forest)">Saved for no signal</span>
-      <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${uids.length} film${uids.length===1?'':'s'}${rec.bytes?', '+dlMB(rec.bytes):''} on this phone. It plays anywhere.</span>
+      <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${
+        (meta&&meta.kind==='ex') ? 'On this phone'+(rec.bytes?', '+dlMB(rec.bytes):'')+'. It plays anywhere.'
+        : uids.length+' film'+(uids.length===1?'':'s')+(rec.bytes?', '+dlMB(rec.bytes):'')+' on this phone. It plays anywhere.'}</span>
     </span>
     <button onclick="event.stopPropagation();dlRemove('${key}')" style="flex:none;border:0;background:none;cursor:pointer;
       padding:8px 4px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>`);
@@ -1704,6 +1706,7 @@ function dlRow(key, urls, meta){
       <span style="display:block;font:600 13px/1.3 var(--sans)">${have&&rec?'Save the rest for no signal':'Save for no signal'}</span>
       <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${
         have&&rec ? have+' of '+uids.length+' films are on this phone.'
+        : (meta&&meta.kind==='ex') ? 'Keeps this explainer on your phone, to watch anywhere.'
         : uids.length+' film'+(uids.length===1?'':'s')+', about '+(uids.length*10)+' MB, kept on this phone.'}</span>
     </span>
     <button onclick="event.stopPropagation();dlStart('${key}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
@@ -1767,8 +1770,9 @@ async function dlStart(key){
     save();
   }
   dlPaint(key);
-  toast(failed ? (got+' of '+uids.length+' films saved. Try again on better signal for the rest.')
-    : 'Saved. This workout plays with no signal.');
+  toast(failed ? (uids.length===1 ? 'That did not save. Try again on better signal.'
+      : got+' of '+uids.length+' films saved. Try again on better signal for the rest.')
+    : meta.kind==='ex' ? 'Saved. This explainer plays with no signal.' : 'Saved. This workout plays with no signal.');
   if(st.tab==='home'||st.tab==='today') render();
 }
 
@@ -1796,6 +1800,11 @@ async function dlClearAll(){
 /* opening one again, from the Train screen */
 function dlOpen(key){
   const rec=dlRec(key); if(!rec) return;
+  if(rec.kind==='ex'){
+    const i=FAQS.findIndex(f=>f && f.uid===rec.uid);
+    if(i<0){ toast('That explainer is not in the app any more.'); return; }
+    openExplainer(i); return;
+  }
   if(rec.kind==='day'){
     if(!coachedView()){ toast('This one is from your coaching plan.'); return; }
     st.day=Math.min(rec.day||0, (DATA.days||[]).length-1); save(); go('today');
@@ -1809,7 +1818,9 @@ function dlOpen(key){
 }
 /* ── the saved ones, on the first screen ── */
 function savedHomeHTML(){
-  const list=(st.dlSaved||[]).filter(r=>r && (coachedView() ? r.kind==='day' : r.kind!=='day'));
+  const list=(st.dlSaved||[]).filter(r=>r && (r.kind==='ex' || (coachedView() ? r.kind==='day' : r.kind!=='day')))
+    /* workouts first, then explainers, newest first within each */
+    .sort((a,b)=>((a.kind==='ex')-(b.kind==='ex')) || (b.at||0)-(a.at||0));
   if(!list.length || !dlOk()) return '';
   const card=r=>{
     const uids=dlUids(r.urls), have=uids.filter(u=>dlSet.has(u)).length;
@@ -1818,10 +1829,11 @@ function savedHomeHTML(){
       background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:1;min-width:0;border:0;background:none;padding:0;
         text-align:left;cursor:pointer;color:var(--ink)">
+        ${r.kind==='ex'?`<span style="display:block;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-bottom:5px">EXPLAINER</span>`:''}
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
         <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone?'#8a5a12':'var(--grey)'};margin-top:3px">${
           gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
-          : uids.length+' film'+(uids.length===1?'':'s')+(r.bytes?', '+dlMB(r.bytes):'')+' · saved '+esc(cpWhen(r.at))}</span>
+          : (r.kind==='ex' ? '' : uids.length+' film'+(uids.length===1?'':'s')+', ')+(r.bytes?dlMB(r.bytes)+' · ':'')+'saved '+esc(cpWhen(r.at))}</span>
       </button>
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
         padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Open</button>
@@ -1834,7 +1846,7 @@ function savedHomeHTML(){
       <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length}</span>
     </div>
     <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 0 ${wide()?12:10}px;max-width:62ch">
-      Workouts kept on this phone, films and all, for a gym with no signal.</div>
+      Workouts and explainers kept on this phone, for a gym with no signal.</div>
     <div style="display:flex;flex-direction:column;gap:9px">${list.map(card).join('')}</div>
   </section>`;
 }
@@ -2398,7 +2410,7 @@ function mountCaptions(){
 const ccWrap = (inner, extra) =>
   `<div style="position:relative;line-height:0;${extra||''}">${inner}</div>`;
 function qaVideo(a, full){
-  const src = a.uid ? (hlsOk()?streamHls(a.uid):streamMp4(a.uid))
+  const src = a.uid ? (dlHas(a.uid) ? dlKey(a.uid,'film')+'?lha=saved' : hlsOk()?streamHls(a.uid):streamMp4(a.uid))
     : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
   if(!src) return '';
   setTimeout(mountCaptions,0);
@@ -6466,7 +6478,8 @@ function moreBody(all, cards){
         <div style="flex:1">
           <div class="kick2">SAVED FOR NO SIGNAL</div>
           <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-            ${(st.dlSaved||[]).length} workout${(st.dlSaved||[]).length===1?'':'s'}, ${dlSet.size} film${dlSet.size===1?'':'s'} on this phone.</div>
+            ${(n=>n+' workout'+(n===1?'':'s'))((st.dlSaved||[]).filter(r=>r&&r.kind!=='ex').length)}, ${
+              (n=>n+' explainer'+(n===1?'':'s'))((st.dlSaved||[]).filter(r=>r&&r.kind==='ex').length)}, ${dlSet.size} film${dlSet.size===1?'':'s'} on this phone.</div>
         </div>
         <button onclick="dlClearAll()" style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:12px;
           cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);color:var(--ink)">Remove all</button>
@@ -8064,6 +8077,8 @@ function drawOv(){
         ${[1,1.5,2].map(r=>`<button onclick="exSpeed(${r})" aria-pressed="${(st.exSpeed||1)===r}" style="flex:none;border:1px solid ${(st.exSpeed||1)===r?'var(--forest)':'rgba(0,64,61,.16)'};
           background:${(st.exSpeed||1)===r?'var(--forest)':'#fff'};color:${(st.exSpeed||1)===r?'var(--on-primary)':'var(--deep)'};
           border-radius:999px;padding:8px 10px;font:600 12px/1 var(--sans);cursor:pointer">${r}x</button>`).join('')}</div>
+      ${q.uid ? `<div style="padding:0 2px">${dlRow('ex'+q.uid, [STREAM_CDN+q.uid+'/downloads/default.mp4'],
+        {kind:'ex', uid:q.uid, name:q.q})}</div>` : ''}
       <div style="padding:8px 2px 0">
         <div class="kick2">EXPLAINER${stg?' &middot; '+esc(stg.toUpperCase()):''}</div>
         <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px">${esc(q.q)}</div>
