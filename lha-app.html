@@ -8132,13 +8132,32 @@ function drawOv(){
   else if(st.ov==='fcask'){ body=fcAskBody(); }
   else if(st.ov==='paid'){
     st.justPaid=false; save();
+    /* The account is asked again the moment this opens: the card check runs
+       when Stripe tells the server, which can be a second or two after they
+       arrive back here. */
+    if(!paidAsked){ paidAsked=true;
+      const again=()=>Promise.resolve(loadEntitlement()).then(()=>{ if(st.ov==='paid') drawOv(); });
+      /* and once more a few seconds on, if Stripe had not told us yet */
+      again().then(()=>{ if(!isPlus() && !st.trialRefused) setTimeout(again, 4000); }); }
+    const tr=(st.payTrial!=null ? st.payTrial : PRICE_TRIAL());
+    if(st.trialRefused && !isPlus()){
+      body=`<div style="text-align:center;padding:14px 0 6px">
+      <div class="h-lg" style="margin-top:6px">That card has had its free week.</div>
+      <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">
+        It has been used for a free week before, so a second one has not started and nothing has been
+        charged. The whole ladder is ${esc(PRICE('plus'))} a month from the day you start, and you can
+        cancel from your account at any time.</div>
+      <button class="btn" style="margin-top:22px" onclick="closeOv();openPaywall()">Subscribe, ${esc(PRICE('plus'))} a month</button>
+      <button class="btn2" style="margin-top:10px;width:100%" onclick="closeOv()">Not now</button>
+    </div>`;
+    } else
     body=`<div style="text-align:center;padding:14px 0 6px">
       <div style="width:56px;height:56px;border-radius:50%;margin:0 auto;display:grid;place-items:center;
         background:rgba(0,102,99,.1);color:var(--forest);font-size:26px">&#10003;</div>
       <div class="h-lg" style="margin-top:16px">You are in.</div>
       <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">
-        The whole ladder is open. ${PRICE_TRIAL()>0
-          ? 'Your first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' '+(PRICE_TRIAL()===7?'is':'are')
+        The whole ladder is open. ${tr>0
+          ? 'Your first '+(tr===7?'week':tr+' days')+' '+(tr===7?'is':'are')
             +' free, and a note comes three days before the first charge so nothing is a surprise.'
           : 'That is '+PRICE('plus')+' a month from today.'} Cancel any time from your account.</div>
       <button class="btn" style="margin-top:22px" onclick="closeOv();loadEntitlement()">Carry on</button>
@@ -12766,7 +12785,7 @@ function startUpgrade(){
    same page underneath. Stripe's embedded checkout draws the form (Apple
    Pay, then card) inside the sheet; where it cannot load, the same button
    opens Stripe's own page instead, so nobody is ever stuck. */
-let payCo=null, payReq=0;
+let payCo=null, payReq=0, paidAsked=false;
 function openPaywall(){
   if(!st.token){ startUpgrade(); return; }
   if(!st.payPeriod) st.payPeriod = (st.periods||[]).indexOf('year')>-1 ? 'year' : 'month';
@@ -12855,7 +12874,11 @@ function payMount(){
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   /* a payment link made in Stripe takes the money for the month; the
      embedded form needs a price id, so the link wins where there is one */
-  if(period==='month' && planLinks.plus){
+  /* The link's free week is set in Stripe and cannot be switched off for one
+     person, so somebody who has had theirs pays through the checkout this
+     server makes, which leaves it out. Otherwise the link offered them a
+     week, the card check ended it, and they were back where they started. */
+  if(period==='month' && planLinks.plus && !st.trialUsed){
     const days=PRICE_TRIAL();
     host.innerHTML=`<button class="btn" style="width:100%" onclick="payLink()">${days>0
         ? 'Start '+days+' days free &rarr;' : 'Subscribe, '+esc(PRICE('plus'))+' a month &rarr;'}</button>
@@ -12871,6 +12894,7 @@ function payMount(){
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
         Apple Pay or card on the next page, through Stripe.${PRICE_TRIAL()>0?' Nothing is charged today.':''}</div>`;
   };
+  st.payTrial=PRICE_TRIAL(); save();
   fetch(AUTH.checkout,{method:'POST',headers:authed(),
     body:JSON.stringify(Object.assign({plan:'plus',period,embedded:true}, st.promo?{promo:st.promo}:{}))})
     .then(r=>r.json())
@@ -12884,12 +12908,14 @@ function payMount(){
     .catch(hosted);
 }
 function payLink(){
+  st.payTrial=PRICE_TRIAL(); save();
   const u=new URL(planLinks.plus);
   if(st.email) u.searchParams.set('prefilled_email', st.email);
   const b=document.querySelector('#payMount .btn');
   if(!leaveTo(u.toString()) && b){ b.textContent='Your browser blocked it. Open the app in its own tab.'; }
 }
 function payHosted(){
+  st.payTrial=PRICE_TRIAL(); save();
   const period=st.payPeriod||'month';
   const b=document.querySelector('#payMount .btn'); if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
   fetch(AUTH.checkout,{method:'POST',headers:authed(),
@@ -12911,7 +12937,7 @@ function loadEntitlement(){
     .then(d=>{ if(!d) return;
       const was=st.plus, wasIn=st.in, wasFC=st.canCheck, wasTU=!!st.trialUsed;
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
-      st.trialUsed=!!d.trialUsed;
+      st.trialUsed=!!d.trialUsed; st.trialRefused=!!d.trialRefused;
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;

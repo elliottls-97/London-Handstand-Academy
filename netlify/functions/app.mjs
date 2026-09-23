@@ -932,6 +932,91 @@ export default async (request) => {
   /* ── Stripe tells us what happened ─────────────────────────────
      Before the JSON parse below, because the signature covers the raw
      text and reading the body twice is not allowed. */
+  /* ── one free week per card ──────────────────────────────────────────
+     The free week was once per account, and an account is an email address,
+     so a second address and the same card was a second week, and a third.
+     Stripe gives every card a fingerprint that is the same wherever the card
+     is used, so a free week now notes the card it started on, and a free
+     week on a card that has had one is cancelled before it charges anything,
+     with an email saying why. Cancelled rather than charged at once: the
+     checkout had just promised them a free week, and charging on the day
+     would break that promise.
+     The fingerprint is hashed before it is kept. The first time this runs it
+     reads back through Stripe's subscriptions for free weeks started before
+     it existed. Returns true when this one was refused. */
+  const cardKey = async fp => {
+    const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('lha-card:' + fp));
+    return 'trialcard:' + [...new Uint8Array(h)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+  const cardOf = async sub => {
+    let pm = sub && sub.default_payment_method;
+    if (!pm || typeof pm !== 'object') {
+      const cu = await stripe(`/customers/${encodeURIComponent(sub.customer)}?expand[]=invoice_settings.default_payment_method`, null, 'GET');
+      pm = cu && cu.invoice_settings && cu.invoice_settings.default_payment_method;
+      if (!pm || typeof pm !== 'object') {
+        const list = await stripe(`/payment_methods?customer=${encodeURIComponent(sub.customer)}&type=card&limit=1`, null, 'GET');
+        pm = (list.data || [])[0];
+      }
+    }
+    return (pm && pm.card && pm.card.fingerprint) || '';
+  };
+  const freeWeekCard = async (acct, subId) => {
+    try {
+      if (!stripeKey() || !subId) return false;
+      if (await getSetting(`trialrefused:${subId}`)) return true;
+      const sub = await stripe(`/subscriptions/${encodeURIComponent(subId)}?expand[]=default_payment_method`, null, 'GET');
+      if (!sub || sub.status !== 'trialing') return false;
+      /* The ladder's monthly payment goes through a Stripe payment link, and
+         the free week there is whatever the link is set to in Stripe, so the
+         account is noted from the subscription itself, not only from the
+         checkout this server makes. */
+      if (!(await getSetting(`trialused:${acct.email}`))) {
+        await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: 'trial', sub: subId });
+      }
+      const fp = await cardOf(sub);
+      if (!fp) return false;
+      if (!(await getSetting('trialcards:read'))) {
+        /* the free weeks from before this: a small business has a few
+           hundred subscriptions at most, so five pages is all of them */
+        let after = '';
+        for (let page = 0; page < 5; page++) {
+          const got = await stripe(`/subscriptions?status=all&limit=100&expand[]=data.default_payment_method${after ? '&starting_after=' + after : ''}`, null, 'GET');
+          for (const x of (got.data || [])) {
+            if (!x.trial_start || x.id === subId) continue;
+            const f = x.default_payment_method && x.default_payment_method.card && x.default_payment_method.card.fingerprint;
+            if (!f) continue;
+            const k = await cardKey(f);
+            if (!(await getSetting(k))) await setSetting(k, { sub: x.id, customer: x.customer, at: (x.trial_start || 0) * 1000, from: 'stripe' });
+          }
+          if (!got.has_more || !(got.data || []).length) break;
+          after = got.data[got.data.length - 1].id;
+        }
+        await setSetting('trialcards:read', { at: Date.now() });
+      }
+      const key = await cardKey(fp);
+      const seen = await getSetting(key);
+      if (!seen) { await setSetting(key, { sub: subId, email: acct.email, at: Date.now() }); return false; }
+      if (seen.sub === subId) return false;
+      /* this card has had its free week: end this one before it bills */
+      await stripe(`/subscriptions/${encodeURIComponent(subId)}`, null, 'DELETE');
+      await setSetting(`trialrefused:${subId}`, { email: acct.email, card: key, first: seen.sub, at: Date.now() });
+      await setSetting(`trialrefused:${acct.email}`, { sub: subId, at: Date.now() });
+      if (!(await getSetting(`trialused:${acct.email}`))) await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: 'card' });
+      const first = String(acct.name || '').split(' ')[0];
+      await email(acct.email, 'Your free week',
+        mail({ title: 'That card has had its free week.',
+          greeting: first,
+          paras: ['The card you used has already had a free week on the Handstand Ladder, so a second one has not started. Nothing has been charged and nothing will be.',
+                  `The whole ladder is still yours whenever you want it: ${esc((PRICES.plus && PRICES.plus.label) || '£5')} a month from the day you start, and you can cancel from the app at any time.`],
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          signoff: { name: 'London Handstand Academy' } }));
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A second free week refused: ${acct.email}`,
+        `<p style="font:16px/1.6 system-ui">${esc(acct.email)} started a free week on a card that had one before
+         (${esc(seen.email || seen.customer || 'an earlier subscription')}). It was cancelled before any charge and they were told why.</p>`);
+      return true;
+    } catch (err) { console.warn('free week card check', err && err.message); return false; }
+  };
+
   if (path === '/stripe/webhook' && request.method === 'POST') {
     const raw = await request.text();
     const ok = await stripeSigOK(raw, request.headers.get('stripe-signature'),
@@ -1154,6 +1239,13 @@ export default async (request) => {
           await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: ev.type });
         }
       }
+      /* a free week on a card that has had one ends here, unbilled */
+      const subNow = ev.type === 'checkout.session.completed' ? (obj.mode === 'subscription' ? obj.subscription : '')
+        : (ev.type.startsWith('customer.subscription') && obj.status === 'trialing') ? obj.id : '';
+      if (subNow && await freeWeekCard(acct, subNow)) {
+        acct.plus = plusNow(Object.assign({}, acct, { plus: false }));
+        return json({ ok: true, refused: true });
+      }
       /* money that matches no tier used to switch the £5 app on and do
          nothing else: no roster, no thread, no email, no alert */
       if (!boughtPlan && ev.type === 'checkout.session.completed' && Number(obj.amount_total) > 500) {
@@ -1249,9 +1341,11 @@ export default async (request) => {
       subscription: acct.subscription || null, cancel_at: acct.cancel_at || null,
       stripe_customer: acct.stripe_customer || null });
 
-    await coachAlert(null, 'business', { title: acct.plus ? 'New £5 subscriber' : '£5 subscription cancelled', body: acct.email || e, tag: 'plus:' + (acct.email || e) });
+    /* the price is a setting now, and it is not five pounds */
+    const tierPrice = (PRICES.plus && PRICES.plus.label) || '£5';
+    await coachAlert(null, 'business', { title: acct.plus ? `New ${tierPrice} subscriber` : `${tierPrice} subscription cancelled`, body: acct.email || e, tag: 'plus:' + (acct.email || e) });
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-      `${acct.plus ? 'New' : 'Cancelled'} £5 subscriber: ${acct.email || e}`,
+      `${acct.plus ? 'New' : 'Cancelled'} ${tierPrice} subscriber: ${acct.email || e}`,
       `<p style="font:16px/1.6 system-ui">${ev.type} — access is now
        ${acct.plus ? 'on' : 'off'}.</p>`);
     return json({ ok: true });
@@ -1509,9 +1603,25 @@ export default async (request) => {
         await threadAdd(db, e, { from: 'coach', sub: 'auto',
           text: `Welcome to the ladder. I'm ${coachName(primaryCoach())}, I coach the people this app is built around. If anything about your handstand is confusing, or you want to know what to work on, ask it here. It comes straight to me.` });
       } catch {}
+      /* ── the day's sign ups, across the whole site ───────────────────
+         Each one sent two emails, one to an address nobody has checked, and
+         the limit above is per address, so a few machines could spend the
+         whole day's email allowance, which also carries sign in codes,
+         password codes and receipts. Past a normal day the accounts still
+         work; the welcome waits, and the coach hears once rather than per
+         account. */
+      const dayN = await rateHit('signup:all', 24 * 3600000);
+      if (dayN === 16) {
+        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A lot of sign ups today',
+          `<p style="font:16px/1.6 system-ui">More than fifteen new app accounts today. The sign up
+           emails to you stop here until tomorrow, and after fifty the welcome emails do too, to keep
+           the day's email allowance for sign in codes and receipts. The accounts all work. If this
+           is not a campaign or a reel doing well, it may be somebody making accounts in bulk.</p>`);
+      }
       /* to them, not only to the coach. Transactional: it says what the
          account is and where the app lives, and nothing it did not ask for. */
       const nm = String(acct.name || '').split(' ')[0];
+      if (dayN <= 50)
       await email(e, 'Your Handstand Ladder account',
         mail({ title: 'You are in.',
           greeting: nm,
@@ -1521,6 +1631,7 @@ export default async (request) => {
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
       await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
+      if (dayN <= 15)
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `New app sign-up: ${e}`,
         `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
@@ -1602,10 +1713,14 @@ export default async (request) => {
     const checkOpen = !coachedNow && !!fcc.open;
     /* the free week is once per account, so the app stops offering it once
        it has been had, rather than promising a week and charging today */
-    const tw = await settingsMany([`trialused:${who}`, `plan:${who}`]);
+    const tw = await settingsMany([`trialused:${who}`, `plan:${who}`, `trialrefused:${who}`]);
     const trialUsed = !!tw[`trialused:${who}`] || ((tw[`plan:${who}`] || {}).plan === 'plus');
+    /* a free week just refused because the card had one: the app says so
+       instead of welcoming them in */
+    const tr = tw[`trialrefused:${who}`];
     return json({
       trialUsed,
+      trialRefused: !!(tr && Date.now() - (Number(tr.at) || 0) < 3 * 864e5),
       email: who,
       name: clients()[who] || acct.name || '',
       coached: coachedNow,
@@ -1780,7 +1895,13 @@ export default async (request) => {
     /* only ever an id this server handed out from /redeem, never raw user
        input, and Stripe rejects anything that is not a live promotion */
     const promo = /^promo_[A-Za-z0-9]+$/.test(String(body.promo || '')) ? String(body.promo) : '';
-    if (!stripeKey() || !plan.price()) {
+    /* The monthly ladder is sold through a Stripe payment link, which needs
+       no price id here, and the link's free week is set in Stripe. Somebody
+       who has had their free week is sent here instead, so it has to work
+       with no price id too: the monthly price is made on the spot from the
+       price the dashboard sets. */
+    const inline = planKey === 'plus' && !plan.price() && Number(PRICES.plus && PRICES.plus.amount) > 0;
+    if (!stripeKey() || (!plan.price() && !inline)) {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
     const origin = url.origin;
@@ -1793,7 +1914,12 @@ export default async (request) => {
     try {
       const sess = await stripe('/checkout/sessions', {
         mode: plan.mode,
-        'line_items[0][price]': plan.price(),
+        ...(inline ? {
+          'line_items[0][price_data][currency]': 'gbp',
+          'line_items[0][price_data][unit_amount]': String(Math.round(Number(PRICES.plus.amount))),
+          'line_items[0][price_data][recurring][interval]': 'month',
+          'line_items[0][price_data][product_data][name]': 'The Handstand Ladder',
+        } : { 'line_items[0][price]': plan.price() }),
         'line_items[0][quantity]': '1',
         'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
         'metadata[period]': period,
@@ -2298,10 +2424,17 @@ export default async (request) => {
     const e = norm(body.email);
     const nm = String(body.name || '').trim().slice(0, 60);
     if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ error: 'A name and a real email address' }, 400);
+    /* open to anybody and written into one row, so it was a row anybody
+       could make as long as they liked, one made-up address at a time */
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`wsw:${ip}`, 3600000)) > 10) return json({ error: 'Too many tries' }, 429); }
     const w = ((await getSetting('workshops')) || {})[slug];
     if (!w || !w.live) return json({ error: 'That workshop is not open' }, 404);
     const wait = (await getSetting(`wswait:${slug}`)) || [];
-    if (!wait.some(x => x.email === e)) { wait.push({ email: e, name: nm, at: Date.now() }); await setSetting(`wswait:${slug}`, wait); }
+    if (!wait.some(x => x.email === e)) {
+      if (wait.length >= 300) return json({ error: 'The waiting list is full' }, 409);
+      wait.push({ email: e, name: nm, at: Date.now() }); await setSetting(`wswait:${slug}`, wait);
+    }
     return json({ ok: true, position: wait.findIndex(x => x.email === e) + 1 });
   }
   if (path === '/workshop/book' && request.method === 'POST') {
@@ -2311,6 +2444,13 @@ export default async (request) => {
     const qn = String(body.q || '').trim().slice(0, 400);
     const exp = String(body.exp || '').trim().slice(0, 400);
     if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
+    /* The limit further down only guarded the paid road. A free place, or a
+       code that makes one free, was booked with no limit at all: any made up
+       address, a booking email sent to it and one to the coach, the app's
+       free days on it, and the codes themselves could be guessed here at any
+       speed. So it is held here, before any of that. */
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`wsb1:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429); }
     const all = (await getSetting('workshops')) || {};
     const w = all[slug];
     if (!w || !w.live) return json({ error: 'That workshop is not open for booking' }, 404);
@@ -3185,6 +3325,11 @@ export default async (request) => {
       ok = taste > 0;
     }
     if (!ok) return json({ tokens: {}, exp: 0 });
+    /* Each set is up to four hundred signatures, and a paid account was not
+       counted at all. The app asks again only when something has changed, a
+       few times a day; this is far past that. A refusal, not an empty set,
+       so the app keeps the tokens it already has. */
+    if (paid && (await rateHit(`signp:${who}`, 3600000)) > 60) return json({ error: 'Slow down' }, 429);
 
     let uids = (Array.isArray(body.uids) ? body.uids : []).slice(0, 400)
       .map(u => String(u || '').replace(/[^a-f0-9]/g, '')).filter(u => u.length === 32);
@@ -3499,6 +3644,20 @@ export default async (request) => {
   if (path === '/upload' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
+    /* ── Stream minutes are paid for ─────────────────────────────────
+       Any account could ask for as many upload links as it liked, each one
+       three minutes of film stored on the coach's Stream account for good,
+       and playable by anybody who has its address. A person sends a clip or
+       two at a time; these are days of that. Coaching clients film more and
+       get more; the coach uploads the library through here and is not held. */
+    if (!coachList().includes(who)) {
+      const coachedU = await isCoached(who);
+      const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`upl:${who}`, 24 * 3600000)) > (coachedU ? 40 : 8)
+          || (!coachedU && (await rateHit(`uplip:${ip}`, 24 * 3600000)) > 20)) {
+        return json({ error: 'That is a lot of films for one day. Try again tomorrow.' }, 429);
+      }
+    }
     if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) {
       return json({ error: 'Video upload is not switched on yet' }, 503);
     }
@@ -3958,9 +4117,14 @@ export default async (request) => {
     /* where they came from: a ref carried on the link, kept by the app as a
        first touch, sent with every event after. And which fix, for a fix. */
     const src = String(body.r || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
-    if (src) { row.by = row.by || {}; row.by[src] = row.by[src] || {}; row.by[src][n] = (row.by[src][n] || 0) + 1; }
+    /* Anybody can send these, and each new source or fix name was a new key
+       in the day's row, so a loop of made-up names grew one row without end,
+       read and written whole on every beacon. A real day has a few dozen. */
+    if (src) { row.by = row.by || {};
+      if (row.by[src] || Object.keys(row.by).length < 150) { row.by[src] = row.by[src] || {}; row.by[src][n] = (row.by[src][n] || 0) + 1; } }
     const fx = String(body.f || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
-    if (fx && n.startsWith('fix') || fx && n === 'sitefix') { row.fix = row.fix || {}; row.fix[fx] = row.fix[fx] || {}; row.fix[fx][n] = (row.fix[fx][n] || 0) + 1; }
+    if (fx && n.startsWith('fix') || fx && n === 'sitefix') { row.fix = row.fix || {};
+      if (row.fix[fx] || Object.keys(row.fix).length < 80) { row.fix[fx] = row.fix[fx] || {}; row.fix[fx][n] = (row.fix[fx][n] || 0) + 1; } }
     /* where the quiz put them, which is the one breakdown that matters */
     if (n === 'quiz' || n === 'wall') {
       const st = Number(body.s);
@@ -4054,6 +4218,10 @@ export default async (request) => {
     await setSetting('feedback:log', log.slice(0, 500));
     const label = { bug: 'Bug', idea: 'Idea', review: 'Feedback', block: 'Block review' }[kind];
     await coachAlert(null, 'signups', { title: label + ' from the app', body: String(text || '').slice(0, 160), tag: 'fb' });
+    /* anybody can send this, signed in or not, and each one was an email:
+       every one is kept in the dashboard, and the first thirty a day are
+       emailed as well */
+    if ((await rateHit('fbmail:all', 24 * 3600000)) <= 30)
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${label} from the app${who ? ': ' + who : ''}`,
       mail({ title: `${label} from the app.`,
@@ -4175,6 +4343,12 @@ export default async (request) => {
   if (path === '/image' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
+    /* kept for good and served by this function every time one is looked
+       at, so a day's photos are counted like a day's films */
+    if (!coachList().includes(who)
+        && (await rateHit(`img:${who}`, 24 * 3600000)) > ((await isCoached(who)) ? 100 : 20)) {
+      return json({ error: 'That is a lot of photos for one day. Try again tomorrow.' }, 429);
+    }
     const m = IMG_DATA.exec(String(body.data || ''));
     if (!m) return json({ error: 'That is not a JPEG, PNG or WebP' }, 400);
     let buf;
@@ -4424,6 +4598,12 @@ export default async (request) => {
   bestHolds: bestHoldsFrom(prog.holds) } : { visits });
     }
     if (request.method === 'POST') {
+    /* A phone reports a few times a session. Hundreds an hour is a loop, and
+       some of what arrives here emails the coach. Dropped quietly, so an app
+       that retries does not retry harder. */
+    if ((await rateHit(`progrl:${who}`, 3600000)) > 240 && !(await isCoached(who))) {
+      return json({ ok: true, slow: true });
+    }
     const stored = await supa.row('progress', `email=eq.${enc(who)}&select=*`);
     const p = stored
       ? { opens: stored.opens || [], sessions: stored.sessions || [], holds: stored.holds || [],
@@ -4559,7 +4739,9 @@ export default async (request) => {
             if (!same) fresh.push({ k, rate: v.rate, note });
           }
         }
-        if (fresh.length) {
+        /* flags arrive together, so one email a quiet spell covers them;
+           switching one back and forth used to send an email every time */
+        if (fresh.length && (await rateHit(`flagmail:${who}`, 600000)) === 1) {
           const lib = await libraryNow();
           const nm = clients()[who] || who;
           const line = f => `<b>${esc((lib.names || {})[f.k] || f.k)}</b>: too ${esc(f.rate)}`
@@ -4855,7 +5037,20 @@ export default async (request) => {
       const voice = String(body.voice || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
       if (!text && !video && !image && !voice) return json({ error: 'Nothing to send' }, 400);
       /* voice notes are part of coaching */
-      if (voice && !(await isCoached(who))) return json({ error: 'Voice notes come with coaching' }, 403);
+      const coachedNow = await isCoached(who);
+      if (voice && !coachedNow) return json({ error: 'Voice notes come with coaching' }, 403);
+      /* ── how much, from an account nobody is coaching ───────────────
+         Every message here emails the coach, and any account could send as
+         many as it liked: one free account and a loop filled his inbox and
+         spent the day's email allowance, which is also what carries sign in
+         codes, password codes and receipts. Somebody asking questions sends
+         a handful; this is well past that. Coaching clients are not held. */
+      if (!coachedNow && !coachList().includes(who)) {
+        if ((await rateHit(`msg:${who}`, 3600000)) > 20
+            || (await rateHit(`msgday:${who}`, 24 * 3600000)) > 60) {
+          return json({ error: 'That is a lot of messages in a short time. Try again in an hour.' }, 429);
+        }
+      }
 
       /* Anyone signed in may ask a question — that is the way in to
          coaching. Footage is the thing that costs time to review, so a
@@ -4899,6 +5094,9 @@ export default async (request) => {
       try { const t = (await getSetting(typingKey(who))) || {}; if (t.client) { t.client = 0; await setSetting(typingKey(who), t); } } catch {}
 
       const kind = video ? 'sent a video' : image ? 'sent a photo' : voice ? 'sent a voice note' : '';
+      /* One email per quiet spell from an account nobody is coaching: the
+         dashboard and the notification still carry every message. */
+      if (coachedNow || (await rateHit(`msgmail:${who}`, 600000)) === 1)
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
         `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
@@ -6772,4 +6970,14 @@ export default async (request) => {
   return json({ error: 'No such route' }, 404);
 };
 
-export const config = { path: '/api/app/*' };
+/* ── a ceiling on any one address ─────────────────────────────────────
+   Netlify bills every request and every second this runs, and nothing
+   stopped one machine calling it as fast as it could. Six hundred a minute
+   is a whole class on the gym's wifi opening the app at once, with room to
+   spare; a loop is stopped at Netlify's edge with a 429 before it costs
+   anything here. The routes that spend money or send email have their own
+   limits inside as well. */
+export const config = {
+  path: '/api/app/*',
+  rateLimit: { windowLimit: 600, windowSize: 60, aggregateBy: ['ip', 'domain'] },
+};
