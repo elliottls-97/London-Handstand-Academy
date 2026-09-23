@@ -6112,7 +6112,11 @@ function loadState(){
          coach's dashboard and by nothing else, so a paying subscriber who
          signed in on a second device was put back on Foundations with no
          way to see why, and every stage they had cleared was gone. */
-      if(d.stage!=null && Number.isFinite(Number(d.stage))) st.stage=Number(d.stage);
+      /* unless the quiz has just said otherwise and the account has not
+         heard yet: then this is the old answer, and the new one is sent */
+      if(d.stage!=null && Number.isFinite(Number(d.stage))){
+        if(st.placeSent===false) saveState(true); else st.stage=Number(d.stage);
+      }
     if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
       save();
       /* same as loadTrack: a redraw for a reply that changed nothing is a blink */
@@ -6127,22 +6131,26 @@ function loadState(){
    down pass it. */
 let stageDown=false;
 function saveStateDown(){ stageDown=true; saveState(); }
-function saveState(){
+function saveState(now){
   if(st.preview) return;   /* read only: the server would refuse it anyway */
   if(!st.token) return;
   clearTimeout(stateQueued);
   const down=stageDown; stageDown=false;
-  stateQueued=setTimeout(()=>{
+  const send=()=>{
     stateQueued=null;
-    fetch(AUTH.state,{method:'POST',headers:authed(),body:JSON.stringify({
+    /* a quiz answer not yet on the account goes as a deliberate move */
+    const placing = st.placeSent===false;
+    /* keepalive, so a save made as the page is leaving still arrives */
+    fetch(AUTH.state,{method:'POST',headers:authed(),keepalive:true,body:JSON.stringify({
       dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
       intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(),
-      ...(down?{stageDown:true}:{}),
+      ...((down||placing)?{stageDown:true}:{}),
       ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
       ladderDone:st.ladderDone||{},
       fixDone:st.fixDone||{}
-    })}).catch(()=>{});
-  }, 800);
+    })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
+  };
+  if(now) send(); else stateQueued=setTimeout(send, 800);
 }
 
 function loadPrefs(){
@@ -10265,6 +10273,12 @@ function finishIntake(){
   const when=intakeWhen();
   st.stage=L.v; st.placed=L.v; st.time=a.mins||30; st.perWeek=when.length||L.def;
   st.quizDone=true; st.oriented=false;
+  /* The quiz is where somebody says where they are, so it is the one save
+     allowed to move them down as well as up. It is marked unsent until the
+     account has it: the save used to wait 800ms, and finishing inside the
+     homepage's frame left the page at once, so it never went, and signing
+     in afterwards read the old stage back over the new one. */
+  st.placeSent=false;
   /* how hard, as the stage's own dial */
   if(a.hard){ st.lvl=Object.assign({}, st.lvl||{}); st.lvl[L.v]=Math.max(1,Math.min(3,a.hard|0)); }
   /* Write the week down rather than leaving it to a default computed on
@@ -10278,7 +10292,7 @@ function finishIntake(){
      say nothing, which read as the quiz having been ignored. */
   const wall = L.v >= FREE_STAGES && !isPlus();
   if(wall){ if(st.email) st.openWallFor=L.v; else { st.joinFor='taste'; st.wantUpgrade=L.v; } }
-  save(); saveState(); sendIntake();
+  save(); saveState(true); sendIntake();
   /* The home page runs this whole app inside an iframe, which is a fine
      shop window and a bad place to actually use it: a refresh reloads the
      marketing site instead of the app, the link cannot be bookmarked or
@@ -10471,6 +10485,12 @@ function screenOriented(){
   const placed=placedStage();
   const gated=placed>stageCap() && !!STAGES[placed];
   const PS=STAGES[placed]||S;
+  /* Three people see this screen placed above what is free, and it told
+     all three "your first session is free" and then built Foundations. The
+     free session at a higher stage needs an account, so without one the
+     button asks for an email first. With one whose free session is spent,
+     it says so and offers the free week instead. */
+  const tasteUsed = gated && !!st.token && tasteLeft() <= 0;
   const a=intake();
   const goal=(GOALS.find(g=>g.v===a.goal)||{}).t||'';
   /* the goal never moved them — it explains why this is the road to it */
@@ -10551,13 +10571,15 @@ function screenOriented(){
             ${esc(PS.goal||'')}</div>`}
           <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
             <div style="font:400 20px/1.25 var(--serif)">
-              ${st.token
-                ? `Your first session at ${esc(PS.n)} is free.`
-                : `Your first session is free, and nothing is asked for.`}</div>
+              ${tasteUsed
+                ? `You have had your free session at ${esc(PS.n)}.`
+                : `Your first session at ${esc(PS.n)} is free.`}</div>
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-              ${st.token
+              ${tasteUsed
+                ? `${esc(PS.n)} is part of the ${PRICE()} a month ladder${trialLine()?', with the '+trialLine():''}. ${esc(STAGES[stageCap()].n)} stays free either way.`
+                : st.token
                 ? `No card. After that ${esc(PS.n)} is part of the ${PRICE()} a month ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.`
-                : `Train it and see. An account after that keeps what you did, and opens one free session at any stage.`}</div>
+                : `Just your email, so it keeps what you did. No card. ${esc(STAGES[stageCap()].n)} is free without one.`}</div>
             <!-- the button for this lives in the sticky bar, which is the
                  one thing always on screen. Two identical green buttons,
                  one of them scrolling away, was the shape that made the
@@ -10604,11 +10626,15 @@ function screenOriented(){
            the other route is a link under it. Neither asks for money. -->
       <!-- this used to send somebody who had just answered three questions
            to a sign-up form. They get the session first now. -->
-      <button onclick="st.oriented=true;save();go('home')" style="width:100%;border:0;
+      <button onclick="${!gated || (st.token && !tasteUsed) ? "st.oriented=true;save();go('home')"
+          : tasteUsed ? "st.oriented=true;save();go('home');st.ovStage="+placed+";openOv('stage')"
+          : "st.oriented=true;st.joinFor='taste';st.wantUpgrade=null;save();go('joinFree')"}" style="width:100%;border:0;
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);font:600 17px/1 var(--sans);cursor:pointer">
-        ${gated && st.token ? 'Train at '+esc(PS.n) : 'Start your first session'}</button>
+        ${!gated ? 'Start your first session'
+          : tasteUsed ? (trialLine() ? 'Start the free week' : 'Open '+esc(PS.n))
+          : st.token ? 'Train at '+esc(PS.n) : 'Try '+esc(PS.n)+' free'}</button>
       ${gated?`<button onclick="st.oriented=true;save();go('home')"
         style="width:100%;background:none;border:none;cursor:pointer;margin-top:2px;padding:11px;
         font:600 13.5px/1 var(--sans);color:var(--forest)">
@@ -14309,7 +14335,7 @@ function screenJoin(){
       color:var(--forest)">${saving?'Saving for no signal'
         :trial?'Your free '+esc(trialDays)
         :want?'To open '+esc(want.n)
-        :taste?'Your free sessions at '+esc(PSJ.n):'Your starting point'}</div>
+        :taste?'Your free session at '+esc(PSJ.n):'Your starting point'}</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
       saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
       : trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
@@ -14340,7 +14366,7 @@ function screenJoin(){
           : want
           ? 'Your subscription is attached to this account, so it is the one you sign in with on any phone.'
           : taste
-          ? 'The account is what holds the free sessions, so they are still there on any phone you sign in on.'
+          ? 'The account is what holds the free session, so it is still there on any phone you sign in on.'
           : saving
           ? 'It also keeps your progress, so it is there on any phone you sign in on.'
           : emailOptional()
@@ -14414,7 +14440,9 @@ function doJoin(ev){
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
     .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup'); setTimeout(codeResume,0);
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
-      st.tab='ladder'; save(); render();
+      /* they came for the free session at their stage: straight to it */
+      if(st.joinFor==='taste'){ st.joinFor=''; st.tab='home'; } else st.tab='ladder';
+      save(); render();
       /* they came here to buy a stage, so finish the errand rather than
          landing them on the ladder and making them find the button again.
          The form check card asks for the same free week without naming a
