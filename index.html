@@ -5501,16 +5501,18 @@ window.addEventListener('resize', function () {
           ['wrong', 'Needing my form checked',  'I can’t tell if I’m doing it right'],
           ['keep',  'Staying consistent',       'Two good weeks, then it falls apart'],
           ['stuck', 'Stuck at the same point',  'Months of practice, not much progress']] },
-    { k: 'help', h: 'How much help do you want?', s: 'Be honest. The cheaper answer is sometimes the right one.',
-      o: [['self', 'A ready-made programme',      'The same path for everyone, with fixes for common problems'],
-          ['eye',  'A plan written for me',       'And my form checked every two weeks'],
-          ['room', 'That, plus time in the room', 'A session in London each month'],
+    { k: 'help', h: 'How do you want to train?', s: 'Be honest. The cheaper answer is sometimes the right one.',
+      o: [['self', 'On my own',                   'A ready-made programme, with fixes for common problems'],
+          ['cls',  'In a class',                  'The easiest way to try it in person'],
+          ['one',  'One to one, once',            'A session with me in London, on its own'],
+          ['eye',  'A plan written for me',       'Online, with my form checked every two weeks'],
+          ['room', 'A plan, plus time in person', 'Online, and a session in London each month'],
           ['week', 'Someone keeping me on it',    'Checked on and chased every week']] }
   ];
   /* The press, shapes and one-arm are where a template runs out, so the
      advanced end is never sent to the app, whatever the last answer was. */
   function fitPick(a){
-    var k = { self: 'app', eye: 'online', room: 'sess', week: 'inner' }[a.help] || 'online';
+    var k = { self: 'app', cls: 'class', one: 'one', eye: 'online', room: 'sess', week: 'inner' }[a.help] || 'online';
     return k === 'app' && a.lvl === 'adv' ? 'online' : k;
   }
   function plans(){
@@ -5529,6 +5531,17 @@ window.addEventListener('resize', function () {
         gets: ['Everything in online coaching',
                'Checked on every week, and chased to finish the plan',
                'Clips back with a voice over and a video reply'] },
+      /* in person: the next class if one is on sale, and one to one on its own */
+      'class': (function(){ var c = liveClass(); return { name: c ? c.name : 'A class in London', price: c ? c.price : '', per: '',
+        note: c ? c.when : 'the next dates go out by email', inperson: true, href: c ? c.href : '#newsletter',
+        gets: ['At OverGravity in Shadwell, in a small group',
+               'Grouped by level, so you work on the next thing for you',
+               'The easiest way to try it in person'] }; })(),
+      one: { name: 'A one to one session', price: price('session60', '£80'), per: '/hour', inperson: true, href: '/session.html?kind=60',
+        note: 'or ' + price('session90', '£100') + ' for 90 minutes',
+        gets: ['An hour with me in London, just you',
+               'A full look at your handstand, and a clear plan for what to work on',
+               'Credited to your first month if you join coaching within 14 days'] },
       app: { name: 'Start with the free app', price: 'Free', per: '', app: true,
         note: 'the first stage, then ' + price('plus', '£10') + ' a month',
         gets: ['The Handstand Ladder: six stages, from the wall to the press',
@@ -5537,6 +5550,12 @@ window.addEventListener('resize', function () {
     };
   }
   var LV = {
+    inperson: {
+      'new': 'You have not been upside down yet, so start where someone can see you: <b>at the wall, with a coach beside you.</b>',
+      wall:  'You can get up the wall, not off it yet. <b>In person, you are corrected there and then</b>, while you are upside down.',
+      few:   'The balance is there, it just won’t repeat. <b>In person, you are corrected there and then</b>, on the thing that stops it.',
+      adv:   'You want the advanced work. <b>In person, the press, shapes and one-arm get looked at properly</b>, from where you are now.'
+    },
     coach: {
       'new': 'You have not been upside down yet, which is the best place to start well. <b>Block one is shoulder strength and getting up the wall with confidence.</b>',
       wall:  'You can get up the wall, not off it yet. <b>Block one works on your entries, the shoulder line, and your first balances away from it.</b>',
@@ -5552,7 +5571,9 @@ window.addEventListener('resize', function () {
   };
   /* what they typed about the advanced work, said back to them */
   function lvLine(k){
-    var app = k === 'app', base = LV[app ? 'app' : 'coach'][fitA.lvl] || '';
+    var app = k === 'app', inp = k === 'class' || k === 'one';
+    var base = LV[app ? 'app' : inp ? 'inperson' : 'coach'][fitA.lvl] || '';
+    if (inp) return base;
     if (fitA.lvl !== 'adv') return base;
     var said = (fitA.detail || '').trim();
     var line = said && !app
@@ -5563,6 +5584,13 @@ window.addEventListener('resize', function () {
     return line;
   }
   function stopLine(stop, k){
+    if (k === 'class' || k === 'one'){
+      if (stop === 'know') return 'You said knowing what to train is the hard part. <b>You leave knowing what to work on next.</b>';
+      if (stop === 'wrong') return 'You want your form checked. <b>In the room, it is checked while you do it.</b>';
+      if (stop === 'keep') return 'You said it falls apart after a good couple of weeks. <b>A date in the diary helps</b>, and if you want someone keeping you on it after, that is coaching.';
+      if (stop === 'stuck') return 'You said you have been stuck at the same point. <b>Fresh eyes on it, in person,</b> is often what moves it.';
+      return '';
+    }
     var coach = k !== 'app';
     if (stop === 'know') return coach
       ? 'You said knowing what to train is the hard part. <b>You will never have to guess:</b> every session is written for you, with the demo and the cues on every drill.'
@@ -5582,6 +5610,12 @@ window.addEventListener('resize', function () {
   }
   /* one honest sideways step, when their answers point somewhere else */
   function nudge(k, stop){
+    var c = liveClass();
+    /* in person but not sure yet: the class is the small first step */
+    if ((k === 'one' || k === 'sess') && c)
+      return 'Not sure yet? A class is the easier way to try it: <a data-act="class" href="' + esc(c.href) + '">' + esc(c.name) + ', ' + esc(c.when) + (c.price ? ', ' + esc(c.price) : '') + '</a>.';
+    if (k === 'class' && (stop === 'wrong' || stop === 'keep' || stop === 'stuck'))
+      return 'If you want someone watching every week, not just once, <button type="button" data-act="plan" data-plan="online">see online coaching</button>.';
     if ((k === 'online' || k === 'sess') && stop === 'keep')
       return 'If being chased is what would actually keep you going, <button type="button" data-act="plan" data-plan="inner">look at Inner Circle</button>. Three places.';
     if (k === 'inner' && stop !== 'keep')
@@ -5682,6 +5716,13 @@ window.addEventListener('resize', function () {
       acts = '<a class="fit-btn fit-btn--main" data-act="app" href="' + esc(appHref('site-fit')) + '">Open the free app →</a>'
         + (c ? '<a class="fit-btn" data-act="class" href="' + esc(c.href) + '">Or a class, ' + esc(c.when) + (c.price ? ', ' + esc(c.price) : '') + '</a>'
              : '<button type="button" class="fit-btn" data-act="plans">See the coaching plans</button>');
+    } else if (k === 'class'){
+      acts = (c ? '<a class="fit-btn fit-btn--main" data-act="class" href="' + esc(c.href) + '">Book your place' + (c.price ? ', ' + esc(c.price) : '') + ' →</a>'
+                : '<a class="fit-btn fit-btn--main" data-act="nl" href="#newsletter">Get the next dates →</a>')
+        + '<a class="fit-btn" data-act="one" href="/session.html?kind=60">Or one to one, ' + esc(price('session60', '£80')) + '</a>';
+    } else if (k === 'one'){
+      acts = '<a class="fit-btn fit-btn--main" data-act="one" href="/session.html?kind=60">Book an hour, ' + esc(p.price) + ' →</a>'
+        + '<a class="fit-btn" data-act="one" href="/session.html?kind=90">90 minutes, ' + esc(price('session90', '£100')) + '</a>';
     } else if (p.apply){
       acts = '<button type="button" class="fit-btn fit-btn--main" data-act="apply">Apply for a place →</button>'
         + '<button type="button" class="fit-btn" data-act="call">Talk to me first, 15 min free</button>';
@@ -5702,13 +5743,13 @@ window.addEventListener('resize', function () {
       + '<ul class="fit-gets"' + nx() + '>' + p.gets.map(function(g, t){
           return '<li><svg viewBox="0 0 24 24" aria-hidden="true" style="--t:' + t + '"><path d="M5 12.5l4.5 4.5L19 7"/></svg><span>' + esc(g) + '</span></li>'; }).join('') + '</ul>'
       + '<div class="fit-acts"' + nx() + '>' + acts + '</div>'
-      + (p.app ? '' : writeBlock(k, i++))
+      + ((p.app || p.inperson) ? '' : writeBlock(k, i++))
       + (nd ? '<div class="fit-nudge"' + nx() + '>' + nd + '</div>' : '')
-      + '<div class="fit-foot"' + nx() + '><span>' + (p.app ? 'No account needed to start.' : 'Month to month. No joining fee. Cancel in the app.') + '</span>'
+      + '<div class="fit-foot"' + nx() + '><span>' + (p.app ? 'No account needed to start.' : p.inperson ? 'At OverGravity Gymnastics, Shadwell.' : 'Month to month. No joining fee. Cancel in the app.') + '</span>'
       + '<button type="button" data-act="again">Start again</button></div>'
       + '</div></div>';
     /* the plans below show the same one, so skipping down agrees with it */
-    if (!p.app && typeof W.pickPlan === 'function'){
+    if (!p.app && !p.inperson && typeof W.pickPlan === 'function'){
       try { if (typeof W.coSessOn !== 'undefined' && W.coSessOn !== !!p.sess) W.toggleSess(); W.pickPlan(p.key); } catch(e){}
     }
     if (!quiet) focusHead();
@@ -5724,7 +5765,8 @@ window.addEventListener('resize', function () {
       if (act === 'back'){ fitI = Math.max(0, fitI - 1); return qPaint(-1); }
       if (act === 'next'){ var ta = stage.querySelector('#fitDetail'); fitA.detail = ta ? ta.value.trim().slice(0, 300) : ''; return next(); }
       if (act === 'buy'){ track('fit_checkout', { plan: curPlan }); return; }   /* the link opens; counted page-wide */
-      if (act === 'app' || act === 'class'){ markActed(act); return; }
+      if (act === 'app' || act === 'class' || act === 'one'){ markActed(act); return; }
+      if (act === 'nl'){ e.preventDefault(); return goTo(D.getElementById('newsletter'), 'center'); }
       e.preventDefault();
       if (act === 'call'){ track('fit_call', { plan: curPlan }); return W.goToCall ? W.goToCall() : goTo(D.getElementById('coCall')); }
       if (act === 'plans') return goTo(D.getElementById('plans'));
@@ -5813,7 +5855,8 @@ window.addEventListener('resize', function () {
     var f = get('lha-fit'), p = path(), P = plans(), c, lab, sub, btn, href, blank = false;
     if (f && f.a && f.a.help){
       var pl = P[f.plan || fitPick(f.a)] || P.online;
-      if (pl.app){ lab = 'Your start: the free app'; sub = ['First stage free, no account', '#fit']; btn = 'Open the app →'; href = appHref('site-bar'); }
+      if (pl.inperson){ lab = pl.name + (pl.price ? ' \u00b7 ' + pl.price : ''); sub = [pl.note || '', pl.href]; btn = 'Book \u2192'; href = pl.href; }
+      else if (pl.app){ lab = 'Your start: the free app'; sub = ['First stage free, no account', '#fit']; btn = 'Open the app →'; href = appHref('site-bar'); }
       else if (pl.apply){ lab = 'Inner Circle · ' + pl.price + '/mo'; sub = ['Or a free 15 minute call', '#coCall']; btn = 'Apply →'; href = '#fit'; }
       else { lab = pl.name + ' · ' + pl.price + '/mo'; sub = ['Or a free 15 minute call', '#coCall']; btn = 'Start now →'; href = pl.buy; blank = true; }
     } else if (p === 'class' && (c = liveClass())){
@@ -5983,7 +6026,7 @@ window.addEventListener('resize', function () {
     if (!leaveOk()) return;
     var f = get('lha-fit'), p = path(), c = liveClass(), k = f && f.a && f.a.help ? (f.plan || fitPick(f.a)) : '';
     var h, para, body, kind;
-    if (k && k !== 'app'){
+    if (k && k !== 'app' && k !== 'class'){
       kind = 'answers';
       h = 'Want it in writing instead?';
       para = 'Leave your email and I will reply within 48 hours with what I would start you on, from the answers you gave. No call, no card.';
@@ -5992,7 +6035,7 @@ window.addEventListener('resize', function () {
         + '<input name="email" type="email" placeholder="you@example.com" autocomplete="email" aria-label="Email">'
         + '<button class="fit-btn fit-btn--main" type="submit">Send my answers →</button>'
         + '<p class="fit-msg" role="status"></p></form>';
-    } else if (p === 'class'){
+    } else if (p === 'class' || k === 'class'){
       kind = 'class';
       h = c ? 'Can’t make ' + c.when + '?' : 'The next dates, first';
       para = 'Get the next class dates before anyone else, and the odd training note. No spam, unsubscribe any time.';
