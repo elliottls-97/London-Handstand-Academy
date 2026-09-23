@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v149';
+const CACHE_VERSION = 'lha-v150';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -103,6 +103,9 @@ self.addEventListener('fetch', event => {
 
   /* Never cache form posts, analytics or the subscribe function. */
   if (url.pathname.startsWith('/.netlify/')) return;
+  /* nor the dashboard's reads: other people's data, asked for every few
+     seconds, and of no use to anybody offline */
+  if (url.pathname.startsWith('/api/app/coach/')) return;
   if (url.hostname.indexOf('formspree.io') > -1) return;
 
   if (url.searchParams.get('lha') === 'saved') {
@@ -130,7 +133,7 @@ self.addEventListener('fetch', event => {
           return res;
         })
         .catch(() => caches.match(req).then(hit =>
-          hit || caches.match('/lha-app.html')
+          hit || (/\/lha-coach\.html$/.test(url.pathname) ? Response.error() : caches.match('/lha-app.html'))
         ))
     );
   }
@@ -141,18 +144,32 @@ self.addEventListener('fetch', event => {
    opens the chat, a sign-off opens the check points. If the app is
    already open it is brought forward and told where to go; otherwise it
    opens at that address. */
+const isDash = u => /\/lha-coach\.html/.test(u);
+const isApp = c => /\/lha-app\.html/.test(c.url) && c.frameType !== 'nested' && !/[?&]preview=/.test(c.url);
 self.addEventListener('push', event => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; }
   catch (e) { d = { body: event.data ? event.data.text() : '' }; }
   const title = d.title || 'London Handstand Academy';
-  event.waitUntil(self.registration.showNotification(title, {
-    body: d.body || '',
-    icon: '/icons/icon-192.png',
-    tag: d.tag || undefined,
-    renotify: !!d.tag,
-    data: { url: d.url || '/lha-app.html' },
-  }));
+  const url = d.url || '/lha-app.html';
+  event.waitUntil((async () => {
+    /* An iPhone does not show a notification from the app open in front
+       of you, so the open app or dashboard is told as well and shows it
+       itself. The notification still goes: a phone that is sent one and
+       shows nothing stops being sent them. */
+    try {
+      const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      open.filter(c => isDash(url) ? (isDash(c.url) && c.frameType !== 'nested') : isApp(c))
+        .forEach(c => c.postMessage({ type: 'lha-push', title, body: d.body || '', url, tag: d.tag || '' }));
+    } catch (e) {}
+    await self.registration.showNotification(title, {
+      body: d.body || '',
+      icon: '/icons/icon-192.png',
+      tag: d.tag || undefined,
+      renotify: !!d.tag,
+      data: { url },
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', event => {
@@ -162,10 +179,22 @@ self.addEventListener('notificationclick', event => {
   try { go = new URL(url, self.location.origin).searchParams.get('go') || ''; } catch (e) {}
   event.waitUntil((async () => {
     const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    /* one for the coach opens the dashboard, at the client it is about */
+    if (isDash(url)) {
+      const dash = open.find(c => isDash(c.url) && c.frameType !== 'nested');
+      if (dash) {
+        try { await dash.focus(); } catch (e) {}
+        let hash = '';
+        try { hash = new URL(url, self.location.origin).hash; } catch (e) {}
+        dash.postMessage({ type: 'lha-coach-go', hash });
+        return;
+      }
+      await self.clients.openWindow(url);
+      return;
+    }
     /* the app itself, not the copy of a client's app the dashboard shows in
        a frame for the coach */
-    const app = open.find(c => /\/lha-app\.html/.test(c.url)
-      && c.frameType !== 'nested' && !/[?&]preview=/.test(c.url));
+    const app = open.find(isApp);
     if (app) {
       try { await app.focus(); } catch (e) {}
       app.postMessage({ type: 'lha-go', go });

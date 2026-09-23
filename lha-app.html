@@ -3273,6 +3273,9 @@ function saveCheckpoint(k,v,video){
     else {
       if(lastRow.verdict) ['verdict','note','by','verdictAt','watchedAt','undone']
         .forEach(f=>{ if(lastRow[f]!=null) row[f]=lastRow[f]; });
+      /* the same clip was watched and answered whatever the number says now */
+      if(row.video && row.video===lastRow.video) ['watchedAt','replyAt']
+        .forEach(f=>{ if(lastRow[f]!=null) row[f]=lastRow[f]; });
       hist[hist.length-1]=row;
     }
   } else hist.push(row);
@@ -14785,10 +14788,14 @@ async function pushTurnOff(){
   }catch(e){}
   pushOn=false; toast('Notifications off for this phone.'); pushPaint();
 }
+/* An iPhone does not show a notification from the app you are looking at,
+   which is exactly where you are when you press this. So it goes in five
+   seconds, and says so: time to go to the Home Screen and watch it land. */
 function pushTestSend(){
-  fetch(AUTH.pushTest,{method:'POST',headers:authed()})
+  toast('Sending in 5 seconds. Go to your Home Screen or lock the phone to see it arrive.');
+  fetch(AUTH.pushTest,{method:'POST',headers:authed(),body:JSON.stringify({wait:5000})})
     .then(r=>r.json().catch(()=>({})))
-    .then(d=>toast(d&&d.sent ? 'Sent. It should arrive in a moment.' : ((d&&(d.error||d.why))||'That did not send.')))
+    .then(d=>{ if(!(d&&d.sent)) toast((d&&(d.error||d.why))||'That did not send.'); })
     .catch(()=>toast('That did not send.'));
 }
 /* the switch, in their settings */
@@ -15281,7 +15288,13 @@ document.addEventListener('DOMContentLoaded',function(){
   try{ const where=new URLSearchParams(location.search).get('go');
     if(where){ history.replaceState(null,'',location.pathname); setTimeout(()=>openFromNotice(where), 350); } }catch(e){}
   try{ if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e=>{
-    if(e.data && e.data.type==='lha-go') openFromNotice(e.data.go||''); }); }catch(e){}
+    if(e.data && e.data.type==='lha-go') openFromNotice(e.data.go||'');
+    /* one arrived while the app is open: the phone may not show it, so the
+       app does, and fetches what it was about */
+    if(e.data && e.data.type==='lha-push'){
+      if(!document.hidden) toast(String(e.data.title||'')+(e.data.body?': '+String(e.data.body).slice(0,90):''));
+      if(st.token && !st.preview){ try{ loadThread(); }catch(_){} }
+    } }); }catch(e){}
   /* which films are on this phone: the list and the player both ask */
   dlLoad().then(()=>{ if(dlSet.size) render(); });
   /* the quiz placed them on a paid stage: show it, with the free week on it */
