@@ -3751,7 +3751,14 @@ export default async (request) => {
                   /* a one to one session page opened, and a request started */
                   'sitesessionpage', 'sessionbook',
                   /* the website, before the app */
-                  'site', 'sitequiz', 'siteapp', 'siteworkshop'];
+                  'site', 'sitequiz', 'siteapp', 'siteworkshop',
+                  /* the homepage's way in: a door picked, the fit check
+                     started and finished, what they did about it, and the
+                     prompt on the way out */
+                  'sitedoorapp', 'sitedoorclass', 'sitedoorcoach',
+                  'sitefit', 'sitefitdone', 'sitefitsend',
+                  'sitecheckout', 'sitecall', 'sitecallbooked',
+                  'siteleave', 'siteleavesend'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
