@@ -2753,7 +2753,8 @@ function loadTrack(){
       const same=JSON.stringify(d)===JSON.stringify(st.track||null);
       st.track=d; save();
       if(!same) render(); })
-    .catch(()=>{});
+    .catch(()=>{})
+    .finally(()=>{ if(!trackHeard){ trackHeard=true; if(!st.preview) maybeTour(); } });
 }
 function postTrack(body){
   if(!st.token) return Promise.resolve();
@@ -14626,10 +14627,25 @@ function abortTour(){
   const el = document.getElementById('tour'); if(el) el.remove();
   document.body.style.overflow = '';
 }
+/* ── one tutorial, once ─────────────────────────────────────────────
+   Every tab had its own tour, and skipping one marked only that tab, so
+   the next tab opened started another: "I skipped it and it keeps coming
+   back". Finishing or skipping any of them is having done the tutorial.
+   Nothing starts on its own after that, on this phone or another; How
+   the app works in the menu still runs it on request. */
+function tourDone(){
+  const s=tourSeen();
+  return Object.keys(s).some(k=>k!=='v' && s[k]);
+}
+/* the account says whether it has been seen, so wait for it: a new phone
+   started the tour in the second before the answer arrived */
+let trackHeard=false;
 /* first visit to a tab, and only once whatever it points at is on show */
 function maybeTour(){
   if(tourKey && st.tab !== tourKey) abortTour();
   if(tourKey || st.ov || document.getElementById('tour')) return;
+  if(st.token && !trackHeard) return;
+  if(tourDone()) return;
   const key = st.tab==='today' ? 'today' : st.tab;
   if(!TOURS[key] || tourSeen()[key]) return;
   setTimeout(()=>{
