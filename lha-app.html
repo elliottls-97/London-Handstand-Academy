@@ -1320,6 +1320,7 @@ function screenToday(){
 
 
   
+  ${installNudge()}
   ${todayFocus()}
   ${savedHomeHTML()}
 ${/* Once it has been read it is a wall of last month's words at the top of
@@ -1682,7 +1683,7 @@ function dlRow(key, urls, meta){
       background:rgba(0,102,99,.12);color:var(--forest)">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg></span>
-    ${inner}</div>${dlTabTip()}</div>`;
+    ${inner}</div></div>`;
   if(busy){
     const pc=Math.round(dlBusy.done/Math.max(1,dlBusy.of)*100);
     return wrap(`<span style="flex:1;min-width:0">
@@ -1733,8 +1734,13 @@ function dlPaint(key){
   if(el && L) el.outerHTML=dlRow(key, L.urls, L.meta);
 }
 
-async function dlStart(key){
+let dlPending='';
+async function dlStart(key, anyway){
   if(dlBusy) return;
+  /* in a Safari tab on an iPhone the Home Screen comes first; they can
+     still save here if they choose to */
+  let tab=false; try{ tab=isIOS() && !isStandalone(); }catch(e){}
+  if(tab && !anyway){ dlPending=key; openOv('install'); return; }
   const L=dlLists[key]; if(!L) return;
   const uids=dlUids(L.urls), want=uids.filter(u=>!dlSet.has(u));
   const meta=L.meta||{};
@@ -1791,6 +1797,14 @@ async function dlStart(key){
   if(st.tab==='home'||st.tab==='today') render();
 }
 
+/* "Save here in Safari anyway": back to what they were saving, and save it */
+function dlAnyway(){
+  const k=dlPending; dlPending=''; closeOv();
+  const L=dlLists[k]; const kind=L && L.meta && L.meta.kind;
+  if(kind==='q') openOv('list');
+  else if(kind==='ex' && st.exOpen!=null) openExplainer(st.exOpen);
+  if(k) setTimeout(()=>dlStart(k, true), 60);
+}
 /* removing one workout keeps any film another saved workout still needs */
 async function dlRemove(key){
   const rec=dlRec(key); const L=dlLists[key];
@@ -7470,7 +7484,7 @@ function drawOv(){
            /* it is not "every drill" as opposed to something else any more,
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
-           daystart:'', ladderswitch:'',
+           daystart:'', ladderswitch:'', install:'',
            checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:''};
   let body='';
   if(st.ov==='paywall'){ body=paywallBody(); }
@@ -8101,6 +8115,44 @@ function drawOv(){
         ${sum?`<div class="kick2" style="margin-top:20px">WHAT IS COVERED</div>
         <div style="font:400 15px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(sum)}</div>`:''}
       </div>`;
+  }
+  /* ── how to put it on the Home Screen ────────────────────────────
+     Opened from the card on the first screen, and from Save in a Safari
+     tab. On an iPhone the Home Screen app keeps its own storage, apart
+     from Safari, so it says so and offers the email first to anyone who
+     has not given one: without it their progress stays behind in Safari. */
+  if(st.ov==='install'){
+    let ios=false; try{ ios=isIOS(); }catch(e){}
+    const SHARE=`<svg width="15" height="17" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" aria-label="the share button" style="vertical-align:-2px;margin-left:4px">
+      <path d="M12 2v14"/><path d="M7 7l5-5 5 5"/><path d="M5 11H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V12a1 1 0 0 0-1-1h-1"/></svg>`;
+    const step=(n,h,t)=>`<div style="display:flex;gap:13px;align-items:flex-start;margin-top:15px">
+      <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--forest);color:var(--on-primary);
+        display:grid;place-items:center;font:700 13px/1 var(--sans)">${n}</span>
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 15px/1.35 var(--sans)">${h}</span>${
+        t?`<span style="display:block;font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:3px">${t}</span>`:''}</span></div>`;
+    body=`<div style="padding:2px 0 6px">
+      <div class="kick2">ON YOUR HOME SCREEN</div>
+      <div class="h-lg" style="margin-top:8px">Put the app on your Home Screen.</div>
+      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">It opens full screen with one tap,
+        and it is the safe place to save workouts for a gym with no signal.${ios?' Safari clears what a website saves once you have gone about a week without opening it.':''}</div>
+      ${ios ? step(1,'Tap the share button'+SHARE,'At the bottom of Safari. On an iPad it is at the top.')
+            + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it.')
+            + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
+        : installPrompt ? `<button class="btn" style="width:100%;margin-top:16px"
+            onclick="if(doInstall()) closeOv();">Add it to my Home Screen</button>`
+        : step(1,'Open your browser menu','The three dots at the top right in Chrome.')
+          + step(2,'Choose Install app, or Add to Home Screen','')
+          + step(3,'Open it from your Home Screen','')}
+      ${ios?`<div style="margin-top:16px;padding:12px 14px;border-radius:14px;background:rgba(243,169,73,.13);
+        font:400 13px/1.5 var(--sans);color:#5e3708">${st.token
+          ? 'The Home Screen app keeps its own storage, apart from Safari, so sign in once when it opens. Your account and progress come with you.'
+          : 'The Home Screen app keeps its own storage, apart from Safari. Add your email first and your progress comes with you; without it, it starts fresh there.'}</div>`:''}
+      ${(ios && !st.token)?`<button class="btn2" style="width:100%;margin-top:12px" onclick="closeOv();goJoin()">Add my email first</button>`:''}
+      <button class="btn" style="width:100%;margin-top:12px" onclick="closeOv()">Got it</button>
+      ${dlPending?`<button onclick="dlAnyway()" style="display:block;margin:14px auto 0;border:0;background:none;cursor:pointer;
+        font:600 13px/1 var(--sans);color:var(--grey);text-decoration:underline;text-underline-offset:3px">Save here in Safari anyway</button>`:''}
+    </div>`;
   }
   if(st.ov==='account'){
     /* three tiers, and people should never have to guess which one they
@@ -10863,6 +10915,7 @@ function screenHome(){
     </div>
     </div>
 
+    ${installNudge()}
     ${st.homeOrder==='fixesFirst'?fixesHomeHTML():''}
 
     <!-- the explainers, as the design has them: one question box, then a rail
@@ -14651,11 +14704,34 @@ const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
 function canInstall(){ return !isStandalone(); }
 function installCopy(){
   if(installPrompt) return 'Chrome can do it in one tap. Next puts it on your '+
-    'home screen, where it opens full screen and works without signal.';
+    'home screen, where it opens full screen and keeps workouts you save for no signal.';
   if(isIOS()) return 'Tap the share button at the bottom of Safari, then Add to '+
-    'Home Screen. It opens full screen from there, and the sessions work without signal.';
+    'Home Screen. It opens full screen from there, and workouts you save play with no signal.';
   return 'Open your browser menu and choose Install, or Add to Home Screen. It opens '+
-    'full screen from there, and the sessions work without signal.';
+    'full screen from there, and workouts you save play with no signal.';
+}
+/* ── the Home Screen, asked for on the first screen ─────────────────
+   A phone in a browser tab gets this near the top until the app is on
+   the Home Screen. Not now puts it away for a week, not for ever. */
+function installNudge(){
+  if(st.preview || isStandalone() || wide()) return '';
+  let phone=false; try{ phone=isIOS() || /android/i.test(navigator.userAgent); }catch(e){}
+  if(!phone) return '';
+  if(st.installLater && Date.now()-st.installLater < 7*864e5) return '';
+  return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:15px 16px;display:flex;gap:13px;
+    align-items:center;border:1.5px solid rgba(0,102,99,.22)">
+    <img src="/icons/icon-180.png" alt="" width="46" height="46" style="flex:none;border-radius:11px;display:block">
+    <div style="flex:1;min-width:0">
+      <div style="font:600 14.5px/1.3 var(--sans)">Put it on your Home Screen</div>
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">One tap to open, full screen,
+        and the safe place to save workouts for no signal.</div>
+      <div style="display:flex;gap:16px;margin-top:10px;align-items:center">
+        <button onclick="${installPrompt?'if(!doInstall()) openOv(\'install\')':'openOv(\'install\')'}" style="border:0;border-radius:11px;cursor:pointer;
+          padding:9px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${installPrompt?'Add it':'Show me how'}</button>
+        <button onclick="st.installLater=Date.now();save();render()" style="border:0;background:none;cursor:pointer;
+          padding:6px 0;font:600 12.5px/1 var(--sans);color:var(--grey)">Not now</button>
+      </div>
+    </div></div></div>`;
 }
 function doInstall(){
   if(!installPrompt) return false;
