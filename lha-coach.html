@@ -222,6 +222,10 @@ let sel=null, clients=[], thread=[];
    last person's conversation until the fetch came back: a coach could read
    it, and reply into it, believing it was theirs. */
 let threadFor='', threadLoaded=false;
+/* each client's thread as it last arrived, so going back to somebody shows
+   their conversation straight away while it checks for anything new */
+const threadCache={};
+let clientsLoaded=false;
 /* which coaches appear in the list at all — only worth labelling when there is more than one */
 const COACHES=new Set();
 /* replies sent but not yet echoed back by Blobs — see openThread */
@@ -330,7 +334,7 @@ function signIn(ev){
 function load(){
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ clients=d.clients||[];
+    .then(d=>{ clients=d.clients||[]; clientsLoaded=true;
       owner = d.youAreOwner !== false;
       loadQueue(); loadApps(); loadQuestions(); loadFeedback(); loadSessions();
       if(mailguard===null) loadMailguard();
@@ -346,7 +350,7 @@ function load(){
 }
 function openThread(email){
   /* nothing from the last person survives the switch */
-  if(threadFor!==email){ thread=[]; threadFor=email; threadLoaded=false; }
+  if(threadFor!==email){ thread=(threadCache[email]||[]).slice(); threadFor=email; threadLoaded=false; }
   sel=email; draw();
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
@@ -367,7 +371,7 @@ function openThread(email){
     .finally(()=>{ subsLoaded[email]=true; draw(); });
   fetch(API+'/notes?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d&&notes[email]===undefined){ notes[email]=d; draw(); } })
+    .then(d=>{ if(notes[email]===undefined){ notes[email]=d||{failed:true}; draw(); } })
     .catch(()=>{});
   loadCoachThread(email);
 }
@@ -408,6 +412,7 @@ function loadCoachThread(email, quiet){
         m.seen?1:0, m.failed?1:0, m.pid?1:0]));
       /* a slow answer for somebody we have since navigated away from must
          not land in the thread now on screen */
+      threadCache[email]=next;
       if(threadFor!==email) return;
       const same=shape(merged)===shape(thread) && threadLoaded;
       thread=merged; threadLoaded=true;
@@ -1840,7 +1845,7 @@ function playCp(uid){
       <iframe src="${streamEmbed(uid)}" allow="fullscreen"
         style="width:100%;height:100%;border:0;display:block"></iframe></div>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <button onclick="document.getElementById('cpPlay').remove();reviewClip('${esc(uid)}','Client clip')"
+      <button onclick="document.getElementById('cpPlay').remove();reviewSwitch(sel);reviewClip('${esc(uid)}','Client clip')"
         style="flex:1;border:0;border-radius:12px;padding:12px;cursor:pointer;
         background:var(--forest);color:#fff;font:600 14px/1 var(--sans)">Review this</button>
       <button onclick="document.getElementById('cpPlay').remove()"
@@ -3262,10 +3267,20 @@ window.addEventListener('message', e=>{
 /* several at once: every clip in a submission, or everything a client has
    sent, loaded into the review tool together so one recording can walk
    through all of them and go back as one reply */
+/* A recording goes back to one person. Opening somebody else's clips left
+   the last client's in the bar and in the tool, and a recording made over
+   the lot went to whoever was opened last. Switching client clears them. */
+function reviewSwitch(email){
+  if(reviewFor && email && reviewFor!==email && reviewQueue.length){
+    reviewQueue=[];
+    const w=reviewFrame(); if(w) w.postMessage({type:'lha-review-reset'}, location.origin);
+  }
+  reviewFor=email;
+}
 function reviewClips(email, uids, name, titles){
   const list=(uids||[]).filter(Boolean);
   if(!list.length) return;
-  reviewFor=email;
+  reviewSwitch(email);
   /* name each one by what it is. "clip 4 of 6" is no help at all when you
      are six clips into a recording trying to remember which is which. */
   list.forEach((u,i)=>reviewClip(u, (titles&&titles[u])
@@ -3329,6 +3344,9 @@ function reviewClip(uid, title, tries){
     });
 }
 function reviewDrop(uid){
+  /* the × took it off the bar and left it in the tool */
+  const c=reviewQueue.find(x=>x.uid===uid);
+  const w=reviewFrame(); if(w && c && c.src) w.postMessage({type:'lha-review-drop', url:c.src}, location.origin);
   reviewQueue=reviewQueue.filter(c=>c.uid!==uid); draw();
 }
 
@@ -3345,12 +3363,18 @@ function openPreview(email){
   prevEmail=email; prevErrs=[];
   const wrap=previewHost();
   wrap.style.display='flex';
+  /* whoever was in there last goes, and it says what it is doing */
+  const f0=document.getElementById('prevFrame'); if(f0) f0.src='about:blank';
+  const ld=document.getElementById('prevLoading');
+  if(ld){ ld.textContent='Loading '+(firstName(email)||'their')+'\u2019s app\u2026'; ld.style.display='grid'; }
   prevOn=true; paintPreview();
   fetch(API+'/preview?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{
       const f=document.getElementById('prevFrame');
-      if(f) f.src='/lha-app.html?preview='+encodeURIComponent(d.token);
+      if(f){ f.onload=()=>{ if(String(f.src).indexOf('preview=')>-1){
+        const l=document.getElementById('prevLoading'); if(l) l.style.display='none'; } };
+        f.src='/lha-app.html?preview='+encodeURIComponent(d.token); }
       paintPreview();
     })
     .catch(e=>{ prevErrs.push('Could not start the preview: '+e); paintPreview(); });
@@ -3369,7 +3393,9 @@ function previewHost(){
     +'background:rgba(10,20,18,.72)';
   w.innerHTML='<div id="prevBar" style="flex:none;padding:10px 14px;display:flex;align-items:center;'
     +'gap:10px;background:var(--surface,#f7f4f1);border-bottom:1px solid var(--line)"></div>'
-    +'<div style="flex:1;display:flex;justify-content:center;align-items:stretch;padding:14px;overflow:auto">'
+    +'<div style="flex:1;display:flex;justify-content:center;align-items:stretch;padding:14px;overflow:auto;position:relative">'
+    +'<div id="prevLoading" style="position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;'
+    +'font:600 14px/1.4 var(--sans);color:#fff;z-index:1"></div>'
     +'<iframe id="prevFrame" title="Their app" style="width:390px;max-width:100%;border:0;'
     +'border-radius:22px;background:#fff;box-shadow:0 30px 70px -30px rgba(0,0,0,.6)"></iframe></div>'
     +'<div id="prevLog" style="flex:none;max-height:26vh;overflow:auto;background:#12100f;color:#f0d8d2;'
@@ -5843,7 +5869,7 @@ function trackHTML(email, only){
           background:rgba(0,102,99,.06);
           cursor:pointer;padding:6px 10px;font:600 10.5px/1 var(--sans);color:var(--forest)">
           &#9654; Watch ${daysAgo(x.at)}${x.v!=null?' · '+x.v+esc(c.unit):''}</button>
-          <button onclick="reviewClip('${esc(x.video)}','${esc(c.n)} · '+'${esc(daysAgo(x.at))}')"
+          <button onclick="reviewSwitch(sel);reviewClip('${esc(x.video)}','${esc(c.n)} · '+'${esc(daysAgo(x.at))}')"
           title="Open this clip in the review tool"
           style="border:1px solid rgba(0,102,99,.3);border-radius:0 8px 8px 0;
           background:#fff;cursor:pointer;padding:6px 10px;font:600 10.5px/1 var(--sans);
@@ -6707,7 +6733,9 @@ function todayHTML(){
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
     <p class="muted" style="font-size:13px;margin:0 0 var(--space-1)">${esc(date)}</p>
-    <h1 style="margin:0 0 var(--space-2)">${all.length?all.length+' waiting':'Nothing waiting'}</h1>
+    <h1 style="margin:0 0 var(--space-2)">${all.length?all.length+' waiting'
+      :homeSettled?'Nothing waiting':'Checking what is waiting&hellip;'}</h1>
+    ${!homeSettled&&all.length?`<p class="muted" style="font-size:13px;margin:0 0 var(--space-2)">Still loading the rest&hellip;</p>`:''}
     <p style="font:400 16px/1.5 var(--sans);max-width:60ch;margin:0 0 var(--space-6);
       color:${over?'var(--terra)':'var(--grey)'}">${esc(sub)}</p>
     <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--space-3)">
@@ -6840,7 +6868,7 @@ function rosterHTML(){
         <div onclick="openClient('${esc(c.email)}')" style="cursor:pointer;font:400 14px/1.4 var(--sans);
           color:${w?hrsColor(wh):'var(--grey2)'}">${w?wh+' h':'none'}</div>
       </div>`; }).join('')
-      || `<p class="muted" style="padding:var(--space-4) 0">Nobody matches.</p>`}
+      || `<p class="muted" style="padding:var(--space-4) 0">${clientsLoaded?'Nobody matches.':'Loading your clients&hellip;'}</p>`}
   </section>`;
 }
 
@@ -7032,6 +7060,9 @@ function threadPaneHTML(msgs){
     </div>`:''}
     ${clipPickOn?clipPickerHTML():''}
     ${subsHTML(sel)}
+    ${(!threadLoaded||threadFor!==sel) && thread.length && threadFor===sel
+      ? `<div class="muted" style="font:500 12px/1.4 var(--sans);margin-top:var(--space-2)">
+          Checking for anything new from ${esc(firstName(sel))}&hellip;</div>` : ''}
     <div id="pane" style="display:flex;flex-direction:column;gap:14px;max-height:56vh;
       overflow-y:auto;padding-right:4px;margin-top:var(--space-3)">${msgs}</div>
     <div style="margin-top:var(--space-4)">
@@ -7086,6 +7117,7 @@ function threadPaneHTML(msgs){
 }
 
 function progrPaneHTML(){
+  if(prog[sel]===undefined) return `<p class="muted">Loading ${esc(firstName(sel))}&rsquo;s programme&hellip;</p>`;
   const days=(((prog[sel]||{}).plan)||{}).days||[];
 
   return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
@@ -7148,7 +7180,7 @@ function strayName(k){
    which, and the recording goes back to the right client. */
 function reviewCp(email, uid, name){
   const who=((clients.find(c=>c.email===email)||{}).name||'Client').split(' ')[0]||'Client';
-  reviewFor=email;
+  reviewSwitch(email);
   reviewClip(uid, who+' · '+(name||'check point'));
 }
 /* everything on this page that is still waiting on a verdict, in one
@@ -7362,7 +7394,7 @@ function marksPaneHTML(){
 /* The analysis was one very long column. Four things worth reading sit at
    the top and everything that is a chart or a table waits behind a tap. */
 function progressPaneHTML(){
-  if(!prog[sel]) return `<p class="muted">Loading…</p>`;
+  if(!prog[sel]) return `<p class="muted">Loading ${esc(firstName(sel))}&rsquo;s progress&hellip;</p>`;
   const a=analysis(sel);
   const finish=a.all.length?Math.round(a.done.length/a.all.length*100):null;
   const tone=a.tone==='bad'?'var(--terra)':a.tone==='warn'?'var(--amber-d)':'var(--ink)';
@@ -7407,6 +7439,9 @@ function progressPaneHTML(){
 }
 
 function notesPaneHTML(){
+  if(notes[sel]===undefined) return `<p class="muted">Loading your notes on ${esc(firstName(sel))}&hellip;</p>`;
+  if(notes[sel] && notes[sel].failed) return `<p class="muted">Your notes on ${esc(firstName(sel))} did not load.
+    <button class="btn btn-ghost btn-sm" onclick="delete notes['${esc(sel)}'];openThread('${esc(sel)}')">Try again</button></p>`;
   return `<div style="max-width:700px">
     <p class="muted" style="font:400 13px/1.5 var(--sans);margin-bottom:var(--space-2)">
       Only you see these. Injuries, what you have tried, what to ask next time.</p>
@@ -8655,10 +8690,10 @@ function toastHTML(){
 }
 
 function drawNow(){
-  const msgs=thread.map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.from==='coach'?'flex-end':'flex-start'}">
+  const msgs=(threadFor===sel ? thread : []).map(m=>`<div style="display:flex;flex-direction:column;align-items:${m.from==='coach'?'flex-end':'flex-start'}">
     ${m.video?`<div style="width:min(260px,80%);border-radius:16px;overflow:hidden;
       margin-bottom:${m.text?'6px':'0'}">${clipPoster(m.video,'4/5')}</div>
-    ${m.from!=='coach'?`<button onclick="reviewClip('${esc(m.video)}','${
+    ${m.from!=='coach'?`<button onclick="reviewSwitch(sel);reviewClip('${esc(m.video)}','${
       esc((clients.find(c=>c.email===sel)||{}).name||'Client')} · ${esc(ago(m.at))}')"
       style="margin-bottom:6px;border:1px solid rgba(0,102,99,.3);border-radius:9px;background:#fff;
       cursor:pointer;padding:5px 10px;font:600 11px/1 var(--sans);color:var(--forest)">
@@ -8684,7 +8719,8 @@ function drawNow(){
       : m.seen ? ' · '+(m.from==='coach'?'read':'you read it')
       : m.from==='coach' ? (m.pid?' · sending':' · sent') : ''}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">${
-      threadLoaded && threadFor===sel ? 'Nothing here yet.' : 'Loading their thread&hellip;'}</div>`;
+      threadLoaded && threadFor===sel ? 'Nothing here yet.'
+        : 'Loading '+esc(firstName(sel))+'&rsquo;s messages&hellip;'}</div>`;
   /* ── the same screen is not drawn twice ────────────────────────
      Opening a client fires four requests and each one redraws the whole
      dashboard when it lands, whether or not it changed anything on it.
