@@ -223,6 +223,7 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 .cmore{display:none;position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;border:0;
   cursor:pointer;place-items:center;padding:0;background:inherit;color:inherit;opacity:.85}
 .cb:hover .cmore{display:grid}
+@media (hover:none){ .cb .cmore{display:grid;opacity:.55} }
 .ctyping{display:flex;gap:4px;align-items:center;min-width:0;padding:12px 14px}
 .ctyping i{width:7px;height:7px;border-radius:50%;background:var(--grey2);animation:ctype 1.2s infinite ease-in-out}
 .ctyping i:nth-child(2){animation-delay:.15s}.ctyping i:nth-child(3){animation-delay:.3s}
@@ -459,6 +460,10 @@ const $=s=>document.querySelector(s);
    single-quoted attribute, so this changes nothing now; it is here so that
    the day something does, it cannot break out of one. */
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* A name inside a button's onclick, as a quoted JS string. esc() alone is
+   not enough there: the page turns &#39; back into an apostrophe before the
+   code runs, so O'Neill ended the string early and the button did nothing. */
+const jsq=s=>esc(JSON.stringify(String(s==null?'':s)));
 const ago=t=>{ if(!t) return 'no messages'; const m=Math.round((Date.now()-t)/60000);
   if(m<1) return 'just now'; if(m<60) return m+' min ago'; const h=Math.round(m/60);
   if(h<24) return h+' hr ago';
@@ -532,7 +537,9 @@ function load(){
 }
 function openThread(email){
   /* nothing from the last person survives the switch */
-  if(threadFor!==email){ thread=(threadCache[email]||[]).slice(); threadFor=email; threadLoaded=false; dReplyTo=''; dTypingAt=0; }
+  if(threadFor!==email){ thread=(threadCache[email]||[]).slice(); threadFor=email; threadLoaded=false; dReplyTo=''; dTypingAt=0;
+    /* the reply box survives a redraw, so switching person has to change what is in it */
+    const rb=document.getElementById('reply'); if(rb) rb.value=drafts[email]||''; }
   sel=email; draw();
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
@@ -935,11 +942,16 @@ function homeStep(){
   if(!userMoved && view==='today' && !inboxItems().length){ view='clients'; draw(); }
 }
 
+/* what was cleared from Today on this screen in the last two minutes: a
+   refresh that set off before the server had it must not put it back */
+const clearedLocal={};
+function markCleared(email, kinds){ const t=Date.now(); kinds.forEach(k=>{ clearedLocal[email+'|'+k]=t; }); }
 function loadQueue(){
   queueAt=Date.now();
   fetch(API+'/queue',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ queue=d.queue||[]; draw();
+    .then(d=>{ if(d){ queue=(d.queue||[]).filter(q=>{ const t=clearedLocal[q.email+'|'+q.kind];
+        return !(t && Date.now()-t<120000 && (q.at||0)<=t); }); draw();
       /* drawing the queue is what turns a loose check point clip into a
          submission, so anything already on screen for this client is a
          read from before that happened */
@@ -1551,6 +1563,7 @@ function cpAdd(){ cpEdit.list.push({k:'cp'+Date.now().toString(36),n:'',kind:'se
 function cpDel(i){ cpEdit.list.splice(i,1); cpEdit.dirty=true; draw(); }
 function cpSet(i,f,v){ const c=cpEdit.list[i]; if(!c) return;
   c[f]=(f==='video'||f==='lower'||f==='measure')?!!v:v; cpEdit.dirty=true;
+  if(f==='kind' && (v==='yn'||v==='face')) c.measure=false;
   /* switching between a measured type and a yes/no one changes which fields
      are on screen, so that one has to redraw */
   if(f==='kind') draw();
@@ -2065,8 +2078,16 @@ const streamStill = uid => `https://${STREAM_SUB}/${uid}/thumbnails/thumbnail.jp
 /* The still first, with a play button over it, because a Stream player that
    does not paint is a black rectangle with nothing to press, and that is
    what the thread looked like. */
+/* the clips pressed play on this visit. The page redraws itself every so
+   often now, and a clip started by swapping its still for a player was put
+   back to the still by the next redraw, a minute in. */
+const playingClips=new Set();
 function clipPoster(uid, ratio, cap){
   const u=esc(String(uid||'')); if(!u) return '';
+  if(playingClips.has(String(uid))) return `<div id="cc-${u}" style="position:relative;width:100%;aspect-ratio:${ratio||'4/5'};
+    ${cap?'max-height:'+cap+';':''}background:#101413"><iframe src="${streamEmbed(u)}&autoplay=true" allow="accelerometer; gyroscope;
+    autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+    style="display:block;width:100%;height:100%;border:0"></iframe></div>`;
   return `<div id="cc-${u}" style="position:relative;width:100%;aspect-ratio:${ratio||'4/5'};
     ${cap?'max-height:'+cap+';':''}background:#101413">
     <img src="${streamStill(u)}" alt="" loading="lazy"
@@ -2081,6 +2102,7 @@ function clipPoster(uid, ratio, cap){
         </svg></span></button></div>`;
 }
 function playPoster(uid){
+  playingClips.add(String(uid));
   const box=document.getElementById('cc-'+uid); if(!box) return;
   box.innerHTML=`<iframe src="${streamEmbed(uid)}&autoplay=true" allow="accelerometer; gyroscope;
     autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
@@ -2339,6 +2361,7 @@ function unsend(id){
 }
 /* read, and nothing to say back: off Today without sending anything */
 function noReply(email){
+  markCleared(email,['msg']);
   queue=queue.filter(q=>!(q.kind==='msg'&&q.email===email)); inboxRow=''; draw();
   fetch(API+'/seen',{method:'POST',headers:hdr(),body:JSON.stringify({email,what:['msg']})})
     .then(sendOK).then(()=>flash('Cleared from Today')).catch(()=>{ flash('That did not save. Try again.'); loadQueue(); });
@@ -2366,6 +2389,7 @@ function reply(answers){
       coachFail(to, id, String(e.message||e));
       if(was){ subs[to]=was.subs; queue=was.queue; if(was.pick) answerFor[to]=was.pick; }
       if(!drafts[to]) drafts[to]=text;
+      { const rb=document.getElementById('reply'); if(rb && sel===to && !rb.value) rb.value=text; }
       draw();
     });
 }
@@ -3233,10 +3257,10 @@ function blocksHTML(email){
     ${(b.drafts||[]).map(d=>row(esc(d.label)+' &middot; draft',
       d.days+' days, '+d.drills+' drills'+(d.at?' &middot; saved '+when(d.at):''),
       `<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
-         onclick="openBuilder('${esc(email)}','${esc(d.id)}','${esc(d.label)}')">Edit</button>
+         onclick="openBuilder(${jsq(email)},${jsq(d.id)},${jsq(d.label)})">Edit</button>
        ${!d.days?`<span class="muted" style="font-size:12px">Add a day to it first</span>`:''}
        <button class="btn btn-primary btn-sm" ${busy||!d.days?'disabled':''}
-         onclick="blocksDo('${esc(email)}',{action:'promote',id:'${esc(d.id)}'},'Put ${esc(d.label)} live for ${esc((clients.find(c=>c.email===email)||{}).name||email)}?\\n\\nThe block they are on comes off and is kept. The block number moves on and they are emailed.')">Put it live</button>
+         onclick="blocksDo(${jsq(email)},{action:'promote',id:${jsq(d.id)}},${jsq('Put '+d.label+' live for '+((clients.find(c=>c.email===email)||{}).name||email)+'?\n\nThe block they are on comes off and is kept. The block number moves on and they are emailed.')})">Put it live</button>
        <button class="btn btn-ghost btn-sm" style="color:var(--terra)" ${busy?'disabled':''}
          onclick="blocksDo('${esc(email)}',{action:'discard',id:'${esc(d.id)}'},'Throw this draft away?')">Delete</button>`)).join('')}
     ${(b.archive||[]).length?`<details style="margin-top:8px">
@@ -5406,6 +5430,7 @@ function bCpDel(i){ bCps().splice(i,1); builder.cpDirty=true; bMark(); draw(); }
 function bCpSet(i,f,v){
   const c=bCps()[i]; if(!c) return;
   c[f] = (f==='video'||f==='measure') ? !!v : v;
+  if(f==='kind' && (v==='yn'||v==='face')) c.measure=false;
   builder.cpDirty=true; bMark();
 }
 /* ── the explainer library ─────────────────────────────────────────
@@ -6955,6 +6980,7 @@ function flagItems(){
   return out;
 }
 function saidSeen(email){
+  markCleared(email,['said']);
   queue=queue.filter(q=>!(q.kind==='said'&&q.email===email)); inboxRow=''; draw();
   fetch(API+'/saidseen',{method:'POST',headers:hdr(),body:JSON.stringify({email})}).catch(()=>{});
 }
@@ -7262,6 +7288,7 @@ function quickReply(email, also){
   const text=String(drafts[email]||'').trim();
   if(!text){ flash('Write something first.'); return; }
   drafts[email]=''; inboxRow='';
+  markCleared(email, also==='said'?['msg','said']:['msg']);
   queue=queue.filter(q=>!(q.email===email && (q.kind==='msg' || (also==='said' && q.kind==='said'))));
   draw();
   fetch(API+'/thread?email='+encodeURIComponent(email),{method:'POST',headers:hdr(),body:JSON.stringify({text})})
@@ -7275,11 +7302,13 @@ function quickReply(email, also){
 /* said you have seen it: off Today until something new comes */
 const SEEN_KIND={cp:'cplog', trained:'trained', said:'said'};
 function seenOne(email, what){
+  markCleared(email,[SEEN_KIND[what]]);
   queue=queue.filter(q=>!(q.email===email && q.kind===SEEN_KIND[what])); inboxRow=''; draw();
   fetch(API+'/seen',{method:'POST',headers:hdr(),body:JSON.stringify({email,what:[what]})})
     .then(sendOK).catch(()=>{ flash('That did not save. Try again.'); loadQueue(); });
 }
 function seenAll(email){
+  markCleared(email,['cplog','trained','said']);
   queue=queue.filter(q=>!(q.email===email && ['cplog','trained','said'].includes(q.kind)));
   if(prog[email]) prog[email].flagSeen=Date.now();
   inboxRow=''; draw();
@@ -9532,7 +9561,7 @@ function dBubble(m, first, last, byId, who){
       <button class="cmore" onclick="dMenu('${esc(k)}')" aria-label="Message options">
         <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
-    ${m.video&&!mine?`<button class="dreview" onclick="reviewSwitch(sel);reviewClip('${esc(m.video)}','${esc(who)} · ${esc(ago(m.at))}')">Review this</button>`:''}
+    ${m.video&&!mine?`<button class="dreview" onclick="reviewSwitch(sel);reviewClip(${jsq(m.video)},${jsq(who+' · '+ago(m.at))})">Review this</button>`:''}
     ${fresh?`<div class="dnote">Just uploaded. Cloudflare is still encoding it; if the player errors, give it a minute.</div>`:''}
     ${m.failed?`<div class="dnote bad">Not delivered${m.why?': '+esc(m.why):''}</div>`:''}
     ${unsending===m.id?`<div class="dnote">Taking it back&hellip;</div>`:''}
@@ -9698,6 +9727,13 @@ const optVal = o => o ? (o.getAttribute('value')!=null ? o.getAttribute('value')
 function morphNode(a, b){
   if(a.nodeType!==1){ if(a.nodeValue!==b.nodeValue) a.nodeValue=b.nodeValue; return; }
   const tag=a.tagName, typing=a===document.activeElement;
+  /* A box that writes what is typed into the page's own state (an oninput or
+     onchange) holds nothing the page does not know, so it always shows what
+     the page now says. Without this, a builder box kept Day 1's dose after
+     switching to Day 2 when the two were written the same in the HTML. A box
+     with no handler is read when a button is pressed, so it keeps what was
+     put in it unless the page says otherwise. */
+  const bound=b.nodeType===1 && (b.hasAttribute('oninput') || b.hasAttribute('onchange'));
   const wasVal=a.getAttribute('value'), wasOn=a.hasAttribute('checked');
   const wasOpt=tag==='SELECT' ? optVal(a.querySelector('option[selected]')) : null;
   const aa=a.attributes, ba=b.attributes;
@@ -9705,20 +9741,21 @@ function morphNode(a, b){
   for(let i=0; i<ba.length; i++){ const at=ba[i]; if(a.getAttribute(at.name)!==at.value) a.setAttribute(at.name, at.value); }
   if(tag==='INPUT'){
     if(!typing && a.type!=='file'){
-      if(a.type==='checkbox'||a.type==='radio'){ if(wasOn!==b.hasAttribute('checked')) a.checked=b.hasAttribute('checked'); }
-      else if(wasVal!==b.getAttribute('value')) a.value=b.getAttribute('value')||'';
+      if(a.type==='checkbox'||a.type==='radio'){ if(bound || wasOn!==b.hasAttribute('checked')) a.checked=b.hasAttribute('checked'); }
+      else if(bound || wasVal!==b.getAttribute('value')){ const v=b.getAttribute('value')||''; if(a.value!==v) a.value=v; }
     }
     return;
   }
   if(tag==='TEXTAREA'){
     if(a.defaultValue!==b.textContent){ a.defaultValue=b.textContent; if(!typing) a.value=b.textContent; }
+    else if(bound && !typing && a.value!==b.textContent) a.value=b.textContent;
     return;
   }
   if(tag==='IFRAME') return;
   morphKids(a, b);
   if(tag==='SELECT' && !typing){
     const now=optVal(b.querySelector('option[selected]'));
-    if(now!==wasOpt && now!=null && a.value!==now) a.value=now;
+    if((bound || now!==wasOpt) && now!=null && a.value!==now) a.value=now;
   }
 }
 /* ── typing has to survive a redraw ────────────────────────────────
