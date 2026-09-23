@@ -2749,6 +2749,10 @@ export default async (request) => {
                   ladderOff:   (await getSetting('ladder:off')) || {},
                   /* drills the coach has deleted: off every stage at once */
                   drillsOff:   (await getSetting('drills:off')) || [],
+                  /* drills made or changed in the dashboard. Only a coached
+                     client was sent these, so a drill made there and put on
+                     a stage never reached a free or ladder session. */
+                  drills:      await customDrills(),
                   homeOrder:   (await getSetting('home:order')) || 'explainersFirst',
                   /* explainers the coach added from the dashboard, by phase */
                   explainExtra: (await getSetting('explain:extra')) || [],

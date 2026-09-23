@@ -7000,24 +7000,31 @@ function screenMore(){
 }
 function moreLibrary(){
   const all=libraryDrills();
-  /* 88 drills in one flat grid is a wall. They already belong to a stage and
-     a section in STAGE_SECTIONS, so group them by that and let each group
-     fold away. Anything the sections do not claim lands in Everything else
-     rather than disappearing. */
+  /* One group per stage, in the ladder's order: what that stage trains,
+     so a drill two stages share is in both. The workbook's sections grouped
+     them before, and they had fallen behind the stages: most drills belonged
+     to none and were piled into Everything else. A coached client's own
+     drills come first. */
   const idx=new Map(all.map((it,i)=>[it.v,i]));
-  const groups=[]; const claimed=new Set();
-  STAGES.forEach((sg,si)=>{
-    (STAGE_SECTIONS[si]||[]).forEach(sec=>{
-      const items=(sec.items||[]).map(it=>{
-        const i=idx.get(it.v);
-        return i==null ? null : {i, it:all[i]};
-      }).filter(x=>x && !claimed.has(x.i));
-      items.forEach(x=>claimed.add(x.i));
-      if(items.length) groups.push({stage:sg.n, title:sec.title, sub:sec.sub, items});
-    });
+  const groups=[];
+  const take=(title, stage, sub, vs)=>{
+    const items=[], claimed=new Set();
+    vs.forEach(v=>{ const i=idx.get(v); if(i==null || claimed.has(i)) return; claimed.add(i); items.push({i, it:all[i]}); });
+    if(items.length) groups.push({stage, title, sub, items});
+  };
+  if(st.in){ try{ take('Your programme', '', 'The drills in the plan Elliott has written for you.', allDrills().map(d=>d.v)); }catch(e){} }
+  /* A stage somebody cannot open is not listed as if they could: its
+     shared drills made "Wall Work, 22 drills" out of Foundations. */
+  let lockedN=0;
+  STAGES.forEach((S,si)=>{
+    const vs=[];
+    (STAGE_SECTIONS[si]||[]).forEach(sec=>(sec.items||[]).forEach(it=>vs.push(it.v)));
+    (S.drillIds||[]).forEach(v=>vs.push(v));
+    try{ poolFor(si).forEach(x=>vs.push(x.v)); }catch(e){}
+    if(stageLocked(si)){ lockedN++; return; }
+    take(S.n, 'Stage '+(si+1), S.goal||'', vs);
   });
-  const rest=all.map((it,i)=>({i,it})).filter(x=>!claimed.has(x.i));
-  if(rest.length) groups.push({stage:'', title:'Everything else', sub:'', items:rest});
+  if(typeof WRIST_DAY!=='undefined') take('Mobility day', '', 'Wrists and shoulders, for the days in between.', WRIST_DAY.drills||[]);
 
   const card=x=>{ const lock=drillLocked(x.it.v); return `<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer"
       onclick="openLib(${x.i})">
@@ -7050,7 +7057,13 @@ function moreLibrary(){
         ${g.sub?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);padding:0 4px 11px">${esc(g.sub)}</div>`:''}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${g.items.map(card).join('')}</div>
       </div>`:''}
-    </div>`;}).join('');
+    </div>`;}).join('') + (lockedN ? `<div onclick="closeMenu();openStage(FREE_STAGES)" style="margin-bottom:11px;border-radius:20px;
+      border:1px dashed rgba(17,17,17,.16);padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--grey2)" stroke-width="2" stroke-linecap="round"
+        style="flex:none"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <div style="flex:1;min-width:0"><div style="font:400 17px/1.2 var(--serif);color:var(--ink)">${esc(STAGES[FREE_STAGES].n)} to ${esc(STAGES[STAGES.length-1].n)}</div>
+        <div style="font:500 10.5px/1 var(--sans);letter-spacing:.11em;color:var(--grey2);margin-top:6px">${lockedN} MORE STAGES WITH THE LADDER</div></div>
+    </div>` : '');
   return {all, cards};
 }
 function screenMoreWrap(all, cards){
@@ -7099,7 +7112,10 @@ function moreBody(all, cards){
         <button class="act" onclick="signOut()">Sign out</button>`
         :`<button class="act" onclick="st.tab='signin';save();render()">Already have an account? Sign in</button>`}
       </div>
-      ${knowCard()}
+      <!-- On a first visit the menu is three things: how the app works, where
+           you are placed, and opening it like an app. The rest comes after a
+           first workout, when there is something in it for them. -->
+      ${firstVisit()?'':knowCard()}
       ${bookingsHTML()}
 
       <!-- the tutorial, findable rather than once-only. Nobody remembers a
@@ -7122,13 +7138,15 @@ function moreBody(all, cards){
       <div class="card" style="padding:16px 18px;margin-bottom:16px">
         <div class="kick2">WHERE YOU ARE PLACED</div>
         <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-          Stage ${curStage()+1}, ${esc((STAGES[curStage()]||{}).n||'')}. Not right? Answer the questions again, or step back.</div>
+          ${placedStage()>curStage() && STAGES[placedStage()]
+            ? 'Your answers put you at Stage '+(placedStage()+1)+', '+esc(STAGES[placedStage()].n)+'. You train at '+esc((STAGES[curStage()]||{}).n||'')+' until that opens.'
+            : 'Stage '+(curStage()+1)+', '+esc((STAGES[curStage()]||{}).n||'')+'.'} Not right? Answer the questions again, or step back.</div>
         <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:12px">
           <button class="act" onclick="closeMenu();retakeIntake()">Retake the questions</button>
           ${curStage()>0?`<button class="act" onclick="closeMenu();dropStage()">Drop back a stage</button>`:''}
         </div>
       </div>
-      <div class="card" style="padding:16px 18px;margin-bottom:16px;display:flex;align-items:center;
+      ${firstVisit()?'':`<div class="card" style="padding:16px 18px;margin-bottom:16px;display:flex;align-items:center;
         gap:14px;justify-content:space-between">
         <div style="flex:1">
           <div class="kick2">TELL US WHAT YOU THINK</div>
@@ -7138,7 +7156,7 @@ function moreBody(all, cards){
         <button onclick="closeMenu();fbOpen()" style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;
           border-radius:12px;cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);
           color:var(--ink)">Tell us</button>
-      </div>`}
+      </div>`}`}
 
       ${(dlOk() && (st.dlSaved||[]).length) ? `<div class="card" style="padding:16px 18px;margin-bottom:16px;display:flex;
         align-items:center;gap:14px;justify-content:space-between">
@@ -7159,20 +7177,17 @@ function moreBody(all, cards){
         <div style="font:400 22px/1.2 var(--serif);margin-top:10px">Open it like an app.</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:9px"
           id="installHow">${esc(installCopy())}</div>
-        ${installPrompt?`<button onclick="if(doInstall())this.textContent='Asking\u2026'"
+        <!-- a button in every browser: one tap where Chrome or Edge can do it,
+             the steps where Safari cannot, and the way out of Instagram's own
+             browser first, because nothing can be added from inside it -->
+        ${inAppBrowser()?`<div style="margin-top:12px;padding:12px 14px;border-radius:14px;background:rgba(243,169,73,.13);
+          font:400 13px/1.5 var(--sans);color:#5e3708">You are in an app&rsquo;s own browser. Open this page in
+          ${isIOS()?'Safari':'Chrome'} from its menu first, then add it from there.</div>`
+        :`<button onclick="addToHome()"
           style="width:100%;margin-top:14px;border:0;border-radius:16px;padding:16px;
           background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-          font:600 15px/1 var(--sans);cursor:pointer">Add to home screen</button>`
-        :isIOS()?`<div style="display:flex;align-items:center;gap:11px;margin-top:14px;
-          background:rgba(0,64,61,.06);border-radius:14px;padding:12px 14px">
-          <svg width="17" height="21" viewBox="0 0 20 24" fill="none" stroke="var(--forest)"
-            stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="flex:none">
-            <path d="M10 1v14"/><path d="M5.5 5.5L10 1l4.5 4.5"/>
-            <path d="M4 11H2.5v11.5h15V11H16"/></svg>
-          <span style="font:500 13px/1.4 var(--sans);color:var(--deep)">
-            Share, then Add to Home Screen</span>
-        </div>`:''}
+          font:600 15px/1 var(--sans);cursor:pointer">${installPrompt?'Add to Home Screen':'Show me how'}</button>`}
       </div>`:`<div class="card" style="padding:16px 18px;margin-bottom:16px">
         <div class="kick2">ON YOUR HOME SCREEN</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
@@ -7194,9 +7209,17 @@ function moreBody(all, cards){
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
           Your programme is always here. The ladder is the six-stage version,
           and some people like having both.</div></div>`:''}
-      <div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
-        color:var(--grey2);margin:0 2px 12px">Drill library · ${all.length}</div>
-      ${cards}
+      <!-- the drill library: for somebody who has trained and has an account
+           (a coaching client always), and folded until they open it -->
+      ${(st.in || libShown()) ? `<button onclick="st.drillLibOpen=!st.drillLibOpen;save();paintMenu()" aria-expanded="${!!st.drillLibOpen}"
+        style="width:100%;display:flex;align-items:center;gap:12px;border:0;border-radius:18px;cursor:pointer;
+        padding:14px 16px;margin-bottom:12px;background:#fff;text-align:left;color:var(--ink)">
+        <span style="flex:1;min-width:0"><span style="display:block;font:400 19px/1.15 var(--serif)">Drill library</span>
+          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${all.length} drills, filmed, by stage.</span></span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.2" stroke-linecap="round"
+          stroke-linejoin="round" aria-hidden="true" style="transform:rotate(${st.drillLibOpen?180:0}deg)"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      ${st.drillLibOpen?cards:''}` : ''}
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:26px">
         ${[['Terms','/terms'],['Privacy','/privacy'],['Waiver','/waiver']].map(([n,h])=>
           `<a href="${h}" target="_blank" rel="noopener" style="font:500 13px/1 var(--sans);
@@ -8820,8 +8843,8 @@ function drawOv(){
       <div class="h-lg" style="margin-top:8px">Put the app on your Home Screen.</div>
       <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">It opens full screen with one tap,
         and it is the safe place to save workouts for a gym with no signal.${ios?' Safari clears what a website saves once you have gone about a week without opening it, and on an iPhone it is the only way to get notifications from the app.':''}</div>
-      ${ios ? step(1,'Tap the share button'+SHARE,'At the bottom of Safari. On an iPad it is at the top.')
-            + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it.')
+      ${ios ? step(1,'Tap the share button'+SHARE,'In Safari&rsquo;s bottom bar, or inside its &bull;&bull;&bull; menu. On an iPad it is at the top.')
+            + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it, and leave Open as Web App on.')
             + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
         : installPrompt ? `<button class="btn" style="width:100%;margin-top:16px"
             onclick="if(doInstall()) closeOv();">Add it to my Home Screen</button>`
@@ -9513,18 +9536,61 @@ function libraryDrills(){
       if(!out.some(x=>x.v===it.v)) out.push(it); })));
     return out;
   })();
+  /* ── what belongs in it ────────────────────────────────────────
+     It listed every drill the library had ever held: thirty six with no
+     film, which opened on "video coming soon"; drills written into one
+     client's programme and nobody else's; old ones no stage uses; and two
+     pairs under the same name. Seventy two of them had no stage and sat in
+     Everything else. It is what can be watched now: a drill with a film,
+     not deleted from the dashboard, that is part of the ladder (a stage's
+     sections, its drills or its pool, or the mobility day), and for a
+     coached client the drills in their own programme too. */
+  const off = new Set(st.drillsOff || []);
+  const ladder = new Set();
+  STAGES.forEach((S, i) => {
+    (STAGE_SECTIONS[i] || []).forEach(sec => (sec.items || []).forEach(it => ladder.add(it.v)));
+    (S.drillIds || []).forEach(v => ladder.add(v));
+    try { poolFor(i).forEach(x => ladder.add(x.v)); } catch (e) {}
+  });
+  if (typeof WRIST_DAY !== 'undefined') (WRIST_DAY.drills || []).forEach(v => ladder.add(v));
+  const mine = new Set();
+  if (st.in) { try { allDrills().forEach(d => mine.add(d.v)); } catch (e) {} }
+  const seen = new Set();
+  const inScope = base.filter(d => d && d.url && !off.has(d.v) && (ladder.has(d.v) || mine.has(d.v))
+    && !seen.has(d.v) && seen.add(d.v));
   /* A coached client has a written programme, and anyone who has paid has
      the ladder, so both see the lot. On free it was every drill in every
      stage, which gave away the material the paid stages are for. */
-  if (isPlus()) return base;
+  if (isPlus()) return inScope;
   const open = new Set();
   for (let i = 0; i < FREE_STAGES && i < STAGES.length; i++) {
     (STAGE_SECTIONS[i] || []).forEach(sec =>
       (sec.items || []).forEach(it => open.add(it.v)));
     ((STAGES[i] || {}).drillIds || []).forEach(v => open.add(v));
+    try { poolFor(i).forEach(x => open.add(x.v)); } catch (e) {}
   }
   if (typeof WRIST_DAY !== 'undefined') (WRIST_DAY.drills || []).forEach(v => open.add(v));
-  return base.filter(d => open.has(d.v));
+  return inScope.filter(d => open.has(d.v));
+}
+/* ── the drills made or changed in the dashboard ──────────────────────
+   The built-in list is the one the app shipped with, and only a coached
+   client was ever sent the dashboard's version of it. So a drill made there
+   and put on a stage was dropped from every free and ladder session (the
+   pool only keeps drills it can find), and a new name, cue or film reached
+   nobody else. /ladder sends them to everyone now, and they go in here. */
+function mergeDrills(map){
+  let changed=false;
+  Object.keys(map||{}).slice(0,400).forEach(v=>{
+    const d=map[v]||{}; if(!v) return;
+    const i=LIBRARY.findIndex(x=>x && x.v===v);
+    const row={v, n:String(d.n||v), url:d.url||(i>-1?LIBRARY[i].url:'')||'',
+      cues:Array.isArray(d.cues)?d.cues:(i>-1?LIBRARY[i].cues||[]:[]), desc:String(d.desc||(i>-1?LIBRARY[i].desc||'':''))};
+    if(i>-1){ const was=JSON.stringify([LIBRARY[i].n,LIBRARY[i].url,LIBRARY[i].cues,LIBRARY[i].desc]);
+      Object.assign(LIBRARY[i], row);
+      if(was!==JSON.stringify([row.n,row.url,row.cues,row.desc])) changed=true; }
+    else { LIBRARY.push(Object.assign({d:'', nt:''}, row)); changed=true; }
+  });
+  return changed;
 }
 function libToArray(lib){
   if(!lib || !lib.names) return [];
@@ -9665,6 +9731,7 @@ function loadLadder(){
       if(d && d.ladderExtra) { st.ladderExtra=d.ladderExtra; moved=true; }
       if(d && d.ladderOff)   { st.ladderOff=d.ladderOff;     moved=true; }
       if(d && Array.isArray(d.drillsOff)) { st.drillsOff=d.drillsOff; moved=true; }
+      if(d && d.drills && typeof d.drills==='object' && mergeDrills(d.drills)) moved=true;
       if(d && d.ladderBands) { st.ladderBands=d.ladderBands; moved=true; }
       if(d && d.ladderMix)   { st.ladderMix=d.ladderMix;     moved=true; }
       if(d && d.bandTiming)  { st.bandTiming=d.bandTiming;   moved=true; }
@@ -10309,16 +10376,16 @@ function profileBits(){
   const done=sessionsDone().length;
   return [
     {k:'goal', w:10, got:!!a.goal,
-     t:'Say what you are after', d:'One tap, so I know what you are working towards.',
+     t:'Say what you are after', b:'Answer it', d:'One tap, so I know what you are working towards.',
      go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"},
     {k:'level', w:20, got:a.level!=null,
-     t:'Say where you are now', d:'This is the one that puts you on a stage.',
+     t:'Say where you are now', b:'Answer it', d:'This is the one that puts you on a stage.',
      go:"st.tab='quiz';st.quizDone=false;st.quizStep=1;save();render()"},
     {k:'baseline', w:30, got:!!a.baseline,
-     t:'Send a clip', d:'One attempt on film, and I can place you properly rather than taking your word for it.',
+     t:'Send me a clip', b:'Send a clip', d:'One attempt on film, and I can place you properly rather than taking your word for it.',
      go:"go(coachedView()?'ask':'coaching')"},
     {k:'cp', w:20, got:cps>0,
-     t:'Log a check point', d:'A number against one of the check points on your stage, so progress is measured rather than felt.',
+     t:'Log a check point', b:'Open the check points', d:'A number against one of the check points on your stage, so progress is measured rather than felt.',
      go:"st.tab='ladder';st.ladderTab='checks';save();render()"},
     {k:'trained', w:20, got:done>=3,
      /* "Train -4 more sessions" once they were past three: the number left
@@ -10326,7 +10393,7 @@ function profileBits(){
      t:(done>=3) ? 'Three sessions in'
         : done ? 'Train '+(3-done)+' more session'+((3-done)===1?'':'s')
                : 'Train three sessions',
-     d:'Three sessions is the point where what you do starts to say more than what you said.',
+     b:'Train now', d:'Three sessions is the point where what you do starts to say more than what you said.',
      go:"go('home')"}
   ];
 }
@@ -10789,7 +10856,7 @@ const STAGE_SUM = {
 /* what the button on Today offers, and what opening it plays */
 function introOffer(){
   const i=curStage(), S=STAGES[i]||STAGES[0];
-  if(i===0) return {label:'New here? Watch this first', title:'How the handstand ladder works',
+  if(i===0 || firstVisit()) return {label:'New here? Watch this first', title:'How the handstand ladder works',
                     url:stageIntroUid(0)||LADDER_INTRO_VIDEO, len:'3 min'};
   const own=stageFilm();
   return {label:'About '+S.n, title:S.n+', explained',
@@ -11122,29 +11189,24 @@ function knowCard(){
       Anything you log from here makes the next thing I write better.</div>
     <button onclick="st.knowDone=1;save();render()" class="btn2" style="width:100%;margin-top:12px">
       Got it</button></div>`;
-  /* every step, so the bar is a list of things to do rather than a number
-     that moves for reasons nobody can see */
-  const rows=bits.map(b=>`<div style="display:flex;align-items:center;gap:9px;padding:6px 0">
-    <span style="flex:none;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;
-      background:${b.got?'var(--forest)':'transparent'};
-      border:${b.got?'0':'1.5px solid rgba(0,64,61,.22)'};color:#fff;font:700 9px/1 var(--sans)">${
-      b.got?'&check;':''}</span>
-    <span style="flex:1;min-width:0;font:${b.got?'500':'600'} 13px/1.3 var(--sans);
-      color:${b.got?'var(--grey2)':'var(--ink)'}">${esc(b.t)}</span>
-    <span style="flex:none;font:600 10.5px/1 var(--sans);color:var(--grey2)">${b.w}%</span>
-  </div>`).join('');
+  /* One thing at a time. It was a percentage, a bar, the next step and then
+     all five steps again with a weight on each (ten per cent, twenty,
+     thirty), which read as a score to work out rather than a thing to do.
+     Now it is how many of the five are done, the next one, and its button. */
+  const doneN=bits.length-gaps.length;
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <span class="kick2">HOW WELL I KNOW YOU</span>
-      <span style="font:700 13px/1 var(--sans)">${pct}%</span></div>
-    <div style="height:6px;border-radius:3px;background:var(--mist);margin-top:10px;overflow:hidden">
-      <i style="display:block;height:100%;width:${pct}%;background:var(--forest);
-        transition:width .6s cubic-bezier(.2,.8,.2,1)"></i></div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">${esc(next.d)}</div>
+      <span style="display:flex;align-items:center;gap:8px;font:600 11.5px/1 var(--sans);color:var(--grey2)"
+        aria-label="${doneN} of ${bits.length} done">
+        <span style="display:flex;gap:4px" aria-hidden="true">${bits.map(b=>`<i style="width:7px;height:7px;border-radius:50%;
+          background:${b.got?'var(--forest)':'rgba(0,64,61,.16)'}"></i>`).join('')}</span>
+        ${doneN} of ${bits.length}</span></div>
+    <div style="font:400 19px/1.25 var(--serif);margin-top:10px">${esc(next.t)}</div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">${esc(next.d)}</div>
     <button onclick="${next.go}" style="margin-top:12px;width:100%;border:0;border-radius:12px;
       padding:12px;background:var(--forest);color:var(--on-primary);font:600 14px/1 var(--sans);
-      cursor:pointer">${esc(next.t)}</button>
-    <div style="margin-top:12px;padding-top:6px;border-top:1px solid rgba(0,64,61,.08)">${rows}</div>
+      cursor:pointer">${esc(next.b||next.t)}</button>
   </div>`;
 }
 
@@ -11655,6 +11717,81 @@ function buildFixSession(slug, listOnly){
    your progress" with no progress in it. They come after one workout,
    when there is something to keep and a reason to come back. */
 const firstVisit = () => !coachedView() && !sessionsDone().length;
+/* The films on the Train screen are for somebody who has trained and has an
+   account to keep what they find: a rail of twelve films and a question box,
+   in front of somebody who has not done a single drill, was the library
+   before the app. Folded until it is opened, and it remembers. */
+const libShown = () => !!st.token && sessionsDone().length > 0;
+/* ── the first visit ─────────────────────────────────────────────────
+   Somebody who has just answered the quiz is shown three things and the
+   Start button: the stage their answers put them on, a film of how the app
+   works, and a way to open it like an app. Everything else comes after a
+   first workout. */
+function firstPlacedHTML(){
+  const cs=curStage(), S=STAGES[cs]||STAGES[0], placed=placedStage(), PS=STAGES[placed];
+  const above = !!PS && placed>cs;
+  return `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
+    style="margin:${wide()?22:14}px 20px 0;padding:16px 18px;border-radius:20px;background:#fff;cursor:pointer;
+    box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
+    <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WHERE YOU ARE</div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
+      <span style="font:400 22px/1.15 var(--serif)">${esc(S.n)}</span>
+      <span style="flex:none;font:500 12.5px/1 var(--sans);color:var(--grey)">Stage ${cs+1} of ${STAGES.length}</span></div>
+    ${S.goal?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(S.goal)}</div>`:''}
+    ${above?`<div style="font:400 12.5px/1.5 var(--sans);color:#8a5a12;margin-top:8px">Your answers put you at
+      <b>${esc(PS.n)}</b>. ${esc(S.n)} is where the free app starts.</div>`:''}
+    <div style="display:flex;gap:4px;margin-top:12px" aria-hidden="true">${STAGES.map((_,i)=>`<span style="flex:1;height:5px;
+      border-radius:3px;background:${i<cs?'var(--forest)':i===cs?'var(--deep)':'rgba(0,64,61,.12)'}"></span>`).join('')}</div>
+  </div>`;
+}
+function firstHowHTML(){
+  const url=stageIntroUid(0)||LADDER_INTRO_VIDEO; if(!url) return '';
+  return `<div class="rise rise-3" style="padding:${wide()?22:16}px 16px 0">
+    <div onclick="st.introOpen=true;save();openOv('intro')" role="button" tabindex="0"
+      style="cursor:pointer;display:flex;gap:14px;align-items:center;padding:10px 14px 10px 10px;border-radius:20px;
+      background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
+      <div style="position:relative;flex:none;width:112px;aspect-ratio:16/10;border-radius:14px;overflow:hidden;background:var(--sand)">
+        <img src="${streamThumb(url)}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+        <span style="position:absolute;inset:0;background:rgba(0,64,61,.22)"></span>
+        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;
+          background:rgba(255,255,255,.92);display:grid;place-items:center">
+          <svg width="11" height="13" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">HOW THE APP WORKS &middot; 3 MIN</div>
+        <div style="font:400 18px/1.2 var(--serif);margin-top:6px">Watch this first</div>
+        <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">The ladder, the check points, and how a session is built for you.</div>
+      </div>
+    </div></div>`;
+}
+/* One button where there can be one: Chrome and Edge install from a tap.
+   Safari has no button a page is allowed to press, so there it is the two
+   steps, and inside Instagram or Facebook the page has to go to the proper
+   browser first, because an app's own browser cannot add anything. */
+const inAppBrowser = () => { try{ return /Instagram|FBAN|FBAV|FB_IAB|TikTok|musical_ly|Snapchat|LinkedInApp|Line\//i.test(navigator.userAgent); }catch(e){ return false; } };
+function homeScreenCard(){
+  if(st.preview || isStandalone()) return '';
+  let ios=false, phone=false; try{ ios=isIOS(); phone=ios || /android/i.test(navigator.userAgent); }catch(e){}
+  if(!phone && !installPrompt) return '';
+  const inApp=inAppBrowser();
+  const how = inApp
+      ? (ios ? 'Open this page in Safari first, from the share or &bull;&bull;&bull; menu, then add it from there.'
+             : 'Open this page in Chrome first, from the &bull;&bull;&bull; menu, then add it from there.')
+    : installPrompt ? 'One tap and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.'
+    : ios ? 'Two taps in Safari and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.'
+    : 'Two taps in your browser&rsquo;s menu and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.';
+  return `<div class="rise rise-3" style="padding:12px 16px 0"><div style="display:flex;gap:14px;align-items:center;
+    padding:14px 16px;border-radius:20px;background:#fff;border:1.5px solid rgba(0,102,99,.22)">
+    <img src="/icons/icon-180.png" alt="" width="52" height="52" style="flex:none;border-radius:12px;display:block">
+    <div style="flex:1;min-width:0">
+      <div style="font:600 15px/1.3 var(--sans)">Open it like an app</div>
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${how}</div>
+      ${inApp?'':`<button onclick="addToHome()" style="margin-top:10px;border:0;border-radius:11px;cursor:pointer;
+        padding:10px 14px;background:var(--forest);color:var(--on-primary);font:600 13px/1 var(--sans)">${
+        installPrompt?'Add to Home Screen':'Show me how'}</button>`}
+    </div></div></div>`;
+}
+function addToHome(){ if(installPrompt && doInstall()) return; openOv('install'); }
 function screenHome(){
   const S=STAGES[curStage()]||STAGES[0];
   const done=sessionsThisWeek(), target=weekTarget();
@@ -11722,7 +11859,7 @@ function screenHome(){
     <!-- the stage and how far through it, on one line. Six segments in the
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->
-    <div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
+    ${firstVisit() ? firstPlacedHTML() : `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
       style="padding:${wide()?24:14}px 20px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
         <span style="font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;
@@ -11734,7 +11871,7 @@ function screenHome(){
         <div style="height:100%;width:${_P.of?Math.round(_P.met/_P.of*100):0}%;background:var(--deep);
           border-radius:4px;transition:width .5s cubic-bezier(.2,.8,.2,1)"></div>
       </div>
-    </div>
+    </div>`}
 
     <!-- ── build today's session ──────────────────────────────────
          On a phone this is one green button and the two questions are
@@ -11771,17 +11908,25 @@ function screenHome(){
     </div>
     </div>
 
-    ${firstVisit()?'':installNudge()}
-    ${firstVisit()?'':pushNudge()}
-    ${st.homeOrder==='fixesFirst'?fixesHomeHTML():''}
+    ${firstVisit() ? firstHowHTML()+homeScreenCard() : installNudge()+pushNudge()}
+    ${(!firstVisit() && st.homeOrder==='fixesFirst')?fixesHomeHTML():''}
 
     <!-- the explainers, as the design has them: one question box, then a rail
          of video cards. The accordion this replaces held the same list; the
          lock is unchanged — the first few are open, an account opens the rest. -->
-    <section class="rise rise-3" data-tour="explainers" style="padding:${wide()?26:18}px 0 0">
+    ${!libShown() ? '' : st.filmsOpen!==true ? `<section class="rise rise-3" style="padding:${wide()?22:16}px 16px 0">
+      <button data-tour="explainers" onclick="st.filmsOpen=true;save();render()" aria-expanded="false"
+        style="width:100%;display:flex;align-items:center;gap:12px;border:0;border-radius:18px;cursor:pointer;
+        padding:15px 16px;background:#fff;text-align:left;color:var(--ink);box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
+        <span style="flex:1;min-width:0"><span style="display:block;font:400 20px/1.15 var(--serif)">Ask, or watch.</span>
+          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${FAQS_READY().length} films from Elliott, and a box for your own question.</span></span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button></section>` : `<section class="rise rise-3" data-tour="explainers" style="padding:${wide()?26:18}px 0 0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 20px ${wide()?12:6}px">
         <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">Ask, or watch.</span>
-        ${st.token?`<span style="font:600 13px/1 var(--sans);color:var(--forest)">${FAQS_READY().length} films</span>`:''}
+        <button onclick="st.filmsOpen=false;save();render()" aria-expanded="true" style="border:0;background:none;cursor:pointer;
+          padding:4px 0;font:600 13px/1 var(--sans);color:var(--forest)">${FAQS_READY().length} films &middot; Hide</button>
       </div>
       <!-- The box first: it is where a question goes, films first and then
            Elliott, and under the films on a phone nobody knew it was there.
@@ -11872,13 +12017,13 @@ function screenHome(){
           </div>`;}).join('')}
       </div>
       ${railMore(FAQS_READY().length)}
-    </section>
-    ${st.homeOrder==='fixesFirst'?'':fixesHomeHTML()}
+    </section>`}
+    ${(firstVisit() || st.homeOrder==='fixesFirst')?'':fixesHomeHTML()}
     ${savedHomeHTML()}
 
     <!-- the workshop after the explainers, where the design puts it: it is an
          offer, and an offer belongs after the thing they came for -->
-    ${workshopOn()?`<div class="rise rise-4" style="padding:18px 16px 0">${workshopStrip()}</div>`:''}
+    ${(workshopOn() && !firstVisit())?`<div class="rise rise-4" style="padding:18px 16px 0">${workshopStrip()}</div>`:''}
 
     <!-- keep your progress. Replaces the create-an-account button that used to
          sit inside the explainer card. -->
@@ -15568,7 +15713,10 @@ const TOUR_VIRTUAL = ['modesheet','followalong','drilllist'];
    Chrome hands us the install prompt and we hold on to it. Safari does
    not, and never will, so there it is the instructions or nothing. */
 let installPrompt=null;
-window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installPrompt=e; });
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installPrompt=e;
+  /* it can arrive after the Train screen is drawn, and the button there
+     changes from "show me how" to one tap */
+  try{ if(st.tab==='home' && !st.ov) render(); }catch(err){} });
 window.addEventListener('appinstalled', ()=>{ installPrompt=null; st.installed=true; save(); track('install'); });
 const isStandalone = () => {
   try{ return window.matchMedia('(display-mode: standalone)').matches
@@ -15580,7 +15728,7 @@ function canInstall(){ return !isStandalone(); }
 function installCopy(){
   if(installPrompt) return 'Chrome can do it in one tap. Next puts it on your '+
     'home screen, where it opens full screen and keeps workouts you save for no signal.';
-  if(isIOS()) return 'Tap the share button at the bottom of Safari, then Add to '+
+  if(isIOS()) return 'Tap the share button in Safari (in its bottom bar, or inside the ••• menu), then Add to '+
     'Home Screen. It opens full screen from there, and workouts you save play with no signal.';
   return 'Open your browser menu and choose Install, or Add to Home Screen. It opens '+
     'full screen from there, and workouts you save play with no signal.';
