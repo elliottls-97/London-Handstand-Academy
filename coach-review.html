@@ -1277,17 +1277,18 @@
     const clip = clips[activeClipIndex];
     if (!clip || !clip.title.trim()) return;
 
-    // Scale off the short edge so the title looks the same size in both
-    // vertical and landscape formats
-    const fontSize = Math.max(13, Math.round(Math.min(stage.width, stage.height) * 0.038));
+    // A header over the captions: the same frosted pill, in Newsreader, a
+    // size up from them, and in the case it was typed rather than spaced
+    // capitals. Scaled off the caption size, which scales off the short edge.
+    const fontSize = Math.round(ccSize() * 1.15);
     ctx.save();
-    ctx.font = '700 ' + fontSize + 'px Figtree, sans-serif';
-    if ('letterSpacing' in ctx) ctx.letterSpacing = Math.max(1, Math.round(fontSize * 0.08)) + 'px';
+    ctx.font = '500 ' + fontSize + 'px Newsreader, Georgia, serif';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
     ctx.textBaseline = 'middle';
 
-    let text = clip.title.trim().toUpperCase();
-    const padX = fontSize * 1.0;
-    const padY = fontSize * 0.55;
+    let text = clip.title.trim();
+    const padX = fontSize * 0.95;
+    const padY = fontSize * 0.5;
     const boxH = fontSize + padY * 2;
 
     const geom = getCamBubbleGeom();
@@ -1344,11 +1345,10 @@
 
     if (boxW <= padX) { ctx.restore(); return; } // no room, skip it
 
-    ctx.fillStyle = 'rgba(0,64,61,0.88)';
-    roundRectPath(ctx, boxX, boxY, boxW, boxH, boxH / 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#f7f4f1';
+    ccPill(boxX, boxY, boxW, boxH, fontSize);
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = fontSize * 0.6; ctx.shadowOffsetY = fontSize * 0.1;
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
     ctx.fillText(text, textX, boxY + boxH / 2);
     ctx.restore();
   }
@@ -1361,16 +1361,65 @@
      spoken stands in for the lit one. The frost needs Chrome's canvas
      filter, which the live captions need anyway; elsewhere it is a clear
      pill with the same edge and shadow. */
-  const CC_ACCENT = '#3f8f8c';
+  /* the explainers' teal, a shade lighter: on the wash under the words the
+     app's own #3f8f8c all but disappeared */
+  const CC_ACCENT = '#7cc9c3';
   let ccFrost = null;
+  /* Caption type, from the frame's short edge. From the height it was a
+     third bigger on a vertical film than on a landscape one, and on a phone
+     film that meant three or four words a line. */
+  function ccSize() {
+    const W = stage.width, H = stage.height;
+    return Math.max(14, Math.round(Math.min(W, H) * (W / H > 1.2 ? 0.05 : 0.058)));
+  }
+  /* The frosted pill both the captions and the title sit on: the picture
+     behind it blurred and a little richer, a tenth of white, a light edge
+     brighter along the top, and a shadow under it. */
+  function ccPill(x, y, w, h, fs) {
+    const W = stage.width, H = stage.height, r = h / 2;
+    const m = Math.ceil(fs * 1.2);
+    const sx = Math.max(0, Math.floor(x - m)), sy = Math.max(0, Math.floor(y - m));
+    const sw = Math.min(W - sx, Math.ceil(w + m * 2)), sh = Math.min(H - sy, Math.ceil(h + m * 2));
+    if (sw <= 0 || sh <= 0) return;
+    if (!ccFrost) ccFrost = document.createElement('canvas');
+    ccFrost.width = sw; ccFrost.height = sh;
+    const fc = ccFrost.getContext('2d');
+    fc.clearRect(0, 0, sw, sh);
+    fc.drawImage(stage, sx, sy, sw, sh, 0, 0, sw, sh);
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = fs * 2.5; ctx.shadowOffsetY = fs * 0.75;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    roundRectPath(ctx, x, y, w, h, r); ctx.fill();
+    ctx.restore();
+    ctx.save();
+    roundRectPath(ctx, x, y, w, h, r); ctx.clip();
+    ctx.filter = 'blur(' + Math.round(fs * 1.1) + 'px) saturate(160%)';
+    ctx.drawImage(ccFrost, sx, sy);
+    ctx.filter = 'none';
+    /* a little dark teal under the white: gym footage is bright, and white
+       words on a frost of a white wall were hard to read */
+    ctx.fillStyle = 'rgba(0,40,38,0.22)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+    ctx.save();
+    const edge = ctx.createLinearGradient(0, y, 0, y + h);
+    edge.addColorStop(0, 'rgba(255,255,255,0.40)');
+    edge.addColorStop(1, 'rgba(255,255,255,0.14)');
+    ctx.strokeStyle = edge; ctx.lineWidth = Math.max(1, fs / 16);
+    roundRectPath(ctx, x, y, w, h, r); ctx.stroke();
+    ctx.restore();
+  }
   function drawCaptions() {
     if (!captionsToggle.checked || !currentCaptionText) return;
-    const W = stage.width, H = stage.height, wide = W / H > 1.2;
-    const fs = Math.max(14, Math.round(H * (wide ? 0.05 : 0.042)));
-    const gap = fs * 0.32, padY = fs * 0.5, padX = fs * 0.92, lh = fs * 1.18;
+    const W = stage.width, H = stage.height;
+    const fs = ccSize();
+    const gap = fs * 0.3, padY = fs * 0.5, padX = fs * 0.9, lh = fs * 1.18;
     ctx.save();
     ctx.font = '600 ' + fs + 'px Newsreader, Georgia, serif';
-    const maxW = W * 0.9 - padX * 2;
+    const maxW = W * 0.92 - padX * 2;
     const words = currentCaptionText.split(/\s+/).filter(Boolean);
     const lines = []; let cur = [], curW = 0;
     words.forEach(w => {
@@ -1383,43 +1432,8 @@
     if (!shown.length) { ctx.restore(); return; }
     const boxW = Math.max(...shown.map(l => l.w)) + padX * 2;
     const boxH = shown.length * lh + padY * 2;
-    const x = (W - boxW) / 2, y = H - H * 0.03 - boxH, r = boxH / 2;
-
-    /* what is behind the pill, kept before anything is drawn over it */
-    const m = Math.ceil(fs * 1.2);
-    const sx = Math.max(0, Math.floor(x - m)), sy = Math.max(0, Math.floor(y - m));
-    const sw = Math.min(W - sx, Math.ceil(boxW + m * 2)), sh = Math.min(H - sy, Math.ceil(boxH + m * 2));
-    if (!ccFrost) ccFrost = document.createElement('canvas');
-    ccFrost.width = sw; ccFrost.height = sh;
-    const fc = ccFrost.getContext('2d');
-    fc.clearRect(0, 0, sw, sh);
-    fc.drawImage(stage, sx, sy, sw, sh, 0, 0, sw, sh);
-
-    /* the shadow under it */
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.35)';
-    ctx.shadowBlur = fs * 2.5; ctx.shadowOffsetY = fs * 0.75;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    roundRectPath(ctx, x, y, boxW, boxH, r); ctx.fill();
-    ctx.restore();
-
-    /* the frost: the picture behind, blurred and a little richer, then a
-       tenth of white over it */
-    ctx.save();
-    roundRectPath(ctx, x, y, boxW, boxH, r); ctx.clip();
-    ctx.filter = 'blur(' + Math.round(fs * 1.1) + 'px) saturate(160%)';
-    ctx.drawImage(ccFrost, sx, sy);
-    ctx.filter = 'none';
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    ctx.fillRect(x, y, boxW, boxH);
-    ctx.restore();
-
-    /* the edge: brighter along the top, as the explainers' inset light is */
-    const edge = ctx.createLinearGradient(0, y, 0, y + boxH);
-    edge.addColorStop(0, 'rgba(255,255,255,0.40)');
-    edge.addColorStop(1, 'rgba(255,255,255,0.14)');
-    ctx.strokeStyle = edge; ctx.lineWidth = Math.max(1, fs / 16);
-    roundRectPath(ctx, x, y, boxW, boxH, r); ctx.stroke();
+    const x = (W - boxW) / 2, y = H - H * 0.03 - boxH;
+    ccPill(x, y, boxW, boxH, fs);
 
     /* the words, the newest one lit */
     ctx.textBaseline = 'middle';
@@ -1431,7 +1445,7 @@
       l.words.forEach((w, wi) => {
         const lit = li === lastLine && wi === l.words.length - 1;
         ctx.save();
-        ctx.shadowColor = lit ? 'rgba(63,143,140,0.55)' : 'rgba(0,0,0,0.55)';
+        ctx.shadowColor = lit ? 'rgba(124,201,195,0.5)' : 'rgba(0,0,0,0.55)';
         ctx.shadowBlur = lit ? fs * 1.25 : fs * 0.62;
         ctx.shadowOffsetY = lit ? 0 : fs * 0.12;
         ctx.fillStyle = lit ? CC_ACCENT : 'rgba(255,255,255,0.88)';
