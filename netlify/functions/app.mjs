@@ -3192,6 +3192,8 @@ export default async (request) => {
      path: it will not fetch anything else for anybody. A locked film arrives
      already signed, so nobody gets a film here they could not already play. */
   if (path === '/dlurls' && request.method === 'POST') {
+    /* saving for no signal comes with an account */
+    if (!(await me())) return json({ error: 'Add your email to save workouts for no signal.' }, 401);
     const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for') || 'x';
     if ((await rateHit(`dl:${ip}`, 600000)) > 30) {
       return json({ error: 'That is a lot of saving at once. Try again in a few minutes.' }, 429);

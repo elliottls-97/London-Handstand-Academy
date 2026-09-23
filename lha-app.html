@@ -205,6 +205,12 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .csend{flex:none;width:40px;height:40px;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;padding:0;
  background:var(--forest);color:var(--on-primary);transition:transform .2s cubic-bezier(.2,.8,.2,1)}
 .csend:active{transform:scale(.92)}
+.cpush{display:flex;gap:10px;align-items:center;margin:12px 14px 0;padding:10px 8px 10px 14px;border-radius:16px;
+ background:rgba(0,102,99,.08);font:500 13px/1.4 var(--sans);color:var(--deep)}
+.cpush span{flex:1;min-width:0}
+.cpush button{flex:none;border:0;border-radius:11px;padding:9px 12px;cursor:pointer;background:var(--forest);
+ color:var(--on-primary);font:600 12.5px/1 var(--sans)}
+.cpush button.x{background:none;color:var(--grey);font:400 20px/1 var(--sans);padding:4px 6px}
 .cjump{position:absolute;right:16px;top:-50px;min-width:40px;height:40px;border-radius:20px;border:0;cursor:pointer;
  display:flex;gap:4px;align-items:center;justify-content:center;padding:0 10px;background:#fff;color:var(--forest);
  box-shadow:0 2px 10px rgba(0,40,38,.18)}
@@ -1849,6 +1855,16 @@ function dlPaint(key){
 let dlPending='';
 async function dlStart(key, anyway){
   if(dlBusy) return;
+  /* ── an email first ────────────────────────────────────────────────
+     Saving for no signal is for people with an account: it is the moment
+     somebody has decided to train with this, and what they save belongs to
+     them rather than to one browser. The errand carries on once they have
+     added it. */
+  if(!st.token && !st.preview){
+    st.saveKey=key; st.saveFrom=st.tab; save();
+    try{ closeOv(); }catch(e){}
+    goJoin('save'); return;
+  }
   /* in a Safari tab on an iPhone the Home Screen comes first; they can
      still save here if they choose to */
   let tab=false; try{ tab=isIOS() && !isStandalone(); }catch(e){}
@@ -1862,7 +1878,7 @@ async function dlStart(key, anyway){
   let films=[];
   if(want.length){
     try{
-      const r=await fetch('/api/app/dlurls',{method:'POST',headers:{'Content-Type':'application/json'},
+      const r=await fetch('/api/app/dlurls',{method:'POST',headers:authed(),
         body:JSON.stringify({urls:want.map(u=>sig(dlKey(u,'film')))})});
       const d=r.ok ? await r.json() : null;
       films=(d&&d.films)||[];
@@ -6684,6 +6700,7 @@ function screenAsk(){
     <div id="chatStatus" data-idle="Usually replies within 48 hours" class="rise rise-1"
       style="padding:12px 20px 0;font:400 13px/1.4 var(--sans);color:var(--grey)">${
       Date.now()-chatTypingAt<8000?'typing\u2026':'Usually replies within 48 hours'}</div>
+    ${chatPushBar()}
     <div id="chatList" class="clist rise rise-2" data-empty="No messages yet.&lt;br&gt;Ask me anything about the training."
       style="flex:1 0 auto">${chatThreadHTML('No messages yet.<br>Ask me anything about the training.')}</div>
     <div id="chatEnd"></div>
@@ -8530,6 +8547,20 @@ function drawOv(){
      tab. On an iPhone the Home Screen app keeps its own storage, apart
      from Safari, so it says so and offers the email first to anyone who
      has not given one: without it their progress stays behind in Safari. */
+  if(st.ov==='notify'){
+    const c=coachedView(), who=esc(coachLabel());
+    body=`<div style="padding:2px 0 6px">
+      <div class="kick2">NOTIFICATIONS</div>
+      <div class="h-lg" style="margin-top:8px">Turn on notifications.</div>
+      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">${c
+        ? 'Know the moment '+who+' replies or signs off a check point, and get a nudge when a new block lands.'
+        : 'A nudge on the days you plan to train, and word the moment '+who+' answers a form check or a question.'}</div>
+      <div style="margin-top:14px;padding:12px 14px;border-radius:14px;background:rgba(0,102,99,.07);
+        font:400 13px/1.5 var(--sans);color:var(--deep)">You choose what you hear about, and how, in Settings. Nothing is sent for the sake of it.</div>
+      <button class="btn" style="width:100%;margin-top:16px" onclick="pushTurnOn();closeOv()">Turn on notifications</button>
+      <button class="btn2" style="width:100%;margin-top:10px" onclick="st.pushLater=Date.now();save();closeOv()">Not now</button>
+    </div>`;
+  }
   if(st.ov==='install'){
     let ios=false; try{ ios=isIOS(); }catch(e){}
     const SHARE=`<svg width="15" height="17" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2"
@@ -13903,7 +13934,7 @@ function screenCoaching(){
         <button class="btn2" style="width:100%;margin-top:9px"
           onclick="st.tab='signin';save();render()">I already have one</button>
       </div></div>`
-    : `<div id="chatList" class="clist" data-empty="Nothing here yet.&lt;br&gt;Ask about a drill, a niggle, or which plan fits."
+    : `${chatPushBar()}<div id="chatList" class="clist" data-empty="Nothing here yet.&lt;br&gt;Ask about a drill, a niggle, or which plan fits."
         style="flex:1 0 auto">${chatThreadHTML('Nothing here yet.<br>Ask about a drill, a niggle, or which plan fits.')}</div>
       <div id="chatEnd"></div>
       ${chatComposerHTML('Message '+coachLabel(), !!(st.checkOpen||st.coached))}`;
@@ -14218,6 +14249,7 @@ function screenJoin(){
      its own errand and gets its own words, and the same words whether it
      was the form check card or a locked stage that asked. */
   const trial = PRICE_TRIAL()>0 && (st.joinFor==='check' || !!want);
+  const saving = !want && !trial && st.joinFor==='save';
   const trialDays = PRICE_TRIAL()===7 ? 'week' : PRICE_TRIAL()+' days';
   const s = want || PSJ || STAGES[curStage()] || {n:''};
   /* This and screenOriented sit between the quiz and Today, so they are the
@@ -14227,18 +14259,21 @@ function screenJoin(){
   return `<div class="scroll s" style="min-height:100dvh;background:transparent;color:var(--ink);
     padding:calc(env(safe-area-inset-top) + 40px) 24px 30px;display:flex;flex-direction:column">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-      color:var(--forest)">${trial?'Your free '+esc(trialDays)
+      color:var(--forest)">${saving?'Saving for no signal'
+        :trial?'Your free '+esc(trialDays)
         :want?'To open '+esc(want.n)
         :taste?'Your free sessions at '+esc(PSJ.n):'Your starting point'}</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
-      trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
+      saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
+      : trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
        : want ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
        : taste ? `${esc(PSJ.n)}, <em style="color:var(--forest);font-style:normal">free.</em>`
            : `Stage ${curStage()+1}, <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em>`}</div>
     <!-- the stage goal used to be glued onto the end of the sentence about
          the payment page, so two unrelated statements ran together -->
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
-      trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
+      saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
+      : trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
                +'The account comes first, because the '+trialDays+' is attached to it and it is what you sign back in with. '
                +'The card goes in on the next page, through Stripe, and nothing is charged until '
                +firstCharge()+'. Cancelling before then is one tap in the app.'
@@ -14259,6 +14294,8 @@ function screenJoin(){
           ? 'Your subscription is attached to this account, so it is the one you sign in with on any phone.'
           : taste
           ? 'The account is what holds the free sessions, so they are still there on any phone you sign in on.'
+          : saving
+          ? 'It also keeps your progress, so it is there on any phone you sign in on.'
           : emailOptional()
           ? 'Optional. It saves your progress, opens the rest of the explainers, and I send tips and new videos as they land.'
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
@@ -14341,7 +14378,14 @@ function doJoin(ev){
       if(st.token && wanted){ const w=st.wantUpgrade; st.wantUpgrade=null; st.joinFor=''; save();
         /* placed on a paid stage by the quiz: the stage, with the free
            week on it, rather than straight to a card form */
-        if(w!=null && STAGES[w] && w>stageCap()){ st.ovStage=w; openOv('stage'); } else startUpgrade(); } })
+        if(w!=null && STAGES[w] && w>stageCap()){ st.ovStage=w; openOv('stage'); } else startUpgrade(); }
+      /* they were saving a workout for no signal: back to it, and it saves */
+      if(st.token && st.joinFor==='save'){
+        const k=st.saveKey, back=st.saveFrom;
+        st.joinFor=''; st.saveKey=''; st.saveFrom=''; if(back) st.tab=back; save(); render();
+        setTimeout(()=>{ if(k && dlLists[k]){ toast('Saving it for no signal now.'); dlStart(k); }
+          else toast('You are in. Tap Save again to keep it on this phone.'); }, 400);
+      } })
     .catch(e=>{ joinSay(String(e)); });
 }
 /* letting them skip costs one address and keeps the app usable —
@@ -15184,6 +15228,47 @@ function pushBoxHTML(){
     ${acts?`<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${acts}</div>`:''}
   </div>`;
 }
+/* ── asked for properly, on a phone ─────────────────────────────────
+   A card further down a screen was easy to scroll past. On opening, on a
+   phone, with an email given: in a browser tab the Home Screen steps open
+   on their own; opened from the Home Screen with notifications never
+   answered, the question does. Once every three days at most, six times in
+   all, and never over the tutorial, a workout or another sheet. */
+function appPrompts(){
+  if(st.preview || !st.token || st.ov || wide()) return false;
+  if(document.getElementById('tour') || (document.getElementById('player')||{}).childElementCount) return false;
+  /* the tutorial for this screen comes first */
+  try{ if(!tourDone()){ const tk=st.tab==='today'?'today':st.tab; if(TOURS[tk] && !tourSeen()[tk]) return false; } }catch(e){}
+  let phone=false; try{ phone=isIOS() || /android/i.test(navigator.userAgent); }catch(e){}
+  if(!phone) return true;
+  const now=Date.now(), gap=3*864e5;
+  if(!isStandalone()){
+    if((st.installAskN||0)>=6 || now-(st.installAsked||0)<gap) return true;
+    st.installAsked=now; st.installAskN=(st.installAskN||0)+1; save();
+    openOv('install'); return true;
+  }
+  if(!pushSupported()) return true;
+  let perm='default'; try{ perm=Notification.permission; }catch(e){}
+  if(perm!=='default') return true;
+  if((st.pushAskN||0)>=6 || now-(st.pushAsked||0)<gap) return true;
+  st.pushAsked=now; st.pushAskN=(st.pushAskN||0)+1; save();
+  openOv('notify'); return true;
+}
+/* in the chat, where the reason is plainest */
+function chatPushBar(){
+  if(!st.token || st.preview) return '';
+  let perm='default', ios=false, tab=false;
+  try{ perm=Notification.permission; }catch(e){}
+  try{ ios=isIOS(); tab=!isStandalone(); }catch(e){}
+  const needHome = ios && tab;
+  if(!needHome && (pushOn!==false || perm==='denied' || !pushSupported())) return '';
+  if(st.chatPushLater && Date.now()-st.chatPushLater<3*864e5) return '';
+  const who=esc(coachLabel());
+  return `<div class="cpush"><span>${needHome ? 'Put the app on your Home Screen to hear the moment '+who+' replies.'
+      : 'Turn on notifications to hear the moment '+who+' replies.'}</span>
+    <button onclick="${needHome?"openOv('install')":'pushTurnOn()'}">${needHome?'Show me how':'Turn on'}</button>
+    <button class="x" onclick="st.chatPushLater=Date.now();save();render()" aria-label="Not now">&times;</button></div>`;
+}
 function pushPaint(){ const el=document.getElementById('pushbox'); if(el) el.outerHTML=pushBoxHTML();
   /* whether a notification choice can reach this phone just changed */
   ['replies','reminders'].forEach(paintVia); }
@@ -15192,7 +15277,7 @@ function pushNudge(){
   if(!st.token || st.preview || !pushSupported()) return '';
   try{ if(Notification.permission!=='default') return ''; }catch(e){ return ''; }
   if(installNudge()) return '';
-  if(st.pushLater && Date.now()-st.pushLater < 14*864e5) return '';
+  if(st.pushLater && Date.now()-st.pushLater < 3*864e5) return '';
   const c=coachedView();
   return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:15px 16px;display:flex;gap:13px;
     align-items:center;border:1.5px solid rgba(0,102,99,.22)">
@@ -15232,7 +15317,7 @@ function installNudge(){
   if(st.preview || isStandalone() || wide()) return '';
   let phone=false; try{ phone=isIOS() || /android/i.test(navigator.userAgent); }catch(e){}
   if(!phone) return '';
-  if(st.installLater && Date.now()-st.installLater < 7*864e5) return '';
+  if(st.installLater && Date.now()-st.installLater < 3*864e5) return '';
   return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:15px 16px;display:flex;gap:13px;
     align-items:center;border:1.5px solid rgba(0,102,99,.22)">
     <img src="/icons/icon-180.png" alt="" width="46" height="46" style="flex:none;border-radius:11px;display:block">
@@ -15655,6 +15740,8 @@ document.addEventListener('DOMContentLoaded',function(){
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); setTimeout(loadSign, 800); }
   /* notifications: is this phone on, and did one open the app */
   pushCheck();
+  /* the Home Screen, then notifications, asked for a few seconds in */
+  setTimeout(()=>{ if(!appPrompts()) setTimeout(appPrompts, 20000); }, 4000);
   try{ const where=new URLSearchParams(location.search).get('go');
     if(where){ history.replaceState(null,'',location.pathname); setTimeout(()=>openFromNotice(where), 350); } }catch(e){}
   try{ if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e=>{
