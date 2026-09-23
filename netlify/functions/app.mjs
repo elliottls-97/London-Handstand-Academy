@@ -547,6 +547,12 @@ async function ensureAcct(e, name) {
 }
 
 /* ── the thread ── */
+/* A message's submission column holds tags: the reviews and clips a reply
+   answers, and now re:<id> for the message it quotes, as in a chat app.
+   Only the first kind is a clip. */
+const tagsOf = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
+const clipTags = s => tagsOf(s).filter(t => !t.startsWith('re:'));
+const quoteOf = s => (tagsOf(s).find(t => t.startsWith('re:')) || '').slice(3);
 async function threadLoad(db, who) {
   const rows = await supa.rows('messages',
     `email=eq.${enc(who)}&select=*&order=created_at.asc`);
@@ -562,8 +568,27 @@ async function threadLoad(db, who) {
     ...(m.read_at ? { seen: ms(m.read_at) } : {}),
     ...(m.video ? { video: m.video } : {}),
     ...(m.image ? { image: m.image } : {}),
-    ...(m.submission ? { sub: m.submission } : {}),
+    ...(clipTags(m.submission).length ? { sub: clipTags(m.submission).join(',') } : {}),
+    ...(quoteOf(m.submission) ? { re: quoteOf(m.submission) } : {}),
   }));
+}
+/* the message being quoted, if it is in this person's thread */
+async function quoteId(who, re) {
+  const id = String(re || '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64);
+  if (!id) return '';
+  const r = await supa.row('messages', `id=eq.${enc(id)}&email=eq.${enc(who)}&select=id`).catch(() => null);
+  return r ? id : '';
+}
+/* who is typing, per thread: each side stamps it, the other reads it */
+const typingKey = e => `typing:${norm(e)}`;
+async function typingSet(e, side) {
+  const t = (await getSetting(typingKey(e))) || {};
+  t[side] = Date.now();
+  await setSetting(typingKey(e), t);
+}
+async function typingOf(e, side) {
+  const t = (await getSetting(typingKey(e)).catch(() => null)) || {};
+  return Date.now() - (Number(t[side]) || 0) < 8000 ? Number(t[side]) : 0;
 }
 
 async function threadAdd(db, who, msg) {
@@ -605,8 +630,9 @@ async function subsFor(db, who) {
   ]);
   const answerFor = {};
   for (const m of (replies || [])) {
-    if (!answerFor[m.submission]) answerFor[m.submission] =
-      { text: m.body || '', video: m.video || null, at: ms(m.created_at) };
+    for (const t of clipTags(m.submission)) {
+      if (!answerFor[t]) answerFor[t] = { text: m.body || '', video: m.video || null, at: ms(m.created_at) };
+    }
   }
   return (rows || []).map(s => ({
     id: s.id, kind: s.kind, cycle: s.cycle, at: ms(s.created_at),
@@ -754,7 +780,7 @@ const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
 async function rosterRows() {
   const [accounts, msgs, subs] = await Promise.all([
     supa.rows('accounts', 'select=email,name,last_seen&order=last_seen.desc'),
-    supa.rows('messages', 'select=email,created_at,sender,read_at'),
+    supa.rows('messages', 'select=email,created_at,sender,read_at,body,video,image&order=created_at.asc'),
     supa.rows('submissions', 'select=email'),
   ]);
 
@@ -763,11 +789,14 @@ async function rosterRows() {
      that should sit in a queue looking like it needs answering — it was
      burying the people who actually wrote to you. */
   const active = new Set();
-  const counts = {}; const latest = {};
+  const counts = {}; const latest = {}; const lastMsg = {};
   for (const m of (msgs || [])) {
     active.add(m.email);
     latest[m.email] = Math.max(latest[m.email] || 0, ms(m.created_at));
     if (m.sender === 'client' && !m.read_at) counts[m.email] = (counts[m.email] || 0) + 1;
+    /* in order, so the last one written is the last one said */
+    lastMsg[m.email] = { from: m.sender, text: String(m.body || '').slice(0, 120),
+      video: !!m.video, image: !!m.image, at: ms(m.created_at), seen: !!m.read_at };
   }
   for (const s of (subs || [])) active.add(s.email);
 
@@ -776,7 +805,7 @@ async function rosterRows() {
     if (!active.has(a.email) && !clients()[a.email]) continue;
     byEmail[a.email] = { email: a.email, name: a.name || a.email.split('@')[0],
       last: Math.max(ms(a.last_seen), latest[a.email] || 0),
-      unread: counts[a.email] || 0 };
+      unread: counts[a.email] || 0, ...(lastMsg[a.email] ? { lastMsg: lastMsg[a.email] } : {}) };
   }
   /* a coaching client always belongs here, even before they say anything */
   for (const e of Object.keys(clients())) {
@@ -4531,13 +4560,14 @@ export default async (request) => {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     if (request.method === 'GET') {
-      const out = await threadLoad(db, who);
+      const [out, typing] = await Promise.all([threadLoad(db, who), typingOf(who, 'coach')]);
       /* reading it is what marks it read, and only when the person
          themselves is reading: a coach previewing a client's app must not
-         make their replies look opened. */
-      if (out.some(m => m.from === 'coach' && !m.seen)
+         make their replies look opened. Nor does the app checking from
+         another screen: that says read=0, and only the chat itself reads. */
+      if (url.searchParams.get('read') !== '0' && out.some(m => m.from === 'coach' && !m.seen)
           && (await realMe()) === who) await markCoachRead(who);
-      return json({ messages: out });
+      return json({ messages: out, typing });
     }
     if (request.method === 'POST') {
       const text = String(body.text || '').slice(0, 4000);
@@ -4578,9 +4608,13 @@ export default async (request) => {
         } catch (err) { console.warn('chat clip not filed as a submission', err && err.message); }
       }
 
-      await threadAdd(db, who, { from: 'client', text,
+      const re = await quoteId(who, body.re);
+      const tagC = [subId, re ? 're:' + re : ''].filter(Boolean).join(',');
+      const addedC = await threadAdd(db, who, { from: 'client', text,
         ...(video ? { video } : {}), ...(image ? { image } : {}),
-        ...(subId ? { sub: subId } : {}) });
+        ...(tagC ? { sub: tagC } : {}) });
+      /* sending is the end of typing */
+      try { const t = (await getSetting(typingKey(who))) || {}; if (t.client) { t.client = 0; await setSetting(typingKey(who), t); } } catch {}
 
       const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
@@ -4589,8 +4623,33 @@ export default async (request) => {
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
       await coachAlert(who, 'messages', { title: firstNameOf(who) + (text ? '' : ' ' + kind),
         body: text ? text.slice(0, 160) : 'Open it on the dashboard.', tag: 'msg:' + who, t: 'thread' });
-      return json({ ok: true });
+      return json({ ok: true, id: (addedC && addedC.id) || '' });
     }
+  }
+
+  /* ── typing, and taking back what you said ───────────────────────── */
+  if (path === '/typing' && request.method === 'POST') {
+    const who = await realMe();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    await typingSet(who, 'client');
+    return json({ ok: true });
+  }
+  /* Delete for everyone, as a chat app has it. A clip that is still
+     waiting goes from the review queue with it; one the coach has already
+     answered stays, because the answer is about it. */
+  if (path === '/messages/delete' && request.method === 'POST') {
+    const who = await realMe();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const id = String(body.id || '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64);
+    const m = id ? await supa.row('messages', `id=eq.${enc(id)}&email=eq.${enc(who)}&sender=eq.client&select=*`) : null;
+    if (!m) return json({ error: 'That message is not there any more' }, 404);
+    for (const sid of clipTags(m.submission)) {
+      const s = await supa.row('submissions', `id=eq.${enc(sid)}&email=eq.${enc(who)}&select=id,status`).catch(() => null);
+      if (s && s.status !== 'submitted') return json({ error: coachName(coachOf(who)) + ' has already answered this one, so it stays.' }, 409);
+      if (s) await supa.remove('submissions', `id=eq.${enc(sid)}&email=eq.${enc(who)}`).catch(() => {});
+    }
+    await supa.remove('messages', `id=eq.${enc(id)}&email=eq.${enc(who)}&sender=eq.client`);
+    return json({ ok: true });
   }
 
   /* ── your side ── */
@@ -5743,7 +5802,7 @@ export default async (request) => {
         if (!list.length) continue;
         let after = Number(S[`msgdone:${e}`]) || 0;
         for (const m of list) if (m.sender === 'coach') after = Math.max(after, ms(m.created_at));
-        const wait = list.filter(m => m.sender === 'client' && !m.submission && ms(m.created_at) > after);
+        const wait = list.filter(m => m.sender === 'client' && !clipTags(m.submission).length && ms(m.created_at) > after);
         if (!wait.length) continue;
         const lastM = wait[wait.length - 1];
         out.push({ email: e, name: nameOf(e), coached: !!clients()[e],
@@ -5951,6 +6010,13 @@ export default async (request) => {
       const now = Date.now();
       await Promise.all(what.filter(w => KEYS[w]).map(w => setSetting(`${KEYS[w]}:${e}`, now)));
       return json({ ok: true, at: now });
+    }
+
+    if (path === '/coach/typing' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e || !owns(e)) return json({ error: 'Not your client' }, 403);
+      await typingSet(e, 'coach');
+      return json({ ok: true });
     }
 
     /* the coach has read what they said: stop counting it */
@@ -6204,7 +6270,8 @@ export default async (request) => {
         /* opening the thread is what marks it read. The dashboard also
            loads a thread nobody is looking at, and says so with read=0 */
         if (url.searchParams.get('read') !== '0') await markRead(e);
-        return json({ messages: await threadLoad(db, e) });
+        const [messages, typing] = await Promise.all([threadLoad(db, e), typingOf(e, 'client')]);
+        return json({ messages, typing });
       }
       if (request.method === 'POST') {
         const text = String(body.text || '').slice(0, 4000);
@@ -6268,6 +6335,8 @@ export default async (request) => {
           if (touched) { await setSetting(tkey, tr); cpsOut = tr.checkpoints; }
           uids.forEach(u => tags.push(u));
         }
+        const reQ = await quoteId(e, body.re);
+        if (reQ) tags.push('re:' + reQ);
         const subTag = [...new Set(tags)].join(',').slice(0, 2000);
         const added = await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
           ...(video ? { video } : {}), ...(image ? { image } : {}),
@@ -6299,7 +6368,8 @@ export default async (request) => {
           }), 'replies');
         await notify(e, { title: who2 + (video ? ' sent you a video' : image ? ' sent you a photo' : ' replied'),
           body: text ? text.slice(0, 140) : sent, url: '/lha-app.html?go=chat', tag: 'reply' }, 'replies');
-        return json({ ok: true, ...(cpsOut ? { checkpoints: cpsOut } : {}) });
+        try { const t = (await getSetting(typingKey(e))) || {}; if (t.coach) { t.coach = 0; await setSetting(typingKey(e), t); } } catch {}
+        return json({ ok: true, id: (added && added.id) || '', ...(cpsOut ? { checkpoints: cpsOut } : {}) });
       }
     }
   }
