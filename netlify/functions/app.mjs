@@ -5144,12 +5144,55 @@ export default async (request) => {
         const arch = (await getSetting(akey)) || [];
         arch.unshift({ at: Date.now(), label: live.label || `Block ${n}`, prog: live });
         await setSetting(akey, arch.slice(0, 12));
-        const next = Object.assign({}, d.prog, { label: d.label || `Block ${n + 1}`, editedAt: Date.now() });
+        /* A draft is a copy made when it was started. A target set on the
+           live check points since then is not in it, and putting the draft
+           live threw it away. Same check point, no target in the draft: the
+           live one's target comes across. */
+        const liveCps = live.checkpoints || [];
+        const cps = (d.prog.checkpoints || []).map(c => {
+          const was = liveCps.find(x => x && c && x.k === c.k);
+          return (was && !(Number(c.target) > 0) && Number(was.target) > 0)
+            ? Object.assign({}, c, { target: was.target, lower: c.lower != null ? c.lower : was.lower, unit: c.unit || was.unit || '' }) : c;
+        });
+        const next = Object.assign({}, d.prog, { label: d.label || `Block ${n + 1}`, editedAt: Date.now(),
+          ...(d.prog.checkpoints ? { checkpoints: cps } : {}) });
         await setSetting(`programme:${e}`, next);
         delete drafts[id];
         await setSetting(dkey, drafts);
         /* a new block starts its own clock, which is what the test date and
            "week 3 of 6" are counted from */
+        await supa.upsert('cycles', { email: e, n: n + 1, started_at: nowISO() }, 'email');
+        const nm = clients()[e] || '';
+        await email(e, 'Your next block is in the app',
+          mail({ title: 'Block ' + (n + 1) + ' is ready.',
+            paras: [`${esc(nm ? nm.split(' ')[0] : 'Hello')}, the next block is in the app now. `
+              + `Same place, new days.`],
+            cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            signoff: { name: coachName(coachOf(e) || primaryCoach()) } }), 'reminders');
+        await notify(e, { title: 'Block ' + (n + 1) + ' is ready',
+          body: 'Your next block is in the app. Same place, new days.',
+          url: '/lha-app.html?go=plan', tag: 'block' }, 'reminders');
+        return state();
+      }
+      /* ── the next block, written into the live one ─────────────────
+         Writing the next block straight into what they are on, rather than
+         as a draft, left nothing to put live: the programme had changed but
+         the block number, the test clock and the client had not. This
+         moves those on for what is live now. The block before is kept if
+         there is a copy of it, which for a client whose first block came
+         from the original file there is. */
+      if (act === 'advance') {
+        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || null;
+        if (!live || !(live.days || []).length) return json({ error: 'There is nothing live to start.' }, 400);
+        let n = 1;
+        try { n = (await cycleGet(db, e, programmes.clients[e])).n || 1; } catch {}
+        const arch = (await getSetting(akey)) || [];
+        const file = programmes.clients[e];
+        if (file && !arch.length && JSON.stringify(file.days || []) !== JSON.stringify(live.days || [])) {
+          arch.unshift({ at: Date.now(), label: `Block ${n}`, prog: file });
+          await setSetting(akey, arch.slice(0, 12));
+        }
+        await setSetting(`programme:${e}`, Object.assign({}, live, { label: `Block ${n + 1}`, editedAt: Date.now() }));
         await supa.upsert('cycles', { email: e, n: n + 1, started_at: nowISO() }, 'email');
         const nm = clients()[e] || '';
         await email(e, 'Your next block is in the app',

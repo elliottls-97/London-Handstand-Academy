@@ -3193,7 +3193,10 @@ function blocksHTML(email){
   blocksLoad(email);
   const b=blocks[email]||{};
   if(b.loading) return '';
-  if(b.error) return '';
+  /* it disappeared on a failed read, which looked like there were no blocks */
+  if(b.error) return `<div class="card" style="margin-top:var(--space-4)"><h4 style="margin:0">Blocks</h4>
+    <p class="muted" style="font-size:13px;margin:6px 0 10px">Could not load their blocks.</p>
+    <button class="btn btn-secondary btn-sm" onclick="blocksLoad('${esc(email)}',true);draw()">Try again</button></div>`;
   const when=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
   const row=(title, sub, right)=>`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;
     padding:10px 0;border-top:1px solid var(--line)">
@@ -3218,13 +3221,17 @@ function blocksHTML(email){
     ${row('Block '+(b.block||1)+' &middot; live',
       ((b.live||{}).days||0)+' days, '+((b.live||{}).drills||0)+' drills'
         +((b.live||{}).editedAt?' &middot; edited '+when(b.live.editedAt):''),
-      `<button class="btn btn-ghost btn-sm" onclick="openBuilder('${esc(email)}')">Edit</button>`)}
+      `<button class="btn btn-ghost btn-sm" onclick="openBuilder('${esc(email)}')">Edit</button>
+       ${!(b.drafts||[]).length?`<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+         title="For when the next block was written straight into this one rather than as a draft"
+         onclick="blocksDo('${esc(email)}',{action:'advance'},'Start what they have now as Block ${(b.block||1)+1}?\\n\\nUse this if you wrote the next block straight into their live programme rather than as a draft. The block number moves on, the test clock starts again, and they are told.')">This is the next block</button>`:''}`)}
     ${(b.drafts||[]).map(d=>row(esc(d.label)+' &middot; draft',
       d.days+' days, '+d.drills+' drills'+(d.at?' &middot; saved '+when(d.at):''),
       `<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
          onclick="openBuilder('${esc(email)}','${esc(d.id)}','${esc(d.label)}')">Edit</button>
+       ${!d.days?`<span class="muted" style="font-size:12px">Add a day to it first</span>`:''}
        <button class="btn btn-primary btn-sm" ${busy||!d.days?'disabled':''}
-         onclick="blocksDo('${esc(email)}',{action:'promote',id:'${esc(d.id)}'},'Put ${esc(d.label)} live for ${esc((clients.find(c=>c.email===email)||{}).name||email)}?\n\nThe block they are on comes off and is kept. The block number moves on and they are emailed.')">Put it live</button>
+         onclick="blocksDo('${esc(email)}',{action:'promote',id:'${esc(d.id)}'},'Put ${esc(d.label)} live for ${esc((clients.find(c=>c.email===email)||{}).name||email)}?\\n\\nThe block they are on comes off and is kept. The block number moves on and they are emailed.')">Put it live</button>
        <button class="btn btn-ghost btn-sm" style="color:var(--terra)" ${busy?'disabled':''}
          onclick="blocksDo('${esc(email)}',{action:'discard',id:'${esc(d.id)}'},'Throw this draft away?')">Delete</button>`)).join('')}
     ${(b.archive||[]).length?`<details style="margin-top:8px">
@@ -3233,7 +3240,7 @@ function blocksHTML(email){
       ${b.archive.map(a=>row(esc(a.label||'A block'),
         a.days+' days, '+a.drills+' drills &middot; came off '+when(a.at),
         `<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
-          onclick="blocksDo('${esc(email)}',{action:'restore',i:${a.i}},'Put this one back on?\n\nWhat they are training now comes off and is kept.')">Put it back on</button>`)).join('')}
+          onclick="blocksDo('${esc(email)}',{action:'restore',i:${a.i}},'Put this one back on?\\n\\nWhat they are training now comes off and is kept.')">Put it back on</button>`)).join('')}
     </details>`:''}
   </div>`;
 }
@@ -3255,7 +3262,11 @@ function openBuilder(email, slot, slotLabel){
 }
 function closeBuilder(){
   if(builder&&builder.dirty&&!confirm('Close without saving?')) return;
-  builder=null; draw();
+  const e=builder&&builder.email;
+  builder=null;
+  /* what was saved in there changes what the Blocks panel can offer */
+  if(e) blocksLoad(e, true);
+  draw();
 }
 function bMark(){ builder.dirty=true; }
 function bDays(){ return (builder.plan.days=builder.plan.days||[]); }
@@ -5378,15 +5389,19 @@ function bItem(i,g,k,f,v){
    What they have to be able to do, set per client rather than off the free
    ladder, and each one can ask for a clip. */
 function bCps(){ return (builder.plan.checkpoints = builder.plan.checkpoints || []); }
+/* The builder carried its own copy of the check points and sent it back on
+   every save, so a target set in the check points editor while the builder
+   was open, or since it was opened, was put back to what the builder had:
+   gone. It sends them only when they were changed in here. */
 function bCpAdd(){
   bCps().push({k:'cp'+Date.now().toString(36), n:'', kind:'secs', note:'', video:true, from:''});
-  bMark(); draw();
+  builder.cpDirty=true; bMark(); draw();
 }
-function bCpDel(i){ bCps().splice(i,1); bMark(); draw(); }
+function bCpDel(i){ bCps().splice(i,1); builder.cpDirty=true; bMark(); draw(); }
 function bCpSet(i,f,v){
   const c=bCps()[i]; if(!c) return;
   c[f] = (f==='video') ? !!v : v;
-  bMark();
+  builder.cpDirty=true; bMark();
 }
 /* ── the explainer library ─────────────────────────────────────────
    The same four videos were pasted into each spec by hand, so switching one
@@ -5445,6 +5460,19 @@ function bCpHTML(){
       oninput="bCpSet(${i},'note',this.value)"
       style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
       font:400 13px/1 var(--sans);background:#fff">
+    ${(c.kind==='yn'||c.kind==='face')?'':`<div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px;white-space:nowrap;
+        font:400 12.5px/1 var(--sans);color:var(--grey)">Target
+        <input type="number" min="0" value="${c.target==null?'':esc(String(c.target))}"
+          placeholder="45" oninput="bCpSet(${i},'target',this.value===''?null:Number(this.value))"
+          style="width:84px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+          font:600 13px/1 var(--sans);background:#fff"></label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;
+        font:400 12.5px/1 var(--sans);color:var(--grey)">
+        <input type="checkbox" ${c.lower?'checked':''} onchange="bCpSet(${i},'lower',this.checked)">
+        Lower is better</label>
+      ${c.target==null||c.target===''?`<span style="font:500 12px/1.4 var(--sans);color:var(--terra)">No target: the app cannot show them how close they are</span>`:''}
+    </div>`}
     <div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
         font:400 12.5px/1 var(--sans);color:var(--grey)">
@@ -5485,12 +5513,16 @@ function bMove(i,g,k,by){
 function saveBuilder(){
   const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
-    body:JSON.stringify({email:builder.email, days:bDays(), checkpoints:bCps(),
+    body:JSON.stringify({email:builder.email, days:bDays(), ...(builder.cpDirty?{checkpoints:bCps()}:{}),
                          warmup:(builder.plan.warmup && (builder.plan.warmup.items||[]).some(x=>x.v)) ? builder.plan.warmup : null,
                          ...(builder.slot?{slot:builder.slot}:{}),
                          explainers:(builder.exOn||[])})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.edited=true;
+    .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.cpDirty=false; builder.edited=true;
+               /* A draft saved here was still counted as empty on the Blocks
+                  panel until the page was reloaded, so Put it live stayed
+                  greyed out on a block that was ready. */
+               blocksLoad(builder.email, true);
                draw();
                const b=document.getElementById('bSave');
                if(b){ b.disabled=false; b.textContent='Saved'; setTimeout(()=>{
