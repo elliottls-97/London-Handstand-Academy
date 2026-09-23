@@ -1313,12 +1313,15 @@ function screenToday(){
     </div>
     <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>
+    ${dlRow('day'+st.day+'-'+dlHash(allItems(d).map(it=>it.v||'')), allItems(d).map(itUrl),
+      {kind:'day', day:st.day, name:d.label+(d.sub?', '+d.sub:'')})}
   </div>
 
 
 
   
   ${todayFocus()}
+  ${savedHomeHTML()}
 ${/* Once it has been read it is a wall of last month's words at the top of
      every day, and the whole of it is on the Plan screen anyway. New, it is
      the most important thing here; read, it is one line. */
@@ -1619,12 +1622,222 @@ function probeHls(){
    it does not */
 function filmSrc(url){
   const uid=uidOfUrl(url);
+  /* saved on this phone: it plays from there, signal or not */
+  if(uid && dlHas(uid)) return dlKey(uid,'film')+'?lha=saved';
   return (uid && hlsOk()) ? streamHls(uid) : sig(url);
 }
-const streamThumb = uid => STREAM_CDN+sigUid(uid)+'/thumbnails/thumbnail.jpg?time=3s&height=320';
+const streamThumb = uid => dlHas(uid) ? dlKey(uid,'still')+'?lha=saved'
+  : STREAM_CDN+sigUid(uid)+'/thumbnails/thumbnail.jpg?time=3s&height=320';
 /* no extension on this one: /captions/en.vtt is a 404 and /captions/en is
    the file. An hour went into that difference. */
-const streamVtt   = uid => STREAM_CDN+sigUid(uid)+'/captions/en';
+const streamVtt   = uid => dlHas(uid) ? dlKey(uid,'words')+'?lha=saved'
+  : STREAM_CDN+sigUid(uid)+'/captions/en';
+
+/* ══ workouts saved for no signal ═══════════════════════════════════
+   A gym with no signal played nothing: the films stream, and the service
+   worker's film cache never held one, because a video asks for a film a
+   slice at a time and that cache only kept whole ones. Saving is now
+   something the person asks for, one workout at a time. The films, their
+   captions and their stills go into a cache the service worker serves
+   from, slice by slice, and the workout itself is kept in st.dlSaved so
+   it can be opened again from the Train screen without the network.
+
+   Stream's download link redirects, and the redirect carries no CORS
+   header, so /dlurls follows it on the server and hands back the address
+   it lands on, which does. */
+const FILM_CACHE='lha-films';
+const dlSet=new Set();            /* films actually in the cache, by uid */
+const dlLists={};                 /* what each save button would save */
+let dlBusy=null;
+const swOn = () => { try{ return !!(navigator.serviceWorker && navigator.serviceWorker.controller); }catch(e){ return false; } };
+const dlOk = () => { try{ return 'caches' in window && !!navigator.serviceWorker; }catch(e){ return false; } };
+function dlKey(uid, what){
+  return STREAM_CDN+uid+(what==='words'?'/captions/en':what==='still'?'/thumbnails/thumbnail.jpg':'/downloads/default.mp4');
+}
+function dlHas(uid){ return !!uid && dlSet.has(uid) && swOn(); }
+function dlLoad(){
+  if(!dlOk()) return Promise.resolve();
+  return caches.open(FILM_CACHE).then(c=>c.keys()).then(ks=>{
+    dlSet.clear();
+    ks.forEach(r=>{ if(/\/downloads\/default\.mp4$/.test(r.url)){ const u=uidOfUrl(r.url); if(u) dlSet.add(u); } });
+  }).catch(()=>{});
+}
+const itUrl = it => (it && (it.url || (drillById(it.v)||{}).url)) || '';
+const dlUids = urls => [...new Set((urls||[]).map(uidOfUrl).filter(Boolean))];
+function dlRec(key){ return (st.dlSaved||[]).find(r=>r && r.key===key) || null; }
+const dlMB = b => b>=1048576 ? Math.round(b/1048576)+' MB' : Math.max(1,Math.round(b/1024))+' KB';
+/* a key that changes when the drills in it change */
+function dlHash(list){ let h=5381; String(list.join('|')).split('').forEach(c=>{ h=((h<<5)+h+c.charCodeAt(0))|0; }); return (h>>>0).toString(36); }
+
+/* ── the button on a workout ── */
+function dlRow(key, urls, meta){
+  if(!dlOk()) return '';
+  const uids=dlUids(urls); if(!uids.length) return '';
+  dlLists[key]={urls, meta:meta||{}};
+  const rec=dlRec(key), have=uids.filter(u=>dlSet.has(u)).length;
+  const busy=dlBusy && dlBusy.key===key;
+  const wrap=(inner)=>`<div id="dl-${key}" style="margin-top:12px;display:flex;align-items:center;gap:11px;
+    padding:11px 13px;border-radius:14px;background:rgba(0,64,61,.05);text-align:left">
+    <span style="flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+      background:rgba(0,102,99,.12);color:var(--forest)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg></span>
+    ${inner}</div>`;
+  if(busy){
+    const pc=Math.round(dlBusy.done/Math.max(1,dlBusy.of)*100);
+    return wrap(`<span style="flex:1;min-width:0">
+      <span style="display:block;font:600 13px/1.3 var(--sans)">Saving for no signal&hellip; ${dlBusy.done} of ${dlBusy.of}</span>
+      <span style="display:block;height:5px;border-radius:3px;background:rgba(17,17,17,.08);margin-top:7px;overflow:hidden">
+        <span style="display:block;height:100%;width:${pc}%;background:var(--forest);transition:width .3s"></span></span>
+      <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey);margin-top:5px">Keep the app open until it finishes.</span>
+    </span>`);
+  }
+  if(rec && have===uids.length){
+    return wrap(`<span style="flex:1;min-width:0">
+      <span style="display:block;font:600 13px/1.3 var(--sans);color:var(--forest)">Saved for no signal</span>
+      <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${uids.length} film${uids.length===1?'':'s'}${rec.bytes?', '+dlMB(rec.bytes):''} on this phone. It plays anywhere.</span>
+    </span>
+    <button onclick="event.stopPropagation();dlRemove('${key}')" style="flex:none;border:0;background:none;cursor:pointer;
+      padding:8px 4px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>`);
+  }
+  return wrap(`<span style="flex:1;min-width:0">
+      <span style="display:block;font:600 13px/1.3 var(--sans)">${have&&rec?'Save the rest for no signal':'Save for no signal'}</span>
+      <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${
+        have&&rec ? have+' of '+uids.length+' films are on this phone.'
+        : uids.length+' film'+(uids.length===1?'':'s')+', about '+(uids.length*10)+' MB, kept on this phone.'}</span>
+    </span>
+    <button onclick="event.stopPropagation();dlStart('${key}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
+      padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Save</button>`);
+}
+function dlPaint(key){
+  const el=document.getElementById('dl-'+key);
+  const L=dlLists[key];
+  if(el && L) el.outerHTML=dlRow(key, L.urls, L.meta);
+}
+
+async function dlStart(key){
+  if(dlBusy) return;
+  const L=dlLists[key]; if(!L) return;
+  const uids=dlUids(L.urls), want=uids.filter(u=>!dlSet.has(u));
+  const meta=L.meta||{};
+  dlBusy={key, done:0, of:want.length, failed:0};
+  dlPaint(key);
+  try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+  let films=[];
+  if(want.length){
+    try{
+      const r=await fetch('/api/app/dlurls',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({urls:want.map(u=>sig(dlKey(u,'film')))})});
+      const d=r.ok ? await r.json() : null;
+      films=(d&&d.films)||[];
+    }catch(e){}
+  }
+  let cache=null;
+  try{ cache=await caches.open(FILM_CACHE); }catch(e){}
+  let bytes=0;
+  for(let i=0;i<want.length;i++){
+    const u=want[i], f=films[i]||{};
+    try{
+      if(!cache || !f.src) throw 0;
+      const res=await fetch(f.src,{mode:'cors',credentials:'omit'});
+      if(!res.ok) throw 0;
+      const blob=await res.blob();
+      if(!blob.size) throw 0;
+      await cache.put(dlKey(u,'film'), new Response(blob,{headers:{'Content-Type':'video/mp4','Content-Length':String(blob.size)}}));
+      /* the words and the still as well, so the plate and the poster are
+         there with no signal too. Either can fail without costing the film. */
+      try{ const c=await fetch(STREAM_CDN+sigUid(u)+'/captions/en');
+        if(c.ok) await cache.put(dlKey(u,'words'), new Response(await c.text(),{headers:{'Content-Type':'text/vtt'}})); }catch(e){}
+      try{ const t=await fetch(STREAM_CDN+sigUid(u)+'/thumbnails/thumbnail.jpg?time=3s&height=320',{mode:'cors'});
+        if(t.ok) await cache.put(dlKey(u,'still'), new Response(await t.blob(),{headers:{'Content-Type':'image/jpeg'}})); }catch(e){}
+      dlSet.add(u); bytes+=blob.size;
+    }catch(e){ dlBusy.failed++; }
+    dlBusy.done++; dlPaint(key);
+  }
+  const failed=dlBusy.failed;
+  dlBusy=null;
+  /* the workout itself, so it opens again from the Train screen */
+  const got=uids.filter(u=>dlSet.has(u)).length;
+  if(got){
+    const prev=dlRec(key);
+    const rec=Object.assign({}, prev||{}, meta, {key, urls:L.urls, n:uids.length,
+      bytes:((prev&&prev.bytes)||0)+bytes, at:Date.now()});
+    delete rec.label;
+    st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,8);
+    save();
+  }
+  dlPaint(key);
+  toast(failed ? (got+' of '+uids.length+' films saved. Try again on better signal for the rest.')
+    : 'Saved. This workout plays with no signal.');
+  if(st.tab==='home'||st.tab==='today') render();
+}
+
+/* removing one workout keeps any film another saved workout still needs */
+async function dlRemove(key){
+  const rec=dlRec(key); const L=dlLists[key];
+  const mine=dlUids((rec&&rec.urls)||(L&&L.urls)||[]);
+  st.dlSaved=(st.dlSaved||[]).filter(r=>r && r.key!==key); save();
+  const keep=new Set(); (st.dlSaved||[]).forEach(r=>dlUids(r.urls).forEach(u=>keep.add(u)));
+  try{
+    const cache=await caches.open(FILM_CACHE);
+    for(const u of mine){ if(keep.has(u)) continue;
+      await cache.delete(dlKey(u,'film')); await cache.delete(dlKey(u,'words')); await cache.delete(dlKey(u,'still'));
+      dlSet.delete(u); }
+  }catch(e){}
+  dlPaint(key); toast('Removed from this phone.');
+  if(st.tab==='home'||st.tab==='today') render();
+}
+async function dlClearAll(){
+  if(!confirm('Remove every saved workout from this phone?')) return;
+  try{ await caches.delete(FILM_CACHE); }catch(e){}
+  dlSet.clear(); st.dlSaved=[]; save(); toast('Saved workouts removed.'); render();
+  if(menuOpen) paintMenu();
+}
+/* opening one again, from the Train screen */
+function dlOpen(key){
+  const rec=dlRec(key); if(!rec) return;
+  if(rec.kind==='day'){
+    if(!coachedView()){ toast('This one is from your coaching plan.'); return; }
+    st.day=Math.min(rec.day||0, (DATA.days||[]).length-1); save(); go('today');
+    setTimeout(()=>openOv('daystart'), 60); return;
+  }
+  if(!Array.isArray(rec.q) || !rec.q.length) return;
+  Q=rec.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
+  sessionSpent=false;
+  st.ovList=!!rec.wrist; st.ovRow=null; st.listMode='work'; st.ovFull=true;
+  openOv('list');
+}
+/* ── the saved ones, on the first screen ── */
+function savedHomeHTML(){
+  const list=(st.dlSaved||[]).filter(r=>r && (coachedView() ? r.kind==='day' : r.kind!=='day'));
+  if(!list.length || !dlOk()) return '';
+  const card=r=>{
+    const uids=dlUids(r.urls), have=uids.filter(u=>dlSet.has(u)).length;
+    const gone=have<uids.length;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:16px;
+      background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
+      <button onclick="dlOpen('${esc(r.key)}')" style="flex:1;min-width:0;border:0;background:none;padding:0;
+        text-align:left;cursor:pointer;color:var(--ink)">
+        <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
+        <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone?'#8a5a12':'var(--grey)'};margin-top:3px">${
+          gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
+          : uids.length+' film'+(uids.length===1?'':'s')+(r.bytes?', '+dlMB(r.bytes):'')+' · saved '+esc(cpWhen(r.at))}</span>
+      </button>
+      <button onclick="dlOpen('${esc(r.key)}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
+        padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Open</button>
+      <button onclick="dlRemove('${esc(r.key)}')" aria-label="Remove ${esc(r.name||'this workout')} from this phone"
+        style="flex:none;border:0;background:none;cursor:pointer;padding:8px 2px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>
+    </div>`; };
+  return `<section class="rise rise-3" style="padding:${wide()?26:18}px 20px 0">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 0 4px">
+      <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">Saved for no signal.</span>
+      <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length}</span>
+    </div>
+    <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 0 ${wide()?12:10}px;max-width:62ch">
+      Workouts kept on this phone, films and all, for a gym with no signal.</div>
+    <div style="display:flex;flex-direction:column;gap:9px">${list.map(card).join('')}</div>
+  </section>`;
+}
 /* The library stores a whole URL for a drill and a bare uid for an
    explainer, and captions, posters and the player all key off the uid. */
 const uidOfUrl = u => { const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]:''; };
@@ -6248,6 +6461,17 @@ function moreBody(all, cards){
           color:var(--ink)">Show me</button>
       </div>
 
+      ${(dlOk() && (st.dlSaved||[]).length) ? `<div class="card" style="padding:16px 18px;margin-bottom:16px;display:flex;
+        align-items:center;gap:14px;justify-content:space-between">
+        <div style="flex:1">
+          <div class="kick2">SAVED FOR NO SIGNAL</div>
+          <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+            ${(st.dlSaved||[]).length} workout${(st.dlSaved||[]).length===1?'':'s'}, ${dlSet.size} film${dlSet.size===1?'':'s'} on this phone.</div>
+        </div>
+        <button onclick="dlClearAll()" style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:12px;
+          cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);color:var(--ink)">Remove all</button>
+      </div>` : ''}
+
       <!-- the tour mentions this once. It needs to be somewhere they can
            find it again, because nobody installs an app on the first day. -->
       ${canInstall()?`<div class="card" style="padding:18px 20px;margin-bottom:16px">
@@ -6337,6 +6561,8 @@ function openLib(i){
 
 /* ── the guided player ── */
 let Q=[],qi=0,left=0,tTotal=0,phase='work',paused=false,tick_=null,lastT=0,sessionStart=0;
+/* what the last built session was, in words, for the saved workouts list */
+let qLabel='';
 
 /* always m:ss — a bare '4' on a big clock reads as four minutes */
 function fmtT(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), r=s%60;
@@ -7636,6 +7862,12 @@ function drawOv(){
         onclick="closeOv();startQueue(0)">Start follow along</button>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:0 0 14px;text-align:center">
         Or work down the list and tick them off.</div>
+      ${(typeof tasting==='function' && tasting()) ? '' : (()=>{
+        const urls=(Q||[]).map(q=>itUrl(q.it));
+        const vs=[...new Set((Q||[]).map(q=>q.it&&q.it.v).filter(Boolean))];
+        return `<div style="margin:-4px 0 14px">${dlRow('q'+dlHash(vs), urls, {kind:'q', wrist:!!st.ovList,
+          name:(qLabel||(st.ovList?'Mobility day':((STAGES[curStage()]||{}).n||'Your')+' session'))+', '+qMins()+' min',
+          q:(Q||[]).map(x=>Object.assign({}, x))})}</div>`; })()}
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
       ${(function(){ const a=asideList(); if(!a.length) return '';
         /* so a shorter session is explained rather than mysterious, and
@@ -10437,6 +10669,7 @@ function buildFixSession(slug, listOnly){
   const f=(st.fixes||{})[slug]; if(!f) return;
   if(f.access==='plus' && !isPlus()){ openStage(FREE_STAGES); return; }
   const mins=st.fixMins||f.mins||20, budget=mins*60;
+  qLabel = f.name || 'Fix';
   const toIt=d=>Object.assign({}, d, {d: d.d || FREE_DOSE[d.v] || '3 × 8'});
   let warm;
   if((f.warmDrills||[]).length){
@@ -10709,6 +10942,7 @@ function screenHome(){
         An account opens the rest.</div>`}
     </section>
     ${st.homeOrder==='fixesFirst'?'':fixesHomeHTML()}
+    ${savedHomeHTML()}
 
     <!-- the workshop after the explainers, where the design puts it: it is an
          offer, and an offer belongs after the thing they came for -->
@@ -12171,6 +12405,7 @@ function warmupFor(budgetSecs, stage, written){
 /* a session built from the current stage's drills, to fit the time chosen */
 function buildFreeSession(wristDay,listOnly,dayIdx){
   const mins=wristDay ? (st.time||30) : sessionMins(), s=STAGES[curStage()];
+  qLabel = wristDay ? 'Mobility day' : ((s&&s.n)||'Your')+' session';
   /* prep drills belong in the warm-up, not scattered through the skill work */
   const plan=weekPlan();
   const dayDef = wristDay ? WRIST_DAY
@@ -14794,6 +15029,8 @@ document.addEventListener('DOMContentLoaded',function(){
   render();
   trackOpen();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); setTimeout(loadSign, 800); }
+  /* which films are on this phone: the list and the player both ask */
+  dlLoad().then(()=>{ if(dlSet.size) render(); });
   /* the quiz placed them on a paid stage: show it, with the free week on it */
   if(st.openWallFor!=null && STAGES[st.openWallFor]){
     const w=st.openWallFor; delete st.openWallFor; save();

@@ -2986,6 +2986,41 @@ export default async (request) => {
     return json(Object.assign({ ok: true, keyId: k.id, free: free.size, total: all.size }, results));
   }
 
+  /* ── films saved for no signal ──────────────────────────────────────
+     A drill film's download link answers with a redirect, and the redirect
+     carries no CORS header, so the app cannot follow it and keep the file.
+     The address it lands on does allow it, and does not expire. This follows
+     the redirect for each film and hands back where it ends, with the size
+     Stream writes into it. Only this Stream library, and only its download
+     path: it will not fetch anything else for anybody. A locked film arrives
+     already signed, so nobody gets a film here they could not already play. */
+  if (path === '/dlurls' && request.method === 'POST') {
+    const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for') || 'x';
+    if ((await rateHit(`dl:${ip}`, 600000)) > 30) {
+      return json({ error: 'That is a lot of saving at once. Try again in a few minutes.' }, 429);
+    }
+    const HOST = 'customer-pns1oongdltmkjwa.cloudflarestream.com';
+    const list = Array.isArray(body.urls) ? body.urls.slice(0, 40) : [];
+    const films = await Promise.all(list.map(async u => {
+      let x = null;
+      try { x = new URL(String(u)); } catch { return { src: null }; }
+      if (x.hostname !== HOST || !/^\/[A-Za-z0-9._-]+\/downloads\/default\.mp4$/.test(x.pathname)) return { src: null };
+      const r = await fetch(`https://${HOST}${x.pathname}`, { method: 'HEAD', redirect: 'manual' }).catch(() => null);
+      if (!r) return { src: null };
+      let src = null;
+      if (r.status >= 300 && r.status < 400) src = r.headers.get('location');
+      else if (r.ok) src = `https://${HOST}${x.pathname}`;
+      if (!src || !src.startsWith(`https://${HOST}/`)) return { src: null };
+      let bytes = 0;
+      try {
+        const p = new URL(src).searchParams.get('p');
+        if (p) bytes = Number(JSON.parse(Buffer.from(p, 'base64').toString('utf8')).totalByteSize) || 0;
+      } catch {}
+      return { src, bytes };
+    }));
+    return json({ films });
+  }
+
   if (path === '/coach/clip' && request.method === 'GET') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);

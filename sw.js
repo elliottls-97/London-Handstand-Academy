@@ -9,9 +9,11 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v143';
+const CACHE_VERSION = 'lha-v144';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
-const VIDEO_CACHE   = CACHE_VERSION + '-video';
+/* Films somebody chose to keep for a gym with no signal. Not versioned: a
+   new build of the app must not throw away what they saved on purpose. */
+const FILM_CACHE    = 'lha-films';
 
 /* Files that make up the app shell. Kept small and all same-origin. */
 const SHELL = [
@@ -30,9 +32,6 @@ const SHELL = [
   '/icons/icon-512-maskable.png'
 ];
 
-/* Cap the video cache so a long session cannot fill up the device. */
-const MAX_VIDEOS = 40;
-
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
@@ -49,19 +48,51 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
-        keys.filter(k => !k.startsWith(CACHE_VERSION))
+        keys.filter(k => !k.startsWith(CACHE_VERSION) && k !== FILM_CACHE)
             .map(k => caches.delete(k))
       ))
       .then(() => self.clients.claim())
   );
 });
 
-/* Trim a cache to a maximum number of entries, oldest first. */
-async function trim(cacheName, max) {
-  const cache = await caches.open(cacheName);
-  const keys = await cache.keys();
-  if (keys.length <= max) return;
-  for (let i = 0; i < keys.length - max; i++) await cache.delete(keys[i]);
+/* ── a saved film, from the phone ──────────────────────────────────
+   The app asks for a saved film, its captions or its still by the usual
+   address with ?lha=saved on the end. A video element asks for a film a
+   slice at a time and will not play a whole file handed back in one, so
+   the slice it asked for is cut from the saved copy. Anything not saved
+   after all goes to the network as if nothing had happened. */
+async function fromSaved(req, url) {
+  const key = url.origin + url.pathname;
+  const cache = await caches.open(FILM_CACHE);
+  const hit = await cache.match(key);
+  if (!hit) {
+    const clean = new URL(url.href);
+    clean.searchParams.delete('lha');
+    return fetch(new Request(clean.href, {
+      headers: req.headers, credentials: 'omit',
+      mode: req.mode === 'navigate' ? 'no-cors' : req.mode,
+    }));
+  }
+  if (!/\.mp4$/i.test(url.pathname)) return hit;
+  const blob = await hit.blob();
+  const size = blob.size;
+  const type = hit.headers.get('content-type') || 'video/mp4';
+  const range = req.headers.get('range');
+  if (!range) {
+    return new Response(blob, { status: 200, headers: {
+      'Content-Type': type, 'Content-Length': String(size), 'Accept-Ranges': 'bytes' } });
+  }
+  const m = /bytes=(\d*)-(\d*)/.exec(range) || [];
+  let start, end;
+  if (m[1] === '' && m[2]) { start = Math.max(0, size - parseInt(m[2], 10)); end = size - 1; }
+  else { start = parseInt(m[1] || '0', 10); end = m[2] ? parseInt(m[2], 10) : size - 1; }
+  if (start >= size) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */' + size } });
+  }
+  end = Math.min(end, size - 1);
+  return new Response(blob.slice(start, end + 1, type), { status: 206, headers: {
+    'Content-Type': type, 'Content-Length': String(end - start + 1),
+    'Content-Range': 'bytes ' + start + '-' + end + '/' + size, 'Accept-Ranges': 'bytes' } });
 }
 
 self.addEventListener('fetch', event => {
@@ -74,41 +105,16 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/.netlify/')) return;
   if (url.hostname.indexOf('formspree.io') > -1) return;
 
-  /* Drill videos: cache-first, since they never change once uploaded.
-     Range requests (video seeking) must go straight to the network —
-     the Cache API cannot serve a 206 partial response. */
-  const isVideo = /\.(mp4|webm|mov)$/i.test(url.pathname);
-  if (isVideo) {
-    if (req.headers.has('range')) return;
-    /* A locked drill arrives with a signed token where its uid used to
-       be, and the token changes every few hours. Cached under the token
-       the same clip would be fetched again each time, so the cache key is
-       the URL with the uid put back: the token is a JWT and its payload
-       names the video. */
-    const key = (function(){
-      const m = /\/(eyJ[A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\//.exec(url.pathname);
-      if (!m) return req.url;
-      try {
-        const pl = JSON.parse(atob(m[2].replace(/-/g, '+').replace(/_/g, '/')));
-        return pl && pl.sub ? req.url.replace(m[0], '/' + pl.sub + '/') : req.url;
-      } catch (e) { return req.url; }
-    })();
-    event.respondWith(
-      caches.open(VIDEO_CACHE).then(cache =>
-        cache.match(key).then(hit => {
-          if (hit) return hit;
-          return fetch(req).then(res => {
-            if (res && res.status === 200) {
-              cache.put(key, res.clone());
-              trim(VIDEO_CACHE, MAX_VIDEOS);
-            }
-            return res;
-          });
-        })
-      )
-    );
+  if (url.searchParams.get('lha') === 'saved') {
+    event.respondWith(fromSaved(req, url));
     return;
   }
+
+  /* Drill videos otherwise go to the network as they always have. The
+     cache this used to fill only ever took requests without a range, and a
+     video element always sends one, so it held nothing. Keeping a film is
+     something the person asks for now, above. */
+  if (/\.(mp4|webm|mov)$/i.test(url.pathname)) return;
 
   /* App shell and everything else same-origin: network-first so an
      updated app is picked up straight away, falling back to cache
