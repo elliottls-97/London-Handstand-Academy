@@ -321,12 +321,12 @@ async function wantsEmail(to, kind) {
    was never sent looked exactly like one that was: nothing on any screen
    said whether a client had been told anything. The last sixty attempts
    are kept with their outcome, and the dashboard reads them. */
-async function mailNote(to, subject, kind, ok, why) {
+async function mailNote(to, subject, kind, ok, why, skip) {
   try {
     const log = (await getSetting('maillog')) || [];
     log.push({ at: Date.now(), to: norm(to), kind: kind || '', ok: !!ok,
-      why: why || '', subject: String(subject || '').slice(0, 80) });
-    await setSetting('maillog', log.slice(-60));
+      why: why || '', subject: String(subject || '').slice(0, 80), ...(skip ? { skip: true } : {}) });
+    await setSetting('maillog', log.slice(-120));
   } catch { /* a log that fails must never break a send */ }
 }
 async function email(to, subject, html, kind) {
@@ -359,8 +359,10 @@ async function notify(to, payload, kind) {
   const e = norm(to);
   let rec;
   try { rec = await pushSubs(e); } catch { return; }
-  if (!rec.subs.length) return;
   const subj = 'Notification: ' + String((payload && payload.title) || '').slice(0, 70);
+  /* said, not silent: "I got the email and not the notification" is
+     answered by this line in the dashboard's list of what was sent */
+  if (!rec.subs.length) return mailNote(e, subj, kind, false, 'no phone has notifications on for this account', true);
   if (!mayEmail(e)) return mailNote(e, subj, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
   if (!(await clientMailAllowed(e))) return mailNote(e, subj, kind, false, 'client email is switched off');
   if (!(await wantsEmail(e, kind))) return mailNote(e, subj, kind, false, 'they have turned off ' + kind);
@@ -372,6 +374,39 @@ async function notify(to, payload, kind) {
     return mailNote(e, subj, kind, false, String((err && err.message) || err));
   }
 }
+
+/* ── the coach's own devices ─────────────────────────────────────
+   What a client sends lands on the dashboard and in an email, and now as
+   a notification on any phone or computer the coach turned them on for.
+   Each kind can be switched off from the dashboard's settings. None of
+   this goes to a client, so the mail guard has nothing to say about it.
+   Never throws: a notification that did not go must not fail the thing
+   the client was doing. */
+const COACH_ALERT_KINDS = {
+  messages: true,     /* messages, clips and questions */
+  checkpoints: true,  /* a check point logged with a number */
+  told: true,         /* check-ins, a skipped day, how a session felt, a flag */
+  trained: false,     /* a session finished */
+  business: true,     /* bookings, applications, payments */
+  signups: false,     /* a new account, feedback about the app */
+};
+async function coachAlert(client, kind, payload) {
+  try {
+    if (!pushReady()) return;
+    const to = norm(client ? coachOf(client) : primaryCoach());
+    if (!to) return;
+    const rec = await pushSubs(to, 'pushcoach');
+    if (!rec.subs.length) return;
+    const on = Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {});
+    if (!on[kind]) return;
+    const at = payload && payload.t ? '&t=' + payload.t : '';
+    const r = await pushSend(to, Object.assign({
+      url: '/lha-coach.html' + (client ? '#c=' + encodeURIComponent(norm(client)) + at : '#today'),
+    }, payload, { t: undefined }), 'pushcoach');
+    await mailNote(to, 'Dashboard: ' + String((payload && payload.title) || '').slice(0, 70), 'coach', !!r.sent, r.why || '');
+  } catch {}
+}
+const firstNameOf = e => String(clients()[norm(e)] || '').split(' ')[0] || norm(e);
 
 /* ── Stripe, over plain fetch ────────────────────────────────────
    No SDK: a few form-encoded POSTs is less to install and less to
@@ -644,6 +679,16 @@ async function emailCopy(key, vars) {
 }
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
+/* many settings in one read, as a map; anything missing is simply absent */
+async function settingsMany(keys) {
+  const out = {};
+  const uniq = [...new Set(keys)];
+  for (let i = 0; i < uniq.length; i += 60) {
+    const list = uniq.slice(i, i + 60).map(k => '"' + String(k).replace(/"/g, '') + '"').join(',');
+    for (const r of (await supa.rows('settings', `key=in.(${enc(list)})&select=key,value`)) || []) out[r.key] = r.value;
+  }
+  return out;
+}
 /* a setting that is gone reads as absent, which is not the same as one
    holding an empty object: the programme falls back to the original file */
 const dropSetting = k => supa.remove('settings', `key=eq.${enc(k)}`);
@@ -859,6 +904,7 @@ export default async (request) => {
                   `A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it; cancel more than 48 hours before and it is refunded. <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.`].filter(Boolean),
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }));
+      await coachAlert(null, 'business', { title: 'New booking: ' + (nm || e), body: w.title, tag: 'book:' + e });
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${w.title}`,
         mail({ title: `${esc(nm || e)} has booked.`,
           paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${wsLive(book).length} of ${w.places || '?'} places taken.${md.code ? ' Code ' + esc(md.code) + '.' : ''}`,
@@ -904,6 +950,7 @@ export default async (request) => {
                   'You have an account in the Handstand Ladder app under this address, and the conversation carries on there under Ask as well as by email.'],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }));
+      await coachAlert(null, 'business', { title: (nm || e) + ' paid for a ' + kind + ' minute session', body: 'Set the time on Today.', tag: 'sess:' + e });
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Session to arrange: ${nm || e}, ${kind} min`,
         mail({ title: `${esc(nm || e)} has paid for a ${kind} minute session.`,
           paras: [prefs ? `Prefers: <b>${esc(prefs)}</b>.` : 'No preferred times given.', 'Check the room, then set the time on Today and they get the confirmation.'],
@@ -1058,6 +1105,7 @@ export default async (request) => {
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
       /* the client was told and nobody else was */
+      await coachAlert(null, 'business', { title: 'A card was declined', body: clients()[acct.email] || acct.name || acct.email, tag: 'card:' + acct.email });
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Card declined: ${clients()[acct.email] || acct.name || acct.email}`,
         `<p style="font:16px/1.6 system-ui">A payment from ${esc(acct.email)} failed. They have been
@@ -1087,6 +1135,7 @@ export default async (request) => {
       subscription: acct.subscription || null, cancel_at: acct.cancel_at || null,
       stripe_customer: acct.stripe_customer || null });
 
+    await coachAlert(null, 'business', { title: acct.plus ? 'New £5 subscriber' : '£5 subscription cancelled', body: acct.email || e, tag: 'plus:' + (acct.email || e) });
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${acct.plus ? 'New' : 'Cancelled'} £5 subscriber: ${acct.email || e}`,
       `<p style="font:16px/1.6 system-ui">${ev.type} — access is now
@@ -1330,6 +1379,7 @@ export default async (request) => {
                   'If something is wrong, or you have an idea, the pencil in the top bar reaches me directly.'],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
+      await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `New app sign-up: ${e}`,
         `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
@@ -2120,6 +2170,7 @@ export default async (request) => {
                 freeDays > 0 ? `The Handstand Ladder app is open for you for ${freeDays} days, every stage. Sign in with this address and it is there.` : '',
                 'A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it.'].filter(Boolean),
         cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' }, signoff: { name: 'Elliott, London Handstand Academy' } }));
+      await coachAlert(null, 'business', { title: 'New booking: ' + nm, body: w.title, tag: 'book:' + nm });
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked.`,
         paras: [`<b>${esc(w.title)}</b>. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''}`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
         cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
@@ -3267,6 +3318,12 @@ export default async (request) => {
     const who = await realMe();
     if (!who) return json({ error: 'Sign in first' }, 401);
     if ((await rateHit(`pushtest:${who}`, 600000)) > 5) return json({ error: 'That is a few tests. Try again in a few minutes.' }, 429);
+    /* An iPhone does not show a notification from the app that is open in
+       front of you, which is exactly where you are when you press Send a
+       test. So it waits a few seconds, long enough to go to the Home
+       Screen and watch it arrive the way a real one does. */
+    const wait = Math.max(0, Math.min(6000, Number(body.wait) || 0));
+    if (wait) await new Promise(r => setTimeout(r, wait));
     const r = await pushSend(who, { title: 'Notifications are on',
       body: 'This is how a reply from ' + coachName(coachOf(who) || primaryCoach()) + ' will arrive.',
       url: '/lha-app.html', tag: 'test' });
@@ -3462,6 +3519,11 @@ export default async (request) => {
             else {
               if (last.verdict) ['verdict', 'note', 'by', 'verdictAt', 'watchedAt', 'undone']
                 .forEach(f => { if (last[f] != null) row[f] = last[f]; });
+              /* the same clip was watched and answered, whatever the number
+                 says now: without this a nudge after a reply put the clip
+                 back to waiting on the dashboard */
+              if (row.video && row.video === last.video) ['watchedAt', 'replyAt']
+                .forEach(f => { if (last[f] != null) row[f] = last[f]; });
               hist[hist.length - 1] = row;
             }
           } else hist.push(row);
@@ -3506,7 +3568,25 @@ export default async (request) => {
                 paras: [`<b>${esc(clients()[who] || who)}</b> sent a clip for <b>${esc(cpName)}</b>, logged at ${esc(String(row.v))}.`],
                 cta: { href: `${SITE}/lha-coach.html`, label: 'Watch it' },
                 signoff: { name: 'London Handstand Academy' } }));
+            await coachAlert(who, 'messages', { title: firstNameOf(who) + ' sent a check point clip',
+              body: cpName + ', logged at ' + row.v, tag: 'clip:' + who, t: 'marks' });
           }
+        }
+      }
+      /* a number on a check point, no clip. Dragging a slider logs as it
+         goes, so one notification per twenty minutes and it replaces the
+         last one rather than stacking. */
+      if (body.checkpoint && typeof body.checkpoint === 'object' && !body.checkpoint.video
+          && clients()[who] && pushReady()) {
+        const k = String(body.checkpoint.k || '').slice(0, 32);
+        const hist = ((cur.checkpoints || {})[k]) || [];
+        const got = hist[hist.length - 1];
+        if (got && (await rateHit(`cpalert:${who}`, 20 * 60000)) === 1) {
+          const defs = ((await getSetting(`programme:${who}`)) || programmes.clients[who] || {}).checkpoints || [];
+          const d = defs.find(c => c && c.k === k) || {};
+          await coachAlert(who, 'checkpoints', { title: firstNameOf(who) + ' logged a check point',
+            body: (d.n || CHECKPOINT_NAMES[k] || k) + ': ' + got.v + (d.target ? ' (target ' + d.target + ')' : ''),
+            tag: 'cp:' + who, t: 'marks' });
         }
       }
       /* a progress photo, already uploaded — this records the reference */
@@ -3678,6 +3758,7 @@ export default async (request) => {
     log.unshift(row);
     await setSetting('feedback:log', log.slice(0, 500));
     const label = { bug: 'Bug', idea: 'Idea', review: 'Feedback', block: 'Block review' }[kind];
+    await coachAlert(null, 'signups', { title: label + ' from the app', body: String(text || '').slice(0, 160), tag: 'fb' });
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${label} from the app${who ? ': ' + who : ''}`,
       mail({ title: `${label} from the app.`,
@@ -3705,6 +3786,7 @@ export default async (request) => {
       let stored = true;
       try { await supa.insert('questions', { email: who, body: body2 }); }
       catch (err) { if (!missingTable(err)) throw err; stored = false; }
+      await coachAlert(who, 'messages', { title: 'Question from ' + firstNameOf(who), body: body2.slice(0, 160), tag: 'q:' + who, url: '/lha-coach.html#today' });
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Question from ${clients()[who] || who}`,
         mail({ title: 'A question came in.',
@@ -3766,6 +3848,7 @@ export default async (request) => {
 
     const lines = Object.entries(answers).filter(([, v]) => v)
       .map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>');
+    await coachAlert(null, 'business', { title: 'Coaching application', body: name || e, tag: 'app:' + e });
     await email(coachOf(e) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `Coaching application: ${name || e}`,
       mail({
@@ -3931,6 +4014,7 @@ export default async (request) => {
         footnote: T.footnote || undefined,
       }));
 
+    await coachAlert(who, 'messages', { title: firstNameOf(who) + ' sent a ' + label.toLowerCase(), body: clips.length + ' clip' + (clips.length === 1 ? '' : 's') + ' to watch', tag: 'sub:' + who, url: '/lha-coach.html#today' });
     await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${clients()[who] || who}: ${label}`,
       `<p style="font:16px/1.6 system-ui">${clips.length} clip${clips.length === 1 ? '' : 's'}
@@ -4101,6 +4185,10 @@ export default async (request) => {
           const nm = clients()[who] || who;
           const line = f => `<b>${esc((lib.names || {})[f.k] || f.k)}</b>: too ${esc(f.rate)}`
             + (f.note ? `<br>&ldquo;${esc(f.note)}&rdquo;` : '');
+          await coachAlert(who, 'told', { title: firstNameOf(who) + ' flagged '
+              + (fresh.length === 1 ? 'a drill' : fresh.length + ' drills'),
+            body: fresh.slice(0, 3).map(f => ((lib.names || {})[f.k] || f.k) + ': too ' + f.rate).join(', '),
+            tag: 'flag:' + who, t: 'programme' });
           await email(coachOf(who),
             `${nm}: ${fresh.length === 1 ? 'a drill is too ' + fresh[0].rate
               : fresh.length + ' drills flagged'}`,
@@ -4136,6 +4224,22 @@ export default async (request) => {
       }
       if (body.test && typeof body.test === 'object') {
         p.tests = (p.tests || []).concat([{ vals: body.test, at: now }]).slice(-12);
+      }
+      if (clients()[who]) {
+        const f = body.feedback;
+        const fk = f && typeof f === 'object' ? String(f.kind || 'note') : '';
+        if (fk && !['Drill flags', 'Question'].includes(fk)
+            && !(fk.toLowerCase() === 'session feel' && !f.text)) {
+          const bits = [].concat(Array.isArray(f.reasons) ? f.reasons.slice(0, 3) : [], f.text ? [String(f.text)] : []);
+          await coachAlert(who, 'told', { title: firstNameOf(who) + ': ' + fk.toLowerCase(),
+            body: bits.join(' \u00b7 ').slice(0, 160) || 'Open it on the dashboard.', tag: 'said:' + who, t: 'thread' });
+        }
+        const sx = body.session;
+        if (sx && sx.day != null && sx.done) {
+          await coachAlert(who, 'trained', { title: firstNameOf(who) + ' finished a session',
+            body: [String(sx.name || '').slice(0, 60), Number(sx.actual || sx.mins) ? Math.round(Number(sx.actual || sx.mins)) + ' min' : '']
+              .filter(Boolean).join(', ') || 'Today', tag: 'trained:' + who, t: 'progress' });
+        }
       }
       await ensureAcct(who);
     await supa.upsert('progress', {
@@ -4410,6 +4514,8 @@ export default async (request) => {
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
         `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
+      await coachAlert(who, 'messages', { title: firstNameOf(who) + (text ? '' : ' ' + kind),
+        body: text ? text.slice(0, 160) : 'Open it on the dashboard.', tag: 'msg:' + who, t: 'thread' });
       return json({ ok: true });
     }
   }
@@ -5040,28 +5146,31 @@ export default async (request) => {
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      /* one read of every setting and the progress row together: these were
+         nine reads one after another, for every client, on every open */
+      const [S, prog] = await Promise.all([
+        settingsMany([`programme:${e}`, `week:${e}`, `intake:${e}`, `track:${e}`, `visits:${e}`, `flagseen:${e}`]),
+        supa.row('progress', `email=eq.${enc(e)}&select=*`),
+      ]);
       /* the same block clock the client is shown, so the two screens cannot
          disagree about which block it is or when the test is due */
       const cyc = clients()[e]
-        ? await cycleGet(db, e, (await getSetting(`programme:${e}`)) || programmes.clients[e] || null)
+        ? await cycleGet(db, e, S[`programme:${e}`] || programmes.clients[e] || null)
         : null;
       return json({ email: e, name: clients()[e] || e,
                     cycle: cyc,
-                    week: (await getSetting(`week:${e}`)) || null,
-                    intake: (await getSetting(`intake:${e}`)) || null,
-                    track: (await getSetting(`track:${e}`)) || null,
+                    week: S[`week:${e}`] || null,
+                    intake: S[`intake:${e}`] || null,
+                    track: S[`track:${e}`] || null,
                     /* so the dashboard can name a check point the coach set
                        rather than showing its key */
-                    checkpoints: ((await getSetting(`programme:${e}`)) || {}).checkpoints || [],
-                    visits: (await getSetting(`visits:${e}`)) || {},
-        progress: (await (async () => {
-          const prog = await supa.row('progress', `email=eq.${enc(e)}&select=*`);
-          return prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
+                    checkpoints: (S[`programme:${e}`] || {}).checkpoints || [],
+                    visits: S[`visits:${e}`] || {},
+        progress: prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
-  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {};
-        })()),
+  bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {},
         /* when this coach last said they had read the flags */
-        flagSeen: Number((await getSetting(`flagseen:${e}`)) || 0) });
+        flagSeen: Number(S[`flagseen:${e}`] || 0) });
     }
 
     /* which Stripe settings actually reached this deploy — booleans only,
@@ -5375,7 +5484,7 @@ export default async (request) => {
     /* the last sixty emails this site tried to send, and what happened */
     if (path === '/coach/maillog' && request.method === 'GET') {
       const log = (await getSetting('maillog')) || [];
-      return json({ log: log.slice(-40).reverse() });
+      return json({ log: log.slice(-60).reverse() });
     }
 
     if (path === '/coach/mailguard') {
@@ -5523,111 +5632,251 @@ export default async (request) => {
     }
 
     if (path === '/coach/queue') {
+      /* ── everything that has come in and is waiting on you ────────────
+         This read every setting for every person one after another, and
+         the roster holds every account that has ever had a message, which
+         is every sign-up since each one is sent a welcome. So Today took
+         as long as the list was long. It is a handful of reads now, all at
+         once, whoever is on the list. */
       const roster = await rosterRows();
+      const mine = Object.keys(roster).filter(e => owns(e));
+      const coached = mine.filter(e => clients()[e]);
+      const inList = list => enc(list.map(e => '"' + e + '"').join(','));
+      const keys = [];
+      for (const e of mine) keys.push(`msgdone:${e}`);
+      for (const e of coached) keys.push(`track:${e}`, `programme:${e}`, `saidseen:${e}`, `cpseen:${e}`, `trainseen:${e}`);
+      const since60 = new Date(Date.now() - 60 * 864e5).toISOString();
+      const [S, msgs, progRows, waiting, known] = await Promise.all([
+        settingsMany(keys),
+        supa.rows('messages', `created_at=gte.${enc(since60)}&select=id,email,sender,body,video,image,submission,read_at,created_at&order=created_at.asc`),
+        coached.length ? supa.rows('progress', `email=in.(${inList(coached)})&select=email,feedback,sessions`) : [],
+        supa.rows('submissions', 'status=eq.submitted&select=*&order=created_at.asc'),
+        coached.length ? supa.rows('submissions', `email=in.(${inList(coached)})&select=email,clips`) : [],
+      ]);
       const out = [];
-      /* ── a message nobody has opened ─────────────────────────────
-         A client writing to you was an email and an "unread" tag on the
-         Clients list, and nothing on the screen you open to see what is
-         waiting. A clip in the chat already arrives as a review row, so
-         only the words are counted here. Opening their thread clears it. */
-      const unread = {};
-      for (const m of (await supa.rows('messages',
-        'sender=eq.client&read_at=is.null&select=email,body,video,image,submission,created_at&order=created_at.asc') || [])) {
-        if (m.submission) continue;
-        (unread[m.email] = unread[m.email] || []).push(m);
+      const nameOf = e => clients()[e] || (roster[e] && roster[e].name) || e;
+
+      /* ── a message you have not answered ────────────────────────────
+         It used to count only messages nobody had opened, so one you read
+         and meant to come back to left Today the moment the thread was on
+         screen, which is how things got missed. A message waits now until
+         you reply, or say it needs no reply. A clip in the chat has its
+         own review row, so only the words are counted here. */
+      const byWho = {};
+      for (const m of (msgs || [])) (byWho[m.email] = byWho[m.email] || []).push(m);
+      for (const e of mine) {
+        const list = byWho[e] || [];
+        if (!list.length) continue;
+        let after = Number(S[`msgdone:${e}`]) || 0;
+        for (const m of list) if (m.sender === 'coach') after = Math.max(after, ms(m.created_at));
+        const wait = list.filter(m => m.sender === 'client' && !m.submission && ms(m.created_at) > after);
+        if (!wait.length) continue;
+        const lastM = wait[wait.length - 1];
+        out.push({ email: e, name: nameOf(e), coached: !!clients()[e],
+          id: 'msg:' + e, kind: 'msg', at: ms(wait[0].created_at), clips: 0, n: wait.length,
+          unread: wait.filter(m => !m.read_at).length,
+          msgs: wait.slice(-4).map(m => ({ text: String(m.body || '').slice(0, 600),
+            image: !!m.image, video: !!m.video, at: ms(m.created_at), unread: !m.read_at })),
+          numbers: { name: String(lastM.body || (lastM.image ? 'A photo' : 'A message')).slice(0, 140) } });
       }
-      /* ── what they told you from inside a session ──────────────
-         Skipping a day, a check-in, a session that felt too hard, why they
-         stopped early: each one said "Told Elliott" in the app and landed
-         only in a list on their progress page. Flags and questions have
-         their own rows, so they are not counted twice. */
-      const saidRows = {};
-      for (const p of (await supa.rows('progress', 'select=email,feedback') || [])) saidRows[p.email] = p.feedback || [];
-      for (const e of Object.keys(roster)) {
-        if (!owns(e)) continue;
-        const um = unread[e] || [];
-        if (um.length) {
-          const lastM = um[um.length - 1];
-          out.push({ email: e, name: clients()[e] || roster[e].name || e, coached: !!clients()[e],
-            id: 'msg:' + e, kind: 'msg', at: ms(um[0].created_at), clips: 0, n: um.length,
-            numbers: { name: String(lastM.body || (lastM.image ? 'A photo' : 'A message')).slice(0, 140) } });
+
+      const progOf = {};
+      for (const p of (progRows || [])) progOf[p.email] = p;
+      const knownBy = {};
+      for (const s of (known || [])) {
+        const set = knownBy[s.email] = knownBy[s.email] || new Set();
+        for (const c of (s.clips || [])) set.add(c && typeof c === 'object' ? (c.uid || c.video) : c);
+      }
+      for (const e of coached) {
+        const p = progOf[e] || {};
+        /* ── what they told you from inside a session ──────────────
+           Skipping a day, a check-in, a session that felt too hard, why they
+           stopped early. Flags and questions have their own rows. */
+        const sinceSaid = Math.max(Number(S[`saidseen:${e}`]) || 0, Date.now() - 30 * 864e5);
+        const said = (p.feedback || []).filter(f => f && (f.at || 0) > sinceSaid
+          && !['Drill flags', 'Question'].includes(f.kind)
+          && !(String(f.kind || '').toLowerCase() === 'session feel' && !f.text));
+        if (said.length) {
+          out.push({ email: e, name: nameOf(e), coached: true,
+            id: 'said:' + e, kind: 'said', at: said[0].at, clips: 0, n: said.length,
+            said: said.slice(-8).map(f => ({ kind: f.kind || 'note', text: f.text || '',
+              reasons: f.reasons || [], context: f.context || '', at: f.at })),
+            numbers: { name: said.slice(-3).map(f => (f.kind || 'note')
+              + (f.text ? ': ' + String(f.text).slice(0, 60) : '')).join(' · ') } });
         }
-        if (clients()[e]) {
-          const since = Math.max(Number(await getSetting(`saidseen:${e}`)) || 0, Date.now() - 30 * 864e5);
-          const said = (saidRows[e] || []).filter(f => f && (f.at || 0) > since
-            && !['Drill flags', 'Question'].includes(f.kind)
-            /* the same session feel used to be filed twice, once empty */
-            && !(String(f.kind || '').toLowerCase() === 'session feel' && !f.text));
-          if (said.length) {
-            out.push({ email: e, name: clients()[e] || roster[e].name || e, coached: true,
-              id: 'said:' + e, kind: 'said', at: said[0].at, clips: 0, n: said.length,
-              said: said.slice(-8).map(f => ({ kind: f.kind || 'note', text: f.text || '',
-                reasons: f.reasons || [], context: f.context || '', at: f.at })),
-              numbers: { name: said.slice(-3).map(f => (f.kind || 'note')
-                + (f.text ? ': ' + String(f.text).slice(0, 60) : '')).join(' \u00b7 ') } });
-          }
+        /* ── sessions finished ─────────────────────────────────────
+           Nothing to answer, but it is the thing you most want to know
+           happened, and it showed only as a number on their own screen. */
+        const sinceTrain = Math.max(Number(S[`trainseen:${e}`]) || 0, Date.now() - 7 * 864e5);
+        const trained = (p.sessions || []).filter(x => x && (x.at || 0) > sinceTrain && (x.done || x.kind === 'part'));
+        if (trained.length) {
+          out.push({ email: e, name: nameOf(e), coached: true,
+            id: 'trained:' + e, kind: 'trained', at: trained[0].at, clips: 0, n: trained.length,
+            sessions: trained.slice(-6).map(x => ({ name: x.name || '', mins: Math.round(Number(x.actual || x.mins) || 0),
+              done: !!x.done, got: x.got || 0, of: x.of || 0, stoppedAt: x.stoppedAt || '', at: x.at })),
+            numbers: { name: trained.slice(-3).map(x => x.name || 'A session').join(' · ') } });
         }
-        let subs = await subsFor(db, e);
+
+        const tr = S[`track:${e}`] || {};
+        const defs = (S[`programme:${e}`] || programmes.clients[e] || {}).checkpoints || [];
+        const cpName = k => ((defs.find(c => c && c.k === k) || {}).n) || CHECKPOINT_NAMES[k] || k;
         /* Clips sent on check points before there was a queue entry for them
            are sitting in the client's track with nowhere to show. Bring each
            one in as a submission the first time the queue is drawn, once. */
-        if (clients()[e]) {
-          const tr = (await getSetting(`track:${e}`)) || {};
-          const known = new Set(subs.flatMap(s => s.clips || []));
-          const defs = ((await getSetting(`programme:${e}`)) || programmes.clients[e] || {}).checkpoints || [];
-          let added = false;
-          for (const k of Object.keys(tr.checkpoints || {})) {
-            for (const r of tr.checkpoints[k] || []) {
-              if (!r.video || known.has(r.video)) continue;
-              const cpName = ((defs.find(c => c && c.k === k) || {}).n) || CHECKPOINT_NAMES[k] || k;
-              try {
-                await supa.insert('submissions', { email: e, kind: 'checkpoint', cycle: 1,
-                  numbers: { k, v: r.v, name: cpName }, clips: [r.video], status: 'submitted',
-                  created_at: new Date(r.at || Date.now()).toISOString() });
-                known.add(r.video); added = true;
-              } catch {}
-            }
+        const seenClip = knownBy[e] || new Set();
+        for (const k of Object.keys(tr.checkpoints || {})) {
+          for (const r of tr.checkpoints[k] || []) {
+            if (!r || !r.video || seenClip.has(r.video)) continue;
+            try {
+              const [made] = await supa.insert('submissions', { email: e, kind: 'checkpoint', cycle: 1,
+                numbers: { k, v: r.v, name: cpName(k) }, clips: [r.video], status: 'submitted',
+                created_at: new Date(r.at || Date.now()).toISOString() });
+              seenClip.add(r.video);
+              if (made) (waiting || []).push(made);
+            } catch {}
           }
-          if (added) subs = await subsFor(db, e);
-        }
-        for (const s of subs) {
-          if (s.status !== 'submitted') continue;
-          out.push({ email: e, name: clients()[e] || roster[e].name || e,
-            coached: !!clients()[e], id: s.id, kind: s.kind, cycle: s.cycle,
-            at: s.at, clips: (s.clips || []).length, numbers: s.numbers || {} });
         }
         /* ── a check point logged with no clip ───────────────────────
-           A clip files a submission and lands here. A number does not,
-           and nothing anywhere told the coach it had happened: a client
-           could log three check points and the dashboard would say
-           nothing waiting. It is not a review, there is nothing to
-           watch, but it is the thing they came to do and it belongs on
-           the screen the coach opens. Cleared by opening their check
-           points. */
-        if (clients()[e]) {
-          const tr = (await getSetting(`track:${e}`)) || {};
-          const since = Number(await getSetting(`cpseen:${e}`)) || 0;
-          const defs = ((await getSetting(`programme:${e}`)) || programmes.clients[e] || {}).checkpoints || [];
-          const nameOf = k => ((defs.find(c => c && c.k === k) || {}).n) || CHECKPOINT_NAMES[k] || k;
-          const fresh = [];
-          for (const k of Object.keys(tr.checkpoints || {})) {
-            for (const r of tr.checkpoints[k] || []) {
-              if (!r || r.video || !(r.at > since)) continue;
-              fresh.push({ k, n: nameOf(k), v: r.v, at: r.at });
-            }
-          }
-          if (fresh.length) {
-            fresh.sort((a, b) => b.at - a.at);
-            out.push({ email: e, name: clients()[e] || roster[e].name || e, coached: true,
-              id: 'cplog:' + e, kind: 'cplog', at: fresh[fresh.length - 1].at,
-              clips: 0, n: fresh.length,
-              numbers: { name: fresh.slice(0, 4).map(x => x.n + ' ' + x.v).join(' \u00b7 ') } });
+           Not a review, nothing to watch, but it is the thing they came to
+           do. Cleared by opening their check points. */
+        const sinceCp = Number(S[`cpseen:${e}`]) || 0;
+        const fresh = [];
+        for (const k of Object.keys(tr.checkpoints || {})) {
+          for (const r of tr.checkpoints[k] || []) {
+            if (!r || r.video || !(r.at > sinceCp)) continue;
+            const d = defs.find(c => c && c.k === k) || {};
+            fresh.push({ k, n: cpName(k), v: r.v, at: r.at, target: d.target != null ? d.target : null });
           }
         }
+        if (fresh.length) {
+          fresh.sort((a, b) => b.at - a.at);
+          out.push({ email: e, name: nameOf(e), coached: true,
+            id: 'cplog:' + e, kind: 'cplog', at: fresh[fresh.length - 1].at,
+            clips: 0, n: fresh.length, logs: fresh.slice(0, 6),
+            numbers: { name: fresh.slice(0, 4).map(x => x.n + ' ' + x.v).join(' · ') } });
+        }
+      }
+      for (const s of (waiting || [])) {
+        const e = s.email;
+        if (!roster[e] || !owns(e) || s.status !== 'submitted') continue;
+        out.push({ email: e, name: nameOf(e), coached: !!clients()[e], id: s.id, kind: s.kind,
+          cycle: s.cycle, at: ms(s.created_at), clips: (s.clips || []).length, numbers: s.numbers || {} });
       }
       /* oldest first: the one closest to breaking the 48-hour promise */
       out.sort((a, b) => (a.at || 0) - (b.at || 0));
       return json({ queue: out });
+    }
+
+    /* ── notifications on the coach's own devices ─────────────────── */
+    if (path === '/coach/push' && request.method === 'GET') {
+      const rec = await pushSubs(asking || primaryCoach(), 'pushcoach');
+      return json({ key: process.env.VAPID_PUBLIC_KEY || '', on: pushReady(), devices: rec.subs.length,
+        endpoints: rec.subs.map(x => x.endpoint.slice(-24)),
+        kinds: Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {}) });
+    }
+    if (path === '/coach/push' && request.method === 'POST') {
+      const rec = await pushSubs(asking || primaryCoach(), 'pushcoach');
+      if (body.sub) {
+        const sb = body.sub || {};
+        const endpoint = String(sb.endpoint || '');
+        const p256dh = String((sb.keys || {}).p256dh || '').slice(0, 200);
+        const auth = String((sb.keys || {}).auth || '').slice(0, 100);
+        if (!/^https:\/\//.test(endpoint) || endpoint.length > 1000 || !p256dh || !auth) {
+          return json({ error: 'That is not a notification subscription' }, 400);
+        }
+        rec.subs = [{ endpoint, keys: { p256dh, auth }, at: Date.now() }]
+          .concat(rec.subs.filter(x => x && x.endpoint !== endpoint)).slice(0, 6);
+      }
+      if (body.off) rec.subs = rec.subs.filter(x => x && x.endpoint !== String(body.off));
+      if (body.kinds && typeof body.kinds === 'object') {
+        rec.kinds = {};
+        for (const k of Object.keys(COACH_ALERT_KINDS)) {
+          if (body.kinds[k] !== undefined) rec.kinds[k] = body.kinds[k] === true;
+        }
+      }
+      await pushSave(asking || primaryCoach(), rec, 'pushcoach');
+      return json({ ok: true, devices: rec.subs.length,
+        kinds: Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {}) });
+    }
+    if (path === '/coach/push/test' && request.method === 'POST') {
+      if ((await rateHit(`pushtest:${asking || primaryCoach()}`, 600000)) > 5) return json({ error: 'That is a few tests. Try again in a few minutes.' }, 429);
+      const wait = Math.max(0, Math.min(6000, Number(body.wait) || 0));
+      if (wait) await new Promise(r => setTimeout(r, wait));
+      return json(await pushSend(asking || primaryCoach(), { title: 'Dashboard notifications are on',
+        body: 'This is how a message from a client will arrive.', url: '/lha-coach.html#today', tag: 'test' }, 'pushcoach'));
+    }
+
+    /* ── take a reply back ──────────────────────────────────────────
+       The message goes from their chat, the check points it answered go
+       back to how they were before it, and the clips it closed go back to
+       waiting. What it already did outside the app cannot be undone: an
+       email or a notification that went stays sent. */
+    if (path === '/coach/thread/unsend' && request.method === 'POST') {
+      const e = norm(body.email);
+      const id = String(body.id || '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64);
+      if (!e || !id) return json({ error: 'Which message?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const m = await supa.row('messages', `id=eq.${enc(id)}&email=eq.${enc(e)}&sender=eq.coach&select=*`);
+      if (!m) return json({ error: 'That message is not there any more' }, 404);
+      const rec = await getSetting(`unsend:${id}`);
+      const tags = String(m.submission || '').split(',').map(x => x.trim()).filter(Boolean);
+      const tkey = `track:${e}`;
+      const tr = (await getSetting(tkey)) || {};
+      let touched = false;
+      const GROUPS = [['replyAt', ['replyAt']], ['watchedAt', ['watchedAt']],
+                      ['verdictAt', ['verdict', 'note', 'by', 'verdictAt', 'undone']]];
+      const put = (out, pre, fields) => fields.forEach(f => {
+        if (pre[f] === undefined || pre[f] === null) delete out[f]; else out[f] = pre[f]; });
+      for (const k of Object.keys(tr.checkpoints || {})) {
+        tr.checkpoints[k] = (tr.checkpoints[k] || []).map(r => {
+          if (!r || !r.video) return r;
+          if (rec && Array.isArray(rec.rows)) {
+            /* the reply wrote down what each row held before it */
+            const x = rec.rows.find(y => y.k === k && y.video === r.video);
+            if (!x) return r;
+            const out = Object.assign({}, r);
+            for (const [stamp, fields] of GROUPS) {
+              if (out[stamp] === rec.at) { put(out, x.pre || {}, fields); touched = true; }
+            }
+            return out;
+          }
+          /* a reply from before this existed kept no note of what it
+             changed: its own stamps are the ones made as it was sent */
+          if (!tags.includes(r.video)) return r;
+          const t0 = ms(m.created_at);
+          const near = t => t && Math.abs(t - t0) < 120000;
+          const out = Object.assign({}, r);
+          if (near(out.replyAt)) { delete out.replyAt; touched = true; }
+          if (near(out.watchedAt)) { delete out.watchedAt; touched = true; }
+          if (near(out.verdictAt)) { ['verdict', 'note', 'by', 'verdictAt', 'undone'].forEach(f => delete out[f]); touched = true; }
+          return out;
+        });
+      }
+      if (touched) await setSetting(tkey, tr);
+      const reopen = (rec && Array.isArray(rec.subs)) ? rec.subs : [];
+      for (const sid of reopen) {
+        await supa.update('submissions', `id=eq.${enc(sid)}&email=eq.${enc(e)}`,
+          { status: 'submitted', reviewed_at: null, reviewed_by: null }).catch(() => {});
+      }
+      await supa.remove('messages', `id=eq.${enc(id)}&email=eq.${enc(e)}&sender=eq.coach`);
+      if (rec) await dropSetting(`unsend:${id}`).catch(() => {});
+      return json({ ok: true, seen: !!m.read_at, reopened: reopen.length,
+        ...(touched ? { checkpoints: tr.checkpoints } : {}) });
+    }
+
+    /* ── cleared from Today ────────────────────────────────────────
+       One call for anything Today counts since a moment: messages you
+       do not need to answer, what they told you, check points logged,
+       sessions finished, flags. */
+    if (path === '/coach/seen' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const KEYS = { msg: 'msgdone', said: 'saidseen', cp: 'cpseen', trained: 'trainseen', flags: 'flagseen' };
+      const what = Array.isArray(body.what) ? body.what : Object.keys(KEYS);
+      const now = Date.now();
+      await Promise.all(what.filter(w => KEYS[w]).map(w => setSetting(`${KEYS[w]}:${e}`, now)));
+      return json({ ok: true, at: now });
     }
 
     /* the coach has read what they said: stop counting it */
@@ -5905,6 +6154,8 @@ export default async (request) => {
         })).filter(x => x.uid) : [];
         const tags = answers ? [answers] : [];
         let cpsOut = null;
+        /* what this reply changes, written down so it can be taken back */
+        const undo = { at: Date.now(), rows: [], subs: [] };
         if (ansClips.length) {
           const by = asking || primaryCoach();
           const uids = new Set(ansClips.map(x => x.uid));
@@ -5917,17 +6168,24 @@ export default async (request) => {
             if (row.status === 'submitted') {
               await supa.update('submissions', `id=eq.${enc(row.id)}`, {
                 status: 'reviewed', reviewed_at: nowISO(), reviewed_by: by });
+              undo.subs.push(row.id);
             }
           }
           const tkey = `track:${e}`;
           const tr = (await getSetting(tkey)) || {};
-          const now = Date.now();
+          const now = undo.at;
           let touched = false;
           for (const k of Object.keys(tr.checkpoints || {})) {
             tr.checkpoints[k] = (tr.checkpoints[k] || []).map(r => {
               const a = r && r.video && ansClips.find(x => x.uid === r.video);
               if (!a) return r;
               touched = true;
+              if (!undo.rows.some(y => y.k === k && y.video === r.video)) {
+                const pre = {};
+                ['replyAt', 'watchedAt', 'verdict', 'note', 'by', 'verdictAt', 'undone']
+                  .forEach(f => { if (r[f] !== undefined) pre[f] = r[f]; });
+                undo.rows.push({ k, video: r.video, pre });
+              }
               return Object.assign({}, r, { replyAt: now, watchedAt: r.watchedAt || now },
                 a.verdict ? { verdict: a.verdict, note: r.verdict === a.verdict ? (r.note || '') : '',
                               by, verdictAt: now, undone: undefined } : {});
@@ -5937,14 +6195,19 @@ export default async (request) => {
           uids.forEach(u => tags.push(u));
         }
         const subTag = [...new Set(tags)].join(',').slice(0, 2000);
-        await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
+        const added = await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
           ...(video ? { video } : {}), ...(image ? { image } : {}),
           ...(subTag ? { sub: subTag } : {}) });
         if (answers) {
+          const was = await supa.row('submissions', `id=eq.${enc(answers)}&email=eq.${enc(e)}&select=status`).catch(() => null);
+          if (was && was.status === 'submitted') undo.subs.push(answers);
           await supa.update('submissions', `id=eq.${enc(answers)}&email=eq.${enc(e)}`, {
             status: 'reviewed', reviewed_at: nowISO(),
             reviewed_by: asking || primaryCoach(),
           });
+        }
+        if (added && added.id && (undo.rows.length || undo.subs.length)) {
+          await setSetting(`unsend:${added.id}`, undo).catch(() => {});
         }
 
         /* a reply is the thing clients are waiting for, so say so */

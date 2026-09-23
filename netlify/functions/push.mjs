@@ -28,23 +28,26 @@ function keys() {
   keysSet = true;
 }
 
-const keyOf = e => 'push:' + norm(e);
+/* `push` is a client's phones. `pushcoach` is a coach's own phones and
+   computers, kept apart so a coach who also trains in the app is not
+   sent their clients' news on the client side, or the other way round. */
+const keyOf = (e, ns) => (ns || 'push') + ':' + norm(e);
 
 /* the phones this person has allowed, and the days they train */
-export async function pushSubs(e) {
-  const r = await supa.row('settings', `key=eq.${enc(keyOf(e))}&select=value`).catch(() => null);
+export async function pushSubs(e, ns) {
+  const r = await supa.row('settings', `key=eq.${enc(keyOf(e, ns))}&select=value`).catch(() => null);
   const v = (r && r.value) || {};
   return Object.assign({}, v, { subs: Array.isArray(v.subs) ? v.subs : [] });
 }
-export async function pushSave(e, rec) {
-  await supa.upsert('settings', { key: keyOf(e), value: rec, updated_at: new Date().toISOString() }, 'key');
+export async function pushSave(e, rec, ns) {
+  await supa.upsert('settings', { key: keyOf(e, ns), value: rec, updated_at: new Date().toISOString() }, 'key');
 }
 
 /* Every phone they allowed. A phone that has turned notifications off, or
    been reset, answers 404 or 410, and is dropped so it is not tried again. */
-export async function pushSend(e, payload) {
+export async function pushSend(e, payload, ns) {
   if (!pushReady()) return { sent: 0, why: 'the notification keys are not set in Netlify' };
-  const rec = await pushSubs(e);
+  const rec = await pushSubs(e, ns);
   if (!rec.subs.length) return { sent: 0, none: true, why: 'no phone has notifications on' };
   keys();
   const body = JSON.stringify(payload || {});
@@ -62,7 +65,7 @@ export async function pushSend(e, payload) {
   }));
   if (gone.length) {
     rec.subs = rec.subs.filter(s => !gone.includes(s.endpoint));
-    await pushSave(e, rec).catch(() => {});
+    await pushSave(e, rec, ns).catch(() => {});
   }
   return { sent, why: sent ? '' : (lastErr || 'the phone has turned notifications off') };
 }
