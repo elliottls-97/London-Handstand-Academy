@@ -5503,29 +5503,41 @@ window.addEventListener('resize', function () {
           ['wrong', 'I can’t tell if my form is right', 'Nobody is watching me do it'],
           ['keep',  'I don’t stick with it',            'Two good weeks, then it drops off'],
           ['stuck', 'I’ve stopped getting better',      'Months of practice, not much progress']] },
-    { k: 'plan', h: 'A set plan, or tailored to you?', s: 'Be honest. The cheaper answer is sometimes the right one.',
-      o: [['set',   'A set plan',                  'Proven steps that work for most people'],
-          ['mine',  'Tailored to me',              'Built around you, and changed as you improve'],
-          ['close', 'Tailored, and kept on track', 'Checked on every week, so it gets done']] },
+    /* the press, shapes and one-arm are beyond the app for now, so the
+       advanced end is offered a class where the others get a set plan */
+    { k: 'plan', h: function(a){ return a.lvl === 'adv' ? 'A class, or tailored to you?' : 'A set plan, or tailored to you?'; },
+      s: 'Be honest. The cheaper answer is sometimes the right one.',
+      /* the small lines pick up what they said in the first two */
+      o: function(a){ return [
+          a.lvl === 'adv' ? ['set', 'A class', 'In London, in a small group, grouped by level']
+                          : ['set', 'A set plan', ({ 'new': 'Proven steps from your very first go', wall: 'Proven steps to get you off the wall',
+                                                     few: 'Proven steps to make the balance reliable' })[a.lvl] || 'Proven steps that work for most people'],
+          ['mine', 'Tailored to me', a.lvl === 'adv' ? 'Built around the skill you are after'
+            : ({ know: 'Written for you, so you never guess what to do', wrong: 'Written for you, with your form checked by me',
+                 keep: 'Written around your week, and changed as it changes', stuck: 'Written around the point where you are stuck' })[a.stop]
+              || 'Built around you, and changed as you improve'],
+          ['close', 'Tailored, and kept on track', a.stop === 'keep' ? 'Checked on every week, so it doesn’t drop off' : 'Checked on every week, so it gets done']]; } },
     { k: 'where', h: 'Online or in person?', s: 'In person means London.',
-      skip: function(a){ return a.plan === 'close'; },
+      skip: function(a){ return a.plan === 'close' || (a.plan === 'set' && a.lvl === 'adv'); },
       o: function(a){
-        var t = a.plan === 'set'
-          ? ['In the app, whenever it suits you', 'A class, in a small group', 'The app, and a class now and then']
-          : ['Your plan in the app, form checked by video', 'One to one with me', 'Online, plus a session with me each month'];
+        var fresh = a.lvl === 'new', t = a.plan === 'set'
+          ? [fresh ? 'In the app, starting from the very first step' : 'In the app, whenever it suits you',
+             fresh ? 'A class, at the wall with a coach beside you' : 'A class, in a small group, grouped by level',
+             'The app, and a class now and then']
+          : [a.stop === 'wrong' ? 'Your plan in the app, form checked every two weeks' : 'Your plan in the app, form checked by video',
+             a.lvl === 'adv' ? 'One to one with me, on the skill you are after' : fresh ? 'One to one with me, from your first go' : 'One to one with me, just you',
+             a.stop === 'keep' ? 'Online, plus a session each month to keep you going' : 'Online, plus a session with me each month'];
         return [['online', 'Online', t[0]], ['inperson', 'In person', t[1]], ['both', 'A mix of both', t[2]]];
       } }
   ];
   function opts(q){ return typeof q.o === 'function' ? q.o(fitA) : q.o; }
+  function head(q){ return typeof q.h === 'function' ? q.h(fitA) : q.h; }
   function fitDone(a){ return !!(a && a.plan && (a.where || a.plan === 'close')); }
-  /* The press, shapes and one-arm are where a template runs out, so the
-     advanced end is never sent to the app, whatever the last answer was. */
+  /* The advanced end is never sent to the app: a class, coaching, or one to one. */
   function fitPick(a){
     if (a.plan === 'close') return 'inner';
-    var k = a.plan === 'set'
-      ? ({ online: 'app', inperson: 'class', both: 'app' })[a.where] || 'app'
-      : ({ online: 'online', inperson: 'one', both: 'sess' })[a.where] || 'online';
-    return k === 'app' && a.lvl === 'adv' ? 'online' : k;
+    if (a.plan === 'set') return a.lvl === 'adv' ? 'class' : ({ online: 'app', inperson: 'class', both: 'app' })[a.where] || 'app';
+    return ({ online: 'online', inperson: 'one', both: 'sess' })[a.where] || 'online';
   }
   function plans(){
     var CO = W.CO_PLANS || { self: {} };
@@ -5591,8 +5603,6 @@ window.addEventListener('resize', function () {
     var line = said && !app
       ? 'You told me what you are after: <q>' + esc(said) + '</q>. <b>Block one is built around exactly that.</b>'
       : base;
-    /* they asked for the ready-made programme, and are being told otherwise */
-    if (fitA.plan === 'set' && !app) line = 'You asked for a set plan, but <b>the press, shapes and one-arm are where a set plan runs out</b>, so my honest suggestion is coaching. ' + line;
     return line;
   }
   function stopLine(stop, k){
@@ -5626,6 +5636,8 @@ window.addEventListener('resize', function () {
     /* in person but not sure yet: the class is the small first step */
     if ((k === 'one' || k === 'sess') && c)
       return 'Not sure yet? A class is the easier way to try it: <a data-act="class" href="' + esc(c.href) + '">' + esc(c.name) + ', ' + esc(c.when) + (c.price ? ', ' + esc(c.price) : '') + '</a>.';
+    if (k === 'class' && fitA.lvl === 'adv')
+      return 'A class gets your press or one-arm looked at. To build it into every week, <button type="button" data-act="plan" data-plan="online">see online coaching</button>.';
     if (k === 'class' && (stop === 'wrong' || stop === 'keep' || stop === 'stuck'))
       return 'If you want someone watching every week, not just once, <button type="button" data-act="plan" data-plan="online">see online coaching</button>.';
     if ((k === 'online' || k === 'sess') && stop === 'keep')
@@ -5657,8 +5669,8 @@ window.addEventListener('resize', function () {
     card.classList.remove('is-res'); box.classList.remove('is-done');
     stage.innerHTML = '<div class="' + (dir < 0 ? 'fit-in-back' : dir > 0 ? 'fit-in' : '') + '">'
       + '<div class="fit-n">Question ' + (fitI + 1) + ' of ' + FIT_Q.length + '</div>'
-      + '<h3 class="fit-h">' + q.h + '</h3><p class="fit-s">' + q.s + '</p>'
-      + '<div class="fit-opts" role="radiogroup" aria-label="' + esc(q.h) + '">'
+      + '<h3 class="fit-h">' + head(q) + '</h3><p class="fit-s">' + q.s + '</p>'
+      + '<div class="fit-opts" role="radiogroup" aria-label="' + esc(head(q)) + '">'
       + opts(q).map(function(o){
           var on = fitA[q.k] === o[0];
           return '<button type="button" role="radio" aria-checked="' + on + '" class="fit-opt' + (on ? ' is-on' : '')
