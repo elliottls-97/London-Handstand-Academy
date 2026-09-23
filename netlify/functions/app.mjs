@@ -823,13 +823,19 @@ export default async (request) => {
      Every route but the two that never mention a coach and are the ones
      under load: /ladder is fetched on every app open and the webhook is
      Stripe talking to itself. */
-  if (path !== '/ladder' && path !== '/stripe/webhook') {
-    try { COACHES_STORED = (await getSetting('coaches')) || {}; } catch { COACHES_STORED = {}; }
-  }
+  /* ── one read for what every request needs ──────────────────────
+     The coaches, the prices, the roster and who has a programme were
+     four reads, three of them one after another, before a route did
+     anything. Netlify bills a request by how long it runs, and this was
+     most of the time of the small ones the chat asks for every few
+     seconds. They are fetched together now. */
+  const [BOOT, BOOT_PLANS] = await Promise.all([
+    settingsMany(['coaches', 'prices', 'roster']),
+    supa.rows('settings', 'key=like.programme%3A*&select=key').catch(() => []),
+  ]);
+  if (path !== '/ladder' && path !== '/stripe/webhook') COACHES_STORED = BOOT.coaches || {};
   /* the prices, for every route that names one; the webhook needs them too */
-  if (path !== '/ladder') {
-    try { PRICES_STORED = (await getSetting('prices')) || {}; } catch { PRICES_STORED = {}; }
-  }
+  if (path !== '/ladder') PRICES_STORED = BOOT.prices || {};
   /* ── the prices ───────────────────────────────────────────────────
      They lived in five places: the Stripe price ids in Netlify, the
      payment links, the amount-to-plan map in the webhook, the app's copy
@@ -1200,11 +1206,8 @@ export default async (request) => {
      dashboard is live immediately rather than at the next deploy. */
   ROSTER = await (async () => {
     const seed = parseClients();
-    const [stored0, planRows] = await Promise.all([
-      getSetting('roster'),
-      supa.rows('settings', 'key=like.programme%3A*&select=key').catch(() => []),
-    ]);
-    const stored = stored0 || {};
+    const stored = BOOT.roster || {};
+    const planRows = BOOT_PLANS;
     const byEmail = new Map(seed.map(c => [c.email, c]));
     REMOVED = new Set();
     for (const [e, v] of Object.entries(stored)) {

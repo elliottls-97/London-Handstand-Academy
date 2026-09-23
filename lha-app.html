@@ -5683,11 +5683,13 @@ function loadThread(){
   /* only the chat itself counts as reading it: a check from another screen
      says so, and the coach's replies stay unread until they are looked at */
   const reading=!document.hidden && onChatScreen();
+  threadAskedAt=Date.now();
   fetch(AUTH.messages+(reading?'':'?read=0'),{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
     if(!d||!d.messages) return;
     const wasTyping=Date.now()-chatTypingAt<8000;
     chatTypingAt=Number(d.typing)||0;
     const typingMoved=wasTyping!==(Date.now()-chatTypingAt<8000);
+    if(Date.now()-chatTypingAt<8000) chatHot();
     const next=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,
       ...(m.id?{id:m.id}:{}),...(m.re?{re:m.re}:{}),
       ...(m.video?{video:m.video}:{}),...(m.image?{image:m.image}:{}),
@@ -5717,6 +5719,7 @@ function loadThread(){
       m.pending?1:0, m.failed?1:0, m.emailed?1:0, m.seen?1:0]));
     const same=shape(merged)===shape(st.msgs);
     const added=Math.max(0, merged.length-(st.msgs||[]).length);
+    if(!same && onChatScreen()) chatHot();
     st.msgs=merged; save();
     const onChat = !document.hidden && onChatScreen();
     if(onChat) markChatSeen();
@@ -6367,6 +6370,14 @@ function sendClip(file){
    in, only the list of messages is redrawn, so the box being typed into
    and the keyboard over it are never touched. */
 let chatReplyTo='', chatTypingAt=0, chatSeenAtOpen=0, chatNewBelow=0, chatTypePing=0;
+/* ── fast only while it is a conversation ───────────────────────────
+   Every check is a request Netlify bills by the second, and a chat left
+   open asking every three seconds costs about a credit an hour. It asks
+   that often only while something is happening: a message either way,
+   either of you typing, in the last minute. Otherwise every fifteen
+   seconds, and a notification arriving fetches at once in any case. */
+let chatHotUntil=0, threadAskedAt=0;
+const chatHot = () => { chatHotUntil=Date.now()+60000; };
 const CH_TICK='<svg width="16" height="11" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2 12 1.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CH_TICKS='<svg width="18" height="11" viewBox="0 0 18 11" aria-hidden="true"><path d="M1 5.8 4.4 9.2 11.4 1.8M7.6 8.6l.6.6 7.2-7.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CH_CLOCK='<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
@@ -6474,6 +6485,7 @@ const chTouch = () => { try{ return matchMedia('(hover:none) and (pointer:coarse
 function chatKey(e){ if(e.key==='Enter' && !e.shiftKey && !chTouch()){ e.preventDefault(); sendAsk(); } }
 function chatTyping(){
   if(!st.token || st.preview || !String(askDraft||'').trim()) return;
+  chatHot();
   if(Date.now()-chatTypePing<4000) return;
   chatTypePing=Date.now();
   fetch(AUTH.typing,{method:'POST',headers:authed()}).catch(()=>{});
@@ -6579,7 +6591,7 @@ function chUp(){
 }
 /* arriving on the chat: note what was unread, then land on the newest */
 function chatOpened(){
-  chatSeenAtOpen=st.seenMsgAt||0;
+  chatSeenAtOpen=st.seenMsgAt||0; chatHot();
   setTimeout(()=>{ const g=document.getElementById('askIn'); if(g) chatGrow(g); chatFit(); chatToEnd(false); }, 60);
 }
 
@@ -6646,7 +6658,7 @@ function sendAsk(retryText){
   st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now',pending:true,pid:id,at:Date.now(),...(re?{re}:{})}]);
   save();
   if(retryText==null){ chatReply(''); if(el) chatGrow(el); }
-  chatTypePing=0;
+  chatTypePing=0; chatHot();
   if(document.getElementById('chatList')){ repaintChat(); chatToEnd(true); } else render();
   fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text, ...(re?{re}:{})})})
     .then(r=>{
@@ -15631,11 +15643,18 @@ document.addEventListener('DOMContentLoaded',function(){
   setInterval(()=>{
     if(!st.token || document.hidden || st.preview) return;
     const onChat = onChatScreen();
-    if(st.in && Date.now()-lastTrackPoll>=60000) pollTrack();
-    /* a chat is live while it is open: a reply, and the dots while one is
-       being written, arrive within a few seconds, as they do in a chat app */
-    if(onChat){ loadThread(); if(Date.now()-lastPoll>=30000){ lastPoll=Date.now(); loadSubmissions(); } return; }
-    if(Date.now()-lastPoll<60000) return;
+    if(st.in && Date.now()-lastTrackPoll>=120000) pollTrack();
+    /* a chat in conversation is live: a reply, and the dots while one is
+       being written, arrive within a few seconds, as in a chat app. A chat
+       sitting open asks every fifteen seconds; a notification still
+       fetches at once. Elsewhere, every two minutes. */
+    if(onChat){
+      const gap = Date.now()<chatHotUntil ? 3000 : 15000;
+      if(Date.now()-threadAskedAt>=gap-250) loadThread();
+      if(Date.now()-lastPoll>=60000){ lastPoll=Date.now(); loadSubmissions(); }
+      return;
+    }
+    if(Date.now()-lastPoll<120000) return;
     lastPoll=Date.now(); loadThread(); loadSubmissions();
   },3000);
   /* coming back to the app is when news is most likely waiting: the phone

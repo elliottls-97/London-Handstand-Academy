@@ -505,7 +505,7 @@ function signIn(ev){
 }
 
 function load(){
-  clientsAt=Date.now();
+  clientsAt=extrasAt=Date.now();
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[]; clientsLoaded=true;
@@ -595,6 +595,7 @@ function loadCoachThread(email, quiet){
       const next=d.messages||[];
       const wasT=Date.now()-dTypingAt<8000;
       if(threadFor===email) dTypingAt=Number(d.typing)||0;
+      if(threadFor===email && Date.now()-dTypingAt<8000) dHot();
       const typingMoved=threadFor===email && wasT!==(Date.now()-dTypingAt<8000);
       /* Blobs takes up to ~15s to propagate, so a read straight after a reply
          comes back without it. Re-append anything not echoed yet instead of
@@ -617,6 +618,7 @@ function loadCoachThread(email, quiet){
       threadCache[email]=next;
       if(threadFor!==email) return;
       const same=shape(merged)===shape(thread) && threadLoaded;
+      if(!same && threadLoaded) dHot();
       thread=merged; threadLoaded=true;
       const c=clients.find(x=>x.email===email);
       const cleared=!!(reading&&c&&c.unread); if(reading&&c) c.unread=0;
@@ -637,12 +639,16 @@ function loadCoachThread(email, quiet){
    was open appeared only after a refresh. Every thirty seconds while
    the window is in front, straight away on coming back to it, and the
    moment a notification about a client arrives. */
-let queueAt=0, clientsAt=0;
+let queueAt=0, clientsAt=0, extrasAt=0;
 function freshen(force){
   if(!TOKEN || document.hidden) return;
-  const now=Date.now();
-  if(force || now-queueAt>=30000){ queueAt=now; loadQueue(); loadQuestions(); loadSessions(); }
-  if(force || now-clientsAt>=(view==='chats'?8000:60000)){ clientsAt=now; refreshClients(); }
+  const now=Date.now(), here=coachHere();
+  /* a minute while you are here, five when you are not; a notification
+     about a client, or coming back to the window, fetches straight away */
+  if(force || now-queueAt>=(here?60000:300000)){ queueAt=now; loadQueue(); }
+  if(force || now-extrasAt>=300000){ extrasAt=now; loadQuestions(); loadSessions(); }
+  const cGap = view==='chats' ? (here?20000:120000) : (here?120000:600000);
+  if(force || now-clientsAt>=cGap){ clientsAt=now; refreshClients(); }
 }
 function refreshClients(){
   fetch(API+'/clients',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{
@@ -666,9 +672,18 @@ function drawSoon(){ if(drawQueued) return; drawQueued=true;
 setInterval(()=>{
   if(document.hidden || view!=='client' || !sel || !TOKEN) return;
   if(threadFor!==sel || !threadLoaded) return;
-  /* live while the chat is on screen, as a chat app is; the rest of the
-     client screen checks now and then */
-  if(Date.now()-threadPollAt<(ctab==='thread'?3500:15000)) return;
+  /* ── what a check costs ─────────────────────────────────────────
+     Each one is a request Netlify bills by the second. A thread asked
+     every few seconds all day is about four credits an hour, most of a
+     month's allowance on the personal plan. So it is every few seconds
+     only in conversation (a message or typing either way in the last
+     minute), every twenty while you are at the dashboard, every minute
+     and a half when the window is open but you are not, and not at all
+     when it is hidden. A notification about them fetches at once. */
+  const gap = ctab!=='thread' ? 60000
+    : Date.now()<dHotUntil ? 3500
+    : coachHere() ? 20000 : 90000;
+  if(Date.now()-threadPollAt<gap) return;
   loadCoachThread(sel, true);
 }, 1500);
 
@@ -2330,7 +2345,7 @@ function reply(answers){
   const sub=answers?openSub(to):null;
   const was = sub ? {subs:(subs[to]||[]).slice(), queue:queue.slice(), pick:answerFor[to]} : null;
   const id=coachMsgId();
-  const re=dReplyTo; dReplyTo=''; dTypePing=0;
+  const re=dReplyTo; dReplyTo=''; dTypePing=0; dHot();
   pendingCoach.push({id,email:to,text,at:Date.now(),...(re?{re}:{})});
   thread.push({from:'coach',text,at:Date.now(),pid:id,...(re?{re}:{})});
   if(sub){ subs[to]=(subs[to]||[]).map(s=>s.id===sub.id
@@ -6701,11 +6716,12 @@ function openClient(email, tab){
   if(view!=='client') cameFrom=(view==='today'?'today':view==='chats'?'chats':'clients');
   ctab=tab||'thread'; moreOpen=false; attachOpen=false; progMore=false;
   view='client';
+  if(ctab==='thread') dHot();          /* opening a chat is starting a conversation */
   openThread(email);              /* sets sel, draws, and fetches the rest */
   window.scrollTo(0,0);
 }
 function goBack(){ go(cameFrom==='today'?'today':cameFrom==='chats'?'chats':'clients'); }
-function setCtab(t){ ctab=t; moreOpen=false; attachOpen=false; draw();
+function setCtab(t){ ctab=t; moreOpen=false; attachOpen=false; if(t==='thread') dHot(); draw();
   if(t==='thread' && sel) loadCoachThread(sel, true); }
 function closeMenus(){ moreOpen=false; attachOpen=false; draw(); }
 function flash(t){ toastMsg=t; clearTimeout(toastT);
@@ -9275,6 +9291,9 @@ function toastHTML(){
    reply that quotes what it answers. Hover a bubble for its menu, or
    right click it: reply, copy, and take back your own. */
 let dTypingAt=0, dReplyTo='', dTypePing=0;
+/* fast only while it is a conversation: see the poll below */
+let dHotUntil=0;
+const dHot = () => { dHotUntil=Date.now()+60000; };
 const D_TICK='<svg width="16" height="11" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2 12 1.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const D_TICKS='<svg width="18" height="11" viewBox="0 0 18 11" aria-hidden="true"><path d="M1 5.8 4.4 9.2 11.4 1.8M7.6 8.6l.6.6 7.2-7.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const D_CLOCK='<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
@@ -9374,6 +9393,7 @@ function dPhoto(id){
 }
 /* they see "typing" while you write, as you see theirs */
 function dTyping(){
+  if(sel) dHot();
   if(!sel || !String(drafts[sel]||'').trim() || Date.now()-dTypePing<4000) return;
   dTypePing=Date.now();
   fetch(API+'/typing',{method:'POST',headers:hdr(),body:JSON.stringify({email:sel})}).catch(()=>{});
