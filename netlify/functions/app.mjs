@@ -3460,7 +3460,7 @@ export default async (request) => {
                a verdict is a new reading, not a correction. */
             if (last.verdict && row.video !== last.video) hist.push(row);
             else {
-              if (last.verdict) ['verdict', 'note', 'by', 'verdictAt', 'watchedAt']
+              if (last.verdict) ['verdict', 'note', 'by', 'verdictAt', 'watchedAt', 'undone']
                 .forEach(f => { if (last[f] != null) row[f] = last[f]; });
               hist[hist.length - 1] = row;
             }
@@ -5768,8 +5768,11 @@ export default async (request) => {
         rows = tr.checkpoints[k] = [{ v: Number.isFinite(v0) && v0 >= 0 && v0 <= 100000 ? v0 : 0, at: Date.now() }];
       }
       const by = asking || primaryCoach();
+      /* taking a sign-off back leaves a mark saying so, and the app treats
+         it as no verdict at all rather than as "not there yet" */
+      const undo = !!body.quiet && verdict === 'notyet';
       const stamp = r => Object.assign({}, r,
-        { verdict, note, by, verdictAt: Date.now(), watchedAt: Date.now() });
+        { verdict, note, by, verdictAt: Date.now(), watchedAt: Date.now(), undone: undo || undefined });
       let hit = false;
       tr.checkpoints[k] = rows.map(r => (uid && r && r.video === uid) ? (hit = true, stamp(r)) : r);
       if (!hit) {
@@ -5927,7 +5930,7 @@ export default async (request) => {
               touched = true;
               return Object.assign({}, r, { replyAt: now, watchedAt: r.watchedAt || now },
                 a.verdict ? { verdict: a.verdict, note: r.verdict === a.verdict ? (r.note || '') : '',
-                              by, verdictAt: now } : {});
+                              by, verdictAt: now, undone: undefined } : {});
             });
           }
           if (touched) { await setSetting(tkey, tr); cpsOut = tr.checkpoints; }

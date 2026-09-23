@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v148';
+const CACHE_VERSION = 'lha-v149';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -162,7 +162,10 @@ self.addEventListener('notificationclick', event => {
   try { go = new URL(url, self.location.origin).searchParams.get('go') || ''; } catch (e) {}
   event.waitUntil((async () => {
     const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const app = open.find(c => /\/lha-app\.html/.test(c.url));
+    /* the app itself, not the copy of a client's app the dashboard shows in
+       a frame for the coach */
+    const app = open.find(c => /\/lha-app\.html/.test(c.url)
+      && c.frameType !== 'nested' && !/[?&]preview=/.test(c.url));
     if (app) {
       try { await app.focus(); } catch (e) {}
       app.postMessage({ type: 'lha-go', go });

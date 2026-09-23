@@ -2002,7 +2002,9 @@ function reviewAns(uid, v){
   const c=reviewQueue.find(x=>x.uid===uid); if(c) c.ans=v; syncReview();
 }
 function reviewAnswers(){
-  return reviewQueue.filter(c=>c.uid && (c.ans||'reply')!=='skip')
+  /* 'done' is a clip an earlier recording in this session already answered:
+     counting it again put the second video on the first one's check points */
+  return reviewQueue.filter(c=>c.uid && !['skip','done'].includes(c.ans||'reply'))
     .map(c=>({uid:c.uid, verdict:(c.ans==='reached'||c.ans==='notyet')?c.ans:''}));
 }
 /* the check point a clip belongs to, if it is one */
@@ -7215,7 +7217,7 @@ function cpStand(email, k){
   const hist=(((tracks[email]||{}).checkpoints)||{})[k.k]||[];
   const last=hist[hist.length-1]||null;
   const clip=hist.filter(r=>r&&r.video).slice(-1)[0]||null;
-  let s0=null; for(let i=hist.length-1;i>=0;i--){ if(hist[i]&&hist[i].verdict){ s0=hist[i]; break; } }
+  let s0=null; for(let i=hist.length-1;i>=0;i--){ if(hist[i]&&hist[i].verdict){ s0=hist[i].undone?null:hist[i]; break; } }
   const K=(typeof CP_KIND!=='undefined' && CP_KIND[k.kind])||{};
   const lower=k.lower!=null?!!k.lower:!!K.lower;
   const tgt=Number(k.target)>0?Number(k.target):null;
@@ -7285,7 +7287,7 @@ function marksPaneHTML(){
           <span style="font:600 12.5px/1.4 var(--sans);color:var(--forest)">You signed this off${when(s0)}${
             s0.note?': '+esc(s0.note):''}. It is green in their app.</span>
           <button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
-            onclick="if(confirm('Take the sign-off back? It goes back to not there yet, and they are not emailed.'))cpVerdict('${esc(sel)}','${esc(k.k)}','','notyet',true)">Take it back</button></div>`
+            onclick="if(confirm('Take the sign-off back? It goes back to how it was before, and they are not told.'))cpVerdict('${esc(sel)}','${esc(k.k)}','','notyet',true)">Take it back</button></div>`
       : state==='notyet'
       ? `<div style="font:600 12.5px/1.4 var(--sans);color:var(--terra);margin-top:10px">You said not there yet${
           when(s0)}${s0.note?': '+esc(s0.note):''}</div>`

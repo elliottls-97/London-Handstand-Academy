@@ -3271,7 +3271,7 @@ function saveCheckpoint(k,v,video){
     /* Elliott's verdict sits on that row, and a second nudge wiped it */
     if(lastRow.verdict && row.video!==lastRow.video) hist.push(row);
     else {
-      if(lastRow.verdict) ['verdict','note','by','verdictAt','watchedAt']
+      if(lastRow.verdict) ['verdict','note','by','verdictAt','watchedAt','undone']
         .forEach(f=>{ if(lastRow[f]!=null) row[f]=lastRow[f]; });
       hist[hist.length-1]=row;
     }
@@ -3358,7 +3358,8 @@ function cpHit(c, v){
 /* the coach's latest word on this check point, on whichever row it is */
 function cpSigned(k){
   const h=cpLog()[k]||[];
-  for(let i=h.length-1;i>=0;i--){ if(h[i] && h[i].verdict) return h[i]; }
+  /* a sign-off taken back is marked undone: as though none was given */
+  for(let i=h.length-1;i>=0;i--){ if(h[i] && h[i].verdict) return h[i].undone ? null : h[i]; }
   return null;
 }
 /* ── a coached check point is signed off, not self scored ────────────
@@ -3959,7 +3960,7 @@ function myClips(){
     if(!r||!r.video) return;
     add({uid:r.video, at:r.at||0, what:'Check point', which:nameOf(k),
          value:(r.v!=null?String(r.v):''),
-         verdict:r.verdict||'', note:r.note||'', by:r.by||'', answeredAt:r.verdictAt||0});
+         verdict:r.undone?'':(r.verdict||''), note:r.undone?'':(r.note||''), by:r.by||'', answeredAt:r.undone?0:(r.verdictAt||0)});
   }));
 
   /* a test or a form check is answered as a whole, so the answer hangs off
@@ -14761,7 +14762,8 @@ async function pushTurnOn(){
     pushPaint(); render(); return;
   }
   try{
-    const reg=await navigator.serviceWorker.ready;
+    const reg=await Promise.race([navigator.serviceWorker.ready,
+      new Promise((_,no)=>setTimeout(()=>no(new Error('the app is still setting up on this phone. Close it, open it again and try once more')), 10000))]);
     const k=await fetch(AUTH.pushKey).then(r=>r.json());
     if(!k || !k.key){ toast('Notifications are not set up yet.'); return; }
     let sub=await reg.pushManager.getSubscription();
