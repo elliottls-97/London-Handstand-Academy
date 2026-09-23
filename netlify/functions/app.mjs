@@ -59,7 +59,7 @@ const parseClients = () => (process.env.CLIENTS || '')
   .filter(c => c.email);
 
 let ROSTER = null;                 /* set once per request, never across them */
-let REMOVED = new Set();           /* taken off the roster on purpose, this request */
+let PLANNED = new Set();           /* everyone with a programme, this request */
 const rosterList = () => ROSTER || parseClients();
 const clients = () => Object.fromEntries(rosterList().map(c => [c.email, c.name]));
 
@@ -551,7 +551,10 @@ async function ensureAcct(e, name) {
    answers, and now re:<id> for the message it quotes, as in a chat app.
    Only the first kind is a clip. */
 const tagsOf = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
-const clipTags = s => tagsOf(s).filter(t => !t.startsWith('re:'));
+/* 'auto' marks a message the app sent in the coach's name (a welcome, a
+   receipt): it is not the coach answering anybody */
+const clipTags = s => tagsOf(s).filter(t => !t.startsWith('re:') && t !== 'auto');
+const isAuto = s => tagsOf(s).includes('auto');
 const quoteOf = s => (tagsOf(s).find(t => t.startsWith('re:')) || '').slice(3);
 async function threadLoad(db, who) {
   const rows = await supa.rows('messages',
@@ -795,7 +798,7 @@ const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
 async function rosterRows() {
   const [accounts, msgs, subs] = await Promise.all([
     supa.rows('accounts', 'select=email,name,last_seen&order=last_seen.desc'),
-    supa.rows('messages', 'select=email,created_at,sender,read_at,body,video,image&order=created_at.asc'),
+    supa.rows('messages', 'select=email,created_at,sender,read_at,body,video,image&order=created_at.desc'),
     supa.rows('submissions', 'select=email'),
   ]);
 
@@ -809,15 +812,15 @@ async function rosterRows() {
     active.add(m.email);
     latest[m.email] = Math.max(latest[m.email] || 0, ms(m.created_at));
     if (m.sender === 'client' && !m.read_at) counts[m.email] = (counts[m.email] || 0) + 1;
-    /* in order, so the last one written is the last one said */
-    lastMsg[m.email] = { from: m.sender, text: String(m.body || '').slice(0, 120),
+    /* newest first, so the first one seen is the last one said */
+    if (!lastMsg[m.email]) lastMsg[m.email] = { from: m.sender, text: String(m.body || '').slice(0, 120),
       video: !!m.video, image: !!m.image, at: ms(m.created_at), seen: !!m.read_at };
   }
   for (const s of (subs || [])) active.add(s.email);
 
   const byEmail = {};
   for (const a of (accounts || [])) {
-    if (!active.has(a.email) && !clients()[a.email]) continue;
+    if (!active.has(a.email) && !clients()[a.email] && !PLANNED.has(a.email)) continue;
     byEmail[a.email] = { email: a.email, name: a.name || a.email.split('@')[0],
       last: Math.max(ms(a.last_seen), latest[a.email] || 0),
       unread: counts[a.email] || 0, ...(lastMsg[a.email] ? { lastMsg: lastMsg[a.email] } : {}) };
@@ -1011,7 +1014,7 @@ export default async (request) => {
       const off = (await getSetting('mailoff')) || {};
       if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
       try {
-        await threadAdd(db, e, { from: 'coach', by: primaryCoach(),
+        await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
           text: `Thanks, your ${kind} minute session is paid for. ${prefs ? 'You said: "' + prefs + '". ' : ''}I will check the room at OverGravity against that and come back here with a time within 48 hours. If anything changes, say so here.` });
       } catch {}
       await email(e, `Your ${kind} minute session: sorting the time`,
@@ -1140,7 +1143,7 @@ export default async (request) => {
         const opener = boughtPlan === 'check'
           ? `Welcome${first ? ' ' + first : ''}. You are set up for form checks. Send a clip here whenever you have one: film from the side, whole body in frame, and I will come back with what to change, in writing, against your own footage.`
           : `Welcome${first ? ' ' + first : ''}. Before I write block one I need to see where you are. Film two things, from the side with your whole body in frame: a chest-to-wall hold for as long as you can, and one freestanding attempt, however it goes. Send them here and I will build the first two weeks from them.`;
-        try { await threadAdd(db, e2, { from: 'coach', text: opener }); } catch {}
+        try { await threadAdd(db, e2, { from: 'coach', sub: 'auto', text: opener }); } catch {}
         await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
           mail({ title: `Someone just bought ${tierName}.`,
             paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster and has an opening message in their thread asking for a baseline clip.`,
@@ -1222,56 +1225,24 @@ export default async (request) => {
   ROSTER = await (async () => {
     const seed = parseClients();
     const stored = BOOT.roster || {};
-    const planRows = BOOT_PLANS;
     const byEmail = new Map(seed.map(c => [c.email, c]));
-    REMOVED = new Set();
     for (const [e, v] of Object.entries(stored)) {
       const email = norm(e);
-      if (!email) continue;
-      if (v === null) { byEmail.delete(email); REMOVED.add(email); continue; }
+      if (!email || v === null) { byEmail.delete(email); continue; }
       byEmail.set(email, { email, name: String(v.name || email).slice(0, 60),
                            coach: norm(v.coach || '') });
     }
-    /* ── a programme makes a client ─────────────────────────────────
-       The app has always counted someone with a written programme as
-       coached, and the dashboard counted only the roster, so an account
-       given a programme without being added showed as an enquiry on one
-       screen and a client on the other. They are added to the roster the
-       first time this sees them, under the name on their account, and
-       from then on both screens agree. Taking someone off the roster
-       marks them removed, so this does not put them back. */
-    const planned = new Set((planRows || []).map(r => norm(String(r.key || '').slice('programme:'.length)))
-      .concat(Object.keys(programmes.clients || {}).map(norm)));
-    const missing = [...planned].filter(e => e && e.includes('@') && !byEmail.has(e) && !REMOVED.has(e));
-    if (missing.length) {
-      const accts = (await supa.rows('accounts',
-        `email=in.(${enc(missing.map(e => '"' + e + '"').join(','))})&select=email,name`).catch(() => [])) || [];
-      let added = 0;
-      for (const a of accts) {
-        const email = norm(a.email);
-        if (!email || byEmail.has(email)) continue;
-        const name = String(a.name || email.split('@')[0]).slice(0, 60);
-        byEmail.set(email, { email, name, coach: '' });
-        stored[email] = { name, coach: '' };
-        added++;
-      }
-      if (added) {
-        await setSetting('roster', stored).catch(() => {});
-        /* Joining the roster puts someone behind the client email guard,
-           which is there for two specific people. These were getting their
-           emails and notifications until now, and still do: allowed through
-           by name, as a paying sign-up is, and silenced from their thread
-           like anyone. */
-        try {
-          const off = (await getSetting('mailoff')) || {};
-          let changed = false;
-          for (const a of accts) { const em = norm(a.email); if (em && off[em] === undefined && stored[em]) { off[em] = false; changed = true; } }
-          if (changed) await setSetting('mailoff', off);
-        } catch {}
-      }
-    }
     return Array.from(byEmail.values());
   })();
+  /* ── who has a programme ─────────────────────────────────────────
+     The app counts someone with a written programme as coached, and the
+     dashboard counted only the roster, so an account given a programme
+     without being added was a client on one screen and an enquiry on the
+     other. The dashboard now counts them the same way and says they are
+     not on the list, with a button to add them. Nobody is added on their
+     own: a client taken off the roster who still has a programme stays off. */
+  PLANNED = new Set((BOOT_PLANS || []).map(r => norm(String(r.key || '').slice('programme:'.length)))
+    .concat(Object.keys(programmes.clients || {}).map(norm)).filter(e => e && e.includes('@')));
 
   /* Someone with a written programme is a coached client, whatever the
      roster says. Being coached was read off the roster alone, so an email
@@ -1280,7 +1251,7 @@ export default async (request) => {
      is the more reliable fact of the two, so either one counts. */
   const hasPlan = async e =>
     !!(programmes.clients[e] || (await getSetting(`programme:${e}`)));
-  const isCoached = async e => !REMOVED.has(norm(e)) && (!!clients()[e] || await hasPlan(e));
+  const isCoached = async e => !!clients()[e] || await hasPlan(e);
 
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   /* a coach signs in with their own email and password like anyone else;
@@ -1477,7 +1448,7 @@ export default async (request) => {
          asking if they have a question. It is the cheapest conversation
          starter there is and it was not being started. */
       try {
-        await threadAdd(db, e, { from: 'coach',
+        await threadAdd(db, e, { from: 'coach', sub: 'auto',
           text: `Welcome to the ladder. I'm ${coachName(primaryCoach())}, I coach the people this app is built around. If anything about your handstand is confusing, or you want to know what to work on, ask it here. It comes straight to me.` });
       } catch {}
       /* to them, not only to the coach. Transactional: it says what the
@@ -4721,7 +4692,7 @@ export default async (request) => {
       if (want.includes('chat')) {
         await supa.remove('messages', `email=eq.${enc(e)}`);
         const nm = (clients()[e] || '').split(' ')[0];
-        await threadAdd(db, e, { from: 'coach',
+        await threadAdd(db, e, { from: 'coach', sub: 'auto',
           text: `Hi${nm ? ' ' + nm : ''}, this is where we talk. Send me a clip, a question, `
               + `or how a session went, and I will come back to you here.` });
         done.push('chat');
@@ -5044,9 +5015,8 @@ export default async (request) => {
         if (body.remove) {
           /* a seeded client cannot simply be dropped from the object — the
              variable would put them straight back, so mark the removal */
-          /* marked, not deleted, seeded or not: a client with a programme
-             would otherwise be put straight back on by the roster check */
-          stored[e] = null;
+          const seeded = parseClients().some(c => c.email === e);
+          if (seeded) stored[e] = null; else delete stored[e];
         } else {
           if (Object.keys(stored).length >= 200) return json({ error: 'Roster is full' }, 400);
           stored[e] = { name: String(body.name || '').slice(0, 60) || e,
@@ -5151,9 +5121,12 @@ export default async (request) => {
            live threw it away. Same check point, no target in the draft: the
            live one's target comes across. */
         const liveCps = live.checkpoints || [];
+        /* only when the live one was changed after the draft was last saved:
+           a target cleared in the draft on purpose stays cleared */
+        const liveNewer = (Number(live.editedAt) || 0) > (Number(d.at) || 0);
         const cps = (d.prog.checkpoints || []).map(c => {
           const was = liveCps.find(x => x && c && x.k === c.k);
-          return (was && !(Number(c.target) > 0) && Number(was.target) > 0)
+          return (liveNewer && was && !c.measure && !(Number(c.target) > 0) && Number(was.target) > 0)
             ? Object.assign({}, c, { target: was.target, lower: c.lower != null ? c.lower : was.lower, unit: c.unit || was.unit || '' }) : c;
         });
         const next = Object.assign({}, d.prog, { label: d.label || `Block ${n + 1}`, editedAt: Date.now(),
@@ -5850,15 +5823,21 @@ export default async (request) => {
          once, whoever is on the list. */
       const roster = await rosterRows();
       const mine = Object.keys(roster).filter(e => owns(e));
-      const coached = mine.filter(e => clients()[e]);
+      const coached = mine.filter(e => clients()[e] || PLANNED.has(e));
       const inList = list => enc(list.map(e => '"' + e + '"').join(','));
       const keys = [];
       for (const e of mine) keys.push(`msgdone:${e}`);
       for (const e of coached) keys.push(`track:${e}`, `programme:${e}`, `saidseen:${e}`, `cpseen:${e}`, `trainseen:${e}`);
       const since60 = new Date(Date.now() - 60 * 864e5).toISOString();
-      const [S, msgs, progRows, waiting, known] = await Promise.all([
+      /* The database hands back a thousand rows at most, and it was asked
+         for every message of the last sixty days oldest first, welcomes to
+         every sign-up included: past a thousand, the newest, which are the
+         ones Today is for, were the ones left off. Clients' messages only,
+         newest first; the coach's replies are asked for below, for just the
+         people who have written. */
+      const [S, msgsDesc, progRows, waiting, known] = await Promise.all([
         settingsMany(keys),
-        supa.rows('messages', `created_at=gte.${enc(since60)}&select=id,email,sender,body,video,image,submission,read_at,created_at&order=created_at.asc`),
+        supa.rows('messages', `sender=eq.client&created_at=gte.${enc(since60)}&select=id,email,sender,body,video,image,submission,read_at,created_at&order=created_at.desc&limit=1000`),
         coached.length ? supa.rows('progress', `email=in.(${inList(coached)})&select=email,feedback,sessions`) : [],
         supa.rows('submissions', 'status=eq.submitted&select=*&order=created_at.asc'),
         coached.length ? supa.rows('submissions', `email=in.(${inList(coached)})&select=email,clips`) : [],
@@ -5873,13 +5852,20 @@ export default async (request) => {
          you reply, or say it needs no reply. A clip in the chat has its
          own review row, so only the words are counted here. */
       const byWho = {};
-      for (const m of (msgs || [])) (byWho[m.email] = byWho[m.email] || []).push(m);
-      for (const e of mine) {
+      for (const m of (msgsDesc || []).slice().reverse()) (byWho[m.email] = byWho[m.email] || []).push(m);
+      const wrote = Object.keys(byWho).filter(e => mine.includes(e));
+      const lastReply = {};
+      if (wrote.length) {
+        for (const m of (await supa.rows('messages', `sender=eq.coach&email=in.(${inList(wrote)})&created_at=gte.${enc(since60)}&select=email,submission,created_at&order=created_at.desc&limit=1000`)) || []) {
+          if (isAuto(m.submission) || lastReply[m.email]) continue;
+          lastReply[m.email] = ms(m.created_at);
+        }
+      }
+      for (const e of wrote) {
         const list = byWho[e] || [];
         if (!list.length) continue;
-        let after = Number(S[`msgdone:${e}`]) || 0;
-        for (const m of list) if (m.sender === 'coach') after = Math.max(after, ms(m.created_at));
-        const wait = list.filter(m => m.sender === 'client' && !clipTags(m.submission).length && ms(m.created_at) > after);
+        const after = Math.max(Number(S[`msgdone:${e}`]) || 0, lastReply[e] || 0);
+        const wait = list.filter(m => !clipTags(m.submission).length && ms(m.created_at) > after);
         if (!wait.length) continue;
         const lastM = wait[wait.length - 1];
         out.push({ email: e, name: nameOf(e), coached: !!clients()[e],
@@ -6305,7 +6291,9 @@ export default async (request) => {
       const roster = await rosterRows();
       const rows = Object.values(roster)
         .filter(r => owns(r.email))
-        .map(r => ({ ...r, coached: !!clients()[r.email],
+        .map(r => ({ ...r, coached: !!clients()[r.email] || PLANNED.has(r.email),
+          /* coached in the app by their programme, not on the list here */
+          ...(!clients()[r.email] && PLANNED.has(r.email) ? { planOnly: true } : {}),
           ...(clients()[r.email] ? { coach: coachOf(r.email) } : {}) }));
       /* the dashboard asks this first, so it is where it learns whether the
          person signed in owns the business. It hides the money panels on
