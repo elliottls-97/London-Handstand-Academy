@@ -4324,7 +4324,7 @@ export default async (request) => {
       }
 
       if (body.session && body.session.day != null) {
-        p.sessions = (p.sessions || []).concat([{
+        const row = {
           day: body.session.day,
           name: String(body.session.name || '').slice(0, 60),
           done: !!body.session.done,
@@ -4362,11 +4362,34 @@ export default async (request) => {
              stamped now. */
           mode: String(body.session.mode || '').slice(0, 20),
           kind: ['all', 'part', 'none'].includes(body.session.kind) ? body.session.kind : '',
+          mode: ['plan', 'ticks', 'checkin', 'manual', 'player'].includes(body.session.mode) ? body.session.mode : '',
           at: (() => {
             const t = Number(body.session.at) || 0;
             return (t > now - 8 * 24 * 60 * 60 * 1000 && t <= now) ? t : now;
           })(),
-        }]).slice(-200);
+        };
+        /* ── one record a day for what is logged against the plan ─────
+           Ticks and logged numbers are sent as they change, and each send
+           was a new session: three drills logged read as three part
+           sessions. A plan log, the morning's tick record and a check-in
+           for the same day of the plan on the same date are one record,
+           the latest wins, and a check-in keeps the drill detail the ticks
+           had, since it says how much and they say which. */
+        const LOGS = ['plan', 'ticks', 'checkin'];
+        const dateOf = t => new Date(t).toISOString().slice(0, 10);
+        const list = p.sessions || [];
+        const at0 = LOGS.includes(row.mode)
+          ? list.findIndex(x => x && LOGS.includes(x.mode) && x.day === row.day && x.at && dateOf(x.at) === dateOf(row.at))
+          : -1;
+        if (at0 > -1) {
+          const was = list[at0], next = list.slice();
+          next[at0] = (was.mode === 'checkin' && row.mode !== 'checkin')
+            ? Object.assign({}, was, row.items.length ? { items: row.items } : {})
+            : Object.assign({}, row, (!row.items.length && (was.items || []).length) ? { items: was.items } : {});
+          p.sessions = next;
+        } else {
+          p.sessions = list.concat([row]).slice(-200);
+        }
       }
       /* ── how they found the free ladder ─────────────────────────────
          Too hard and too easy on drills that are not in a coached plan:

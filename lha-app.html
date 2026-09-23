@@ -1190,17 +1190,22 @@ function rollTicks(){
   const on=Object.keys(st.tick||{}).filter(k=>st.tick[k]);
   /* only the ticks that belong to the day being closed */
   const mine=on.filter(k=>k.slice(0, String(idx).length+1)===idx+'-');
-  if(d && mine.length && !loggedFor(was).length){
+  const reps=Object.keys(st.planReps||{}).filter(k=>k.slice(0, String(idx).length+1)===idx+'-');
+  if(d && (mine.length || reps.length) && !loggedFor(was).length){
     const of=allItems(d).length, got=Math.min(mine.length, of);
     const at=st.tickAt||(new Date(was+'T18:00:00').getTime());
     const kind=(of && got>=of) ? 'all' : 'part';
+    /* which drills, and the numbers logged against them, not only how many */
+    const rec=planDayItems(idx, d);
     st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
     st.prog.sessions.push({ at, done:kind==='all', kind, mins:0, mode:'ticks',
       day:idx, name:d.label+(d.sub?', '+d.sub:''), drills:of, got, of });
     reportProgress({session:{ at, day:idx, name:d.label+(d.sub?', '+d.sub:''),
       done:kind==='all', mode:'ticks', kind, drills:of, mins:0, actual:0,
-      got, of, items:[] }});
+      got, of, items:rec.items.slice(0,40) }});
   }
+  /* the numbers logged on that day go with its ticks, recorded first */
+  reps.forEach(k=>{ delete st.planReps[k]; });
   st.tick={}; st.open={};
   st.tickDay=today; st.tickIdx=st.day; st.tickAt=0;
   save();
@@ -4809,7 +4814,9 @@ function planLogged(k){ const r=(st.planReps||{})[k]; return r==null?null:r; }
 function planLogBtn(k,it){
   const got=planLogged(k), u=doseUnit(it.d);
   if(got!=null) return `<button class="rt on" onclick="st.repOpen=st.repOpen==='${k}'?null:'${k}';save();render()">${got}${u} done</button>`;
-  return `<button class="rt" onclick="planOpenRep('${k}')">Did fewer?</button>`;
+  /* a number different from the dose, either way: it said "Did fewer?" and
+     the stepper under it already went up as well as down */
+  return `<button class="rt" onclick="planOpenRep('${k}')">${u==='s'?'Log time':'Log reps'}</button>`;
 }
 function planOpenRep(k){ st.repOpen=k; save(); render(); }
 function planStepper(k,it){
@@ -4835,24 +4842,38 @@ function planRep(k,by,want){
 }
 function planRepDone(k){ st.repOpen=null; save(); render(); sendPlanReps(); }
 /* it reaches the coach the same way a flag does */
-function sendPlanReps(){
-  if(!st.token) return;
-  const d=day(), out=[];
-  (d.groups||[]).forEach((g,gi)=>(g.items||[]).forEach((it,ii)=>{
+/* ── what they did on a day of the plan ─────────────────────────────
+   Every drill they ticked, and every number they logged against one, as
+   one record for that day. The ticks clear each morning; this is what
+   keeps them. It is sent as it changes, and the server keeps one record
+   per day of the plan rather than a new one each time, so logging three
+   drills no longer reads as three sessions. */
+function planDayItems(idx, d){
+  const out=[]; let ticked=0;
+  ((d&&d.groups)||[]).forEach((g,gi)=>(g.items||[]).forEach((it,ii)=>{
     if(g.warm) return;                  /* it rotates, so a count on it would move */
-    const k=key(st.day,gi,ii), r=(st.planReps||{})[k];
-    if(r==null) return;
+    const k=key(idx,gi,ii), r=(st.planReps||{})[k], got=!!(st.tick||{})[k];
+    if(got) ticked++;
+    if(r==null && !got) return;
     const a=doseAmount(it);
-    out.push({v:it.v, n:it.n, grp:g.name, got:st.tick[k]?1:0, of:1,
-              reps:r, unit:a.unit, per:a.n, secs:0,
+    out.push({v:it.v, n:it.n, grp:g.name, got:got?1:0, of:1,
+              reps:r==null?0:r, unit:a.unit, per:a.n, secs:0,
               want:a.n||recommendedReps(it)||0, dose:String(it.d||'').slice(0,40),
               rate:(st.rate||{})[it.v]||''});
   }));
-  if(!out.length) return;
-  reportProgress({session:{day:st.day, name:d.label||'', done:false, mode:'plan',
-    drills:out.length, mins:0, actual:0, got:out.filter(x=>x.got).length, of:out.length,
-    items:out.slice(0,40)}});
+  return {items:out, ticked};
 }
+function sendPlanReps(){
+  if(!st.token) return;
+  const d=day(), rec=planDayItems(st.day, d);
+  if(!rec.items.length) return;
+  const of=allItems(d).length;
+  reportProgress({session:{day:st.day, name:d.label||'', done:!!of && rec.ticked>=of, mode:'plan',
+    kind: (of && rec.ticked>=of) ? 'all' : 'part',
+    drills:of, mins:0, actual:0, got:rec.ticked, of, items:rec.items.slice(0,40)}});
+}
+let planSendT=0;
+function sendPlanSoon(){ clearTimeout(planSendT); planSendT=setTimeout(sendPlanReps, 4000); }
 
 function prescribedFor(v){
   const days=(DATA&&DATA.days)||[];
@@ -9856,6 +9877,9 @@ function tick(k){
   st.tick[k]=!st.tick[k];
   st.tickDay=dayKey(Date.now()); st.tickIdx=st.day; st.tickAt=Date.now();
   save(); render();
+  /* a tick is something they did, so it is recorded as it happens rather
+     than only when the board clears the next morning */
+  sendPlanSoon();
 }
 /* 'Good' was doing nothing useful — it is the default state, and it made
    every drill row carry three buttons. Only the two exceptions are worth
