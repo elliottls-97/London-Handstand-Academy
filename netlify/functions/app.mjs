@@ -2556,6 +2556,12 @@ export default async (request) => {
                   ladderCps:   (await getSetting('ladder:checkpoints')) || {},
                   /* the words the coach has added for finding an explainer */
                   explainKeys: (await getSetting('explain:keys')) || {},
+                  /* the shipped explainers as the coach has changed them:
+                     wording, film, phases, or hidden altogether */
+                  explainEdit: (await getSetting('explain:edit')) || {},
+                  /* the film that introduces each phase, where the coach
+                     has chosen one other than the shipped */
+                  stageIntro:  (await getSetting('explain:intro')) || {},
                   /* how long a session may be, and what a short one does
                      about sets. Shipped defaults until the coach sets them. */
                   shortRules:  (await getSetting('ladder:short')) || {},
@@ -2868,7 +2874,42 @@ export default async (request) => {
   if (path === '/coach/explain') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('explain:keys')) || {};
-    if (request.method === 'GET') return json({ explainKeys: all, extra: (await getSetting('explain:extra')) || [] });
+    if (request.method === 'GET') return json({ explainKeys: all, extra: (await getSetting('explain:extra')) || [],
+      explainEdit: (await getSetting('explain:edit')) || {}, stageIntro: (await getSetting('explain:intro')) || {} });
+    /* ── a shipped explainer, changed ────────────────────────────────
+       Only what the coach set is stored, on top of ladder-data.js, so a
+       later change to the file still reaches everything not touched here.
+       clear puts it back as shipped. */
+    if (request.method === 'POST' && body.edit && typeof body.edit === 'object') {
+      const e = body.edit, ed = (await getSetting('explain:edit')) || {};
+      const id = String(e.id || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+      if (!id) return json({ error: 'Which explainer?' }, 400);
+      if (e.clear) delete ed[id];
+      else {
+        const o = {};
+        if (typeof e.q === 'string' && e.q.trim()) o.q = e.q.trim().slice(0, 140);
+        if (typeof e.uid === 'string') o.uid = e.uid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+        if (typeof e.dur === 'string') o.dur = e.dur.trim().slice(0, 20);
+        if (typeof e.sum === 'string' && e.sum.trim()) o.sum = e.sum.trim().slice(0, 900);
+        if (Array.isArray(e.stages)) o.stages = [...new Set(e.stages.map(Number)
+          .filter(n => Number.isInteger(n) && n >= 0 && n <= 5))].slice(0, 6);
+        if (e.off) o.off = true;
+        ed[id] = o;
+      }
+      await setSetting('explain:edit', ed);
+      return json({ ok: true, explainEdit: ed });
+    }
+    /* ── which film introduces a phase ── null goes back to the shipped one,
+       an empty id means that phase has no intro film at all */
+    if (request.method === 'POST' && body.intro && typeof body.intro === 'object') {
+      const st0 = String(Number(body.intro.stage));
+      if (!/^[0-5]$/.test(st0)) return json({ error: 'Which phase?' }, 400);
+      const intro = (await getSetting('explain:intro')) || {};
+      if (body.intro.uid === null) delete intro[st0];
+      else intro[st0] = String(body.intro.uid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+      await setSetting('explain:intro', intro);
+      return json({ ok: true, stageIntro: intro });
+    }
     if (request.method === 'POST' && Array.isArray(body.extra)) {
       /* the coach's own explainers: a Stream clip, the question it answers,
          which phases it belongs to, and a line on what is covered */

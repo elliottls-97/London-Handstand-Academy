@@ -8600,7 +8600,7 @@ function drawOv(){
        hands over an email for a title. It shows the still from the film,
        what is actually covered in it, and how many more come with it. */
     const q=FAQS[st.exOpen]||FAQS[0];
-    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
+    const sum=q.sumOwn || (typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
     const locked=FAQS.map((x,n)=>({x,n})).filter(o=>filmed(o.x) && !explainerOpen(o.n));
     const others=locked.filter(o=>o.n!==st.exOpen).slice(0,6);
     body=`<div style="padding:2px">
@@ -8652,7 +8652,7 @@ function drawOv(){
        title. It was a small card in a half height sheet, which swallowed
        the picture and said nothing about what was in it. */
     const q=FAQS[st.exOpen]||FAQS[0];
-    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
+    const sum=q.sumOwn || (typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
     const stg=(q.stage!=null && STAGES[q.stage]) ? STAGES[q.stage].n : '';
     body=`<div style="margin:0 -18px">${(q.uid||q.v)?qaVideo(q,true):''}</div>
       <div style="display:flex;gap:6px;align-items:center;padding:10px 2px 0">
@@ -8942,8 +8942,8 @@ function drawOv(){
            panel with "filming soon" written across it, which is the old
            treatment and also the largest thing in the sheet for something
            that does not exist yet. -->
-      ${(STAGE_VIDEO[si]||(si===0?LADDER_INTRO_VIDEO:'')) ? (()=>{
-        const uid=STAGE_VIDEO[si]||LADDER_INTRO_VIDEO;
+      ${stageIntroUid(si) ? (()=>{
+        const uid=stageIntroUid(si);
         setTimeout(mountCaptions,0);
         return `<div style="margin-top:16px">
           <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--grey)">
@@ -9019,7 +9019,7 @@ function drawOv(){
         border:2.5px solid var(--amber);box-shadow:0 0 0 4px rgba(243,169,73,.25);pointer-events:none;
         --y0:0px;--y1:${moved?-RH:0}px;animation:climb 1.6s cubic-bezier(.3,.9,.3,1) both"></span>
     </div>`;
-    const film=moved ? ((STAGE_VIDEO[ti]||'') || LADDER_INTRO_VIDEO) : '';
+    const film=moved ? (stageIntroUid(ti) || LADDER_INTRO_VIDEO) : '';
     body=`<div style="position:relative;text-align:center;padding:16px 0 4px;overflow:hidden">
       <div class="burst">${Array.from({length:22},(_,i)=>
         `<i style="--a:${(i*16.4)}deg;--d:${70+(i%5)*26}px;--t:${900+(i%6)*90}ms;
@@ -9550,7 +9550,10 @@ function loadLadder(){
       if(d && d.shortRules)  { st.shortRules=d.shortRules;   moved=true; }
       if(d && d.homeOrder)   { st.homeOrder=d.homeOrder;     moved=true; }
       if(d && d.ladderMedia) { st.ladderMedia=d.ladderMedia; moved=true; }
-      if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; rebuildFaqs(); moved=true; }
+      if(d && d.explainEdit) { st.explainEdit=d.explainEdit; moved=true; }
+      if(d && d.stageIntro)  { st.stageIntro=d.stageIntro;   moved=true; }
+      if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; moved=true; }
+      if(d && (d.explainEdit || Array.isArray(d.explainExtra))) rebuildFaqs();
       if(moved){ save(); render(); }
       return true;
     })
@@ -10531,17 +10534,20 @@ function questionsCard(){
    is optional and deepens it, because a video in front of someone who
    has just answered three questions is a wall at the moment they are
    keenest. It works with the slot empty, and gets better when it is not. */
-const LADDER_INTRO_VIDEO = 'ca0c240ddea6010e5b376d7c6147d29c';   /* intro to the handstand ladder */
+const LADDER_INTRO_VIDEO = PHASE_INTRO[0];   /* intro to the handstand ladder, in ladder-data.js */
 /* One walkthrough per stage, once they are past the first. "New here? Watch
    this first" is the right offer on day one and the wrong one on stage four,
    where the useful film is about the stage they have just reached. Slots are
    here ready; an empty one falls back to the ladder intro. */
-const STAGE_VIDEO = [
-  '',                                   /* Foundations uses the ladder intro */
-  '99806cf5a01e65ef29f786bb4e50453b',   /* Wall Work, what this phase is for */
-  '', '', '', ''
-];
-const stageFilm = () => STAGE_VIDEO[curStage()] || '';
+const STAGE_VIDEO = [0,1,2,3,4,5].map(i => i===0 ? '' : (PHASE_INTRO[i]||''));   /* Foundations uses the ladder intro */
+/* the phase's intro as the coach has set it on the dashboard, else as shipped.
+   An empty one set there means that phase has no intro film at all. */
+function stageIntroUid(si){
+  const o=((st&&st.stageIntro)||{})[si];
+  if(typeof o==='string') return o;
+  return STAGE_VIDEO[si] || (si===0 ? LADDER_INTRO_VIDEO : '');
+}
+const stageFilm = () => curStage()===0 ? '' : stageIntroUid(curStage());
 /* ── a picture or a film for a stage, set from the dashboard ────────────
    Nothing set, nothing drawn: every place that shows one checks first, so
    a stage without one looks exactly as it did. A film is its poster with a
@@ -10584,7 +10590,7 @@ const STAGE_SUM = {
 function introOffer(){
   const i=curStage(), S=STAGES[i]||STAGES[0];
   if(i===0) return {label:'New here? Watch this first', title:'How the handstand ladder works',
-                    url:LADDER_INTRO_VIDEO, len:'3 min'};
+                    url:stageIntroUid(0)||LADDER_INTRO_VIDEO, len:'3 min'};
   const own=stageFilm();
   return {label:'About '+S.n, title:S.n+', explained',
           url:own||LADDER_INTRO_VIDEO, len:'3 min'};
@@ -10964,15 +10970,27 @@ function placementLinks(){
    the first thing a new person sees, and there are eighteen of them. */
 /* the shipped list plus the ones the coach has added from the dashboard,
    each of those on every phase it was given */
+/* The shipped explainers as the coach has left them: a new question, a
+   film, a summary, different phases, or hidden. Only what was changed is
+   stored, so anything untouched still follows ladder-data.js. */
 function explainersFor(si){
-  const own=(EXPLAIN[si]||[]).slice();
+  const ed=(st&&st.explainEdit)||{}, own=[];
+  Object.keys(EXPLAIN).forEach(k=>(EXPLAIN[k]||[]).forEach(x=>{
+    const o=ed[x.id];
+    if(o && o.off) return;
+    const at=(o && Array.isArray(o.stages) && o.stages.length) ? o.stages : [Number(k)];
+    if(at.indexOf(si)<0 || own.some(y=>y.id===x.id)) return;
+    own.push(!o ? x : Object.assign({}, x, o.q?{q:o.q}:{}, typeof o.uid==='string'?{uid:o.uid}:{},
+      typeof o.dur==='string'?{dur:o.dur}:{}, o.sum?{sumOwn:o.sum}:{}));
+  }));
   ((st&&st.explainExtra)||[]).forEach(x=>{ if(x && x.uid && (x.stages||[]).indexOf(si)>-1) own.push({id:'x-'+x.uid, q:x.q, uid:x.uid, k:x.k||[], sum:x.sum||'', own:true}); });
   return own;
 }
 let FAQS = [];
 function rebuildFaqs(){
   const out=[];
-  const stages=Object.keys(EXPLAIN).map(Number);
+  /* every phase, since an edit can put a shipped explainer on any of them */
+  const stages=STAGES.map((_,i)=>i);
   ((st&&st.explainExtra)||[]).forEach(x=>(x.stages||[]).forEach(s0=>{ if(stages.indexOf(s0)<0) stages.push(s0); }));
   stages.sort((a,b)=>a-b).forEach(st0=>{
     explainersFor(st0).forEach(x=>{
@@ -14732,7 +14750,7 @@ function sideVideoCard(){
           <span style="font:400 14px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
   } else if(sideVid.k==='explainer'){
     const q=(typeof FAQS!=='undefined' && FAQS[sideVid.i]) || {};
-    const sum=(typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
+    const sum=q.sumOwn || (typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
     kick='EXPLAINER'; title=q.q||'';
     const spd=st.exSpeed||1;
     body=`${(q.uid||q.v)?qaVideo(q,true):''}

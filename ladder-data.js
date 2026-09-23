@@ -266,6 +266,16 @@ const EXPLAIN = {
   5: [],
 };
 
+/* The film that introduces each phase. Foundations' is the ladder intro,
+   Wall Work's is its walkthrough; the rest are still to be filmed. The app
+   plays these in a stage's sheet and on Train, and the dashboard marks
+   them on the Explainers tab. The coach can pick another from there, which
+   arrives as stageIntro and wins over this. */
+const PHASE_INTRO = {
+  0: 'ca0c240ddea6010e5b376d7c6147d29c',   /* how the handstand ladder works */
+  1: '99806cf5a01e65ef29f786bb4e50453b',   /* Wall Work, what this phase is for */
+};
+
 const BAND_MIX = {
   1: {1:55, 2:30, 3:15},          /* Easier: mostly level one, some two, a little three to finish on */
   2: {1:25, 2:40, 3:35},          /* Standard: a mixture, building to three */
