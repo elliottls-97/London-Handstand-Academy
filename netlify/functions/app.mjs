@@ -770,6 +770,26 @@ const setCode = (e, kind, row) =>
   supa.upsert('codes', { email: e, kind, ...row }, 'email,kind');
 const clearCode = (e, kind) =>
   supa.remove('codes', `email=eq.${enc(e)}&kind=eq.${kind}`);
+/* The six digit code that sets a password, first or forgotten. Sent by
+   Forgotten it? and Set a password, and by a sign up that lands on an
+   account with no password yet, which is the same errand. */
+async function sendSetCode(e) {
+  const n = new Uint32Array(1); crypto.getRandomValues(n);
+  const code = String(100000 + (n[0] % 900000));
+  await ensureAcct(e);
+  await setCode(e, 'reset',
+    { code, tries: 0, expires_at: iso(Date.now() + 15 * 60 * 1000) });
+  await email(e, 'Your reset code',
+    mail({
+      title: 'Your reset code.',
+      paras: ['Use this to set a new password. It expires in 15 minutes.',
+        `<span style="display:inline-block;font:700 30px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+         letter-spacing:.24em;color:#111111;background:#eef4f3;border-radius:10px;
+         padding:16px 20px 16px 24px">${esc(code)}</span>`,
+        'If you did not ask for this, ignore it. Nothing has changed.'],
+      signoff: { line: 'Thanks,', name: 'London Handstand Academy' },
+    }));
+}
 
 /* rate limits: one row per key, window kept as a timestamp */
 async function rateHit(key, windowMs) {
@@ -1433,8 +1453,26 @@ export default async (request) => {
     if (pw && pw.length < 8) {
       return json({ error: 'Password must be at least 8 characters' }, 400);
     }
-    if (prev.hash && pw && (await pwHash(pw)) !== prev.hash) {
-      return json({ error: 'An account already exists for that address' }, 409);
+    /* ── an address that already has an account ──────────────────────
+       This handed a signed-in session for any existing account to anybody
+       who typed its address and left the password blank: the stored
+       password was carried over and a token issued on the strength of it.
+       A coaching client, a subscriber, the coach's own account, for an
+       email address. An account with no password yet, which is everybody
+       who paid on the website or booked a class, went to whoever set one
+       first.
+       Signing up never reaches an existing account now. One with a
+       password is signed in to, with it. One without proves the address
+       first: a code goes to it, the one Set a password sends. */
+    const stored = await hashFor(db, e);
+    if (prev.email || stored || clients()[e] || coachList().includes(e)) {
+      if (stored) {
+        return json({ error: 'There is already an account on that address. Sign in, or press Forgotten it? if the password has gone.',
+                      exists: true }, 409);
+      }
+      if ((await rateHit(`reset:${e}`, 3600000)) <= 5) await sendSetCode(e);
+      return json({ error: 'You already have an account on that address. A code is on its way to it: type it in with the password you want.',
+                    setPassword: true }, 409);
     }
 
     const acct = {
@@ -1503,20 +1541,7 @@ export default async (request) => {
     /* slow down anyone working through a list of addresses */
     if ((await rateHit(`reset:${e}`, 3600000)) > 5) return ok;
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    await ensureAcct(e);
-    await setCode(e, 'reset',
-      { code, tries: 0, expires_at: iso(Date.now() + 15 * 60 * 1000) });
-    await email(e, 'Your reset code',
-      mail({
-        title: 'Your reset code.',
-        paras: ['Use this to set a new password. It expires in 15 minutes.',
-          `<span style="display:inline-block;font:700 30px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
-           letter-spacing:.24em;color:#111111;background:#eef4f3;border-radius:10px;
-           padding:16px 20px 16px 24px">${esc(code)}</span>`,
-          'If you did not ask for this, ignore it — nothing has changed.'],
-        signoff: { line: 'Thanks,', name: 'London Handstand Academy' },
-      }));
+    await sendSetCode(e);
     return ok;
   }
 

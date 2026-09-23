@@ -14622,7 +14622,16 @@ function doJoin(ev){
        reached the dashboard with no stage at all. Where the quiz put them
        is placedStage. */
     body:JSON.stringify({email:em,password:pw,marketing:mk,stage:placedStage(),ref:st.ref||''})})
-    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not create that account')))
+    .then(r=>r.ok?r.json():r.json().then(d=>{
+      /* An address that already has an account is never signed up over any
+         more. With a password it is a sign in; without one, the server has
+         sent the code that sets one, so the next screen is the code. */
+      if(d && d.setPassword){ joinErr=''; resetEmail=em; resetFirst=true; resetStep=1; resetMsg='';
+        st.email=em; st.tab='reset'; save(); render(); window.scrollTo(0,0); return Promise.reject(''); }
+      if(d && d.exists){ joinErr=''; st.email=em; st.tab='signin'; save(); render(); window.scrollTo(0,0);
+        setTimeout(()=>{ const m=$('#authMsg'); if(m) m.textContent='You already have an account. Sign in with its password.'; },30);
+        return Promise.reject(''); }
+      return Promise.reject((d && d.error)||'Could not create that account'); }))
     .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup'); setTimeout(codeResume,0);
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
       /* they came for the free session at their stage: straight to it */
