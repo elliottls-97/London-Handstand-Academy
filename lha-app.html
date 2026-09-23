@@ -1696,20 +1696,18 @@ const STREAM_CDN='https://customer-pns1oongdltmkjwa.cloudflarestream.com/';
    Every URL the app builds goes through sigUid or sig on its way out, and
    the data itself stays unsigned, so uidOfUrl keeps working. */
 let SIGN={t:{},exp:0};
-try{ const s0=JSON.parse(localStorage.getItem('lha_sign')||'null'); if(s0 && s0.exp>Date.now()) SIGN=s0; }catch(e){}
+/* a coach's preview keeps its own, like its own st, so it cannot trade
+   tokens with the coach's own app open in the next tab */
+const SIGN_KEY = PREVIEW ? 'lha_sign_preview' : 'lha_sign';
+try{ const s0=JSON.parse(localStorage.getItem(SIGN_KEY)||'null'); if(s0 && s0.exp>Date.now()) SIGN=s0; }catch(e){}
 const sigUid = uid => (SIGN.exp>Date.now() && SIGN.t[uid]) ? SIGN.t[uid] : uid;
 const sig = url => { const m=/\/([a-f0-9]{32})\//.exec(String(url||'')); return (m && sigUid(m[1])!==m[1]) ? String(url).replace('/'+m[1]+'/', '/'+sigUid(m[1])+'/') : url; };
-let signTimer=null;
+let signTimer=null, signBusy=false, signAgain=false;
 function loadSign(){
-  if(!st.token || st.preview) return;
-  /* tokens last six hours and are kept in storage, so opening the app
-     again inside that window is not a reason to ask for a new set. It was
-     asking on every single open. */
-  if(SIGN && SIGN.exp && Object.keys(SIGN.t||{}).length && SIGN.exp-Date.now() > 3600000){
-    clearTimeout(signTimer);
-    signTimer=setTimeout(loadSign, Math.max(60000, SIGN.exp-Date.now()-3600000));
-    return;
-  }
+  /* A coach's preview signs too: the server gives a preview the whole
+     library, so a locked film plays in it as it would on the client's own
+     phone rather than as a black box. */
+  if(!st.token) return;
   /* ── in the order they are needed ─────────────────────────────────
      This asked for every film in the library in one request, which was
      fine while the server signed whatever it was handed and is not now:
@@ -1725,17 +1723,44 @@ function loadSign(){
   allDrills().forEach(d=>take(d.url));
   (LIBRARY||[]).forEach(d=>take(d.url));
   if(!uids.length) return;
+  /* Tokens last six hours and are kept in storage, so opening the app again
+     inside that window is not a reason to ask for a new set. It was asking
+     on every single open.
+     But a set is only good for what it was asked for. Somebody who paid, or
+     became a client, kept the free account's handful for up to five hours
+     and the locked ladder stayed dark; a drill the coach added that morning
+     had no token until the afternoon; and the next person to sign in on the
+     phone inherited the last one's. So it asks again when the account, what
+     it has paid for, or the films it needs have changed. */
+  const paid=isPlus()||!!st.preview;
+  const asked=new Set(SIGN.asked||Object.keys(SIGN.t||{}));
+  if(SIGN && SIGN.exp && SIGN.exp-Date.now() > 3600000
+     && SIGN.who===(st.email||'') && !!SIGN.paid===paid && uids.every(u=>asked.has(u))){
+    clearTimeout(signTimer);
+    signTimer=setTimeout(loadSign, Math.max(60000, SIGN.exp-Date.now()-3600000));
+    return;
+  }
+  const who=st.email||'';
+  /* one at a time: the boot, the programme and the ladder all arrive
+     within a second of each other, and a free account has a dozen a day */
+  if(signBusy){ signAgain=true; return; }
+  signBusy=true;
+  const settle=()=>{ signBusy=false; if(signAgain){ signAgain=false; setTimeout(loadSign, 0); } };
   fetch(AUTH.sign,{method:'POST',headers:authed(),body:JSON.stringify({uids})})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(!d) return;
+    .then(d=>{ settle(); if(!d) return;
+      /* signed out or somebody else signed in while it was out */
+      if(!st.token || (st.email||'')!==who) return;
       const had=Object.keys(SIGN.t).length;
-      SIGN={t:d.tokens||{}, exp:Number(d.exp)||0};
-      try{ localStorage.setItem('lha_sign', JSON.stringify(SIGN)); }catch(e){}
+      /* nothing to sign is an answer too: kept for two hours, so a free
+         account is not asking again on every open */
+      SIGN={t:d.tokens||{}, exp:Number(d.exp)||(Date.now()+2*3600000), who, paid, asked:uids};
+      try{ localStorage.setItem(SIGN_KEY, JSON.stringify(SIGN)); }catch(e){}
       if(Object.keys(SIGN.t).length!==had) render();
       clearTimeout(signTimer);
       /* an hour before they run out, quietly */
       if(SIGN.exp) signTimer=setTimeout(loadSign, Math.max(60000, SIGN.exp-Date.now()-3600000));
-    }).catch(()=>{});
+    }).catch(()=>{ settle(); });
 }
 const streamMp4   = uid => STREAM_CDN+sigUid(uid)+'/downloads/default.mp4';
 /* ── the film at the size the connection can carry ─────────────────
@@ -2009,10 +2034,29 @@ function dlOpen(key){
     setTimeout(()=>openOv('daystart'), 60); return;
   }
   if(!Array.isArray(rec.q) || !rec.q.length) return;
+  const lock=dlLocked(rec);
+  if(lock!=null){ openStage(lock); return; }
   Q=rec.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
-  sessionSpent=false;
+  sessionSpent=false; qFix=rec.fix||null;
   st.ovList=!!rec.wrist; st.ovRow=null; st.listMode='work'; st.ovFull=true;
   openOv('list');
+}
+/* ── a saved workout from the paid ladder ──────────────────────────
+   A workout saved for no signal opened again from the Train screen with
+   nothing asked, so a free week was every stage saved to the phone and
+   kept after cancelling, and the paid ladder went on playing for nothing.
+   It opens for an account that may train it, and otherwise opens the
+   stage it came from, where the way back in is. Older saves carry no
+   stage, so their drills answer for them. Null when it may open. */
+function dlLocked(rec){
+  if(!rec || rec.kind!=='q' || isPlus()) return null;
+  if(rec.fix){
+    const f=(st.fixes||{})[rec.fix];
+    if(!f || f.access==='plus' || f.locked) return FREE_STAGES;
+  }
+  if(rec.stage!=null && Number(rec.stage)>=FREE_STAGES) return Math.min(STAGES.length-1, Number(rec.stage)|0);
+  if((rec.q||[]).some(x=>x && x.it && drillLocked(x.it.v))) return FREE_STAGES;
+  return null;
 }
 /* ── the saved ones, on the first screen ── */
 function savedHomeHTML(){
@@ -2023,18 +2067,20 @@ function savedHomeHTML(){
   const card=r=>{
     const uids=dlUids(r.urls), have=uids.filter(u=>dlSet.has(u)).length;
     const gone=have<uids.length;
+    const locked=dlLocked(r)!=null;
     return `<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:16px;
       background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:1;min-width:0;border:0;background:none;padding:0;
         text-align:left;cursor:pointer;color:var(--ink)">
         ${r.kind==='ex'?`<span style="display:block;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-bottom:5px">EXPLAINER</span>`:''}
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
-        <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone?'#8a5a12':'var(--grey)'};margin-top:3px">${
-          gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
+        <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':'var(--grey)'};margin-top:3px">${
+          locked ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.'
+          : gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
           : (r.kind==='ex' ? '' : uids.length+' film'+(uids.length===1?'':'s')+', ')+(r.bytes?dlMB(r.bytes)+' · ':'')+'saved '+esc(cpWhen(r.at))}</span>
       </button>
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
-        padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Open</button>
+        padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${locked?'&#128274;':'Open'}</button>
       <button onclick="dlRemove('${esc(r.key)}')" aria-label="Remove ${esc(r.name||'this workout')} from this phone"
         style="flex:none;border:0;background:none;cursor:pointer;padding:8px 2px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>
     </div>`; };
@@ -7197,6 +7243,8 @@ function openLib(i){
 let Q=[],qi=0,left=0,tTotal=0,phase='work',paused=false,tick_=null,lastT=0,sessionStart=0;
 /* what the last built session was, in words, for the saved workouts list */
 let qLabel='';
+/* the fix the session in hand was built from, if it was one */
+let qFix=null;
 
 /* always m:ss — a bare '4' on a big clock reads as four minutes */
 function fmtT(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), r=s%60;
@@ -7849,6 +7897,8 @@ function openOv(kind){
   if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
 function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
 function closeOv(){
+  /* the summary is the end of the workout, and of the free one with it */
+  if(st.ov==='summary') endTaste();
   rowClockStop(false);
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
@@ -8263,9 +8313,17 @@ function drawOv(){
         padding:11px 13px;border-radius:14px;background:rgba(243,169,73,.16)">
         <span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.12em;color:#8a5a12">FREE</span>
         <span style="font:400 13px/1.45 var(--sans);color:var(--ink)">
-          ${tasteLeft()===1 ? 'Your last free session' : tasteLeft()+' free sessions'} at
-          <b>${esc(STAGES[curStage()].n)}</b>, then it is ${PRICE()} a month${trialLine()?' with the '+trialLine():''}.</span>
+          This is your one free session at <b>${esc(STAGES[curStage()].n)}</b>. After it the ladder
+          is ${PRICE()} a month${trialLine()?', '+trialLine():''}.</span>
       </div>` : ''}
+      ${(!_wrist && tasteSpent()) ? `<div style="margin-bottom:12px;padding:13px 14px;border-radius:14px;background:rgba(243,169,73,.16)">
+        <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">You have had your free session at
+          <b>${esc(STAGES[placedStage()].n)}</b>. ${trialLine()?'The free week':'The ladder'} opens it again, and every
+          stage above it. Until then, Go builds ${esc(STAGES[curStage()].n)}.</div>
+        <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
+          <button class="btn" style="flex:1 1 150px;min-height:46px;margin:0" onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>
+          ${tasteBackOk()?`<button class="btn2" style="flex:1 1 150px;min-height:46px;margin:0" onclick="tasteBack()">Back to today's session</button>`:''}
+        </div></div>` : ''}
       <button onclick="closeOv();buildFreeSession(${_wrist},true,${_wrist?'null':_arg})"
         style="height:60px;width:100%;border:0;border-radius:16px;
         background:linear-gradient(180deg,#0a7a76,#006663);
@@ -8501,6 +8559,8 @@ function drawOv(){
         const vs=[...new Set((Q||[]).map(q=>q.it&&q.it.v).filter(Boolean))];
         return `<div style="margin:-4px 0 14px">${dlRow('q'+dlHash(vs), urls, {kind:'q', wrist:!!st.ovList,
           name:(qLabel||(st.ovList?'Mobility day':((STAGES[curStage()]||{}).n||'Your')+' session'))+', '+qMins()+' min',
+          /* where it came from, so it only opens for an account that may train it */
+          ...(qFix ? {fix:qFix} : st.ovList ? {} : {stage:curStage()}),
           q:(Q||[]).map(x=>Object.assign({}, x))})}</div>`; })()}
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
       ${(function(){ const a=asideList(); if(!a.length) return '';
@@ -9132,6 +9192,18 @@ function drawOv(){
           ${installPrompt?`<button class="btn" style="width:100%;margin-top:12px"
             onclick="installPrompt.prompt()">Add it</button>`:''}
         </div>`; })() : ''}
+      <!-- the free session at a paid stage, just finished: the moment to say
+           what it was and what opens it again -->
+      ${(tasteHeld() && STAGES[placedStage()]) ? `<div class="card" style="margin-top:18px;padding:18px;
+        border:1.5px solid var(--forest)">
+        <div class="kick2" style="color:var(--forest)">THAT WAS YOUR FREE SESSION</div>
+        <div style="font:400 20px/1.25 var(--serif);margin-top:8px">${esc(STAGES[placedStage()].n)} is part of the ladder.</div>
+        <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${
+          trialLine() ? 'The free week opens it again, with every stage above it. Nothing is charged until '+esc(firstCharge())+'.'
+                      : 'It is '+PRICE()+' a month for every stage, and you can cancel from the app.'}</div>
+        <button class="btn" style="width:100%;margin-top:13px"
+          onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>
+      </div>`:''}
       <!-- ── the address, now there is something to keep ──────────────
            One session runs with no account at all. This is the end of it,
            which is the first moment there is anything worth saving and the
@@ -9151,7 +9223,9 @@ function drawOv(){
            to join the two up alone; most never found the check points at
            all. A session now ends on the one it just trained. -->
       ${(function(){
-        if(st.in) return '';
+        /* after the free session its check points are behind the wall, so
+           "log it now" would open a stage that has just closed */
+        if(st.in || tasteHeld()) return '';
         const trained=new Set((Q||[]).map(x=>x.it&&x.it.v).filter(Boolean));
         const list=(cpFor(curStage())||[]).filter(c=>c && c.demo && trained.has(c.demo));
         if(!list.length) return '';
@@ -9584,6 +9658,7 @@ function loadLadder(){
       if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; moved=true; }
       if(d && (d.explainEdit || Array.isArray(d.explainExtra))) rebuildFaqs();
       if(moved){ save(); render(); }
+      if(moved && st.token) loadSign();
       return true;
     })
     .catch(()=>false);
@@ -9595,7 +9670,7 @@ function loadProgramme(){
     .then(d=>{ applyProgramme(d); cacheProgramme(d);
                if(d.client) st.client=d.client;
                rollTicks();          /* first load of the day, on a cold start */
-               save(); render(); return true; })
+               save(); render(); loadSign(); return true; })
     .catch(code=>{
       /* an expired token is the one failure worth acting on */
       if(code===401){ signOut(); return false; }
@@ -9843,6 +9918,10 @@ function signOut(){
   };
   try{ localStorage.removeItem('lha_plan'); }catch(e){}
   try{ localStorage.removeItem(K); }catch(e){}
+  /* the film tokens were the last account's, paid for or not */
+  try{ localStorage.removeItem(SIGN_KEY); }catch(e){}
+  SIGN={t:{},exp:0}; clearTimeout(signTimer);
+  tasteHand=null; tasteLast=null;
   st={};
   Object.keys(keep).forEach(k=>{ if(keep[k]!=null && keep[k]!==undefined) st[k]=keep[k]; });
   st.day=0; st.tick={}; st.rate={}; st.note={}; st.open={}; st.why={};
@@ -10491,17 +10570,44 @@ const placedStage=()=>Math.max(0, Math.min(STAGES.length-1,
    the wall. Nobody pays for a thing they have not felt, and the old shape
    showed the price to someone who had not done a single drill. */
 const TASTE_SESSIONS = 1;
-const tasteLeft = () => Number.isInteger(st.taste) ? st.taste : TASTE_SESSIONS;
+/* One per phone as well as one per account. A second email address on the
+   same phone was a second free session, and a third, as fast as they could
+   be typed. Kept outside st so signing out does not clear it. */
+const TASTED_KEY = 'lha_tasted';
+const tastedHere = () => { try{ return !!localStorage.getItem(TASTED_KEY); }catch(e){ return false; } };
+const tasteLeft = () => Number.isInteger(st.taste) ? Math.max(0, st.taste)
+  : (tastedHere() ? 0 : TASTE_SESSIONS);
 /* Two free sessions at your stage, on an account. The count lived in the
    phone's storage alone, so a private window or a cleared browser was two
    more sessions at any stage, as often as anyone liked. It is keyed to the
    account now, saved through /state, and the server only lets it go down. */
-/* The session in hand still counts as the taste: spending it the moment
+/* ── the workout in hand ─────────────────────────────────────────
+   The session in hand still counts as the taste: spending it the moment
    the player started dropped the stage to Foundations underneath a
    Take-Off session, so the header, the list and the summary all changed
-   their minds half way through. The wall goes up when the session is over. */
+   their minds half way through. The wall goes up when the session is over.
+
+   "In hand" was any workout at all once one had been counted, so after the
+   free session every new workout was built at the paid stage and counted
+   again: nought left, then minus one, minus two, minus three, and the paid
+   ladder for as long as the app stayed open. It is the one workout the
+   free session was spent on now, on the day it was spent, and a new
+   workout ends it. */
+let tasteHand=null;             /* {q: that workout's queue, day} */
+const tasteHeld = () => !!(tasteHand && tasteHand.q===Q && (Q||[]).length
+  && tasteHand.day===new Date().toDateString());
+/* The tour shows the player and the list with a workout it builds, and a
+   build at a paid stage spent the free session, twice a tour. A tour's
+   workout is built at the free stage and costs nothing. */
+let tourBuild=false, tourQ=null;
+function tourSession(wrist, listOnly, dayIdx){
+  tourBuild=true;
+  try{ buildFreeSession(wrist, listOnly, dayIdx); } finally { tourBuild=false; }
+  tourQ=Q;
+}
 const tasting = () => !isPlus() && !!st.token && placedStage() > FREE_STAGES-1
-  && (tasteLeft() > 0 || (sessionSpent && (Q||[]).length>0));
+  && !tourBuild && !(tourQ && tourQ===Q)
+  && (tasteLeft() > 0 || tasteHeld());
 const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FREE_STAGES-1);
 /* one used, when a session above the free stage actually starts */
 /* A free session was only counted when the follow along player started, and
@@ -10519,10 +10625,36 @@ function spendTaste(wristDay){
   if(!st.in) useTaste();
 }
 function useTaste(){
-  if(!tasting()) return;
+  if(tourBuild || tasteHeld()) return;
+  if(!tasting() || tasteLeft()<=0) return;
   if(curStage() < FREE_STAGES) return;
-  st.taste = tasteLeft()-1; save(); saveState(); track('taste', curStage());
+  const at=curStage();
+  st.taste = tasteLeft()-1;
+  tasteHand = {q:Q, day:new Date().toDateString(), stage:at, label:qLabel};
+  try{ localStorage.setItem(TASTED_KEY, String(Date.now())); }catch(e){}
+  /* now, not in 800ms: a reload inside that window kept the session */
+  save(); saveState(true); track('taste', at);
 }
+/* the workout is over: from here the account trains where it can */
+let tasteLast=null;
+function endTaste(){
+  if(!tasteHand) return;
+  tasteLast=tasteHand; tasteHand=null;
+}
+/* Back to the same workout, the same day. Closing the list by mistake is
+   not a reason to lose it, and it is still one workout, not another. */
+const tasteBackOk = () => !!(tasteLast && tasteLast.day===new Date().toDateString()
+  && (tasteLast.q||[]).length && !isPlus() && tasteLeft()<=0);
+function tasteBack(){
+  if(!tasteBackOk()) return;
+  tasteHand=tasteLast; Q=tasteLast.q; sessionSpent=true;
+  qLabel=tasteLast.label||qLabel; qFix=null;
+  st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true;
+  closeOv(); openOv('list');
+}
+/* placed above the free stage, with the free session behind them */
+const tasteSpent = () => !isPlus() && !!st.token && placedStage()>=FREE_STAGES
+  && !!STAGES[placedStage()] && tasteLeft()<=0 && !tasteHeld();
 const curStage=()=>Math.min(placedStage(), stageCap());
 
 
@@ -10661,7 +10793,7 @@ function screenOriented(){
      free session at a higher stage needs an account, so without one the
      button asks for an email first. With one whose free session is spent,
      it says so and offers the free week instead. */
-  const tasteUsed = gated && !!st.token && tasteLeft() <= 0;
+  const tasteUsed = gated && (st.token ? tasteLeft() <= 0 : tastedHere());
   const a=intake();
   const goal=(GOALS.find(g=>g.v===a.goal)||{}).t||'';
   /* the goal never moved them — it explains why this is the road to it */
@@ -11450,6 +11582,7 @@ function screenFix(){
 function buildFixSession(slug, listOnly){
   const f=(st.fixes||{})[slug]; if(!f) return;
   if(f.access==='plus' && !isPlus()){ openStage(FREE_STAGES); return; }
+  endTaste(); qFix=slug;
   const mins=st.fixMins||f.mins||20, budget=mins*60;
   qLabel = f.name || 'Fix';
   const toIt=d=>Object.assign({}, d, {d: d.d || FREE_DOSE[d.v] || '3 × 8'});
@@ -12534,7 +12667,7 @@ function screenUpgradeBody(si){
         days>0?'Start the free '+week:'Open the ladder'}</button>
       ${(function(){
         if(placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
-        const free = !st.token ? 'Make a free account and you get one free session there first, no card.'
+        const free = !st.token ? (tastedHere() ? '' : 'Make a free account and you get one free session there first, no card.')
           : (tasteLeft()>0 && !isPlus()) ? 'You have one free session there before this opens.' : '';
         return free?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:10px">
           Your answers put you at <b style="color:var(--ink)">${esc(STAGES[placed].n)}</b>. ${free}</div>
@@ -12776,8 +12909,9 @@ function loadEntitlement(){
   return fetch(AUTH.me,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const was=st.plus, wasIn=st.in, wasFC=st.canCheck;
+      const was=st.plus, wasIn=st.in, wasFC=st.canCheck, wasTU=!!st.trialUsed;
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
+      st.trialUsed=!!d.trialUsed;
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
@@ -12796,7 +12930,8 @@ function loadEntitlement(){
          anybody's programme. It is also why a real client on a new phone
          saw an empty day until they reloaded. */
       if(st.in && !wasIn){ loadProgramme(); loadProgress(); loadThread(); loadTrack(); }
-      if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck){ render(); loadSign(); } })
+      if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck){ render(); loadSign(); }
+      else if(wasTU!==st.trialUsed) render(); })
     .catch(()=>{});
 }
 
@@ -13073,6 +13208,7 @@ function trainAnyway(){
 }
 /* -1 means "nothing is scheduled, give me whatever is next" */
 function startDay(i, kind){
+  endTaste();
   st.pickDay = (i == null ? -1 : i);
   st.pickKind = kind || null;
   save();
@@ -13168,7 +13304,14 @@ function warmupFor(budgetSecs, stage, written){
 }
 
 /* a session built from the current stage's drills, to fit the time chosen */
-function buildFreeSession(wristDay,listOnly,dayIdx){
+function buildFreeSession(wristDay,listOnly,dayIdx,keep){
+  /* A new workout ends the one the free session was spent on, before the
+     stage is read, so it is built where the account can train. Putting a
+     drill aside rebuilds the same workout, so that one keeps it. */
+  const held = !!keep && tasteHeld();
+  if(!held) endTaste();
+  if(tourQ && !tourBuild) tourQ=null;
+  qFix=null;
   const mins=wristDay ? (st.time||30) : sessionMins(), s=STAGES[curStage()];
   qLabel = wristDay ? 'Mobility day' : ((s&&s.n)||'Your')+' session';
   /* prep drills belong in the warm-up, not scattered through the skill work */
@@ -13473,6 +13616,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   out.forEach(q=>{ q.sets=tally[q.it.v]; });
   Q=out;
   sessionSpent=false;          /* a fresh workout, not yet counted */
+  if(held) tasteHand.q=Q;      /* the same workout, rebuilt: still the free one */
   if(listOnly){
     st.ovList=!!wristDay; st.ovRow=null;
     st.listMode='work';   /* one workout, one shape */
@@ -13566,7 +13710,9 @@ function bringBack(v){
 function asideRow(v){
   setAside(v);
   const wrist = st.sessionKind==='wrist';
-  buildFreeSession(wrist, true, st.pickDay);
+  /* the same workout, rebuilt: it stays the free one if it was, and it
+     is not a second one */
+  buildFreeSession(wrist, true, st.pickDay, true);
 }
 function bringBackAll(){
   st.aside={}; save(); render();
@@ -13708,7 +13854,10 @@ let planLinks={};
 const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1000,plusq:3900,plusy:12900})[k] || 0;
 const PRICE = (k='plus') => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
-const PRICE_TRIAL = () => { const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
+/* the free week is once per account: offered again after it has been had,
+   it promised a week and Stripe charged on the day */
+const PRICE_TRIAL = () => { if(st.token && st.trialUsed) return 0;
+  const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
 /* the day the first payment actually lands, which is the number somebody is
    really asking for when a card form appears under the word "free" */
 const firstCharge = () => new Date(Date.now()+PRICE_TRIAL()*86400000)
@@ -14499,7 +14648,7 @@ function screenJoin(){
      "Stage 1, Foundations" whose first word is "Optional" reads as a switch,
      at the exact moment of commitment. If they came for the free sessions,
      say so. */
-  const taste = !want && st.joinFor==='taste' && STAGES[placedStage()] && placedStage()>stageCap();
+  const taste = !want && st.joinFor==='taste' && STAGES[placedStage()] && placedStage()>stageCap() && !tastedHere();
   const PSJ = taste ? STAGES[placedStage()] : null;
   /* Pressing "Start the free week" sent people to the same screen that
      greets somebody who has just done the quiz: "Your starting point,
@@ -15240,9 +15389,9 @@ const TOURS = {
       {t:'followalong', h:'Follow along', b:()=>wide()
         ? 'It runs itself. Back and Done move between sets, click the film to pause, cues at the bottom.'
         : 'It runs itself. Swipe between sets, tap the film to pause, cues at the bottom.',
-       pre:()=>{ closeOv(); buildFreeSession(false,false,todayCellIdx()); }},
+       pre:()=>{ closeOv(); tourSession(false,false,todayCellIdx()); }},
       {t:'drilllist', h:'Or drill by drill', b:'The same session as a list. Tick, time a set, open a demo.',
-       pre:()=>{ tourLeaveMode(); buildFreeSession(false,'work',todayCellIdx()); }},
+       pre:()=>{ tourLeaveMode(); tourSession(false,'work',todayCellIdx()); }},
       {t:'explainers', h:'Ask, or watch', b:'Type a question. Videos first, then Elliott.',
        pre:()=>{ tourLeaveMode(); }},
       {t:'tabs', h:'The rest', b:()=>'The Ladder, with your progress on it, and '+coachTabLabel()+' for sending me a clip.'
@@ -15264,10 +15413,10 @@ const TOURS = {
        pre:()=>{  save(); openOv('mode'); }},
       {t:'followalong', h:'Follow along',
        b:'The session runs itself. Each set counted down, each rest timed, the clip playing and the cues on screen. You train instead of reading.',
-       pre:()=>{ closeOv(); buildFreeSession(false,false); }},
+       pre:()=>{ closeOv(); tourSession(false,false); }},
       {t:'drilllist', h:'Or drill by drill',
        b:'The same session as a list. Tick drills off as you go, change a dose before you start, open the demo, and flag one that was too easy or too hard. Work at your own pace.',
-       pre:()=>{ tourLeaveMode(); buildFreeSession(false,'work'); }},
+       pre:()=>{ tourLeaveMode(); tourSession(false,'work'); }},
 
       {t:'checkin', h:'Tell me what happened',
        b:'This is the bit that matters. Log the whole session, some of it, or a day you could not train. You do not have to tick a single drill for it to count.',
@@ -15649,7 +15798,7 @@ function endTour(){
   const was = tourKey;
   tourKey = null; tourList = [];
   if(was) markTourSeen(was);
-  tourLeaveMode();
+  tourLeaveMode(); tourDropQ();
   const el = document.getElementById('tour'); if(el) el.remove();
   document.body.style.overflow = '';
 }
@@ -15732,6 +15881,11 @@ function tourTarget(step){
     return document.querySelector('#ov .sheet') || document.getElementById('ov');
   if(step.t==='followalong') return document.getElementById('player') || document.body;
   return document.querySelector('[data-tour="'+step.t+'"]');
+}
+/* the tour's workout was a picture of the screens, not one to keep */
+function tourDropQ(){
+  if(tourQ && tourQ===Q) Q=[];
+  tourQ=null;
 }
 /* Leaving the demonstrated follow-along must not log a session or ask why
    they stopped. Nothing was trained, it was a picture of the screen. */
@@ -15846,7 +16000,7 @@ function abortTour(){
      Being shown it is being shown it: it does not ask twice. */
   if(tourKey) markTourSeen(tourKey);
   tourKey = null; tourList = [];
-  tourLeaveMode();
+  tourLeaveMode(); tourDropQ();
   const el = document.getElementById('tour'); if(el) el.remove();
   document.body.style.overflow = '';
 }

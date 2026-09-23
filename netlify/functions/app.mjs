@@ -1146,6 +1146,14 @@ export default async (request) => {
         return json({ ok: true, credit: true });
       }
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
+      /* the free week has been had: started, or skipped by paying. /checkout
+         reads this so a cancelled week cannot be started again */
+      if ((boughtPlan === 'plus' && ev.type === 'checkout.session.completed')
+          || (ev.type.startsWith('customer.subscription') && (obj.status === 'trialing' || obj.trial_start))) {
+        if (!(await getSetting(`trialused:${acct.email}`))) {
+          await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: ev.type });
+        }
+      }
       /* money that matches no tier used to switch the £5 app on and do
          nothing else: no roster, no thread, no email, no alert */
       if (!boughtPlan && ev.type === 'checkout.session.completed' && Number(obj.amount_total) > 500) {
@@ -1592,7 +1600,12 @@ export default async (request) => {
     /* a form check that has been opened and not yet closed by the coach:
        clips and check points go in without spending anything more */
     const checkOpen = !coachedNow && !!fcc.open;
+    /* the free week is once per account, so the app stops offering it once
+       it has been had, rather than promising a week and charging today */
+    const tw = await settingsMany([`trialused:${who}`, `plan:${who}`]);
+    const trialUsed = !!tw[`trialused:${who}`] || ((tw[`plan:${who}`] || {}).plan === 'plus');
     return json({
+      trialUsed,
       email: who,
       name: clients()[who] || acct.name || '',
       coached: coachedNow,
@@ -1718,6 +1731,33 @@ export default async (request) => {
     return json({ error: 'Nope' }, 405);
   }
 
+  /* ── one free week per account ─────────────────────────────────────
+     Every checkout carried the free days, so a subscription cancelled in its
+     first week could be started again for another free week, and another,
+     for as long as anybody liked: the whole ladder, a card on file and
+     nothing ever charged. It is once per account now. The account's own note
+     is read first; Stripe's history answers for anyone who had theirs before
+     the note existed, and the answer is written down so it is asked once. */
+  const LADDER_PLANS = ['plus', 'plusq', 'plusy'];
+  const hadFreeWeek = async (who, acct) => {
+    if (await getSetting(`trialused:${who}`)) return true;
+    if (((await getSetting(`plan:${who}`)) || {}).plan === 'plus') return true;
+    if (!stripeKey()) return false;
+    try {
+      const prices = new Set(LADDER_PLANS.map(k => PLANS[k].price()).filter(Boolean));
+      const ids = new Set(acct && acct.stripe_customer ? [acct.stripe_customer] : []);
+      const cs = await stripe(`/customers?email=${encodeURIComponent(who)}&limit=10`, null, 'GET');
+      (cs.data || []).forEach(c => c && c.id && ids.add(c.id));
+      for (const id of ids) {
+        const subs = await stripe(`/subscriptions?customer=${encodeURIComponent(id)}&status=all&limit=20`, null, 'GET');
+        const had = (subs.data || []).some(x => x.trial_start
+          || ((x.items && x.items.data) || []).some(it => it.price && prices.has(it.price.id)));
+        if (had) { await setSetting(`trialused:${who}`, { at: Date.now(), from: 'stripe' }); return true; }
+      }
+    } catch (err) { console.warn('free week history', err && err.message); }
+    return false;
+  };
+
   if (path === '/checkout' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -1744,6 +1784,12 @@ export default async (request) => {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
     const origin = url.origin;
+    /* The free days are the ladder's. They applied to any subscription, so
+       coaching bought here would have started with a free week of Elliott's
+       time. And they are once per account. */
+    const freeDays = (plan.mode === 'subscription' && LADDER_PLANS.includes(planKey)
+      && Number(PRICES.trialDays) > 0 && !(await hadFreeWeek(who, (await getAcct(who)) || {})))
+      ? Number(PRICES.trialDays) : 0;
     try {
       const sess = await stripe('/checkout/sessions', {
         mode: plan.mode,
@@ -1754,8 +1800,7 @@ export default async (request) => {
         ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?paid=1` } : {}),
         /* seven days before the first charge. Card up front, so the people
            who start it mean it, and it converts unless they cancel. */
-        ...(plan.mode === 'subscription' && Number(PRICES.trialDays) > 0
-          ? { 'subscription_data[trial_period_days]': String(Number(PRICES.trialDays)) } : {}),
+        ...(freeDays > 0 ? { 'subscription_data[trial_period_days]': String(freeDays) } : {}),
         customer_email: who,
         client_reference_id: who,
         /* a code the app already checked with Stripe arrives applied, so
@@ -3120,13 +3165,19 @@ export default async (request) => {
   const FREE_SIGN_MAX = 24;          /* a long session is about twenty films */
   const FREE_SIGN_TRIES = 12;        /* a day of training, not a library raid */
   if (path === '/sign' && request.method === 'POST') {
-    const who = await me();
+    /* A preview token can read and not write, and this writes nothing, so
+       it is let in here. Only a coach can mint one, and a coach is given
+       every film, so the client's app plays as it does on their phone
+       instead of showing a locked film as a black box. */
+    const pv = await verify(bearer);
+    const preview = !!(pv && pv.scope === 'preview');
+    const who = preview ? pv.email : await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const k = await streamKey();
     if (!k) return json({ tokens: {}, off: true });
     const acct = (await getAcct(who)) || {};
     const stt = (await getSetting(`state:${who}`)) || {};
-    const paid = plusNow(acct) || await isCoached(who) || coachList().includes(who);
+    const paid = preview || plusNow(acct) || await isCoached(who) || coachList().includes(who);
     let ok = paid;
     if (!ok) {
       /* the one free session at a locked stage still has to play */
@@ -3619,8 +3670,12 @@ export default async (request) => {
         const t = Number(body.taste);
         /* only ever downwards: the client says how many it has used and a
            client that says fewer than last time is not to be believed */
-        if (Number.isInteger(t) && t >= 0 && t <= 5) {
-          cur.taste = Number.isInteger(cur.taste) ? Math.min(cur.taste, t) : t;
+        /* An app that counted past nought sent minus one, minus two, and
+           this refused them and kept whatever it had. Below nought is
+           nought: none left, stored, so a new phone does not start at one. */
+        if (Number.isInteger(t) && t <= 5) {
+          const t0 = Math.max(0, t);
+          cur.taste = Number.isInteger(cur.taste) ? Math.min(cur.taste, t0) : t0;
         }
       }
       if (body.time !== undefined) {
@@ -4615,9 +4670,11 @@ export default async (request) => {
      behind their form check credits, their week, their visits, the plan they
      bought and where they came from. One list, used by the move and by the
      delete, so neither can forget a key the other knows about. */
+  /* trialused: a new address is not a second free week. ladderflags: how
+     the free ladder felt, which the coach reads if they join coaching. */
   const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs',
                         'fccredits', 'plusuntil', 'visits', 'week', 'wsmine',
-                        'plan', 'ref'];
+                        'plan', 'ref', 'trialused', 'ladderflags'];
 
   /* The only order that works, given the foreign keys cascade on delete and
      not on update: the new row first so there is something to point at, then

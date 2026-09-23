@@ -8818,7 +8818,29 @@ function fxPickerHTML(){
     </div></div>`;
 }
 
-const fxThumb=uid=>uid?`https://${STREAM_SUB}/${uid}/thumbnails/thumbnail.jpg?time=3s&height=160`:'';
+const fxThumb=uid=>uid?(csNeed([uid]),`https://${STREAM_SUB}/${csUid(uid)}/thumbnails/thumbnail.jpg?time=3s&height=160`):'';
+/* ── locked films, signed ──────────────────────────────────────────
+   Once the paid library is locked, a drill's still only loads with a token
+   in place of its id. This account is given every one: it asks for what the
+   screen shows, a batch at a time, and redraws when they arrive. With the
+   library open the server has no key and answers with nothing, and the
+   plain id goes on working. */
+const csign={t:{},exp:0,asked:new Set(),want:[],timer:0};
+function csUid(uid){ return (csign.exp>Date.now() && csign.t[uid]) ? csign.t[uid] : uid; }
+function csNeed(uids){
+  /* a set runs out after six hours; a dashboard left open asks again */
+  if(csign.exp && csign.exp<Date.now()+60000){ csign.asked.clear(); csign.t={}; csign.exp=0; }
+  (uids||[]).forEach(u=>{ if(/^[a-f0-9]{32}$/.test(u) && !csign.asked.has(u)){ csign.asked.add(u); csign.want.push(u); } });
+  if(!csign.want.length || csign.timer) return;
+  csign.timer=setTimeout(()=>{
+    const want=csign.want.splice(0, 400); csign.timer=0;
+    fetch(APP+'/sign',{method:'POST',headers:hdr(),body:JSON.stringify({uids:want})})
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{ if(!d || !d.tokens || !Object.keys(d.tokens).length) return;
+        Object.assign(csign.t, d.tokens); csign.exp=Number(d.exp)||0; draw(); })
+      .catch(()=>{});
+  }, 60);
+}
 /* ── the preview ───────────────────────────────────────────────────
    fix-preview.html is the fix as a page, on its own, so its look can be
    worked on without the app around it. The draft is posted into it as
