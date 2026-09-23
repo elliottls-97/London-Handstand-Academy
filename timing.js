@@ -88,14 +88,17 @@ function lhaRest(it, grp, i, list){
 /* A whole session, in seconds. Takes the blocks as the programme stores
    them, expands each drill by the sets its dose asks for, and counts the
    rest between sets as well as between drills. An untimed drill still
-   takes time, so it is counted at the reps figure rather than nothing. */
+   takes time, so it is counted at the reps figure rather than nothing.
+   A group marked warm is the rotating warm-up, which the player runs once
+   through whatever the doses say, unless the coach set a number of sets:
+   counting its doses made the dashboard a minute or more long a day. */
 function lhaSessionSecs(groups){
   let secs = 0;
   const flat = [];
   (groups || []).forEach(g => (g.items || []).forEach(it =>
-    flat.push({ it, grp: g.name })));
+    flat.push({ it, grp: g.name, warm: !!g.warm })));
   flat.forEach((x, i) => {
-    const n = lhaSetsOf(x.it);
+    const n = x.warm ? Math.max(1, Number(x.it.sets) || 1) : lhaSetsOf(x.it);
     const w = lhaWork(x.it, x.grp) || LHA_REPS_SECS;
     const r = lhaRest(x.it, x.grp, i, flat);
     secs += n * w + (n - 1) * r;

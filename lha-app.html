@@ -1027,13 +1027,15 @@ function perSet(dose, nSets){
    numbers has to look in both places or it reads the dose and ignores
    what was typed. One merge, used by all of them. */
 function timed(it){
+  /* The Workouts tab tunes the free ladder; the builder tunes one client's
+     programme. A plan is timed from the plan alone: filling its gaps from
+     the ladder gave Marina two sets of a push up her plan says three of,
+     because the plan states sets in the dose and the ladder in a field, and
+     the field won. The dashboard counts a plan the same way. */
+  if(coachedView()) return it||{};
   const set=(st.timing||{})[it && it.v];
   if(!set) return it||{};
-  /* The Workouts tab tunes the free ladder; the builder tunes one client's
-     programme. On the ladder the tab is the authority. On a coached plan the
-     row the coach wrote for that person is more specific than a ladder
-     default, so it wins there. */
-  return coachedView() ? Object.assign({}, set, it) : Object.assign({}, it, set);
+  return Object.assign({}, it, set);
 }
 const setsFor = it => lhaSetsOf(timed(it));
 function sets(dose){
@@ -1077,8 +1079,9 @@ function work(it, grp){
      about that client, so on a plan the item wins. On the ladder there is no
      item-level number and the tab is the authority. */
   if(coachedView() && it.w) return it.w;
-  /* what the coach set for this drill beats the rule everywhere */
-  const set=(st.timing||{})[it.v];
+  /* what the coach set for this drill on the ladder beats the rule there;
+     a plan is timed from the plan, as timed() says */
+  const set=coachedView() ? null : (st.timing||{})[it.v];
   if(set && set.w) return set.w;
   if(it.w) return it.w;
   if(isWarm({grp:grp, it:it})) return WARMUP_SECS;
@@ -1100,7 +1103,7 @@ function rest(x, i, list){
   /* same order as work(): on a plan the row the coach wrote for this client
      beats the ladder tuning, which is not about them */
   if(coachedView() && it.r!=null) return it.r;
-  const set=(st.timing||{})[it.v];
+  const set=coachedView() ? null : (st.timing||{})[it.v];
   if(set && set.r!=null) return set.r;
   if(it.r!=null) return it.r;
   /* On the ladder a session is one block named after the day, so the day
@@ -13181,7 +13184,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   const hard  = stageLevel(stage)===3;
   const add=it=>{
     const g=grpOf(it.v);
-    const t=work(it,g||grp)+rest({it:it,grp:grp,g:g});
+    /* An untimed set (build to, max hold) has no countdown, and it was
+       budgeted at nothing, so a stage full of them ran long: Take-Off came
+       to thirty nine minutes whatever was asked for. It still takes time,
+       and it is budgeted at a set of reps, as timing.js counts it. */
+    const t=(work(it,g||grp)||REPS_SECS)+rest({it:it,grp:grp,g:g});
     if(secs+t>budget) return false;
     const had=done[it.v]||0;
     done[it.v]=had+1;
@@ -13205,7 +13212,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
   /* how many different drills. A short session is a spread of five to eight
      at one set each; a longer one has room for more of them and for the sets
      the coach asked for. */
-  const wantN = mins>=45 ? 10 : mins>=30 ? 8 : 6;
+  const wantN = mins>=60 ? 12 : mins>=45 ? 10 : mins>=30 ? 8 : 6;
   const inPool = (wristDay?focus:pool);
   /* the coach's list is the pool for this band, minus whatever the warm-up
      has already taken out of it */
@@ -13375,6 +13382,22 @@ function buildFreeSession(wristDay,listOnly,dayIdx){
     for(const it of picked){
       if((done[it.v]||0)>=setsWanted(it)) continue;
       if(add(it)) more=true;
+    }
+  }
+  /* ── an hour is more than the drills picked for it ─────────────────
+     Sixty minutes built the same forty one as forty five: every drill had
+     had its sets and a quarter of an hour was left with nothing to spend it
+     on. When a long session runs out of sets with a good while still to go,
+     the next drills in the pool come in, their sets and all, until the
+     time is used. The ramp below puts them where they belong. */
+  if(!oneSetOnly && !wristDay && budget-secs > 5*60){
+    const extra=spin(cands, rot).filter(it=>!picked.some(p=>p.v===it.v));
+    for(let it of extra){
+      if(budget-secs <= 3*60) break;
+      const b=bandTimingFor(stage, stageLevel(stage), it.v);
+      if(b) it=Object.assign({}, it, b);
+      picked.push(it); orderOf.set(it.v, picked.length-1);
+      let k=0; while(k<setsWanted(it) && add(it)) k++;
     }
   }
   /* the rotation only moves on when a session is actually built, so opening
