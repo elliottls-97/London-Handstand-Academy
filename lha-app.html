@@ -9474,7 +9474,7 @@ function flushLocalSessions(){
   return mine.reduce((p,x)=>p.then(()=>{
     const row=Object.assign({},x); delete row.local;
     return fetch(AUTH.progress,{method:'POST',headers:authed(),
-      body:JSON.stringify({flags:{}, session:row})}).catch(()=>{});
+      body:JSON.stringify({session:row})}).catch(()=>{});
   }), Promise.resolve());
 }
 function loadProgress(){
@@ -9682,18 +9682,32 @@ function reportProgress(extra){
     }
     return Promise.resolve();
   }
-  const flags={};
+  /* A flag on a drill in their plan is feedback on the plan, and reaches
+     the coach as it always has. A flag on anything else was made on the
+     free ladder: it moves the ladder's difficulty and is kept as a record
+     of how they found the work, but it is not about the plan. Both went
+     up as one list, so Marina's plan showed a straddle entry she was
+     never given, marked too hard. Until the plan has loaded nobody can
+     tell which is which, so nothing is sent rather than the wrong thing. */
+  const flags={}, ladderFlags={};
+  const planReady = !st.in || !!(DATA && DATA.days && DATA.days.length);
   Object.keys(st.rate||{}).forEach(function(v){
     if(st.rate[v]==='easy'||st.rate[v]==='hard')
-      flags[v]={rate:st.rate[v], note:(st.note||{})[v]||''};
+      ((st.in && inPlan(v)) ? flags : ladderFlags)[v]={rate:st.rate[v], note:(st.note||{})[v]||''};
   });
   /* hold used to be on every payload "for the coach's older reads", so the
      server appended a row for the same number on every visit and every flag
      change, and the hundred-row cap pushed the real history out. The old hold timer
      sends it on its own, with the shape it was held in. */
-  const payload=Object.assign({flags:flags}, extra||{});
+  const payload=Object.assign(planReady ? {flags:flags, ladderFlags:ladderFlags} : {}, extra||{});
   return fetch(AUTH.progress,{method:'POST',headers:authed(),body:JSON.stringify(payload)})
     .catch(function(){});   /* never let reporting break the session */
+}
+/* whether a drill is anywhere in the coached plan, warm-up included */
+function inPlan(v){
+  if(!(DATA && DATA.days)) return false;
+  if(((DATA.warmup||{}).items||[]).some(x=>x && x.v===v)) return true;
+  return DATA.days.some(d=>(d.groups||[]).some(g=>(g.items||[]).some(it=>it && it.v===v)));
 }
 /* one call a minute at most — this is a summary, not a telemetry feed */
 function reportSoon(extra){

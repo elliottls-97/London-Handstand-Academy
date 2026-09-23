@@ -4368,6 +4368,23 @@ export default async (request) => {
           })(),
         }]).slice(-200);
       }
+      /* ── how they found the free ladder ─────────────────────────────
+         Too hard and too easy on drills that are not in a coached plan:
+         the ladder's own difficulty moves on them, and this keeps them as
+         a record of how someone found the work, which is worth having if
+         they come to coaching. Kept quietly, with no alert, apart from the
+         plan's flags so neither is mistaken for the other. */
+      if (body.ladderFlags && typeof body.ladderFlags === 'object') {
+        const lk = `ladderflags:${who}`, lwas = (await getSetting(lk)) || {}, lout = {};
+        for (const [drill, v] of Object.entries(body.ladderFlags).slice(0, 120)) {
+          if (v && (v.rate === 'easy' || v.rate === 'hard')) {
+            const k = String(drill).slice(0, 60), note = String(v.note || '').slice(0, 300);
+            const o = lwas[k], same = o && o.rate === v.rate && (o.note || '') === note;
+            lout[k] = { rate: v.rate, note, at: same ? (o.at || now) : now };
+          }
+        }
+        await setSetting(lk, lout);
+      }
       if (body.flags && typeof body.flags === 'object') {
         /* ── too hard, too easy ──────────────────────────────────────
            Every flag was stamped with the time of whatever save happened
@@ -5472,7 +5489,7 @@ export default async (request) => {
       /* one read of every setting and the progress row together: these were
          nine reads one after another, for every client, on every open */
       const [S, prog] = await Promise.all([
-        settingsMany([`programme:${e}`, `week:${e}`, `intake:${e}`, `track:${e}`, `visits:${e}`, `flagseen:${e}`]),
+        settingsMany([`programme:${e}`, `week:${e}`, `intake:${e}`, `track:${e}`, `visits:${e}`, `flagseen:${e}`, `ladderflags:${e}`]),
         supa.row('progress', `email=eq.${enc(e)}&select=*`),
       ]);
       /* the same block clock the client is shown, so the two screens cannot
@@ -5489,9 +5506,11 @@ export default async (request) => {
                        rather than showing its key */
                     checkpoints: (S[`programme:${e}`] || {}).checkpoints || [],
                     visits: S[`visits:${e}`] || {},
-        progress: prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
+        progress: Object.assign(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {},
+          /* how they found the free ladder, kept apart from the plan's flags */
+          { ladderFlags: S[`ladderflags:${e}`] || {} }),
         /* when this coach last said they had read the flags */
         flagSeen: Number(S[`flagseen:${e}`] || 0) });
     }

@@ -6796,7 +6796,7 @@ function frictionHTML(email){
                     n:(drillName(v)||v), times:f.times||f.count||0}))
     .filter(r=>r.rate==='hard'||r.rate==='easy')
     .sort((a,b)=>(a.rate===b.rate?0:a.rate==='hard'?-1:1));
-  if(!rows.length) return '';
+  if(!rows.length) return ladderFlagsHTML(p);
   return `<div class="kick" style="margin-top:26px">WHERE IT IS HARD, WHERE IT IS EASY</div>
     <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
     ${rows.map(r=>{
@@ -6815,6 +6815,29 @@ function frictionHTML(email){
         ${r.note?`<div style="font:italic 400 13px/1.55 var(--sans);color:var(--grey);margin-top:7px">
           &ldquo;${esc(r.note)}&rdquo;</div>`:''}
       </div>`;}).join('')}
+    </div>${ladderFlagsHTML(p)}`;
+}
+/* ── how they found the free ladder ──────────────────────────────────
+   Flags on drills that are not in their plan, made in ladder sessions,
+   before they were coached or alongside it. Not feedback on the plan, so
+   quieter and under their own heading, and no alert when they come in. */
+function ladderFlagsHTML(p){
+  const rows=Object.entries((p&&p.ladderFlags)||{})
+    .map(([v,f])=>({v, rate:f.rate, note:(f.note||'').trim(), at:f.at||0, n:drillName(v)}))
+    .filter(r=>r.rate==='hard'||r.rate==='easy')
+    .sort((a,b)=>b.at-a.at);
+  if(!rows.length) return '';
+  return `<div class="kick" style="margin-top:22px">ON THE FREE LADDER</div>
+    <div class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:5px">How they found drills in ladder sessions.
+      Not about their plan.</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:9px">
+    ${rows.map(r=>`<div style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;padding:9px 12px;border-radius:12px;
+      border:1px solid var(--line);background:#fff">
+      <span style="font:800 9px/1 var(--sans);letter-spacing:.11em;color:${r.rate==='hard'?'#7d3b28':'#0a7b74'}">${r.rate==='hard'?'TOO HARD':'TOO EASY'}</span>
+      <b style="font:600 13.5px/1.3 var(--sans)">${esc(r.n)}</b>
+      ${r.note?`<span style="font:italic 400 12.5px/1.4 var(--sans);color:var(--grey)">&ldquo;${esc(r.note)}&rdquo;</span>`:''}
+      ${r.at?`<span style="margin-left:auto;font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(ago(r.at))}</span>`:''}
+    </div>`).join('')}
     </div>`;
 }
 const drillName=v=>((libIndex||{})[v])
