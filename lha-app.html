@@ -958,7 +958,20 @@ const $=s=>document.querySelector(s);
    single-quoted attribute, so this changes nothing now; it is here so that
    the day something does, it cannot break out of one. */
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const day=()=>DATA.days[st.day]||DATA.days[0];
+/* ── the day as they train it ──────────────────────────────────────
+   The programme's warm-up is written once and rotates; each day opens
+   with today's share of it, then what was written for the day. A day can
+   say it has no warm-up. Worked out for a date, so the day a set of ticks
+   belonged to is rebuilt as it was. */
+function planDay(i, dk){
+  const d=DATA.days[i]||DATA.days[0];
+  const W=DATA.warmup;
+  if(!d || d.noWarm || !W || !(W.items||[]).length || typeof lhaWarmPick!=='function') return d;
+  const items=lhaWarmPick(W, i, dk).filter(x=>!(typeof asideOn==='function' && asideOn(x.v)));
+  if(!items.length) return d;
+  return Object.assign({}, d, {groups:[{name:'Warm-up', warm:true, items}].concat(d.groups||[])});
+}
+const day=()=>planDay(DATA.days[st.day] ? st.day : 0, dayKey(Date.now()));
 const allItems=d=>d.groups.flatMap(g=>g.items);
 const key=(di,gi,ii)=>di+'-'+gi+'-'+ii;
 
@@ -1084,7 +1097,9 @@ function rest(x, i, list){
 function queue(){
   const d=day(), q=[];
   d.groups.forEach((g,gi)=>g.items.forEach((it,ii)=>{
-    const n=setsFor(it);
+    /* the rotating warm-up is one pass through, as the builder shows it,
+       unless the coach set a number of sets on the drill */
+    const n=g.warm ? Math.max(1, Number(it.sets)||1) : setsFor(it);
     for(let k=0;k<n;k++) q.push({it,gi,ii,set:k+1,sets:n,grp:g.name});
   }));
   return q;
@@ -1142,7 +1157,7 @@ function rollTicks(){
   if(!st.tickDay){ st.tickDay=today; st.tickIdx=st.day; save(); return; }
   if(st.tickDay===today) return;
   const was=st.tickDay, idx=st.tickIdx|0;
-  const d=(DATA.days&&DATA.days[idx])||null;
+  const d=(DATA.days&&DATA.days[idx]) ? planDay(idx, was) : null;
   const on=Object.keys(st.tick||{}).filter(k=>st.tick[k]);
   /* only the ticks that belong to the day being closed */
   const mine=on.filter(k=>k.slice(0, String(idx).length+1)===idx+'-');
@@ -10168,6 +10183,7 @@ function sendIntake(){
 /* every drill the app knows about, from the programme data */
 function allDrills(){ const out=[];
   DATA.days.forEach(d=>d.groups.forEach(g=>g.items.forEach(it=>{ if(!out.some(x=>x.v===it.v)) out.push(it); })));
+  ((DATA.warmup&&DATA.warmup.items)||[]).forEach(it=>{ if(!out.some(x=>x.v===it.v)) out.push(it); });
   return out; }
 const drillById=v=>allDrills().find(d=>d.v===v)||LIBRARY.find(d=>d.v===v);
 /* free-tier doses: the ladder is drills, not a written prescription */

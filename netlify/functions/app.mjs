@@ -650,6 +650,24 @@ const REVIEW_HOURS = 48;
    Written once and used by the builder's save and by a block pasted in
    whole, so a block that arrives as JSON cannot carry anything the
    builder could not have produced. */
+/* one programme row, as the builder writes it */
+function cleanItem(it) {
+  const num = (x, cap) => {
+    const n = Number(x);
+    return Number.isFinite(n) && n >= 0 && n <= cap ? Math.round(n) : null;
+  };
+  const w = num(it.w, 600), r = num(it.r, 600);
+  const sets = num(it.sets, 12), amt = num(it.amt, 3600);
+  const unit = it.unit === 's' ? 's' : (it.unit === '' ? '' : null);
+  return Object.assign(
+    { v: String(it.v || '').slice(0, 64),
+      d: String(it.d || '').slice(0, 60),
+      nt: String(it.nt || '').slice(0, 300) },
+    w != null ? { w } : {}, r != null ? { r } : {},
+    sets != null ? { sets } : {}, amt != null ? { amt } : {},
+    unit != null ? { unit } : {},
+    it.star ? { star: String(it.star).slice(0, 40) } : {});
+}
 function cleanDays(list) {
   return (Array.isArray(list) ? list : []).slice(0, 14).map((d, i) => ({
     id: String(d.id || (i + 1)).slice(0, 8),
@@ -658,27 +676,24 @@ function cleanDays(list) {
     title: String(d.title || '').slice(0, 80),
     when: String(d.when || '').slice(0, 120),
     mins: String(d.mins || '').slice(0, 8),
+    /* a day that does not open with the programme's warm-up */
+    ...(d.noWarm ? { noWarm: true } : {}),
     groups: (Array.isArray(d.groups) ? d.groups : []).slice(0, 12).map(g => ({
       name: String(g.name || '').slice(0, 60),
-      items: (Array.isArray(g.items) ? g.items : []).slice(0, 40).map(it => {
-        const num = (x, cap) => {
-          const n = Number(x);
-          return Number.isFinite(n) && n >= 0 && n <= cap ? Math.round(n) : null;
-        };
-        const w = num(it.w, 600), r = num(it.r, 600);
-        const sets = num(it.sets, 12), amt = num(it.amt, 3600);
-        const unit = it.unit === 's' ? 's' : (it.unit === '' ? '' : null);
-        return Object.assign(
-          { v: String(it.v || '').slice(0, 64),
-            d: String(it.d || '').slice(0, 60),
-            nt: String(it.nt || '').slice(0, 300) },
-          w != null ? { w } : {}, r != null ? { r } : {},
-          sets != null ? { sets } : {}, amt != null ? { amt } : {},
-          unit != null ? { unit } : {},
-          it.star ? { star: String(it.star).slice(0, 40) } : {});
-      }).filter(it => it.v),
+      items: (Array.isArray(g.items) ? g.items : []).slice(0, 40).map(cleanItem).filter(it => it.v),
     })),
   }));
+}
+/* ── the programme's warm-up ──────────────────────────────────────────
+   Written once rather than into every day: the drills, which of them are
+   essential, and how many a day gets. The rest rotate in the app. */
+function cleanWarmup(w) {
+  if (!w || typeof w !== 'object') return null;
+  const items = (Array.isArray(w.items) ? w.items : []).slice(0, 30)
+    .map(it => Object.assign(cleanItem(it), it.must ? { must: true } : {})).filter(it => it.v);
+  if (!items.length) return null;
+  const n = Math.max(1, Math.min(items.length, Math.round(Number(w.n) || items.length)));
+  return { n, items };
 }
 
 async function cycleGet(db, who, plan) {
@@ -1914,7 +1929,13 @@ export default async (request) => {
   function hydrateItem(it) {
     const v = String(it && it.v || '').slice(0, 64);
     if (!v) return null;
-    return {
+    /* The seconds, rest, sets and amount the coach set on this client's row
+       were stored and then dropped here, on the way to the app, so tuning
+       a client's programme in the builder changed nothing they trained.
+       They go through now. */
+    const keep = {};
+    for (const f of ['w', 'r', 'sets', 'amt', 'unit', 'star', 'must']) if (it[f] != null && it[f] !== false) keep[f] = it[f];
+    return Object.assign({
       v,
       n: libGet('names', v) || v,
       d: String(it.d || doseWords(libGet('timing', v)) || '').slice(0, 60),
@@ -1922,7 +1943,7 @@ export default async (request) => {
       url: libGet('video', v) || '',
       cues: libGet('cues', v) || [],
       desc: libGet('desc', v) || '',
-    };
+    }, keep);
   }
   function hydratePlan(base) {
     if (!base) return null;
@@ -1934,6 +1955,7 @@ export default async (request) => {
       when: String(d.when || '').slice(0, 120),
       mins: String(d.mins || '').slice(0, 8),
       more: d.more || '',
+      ...(d.noWarm ? { noWarm: true } : {}),
       groups: (d.groups || []).slice(0, 12).map(g => ({
         name: String(g.name || '').slice(0, 60),
         items: (g.items || []).slice(0, 40).map(hydrateItem).filter(Boolean),
@@ -1948,7 +1970,9 @@ export default async (request) => {
       answers = base.explainers.map(v => lib[v]).filter(Boolean)
         .map(x => Object.assign({ t: 'explainer', d: '' }, x));
     }
-    return Object.assign({}, base, { days, answers });
+    const w = cleanWarmup(base.warmup);
+    const warmup = w ? { n: w.n, items: w.items.map(hydrateItem).filter(Boolean) } : null;
+    return Object.assign({}, base, { days, answers, warmup });
   }
   async function planFor(email) {
     await ensureCustom();
@@ -5202,6 +5226,9 @@ export default async (request) => {
              own used to blank the programme, because days defaulted to an
              empty list rather than to what was already there. */
           days: cleanDays(Array.isArray(body.days) ? body.days : (base.days || [])),
+          /* the warm-up, only when it was sent: saving check points on
+             their own must not take it away */
+          warmup: body.warmup !== undefined ? cleanWarmup(body.warmup) : (base.warmup || null),
           /* the coach's check points for this client. Left alone when the
              builder does not send them, so saving a programme cannot wipe
              them. */

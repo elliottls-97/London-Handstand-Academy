@@ -104,3 +104,28 @@ function lhaSessionSecs(groups){
   return secs;
 }
 const lhaMins = secs => Math.round(secs / 60);
+
+/* ── the rotating warm-up ─────────────────────────────────────────────
+   One warm-up for a whole programme instead of one written into every
+   day. The drills marked essential open every day; the rest take turns,
+   so each day gets a different few and the same mix only comes back once
+   the list has gone round. Worked out from the date and the day, so a plan
+   cached for a gym with no signal still rotates, and the dashboard's
+   preview says exactly what the app will do.
+   warm is { n, items:[{ v, must, ... }] }; dateKey is YYYY-MM-DD. */
+function lhaWarmPick(warm, dayIdx, dateKey){
+  if(!warm || !Array.isArray(warm.items)) return [];
+  const items = warm.items.filter(x => x && x.v);
+  const must = items.filter(x => x.must), rest = items.filter(x => !x.must);
+  const n = Math.max(must.length, Math.min(items.length, Number(warm.n) || items.length));
+  const want = Math.min(rest.length, n - must.length);
+  const picks = [];
+  if(want > 0){
+    const dayNo = Math.floor(Date.parse(String(dateKey) + 'T12:00:00Z') / 864e5) || 0;
+    const start = ((((dayNo + (dayIdx | 0)) * want) % rest.length) + rest.length) % rest.length;
+    for(let i = 0; i < want; i++) picks.push(rest[(start + i) % rest.length]);
+  }
+  const chosen = new Set(must.concat(picks));
+  /* in the order the coach put them, which is the order a warm-up runs */
+  return items.filter(x => chosen.has(x));
+}

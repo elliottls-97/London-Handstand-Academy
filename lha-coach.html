@@ -3280,7 +3280,9 @@ function bGrp(){
    Both numbers, side by side, worked out with the same arithmetic the app
    counts down with, so the two cannot disagree. */
 function dayActualSecs(d){
-  return (typeof lhaSessionSecs==='function') ? lhaSessionSecs(d.groups||[]) : 0;
+  /* the day's share of the rotating warm-up is part of how long it takes */
+  const wg=builder ? bWarmGroup(bDays().indexOf(d)) : null;
+  return (typeof lhaSessionSecs==='function') ? lhaSessionSecs((wg?[wg]:[]).concat(d.groups||[])) : 0;
 }
 function lengthLine(d){
   const secs=dayActualSecs(d);
@@ -5263,7 +5265,7 @@ function workoutsHTML(){
   </div>`;
 }
 
-function bPickDay(i){ builder.day=i; builder.grp=0; draw(); }
+function bPickDay(i){ builder.day=i; builder.grp=0; builder.warm=false; draw(); }
 function bPickGrp(g){ builder.grp=g; draw(); }
 
 function bAddDay(){
@@ -5484,6 +5486,7 @@ function saveBuilder(){
   const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
     body:JSON.stringify({email:builder.email, days:bDays(), checkpoints:bCps(),
+                         warmup:(builder.plan.warmup && (builder.plan.warmup.items||[]).some(x=>x.v)) ? builder.plan.warmup : null,
                          ...(builder.slot?{slot:builder.slot}:{}),
                          explainers:(builder.exOn||[])})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
@@ -5883,6 +5886,131 @@ Chair-Assisted Handstand Walks 3 x 10 steps"
     </div>`}
   </div>`;
 }
+/* ══ the rotating warm-up ═══════════════════════════════════════════
+   Written once for the whole programme instead of into every day. The
+   essential drills open every day; the rest take turns, so each day gets
+   a different few. How many a day gets is one number. The app works out
+   each day's share with the same rule this preview uses (lhaWarmPick in
+   timing.js), so what is shown here is what they get. */
+const WARM_BLOCK = /warm/i;
+function bWarm(){ return (builder.plan.warmup = builder.plan.warmup || {n:5, items:[]}); }
+function bPickWarm(){ builder.warm=true; draw(); }
+function bWarmAdd(){ bWarm().items.push({v:'', d:'', must:false}); bMark(); draw(); }
+function bWarmDel(k){ bWarm().items.splice(k,1); bWarmClamp(); bMark(); draw(); }
+function bWarmMove(k,by){
+  const a=bWarm().items, j=k+by; if(j<0||j>=a.length) return;
+  const [x]=a.splice(k,1); a.splice(j,0,x); bMark(); draw();
+}
+function bWarmItem(k,f,v){
+  const it=bWarm().items[k]; if(!it) return;
+  if(f==='w'){ const n=Number(v); if(v==='' || !Number.isFinite(n)) delete it.w; else it.w=Math.max(0,Math.min(600,Math.round(n))); }
+  else it[f]=v;
+  bMark(); if(f==='v' || f==='must') draw();
+}
+function bWarmClamp(){ const W=bWarm(); const len=W.items.filter(x=>x.v).length;
+  W.n=Math.max(1, Math.min(Math.max(len,1), Number(W.n)||len||1)); }
+function bWarmN(by){ const W=bWarm(); W.n=(Number(W.n)||0)+by; bWarmClamp(); bMark(); draw(); }
+/* the warm-ups already written into each day, gathered into one list */
+function bWarmGather(){
+  const days=bDays(), W=bWarm(), seen=new Set(W.items.map(x=>x.v));
+  const per=[]; const count={};
+  days.forEach(d=>{ const here=new Set();
+    (d.groups||[]).filter(g=>WARM_BLOCK.test(g.name||'')).forEach(g=>(g.items||[]).forEach(it=>{
+      if(!it.v) return; here.add(it.v);
+      if(!seen.has(it.v)){ seen.add(it.v); W.items.push({v:it.v, d:it.d||'', ...(it.w!=null?{w:it.w}:{}), must:false}); }
+    }));
+    if(here.size){ per.push(here.size); here.forEach(v=>count[v]=(count[v]||0)+1); }
+  });
+  if(!per.length){ alert('None of the days has a block called warm-up to gather from.'); return; }
+  /* in every day's warm-up: that is what essential means */
+  if(per.length>1) W.items.forEach(x=>{ if(count[x.v]===per.length) x.must=true; });
+  W.n=Math.round(per.reduce((a,b)=>a+b,0)/per.length);
+  bWarmClamp(); bMark(); draw();
+  if(confirm('Gathered '+W.items.length+' drills. Take the warm-up blocks out of each day now, so they are not done twice?')) bWarmStrip(true);
+}
+function bWarmStrip(asked){
+  const n=bDays().reduce((t,d)=>t+(d.groups||[]).filter(g=>WARM_BLOCK.test(g.name||'')).length,0);
+  if(!n) return;
+  if(!asked && !confirm('Take the warm-up block out of every day? The rotating warm-up does that job now.')) return;
+  bDays().forEach(d=>{ d.groups=(d.groups||[]).filter(g=>!WARM_BLOCK.test(g.name||'')); });
+  builder.grp=0; bMark(); draw();
+}
+/* today's share for a day, in the shape a block has, for the length line */
+function bWarmGroup(di, dk){
+  const W=builder && builder.plan.warmup, d=bDays()[di];
+  if(!W || !(W.items||[]).length || !d || d.noWarm || typeof lhaWarmPick!=='function') return null;
+  const items=lhaWarmPick(W, di, dk||new Date().toISOString().slice(0,10));
+  return items.length ? {name:'Warm-up', items} : null;
+}
+function warmHTML(){
+  const W=bWarm(), items=W.items, real=items.filter(x=>x.v);
+  const must=real.filter(x=>x.must).length;
+  const days=bDays();
+  const name=v=>(libIndex&&libIndex[v])||v;
+  /* the next few training days, going round the days in order */
+  const preview=[];
+  /* an old copy of timing.js in a browser's cache must not take the builder down */
+  if(real.length && days.length && typeof lhaWarmPick==='function'){
+    for(let i=0;i<4;i++){
+      const dt=new Date(Date.now()+i*864e5), dk=dt.toISOString().slice(0,10), di=i%days.length;
+      const d=days[di];
+      preview.push(`<div style="display:grid;grid-template-columns:132px minmax(0,1fr);gap:10px;padding:6px 0;
+        border-top:1px solid rgba(0,64,61,.07);font:400 12.5px/1.45 var(--sans)">
+        <span style="color:var(--grey2)">${esc(i===0?'Today':i===1?'Tomorrow':dt.toLocaleDateString('en-GB',{weekday:'long'}))}, ${esc(d.label||'Day '+(di+1))}</span>
+        <span>${d.noWarm?'<i style="color:var(--grey2)">no warm-up on this day</i>'
+          :lhaWarmPick(W, di, dk).map(x=>(x.must?'<b>':'')+esc(name(x.v))+(x.must?'</b>':'')).join(', ')}</span></div>`);
+    }
+  }
+  const dayBlocks=days.reduce((t,d)=>t+(d.groups||[]).filter(g=>WARM_BLOCK.test(g.name||'')).length,0);
+  const lab=t=>`<span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${t}</span>`;
+  return `<div class="glass" style="padding:16px 18px;margin-top:12px">
+    <div style="font:600 14.5px/1.3 var(--sans)">One warm-up for every day</div>
+    <div style="font:400 13px/1.55 var(--sans);color:var(--grey);margin-top:5px;max-width:64ch">
+      Put in every drill it can draw on, in the order they should run. The essential ones open every day;
+      the rest take turns, so each day gets a different few.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px">
+      <span style="font:500 13.5px/1 var(--sans)">Each day gets</span>
+      <button onclick="bWarmN(-1)" style="${bGhost};min-width:34px">&minus;</button>
+      <b style="font:600 17px/1 var(--sans);min-width:22px;text-align:center">${real.length?W.n:0}</b>
+      <button onclick="bWarmN(1)" style="${bGhost};min-width:34px">+</button>
+      <span style="font:400 13px/1.4 var(--sans);color:var(--grey)">drill${W.n===1?'':'s'} of ${real.length}${
+        must?`, the ${must} essential one${must===1?'':'s'} always`:''}.</span>
+    </div>
+    <div style="margin-top:12px">
+      ${items.map((it,k)=>`<div style="display:flex;gap:7px;align-items:flex-end;flex-wrap:wrap;padding:8px 0;
+          border-top:1px solid rgba(0,64,61,.07)">
+        <span style="flex:none;display:flex;flex-direction:column;gap:2px;align-self:center">
+          <button onclick="bWarmMove(${k},-1)" style="${bTiny}" aria-label="Up">&#9650;</button>
+          <button onclick="bWarmMove(${k},1)" style="${bTiny}" aria-label="Down">&#9660;</button></span>
+        <label style="flex:1;min-width:190px;display:flex;flex-direction:column;gap:4px">${lab('DRILL')}
+          <select onchange="bWarmItem(${k},'v',this.value)" style="${bInput}">${drillOptions(it.v)}</select></label>
+        <button onclick="bWarmItem(${k},'must',${it.must?'false':'true'})" aria-pressed="${!!it.must}"
+          style="flex:none;border-radius:999px;padding:8px 12px;cursor:pointer;font:600 12px/1 var(--sans);
+          border:1px solid ${it.must?'var(--forest)':'var(--line)'};background:${it.must?'var(--forest)':'#fff'};
+          color:${it.must?'var(--on-primary)':'var(--grey)'}">${it.must?'Essential':'Rotates'}</button>
+        <label style="flex:none;display:flex;flex-direction:column;gap:4px">${lab('SECONDS')}
+          <input type="number" min="0" max="600" value="${it.w!=null?esc(String(it.w)):''}" placeholder="30"
+            oninput="bWarmItem(${k},'w',this.value)" style="${bInput};width:72px"></label>
+        <label style="flex:none;display:flex;flex-direction:column;gap:4px">${lab('WHAT THEY READ')}
+          <input value="${esc(it.d||'')}" oninput="bWarmItem(${k},'d',this.value)" placeholder="30s each way"
+            style="${bInput};width:150px"></label>
+        <button onclick="bWarmDel(${k})" style="${bGhost}" aria-label="Remove">&times;</button>
+      </div>`).join('') || `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);padding:6px 0">
+        No drills yet. Add them one at a time, or gather the warm-ups already written into the days.</div>`}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button onclick="bWarmAdd()" style="${bGhost}">+ Drill</button>
+        ${dayBlocks?`<button onclick="bWarmGather()" style="${bGhost}">Gather from the days (${dayBlocks} warm-up block${dayBlocks===1?'':'s'})</button>
+          ${real.length?`<button onclick="bWarmStrip()" style="${bGhost};color:var(--terra)">Take the warm-up blocks out of the days</button>`:''}`:''}
+      </div>
+    </div>
+    ${preview.length?`<div style="margin-top:16px">
+      ${lab('THE NEXT FEW DAYS')}
+      <div style="margin-top:6px">${preview.join('')}</div>
+      <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">Essential in bold. Anything a client has put aside is left out on their phone.</div>
+    </div>`:''}
+  </div>`;
+}
+
 function builderHTML(){
   if(!builder) return '';
   const days=bDays();
@@ -5900,13 +6028,15 @@ function builderHTML(){
       color:var(--grey2);cursor:pointer;font:600 11px/1 var(--sans);padding:0">×</button>`:''}
   </span>`;
 
+  const W=builder.plan.warmup, wn=W&&W.items?W.items.filter(x=>x.v).length:0;
   const dayTabs=`<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:14px">
-    ${days.map((x,i)=>tab(i===di, x.label||('Day '+(i+1)), x.sub||'',
+    ${tab(!!builder.warm, 'Warm-up', wn?(Math.min(W.n,wn)+' of '+wn+' a day'):'every day', 'bPickWarm()', '')}
+    ${days.map((x,i)=>tab(!builder.warm && i===di, x.label||('Day '+(i+1)), x.sub||'',
         'bPickDay('+i+')', 'bDelDay('+i+')')).join('')}
     <button onclick="bAddDay()" style="${bGhost}">+ Day</button>
   </div>`;
 
-  const body = days.length ? `${dayTabs}
+  const body = builder.warm ? `${dayTabs}${warmHTML()}` : days.length ? `${dayTabs}
     <div class="glass" style="padding:15px 17px;margin-top:12px">
       <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
         <input value="${esc(d.label||'')}" oninput="bField(${di},'label',this.value)"
@@ -5917,6 +6047,16 @@ function builderHTML(){
           placeholder="45" style="flex:0 0 54px;${bInput}">
       </div>
       ${lengthLine(d)}
+      ${wn?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px;
+        font:400 12.5px/1.45 var(--sans);color:var(--grey)">
+        <label style="display:inline-flex;gap:8px;align-items:center;cursor:pointer;color:var(--ink)">
+          <input type="checkbox"${d.noWarm?'':' checked'} onchange="bField(${di},'noWarm',!this.checked);draw()"
+            style="accent-color:var(--forest);width:16px;height:16px;margin:0">
+          Starts with the rotating warm-up</label>
+        ${!d.noWarm && (d.groups||[]).some(g=>WARM_BLOCK.test(g.name||''))
+          ?`<span style="color:var(--terra)">This day has its own warm-up block as well.</span>
+            <button onclick="bWarmStrip()" style="${bGhost};padding:4px 9px">Take them out</button>`:''}
+      </div>`:''}
       <input value="${esc(d.when||'')}" oninput="bField(${di},'when',this.value)"
         placeholder="What they need. Floor and a chair, nothing else."
         style="width:100%;margin-top:8px;${bInput}">
@@ -9236,7 +9376,7 @@ function doCopy(){
     .then(r=>r.ok?r.json():Promise.reject('could not read that programme'))
     .then(src=>{
       const body={email:copyTo};
-      if(copyDays) body.days=((src.plan||{}).days)||[];
+      if(copyDays){ body.days=((src.plan||{}).days)||[]; body.warmup=(src.plan||{}).warmup||null; }
       if(copyCps)  body.checkpoints=((src.plan||{}).checkpoints)||[];
       if(copyEx)   body.explainers=src.explainersOn||[];
       return fetch(API+'/programme',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
