@@ -1188,7 +1188,20 @@ export default async (request) => {
         stored[email] = { name, coach: '' };
         added++;
       }
-      if (added) await setSetting('roster', stored).catch(() => {});
+      if (added) {
+        await setSetting('roster', stored).catch(() => {});
+        /* Joining the roster puts someone behind the client email guard,
+           which is there for two specific people. These were getting their
+           emails and notifications until now, and still do: allowed through
+           by name, as a paying sign-up is, and silenced from their thread
+           like anyone. */
+        try {
+          const off = (await getSetting('mailoff')) || {};
+          let changed = false;
+          for (const a of accts) { const em = norm(a.email); if (em && off[em] === undefined && stored[em]) { off[em] = false; changed = true; } }
+          if (changed) await setSetting('mailoff', off);
+        } catch {}
+      }
     }
     return Array.from(byEmail.values());
   })();
