@@ -283,7 +283,7 @@ const $=s=>document.querySelector(s);
    the day something does, it cannot break out of one. */
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ago=t=>{ if(!t) return 'no messages'; const m=Math.round((Date.now()-t)/60000);
-  if(m<60) return m+' min ago'; const h=Math.round(m/60);
+  if(m<1) return 'just now'; if(m<60) return m+' min ago'; const h=Math.round(m/60);
   if(h<24) return h+' hr ago';
   const d=Math.round(h/24); return d===1 ? 'yesterday' : d+' days ago'; };
 const hdr=()=>({'Content-Type':'application/json','Authorization':'Bearer '+TOKEN});
@@ -1747,13 +1747,18 @@ function formCheckHTML(email){
    posts the check point and the clip and lets the server find whatever
    submission is carrying it. Works whether or not one exists. */
 let cpVerdictBusy='';
-function cpVerdict(email,k,uid,verdict){
+function cpVerdict(email,k,uid,verdict,quiet){
   if(cpVerdictBusy) return;
   const el=document.getElementById('vnote-cp-'+k);
   const note=el?el.value.trim():'';
+  /* with nothing logged the sign-off is the reading, so it carries the
+     number that counts as there: the target, yes, or the top face */
+  const def=(cpDefs[email]||[]).find(x=>x.k===k)||{};
+  const t=Number(def.target)>0?Number(def.target):null;
+  const v=def.kind==='yn'?1:def.kind==='face'?2:(t!=null?t:0);
   cpVerdictBusy=k; draw();
   fetch(API+'/checkpoint/verdict',{method:'POST',headers:hdr(),
-    body:JSON.stringify({email,k,uid,verdict,note})})
+    body:JSON.stringify({email,k,uid,verdict,note,v,n:def.n||'',quiet:!!quiet})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not save that')))
     .then(d=>{
       if(d.checkpoints){ tracks[email]=Object.assign({}, tracks[email]||{}, {checkpoints:d.checkpoints}); }
@@ -7086,6 +7091,35 @@ function openCpLog(email){
     .catch(()=>{})
     .finally(()=>{ openClient(email,'marks'); });
 }
+/* ── where a check point stands, the same five states the app shows ──
+   A coaching client's number turns their bar green; it counts once you
+   have signed it off. So a target hit is waiting on you just as a clip is. */
+function cpStand(email, k){
+  const hist=(((tracks[email]||{}).checkpoints)||{})[k.k]||[];
+  const last=hist[hist.length-1]||null;
+  const clip=hist.filter(r=>r&&r.video).slice(-1)[0]||null;
+  let s0=null; for(let i=hist.length-1;i>=0;i--){ if(hist[i]&&hist[i].verdict){ s0=hist[i]; break; } }
+  const K=(typeof CP_KIND!=='undefined' && CP_KIND[k.kind])||{};
+  const lower=k.lower!=null?!!k.lower:!!K.lower;
+  const tgt=Number(k.target)>0?Number(k.target):null;
+  const hitV=v=>k.kind==='face'?Number(v)>=2 : k.kind==='yn'?!!Number(v)
+    : tgt==null?false : lower?(Number(v)>0&&Number(v)<=tgt) : Number(v)>=tgt;
+  const newer=!!(last && s0 && (last.at||0) > (s0.verdictAt||s0.at||0));
+  const waiting=!!(clip && !clip.verdict);
+  const state = waiting ? 'clip'
+    : s0&&s0.verdict==='reached' ? 'signed'
+    : s0&&s0.verdict==='notyet'&&!newer ? 'notyet'
+    : last&&hitV(last.v) ? 'hit'
+    : last ? 'going' : 'none';
+  return {hist,last,clip,s0,tgt,lower,state,waiting};
+}
+function cpTargetLine(k, tgt, lower){
+  const unit=k.unit||'';
+  if(k.kind==='yn') return 'target: yes';
+  if(k.kind==='face') return 'target: the top face';
+  if(tgt==null) return '';
+  return 'target: '+esc(String(tgt))+esc(unit)+(lower?' or fewer':'');
+}
 function cpsWaitKeys(email){
   const tr=((tracks[email]||{}).checkpoints)||{};
   return Object.keys(tr).filter(k=>{
@@ -7116,41 +7150,71 @@ function marksPaneHTML(){
     <div style="margin-top:var(--space-3)">${cpsBtnHTML(sel)}</div></div>`;
 
   const card=k=>{
-    const hist=(tr[k.k]||[]).slice();
-    const last=hist[hist.length-1]||null;
-    const clip=hist.filter(r=>r&&r.video).slice(-1)[0]||null;
+    const S=cpStand(sel,k);
+    const {hist,last,clip,s0,state,waiting}=S;
     const unit=k.unit||'';
-    const waiting=!!(clip && !clip.verdict);
-    const met = clip && clip.verdict==='reached' ? true
-      : (last && k.target!=null && Number(k.target)>0
-         && (k.lower ? Number(last.v)<=Number(k.target) : Number(last.v)>=Number(k.target)));
+    const numeric=k.kind!=='yn' && k.kind!=='face';
+    const tline=cpTargetLine(k,S.tgt,S.lower);
     const sub = clip ? cpSubFor(sel, clip.video) : null;
+    const busy=cpVerdictBusy===k.k;
+    const TAG={clip:['clip to watch','tag-accent'], hit:['target hit, sign it off','tag-accent'],
+      signed:['signed off','tag-accent'], notyet:['not there yet','tag-accent-2'],
+      going:['in progress','tag-neutral'], none:['nothing yet','tag-neutral']}[state];
+    const needs = state==='clip' || state==='hit';
+    const when = r => r && r.verdictAt ? ' '+esc(ago(r.verdictAt)) : '';
+    /* what you last said, whichever row it is on */
+    const standing = state==='signed'
+      ? `<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:10px">
+          <span style="font:600 12.5px/1.4 var(--sans);color:var(--forest)">You signed this off${when(s0)}${
+            s0.note?': '+esc(s0.note):''}. It is green in their app.</span>
+          <button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+            onclick="if(confirm('Take the sign-off back? It goes back to not there yet, and they are not emailed.'))cpVerdict('${esc(sel)}','${esc(k.k)}','','notyet',true)">Take it back</button></div>`
+      : state==='notyet'
+      ? `<div style="font:600 12.5px/1.4 var(--sans);color:var(--terra);margin-top:10px">You said not there yet${
+          when(s0)}${s0.note?': '+esc(s0.note):''}</div>`
+      : '';
+    /* a verdict on anything not yet signed off, clip or no clip */
+    const verdictRow = (!waiting && state!=='signed') ? `
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+        <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
+        <input id="vnote-cp-${esc(k.k)}" placeholder="One line they will read beside it, optional"
+          style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
+          font:400 13px/1.3 var(--sans);background:#fff">
+        <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
+          <button class="${state==='hit'?'send':'btn btn-secondary btn-sm'}" style="${state==='hit'?'width:auto;padding:0 14px;font-size:12.5px':''}"
+            ${busy?'disabled':''}
+            onclick="cpVerdict('${esc(sel)}','${esc(k.k)}','','reached')">${busy?'Saving…':'Sign it off'}</button>
+          ${last && state!=='notyet' ? `<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+            onclick="cpVerdict('${esc(sel)}','${esc(k.k)}','','notyet')">Not there yet</button>` : ''}
+        </div>
+        <div class="muted" style="font:400 11.5px/1.5 var(--sans);margin-top:8px">${
+          state==='hit' ? 'They have logged the target. Signing it off turns it green and counts it.'
+          : state==='none' ? 'Nothing logged yet. Sign it off if you have seen it done, in a session or anywhere else.'
+          : 'Sign it off when you are happy it is there, whatever the number says.'}</div>
+      </div>` : '';
     const recent=hist.slice(-6).map(r=>`<span style="font:400 12px/1.4 var(--sans);color:var(--grey2)">${
       esc(String(r.v))+esc(unit)}<span style="opacity:.6"> ${esc(ago(r.at))}</span></span>`).join(
       `<span style="color:var(--line)">&nbsp;·&nbsp;</span>`);
     return `<div class="card" style="margin-bottom:var(--space-3);
-      ${waiting?'border:1.5px solid var(--forest)':''}">
+      ${needs?'border:1.5px solid var(--forest)':''}">
       <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
-        <span class="tag ${waiting?'tag-accent':met?'tag-accent':'tag-neutral'}">${
-          waiting?'clip to watch':met?'reached':last?'in progress':'nothing yet'}</span>
+        <span class="tag ${TAG[1]}">${TAG[0]}</span>
         <b style="flex:1;min-width:160px;font:600 15px/1.3 var(--sans)">${esc(k.n||k.k)}</b>
-        <span class="muted" style="font:400 13px/1.4 var(--sans)">${
-          k.target!=null&&k.target!=='' ? (k.lower?'under ':'')+esc(String(k.target))+esc(unit) : 'no target'}</span>
+        <span style="font:600 13px/1.4 var(--sans);color:${tline?'var(--ink)':'var(--terra)'}">${
+          tline || (numeric&&!k.stray ? 'no target set' : '')}</span>
       </div>
+      ${!tline && numeric && !k.stray ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">
+        With no number their bar cannot turn green. Add one in Edit check points, or sign it off by eye.</p>`:''}
       ${k.note?`<p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:6px">${esc(k.note)}</p>`:''}
       <div style="margin-top:10px;font:400 13.5px/1.5 var(--sans)">${
-        last ? `Best they have logged: <b>${esc(String(Math.max(...hist.map(r=>Number(r.v)||0))))}${esc(unit)}</b>
-                 &middot; last ${esc(ago(last.at))}` : 'Nothing logged yet.'}</div>
+        last ? `Last logged: <b>${esc(String(last.v))}${esc(unit)}</b> ${esc(ago(last.at))}`
+             : 'Nothing logged yet.'}</div>
       ${hist.length>1?`<div style="margin-top:6px">${recent}</div>`:''}
       ${clip?`<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
         <div style="flex:0 0 150px">${clipPoster(clip.video,'4/3')}</div>
         <div style="flex:1;min-width:190px">
-          ${clip.verdict?`<div style="font:600 12.5px/1.4 var(--sans);color:${
-            clip.verdict==='reached'?'var(--forest)':'var(--terra)'}">${
-            clip.verdict==='reached'?'You verified this':'You said not there yet'}${
-            clip.note?': ':''}${esc(clip.note||'')}</div>
-            <div class="muted" style="font:400 11.5px/1.5 var(--sans);margin-top:5px">On their
-              check point${clip.verdictAt?' since '+esc(ago(clip.verdictAt)):''}, and they were emailed.</div>
+          ${clip.verdict?`<div class="muted" style="font:400 12px/1.5 var(--sans)">The clip they sent${
+              clip.verdictAt?', answered '+esc(ago(clip.verdictAt)):''}.</div>
             <button class="btn btn-ghost btn-sm" style="margin-top:8px"
               onclick="reviewCp('${esc(sel)}','${esc(clip.video)}','${esc(k.n||k.k)}')">Open in the review tool &rarr;</button>`
           : `<div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
@@ -7161,7 +7225,7 @@ function marksPaneHTML(){
               <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
                 ${cpVerdictBusy===k.k?'disabled':''}
                 onclick="cpVerdict('${esc(sel)}','${esc(k.k)}','${esc(clip.video)}','reached')">${
-                cpVerdictBusy===k.k?'Saving…':'Reached, verified'}</button>
+                cpVerdictBusy===k.k?'Saving…':'Sign it off'}</button>
               <button class="btn btn-ghost btn-sm" ${cpVerdictBusy===k.k?'disabled':''}
                 onclick="cpVerdict('${esc(sel)}','${esc(k.k)}','${esc(clip.video)}','notyet')">Not there yet</button>
               <button class="btn btn-secondary btn-sm"
@@ -7172,6 +7236,7 @@ function marksPaneHTML(){
                   : subsLoaded[sel]===undefined ? 'Checking your review queue&hellip;'
                   : 'No review row came with this clip, which does not stop you answering it: the verdict goes on their check point either way.'}</div>`}
         </div></div>`:''}
+      ${standing}${verdictRow}
     </div>`;
   };
   /* anything waiting on you first, then the rest in the order you wrote them */
@@ -7181,17 +7246,20 @@ function marksPaneHTML(){
   const strays=cpsWaitKeys(sel).filter(k=>!known.has(k))
     .map(k=>({k, n:strayName(k), unit:'', target:null, stray:true}));
   const all=defs.concat(strays);
-  const wait=all.filter(k=>{ const c=(tr[k.k]||[]).filter(r=>r&&r.video).slice(-1)[0];
-    return c && !c.verdict; });
-  const rest=all.filter(k=>wait.indexOf(k)<0);
+  const standOf=k=>cpStand(sel,k).state;
+  const wait=all.filter(k=>standOf(k)==='clip');
+  const hits=all.filter(k=>standOf(k)==='hit');
+  const rest=all.filter(k=>wait.indexOf(k)<0 && hits.indexOf(k)<0);
+  const signedN=defs.filter(k=>standOf(k)==='signed').length;
   return `<div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
       flex-wrap:wrap;margin-bottom:var(--space-3)">
       <div>
         <h4 style="margin:0">Check points</h4>
         <p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:4px;max-width:60ch">
-          What they must be able to do before the next block.${
-          wait.length?' '+wait.length+' clip'+(wait.length===1?'':'s')+' waiting on you.':''}</p>
+          What they must be able to do before the next block. ${signedN} of ${defs.length} signed off.${
+          wait.length?' '+wait.length+' clip'+(wait.length===1?'':'s')+' waiting on you.':''}${
+          hits.length?' '+hits.length+' at the target, waiting for your sign-off.':''}</p>
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         ${wait.length?`<button class="btn btn-primary btn-sm"
@@ -7199,7 +7267,7 @@ function marksPaneHTML(){
         ${cpsBtnHTML(sel)}
       </div>
     </div>
-    ${wait.map(card).join('')}${rest.map(card).join('')}
+    ${wait.map(card).join('')}${hits.map(card).join('')}${rest.map(card).join('')}
   </div>`;
 }
 

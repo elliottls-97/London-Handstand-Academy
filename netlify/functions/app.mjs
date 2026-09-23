@@ -3341,7 +3341,16 @@ export default async (request) => {
           const last = hist[hist.length - 1];
           if (last && day(last.at) === day(row.at)) {
             if (last.video && !row.video) row.video = last.video;
-            hist[hist.length - 1] = row;
+            /* The coach's verdict is on that row. Moving the slider again the
+               same day wiped it, so a sign-off vanished the moment they
+               touched the card. It stays with the reading; a new clip after
+               a verdict is a new reading, not a correction. */
+            if (last.verdict && row.video !== last.video) hist.push(row);
+            else {
+              if (last.verdict) ['verdict', 'note', 'by', 'verdictAt', 'watchedAt']
+                .forEach(f => { if (last[f] != null) row[f] = last[f]; });
+              hist[hist.length - 1] = row;
+            }
           } else hist.push(row);
           cur.checkpoints[k] = hist.slice(-20);
           /* A clip on a check point was stored and then nothing happened: no
@@ -5576,8 +5585,16 @@ export default async (request) => {
       if (!k || !verdict) return json({ error: 'Which check point, and reached or not?' }, 400);
       const tkey = `track:${e}`;
       const tr = (await getSetting(tkey)) || {};
-      const rows = (tr.checkpoints || {})[k];
-      if (!Array.isArray(rows) || !rows.length) return json({ error: 'Nothing logged against that one' }, 404);
+      tr.checkpoints = tr.checkpoints || {};
+      let rows = tr.checkpoints[k];
+      if (!Array.isArray(rows) || !rows.length) {
+        /* Seen in a session, or a check point with no number on it: there
+           is nothing logged for the verdict to sit on, so the sign-off makes
+           the reading. Not there yet on nothing is not a verdict. */
+        if (verdict !== 'reached') return json({ error: 'Nothing logged against that one yet' }, 404);
+        const v0 = Number(body.v);
+        rows = tr.checkpoints[k] = [{ v: Number.isFinite(v0) && v0 >= 0 && v0 <= 100000 ? v0 : 0, at: Date.now() }];
+      }
       const by = asking || primaryCoach();
       const stamp = r => Object.assign({}, r,
         { verdict, note, by, verdictAt: Date.now(), watchedAt: Date.now() });
@@ -5607,12 +5624,17 @@ export default async (request) => {
         }
       }
 
-      /* and they are told, unless a reply is already on its way to them */
+      /* and they are told, unless a reply is already on its way to them, or
+         this is the coach taking a sign-off back */
       const thread = await threadLoad(db, e);
       const lastCoach = Math.max(0, ...thread.filter(m => m.from === 'coach').map(m => m.at || 0));
-      if (Date.now() - lastCoach > 6 * 3600000) {
+      if (!body.quiet && Date.now() - lastCoach > 6 * 3600000) {
         const nm = coachName(by);
-        const T = await emailCopy('answerReady', { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm) });
+        /* "has been through what you sent" is wrong when nothing was sent */
+        const key = uid ? 'answerReady' : verdict === 'reached' ? 'cpSigned' : 'cpNotYet';
+        const cpName = String(body.n || '').slice(0, 80) || 'one of your check points';
+        const T = await emailCopy(key, { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm),
+          checkpoint: esc(cpName) });
         await email(e, T.subject,
           mail({
             title: T.title,

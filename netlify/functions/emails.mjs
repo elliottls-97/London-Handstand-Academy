@@ -162,6 +162,34 @@ export const EMAILS = {
       "{coach} has been through what you sent and written it up. It is waiting in the app."
     ]
   },
+  "cpSigned": {
+    "name": "Check point signed off",
+    "when": "When you sign off a check point that came with no clip",
+    "vars": [
+      "name",
+      "coach",
+      "checkpoint"
+    ],
+    "subject": "{coach} has signed off a check point",
+    "title": "Signed off.",
+    "paras": [
+      "{coach} has signed off <b>{checkpoint}</b>. It is green on your check points in the app."
+    ]
+  },
+  "cpNotYet": {
+    "name": "Check point not there yet",
+    "when": "When you mark a check point not there yet and it came with no clip",
+    "vars": [
+      "name",
+      "coach",
+      "checkpoint"
+    ],
+    "subject": "A note on {checkpoint}",
+    "title": "Not quite there yet.",
+    "paras": [
+      "{coach} has looked at <b>{checkpoint}</b> and it is not there yet. There is a note on it in the app, with what to work on."
+    ]
+  },
   "coachReplied": {
     "name": "Coach has replied",
     "when": "Every reply you send from the dashboard",

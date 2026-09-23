@@ -1247,7 +1247,7 @@ function screenToday(){
      the same thing about their own block whatever their block said */
   const pts=(DATA.changed||[]).map(x=>Array.isArray(x)?x:[x.t||'',x.p||'']).filter(x=>x[0]||x[1]);
   return `<div class="scroll s">
-  ${viewSwitch()}
+  
   <!-- The green hero has gone, the same way the free side's did. It was a
        third of the screen before a word had been said, and the one control
        this screen exists for, Start, was a flat panel the size of a chip.
@@ -1258,7 +1258,7 @@ function screenToday(){
        was ready, which the button underneath already says. The greeting
        is the heading now, at a size that leaves room for the thing this
        screen is actually for. -->
-  <div class="rise" style="padding:${st.coached?'16px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
+  <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
     <div style="font:400 30px/1.1 var(--serif);letter-spacing:-.01em">${
       ticked>=total&&total
         ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
@@ -2948,7 +2948,13 @@ function saveCheckpoint(k,v,video){
   const lastRow=hist[hist.length-1];
   if(lastRow && dayKey(lastRow.at)===dayKey(row.at)){
     if(lastRow.video && !row.video) row.video=lastRow.video;
-    hist[hist.length-1]=row;
+    /* Elliott's verdict sits on that row, and a second nudge wiped it */
+    if(lastRow.verdict && row.video!==lastRow.video) hist.push(row);
+    else {
+      if(lastRow.verdict) ['verdict','note','by','verdictAt','watchedAt']
+        .forEach(f=>{ if(lastRow[f]!=null) row[f]=lastRow[f]; });
+      hist[hist.length-1]=row;
+    }
   } else hist.push(row);
   st.track.checkpoints[k]=hist.slice(-20);
   if(st.cpDraft) delete st.cpDraft[k];
@@ -3012,20 +3018,62 @@ function cpSendClip(k,file){
 /* Pass a value to ask "would this one count", which is what the bar needs
    while a finger is still on it. With no value it answers for what is
    logged, which is every other caller. */
-function cpMet(c, v){
+/* A target of nought is a target nobody set. It was read as a real one:
+   anything logged is at least nought, so a coached check point with no
+   number on it counted as reached the moment anything was logged. */
+function cpTarget(c){ const t=Number(c && c.target); return t>0 ? t : null; }
+/* whether the number itself is at the target, nothing else */
+function cpHit(c, v){
   const last = (v==null) ? cpLast(c.k) : {v:Number(v)||0};
   if(!last) return false;
-  /* the coach has seen the clip and said: that wins over the number either way */
-  if(v==null && last.verdict==='reached') return true;
-  if(v==null && last.verdict==='notyet') return false;
   if(c.kind==='face') return Number(last.v)>=2;
   if(c.kind==='yn') return !!last.v;
-  if(c.target==null) return false;
+  const t=cpTarget(c); if(t==null) return false;
   const K=CP_KIND[c.kind]||CP_KIND.count;
   /* lower-is-better can belong to the check point, not only its kind:
      distance to the box is a count, and the smaller one is the good one */
   const lower=(c.lower!=null)?c.lower:K.lower;
-  return lower ? (last.v>0 && last.v<=c.target) : last.v>=c.target;
+  return lower ? (last.v>0 && last.v<=t) : last.v>=t;
+}
+/* the coach's latest word on this check point, on whichever row it is */
+function cpSigned(k){
+  const h=cpLog()[k]||[];
+  for(let i=h.length-1;i>=0;i--){ if(h[i] && h[i].verdict) return h[i]; }
+  return null;
+}
+/* ── a coached check point is signed off, not self scored ────────────
+   On the ladder the number decides. For a coaching client the number
+   turns the bar green and Elliott decides: the card says the target is
+   hit and that he signs it off, and it counts once he has. */
+function cpState(c){
+  const last=cpLast(c.k);
+  const s0=cpSigned(c.k);
+  if(coachedView()){
+    if(s0 && s0.verdict==='reached') return 'signed';
+    const newer = last && s0 && (last.at||0) > (s0.verdictAt||s0.at||0);
+    if(s0 && s0.verdict==='notyet' && !newer) return 'notyet';
+    if(last && cpHit(c)) return 'hit';
+    return last ? 'going' : 'none';
+  }
+  if(!last) return 'none';
+  if(last.verdict==='reached') return 'signed';
+  if(last.verdict==='notyet') return 'notyet';
+  return cpHit(c) ? 'met' : 'going';
+}
+function cpMet(c, v){
+  if(v!=null) return cpHit(c, v);           /* a value on the slider: the number */
+  const s1=cpState(c);
+  return s1==='signed' || s1==='met';
+}
+/* what the card promises, in words, always on show */
+function cpTargetText(c){
+  const t=cpTarget(c), unit=cpUnit(c);
+  const K=CP_KIND[c.kind]||CP_KIND.count;
+  const lower=(c.lower!=null)?c.lower:K.lower;
+  if(c.kind==='yn') return 'Target: yes';
+  if(c.kind==='face') return 'Target: '+((cpFaceLabels(c)||[])[2]||'yes');
+  if(t==null) return coachedView() ? 'No number on this one. '+coachLabel()+' signs it off.' : '';
+  return 'Target: '+(lower ? t+unit+(K.suffix||'')+' or fewer' : t+unit);
 }
 const cpUnit = c => (c.unit!=null) ? c.unit : ((CP_KIND[c.kind]||CP_KIND.count).unit||'');
 
@@ -3283,28 +3331,49 @@ function cpCardTop(c, i, total){
   const shown = pick ? (last ? cpFaceLabel(c,last.v) : '')
               : (cur==null ? '' : cur+unit);
 
-  const status = met ? ['REACHED','rgba(0,102,99,.14)','var(--forest)']
-               : last ? ['IN PROGRESS','rgba(243,169,73,.2)','#5e3708']
-                      : ['NOT STARTED','rgba(17,17,17,.06)','var(--grey)'];
+  const cs=cpState(c), who=coachLabel();
+  const signed=cpSigned(c.k);
+  const status = cs==='signed' ? [coachedView()?'SIGNED OFF':'REACHED','rgba(0,102,99,.14)','var(--forest)']
+               : cs==='met'    ? ['REACHED','rgba(0,102,99,.14)','var(--forest)']
+               : cs==='hit'    ? ['TARGET HIT','rgba(0,102,99,.08)','var(--forest)']
+               : cs==='notyet' ? ['NOT THERE YET','rgba(243,169,73,.2)','#5e3708']
+               : cs==='going'  ? ['IN PROGRESS','rgba(243,169,73,.2)','#5e3708']
+                               : ['NOT STARTED','rgba(17,17,17,.06)','var(--grey)'];
+  /* the line under the name: what to reach, and for a coaching client
+     where it stands with Elliott */
+  const tgt=cpTargetText(c);
+  const standing = !coachedView() ? ''
+    : cs==='signed' ? 'Signed off by '+who+(signed&&signed.verdictAt?', '+cpWhen(signed.verdictAt):'')+'.'
+    : cs==='hit' ? 'Target hit. '+who+' signs it off.'
+    : cs==='notyet' ? who+' says not there yet'+(signed&&signed.note?': '+signed.note:'.')
+    : '';
 
   return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
       <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">
         CHECK POINT ${i+1} OF ${total}</span>
-      <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 9px;border-radius:999px;
-        background:${status[1]};color:${status[2]}">${status[0]}</span>
+      <span id="cpstat-${c.k}" style="font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 9px;border-radius:999px;
+        background:${status[1]};color:${status[2]};${cs==='hit'?'box-shadow:inset 0 0 0 1.5px var(--forest);':''}">${status[0]}</span>
     </div>
     <div style="margin-top:11px;display:flex;align-items:baseline;justify-content:space-between;gap:12px">
       <div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:9px">
-        <span style="flex:none;width:19px;height:19px;border-radius:50%;display:inline-flex;
+        <span id="cpdot-${c.k}" style="flex:none;width:19px;height:19px;border-radius:50%;display:inline-flex;
           align-items:center;justify-content:center;font:700 10px/1 var(--sans);
           transition:background .35s;background:${met?'var(--forest)':'rgba(17,17,17,.12)'};
           color:var(--on-primary)">${met?'✓':''}</span>
         <span style="font:600 15.5px/1.25 var(--sans)">${esc(c.n)}</span>
       </div>
       <div id="cpval-${c.k}" data-u="${esc(unit)}" style="flex:none;font:700 15px/1 var(--sans);color:${
-        met?'var(--forest)':last?'var(--ink)':'var(--grey2)'}">${esc(String(shown))}</div>
+        met||cs==='hit'?'var(--forest)':last?'var(--ink)':'var(--grey2)'}">${esc(String(shown))}</div>
     </div>
-    ${c.note?`<div style="margin-top:6px;padding-left:28px;font:400 12.5px/1.4 var(--sans);
+    <!-- the target, always on the card. It used to appear only until the
+         first log, then turn into "12 to go", so a coaching client could
+         not see what they were aiming at once they had started. -->
+    <div id="cptgt-${c.k}" style="margin-top:6px;padding-left:28px">
+      ${tgt?`<div style="font:700 12.5px/1.4 var(--sans);color:var(--forest)">${esc(tgt)}</div>`:''}
+      ${standing?`<div style="font:500 12.5px/1.4 var(--sans);margin-top:2px;color:${
+        cs==='notyet'?'#7a4a10':'var(--forest)'}">${esc(standing)}</div>`:''}
+    </div>
+    ${c.note?`<div style="margin-top:4px;padding-left:28px;font:400 12.5px/1.4 var(--sans);
       color:var(--grey)">${esc(c.note)}</div>`:''}
     <!-- ── how to test it, shown ──────────────────────────────────
          This was a strip you had to notice and press, so the one thing
@@ -3351,14 +3420,15 @@ function cpCardTop(c, i, total){
     <div style="margin-top:14px">${cpInput(c)}</div>
     <div style="margin-top:9px;display:flex;justify-content:space-between;gap:10px;
       font:400 11.5px/1 var(--sans);color:var(--grey)">
-      <span>${last?'Logged '+esc(cpWhen(last.at)):'Not logged yet'}</span>
-      <span id="cpgo-${c.k}" style="color:${met?'var(--forest)':'var(--grey)'}">${esc(cpToGo(c))}</span>
+      <span id="cplogd-${c.k}">${last?'Logged '+esc(cpWhen(last.at)):'Not logged yet'}</span>
+      <span id="cpgo-${c.k}" style="color:${met||cs==='hit'?'var(--forest)':'var(--grey)'};font-weight:${
+        cs==='hit'||cs==='signed'?'700':'400'}">${esc(cpToGo(c))}</span>
     </div>
-    ${cpHistoryHTML(c)}
+    <div id="cphist-${c.k}">${cpHistoryHTML(c)}</div>
     <!-- Where the upload writes to while it is going. The clip's whole
          story is the block under it. -->
     <div id="cpup-${c.k}" style="margin-top:9px;font:500 12px/1.4 var(--sans);color:var(--grey)"></div>
-    ${c.video===false?'':cpClipHTML(c,sent)}`;
+    <div id="cpclip-${c.k}">${c.video===false?'':cpClipHTML(c,sent)}</div>`;
 }
 /* ── the demo, without seven video players ────────────────────────
    Showing the film on every check point meant seven <video> elements,
@@ -3696,13 +3766,16 @@ function cpToGo(c){
   const met=cpMet(c);
   /* the left of this line already says whether it has been logged, so the
      right says nothing rather than saying it twice */
+  const t=cpTarget(c), s1=cpState(c);
+  if(s1==='signed') return 'Signed off';
+  if(s1==='hit') return 'Target hit';
   if(c.kind==='yn'||c.kind==='face') return last ? (met?'Reached':'Not there yet') : '';
   /* the target used to be a label inside the track. Nothing logged yet, so
      say what the end of the bar is worth reaching. */
-  if(!last) return c.target==null ? '' : 'Target '+c.target+unit;
+  if(!last) return t==null ? '' : 'Target '+t+unit;
   if(met) return 'Target reached';
-  if(c.target==null) return '';
-  return lower ? (last.v-c.target)+unit+' to lose' : (c.target-last.v)+unit+' to go';
+  if(t==null) return '';
+  return lower ? (last.v-t)+unit+' to lose' : (t-last.v)+unit+' to go';
 }
 /* Repaint one card's numbers without touching its demo, and refresh the
    counts the sheet shows above the list. render() bails out under an open
@@ -3729,14 +3802,24 @@ function repaintMode(){
     now.scrollTop=keep;
   }
 }
+/* Letting go of the slider rebuilt the whole top of the card: the demo
+   picture, the slider it had just been dragged on, the clip tracker. The
+   picture reloaded and the card flashed, which reads as the page
+   refreshing. The card is drawn off to one side and only the pieces that
+   came out different are swapped in. */
 function repaintCp(k){
   const el=document.getElementById('cptop-'+k); if(!el) return;
   const card=document.getElementById('cpcard-'+k);
   const c=cpDef(k); if(!c) return;
-  el.innerHTML=cpCardTop(c, Number(card.dataset.i)||0, Number(card.dataset.total)||0);
+  const tmp=document.createElement('div');
+  tmp.innerHTML=cpCardTop(c, Number(card.dataset.i)||0, Number(card.dataset.total)||0);
+  ['cpstat-','cpdot-','cpval-','cptgt-','cplogd-','cpgo-','cphist-','cpclip-'].forEach(p=>{
+    const a=document.getElementById(p+k), b=tmp.querySelector('#'+p+k);
+    if(a && b && a.outerHTML!==b.outerHTML) a.replaceWith(b);
+  });
   const p=(st.ov==='stage') ? cpProgress(st.ovStage||0) : cpProgress();
   const cnt=document.getElementById('cpcount');
-  if(cnt) cnt.textContent=p.met+' of '+p.of+' reached';
+  if(cnt) cnt.textContent=p.met+' of '+p.of+(coachedView()?' signed off':' reached');
   const bar=document.getElementById('cpbar');
   if(bar) bar.style.width=(p.of?Math.round(p.met/p.of*100):0)+'%';
   const num=document.getElementById('cpnum');
@@ -3909,7 +3992,7 @@ function checkpointsCard(){
         <span class="kick2"${due?' style="color:var(--forest)"':''}>CHECK POINTS${
           coached?'':' · '+esc(S.n||'')}</span>
         <span id="cpcount" style="font:600 12px/1 var(--sans);color:${
-          all?'var(--forest)':'var(--grey2)'}">${P.met} of ${P.of} reached</span>
+          all?'var(--forest)':'var(--grey2)'}">${P.met} of ${P.of} ${coachedView()?'signed off':'reached'}</span>
       </div>
       <div style="display:flex;align-items:center;gap:11px;margin-top:11px">
         <div style="flex:1;height:6px;border-radius:3px;background:rgba(17,17,17,.08);overflow:hidden">
@@ -3924,7 +4007,7 @@ function checkpointsCard(){
         ? (all
             ? 'All of them. Elliott will have seen that come through.'
             : due ? 'Worth running through these, it has been a fortnight or more. Log what you manage and send a clip, even the ones that did not go well.'
-                  : 'What Elliott wants you to be able to do. Drag each one to what you managed, it logs as you go, then send a clip so he can see it.')
+                  : 'Drag each one to what you managed. Green means you have hit the target, and Elliott signs it off, from a clip if you send one.')
         : (all
             ? 'All of them. That stage is yours.'
             : due ? 'Worth running through these, it has been a fortnight or more.'
@@ -6049,6 +6132,7 @@ function paintMenu(){
         border-radius:999px;border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);
         cursor:pointer;font:400 18px/1 var(--sans)">&times;</button>
     </div>
+    ${railSwitch(true)}
     ${moreBody()}</div>`;
   const now=m.querySelector('.panel'); if(now) now.scrollTop=keep;
   if(typeof lazyThumbs==='function') lazyThumbs();
@@ -10367,11 +10451,11 @@ function screenHome(){
          warm neutral now, the greeting is the only large type, and Start is the
          size of the decision it represents. How long and how hard moved into
          the sheet behind it, because they are the second question. -->
-    ${viewSwitch()}
+    
     <!-- The name of the app was the biggest thing on the screen of the
          app you are already in. The greeting is the heading now, smaller,
          and the session under it gets the room. -->
-    <div class="rise" style="padding:${st.coached?'16px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
+    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
       <div style="font:400 ${wide()?30:26}px/1.1 var(--serif);letter-spacing:-.01em">${
         didToday ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
         : `${esc(hello)}<em style="color:var(--forest);font-style:normal">${
@@ -10939,11 +11023,11 @@ function screenLadder(){
     <!-- The green hero has gone the way of Today's. The stage you are on is
          the page, not a banner over it, and the stages below it are a spine
          rather than five cards that each carried the price. -->
-    ${viewSwitch()}
+    
     <!-- the switch stays put on a wide screen, so whichever of the three
          you are reading, the other two are a press away without scrolling
          back up -->
-    <div style="padding:${st.coached?'10px':'calc(env(safe-area-inset-top) + 84px)'} 0 0;${
+    <div style="padding:calc(env(safe-area-inset-top) + 84px) 0 0;${
       wide()?'position:sticky;top:0;z-index:3;padding-top:14px;padding-bottom:10px;background:rgba(244,244,245,.88);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%)':''}">${ladderSeg()}</div>
     ${ltab==='progress' && !st.token ? `
     <!-- Everything on this tab is a record of what somebody has done, and
@@ -13712,9 +13796,10 @@ function sideCheckCard(){
    that bar is a strip of chrome over the page for no reason: the rail
    has room underneath the tabs, and the page gets the height back. */
 /* which of the two products you are in, at the top of the rail */
-function railSwitch(){
-  if(!wide() || !st.coached) return '';
-  return `<div class="railswitch">
+/* the rail on a monitor, the side menu on a phone */
+function railSwitch(inMenu){
+  if(!st.coached || (!inMenu && !wide())) return '';
+  return `<div class="railswitch" ${inMenu?'style="display:flex;gap:4px;padding:4px;border-radius:13px;background:rgba(0,64,61,.07);margin:6px 0 4px"':''}>
     ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>`<button onclick="switchView(${f})"
       aria-pressed="${(!!st.asFree)===f}"
       style="flex:1;min-height:34px;border:0;cursor:pointer;border-radius:10px;
@@ -13822,7 +13907,7 @@ function railMore(n){
    programme, but there is no way of knowing that from the screen. So
    the first time, it says what it is before it does it. */
 function switchView(toFree, ok){
-  if(toFree && !ok && !st.sawLadder){ openOv('ladderswitch'); return; }
+  if(toFree && !ok && !st.sawLadder){ if(menuOpen) closeMenu(); openOv('ladderswitch'); return; }
   if(toFree) st.sawLadder=1;
   st.asFree=!!toFree;
   save();
