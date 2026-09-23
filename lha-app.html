@@ -33,6 +33,9 @@
     an off-white that sits on teal, an amber accent, and the deep teal
     used for text on pale grounds */
  --on-primary:#f7f4f1; --amber:#f3a949; --deep:#00403d;
+ /* the colour of "not sent". It was used and never defined, so a failed
+    message said so in the same black as everything else */
+ --terra:#a4503c;
  /* sage is a fill colour; as a word on teal it lands near 3:1, so text
     gets its own lighter tint rather than the bar's */
  --sage-t:#d6e9f0;
@@ -5108,10 +5111,15 @@ let pendingMsgs=[];
    never received. Every message of your own now says where it got to. */
 function msgStatus(m){
   if(!m || m.from!=='me') return '';
+  const link=(on,t)=>`<button onclick="${on}" style="border:0;background:none;padding:0 0 0 4px;cursor:pointer;
+      color:var(--terra);font:700 11px/1.4 var(--sans);text-decoration:underline">${t}</button>`;
+  if(m.emailed) return `<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:2px 2px 0;text-align:right">
+    The chat was not reachable, so this went to ${esc(coachLabel())} by email. The reply comes here.</div>`;
+  if(m.failed && m.why==='signin') return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
+    Not sent: you have been signed out.${link("st.tab='signin';save();render()",'Sign in again')}</div>`;
   if(m.failed) return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
-    Not sent.${m.video?` <button onclick="retrySend('${esc(m.video)}','',${JSON.stringify(m.text||'')
-      .replace(/"/g,'&quot;')})" style="border:0;background:none;padding:0 0 0 4px;cursor:pointer;
-      color:var(--terra);font:700 11px/1.4 var(--sans);text-decoration:underline">Send it again</button>`:''}</div>`;
+    Not sent.${m.video?link(`retrySend('${esc(m.video)}','',${JSON.stringify(m.text||'').replace(/"/g,'&quot;')})`,'Send it again')
+      : (!m.image && m.text) ? link(`sendAsk(${JSON.stringify(m.text).replace(/"/g,'&quot;')})`,'Send it again') : ''}</div>`;
   if(m.pending) return `<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:2px 2px 0">
     Sending&hellip;</div>`;
   return `<div style="font:500 11px/1.4 var(--sans);color:var(--grey2);margin:2px 2px 0">
@@ -5155,18 +5163,23 @@ function loadThread(){
       at:m.at||0, time:when(m.at)}));
     /* forget the ones the server has caught up on, keep the rest on screen */
     const seen=new Set(next.map(msgKey));
-    pendingMsgs=pendingMsgs.filter(p=>!seen.has(msgKey(p)) && Date.now()-p.sentAt<600000);
+    /* A message that failed, or went by email instead, stays on screen for
+       as long as the app is open: it used to be dropped after ten minutes,
+       so a question that never went simply disappeared from the chat. */
+    pendingMsgs=pendingMsgs.filter(p=>!seen.has(msgKey(p))
+      && (p.failed || p.emailed || Date.now()-p.sentAt<600000));
     const merged=next.concat(pendingMsgs.map(p=>({from:'me',text:p.text,
       ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),
       /* on screen but not yet acknowledged by the server, or refused by it */
-      pending:!p.failed, ...(p.failed?{failed:true}:{}),
+      pending:!p.failed && !p.emailed, ...(p.failed?{failed:true}:{}),
+      ...(p.emailed?{emailed:true}:{}), ...(p.why?{why:p.why}:{}), ...(p.id?{pid:p.id}:{}),
       at:p.sentAt||0, time:when(p.sentAt)})));
     /* a redraw rebuilds the input and loses half-typed text, reloads every
        video iframe and drops the scroll to the top — so only redraw when
        something was actually said. Relative times change on their own and
        must not count as a change. */
     const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'',
-      m.pending?1:0, m.failed?1:0, m.seen?1:0]));
+      m.pending?1:0, m.failed?1:0, m.emailed?1:0, m.seen?1:0]));
     const same=shape(merged)===shape(st.msgs);
     st.msgs=merged; save();
     const onChat = !document.hidden && (st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat'));
@@ -5847,15 +5860,45 @@ function screenAsk(){
         Side on, whole body in frame. Photos work too.</div>
     </div></div>`;
 }
-function sendAsk(){
-  const el=$('#askIn'); if(!el||!el.value.trim()) return;
-  const text=el.value.trim();
-  askDraft=''; el.value='';
-  pendingMsgs.push({text,sentAt:Date.now()});
-  st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now',pending:true}]); save(); render();
+/* ── a question, and what became of it ─────────────────────────────
+   A failed send fell back to emailing the question and told nobody: the
+   bubble said Sending until it quietly vanished ten minutes later, and
+   an expired sign in looked exactly like a slow connection. Every send
+   now ends in one of three states the person can see: in the chat,
+   sent by email instead, or not sent with a way to try again. */
+function msgSetState(id, patch){
+  pendingMsgs.forEach(p=>{ if(p.id===id) Object.assign(p, patch); });
+  st.msgs=(st.msgs||[]).map(m=>m.pid===id ? Object.assign({}, m, patch,
+    {pending:!(patch.failed||patch.emailed)}) : m);
+  save(); render();
+}
+function sendAsk(retryText){
+  const el=$('#askIn');
+  const text=String(retryText!=null ? retryText : ((el&&el.value)||'')).trim();
+  if(!text) return;
+  if(retryText==null){ askDraft=''; if(el) el.value=''; }
+  else {
+    /* the retry replaces the failed bubble rather than sitting under it */
+    pendingMsgs=pendingMsgs.filter(p=>!(p.failed && p.text===text && !p.video && !p.image));
+    st.msgs=(st.msgs||[]).filter(m=>!(m.failed && m.from==='me' && m.text===text && !m.video && !m.image));
+  }
+  const id='q'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  pendingMsgs.push({id,text,sentAt:Date.now()});
+  st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now',pending:true,pid:id,at:Date.now()}]);
+  save(); render();
   fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
-    .then(r=>{ if(!r.ok) throw 0; setTimeout(loadThread,400); })
-    .catch(()=>post({type:'Question',text}));   /* worker not up yet — email it */
+    .then(r=>{
+      if(r.ok){ setTimeout(loadThread,400); return 'ok'; }
+      if(r.status===401) return 'signin';
+      return Promise.reject(r.status);
+    })
+    .then(res=>{ if(res==='signin') msgSetState(id,{failed:true, why:'signin'}); })
+    .catch(()=>{
+      /* the thread would not take it, so it goes by email, and says so */
+      post({type:'Question',text}).then(ok=>{
+        msgSetState(id, ok ? {emailed:true} : {failed:true, why:''});
+      });
+    });
 }
 
 /* ── More ── */

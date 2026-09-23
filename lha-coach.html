@@ -369,20 +369,35 @@ function openThread(email){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d&&notes[email]===undefined){ notes[email]=d; draw(); } })
     .catch(()=>{});
-  fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
+  loadCoachThread(email);
+}
+/* ── the conversation, on its own ─────────────────────────────────
+   Opening a client fetched the thread once and never again, so a
+   message they sent while it was open did not appear until the coach
+   went somewhere else and came back. This is the part that can be asked
+   again on its own, which the poll below does. */
+let threadPollAt=0;
+function loadCoachThread(email, quiet){
+  threadPollAt=Date.now();
+  return fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status)).then(d=>{
       const next=d.messages||[];
       /* Blobs takes up to ~15s to propagate, so a read straight after a reply
          comes back without it. Re-append anything not echoed yet instead of
          letting a stale read wipe it off the screen. */
       const seen=new Set(next.map(msgKey));
-      pendingCoach=pendingCoach.filter(p=>Date.now()-p.at<600000
-        && !(p.email===email && seen.has(msgKey(p))));
+      /* a reply that failed stays on screen, marked, until the page is
+         reloaded: it used to sit there looking delivered */
+      pendingCoach=pendingCoach.filter(p=>(p.failed || Date.now()-p.at<600000)
+        && !(p.email===email && !p.failed && seen.has(msgKey(p))));
       const mine=pendingCoach.filter(p=>p.email===email);
       const merged=next.concat(mine.map(p=>({from:'coach',text:p.text,
-        ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),at:p.at})));
-      /* redrawing rebuilds the reply box and loses what is half-typed */
-      const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'']));
+        ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),at:p.at,
+        pid:p.id||'pending', ...(p.failed?{failed:true,why:p.why||''}:{})})));
+      /* redrawing rebuilds the reply box and loses what is half-typed.
+         Read receipts count as a change, or "read" never appears. */
+      const shape=a=>JSON.stringify((a||[]).map(m=>[m.from,m.text||'',m.video||'',m.image||'',
+        m.seen?1:0, m.failed?1:0, m.pid?1:0]));
       /* a slow answer for somebody we have since navigated away from must
          not land in the thread now on screen */
       if(threadFor!==email) return;
@@ -391,10 +406,22 @@ function openThread(email){
       const c=clients.find(x=>x.email===email);
       const cleared=!!(c&&c.unread); if(c) c.unread=0;
       if(!same||cleared) draw();
-      const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; })
+      /* down to the newest only when something new arrived: a poll that
+         scrolled every fifteen seconds would drag you away from whatever
+         you had scrolled up to read */
+      if(!same){ const p=$('#pane'); if(p) p.scrollTop=p.scrollHeight; } })
     /* keep whatever is on screen rather than replacing it with nothing */
-    .catch(()=>coachSay('Could not refresh the thread — what you see may be behind.'));
+    .catch(()=>{ if(!quiet) coachSay('Could not refresh the thread. What you see may be behind.'); });
 }
+/* while a client is open and the window is in front, their thread is asked
+   again every fifteen seconds; the draw guard means nothing moves unless
+   something changed */
+setInterval(()=>{
+  if(document.hidden || view!=='client' || !sel || !TOKEN) return;
+  if(threadFor!==sel || !threadLoaded) return;
+  if(Date.now()-threadPollAt<15000) return;
+  loadCoachThread(sel, true);
+}, 5000);
 
 /* These routes need the bearer token, so pasting the URL into a browser
    tab can only ever answer "Nope" — it arrives with no auth at all. */
@@ -1857,28 +1884,41 @@ async function shrinkPhoto(file, max=1600, quality=0.82){
   return c.toDataURL('image/jpeg',quality);
 }
 
+/* The recipient is fixed at the press. This read sel again after the
+   upload, which takes seconds, so switching client while a photo or a
+   review recording uploaded posted it into the other client's thread,
+   with the caption from the other client's reply box. */
+function captionFor(to){
+  const el=document.getElementById('reply');
+  const text=(sel===to ? ((el&&el.value)||'') : (drafts[to]||'')).trim();
+  if(sel===to && el) el.value='';
+  drafts[to]='';
+  return text;
+}
 function sendCoachPhoto(file){
   if(upBusy||!sel) return;
+  const to=sel;
   upBusy=true; coachSay('Preparing the photo…');
   shrinkPhoto(file)
     .then(data=>fetch('/api/app/image',{method:'POST',headers:hdr(),
       body:JSON.stringify({data})})
       .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that photo'))))
     .then(d=>{
-      const el=document.getElementById('reply');
-      const text=(el&&el.value||'').trim();
-      if(el) el.value=''; drafts[sel]='';
-      pendingCoach.push({email:sel,text,image:d.id,at:Date.now()});
-      thread.push({from:'coach',text,image:d.id,at:Date.now()}); draw();
-      return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
-        body:JSON.stringify({text,image:d.id})}).then(sendOK);
+      const text=captionFor(to), id=coachMsgId();
+      pendingCoach.push({id,email:to,text,image:d.id,at:Date.now()});
+      if(threadFor===to) thread.push({from:'coach',text,image:d.id,at:Date.now(),pid:id});
+      draw();
+      return fetch(API+'/thread?email='+encodeURIComponent(to),{method:'POST',headers:hdr(),
+        body:JSON.stringify({text,image:d.id})}).then(sendOK)
+        .catch(e=>{ coachFail(to,id,String(e.message||e)); draw(); throw e; });
     })
-    .then(()=>{ upBusy=false; coachSay(''); setTimeout(()=>openThread(sel),1200); })
-    .catch(e=>{ upBusy=false; coachSay(String(e)); });
+    .then(()=>{ upBusy=false; if(sel===to) coachSay(''); setTimeout(()=>{ if(sel===to) loadCoachThread(to); },1200); })
+    .catch(e=>{ upBusy=false; if(sel===to) coachSay(String(e.message||e)); });
 }
 
-function sendCoachClip(file, after){
-  if(upBusy||!sel){ if(after) after(false, 'busy'); return; }
+function sendCoachClip(file, after, toArg){
+  const to=toArg||sel;
+  if(upBusy||!to){ if(after) after(false, 'busy'); return; }
   upBusy=true; coachSay('Getting ready…');
   fetch('/api/app/upload',{method:'POST',headers:hdr(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start upload')))
@@ -1891,16 +1931,17 @@ function sendCoachClip(file, after){
       x.send(fd);
     }))
     .then(uid=>{
-      const el=document.getElementById('reply');
-      const text=(el&&el.value||'').trim();
-      if(el) el.value=''; drafts[sel]='';
-      pendingCoach.push({email:sel,text,video:uid,at:Date.now()});
-      thread.push({from:'coach',text,video:uid,at:Date.now()}); draw();
-      return fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
-        body:JSON.stringify({text,video:uid})}).then(sendOK);
+      const text=captionFor(to), id=coachMsgId();
+      pendingCoach.push({id,email:to,text,video:uid,at:Date.now()});
+      if(threadFor===to) thread.push({from:'coach',text,video:uid,at:Date.now(),pid:id});
+      draw();
+      return fetch(API+'/thread?email='+encodeURIComponent(to),{method:'POST',headers:hdr(),
+        body:JSON.stringify({text,video:uid})}).then(sendOK)
+        .catch(e=>{ coachFail(to,id,String(e.message||e)); draw(); throw e; });
     })
-    .then(()=>{ upBusy=false; coachSay(''); if(after) after(true); setTimeout(()=>openThread(sel),1200); })
-    .catch(e=>{ upBusy=false; coachSay(String(e)); if(after) after(false, String(e)); });
+    .then(()=>{ upBusy=false; if(sel===to) coachSay(''); if(after) after(true);
+      setTimeout(()=>{ if(sel===to) loadCoachThread(to); },1200); })
+    .catch(e=>{ upBusy=false; if(sel===to) coachSay(String(e.message||e)); if(after) after(false, String(e.message||e)); });
 }
 /* the recording the review tool made, sent back as a video reply to whoever
    the clips were from. The tool hands the file over; this owns the upload
@@ -1908,16 +1949,17 @@ function sendCoachClip(file, after){
 window.addEventListener('message', e=>{
   if(e.origin!==location.origin || !e.data || e.data.type!=='lha-review-recording') return;
   const w=reviewFrame();
-  const tell=(ok,error)=>{ try{ w && w.postMessage({type:'lha-review-sent', ok, error,
-    to:(clients.find(c=>c.email===sel)||{}).name||sel}, location.origin); }catch(err){} };
+  const tell=(ok,error)=>{ const who=reviewFor||sel;
+    try{ w && w.postMessage({type:'lha-review-sent', ok, error,
+    to:(clients.find(c=>c.email===who)||{}).name||who}, location.origin); }catch(err){} };
   const to=reviewFor||sel;
   if(!to){ tell(false,'nobody to send it to'); return; }
-  sel=to;
   const ext=e.data.ext||'webm';
   let file;
   try{ file=new File([e.data.blob], 'review-'+Date.now()+'.'+ext, {type:e.data.blob.type||'video/'+ext}); }
   catch(err){ file=e.data.blob; }
-  sendCoachClip(file, tell);
+  /* named, not read off sel, which can change while a recording uploads */
+  sendCoachClip(file, tell, to);
 });
 
 /* the oldest thing they are waiting on, if anything */
@@ -1947,22 +1989,42 @@ function subLabel(s){
     : 'Block '+(s.cycle||1)+' test') + (s.at?' · '+ago(s.at):'');
 }
 
+/* ── a reply that did not go ──────────────────────────────────────
+   The bubble went on screen the moment it was sent and stayed there
+   whatever the server said, so a refused reply looked delivered, the
+   submission it answered was already ticked off the queue, and the
+   words were gone from the box. It is marked NOT DELIVERED now, the
+   queue is put back and the text returns to the box. */
+function coachFail(to, id, why){
+  pendingCoach.forEach(p=>{ if(p.id===id){ p.failed=true; p.why=why; } });
+  if(threadFor===to) thread=thread.map(m=>m.pid===id ? Object.assign({},m,{failed:true,why}) : m);
+  if(sel===to) coachSay(why);
+}
+const coachMsgId = () => 'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function reply(answers){
   const el=$('#reply'); const text=(el.value||'').trim(); if(!text||!sel) return;
-  el.value=''; drafts[sel]='';
-  const sub=answers?openSub(sel):null;
-  pendingCoach.push({email:sel,text,at:Date.now()});
-  thread.push({from:'coach',text,at:Date.now()}); 
-  if(sub){ subs[sel]=(subs[sel]||[]).map(s=>s.id===sub.id
+  const to=sel;                                /* whoever it was typed to */
+  el.value=''; drafts[to]='';
+  const sub=answers?openSub(to):null;
+  const was = sub ? {subs:(subs[to]||[]).slice(), queue:queue.slice(), pick:answerFor[to]} : null;
+  const id=coachMsgId();
+  pendingCoach.push({id,email:to,text,at:Date.now()});
+  thread.push({from:'coach',text,at:Date.now(),pid:id});
+  if(sub){ subs[to]=(subs[to]||[]).map(s=>s.id===sub.id
     ? {...s,status:'reviewed',reviewedAt:Date.now()} : s);
     queue=queue.filter(q=>q.id!==sub.id);
     /* it is answered, so the next reply must not aim at it again */
-    if(answerFor[sel]===sub.id) delete answerFor[sel]; }
+    if(answerFor[to]===sub.id) delete answerFor[to]; }
   draw();
-  fetch(API+'/thread?email='+encodeURIComponent(sel),{method:'POST',headers:hdr(),
+  fetch(API+'/thread?email='+encodeURIComponent(to),{method:'POST',headers:hdr(),
     body:JSON.stringify({text, ...(sub?{answers:sub.id}:{})})})
-    .then(sendOK).then(()=>openThread(sel))
-    .catch(e=>coachSay(String(e.message||e)));
+    .then(sendOK).then(()=>{ if(sel===to) loadCoachThread(to); })
+    .catch(e=>{
+      coachFail(to, id, String(e.message||e));
+      if(was){ subs[to]=was.subs; queue=was.queue; if(was.pick) answerFor[to]=was.pick; }
+      if(!drafts[to]) drafts[to]=text;
+      draw();
+    });
 }
 
 /* ── what the numbers mean ──────────────────────────────────────
@@ -8462,7 +8524,9 @@ function drawNow(){
     <div class="at">${m.from==='coach'?'You':esc((clients.find(c=>c.email===sel)||{}).name||'')} · ${ago(m.at)}${
       /* read receipts both ways: theirs says you have seen it, yours says
          they have opened it, so a reply sitting unread is visible */
-      m.seen ? ' · '+(m.from==='coach'?'read':'you read it') : (m.from==='coach'?' · sent':'')}</div></div>`).join('')
+      m.failed ? ` · <b style="color:var(--terra);font-weight:700">not delivered</b>`
+      : m.seen ? ' · '+(m.from==='coach'?'read':'you read it')
+      : m.from==='coach' ? (m.pid?' · sending':' · sent') : ''}</div></div>`).join('')
     || `<div style="font:400 14.5px/1.6 var(--sans);color:var(--grey)">${
       threadLoaded && threadFor===sel ? 'Nothing here yet.' : 'Loading their thread&hellip;'}</div>`;
   /* ── the same screen is not drawn twice ────────────────────────
