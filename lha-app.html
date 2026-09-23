@@ -3452,8 +3452,14 @@ function cpSendClip(k,file){
    anything logged is at least nought, so a coached check point with no
    number on it counted as reached the moment anything was logged. */
 function cpTarget(c){ const t=Number(c && c.target); return t>0 ? t : null; }
+/* ── a check point that only asks ───────────────────────────────────
+   Some are not a test: the coach wants to know how many they can do and
+   how that moves, with nothing to reach. No target, no pass or fail, no
+   sign-off, and not counted towards finishing anything. */
+const cpAsks = c => !!(c && c.measure);
 /* whether the number itself is at the target, nothing else */
 function cpHit(c, v){
+  if(cpAsks(c)) return false;
   const last = (v==null) ? cpLast(c.k) : {v:Number(v)||0};
   if(!last) return false;
   if(c.kind==='face') return Number(last.v)>=2;
@@ -3478,6 +3484,7 @@ function cpSigned(k){
    hit and that he signs it off, and it counts once he has. */
 function cpState(c){
   const last=cpLast(c.k);
+  if(cpAsks(c)) return last ? 'logged' : 'none';
   const s0=cpSigned(c.k);
   if(coachedView()){
     if(s0 && s0.verdict==='reached') return 'signed';
@@ -3501,6 +3508,8 @@ function cpTargetText(c){
   const t=cpTarget(c), unit=cpUnit(c);
   const K=CP_KIND[c.kind]||CP_KIND.count;
   const lower=(c.lower!=null)?c.lower:K.lower;
+  if(cpAsks(c)) return c.kind==='secs' ? 'No target. Log how long you can hold it.'
+    : 'No target. Log how many you can do.';
   if(c.kind==='yn') return 'Target: yes';
   if(c.kind==='face') return 'Target: '+((cpFaceLabels(c)||[])[2]||'yes');
   if(t==null) return coachedView() ? 'No number on this one. '+coachLabel()+' signs it off.' : '';
@@ -3605,6 +3614,29 @@ function cpInput(c){
           <span style="font:600 11.5px/1 var(--sans)">${esc(labels[v])}</span></button>`;
       }).join('')}
     </div>`;
+  }
+  if(cpAsks(c)){
+    const draft=(st.cpDraft||{})[c.k];
+    const val=draft!=null?draft:(last?last.v:0);
+    const unit=cpUnit(c), step=c.kind==='secs'?5:1;
+    const hist=(cpLog()[c.k]||[]).map(r=>Number(r&&r.v)||0);
+    const lower=(c.lower!=null)?c.lower:K.lower;
+    const best=hist.length ? (lower ? Math.min(...hist.filter(x=>x>0)) : Math.max(...hist)) : null;
+    return `<div style="display:flex;align-items:center;gap:10px">
+      <button class="rt" onclick="cpStep('${c.k}',${-step})" aria-label="Less">−</button>
+      <label style="flex:1;display:flex;align-items:baseline;justify-content:center;gap:4px;
+        border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:8px 10px;background:#fff">
+        <input id="cpnum-${c.k}" type="number" inputmode="numeric" min="0" value="${esc(String(val))}"
+          aria-label="${c.kind==='secs'?'How long you held it':'How many you did'}"
+          oninput="cpType('${c.k}',this.value)"
+          style="width:5ch;border:0;outline:none;background:none;text-align:right;font:700 22px/1 var(--sans);color:var(--ink)">
+        <span style="font:600 14px/1 var(--sans);color:var(--grey)">${esc(unit||(c.kind==='secs'?'s':''))}</span>
+      </label>
+      <button class="rt" onclick="cpStep('${c.k}',${step})" aria-label="More">+</button>
+    </div>
+    <div id="cpbest-${c.k}" style="margin-top:8px;text-align:center;font:500 12.5px/1.4 var(--sans);
+      color:var(--grey)">${Number.isFinite(best)&&best!=null&&hist.length?`Best so far <b style="color:var(--ink)">${
+      esc(String(best))}${esc(unit)}</b>${hist.length>1?' &middot; '+hist.length+' times logged':''}`:''}</div>`;
   }
   if(c.kind==='yn'){
     return `<div style="display:flex;gap:7px">
@@ -3772,6 +3804,7 @@ function cpCardTop(c, i, total){
                : cs==='hit'    ? ['TARGET HIT','rgba(0,102,99,.08)','var(--forest)']
                : cs==='notyet' ? ['NOT THERE YET','rgba(243,169,73,.2)','#5e3708']
                : cs==='going'  ? ['IN PROGRESS','rgba(243,169,73,.2)','#5e3708']
+               : cs==='logged' ? ['LOGGED','rgba(0,102,99,.08)','var(--forest)']
                                : ['NOT STARTED','rgba(17,17,17,.06)','var(--grey)'];
   /* the line under the name: what to reach, and for a coaching client
      where it stands with Elliott */
@@ -4254,7 +4287,7 @@ function repaintCp(k){
   const c=cpDef(k); if(!c) return;
   const tmp=document.createElement('div');
   tmp.innerHTML=cpCardTop(c, Number(card.dataset.i)||0, Number(card.dataset.total)||0);
-  ['cpstat-','cpdot-','cpval-','cptgt-','cplogd-','cpgo-','cphist-','cpclip-'].forEach(p=>{
+  ['cpstat-','cpdot-','cpval-','cptgt-','cplogd-','cpgo-','cphist-','cpclip-','cpbest-'].forEach(p=>{
     const a=document.getElementById(p+k), b=tmp.querySelector('#'+p+k);
     if(a && b && a.outerHTML!==b.outerHTML) a.replaceWith(b);
   });
@@ -4281,7 +4314,11 @@ function repaintCp(k){
 function cpStep(k,by,max){
   const cur=(st.cpDraft||{})[k]!=null?st.cpDraft[k]:((cpLast(k)||{}).v||0);
   const c1=cpDef(k); const G=c1?cpGeom(c1):null;
-  const next=Math.max(0,Math.min(G?G.max:max,cur+by));
+  /* The end of the scale was a ceiling: a target of 30 meant 30 was the
+     most anybody could log, and with no target the scale's own end was.
+     Plus keeps going; the scale grows to the number and the target stays
+     marked on it. */
+  const next=Math.max(0,Math.min(100000,cur+by));
   st.cpDraft=Object.assign({},st.cpDraft,{[k]:next});
   save();
   /* paint the three places the number shows rather than redrawing the sheet */
@@ -4299,12 +4336,23 @@ function cpStep(k,by,max){
     const n=document.getElementById(pre+k);
     if(n) n.textContent=next+(n.dataset.u||'');
   });
+  { const inp=document.getElementById('cpnum-'+k); if(inp && inp!==document.activeElement) inp.value=next; }
   /* hold off until the tapping stops, so five taps are one reading and one
      trip to the server rather than five */
   clearTimeout(cpStepT_);
   cpStepT_=setTimeout(()=>saveCheckpoint(k,(st.cpDraft||{})[k]), 700);
 }
 let cpStepT_=null;
+/* a number typed straight in, saved once the typing stops */
+function cpType(k, raw){
+  const n=Number(raw);
+  if(raw==='' || !Number.isFinite(n) || n<0) return;
+  const v=Math.min(100000, Math.round(n*10)/10);
+  st.cpDraft=Object.assign({},st.cpDraft,{[k]:v}); save();
+  const lab=document.getElementById('cpval-'+k); if(lab) lab.textContent=v+(lab.dataset.u||'');
+  clearTimeout(cpStepT_);
+  cpStepT_=setTimeout(()=>saveCheckpoint(k,(st.cpDraft||{})[k]), 900);
+}
 /* dragging the track, pointer events so it works with a thumb and a mouse */
 function cpDrag(e,k,max,res){
   const el=document.getElementById('cptrack-'+k); if(!el) return;
@@ -10507,7 +10555,8 @@ function cpProgress(i){
      return a coached client's own list. Substituting curStage() here meant a
      coached client's counts were taken from the ladder stage they happen to
      sit on, so four check points were reported as nought of seven. */
-  const list=cpFor(i)||[];
+  /* the ones that only ask are a record, not something to reach */
+  const list=(cpFor(i)||[]).filter(c=>!cpAsks(c));
   const done=list.filter(c=>cpLast(c.k)).length;
   const met=list.filter(c=>cpMet(c)).length;
   return {done, met, of:list.length, ready:list.length>0 && met>=list.length};

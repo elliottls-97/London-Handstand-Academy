@@ -1550,7 +1550,7 @@ function cpAdd(){ cpEdit.list.push({k:'cp'+Date.now().toString(36),n:'',kind:'se
   cpEdit.dirty=true; draw(); }
 function cpDel(i){ cpEdit.list.splice(i,1); cpEdit.dirty=true; draw(); }
 function cpSet(i,f,v){ const c=cpEdit.list[i]; if(!c) return;
-  c[f]=(f==='video'||f==='lower')?!!v:v; cpEdit.dirty=true;
+  c[f]=(f==='video'||f==='lower'||f==='measure')?!!v:v; cpEdit.dirty=true;
   /* switching between a measured type and a yes/no one changes which fields
      are on screen, so that one has to redraw */
   if(f==='kind') draw();
@@ -1590,7 +1590,12 @@ function cpsHTML(){
       oninput="cpSet(${i},'note',this.value)"
       style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
       font:400 13px/1 var(--sans);background:#fff">
-    ${(c.kind==='yn'||c.kind==='face')?'':`
+    ${(c.kind==='yn'||c.kind==='face')?'':`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:9px;
+      font:500 12.5px/1.35 var(--sans);color:var(--ink)">
+      <input type="checkbox" ${c.measure?'checked':''} onchange="cpSet(${i},'measure',this.checked);draw()"
+        style="accent-color:var(--forest);width:16px;height:16px;margin:0;flex:none">
+      Just ask how many they can do: no target, nothing to sign off</label>`}
+    ${(c.kind==='yn'||c.kind==='face'||c.measure)?'':`
     <div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;white-space:nowrap;
         font:400 12.5px/1 var(--sans);color:var(--grey)">Target
@@ -5400,7 +5405,7 @@ function bCpAdd(){
 function bCpDel(i){ bCps().splice(i,1); builder.cpDirty=true; bMark(); draw(); }
 function bCpSet(i,f,v){
   const c=bCps()[i]; if(!c) return;
-  c[f] = (f==='video') ? !!v : v;
+  c[f] = (f==='video'||f==='measure') ? !!v : v;
   builder.cpDirty=true; bMark();
 }
 /* ── the explainer library ─────────────────────────────────────────
@@ -5460,7 +5465,12 @@ function bCpHTML(){
       oninput="bCpSet(${i},'note',this.value)"
       style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
       font:400 13px/1 var(--sans);background:#fff">
-    ${(c.kind==='yn'||c.kind==='face')?'':`<div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
+    ${(c.kind==='yn'||c.kind==='face')?'':`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:9px;
+      font:500 12.5px/1.35 var(--sans);color:var(--ink)">
+      <input type="checkbox" ${c.measure?'checked':''} onchange="bCpSet(${i},'measure',this.checked);draw()"
+        style="accent-color:var(--forest);width:16px;height:16px;margin:0;flex:none">
+      Just ask how many they can do: no target, nothing to sign off</label>`}
+    ${(c.kind==='yn'||c.kind==='face'||c.measure)?'':`<div style="display:flex;align-items:center;gap:14px;margin-top:9px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;white-space:nowrap;
         font:400 12.5px/1 var(--sans);color:var(--grey)">Target
         <input type="number" min="0" value="${c.target==null?'':esc(String(c.target))}"
@@ -7852,6 +7862,8 @@ function cpStand(email, k){
   const newer=!!(last && s0 && (last.at||0) > (s0.verdictAt||s0.at||0));
   const waiting=!!(clip && !clip.verdict);
   const state = waiting ? 'clip'
+    /* one that only asks how many is a record: logged or not, nothing to sign */
+    : k.measure ? (last ? 'logged' : 'none')
     : s0&&s0.verdict==='reached' ? 'signed'
     : s0&&s0.verdict==='notyet'&&!newer ? 'notyet'
     : last&&hitV(last.v) ? 'hit'
@@ -7904,7 +7916,8 @@ function marksPaneHTML(){
     const busy=cpVerdictBusy===k.k;
     const TAG={clip:['clip to watch','tag-accent'], hit:['target hit, sign it off','tag-accent'],
       signed:['signed off','tag-accent'], notyet:['not there yet','tag-accent-2'],
-      going:['in progress','tag-neutral'], none:['nothing yet','tag-neutral']}[state];
+      going:['in progress','tag-neutral'], none:['nothing yet','tag-neutral'],
+      logged:['recording','tag-neutral']}[state];
     const needs = state==='clip' || state==='hit';
     const when = r => r && r.verdictAt ? ' '+esc(ago(r.verdictAt)) : '';
     /* what you last said, whichever row it is on */
@@ -7919,7 +7932,7 @@ function marksPaneHTML(){
           when(s0)}${s0.note?': '+esc(s0.note):''}</div>`
       : '';
     /* a verdict on anything not yet signed off, clip or no clip */
-    const verdictRow = (!waiting && state!=='signed') ? `
+    const verdictRow = (!waiting && state!=='signed' && !k.measure) ? `
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
         <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
         <input id="vnote-cp-${esc(k.k)}" placeholder="One line they will read beside it, optional"
@@ -7945,10 +7958,13 @@ function marksPaneHTML(){
       <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
         <span class="tag ${TAG[1]}">${TAG[0]}</span>
         <b style="flex:1;min-width:160px;font:600 15px/1.3 var(--sans)">${esc(k.n||k.k)}</b>
-        <span style="font:600 13px/1.4 var(--sans);color:${tline?'var(--ink)':'var(--terra)'}">${
-          tline || (numeric&&!k.stray ? 'no target set' : '')}</span>
+        <span style="font:600 13px/1.4 var(--sans);color:${tline||k.measure?'var(--ink)':'var(--terra)'}">${
+          k.measure ? (k.kind==='secs'?'how long they can hold it':'how many they can do')
+          : tline || (numeric&&!k.stray ? 'no target set' : '')}</span>
       </div>
-      ${!tline && numeric && !k.stray ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">
+      ${k.measure && hist.length ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">Best so far <b style="color:var(--ink)">${
+        esc(String(S.lower ? Math.min(...hist.map(r=>Number(r.v)||0).filter(x=>x>0)) : Math.max(...hist.map(r=>Number(r.v)||0))))}${esc(unit)}</b>. Nothing to sign off: it is a record.</p>`:''}
+      ${!tline && numeric && !k.stray && !k.measure ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">
         With no number their bar cannot turn green. Add one in Edit check points, or sign it off by eye.</p>`:''}
       ${k.note?`<p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:6px">${esc(k.note)}</p>`:''}
       <div style="margin-top:10px;font:400 13.5px/1.5 var(--sans)">${

@@ -5298,6 +5298,8 @@ export default async (request) => {
                     ? Math.round(tgt * 10) / 10 : null,
                   unit: String(c.unit || '').slice(0, 8),
                   lower: !!c.lower,
+                  /* asks how many, with no target and nothing to sign off */
+                  ...(c.measure ? { measure: true } : {}),
                   demo: String(c.demo || '').slice(0, 60),
                   faces: Array.isArray(c.faces)
                     ? c.faces.slice(0, 3).map(x => String(x || '').slice(0, 24)) : undefined,
