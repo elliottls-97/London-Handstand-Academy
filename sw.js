@@ -22,6 +22,8 @@ const SHELL = [
   '/ladder-data.js',
   /* and the clock, which the app loads as a script and so cannot open without */
   '/timing.js',
+  /* voice notes in the chat, recorded and played by the same file both ends */
+  '/voice.js',
   '/manifest.json',
   /* an installed app whose icon is not cached loses its icon the first time
      it opens without signal */
@@ -106,6 +108,9 @@ self.addEventListener('fetch', event => {
   /* nor the dashboard's reads: other people's data, asked for every few
      seconds, and of no use to anybody offline */
   if (url.pathname.startsWith('/api/app/coach/')) return;
+  /* nor voice notes: somebody's voice, deleted after a week, and asked for
+     in byte ranges that a cache would only get in the way of */
+  if (url.pathname.startsWith('/api/app/voice/')) return;
   if (url.hostname.indexOf('formspree.io') > -1) return;
 
   if (url.searchParams.get('lha') === 'saved') {

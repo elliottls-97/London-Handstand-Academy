@@ -553,7 +553,12 @@ async function ensureAcct(e, name) {
 const tagsOf = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 /* 'auto' marks a message the app sent in the coach's name (a welcome, a
    receipt): it is not the coach answering anybody */
-const clipTags = s => tagsOf(s).filter(t => !t.startsWith('re:') && t !== 'auto');
+const clipTags = s => tagsOf(s).filter(t => !t.startsWith('re:') && !t.startsWith('voice:') && t !== 'auto');
+/* A voice note rides in the same tag list as a quote, "voice:<id>:<seconds>",
+   so it needed no new column: an older app ignores a tag it does not know. */
+const voiceOf = s => { const t = tagsOf(s).find(x => x.startsWith('voice:')); if (!t) return null;
+  const [, id, secs] = t.split(':'); return id ? { id, secs: Number(secs) || 0 } : null; };
+const voiceTag = (id, secs) => id ? 'voice:' + id + ':' + Math.max(1, Math.min(600, Math.round(Number(secs) || 0))) : '';
 const isAuto = s => tagsOf(s).includes('auto');
 const quoteOf = s => (tagsOf(s).find(t => t.startsWith('re:')) || '').slice(3);
 async function threadLoad(db, who) {
@@ -573,6 +578,7 @@ async function threadLoad(db, who) {
     ...(m.image ? { image: m.image } : {}),
     ...(clipTags(m.submission).length ? { sub: clipTags(m.submission).join(',') } : {}),
     ...(quoteOf(m.submission) ? { re: quoteOf(m.submission) } : {}),
+    ...(voiceOf(m.submission) ? { voice: voiceOf(m.submission).id, secs: voiceOf(m.submission).secs } : {}),
   }));
 }
 /* the message being quoted, if it is in this person's thread */
@@ -790,6 +796,12 @@ const nudgeMark = (k, stage = 0) =>
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
 
 const IMG_MAX = 3 * 1024 * 1024;
+/* a voice note: two minutes of AAC is about a megabyte, so this is room to
+   spare. Kept a week, then deleted; the id starts with the time it was
+   made, so the daily job can tell its age from the name alone. */
+const VOICE_MAX = 3 * 1024 * 1024;
+const VOICE_KEEP = 7 * 24 * 3600 * 1000;
+const VOICE_DATA = /^data:(audio\/(?:mp4|aac|x-m4a|mpeg|webm|ogg))(?:;[^,]*)?;base64,([A-Za-z0-9+/=]+)$/;
 const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
 
 /* The client list used to be a hand-maintained 'index' blob, updated on
@@ -4005,6 +4017,50 @@ export default async (request) => {
     return json({ id });
   }
 
+  /* ── a voice note ────────────────────────────────────────────────
+     Coach or coached client only. Small, like a photo, so it comes
+     through the function as a data URL. */
+  if (path === '/voice' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (!(await isCoach()) && !(await isCoached(who))) return json({ error: 'Voice notes come with coaching' }, 403);
+    const m = VOICE_DATA.exec(String(body.data || ''));
+    if (!m) return json({ error: 'That recording is not in a format the chat takes' }, 400);
+    let buf;
+    try { buf = Buffer.from(m[2], 'base64'); }
+    catch { return json({ error: 'Could not read that recording' }, 400); }
+    if (!buf.length) return json({ error: 'That recording is empty' }, 400);
+    if (buf.length > VOICE_MAX) return json({ error: 'That is too long for a voice note' }, 413);
+    const id = 'v' + newId() + Math.random().toString(36).slice(2, 12);
+    await db.set(`voice:${id}`, buf, { metadata: { type: m[1], owner: who, at: Date.now(),
+      secs: Math.round(Number(body.secs) || 0) } });
+    return json({ id });
+  }
+  /* Safari will not play sound from an address that cannot answer a byte
+     range, so this answers them. Past a week it is deleted here too, in
+     case the daily job has not reached it yet. */
+  if (path.startsWith('/voice/') && request.method === 'GET') {
+    const id = path.slice(7).replace(/[^a-zA-Z0-9]/g, '');
+    const got = id ? await db.getWithMetadata(`voice:${id}`, { type: 'arrayBuffer' }).catch(() => null) : null;
+    if (!got || !got.data) return json({ error: 'That voice note has gone' }, 404);
+    if (Date.now() - (Number((got.metadata || {}).at) || 0) > VOICE_KEEP) {
+      await db.delete(`voice:${id}`).catch(() => {});
+      return json({ error: 'Voice notes go after a week' }, 410);
+    }
+    const buf = new Uint8Array(got.data), n = buf.length;
+    const head = { 'Content-Type': (got.metadata && got.metadata.type) || 'audio/mp4',
+      'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=604800' };
+    const r = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range') || '');
+    if (r && (r[1] || r[2])) {
+      let a = r[1] ? Number(r[1]) : Math.max(0, n - Number(r[2]));
+      let b = r[1] && r[2] ? Math.min(Number(r[2]), n - 1) : n - 1;
+      if (a >= n || a > b) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${n}` } });
+      return new Response(buf.slice(a, b + 1), { status: 206,
+        headers: { ...head, 'Content-Range': `bytes ${a}-${b}/${n}`, 'Content-Length': String(b - a + 1) } });
+    }
+    return new Response(buf, { headers: { ...head, 'Content-Length': String(n) } });
+  }
+
   if (path.startsWith('/image/') && request.method === 'GET') {
     const id = path.slice(7).replace(/[^a-zA-Z0-9]/g, '');
     if (!id) return json({ error: 'Which photo?' }, 400);
@@ -4583,7 +4639,10 @@ export default async (request) => {
       const text = String(body.text || '').slice(0, 4000);
       const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
       const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
-      if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
+      const voice = String(body.voice || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+      if (!text && !video && !image && !voice) return json({ error: 'Nothing to send' }, 400);
+      /* voice notes are part of coaching */
+      if (voice && !(await isCoached(who))) return json({ error: 'Voice notes come with coaching' }, 403);
 
       /* Anyone signed in may ask a question — that is the way in to
          coaching. Footage is the thing that costs time to review, so a
@@ -4619,14 +4678,14 @@ export default async (request) => {
       }
 
       const re = await quoteId(who, body.re);
-      const tagC = [subId, re ? 're:' + re : ''].filter(Boolean).join(',');
+      const tagC = [subId, re ? 're:' + re : '', voiceTag(voice, body.secs)].filter(Boolean).join(',');
       const addedC = await threadAdd(db, who, { from: 'client', text,
         ...(video ? { video } : {}), ...(image ? { image } : {}),
         ...(tagC ? { sub: tagC } : {}) });
       /* sending is the end of typing */
       try { const t = (await getSetting(typingKey(who))) || {}; if (t.client) { t.client = 0; await setSetting(typingKey(who), t); } } catch {}
 
-      const kind = video ? 'sent a video' : image ? 'sent a photo' : '';
+      const kind = video ? 'sent a video' : image ? 'sent a photo' : voice ? 'sent a voice note' : '';
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
         `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
@@ -4658,6 +4717,8 @@ export default async (request) => {
       if (s && s.status !== 'submitted') return json({ error: coachName(coachOf(who)) + ' has already answered this one, so it stays.' }, 409);
       if (s) await supa.remove('submissions', `id=eq.${enc(sid)}&email=eq.${enc(who)}`).catch(() => {});
     }
+    const vo = voiceOf(m.submission);
+    if (vo) await db.delete(`voice:${vo.id}`).catch(() => {});
     await supa.remove('messages', `id=eq.${enc(id)}&email=eq.${enc(who)}&sender=eq.client`);
     return json({ ok: true });
   }
@@ -6380,7 +6441,9 @@ export default async (request) => {
         const text = String(body.text || '').slice(0, 4000);
         const video = String(body.video || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
         const image = String(body.image || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
-        if (!text && !video && !image) return json({ error: 'Nothing to send' }, 400);
+        const voice = String(body.voice || '').slice(0, 64).replace(/[^a-zA-Z0-9]/g, '');
+        if (!text && !video && !image && !voice) return json({ error: 'Nothing to send' }, 400);
+        if (voice && !(await isCoached(e))) return json({ error: 'Voice notes are for coaching clients' }, 403);
         /* answering and marking answered were two separate acts, which is one
            too many — the half that gets forgotten is the one the client is
            waiting on. A reply can carry the submission it answers. */
@@ -6440,6 +6503,7 @@ export default async (request) => {
         }
         const reQ = await quoteId(e, body.re);
         if (reQ) tags.push('re:' + reQ);
+        if (voice) tags.push(voiceTag(voice, body.secs));
         const subTag = [...new Set(tags)].join(',').slice(0, 2000);
         const added = await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
           ...(video ? { video } : {}), ...(image ? { image } : {}),
@@ -6459,7 +6523,8 @@ export default async (request) => {
         /* a reply is the thing clients are waiting for, so say so */
         const who2 = coachName(asking || coachOf(e));
         const sent = video ? `${who2} has sent you a video.`
-          : image ? `${who2} has sent you a photo.` : `${who2} has replied.`;
+          : image ? `${who2} has sent you a photo.`
+          : voice ? `${who2} has sent you a voice note.` : `${who2} has replied.`;
         const T = await emailCopy('coachReplied', { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(who2), text: text ? esc(text.slice(0, 600)) : esc(sent) });
         await email(e, T.subject,
           mail({
@@ -6469,7 +6534,7 @@ export default async (request) => {
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: who2 }, footnote: T.footnote || undefined,
           }), 'replies');
-        await notify(e, { title: who2 + (video ? ' sent you a video' : image ? ' sent you a photo' : ' replied'),
+        await notify(e, { title: who2 + (video ? ' sent you a video' : image ? ' sent you a photo' : voice ? ' sent you a voice note' : ' replied'),
           body: text ? text.slice(0, 140) : sent, url: '/lha-app.html?go=chat', tag: 'reply' }, 'replies');
         try { const t = (await getSetting(typingKey(e))) || {}; if (t.coach) { t.coach = 0; await setSetting(typingKey(e), t); } } catch {}
         return json({ ok: true, id: (added && added.id) || '', ...(cpsOut ? { checkpoints: cpsOut } : {}) });

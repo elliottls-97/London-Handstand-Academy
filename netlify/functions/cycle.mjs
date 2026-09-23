@@ -13,6 +13,7 @@ import programmes from './programmes.mjs';
 import * as supa from './supa.mjs';
 import { renderEmail } from './emails.mjs';
 import { pushReady, pushSend } from './push.mjs';
+import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
 let EMAIL_OVER = null;
 async function emailCopy(key, vars) {
@@ -198,6 +199,22 @@ async function subsFor(who) {
     at: ms(s.created_at), status: s.status, clips: s.clips || [] }));
 }
 
+/* ── voice notes go after a week ──────────────────────────────────────
+   Each is stored as voice:v<time><random>, the time being Date.now() in
+   base 36, so its age is read off the name without opening it. The
+   message stays in the chat and says the note has gone. */
+async function voiceSweep(done){
+  const db = getStore('lha-app');
+  const { blobs } = await db.list({ prefix: 'voice:' });
+  const cut = Date.now() - 7 * 24 * 3600 * 1000;
+  let n = 0;
+  for (const b of blobs || []) {
+    const t = parseInt(String(b.key).slice(7, 15), 36);
+    if (Number.isFinite(t) && t < cut) { await db.delete(b.key).catch(() => {}); n++; }
+  }
+  done.voiceDeleted = n;
+}
+
 export default async () => {
   const now = Date.now();
   const done = { reminded: [], chased: [], skipped: 0 };
@@ -310,6 +327,7 @@ export default async () => {
   try { await sessionMail(done); } catch (e) { done.sessionError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
   try { await trainingPush(done); } catch (e) { done.pushError = String(e && e.message || e); }
+  try { await voiceSweep(done); } catch (e) { done.voiceError = String(e && e.message || e); }
   return new Response(JSON.stringify(done), {
     headers: { 'Content-Type': 'application/json' } });
 };

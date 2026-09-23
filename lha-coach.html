@@ -382,6 +382,7 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
      subfolder, and from file:// alike. -->
 <script src="ladder-data.js"></script>
 <script src="timing.js"></script>
+<script src="voice.js"></script>
 <script>
 const API='/api/app/coach';
 /* Not every route the dashboard needs is a coach route. /upload is the same
@@ -404,7 +405,7 @@ let clientsLoaded=false;
 const COACHES=new Set();
 /* replies sent but not yet echoed back by Blobs — see openThread */
 let pendingCoach=[];
-const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
+const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:m.voice?'a:'+m.voice:'t:'+String(m.text||'').trim());
 /* one draft per client, so switching threads never loses what you typed */
 let drafts={};
 let subs={};      /* what each client has sent for review */
@@ -614,11 +615,12 @@ function loadCoachThread(email, quiet){
         && !(p.email===email && !p.failed && seen.has(msgKey(p))));
       const mine=pendingCoach.filter(p=>p.email===email);
       const merged=next.concat(mine.map(p=>({from:'coach',text:p.text,...(p.re?{re:p.re}:{}),
-        ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),at:p.at,
+        ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),
+        ...(p.voice?{voice:p.voice,secs:p.secs||0}:{}),at:p.at,
         pid:p.id||'pending', ...(p.failed?{failed:true,why:p.why||''}:{})})));
       /* redrawing rebuilds the reply box and loses what is half-typed.
          Read receipts count as a change, or "read" never appears. */
-      const shape=a=>JSON.stringify((a||[]).map(m=>[m.id||'',m.from,m.text||'',m.video||'',m.image||'',m.re||'',
+      const shape=a=>JSON.stringify((a||[]).map(m=>[m.id||'',m.from,m.text||'',m.video||'',m.image||'',m.voice||'',m.re||'',
         m.seen?1:0, m.failed?1:0, m.pid?1:0]));
       /* a slow answer for somebody we have since navigated away from must
          not land in the thread now on screen */
@@ -2232,6 +2234,32 @@ function sendCoachPhoto(file){
     .catch(e=>{ upBusy=false; if(sel===to) coachSay(String(e.message||e)); });
 }
 
+/* ── a voice note, to a coached client ─────────────────────────────
+   Recorded by voice.js, which the app uses too, and sent the way a photo
+   is. Only a coaching client has the button, and the server checks. */
+const dVoiceOk = e => !!(e && (clients.find(c=>c.email===e)||{}).coached && voiceCan());
+function sendCoachVoice(){
+  if(upBusy||!sel) return;
+  const to=sel;
+  voiceRecord((blob, secs, err)=>{
+    if(err){ coachSay(err); return; }
+    upBusy=true; coachSay('Sending the voice note…');
+    voiceData(blob)
+      .then(data=>fetch('/api/app/voice',{method:'POST',headers:hdr(),body:JSON.stringify({data,secs})})
+        .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that voice note'))))
+      .then(d=>{
+        const id=coachMsgId();
+        pendingCoach.push({id,email:to,text:'',voice:d.id,secs,at:Date.now()});
+        if(threadFor===to) thread.push({from:'coach',text:'',voice:d.id,secs,at:Date.now(),pid:id});
+        draw();
+        return fetch(API+'/thread?email='+encodeURIComponent(to),{method:'POST',headers:hdr(),
+          body:JSON.stringify({text:'',voice:d.id,secs})}).then(sendOK)
+          .catch(e=>{ coachFail(to,id,String(e.message||e)); draw(); throw e; });
+      })
+      .then(()=>{ upBusy=false; if(sel===to) coachSay(''); setTimeout(()=>{ if(sel===to) loadCoachThread(to); },1200); })
+      .catch(e=>{ upBusy=false; if(sel===to) coachSay(String(e.message||e)); });
+  });
+}
 function sendCoachClip(file, after, toArg, answersClips){
   const to=toArg||sel;
   const ans=Array.isArray(answersClips)?answersClips:[];
@@ -7855,6 +7883,9 @@ function threadPaneHTML(msgs){
       <div style="display:flex;gap:var(--space-2);align-items:center;margin-top:var(--space-2);
         flex-wrap:wrap;position:relative">
         <button class="btn btn-secondary" onclick="attachOpen=!attachOpen;moreOpen=false;draw()">Attach ▾</button>
+        ${dVoiceOk(sel)?`<button class="btn btn-secondary" onclick="closeMenus();sendCoachVoice()" title="Record a voice note. It is deleted after a week."
+          style="display:inline-flex;align-items:center;gap:7px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Voice note</button>`:''}
         <button class="btn btn-ghost" onclick="moreOpen=!moreOpen;attachOpen=false;draw()">More ▾</button>
         <span style="flex:1"></span>
         ${sub?`<button class="btn btn-secondary" onclick="reply(false)"
@@ -9639,7 +9670,7 @@ function dDay(t){
   if(diff<7) return d.toLocaleDateString('en-GB',{weekday:'long'});
   return d.toLocaleDateString('en-GB',{day:'numeric',month:'long',...(d.getFullYear()!==now.getFullYear()?{year:'numeric'}:{})});
 }
-const dSnip = m => m ? (String(m.text||'').trim().slice(0,90) || (m.video?'Video':m.image?'Photo':'')) : '';
+const dSnip = m => m ? (String(m.text||'').trim().slice(0,90) || (m.video?'Video':m.image?'Photo':m.voice?'Voice note':'')) : '';
 const dLinks = s => s.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
 const dKey = m => m.id || m.pid || ('t'+(m.at||0));
 function dTicks(m){
@@ -9658,6 +9689,7 @@ function dBubble(m, first, last, byId, who){
       ${m.video?`<div class="cmedia">${clipPoster(m.video,'4/5')}</div>`:''}
       ${m.image?`<button class="cmedia" onclick="dPhoto('${esc(m.image)}')" aria-label="Open the photo">
         <img src="/api/app/image/${esc(m.image)}" alt="Shared photo" loading="lazy"></button>`:''}
+      ${m.voice?voiceBubbleHTML(esc(m.voice), m.secs, m.at):''}
       ${m.text?`<span class="ct">${dLinks(esc(m.text))}</span>`:''}
       <span class="cspace ${mine?'me':''}"></span>
       <span class="cmeta">${dTime(m.at)}${dTicks(m)}</span>
@@ -9671,7 +9703,7 @@ function dBubble(m, first, last, byId, who){
   </div>`;
 }
 function dThreadHTML(){
-  const list=(threadFor===sel ? thread : []).filter(m=>m && (m.video||m.image||String(m.text||'').trim()));
+  const list=(threadFor===sel ? thread : []).filter(m=>m && (m.video||m.image||m.voice||String(m.text||'').trim()));
   if(!list.length) return `<div class="cempty">${threadLoaded && threadFor===sel ? 'Nothing here yet.'
     : 'Loading '+esc(firstName(sel))+'&rsquo;s messages&hellip;'}</div>`;
   const who=firstName(sel)||'Them';

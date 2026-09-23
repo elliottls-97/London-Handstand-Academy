@@ -802,6 +802,7 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
      subfolder, and from file:// alike. -->
 <script src="ladder-data.js"></script>
 <script src="timing.js"></script>
+<script src="voice.js"></script>
 <script>
 let DATA={
   /* Deliberately empty. Plans arrive from /api/app/programme, chosen by the
@@ -846,6 +847,7 @@ const AUTH = {
   resetGo:'/api/app/reset/confirm',    // POST {email,code,password}
   subscription:'/api/app/subscription',// GET → live status and dates
   upload:'/api/app/upload',            // POST → a one-time Stream upload link
+  voice:'/api/app/voice',              // POST a recording as a data URL → {id}; GET /voice/{id} plays it, for a week
   image:'/api/app/image',              // POST a data URL → {id}; GET /image/{id} serves it
   prefs:'/api/app/prefs',              // GET|POST what they want emailing about
   plans:'/api/app/plans',              // GET which tiers can be bought outright
@@ -5767,6 +5769,7 @@ function msgStatus(m){
     Not sent: you have been signed out.${link("st.tab='signin';save();render()",'Sign in again')}</div>`;
   if(m.failed) return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
     Not sent.${m.video?link(`retrySend('${esc(m.video)}','',${JSON.stringify(m.text||'').replace(/"/g,'&quot;')})`,'Send it again')
+      : m.voice ? link(`retryVoice('${esc(m.voice)}',${Number(m.secs)||0})`,'Send it again')
       : (!m.image && m.text) ? link(`sendAsk(${JSON.stringify(m.text).replace(/"/g,'&quot;')})`,'Send it again') : ''}</div>`;
   /* sending, sent and read are the ticks inside the bubble now */
   return '';
@@ -5784,18 +5787,18 @@ function retrySend(video, image, text){
 }
 /* mark the bubble that carries this clip as failed, or as gone through */
 function markFailed(key){
-  pendingMsgs.forEach(p=>{ if(p.video===key||p.image===key) p.failed=true; });
-  st.msgs=(st.msgs||[]).map(m=>((m.video===key||m.image===key)&&m.from==='me')
+  pendingMsgs.forEach(p=>{ if(p.video===key||p.image===key||p.voice===key) p.failed=true; });
+  st.msgs=(st.msgs||[]).map(m=>((m.video===key||m.image===key||m.voice===key)&&m.from==='me')
     ? Object.assign({}, m, {failed:true, pending:false}) : m);
   save(); render();
 }
 function markSent(key){
-  pendingMsgs.forEach(p=>{ if(p.video===key||p.image===key) delete p.failed; });
-  st.msgs=(st.msgs||[]).map(m=>((m.video===key||m.image===key)&&m.from==='me')
+  pendingMsgs.forEach(p=>{ if(p.video===key||p.image===key||p.voice===key) delete p.failed; });
+  st.msgs=(st.msgs||[]).map(m=>((m.video===key||m.image===key||m.voice===key)&&m.from==='me')
     ? Object.assign({}, m, {failed:false, pending:true}) : m);
   save(); render();
 }
-const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:'t:'+String(m.text||'').trim());
+const msgKey=m=>(m.video?'v:'+m.video:m.image?'i:'+m.image:m.voice?'a:'+m.voice:'t:'+String(m.text||'').trim());
 let threadInFlight=0;
 function loadThread(){
   if(!st.token) return;
@@ -5817,6 +5820,7 @@ function loadThread(){
     const next=d.messages.map(m=>({from:m.from==='coach'?'e':'me',text:m.text,
       ...(m.id?{id:m.id}:{}),...(m.re?{re:m.re}:{}),
       ...(m.video?{video:m.video}:{}),...(m.image?{image:m.image}:{}),
+      ...(m.voice?{voice:m.voice,secs:m.secs||0}:{}),
       ...(m.seen?{seen:m.seen}:{}),
       /* which submission this answers, so a check point can tell whether a
          reply was about its clip or somebody else's */
@@ -5831,6 +5835,7 @@ function loadThread(){
       && (p.failed || p.emailed || Date.now()-p.sentAt<600000));
     const merged=next.concat(pendingMsgs.map(p=>({from:'me',text:p.text,...(p.re?{re:p.re}:{}),
       ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),
+      ...(p.voice?{voice:p.voice,secs:p.secs||0}:{}),
       /* on screen but not yet acknowledged by the server, or refused by it */
       pending:!p.failed && !p.emailed, ...(p.failed?{failed:true}:{}),
       ...(p.emailed?{emailed:true}:{}), ...(p.why?{why:p.why}:{}), ...(p.id?{pid:p.id}:{}),
@@ -6515,7 +6520,7 @@ const chatHot = () => { chatHotUntil=Date.now()+60000; };
 const CH_TICK='<svg width="16" height="11" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2 12 1.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CH_TICKS='<svg width="18" height="11" viewBox="0 0 18 11" aria-hidden="true"><path d="M1 5.8 4.4 9.2 11.4 1.8M7.6 8.6l.6.6 7.2-7.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CH_CLOCK='<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
-const chHasMsg = m => !!(m && (m.video || m.image || String(m.text||'').trim()));
+const chHasMsg = m => !!(m && (m.video || m.image || m.voice || String(m.text||'').trim()));
 const chKey = m => m.id || m.pid || ('t'+(m.at||0));
 const chTime = t => t ? new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
 function chDay(t){
@@ -6527,7 +6532,7 @@ function chDay(t){
   if(diff<7) return d.toLocaleDateString('en-GB',{weekday:'long'});
   return d.toLocaleDateString('en-GB',{day:'numeric',month:'long',...(d.getFullYear()!==now.getFullYear()?{year:'numeric'}:{})});
 }
-const chSnip = m => m ? (String(m.text||'').trim().slice(0,90) || (m.video?'Video':m.image?'Photo':'')) : '';
+const chSnip = m => m ? (String(m.text||'').trim().slice(0,90) || (m.video?'Video':m.image?'Photo':m.voice?'Voice note':'')) : '';
 const chLinks = s => s.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
 const chFind = id => (st.msgs||[]).find(m=>chKey(m)===id || m.id===id);
 function chTicks(m){
@@ -6548,6 +6553,7 @@ function chBubble(m, first, last, byId){
       ${m.video?`<div class="cmedia">${clipPoster(m.video,'4/5','34vh')}</div>`:''}
       ${m.image?`<button class="cmedia" onclick="event.stopPropagation();chPhoto('${esc(m.image)}')" aria-label="Open the photo">
         <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" loading="lazy"></button>`:''}
+      ${m.voice?voiceBubbleHTML(esc(m.voice), m.secs, m.at):''}
       ${m.text?`<span class="ct">${chLinks(esc(m.text))}</span>`:''}
       <span class="cspace ${mine?'me':''}"></span>
       <span class="cmeta">${chTime(m.at)}${chTicks(m)}</span>
@@ -6668,6 +6674,8 @@ function chatComposerHTML(ph, media){
     <div class="cbox">
       <textarea id="askIn" rows="1" placeholder="${esc(ph)}" aria-label="Your message"
         oninput="askDraft=this.value;chatGrow(this);chatTyping()" onkeydown="chatKey(event)">${esc(askDraft)}</textarea>
+      ${chVoiceOk()?`<button class="cicon" onclick="chatVoice()" aria-label="Record a voice note">
+        <svg width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>`:''}
       ${media?`<button class="cicon" onclick="chatAttach()" aria-label="Send a video or a photo">
         <svg width="21" height="21" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`:''}
       <button class="csend" onclick="sendAsk()" aria-label="Send">
@@ -6707,6 +6715,37 @@ function chatDelete(id){
     .then(r=>r.ok?r:r.json().catch(()=>({})).then(d=>Promise.reject(d.error||'That did not delete. Try again.')))
     .then(()=>{ loadThread(); loadSubmissions(); })
     .catch(e=>{ st.msgs=was; save(); repaintChat(); toast(String(e)); });
+}
+/* the recording is already up; only the message needs sending again */
+function retryVoice(id, secs){
+  markSent(id);
+  fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text:'',voice:id,secs})})
+    .then(gateCheck).then(()=>setTimeout(loadThread,1200)).catch(()=>markFailed(id));
+}
+/* ── voice notes, coached clients only ─────────────────────────────
+   The recording bar and the player are voice.js, shared with the
+   dashboard. This is the sending, the same way a photo is sent. */
+const chVoiceOk = () => !!(st.coached && st.token && !st.preview && voiceCan());
+function chatVoice(){
+  if(upBusy) return;
+  voiceRecord((blob, secs, err)=>{
+    if(err){ upSay(err); return; }
+    upBusy=true; upSay('Sending the voice note…');
+    voiceData(blob)
+      .then(data=>fetch(AUTH.voice,{method:'POST',headers:authed(),body:JSON.stringify({data,secs})})
+        .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that voice note'))))
+      .then(d=>{
+        const re=chatReplyTo; chatReply('');
+        pendingMsgs.push({text:'',voice:d.id,secs,sentAt:Date.now(),...(re?{re}:{})});
+        st.msgs=(st.msgs||[]).concat([{from:'me',text:'',voice:d.id,secs,time:'Just now',pending:true,at:Date.now(),...(re?{re}:{})}]);
+        save(); render();
+        return fetch(AUTH.messages,{method:'POST',headers:authed(),
+          body:JSON.stringify({text:'',voice:d.id,secs,...(re?{re}:{})})}).then(gateCheck)
+          .catch(e=>{ markFailed(d.id); throw e; });
+      })
+      .then(()=>{ upBusy=false; upSay(''); setTimeout(loadThread,1200); })
+      .catch(e=>{ upBusy=false; upSay(String(e)); });
+  }, document.querySelector('.composer .cbox'));
 }
 function chatAttach(){
   chatSheet([{label:'Video', fn:()=>pickClip()}, {label:'Photo', fn:()=>pickPhoto()}]);
@@ -6804,7 +6843,7 @@ function sendAsk(retryText){
   if(retryText==null){ askDraft=''; if(el) el.value=''; }
   else {
     /* the retry replaces the failed bubble rather than sitting under it */
-    pendingMsgs=pendingMsgs.filter(p=>!(p.failed && p.text===text && !p.video && !p.image));
+    pendingMsgs=pendingMsgs.filter(p=>!(p.failed && p.text===text && !p.video && !p.image && !p.voice));
     st.msgs=(st.msgs||[]).filter(m=>!(m.failed && m.from==='me' && m.text===text && !m.video && !m.image));
   }
   const id='q'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
