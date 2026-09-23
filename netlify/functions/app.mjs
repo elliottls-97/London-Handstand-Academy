@@ -24,6 +24,7 @@ import { getStore } from '@netlify/blobs';
 import programmes from './programmes.mjs';
 import * as supa from './supa.mjs';
 import { EMAILS, renderEmail } from './emails.mjs';
+import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 
 const CODE_TTL = 15 * 60 * 1000;          // a code lasts 15 minutes
 const TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
@@ -345,6 +346,30 @@ async function email(to, subject, html, kind) {
       (d && d.message) || ('Resend said ' + r.status));
   } catch (err) {
     return mailNote(to, subject, kind, false, String((err && err.message) || err));
+  }
+}
+
+/* ── a notification to their phone ──────────────────────────────
+   The same three checks as an email, in the same order: the test lists,
+   the mail guard that keeps real clients quiet until it is switched on,
+   and what they have chosen to hear about. A phone that never turned
+   notifications on is not an attempt, so it is not logged; one that did
+   goes into the same log as the emails, so the dashboard shows both. */
+async function notify(to, payload, kind) {
+  const e = norm(to);
+  let rec;
+  try { rec = await pushSubs(e); } catch { return; }
+  if (!rec.subs.length) return;
+  const subj = 'Notification: ' + String((payload && payload.title) || '').slice(0, 70);
+  if (!mayEmail(e)) return mailNote(e, subj, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
+  if (!(await clientMailAllowed(e))) return mailNote(e, subj, kind, false, 'client email is switched off');
+  if (!(await wantsEmail(e, kind))) return mailNote(e, subj, kind, false, 'they have turned off ' + kind);
+  try {
+    const r = await pushSend(e, payload);
+    if (r.none) return;
+    return mailNote(e, subj, kind, !!r.sent, r.why || '');
+  } catch (err) {
+    return mailNote(e, subj, kind, false, String((err && err.message) || err));
   }
 }
 
@@ -3200,6 +3225,54 @@ export default async (request) => {
      Which weekday each session sits on, and any drill lengths they have
      changed. Small, and useless on one device only — a new phone should
      not cost someone their week. */
+  /* ── notifications on this phone ────────────────────────────────
+     The public key is public: every phone that subscribes is handed it.
+     The private one never leaves Netlify. */
+  if (path === '/push/key') {
+    return json({ key: process.env.VAPID_PUBLIC_KEY || '', on: pushReady() });
+  }
+  if (path === '/push/subscribe' && request.method === 'POST') {
+    const who = await realMe();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const sb = body.sub || {};
+    const endpoint = String(sb.endpoint || '');
+    const p256dh = String((sb.keys || {}).p256dh || '').slice(0, 200);
+    const auth = String((sb.keys || {}).auth || '').slice(0, 100);
+    if (!/^https:\/\//.test(endpoint) || endpoint.length > 1000 || !p256dh || !auth) {
+      return json({ error: 'That is not a notification subscription' }, 400);
+    }
+    const rec = await pushSubs(who);
+    /* the latest first, one entry per phone, and no more than six */
+    rec.subs = [{ endpoint, keys: { p256dh, auth }, at: Date.now() }]
+      .concat(rec.subs.filter(x => x && x.endpoint !== endpoint)).slice(0, 6);
+    /* the weekdays they plan to train, Monday nought, for the reminder */
+    if (Array.isArray(body.days)) {
+      rec.days = [...new Set(body.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))];
+    }
+    await pushSave(who, rec);
+    return json({ ok: true, phones: rec.subs.length });
+  }
+  if (path === '/push/unsubscribe' && request.method === 'POST') {
+    const who = await realMe();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const endpoint = String(body.endpoint || '');
+    const rec = await pushSubs(who);
+    rec.subs = rec.subs.filter(x => x && x.endpoint !== endpoint);
+    await pushSave(who, rec);
+    return json({ ok: true, phones: rec.subs.length });
+  }
+  /* asked for by the person, to their own phone, so it is not held by the
+     mail guard: nobody is told anything they did not just ask for */
+  if (path === '/push/test' && request.method === 'POST') {
+    const who = await realMe();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if ((await rateHit(`pushtest:${who}`, 600000)) > 5) return json({ error: 'That is a few tests. Try again in a few minutes.' }, 429);
+    const r = await pushSend(who, { title: 'Notifications are on',
+      body: 'This is how a reply from ' + coachName(coachOf(who) || primaryCoach()) + ' will arrive.',
+      url: '/lha-app.html', tag: 'test' });
+    return json(r);
+  }
+
   if (path === '/state') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -4819,6 +4892,9 @@ export default async (request) => {
               + `Same place, new days.`],
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: coachName(coachOf(e) || primaryCoach()) } }), 'reminders');
+        await notify(e, { title: 'Block ' + (n + 1) + ' is ready',
+          body: 'Your next block is in the app. Same place, new days.',
+          url: '/lha-app.html?go=plan', tag: 'block' }, 'reminders');
         return state();
       }
       if (act === 'restore') {
@@ -4951,6 +5027,9 @@ export default async (request) => {
               cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
               signoff: { name: coachName(coachOf(e) || primaryCoach()) }, footnote: T.footnote || undefined,
             }), 'reminders');
+          await notify(e, { title: fresh.length === 1 ? 'A new check point' : fresh.length + ' new check points',
+            body: fresh.slice(0, 3).map(c => c.n).join(', ') + '. Log it when you next test yourself.',
+            url: '/lha-app.html?go=cps', tag: 'cp-new' }, 'reminders');
         }
         await ensureCustom();
         return json({ ok: true, plan: hydratePlan(next), notified: fresh.length });
@@ -5404,6 +5483,8 @@ export default async (request) => {
           paras: [`<b>You asked:</b> ${esc(q.body)}`, esc(answer)],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: nm } }), 'replies');
+      await notify(q.email, { title: nm + ' answered your question',
+        body: String(answer).slice(0, 140), url: '/lha-app.html?go=answer', tag: 'question' }, 'replies');
       return json({ ok: true });
     }
 
@@ -5608,6 +5689,8 @@ export default async (request) => {
             cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
             signoff: { name: nm }, footnote: T.footnote || undefined,
           }), 'replies');
+        await notify(e, { title: 'Your answer is ready', body: nm + ' has been through what you sent.',
+          url: '/lha-app.html?go=answer', tag: 'answer' }, 'replies');
       }
 
       /* A verdict on a check point clip: reached, or not yet, with a line.
@@ -5732,6 +5815,16 @@ export default async (request) => {
             cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
             signoff: { name: nm }, footnote: T.footnote || undefined,
           }), 'replies');
+      }
+      /* the phone as well, and not held back by a reply earlier in the day:
+         a sign-off is its own piece of news. Taking one back says nothing. */
+      if (!body.quiet) {
+        const cpN = String(body.n || '').slice(0, 80) || 'A check point';
+        await notify(e, verdict === 'reached'
+          ? { title: 'Signed off: ' + cpN, body: note || 'It is green on your check points.',
+              url: '/lha-app.html?go=cps', tag: 'cp-' + k }
+          : { title: 'A note on ' + cpN, body: note || 'Not there yet. There is a note on it in the app.',
+              url: '/lha-app.html?go=cps', tag: 'cp-' + k }, 'replies');
       }
       return json({ ok: true, cleared, checkpoints: tr.checkpoints });
     }
@@ -5864,6 +5957,8 @@ export default async (request) => {
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: who2 }, footnote: T.footnote || undefined,
           }), 'replies');
+        await notify(e, { title: who2 + (video ? ' sent you a video' : image ? ' sent you a photo' : ' replied'),
+          body: text ? text.slice(0, 140) : sent, url: '/lha-app.html?go=chat', tag: 'reply' }, 'replies');
         return json({ ok: true, ...(cpsOut ? { checkpoints: cpsOut } : {}) });
       }
     }

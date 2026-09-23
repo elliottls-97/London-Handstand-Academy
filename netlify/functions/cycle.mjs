@@ -12,6 +12,7 @@
 import programmes from './programmes.mjs';
 import * as supa from './supa.mjs';
 import { renderEmail } from './emails.mjs';
+import { pushReady, pushSend } from './push.mjs';
 /* the words for an email, with whatever the dashboard has changed on top */
 let EMAIL_OVER = null;
 async function emailCopy(key, vars) {
@@ -293,6 +294,7 @@ export default async () => {
   try { await workshopMail(done); } catch (e) { done.workshopError = String(e && e.message || e); }
   try { await sessionMail(done); } catch (e) { done.sessionError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
+  try { await trainingPush(done); } catch (e) { done.pushError = String(e && e.message || e); }
   return new Response(JSON.stringify(done), {
     headers: { 'Content-Type': 'application/json' } });
 };
@@ -309,6 +311,53 @@ export default async () => {
 const QUIET_STEPS = [
   { days: 5, key: '5d' }, { days: 14, key: '14d' }, { days: 30, key: '30d' }, { days: 90, key: '90d' },
 ];
+/* ── a training reminder, to the phone ─────────────────────────────
+   Only for somebody who turned notifications on, and never on a day they
+   have already trained. The app sends the weekdays they plan to train:
+   on one of those, a short note at the time this job runs. Somebody with
+   no plan gets one after three days without a session, and not again for
+   three more. The same checks as an email: training reminders turned on,
+   the test lists, and the mail guard that keeps real clients quiet. */
+async function trainingPush(done) {
+  if (!pushReady()) return;
+  const rows = (await supa.rows('settings', `key=like.${enc('push:')}*&select=key,value`).catch(() => [])) || [];
+  const now = new Date();
+  const wd = (now.getUTCDay() + 6) % 7;             /* Monday is nought, as in the app */
+  const today = now.toISOString().slice(0, 10);
+  done.trainPush = 0;
+  for (const r of rows) {
+    const e = norm(String(r.key || '').slice(5));
+    const rec = r.value || {};
+    if (!e || !Array.isArray(rec.subs) || !rec.subs.length) continue;
+    if (!(await wantsEmail(e, 'reminders')) || !mayEmail(e) || !(await clientMailAllowed(e))) continue;
+    const dayKey = `pushtrain:${e}:${today}`;
+    if (await supa.row('nudges', `key=eq.${enc(dayKey)}&select=key`).catch(() => null)) continue;
+    const p = await supa.row('progress', `email=eq.${enc(e)}&select=sessions`).catch(() => null);
+    const sess = (p && Array.isArray(p.sessions)) ? p.sessions : [];
+    const last = Math.max(0, ...sess.map(x => (x && x.at) || 0));
+    if (last && new Date(last).toISOString().slice(0, 10) === today) continue;
+    let payload = null;
+    if (Array.isArray(rec.days) && rec.days.length) {
+      if (rec.days.includes(wd)) payload = { title: 'Training day',
+        body: 'Your session is ready when you are.', url: '/lha-app.html?go=today', tag: 'train' };
+    } else if (last) {
+      const since = Math.floor((Date.now() - last) / DAY);
+      const quietKey = `pushquiet:${e}`;
+      const q = await supa.row('nudges', `key=eq.${enc(quietKey)}&select=sent_at`).catch(() => null);
+      const lastQuiet = q && q.sent_at ? ms(q.sent_at) : 0;
+      if (since >= 3 && Date.now() - lastQuiet > 3 * DAY) {
+        payload = { title: since + ' days since your last session',
+          body: 'A short one still counts. Pick fifteen minutes.', url: '/lha-app.html?go=today', tag: 'train' };
+        await supa.upsert('nudges', { key: quietKey, sent_at: now.toISOString() }, 'key').catch(() => {});
+      }
+    }
+    if (!payload) continue;
+    const res = await pushSend(e, payload).catch(err => ({ sent: 0, why: String(err && err.message || err) }));
+    await supa.upsert('nudges', { key: dayKey, sent_at: now.toISOString() }, 'key').catch(() => {});
+    if (res.sent) done.trainPush++;
+  }
+}
+
 async function quietFreeAccounts(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',

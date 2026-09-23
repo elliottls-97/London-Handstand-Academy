@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v147';
+const CACHE_VERSION = 'lha-v148';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -134,4 +134,40 @@ self.addEventListener('fetch', event => {
         ))
     );
   }
+});
+
+/* ── notifications ─────────────────────────────────────────────────
+   The server sends a title, a line and where it should open. A reply
+   opens the chat, a sign-off opens the check points. If the app is
+   already open it is brought forward and told where to go; otherwise it
+   opens at that address. */
+self.addEventListener('push', event => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; }
+  catch (e) { d = { body: event.data ? event.data.text() : '' }; }
+  const title = d.title || 'London Handstand Academy';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: d.body || '',
+    icon: '/icons/icon-192.png',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    data: { url: d.url || '/lha-app.html' },
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/lha-app.html';
+  let go = '';
+  try { go = new URL(url, self.location.origin).searchParams.get('go') || ''; } catch (e) {}
+  event.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const app = open.find(c => /\/lha-app\.html/.test(c.url));
+    if (app) {
+      try { await app.focus(); } catch (e) {}
+      app.postMessage({ type: 'lha-go', go });
+      return;
+    }
+    await self.clients.openWindow(url);
+  })());
 });

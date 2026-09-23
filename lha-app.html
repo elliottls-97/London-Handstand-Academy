@@ -750,7 +750,11 @@ const AUTH = {
   application:'/api/app/application',  // POST a coaching application
   submission:'/api/app/submission',    // POST numbers + clips as one review
   submissions:'/api/app/submissions',  // GET → what has been sent, and its status
-  cycle:'/api/app/cycle'               // GET → where the client is in the block
+  cycle:'/api/app/cycle',              // GET → where the client is in the block
+  pushKey:'/api/app/push/key',         // GET the public key a phone subscribes with
+  pushSub:'/api/app/push/subscribe',   // POST this phone, and the days they train
+  pushUnsub:'/api/app/push/unsubscribe',
+  pushTest:'/api/app/push/test'        // POST one to their own phone
 };
 const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer '+(st.token||'')});
 /* ── counting what happens ─────────────────────────────────────────
@@ -1321,6 +1325,7 @@ function screenToday(){
 
   
   ${installNudge()}
+  ${pushNudge()}
   ${todayFocus()}
   ${savedHomeHTML()}
 ${/* Once it has been read it is a wall of last month's words at the top of
@@ -6049,9 +6054,10 @@ function prefsHTML(){
       <span style="width:21px;height:21px;border-radius:999px;background:#fff;display:block"></span>
     </button></div>`;
   return `<div class="card" style="padding:18px;margin-top:14px">
-    <div class="kick2">EMAILS</div>
-    ${row('replies','Replies and answers','When Elliott replies, or your form check is ready.')}
-    ${row('reminders','Training reminders','When your two-week test is due.')}
+    ${pushBoxHTML()}
+    <div class="kick2">EMAILS AND NOTIFICATIONS</div>
+    ${row('replies','Replies and answers','When Elliott replies, signs off a check point, or your form check is ready.')}
+    ${row('reminders','Training reminders','Your two-week test, and a nudge on the days you plan to train.')}
     ${row('marketing','Tips and workshops','No more than twice a month.')}
     <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
       Password resets and receipts always send, and those cannot be turned off.</div>
@@ -8135,7 +8141,7 @@ function drawOv(){
       <div class="kick2">ON YOUR HOME SCREEN</div>
       <div class="h-lg" style="margin-top:8px">Put the app on your Home Screen.</div>
       <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">It opens full screen with one tap,
-        and it is the safe place to save workouts for a gym with no signal.${ios?' Safari clears what a website saves once you have gone about a week without opening it.':''}</div>
+        and it is the safe place to save workouts for a gym with no signal.${ios?' Safari clears what a website saves once you have gone about a week without opening it, and on an iPhone it is the only way to get notifications from the app.':''}</div>
       ${ios ? step(1,'Tap the share button'+SHARE,'At the bottom of Safari. On an iPad it is at the top.')
             + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it.')
             + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
@@ -10916,6 +10922,7 @@ function screenHome(){
     </div>
 
     ${installNudge()}
+    ${pushNudge()}
     ${st.homeOrder==='fixesFirst'?fixesHomeHTML():''}
 
     <!-- the explainers, as the design has them: one question box, then a rail
@@ -14710,6 +14717,137 @@ function installCopy(){
   return 'Open your browser menu and choose Install, or Add to Home Screen. It opens '+
     'full screen from there, and workouts you save play with no signal.';
 }
+/* ══ notifications on this phone ═══════════════════════════════════
+   Replies, sign-offs, new check points and a training reminder arrive on
+   the phone. An iPhone only gets them from the Home Screen app, and only
+   after a tap asks, so the question is always behind a button. The weekdays
+   they plan to train go with the subscription, for the reminder. What they
+   hear about is the same set of choices as their emails. */
+const pushSupported = () => { try{ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }catch(e){ return false; } };
+let pushOn=null;                         /* this phone: null until checked */
+const b64u8 = s => { const p='='.repeat((4-s.length%4)%4);
+  const b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from(b, c=>c.charCodeAt(0)); };
+function reminderDays(){
+  try{
+    if(st.in) return [];                  /* coached: after three quiet days instead */
+    const out=[];
+    weekCells().forEach((c,i)=>{ if(!isRestCell(c)){ const d=dayFor(i); if(d!=null && out.indexOf(d)<0) out.push(d); } });
+    return out;
+  }catch(e){ return []; }
+}
+function pushSync(sub){
+  if(!st.token || st.preview || !sub) return Promise.resolve(false);
+  return fetch(AUTH.pushSub,{method:'POST',headers:authed(),
+    body:JSON.stringify({sub:sub.toJSON(), days:reminderDays()})}).then(r=>r.ok).catch(()=>false);
+}
+/* on opening: is this phone on, and if so tell the server again, so a
+   changed week and a renewed subscription both reach it */
+function pushCheck(){
+  if(!pushSupported()) { pushOn=false; return; }
+  let perm='default'; try{ perm=Notification.permission; }catch(e){}
+  if(perm!=='granted'){ pushOn=false; return; }
+  navigator.serviceWorker.ready.then(reg=>reg.pushManager.getSubscription()).then(sub=>{
+    pushOn=!!sub; if(sub) pushSync(sub); pushPaint();
+  }).catch(()=>{ pushOn=false; });
+}
+async function pushTurnOn(){
+  if(!pushSupported()){ let ios=false; try{ ios=isIOS(); }catch(e){} if(ios) openOv('install'); return; }
+  if(!st.token){ goJoin(); return; }
+  let perm='default';
+  /* first thing in the tap, or an iPhone will not ask at all */
+  try{ perm=await Notification.requestPermission(); }catch(e){}
+  if(perm!=='granted'){
+    toast(perm==='denied' ? 'Notifications are blocked for this app. Turn them on in your phone settings.' : 'Not turned on.');
+    pushPaint(); render(); return;
+  }
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const k=await fetch(AUTH.pushKey).then(r=>r.json());
+    if(!k || !k.key){ toast('Notifications are not set up yet.'); return; }
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64u8(k.key)});
+    const ok=await pushSync(sub);
+    pushOn=!!ok;
+    toast(ok ? 'Notifications on for this phone.' : 'That did not reach the server. Try again on better signal.');
+  }catch(e){ toast('Could not turn them on: '+String((e&&e.message)||e)); }
+  pushPaint(); render();
+}
+async function pushTurnOff(){
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription();
+    if(sub){
+      fetch(AUTH.pushUnsub,{method:'POST',headers:authed(),body:JSON.stringify({endpoint:sub.endpoint})}).catch(()=>{});
+      await sub.unsubscribe();
+    }
+  }catch(e){}
+  pushOn=false; toast('Notifications off for this phone.'); pushPaint();
+}
+function pushTestSend(){
+  fetch(AUTH.pushTest,{method:'POST',headers:authed()})
+    .then(r=>r.json().catch(()=>({})))
+    .then(d=>toast(d&&d.sent ? 'Sent. It should arrive in a moment.' : ((d&&(d.error||d.why))||'That did not send.')))
+    .catch(()=>toast('That did not send.'));
+}
+/* the switch, in their settings */
+function pushBoxHTML(){
+  let ios=false, tab=false, perm='default';
+  try{ ios=isIOS(); tab=!isStandalone(); perm=Notification.permission; }catch(e){}
+  const btn=(label, fn, strong)=>`<button onclick="${fn}" style="flex:none;border:${strong?'0':'1px solid rgba(0,64,61,.16)'};
+    border-radius:11px;cursor:pointer;padding:9px 13px;background:${strong?'var(--forest)':'#fff'};
+    color:${strong?'var(--on-primary)':'var(--ink)'};font:600 12.5px/1 var(--sans)">${label}</button>`;
+  let line='', acts='';
+  if(!st.token){ line='Add your email to get notifications on this phone.'; acts=btn('Add my email','closeOv();goJoin()',true); }
+  else if(ios && tab){ line='On an iPhone, notifications come through the app on your Home Screen.'; acts=btn('Show me how',"openOv('install')",true); }
+  else if(!pushSupported()){ line='This browser cannot show notifications.'; }
+  else if(perm==='denied'){ line='Blocked for this app. Turn notifications on for it in your phone settings.'; }
+  else if(pushOn){ line='On for this phone.'; acts=btn('Send a test','pushTestSend()',false)+btn('Turn off','pushTurnOff()',false); }
+  else { line='Off for this phone.'; acts=btn('Turn on','pushTurnOn()',true); }
+  return `<div id="pushbox" style="padding:4px 0 14px">
+    <div class="kick2">NOTIFICATIONS ON THIS PHONE</div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">${line}</div>
+    ${acts?`<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${acts}</div>`:''}
+  </div>`;
+}
+function pushPaint(){ const el=document.getElementById('pushbox'); if(el) el.outerHTML=pushBoxHTML(); }
+/* the question, asked once where it is worth asking, and put away for a fortnight on Not now */
+function pushNudge(){
+  if(!st.token || st.preview || !pushSupported()) return '';
+  try{ if(Notification.permission!=='default') return ''; }catch(e){ return ''; }
+  if(installNudge()) return '';
+  if(st.pushLater && Date.now()-st.pushLater < 14*864e5) return '';
+  const c=coachedView();
+  return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:15px 16px;display:flex;gap:13px;
+    align-items:center;border:1.5px solid rgba(0,102,99,.22)">
+    <span style="flex:none;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;
+      background:rgba(0,102,99,.1);color:var(--forest)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span>
+    <div style="flex:1;min-width:0">
+      <div style="font:600 14.5px/1.3 var(--sans)">${c?'Know when '+esc(coachLabel())+' replies':'A nudge on your training days'}</div>
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${c
+        ? 'A notification when he replies or signs off a check point, instead of checking the app.'
+        : 'One note on the days you plan to train, and word when a question is answered.'}</div>
+      <div style="display:flex;gap:16px;margin-top:10px;align-items:center">
+        <button onclick="pushTurnOn()" style="border:0;border-radius:11px;cursor:pointer;
+          padding:9px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Turn on</button>
+        <button onclick="st.pushLater=Date.now();save();render()" style="border:0;background:none;cursor:pointer;
+          padding:6px 0;font:600 12.5px/1 var(--sans);color:var(--grey)">Not now</button>
+      </div>
+    </div></div></div>`;
+}
+/* a notification opens where its news is */
+function openFromNotice(where){
+  if(!where) return;
+  if(st.ov) closeOv();
+  const c=coachedView();
+  if(where==='chat'){ if(c) go('ask'); else { st.coTab='chat'; save(); go('coaching'); } return; }
+  if(where==='cps'){ if(c){ st.progTab='marks'; save(); go('progress'); } else go('ladder'); return; }
+  if(where==='answer'){ if(c) go('today'); else { st.coTab='check'; save(); go('coaching'); } return; }
+  if(where==='plan'){ go(c?'plan':'home'); return; }
+  if(where==='today'){ go(c?'today':'home'); return; }
+}
+
 /* ── the Home Screen, asked for on the first screen ─────────────────
    A phone in a browser tab gets this near the top until the app is on
    the Home Screen. Not now puts it away for a week, not for ever. */
@@ -15136,6 +15274,12 @@ document.addEventListener('DOMContentLoaded',function(){
   render();
   trackOpen();
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); setTimeout(loadSign, 800); }
+  /* notifications: is this phone on, and did one open the app */
+  pushCheck();
+  try{ const where=new URLSearchParams(location.search).get('go');
+    if(where){ history.replaceState(null,'',location.pathname); setTimeout(()=>openFromNotice(where), 350); } }catch(e){}
+  try{ if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e=>{
+    if(e.data && e.data.type==='lha-go') openFromNotice(e.data.go||''); }); }catch(e){}
   /* which films are on this phone: the list and the player both ask */
   dlLoad().then(()=>{ if(dlSet.size) render(); });
   /* the quiz placed them on a paid stage: show it, with the free week on it */
