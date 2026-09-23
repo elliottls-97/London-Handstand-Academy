@@ -4496,17 +4496,22 @@ function scrollToCps(){
   const el=document.querySelector('[data-tour="checkpoints"]');
   if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
 }
-function checkpointsCard(){
+/* flat: straight onto the page, as on the ladder tab, where the heading
+   above already carries the count and the bar. The card round cards, and
+   the same 0/7 four times over, were what made that screen look busy. */
+function checkpointsCard(flat){
   const list=cpFor(); if(!list.length) return '';
   const S=STAGES[curStage()]||{};
   const P=cpProgress();
   const pc=P.of?Math.round(P.met/P.of*100):0;
-  const due=cpDue();
+  /* never logged is not a fortnight ago: someone on their first look was
+     told it had been a fortnight or more */
+  const due=cpDue() && list.some(c=>cpLast(c.k));
   const fresh=cpNew();
   const coached=coachedView();
   const all = P.of>0 && P.met>=P.of;
-  return `<div class="card" style="padding:18px 20px${
-    fresh.length?';border:1.5px solid var(--amber)':due?';border:1.5px solid var(--forest)':''}">
+  return `<div${flat?'':` class="card" style="padding:18px 20px${
+    fresh.length?';border:1.5px solid var(--amber)':due?';border:1.5px solid var(--forest)':''}"`}>
     ${fresh.length?`<div style="display:flex;align-items:center;gap:10px;margin:-4px 0 12px">
       <span style="flex:1;font:600 12.5px/1.4 var(--sans);color:#8a6524">${
         fresh.length===1?'A new check point from '+esc(coachLabel()):fresh.length+' new check points from '+esc(coachLabel())}</span>
@@ -4517,7 +4522,13 @@ function checkpointsCard(){
          The count is the number this card exists to move and it scrolled
          away behind the first drill. It rides with you down the list on a
          phone. On a wide screen the tab itself carries it. -->
-    <div style="${wide()?'':'position:sticky;top:calc(env(safe-area-inset-top) + 67px);z-index:2;'
+    ${flat?`<div style="${wide()?'':'position:sticky;top:calc(env(safe-area-inset-top) + 67px);z-index:2;'}
+      margin:0 -16px;padding:12px 18px 10px;display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+      background:rgba(244,244,245,.9);backdrop-filter:blur(18px) saturate(180%);-webkit-backdrop-filter:blur(18px) saturate(180%)">
+      <span class="kick2"${due?' style="color:var(--forest)"':''}>CHECK POINTS${coached?'':' · '+esc(S.n||'')}</span>
+      <span id="cpcount" style="font:600 12px/1 var(--sans);color:${
+        all?'var(--forest)':'var(--grey2)'}">${P.met} of ${P.of} ${coached?'signed off':'reached'}</span>
+    </div>`:`<div style="${wide()?'':'position:sticky;top:calc(env(safe-area-inset-top) + 67px);z-index:2;'
       +'background:#fff;margin:-18px -20px 0;padding:16px 20px 12px;'
       +'border-bottom:1px solid rgba(0,64,61,.08);border-radius:18px 18px 0 0'}">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
@@ -4533,7 +4544,7 @@ function checkpointsCard(){
             transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
         <span id="cpnum" style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${P.met}/${P.of}</span>
       </div>
-    </div>
+    </div>`}
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">
       ${coached
         ? (all
@@ -11920,49 +11931,63 @@ function screenLadder(){
      node and reached by pressing Up. A stage you have cleared is not below
      you, so it is not filed there any more: done and ahead are two lists
      with their own headings. */
+  /* One spine through all six now, the stage you are on a card on it. It
+     was the current stage on its own between two rules, then a STILL TO
+     COME heading, a padlock line, and a spine that only began at the next
+     stage, so the ladder did not read as one climb. The padlock is a small
+     badge on each locked number and the price is said once, in the heading. */
   const rung=(x,i,last)=>{
-    if(i===cur) return '';
+    const here=i===cur, behind=i<cur;
     /* Behind you is a position. Passed is a claim, and it was being made on
        position alone: a brand new account placed at Wall Work by the quiz
        got a green tick against Foundations, having never done a drill.
        A tick now means the check points were actually reached. */
-    const behind=i<cur;
     const p=cpProgress(i);
     const passed=behind && p.ready;
     /* and the gate label cleared once the gate is open, rather than still
-       reading "Opens at 7 / 7 above" beside a header saying all 7 are done.
-       "Above" was a claim about the screen rather than the ladder, and the
-       ladder reads the other way: it names the stage now. */
+       reading "Opens at 7 / 7 above" beside a header saying all 7 are done. */
     const opensAt = (i===cur+1 && !(P.of && P.met>=P.of)) ? P.of : 0;
+    const locked = !here && stageLocked(i);
+    const node = here
+      ? `<span style="width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;
+          background:var(--deep);color:var(--on-primary);font:700 14px/1 var(--sans);
+          box-shadow:0 0 0 6px rgba(0,102,99,.14)">${i+1}</span>`
+      : `<span style="position:relative;width:34px;height:34px;flex:none;border-radius:50%;display:grid;
+          place-items:center;font:600 14px/1 var(--sans);
+          background:${behind?'#0a7b74':'#fff'};color:${behind?'var(--on-primary)':'var(--ink)'};
+          border:1.5px solid ${behind?'transparent':'rgba(0,64,61,.16)'}">${passed?'✓':i+1}${locked?`
+          <span aria-label="Locked" style="position:absolute;right:-6px;bottom:-5px;width:18px;height:18px;
+            border-radius:50%;background:#fff;border:1px solid rgba(0,64,61,.16);display:grid;place-items:center">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="3">
+            <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>`:''}</span>`;
     return `<div style="display:grid;grid-template-columns:40px 1fr;column-gap:14px">
       <div style="display:flex;flex-direction:column;align-items:center">
-        <span style="width:34px;height:34px;flex:none;border-radius:50%;display:flex;
-          align-items:center;justify-content:center;font:600 14px/1 var(--sans);
-          background:${behind?'#0a7b74':'rgba(255,255,255,.8)'};
-          color:${behind?'var(--on-primary)':'var(--ink)'};
-          border:1.5px solid ${behind?'transparent':'rgba(0,64,61,.18)'}">${passed?'✓':i+1}</span>
-        ${last?'':`<i style="flex:1;width:2px;margin:6px 0 -14px;
+        ${node}
+        ${last?'':`<i style="flex:1;width:2px;border-radius:2px;margin:6px 0 -14px;
           background:${behind?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`}
       </div>
-      <div onclick="openStage(${i})" style="cursor:pointer;padding-bottom:22px;display:flex;gap:10px">
-        <div style="flex:1;min-width:0">
-          <div style="font:400 20px/1.1 var(--serif);color:${behind?'var(--ink)':'var(--grey)'}">${
-            esc(x.n)}</div>
-          <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${
-            esc(x.goal)}</div>
-          ${opensAt?`<div style="margin-top:8px;font:600 12px/1 var(--sans);color:var(--forest)">
+      ${here ? `<div style="padding-bottom:24px">
+        <div style="background:#fff;border-radius:18px;padding:14px 16px 15px;margin-top:-6px;
+          border:1px solid rgba(0,64,61,.08);box-shadow:0 14px 30px -20px rgba(0,48,46,.45)">
+          <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">YOU ARE HERE</div>
+          <div style="font:400 22px/1.1 var(--serif);margin-top:7px">${esc(x.n)}</div>
+          <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(x.goal)}</div>
+          <div style="height:6px;border-radius:3px;background:rgba(0,64,61,.1);margin-top:12px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;border-radius:3px;background:var(--deep)"></div></div>
+          <button onclick="st.ladderTab='checks';save();render()" style="margin-top:12px;background:none;
+            border:0;padding:0;cursor:pointer;font:600 13px/1 var(--sans);color:var(--forest)">${
+            P.met} of ${P.of} check points &rarr;</button>
+        </div></div>`
+      : `<div onclick="openStage(${i})" style="cursor:pointer;padding:5px 0 24px">
+          <div style="font:400 20px/1.1 var(--serif);color:var(--ink)">${esc(x.n)}</div>
+          <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(x.goal)}</div>
+          ${opensAt?`<div style="display:inline-block;margin-top:9px;padding:6px 10px;border-radius:999px;
+            background:rgba(0,102,99,.08);font:600 12px/1.25 var(--sans);color:var(--forest)">
             Opens when you reach ${P.of} of ${P.of} on ${esc((STAGES[cur]||{}).n||'this stage')}</div>`:''}
-        </div>
-        ${stageLocked(i)?`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a"
-          stroke-width="2.2" style="flex:none;margin-top:6px"><rect x="5" y="11" width="14" height="10" rx="2"/>
-          <path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:''}
-      </div>
+        </div>`}
     </div>`;
   };
-  const doneIdx  = STAGES.map((x,i)=>i).filter(i=>i<cur);
-  const aheadIdx = STAGES.map((x,i)=>i).filter(i=>i>cur);
-  const rungsDone  = doneIdx.map((i,n)=>rung(STAGES[i],i,n===doneIdx.length-1)).join('');
-  const rungsAhead = aheadIdx.map((i,n)=>rung(STAGES[i],i,n===aheadIdx.length-1)).join('');
+  const rungs = STAGES.map((x,i)=>rung(x,i,i===STAGES.length-1)).join('');
 
   const nxt=STAGES[cur+1];
   return `<div class="scroll s">
@@ -12127,9 +12152,9 @@ function screenLadder(){
         const gated = nxt && stageLocked(cur+1);
         if(!(done && gated)) return `<div style="font:400 14px/1.5 var(--sans);margin-top:10px">${
           done
-            ? (nxt ? 'All '+P.of+' reached. <strong style="font-weight:600">'+esc(nxt.n)+'</strong> is open below.'
+            ? (nxt ? 'All '+P.of+' reached. <strong style="font-weight:600">'+esc(nxt.n)+'</strong> is open.'
                    : 'All '+P.of+' reached. That is the whole ladder.')
-            : nxt ? 'Reach all '+P.of+' check points and <strong style="font-weight:600">'+esc(nxt.n)+'</strong> opens below.'
+            : nxt ? 'Reach all '+P.of+' check points and <strong style="font-weight:600">'+esc(nxt.n)+'</strong> opens.'
                   : 'Reach all '+P.of+' check points and the ladder is done.'}</div>
           <button onclick="startDay(-1,'full')" style="width:100%;min-height:52px;border:0;border-radius:14px;
             margin-top:14px;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
@@ -12167,57 +12192,23 @@ function screenLadder(){
          orientation rather than the daily job, so it folds, and the tour
          is where it gets explained the first time. The focus is what you
          are working on, not where you could be in six months. -->
-    <div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard()}</div>`}
+    <div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard(true)}</div>`}
 
     ${ltab!=='ladder' ? '' : `<div data-ladderall style="padding:22px 20px 40px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-        padding:0 0 14px">
+        padding:0 0 20px">
         <span style="font:400 26px/1.1 var(--serif)">The whole ladder<em
           style="color:var(--forest);font-style:normal">.</em><span style="display:block;
           font:400 12.5px/1.35 var(--sans);color:var(--grey);margin-top:5px">All ${
-          STAGES.length} stages, and what each one asks for.</span></span>
+          STAGES.length} stages, and what each one asks for.</span>${isPlus()?'':`<span style="display:flex;
+          align-items:center;gap:6px;margin-top:5px;font:400 12.5px/1.35 var(--sans);color:var(--grey)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2.6">
+            <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+            <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>${paidRangeLine()}</span>`}</span>
         <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">Stage ${
           cur+1} of ${STAGES.length}</span>
       </div>
-      ${rungsDone?`<div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">DONE</div>
-      <div style="margin-top:16px">${rungsDone}</div>`:''}
-      <!-- The stage you are on was left out of the list, because the list
-           used to sit under a hero that named it. On a tab of its own the
-           whole ladder has to include the rung you are standing on. -->
-      <div style="display:flex;gap:14px;align-items:flex-start;padding:16px 0;margin-top:${
-        rungsDone?'14px':'0'};border-top:1px solid rgba(0,64,61,.10);
-        border-bottom:1px solid rgba(0,64,61,.10)">
-        <span style="flex:none;width:28px;height:28px;border-radius:999px;display:grid;
-          place-items:center;background:var(--deep);color:var(--on-primary);
-          font:700 12px/1 var(--sans)">${cur+1}</span>
-        <span style="flex:1;min-width:0">
-          <span style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
-            <span style="font:600 16px/1.2 var(--sans)">${esc(s.n)}</span>
-            <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;
-              color:var(--forest)">YOU ARE HERE</span></span>
-          <span style="display:block;margin-top:6px;font:400 13.5px/1.45 var(--sans);
-            color:var(--grey)">${esc(s.goal)}</span>
-          <span style="display:block;height:7px;border-radius:4px;background:rgba(0,64,61,.1);
-            margin-top:11px;overflow:hidden"><span style="display:block;height:100%;width:${pct}%;
-            border-radius:4px;background:var(--deep)"></span></span>
-          <button onclick="st.ladderTab='checks';save();render()" style="margin-top:11px;
-            background:none;border:0;padding:0;cursor:pointer;font:600 13px/1 var(--sans);
-            color:var(--forest)">${P.met} of ${P.of} check points &rarr;</button>
-        </span>
-      </div>
-
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
-        margin-top:${rungsDone?'10px':'16px'}">
-        <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">${
-          rungsAhead?'STILL TO COME':'THE LADDER'}</span>
-        ${isPlus()?'':`<span style="font:400 13px/1 var(--sans);color:var(--grey);display:flex;
-          align-items:center;gap:6px">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2.4">
-            <rect x="5" y="11" width="14" height="10" rx="2"></rect>
-            <path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
-          ${paidRangeLine()}</span>`}
-      </div>
-      <div data-tour="stagelist" style="margin-top:16px">${rungsAhead}</div>
+      <div data-tour="stagelist">${rungs}</div>
 
       <!-- 6e puts both of these as plain rows rather than blocks. The amber
            panel competed with the ladder it was sitting under, and the stage
@@ -12237,7 +12228,7 @@ function screenLadder(){
 
       <div style="margin:22px 0 24px;display:flex;justify-content:space-between;align-items:center;
         gap:12px;min-height:44px;font:400 14px/1.4 var(--sans);color:var(--grey)">
-        <span>${isPlus() ? 'Nothing is locked.' : 'Drop back a stage whenever you like.'}</span>
+        <span>${isPlus() ? 'Nothing is locked.' : cur>0 ? 'Drop back a stage whenever you like.' : 'Already past this?'}</span>
         <span style="display:flex;gap:14px;flex:none">
           <!-- These read the wrong way round: the harder stage was "Down to"
                and the easier one was "Up", on a ladder you climb. Harder is
@@ -12270,8 +12261,11 @@ function ladderTab(){
 }
 function ladderSeg(){
   const on=ladderTab();
-  const b=(k,l)=>`<button onclick="st.ladderTab='${k}';save();render()" style="flex:1;cursor:pointer;
+  /* sized to their words and never wrapped: "Check points · 0/7" broke
+     onto two lines in a third of a phone */
+  const b=(k,l)=>`<button onclick="st.ladderTab='${k}';save();render()" style="flex:1 1 auto;cursor:pointer;
     border:0;border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
+    white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:6px;
     transition:background .25s,color .25s;
     background:${on===k?'#fff':'transparent'};
     color:${on===k?'var(--deep)':'var(--grey)'}">${l}</button>`;
@@ -12279,9 +12273,10 @@ function ladderSeg(){
      this screen exists to move and it was two scrolls down inside the
      card. */
   const P=cpProgress(curStage());
-  const count=P.of?` &middot; <span id="segcps">${P.met}/${P.of}</span>`:'';
+  const count=P.of?`<span id="segcps" style="font:700 11px/1 var(--sans);padding:3px 6px;border-radius:999px;
+    background:${on==='checks'?'rgba(0,102,99,.12)':'rgba(17,17,17,.07)'}">${P.met}/${P.of}</span>`:'';
   return `<div style="padding:${wide()?'0':'16px'} 16px 0"><div class="segrow" style="display:flex;gap:5px;padding:4px;
-    border-radius:15px;background:rgba(17,17,17,.055)">${b('checks','Check points'+count)}${
+    border-radius:15px;background:rgba(17,17,17,.055)">${b('checks','Check points '+count)}${
     b('ladder','The ladder')}${b('progress','Progress')}</div></div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
