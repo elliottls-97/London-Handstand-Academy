@@ -11,6 +11,10 @@
 const LHA_WARMUP_SECS = 30;
 const LHA_SETUP_SECS  = 10;
 const LHA_REPS_SECS   = 45;
+/* A set that asks how many (max hold, build to, attempts, to failure) has
+   no countdown: they stop when they stop. Its time still has to be counted
+   somewhere, and Elliott's figure for it is a minute. */
+const LHA_OPEN_SECS   = 60;
 const LHA_WARM_GRP = /warm|pancake|mobility|wrist/i;
 const LHA_HARD_GRP = /^(strength|press)$/i;
 
@@ -88,7 +92,7 @@ function lhaRest(it, grp, i, list){
 /* A whole session, in seconds. Takes the blocks as the programme stores
    them, expands each drill by the sets its dose asks for, and counts the
    rest between sets as well as between drills. An untimed drill still
-   takes time, so it is counted at the reps figure rather than nothing.
+   takes time, so it is counted at a minute a set rather than nothing.
    A group marked warm is the rotating warm-up, which the player runs once
    through whatever the doses say, unless the coach set a number of sets:
    counting its doses made the dashboard a minute or more long a day. */
@@ -99,7 +103,7 @@ function lhaSessionSecs(groups){
     flat.push({ it, grp: g.name, warm: !!g.warm })));
   flat.forEach((x, i) => {
     const n = x.warm ? Math.max(1, Number(x.it.sets) || 1) : lhaSetsOf(x.it);
-    const w = lhaWork(x.it, x.grp) || LHA_REPS_SECS;
+    const w = lhaWork(x.it, x.grp) || LHA_OPEN_SECS;
     const r = lhaRest(x.it, x.grp, i, flat);
     secs += n * w + (n - 1) * r;
     if(i < flat.length - 1) secs += r;

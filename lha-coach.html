@@ -3580,14 +3580,14 @@ function wkSetsOf(n){
 function wkRowSecs(v, grp){
   const n=wkNums(v, grp);
   const sets=wkSetsOf(n);
-  return sets*n.w + Math.max(0, sets-1)*n.r;
+  return sets*(n.w||LHA_OPEN_SECS) + Math.max(0, sets-1)*n.r;
 }
 function wkRowLen(v){
   const grp=(wkPoolFor(wkStage).find(x=>x.v===v)||{}).g||'';
   const n=wkNums(v, grp);
   const sets=wkSetsOf(n);
   const mins=Math.round(wkRowSecs(v, grp)/60*10)/10;
-  return (n.w?`${sets} × ${n.w}s`:`${sets} × untimed`)
+  return (n.w?`${sets} × ${n.w}s`:`${sets} × untimed, about ${LHA_OPEN_SECS}s`)
     + ` · ${n.r}s rest · ${mins} min`;
 }
 function wkStageLine(){
@@ -5080,7 +5080,7 @@ function wkBandLengths(stage, list){
   const skill=list.filter(v=>!warmish(v));
   const grpOf=v=>(pool.find(x=>x.v===v)||{}).g||'';
   /* one set of a drill, and the rest after it */
-  const oneSet=v=>{ const n=wkNums(v, grpOf(v)); return n.w + n.r; };
+  const oneSet=v=>{ const n=wkNums(v, grpOf(v)); return (n.w||LHA_OPEN_SECS) + n.r; };
   const setsOf=v=>wkSetsOf(wkNums(v, grpOf(v)));
   const warmSecs=list.filter(warmish).reduce((t,v)=>t+wkRowSecs(v, grpOf(v)),0);
   const avg = arr => arr.length ? arr.reduce((t,x)=>t+x,0)/arr.length : 0;
@@ -5601,7 +5601,9 @@ function bNums(it, grp){
   const a=lhaAmount(it);
   const warm=/warm|mobility|wrist/i.test(String(grp||''));
   return {
-    sets: (it.sets!=null) ? it.sets : (warm ? 1 : (lhaSets(it.d)>1?lhaSets(it.d):3)),
+    /* what the player gives: the sets the dose names, one where it names
+       none. It showed three, so "10 reps" read as three sets and ran one. */
+    sets: (it.sets!=null) ? it.sets : (warm ? 1 : lhaSets(it.d)),
     amt:  a.n, unit: a.unit,
     w:    (it.w!=null) ? it.w : lhaWork(it, grp||''),
     r:    (it.r!=null) ? it.r : lhaRest(it, grp||''),
@@ -5611,8 +5613,8 @@ function bNums(it, grp){
 function bRowLen(it, grp){
   const n=bNums(it, grp);
   const sets=n.warm ? 1 : Math.max(1, n.sets);
-  const secs=sets*n.w + Math.max(0, sets-1)*n.r;
-  return (n.w?`${sets} × ${n.w}s`:`${sets} × untimed`)
+  const secs=sets*(n.w||LHA_OPEN_SECS) + Math.max(0, sets-1)*n.r;
+  return (n.w?`${sets} × ${n.w}s`:`${sets} × untimed, about ${LHA_OPEN_SECS}s`)
     + ` · ${n.r}s rest · ${Math.round(secs/60*10)/10} min`;
 }
 /* ── a number with arrows, in the builder ──────────────────────────
