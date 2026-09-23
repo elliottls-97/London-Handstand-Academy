@@ -377,9 +377,17 @@ function openThread(email){
    went somewhere else and came back. This is the part that can be asked
    again on its own, which the poll below does. */
 let threadPollAt=0;
+/* ── read means seen ────────────────────────────────────────────────
+   Opening the dashboard picked the most recent client and loaded their
+   thread in the background, and loading a thread marked it read. So the
+   last person to write to you was marked read before you had looked, on
+   the Today screen, where their message then never appeared. The thread
+   only counts as read while it is the thing on screen. */
+const threadOnScreen = email => view==='client' && ctab==='thread' && sel===email && !document.hidden;
 function loadCoachThread(email, quiet){
   threadPollAt=Date.now();
-  return fetch(API+'/thread?email='+encodeURIComponent(email),{headers:hdr()})
+  const reading=threadOnScreen(email);
+  return fetch(API+'/thread?email='+encodeURIComponent(email)+(reading?'':'&read=0'),{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status)).then(d=>{
       const next=d.messages||[];
       /* Blobs takes up to ~15s to propagate, so a read straight after a reply
@@ -404,7 +412,9 @@ function loadCoachThread(email, quiet){
       const same=shape(merged)===shape(thread) && threadLoaded;
       thread=merged; threadLoaded=true;
       const c=clients.find(x=>x.email===email);
-      const cleared=!!(c&&c.unread); if(c) c.unread=0;
+      const cleared=!!(reading&&c&&c.unread); if(reading&&c) c.unread=0;
+      if(reading && queue.some(q=>q.kind==='msg'&&q.email===email)){
+        queue=queue.filter(q=>!(q.kind==='msg'&&q.email===email)); draw(); }
       if(!same||cleared) draw();
       /* down to the newest only when something new arrived: a poll that
          scrolled every fifteen seconds would drag you away from whatever
@@ -1921,8 +1931,9 @@ function sendCoachPhoto(file){
     .catch(e=>{ upBusy=false; if(sel===to) coachSay(String(e.message||e)); });
 }
 
-function sendCoachClip(file, after, toArg){
+function sendCoachClip(file, after, toArg, answersClips){
   const to=toArg||sel;
+  const ans=Array.isArray(answersClips)?answersClips:[];
   if(upBusy||!to){ if(after) after(false, 'busy'); return; }
   upBusy=true; coachSay('Getting ready…');
   fetch('/api/app/upload',{method:'POST',headers:hdr(),body:'{}'})
@@ -1941,10 +1952,21 @@ function sendCoachClip(file, after, toArg){
       if(threadFor===to) thread.push({from:'coach',text,video:uid,at:Date.now(),pid:id});
       draw();
       return fetch(API+'/thread?email='+encodeURIComponent(to),{method:'POST',headers:hdr(),
-        body:JSON.stringify({text,video:uid})}).then(sendOK)
+        body:JSON.stringify({text,video:uid,...(ans.length?{answersClips:ans}:{})})})
+        .then(r=>r.ok?r.json().catch(()=>({})):sendOK(r))
         .catch(e=>{ coachFail(to,id,String(e.message||e)); draw(); throw e; });
     })
-    .then(()=>{ upBusy=false; if(sel===to) coachSay(''); if(after) after(true);
+    .then(d=>{
+      /* what it answered is answered here too, without waiting for a reload */
+      if(ans.length){
+        const uids=new Set(ans.map(a=>a.uid));
+        if(d && d.checkpoints) tracks[to]=Object.assign({}, tracks[to]||{}, {checkpoints:d.checkpoints});
+        const closed=(subs[to]||[]).filter(x=>(x.clips||[]).some(c=>uids.has((c&&(c.uid||c.video))||c))).map(x=>x.id);
+        subs[to]=(subs[to]||[]).map(x=>closed.includes(x.id)?{...x,status:'reviewed',reviewedAt:Date.now()}:x);
+        queue=queue.filter(q=>!closed.includes(q.id));
+        reviewQueue.forEach(c=>{ if(uids.has(c.uid)) c.ans='done'; });
+      }
+      upBusy=false; if(sel===to) coachSay(''); if(after) after(true);
       setTimeout(()=>{ if(sel===to) loadCoachThread(to); },1200); })
     .catch(e=>{ upBusy=false; if(sel===to) coachSay(String(e.message||e)); if(after) after(false, String(e.message||e)); });
 }
@@ -1964,8 +1986,26 @@ window.addEventListener('message', e=>{
   try{ file=new File([e.data.blob], 'review-'+Date.now()+'.'+ext, {type:e.data.blob.type||'video/'+ext}); }
   catch(err){ file=e.data.blob; }
   /* named, not read off sel, which can change while a recording uploads */
-  sendCoachClip(file, tell, to);
+  sendCoachClip(file, tell, to, reviewAnswers());
 });
+/* ── which clips this recording answers ────────────────────────────
+   Each clip in the bar says what the recording does for it: answers it,
+   answers it and signs it off, answers it and says not yet, or has
+   nothing to do with it. Answering it closes its review row and puts the
+   recording on that check point in their app. */
+function reviewAns(uid, v){
+  const c=reviewQueue.find(x=>x.uid===uid); if(c) c.ans=v; syncReview();
+}
+function reviewAnswers(){
+  return reviewQueue.filter(c=>c.uid && (c.ans||'reply')!=='skip')
+    .map(c=>({uid:c.uid, verdict:(c.ans==='reached'||c.ans==='notyet')?c.ans:''}));
+}
+/* the check point a clip belongs to, if it is one */
+function cpOfClip(email, uid){
+  const tr=((tracks[email]||{}).checkpoints)||{};
+  for(const k of Object.keys(tr)){ if((tr[k]||[]).some(r=>r&&r.video===uid)) return k; }
+  return '';
+}
 
 /* the oldest thing they are waiting on, if anything */
 /* everything of theirs still waiting on an answer, oldest first */
@@ -3589,6 +3629,14 @@ function syncReview(){
       : c.src?'loaded'
       : c.building?('building'+(c.tries?' · try '+c.tries+' of 6':'')+'…')
       : 'fetching…'}</span>
+    ${c.ans==='done' ? `<span style="font-weight:600;color:var(--forest)">answered</span>`
+      : `<select onchange="reviewAns('${esc(c.uid)}',this.value)" title="What your recording does for this clip"
+      style="font:600 11px/1 var(--sans);border:1px solid var(--line);border-radius:7px;padding:3px 4px;
+      background:#fff;color:var(--ink);max-width:170px">
+      ${[['reply','Answers it'],
+         ...(cpOfClip(reviewFor,c.uid)?[['reached','Answers it, signs it off'],['notyet','Answers it, not yet']]:[]),
+         ['skip','Not about this one']].map(([v,l])=>`<option value="${v}"${(c.ans||'reply')===v?' selected':''}>${l}</option>`).join('')}
+    </select>`}
     ${(c.error&&!c.src)?`<button onclick="reviewClip('${esc(c.uid)}',${JSON.stringify(c.title||'').replace(/"/g,'&quot;')})"
       title="Try again" style="cursor:pointer;border:0;background:none;color:var(--forest);padding:0;
       font:700 11px/1 var(--sans);text-decoration:underline">retry</button>`:''}
@@ -3598,7 +3646,8 @@ function syncReview(){
   bar.innerHTML=`<button onclick="reviewBack()" style="cursor:pointer;border:1px solid var(--line);
       background:#fff;border-radius:9px;padding:6px 11px;font:600 12px/1 var(--sans)">
       ← Dashboard</button>
-    <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">REVIEW</span>
+    <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">REVIEW${
+      reviewFor?' · FOR '+esc(((clients.find(x=>x.email===reviewFor)||{}).name||reviewFor).toUpperCase()):''}</span>
     <button onclick="revPickOpen('${esc(reviewFor||sel||'')}')" style="cursor:pointer;border:0;
       background:var(--forest);color:#fff;border-radius:9px;padding:7px 12px;
       font:700 12px/1 var(--sans)">+ Add clips</button>
@@ -5944,7 +5993,8 @@ function blockLineHTML(email){
 function saidHTML(email){
   const p=prog[email]||{};
   const fric=frictionHTML(email);
-  const felt=(p.feedback||[]).filter(f=>f&&(f.kind==='session feel'||f.text)).slice(-6).reverse();
+  const felt=(p.feedback||[]).filter(f=>f && !['Drill flags','Question'].includes(f.kind)
+    && !(String(f.kind||'').toLowerCase()==='session feel' && !f.text)).slice(-8).reverse();
   if(!fric && !felt.length) return '';
   return `<div class="card" style="margin-top:var(--space-4)">
     <div class="kick">WHAT THEY HAVE TOLD YOU</div>
@@ -6356,7 +6406,8 @@ function openClient(email, tab){
   window.scrollTo(0,0);
 }
 function goBack(){ go(cameFrom==='today'?'today':'clients'); }
-function setCtab(t){ ctab=t; moreOpen=false; attachOpen=false; draw(); }
+function setCtab(t){ ctab=t; moreOpen=false; attachOpen=false; draw();
+  if(t==='thread' && sel) loadCoachThread(sel, true); }
 function closeMenus(){ moreOpen=false; attachOpen=false; draw(); }
 function flash(t){ toastMsg=t; clearTimeout(toastT);
   toastT=setTimeout(()=>{ toastMsg=''; draw(); },2600); draw(); }
@@ -6405,6 +6456,10 @@ function flagItems(){
   });
   return out;
 }
+function saidSeen(email){
+  queue=queue.filter(q=>!(q.kind==='said'&&q.email===email)); inboxRow=''; draw();
+  fetch(API+'/saidseen',{method:'POST',headers:hdr(),body:JSON.stringify({email})}).catch(()=>{});
+}
 function flagsSeen(email){
   fetch(API+'/flagseen',{method:'POST',headers:hdr(),body:JSON.stringify({email})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
@@ -6421,6 +6476,8 @@ const INBOX_TYPE={
   feedback:   {label:'App feedback',cls:'tag-neutral',  filter:'feedback'},
   session:    {label:'Session',     cls:'tag-accent-2', filter:'sessions'},
   flag:       {label:'Too hard / easy', cls:'tag-accent-2', filter:'flags'},
+  message:    {label:'Message',     cls:'tag-accent',   filter:'messages'},
+  said:       {label:'Told you',    cls:'tag-accent-2', filter:'said'},
 };
 let inboxRow='';                   /* the row expanded in place, if any */
 /* one to one sessions paid for and waiting for a time */
@@ -6448,6 +6505,18 @@ const clip=(s,n)=>{ s=String(s||'').replace(/\s+/g,' ').trim();
 function inboxItems(){
   const out=[];
   queue.forEach(q=>{
+    if(q.kind==='msg'){
+      out.push({id:'M:'+q.email, type:'message', email:q.email, name:q.name||q.email, at:q.at,
+        action:'Reply', msg:true,
+        detail:(q.n>1?q.n+' messages · ':'')+'"'+clip((q.numbers||{}).name||'',110)+'"'});
+      return;
+    }
+    if(q.kind==='said'){
+      out.push({id:'T:'+q.email, type:'said', email:q.email, name:q.name||q.email, at:q.at,
+        action:'Read', said:q.said||[],
+        detail:(q.numbers||{}).name||(q.n+' things')});
+      return;
+    }
     /* a check point logged with no clip: nothing to watch, but it is the
        thing they came to do and it used to reach nobody */
     if(q.kind==='cplog'){
@@ -6517,6 +6586,21 @@ function inboxBodyHTML(r){
       <button class="btn btn-ghost" onclick="flagsSeen('${esc(r.email)}')">Read, clear it</button>
     </div>`;
   }
+  if(r.type==='said') return `
+    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:var(--space-3)">
+      ${r.said.slice().reverse().map(f=>`<div style="padding:11px 13px;border-radius:12px;background:rgba(164,80,60,.07)">
+        <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--terra)">${
+          esc(String(f.kind||'note').toUpperCase())} <span style="color:var(--grey2);font-weight:500;
+          letter-spacing:0">&middot; ${esc(ago(f.at))}</span></div>
+        ${(f.reasons||[]).length?`<div style="font:500 13.5px/1.5 var(--sans);margin-top:6px">${f.reasons.map(esc).join(' · ')}</div>`:''}
+        ${f.text?`<div style="font:400 13.5px/1.5 var(--sans);margin-top:5px">${esc(f.text)}</div>`:''}
+        ${f.context?`<div class="muted" style="font:400 12px/1.4 var(--sans);margin-top:4px">${esc(f.context)}</div>`:''}
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="openClient('${esc(r.email)}','thread')">Open their thread</button>
+      <button class="btn btn-ghost" onclick="saidSeen('${esc(r.email)}')">Read, clear it</button>
+    </div>`;
   if(r.type==='question') return `
     <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-3);white-space:pre-wrap">${esc(r.body)}</p>
     <textarea class="input" placeholder="Answer it…" style="min-height:96px"
@@ -6612,7 +6696,7 @@ function weekBehindHTML(){
 function todayHTML(){
   const all=inboxItems();
   const over=all.filter(x=>x.hrs>=PROMISE_H).length;
-  const defs=[['all','Everything'],['checks','Form checks'],['reviews','Block tests'],
+  const defs=[['all','Everything'],['messages','Messages'],['said','Told you'],['checks','Form checks'],['reviews','Block tests'],
               ['checkpoints','Check points'],['flags','Too hard / easy'],
               ['questions','Questions'],['applications','Applications'],['sessions','Sessions'],['feedback','App feedback']];
   const rows=all.filter(x=>inboxFilter==='all'||INBOX_TYPE[x.type].filter===inboxFilter);
@@ -6634,11 +6718,12 @@ function todayHTML(){
     </div>
     <div style="display:flex;flex-direction:column">
       ${rows.map(r=>{ const T=INBOX_TYPE[r.type]; const on=inboxRow===r.id;
-        const inline=(r.type==='question'||r.type==='feedback'||r.type==='application'||r.type==='session');
+        const inline=(r.type==='question'||r.type==='feedback'||r.type==='application'||r.type==='session'||r.type==='said');
         const c=clients.find(x=>x.email===r.email);
         return `<div style="border-bottom:1px solid rgba(17,17,17,.08)">
         <div class="row-hit inboxRow" onclick="${inline?`inboxToggle('${esc(r.id)}')`
             : r.cplog ? `openCpLog('${esc(r.email)}')`
+            : r.msg ? `openClient('${esc(r.email)}','thread')`
             :`openClient('${esc(r.email)}')`}"
           style="display:grid;grid-template-columns:88px minmax(0,1fr) auto;gap:var(--space-3);
           align-items:baseline;padding:var(--space-3) var(--space-1);cursor:pointer">
@@ -7217,7 +7302,10 @@ function marksPaneHTML(){
               clip.verdictAt?', answered '+esc(ago(clip.verdictAt)):''}.</div>
             <button class="btn btn-ghost btn-sm" style="margin-top:8px"
               onclick="reviewCp('${esc(sel)}','${esc(clip.video)}','${esc(k.n||k.k)}')">Open in the review tool &rarr;</button>`
-          : `<div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
+          : `${clip.replyAt?`<div style="font:600 12.5px/1.4 var(--sans);color:var(--forest);margin-bottom:10px">
+              You sent a recording back ${esc(ago(clip.replyAt))}. It is on this check point in their app.
+              Sign it off or say not yet to close it.</div>`:''}
+            <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
             <input id="vnote-cp-${esc(k.k)}" placeholder="One line they will read beside it, optional"
               style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
               font:400 13px/1.3 var(--sans);background:#fff">

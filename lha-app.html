@@ -2855,7 +2855,11 @@ function sendCheckin(){
   sendAndSay(postTrack({checkin:body}).then(()=>true),
     st.in ? 'Check-in sent to Elliott.' : 'Check-in saved.')
     .then(()=>{ closeOv(); render(); });
-  if(st.in) post({type:'Check-in', ...body});
+  /* the dashboard showed a check-in as an empty line: the numbers were
+     never put into the words it keeps */
+  if(st.in) post({type:'Check-in', ...body,
+    text:'Training '+body.mood+'/10 · soreness '+body.soreness+'/10 · sleep '+body.sleep+'/10'
+      +(String(body.note||'').trim()?' · '+String(body.note).trim():'')});
 }
 
 /* ── check points ──────────────────────────────────────────────────
@@ -2892,6 +2896,61 @@ function cpMarkSeen(){
   const seen=Object.assign({}, st.cpSeen||{});
   cpFor().forEach(c=>{ if(c.addedAt) seen[c.k]=1; });
   st.cpSeen=seen; save();
+}
+/* ── news on the check points, and where it is ──────────────────────
+   A number on the Progress tab has to lead somewhere. What it counts here
+   is a check point Elliott has set, and one he has given a verdict on.
+   Opening the Check points list is reading them: the number goes at once,
+   and the cards it was about stay marked until they leave the screen, so
+   they can see which ones it meant. */
+let cpHold=null, cpHoldScroll=false;
+function cpSaidSeenAt(){ return st.cpSaidSeen!=null ? st.cpSaidSeen : (st.seenClips||0); }
+function cpSaidNew(){
+  if(!coachedView()) return [];
+  const seen=cpSaidSeenAt();
+  return cpFor().filter(c=>{ const s=cpSigned(c.k); return !!(s && (s.verdictAt||0) > seen); });
+}
+function cpNewsKeys(){
+  const out={};
+  cpNew().forEach(c=>{ out[c.k]='set'; });
+  cpSaidNew().forEach(c=>{ out[c.k]='said'; });
+  return out;
+}
+function cpOpenNews(){
+  const n=cpNewsKeys();
+  if(!Object.keys(n).length) return;
+  cpHold=Object.assign({}, cpHold||{}, n); cpHoldScroll=true;
+  if(cpNew().length) cpMarkSeen();
+  st.cpSaidSeen=Date.now(); save();
+}
+/* done ones fold to a line at the bottom, and open again on a tap */
+function cpDone(c){ return coachedView() ? cpState(c)==='signed' : cpMet(c); }
+function cpUnfold(k){
+  st.cpUnfold=Object.assign({}, st.cpUnfold||{}, {[k]:1}); save(); render();
+  setTimeout(()=>{ const el=document.getElementById('cpcard-'+k);
+    if(el) el.scrollIntoView({behavior:'smooth',block:'nearest'}); },60);
+}
+function cpFold(k){
+  const u=Object.assign({}, st.cpUnfold||{}); delete u[k]; st.cpUnfold=u;
+  if(cpHold) delete cpHold[k];
+  save(); render();
+}
+function cpFolded(c){
+  const coached=coachedView(), s=cpSigned(c.k), last=cpLast(c.k), hold=(cpHold||{})[c.k];
+  const when = coached ? 'Signed off'+(s&&s.verdictAt?' '+cpWhen(s.verdictAt):'')
+    : 'Reached'+(last?' '+cpWhen(last.at):'');
+  return `<button id="cpcard-${c.k}" onclick="cpUnfold('${c.k}')" aria-label="${esc(c.n)}, ${esc(when)}. Open it"
+    style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;
+    border:0;border-radius:14px;padding:11px 14px;background:rgba(0,102,99,.06);color:var(--ink)">
+    <span style="flex:none;width:19px;height:19px;border-radius:50%;background:var(--forest);
+      color:var(--on-primary);display:grid;place-items:center;font:700 10px/1 var(--sans)">&check;</span>
+    <span style="flex:1;min-width:0;font:600 13.5px/1.3 var(--sans);overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap">${esc(c.n)}</span>
+    ${hold?`<span style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.12em;padding:4px 7px;
+      border-radius:999px;background:var(--amber);color:var(--ink)">NEW</span>`:''}
+    <span style="flex:none;font:400 12px/1 var(--sans);color:var(--grey)">${esc(when)}</span>
+    <span style="flex:none;font:600 12px/1 var(--sans);color:var(--forest)">Open</span>
+  </button>`;
 }
 function cpLog(){ return (st.track&&st.track.checkpoints)||{}; }
 function cpLast(k){ const h=cpLog()[k]||[]; return h.length?h[h.length-1]:null; }
@@ -3293,12 +3352,15 @@ function cpDef(k){
 const IC_FORMCHECK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
   + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
-function cpCard(c, i, total){
+function cpCard(c, i, total, done){
+  const hold=(cpHold||{})[c.k];
   return `<div id="cpcard-${c.k}" class="cpcard" data-i="${i}" data-total="${total}"
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
-    box-shadow:0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
+    box-shadow:${hold?'0 0 0 2px var(--amber),':''}0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
     <div id="cptop-${c.k}" class="cptop">${cpCardTop(c,i,total)}</div>
     ${wide()?'':`<div id="cpdemo-${c.k}">${cpDemoHTML(c)}</div>`}
+    ${done?`<button onclick="cpFold('${c.k}')" style="display:block;margin:12px auto 0;border:0;background:none;
+      cursor:pointer;padding:6px 10px;font:600 12.5px/1 var(--sans);color:var(--grey)">Fold it away</button>`:''}
   </div>`;
 }
 /* The phone's demo is drawn into the card on the press, and any redraw of
@@ -3349,9 +3411,10 @@ function cpCardTop(c, i, total){
     : '';
 
   return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-      <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--grey)">
-        CHECK POINT ${i+1} OF ${total}</span>
-      <span id="cpstat-${c.k}" style="font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 9px;border-radius:999px;
+      <span style="font:700 9px/1 var(--sans);letter-spacing:.16em;color:var(--grey);white-space:nowrap">
+        CHECK POINT ${i+1} OF ${total}${(cpHold||{})[c.k]?`<span style="margin-left:7px;padding:3px 7px;
+          border-radius:999px;background:var(--amber);color:var(--ink);letter-spacing:.12em;white-space:nowrap">NEW</span>`:''}</span>
+      <span id="cpstat-${c.k}" style="flex:none;white-space:nowrap;font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 9px;border-radius:999px;
         background:${status[1]};color:${status[2]};${cs==='hit'?'box-shadow:inset 0 0 0 1.5px var(--forest);':''}">${status[0]}</span>
     </div>
     <div style="margin-top:11px;display:flex;align-items:baseline;justify-content:space-between;gap:12px">
@@ -3500,10 +3563,12 @@ function cpClipState(sent){
      though each had been looked at. A message carries the submission it
      answers, so a reply belongs here only when it names this clip's
      submission. Anything else stays in the chat where it was written. */
-  const reply = (sub && sub.id)
-    ? (((st.msgs)||[]).filter(m=>m && m.from==='e' && String(m.sub||'')===String(sub.id)
-        && (String(m.text||'').trim() || m.video || m.image)).slice(-1)[0] || null)
-    : null;
+  /* one recording can answer several clips, so a message names every
+     review row and clip it is about */
+  const names = m => String(m.sub||'').split(',');
+  const reply = ((st.msgs)||[]).filter(m=>m && m.from==='e' && m.sub
+      && ((sub && sub.id && names(m).includes(String(sub.id))) || (uid && names(m).includes(String(uid))))
+      && (String(m.text||'').trim() || m.video || m.image)).slice(-1)[0] || null;
   return {
     verdict: sent.verdict||'',
     note: sent.note || (sub && sub.answer) || '',
@@ -3656,16 +3721,20 @@ function myClips(){
   return out.sort((a,b)=>(b.at||0)-(a.at||0));
 }
 
-/* answers they have not seen: the dot on the Progress tab */
+/* ── answers they have not seen, counted where they are read ──────
+   This counted every answered clip, check point verdicts included, and
+   only opening Your clips cleared it. Somebody reading their signed off
+   check point on the Check points tab was left with a number on Progress
+   they could not get rid of. A check point's verdict is counted on the
+   check point now; this is the answers that live only in Your clips. */
 function clipsNew(){
   if(!coachedView()) return 0;
-  const since=st.seenClips||0;
-  return myClips().filter(c=>(c.answeredAt||0)>since).length;
+  const since=Math.max(st.seenClips||0, st.seenReview||0);
+  return ((st.subs)||[]).filter(x=>x && x.kind!=='checkpoint' && x.status==='reviewed'
+    && (x.reviewedAt||0) > since).length;
 }
 function clipsBody(){
   const list=myClips();
-  /* opening the tab is reading them */
-  if(clipsNew()){ st.seenClips=Date.now(); save(); }
   if(!list.length) return `<div class="card" style="padding:20px">
     <div class="kick2">YOUR CLIPS</div>
     <div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">
@@ -4027,7 +4096,18 @@ function checkpointsCard(){
             <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
               Your free session here is the workout. The check points, the drill list and the cues open with the whole ladder.</div>
             <button class="btn" style="width:100%;margin-top:14px" onclick="openStage(${curStage()})">See what is in it</button></div>`
-        : list.map((c,i)=>cpCard(c,i,list.length)).join('')}
+        : (()=>{
+            /* the ones still being worked on first; the done ones fold to a
+               line underneath and open again on a tap. A new verdict opens
+               its card so it is read rather than folded away unseen. */
+            const todo=[], done=[];
+            list.forEach((c,i)=>(cpDone(c)?done:todo).push([c,i]));
+            const open=k=>!!((st.cpUnfold||{})[k] || (cpHold||{})[k]);
+            return todo.map(([c,i])=>cpCard(c,i,list.length)).join('')
+              + (done.length && todo.length ? `<div style="font:700 9px/1 var(--sans);letter-spacing:.16em;
+                  color:var(--grey);margin:8px 2px 0">${coached?'SIGNED OFF':'REACHED'} &middot; ${done.length}</div>` : '')
+              + done.map(([c,i])=>open(c.k) ? cpCard(c,i,list.length,true) : cpFolded(c)).join('');
+          })()}
     </div>
   </div>`;
 }
@@ -5084,13 +5164,16 @@ function screenProgress(){
      are the tab it opens on rather than the third one along. */
   const tab = ['track','clips'].includes(st.progTab) ? st.progTab : 'marks';
   const seg = (coachedView()
-      ? [['track','Training'],['marks','Check points'],['clips','Your clips']]
+      ? [['marks','Check points'],['track','Training'],['clips','Your clips']]
       : [['track','Training'],['marks','Check points']]).map(([k,l])=>
-    `<button onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;
+    `<button onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;position:relative;
       border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
       background:${tab===k?'#fff':'transparent'};
       box-shadow:${tab===k?'0 1px 2px rgba(17,17,17,.08)':'none'};
-      color:${tab===k?'var(--deep)':'var(--grey)'}">${l}</button>`).join('');
+      color:${tab===k?'var(--deep)':'var(--grey)'}">${l}${(n=>n?`<span aria-label="${n} new" style="position:absolute;
+        top:3px;right:5px;display:grid;place-items:center;min-width:17px;height:17px;padding:0 5px;border-radius:999px;
+        background:var(--forest);color:var(--on-primary);font:700 10px/1 var(--sans)">${n}</span>`:'')(
+        !coachedView()?0 : k==='marks'?Object.keys(cpNewsKeys()).length : k==='clips'?clipsNew() : 0)}</button>`).join('');
 
   /* How much, then how often, then what per drill, then how much time is
      spent in here rather than training. The tab used to open on a calendar
@@ -6651,7 +6734,7 @@ function sessionFeel(f){
       /* it used to say "Told Elliott" the instant the button was pressed,
          which is a claim about a request that had not finished */
       sendAndSay(post({type:'Session feel',feel:f,day:(day()&&day().label)||'',
-            block:blockNo(),week:weekNow()}),
+            block:blockNo(),week:weekNow(),_reported:true}),
         'Told Elliott. He writes the next block from this.');
     }
     closeOv();
@@ -7931,7 +8014,7 @@ function drawOv(){
          ['Just not feeling it','Do the warm-up and one set of entries. If it still feels wrong, stop. That is a real answer.']]
         .map(([h,x])=>`<div class="card" style="padding:18px"><div style="font:600 15px/1.2 var(--sans)">${h}</div>
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${x}</div></div>`).join('')}
-      <button class="btn" onclick="sendAndSay(post({type:'Cannot train'}),'Told Elliott you are skipping today.');closeOv()">Tell Elliott I&rsquo;m skipping</button></div>`;
+      <button class="btn" onclick="sendAndSay(post({type:'Cannot train',text:'Skipping today'+(day()&&day().label?': '+day().label:'')}),'Told Elliott you are skipping today.');closeOv()">Tell Elliott I&rsquo;m skipping</button></div>`;
   }
   if(st.ov==='stage'&&S){
     const si=st.ovStage||0;
@@ -13620,11 +13703,15 @@ const msgsNew = () => unreadMsgs();
 /* a check point set, a clip of one answered, or a form check answered:
    all of it is a verdict on where they are, not a conversation */
 function checksNew(){
-  const set = (typeof cpNew==='function') ? cpNew().length : 0;
-  const clips = (typeof clipsNew==='function') ? clipsNew() : 0;
-  const answer = (st.lastReview && st.lastReview > (st.seenReview||0)) ? 1 : 0;
-  return set + clips + answer;
+  /* The answered form check was counted here as well as in Your clips,
+     so one answer read as two. A check point answered by a verdict filed
+     its review row as answered too, with nothing to read on it, and that
+     added a third that nothing could clear. */
+  if(!coachedView()) return 0;
+  return Object.keys(cpNewsKeys()).length + clipsNew();
 }
+/* the free tier's form check coming back, on the tab it lives on */
+const answerNew = () => (!coachedView() && st.lastReview && st.lastReview > (st.seenReview||0)) ? 1 : 0;
 /* anything at all, for the one place that only asks whether to show a dot */
 const hasNew = () => msgsNew()>0 || checksNew()>0;
 const newCount = () => msgsNew() + checksNew();
@@ -14631,7 +14718,15 @@ function render(){
   const tabs=TABS[coached?'coached':'free'].map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l]);
   if(!screens[st.tab]) st.tab=tabs[0][0];
-  const nMsg=msgsNew(), nChk=checksNew();
+  /* being on the screen a number is about is reading it, so it is cleared
+     before the tab bar is drawn rather than on the next redraw */
+  if(coached && st.tab==='progress' && !st.preview && !document.hidden){
+    const pt=['track','clips'].includes(st.progTab) ? st.progTab : 'marks';
+    if(pt==='marks') cpOpenNews(); else cpHold=null;
+    if(pt==='clips' && clipsNew()){ st.seenClips=Date.now();
+      st.seenReview=Math.max(st.seenReview||0, st.lastReview||0); save(); }
+  } else if(st.tab!=='progress') cpHold=null;
+  const nMsg=msgsNew(), nChk=checksNew(), nAns=answerNew();
   const pill=(n,bg,fg,aria)=>`<b aria-label="${esc(aria)}"
     style="position:absolute;top:3px;left:50%;margin-left:9px;min-width:17px;height:17px;padding:0 5px;
     border-radius:999px;background:${bg};color:${fg};display:grid;place-items:center;
@@ -14640,9 +14735,11 @@ function render(){
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
     ((id==='coaching'||id==='ask') && nMsg)
       ? pill(nMsg,'var(--amber)','var(--ink)', nMsg+' unread message'+(nMsg===1?'':'s'))
-    : (((id==='progress'||(id==='ladder'&&!coached)) && nChk)
-      ? pill(nChk,'var(--forest)','var(--on-primary)', nChk+' check point update'+(nChk===1?'':'s'))
-      : '')}</button>`).join('');
+    : (id==='progress' && nChk)
+      ? pill(nChk,'var(--forest)','var(--on-primary)', nChk+' new from '+coachLabel())
+    : (id==='coaching' && nAns)
+      ? pill(nAns,'var(--forest)','var(--on-primary)', 'your form check has been answered')
+      : ''}</button>`).join('');
   swap((st.preview?`<div style="position:fixed;top:0;left:0;right:0;z-index:2000;
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
@@ -14651,6 +14748,11 @@ function render(){
   /* nothing was redrawn, so there is nothing to wire up again: watchScroll
      and watchPull add listeners, and would add a second set to the same box */
   if(skipped) return;
+  /* the check point the number was about, on screen */
+  if(cpHoldScroll){ cpHoldScroll=false;
+    setTimeout(()=>{ const el=[...document.querySelectorAll('[id^="cpcard-"]')]
+        .find(x=>(cpHold||{})[x.id.slice(7)]);
+      if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); },260); }
   /* arriving on the chat lands on the latest message, not the oldest */
   if(!same && (st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat'))){
     const end=document.getElementById('chatEnd');
@@ -14720,7 +14822,10 @@ document.addEventListener('DOMContentLoaded',function(){
     if(document.hidden) return;
     const before=st.tickDay;
     rollTicks();
-    if(st.tickDay!==before) render();
+    /* news that arrived while the phone was away is read on coming back
+       to the screen it is on, not while nobody was looking */
+    const news = st.tab==='progress' && coachedView() && checksNew()>0;
+    if(st.tickDay!==before || news) render();
   });
   /* ── offline ──────────────────────────────────────────────────────
      sw.js has existed for months, with its cache version dutifully

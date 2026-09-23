@@ -1032,6 +1032,11 @@ export default async (request) => {
           paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
+      /* the client was told and nobody else was */
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+        `Card declined: ${clients()[acct.email] || acct.name || acct.email}`,
+        `<p style="font:16px/1.6 system-ui">A payment from ${esc(acct.email)} failed. They have been
+         emailed to update their card. Stripe retries for about two weeks before it cancels.</p>`);
       return json({ ok: true });
     } else if (ev.type === 'customer.subscription.trial_will_end') {
       /* three days out. Nobody should meet the first charge as a surprise:
@@ -5404,8 +5409,48 @@ export default async (request) => {
     if (path === '/coach/queue') {
       const roster = await rosterRows();
       const out = [];
+      /* ── a message nobody has opened ─────────────────────────────
+         A client writing to you was an email and an "unread" tag on the
+         Clients list, and nothing on the screen you open to see what is
+         waiting. A clip in the chat already arrives as a review row, so
+         only the words are counted here. Opening their thread clears it. */
+      const unread = {};
+      for (const m of (await supa.rows('messages',
+        'sender=eq.client&read_at=is.null&select=email,body,video,image,submission,created_at&order=created_at.asc') || [])) {
+        if (m.submission) continue;
+        (unread[m.email] = unread[m.email] || []).push(m);
+      }
+      /* ── what they told you from inside a session ──────────────
+         Skipping a day, a check-in, a session that felt too hard, why they
+         stopped early: each one said "Told Elliott" in the app and landed
+         only in a list on their progress page. Flags and questions have
+         their own rows, so they are not counted twice. */
+      const saidRows = {};
+      for (const p of (await supa.rows('progress', 'select=email,feedback') || [])) saidRows[p.email] = p.feedback || [];
       for (const e of Object.keys(roster)) {
         if (!owns(e)) continue;
+        const um = unread[e] || [];
+        if (um.length) {
+          const lastM = um[um.length - 1];
+          out.push({ email: e, name: clients()[e] || roster[e].name || e, coached: !!clients()[e],
+            id: 'msg:' + e, kind: 'msg', at: ms(um[0].created_at), clips: 0, n: um.length,
+            numbers: { name: String(lastM.body || (lastM.image ? 'A photo' : 'A message')).slice(0, 140) } });
+        }
+        if (clients()[e]) {
+          const since = Math.max(Number(await getSetting(`saidseen:${e}`)) || 0, Date.now() - 30 * 864e5);
+          const said = (saidRows[e] || []).filter(f => f && (f.at || 0) > since
+            && !['Drill flags', 'Question'].includes(f.kind)
+            /* the same session feel used to be filed twice, once empty */
+            && !(String(f.kind || '').toLowerCase() === 'session feel' && !f.text));
+          if (said.length) {
+            out.push({ email: e, name: clients()[e] || roster[e].name || e, coached: true,
+              id: 'said:' + e, kind: 'said', at: said[0].at, clips: 0, n: said.length,
+              said: said.slice(-8).map(f => ({ kind: f.kind || 'note', text: f.text || '',
+                reasons: f.reasons || [], context: f.context || '', at: f.at })),
+              numbers: { name: said.slice(-3).map(f => (f.kind || 'note')
+                + (f.text ? ': ' + String(f.text).slice(0, 60) : '')).join(' \u00b7 ') } });
+          }
+        }
         let subs = await subsFor(db, e);
         /* Clips sent on check points before there was a queue entry for them
            are sitting in the client's track with nowhere to show. Bring each
@@ -5467,6 +5512,15 @@ export default async (request) => {
       /* oldest first: the one closest to breaking the 48-hour promise */
       out.sort((a, b) => (a.at || 0) - (b.at || 0));
       return json({ queue: out });
+    }
+
+    /* the coach has read what they said: stop counting it */
+    if (path === '/coach/saidseen' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      await setSetting(`saidseen:${e}`, Date.now());
+      return json({ ok: true });
     }
 
     /* the coach has looked at their check points: stop counting the ones
@@ -5693,8 +5747,9 @@ export default async (request) => {
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       if (request.method === 'GET') {
-        /* opening the thread is what marks it read */
-        await markRead(e);
+        /* opening the thread is what marks it read. The dashboard also
+           loads a thread nobody is looking at, and says so with read=0 */
+        if (url.searchParams.get('read') !== '0') await markRead(e);
         return json({ messages: await threadLoad(db, e) });
       }
       if (request.method === 'POST') {
@@ -5706,9 +5761,54 @@ export default async (request) => {
            too many — the half that gets forgotten is the one the client is
            waiting on. A reply can carry the submission it answers. */
         const answers = String(body.answers || '').trim();
+        /* ── a recording answers the clips it was made about ──────────
+           A review tool recording went into the chat and nowhere else: the
+           check point it was about stayed "clip to watch", and the client
+           found the answer only by scrolling the chat. The dashboard sends
+           the clips the coach ticked, each with a verdict if one was given.
+           Their review rows are closed, their check point rows are stamped,
+           and the message names every one so the app can show it on each. */
+        const ansClips = Array.isArray(body.answersClips) ? body.answersClips.slice(0, 20).map(x => ({
+          uid: String((x && x.uid) || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64),
+          verdict: ['reached', 'notyet'].includes(x && x.verdict) ? x.verdict : '',
+        })).filter(x => x.uid) : [];
+        const tags = answers ? [answers] : [];
+        let cpsOut = null;
+        if (ansClips.length) {
+          const by = asking || primaryCoach();
+          const uids = new Set(ansClips.map(x => x.uid));
+          const rows = await supa.rows('submissions', `email=eq.${enc(e)}&select=id,clips,status`);
+          for (const row of (rows || [])) {
+            const has = (row.clips || []).some(c =>
+              uids.has(c && typeof c === 'object' ? (c.uid || c.video) : c));
+            if (!has) continue;
+            tags.push(row.id);
+            if (row.status === 'submitted') {
+              await supa.update('submissions', `id=eq.${enc(row.id)}`, {
+                status: 'reviewed', reviewed_at: nowISO(), reviewed_by: by });
+            }
+          }
+          const tkey = `track:${e}`;
+          const tr = (await getSetting(tkey)) || {};
+          const now = Date.now();
+          let touched = false;
+          for (const k of Object.keys(tr.checkpoints || {})) {
+            tr.checkpoints[k] = (tr.checkpoints[k] || []).map(r => {
+              const a = r && r.video && ansClips.find(x => x.uid === r.video);
+              if (!a) return r;
+              touched = true;
+              return Object.assign({}, r, { replyAt: now, watchedAt: r.watchedAt || now },
+                a.verdict ? { verdict: a.verdict, note: r.verdict === a.verdict ? (r.note || '') : '',
+                              by, verdictAt: now } : {});
+            });
+          }
+          if (touched) { await setSetting(tkey, tr); cpsOut = tr.checkpoints; }
+          uids.forEach(u => tags.push(u));
+        }
+        const subTag = [...new Set(tags)].join(',').slice(0, 2000);
         await threadAdd(db, e, { from: 'coach', by: asking || primaryCoach(), text,
           ...(video ? { video } : {}), ...(image ? { image } : {}),
-          ...(answers ? { sub: answers } : {}) });
+          ...(subTag ? { sub: subTag } : {}) });
         if (answers) {
           await supa.update('submissions', `id=eq.${enc(answers)}&email=eq.${enc(e)}`, {
             status: 'reviewed', reviewed_at: nowISO(),
@@ -5729,7 +5829,7 @@ export default async (request) => {
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: who2 }, footnote: T.footnote || undefined,
           }), 'replies');
-        return json({ ok: true });
+        return json({ ok: true, ...(cpsOut ? { checkpoints: cpsOut } : {}) });
       }
     }
   }
