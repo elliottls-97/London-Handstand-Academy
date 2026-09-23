@@ -2727,9 +2727,20 @@ h2[style*="uppercase"] { font-family: var(--font-disp) !important; font-weight: 
 @media (max-width: 1100px) { .app2-prev { left: -10px; } .app2-next { right: -10px; } }
 .app2-screen { position: relative; border-radius: 30px 30px 0 0; overflow: hidden; background: #fff;
   border: 6px solid #151515; border-bottom: 0; }
-/* the phones are cut to a height the screen can hold, so the heading,
-   the row and the button fit a laptop together; the tops are what show */
-.app2-screen img { display: block; width: 100%; height: min(34vh, 360px); object-fit: cover; object-position: top; }
+/* the phones are cut to the height the screen has left under the fixed
+   header, so the heading, the row and the button fit on one screen
+   together; the tops are what show. svh is the height with the browser's
+   bars showing, vh the fallback */
+.app2-screen img { display: block; width: 100%; object-fit: cover; object-position: top;
+  height: clamp(240px, calc(100vh - 372px), 420px); height: clamp(240px, calc(100svh - 372px), 420px); }
+/* on a laptop the button sits beside the heading, not under the row,
+   which is what leaves the phones room to be seen */
+@media (min-width: 861px) {
+  #app > .container { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 48px; align-items: center; max-width: 988px; }
+  #app .app2-head { grid-column: 1; grid-row: 1; text-align: left; margin: 0 0 24px; }
+  #app .app2-cta { grid-column: 2; grid-row: 1; text-align: right; margin: 0 0 24px; max-width: 290px; }
+  #app .app2-rail, #app .app2-dots { grid-column: 1 / -1; }
+}
 .app2-screen { -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent);
   mask-image: linear-gradient(to bottom, #000 78%, transparent); }
 .app2-phone figcaption { margin-top: 12px; text-align: center; font-size: 14.5px; line-height: 1.5; color: var(--text-60); padding: 0 6px; }
@@ -2741,14 +2752,20 @@ h2[style*="uppercase"] { font-family: var(--font-disp) !important; font-weight: 
 .app2-btn:hover { background: #007A75; transform: translateY(-2px); }
 .app2-note { margin-top: 12px; font-size: 13.5px; line-height: 1.5; color: var(--text-45); }
 @media (max-width: 860px) {
-  .app2-head { margin-bottom: 26px; }
+  .app2-head { margin-bottom: 14px; }
+  .app2-h { margin: 8px 0; }
+  .app2-sub { font-size: 15px; line-height: 1.45; }
   /* a row you swipe, with the next phone peeking in */
-  .app2-phones { gap: 16px; margin: 0 -20px; padding: 6px 20px 8px; }
+  .app2-phones { gap: 16px; margin: 0 -20px; padding: 6px 20px 6px; }
   .app2-phone { flex: 0 0 64%; scroll-snap-align: center; }
-  .app2-screen img { height: min(52vh, 440px); }
+  .app2-screen img { height: clamp(200px, calc(100vh - 460px), 420px); height: clamp(200px, calc(100svh - 460px), 420px); }
+  .app2-phone figcaption { margin-top: 8px; font-size: 13.5px; line-height: 1.4; }
+  .app2-phone figcaption b { font-size: 19px; }
   .app2-nav { display: none; }
-  .app2-dots { display: flex; }
-  .app2-btn { width: 100%; justify-content: center; }
+  .app2-dots { display: flex; margin-top: 8px; }
+  .app2-cta { margin-top: 14px; }
+  .app2-btn { width: 100%; justify-content: center; padding: 14px 24px; }
+  .app2-note { margin-top: 8px; font-size: 12.5px; }
 }
 
 /* ── Before you decide ── */
@@ -2807,7 +2824,7 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
   font-weight: 500; letter-spacing: 0; text-transform: none; }
 #stickyCta .sc-btn { font-family: var(--font-body) !important; font-weight: 600 !important; text-transform: none !important;
   letter-spacing: 0 !important; font-size: 14px !important; }
-#stickyCta.at-end { transform: translateY(110%) !important; }
+#stickyCta.at-end, #stickyCta.at-app { transform: translateY(110%) !important; }
 
 /* ── Before you go ── */
 #leave { position: fixed; inset: 0; z-index: 960; display: none; align-items: center; justify-content: center;
@@ -5914,8 +5931,11 @@ window.addEventListener('resize', function () {
       if (past !== shown){ shown = past; bar.classList.toggle('show', past); }
     }, { passive: true });
     if ('IntersectionObserver' in W){
-      /* it repeats buttons that are already on screen in these two places */
-      var co = D.getElementById('coaching'), end = D.getElementById('ways');
+      /* it repeats buttons that are already on screen in these places */
+      var co = D.getElementById('coaching'), end = D.getElementById('ways'), appSec = D.getElementById('app');
+      /* and over the app, which has its own button and needs the room */
+      if (appSec) new IntersectionObserver(function(en){ bar.classList.toggle('at-app', en[0].isIntersecting); },
+        { rootMargin: '-40% 0px -30% 0px' }).observe(appSec);
       if (co) new IntersectionObserver(function(en){ bar.classList.toggle('stand-down', en[0].isIntersecting); },
         { rootMargin: '-40% 0px -30% 0px' }).observe(co);
       if (end) new IntersectionObserver(function(en){ bar.classList.toggle('at-end', en[0].isIntersecting); },
