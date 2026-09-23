@@ -391,6 +391,8 @@ function poolFor(stage){
      session can pick it up and no workout can hold it */
   const off=new Set((((typeof st!=='undefined' && st.ladderOff)||{})[stage])
     || (((typeof st!=='undefined' && st.ladderOff)||{})[String(stage)]) || []);
+  /* and one deleted from the dashboard is off every stage */
+  ((typeof st!=='undefined' && st.drillsOff) || []).forEach(v=>off.add(v));
   const base=(POOL[stage]||[]).filter(x=>!off.has(x.v));
   const extra=((st.ladderExtra||{})[stage]||[])
     .filter(x=>x&&x.v&&drillById(x.v))

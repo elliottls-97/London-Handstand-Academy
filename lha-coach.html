@@ -4374,6 +4374,7 @@ function wkPoolFor(stage){
      They come in with no level, which is the truth and is now something that
      can be set here row by row. */
   const off=new Set((wkOff[stage]||wkOff[String(stage)]||[]));
+  drOffSet().forEach(v=>off.add(v));
   let base=(POOL[stage]||[]).filter(x=>!off.has(x.v));
   if(!base.length){
     base=(((typeof STAGES!=='undefined' && STAGES[stage])||{}).drillIds||[])
@@ -5846,7 +5847,10 @@ function noteLibrary(lib){
   if(!lib) return;
   if(lib.names) libIndex=Object.assign({}, libIndex||{}, lib.names);
   if(lib.video) libVideo=Object.assign({}, libVideo, lib.video);
+  if(lib.desc) libDesc=Object.assign({}, libDesc, lib.desc);
+  if(lib.cues) libCues=Object.assign({}, libCues, lib.cues);
 }
+let libDesc={}, libCues={};
 const hasClip = v => !!(v && libVideo[v]);
 
 function clipPick(v, after){
@@ -6062,7 +6066,7 @@ function newDrillHTML(){
 }
 
 function drillOptions(sel){
-  const ids=Object.keys(libIndex||{}).sort((a,b)=>
+  const ids=Object.keys(libIndex||{}).filter(v=>v===sel || !drOffSet().has(v)).sort((a,b)=>
     (libIndex[a]||a).localeCompare(libIndex[b]||b));
   return `<option value="">Pick a drill…</option>`+ids.map(v=>
     `<option value="${esc(v)}"${v===sel?' selected':''}>${esc(libIndex[v]||v)}</option>`).join('');
@@ -8497,7 +8501,71 @@ function libProgrammesHTML(){
       </div>`; }).join('')
       || `<p class="muted">No coaching clients yet.</p>`}`;
 }
+/* ── editing and deleting drills ─────────────────────────────────────
+   Any drill, shipped or made here: its name, what it is for, its cues and
+   its clip. Deleting takes it off this list, every picker and the free
+   ladder; a client whose programme has it keeps it, and it can be put
+   back from Deleted drills at the foot of the list. */
+let drOff=null, drOpen='', drDraft=null, drBusy=false, drMsg='';
+const drOffSet=()=>new Set(drOff||[]);
+function drLoad(){
+  if(drOff) return; drOff=[];
+  fetch(API+'/drill',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ drOff=(d&&d.off)||[]; draw(); }).catch(()=>{});
+}
+function drEdit(v){
+  if(drOpen===v){ drOpen=''; drDraft=null; draw(); return; }
+  drOpen=v; drMsg='';
+  drDraft={n:(libIndex||{})[v]||v, desc:libDesc[v]||'', cues:(libCues[v]||[]).join('\n')};
+  draw();
+}
+function drSave(){
+  if(drBusy||!drOpen) return;
+  const v=drOpen;
+  drBusy=true; draw();
+  fetch(API+'/drill',{method:'POST',headers:hdr(),body:JSON.stringify({v, edit:true, n:drDraft.n,
+      desc:drDraft.desc, cues:String(drDraft.cues||'').split('\n').map(x=>x.trim()).filter(Boolean)})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ const x=d.drill||{}; libIndex[v]=x.n||libIndex[v]; libDesc[v]=x.desc||''; libCues[v]=x.cues||[];
+      drBusy=false; drOpen=''; drDraft=null; draw(); })
+    .catch(e=>{ drBusy=false; drMsg=String(e); draw(); });
+}
+function drDelete(v, back){
+  const name=(libIndex||{})[v]||v;
+  const go=()=>fetch(API+'/drill',{method:'POST',headers:hdr(),body:JSON.stringify({v, retire:!back})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ drOff=d.off||[]; drOpen=''; drDraft=null; draw(); })
+    .catch(e=>alert(String(e)));
+  if(back) return go();
+  fetch(API+'/drill?uses='+encodeURIComponent(v),{headers:hdr()}).then(r=>r.ok?r.json():{uses:[]}).catch(()=>({uses:[]}))
+    .then(d=>{
+      const uses=(d&&d.uses)||[];
+      const also=uses.length ? '\n\nIt is in '+uses.join(' and ')+'\u2019s programme'+(uses.length>1?'s':'')
+        +', which keep'+(uses.length>1?'':'s')+' it until you change '+(uses.length>1?'them':'it')+'.' : '';
+      if(confirm('Delete '+name+'?\n\nIt comes off the Drills list, every picker and the free ladder. '
+        +'You can put it back from Deleted drills at the foot of the list.'+also)) go();
+    });
+}
+function drEditHTML(v){
+  const d=drDraft; if(!d) return '';
+  const inp='border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:500 13px/1.4 var(--sans);background:#fff;width:100%';
+  return `<div style="grid-column:1/-1;margin:6px 0 4px;padding:12px;border-radius:12px;background:rgba(0,102,99,.04);
+    border:1px solid rgba(0,102,99,.18);display:flex;flex-direction:column;gap:8px">
+    <input value="${esc(d.n)}" oninput="drDraft.n=this.value" placeholder="Name" style="${inp};font-weight:600">
+    <textarea rows="2" oninput="drDraft.desc=this.value" placeholder="What it is for, one or two lines" style="${inp};resize:vertical">${esc(d.desc)}</textarea>
+    <textarea rows="4" oninput="drDraft.cues=this.value" placeholder="Cues, one to a line" style="${inp};resize:vertical">${esc(d.cues)}</textarea>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      ${clipBtn(v)}
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost btn-sm" onclick="drDelete('${esc(v)}')" style="color:var(--terra)">Delete</button>
+      <button class="btn btn-secondary btn-sm" onclick="drOpen='';drDraft=null;draw()">Cancel</button>
+      <button class="btn btn-primary btn-sm" ${drBusy?'disabled':''} onclick="drSave()">${drBusy?'Saving…':'Save'}</button>
+    </div>
+    ${drMsg?`<div style="font:500 12px/1.4 var(--sans);color:var(--terra)">${esc(drMsg)}</div>`:''}
+  </div>`;
+}
 function libDrillsHTML(){
+  drLoad(); wkBandsLoad();
   const rows=[];
   (STAGES||[]).forEach((S,i)=>{
     wkPoolFor(i).forEach(x=>{
@@ -8505,6 +8573,11 @@ function libDrillsHTML(){
                  grp:x.g||'', lvl:wkLvlOf(i,x.v)});
     });
   });
+  /* and every drill that is on no stage: made here, in a programme, or a
+     check point's demo, which the list never showed and so could not edit */
+  const onLadder=new Set(rows.map(r=>r.v));
+  Object.keys(libIndex||{}).forEach(v=>{ if(!onLadder.has(v) && !drOffSet().has(v))
+    rows.push({v, name:libIndex[v]||v, stage:'Not on the ladder', grp:'', lvl:0}); });
   const q=(drillQ||'').trim().toLowerCase();
   /* which have a film and which still need one, so the filming list is
      one press away rather than a scroll down six stages of rows */
@@ -8526,8 +8599,11 @@ function libDrillsHTML(){
     <p class="muted" style="font:400 13px/1.5 var(--sans);margin-bottom:var(--space-3)">
       ${shown.length} of ${rows.length} drills on the ladder. Doses and levels are set per stage
       under Ladder workouts.</p>
-    ${shown.slice(0,400).map(r=>`<div style="display:grid;
-      grid-template-columns:minmax(0,1fr) 140px 90px 90px;gap:var(--space-3);align-items:baseline;
+    ${(()=>{ let opened=false; return shown.slice(0,400).map(r=>{
+      /* a drill on three stages is three rows, and its editor opens once */
+      const here = drOpen===r.v && !opened; if(here) opened=true;
+      return `<div style="display:grid;
+      grid-template-columns:minmax(0,1fr) 150px 80px 70px 60px;gap:var(--space-3);align-items:center;
       padding:var(--space-2) var(--space-1);border-bottom:1px solid rgba(17,17,17,.08);
       font:400 14px/1.4 var(--sans)">
       <span style="font-weight:600">${esc(r.name)}</span>
@@ -8535,7 +8611,16 @@ function libDrillsHTML(){
       <span class="muted">${r.lvl?'Level '+r.lvl:'no level'}</span>
       <span style="color:${hasClip(r.v)?'var(--grey)':'var(--terra)'}">${
         hasClip(r.v)?'has clip':'no clip'}</span>
-    </div>`).join('')}`;
+      <button class="btn btn-ghost btn-sm" onclick="drEdit('${esc(r.v)}')">${here?'Close':'Edit'}</button>
+      ${here?drEditHTML(r.v):''}
+    </div>`; }).join(''); })()}
+    ${(drOff||[]).length?`<div style="margin-top:var(--space-5)">
+      <div class="kick">DELETED DRILLS</div>
+      ${(drOff||[]).map(v=>`<div style="display:flex;gap:var(--space-3);align-items:center;padding:8px 4px;
+        border-bottom:1px solid rgba(17,17,17,.06);font:400 13.5px/1.4 var(--sans)">
+        <span style="flex:1;color:var(--grey)">${esc((libIndex||{})[v]||v)}</span>
+        <button class="btn btn-ghost btn-sm" onclick="drDelete('${esc(v)}',true)">Put it back</button>
+      </div>`).join('')}</div>`:''}`;
 }
 
 /* ── Fixes: a problem, an article, a workout ──────────────────────────

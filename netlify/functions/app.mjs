@@ -2537,6 +2537,8 @@ export default async (request) => {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
                   /* drills the coach has taken off a stage */
                   ladderOff:   (await getSetting('ladder:off')) || {},
+                  /* drills the coach has deleted: off every stage at once */
+                  drillsOff:   (await getSetting('drills:off')) || [],
                   homeOrder:   (await getSetting('home:order')) || 'explainersFirst',
                   /* explainers the coach added from the dashboard, by phase */
                   explainExtra: (await getSetting('explain:extra')) || [],
@@ -3277,7 +3279,20 @@ export default async (request) => {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('drills:custom')) || {};
 
-    if (request.method === 'GET') return json({ drills: all });
+    /* which clients have this drill in their programme, so deleting it can
+       say who still trains it before it goes */
+    if (request.method === 'GET' && url.searchParams.get('uses')) {
+      const want = String(url.searchParams.get('uses')).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+      const who = [];
+      for (const e of Object.keys(clients())) {
+        const plan = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        const has = ((plan.warmup || {}).items || []).some(x => x && x.v === want)
+          || (plan.days || []).some(d => (d.groups || []).some(g => (g.items || []).some(it => it && it.v === want)));
+        if (has) who.push(clients()[e] || e);
+      }
+      return json({ uses: who });
+    }
+    if (request.method === 'GET') return json({ drills: all, off: (await getSetting('drills:off')) || [] });
 
     if (request.method === 'POST') {
       const v = String(body.v || '').toLowerCase()
@@ -3288,6 +3303,17 @@ export default async (request) => {
         delete all[v];
         await setSetting('drills:custom', all);
         return json({ ok: true, removed: v });
+      }
+      /* ── deleting a drill, any drill ─────────────────────────────────
+         It leaves the Drills list, every picker and the free ladder. It is
+         not wiped: a client whose programme has it keeps training it, and
+         it can be put back. Shipped drills live in the code, so this is the
+         only way one can go at all. */
+      if (body.retire !== undefined) {
+        const off = new Set((await getSetting('drills:off')) || []);
+        if (body.retire) off.add(v); else off.delete(v);
+        await setSetting('drills:off', [...off].slice(0, 500));
+        return json({ ok: true, off: [...off] });
       }
       const uid = String(body.uid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
 
@@ -3325,6 +3351,30 @@ export default async (request) => {
         return json({ ok: true, drill: Object.assign({ v }, all[v]) });
       }
 
+      /* ── editing a drill, shipped or made here ──────────────────────
+         Its name, what it is for and its cues, kept over the shipped
+         library so a later build does not undo them. The clip stays unless
+         a new one is sent, and goes on as a clip does. */
+      if (body.edit) {
+        const base = programmes.library || {};
+        const prev = all[v] || {};
+        all[v] = {
+          n: String(body.n || '').trim().slice(0, 80) || prev.n || (base.names || {})[v] || v.replace(/-/g, ' '),
+          desc: body.desc != null ? String(body.desc).slice(0, 400) : (prev.desc != null ? prev.desc : ((base.desc || {})[v] || '')),
+          cues: Array.isArray(body.cues)
+            ? body.cues.slice(0, 8).map(c => String(c || '').trim().slice(0, 140)).filter(Boolean)
+            : (Array.isArray(prev.cues) && prev.cues.length ? prev.cues : ((base.cues || {})[v] || [])),
+          url: uid ? `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4` : (prev.url || ''),
+          uid: uid || prev.uid || '',
+          at: prev.at || Date.now(),
+        };
+        if (uid && process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+          await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,
+            { method: 'POST', headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } }).catch(() => {});
+        }
+        await setSetting('drills:custom', all);
+        return json({ ok: true, drill: Object.assign({ v }, all[v]) });
+      }
       /* a slug the generated library already owns would be shadowed rather
          than added, and the coach would have no way to tell */
       if (!all[v] && (programmes.library.names || {})[v]) {
