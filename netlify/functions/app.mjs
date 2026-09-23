@@ -309,11 +309,31 @@ async function clientMailAllowed(to) {
 /* What someone has chosen to hear about. An email with no kind is one you
    cannot opt out of — a password reset, a receipt, confirmation that
    something they sent arrived. Everything else is theirs to turn off. */
+/* ── how somebody wants to hear, per kind ──────────────────────────
+   Replies and reminders are each none, email, push or both. They were a
+   yes or no for email that the phone followed as well, so turning reply
+   emails off silenced the phone too. Answers saved before read as they
+   were meant: yes is both, no is none. Anything with no kind (a password
+   reset, a receipt) always goes. */
+const CHANNELS = ['none', 'email', 'push', 'both'];
+const CHANNEL_KINDS = ['replies', 'reminders'];
+const chanOf = (p, kind) => {
+  const v = p && p[kind];
+  return CHANNELS.includes(v) ? v : v === false ? 'none' : 'both';
+};
 async function wantsEmail(to, kind) {
   if (!kind) return true;
   try {
-    const p = await getSetting(`prefs:${norm(to)}`);
-    return !p || p[kind] !== false;
+    const p = (await getSetting(`prefs:${norm(to)}`)) || {};
+    if (CHANNEL_KINDS.includes(kind)) return ['email', 'both'].includes(chanOf(p, kind));
+    return p[kind] !== false;
+  } catch { return true; }
+}
+async function wantsPush(to, kind) {
+  if (!kind || !CHANNEL_KINDS.includes(kind)) return true;
+  try {
+    const p = (await getSetting(`prefs:${norm(to)}`)) || {};
+    return ['push', 'both'].includes(chanOf(p, kind));
   } catch { return true; }
 }
 
@@ -334,7 +354,7 @@ async function email(to, subject, html, kind) {
   if (!process.env.RESEND_API_KEY) return mailNote(to, subject, kind, false, 'Resend is not set up');
   if (!mayEmail(to)) return mailNote(to, subject, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
   if (!(await clientMailAllowed(to))) return mailNote(to, subject, kind, false, 'client email is switched off');
-  if (!(await wantsEmail(to, kind))) return mailNote(to, subject, kind, false, 'they have turned off ' + kind);
+  if (!(await wantsEmail(to, kind))) return mailNote(to, subject, kind, false, 'they chose no emails for ' + kind);
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -366,7 +386,7 @@ async function notify(to, payload, kind) {
   if (!rec.subs.length) return mailNote(e, subj, kind, false, 'no phone has notifications on for this account', true);
   if (!mayEmail(e)) return mailNote(e, subj, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
   if (!(await clientMailAllowed(e))) return mailNote(e, subj, kind, false, 'client email is switched off');
-  if (!(await wantsEmail(e, kind))) return mailNote(e, subj, kind, false, 'they have turned off ' + kind);
+  if (!(await wantsPush(e, kind))) return mailNote(e, subj, kind, false, 'they chose no notifications for ' + kind);
   try {
     const r = await pushSend(e, payload);
     if (r.none) return;
@@ -3298,7 +3318,13 @@ export default async (request) => {
     if (!who) return json({ error: 'Sign in first' }, 401);
     if (request.method === 'POST') {
       const cur = (await getSetting(`prefs:${who}`)) || {};
-      for (const k of ['replies', 'reminders', 'marketing', 'promo']) {
+      for (const k of CHANNEL_KINDS) {
+        const via = body.via && body.via[k];
+        if (CHANNELS.includes(via)) cur[k] = via;
+        /* an app from before the choice sends a yes or no */
+        else if (body[k] !== undefined) cur[k] = body[k] !== false ? 'both' : 'none';
+      }
+      for (const k of ['marketing', 'promo']) {
         if (body[k] !== undefined) cur[k] = body[k] !== false;
       }
       await setSetting(`prefs:${who}`, cur);
@@ -3309,8 +3335,10 @@ export default async (request) => {
     const p = (await getSetting(`prefs:${who}`)) || {};
     const acct = (await getAcct(who)) || {};
     return json({
-      replies: p.replies !== false,
-      reminders: p.reminders !== false,
+      /* how each kind arrives now, and the yes or no an older app reads */
+      via: { replies: chanOf(p, 'replies'), reminders: chanOf(p, 'reminders') },
+      replies: ['email', 'both'].includes(chanOf(p, 'replies')),
+      reminders: ['email', 'both'].includes(chanOf(p, 'reminders')),
       marketing: p.marketing !== undefined ? p.marketing !== false : !!acct.marketing,
       /* off unless they turned it on: consent is opt in, never assumed */
       promo: p.promo === true,

@@ -174,6 +174,11 @@ button{color:var(--ink)}
 .btn2{flex:1;text-align:center;font:600 13px/1 var(--sans);color:var(--forest);padding:14px;cursor:pointer;
  border-radius:16px;border:1.5px solid var(--line);background:none}
 .pill{font:600 9.5px/1 var(--sans);letter-spacing:.14em;padding:7px 10px;border-radius:999px}
+/* four ways to hear about one thing: none, email, a notification, both */
+.seg{display:flex;gap:3px;margin-top:10px;padding:3px;border-radius:13px;background:rgba(0,64,61,.07)}
+.seg button{flex:1;min-width:0;border:0;background:none;border-radius:10px;padding:10px 2px;cursor:pointer;
+ font:600 12px/1 var(--sans);color:var(--grey);white-space:nowrap;transition:background .2s,color .2s}
+.seg button.on{background:#fff;color:var(--forest);box-shadow:0 1px 3px rgba(0,40,38,.14)}
 /* the menu: everything that was on the More tab, slid in from the left.
    Above the top bar, below every sheet, so a password change opens over it. */
 .menu{position:fixed;inset:0;z-index:50;display:none;background:rgba(0,30,28,.45);
@@ -5946,8 +5951,60 @@ function loadPrefs(){
          by definition, and applying it is what flicks it back */
       if(!d || prefBusy) return;
       st.prefs=d; save();
-      if(st.ov==='account') ['replies','reminders','marketing','promo'].forEach(paintPref); })
+      if(st.ov==='account'){ ['marketing','promo'].forEach(paintPref); ['replies','reminders'].forEach(paintVia); } })
     .catch(()=>{});
+}
+/* ── how each kind reaches them ─────────────────────────────────────
+   None, email, a notification on the phone, or both, for replies and
+   for reminders separately. It was a yes or no for email that the phone
+   followed too, so somebody who wanted replies on their phone and not in
+   their inbox could not have that. */
+const VIA=[['none','None'],['email','Email'],['push','Notification'],['both','Both']];
+const VIA_ROWS={
+  replies:['Replies and answers', ()=>'When '+esc(coachLabel())+' replies, signs off a check point, or your form check is ready.'],
+  reminders:['Training reminders', ()=>'Your two-week test, new check points, and a nudge on the days you plan to train.'],
+};
+function viaOf(k){
+  const p=st.prefs||{}, v=(p.via||{})[k];
+  return VIA.some(x=>x[0]===v) ? v : p[k]===false ? 'none' : 'both';
+}
+function viaNote(k){
+  const v=viaOf(k);
+  if((v==='push'||v==='both') && pushOn===false){
+    return v==='push' ? 'Notifications are off on this phone, so nothing arrives here until they are on. Turn them on above.'
+      : 'Notifications are off on this phone, so for now these come by email only.';
+  }
+  if(v==='none' && k==='replies') return 'Nothing is sent. Replies are still waiting in the app when you open it.';
+  return '';
+}
+function viaRowHTML(k){
+  const [t,d]=VIA_ROWS[k], cur=viaOf(k), note=viaNote(k), warn=cur!=='none';
+  return `<div id="viarow-${k}" style="padding:12px 0;border-top:1px solid rgba(28,32,25,.08)">
+    <div style="font:500 14px/1.3 var(--sans)">${t}</div>
+    <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${d()}</div>
+    <div class="seg" role="radiogroup" aria-label="${t}">${VIA.map(([v,l])=>`<button role="radio"
+      aria-checked="${cur===v}" class="${cur===v?'on':''}" onclick="setVia('${k}','${v}')">${l}</button>`).join('')}</div>
+    ${note?`<div style="font:500 12px/1.45 var(--sans);color:${warn?'var(--terra)':'var(--grey2)'};margin-top:8px">${note}</div>`:''}
+  </div>`;
+}
+function paintVia(k){ const el=document.getElementById('viarow-'+k); if(el) el.outerHTML=viaRowHTML(k); }
+function setVia(k, v){
+  if(st.preview){ toast('Preview only. Nothing you do in here is saved.'); return; }
+  st.prefs=Object.assign({}, st.prefs, {via:Object.assign({}, (st.prefs||{}).via, {[k]:v}),
+    [k]:(v==='email'||v==='both')});
+  save(); paintVia(k);
+  const n=(prefSeq[k]=(prefSeq[k]||0)+1);
+  prefBusy++;
+  fetch(AUTH.prefs,{method:'POST',headers:authed(),body:JSON.stringify({via:{[k]:v}})})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{
+      if(!d || prefSeq[k]!==n) return;
+      const got=(d.via||{})[k]||v;
+      st.prefs=Object.assign({}, st.prefs, {via:Object.assign({}, st.prefs.via, {[k]:got}), [k]:d[k]});
+      save(); paintVia(k);
+    })
+    .catch(()=>toast('That did not save. Check your signal and try again.'))
+    .finally(()=>{ prefBusy=Math.max(0,prefBusy-1); });
 }
 /* the switch is the only thing that changed, so redraw the switch. Rebuilding
    the whole sheet — twice, once for the optimistic flip and once for the
@@ -6060,11 +6117,11 @@ function prefsHTML(){
   return `<div class="card" style="padding:18px;margin-top:14px">
     ${pushBoxHTML()}
     <div class="kick2">EMAILS AND NOTIFICATIONS</div>
-    ${row('replies','Replies and answers','When Elliott replies, signs off a check point, or your form check is ready.')}
-    ${row('reminders','Training reminders','Your two-week test, and a nudge on the days you plan to train.')}
-    ${row('marketing','Tips and workshops','No more than twice a month.')}
+    ${viaRowHTML('replies')}
+    ${viaRowHTML('reminders')}
+    ${row('marketing','Tips and workshops','By email, no more than twice a month.')}
     <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:11px">
-      Password resets and receipts always send, and those cannot be turned off.</div>
+      Password resets and receipts always come by email, and those cannot be turned off.</div>
     <div class="kick2" style="margin-top:18px">YOUR CLIPS</div>
     ${row('promo','Use my clips and progress in LHA marketing','Off unless you say so. A clip you send is only ever seen by your coach otherwise, and you can turn this off again at any time.')}</div>`;
 }
@@ -14818,7 +14875,9 @@ function pushBoxHTML(){
     ${acts?`<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${acts}</div>`:''}
   </div>`;
 }
-function pushPaint(){ const el=document.getElementById('pushbox'); if(el) el.outerHTML=pushBoxHTML(); }
+function pushPaint(){ const el=document.getElementById('pushbox'); if(el) el.outerHTML=pushBoxHTML();
+  /* whether a notification choice can reach this phone just changed */
+  ['replies','reminders'].forEach(paintVia); }
 /* the question, asked once where it is worth asking, and put away for a fortnight on Not now */
 function pushNudge(){
   if(!st.token || st.preview || !pushSupported()) return '';
