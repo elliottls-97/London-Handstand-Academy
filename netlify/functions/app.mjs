@@ -562,6 +562,41 @@ const touchSeen = e => supa.update('accounts', `email=eq.${enc(e)}`, { last_seen
 
 /* an account has to exist before a message or a submission can point at
    it — every one of those tables has a foreign key onto this */
+/* ── what a new coaching client tests against ──────────────────────
+   Before block one there is nothing to train, and there was nothing to
+   do. The coach picks a set of check points once (his own clients' are the
+   model), and every new client gets a copy as their programme's check
+   points: they test themselves against each, log what they managed and
+   send a clip, which lands in the queue like any check point clip. The
+   days are empty until block one is written into them. */
+const ONBOARDING = 'onboarding';
+function cleanOnbCp(c) {
+  const tgt = Number(c && c.target);
+  return {
+    k: String((c && c.k) || '').slice(0, 32),
+    n: String((c && c.n) || '').slice(0, 80),
+    kind: ['secs', 'count', 'rate', 'yn', 'face'].includes(c && c.kind) ? c.kind : 'count',
+    note: String((c && c.note) || '').slice(0, 200),
+    target: Number.isFinite(tgt) && tgt >= 0 && tgt <= 100000 ? Math.round(tgt * 10) / 10 : null,
+    unit: String((c && c.unit) || '').slice(0, 8),
+    lower: !!(c && c.lower),
+    ...(c && c.measure ? { measure: true } : {}),
+    demo: String((c && c.demo) || '').slice(0, 60),
+    ...(Array.isArray(c && c.faces) ? { faces: c.faces.slice(0, 3).map(x => String(x || '').slice(0, 24)) } : {}),
+    video: !(c && c.video === false),
+    from: '',
+  };
+}
+async function seedOnboarding(email) {
+  const e = norm(email);
+  if (!e || (await getSetting(`programme:${e}`)) || programmes.clients[e]) return false;
+  const ob = (await getSetting(ONBOARDING)) || {};
+  const cps = Array.isArray(ob.checkpoints) ? ob.checkpoints : [];
+  if (!cps.length) return false;
+  await setSetting(`programme:${e}`, { days: [], label: 'Before block one', onboarding: true, editedAt: Date.now(),
+    checkpoints: cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })) });
+  return true;
+}
 async function ensureAcct(e, name) {
   const got = await getAcct(e);
   if (got) return got;
@@ -1399,6 +1434,7 @@ export default async (request) => {
           const off = (await getSetting('mailoff')) || {};
           if (off[e2] === undefined) { off[e2] = false; await setSetting('mailoff', off); }
         }
+        try { await seedOnboarding(e2); } catch {}
         const tierName = { check: 'form checks', online: 'coaching', inner: 'Inner Circle' }[boughtPlan];
         const first = String(acct.name || '').split(' ')[0];
         const opener = boughtPlan === 'check'
@@ -3338,6 +3374,7 @@ export default async (request) => {
     if (!who) return json({ error: 'Sign in first' }, 401);
     /* off coaching: the app goes back to the free ladder, as for anybody */
     if (PAST[norm(who)]) return json({ error: 'No programme yet' }, 404);
+    if (await isCoached(who)) { try { await seedOnboarding(who); } catch {} }
     const plan = await planFor(who);
     if (!plan) return json({ error: 'No programme yet' }, 404);
     const cycle = await cycleGet(db, who, plan);
@@ -5620,6 +5657,24 @@ export default async (request) => {
       return json({ error: 'Nope' }, 405);
     }
 
+    if (path === '/coach/onboarding') {
+      const cur = (await getSetting(ONBOARDING)) || { checkpoints: [] };
+      if (request.method === 'GET') return json(cur);
+      if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+      /* one client's check points, as the set every new client starts on */
+      if (body.fromClient) {
+        const src = norm(body.fromClient);
+        if (!owns(src)) return json({ error: 'Not your client' }, 403);
+        const prog = (await getSetting(`programme:${src}`)) || programmes.clients[src] || {};
+        const cps = (prog.checkpoints || []).map(cleanOnbCp).filter(c => c.k && c.n).slice(0, 20);
+        if (!cps.length) return json({ error: 'They have no check points to copy.' }, 400);
+        const next = { checkpoints: cps, from: clients()[src] || src, at: Date.now() };
+        await setSetting(ONBOARDING, next);
+        return json(next);
+      }
+      if (body.clear) { const next = { checkpoints: [], at: Date.now() }; await setSetting(ONBOARDING, next); return json(next); }
+      return json({ error: 'Nothing to do' }, 400);
+    }
     if (path === '/coach/checkpoints') {
       const all = (await getSetting('ladder:checkpoints')) || {};
       if (request.method === 'GET') return json({ ladderCps: all });
@@ -5909,10 +5964,17 @@ export default async (request) => {
         const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
         let n = 1;
         try { n = (await cycleGet(db, e, programmes.clients[e])).n || 1; } catch {}
+        /* Nothing live but the onboarding check points: this is their first
+           block, block one, not the next one. It said "Block 2 is ready" to
+           somebody who had never had a block. */
+        const first = !(live.days || []).length;
+        const nNext = first ? n : n + 1;
         /* the one coming off is kept, named, so it can go back on */
         const arch = (await getSetting(akey)) || [];
-        arch.unshift({ at: Date.now(), label: live.label || `Block ${n}`, prog: live });
-        await setSetting(akey, arch.slice(0, 12));
+        if (!first) {
+          arch.unshift({ at: Date.now(), label: live.label || `Block ${n}`, prog: live });
+          await setSetting(akey, arch.slice(0, 12));
+        }
         /* A draft is a copy made when it was started. A target set on the
            live check points since then is not in it, and putting the draft
            live threw it away. Same check point, no target in the draft: the
@@ -5926,23 +5988,25 @@ export default async (request) => {
           return (liveNewer && was && !c.measure && !(Number(c.target) > 0) && Number(was.target) > 0)
             ? Object.assign({}, c, { target: was.target, lower: c.lower != null ? c.lower : was.lower, unit: c.unit || was.unit || '' }) : c;
         });
-        const next = Object.assign({}, d.prog, { label: d.label || `Block ${n + 1}`, editedAt: Date.now(),
+        const next = Object.assign({}, d.prog, { label: d.label || `Block ${nNext}`, editedAt: Date.now(),
           ...(d.prog.checkpoints ? { checkpoints: cps } : {}) });
+        delete next.onboarding;
         await setSetting(`programme:${e}`, next);
         delete drafts[id];
         await setSetting(dkey, drafts);
         /* a new block starts its own clock, which is what the test date and
            "week 3 of 6" are counted from */
-        await supa.upsert('cycles', { email: e, n: n + 1, started_at: nowISO() }, 'email');
+        await supa.upsert('cycles', { email: e, n: nNext, started_at: nowISO() }, 'email');
         const nm = clients()[e] || '';
-        await email(e, 'Your next block is in the app',
-          mail({ title: 'Block ' + (n + 1) + ' is ready.',
-            paras: [`${esc(nm ? nm.split(' ')[0] : 'Hello')}, the next block is in the app now. `
-              + `Same place, new days.`],
+        await email(e, first ? 'Your programme is in the app' : 'Your next block is in the app',
+          mail({ title: first ? 'Your programme is ready.' : 'Block ' + nNext + ' is ready.',
+            paras: [first
+              ? `${esc(nm ? nm.split(' ')[0] : 'Hello')}, block one is in the app now, written from your answers, your tests and our call.`
+              : `${esc(nm ? nm.split(' ')[0] : 'Hello')}, the next block is in the app now. Same place, new days.`],
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: coachName(coachOf(e) || primaryCoach()) } }), 'reminders');
-        await notify(e, { title: 'Block ' + (n + 1) + ' is ready',
-          body: 'Your next block is in the app. Same place, new days.',
+        await notify(e, { title: first ? 'Your programme is ready' : 'Block ' + nNext + ' is ready',
+          body: first ? 'Block one is in the app.' : 'Your next block is in the app. Same place, new days.',
           url: '/lha-app.html?go=plan', tag: 'block' }, 'reminders');
         return state();
       }

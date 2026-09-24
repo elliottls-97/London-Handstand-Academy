@@ -229,7 +229,7 @@ export const EMAILS = {
     "title": "You are in.",
     "paras": [
       "{password_line}",
-      "Open the app and the first thing on Train is your welcome: a few questions, two short clips and a call, and then I write your first block.",
+      "Open the app and your Start page has four steps: the questions, a few tests to film and send me, a call to book, and then I write your first block.",
       "Everything happens in the app from here: your clips, my replies, and your programme."
     ]
   },

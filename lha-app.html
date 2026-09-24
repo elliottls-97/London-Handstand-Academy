@@ -3609,6 +3609,8 @@ function sendCheckin(){
    The ladder ones are the free product's stage gates and mean nothing to
    someone on a written programme. */
 const cpFor = i => {
+  /* before block one: the onboarding tests the coach set them */
+  if(i==null && awaitingBlock() && (st.obCps||[]).length) return st.obCps;
   if(i==null && coachedView() && Array.isArray(DATA.checkpoints) && DATA.checkpoints.length){
     /* a check point can be written now and scheduled for later, so one with
        a start date does not exist until that date */
@@ -3754,7 +3756,8 @@ function saveCheckpoint(k,v,video){
   /* Reaching the last check point on a stage is the whole point of the
      stage, and nothing happened when you did: the counter read 7 of 7 and
      you stayed where you were. */
-  const sg = (coachedView()||isFix) ? -1 : stageOfCp(k);
+  /* onboarding tests are not the ladder's, whatever their keys */
+  const sg = (coachedView()||isFix||awaitingBlock()) ? -1 : stageOfCp(k);
   const clearedNow = sg>-1 && sg===curStage() && !wasReady && cpProgress(sg).ready;
   save();
   /* under an open sheet render() bails out, so logging one used to change
@@ -4386,7 +4389,8 @@ function cpClipHTML(c, sent){
   const who=coachLabel();
   const send=(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`;
   if(!sent){
-    const can=fcOpen();
+    /* a coaching client's clips are part of what they pay for */
+    const can=!!st.coached || fcOpen();
     /* Three states, not two. fcOpen is false both for somebody whose free
        one is gone and for somebody the server has not answered about yet,
        and telling a person who has just arrived that their free form check
@@ -10219,40 +10223,59 @@ const CALL_URL = 'https://calendly.com/londonhandstandacademy-info/intro-call';
 /* A programme is a day with drills in it. DATA starts as one empty Day 1,
    so "has days" was true for everybody, programme or not. */
 const hasPlan = () => !!(DATA && (DATA.days||[]).some(d=>(d.groups||[]).some(g=>(g.items||[]).length)));
-const awaitingBlock = () => !!st.coached && !hasPlan();
+/* coaching bought, block one not written; a form-check-only account never
+   has a programme coming, so it stays on the ladder */
+const awaitingBlock = () => !!st.coached && !hasPlan() && st.tier!=='check';
+/* ── Start: everything before block one, in order ───────────────────
+   The questions everyone answers, the tests the coach set with a clip of
+   each, the call, and then block one. One page, ticked as it goes. */
 function joinSteps(){
-  const a=intake();
-  const clips=((st.subs||[]).length>0) || !!st.clipsSent;
+  const a=intake(), cps=cpFor()||[];
+  const tested=cps.filter(c=>cpLast(c.k)).length;
   return [
-    {k:'q',  t:'Answer a few questions', d:'What you are after, how you train now, any injuries.',
-      done: !!a.goal && a.level!=null, go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()", b:'Answer them'},
-    {k:'c',  t:'Send two short clips', d:'From the side, whole body in frame: a chest-to-wall hold for as long as you can, and one freestanding attempt.',
-      done: clips, go:'goAsk()', b:'Send them'},
-    {k:'call', t:'Book your call', d:'Fifteen minutes to talk through what I saw and where to start.',
-      done: !!st.callBooked, go:"st.callBooked=true;save();leaveTo('"+CALL_URL+"')", b:'Pick a time'},
-    {k:'b',  t:'Your first block', d:'I write it from all of that. It appears here when it is ready.', done:false},
+    {k:'q', t:'Answer the questions', d:'What you are after, where you are now, and anything that hurts.',
+      done: !!a.goal && a.level!=null},
+    {k:'t', t:'Test yourself', d: cps.length
+        ? 'Each one below: have a go, log what you managed, and send me a clip. Can\'t do one yet? Log a zero; that tells me as much.'
+        : 'I am setting your tests up. Send me a clip of your handstand in the chat meanwhile.',
+      done: cps.length ? tested>=cps.length : false, n:tested, of:cps.length},
+    {k:'call', t:'Book your call', d:'Fifteen minutes on what you want from the programme.',
+      done: !!st.callBooked},
+    {k:'b', t:'Your first block', d:'I write it from your answers, your tests and the call. It appears here when it is ready.', done:false},
   ];
 }
-function joinHTML(){
-  if(!awaitingBlock()) return '';
-  const steps=joinSteps(), next=steps.findIndex(x=>!x.done);
-  return `<div class="rise rise-1" style="padding:14px 20px 0"><div class="card" style="padding:18px 18px 8px;border:1.5px solid rgba(0,102,99,.25)">
-    <div class="kick2" style="color:var(--forest)">WELCOME TO COACHING</div>
-    <div style="font:400 22px/1.2 var(--serif);margin-top:7px">Here is what happens next.</div>
-    <div style="margin-top:10px">${steps.map((x,i)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;
-      ${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
-      <span style="flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;margin-top:1px;
-        font:700 12px/1 var(--sans);background:${x.done?'var(--forest)':i===next?'rgba(0,102,99,.12)':'rgba(17,17,17,.06)'};
-        color:${x.done?'var(--on-primary)':i===next?'var(--forest)':'var(--grey)'}">${x.done?'&check;':i+1}</span>
-      <span style="flex:1;min-width:0">
-        <span style="display:block;font:600 14.5px/1.3 var(--sans);${x.done?'color:var(--grey)':''}">${esc(x.t)}</span>
-        ${x.done?'':`<span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:3px">${esc(x.d)}</span>`}
-        ${(!x.done && x.go && i===next)?`<button class="btn" style="margin:10px 0 0;min-height:42px;padding:0 16px;width:auto" onclick="${x.go}">${esc(x.b)}</button>`
-          :(!x.done && x.go)?`<button onclick="${x.go}" style="border:0;background:none;padding:6px 0 0;cursor:pointer;
-            font:600 13px/1 var(--sans);color:var(--forest);text-decoration:underline">${esc(x.b)}</button>`:''}
-      </span></div>`).join('')}</div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);padding:4px 0 10px">Every stage of the ladder is open while you wait.</div>
-  </div></div>`;
+function screenStart(){
+  const first=(st.client||'').split(' ')[0];
+  const steps=joinSteps(), next=steps.findIndex(x=>!x.done), cps=cpFor()||[];
+  const dot=(x,i)=>`<span style="flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
+      font:700 12.5px/1 var(--sans);background:${x.done?'var(--forest)':i===next?'rgba(0,102,99,.12)':'rgba(17,17,17,.06)'};
+      color:${x.done?'var(--on-primary)':i===next?'var(--forest)':'var(--grey)'}">${x.done?'&check;':i+1}</span>`;
+  const head=(x,i)=>`<div style="display:flex;gap:12px;align-items:flex-start">${dot(x,i)}
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 16px/1.3 var(--sans);${x.done&&i!==1?'color:var(--grey)':''}">${esc(x.t)}${
+        x.of?` <span style="font-weight:400;color:var(--grey)">&middot; ${x.n} of ${x.of}</span>`:''}</span>
+      ${(!x.done||i===1)?`<span style="display:block;font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:3px">${esc(x.d)}</span>`:''}</span></div>`;
+  const btn=(label,go,main)=>`<button class="${main?'btn':'btn2'}" style="margin:12px 0 0 40px;min-height:44px;padding:0 18px;width:auto" onclick="${go}">${label}</button>`;
+  const s0=steps[0], s1=steps[1], s2=steps[2], s3=steps[3];
+  return `<div class="scroll s">
+    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+      <div style="font:400 ${wide()?30:27}px/1.12 var(--serif)">Welcome${first?', '+esc(first):''}<em style="color:var(--forest);font-style:normal">.</em></div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:8px">Four steps, then I write your first block.</div>
+    </div>
+    <div class="rise rise-1" style="padding:18px 20px 0;display:flex;flex-direction:column;gap:12px">
+      <div class="card" style="padding:18px">${head(s0,0)}
+        ${s0.done?'':btn('Answer them',"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()",next===0)}</div>
+      <div class="card" style="padding:18px">${head(s1,1)}</div>
+      ${cps.length?`<div data-tour="checkpoints" style="display:flex;flex-direction:column;gap:11px">${
+        cps.map((c,i)=>cpCard(c,i,cps.length,!!cpLast(c.k))).join('')}</div>`:''}
+      <div class="card" style="padding:18px">${head(s2,2)}
+        ${s2.done?`<button onclick="st.callBooked=false;save();render()" style="margin:8px 0 0 40px;border:0;background:none;padding:0;cursor:pointer;
+            font:600 12.5px/1 var(--sans);color:var(--grey)">Not booked after all</button>`
+          :btn('Pick a time',"st.callBooked=true;save();render();leaveTo('"+CALL_URL+"')",next===2)}</div>
+      <div class="card" style="padding:18px">${head(s3,3)}</div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:4px 10px 26px">
+        Questions? <button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
+          font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Message me</button> any time.</div>
+    </div></div>`;
 }
 /* Straight back from Stripe. Signed in, the payment takes a few seconds to
    reach the account, so the app asks until it has, then shows the welcome.
@@ -10268,7 +10291,7 @@ function joinedLanding(){
   let n=0;
   const ask=()=>{ n++;
     Promise.resolve(loadEntitlement()).then(()=>{
-      if(st.coached){ st.tab='home'; save(); loadProgramme(); render(); toast('Welcome to coaching.'); return; }
+      if(st.coached){ st.tab='start'; save(); loadProgramme(); render(); toast('Welcome to coaching.'); return; }
       if(n<15) setTimeout(ask, 2000);
       else toast('Your payment is through. The welcome appears here in a minute or two.');
     }).catch(()=>{ if(n<15) setTimeout(ask, 2000); });
@@ -10360,9 +10383,15 @@ function loadProgramme(){
   return fetch(AUTH.programme,{headers:authed()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ applyProgramme(d); cacheProgramme(d);
+               /* no days yet, only the tests the coach set: they stay on
+                  Start, with those tests to do */
+               const pl=(d&&d.plan)||{};
+               st.obCps = ((pl.days||[]).some(x=>(x.groups||[]).some(g=>(g.items||[]).length)))
+                 ? null : (Array.isArray(pl.checkpoints) ? pl.checkpoints : null);
+               if(!hasPlan()){ st.in=false; st.mode='free'; if(!st.tab||['today','plan','ask','progress','home','ladder'].indexOf(st.tab)>-1) st.tab='start'; }
                /* block one has arrived: the coached layout, opened on Today */
                if(st.coached && !st.in && hasPlan()){
-                 st.in=true; if(['home','ladder','coaching'].indexOf(st.tab)>-1) st.tab='today'; }
+                 st.in=true; if(['home','ladder','coaching','start'].indexOf(st.tab)>-1) st.tab='today'; }
                if(d.client) st.client=d.client;
                rollTicks();          /* first load of the day, on a cold start */
                save(); render(); loadSign(); return true; })
@@ -13119,7 +13148,6 @@ function screenHome(){
     <!-- the stage and how far through it, on one line. Six segments in the
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->
-    ${joinHTML()}
     ${(firstVisit()||trialPending()) ? firstPlacedHTML() : `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
       style="padding:${wide()?24:14}px 20px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -15849,11 +15877,11 @@ function screenCoaching(){
     const chatThread = cut>-1 ? chatBody.slice(0,cut) : chatBody;
     const chatBox = cut>-1 ? chatBody.slice(cut) : '';
     return `<div class="scroll s chat" onscroll="chatJumpPaint()" style="display:flex;flex-direction:column">
-      ${wide()?seg:''}
+      ${(wide()&&!awaitingBlock())?seg:''}
       <div style="flex:none">${head}</div>${chatThread}</div>${chatBox}`;
   }
   return `<div class="scroll s">
-    ${wide()?seg:''}
+    ${(wide()&&!awaitingBlock())?seg:''}
     ${head}
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       <div data-tour="formcheck">${checkCard}</div>
@@ -16462,7 +16490,7 @@ function markChatSeen(){
 }
 /* the coaching screen is two things now, the form check and the chat.
    It opens on the chat when something is waiting there. */
-const coTab = () => st.coTab || (unreadMsgs()>0 ? 'chat' : 'check');
+const coTab = () => awaitingBlock() ? 'chat' : (st.coTab || (unreadMsgs()>0 ? 'chat' : 'check'));
 function setCoTab(k){
   st.coTab=k; save();
   if(k==='chat') chatSeenAtOpen=st.seenMsgAt||0;
@@ -16887,7 +16915,7 @@ function topBar(){
 function coachSegHTML(){
   /* On a wide screen there is no top bar to hang it under, so the screen
      draws it in the page instead and this stays out of the way. */
-  if(st.tab!=='coaching' || coachedView() || wide()) return '';
+  if(st.tab!=='coaching' || coachedView() || wide() || awaitingBlock()) return '';
   const tab=coTab(), n=unreadMsgs();
   return `<div class="coachseg" style="display:flex;background:rgba(0,64,61,.08);
       border-radius:14px;padding:4px;gap:4px">
@@ -17763,7 +17791,7 @@ function render(){
      that decides this, it is whether the quiz is finished. */
   if(st.mode==='free' && !st.in && !st.quizDone){ st.tab='quiz'; swap(screenQuiz()); return; }
   /* shown once, between finishing the quiz and the ladder */
-  if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null){
+  if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !awaitingBlock()){
     swap(screenOriented()); return; }
   if(st.tab==='joinFree' && !st.in){ swap(screenJoin()); return; }
   /* ── one workout first, then the address ─────────────────────────
@@ -17778,13 +17806,19 @@ function render(){
   /* a fix asked for in the link opens once the list has arrived */
   if(st.fixPending && (st.fixes||{})[st.fixPending]){
     st.fixSlug=st.fixPending; delete st.fixPending; st.tab='fix'; save(); }
+  /* Paid for coaching, no programme yet: one page of what to do before
+     block one, and the chat. The ladder and everything else wait. */
+  const onboarding = !coached && awaitingBlock();
+  if(onboarding && ['home','ladder'].indexOf(st.tab)>-1) st.tab='start';
   const screens=coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix}
+    : onboarding ? {start:screenStart,coaching:screenCoaching,more:screenMore}
     : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix};
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
-  const tabs=TABS[coached?'coached':'free'].map(([id,l])=>
+  const tabs=onboarding ? [['start','Start'],['coaching','Chat']]
+    : TABS[coached?'coached':'free'].map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l]);
   if(!screens[st.tab]) st.tab=tabs[0][0];
   /* being on the screen a number is about is reading it, so it is cleared

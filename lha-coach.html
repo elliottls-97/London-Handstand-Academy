@@ -3303,7 +3303,8 @@ function blocksDo(email, body, ask){
    dialog with the choices named. */
 let newBlk=null;          /* {email, label, from} while the dialog is open */
 function blocksNew(email){
-  newBlk={email, label:'Block '+(((blocks[email]||{}).block||1)+1), from:'live'};
+  const b=blocks[email]||{}, first=!((b.live||{}).days);
+  newBlk={email, label: first ? 'Block 1' : 'Block '+((b.block||1)+1), from:'live'};
   draw();
 }
 function newBlkGo(){
@@ -3323,7 +3324,9 @@ function newBlkHTML(){
       <div class="field"><label>Called</label>
         <input class="input" value="${esc(newBlk.label)}" oninput="newBlk.label=this.value"></div>
       <div style="display:flex;flex-direction:column;gap:9px">
-        ${opt('live','A copy of Block '+n+', what they train now',
+        ${!((b.live||{}).days)
+          ? opt('live','Their tests, and days you add','Their onboarding check points come across. It is their first block.')
+          : opt('live','A copy of Block '+n+', what they train now',
           ((b.live||{}).days||0)+' days, '+((b.live||{}).drills||0)+' drills. Change what needs changing.')}
         ${(b.archive||[]).map(a=>opt('arch:'+a.i,'A copy of '+esc(a.label||'an earlier block'),
           a.days+' days, '+a.drills+' drills, taken off '+(a.at?new Date(a.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):''))).join('')}
@@ -3348,6 +3351,56 @@ function blocksPaste(email){
   if(!days.length){ alert('No days in that.'); return; }
   const label=(d&&d.label)||prompt('What is this block called?','Next block')||'Next block';
   blocksDo(email, {action:'import', days, label});
+}
+/* ── how a new client starts ──────────────────────────────────────
+   After paying, a client's app is a Start page and the chat until block
+   one: the questions, these tests, a call. The tests are one set, copied
+   from a client whose check points are the model, and each new client
+   gets their own copy, so their numbers and clips land on their page. */
+let onb=null, onbAsked=false, onbFrom='';
+function onbLoad(force){
+  if(onbAsked && !force) return; onbAsked=true;
+  fetch(API+'/onboarding',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ onb=d||{checkpoints:[]}; draw(); }).catch(()=>{ onb={checkpoints:[],error:true}; draw(); });
+}
+function onbPost(body, msg){
+  fetch(API+'/onboarding',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ onb=d; draw(); if(msg) flash(msg); })
+    .catch(e=>alert(String(e)));
+}
+function onbCopy(){
+  if(!onbFrom) return alert('Pick whose check points to use.');
+  onbPost({fromClient:onbFrom}, 'New clients test against these now.');
+}
+function onbClear(){
+  if(!confirm('Clear the tests? New clients will have none until you set them again.')) return;
+  onbPost({clear:true}, 'Cleared.');
+}
+function onboardingHTML(){
+  onbLoad();
+  const cps=(onb&&onb.checkpoints)||[];
+  const coached=clients.filter(c=>c.coached!==false);
+  const tgt=c=>c.target!=null ? ' &middot; '+esc(String(c.target))+esc(c.unit||(c.kind==='secs'?'s':'')) : '';
+  return `<div class="card" style="margin-top:var(--space-4)">
+    <h4 style="margin:0">How a new client starts</h4>
+    <p class="muted" style="font-size:13px;margin:6px 0 12px">After paying, their app is a Start page and the chat until
+      block one: the questions, these tests (each logged, with a clip to you), a call, then block one.</p>
+    ${onb===null?'<p class="muted" style="font-size:13px">Loading&hellip;</p>'
+      : cps.length ? `<div style="display:flex;flex-direction:column;gap:6px">${cps.map((c,i)=>`<div style="font:400 13.5px/1.4 var(--sans)">
+          <b style="font-weight:600">${i+1}. ${esc(c.n)}</b><span class="muted">${tgt(c)}</span></div>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">${onb.from?'From '+esc(onb.from)+"'s check points":''}${
+          onb.at?', set '+new Date(onb.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):''}.</p>`
+      : `<p style="font-size:13.5px;margin:0">No tests set yet, so a new client sees the questions and the call only.</p>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
+      <select class="input" style="flex:1;min-width:160px" onchange="onbFrom=this.value">
+        <option value="">Use a client's check points&hellip;</option>
+        ${coached.map(c=>`<option value="${esc(c.email)}"${c.email===onbFrom?' selected':''}>${esc(c.name||c.email)}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="onbCopy()">Use these</button>
+      ${cps.length?`<button class="btn btn-ghost btn-sm" onclick="onbClear()">Clear</button>`:''}
+    </div>
+  </div>`;
 }
 /* ── Inner Circle, offered after a block ───────────────────────────
    It is not on the app's coaching screen any more: one plan there, and
@@ -10205,7 +10258,7 @@ function settingsHTML(){
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
     setTab==='people' ? `<div>${funnelHTML()}</div><div>${leadsHTML()}</div>
-      ${newClientHTML()}${coachesHTML()}${owner?testersHTML():''}`
+      ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
   : setTab==='money' ? `${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
       ${owner?stripeHTML():''}
       ${owner?'':`<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch;
