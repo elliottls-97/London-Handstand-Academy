@@ -10975,7 +10975,7 @@ const QUIZ_STILLS=['/assets/welcome/elliott-and-suryava.jpg','/assets/welcome/el
   '/assets/welcome/suryava-handstand.jpg'];
 function quizBg(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i]||{};
-  if(step.id==='goal') return null;   /* the front door's films carry on */
+  if(step.id==='goal') return {src:QUIZ_STILLS[0], portrait:true};
   const n=step.id==='niggles' ? 6 : skillNext((st.intake||{}).skills);
   return {src:QUIZ_STILLS[(n<0?5:n)%QUIZ_STILLS.length], portrait:true};
 }
@@ -15428,7 +15428,7 @@ const WM_MEDIA=[
   {i:'/assets/welcome/elliott-and-suryava.jpg'},
   {v:'/assets/welcome/suryava-handstand.mp4', i:'/assets/welcome/suryava-handstand.jpg'},
 ];
-const wm={el:null, mode:null, panels:[], rs:0, still:''};
+const wm={el:null, mode:null, panels:[], rs:0, still:'', quiet:false};
 function wmStill(){
   try{
     if(matchMedia('(prefers-reduced-motion: reduce)').matches) return 'still';
@@ -15466,7 +15466,7 @@ function wmPut(P, m, timed){
   const mode=wmStill();
   const layers=[...P.el.querySelectorAll('.wl')], next=layers.find(l=>l!==P.front)||layers[0];
   let media, dur=6500;
-  if(m.v && !mode){
+  if(m.v && !mode && !wm.quiet){
     const v=document.createElement('video');
     v.muted=true; v.defaultMuted=true; v.playsInline=true;
     v.setAttribute('muted',''); v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline','');
@@ -15474,7 +15474,7 @@ function wmPut(P, m, timed){
     v.addEventListener('ended', ()=>{ if(P.timer){ clearTimeout(P.timer); wmNext(P); } });
     media=v; dur=9000;
   } else {
-    const im=new Image(); im.alt=''; im.decoding='async'; im.className='kb'; im.src=m.i||''; media=im;
+    const im=new Image(); im.alt=''; im.decoding='async'; if(!wm.quiet) im.className='kb'; im.src=m.i||''; media=im;
   }
   next.innerHTML=''; next.appendChild(media);
   const old=P.front;
@@ -15486,7 +15486,7 @@ function wmPut(P, m, timed){
   else if(media.complete && media.naturalWidth) reveal(); else { media.onload=reveal; media.onerror=reveal; }
   P.front=next;
   clearTimeout(P.timer); P.timer=0;
-  if(timed && mode!=='still') P.timer=setTimeout(()=>wmNext(P), dur);
+  if(timed && mode!=='still' && !wm.quiet) P.timer=setTimeout(()=>wmNext(P), dur);
 }
 function wmShow(P){ wmPut(P, WM_MEDIA[P.k], true); }
 /* the next film or photo for a panel, never one another panel is showing */
@@ -15498,12 +15498,14 @@ function wmNext(P){
 }
 /* mode: 'montage' (the front door), 'still' with the picture's address
    (a quiz question), or nothing, which fades it away */
-function wmSync(mode, src){
-  mode=mode||null;
+/* quiet: pictures only, still, for the quiz. Film moving behind a question
+   pulled the eye off the question. The welcome keeps its films. */
+function wmSync(mode, src, quiet){
+  mode=mode||null; quiet=!!quiet;
   const app=document.getElementById('app');
   if(app) app.classList.toggle('wm', !!mode);
-  if(mode!==wm.mode){
-    wm.mode=mode;
+  if(mode!==wm.mode || (mode && quiet!==wm.quiet)){
+    wm.mode=mode; wm.quiet=quiet;
     if(!mode){ if(wm.el){ wm.el.classList.remove('on'); setTimeout(()=>{ if(!wm.mode) wmClear(); }, 800); } return; }
     wmClear(); wm.still='';
     wmBuild();
@@ -17248,7 +17250,9 @@ function render(){
     const qb = onQuiz ? quizBg() : null;
     /* a portrait picture on a monitor would be cut to a strip, so there the
        tall panels carry on instead */
-    wmSync(onWelcome || (onQuiz && (!qb || (qb.portrait && wide()))) ? 'montage' : onQuiz ? 'still' : null, qb && qb.src);
+    /* the quiz is pictures only: one still behind the question on a phone,
+       two halves of stills on a monitor, where one portrait would stretch */
+    wmSync(onWelcome ? 'montage' : onQuiz ? (qb && qb.portrait && wide() ? 'montage' : 'still') : null, qb && qb.src, !!onQuiz);
     if(wm.el) wm.el.classList.toggle('front', !!onWelcome);
   }catch(e){}
   if(st.tab==='reset'){ swap(screenReset()); return; }
