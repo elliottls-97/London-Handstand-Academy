@@ -11154,7 +11154,7 @@ function finishIntake(){
      stage, with the free week on it. It used to land on Foundations and
      say nothing, which read as the quiz having been ignored. */
   const wall = PL >= FREE_STAGES && !isPlus();
-  if(wall){ if(st.email) st.openWallFor=PL; else { st.joinFor='taste'; st.wantUpgrade=PL; } }
+  if(wall && st.email) st.openWallFor=PL;
   save(); saveState(true); sendIntake();
   /* The home page runs this whole app inside an iframe, which is a fine
      shop window and a bad place to actually use it: a refresh reloads the
@@ -11218,12 +11218,17 @@ const placedStage=()=>Math.max(0, Math.min(STAGES.length-1,
    the wall. Nobody pays for a thing they have not felt, and the old shape
    showed the price to someone who had not done a single drill. */
 const TASTE_SESSIONS = 1;
+/* Off, by Elliott's decision (24 Sept): there is no free session at a paid
+   stage any more. A stage above Foundations opens with the 7-day free trial
+   or the ladder, and Foundations is free. The machinery stays behind this
+   switch so turning it back on is one word. */
+const TASTE_ON = false;
 /* One per phone as well as one per account. A second email address on the
    same phone was a second free session, and a third, as fast as they could
    be typed. Kept outside st so signing out does not clear it. */
 const TASTED_KEY = 'lha_tasted';
 const tastedHere = () => { try{ return !!localStorage.getItem(TASTED_KEY); }catch(e){ return false; } };
-const tasteLeft = () => Number.isInteger(st.taste) ? Math.max(0, st.taste)
+const tasteLeft = () => !TASTE_ON ? 0 : Number.isInteger(st.taste) ? Math.max(0, st.taste)
   : (tastedHere() ? 0 : TASTE_SESSIONS);
 /* Two free sessions at your stage, on an account. The count lived in the
    phone's storage alone, so a private window or a cleared browser was two
@@ -11253,7 +11258,7 @@ function tourSession(wrist, listOnly, dayIdx){
   try{ buildFreeSession(wrist, listOnly, dayIdx); } finally { tourBuild=false; }
   tourQ=Q;
 }
-const tasting = () => !isPlus() && !!st.token && placedStage() > FREE_STAGES-1
+const tasting = () => TASTE_ON && !isPlus() && !!st.token && placedStage() > FREE_STAGES-1
   && !tourBuild && !(tourQ && tourQ===Q)
   && (tasteLeft() > 0 || tasteHeld());
 const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FREE_STAGES-1);
@@ -11273,7 +11278,7 @@ function chooseFree(thenTrain){
      note saying their answers put them higher. What they answered stays in
      the quiz for Elliott, and the week is still offered on every stage
      above. */
-  st.freeChoice=true; st.stage=0; save();
+  st.freeChoice=true; st.stage=0; st.wantUpgrade=null; if(st.joinFor==='taste') st.joinFor=''; save();
   try{ saveStateDown(); }catch(e){} try{ sendIntake(); }catch(e){}
   try{ if(st.ov) closeOv(); }catch(e){}
   render();
@@ -11566,7 +11571,8 @@ function screenOriented(){
      free session at a higher stage needs an account, so without one the
      button asks for an email first. With one whose free session is spent,
      it says so and offers the free week instead. */
-  const tasteUsed = gated && (st.token ? tasteLeft() <= 0 : tastedHere());
+  const tasteUsed = gated && (!TASTE_ON || (st.token ? tasteLeft() <= 0 : tastedHere()));
+  const tDays = PRICE_TRIAL();
   const a=intake();
 
   /* Two boxes: the page scrolls and the bar under it does not. It was one
@@ -11636,11 +11642,16 @@ function screenOriented(){
           ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:10px">${esc(PS.rec)}</div>`:''}
           <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
             <div style="font:400 20px/1.25 var(--serif)">
-              ${tasteUsed
+              ${!TASTE_ON
+                ? (tDays>0 ? `${esc(PS.n)} opens with the ${tDays}-day free trial.` : `${esc(PS.n)} opens with the ladder.`)
+                : tasteUsed
                 ? `You have had your free session at ${esc(PS.n)}.`
                 : `Your first session at ${esc(PS.n)} is free.`}</div>
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-              ${tasteUsed
+              ${!TASTE_ON
+                ? (tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then it is ${PRICE()} a month for every stage, and cancelling is two taps. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
+                           : `${PRICE()} a month for every stage. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`)
+                : tasteUsed
                 ? `${esc(PS.n)} is part of the ${PRICE()} a month ladder${trialLine()?', with the '+trialLine():''}. ${esc(STAGES[stageCap()].n)} stays free either way.`
                 : st.token
                 ? `No card. After that ${esc(PS.n)} is part of the ${PRICE()} a month ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.`
@@ -11679,13 +11690,14 @@ function screenOriented(){
       <!-- this used to send somebody who had just answered three questions
            to a sign-up form. They get the session first now. -->
       <button onclick="${!gated || (st.token && !tasteUsed) ? "st.oriented=true;save();go('home')"
+          : !st.token ? "st.oriented=true;st.joinFor='';st.wantUpgrade="+placed+";save();go('joinFree')"
           : tasteUsed ? "st.oriented=true;save();go('home');st.ovStage="+placed+";openOv('stage')"
           : "st.oriented=true;st.joinFor='taste';st.wantUpgrade=null;save();go('joinFree')"}" style="width:100%;border:0;
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);font:600 17px/1 var(--sans);cursor:pointer">
         ${!gated ? 'Start your first session'
-          : tasteUsed ? (trialLine() ? 'Start the free week' : 'Open '+esc(PS.n))
+          : tasteUsed ? (tDays>0 ? 'Start the '+tDays+'-day free trial' : 'Open '+esc(PS.n))
           : st.token ? 'Train at '+esc(PS.n) : 'Try '+esc(PS.n)+' free'}</button>
       ${gated?`<button onclick="st.oriented=true;save();chooseFree();go('home')"
         style="width:100%;background:none;border:none;cursor:pointer;margin-top:2px;padding:11px;
@@ -13618,7 +13630,7 @@ function screenUpgradeBody(si){
       <button class="btn" style="width:100%;margin-top:14px" onclick="startUpgrade()">${
         days>0?'Start the free '+week:'Open the ladder'}</button>
       ${(function(){
-        if(placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
+        if(!TASTE_ON || placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
         const free = !st.token ? (tastedHere() ? '' : 'Make a free account and you get one free session there first, no card.')
           : (tasteLeft()>0 && !isPlus()) ? 'You have one free session there before this opens.' : '';
         return free?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:10px">
@@ -15731,7 +15743,7 @@ function screenJoin(){
      "Stage 1, Foundations" whose first word is "Optional" reads as a switch,
      at the exact moment of commitment. If they came for the free sessions,
      say so. */
-  const taste = !want && st.joinFor==='taste' && STAGES[placedStage()] && placedStage()>stageCap() && !tastedHere();
+  const taste = TASTE_ON && !want && st.joinFor==='taste' && STAGES[placedStage()] && placedStage()>stageCap() && !tastedHere();
   const PSJ = taste ? STAGES[placedStage()] : null;
   /* Pressing "Start the free week" sent people to the same screen that
      greets somebody who has just done the quiz: "Your starting point,

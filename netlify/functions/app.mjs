@@ -3458,9 +3458,12 @@ export default async (request) => {
     const acct = (await getAcct(who)) || {};
     const stt = (await getSetting(`state:${who}`)) || {};
     const paid = preview || plusNow(acct) || await isCoached(who) || coachList().includes(who);
+    /* There is no free session at a paid stage any more (24 Sept): the paid
+       films are for the trial and the ladder. It gave any free account with
+       no record of one a session's worth of them. */
+    const TASTE_ON = false;
     let ok = paid;
-    if (!ok) {
-      /* the one free session at a locked stage still has to play */
+    if (!ok && TASTE_ON) {
       const taste = Number.isInteger(stt.taste) ? stt.taste : 1;
       ok = taste > 0;
     }
