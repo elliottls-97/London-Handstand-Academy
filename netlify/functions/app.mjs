@@ -5802,7 +5802,10 @@ export default async (request) => {
           archive: arch.map((a, i) => Object.assign({ i, label: a.label || '', at: a.at || 0 }, sum(a.prog))),
           /* the programme file they started from, offered back only when
              what is live no longer trains it */
-          file: (programmes.clients[e] && (programmes.clients[e].days || []).length
+          /* only while they are still on their first block, the one the
+             file is: once a later block is live, putting the file's days
+             back would put an old block over it */
+          file: (n === 1 && programmes.clients[e] && (programmes.clients[e].days || []).length
                  && shape(programmes.clients[e]) !== shape(live)) ? sum(programmes.clients[e]) : null,
         });
       };
