@@ -107,7 +107,7 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
  *{animation:none!important;transition:none!important}
 }
 @keyframes shimmer{0%{transform:translateX(-120%)}100%{transform:translateX(220%)}}
-@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes riseB{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @keyframes sheetUp{from{transform:translateY(101%)}to{transform:none}}
@@ -214,9 +214,12 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 #app[data-still="1"] [style*="animation:rise"],
 #app[data-still="1"] [style*="animation:riseB"],
 #app[data-still="1"] [style*="animation:lhaRow"]{animation:none!important}
-.rise{animation:rise .7s cubic-bezier(.2,.8,.2,1) both}
-.rise-1{animation-delay:.1s}.rise-2{animation-delay:.16s}
-.rise-3{animation-delay:.3s}.rise-4{animation-delay:.36s}
+/* a screen arriving: the same rise, shorter and closer together. At .7s
+   with delays to .36s the foot of a screen settled a second after the tap,
+   which read as the app being slow rather than as motion */
+.rise{animation:rise .42s cubic-bezier(.2,.8,.2,1) both}
+.rise-1{animation-delay:.04s}.rise-2{animation-delay:.08s}
+.rise-3{animation-delay:.12s}.rise-4{animation-delay:.16s}
 @media (prefers-reduced-motion:reduce){
   .rise,[style*="animation:rise"],[style*="animation:shimmer"]{animation:none!important}
 }
@@ -7993,16 +7996,22 @@ function toast(msg){
   let el=document.getElementById('toast');
   if(!el){
     el=document.createElement('div'); el.id='toast';
-    el.style.cssText='position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:60;'+
+    /* invisible is not absent: at opacity 0 it still took taps on whatever
+       was under it, so it takes none at all. It rises in from a little
+       below, and the first one did not animate because it was shown in the
+       same frame it was made. */
+    el.style.cssText='position:fixed;left:50%;bottom:86px;transform:translate(-50%,8px);z-index:60;'+
       'background:var(--forest,#003b38);color:#fff;border-radius:999px;padding:11px 19px;'+
-      'font:600 13.5px/1.2 var(--sans);box-shadow:0 8px 26px rgba(0,0,0,.22);'+
-      'max-width:calc(100vw - 40px);text-align:center;opacity:0;transition:opacity .18s ease';
+      'font:600 13.5px/1.2 var(--sans);box-shadow:0 8px 26px rgba(0,0,0,.22);pointer-events:none;'+
+      'max-width:calc(100vw - 40px);text-align:center;opacity:0;'+
+      'transition:opacity .2s ease,transform .3s cubic-bezier(.2,.8,.2,1)';
     document.body.appendChild(el);
+    void el.offsetWidth;
   }
   el.textContent=msg;
-  el.style.opacity='1';
+  el.style.opacity='1'; el.style.transform='translate(-50%,0)';
   clearTimeout(toast_);
-  toast_=setTimeout(()=>{ el.style.opacity='0'; }, 2600);
+  toast_=setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translate(-50%,8px)'; }, 2600);
 }
 
 /* The only place a follow-along ever gets asked. Rating a single drill
@@ -8287,15 +8296,67 @@ function openOv(kind){
    both threw the session away mid-way. */
 const OV_HELD = k => k==='list' || (k==='install' && !!dlPending);
 function ovScrim(e){ if(e.target && e.target.id==='ov' && !OV_HELD(st.ov)) closeOv(); }
+/* ── a sheet leaving ───────────────────────────────────────────────
+   A sheet slid up over half a second and was simply gone when it closed.
+   Closing cannot wait for an animation, because the next line so often
+   opens the next sheet, so the sheet is closed at once as before and a
+   copy of it, taking no taps, slides away on top of the screen. If another
+   sheet opened in the same moment, the copy is dropped before it is ever
+   drawn. */
+let ovGhostFrom=0;          /* how far a swipe had already pulled it down */
+function ovGhost(){
+  const ovEl=$('#ov'), sheet=ovEl && ovEl.querySelector('.sheet');
+  if(!sheet || !ovEl.classList.contains('on')) return null;
+  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  if(still || typeof ovEl.animate!=='function') return null;
+  const top=sheet.scrollTop;
+  /* films are not copied: they would load again. A dark block the same
+     size stands in for the moment it takes. */
+  sheet.querySelectorAll('video,iframe').forEach(v=>{ const d=document.createElement('div');
+    d.style.cssText='width:100%;height:'+Math.round(v.getBoundingClientRect().height)+'px;background:#11150f'; v.replaceWith(d); });
+  const g=ovEl.cloneNode(true);
+  g.removeAttribute('id'); g.querySelectorAll('[id]').forEach(n=>n.removeAttribute('id'));
+  g.setAttribute('aria-hidden','true');
+  g.style.cssText+=';pointer-events:none;z-index:59;animation:none';
+  const gs=g.querySelector('.sheet'); gs.style.animation='none';
+  return {g, gs, top, from:ovGhostFrom,
+    mode: wide() ? 'dialog' : ovEl.classList.contains('full') ? 'full' : 'sheet'};
+}
+function ovGhostPlay(o){
+  ovGhostFrom=0;
+  if(!o) return;
+  document.body.appendChild(o.g); o.gs.scrollTop=o.top;
+  requestAnimationFrame(()=>{
+    if(st.ov){ o.g.remove(); return; }
+    const dur = o.mode==='sheet' ? 260 : 190;
+    const k = o.mode==='sheet' ? [{transform:'translateY('+o.from+'px)'},{transform:'translateY(100%)'}]
+      : o.mode==='full' ? [{opacity:1,transform:'none'},{opacity:0,transform:'translateY(16px)'}]
+      : [{opacity:1,transform:'none'},{opacity:0,transform:'scale(.98)'}];
+    try{
+      o.gs.animate(k,{duration:dur,easing:'cubic-bezier(.4,0,1,1)',fill:'forwards'});
+      /* a sheet stays solid as it slides away and only the dimming behind
+         it lifts; faded as well, its words crossed the screen under it */
+      const a = o.mode==='sheet'
+        ? o.g.animate([{backgroundColor:'rgba(0,30,28,.45)',backdropFilter:'blur(6px)',webkitBackdropFilter:'blur(6px)'},
+                       {backgroundColor:'rgba(0,30,28,0)',backdropFilter:'blur(0px)',webkitBackdropFilter:'blur(0px)'}],
+            {duration:dur,easing:'ease-in',fill:'forwards'})
+        : o.g.animate([{opacity:1},{opacity:0}],{duration:dur,easing:'ease-in',fill:'forwards'});
+      a.onfinish=()=>o.g.remove();
+    }catch(e){ o.g.remove(); }
+    setTimeout(()=>{ if(o.g.isConnected) o.g.remove(); }, dur+300);
+  });
+}
 function closeOv(){
   /* the summary is the end of the workout, and of the free one with it */
   if(st.ov==='summary') endTaste();
   rowClockStop(false);
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
+  let ghost=null; try{ ghost=ovGhost(); }catch(e){ ghost=null; }
   st.ov=null; st.ovFull=false; save();
   $('#ov').classList.remove('on'); $('#ov').classList.remove('full');
-  $('#ov').innerHTML=''; render(); }
+  $('#ov').innerHTML=''; render();
+  ovGhostPlay(ghost); }
 /* ── a list session, kept ─────────────────────────────────────────
    Closing the list mid-way lost the workout: the ticks stayed but the
    session they belonged to was gone, and pressing Start built a different
@@ -9776,7 +9837,7 @@ function bindSheetDrag(sheet){
     if(!live) return;
     live=false; sheet.classList.remove('drag');
     sheet.style.transform=''; sheet.style.opacity='';
-    if(dy>110) closeOv();
+    if(dy>110){ ovGhostFrom=dy; closeOv(); }
     y0=null; dy=0;
   };
   sheet.addEventListener('touchstart',start,{passive:true});
