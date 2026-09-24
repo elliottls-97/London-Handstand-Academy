@@ -560,6 +560,11 @@ const voiceOf = s => { const t = tagsOf(s).find(x => x.startsWith('voice:')); if
   const [, id, secs] = t.split(':'); return id ? { id, secs: Number(secs) || 0 } : null; };
 const voiceTag = (id, secs) => id ? 'voice:' + id + ':' + Math.max(1, Math.min(600, Math.round(Number(secs) || 0))) : '';
 const isAuto = s => tagsOf(s).includes('auto');
+/* The welcome every new account is sent in the coach's name. It is tagged
+   'auto' only since 23 Sept; its opening words have not changed since it
+   was first sent on 15 Sept, so those find the older ones. */
+const WELCOME_RE = /^Welcome to the ladder\. I'm /;
+const isWelcome = m => !!m && m.sender === 'coach' && WELCOME_RE.test(String(m.body || ''));
 const quoteOf = s => (tagsOf(s).find(t => t.startsWith('re:')) || '').slice(3);
 async function threadLoad(db, who) {
   const rows = await supa.rows('messages',
@@ -841,8 +846,8 @@ const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
    exists, and what has not been read. */
 async function rosterRows() {
   const [accounts, msgs, subs] = await Promise.all([
-    supa.rows('accounts', 'select=email,name,last_seen&order=last_seen.desc'),
-    supa.rows('messages', 'select=email,created_at,sender,read_at,body,video,image&order=created_at.desc'),
+    supa.rows('accounts', 'select=email,name,last_seen,first_seen,plus,stage,stripe_customer&order=last_seen.desc'),
+    supa.rows('messages', 'select=email,created_at,sender,read_at,body,video,image,submission&order=created_at.desc'),
     supa.rows('submissions', 'select=email'),
   ]);
 
@@ -852,22 +857,35 @@ async function rosterRows() {
      burying the people who actually wrote to you. */
   const active = new Set();
   const counts = {}; const latest = {}; const lastMsg = {};
+  /* how many messages, how many of them the welcome, and how many from them:
+     a thread that is only the welcome is somebody who made an account, not
+     somebody who got in touch, and the Chats screen keeps them apart */
+  const total = {}, welcomes = {}, said = {}; const subbed = new Set();
   for (const m of (msgs || [])) {
     active.add(m.email);
     latest[m.email] = Math.max(latest[m.email] || 0, ms(m.created_at));
+    total[m.email] = (total[m.email] || 0) + 1;
+    if (isWelcome(m)) welcomes[m.email] = (welcomes[m.email] || 0) + 1;
+    if (m.sender === 'client') said[m.email] = (said[m.email] || 0) + 1;
     if (m.sender === 'client' && !m.read_at) counts[m.email] = (counts[m.email] || 0) + 1;
     /* newest first, so the first one seen is the last one said */
     if (!lastMsg[m.email]) lastMsg[m.email] = { from: m.sender, text: String(m.body || '').slice(0, 120),
-      video: !!m.video, image: !!m.image, at: ms(m.created_at), seen: !!m.read_at };
+      video: !!m.video, image: !!m.image, at: ms(m.created_at), seen: !!m.read_at,
+      ...(m.sender === 'coach' && (isAuto(m.submission) || isWelcome(m)) ? { auto: true } : {}) };
   }
-  for (const s of (subs || [])) active.add(s.email);
+  for (const s of (subs || [])) { active.add(s.email); subbed.add(s.email); }
 
   const byEmail = {};
   for (const a of (accounts || [])) {
     if (!active.has(a.email) && !clients()[a.email] && !PLANNED.has(a.email)) continue;
     byEmail[a.email] = { email: a.email, name: a.name || a.email.split('@')[0],
       last: Math.max(ms(a.last_seen), latest[a.email] || 0),
-      unread: counts[a.email] || 0, ...(lastMsg[a.email] ? { lastMsg: lastMsg[a.email] } : {}) };
+      unread: counts[a.email] || 0, ...(lastMsg[a.email] ? { lastMsg: lastMsg[a.email] } : {}),
+      first: ms(a.first_seen), ...(Number.isInteger(a.stage) ? { stage: a.stage } : {}),
+      ...(a.plus ? { plus: true } : {}), ...(a.stripe_customer ? { stripe: true } : {}),
+      said: said[a.email] || 0, ...(subbed.has(a.email) ? { subbed: true } : {}),
+      /* nothing in the thread but the welcome the app sent in the coach's name */
+      ...(total[a.email] && total[a.email] === welcomes[a.email] && !subbed.has(a.email) ? { welcomeOnly: true } : {}) };
   }
   /* a coaching client always belongs here, even before they say anything */
   for (const e of Object.keys(clients())) {

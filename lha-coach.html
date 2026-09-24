@@ -7817,14 +7817,17 @@ function rosterHTML(){
   const f=rosterFilter;
   const rows=clients
     .filter(c=>!q||String(c.name||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q))
-    .filter(c=>f==='all'?true:f==='coaching'?c.coached!==false
+    /* a new account that has only had the welcome is not an enquiry, and
+       there are a lot of them: they have their own filter, as in Chats */
+    .filter(c=>f==='all'?!chatNew(c):f==='coaching'?c.coached!==false
       :f==='waiting'?queue.some(x=>x.email===c.email)
-      :f==='unread'?!!c.unread:f==='enquiries'?c.coached===false:true)
+      :f==='unread'?!!c.unread:f==='enquiries'?(c.coached===false && !chatNew(c))
+      :f==='new'?chatNew(c):true)
     .sort((a,b)=>((b.coached!==false)-(a.coached!==false))
       ||((queue.some(x=>x.email===b.email)?1:0)-(queue.some(x=>x.email===a.email)?1:0)));
   const picked=pickedList();
   const defs=[['all','All'],['coaching','Coaching'],['waiting','Waiting'],
-              ['unread','Unread'],['enquiries','Enquiries']];
+              ['unread','Unread'],['enquiries','Enquiries'],['new','New accounts']];
   const cols='28px minmax(0,2fr) minmax(0,1fr) 92px 92px';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
@@ -7863,7 +7866,7 @@ function rosterHTML(){
         <div onclick="openClient('${esc(c.email)}')" style="cursor:pointer;min-width:0">
           <div style="display:flex;gap:var(--space-2);align-items:baseline;flex-wrap:wrap">
             <span style="font:600 14.5px/1.3 var(--sans)">${esc(c.name||c.email)}</span>
-            ${c.coached===false?'<span class="tag tag-neutral">Enquiry</span>':''}
+            ${c.coached===false?(chatNew(c)?'<span class="tag tag-neutral">New account</span>':'<span class="tag tag-neutral">Enquiry</span>'):''}
             ${c.planOnly?`<span class="tag tag-said" title="Coached in the app by their programme, but not on your coaching list">Not on your list</span>
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();addToRoster('${esc(c.email)}')">Add</button>`:''}
             ${c.unread?`<span class="tag tag-accent">${c.unread} unread</span>`:''}
@@ -10118,27 +10121,66 @@ function chatWhen(t){
   const d=dDay(t);
   return d==='Today' ? dTime(t) : d;
 }
+/* ── what kind of conversation each one is ─────────────────────────
+   Every new account is sent a welcome in the coach's name, so every sign
+   up became a row in Chats that looked like somebody to answer, and the
+   people who actually wrote were lost among them. A thread that is only
+   that welcome sits in New accounts; the rest filter by who they are. */
+let chatsFilter='all';
+try{ const s0=localStorage.getItem('lha_coach_chats'); if(s0) chatsFilter=s0; }catch(e){}
+const CHAT_CATS=[['all','All'],['coaching','Coaching'],['enquiry','Enquiries'],['member','Ladder members'],['unread','Unread'],['new','New accounts']];
+const chatApplied = c => (apps||[]).some(a=>a.email===c.email);
+const chatAsked = c => (questions||[]).some(q=>q.email===c.email);
+const chatBooked = c => (sessions||[]).some(x=>x.email===c.email);
+/* made an account, got the welcome, and nothing since from either side */
+const chatNew = c => c.coached===false && c.welcomeOnly===true && !c.unread
+  && !chatApplied(c) && !chatAsked(c) && !chatBooked(c);
+function chatKind(c){
+  if(c.coached!==false) return 'coaching';
+  if(chatNew(c)) return 'new';
+  /* paying for the ladder and writing about it, rather than about coaching */
+  if(c.plus && !c.subbed && !chatApplied(c) && !chatBooked(c)) return 'member';
+  return 'enquiry';
+}
+function setChatsFilter(f){ chatsFilter=f; try{ localStorage.setItem('lha_coach_chats',f); }catch(e){} draw(); }
+function chatRowHTML(c){
+  const L=c.lastMsg, mine=L.from==='coach', k=chatKind(c);
+  const typingNow=threadFor===c.email && Date.now()-dTypingAt<8000;
+  const prev=L.text ? esc(L.text) : `<i>${L.video?'Video':L.image?'Photo':'Message'}</i>`;
+  const tag=k==='enquiry'?' <em>enquiry</em>':k==='member'?' <em>ladder</em>':k==='new'?' <em>new</em>':'';
+  return `<button class="chatrow" data-k="${esc(c.email)}" onclick="openClient('${esc(c.email)}','thread')">
+    <span class="av"${k==='new'?' style="background:var(--mist);color:var(--grey)"':''}>${esc((String(c.name||c.email).trim()[0]||'?').toUpperCase())}</span>
+    <span class="chatmid"><b>${esc(c.name||c.email)}${tag}</b>
+      <span>${typingNow?'<span style="color:var(--forest)">typing&hellip;</span>'
+        :k==='new'?`Joined ${esc(chatWhen(c.first||L.at))}${Number.isInteger(c.stage)&&typeof STAGES!=='undefined'&&STAGES[c.stage]?', placed on '+esc(STAGES[c.stage].n):''}. Only the welcome so far${L.seen?', and they have read it':''}.`
+        :(mine?`<span class="${L.seen?'ctk read':'ctk'}">${L.seen?D_TICKS:D_TICK}</span> `:'')+(mine&&L.auto?'<i>Sent automatically:</i> ':'')+prev}</span></span>
+    <span class="chatend"><span class="${c.unread?'on':''}">${esc(chatWhen(L.at))}</span>${c.unread?`<i>${c.unread}</i>`:''}</span>
+  </button>`;
+}
 function chatsHTML(){
   const q=chatsQ.trim().toLowerCase();
-  const rows=clients.filter(c=>c.lastMsg)
+  const withMsg=clients.filter(c=>c.lastMsg)
     .filter(c=>!q||String(c.name||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q))
     .sort((a,b)=>(b.lastMsg.at||0)-(a.lastMsg.at||0));
-  const typingNow=e=>threadFor===e && Date.now()-dTypingAt<8000;
+  if(!CHAT_CATS.some(x=>x[0]===chatsFilter)) chatsFilter='all';
+  const count=id=>withMsg.filter(c=>id==='all'?chatKind(c)!=='new':id==='unread'?!!c.unread:chatKind(c)===id).length;
+  const rows=withMsg.filter(c=>chatsFilter==='all'?chatKind(c)!=='new'
+    :chatsFilter==='unread'?!!c.unread:chatKind(c)===chatsFilter);
+  const empty={all:'No conversations yet.',coaching:'No messages from coaching clients yet.',enquiry:'No enquiries.',
+    member:'No messages from ladder members.',unread:'Nothing unread.',new:'No new accounts waiting.'}[chatsFilter];
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
     <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3)">
       <h1 style="margin:0;flex:1">Chats</h1>
       <input class="input" placeholder="Search by name" value="${esc(chatsQ)}" oninput="chatsQ=this.value;draw()" style="max-width:260px">
     </div>
-    <div class="chatlist">${rows.map(c=>{ const L=c.lastMsg, mine=L.from==='coach';
-      const prev=L.text ? esc(L.text) : `<i>${L.video?'Video':L.image?'Photo':'Message'}</i>`;
-      return `<button class="chatrow" data-k="${esc(c.email)}" onclick="openClient('${esc(c.email)}','thread')">
-        <span class="av">${esc((String(c.name||c.email).trim()[0]||'?').toUpperCase())}</span>
-        <span class="chatmid"><b>${esc(c.name||c.email)}${c.coached===false?' <em>enquiry</em>':''}</b>
-          <span>${typingNow(c.email)?'<span style="color:var(--forest)">typing&hellip;</span>'
-            :(mine?`<span class="${L.seen?'ctk read':'ctk'}">${L.seen?D_TICKS:D_TICK}</span> `:'')+prev}</span></span>
-        <span class="chatend"><span class="${c.unread?'on':''}">${esc(chatWhen(L.at))}</span>${c.unread?`<i>${c.unread}</i>`:''}</span>
-      </button>`; }).join('') || `<p class="muted" style="padding:var(--space-4) 0">${clientsLoaded?'No conversations yet.':'Loading&hellip;'}</p>`}
+    <div class="tchips">${CHAT_CATS.map(([id,label])=>{ const n=count(id);
+      if(id!=='all' && id!==chatsFilter && !n) return '';
+      return `<button class="chip${chatsFilter===id?' on':''}" onclick="setChatsFilter('${id}')">${label} <i>${n}</i></button>`; }).join('')}</div>
+    ${chatsFilter==='new'?`<p class="muted" style="font:400 13px/1.5 var(--sans);margin:-6px 0 12px;max-width:62ch">
+      People who made an account and have only had the welcome the app sends in your name. Nobody here has written yet.
+      They move to the other tabs the moment they reply.</p>`:''}
+    <div class="chatlist">${rows.map(chatRowHTML).join('') || `<p class="muted" style="padding:var(--space-4) 0">${clientsLoaded?esc(empty):'Loading&hellip;'}</p>`}
     </div>
   </section>`;
 }
