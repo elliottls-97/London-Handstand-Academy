@@ -1020,6 +1020,9 @@ function trackOpen(){
      app had no idea a subscription had just happened. */
   try{
     const q=new URLSearchParams(location.search);
+    /* back from paying for coaching: the Stripe link sends them here */
+    if(q.get('joined')==='coaching'){ st.joinedAt=Date.now(); save(); history.replaceState(null,'',location.pathname);
+      setTimeout(joinedLanding, 400); }
     if(q.get('paid')==='1'){ track('subscribed'); st.justPaid=true; save();
       history.replaceState(null,'',location.pathname);
       setTimeout(()=>{ if(st.justPaid) openOv('paid'); }, 500); }
@@ -10206,6 +10209,72 @@ function blockStart(){
     || null;
 }
 function blockNo(){ return (st.cycle && st.cycle.n) || 1; }
+/* ── from paying for coaching to being coached ────────────────────
+   Paying did nothing anybody could see: the money landed, and the app
+   went on being the free ladder, with no word of what happens next. A
+   coaching client without a programme yet sees, first thing on Train,
+   the steps the homepage promises, and which are done: the questions,
+   the clips, the call, and then block one. The ladder is open meanwhile. */
+const CALL_URL = 'https://calendly.com/londonhandstandacademy-info/intro-call';
+/* A programme is a day with drills in it. DATA starts as one empty Day 1,
+   so "has days" was true for everybody, programme or not. */
+const hasPlan = () => !!(DATA && (DATA.days||[]).some(d=>(d.groups||[]).some(g=>(g.items||[]).length)));
+const awaitingBlock = () => !!st.coached && !hasPlan();
+function joinSteps(){
+  const a=intake();
+  const clips=((st.subs||[]).length>0) || !!st.clipsSent;
+  return [
+    {k:'q',  t:'Answer a few questions', d:'What you are after, how you train now, any injuries.',
+      done: !!a.goal && a.level!=null, go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()", b:'Answer them'},
+    {k:'c',  t:'Send two short clips', d:'From the side, whole body in frame: a chest-to-wall hold for as long as you can, and one freestanding attempt.',
+      done: clips, go:'goAsk()', b:'Send them'},
+    {k:'call', t:'Book your call', d:'Fifteen minutes to talk through what I saw and where to start.',
+      done: !!st.callBooked, go:"st.callBooked=true;save();leaveTo('"+CALL_URL+"')", b:'Pick a time'},
+    {k:'b',  t:'Your first block', d:'I write it from all of that. It appears here when it is ready.', done:false},
+  ];
+}
+function joinHTML(){
+  if(!awaitingBlock()) return '';
+  const steps=joinSteps(), next=steps.findIndex(x=>!x.done);
+  return `<div class="rise rise-1" style="padding:14px 20px 0"><div class="card" style="padding:18px 18px 8px;border:1.5px solid rgba(0,102,99,.25)">
+    <div class="kick2" style="color:var(--forest)">WELCOME TO COACHING</div>
+    <div style="font:400 22px/1.2 var(--serif);margin-top:7px">Here is what happens next.</div>
+    <div style="margin-top:10px">${steps.map((x,i)=>`<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;
+      ${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+      <span style="flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;margin-top:1px;
+        font:700 12px/1 var(--sans);background:${x.done?'var(--forest)':i===next?'rgba(0,102,99,.12)':'rgba(17,17,17,.06)'};
+        color:${x.done?'var(--on-primary)':i===next?'var(--forest)':'var(--grey)'}">${x.done?'&check;':i+1}</span>
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font:600 14.5px/1.3 var(--sans);${x.done?'color:var(--grey)':''}">${esc(x.t)}</span>
+        ${x.done?'':`<span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:3px">${esc(x.d)}</span>`}
+        ${(!x.done && x.go && i===next)?`<button class="btn" style="margin:10px 0 0;min-height:42px;padding:0 16px;width:auto" onclick="${x.go}">${esc(x.b)}</button>`
+          :(!x.done && x.go)?`<button onclick="${x.go}" style="border:0;background:none;padding:6px 0 0;cursor:pointer;
+            font:600 13px/1 var(--sans);color:var(--forest);text-decoration:underline">${esc(x.b)}</button>`:''}
+      </span></div>`).join('')}</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);padding:4px 0 10px">Every stage of the ladder is open while you wait.</div>
+  </div></div>`;
+}
+/* Straight back from Stripe. Signed in, the payment takes a few seconds to
+   reach the account, so the app asks until it has, then shows the welcome.
+   Signed out, which is everybody who paid on the website, the account was
+   made under the address they paid with and needs a password. */
+function joinedLanding(){
+  if(!st.token){
+    resetFirst=true; st.tab='reset'; resetStep=0; resetMsg=''; save(); render();
+    toast('You are in. Set a password with the email you paid with.');
+    return;
+  }
+  toast('You are in. Setting up your coaching…');
+  let n=0;
+  const ask=()=>{ n++;
+    Promise.resolve(loadEntitlement()).then(()=>{
+      if(st.coached){ st.tab='home'; save(); loadProgramme(); render(); toast('Welcome to coaching.'); return; }
+      if(n<15) setTimeout(ask, 2000);
+      else toast('Your payment is through. The welcome appears here in a minute or two.');
+    }).catch(()=>{ if(n<15) setTimeout(ask, 2000); });
+  };
+  ask();
+}
 /* ── Inner Circle, offered to a client in their own app ────────────
    It is not on the coaching screen strangers see: one plan there. A
    client who has finished a block knows how coaching works and whether
@@ -10291,6 +10360,9 @@ function loadProgramme(){
   return fetch(AUTH.programme,{headers:authed()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ applyProgramme(d); cacheProgramme(d);
+               /* block one has arrived: the coached layout, opened on Today */
+               if(st.coached && !st.in && hasPlan()){
+                 st.in=true; if(['home','ladder','coaching'].indexOf(st.tab)>-1) st.tab='today'; }
                if(d.client) st.client=d.client;
                rollTicks();          /* first load of the day, on a cold start */
                save(); render(); loadSign(); return true; })
@@ -10303,7 +10375,7 @@ function loadProgramme(){
          block with a Start button on it. They train on the ladder like
          anyone, and keep the clip button and the thread because st.coached
          is still true. */
-      if(!(DATA && DATA.days && DATA.days.length)){
+      if(!hasPlan()){
         st.in=false; st.mode='free';
         if(['today','plan','ask'].indexOf(st.tab)>-1) st.tab='home';
         save();
@@ -13047,6 +13119,7 @@ function screenHome(){
     <!-- the stage and how far through it, on one line. Six segments in the
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->
+    ${joinHTML()}
     ${(firstVisit()||trialPending()) ? firstPlacedHTML() : `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
       style="padding:${wide()?24:14}px 20px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -14298,13 +14371,20 @@ function loadEntitlement(){
   return fetch(AUTH.me,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const was=st.plus, wasIn=st.in, wasFC=st.canCheck, wasTU=!!st.trialUsed;
+      const was=st.plus, wasIn=st.in, wasFC=st.canCheck, wasTU=!!st.trialUsed, wasCoached=!!st.coached;
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
       st.trialUsed=!!d.trialUsed; st.trialRefused=!!d.trialRefused;
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
-      st.in=!!d.coached; st.coached=!!d.coached; st.tier=String(d.tier||'');
+      /* Coached is one thing and the coached layout another: the layout
+         needs a programme. Every refresh of this set it from coached alone,
+         so a client waiting for block one was flipped into a Today with
+         nothing in it, which threw, until the programme came back missing
+         and flipped them out again. They stay on the ladder, with the
+         welcome, until there is a programme. */
+      st.coached=!!d.coached; st.tier=String(d.tier||'');
+      st.in = st.coached && hasPlan();
       if(!st.in && st.token){ st.mode='free'; st.quizDone=true; }
       if(d.name&&!st.client) st.client=d.name;
       /* the free-check flag has to be in here too: a coach clearing it
@@ -14318,7 +14398,9 @@ function loadEntitlement(){
          Day 1 and no drills. That is why the preview never showed
          anybody's programme. It is also why a real client on a new phone
          saw an empty day until they reloaded. */
-      if(st.in && !wasIn){ loadProgramme(); loadProgress(); loadThread(); loadTrack(); }
+      if((st.in && !wasIn) || (st.coached && !wasCoached)){ loadProgramme(); loadProgress(); loadThread(); loadTrack(); }
+      /* still waiting for block one: ask whether it has been written */
+      else if(st.coached && !st.in) loadProgramme();
       if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck){ render(); loadSign(); }
       else if(wasTU!==st.trialUsed) render(); })
     .catch(()=>{});

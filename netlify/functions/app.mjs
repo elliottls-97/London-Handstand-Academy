@@ -1243,7 +1243,29 @@ export default async (request) => {
       return json({ ok: true, session: kind });
     }
 
+    /* ── what was bought ────────────────────────────────────────────
+       A checkout session carries a total, a subscription its price and an
+       invoice what was paid. Only the total was read, so a subscription
+       event that arrived before the checkout one could not tell £120 of
+       coaching from the £10 ladder, and announced a £10 subscriber. */
+    /* 10000 is the old coaching price; the link may still carry it */
+    /* 18000 is the link on the site until the £190 one replaces it */
+    const byAmount = { 500: 'plus', 1000: 'plus', 1500: 'plus', 2000: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
+    for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline']) {
+      const amt = Number(PRICES[k] && PRICES[k].amount);
+      if (amt > 0) byAmount[amt] = ({ inperson: 'online', inperson2: 'online', inperson4: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
+    }
+    const amountOf = o => {
+      if (o.amount_total != null) return Number(o.amount_total);
+      if (o.object === 'invoice') return Number(o.amount_paid || o.total || 0);
+      const it = o.items && o.items.data && o.items.data[0];
+      return Number((o.plan && o.plan.amount) || (it && it.price && it.price.unit_amount) || 0);
+    };
+    const planOf = o => (o.metadata && o.metadata.plan)
+      || ((o.currency || 'gbp') === 'gbp' && byAmount[amountOf(o)]) || '';
+
     let acct = e ? await getAcct(e) : null;
+    let custEmail = '';
     if (!acct && obj.customer) {
       acct = await supa.row('accounts',
         `stripe_customer=eq.${enc(obj.customer)}&select=*`);
@@ -1256,8 +1278,18 @@ export default async (request) => {
       try {
         const cust = await stripe(`/customers/${obj.customer}`, null, 'GET');
         const ce = norm((cust && cust.email) || '');
+        custEmail = ce;
         if (ce) acct = await getAcct(ce);
       } catch (err) { console.warn('customer lookup', err && err.message); }
+    }
+    /* ── somebody who bought coaching before they had an account ────
+       The normal way in from the website, and it did nothing at all: the
+       payment found no account, so there was no client, no welcome and no
+       email, and the buyer heard nothing. Coaching makes the account, with
+       no password: the welcome email says how to set one by code. */
+    if (!acct && ['online', 'inner'].includes(planOf(obj)) && (e || custEmail)) {
+      const nmNew = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
+      acct = await ensureAcct(e || custEmail, nmNew);
     }
     /* writing {plus:true} into a key with no account behind it would create a
        stub with no password and lock the real person out */
@@ -1268,6 +1300,7 @@ export default async (request) => {
          — no matching account, so nothing was changed.</p>`);
       return json({ ok: true, note: 'no account matched' });
     }
+    const wasPlus = !!acct.plus;
     const on  = ['checkout.session.completed', 'customer.subscription.created',
                  'customer.subscription.updated', 'invoice.paid'];
     /* A failed payment is not a cancelled subscription. Stripe keeps a
@@ -1297,15 +1330,7 @@ export default async (request) => {
          from a coached client without asking Stripe again */
       /* the plan: from the metadata a checkout session carries, or, for a
          payment link that carries none, from what was paid */
-      /* 10000 is the old coaching price; the link may still carry it */
-      /* 18000 is the link on the site until the £190 one replaces it */
-      const byAmount = { 500: 'plus', 1000: 'plus', 1500: 'plus', 2000: 'check', 10000: 'online', 12000: 'online', 18000: 'online', 32000: 'inner' };
-      for (const k of ['plus', 'plusq', 'plusy', 'check', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline']) {
-        const amt = Number(PRICES[k] && PRICES[k].amount);
-        if (amt > 0) byAmount[amt] = ({ inperson: 'online', inperson2: 'online', inperson4: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
-      }
-      const boughtPlan = (obj.metadata && obj.metadata.plan)
-        || ((obj.currency || 'gbp') === 'gbp' && byAmount[Number(obj.amount_total)]) || '';
+      const boughtPlan = planOf(obj);
       /* ── a form check, bought one at a time ──────────────────────
          Twenty pounds is one clip, not a tier: it adds a credit to the
          account and changes nothing else. A checkout session's status is
@@ -1445,13 +1470,23 @@ export default async (request) => {
       subscription: acct.subscription || null, cancel_at: acct.cancel_at || null,
       stripe_customer: acct.stripe_customer || null });
 
-    /* the price is a setting now, and it is not five pounds */
-    const tierPrice = (PRICES.plus && PRICES.plus.label) || '£5';
-    await coachAlert(null, 'business', { title: acct.plus ? `New ${tierPrice} subscriber` : `${tierPrice} subscription cancelled`, body: acct.email || e, tag: 'plus:' + (acct.email || e) });
-    if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-      `${acct.plus ? 'New' : 'Cancelled'} ${tierPrice} subscriber: ${acct.email || e}`,
-      `<p style="font:16px/1.6 system-ui">${ev.type} — access is now
-       ${acct.plus ? 'on' : 'off'}.</p>`);
+    /* Told once, when access actually changes, as what was bought. It went
+       out on every event, renewals included, and always as the ladder, so
+       £120 of coaching arrived as "New £10 subscriber". A coaching start
+       has its own "Someone just bought coaching", so it is not said twice. */
+    if (acct.plus !== wasPlus) {
+      const planNow = planOf(obj) || (((await getSetting(`plan:${acct.email}`)) || {}).plan) || 'plus';
+      const coaching = planNow === 'online' || planNow === 'inner';
+      const what = planNow === 'inner' ? 'Inner Circle' : coaching ? 'coaching'
+        : `${(PRICES.plus && PRICES.plus.label) || '£10'} ladder`;
+      if (!(coaching && acct.plus)) {
+        const title = acct.plus ? `New ${what} subscriber` : `${what[0].toUpperCase() + what.slice(1)} cancelled`;
+        await coachAlert(null, 'business', { title, body: acct.email || e, tag: 'plus:' + (acct.email || e) });
+        if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+          `${title}: ${acct.email || e}`,
+          `<p style="font:16px/1.6 system-ui">${esc(ev.type)}: access is now ${acct.plus ? 'on' : 'off'}.</p>`);
+      }
+    }
     return json({ ok: true });
   }
 

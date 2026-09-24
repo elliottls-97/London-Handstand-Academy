@@ -229,8 +229,8 @@ export const EMAILS = {
     "title": "You are in.",
     "paras": [
       "{password_line}",
-      "There is a message waiting for you in the app under Ask, and it is the first thing to do.",
-      "Everything happens in the app from here: your clips, my answers, and your programme when there is one."
+      "Open the app and the first thing on Train is your welcome: a few questions, two short clips and a call, and then I write your first block.",
+      "Everything happens in the app from here: your clips, my replies, and your programme."
     ]
   },
   "cardFailed": {
