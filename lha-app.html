@@ -10687,17 +10687,36 @@ function doneAdv(){
   const d=(advDraft&&advDraft.length) ? advDraft : ['none'];
   advDraft=null; pickSkill('adv', d);
 }
+/* What they said to the answers taken back, so a question asked again
+   shows it already picked: the same tap goes on, a different one changes
+   it. Taking an answer back used to wipe it, so going back looked like
+   starting that question from nothing. */
+let skillWas={};
+function skillTakeBack(s, keys){
+  skillWas={};
+  keys.forEach(k=>{ if(s[k]!=null){ skillWas[k]=s[k]; delete s[k]; } });
+  s.path=(s.path||[]).filter(x=>s[x]!=null);
+  advDraft = Array.isArray(skillWas.adv) ? skillWas.adv.slice() : null;
+}
 /* Back inside the skills takes back the last answer and asks it again,
    rather than jumping out of them to the question before. */
 function quizBack(){
   const i=st.quizStep|0, step=INTAKE_STEPS[i]||{};
   if(step.id==='level'){
     const a=intake(), s=Object.assign({}, a.skills||{}), path=(s.path||[]).slice();
-    if(path.length){ const k=path.pop(); delete s[k]; s.path=path; a.skills=s; delete a.level; advDraft=null; save(); render(); return; }
+    if(path.length){ skillTakeBack(s, [path[path.length-1]]); a.skills=s; delete a.level; save(); render(); return; }
   }
   st.quizStep=Math.max(0,i-1); save(); render();
 }
-function skillRestart(){ const a=intake(); a.skills={}; delete a.level; advDraft=null; save(); render(); }
+/* one answer changed from the summary: that question again, and the ones
+   after it, since what comes next depends on it */
+function skillChange(k){
+  const a=intake(), s=Object.assign({}, a.skills||{});
+  const at=SKILLS.findIndex(q=>q.k===k); if(at<0) return;
+  skillTakeBack(s, SKILLS.slice(at).map(q=>q.k));
+  a.skills=s; delete a.level; save(); render();
+}
+function skillRestart(){ const a=intake(); a.skills={}; delete a.level; advDraft=null; skillWas={}; save(); render(); }
 /* the drill it means: its first frame, whole, and the film on a tap. The
    balance question is not a drill, so it is a picture of the thing itself:
    Elliott, freestanding, upright as it was filmed. */
@@ -10756,13 +10775,19 @@ function skillStepView(a){
       <span style="font:500 12.5px/1.35 var(--sans);color:rgba(255,255,255,.75)">${n<0?'You land on':'So far'}
         <b style="color:#fff;font-weight:600">${esc(STAGES[P].n)}</b></span></div>`;
   if(n<0){
-    const said=SKILLS.filter(q=>s[q.k]!=null).map(q=>{
+    /* each answer is a way back to its question: coming back from the
+       next step lands here, and there was nothing here to change */
+    const said=SKILLS.filter(q=>s[q.k]!=null).map((q,k)=>{
       const v=s[q.k];
       const t=q.multi ? (v||[]).map(x=>(q.o.find(o=>o[0]===x)||[])[1]).filter(Boolean).join(', ')
                       : ((q.o.find(o=>o[0]===v)||[])[1]||'');
-      return `<div style="display:flex;gap:12px;padding:11px 0;border-top:1px solid rgba(0,64,61,.08)">
+      return `<button onclick="quizMove(-1,()=>skillChange('${q.k}'))" aria-label="Change your answer to: ${esc(q.q)}"
+        style="width:100%;display:flex;align-items:center;gap:12px;padding:12px 0;border:0;background:none;cursor:pointer;
+        text-align:left;${k?'border-top:1px solid rgba(0,64,61,.08)':''}">
         <span style="flex:1;min-width:0;font:400 13.5px/1.4 var(--sans);color:var(--grey)">${esc(q.q)}</span>
-        <span style="flex:none;max-width:45%;text-align:right;font:600 13.5px/1.4 var(--sans);color:var(--ink)">${esc(t)}</span></div>`;
+        <span style="flex:none;max-width:45%;text-align:right">
+          <span style="display:block;font:600 13.5px/1.4 var(--sans);color:var(--ink)">${esc(t)}</span>
+          <span style="display:block;margin-top:2px;font:600 12px/1.2 var(--sans);color:var(--forest)">Change</span></span></button>`;
     }).join('');
     return {q:'That puts you on '+STAGES[P].n+'.', sub:skillLine(a)||'Where your answers land.',
       body:`<div class="qup" style="animation-delay:120ms;background:#fff;border-radius:18px;padding:4px 16px;
@@ -10784,7 +10809,8 @@ function skillStepView(a){
         border-radius:14px;cursor:pointer;background:#fff;color:var(--deep);box-shadow:0 14px 34px rgba(0,0,0,.35);
         font:700 16px/1 var(--sans)">${sel.length?'Done':'None of these yet'} &rarr;</button>`;
   } else {
-    opts=q.o.map(([v,t,d],k)=>card(s[q.k]===v, two(t,d), `quizMove(1,()=>pickSkill('${q.k}',${v}),this)`, k)).join('');
+    const was=s[q.k]==null ? skillWas[q.k] : undefined;
+    opts=q.o.map(([v,t,d],k)=>card(s[q.k]===v || was===v, two(t,d), `quizMove(1,()=>pickSkill('${q.k}',${v}),this)`, k)).join('');
   }
   return {q:q.q, sub:q.d, body:`${skillDemo(q)}${opts}${ladder}`};
 }
@@ -11694,7 +11720,7 @@ function retakeIntake(){
   sure('Retake the questions?\n\nYour training history stays. This only changes where you are placed.', 'Retake them', ()=>{
     /* the skills are asked again from the start, rather than opening on
        last time's answers */
-    const a=intake(); a.skills={}; delete a.level; advDraft=null; quizShown='';
+    const a=intake(); a.skills={}; delete a.level; advDraft=null; skillWas={}; quizShown='';
     st.quizDone=false; st.oriented=false; st.quizStep=0; save(); st.tab='quiz'; render();
     window.scrollTo(0,0);
   });
