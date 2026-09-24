@@ -1967,7 +1967,11 @@ export default async (request) => {
        who has had their free week is sent here instead, so it has to work
        with no price id too: the monthly price is made on the spot from the
        price the dashboard sets. */
-    const inline = planKey === 'plus' && !plan.price() && Number(PRICES.plus && PRICES.plus.amount) > 0;
+    /* Only a price id the dashboard itself holds counts. One left in the
+       environment from the £5 days (STRIPE_PRICE_PLUS) won over the price
+       the dashboard sets, so a returning subscriber was shown £10 and
+       charged the old price. */
+    const inline = planKey === 'plus' && !(PRICES.plus && PRICES.plus.priceId) && Number(PRICES.plus && PRICES.plus.amount) > 0;
     if (!stripeKey() || (!plan.price() && !inline)) {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
