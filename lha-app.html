@@ -10496,10 +10496,12 @@ const SKILLS=[
    demo:'wall-kick-ups', t:'2s', o:[[1,'Yes, I can'],[0,'Not yet']]},
   {k:'ctw', q:'How long can you hold chest-to-wall?', d:'Walked up, belly to the wall, hands close to it, arms straight.',
    demo:'chest-to-wall-handstand', t:'2s', o:[[0,'Not yet'],[1,'I can\'t get all the way to the wall'],
-     [2,'I can hold it for 10 seconds'],[3,'I can hold it for 30 seconds or more']]},
-  {k:'free', q:'How long can you balance off the wall?', d:'No wall and no spotter, kicked up on your own.',
-   img:'/assets/welcome/elliott-straight.jpg', o:[[0,'Not yet','I stay on the wall'],[1,'A second or two','Off the wall, then down'],
-     [2,'5 seconds or more','Freestanding, some of the time'],[3,'30 seconds','Most times I kick up']]},
+     [2,'I can hold it for 5 to 20 seconds'],[3,'I can hold it for more than 20 seconds']]},
+  {k:'tuck', q:'Can you do tuck slides?', d:'Chest to the wall, both knees come down together while you hold the balance.',
+   demo:'tuck-slides', t:'2s', o:[[2,'Yes, with my shoulders stacked','Hips over shoulders over hands'],
+     [1,'Yes, but my shoulders are not stacked','The hips or shoulders drift'],[0,'Not yet']]},
+  {k:'free', q:'How long can you balance freestanding, consistently?', d:'No wall and no spotter. What you get most times you kick up, not your best ever.',
+   img:'/assets/welcome/elliott-straight.jpg', o:[[0,'Not yet'],[1,'Up to 10 seconds'],[2,'More than 10 seconds']]},
   {k:'adv', q:'Working on anything more advanced?', d:'Pick any. Elliott sees these, and they shape where he takes you.',
    multi:true,
    o:[['press','Press to handstand'],['onearm','One-arm handstand'],['shapes','Shapes: straddle, tuck, diamond'],['none','Not yet']]},
@@ -10513,32 +10515,37 @@ function skillNext(s){
   if(!s.kick) return -1;
   if(s.ctw==null) return 2;
   if(s.ctw<3) return -1;
-  if(s.free==null) return 3;
+  if(s.tuck==null) return 3;
+  if(s.tuck<2) return -1;
+  if(s.free==null) return 4;
   /* the advanced question is for somebody already holding thirty seconds,
      and never for someone who said they are starting from the beginning */
-  if(s.free===3 && !Array.isArray(s.adv) && (st.intake||{}).goal!=='learn') return 4;
+  if(s.free>=2 && !Array.isArray(s.adv) && (st.intake||{}).goal!=='learn') return 5;
   return -1;
 }
 /* the stage the answers put you on: the wall sets a floor, balance off it
    sets the rest */
 function skillStage(s){
   s=s||{};
-  if(!s.l || !s.kick) return 0;
-  const byWall = s.ctw>=3 ? 1 : 0;
-  const byFree = s.free===3 ? 5 : s.free===2 ? 4 : s.free===1 ? 3 : 0;
-  /* never onto a stage still being filmed: Press is marked soon, and a
-     person placed there was offered a free week of a stage with nothing in
-     it. What they said still reaches Elliott. */
+  /* Elliott's route: the wall decides Foundations or Wall Work, tuck slides
+     with the shoulders stacked decide Pushing More or Take-Off, and more
+     than ten seconds freestanding, most times, is Freestanding. Never a
+     stage still being filmed: Press is marked soon, and what they said
+     about presses still reaches Elliott. */
+  let at;
+  if(!s.l || !s.kick || !s.ctw) at=0;
+  else if(s.ctw<3) at=1;
+  else if(s.tuck==null || s.tuck<2) at=2;
+  else if(s.free==null || s.free<2) at=3;
+  else at=4;
   const top=STAGES.reduce((m,S,i)=>S.soon?m:i, 0);
-  return Math.min(top, Math.max(byWall, byFree));
+  return Math.min(top, at);
 }
-/* The four level words are what the dashboard and the week's defaults
-   still read, so the answers are folded back into them as well. */
 function skillLevel(s){
   s=s||{};
   if(!s.l || !s.kick) return 0;
   if(s.free>=2) return 3;
-  if(s.free===1) return 2;
+  if(s.tuck>=2) return 2;
   return 1;
 }
 /* one line of what they said, for the screen that places them */
@@ -10547,14 +10554,19 @@ function skillLine(a){
   if(!s || skillNext(s)>=0) return '';
   if(!s.l) return 'Not upside down yet. Foundations starts from zero.';
   if(!s.kick) return 'An L-shape, and kicking up to the wall is next.';
-  if(s.ctw<3) return s.ctw===2 ? 'Kicking up, and chest-to-wall for about 10 seconds.'
-    : s.ctw===1 ? 'Kicking up, and not all the way to the wall on chest-to-wall yet.' : 'Kicking up, and chest-to-wall is next.';
+  if(!s.ctw) return 'Kicking up, and chest-to-wall is next.';
+  if(s.ctw===1) return 'Kicking up, and not all the way to the wall on chest-to-wall yet.';
+  if(s.ctw===2) return 'Chest-to-wall for 5 to 20 seconds.';
+  if(!s.tuck) return 'More than 20 seconds on the wall, and tuck slides are next.';
+  if(s.tuck===1) return 'Tuck slides, with the shoulders still to stack.';
+  if(!s.free) return 'Tuck slides with the shoulders stacked, and not freestanding yet.';
+  if(s.free===1) return 'Up to 10 seconds freestanding.';
   const adv=(s.adv||[]).filter(x=>x!=='none').map(x=>({press:'presses',onearm:'one-arm',shapes:'shapes'})[x]).filter(Boolean);
-  if(s.free===3) return 'Thirty seconds freestanding most tries'+(adv.length?', and working on '+adv.join(' and ')+'.':'.');
-  if(s.free===2) return 'Five seconds or more freestanding, some of the time.';
-  if(s.free===1) return 'A second or two off the wall, then down.';
-  return 'Chest-to-wall for 30 seconds or more, and not off the wall yet.';
+  return 'More than 10 seconds freestanding, most times'+(adv.length?', and working on '+adv.join(' and ')+'.':'.');
 }
+/* presses and one-arm are not taught in the app yet, so saying so and
+   pointing at coaching is the honest answer to someone working on them */
+const wantsCoaching = a => !!(a && a.skills && (a.skills.adv||[]).some(x=>x==='press'||x==='onearm'));
 function skillSettle(a){
   const s=a.skills||{};
   if(skillNext(s)<0){ a.level=skillLevel(s); a.placedBy='skills'; } else { delete a.level; }
@@ -10740,8 +10752,8 @@ const QUIZ_STILLS=['/assets/welcome/elliott-and-suryava.jpg','/assets/welcome/el
 function quizBg(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i]||{};
   if(step.id==='goal') return null;   /* the front door's films carry on */
-  const n=step.id==='niggles' ? 5 : skillNext((st.intake||{}).skills);
-  return {src:QUIZ_STILLS[(n<0?4:n)%QUIZ_STILLS.length], portrait:true};
+  const n=step.id==='niggles' ? 6 : skillNext((st.intake||{}).skills);
+  return {src:QUIZ_STILLS[(n<0?5:n)%QUIZ_STILLS.length], portrait:true};
 }
 function screenQuiz(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
@@ -11032,7 +11044,13 @@ const trialPending = () => !coachedView() && !isPlus() && !st.freeChoice && !tas
   && placedStage() > FREE_STAGES-1 && !!STAGES[placedStage()];
 function openTrial(){ st.ovStage=placedStage(); openOv('stage'); }
 function chooseFree(thenTrain){
-  st.freeChoice=true; save();
+  /* Foundations by choice is Foundations properly: its stage, its check
+     points and its sessions, on the account as well as the phone, not a
+     note saying their answers put them higher. What they answered stays in
+     the quiz for Elliott, and the week is still offered on every stage
+     above. */
+  st.freeChoice=true; st.stage=0; save();
+  try{ saveStateDown(); }catch(e){} try{ sendIntake(); }catch(e){}
   try{ if(st.ov) closeOv(); }catch(e){}
   render();
   if(thenTrain) setTimeout(()=>startDay(-1,'full'), 60);
@@ -11365,7 +11383,14 @@ function screenOriented(){
                  escape route look like the offer. -->
           </div>
         </div>`;})():''}
-
+      ${wantsCoaching(a)?`<div style="margin-top:16px;border-radius:20px;padding:18px 20px;background:var(--deep);color:#fff">
+        <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#8fe3d6">PRESS AND ONE-ARM</div>
+        <div style="font:400 19px/1.3 var(--serif);margin-top:9px">The app does not teach these yet. Coaching does.</div>
+        <div style="font:400 13.5px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:7px">
+          Elliott writes the plan around what you are working on, watches your clips and tells you what to change.</div>
+        <button onclick="st.oriented=true;save();go('coaching')" style="width:100%;min-height:48px;margin-top:14px;border:0;
+          border-radius:14px;cursor:pointer;background:#fff;color:var(--deep);font:600 15px/1 var(--sans)">See coaching</button>
+      </div>`:''}
 
     </div></div>
 
@@ -11394,7 +11419,7 @@ function screenOriented(){
         ${!gated ? 'Start your first session'
           : tasteUsed ? (trialLine() ? 'Start the free week' : 'Open '+esc(PS.n))
           : st.token ? 'Train at '+esc(PS.n) : 'Try '+esc(PS.n)+' free'}</button>
-      ${gated?`<button onclick="st.oriented=true;st.freeChoice=true;save();go('home')"
+      ${gated?`<button onclick="st.oriented=true;save();chooseFree();go('home')"
         style="width:100%;background:none;border:none;cursor:pointer;margin-top:2px;padding:11px;
         font:600 13.5px/1 var(--sans);color:var(--forest)">
         Start on ${esc(S.n)} instead</button>`:''}
