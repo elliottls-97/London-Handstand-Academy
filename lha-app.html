@@ -863,6 +863,7 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 <script src="ladder-data.js"></script>
 <script src="timing.js"></script>
 <script src="voice.js"></script>
+<script src="vidshrink.js"></script>
 <script>
 let DATA={
   /* Deliberately empty. Plans arrive from /api/app/programme, chosen by the
@@ -3647,7 +3648,7 @@ function cpSay(k,t){
 }
 function cpSendClip(k,file){
   if(cpUpBusy) return;
-  if(file.size > 100*1024*1024){ cpSay(k,'Too large. Keep it under 100MB, about three minutes from a phone.'); return; }
+  if(file.size > VID_MAX){ vidOffer(file, t=>cpSay(k,t)).then(f=>{ if(f) cpSendClip(k,f); }).catch(e=>cpSay(k,String(e))); return; }
   cpUpBusy=k; cpSay(k,'Getting ready…');
   fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
@@ -6152,11 +6153,33 @@ async function shrinkPhoto(file, max=1600, quality=0.82){
   return c.toDataURL('image/jpeg',quality);
 }
 
+/* ── a clip over the limit: shrink it here first ─────────────────────
+   The limit was 100MB, which a phone passes in under a minute of 4K. It
+   is Cloudflare's own 200MB now, and a clip over that is offered a
+   shrink on the phone (vidshrink.js) rather than a flat no. Resolves the
+   file to send, or null when they would rather not. */
+function vidOffer(file, say){
+  const mb=vidMB(file.size);
+  if(typeof vidShrinkOk!=='function' || !vidShrinkOk())
+    return Promise.reject('That clip is '+mb+'MB and the most that can be sent is 200MB. Film at 1080p or trim it, then send it again.');
+  return new Promise((resolve,reject)=>{
+    sure('That clip is '+mb+'MB.\n\nThe most that can be sent is 200MB. This phone can shrink it first. '
+      +'It takes about as long as the clip, the screen needs to stay open while it does, nothing is sent until it is done, and it costs nothing.',
+      'Shrink it and send', ()=>{
+        say('Shrinking it. Keep this screen open.');
+        vidShrink(file, p=>say('Shrinking it, '+Math.round(p*100)+'%. Keep this screen open.'))
+          .then(f=>{ if(f.size>VID_MAX) return reject('Still over 200MB after shrinking. Trim it, then send it again.');
+            say('Shrunk to '+vidMB(f.size)+'MB. Sending…'); resolve(f); })
+          .catch(e=>reject(String(e)));
+      }, false, ()=>{ say(''); resolve(null); });
+  });
+}
+
 /* one uploader, three callers: the chat, the free assessment, and the
    two-week test. The file goes phone → Cloudflare directly either way. */
 function uploadClip(file, say){
   say=say||upSay;
-  if(file.size > 100*1024*1024) return Promise.reject('That file is very large. Keep it under 100MB, about three minutes from a phone.');
+  if(file.size > VID_MAX) return vidOffer(file, say).then(f=>f ? uploadClip(f, say) : Promise.reject(''));
   say('Getting ready…');
   return fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
@@ -6670,7 +6693,7 @@ function sendClip(file){
   if(upBusy) return;
   /* 180s is the cap the server sets on the upload link, so say so before
      they wait through an upload that will be rejected */
-  if(file.size > 100*1024*1024){ upSay('That file is very large. Keep it under 100MB, about three minutes from a phone.'); return; }
+  if(file.size > VID_MAX){ vidOffer(file, upSay).then(f=>{ if(f) sendClip(f); }).catch(e=>upSay(String(e))); return; }
   upBusy=true; upPct=0; upSay('Getting ready…');
 
   fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
@@ -7222,7 +7245,7 @@ function closeMenu(){ menuOpen=false; const m=$('#menu'); if(!m) return; m.class
    apps, a preview pane. It answers Cancel without asking, so the button
    did nothing at all: Retake the questions, Drop back a stage, Move up,
    and the rest. The same question, drawn by the app, so it always asks. */
-function sure(msg, ok, fn, danger){
+function sure(msg, ok, fn, danger, onCancel){
   const old=document.getElementById('sure'); if(old) old.remove();
   const parts=String(msg).split('\n\n'), head=parts.shift();
   const box=document.createElement('div'); box.id='sure';
@@ -7241,9 +7264,10 @@ function sure(msg, ok, fn, danger){
       <button data-x style="width:100%;height:46px;margin-top:4px;border:0;background:none;cursor:pointer;
         font:600 15px/1 var(--sans);color:var(--grey)">Cancel</button>
     </div>`;
-  const key=e=>{ if(e.key==='Escape') close(); };
+  const key=e=>{ if(e.key==='Escape') cancel(); };
   const close=()=>{ box.remove(); document.removeEventListener('keydown', key); };
-  box.querySelectorAll('[data-x]').forEach(el=>el.addEventListener('click', close));
+  const cancel=()=>{ close(); if(typeof onCancel==='function') onCancel(); };
+  box.querySelectorAll('[data-x]').forEach(el=>el.addEventListener('click', cancel));
   box.querySelector('[data-ok]').addEventListener('click', ()=>{ close(); fn(); });
   document.addEventListener('keydown', key);
   document.body.appendChild(box);

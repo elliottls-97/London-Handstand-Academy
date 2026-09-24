@@ -383,6 +383,7 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 <script src="ladder-data.js"></script>
 <script src="timing.js"></script>
 <script src="voice.js"></script>
+<script src="vidshrink.js"></script>
 <script>
 const API='/api/app/coach';
 /* Not every route the dashboard needs is a coach route. /upload is the same
@@ -5918,6 +5919,16 @@ function clipSay(v, t){ clipMsg[v]=t;
   if(el) el.textContent=t; else draw();
 }
 function clipUpload(v, file, after){
+  /* over Cloudflare's 200MB: shrink it here first, on this computer */
+  if(file.size > VID_MAX){
+    if(typeof vidShrinkOk!=='function' || !vidShrinkOk()){ clipSay(v,'Over 200MB, and this browser cannot shrink it. Export it at 1080p and try again.'); return; }
+    if(!confirm('That clip is '+vidMB(file.size)+'MB, over the 200MB Cloudflare takes.\n\nShrink it here first? It takes about as long as the clip, keep this tab open, and it costs nothing.')) return;
+    clipBusy=v; clipSay(v,'Shrinking…'); draw();
+    vidShrink(file, p=>clipSay(v,'Shrinking '+Math.round(p*100)+'%'))
+      .then(f=>{ clipBusy=''; if(f.size>VID_MAX){ clipSay(v,'Still over 200MB. Trim it and try again.'); draw(); return; } clipUpload(v, f, after); })
+      .catch(e=>{ clipBusy=''; clipSay(v,String(e)); draw(); });
+    return;
+  }
   clipBusy=v; clipSay(v,'Starting…'); draw();
   fetch(APP+'/upload',{method:'POST',headers:hdr(),body:'{}'})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
