@@ -157,7 +157,7 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
    and its subject sat behind the words. It is lifted into the top of the
    screen and left clearer there, and the words sit on a dark ground that
    fades up into it. Only the welcome: the quiz keeps its own framing. */
-#wm.front:not(.wide) .wl{top:-9%;bottom:16%}
+#wm.front:not(.wide) .wl{top:-16%;bottom:23%}
 #wm.front:not(.wide)::after{background:linear-gradient(180deg,rgba(3,24,22,.5) 0%,rgba(3,24,22,.1) 13%,
  rgba(3,24,22,.08) 40%,rgba(3,24,22,.5) 54%,rgba(3,24,22,.9) 65%,#062522 76%,#062522 100%)}
 /* ── the ladder, drawn as one: six steps climbing from Foundations ── */
@@ -167,8 +167,11 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
  box-shadow:0 30px 70px -30px rgba(0,0,0,.65)}
 .stairs .step{display:flex;gap:12px;align-items:flex-start;padding:12px 14px 13px;border-radius:14px;
  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
- border-top:2px solid rgba(143,227,214,.55);transition:transform .25s cubic-bezier(.2,.8,.2,1),background .25s}
-.stairs .step:hover{transform:translateX(4px);background:rgba(255,255,255,.12)}
+ border-top:2px solid rgba(143,227,214,.55);transition:background .2s,border-color .2s}
+/* a hover that lights the step and moves nothing: sliding it sideways
+   pulled it out from under a pointer near its edge, which unhovered it and
+   slid it back, over and over, and read as a flicker */
+.stairs .step:not(.free):hover{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.2);border-top-color:#8fe3d6}
 .stairs .step.free{background:#fff;color:var(--ink);border-color:#fff;border-top-color:var(--forest)}
 .stairs .step .n{flex:none;width:24px;height:24px;border-radius:999px;display:grid;place-items:center;
  font:700 11px/1 var(--sans);background:rgba(255,255,255,.14);color:#fff}
@@ -176,7 +179,19 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .stairs .step .t{font:600 14.5px/1.2 var(--sans)}
 .stairs .step .d{display:block;margin-top:4px;font:400 12.5px/1.45 var(--sans);color:rgba(255,255,255,.72)}
 .stairs .step.free .d{color:var(--grey)}
+/* the direction of travel, up the left: a line from the first step to an
+   arrowhead at the top, so it reads as a climb and not a list upside down */
+.stairs .climb{position:relative;padding-left:34px}
+.stairs .rail{position:absolute;left:11px;top:6px;bottom:22px;width:2px;border-radius:2px;
+ background:linear-gradient(0deg,#8fe3d6,rgba(143,227,214,.25))}
+.stairs .rail::before{content:"";position:absolute;left:50%;top:-7px;transform:translateX(-50%);
+ border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid rgba(143,227,214,.5)}
+.stairs .rail::after{content:"";position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);
+ width:12px;height:12px;border-radius:50%;background:#8fe3d6;box-shadow:0 0 0 4px rgba(143,227,214,.2)}
 @media (prefers-reduced-motion:reduce){.stairs .step{transition:none}}
+/* the glass keeps its own layer, so the film changing behind it does not
+   repaint the steps on every frame */
+.stairs{isolation:isolate;transform:translateZ(0)}
 #wm.still::after{background:linear-gradient(180deg,rgba(3,24,22,.82) 0%,rgba(3,24,22,.6) 32%,
  rgba(3,24,22,.66) 60%,rgba(3,24,22,.9) 100%)}
 @keyframes qIn{from{opacity:0;transform:translate3d(34px,0,0)}to{opacity:1;transform:none}}
@@ -15422,7 +15437,9 @@ function wmStill(){
   }catch(e){}
   return '';
 }
-function wmCount(){ return wm.mode==='still' ? 1 : Math.max(1, Math.min(3, Math.round(innerWidth/(innerHeight*.5625)))); }
+/* two at most, a half each: three strips on a monitor were each too narrow
+   to see anybody in */
+function wmCount(){ return wm.mode==='still' ? 1 : Math.max(1, Math.min(2, Math.round(innerWidth/(innerHeight*.5625)))); }
 function wmBuild(){
   const n=wmCount();
   if(wm.el && wm.panels.length===n) return;
@@ -15553,7 +15570,7 @@ function screenWelcome(){
         <span class="n">${i+1}</span>
         <span style="flex:1;min-width:0">
           <span style="display:flex;align-items:baseline;gap:8px"><span class="t">${esc(S.n)}</span>
-            ${i<FREE_STAGES?`<span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">FREE</span>`:''}</span>
+            ${i<FREE_STAGES?`<span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">FREE &middot; START HERE</span>`:''}</span>
           <span class="d">${esc(S.sum||S.goal||'')}</span></span></div>`).join('');
     return `<div class="scroll s full" style="min-height:100dvh;display:grid;place-content:center;
       padding:48px 56px;background:transparent;color:#fff">
@@ -15576,8 +15593,11 @@ function screenWelcome(){
         <div class="stairs">
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:16px">
             <span style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:#a9e6dc">The ladder</span>
-            <span style="font:400 12.5px/1.3 var(--sans);color:rgba(255,255,255,.66)">The questions find your step</span></div>
-          <div style="display:flex;flex-direction:column;gap:8px">${steps}</div>
+            <span style="font:400 12.5px/1.3 var(--sans);color:rgba(255,255,255,.72)">Start at the bottom and climb</span></div>
+          <div class="climb"><span class="rail" aria-hidden="true"></span>
+            <div style="display:flex;flex-direction:column;gap:8px">${steps}</div></div>
+          <div style="margin-top:14px;font:400 12.5px/1.5 var(--sans);color:rgba(255,255,255,.66)">
+            Reach a stage&rsquo;s check points and the one above it opens. The questions find the step you start on.</div>
         </div>
       </div>
     </div>`;
