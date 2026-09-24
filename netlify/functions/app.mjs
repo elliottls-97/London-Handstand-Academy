@@ -3069,6 +3069,33 @@ export default async (request) => {
         await setSetting('ladder:bands', all);
         return json({ ok: true, ladderOff: off, ladderExtra: extra, bands: all });
       }
+      /* ── putting a drill on a stage ──────────────────────────────
+         From the Drills list, one line per drill with a stage ticked on:
+         it joins the stage's pool, the same list a drill made here lands
+         in, at the group and level given, and comes back if it had been
+         taken off. A shipped drill needs only taking out of the off list.
+         Its workouts are left alone: the app builds sessions from the pool. */
+      if (Array.isArray(body.addStage)) {
+        const st0 = String(Number(body.stage));
+        if (!/^[0-5]$/.test(st0)) return json({ error: 'Which stage?' }, 400);
+        const extra = (await getSetting('ladder:extra')) || {};
+        const off = (await getSetting('ladder:off')) || {};
+        const list = (extra[st0] || []).slice(); const offs = new Set(off[st0] || []);
+        for (const x of body.addStage.slice(0, 40)) {
+          const v = String((x && x.v) || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+          if (!v) continue;
+          offs.delete(v);
+          if (x && x.shipped) continue;
+          const g = String((x && x.g) || '').slice(0, 40) || 'Strength';
+          const L = Math.max(1, Math.min(4, Number(x && x.L) || 2));
+          const at = list.findIndex(y => y && y.v === v);
+          if (at > -1) list[at] = { v, g, L }; else list.push({ v, g, L });
+        }
+        extra[st0] = list; off[st0] = [...offs];
+        await setSetting('ladder:extra', extra);
+        await setSetting('ladder:off', off);
+        return json({ ok: true, ladderExtra: extra, ladderOff: off, bands: all });
+      }
       const stage = String(Number(body.stage));
       const band = String(Number(body.band));
       if (!/^[0-5]$/.test(stage) || !/^[123]$/.test(band)) {

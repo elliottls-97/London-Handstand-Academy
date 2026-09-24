@@ -8748,20 +8748,53 @@ function clipCheckHTML(){
       `<p class="muted" style="font:400 13px/1.5 var(--sans);margin:0 0 6px">These drills are not the same movement but show the same film. Choose the right clip for whichever is wrong.</p>`
       +shared.map(([u,g])=>`<div style="margin-top:8px">${g.map(v=>row(v,g,false)).join('')}</div>`).join('')):'');
 }
+/* ── the stages a drill is on, from its own line ────────────────────
+   The list was a line per drill per stage, so a drill on three stages was
+   three lines and the same movement looked like three drills. One line
+   each now, with the six stages beside it: tap one to put the drill on it
+   or take it off. Levels and doses stay per stage, under Ladder workouts. */
+const STAGE_SHORT=['Found','Wall','Push','Take-off','Free','Press'];
+let drStageBusy='';
+function drStageToggle(v, i){
+  if(drStageBusy) return;
+  const S=STAGES[i]||{}, n=(libIndex||{})[v]||v;
+  const on=wkPoolFor(i).some(x=>x.v===v);
+  const done=d=>{ if(d.ladderExtra) wkExtra=d.ladderExtra; if(d.ladderOff) wkOff=d.ladderOff; if(d.bands) wkBands=d.bands; drStageBusy=''; };
+  const post=body=>fetch(API+'/bands',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))));
+  if(on){
+    if(!confirm('Take '+n+' off '+S.n+'?\n\nIt comes out of the workouts there. It stays in the library and on any other stage.')) return;
+    drStageBusy=v+':'+i; draw();
+    post({stage:i, offStage:[{v}]}).then(d=>{ done(d); flash(n+' is off '+S.n); draw(); })
+      .catch(e=>{ drStageBusy=''; alert(String(e)); draw(); });
+    return;
+  }
+  const shipped=(POOL[i]||[]).length ? (POOL[i]||[]).some(x=>x.v===v) : ((S.drillIds||[]).indexOf(v)>-1);
+  /* the group and level it has on another stage, as a start */
+  let g='Strength', L=2;
+  for(let k=0;k<(STAGES||[]).length;k++){ const x=wkPoolFor(k).find(y=>y.v===v); if(x){ g=x.g||g; L=wkLvlOf(k,v)||L; break; } }
+  drStageBusy=v+':'+i; draw();
+  post({stage:i, addStage:[{v, g, L, shipped}]}).then(d=>{ done(d);
+      flash(n+' is on '+S.n+(shipped?'':', level '+L+'. Change it under Ladder workouts.')); draw(); })
+    .catch(e=>{ drStageBusy=''; alert(String(e)); draw(); });
+}
+function drStageChips(v){
+  return `<span style="display:flex;gap:4px;flex-wrap:wrap">${(STAGES||[]).map((S,i)=>{
+    const on=wkPoolFor(i).some(x=>x.v===v), L=on?wkLvlOf(i,v):0, busy=drStageBusy===v+':'+i;
+    return `<button onclick="drStageToggle('${esc(v)}',${i})" title="${esc(S.n)}${on?(L?', level '+L:'')+'. Tap to take it off.':'. Tap to put it on.'}"
+      aria-pressed="${on?'true':'false'}" style="cursor:pointer;border-radius:999px;padding:5px 6px;font:600 11px/1 var(--sans);
+      min-width:${[58,50,50,70,48,58][i]||50}px;text-align:center;
+      border:1px solid ${on?'var(--forest)':'var(--line)'};background:${on?'var(--forest)':'#fff'};color:${on?'#fff':'var(--grey2)'};
+      opacity:${busy?.5:1}">${STAGE_SHORT[i]||S.n}${on&&L?`<span style="opacity:.7;font-weight:500"> ${L}</span>`:''}</button>`; }).join('')}</span>`;
+}
 function libDrillsHTML(){
   drLoad(); wkBandsLoad();
-  const rows=[];
-  (STAGES||[]).forEach((S,i)=>{
-    wkPoolFor(i).forEach(x=>{
-      rows.push({v:x.v, name:(libIndex&&libIndex[x.v])||x.v, stage:S.n,
-                 grp:x.g||'', lvl:wkLvlOf(i,x.v)});
-    });
-  });
-  /* and every drill that is on no stage: made here, in a programme, or a
-     check point's demo, which the list never showed and so could not edit */
-  const onLadder=new Set(rows.map(r=>r.v));
-  Object.keys(libIndex||{}).forEach(v=>{ if(!onLadder.has(v) && !drOffSet().has(v))
-    rows.push({v, name:libIndex[v]||v, stage:'Not on the ladder', grp:'', lvl:0}); });
+  /* every drill once: in stage order where it is on the ladder, then the
+     ones on no stage (made here, in a programme, or a check point's demo) */
+  const ids=[], seenV=new Set();
+  (STAGES||[]).forEach((S,i)=>wkPoolFor(i).forEach(x=>{ if(!seenV.has(x.v)){ seenV.add(x.v); ids.push(x.v); } }));
+  Object.keys(libIndex||{}).forEach(v=>{ if(!seenV.has(v) && !drOffSet().has(v)){ seenV.add(v); ids.push(v); } });
+  const rows=ids.map(v=>({v, name:(libIndex&&libIndex[v])||v}));
   const q=(drillQ||'').trim().toLowerCase();
   /* which have a film and which still need one, so the filming list is
      one press away rather than a scroll down six stages of rows */
@@ -8783,18 +8816,16 @@ function libDrillsHTML(){
       <button class="btn btn-primary" onclick="openNewDrill()">New drill</button>
     </div>
     ${drillClip==='check' ? clipCheckHTML() : `<p class="muted" style="font:400 13px/1.5 var(--sans);margin-bottom:var(--space-3)">
-      ${shown.length} of ${rows.length} drills on the ladder. Doses and levels are set per stage
-      under Ladder workouts.</p>`}
+      ${shown.length} of ${rows.length} drills, one line each. Tap a stage to put the drill on it or take it off;
+      the number is its level there. Levels and doses are set per stage under Ladder workouts.</p>`}
     ${drillClip==='check' ? '' : (()=>{ let opened=false; return shown.slice(0,400).map(r=>{
-      /* a drill on three stages is three rows, and its editor opens once */
       const here = drOpen===r.v && !opened; if(here) opened=true;
       return `<div style="display:grid;
-      grid-template-columns:minmax(0,1fr) 150px 80px 70px 60px;gap:var(--space-3);align-items:center;
+      grid-template-columns:minmax(0,1fr) auto 70px 60px;gap:var(--space-3);align-items:center;
       padding:var(--space-2) var(--space-1);border-bottom:1px solid rgba(17,17,17,.08);
       font:400 14px/1.4 var(--sans)">
-      <span style="font-weight:600">${esc(r.name)}</span>
-      <span class="muted">${esc(r.stage)}</span>
-      <span class="muted">${r.lvl?'Level '+r.lvl:'no level'}</span>
+      <span style="font-weight:600;min-width:0">${esc(r.name)}</span>
+      ${drStageChips(r.v)}
       <span style="color:${hasClip(r.v)?'var(--grey)':'var(--terra)'}">${
         hasClip(r.v)?'has clip':'no clip'}</span>
       <button class="btn btn-ghost btn-sm" onclick="drEdit('${esc(r.v)}')">${here?'Close':'Edit'}</button>
