@@ -3208,6 +3208,21 @@ const GOAL_LABEL={learn:'Learn to handstand',hold:'Hold a freestanding handstand
   improve:'Improve my handstand',advanced:'Advanced skills — press, one-arm'};
 const LEVEL_LABEL=['Never done handstands',"Stuck at the wall",
   'Can briefly balance','Can hold ten seconds or more'];
+/* The quiz asks what they can do now, one skill at a time, and stops at
+   the first one out of reach, so a missing row means it was never asked. */
+function skillRows(sk){
+  const yn=v=>v==null?null:(v?'Yes':'Not yet');
+  const ctw=['Not yet','Under 30 seconds','30 to 60 seconds','A minute or more, stuck against the wall'];
+  const free=['Not yet','A second or two','5 seconds or more','30 seconds, most tries'];
+  const adv={press:'Press',onearm:'One-arm',shapes:'Shapes',none:'Not yet'};
+  return [
+    ['L-shaped handstand', yn(sk.l)],
+    ['Kick up to the wall', yn(sk.kick)],
+    ['Chest-to-wall', sk.ctw!=null?ctw[sk.ctw]:null],
+    ['Off the wall', sk.free!=null?free[sk.free]:null],
+    ['Working on', Array.isArray(sk.adv)?sk.adv.map(x=>adv[x]||x).join(', '):null],
+  ].filter(r=>r[1]!=null);
+}
 
 /* ── what the client has been tracking ─────────────────────────────
    Habits, the three numbers, and the fortnightly check-in. Read-only:
@@ -6715,9 +6730,11 @@ function intakeHTML(email){
   if(!a) return `<div class="kick" style="margin-top:24px">WHAT THEY SAID</div>
     <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">
       They joined before the intake existed, or have not finished it.</div>`;
+  const sk=a.skills||null;
   const rows=[
     ['Goal', GOAL_LABEL[a.goal]||a.goal||'—'],
     ['Level at signup', (a.level!=null?LEVEL_LABEL[a.level]:null)||'—'],
+    ...(sk?skillRows(sk):[]),
     ['Said they would train', a.days?`${a.days}× a week, ${a.mins||'?'} min`:'—'],
   ];
   const hurts=(a.niggles||[]).filter(x=>x&&x!=='Nothing right now');
@@ -9393,9 +9410,36 @@ function streamLoad(){
   fetch(API+'/stream/status',{headers:hdr()}).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ streamSt=d; draw(); } }).catch(()=>{});
 }
+let streamLockReady=false;
 function streamLock(unlockAll){
   if(streamBusy) return;
-  const free=(STAGES[0].drillIds||[]).concat((typeof WRIST_DAY!=='undefined'&&WRIST_DAY.drills)||[]);
+  /* The free list below is built from the Workouts tab's data, which only
+     loads when that tab is opened, so pressing Lock from here would have
+     left the written workouts and edited check points out. Read them first. */
+  if(!unlockAll && !streamLockReady){
+    streamBusy=true; streamMsg='Reading the ladder first…'; draw();
+    Promise.all([
+      fetch(API+'/bands',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(!d) return;
+        if(d.bands) wkBands=d.bands; if(d.ladderExtra) wkExtra=d.ladderExtra; if(d.ladderOff) wkOff=d.ladderOff; }).catch(()=>{}),
+      fetch(API+'/checkpoints',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d) wkCpsData=d.ladderCps||{}; }).catch(()=>{})
+    ]).then(()=>{ streamBusy=false; streamLockReady=true; streamMsg=''; draw(); streamLock(unlockAll); });
+    return;
+  }
+  /* Everything a free Foundations session can put on screen, not only the
+     stage's own drill list: the written pool and the coach's additions, the
+     three written workouts, the warm-up every session opens with, the
+     stage's sections, its check point demos and the mobility day. The list
+     was the first and last of those, so locking the library broke seven
+     Foundations films for exactly the free accounts it is free for. */
+  const free=[];
+  const addF=v=>{ if(v && free.indexOf(v)<0) free.push(v); };
+  (STAGES[0].drillIds||[]).forEach(addF);
+  (wkPoolFor(0)||[]).forEach(x=>addF(x&&x.v));
+  [1,2,3].forEach(b=>{ const w=((wkBands['0']||{})[String(b)]); if(Array.isArray(w)) w.forEach(addF); });
+  ((typeof RAMP_ALL!=='undefined'&&RAMP_ALL)||[]).forEach(addF);
+  (((typeof STAGE_SECTIONS!=='undefined'&&STAGE_SECTIONS['0'])||[])).forEach(sec=>(sec.items||[]).forEach(it=>addF(it&&it.v)));
+  (wkCpsMerged(0)||[]).forEach(c=>addF(c&&c.demo));
+  ((typeof WRIST_DAY!=='undefined'&&WRIST_DAY.drills)||[]).forEach(addF);
   /* ── which drill belongs to which stage ────────────────────────
      The server has never known: the pools are in the app's data file,
      which is why this hands it the free ones. It hands over the whole

@@ -773,6 +773,18 @@ const clearCode = (e, kind) =>
 /* The six digit code that sets a password, first or forgotten. Sent by
    Forgotten it? and Set a password, and by a sign up that lands on an
    account with no password yet, which is the same errand. */
+/* The quiz's skill answers: what someone can do, easiest first. Small
+   numbers and a short list, and nothing else gets through. */
+function cleanSkills(x) {
+  if (!x || typeof x !== 'object') return null;
+  const n = (v, max) => (Number.isInteger(v) && v >= 0 && v <= max) ? v : undefined;
+  const out = {};
+  const put = (k, v) => { if (v !== undefined) out[k] = v; };
+  put('l', n(x.l, 1)); put('kick', n(x.kick, 1)); put('ctw', n(x.ctw, 3)); put('free', n(x.free, 3));
+  if (Array.isArray(x.adv)) out.adv = x.adv.map(v => String(v).slice(0, 12)).filter(v => /^(press|onearm|shapes|none)$/.test(v)).slice(0, 4);
+  if (Array.isArray(x.path)) out.path = x.path.map(v => String(v).slice(0, 8)).filter(v => /^(l|kick|ctw|free|adv)$/.test(v)).slice(0, 5);
+  return Object.keys(out).length ? out : null;
+}
 async function sendSetCode(e) {
   const n = new Uint32Array(1); crypto.getRandomValues(n);
   const code = String(100000 + (n[0] % 900000));
@@ -3825,6 +3837,8 @@ export default async (request) => {
           }
         }
         if (Array.isArray(i.niggles)) out.niggles = i.niggles.slice(0, 20).map(x => String(x).slice(0, 40));
+        const sk = cleanSkills(i.skills);
+        if (sk) out.skills = sk;
         cur.intake = out;
       }
       if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
@@ -4065,6 +4079,7 @@ export default async (request) => {
       level: Number.isFinite(Number(a.level)) ? Number(a.level) : null,
       niggles: Array.isArray(a.niggles) ? a.niggles.slice(0, 8).map(x => String(x).slice(0, 40)) : [],
       mins: Number(a.mins) || null, days: Number(a.days) || null,
+      skills: cleanSkills(a.skills),
       at: Date.now(),
     };
     await ensureAcct(who);
