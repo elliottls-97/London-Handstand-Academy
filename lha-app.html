@@ -10979,12 +10979,38 @@ function quizBg(){
   const n=step.id==='niggles' ? 6 : skillNext((st.intake||{}).skills);
   return {src:QUIZ_STILLS[(n<0?5:n)%QUIZ_STILLS.length], portrait:true};
 }
+/* ── how far through, in questions ──────────────────────────────────
+   The skill questions are asked one at a time inside a single step, so the
+   counter said "2 of 3" through all of them and looked stuck. It counts
+   questions: the goal, each skill question as it comes, and the last one.
+   The skills stop as soon as an answer places somebody, so while they are
+   running the total is the most there could be, and it shrinks when they
+   finish early rather than growing. open: that total is still a maximum. */
+function quizCount(){
+  const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i]||{};
+  const a=st.intake||{}, s=a.skills||{};
+  const skip = q => q.k==='adv' && a.goal==='learn';          /* never asked of a learner */
+  const asked = SKILLS.filter(q=>s[q.k]!=null).length;
+  const n = skillNext(s);
+  const others = INTAKE_STEPS.length-1;
+  let skills, at, open=false;
+  if(step.id==='goal'){ skills=SKILLS.filter(q=>!skip(q)).length; at=1; open=true; }
+  else if(step.id==='level'){
+    if(n<0){ skills=asked; at=1+asked; }
+    else { skills=asked+SKILLS.slice(n).filter(q=>!skip(q)).length; at=1+asked+1; open=true; }
+  } else {
+    skills=Math.max(1, asked);
+    at=1+skills+INTAKE_STEPS.slice(0,i).filter(x=>x.id!=='goal'&&x.id!=='level').length+1;
+  }
+  return {at, of:others+skills, open};
+}
 function screenQuiz(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
   const key=quizKey(), fresh=key!==quizShown; quizShown=key;
-  const rails=INTAKE_STEPS.map((_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
-    background:${n<i?'#8fe3d6':n===i?'var(--amber)':'rgba(255,255,255,.22)'};${
-    n===i&&fresh?'transform-origin:left;animation:qRail .7s cubic-bezier(.2,.8,.2,1) both':''}"></i>`).join('');
+  const QC=quizCount();
+  const rails=Array.from({length:QC.of},(_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
+    background:${n<QC.at-1?'#8fe3d6':n===QC.at-1?'var(--amber)':'rgba(255,255,255,.22)'};${
+    n===QC.at-1&&fresh?'transform-origin:left;animation:qRail .7s cubic-bezier(.2,.8,.2,1) both':''}"></i>`).join('');
   /* the tick is drawn, so the pressed state has to be said as well */
   const card=(on,body,click,k)=>`<button class="qup" onclick="${click}" aria-pressed="${on?'true':'false'}"
     style="animation-delay:${90+k*60}ms;background:#fff;
@@ -11043,11 +11069,12 @@ function screenQuiz(){
          questions unannounced is where a cold visitor leaves. -->
     <div style="margin-top:22px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
       <span style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:rgba(255,255,255,.7)">${
-        step.kick} &middot; ${i+1} OF ${INTAKE_STEPS.length}</span>
+        step.kick} &middot; ${QC.at} OF ${QC.of}</span>
       <span style="font:400 12.5px/1 var(--sans);color:rgba(255,255,255,.7)">${
-        i===0 ? 'About a minute'
-        : i===INTAKE_STEPS.length-1 ? 'Last one'
-        : (INTAKE_STEPS.length-i-1)+' to go'}</span>
+        QC.at===1 ? 'About a minute'
+        : QC.at>=QC.of ? 'Last one'
+        : QC.open ? 'Up to '+(QC.of-QC.at)+' more'
+        : (QC.of-QC.at)+' to go'}</span>
     </div>
     <div style="margin-top:11px;font:400 32px/1.06 var(--serif);color:#fff;text-shadow:0 2px 20px rgba(0,0,0,.35)">${(()=>{
       const w=String(head.q).trim().split(' ');
