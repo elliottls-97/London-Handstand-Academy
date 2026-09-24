@@ -417,6 +417,24 @@ const COACH_ALERT_KINDS = {
   business: true,     /* bookings, applications, payments */
   signups: false,     /* a new account, feedback about the app */
 };
+/* ── the coach's emails, per kind ──────────────────────────────────
+   The notifications could be switched off kind by kind and the emails
+   could not: every sign-up, message and booking was an email as well,
+   whatever the dashboard said. Each kind's email is its own switch now,
+   on by default, which is what happened before there was a choice.
+   Problems (a payment that matched nothing, a card declined with no
+   account) and account security (a password or an email changed) always
+   send: those are not a kind anybody should be able to miss. */
+const COACH_MAIL_KINDS = { messages: true, checkpoints: true, told: true, business: true, signups: true };
+async function coachMail(client, kind) {
+  try {
+    const to = norm(client ? coachOf(client) : primaryCoach());
+    if (!to) return true;
+    const rec = await pushSubs(to, 'pushcoach');
+    const on = Object.assign({}, COACH_MAIL_KINDS, rec.mail || {});
+    return on[kind] !== false;
+  } catch { return true; }
+}
 async function coachAlert(client, kind, payload) {
   try {
     if (!pushReady()) return;
@@ -1139,7 +1157,7 @@ export default async (request) => {
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }));
       await coachAlert(null, 'business', { title: 'New booking: ' + (nm || e), body: w.title, tag: 'book:' + e });
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${w.title}`,
+      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${w.title}`,
         mail({ title: `${esc(nm || e)} has booked.`,
           paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${wsLive(book).length} of ${w.places || '?'} places taken.${md.code ? ' Code ' + esc(md.code) + '.' : ''}`,
                   md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : ''].filter(Boolean),
@@ -1185,7 +1203,7 @@ export default async (request) => {
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }));
       await coachAlert(null, 'business', { title: (nm || e) + ' paid for a ' + kind + ' minute session', body: 'Set the time on Today.', tag: 'sess:' + e });
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Session to arrange: ${nm || e}, ${kind} min`,
+      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Session to arrange: ${nm || e}, ${kind} min`,
         mail({ title: `${esc(nm || e)} has paid for a ${kind} minute session.`,
           paras: [prefs ? `Prefers: <b>${esc(prefs)}</b>.` : 'No preferred times given.', 'Check the room, then set the time on Today and they get the confirmation.'],
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
@@ -1324,7 +1342,7 @@ export default async (request) => {
           ? `Welcome${first ? ' ' + first : ''}. You are set up for form checks. Send a clip here whenever you have one: film from the side, whole body in frame, and I will come back with what to change, in writing, against your own footage.`
           : `Welcome${first ? ' ' + first : ''}. Before I write block one I need to see where you are. Film two things, from the side with your whole body in frame: a chest-to-wall hold for as long as you can, and one freestanding attempt, however it goes. Send them here and I will build the first two weeks from them.`;
         try { await threadAdd(db, e2, { from: 'coach', sub: 'auto', text: opener }); } catch {}
-        await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
+        if (await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
           mail({ title: `Someone just bought ${tierName}.`,
             paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster and has an opening message in their thread asking for a baseline clip.`,
                     boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.'],
@@ -1360,7 +1378,7 @@ export default async (request) => {
           signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
       /* the client was told and nobody else was */
       await coachAlert(null, 'business', { title: 'A card was declined', body: clients()[acct.email] || acct.name || acct.email, tag: 'card:' + acct.email });
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Card declined: ${clients()[acct.email] || acct.name || acct.email}`,
         `<p style="font:16px/1.6 system-ui">A payment from ${esc(acct.email)} failed. They have been
          emailed to update their card. Stripe retries for about two weeks before it cancels.</p>`);
@@ -1392,7 +1410,7 @@ export default async (request) => {
     /* the price is a setting now, and it is not five pounds */
     const tierPrice = (PRICES.plus && PRICES.plus.label) || '£5';
     await coachAlert(null, 'business', { title: acct.plus ? `New ${tierPrice} subscriber` : `${tierPrice} subscription cancelled`, body: acct.email || e, tag: 'plus:' + (acct.email || e) });
-    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+    if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${acct.plus ? 'New' : 'Cancelled'} ${tierPrice} subscriber: ${acct.email || e}`,
       `<p style="font:16px/1.6 system-ui">${ev.type} — access is now
        ${acct.plus ? 'on' : 'off'}.</p>`);
@@ -1680,7 +1698,7 @@ export default async (request) => {
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
       await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
-      if (dayN <= 15)
+      if (dayN <= 15 && await coachMail(null, 'signups'))
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `New app sign-up: ${e}`,
         `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
@@ -2080,7 +2098,7 @@ export default async (request) => {
       acct.cancel_at = sub.cancel_at_period_end ? iso((sub.current_period_end || 0) * 1000) : null;
       await saveAcct({ email: who, subscription: acct.subscription,
           cancel_at: acct.cancel_at, plus: acct.plus });
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `${who} ${body.undo ? 'resumed' : 'cancelled'} their £5 subscription`,
         `<p style="font:16px/1.6 system-ui">${body.undo
           ? 'They turned the renewal back on.'
@@ -2534,7 +2552,7 @@ export default async (request) => {
                 'A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it.'].filter(Boolean),
         cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' }, signoff: { name: 'Elliott, London Handstand Academy' } }));
       await coachAlert(null, 'business', { title: 'New booking: ' + nm, body: w.title, tag: 'book:' + nm });
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked.`,
+      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked.`,
         paras: [`<b>${esc(w.title)}</b>. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''}`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
         cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, free: true });
@@ -2759,7 +2777,7 @@ export default async (request) => {
               refunded ? `Refunded in full to the card you paid with; it shows in a few days.`
                 : (b.paid || 0) > 0 ? (early ? 'The refund could not be made automatically, so Elliott will do it by hand.' : 'Inside 48 hours the place cannot be refilled, so it is not refunded automatically. If something serious has happened, reply to this.') : ''].filter(Boolean),
       signoff: { name: 'Elliott, London Handstand Academy' } }));
-    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Cancelled: ${b.name || who}, ${w.title}`,
+    if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Cancelled: ${b.name || who}, ${w.title}`,
       mail({ title: `${esc(b.name || who)} has cancelled.`, paras: [`<b>${esc(w.title)}</b>. ${refunded ? 'Refunded automatically.' : (early ? 'Refund it in Stripe: ' + esc(refundErr || 'no payment intent on the booking') : 'Inside 48 hours, not refunded.')} ${wsLive(book).length} of ${w.places || '?'} places taken now.`],
         cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
     /* somebody waiting gets first go at the place */
@@ -4083,7 +4101,7 @@ export default async (request) => {
               await supa.insert('submissions', { email: who, kind: 'checkpoint', cycle: cycleN,
                 numbers: { k, v: row.v, name: cpName }, clips: [vid], status: 'submitted' });
             } catch {}
-            await email(coachOf(who), `Check point clip from ${clients()[who] || who}`,
+            if (await coachMail(who, 'checkpoints')) await email(coachOf(who), `Check point clip from ${clients()[who] || who}`,
               mail({ title: 'A check point clip came in.',
                 paras: [`<b>${esc(clients()[who] || who)}</b> sent a clip for <b>${esc(cpName)}</b>, logged at ${esc(String(row.v))}.`],
                 cta: { href: `${SITE}/lha-coach.html`, label: 'Watch it' },
@@ -4295,7 +4313,7 @@ export default async (request) => {
     /* anybody can send this, signed in or not, and each one was an email:
        every one is kept in the dashboard, and the first thirty a day are
        emailed as well */
-    if ((await rateHit('fbmail:all', 24 * 3600000)) <= 30)
+    if ((await coachMail(null, 'signups')) && (await rateHit('fbmail:all', 24 * 3600000)) <= 30)
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${label} from the app${who ? ': ' + who : ''}`,
       mail({ title: `${label} from the app.`,
@@ -4324,7 +4342,7 @@ export default async (request) => {
       try { await supa.insert('questions', { email: who, body: body2 }); }
       catch (err) { if (!missingTable(err)) throw err; stored = false; }
       await coachAlert(who, 'messages', { title: 'Question from ' + firstNameOf(who), body: body2.slice(0, 160), tag: 'q:' + who, url: '/lha-coach.html#today' });
-      await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      if (await coachMail(who, 'messages')) await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Question from ${clients()[who] || who}`,
         mail({ title: 'A question came in.',
           paras: [esc(body2)].concat(stored ? [] :
@@ -4386,7 +4404,7 @@ export default async (request) => {
     const lines = Object.entries(answers).filter(([, v]) => v)
       .map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>');
     await coachAlert(null, 'business', { title: 'Coaching application', body: name || e, tag: 'app:' + e });
-    await email(coachOf(e) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+    if (await coachMail(null, 'business')) await email(coachOf(e) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `Coaching application: ${name || e}`,
       mail({
         title: 'Someone wants coaching.',
@@ -4602,7 +4620,7 @@ export default async (request) => {
       }));
 
     await coachAlert(who, 'messages', { title: firstNameOf(who) + ' sent a ' + label.toLowerCase(), body: clips.length + ' clip' + (clips.length === 1 ? '' : 's') + ' to watch', tag: 'sub:' + who, url: '/lha-coach.html#today' });
-    await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+    if (await coachMail(who, 'messages')) await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${clients()[who] || who}: ${label}`,
       `<p style="font:16px/1.6 system-ui">${clips.length} clip${clips.length === 1 ? '' : 's'}
        and ${Object.keys(numbers).length} number${Object.keys(numbers).length === 1 ? '' : 's'}.</p>
@@ -4824,7 +4842,7 @@ export default async (request) => {
               + (fresh.length === 1 ? 'a drill' : fresh.length + ' drills'),
             body: fresh.slice(0, 3).map(f => ((lib.names || {})[f.k] || f.k) + ': too ' + f.rate).join(', '),
             tag: 'flag:' + who, t: 'programme' });
-          await email(coachOf(who),
+          if (await coachMail(who, 'told')) await email(coachOf(who),
             `${nm}: ${fresh.length === 1 ? 'a drill is too ' + fresh[0].rate
               : fresh.length + ' drills flagged'}`,
             mail({ title: `${nm} flagged ${fresh.length === 1 ? 'a drill' : fresh.length + ' drills'}.`,
@@ -5170,7 +5188,7 @@ export default async (request) => {
       const kind = video ? 'sent a video' : image ? 'sent a photo' : voice ? 'sent a voice note' : '';
       /* One email per quiet spell from an account nobody is coaching: the
          dashboard and the notification still carry every message. */
-      if (coachedNow || (await rateHit(`msgmail:${who}`, 600000)) === 1)
+      if ((await coachMail(who, 'messages')) && (coachedNow || (await rateHit(`msgmail:${who}`, 600000)) === 1))
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
         `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
@@ -6614,7 +6632,8 @@ export default async (request) => {
       const rec = await pushSubs(asking || primaryCoach(), 'pushcoach');
       return json({ key: process.env.VAPID_PUBLIC_KEY || '', on: pushReady(), devices: rec.subs.length,
         endpoints: rec.subs.map(x => x.endpoint.slice(-24)),
-        kinds: Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {}) });
+        kinds: Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {}),
+        mail: Object.assign({}, COACH_MAIL_KINDS, rec.mail || {}) });
     }
     if (path === '/coach/push' && request.method === 'POST') {
       const rec = await pushSubs(asking || primaryCoach(), 'pushcoach');
@@ -6636,9 +6655,16 @@ export default async (request) => {
           if (body.kinds[k] !== undefined) rec.kinds[k] = body.kinds[k] === true;
         }
       }
+      if (body.mail && typeof body.mail === 'object') {
+        rec.mail = {};
+        for (const k of Object.keys(COACH_MAIL_KINDS)) {
+          if (body.mail[k] !== undefined) rec.mail[k] = body.mail[k] === true;
+        }
+      }
       await pushSave(asking || primaryCoach(), rec, 'pushcoach');
       return json({ ok: true, devices: rec.subs.length,
-        kinds: Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {}) });
+        kinds: Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {}),
+        mail: Object.assign({}, COACH_MAIL_KINDS, rec.mail || {}) });
     }
     if (path === '/coach/push/test' && request.method === 'POST') {
       if ((await rateHit(`pushtest:${asking || primaryCoach()}`, 600000)) > 5) return json({ error: 'That is a few tests. Try again in a few minutes.' }, 429);

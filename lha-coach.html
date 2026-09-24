@@ -7327,6 +7327,13 @@ function headerHTML(){
         style="background:${active===id?'var(--forest)':'transparent'};
         color:${active===id?'#fff':'var(--ink)'}">${label}${
         c?`<span class="n">${c}</span>`:''}</button>`).join('')}
+      <!-- your own notifications, one tap from anywhere rather than a tab
+           inside Settings -->
+      <button class="navbtn" onclick="go('settings');setGo('alerts')" title="Your notifications" aria-label="Your notifications"
+        style="background:${view==='settings'&&setTab==='alerts'?'var(--forest)':'transparent'};color:${view==='settings'&&setTab==='alerts'?'#fff':'var(--ink)'};
+        display:inline-grid;place-items:center;padding-left:11px;padding-right:11px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></button>
     </nav>
   </header>`;
 }
@@ -9874,7 +9881,9 @@ const KIND_LABELS=[
   ['business','Bookings, applications and payments'],
   ['signups','New sign-ups and app feedback'],
 ];
-let cpush={loaded:false, ready:false, on:false, key:'', kinds:{}, devices:0, ends:[], busy:false, sub:null};
+let cpush={loaded:false, ready:false, on:false, key:'', kinds:{}, mail:{}, devices:0, ends:[], busy:false, sub:null};
+/* the kinds that come as an email as well; sessions finished never have */
+const MAIL_KINDS=['messages','checkpoints','told','business','signups'];
 const cpushOK = () => { try{ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }catch(e){ return false; } };
 const cpushIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
 const cpushStandalone = () => { try{ return matchMedia('(display-mode: standalone)').matches || navigator.standalone===true; }catch(e){ return false; } };
@@ -9888,7 +9897,7 @@ function cpushLoad(){
   if(!TOKEN) return;
   fetch(API+'/push',{headers:hdr()}).then(r=>r.ok?r.json():null).then(async d=>{
     if(!d) return;
-    Object.assign(cpush,{key:d.key||'', ready:!!d.on, kinds:d.kinds||{}, devices:d.devices||0, ends:d.endpoints||[]});
+    Object.assign(cpush,{key:d.key||'', ready:!!d.on, kinds:d.kinds||{}, mail:d.mail||{}, devices:d.devices||0, ends:d.endpoints||[]});
     let sub=null;
     try{ if(cpushOK() && Notification.permission==='granted'){
       const reg=await navigator.serviceWorker.getRegistration('/'); sub=reg ? await reg.pushManager.getSubscription() : null; } }catch(e){}
@@ -9920,6 +9929,11 @@ function cpushTurnOff(){
   fetch(API+'/push',{method:'POST',headers:hdr(),body:JSON.stringify({off:cpush.sub.endpoint})})
     .then(sendOK).then(()=>{ flash('Off for this device'); cpushLoad(); })
     .catch(()=>flash('That did not save. Try again.'));
+}
+function cpushMail(k, on){
+  cpush.mail=Object.assign({}, cpush.mail, {[k]:on}); draw();
+  fetch(API+'/push',{method:'POST',headers:hdr(),body:JSON.stringify({mail:cpush.mail})})
+    .then(sendOK).catch(()=>{ flash('That did not save. Try again.'); cpushLoad(); });
 }
 function cpushKind(k, on){
   cpush.kinds=Object.assign({}, cpush.kinds, {[k]:on}); draw();
@@ -9956,13 +9970,18 @@ function cpushHTML(){
       cpush.devices} device${cpush.devices===1?' gets':'s get'} them in all.</p>`:''}
   </div>
   <div class="card">
-    <h4 style="margin:0">What you hear about</h4>
-    <p class="muted" style="font:400 13px/1.5 var(--sans);margin:6px 0 12px;max-width:60ch">The same on every device. Everything still lands on Today either way.</p>
-    <div style="display:flex;flex-direction:column">
-      ${KIND_LABELS.map(([id,label])=>`<label class="switchrow">
-        <span>${label}</span>
-        <input type="checkbox" class="switch"${k[id]?' checked':''} onchange="cpushKind('${id}',this.checked)">
-      </label>`).join('')}
+    <h4 style="margin:0">What you hear about, and how</h4>
+    <p class="muted" style="font:400 13px/1.5 var(--sans);margin:6px 0 12px;max-width:62ch">An email, a notification on your devices, both or neither,
+      for each kind. Everything still lands on Today either way. A payment that goes wrong and a password or email change always email you.</p>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) 64px 84px;gap:0 12px;align-items:center">
+      <span></span><span class="muted" style="font:600 11px/1 var(--sans);text-align:center;letter-spacing:.06em">EMAIL</span>
+      <span class="muted" style="font:600 11px/1 var(--sans);text-align:center;letter-spacing:.06em">NOTIFICATION</span>
+      ${KIND_LABELS.map(([id,label])=>`<span style="padding:12px 0;border-top:1px solid var(--line);font:500 14px/1.35 var(--sans)">${label}</span>
+        <span style="padding:12px 0;border-top:1px solid var(--line);text-align:center">${MAIL_KINDS.includes(id)
+          ?`<input type="checkbox" class="switch" aria-label="Email for ${esc(label)}"${(cpush.mail||{})[id]!==false?' checked':''} onchange="cpushMail('${id}',this.checked)">`
+          :'<span class="muted" title="There is no email for this kind">&ndash;</span>'}</span>
+        <span style="padding:12px 0;border-top:1px solid var(--line);text-align:center">
+          <input type="checkbox" class="switch" aria-label="Notification for ${esc(label)}"${k[id]?' checked':''} onchange="cpushKind('${id}',this.checked)"></span>`).join('')}
     </div>
   </div>`;
 }
