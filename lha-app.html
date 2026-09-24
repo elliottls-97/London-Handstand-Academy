@@ -2310,8 +2310,8 @@ function savedHomeHTML(){
           : locked ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.'
           : gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
           : (r.taste && !isPlus()) ? 'Your free session, saved for no signal. It opens until you have done it.'
-          : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+'. It plays when you have signal.'
-          : (r.kind==='ex' ? '' : uids.length+' film'+(uids.length===1?'':'s')+', ')+(r.bytes?dlMB(r.bytes)+' · ':'')+'saved '+esc(cpWhen(r.at))+', plays with no signal'}</span>
+          : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+' &middot; needs signal'
+          : 'Saved for no signal &middot; '+esc(cpWhen(r.at))}</span>
       </button>
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
         padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${locked?'&#128274;':going?'Carry on':'Open'}</button>
@@ -2323,8 +2323,7 @@ function savedHomeHTML(){
       <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">${allEx?'Saved for no signal.':'Saved workouts.'}</span>
       <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length}</span>
     </div>
-    <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 0 ${wide()?12:10}px;max-width:62ch">
-      ${allEx?'Explainers kept on this phone, for a gym with no signal.':'Kept on this phone, to do on another day.'}</div>
+    <div style="height:${wide()?10:8}px"></div>
     ${(anyOff && dlTabTip()) ? `<div style="margin:-2px 0 10px">${dlTabTip()}</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:9px">${list.map(card).join('')}</div>
   </section>`;
@@ -11618,13 +11617,34 @@ function railTile(o){
       ${o.sub?`<div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:3px">${esc(o.sub)}</div>`:''}
     </div>`;
 }
-const railHTML = (head, sub, items, tour) => `<section class="rise rise-3"${tour?` data-tour="${tour}"`:''} style="padding:${wide()?24:20}px 0 0">
+const railHTML = (head, sub, items, tour, extra) => `<section class="rise rise-3"${tour?` data-tour="${tour}"`:''} style="padding:${wide()?24:20}px 0 0">
     <div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
-      <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div></div>
+      ${sub?`<div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div>`:''}</div>
+    ${extra?`<div style="padding-top:10px">${extra}</div>`:''}
     <div style="display:flex;gap:12px;overflow-x:auto;padding:12px 20px 6px;scroll-snap-type:x mandatory;scroll-padding-inline:20px;
       scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div></section>`;
-const EX_SUB = 'Short films from Elliott on what this stage is about.';
-const FX_SUB = 'When one thing is holding you back, each of these walks you out of it.';
+/* the rails carry a heading and nothing under it: the films say the rest */
+const EX_SUB = '';
+const FX_SUB = '';
+/* the question box sits on the stage's explainers, where everybody sees
+   it. It was on the library further down, which only an account that had
+   trained ever had, and folded away there. */
+const askInRail = () => !coachedView() && !trialPending() && !!STAGES[curStage()]
+  && stageExplainers(curStage()).some(o=>o.i>=0);
+function askBoxHTML(){
+  return `<div style="padding:0 20px ${wide()?12:8}px">
+        <div style="position:relative">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"
+            stroke-linecap="round" style="position:absolute;left:15px;top:50%;transform:translateY(-50%)">
+            <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+          <input id="askq" value="${esc(st.q||'')}" oninput="askFilter(this.value)"
+            placeholder="Ask a question, or search the films"
+            style="width:100%;border:0;border-radius:14px;padding:14px 14px 14px 42px;min-height:48px;
+            background:#fff;font:400 14.5px/1.3 var(--sans)">
+        </div>
+        <div id="askmatches">${askMatches(st.q||'')}</div>
+      </div>`;
+}
 /* each filmed explainer with its place in FAQS, which is what the player opens */
 const stageExplainers = P => (explainersFor(P)||[]).filter(filmed)
   .map(x=>({x, i:FAQS.findIndex(f=>(x.uid && f.uid===x.uid) || f.id===x.id)}));
@@ -11652,7 +11672,7 @@ function stageFilmsHTML(){
         return railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'',
           go:open?`openExplainer(${i})`:`lockedExplainer(${i})`, lock:open?'':'FREE ACCOUNT'}); }).join(''),
       /* the tour's films step points here until the library is on screen */
-      libShown() ? '' : 'explainers') : '';
+      libShown() ? '' : 'explainers', askBoxHTML()) : '';
   const fixes = fx.length ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
       fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix('${esc(f.slug)}')`,
         lock:(f.access==='plus' && !isPlus()) ? paid : ''})).join('')) : '';
@@ -12333,8 +12353,7 @@ function askMatches(q){
     <p style="margin:0 0 8px;font:500 13.5px/1.45 var(--sans);color:var(--grey)">
       No video on that one yet.</p>${askElliottRow()}</div>`;
   return `<div style="margin-top:10px">
-    ${askElliottRow()}
-    <p style="margin:12px 0 8px;font:600 10px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">
+    <p style="margin:2px 0 8px;font:600 10px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">
       ${hits.length} VIDEO${hits.length===1?'':'S'}</p>
     <div style="display:flex;flex-direction:column;gap:7px">
     ${hits.map(({f,i})=>`<div onclick="${explainerOpen(i)?`openExplainer(${i})`
@@ -12512,8 +12531,7 @@ function fixesHomeHTML(){
       <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">Fix one thing.</span>
       <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length} fix${list.length===1?'':'es'}</span>
     </div>
-    <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 20px ${wide()?12:8}px;max-width:62ch">
-      Something not working? Each one walks you out of it.</div>
+    <div style="height:${wide()?12:8}px"></div>
     <div style="display:flex;gap:12px;overflow-x:auto;padding:0 20px 14px;scroll-snap-type:x mandatory;scroll-padding-inline:20px;
       scrollbar-width:none;-webkit-overflow-scrolling:touch">${list.map(card).join('')}</div>
   </section>`;
@@ -12737,15 +12755,16 @@ function firstPlacedHTML(){
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
       <span style="font:400 22px/1.15 var(--serif)">${esc(S.n)}</span>
       <span style="flex:none;font:500 12.5px/1 var(--sans);color:var(--grey)">Stage ${cs+1} of ${STAGES.length}</span></div>
-    ${S.goal?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(S.goal)}</div>`:''}
-    ${above?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">Your answers put you at
+    <!-- the stage's goal line is on the ladder, where the stages are compared;
+         here the name is enough -->
+    ${above?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">You placed at
       <b style="color:var(--ink)">${esc(PS.n)}</b>.
       <span onclick="event.stopPropagation();openTrial(${placed})" role="button" tabindex="0"
         style="font-weight:600;color:var(--forest);text-decoration:underline;cursor:pointer">${
-        days>0?'Start the '+days+'-day free trial':'Open '+esc(PS.n)}</span> whenever you want it.</div>`:''}
+        days>0?'Try it free for '+days+' days':'Open it'}</span>.</div>`:''}
     <div style="display:flex;gap:4px;margin-top:12px" aria-hidden="true">${STAGES.map((_,i)=>`<span style="flex:1;height:5px;
       border-radius:3px;background:${i<cs?'var(--forest)':i===cs?'var(--deep)':'rgba(0,64,61,.12)'}"></span>`).join('')}</div>
-    ${(r=>r?`<div style="margin-top:12px;border-top:1px solid rgba(0,64,61,.08)">${r}</div>`:'')(introRowsHTML())}
+    ${(r=>r?`<div style="margin:12px 0 -8px;border-top:1px solid rgba(0,64,61,.08)">${r}</div>`:'')(introRowsHTML())}
   </div></div>`;
 }
 /* ── how the app works, beside Start ─────────────────────────────────
@@ -12837,8 +12856,7 @@ function introRowsHTML(){
         <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;
           background:rgba(255,255,255,.92);display:grid;place-items:center"><svg width="7" height="8" viewBox="0 0 17 19" fill="#006663">
           <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></span>
-      <span style="flex:1;min-width:0"><span style="display:block;font:600 13.5px/1.3 var(--sans)">New here? How the app works</span>
-        <span style="display:block;font:400 12px/1.3 var(--sans);color:var(--grey);margin-top:2px">A 3 minute film</span></span>
+      <span style="flex:1;min-width:0;font:600 13.5px/1.3 var(--sans)">How the app works <span style="font-weight:400;color:var(--grey)">&middot; 3 min</span></span>
     </button>`, 'howHide()', 'Hide the film about how the app works'));
   if(re) rows.push(row(`<span style="flex:1;min-width:0;font:400 13px/1.4 var(--sans);color:var(--grey)">Not the right stage?
       <button onclick="event.stopPropagation();retakeIntake()" style="border:0;background:none;padding:0;cursor:pointer;
@@ -12859,9 +12877,7 @@ function homeScreenCard(){
   const how = inApp
       ? (ios ? 'Open this page in Safari first, from the share or &bull;&bull;&bull; menu, then add it from there.'
              : 'Open this page in Chrome first, from the &bull;&bull;&bull; menu, then add it from there.')
-    : installPrompt ? 'One tap and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.'
-    : ios ? 'Two taps in Safari and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.'
-    : 'Two taps in your browser&rsquo;s menu and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.';
+    : 'Full screen, and saved workouts play with no signal.';
   return `<div class="rise rise-3" style="padding:12px 20px 0"><div style="display:flex;gap:14px;align-items:center;
     padding:14px 16px;border-radius:20px;background:#fff;border:1.5px solid rgba(0,102,99,.22)">
     <img src="/icons/icon-180.png" alt="" width="52" height="52" style="flex:none;border-radius:12px;display:block">
@@ -12908,18 +12924,8 @@ function screenHome(){
 
     /* the question box, under the rail on a phone so the films come first
      and the screen still holds the session, the films and the fixes */
-  const searchBox=`<div style="padding:0 20px ${wide()?12:8}px">
-        <div style="position:relative">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"
-            stroke-linecap="round" style="position:absolute;left:15px;top:50%;transform:translateY(-50%)">
-            <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
-          <input id="askq" value="${esc(st.q||'')}" oninput="askFilter(this.value)"
-            placeholder="Ask a question, or search the films"
-            style="width:100%;border:0;border-radius:14px;padding:14px 14px 14px 42px;min-height:48px;
-            background:#fff;font:400 14.5px/1.3 var(--sans)">
-        </div>
-        <div id="askmatches">${askMatches(st.q||'')}</div>
-      </div>`;
+  const searchBox = askInRail() ? '' : askBoxHTML();
+  const libHead = askInRail() ? 'Every film.' : 'Ask, or watch.';
   return `<div class="scroll s">
     <!-- The green hero is gone. It was a third of the screen before anything
          had been said, and the one thing this screen exists for, starting, was
@@ -12992,10 +12998,8 @@ function screenHome(){
            to set before you are allowed to start, and a session is one
            press for nearly everybody: the length and the level are the
            ones they chose last time. -->
-      <div style="font:400 13px/1.45 var(--sans);color:var(--grey);text-align:center">${
-        wide()
-          ? esc(sessTitle)+(sessCount?', '+sessCount+' drill'+(sessCount===1?'':'s'):'')+'. Pick how long and how hard.'
-          : 'Pick how long and how hard.'}</div>
+      ${wide()?`<div style="font:400 13px/1.45 var(--sans);color:var(--grey);text-align:center">${
+          esc(sessTitle)+(sessCount?', '+sessCount+' drill'+(sessCount===1?'':'s'):'')}</div>`:''}
     </div>
     ${wide()?howCardHTML(true):''}
     </div>
@@ -13017,13 +13021,13 @@ function screenHome(){
       <button data-tour="explainers" onclick="st.filmsOpen=true;save();render()" aria-expanded="false"
         style="width:100%;display:flex;align-items:center;gap:12px;border:0;border-radius:18px;cursor:pointer;
         padding:15px 16px;background:#fff;text-align:left;color:var(--ink);box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
-        <span style="flex:1;min-width:0"><span style="display:block;font:400 20px/1.15 var(--serif)">Ask, or watch.</span>
-          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${FAQS_READY().length} films from Elliott, and a box for your own question.</span></span>
+        <span style="flex:1;min-width:0;font:400 20px/1.15 var(--serif)">${libHead}</span>
+        <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${FAQS_READY().length}</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
       </button></section>` : `<section class="rise rise-3" data-tour="explainers" style="padding:${wide()?26:18}px 0 0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 20px ${wide()?12:6}px">
-        <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">Ask, or watch.</span>
+        <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">${libHead}</span>
         <button onclick="st.filmsOpen=false;save();render()" aria-expanded="true" style="border:0;background:none;cursor:pointer;
           padding:4px 0;font:600 13px/1 var(--sans);color:var(--forest)">${FAQS_READY().length} films &middot; Hide</button>
       </div>
@@ -17215,9 +17219,6 @@ function pushNudge(){
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span>
     <div style="flex:1;min-width:0">
       <div style="font:600 14.5px/1.3 var(--sans)">${c?'Know when '+esc(coachLabel())+' replies':'A nudge on your training days'}</div>
-      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">${c
-        ? 'A notification when he replies or signs off a check point, instead of checking the app.'
-        : 'One note on the days you plan to train, and word when a question is answered.'}</div>
       <div style="display:flex;gap:16px;margin-top:10px;align-items:center">
         <button onclick="pushTurnOn()" style="border:0;border-radius:11px;cursor:pointer;
           padding:9px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Turn on</button>
