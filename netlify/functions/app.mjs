@@ -3504,6 +3504,22 @@ export default async (request) => {
     return json({ films });
   }
 
+  /* ── every film on Stream, to put one on a drill rather than upload it
+     again. Its name is the file it was uploaded as. Read only. */
+  if (path === '/coach/stream/videos' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!CF_TOK()) return json({ videos: [], off: true });
+    const r = await cfStream('?asc=false');
+    if (!r || !r.success) return json({ error: 'Stream did not answer: '
+      + ((r && r.errors) || []).map(e => e && e.message).filter(Boolean).join('; ').slice(0, 160) }, 502);
+    const videos = (r.result || []).slice(0, 1000).map(v => ({ uid: v.uid,
+      name: String((v.meta && (v.meta.name || v.meta.filename)) || '').slice(0, 120),
+      secs: Math.round(Number(v.duration) || 0), at: v.created ? Date.parse(v.created) || 0 : 0,
+      ready: !!v.readyToStream, locked: !!v.requireSignedURLs }))
+      .filter(v => v.uid && /^[a-f0-9]{32}$/.test(v.uid));
+    return json({ videos });
+  }
+
   if (path === '/coach/clip' && request.method === 'GET') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);

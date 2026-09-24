@@ -8579,13 +8579,121 @@ function drEditHTML(v){
     <textarea rows="4" oninput="drDraft.cues=this.value" placeholder="Cues, one to a line" style="${inp};resize:vertical">${esc(d.cues)}</textarea>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       ${clipBtn(v)}
+      <button class="btn btn-ghost btn-sm" onclick="clipChooseOpen('${esc(v)}')">${clipChoose===v?'Close the clips':'Choose an existing clip'}</button>
       <span style="flex:1"></span>
       <button class="btn btn-ghost btn-sm" onclick="drDelete('${esc(v)}')" style="color:var(--terra)">Delete</button>
       <button class="btn btn-secondary btn-sm" onclick="drOpen='';drDraft=null;draw()">Cancel</button>
       <button class="btn btn-primary btn-sm" ${drBusy?'disabled':''} onclick="drSave()">${drBusy?'Saving…':'Save'}</button>
     </div>
     ${drMsg?`<div style="font:500 12px/1.4 var(--sans);color:var(--terra)">${esc(drMsg)}</div>`:''}
+    ${clipPickerHTML(v)}
   </div>`;
+}
+/* ── a clip already filmed, put on a drill ─────────────────────────
+   The only way to give a drill a clip was to upload one, so a movement
+   filmed once and needed under another name was uploaded twice, or not at
+   all. The picker lists every clip already on a drill and every film on
+   Stream that is on no drill, and a tap puts it on this one. */
+let clipChoose='', clipChooseQ='', streamVids=null, streamVidsErr='';
+const clipUidOf = u => { const m=/\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]:''; };
+const clipNorm = n => String(n||'').toLowerCase().replace(/&/g,'and').replace(/[^a-z0-9]+/g,'');
+function streamVidsLoad(){
+  if(streamVids) return; streamVids=[];
+  fetch(API+'/stream/videos',{headers:hdr()})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ streamVids=(d&&d.videos)||[]; streamVidsErr=d&&d.off?'Stream is not connected, so only clips already on drills are listed.':''; draw(); })
+    .catch(e=>{ streamVidsErr=String(e); draw(); });
+}
+function clipChooseOpen(v){ clipChoose = clipChoose===v ? '' : v; clipChooseQ=''; if(clipChoose) streamVidsLoad(); draw(); }
+function clipUse(v, uid, quiet){
+  return fetch(API+'/drill',{method:'POST',headers:hdr(),body:JSON.stringify({v, uid, clipOnly:true})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ if(d && d.drill && d.drill.url) libVideo[v]=d.drill.url;
+      if(!quiet){ clipChoose=''; flash('Clip on '+((libIndex||{})[v]||v)); draw(); } })
+    .catch(e=>{ alert('Could not put that clip on: '+String(e)); });
+}
+/* one clip for every drill in a group that is the same movement */
+function clipUseAll(uid, list){
+  const others=list.filter(v=>clipUidOf(libVideo[v])!==uid);
+  if(!others.length) return;
+  Promise.all(others.map(v=>clipUse(v, uid, true))).then(()=>{ flash('Same clip on '+others.length+' more'); draw(); });
+}
+function clipPickerHTML(v){
+  if(clipChoose!==v) return '';
+  const names=libIndex||{}, q=clipNorm(clipChooseQ);
+  /* every clip on a drill, once each, with the drills it is on */
+  const onDrills={};
+  Object.keys(libVideo).forEach(x=>{ const u=clipUidOf(libVideo[x]); if(u) (onDrills[u]=onDrills[u]||[]).push(x); });
+  const loose=(streamVids||[]).filter(x=>!onDrills[x.uid]);
+  const byUid={}; (streamVids||[]).forEach(x=>byUid[x.uid]=x);
+  const mine=clipUidOf(libVideo[v]);
+  const item=(uid,title,sub)=>`<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid rgba(17,17,17,.06)">
+      <img src="${fxThumb(uid)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"
+        style="flex:none;width:72px;aspect-ratio:16/10;object-fit:cover;border-radius:8px;background:var(--mist)">
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 13px/1.3 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(title)}</span>
+        <span class="muted" style="display:block;font:400 11.5px/1.35 var(--sans)">${esc(sub)}</span></span>
+      ${uid===mine?`<span class="muted" style="font:600 11.5px/1 var(--sans)">On it now</span>`
+        :`<button class="btn btn-secondary btn-sm" onclick="clipUse('${esc(v)}','${uid}')">Use this</button>`}</div>`;
+  const drillItems=Object.keys(onDrills)
+    .map(u=>({u, list:onDrills[u], t:onDrills[u].map(x=>names[x]||x).join(', ')}))
+    .filter(o=>!q||clipNorm(o.t).includes(q)||(byUid[o.u]&&clipNorm(byUid[o.u].name).includes(q)))
+    .sort((a,b)=>a.t.localeCompare(b.t)).slice(0,60)
+    .map(o=>item(o.u, o.t, (byUid[o.u]&&byUid[o.u].name?byUid[o.u].name+' · ':'')+'on '+o.list.length+' drill'+(o.list.length===1?'':'s'))).join('');
+  const looseItems=loose.filter(x=>!q||clipNorm(x.name).includes(q)).slice(0,60)
+    .map(x=>item(x.uid, x.name||'Untitled film', (x.secs?x.secs+'s · ':'')+(x.ready?'on no drill yet':'still processing'))).join('');
+  return `<div style="grid-column:1/-1;margin:4px 0 8px;padding:12px;border-radius:12px;background:#fff;border:1px solid var(--line)">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <b style="font:600 13px/1.3 var(--sans);flex:1">Choose a clip for ${esc(names[v]||v)}</b>
+      <button class="btn btn-ghost btn-sm" onclick="clipChooseOpen('${esc(v)}')">Close</button></div>
+    <input class="input" placeholder="Search clips by drill or file name" value="${esc(clipChooseQ)}"
+      oninput="clipChooseQ=this.value;draw()" style="margin-bottom:6px">
+    <div style="max-height:360px;overflow:auto">
+      <div class="kick" style="margin-top:6px">ON OTHER DRILLS</div>${drillItems||'<p class="muted" style="font-size:12.5px">None match.</p>'}
+      <div class="kick" style="margin-top:12px">UPLOADED, ON NO DRILL</div>${
+        streamVids===null||(!streamVids.length&&!streamVidsErr)?'<p class="muted" style="font-size:12.5px">Loading the films on Stream&hellip;</p>'
+        :streamVidsErr?`<p class="muted" style="font-size:12.5px">${esc(streamVidsErr)}</p>`
+        :(looseItems||'<p class="muted" style="font-size:12.5px">None match.</p>')}
+    </div></div>`;
+}
+/* ── clips that do not agree ───────────────────────────────────────
+   The same movement under two entries, one filmed and one not, or filmed
+   differently; and one clip on two drills that are not the same movement
+   (Single Leg Tuck Slides was showing the two-legged film). */
+function clipCheck(){
+  const names=libIndex||{}, off=drOffSet();
+  const all=Object.keys(names).filter(v=>!off.has(v));
+  const byName={}; all.forEach(v=>{ const k=clipNorm(names[v]); if(k) (byName[k]=byName[k]||[]).push(v); });
+  const sameName=Object.values(byName).filter(g=>g.length>1 && new Set(g.map(v=>clipUidOf(libVideo[v])||'none')).size>1);
+  const byUid={}; all.forEach(v=>{ const u=clipUidOf(libVideo[v]); if(u) (byUid[u]=byUid[u]||[]).push(v); });
+  const shared=Object.entries(byUid).filter(([u,g])=>g.length>1 && new Set(g.map(v=>clipNorm(names[v]))).size>1);
+  return {sameName, shared};
+}
+function clipWhere(v){
+  const out=[]; (STAGES||[]).forEach((S,i)=>{ const x=wkPoolFor(i).find(y=>y.v===v); if(x) out.push(S.n+(wkLvlOf(i,v)?' L'+wkLvlOf(i,v):'')); });
+  return out.join(', ')||'not on the ladder';
+}
+function clipCheckHTML(){
+  const {sameName, shared}=clipCheck(), names=libIndex||{};
+  const row=(v, group, showAll)=>{ const u=clipUidOf(libVideo[v]);
+    return `<div style="display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid rgba(17,17,17,.06)">
+      ${u?`<img src="${fxThumb(u)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" style="width:76px;aspect-ratio:16/10;object-fit:cover;border-radius:8px;background:var(--mist)">`
+         :`<span style="width:76px;aspect-ratio:16/10;border-radius:8px;background:rgba(214,93,64,.08);display:grid;place-items:center;font:600 10.5px/1 var(--sans);color:var(--terra)">No clip</span>`}
+      <span style="min-width:0"><b style="font:600 13.5px/1.3 var(--sans)">${esc(names[v]||v)}</b>
+        <span class="muted" style="display:block;font:400 11.5px/1.35 var(--sans)">${esc(v)} · ${esc(clipWhere(v))}</span></span>
+      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        ${showAll&&u?`<button class="btn btn-secondary btn-sm" onclick="clipUseAll('${u}',${esc(JSON.stringify(group))})">Use this clip for all</button>`:''}
+        <button class="btn btn-ghost btn-sm" onclick="clipChooseOpen('${esc(v)}')">Choose a clip</button>
+        ${clipBtn(v)}</span>
+      ${clipPickerHTML(v)}
+    </div>`; };
+  const box=(title,body)=>`<div class="card" style="margin-bottom:var(--space-3)"><h4 style="margin:0 0 4px">${title}</h4>${body}</div>`;
+  if(!sameName.length && !shared.length) return box('Every clip agrees','No drill shares a name with a differently filmed one, and no clip is on two different movements.');
+  return (sameName.length?box('Same name, different clips',
+      `<p class="muted" style="font:400 13px/1.5 var(--sans);margin:0 0 6px">The same movement entered more than once, filmed on one and not the other, or filmed twice. Pick the clip that is right and use it for all of them.</p>`
+      +sameName.map(g=>`<div style="margin-top:8px">${g.map(v=>row(v,g,true)).join('')}</div>`).join('')):'')
+    +(shared.length?box('One clip on different drills',
+      `<p class="muted" style="font:400 13px/1.5 var(--sans);margin:0 0 6px">These drills are not the same movement but show the same film. Choose the right clip for whichever is wrong.</p>`
+      +shared.map(([u,g])=>`<div style="margin-top:8px">${g.map(v=>row(v,g,false)).join('')}</div>`).join('')):'');
 }
 function libDrillsHTML(){
   drLoad(); wkBandsLoad();
@@ -8606,6 +8714,7 @@ function libDrillsHTML(){
      one press away rather than a scroll down six stages of rows */
   const byQ=rows.filter(r=>!q||r.name.toLowerCase().includes(q)||r.v.includes(q));
   const shown=byQ.filter(r=>drillClip==='yes'?hasClip(r.v):drillClip==='no'?!hasClip(r.v):true);
+  /* a drill on no stage, with no clip, is still a drill to film: say where each is used */
   const clipPill=(k,label,n)=>`<button onclick="drillClip='${k}';draw()" style="cursor:pointer;border-radius:999px;
     padding:8px 13px;font:600 12px/1 var(--sans);border:1.5px solid ${drillClip===k?'var(--forest)':'var(--line)'};
     background:${drillClip===k?'var(--forest)':'#fff'};color:${drillClip===k?'#fff':'var(--ink)'}">${label}<span
@@ -8615,14 +8724,15 @@ function libDrillsHTML(){
         oninput="drillQ=this.value;draw()" style="max-width:300px">
       <span style="display:flex;gap:6px;flex-wrap:wrap">${clipPill('all','All',byQ.length)}${
         clipPill('yes','Has a clip',byQ.filter(r=>hasClip(r.v)).length)}${
-        clipPill('no','No clip',byQ.filter(r=>!hasClip(r.v)).length)}</span>
+        clipPill('no','No clip',byQ.filter(r=>!hasClip(r.v)).length)}${
+        (()=>{ const c=clipCheck(); return clipPill('check','Clips to check',c.sameName.length+c.shared.length); })()}</span>
       <span style="flex:1"></span>
       <button class="btn btn-primary" onclick="openNewDrill()">New drill</button>
     </div>
-    <p class="muted" style="font:400 13px/1.5 var(--sans);margin-bottom:var(--space-3)">
+    ${drillClip==='check' ? clipCheckHTML() : `<p class="muted" style="font:400 13px/1.5 var(--sans);margin-bottom:var(--space-3)">
       ${shown.length} of ${rows.length} drills on the ladder. Doses and levels are set per stage
-      under Ladder workouts.</p>
-    ${(()=>{ let opened=false; return shown.slice(0,400).map(r=>{
+      under Ladder workouts.</p>`}
+    ${drillClip==='check' ? '' : (()=>{ let opened=false; return shown.slice(0,400).map(r=>{
       /* a drill on three stages is three rows, and its editor opens once */
       const here = drOpen===r.v && !opened; if(here) opened=true;
       return `<div style="display:grid;
