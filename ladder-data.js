@@ -19,7 +19,7 @@ const CHECKPOINTS={
     {k:'kickup-rate', n:'Kick up to the wall',      kind:'count', target:8,  demo:'wall-kick-ups', note:'Out of ten attempts, how many landed?'}
   ],
   1:[
-    {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:45, demo:'chest-to-wall-handstand'},
+    {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand'},
     {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:15, demo:'wall-scapula-shrugs'},
     {k:'sl-tuck',     n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
     {k:'pike-neg',    n:'Pike push-up negatives',   kind:'count', target:8,  demo:'pike-press-ups'},
@@ -73,10 +73,10 @@ const CP_KIND={
    so a check point can show the drill it is measuring. */
 
 const STAGES=[
- {n:'Foundations',sum:'Getting used to being upside down, your first kick-up, and learning to stack your hips over your shoulders.',rec:'We recommend two to three sessions a week.',goal:'A 15-second chest-to-wall hold and a confident kick up.',hold:'15s',intro:'Everything you need before going upside down for real. Wrist and shoulder resilience, kicking up to the wall, and getting comfortable holding chest-to-wall.',
+ {n:'Foundations',sum:'Getting used to being upside down, kicking up with confidence, and learning to fall safely.',rec:'We recommend two to three sessions a week.',goal:'Kick up with confidence, feel at home upside down, and know how to fall safely.',hold:'15s',intro:'Everything you need before going upside down for real. Wrist and shoulder resilience, kicking up with confidence, time spent upside down, and how to come down safely when it goes wrong.',
   ch:'Chest-to-wall hold',chSub:'Kick up to the wall and hold for 30 seconds. Do it with me.',
   drillIds:['wrist-circles-mob','plank-fingertip-lifts','shoulder-circles','downward-dog-pulses','chest-to-wall-bailouts','wall-walks','kick-up-bounces','scapula-shrugs','chest-to-wall-handstand','wall-kick-ups','p-l-handstand','chair-assisted-knee-lifts','chair-assisted-step-ups','dd-float-drills','p-dd-toe-taps','chaturganga-push-ups','p-pike-pushups-knees','dd-wrist-taps','palm-lifts-table-top','bunny-hops','knee-to-chest-kick-ups','fear-of-falling-cartwheel','proper-cartwheel','45-degree-wall-hold','push-ups-on-knees','wall-scapula-shrugs','floor-scapula-push-ups','chair-assisted-handstand-walks','chair-assisted-handstand-shoulder-adjustments','crow-pose','plank-pose']},
- {n:'Wall Work',sum:'Longer holds on the wall, stronger shoulders, and your first moves against it.',goal:'Hold chest-to-wall 45 to 60s and start moving against the wall.',hold:'45s',intro:'Now you own the wall, get strong and mobile on it. Scapular strength, longer holds, and the first movements that take weight off the wall.',
+ {n:'Wall Work',sum:'Longer holds on the wall, stronger shoulders, and your first moves against it.',goal:'Hold chest-to-wall for 30 seconds and start moving on the wall.',hold:'30s',intro:'Now you own the wall, get strong and mobile on it. Scapular strength, longer holds, and the first movements that take weight off the wall.',
   ch:'Slide away & hold',chSub:'Slide off the wall and hold your balance as long as you can. Aim for 15 seconds.',
   drillIds:['scapula-shrugs','wall-walks','tuck-slides','single-leg-tuck-slides','lateral-slide-outs','slide-away','pike-press-ups','knees-on-box','wall-kick-ups-progressions','p-tuck-handstand','p-tuck-slides','p-single-leg-tuck-slides','knees-on-box-single-leg-lifts','knees-on-box-knee-lift-offs','shoulder-pulses','p-pike-pushups','chair-assisted-handstand-shoulder-adjustments','chair-assisted-handstand-scapula-shrugs','wall-scapula-shrugs','floor-scapula-push-ups']},
  {n:'Pushing More',sum:'Taking your weight off the wall on purpose: slides, box work and cleaner entries.',goal:'Own the assisted balance: slides, box work and clean entries.',hold:'20s',
