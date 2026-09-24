@@ -1377,7 +1377,7 @@ export default async (request) => {
         const tierName = { check: 'form checks', online: 'coaching', inner: 'Inner Circle' }[boughtPlan];
         const first = String(acct.name || '').split(' ')[0];
         const opener = boughtPlan === 'check'
-          ? `Welcome${first ? ' ' + first : ''}. You are set up for form checks. Send a clip here whenever you have one: film from the side, whole body in frame, and I will come back with what to change, in writing, against your own footage.`
+          ? `Welcome${first ? ' ' + first : ''}. You are set up for form checks. Send a clip here whenever you have one: film from the side, whole body in frame, and I will send you a video back on your own footage, showing what to change.`
           : `Welcome${first ? ' ' + first : ''}. Before I write block one I need to see where you are. Film two things, from the side with your whole body in frame: a chest-to-wall hold for as long as you can, and one freestanding attempt, however it goes. Send them here and I will build the first two weeks from them.`;
         try { await threadAdd(db, e2, { from: 'coach', sub: 'auto', text: opener }); } catch {}
         if (await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
