@@ -2238,7 +2238,17 @@ function dlOpen(key){
   if(!Array.isArray(rec.q) || !rec.q.length) return;
   const lock=dlLocked(rec);
   if(lock!=null){ openStage(lock); return; }
-  Q=rec.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
+  /* The ticks go with the workout. Opening a saved one kept whatever was
+     ticked last, by position, so another session's ticks landed on it.
+     If it is the one in progress today, it opens as it was left. */
+  const h=listHeldNow();
+  if(h && heldKey(h)===rec.key){
+    Q=h.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
+    st.qTick=Object.assign({}, h.tick||{}); st.reps=Object.assign({}, h.reps||{});
+  } else {
+    Q=rec.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
+    st.qTick={}; st.reps={};
+  }
   /* while it is open it is still the workout it was saved as: its own
      stage, and the free session or not, whatever today's stage is */
   qSaved={key:rec.key, stage:rec.stage!=null?Number(rec.stage):null, taste:!!rec.taste, fix:rec.fix||null};
@@ -2282,25 +2292,29 @@ function savedHomeHTML(){
   /* saved for no signal, or only kept to do another day, which streams */
   const offline = r => r.kind!=='q' || !!r.off || !!r.bytes;
   const anyOff = list.some(offline), allEx = list.every(r=>r.kind==='ex');
+  const held=listHeldNow(), hk=held?heldKey(held):'';
   const card=r=>{
     const uids=dlUids(r.urls), have=uids.filter(u=>dlSet.has(u)).length;
     const gone=offline(r) && have<uids.length;
     const locked=dlLocked(r)!=null;
+    const going=!locked && r.key===hk;
+    const done=going?Object.keys(held.tick||{}).filter(k=>held.tick[k]).length:0;
     return `<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:16px;
       background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:1;min-width:0;border:0;background:none;padding:0;
         text-align:left;cursor:pointer;color:var(--ink)">
         ${r.kind==='ex'?`<span style="display:block;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-bottom:5px">EXPLAINER</span>`:''}
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
-        <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':'var(--grey)'};margin-top:3px">${
-          locked ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.'
+        <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':going?'var(--forest)':'var(--grey)'};margin-top:3px;${going?'font-weight:600':''}">${
+          going ? 'In progress: '+done+' of '+(held.of||held.q.length)+' sets done today.'
+          : locked ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.'
           : gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
           : (r.taste && !isPlus()) ? 'Your free session, saved for no signal. It opens until you have done it.'
           : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+'. It plays when you have signal.'
           : (r.kind==='ex' ? '' : uids.length+' film'+(uids.length===1?'':'s')+', ')+(r.bytes?dlMB(r.bytes)+' · ':'')+'saved '+esc(cpWhen(r.at))+', plays with no signal'}</span>
       </button>
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
-        padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${locked?'&#128274;':'Open'}</button>
+        padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${locked?'&#128274;':going?'Carry on':'Open'}</button>
       <button onclick="dlRemove('${esc(r.key)}')" aria-label="Remove ${esc(r.name||'this workout')} from this phone"
         style="flex:none;border:0;background:none;cursor:pointer;padding:8px 2px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>
     </div>`; };
@@ -8294,6 +8308,11 @@ function listClose(){
   if(kept) toast('Kept for later today.');
 }
 const listHeldNow = () => { const h=st.listHeld; return (h && Array.isArray(h.q) && h.q.length && h.day===new Date().toDateString()) ? h : null; };
+/* the key a kept workout is saved under, worked out the same way */
+const heldKey = h => 'q'+dlHash([...new Set((h.q||[]).map(x=>x&&x.it&&x.it.v).filter(Boolean))]);
+/* the session in progress is a workout on the saved list: that row says
+   so and carries on, rather than a second card above Start saying it too */
+const heldSaved = () => { const h=listHeldNow(); return h ? dlRec(heldKey(h)) : null; };
 function listResume(){
   const h=listHeldNow(); if(!h) return;
   Q=h.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
@@ -8307,7 +8326,7 @@ function listDiscard(){
     ()=>{ st.listHeld=null; st.qTick={}; st.reps={}; save(); render(); }, true);
 }
 function listHeldHTML(){
-  const h=listHeldNow(); if(!h) return '';
+  const h=listHeldNow(); if(!h || heldSaved()) return '';
   const done=Object.keys(h.tick||{}).filter(k=>h.tick[k]).length;
   return `<div class="rise rise-1" style="padding:${wide()?16:12}px 20px 0"><div style="display:flex;align-items:center;gap:12px;
       padding:13px 14px 13px 16px;border-radius:18px;background:#fff;border:1.5px solid rgba(0,102,99,.3);
@@ -12726,6 +12745,7 @@ function firstPlacedHTML(){
         days>0?'Start the '+days+'-day free trial':'Open '+esc(PS.n)}</span> whenever you want it.</div>`:''}
     <div style="display:flex;gap:4px;margin-top:12px" aria-hidden="true">${STAGES.map((_,i)=>`<span style="flex:1;height:5px;
       border-radius:3px;background:${i<cs?'var(--forest)':i===cs?'var(--deep)':'rgba(0,64,61,.12)'}"></span>`).join('')}</div>
+    ${(r=>r?`<div style="margin-top:12px;border-top:1px solid rgba(0,64,61,.08)">${r}</div>`:'')(introRowsHTML())}
   </div></div>`;
 }
 /* ── how the app works, beside Start ─────────────────────────────────
@@ -12791,6 +12811,40 @@ function placeNoteHTML(side){
       Not the right stage? <button onclick="retakeIntake()" style="border:0;background:none;padding:0;cursor:pointer;
         font:600 13px/1.4 var(--sans);color:var(--forest);text-decoration:underline">Retake the questions</button>
       ${xBtn('placeHide()','Hide this note').replace('top:8px;right:8px','top:50%;right:7px;transform:translateY(-50%)')}</div></div>`;
+}
+/* ── the film and the retake note, inside the stage card ──────────────
+   On a phone they were two more blocks around Start, a strip under the
+   card and a card under the button, and with a kept workout and a session
+   in progress on top of that the screen was mostly things to read before
+   the one thing to press. They are two slim rows at the foot of the stage
+   card now, each with its own cross, and Start sits right under it. A
+   monitor keeps the film beside Start and the note in its own column. */
+function introRowsHTML(){
+  if(wide()) return '';
+  const how=howShown(), re=!coachedView() && !!st.quizDone && !st.placeGone;
+  if(!how && !re) return '';
+  const x=(go,label)=>`<button onclick="event.stopPropagation();${go}" aria-label="${label}" title="Hide"
+    style="flex:none;width:26px;height:26px;border-radius:50%;border:0;cursor:pointer;background:rgba(0,64,61,.07);
+    color:var(--grey);display:grid;place-items:center;padding:0"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+  const rows=[];
+  const row=(inner,go,label)=>`<div style="display:flex;align-items:center;gap:11px;padding:10px 0;${
+    rows.length?'border-top:1px solid rgba(0,64,61,.08)':''}">${inner}${x(go,label)}</div>`;
+  if(how) rows.push(row(`<button onclick="event.stopPropagation();openHowFilm()" style="flex:1;min-width:0;display:flex;
+      align-items:center;gap:11px;border:0;background:none;padding:0;cursor:pointer;text-align:left;color:var(--ink)">
+      <span style="position:relative;flex:none;width:54px;height:34px;border-radius:8px;overflow:hidden;background:var(--sand)">
+        <img src="${streamThumb(HOW_URL())}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;
+          background:rgba(255,255,255,.92);display:grid;place-items:center"><svg width="7" height="8" viewBox="0 0 17 19" fill="#006663">
+          <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></span>
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 13.5px/1.3 var(--sans)">New here? How the app works</span>
+        <span style="display:block;font:400 12px/1.3 var(--sans);color:var(--grey);margin-top:2px">A 3 minute film</span></span>
+    </button>`, 'howHide()', 'Hide the film about how the app works'));
+  if(re) rows.push(row(`<span style="flex:1;min-width:0;font:400 13px/1.4 var(--sans);color:var(--grey)">Not the right stage?
+      <button onclick="event.stopPropagation();retakeIntake()" style="border:0;background:none;padding:0;cursor:pointer;
+        font:600 13px/1.4 var(--sans);color:var(--forest);text-decoration:underline">Retake the questions</button></span>`,
+    'placeHide()', 'Hide this note'));
+  return rows.join('');
 }
 /* One button where there can be one: Chrome and Edge install from a tap.
    Safari has no button a page is allowed to press, so there it is the two
@@ -12899,6 +12953,8 @@ function screenHome(){
         <div style="height:100%;width:${_P.of?Math.round(_P.met/_P.of*100):0}%;background:var(--deep);
           border-radius:4px;transition:width .5s cubic-bezier(.2,.8,.2,1)"></div>
       </div>
+      ${(r=>r?`<div style="margin-top:12px;padding:0 14px;border-radius:16px;background:#fff;
+        box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">${r}</div>`:'')(introRowsHTML())}
     </div>`}
 
     <!-- ── build today's session ──────────────────────────────────
@@ -12911,12 +12967,11 @@ function screenHome(){
     <!-- while the free week is unanswered the card above carries both
          answers, the week or Foundations, and a second green button saying
          Start would only have been a third way to ask the same thing -->
-    ${trialPending()?'':placeNoteHTML()}
     ${listHeldHTML()}
     <!-- the film about the app beside Start, under it on a phone, until it
          has been watched or put away -->
     ${trialPending()?'':`<div class="rise rise-2" style="padding:${wide()?20:14}px 20px 0">
-    <div class="${howShown()?'startpair':''}">
+    <div class="${(howShown()&&wide())?'startpair':''}">
     <div class="startrow" style="display:flex;flex-direction:column;gap:${wide()?10:7}px">
       <button data-tour="buildsession" onclick="startDay(${_cellIdx},'full')"
         style="height:${wide()?68:60}px;width:100%;border:0;border-radius:18px;
@@ -12942,7 +12997,7 @@ function screenHome(){
           ? esc(sessTitle)+(sessCount?', '+sessCount+' drill'+(sessCount===1?'':'s'):'')+'. Pick how long and how hard.'
           : 'Pick how long and how hard.'}</div>
     </div>
-    ${howCardHTML(true)}
+    ${wide()?howCardHTML(true):''}
     </div>
     </div>`}
 
