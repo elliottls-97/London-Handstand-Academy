@@ -300,6 +300,10 @@ button{color:var(--ink)}
  border:1px solid rgba(0,64,61,.10);
  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
 .pad{padding:12px 16px 0}
+/* the Train screen's blocks all sit on a 20px edge */
+.homenudge .pad{padding-left:20px;padding-right:20px}
+/* on a phone the film sits under Start rather than beside it */
+.startpair{display:flex;flex-direction:column;gap:12px}
 .btn{border:none;width:100%;background:var(--forest);border-radius:18px;padding:18px;cursor:pointer;
  font:700 15px/1 var(--sans);color:var(--on-primary);display:block;
  transition:background .3s,transform .3s cubic-bezier(.2,.8,.2,1)}
@@ -665,6 +669,10 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   /* one thing to press, the size of the decision, not the width of the
      page */
   .startrow{max-width:460px}
+  /* Start and the film about the app, side by side. Start keeps the
+     larger share, so its label stays on one line. */
+  .startpair{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+  .startpair .startrow{max-width:none}
   /* a message the width of a monitor stops reading as a message */
   .bub>div,.bub>a{max-width:62%!important}
   .bub>div[style*="width:82%"],.bub>div[style*="width:86%"]{width:62%!important}
@@ -7195,7 +7203,9 @@ function moreBody(all, cards){
         <div style="flex:1">
           <div class="kick2">HOW THE APP WORKS</div>
           <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-            A quick tour of each screen, pointing at the real thing as it goes.</div>
+            ${coachedView()?'A':'A 3 minute film from Elliott and Suryava, and a'} quick tour of each screen, pointing at the real thing as it goes.</div>
+          ${coachedView()?'':`<button onclick="closeMenu();openHowFilm()" style="margin-top:10px;border:0;background:none;padding:0;
+            cursor:pointer;font:600 13px/1.4 var(--sans);color:var(--forest);text-decoration:underline">Watch the film</button>`}
         </div>
         <button onclick="st.tourSeen=null;save();go(coachedView()?'today':'home');setTimeout(function(){startTour()},400)"
           style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:12px;
@@ -8718,7 +8728,7 @@ function drawOv(){
       <button class="btn" style="width:100%;margin-top:16px" onclick="sendCheckin()">Send it</button>`;
   }
   if(st.ov==='intro'){
-    const o=introOffer();
+    const o=introOffer(st.introKind);
     setTimeout(mountCaptions,0);
     body=`<div style="padding:2px">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
@@ -8727,7 +8737,7 @@ function drawOv(){
       <div style="font:400 12px/1 var(--sans);color:var(--grey2);margin-top:6px">${
         esc(o.len)} &middot; captions on</div>
       ${o.url ? ccWrap(`<video src="${hlsOk()?streamHls(o.url):streamMp4(o.url)}" controls playsinline autoplay
-        poster="${streamThumb(o.url)}" data-cc="${esc(o.url)}"
+        poster="${streamThumb(o.url)}" data-cc="${esc(o.url)}" ontimeupdate="introTick(this)" onended="introTick(this,1)"
         style="width:100%;background:#11150f;display:block"></video>`,
         'margin-top:12px;border-radius:16px;overflow:hidden')
         : ''}
@@ -11061,11 +11071,11 @@ function trialCardHTML(where){
   const placed=placedStage(), PS=STAGES[placed], F=STAGES[FREE_STAGES-1]||STAGES[0];
   const days=PRICE_TRIAL();
   const go = days>0 ? 'Start the '+days+'-day free trial' : 'Open '+esc(PS.n);
-  /* width:auto, because a wide screen gives every card in the column
-     width:100% and these carry their own side margins, which pushed them
-     40px past the column and under the calendar beside it */
-  return `<div class="rise rise-1" style="margin:${where==='home'?(wide()?22:14)+'px 20px 0':'18px 20px 0'};width:auto;
-    padding:16px 18px 18px;border-radius:20px;background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
+  /* the 20px edge on a wrapper, as the stage card has it: a margin on the
+     card itself left it pinned left and wider than the column on a wide
+     screen, and 40px past it on a narrow one */
+  return `<div class="rise rise-1" style="padding:${where==='home'?(wide()?22:14):18}px 20px 0"><div
+    style="padding:16px 18px 18px;border-radius:20px;background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
     <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR ANSWERS PUT YOU AT</div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
       <span style="font:400 24px/1.15 var(--serif)">${esc(PS.n)}</span>
@@ -11082,7 +11092,7 @@ function trialCardHTML(where){
       Open ${esc(F.n)} for free</button>
     <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin-top:7px">
       Stage ${FREE_STAGES}, free for good. The trial is here whenever you want it.</div>
-  </div>`;
+  </div></div>`;
 }
 /* ── a stage's explainers and fixes, as two rails ─────────────────────
    The same two rails in two places. Before the free week is answered they
@@ -11313,9 +11323,11 @@ const STAGE_SUM = {
   '99806cf5a01e65ef29f786bb4e50453b': 'Stage two is time upside down against the wall. Chest to wall handstands held long enough that you are relaxed in them, wall scapular shrugs to build the push through the shoulders, the pike push up taken a step past wherever you were, and knee tuck entries from the middle of the room so you can kick up and get most of the way there. All of it foundation for the balance work that follows.',
 };
 /* what the button on Today offers, and what opening it plays */
-function introOffer(){
+function introOffer(kind){
   const i=curStage(), S=STAGES[i]||STAGES[0];
-  if(i===0 || firstVisit()) return {label:'New here? Watch this first', title:'How the handstand ladder works',
+  /* kind 'app': the film about the app itself, asked for by name, rather
+     than the stage film this offers once somebody is past Foundations */
+  if(kind==='app' || i===0 || firstVisit()) return {label:'New here? Watch this first', title:'How the handstand ladder works',
                     url:stageIntroUid(0)||LADDER_INTRO_VIDEO, len:'3 min'};
   const own=stageFilm();
   return {label:'About '+S.n, title:S.n+', explained',
@@ -11349,7 +11361,7 @@ function screenOriented(){
   return `<div style="flex:1;min-height:0;display:flex;flex-direction:column;color:var(--ink)">
     <div class="scroll s" style="background:transparent;flex:1;min-height:0;padding-bottom:0">
     <div style="padding:calc(env(safe-area-inset-top) + 20px) 20px 22px">
-      ${LADDER_INTRO_VIDEO?`<div onclick="st.introOpen=true;save();openOv('intro')"
+      ${LADDER_INTRO_VIDEO?`<div onclick="st.introKind='app';st.introOpen=true;save();openOv('intro')"
         style="position:relative;aspect-ratio:16/9;border-radius:24px;overflow:hidden;
         margin-bottom:26px;cursor:pointer;background:var(--sand);
         box-shadow:0 1px 2px rgba(0,64,61,.05),0 14px 34px rgba(0,64,61,.14)">
@@ -11968,7 +11980,7 @@ function fixesHomeHTML(){
     </div>
     <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 20px ${wide()?12:8}px;max-width:62ch">
       Something not working? Each one walks you out of it.</div>
-    <div style="display:flex;gap:12px;overflow-x:auto;padding:0 20px 14px;scroll-snap-type:x mandatory;
+    <div style="display:flex;gap:12px;overflow-x:auto;padding:0 20px 14px;scroll-snap-type:x mandatory;scroll-padding-inline:20px;
       scrollbar-width:none;-webkit-overflow-scrolling:touch">${list.map(card).join('')}</div>
   </section>`;
 }
@@ -12173,15 +12185,19 @@ const libShown = () => !!st.token && sessionsDone().length > 0;
    works, and a way to open it like an app. Everything else comes after a
    first workout. */
 function firstPlacedHTML(){
-  if(trialPending()) return trialCardHTML('home')+trialPreviewHTML();
+  if(trialPending()) return trialCardHTML('home')+placeNoteHTML()+trialPreviewHTML();
   const cs=curStage(), S=STAGES[cs]||STAGES[0];
   /* Chose Foundations over the week: st.stage is Foundations now, and
      st.placed still has where their answers put them, which is where the
      week is offered from. */
   const placed = (st.freeChoice && !isPlus()) ? Math.max(placedStage(), st.placed|0) : placedStage(), PS=STAGES[placed];
   const above = !!PS && placed>cs, days=PRICE_TRIAL();
-  return `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
-    style="margin:${wide()?22:14}px 20px 0;width:auto;padding:16px 18px;border-radius:20px;background:#fff;cursor:pointer;
+  /* The page's 20px edge is on a wrapper, as it is for every other block
+     on this screen. It was a margin on the card itself, and a wide screen
+     centres every block in its column, so this one sat pinned to the left
+     of the column, wider than everything under it. */
+  return `<div class="rise rise-1" style="padding:${wide()?22:14}px 20px 0"><div data-tour="ladder" onclick="go('ladder')"
+    style="padding:16px 18px;border-radius:20px;background:#fff;cursor:pointer;
     box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
     <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WHERE YOU ARE</div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
@@ -12195,27 +12211,71 @@ function firstPlacedHTML(){
         days>0?'Start the '+days+'-day free trial':'Open '+esc(PS.n)}</span> whenever you want it.</div>`:''}
     <div style="display:flex;gap:4px;margin-top:12px" aria-hidden="true">${STAGES.map((_,i)=>`<span style="flex:1;height:5px;
       border-radius:3px;background:${i<cs?'var(--forest)':i===cs?'var(--deep)':'rgba(0,64,61,.12)'}"></span>`).join('')}</div>
-  </div>`;
+  </div></div>`;
 }
-function firstHowHTML(){
-  const url=stageIntroUid(0)||LADDER_INTRO_VIDEO; if(!url) return '';
-  return `<div class="rise rise-3" style="padding:${wide()?22:16}px 16px 0">
-    <div onclick="st.introOpen=true;save();openOv('intro')" role="button" tabindex="0"
-      style="cursor:pointer;display:flex;gap:14px;align-items:center;padding:10px 14px 10px 10px;border-radius:20px;
-      background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
-      <div style="position:relative;flex:none;width:112px;aspect-ratio:16/10;border-radius:14px;overflow:hidden;background:var(--sand)">
+/* ── how the app works, beside Start ─────────────────────────────────
+   The film sat under everything else on a first visit and went when the
+   first session was done, watched or not. It sits beside Start now, under
+   it on a phone, and goes once it has been watched or put away, and not
+   before. The menu keeps it after that. */
+const HOW_URL = () => stageIntroUid(0)||LADDER_INTRO_VIDEO;
+const howShown = () => !coachedView() && !st.howGone && !!HOW_URL();
+function openHowFilm(){ st.introKind='app'; st.introOpen=true; save(); openOv('intro'); }
+function howHide(){ st.howGone='hidden'; save(); render(); }
+/* watched means most of it, not a tap: opened and closed in ten seconds is
+   not seen. Any way in counts, the card, the menu or the library. */
+function introTick(v, ended){
+  if(st.howGone || !v || v.dataset.cc!==HOW_URL()) return;
+  if(ended || (v.duration>0 && v.currentTime >= v.duration*0.8)){ st.howGone='watched'; save(); }
+}
+const xBtn = (go, label) => `<button onclick="event.stopPropagation();${go}" aria-label="${label}" title="Hide"
+    style="position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;border:0;cursor:pointer;
+    background:rgba(0,64,61,.07);color:var(--grey);display:grid;place-items:center;padding:0">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+      stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+/* row: a cell of the Start row, the height of the button on a wide
+   screen. Otherwise a block of its own, for when there is no Start. */
+function howCardHTML(row){
+  if(!howShown()) return '';
+  const url=HOW_URL(), W=wide();
+  const card=`<div class="howcard" style="position:relative;min-width:0">
+    <div onclick="openHowFilm()" role="button" tabindex="0"
+      style="cursor:pointer;display:flex;gap:12px;align-items:center;padding:${W?'8px 42px 8px 8px':'10px 42px 10px 10px'};
+      border-radius:${W?18:20}px;background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5);min-height:${W?68:0}px;box-sizing:border-box">
+      <div style="position:relative;flex:none;width:${W?80:96}px;aspect-ratio:16/10;border-radius:12px;overflow:hidden;background:var(--sand)">
         <img src="${streamThumb(url)}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
         <span style="position:absolute;inset:0;background:rgba(0,64,61,.22)"></span>
-        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;
+        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;border-radius:50%;
           background:rgba(255,255,255,.92);display:grid;place-items:center">
-          <svg width="11" height="13" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+          <svg width="10" height="12" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
       </div>
       <div style="flex:1;min-width:0">
-        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">HOW THE APP WORKS &middot; 3 MIN</div>
-        <div style="font:400 18px/1.2 var(--serif);margin-top:6px">Watch this first</div>
-        <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">The ladder, the check points, and how a session is built for you.</div>
+        <div style="font:600 10px/1.2 var(--sans);letter-spacing:.14em;color:var(--forest)">${W?'HOW IT WORKS':'HOW THE APP WORKS'} &middot; 3 MIN</div>
+        <div style="font:400 ${W?17:18}px/1.2 var(--serif);margin-top:5px">Watch this first</div>
       </div>
-    </div></div>`;
+    </div>${xBtn('howHide()','Hide the film about how the app works')}</div>`;
+  return row ? card : `<div class="rise rise-3" style="padding:${W?22:16}px 20px 0">${card}</div>`;
+}
+/* ── not the right stage? ──────────────────────────────────────────
+   The way back into the questions was in the menu and nowhere else. A
+   small note says so where the stage is, in the column beside the page on
+   a wide screen and under the stage on a phone, and goes with one tap. */
+function placeHide(){ st.placeGone=true; save(); render(); }
+function placeNoteHTML(side){
+  if(coachedView() || !st.quizDone || st.placeGone) return '';
+  if(side) return `<div class="card sidecard" style="position:relative">
+      <span class="kick2">NOT THE RIGHT STAGE?</span>
+      <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px;padding-right:18px">
+        Answer the questions again and the app places you again.</div>
+      <button class="btn2" style="width:100%;margin-top:13px" onclick="retakeIntake()">Retake the questions</button>
+      ${xBtn('placeHide()','Hide this note')}</div>`;
+  /* a wide screen has it in the column beside the page */
+  if(wide()) return '';
+  return `<div class="rise rise-1" style="padding:10px 20px 0"><div style="position:relative;padding:9px 42px 9px 14px;
+      border-radius:14px;background:rgba(0,64,61,.05);font:400 13px/1.4 var(--sans);color:var(--grey)">
+      Not the right stage? <button onclick="retakeIntake()" style="border:0;background:none;padding:0;cursor:pointer;
+        font:600 13px/1.4 var(--sans);color:var(--forest);text-decoration:underline">Retake the questions</button>
+      ${xBtn('placeHide()','Hide this note').replace('top:8px;right:8px','top:50%;right:7px;transform:translateY(-50%)')}</div></div>`;
 }
 /* One button where there can be one: Chrome and Edge install from a tap.
    Safari has no button a page is allowed to press, so there it is the two
@@ -12233,7 +12293,7 @@ function homeScreenCard(){
     : installPrompt ? 'One tap and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.'
     : ios ? 'Two taps in Safari and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.'
     : 'Two taps in your browser&rsquo;s menu and it sits on your Home Screen like any app: full screen, and workouts you save play with no signal.';
-  return `<div class="rise rise-3" style="padding:12px 16px 0"><div style="display:flex;gap:14px;align-items:center;
+  return `<div class="rise rise-3" style="padding:12px 20px 0"><div style="display:flex;gap:14px;align-items:center;
     padding:14px 16px;border-radius:20px;background:#fff;border:1.5px solid rgba(0,102,99,.22)">
     <img src="/icons/icon-180.png" alt="" width="52" height="52" style="flex:none;border-radius:12px;display:block">
     <div style="flex:1;min-width:0">
@@ -12279,7 +12339,7 @@ function screenHome(){
 
     /* the question box, under the rail on a phone so the films come first
      and the screen still holds the session, the films and the fixes */
-  const searchBox=`<div style="padding:0 16px ${wide()?12:8}px">
+  const searchBox=`<div style="padding:0 20px ${wide()?12:8}px">
         <div style="position:relative">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"
             stroke-linecap="round" style="position:absolute;left:15px;top:50%;transform:translateY(-50%)">
@@ -12336,7 +12396,11 @@ function screenHome(){
     <!-- while the free week is unanswered the card above carries both
          answers, the week or Foundations, and a second green button saying
          Start would only have been a third way to ask the same thing -->
+    ${trialPending()?'':placeNoteHTML()}
+    <!-- the film about the app beside Start, under it on a phone, until it
+         has been watched or put away -->
     ${trialPending()?'':`<div class="rise rise-2" style="padding:${wide()?20:14}px 20px 0">
+    <div class="${howShown()?'startpair':''}">
     <div class="startrow" style="display:flex;flex-direction:column;gap:${wide()?10:7}px">
       <button data-tour="buildsession" onclick="startDay(${_cellIdx},'full')"
         style="height:${wide()?68:60}px;width:100%;border:0;border-radius:18px;
@@ -12362,18 +12426,21 @@ function screenHome(){
           ? esc(sessTitle)+(sessCount?', '+sessCount+' drill'+(sessCount===1?'':'s'):'')+'. Pick how long and how hard.'
           : 'Pick how long and how hard.'}</div>
     </div>
+    ${howCardHTML(true)}
+    </div>
     </div>`}
 
     <!-- the stage's explainers and fixes, where the free week's preview
          showed the placed stage's, so choosing Foundations swaps what is in
          the rails rather than taking the rails away -->
-    ${firstVisit() ? stageFilmsHTML()+firstHowHTML()+homeScreenCard() : installNudge()+pushNudge()+stageFilmsHTML()}
+    ${trialPending() ? howCardHTML() : ''}
+    ${firstVisit() ? stageFilmsHTML()+homeScreenCard() : `<div class="homenudge">${installNudge()+pushNudge()}</div>`+stageFilmsHTML()}
     ${(!firstVisit() && st.homeOrder==='fixesFirst')?fixesHomeHTML():''}
 
     <!-- the explainers, as the design has them: one question box, then a rail
          of video cards. The accordion this replaces held the same list; the
          lock is unchanged — the first few are open, an account opens the rest. -->
-    ${!libShown() ? '' : st.filmsOpen!==true ? `<section class="rise rise-3" style="padding:${wide()?22:16}px 16px 0">
+    ${!libShown() ? '' : st.filmsOpen!==true ? `<section class="rise rise-3" style="padding:${wide()?22:16}px 20px 0">
       <button data-tour="explainers" onclick="st.filmsOpen=true;save();render()" aria-expanded="false"
         style="width:100%;display:flex;align-items:center;gap:12px;border:0;border-radius:18px;cursor:pointer;
         padding:15px 16px;background:#fff;text-align:left;color:var(--ink);box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
@@ -12394,12 +12461,12 @@ function screenHome(){
            a locked film says so on the film. -->
       ${searchBox}
       <div class="rail cards${exAll?' all':''}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
-        padding:4px 16px 8px;-webkit-overflow-scrolling:touch">
+        padding:4px 20px 8px;scroll-padding-inline:20px;-webkit-overflow-scrolling:touch">
         <!-- 7a leads the rail with this, and rebuilding Today dropped it, which
              left the ladder intro and all six stage films with nowhere to be
              opened from. It is the first card because it is the one to watch
              before any of the others. -->
-        ${introOffer().url?`<div onclick="st.introOpen=true;save();openOv('intro')"
+        ${introOffer().url?`<div onclick="st.introKind='';st.introOpen=true;save();openOv('intro')"
           style="flex:none;width:${wide()?214:182}px;scroll-snap-align:center;cursor:pointer">
           <div style="position:relative;aspect-ratio:16/10;border-radius:20px;overflow:hidden;
             background:var(--sand)">
@@ -12482,11 +12549,11 @@ function screenHome(){
 
     <!-- the workshop after the explainers, where the design puts it: it is an
          offer, and an offer belongs after the thing they came for -->
-    ${(workshopOn() && !firstVisit())?`<div class="rise rise-4" style="padding:18px 16px 0">${workshopStrip()}</div>`:''}
+    ${(workshopOn() && !firstVisit())?`<div class="rise rise-4" style="padding:18px 20px 0">${workshopStrip()}</div>`:''}
 
     <!-- keep your progress. Replaces the create-an-account button that used to
          sit inside the explainer card. -->
-    ${(st.token || firstVisit())?'':`<section class="rise rise-4" style="padding:26px 16px 0">
+    ${(st.token || firstVisit())?'':`<section class="rise rise-4" style="padding:26px 20px 0">
       <div style="border-radius:22px;padding:18px;background:rgba(0,102,99,.055);
         border:1px solid rgba(0,102,99,.09)">
         <p style="margin:0;font:400 17px/1.3 var(--serif)">Keep your progress</p>
@@ -15229,7 +15296,9 @@ function screenWelcome(){
   /* "An account opens every clip" was not true: a free account is given the
      films for one session at its stage and no more. What it does do is keep
      your progress wherever you sign in. */
-  const foot=`<div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:rgba(255,255,255,.74);text-align:center">
+  /* left, like every other line in the column; centred under left aligned
+     text it read as out of line */
+  const foot=`<div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:rgba(255,255,255,.74)">
       ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account keeps your
       progress on any phone; the other ${STAGES.length-FREE_STAGES} stages are
       ${PRICE()} a month.</div>`;
@@ -15893,6 +15962,8 @@ function sideHTML(){
     }
     if(!st.in && !st.plus) bits.push(sideCheckCard());
   }
+  /* not the right stage, on Train, above the month */
+  if(t==='home' && !co) bits.splice(1, 0, placeNoteHTML(true));
   const h=bits.filter(Boolean).join('');
   return h ? `<aside id="side">${h}</aside>` : '';
 }
