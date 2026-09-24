@@ -1887,6 +1887,9 @@ const streamVtt   = uid => dlHas(uid) ? dlKey(uid,'words')+'?lha=saved'
    header, so /dlurls follows it on the server and hands back the address
    it lands on, which does. */
 const FILM_CACHE='lha-films';
+/* one list, one limit: Keep and Save trimmed it to different lengths, so
+   each could drop the other's workouts and leave their films behind */
+const DL_MAX=10;
 const dlSet=new Set();            /* films actually in the cache, by uid */
 const dlLists={};                 /* what each save button would save */
 let dlBusy=null;
@@ -1990,7 +1993,8 @@ function keepWorkout(key){
   const prev=dlRec(key);
   const rec=Object.assign({}, prev||{}, L.meta||{}, {key, urls:L.urls, at:(prev&&prev.at)||Date.now()});
   delete rec.label;
-  st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,10);
+  if(rec.taste && tasteFinishedKey===key && !rec.tasteDone) rec.tasteDone=Date.now();
+  st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,DL_MAX);
   save(); keepPaint(key);
   toast('Kept. It is on your Train screen under Saved workouts.');
 }
@@ -2016,6 +2020,11 @@ function dlPaint(key){
 }
 
 let dlPending='';
+/* the saved workout open in the list now, if it came from the saved list */
+let qSaved=null;
+/* the free session finished this visit, by its key, so a save made after it
+   is marked done rather than opening for another week */
+let tasteFinishedKey='';
 async function dlStart(key, anyway){
   if(dlBusy) return;
   /* ── an email first ────────────────────────────────────────────────
@@ -2078,7 +2087,8 @@ async function dlStart(key, anyway){
     const rec=Object.assign({}, prev||{}, meta, {key, urls:L.urls, n:uids.length, off:true,
       bytes:((prev&&prev.bytes)||0)+bytes, at:Date.now()});
     delete rec.label;
-    st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,8);
+    if(rec.taste && tasteFinishedKey===key && !rec.tasteDone) rec.tasteDone=Date.now();
+    st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,DL_MAX);
     save();
   }
   dlPaint(key);
@@ -2135,6 +2145,9 @@ function dlOpen(key){
   const lock=dlLocked(rec);
   if(lock!=null){ openStage(lock); return; }
   Q=rec.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
+  /* while it is open it is still the workout it was saved as: its own
+     stage, and the free session or not, whatever today's stage is */
+  qSaved={key:rec.key, stage:rec.stage!=null?Number(rec.stage):null, taste:!!rec.taste, fix:rec.fix||null};
   sessionSpent=false; qFix=rec.fix||null;
   st.ovList=!!rec.wrist; st.ovRow=null; st.listMode='work'; st.ovFull=true;
   openOv('list');
@@ -2155,6 +2168,7 @@ function dlLocked(rec){
   if(rec.fix){
     const f=(st.fixes||{})[rec.fix];
     if(!f || f.access==='plus' || f.locked) return FREE_STAGES;
+    return null;
   }
   /* the mobility day is free at every stage */
   if(rec.wrist) return null;
@@ -8761,8 +8775,11 @@ function drawOv(){
         const key='q'+dlHash(vs), meta={kind:'q', wrist:!!st.ovList,
           name:(qLabel||(st.ovList?'Mobility day':((STAGES[curStage()]||{}).n||'Your')+' session'))+', '+qMins()+' min',
           /* where it came from, so it only opens for an account that may train it */
-          ...(qFix ? {fix:qFix} : st.ovList ? {} : {stage:curStage()}),
-          ...((typeof tasting==='function' && tasting()) ? {taste:true} : {}),
+          /* a saved workout opened again keeps its own stage and its free
+             session flag: read from today's stage, a paid one saved on the
+             free session came back as Foundations and never locked again */
+          ...(qFix ? {fix:qFix} : st.ovList ? {} : {stage:(qSaved&&qSaved.key==='q'+dlHash(vs)&&qSaved.stage!=null)?qSaved.stage:curStage()}),
+          ...(((qSaved&&qSaved.key==='q'+dlHash(vs)&&qSaved.taste) || (typeof tasting==='function' && tasting())) ? {taste:true} : {}),
           q:(Q||[]).map(x=>Object.assign({}, x))};
         /* The free session is saved for no signal and not only kept: the
            films of a paid stage stop being handed out once it is spent, so
@@ -10023,7 +10040,8 @@ function watchVisit(){
 
 /* the free session saved for no signal, done: from now it waits for the ladder */
 function tasteKeptDone(){
-  try{ const vs=[...new Set((Q||[]).map(q=>q.it&&q.it.v).filter(Boolean))], r=dlRec('q'+dlHash(vs));
+  try{ const vs=[...new Set((Q||[]).map(q=>q.it&&q.it.v).filter(Boolean))], k='q'+dlHash(vs), r=dlRec(k);
+    if(typeof tasting==='function' && (tasting() || (r && r.taste))) tasteFinishedKey=k;
     if(r && r.taste && !r.tasteDone){ r.tasteDone=Date.now(); save(); } }catch(e){}
 }
 function reportProgress(extra){
@@ -10693,7 +10711,9 @@ function doneAdv(){
    starting that question from nothing. */
 let skillWas={};
 function skillTakeBack(s, keys){
-  skillWas={};
+  /* added to, not replaced: Back after Change goes on remembering the
+     answers Change took back */
+  skillWas=Object.assign({}, skillWas);
   keys.forEach(k=>{ if(s[k]!=null){ skillWas[k]=s[k]; delete s[k]; } });
   s.path=(s.path||[]).filter(x=>s[x]!=null);
   advDraft = Array.isArray(skillWas.adv) ? skillWas.adv.slice() : null;
@@ -11296,6 +11316,8 @@ function useTaste(){
   if(tourBuild || tasteHeld()) return;
   if(!tasting() || tasteLeft()<=0) return;
   if(curStage() < FREE_STAGES) return;
+  /* a saved or kept workout from the free stage costs nothing */
+  if(qSaved && qSaved.stage!=null && qSaved.stage < FREE_STAGES) return;
   const at=curStage();
   st.taste = tasteLeft()-1;
   tasteHand = {q:Q, day:new Date().toDateString(), stage:at, label:qLabel};
@@ -14470,6 +14492,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   out.forEach(q=>{ tally[q.it.v]=(tally[q.it.v]||0)+1; });
   out.forEach(q=>{ q.sets=tally[q.it.v]; });
   Q=out;
+  qSaved=null;
   sessionSpent=false;          /* a fresh workout, not yet counted */
   if(held) tasteHand.q=Q;      /* the same workout, rebuilt: still the free one */
   if(listOnly){
