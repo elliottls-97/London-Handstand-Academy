@@ -4086,7 +4086,6 @@ function cpCard(c, i, total, done){
     style="border-radius:18px;padding:15px 15px 16px;background:#fff;
     box-shadow:${hold?'0 0 0 2px var(--amber),':''}0 2px 14px rgba(28,32,25,.07);animation:lhaRow .4s ease both">
     <div id="cptop-${c.k}" class="cptop">${cpCardTop(c,i,total)}</div>
-    ${wide()?'':`<div id="cpdemo-${c.k}">${cpDemoHTML(c)}</div>`}
     ${done?`<button onclick="cpFold('${c.k}')" style="display:block;margin:12px auto 0;border:0;background:none;
       cursor:pointer;padding:6px 10px;font:600 12.5px/1 var(--sans);color:var(--grey)">Fold it away</button>`:''}
   </div>`;
@@ -4099,8 +4098,8 @@ function cpDemoHTML(c){
   if(!c || !((st.cpOpen||{})[c.k])) return '';
   const drill=c.demo?drillById(c.demo):null;
   if(!drill || !drill.url) return '';
-  return `<div style="margin-top:10px">${drillFilm(drill.url,'16/10')}</div>
-    ${(drill.cues||[]).length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;
+  return `<div class="cpdfilm" style="margin-top:9px">${drillFilm(drill.url,'16/10')}</div>
+    ${(drill.cues||[]).length?`<ul style="margin:10px 0 4px;padding-left:22px;display:flex;
       flex-direction:column;gap:5px">${drill.cues.slice(0,5).map(x=>
       `<li style="font:400 13px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}`;
 }
@@ -4191,8 +4190,13 @@ function cpCardTop(c, i, total){
         flex-direction:column;gap:5px">${drill.cues.slice(0,3).map(x=>
         `<li style="font:400 12.5px/1.45 var(--sans);color:var(--grey)">${esc(x)}</li>`).join('')}</ul>`:''}
     </div>`
-    : `<div onclick="toggleCpDemo('${c.k}')" style="cursor:pointer;margin-top:11px;display:flex;
-      align-items:center;gap:12px;padding:8px;border-radius:14px;background:rgba(0,102,99,.06)">
+    : `<!-- The film opens out of the strip that was pressed, inside the same
+         box. It used to land at the foot of the card, under the slider,
+         the history and the clip, where nobody was looking. The box is
+         not one of the parts repaintCp swaps, so dragging the slider
+         does not restart it. -->
+    <div style="margin-top:11px;padding:8px;border-radius:14px;background:rgba(0,102,99,.06)">
+    <div onclick="toggleCpDemo('${c.k}')" style="cursor:pointer;display:flex;align-items:center;gap:12px">
       <div style="position:relative;flex:none;width:74px;height:46px;border-radius:10px;overflow:hidden;
         background:linear-gradient(145deg,#0a7b74,#00403d)">
         ${uidOfUrl(drill.url)?`<img src="${streamThumb(uidOfUrl(drill.url))}" alt="" loading="lazy"
@@ -4208,6 +4212,12 @@ function cpCardTop(c, i, total){
           (st.cpOpen||{})[c.k] ? 'Hide the demo' : 'How to test this'}</div>
         <div style="margin-top:4px;font:400 12px/1.3 var(--sans);color:var(--grey)">${esc(drill.n)}</div>
       </div>
+      <svg id="cpdchev-${c.k}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+        style="flex:none;margin-right:6px;color:var(--forest);transition:transform .3s;${
+        (st.cpOpen||{})[c.k]?'transform:rotate(180deg)':''}"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+    <div id="cpdemo-${c.k}">${cpDemoHTML(c)}</div>
     </div>`}
     <!-- the faces and the yes or no carry an id so a tap redraws them: under
          an open sheet only the parts with an id are repainted, and these had
@@ -4246,17 +4256,41 @@ function cpPoster(k, drill){
         1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
   </button>`;
 }
-/* the phone's demo, opened in place under the strip */
+/* the phone's demo, grown out of the strip that was pressed and folded
+   back into it, playing from the tap */
 function toggleCpDemo(k){
   const box=document.getElementById('cpdemo-'+k); if(!box) return;
   const open=!((st.cpOpen||{})[k]);
   st.cpOpen=Object.assign({},st.cpOpen,{[k]:open});
   save();
-  const c=cpDef(k);
-  box.innerHTML = cpDemoHTML(c);
-  if(open) mountCaptions();
   const lbl=document.getElementById('cpdlbl-'+k);
   if(lbl) lbl.textContent = open ? 'Hide the demo' : 'How to test this';
+  const chev=document.getElementById('cpdchev-'+k);
+  if(chev) chev.style.transform = open ? 'rotate(180deg)' : '';
+  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  const grow=!still && typeof box.animate==='function';
+  if(open){
+    box.innerHTML = cpDemoHTML(cpDef(k));
+    mountCaptions();
+    const v=box.querySelector('video'); if(v){ v.muted=!soundOn(); startFilm(v); }
+    if(grow){
+      const h=box.scrollHeight; box.style.overflow='hidden';
+      const a=box.animate([{height:'0px',opacity:0},{height:h+'px',opacity:1}],
+        {duration:340,easing:'cubic-bezier(.2,.8,.2,1)'});
+      a.onfinish=()=>{ box.style.overflow='';
+        /* all of it on screen, if the card was low down when pressed */
+        const r=box.getBoundingClientRect();
+        if(r.bottom>innerHeight-90) try{ box.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){} };
+    }
+  } else {
+    box.querySelectorAll('video').forEach(v=>{ try{ v.pause(); }catch(e){} });
+    if(grow){
+      box.style.overflow='hidden';
+      const a=box.animate([{height:box.scrollHeight+'px',opacity:1},{height:'0px',opacity:0}],
+        {duration:240,easing:'cubic-bezier(.4,0,.6,1)',fill:'forwards'});
+      a.onfinish=()=>{ box.innerHTML=''; a.cancel(); box.style.overflow=''; };
+    } else box.innerHTML='';
+  }
 }
 function cpPlay(k){
   const box=document.getElementById('cpvid-'+k); if(!box) return;
@@ -8049,8 +8083,8 @@ const soundOn = () => st.sound !== false;
    rest, so two demos never play over each other */
 document.addEventListener('play', e=>{
   const v=e.target;
-  if(!v || v.tagName!=='VIDEO' || !v.closest || !v.closest('#ov,#dock')) return;
-  document.querySelectorAll('#ov video, #dock video').forEach(o=>{
+  if(!v || v.tagName!=='VIDEO' || !v.closest || !v.closest('#ov,#dock,.cpcard')) return;
+  document.querySelectorAll('#ov video, #dock video, .cpcard video').forEach(o=>{
     if(o!==v && !o.paused) try{ o.pause(); }catch(err){} });
 }, true);
 /* ── a film that starts ───────────────────────────────────────────
