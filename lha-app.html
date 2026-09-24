@@ -8837,7 +8837,7 @@ function drawOv(){
         </div>`).join('')}
       </div>`:''}
       <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:16px">
-        The first ${FREE_EXPLAINERS} are open to everybody. An account opens the rest,
+        The ${esc(STAGES[0].n)} films are open to everybody. An account opens the rest,
         keeps your stage and your finished sessions, and costs nothing.</div>
       <button onclick="closeOv();goJoin()"
         style="width:100%;margin-top:20px;border:0;border-radius:16px;padding:17px;
@@ -11042,7 +11042,7 @@ const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FRE
    when they choose it (st.freeChoice), not where they are put. */
 const trialPending = () => !coachedView() && !isPlus() && !st.freeChoice && !tasting()
   && placedStage() > FREE_STAGES-1 && !!STAGES[placedStage()];
-function openTrial(){ st.ovStage=placedStage(); openOv('stage'); }
+function openTrial(at){ st.ovStage = (at!=null && STAGES[at]) ? at : placedStage(); openOv('stage'); }
 function chooseFree(thenTrain){
   /* Foundations by choice is Foundations properly: its stage, its check
      points and its sessions, on the account as well as the phone, not a
@@ -11061,7 +11061,10 @@ function trialCardHTML(where){
   const placed=placedStage(), PS=STAGES[placed], F=STAGES[FREE_STAGES-1]||STAGES[0];
   const days=PRICE_TRIAL();
   const go = days>0 ? 'Start the '+days+'-day free trial' : 'Open '+esc(PS.n);
-  return `<div class="rise rise-1" style="margin:${where==='home'?(wide()?22:14)+'px 20px 0':'18px 20px 0'};
+  /* width:auto, because a wide screen gives every card in the column
+     width:100% and these carry their own side margins, which pushed them
+     40px past the column and under the calendar beside it */
+  return `<div class="rise rise-1" style="margin:${where==='home'?(wide()?22:14)+'px 20px 0':'18px 20px 0'};width:auto;
     padding:16px 18px 18px;border-radius:20px;background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
     <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR ANSWERS PUT YOU AT</div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
@@ -11081,40 +11084,77 @@ function trialCardHTML(where){
       Stage ${FREE_STAGES}, free for good. The trial is here whenever you want it.</div>
   </div>`;
 }
-/* ── what the week opens, shown before it is started ──────────────────
-   The explainers and fixes at the stage their answers gave them, locked,
-   so the choice is between two things they can see rather than one they
-   can see and one they are told about. A tap on any of them is the offer. */
-function trialPreviewHTML(){
-  const P=placedStage(), PS=STAGES[P];
-  const ex=(explainersFor(P)||[]).filter(filmed);
-  const fx=fixList().filter(f=>f && f.live!==false && Number(f.stage)===P);
-  if(!ex.length && !fx.length) return '';
-  const lock=`<span style="position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;gap:5px;
-      padding:5px 8px;border-radius:999px;background:rgba(0,20,18,.7);color:#fff;font:700 9.5px/1 var(--sans);letter-spacing:.1em">
-      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" aria-hidden="true">
-        <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>WITH THE TRIAL</span>`;
-  const tile=(img,title,sub)=>`<div onclick="openTrial()" role="button" tabindex="0" style="flex:none;width:${wide()?220:172}px;
+/* ── a stage's explainers and fixes, as two rails ─────────────────────
+   The same two rails in two places. Before the free week is answered they
+   are the stage the answers gave, locked, so the choice is between two
+   things they can see rather than one they can see and one they are told
+   about, and a tap on any of them is the offer. On the stage somebody is
+   actually on, they play. Foundations had neither: its films waited for an
+   account and a finished session, its fixes for a finished session, so
+   choosing Foundations took away the very rails the offer had just shown. */
+const railLock = label => `<span style="position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;gap:5px;
+    padding:5px 8px;border-radius:999px;background:rgba(0,20,18,.7);color:#fff;font:700 9.5px/1 var(--sans);letter-spacing:.1em">
+    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>${label}</span>`;
+function railTile(o){
+  return `<div onclick="${o.go}" role="button" tabindex="0" style="flex:none;width:${wide()?220:172}px;
       scroll-snap-align:start;cursor:pointer">
       <div style="position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
         background:linear-gradient(145deg,#0a7b74,#00403d)">
-        ${img?`<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()"
+        <!-- the name under the picture, so a tile with no cover, or one that
+             fails to load, still says what it is rather than being a green box -->
+        <span aria-hidden="true" style="position:absolute;left:12px;right:${o.lock?12:50}px;bottom:11px;
+          font:400 17px/1.15 var(--serif);color:#fff;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(o.title)}</span>
+        ${o.img?`<img src="${esc(o.img)}" alt="" loading="lazy" onerror="this.remove()"
           style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">`:''}
-        <span style="position:absolute;inset:0;background:rgba(0,40,37,.28)"></span>${lock}
+        <span style="position:absolute;inset:0;background:rgba(0,40,37,${o.lock?'.28':'.1'})"></span>
+        ${o.lock ? railLock(o.lock) : `<span aria-hidden="true" style="position:absolute;right:9px;bottom:9px;width:32px;height:32px;
+          border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center">
+          <svg width="11" height="13" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>`}
       </div>
-      <div style="font:600 13.5px/1.3 var(--sans);margin-top:8px;color:var(--ink)">${esc(title)}</div>
-      ${sub?`<div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:3px">${esc(sub)}</div>`:''}
+      <div style="font:600 13.5px/1.3 var(--sans);margin-top:8px;color:var(--ink)">${esc(o.title)}</div>
+      ${o.sub?`<div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:3px">${esc(o.sub)}</div>`:''}
     </div>`;
-  const rail=(head,sub,items)=>`<section style="padding:${wide()?24:20}px 0 0">
-      <div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
-        <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div></div>
-      <div style="display:flex;gap:12px;overflow-x:auto;padding:12px 20px 6px;scroll-snap-type:x mandatory;
-        scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div></section>`;
-  return (ex.length?rail('Explainers at '+esc(PS.n), 'Short films from Elliott on what this stage is about.',
-      ex.map(x=>tile(x.uid?streamThumb(x.uid):'', x.q, x.dur||'')).join('')):'')
-    + (fx.length?rail('Fixes at '+esc(PS.n), 'When one thing is holding you back, each of these walks you out of it.',
-      fx.map(f=>tile(fixCover(f), f.name, f.tag||'')).join('')):'');
-}/* one used, when a session above the free stage actually starts */
+}
+const railHTML = (head, sub, items) => `<section class="rise rise-3" style="padding:${wide()?24:20}px 0 0">
+    <div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
+      <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div></div>
+    <div style="display:flex;gap:12px;overflow-x:auto;padding:12px 20px 6px;scroll-snap-type:x mandatory;scroll-padding-inline:20px;
+      scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div></section>`;
+const EX_SUB = 'Short films from Elliott on what this stage is about.';
+const FX_SUB = 'When one thing is holding you back, each of these walks you out of it.';
+/* each filmed explainer with its place in FAQS, which is what the player opens */
+const stageExplainers = P => (explainersFor(P)||[]).filter(filmed)
+  .map(x=>({x, i:FAQS.findIndex(f=>(x.uid && f.uid===x.uid) || f.id===x.id)}));
+const stageFixes = P => fixList().filter(f=>f && f.live!==false && Number(f.stage)===P);
+const fixSub = f => f.tag || ((f.weeks||4)+' weeks, '+(f.perWeek||3)+' sessions a week');
+function trialPreviewHTML(){
+  const P=placedStage(), PS=STAGES[P];
+  const ex=stageExplainers(P), fx=stageFixes(P);
+  if(!ex.length && !fx.length) return '';
+  const lock='WITH THE TRIAL';
+  return (ex.length?railHTML('Explainers at '+esc(PS.n), EX_SUB,
+      ex.map(({x})=>railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'', go:'openTrial()', lock})).join('')):'')
+    + (fx.length?railHTML('Fixes at '+esc(PS.n), FX_SUB,
+      fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:'openTrial()', lock})).join('')):'');
+}
+/* The stage they are on, playing: an explainer opens its film, a fix opens
+   the fix. A paid fix says so on its tile, and its own page makes the offer. */
+function stageFilmsHTML(){
+  if(coachedView() || trialPending()) return '';
+  const P=curStage(), PS=STAGES[P]; if(!PS) return '';
+  const ex=stageExplainers(P).filter(o=>o.i>=0), fx=stageFixes(P);
+  const paid = PRICE_TRIAL()>0 ? 'WITH THE TRIAL' : esc(PRICE())+' A MONTH';
+  const films = ex.length ? railHTML('Explainers at '+esc(PS.n), EX_SUB,
+      ex.map(({x,i})=>{ const open=explainerOpen(i);
+        return railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'',
+          go:open?`openExplainer(${i})`:`lockedExplainer(${i})`, lock:open?'':'FREE ACCOUNT'}); }).join('')) : '';
+  const fixes = fx.length ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
+      fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix('${esc(f.slug)}')`,
+        lock:(f.access==='plus' && !isPlus()) ? paid : ''})).join('')) : '';
+  return st.homeOrder==='fixesFirst' ? fixes+films : films+fixes;
+}
+/* one used, when a session above the free stage actually starts */
 /* A free session was only counted when the follow along player started, and
    the drill list was the other half of the same workout: opening Every drill
    at a locked stage spent nothing, so the whole stage was readable, filmed
@@ -11664,7 +11704,10 @@ function rebuildFaqs(){
 }
 rebuildFaqs();
 const FREE_EXPLAINERS=3;
-const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token;
+/* Foundations is free with no account, and that includes what Elliott says
+   about it: its explainers play for anybody, and an account opens the rest */
+const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token
+  || (!!FAQS[i] && (FAQS[i].stage|0) < FREE_STAGES);
 /* v is a filename in the R2 bucket the explainers already live in */
 /* one a day, rotating, so there is a reason to come back rather than a
    library to binge and forget */
@@ -11897,7 +11940,9 @@ function fixSessionDone(done){
 }
 
 function fixesHomeHTML(){
-  const list=fixList(); if(!list.length) return '';
+  /* the stage's own fixes are in their rail above, under the stage's name */
+  const own=!coachedView() && !trialPending(), P=curStage();
+  const list=fixList().filter(f=>!own || Number(f.stage)!==P); if(!list.length) return '';
   const card=f=>{
     const n=fixDoneN(f.slug), tot=fixTotal(f), cover=fixCover(f);
     const locked=f.access==='plus' && !isPlus();
@@ -11906,7 +11951,8 @@ function fixesHomeHTML(){
       <div style="aspect-ratio:16/9;background:var(--mist);position:relative">
         ${cover?`<img src="${esc(cover)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">`:''}
         ${locked?`<span style="position:absolute;top:8px;left:8px;font:600 9px/1 var(--sans);letter-spacing:.12em;
-          padding:5px 7px;border-radius:5px;background:rgba(17,17,17,.7);color:#fff">${esc(PRICE())} A MONTH</span>`:''}
+          padding:5px 7px;border-radius:5px;background:rgba(17,17,17,.7);color:#fff">${
+          PRICE_TRIAL()>0?'WITH THE TRIAL':esc(PRICE())+' A MONTH'}</span>`:''}
       </div>
       <div style="padding:12px 13px 14px">
         <div style="font:600 14.5px/1.25 var(--sans)">${esc(f.name)}</div>
@@ -12128,21 +12174,25 @@ const libShown = () => !!st.token && sessionsDone().length > 0;
    first workout. */
 function firstPlacedHTML(){
   if(trialPending()) return trialCardHTML('home')+trialPreviewHTML();
-  const cs=curStage(), S=STAGES[cs]||STAGES[0], placed=placedStage(), PS=STAGES[placed];
-  const above = !!PS && placed>cs;
+  const cs=curStage(), S=STAGES[cs]||STAGES[0];
+  /* Chose Foundations over the week: st.stage is Foundations now, and
+     st.placed still has where their answers put them, which is where the
+     week is offered from. */
+  const placed = (st.freeChoice && !isPlus()) ? Math.max(placedStage(), st.placed|0) : placedStage(), PS=STAGES[placed];
+  const above = !!PS && placed>cs, days=PRICE_TRIAL();
   return `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
-    style="margin:${wide()?22:14}px 20px 0;padding:16px 18px;border-radius:20px;background:#fff;cursor:pointer;
+    style="margin:${wide()?22:14}px 20px 0;width:auto;padding:16px 18px;border-radius:20px;background:#fff;cursor:pointer;
     box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
     <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WHERE YOU ARE</div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
       <span style="font:400 22px/1.15 var(--serif)">${esc(S.n)}</span>
       <span style="flex:none;font:500 12.5px/1 var(--sans);color:var(--grey)">Stage ${cs+1} of ${STAGES.length}</span></div>
     ${S.goal?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(S.goal)}</div>`:''}
-    ${above?`<div style="font:400 12.5px/1.5 var(--sans);color:#8a5a12;margin-top:8px">Your answers put you at
-      <b>${esc(PS.n)}</b>, and you chose to start here for free.
-      <span onclick="event.stopPropagation();openTrial()" role="button" tabindex="0"
-        style="font-weight:600;color:var(--forest);text-decoration:underline;cursor:pointer">Start the free week</span>
-      whenever you want ${esc(PS.n)}.</div>`:''}
+    ${above?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">Your answers put you at
+      <b style="color:var(--ink)">${esc(PS.n)}</b>.
+      <span onclick="event.stopPropagation();openTrial(${placed})" role="button" tabindex="0"
+        style="font-weight:600;color:var(--forest);text-decoration:underline;cursor:pointer">${
+        days>0?'Start the '+days+'-day free trial':'Open '+esc(PS.n)}</span> whenever you want it.</div>`:''}
     <div style="display:flex;gap:4px;margin-top:12px" aria-hidden="true">${STAGES.map((_,i)=>`<span style="flex:1;height:5px;
       border-radius:3px;background:${i<cs?'var(--forest)':i===cs?'var(--deep)':'rgba(0,64,61,.12)'}"></span>`).join('')}</div>
   </div>`;
@@ -12314,7 +12364,10 @@ function screenHome(){
     </div>
     </div>`}
 
-    ${firstVisit() ? firstHowHTML()+homeScreenCard() : installNudge()+pushNudge()}
+    <!-- the stage's explainers and fixes, where the free week's preview
+         showed the placed stage's, so choosing Foundations swaps what is in
+         the rails rather than taking the rails away -->
+    ${firstVisit() ? stageFilmsHTML()+firstHowHTML()+homeScreenCard() : installNudge()+pushNudge()+stageFilmsHTML()}
     ${(!firstVisit() && st.homeOrder==='fixesFirst')?fixesHomeHTML():''}
 
     <!-- the explainers, as the design has them: one question box, then a rail
