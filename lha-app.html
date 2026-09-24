@@ -10175,6 +10175,24 @@ let whyStopContext='';
 
 function signOut(){
   closeMenu();
+  /* This phone's notifications belonged to the account signing out, and
+     stayed with it: its coach's replies went on arriving on a phone
+     somebody else might now hold, and the next person to sign in was
+     added to the same subscription. It is taken off, with the old token,
+     before that token goes. */
+  try{
+    const tok=st.token;
+    if(tok && !st.preview && pushSupported()){
+      navigator.serviceWorker.ready.then(r=>r.pushManager.getSubscription()).then(sub=>{
+        if(!sub) return;
+        fetch(AUTH.pushUnsub,{method:'POST',keepalive:true,
+          headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},
+          body:JSON.stringify({endpoint:sub.endpoint})}).catch(()=>{});
+        return sub.unsubscribe();
+      }).catch(()=>{});
+    }
+    pushOn=false;
+  }catch(e){}
   /* clearing the token alone left the old tab on screen, so signing out
      looked like nothing had happened. Drop right back to the free app. */
   if(typeof tick_!=='undefined' && tick_){ clearInterval(tick_); tick_=null; }
@@ -15627,7 +15645,13 @@ function doResetConfirm(ev){
     body:JSON.stringify({email:resetEmail,code:code,password:pw})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
     .then(d=>{ st.email=resetEmail; st.token=d.token||null; resetStep=0; resetMsg='';
-      st.tab='ladder'; save(); render(); loadEntitlement(); })
+      st.tab='ladder'; save(); render(); loadEntitlement();
+      /* Finish as a sign in does. This read nothing back, so a new phone
+         showed Foundations with nothing done, and its next save wrote that
+         empty week, ladder and quiz over what the account had. */
+      if(!st.token) return;
+      if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
+      loadLadder(); loadState(); loadTrack(); codeResume(); })
     .catch(e=>rsSay(String(e)));
 }
 

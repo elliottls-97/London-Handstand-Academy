@@ -1021,12 +1021,20 @@ export default async (request) => {
     }
     return (pm && pm.card && pm.card.fingerprint) || '';
   };
-  const freeWeekCard = async (acct, subId) => {
+  /* noteBefore: the account's free week note as it was before this event
+     wrote one, so an earlier week on the same account is seen here too.
+     The payment link's week is set in Stripe, so without this the rule was
+     once per card only: the same address could have a second week on
+     another card. */
+  const freeWeekCard = async (acct, subId, noteBefore) => {
     try {
       if (!stripeKey() || !subId) return false;
       if (await getSetting(`trialrefused:${subId}`)) return true;
       const sub = await stripe(`/subscriptions/${encodeURIComponent(subId)}?expand[]=default_payment_method`, null, 'GET');
       if (!sub || sub.status !== 'trialing') return false;
+      const startMs = (Number(sub.trial_start) || 0) * 1000;
+      const accountHadOne = !!noteBefore && ((noteBefore.sub && noteBefore.sub !== subId)
+        || (!noteBefore.sub && Number(noteBefore.at) > 0 && startMs > 0 && Number(noteBefore.at) < startMs - 10 * 60000));
       /* The ladder's monthly payment goes through a Stripe payment link, and
          the free week there is whatever the link is set to in Stripe, so the
          account is noted from the subscription itself, not only from the
@@ -1034,6 +1042,8 @@ export default async (request) => {
       if (!(await getSetting(`trialused:${acct.email}`))) {
         await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: 'trial', sub: subId });
       }
+      let key = '', seen = null;
+      if (!accountHadOne) {
       const fp = await cardOf(sub);
       if (!fp) return false;
       if (!(await getSetting('trialcards:read'))) {
@@ -1054,26 +1064,42 @@ export default async (request) => {
         }
         await setSetting('trialcards:read', { at: Date.now() });
       }
-      const key = await cardKey(fp);
-      const seen = await getSetting(key);
+      key = await cardKey(fp);
+      seen = await getSetting(key);
       if (!seen) { await setSetting(key, { sub: subId, email: acct.email, at: Date.now() }); return false; }
       if (seen.sub === subId) return false;
-      /* this card has had its free week: end this one before it bills */
-      await stripe(`/subscriptions/${encodeURIComponent(subId)}`, null, 'DELETE');
-      await setSetting(`trialrefused:${subId}`, { email: acct.email, card: key, first: seen.sub, at: Date.now() });
+      }
+      /* This card, or this account, has had its free week: end this one
+         before it bills. Stripe sends the checkout and the new subscription
+         at the same moment and both land here, so the refusal is written
+         before the cancel (a late event then stops at the top), and one
+         handler claims the cancel and the emails: they were being sent
+         twice, and a second cancel that Stripe refused let the account be
+         switched on. */
+      await setSetting(`trialrefused:${subId}`, { email: acct.email, why: accountHadOne ? 'account' : 'card', card: key,
+        first: (seen && seen.sub) || (noteBefore && noteBefore.sub) || '', at: Date.now() });
+      const won = await supa.insertIfAbsent('nudges', { key: `trialrefuse:${subId}`, stage: 0, sent_at: nowISO() }, 'key')
+        .catch(() => true);
+      if (!won) return true;
+      try { await stripe(`/subscriptions/${encodeURIComponent(subId)}`, null, 'DELETE'); }
+      catch (err) { console.warn('free week cancel', err && err.message); }
       await setSetting(`trialrefused:${acct.email}`, { sub: subId, at: Date.now() });
-      if (!(await getSetting(`trialused:${acct.email}`))) await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: 'card' });
+      if (!(await getSetting(`trialused:${acct.email}`))) await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: accountHadOne ? 'account' : 'card' });
       const first = String(acct.name || '').split(' ')[0];
       await email(acct.email, 'Your free week',
-        mail({ title: 'That card has had its free week.',
+        mail({ title: accountHadOne ? 'This account has had its free week.' : 'That card has had its free week.',
           greeting: first,
-          paras: ['The card you used has already had a free week on the Handstand Ladder, so a second one has not started. Nothing has been charged and nothing will be.',
+          paras: [accountHadOne
+                  ? 'Your account has already had a free week on the Handstand Ladder, so a second one has not started. Nothing has been charged and nothing will be.'
+                  : 'The card you used has already had a free week on the Handstand Ladder, so a second one has not started. Nothing has been charged and nothing will be.',
                   `The whole ladder is still yours whenever you want it: ${esc((PRICES.plus && PRICES.plus.label) || '£5')} a month from the day you start, and you can cancel from the app at any time.`],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'London Handstand Academy' } }));
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A second free week refused: ${acct.email}`,
-        `<p style="font:16px/1.6 system-ui">${esc(acct.email)} started a free week on a card that had one before
-         (${esc(seen.email || seen.customer || 'an earlier subscription')}). It was cancelled before any charge and they were told why.</p>`);
+        `<p style="font:16px/1.6 system-ui">${esc(acct.email)} started a free week ${accountHadOne
+          ? 'on an account that had one before'
+          : 'on a card that had one before (' + esc((seen && (seen.email || seen.customer)) || 'an earlier subscription') + ')'}.
+         It was cancelled before any charge and they were told why.</p>`);
       return true;
     } catch (err) { console.warn('free week card check', err && err.message); return false; }
   };
@@ -1247,6 +1273,10 @@ export default async (request) => {
     const off = ['customer.subscription.deleted', 'customer.subscription.paused'];
 
     if (on.includes(ev.type)) {
+      /* a free week already refused: nothing that arrives after it (an
+         update, a late invoice) switches the account on */
+      const sidEarly = obj.subscription || (ev.type.startsWith('customer.subscription') ? obj.id : '');
+      if (sidEarly && await getSetting(`trialrefused:${sidEarly}`)) return json({ ok: true, refused: true });
       const status = obj.status || 'active';
       const plusBefore = !!acct.plus;
       acct.plus = !['canceled', 'unpaid', 'incomplete_expired'].includes(status);
@@ -1294,16 +1324,17 @@ export default async (request) => {
       if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
       /* the free week has been had: started, or skipped by paying. /checkout
          reads this so a cancelled week cannot be started again */
+      const noteBefore = await getSetting(`trialused:${acct.email}`);
       if ((boughtPlan === 'plus' && ev.type === 'checkout.session.completed')
           || (ev.type.startsWith('customer.subscription') && (obj.status === 'trialing' || obj.trial_start))) {
-        if (!(await getSetting(`trialused:${acct.email}`))) {
-          await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: ev.type });
+        if (!noteBefore) {
+          await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: ev.type, ...(sidEarly ? { sub: sidEarly } : {}) });
         }
       }
       /* a free week on a card that has had one ends here, unbilled */
       const subNow = ev.type === 'checkout.session.completed' ? (obj.mode === 'subscription' ? obj.subscription : '')
         : (ev.type.startsWith('customer.subscription') && obj.status === 'trialing') ? obj.id : '';
-      if (subNow && await freeWeekCard(acct, subNow)) {
+      if (subNow && await freeWeekCard(acct, subNow, noteBefore)) {
         acct.plus = plusNow(Object.assign({}, acct, { plus: false }));
         return json({ ok: true, refused: true });
       }
@@ -1781,7 +1812,12 @@ export default async (request) => {
     /* the free week is once per account, so the app stops offering it once
        it has been had, rather than promising a week and charging today */
     const tw = await settingsMany([`trialused:${who}`, `plan:${who}`, `trialrefused:${who}`]);
-    const trialUsed = !!tw[`trialused:${who}`] || ((tw[`plan:${who}`] || {}).plan === 'plus');
+    /* Someone with no note who has paid Stripe before (a free week had
+       before the notes existed) was offered 7 days free through the link and
+       then refused. With a Stripe customer they go through checkout, which
+       reads their history and gives them the week only if they never had one. */
+    const trialUsed = !!tw[`trialused:${who}`] || ((tw[`plan:${who}`] || {}).plan === 'plus')
+      || (!!acct.stripe_customer && !coachedNow);
     /* a free week just refused because the card had one: the app says so
        instead of welcoming them in */
     const tr = tw[`trialrefused:${who}`];
