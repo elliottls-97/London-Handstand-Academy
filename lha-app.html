@@ -119,6 +119,22 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
  background:#11150f;cursor:pointer;animation:rise .4s cubic-bezier(.2,.8,.2,1) both}
 #dock video{display:block;width:100%}
 #dock .vp-bar{transform:scale(.8);transform-origin:left bottom}
+/* the film is already a small window, and a tap on it opens it large, so
+   its own window and full screen buttons only left the scrub bar no room */
+#dock .vp-bar [data-a="pip"],#dock .vp-bar [data-a="full"]{display:none}
+/* and small, the times go too, so the bar is play, where you are, sound */
+#dock{container-type:inline-size}
+@container (max-width:259px){#dock .vp-bar .vp-t{display:none}}
+/* the handle that resizes it, top left, the twin of the cross top right */
+#dock .dock-grip{position:absolute;top:-10px;left:-10px;z-index:3;width:28px;height:28px;border-radius:999px;
+ border:0;padding:0;background:var(--ink);color:#fff;display:grid;place-items:center;cursor:nwse-resize;
+ touch-action:none;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+/* the volume along the top, where a phone lets a page set it */
+#dock .dock-vol{position:absolute;left:0;right:0;top:0;z-index:2;display:flex;align-items:center;gap:7px;
+ padding:8px 26px 16px 24px;border-radius:14px 14px 0 0;line-height:0;color:#fff;
+ background:linear-gradient(180deg,rgba(0,0,0,.6),rgba(0,0,0,0))}
+#dock .dock-vol svg{flex:none}
+#dock .dock-vol input{flex:1;min-width:0;height:18px;margin:0;accent-color:#fff;cursor:pointer}
 /* one class so a section can be given the design's entrance and its delay */
 /* ── the front door's film ──────────────────────────────────────────
    Behind the welcome only (wmSync). #app turns see-through there and sits
@@ -1931,11 +1947,52 @@ function dlRow(key, urls, meta){
       <span style="display:block;font:600 13px/1.3 var(--sans)">${have&&rec?'Save the rest for no signal':'Save for no signal'}</span>
       <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${
         have&&rec ? have+' of '+uids.length+' films are on this phone.'
+        : (meta&&meta.taste) ? 'Your free session, kept on this phone for a gym with no signal until you have done it.'
         : (meta&&meta.kind==='ex') ? 'Keeps this explainer on your phone, to watch anywhere.'
         : uids.length+' film'+(uids.length===1?'':'s')+', about '+(uids.length*10)+' MB, kept on this phone.'}</span>
     </span>
     <button onclick="event.stopPropagation();dlStart('${key}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
       padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Save</button>`);
+}
+/* ── keep a workout for another day ────────────────────────────────
+   A session is built fresh every time, so a good one was gone the moment
+   the sheet closed. Keeping it puts that exact workout on the Train screen,
+   nothing downloaded, streaming as usual; saving it for no signal as well
+   is the row under it. Kept on this phone, like the saved ones. */
+function keepRow(key, urls, meta){
+  dlLists[key]={urls, meta:meta||{}};
+  const rec=dlRec(key);
+  const inner = rec
+    ? `<span style="flex:1;min-width:0">
+        <span style="display:block;font:600 13px/1.3 var(--sans);color:var(--forest)">Kept on your Train screen</span>
+        <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">Open it from Saved workouts on any day you like.</span></span>
+      <button onclick="event.stopPropagation();dlRemove('${key}')" style="flex:none;border:0;background:none;cursor:pointer;
+        padding:8px 4px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>`
+    : `<span style="flex:1;min-width:0">
+        <span style="display:block;font:600 13px/1.3 var(--sans)">Keep this workout</span>
+        <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">A new one is built each time. This keeps this exact one for another day.</span></span>
+      <button onclick="event.stopPropagation();keepWorkout('${key}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
+        padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Keep</button>`;
+  return `<div id="keep-${key}" style="margin-top:12px"><div style="display:flex;align-items:center;gap:11px;
+    padding:11px 13px;border-radius:14px;background:rgba(0,64,61,.05);text-align:left">
+    <span style="flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+      background:rgba(0,102,99,.12);color:var(--forest)">
+      <svg width="14" height="15" viewBox="0 0 24 24" fill="${rec?'currentColor':'none'}" stroke="currentColor" stroke-width="2.2"
+        stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg></span>
+    ${inner}</div></div>`;
+}
+function keepPaint(key){
+  const el=document.getElementById('keep-'+key), L=dlLists[key];
+  if(el && L) el.outerHTML=keepRow(key, L.urls, L.meta);
+}
+function keepWorkout(key){
+  const L=dlLists[key]; if(!L) return;
+  const prev=dlRec(key);
+  const rec=Object.assign({}, prev||{}, L.meta||{}, {key, urls:L.urls, at:(prev&&prev.at)||Date.now()});
+  delete rec.label;
+  st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,10);
+  save(); keepPaint(key);
+  toast('Kept. It is on your Train screen under Saved workouts.');
 }
 /* ── in a Safari tab, the Home Screen is the safe place ────────────
    Saving works in a tab. But Safari wipes what a website has stored once
@@ -2018,7 +2075,7 @@ async function dlStart(key, anyway){
   const got=uids.filter(u=>dlSet.has(u)).length;
   if(got){
     const prev=dlRec(key);
-    const rec=Object.assign({}, prev||{}, meta, {key, urls:L.urls, n:uids.length,
+    const rec=Object.assign({}, prev||{}, meta, {key, urls:L.urls, n:uids.length, off:true,
       bytes:((prev&&prev.bytes)||0)+bytes, at:Date.now()});
     delete rec.label;
     st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,8);
@@ -2051,7 +2108,7 @@ async function dlRemove(key){
       await cache.delete(dlKey(u,'film')); await cache.delete(dlKey(u,'words')); await cache.delete(dlKey(u,'still'));
       dlSet.delete(u); }
   }catch(e){}
-  dlPaint(key); toast('Removed from this phone.');
+  dlPaint(key); keepPaint(key); toast('Removed from this phone.');
   if(st.tab==='home'||st.tab==='today') render();
 }
 function dlClearAll(){
@@ -2091,11 +2148,20 @@ function dlOpen(key){
    stage, so their drills answer for them. Null when it may open. */
 function dlLocked(rec){
   if(!rec || rec.kind!=='q' || isPlus()) return null;
+  /* the one free session at their stage, saved to do in a gym with no
+     signal: it opens until it has been done, for up to a week */
+  if(rec.taste && !!st.token && Number(rec.stage)===placedStage() && !rec.tasteDone
+     && Date.now()-(rec.at||0) < 7*864e5) return null;
   if(rec.fix){
     const f=(st.fixes||{})[rec.fix];
     if(!f || f.access==='plus' || f.locked) return FREE_STAGES;
   }
-  if(rec.stage!=null && Number(rec.stage)>=FREE_STAGES) return Math.min(STAGES.length-1, Number(rec.stage)|0);
+  /* the mobility day is free at every stage */
+  if(rec.wrist) return null;
+  /* The stage it was built at decides. Only a save older than that is
+     judged by its drills: on their own they called a Foundations workout
+     paid for, because a drill it uses is on a paid stage's list as well. */
+  if(rec.stage!=null) return Number(rec.stage)>=FREE_STAGES ? Math.min(STAGES.length-1, Number(rec.stage)|0) : null;
   if((rec.q||[]).some(x=>x && x.it && drillLocked(x.it.v))) return FREE_STAGES;
   return null;
 }
@@ -2104,10 +2170,13 @@ function savedHomeHTML(){
   const list=(st.dlSaved||[]).filter(r=>r && (r.kind==='ex' || (coachedView() ? r.kind==='day' : r.kind!=='day')))
     /* workouts first, then explainers, newest first within each */
     .sort((a,b)=>((a.kind==='ex')-(b.kind==='ex')) || (b.at||0)-(a.at||0));
-  if(!list.length || !dlOk()) return '';
+  if(!list.length) return '';
+  /* saved for no signal, or only kept to do another day, which streams */
+  const offline = r => r.kind!=='q' || !!r.off || !!r.bytes;
+  const anyOff = list.some(offline), allEx = list.every(r=>r.kind==='ex');
   const card=r=>{
     const uids=dlUids(r.urls), have=uids.filter(u=>dlSet.has(u)).length;
-    const gone=have<uids.length;
+    const gone=offline(r) && have<uids.length;
     const locked=dlLocked(r)!=null;
     return `<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:16px;
       background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
@@ -2118,7 +2187,9 @@ function savedHomeHTML(){
         <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':'var(--grey)'};margin-top:3px">${
           locked ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.'
           : gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
-          : (r.kind==='ex' ? '' : uids.length+' film'+(uids.length===1?'':'s')+', ')+(r.bytes?dlMB(r.bytes)+' · ':'')+'saved '+esc(cpWhen(r.at))}</span>
+          : (r.taste && !isPlus()) ? 'Your free session, saved for no signal. It opens until you have done it.'
+          : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+'. It plays when you have signal.'
+          : (r.kind==='ex' ? '' : uids.length+' film'+(uids.length===1?'':'s')+', ')+(r.bytes?dlMB(r.bytes)+' · ':'')+'saved '+esc(cpWhen(r.at))+', plays with no signal'}</span>
       </button>
       <button onclick="dlOpen('${esc(r.key)}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
         padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${locked?'&#128274;':'Open'}</button>
@@ -2127,12 +2198,12 @@ function savedHomeHTML(){
     </div>`; };
   return `<section class="rise rise-3" style="padding:${wide()?26:18}px 20px 0">
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 0 4px">
-      <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">Saved for no signal.</span>
+      <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">${allEx?'Saved for no signal.':'Saved workouts.'}</span>
       <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length}</span>
     </div>
     <div style="font:400 13px/1.45 var(--sans);color:var(--grey);padding:0 0 ${wide()?12:10}px;max-width:62ch">
-      Workouts and explainers kept on this phone, for a gym with no signal.</div>
-    ${dlTabTip() ? `<div style="margin:-2px 0 10px">${dlTabTip()}</div>` : ''}
+      ${allEx?'Explainers kept on this phone, for a gym with no signal.':'Kept on this phone, to do on another day.'}</div>
+    ${(anyOff && dlTabTip()) ? `<div style="margin:-2px 0 10px">${dlTabTip()}</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:9px">${list.map(card).join('')}</div>
   </section>`;
 }
@@ -8679,14 +8750,24 @@ function drawOv(){
         onclick="closeOv();startQueue(0)">Start follow along</button>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin:0 0 14px;text-align:center">
         Or work down the list and tick them off.</div>
-      ${(typeof tasting==='function' && tasting()) ? '' : (()=>{
+      <!-- Keep it for another day, or keep it for no signal as well. The
+           free session at a paid stage had neither: the row was hidden, so
+           the one workout somebody was given at their stage could not be
+           taken to a gym with no signal. It can now, and it opens until it
+           has been done. -->
+      ${(()=>{
         const urls=(Q||[]).map(q=>itUrl(q.it));
         const vs=[...new Set((Q||[]).map(q=>q.it&&q.it.v).filter(Boolean))];
-        return `<div style="margin:-4px 0 14px">${dlRow('q'+dlHash(vs), urls, {kind:'q', wrist:!!st.ovList,
+        const key='q'+dlHash(vs), meta={kind:'q', wrist:!!st.ovList,
           name:(qLabel||(st.ovList?'Mobility day':((STAGES[curStage()]||{}).n||'Your')+' session'))+', '+qMins()+' min',
           /* where it came from, so it only opens for an account that may train it */
           ...(qFix ? {fix:qFix} : st.ovList ? {} : {stage:curStage()}),
-          q:(Q||[]).map(x=>Object.assign({}, x))})}</div>`; })()}
+          ...((typeof tasting==='function' && tasting()) ? {taste:true} : {}),
+          q:(Q||[]).map(x=>Object.assign({}, x))};
+        /* The free session is saved for no signal and not only kept: the
+           films of a paid stage stop being handed out once it is spent, so
+           a kept copy would open on another day and play nothing. */
+        return `<div style="margin:-4px 0 14px">${meta.taste?'':keepRow(key, urls, meta)}${dlRow(key, urls, meta)}</div>`; })()}
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
       ${(function(){ const a=asideList(); if(!a.length) return '';
         /* so a shorter session is explained rather than mysterious, and
@@ -9940,7 +10021,13 @@ function watchVisit(){
   window.addEventListener('pagehide', close);
 }
 
+/* the free session saved for no signal, done: from now it waits for the ladder */
+function tasteKeptDone(){
+  try{ const vs=[...new Set((Q||[]).map(q=>q.it&&q.it.v).filter(Boolean))], r=dlRec('q'+dlHash(vs));
+    if(r && r.taste && !r.tasteDone){ r.tasteDone=Date.now(); save(); } }catch(e){}
+}
 function reportProgress(extra){
+  if(extra && extra.session && extra.session.done) tasteKeptDone();
   /* ── no account yet ───────────────────────────────────────────────
      A session done before there is an account went nowhere at all: the
      summary said "Logged. It is on your Progress screen" and the screen
@@ -11877,6 +11964,9 @@ function openIntroAgain(){ openOv('intro'); dockRestore('intro', 0); }
    from where it was. A tap on it brings the sheet back with the same
    element in it; the cross stops it. On a wide screen the film already
    has a column of its own, so this is only offered on a phone. */
+/* An iPhone keeps a film's volume to its own buttons: a page can set it
+   and it stays at full. So the slider only shows where it does something. */
+const VOL_OK = (()=>{ try{ const a=document.createElement('video'); a.volume=.5; return Math.abs(a.volume-.5)<.01; }catch(e){ return false; } })();
 function dockExplainer(kind){
   kind = kind==='intro' ? 'intro' : 'explainer';
   const v=document.querySelector('#ov video'); if(!v){ closeOv(); return; }
@@ -11889,14 +11979,42 @@ function dockExplainer(kind){
   if(dock) dock.remove();
   dock=document.createElement('div'); dock.id='dock'; dock.dataset.kind=kind;
   dock.dataset.i=kind==='intro' ? '0' : String(st.exOpen|0);
-  dock.innerHTML=`<button onclick="undockClose()" aria-label="Stop watching"
-      style="position:absolute;top:-10px;right:-10px;z-index:2;width:28px;height:28px;border-radius:999px;border:0;
+  /* the size they last left it at */
+  dock.style.width=Math.max(150, Math.min(Math.min(560, innerWidth-24), Number(st.dockW)||176))+'px';
+  if(VOL_OK && st.vol!=null) try{ v.volume=Math.max(0,Math.min(1,Number(st.vol))); }catch(e){}
+  dock.innerHTML=`<button class="dock-grip" aria-label="Drag to make it bigger or smaller" title="Drag to resize">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10V4h6M4 4l7 7M20 14v6h-6M20 20l-7-7"/></svg></button>
+    ${VOL_OK?`<div class="dock-vol"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+      <input type="range" min="0" max="1" step="0.05" value="${v.muted?0:v.volume}" aria-label="Volume"></div>`:''}
+    <button onclick="undockClose()" aria-label="Stop watching"
+      style="position:absolute;top:-10px;right:-10px;z-index:3;width:28px;height:28px;border-radius:999px;border:0;
       background:var(--ink);color:#fff;font:600 14px/1 var(--sans);cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3)">&times;</button>`;
+  /* drag the corner: out and up to grow it, in and down to shrink it */
+  const grip=dock.querySelector('.dock-grip');
+  grip.addEventListener('click',e=>e.stopPropagation());
+  grip.addEventListener('pointerdown',e=>{
+    e.preventDefault(); e.stopPropagation();
+    try{ grip.setPointerCapture(e.pointerId); }catch(x){}
+    const x0=e.clientX, y0=e.clientY, w0=dock.getBoundingClientRect().width, max=Math.min(560, innerWidth-24);
+    const move=ev=>{ const dx=x0-ev.clientX, dy=(y0-ev.clientY)*1.6;
+      dock.style.width=Math.round(Math.max(150, Math.min(max, w0+(Math.abs(dx)>Math.abs(dy)?dx:dy))))+'px'; };
+    const up=()=>{ grip.removeEventListener('pointermove',move); grip.removeEventListener('pointerup',up);
+      grip.removeEventListener('pointercancel',up); st.dockW=Math.round(dock.getBoundingClientRect().width); save(); };
+    grip.addEventListener('pointermove',move); grip.addEventListener('pointerup',up); grip.addEventListener('pointercancel',up);
+  });
+  const vol=dock.querySelector('.dock-vol input');
+  if(vol){
+    ['click','pointerdown'].forEach(t=>vol.addEventListener(t,e=>e.stopPropagation()));
+    vol.addEventListener('input',()=>{ const x=Number(vol.value); try{ v.volume=x; }catch(e){}
+      st.vol=x; if(x>0 && v.muted) toggleSound(true); save(); });
+  }
   host.setAttribute('data-dockhost','1');
   host.style.cssText='position:relative;line-height:0;background:#11150f;border-radius:14px;overflow:hidden';
   v.style.maxHeight='none'; v.style.aspectRatio='16/10'; v.style.objectFit='cover';
   dock.appendChild(host);
-  dock.addEventListener('click',e=>{ if(e.target.closest('.vp-bar')||e.target.closest('button')) return;
+  dock.addEventListener('click',e=>{ if(e.target.closest('.vp-bar')||e.target.closest('button')||e.target.closest('.dock-vol')) return;
     if(dock.dataset.kind==='intro') openIntroAgain(); else openExplainer(Number(dock.dataset.i)); });
   document.body.appendChild(dock);
   const was=v.paused, t=v.currentTime;
@@ -12433,6 +12551,8 @@ function screenHome(){
     <!-- the stage's explainers and fixes, where the free week's preview
          showed the placed stage's, so choosing Foundations swaps what is in
          the rails rather than taking the rails away -->
+    <!-- workouts kept for another day, under Start: they are another way in -->
+    ${savedHomeHTML()}
     ${trialPending() ? howCardHTML() : ''}
     ${firstVisit() ? stageFilmsHTML()+homeScreenCard() : `<div class="homenudge">${installNudge()+pushNudge()}</div>`+stageFilmsHTML()}
     ${(!firstVisit() && st.homeOrder==='fixesFirst')?fixesHomeHTML():''}
@@ -12545,7 +12665,6 @@ function screenHome(){
       ${railMore(FAQS_READY().length)}
     </section>`}
     ${(firstVisit() || st.homeOrder==='fixesFirst')?'':fixesHomeHTML()}
-    ${savedHomeHTML()}
 
     <!-- the workshop after the explainers, where the design puts it: it is an
          offer, and an offer belongs after the thing they came for -->
@@ -16429,9 +16548,37 @@ function reminderDays(){
   }catch(e){ return []; }
 }
 function pushSync(sub){
-  if(!st.token || st.preview || !sub) return Promise.resolve(false);
+  if(!st.token || st.preview || !sub) return Promise.resolve({ok:false, why:'signin'});
   return fetch(AUTH.pushSub,{method:'POST',headers:authed(),
-    body:JSON.stringify({sub:sub.toJSON(), days:reminderDays()})}).then(r=>r.ok).catch(()=>false);
+    body:JSON.stringify({sub:sub.toJSON(), days:reminderDays()})})
+    .then(r=>r.ok ? {ok:true} : {ok:false, why:r.status===401?'signin':'server', status:r.status})
+    .catch(()=>({ok:false, why:'net'}));
+}
+/* A subscription is tied to the key it was made with. One made with an
+   older key is still handed back by the phone, and every message sent to
+   it is refused, so it is started again with the key in use now. */
+function pushSameKey(sub, want){
+  try{
+    const have=sub && sub.options && sub.options.applicationServerKey; if(!have) return true;
+    const a=new Uint8Array(have); if(a.length!==want.length) return false;
+    for(let i=0;i<a.length;i++) if(a[i]!==want[i]) return false;
+    return true;
+  }catch(e){ return true; }
+}
+/* What went wrong, in the step it went wrong in. It used to print the
+   browser's own words for it, which nobody holding a phone can act on. */
+function pushWhy(step, e){
+  const name=String((e&&e.name)||''), msg=String((e&&e.message)||e||'');
+  if(step==='ready') return 'The app is still setting up on this phone. Close it, open it again and try once more.';
+  if(step==='key') return 'Could not reach the server. Try again on better signal.';
+  if(step==='subscribe'){
+    if(name==='NotAllowedError') return 'This phone would not allow notifications for the app. Check they are allowed for it in your phone settings, then try again.';
+    let android=false; try{ android=/android/i.test(navigator.userAgent); }catch(x){}
+    if(name==='AbortError') return 'The phone\u2019s notification service did not answer. Try again in a minute.'
+      +(android?' In Brave, turn on Google push messaging in its settings first.':'');
+    return 'The phone would not turn them on ('+(name||msg).slice(0,60)+'). Try again, and if it happens again send Elliott a screenshot of this.';
+  }
+  return 'Could not turn them on ('+(name||msg).slice(0,60)+'). Send Elliott a screenshot of this.';
 }
 /* on opening: is this phone on, and if so tell the server again, so a
    changed week and a renewed subscription both reach it */
@@ -16453,17 +16600,26 @@ async function pushTurnOn(){
     toast(perm==='denied' ? 'Notifications are blocked for this app. Turn them on in your phone settings.' : 'Not turned on.');
     pushPaint(); render(); return;
   }
+  let step='ready';
   try{
     const reg=await Promise.race([navigator.serviceWorker.ready,
-      new Promise((_,no)=>setTimeout(()=>no(new Error('the app is still setting up on this phone. Close it, open it again and try once more')), 10000))]);
+      new Promise((_,no)=>setTimeout(()=>no(new Error('slow')), 10000))]);
+    step='key';
     const k=await fetch(AUTH.pushKey).then(r=>r.json());
-    if(!k || !k.key){ toast('Notifications are not set up yet.'); return; }
+    if(!k || !k.key || k.on===false){ toast('Notifications are not set up yet.'); return; }
+    step='subscribe';
+    const want=b64u8(k.key);
     let sub=await reg.pushManager.getSubscription();
-    if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64u8(k.key)});
-    const ok=await pushSync(sub);
-    pushOn=!!ok;
-    toast(ok ? 'Notifications on for this phone.' : 'That did not reach the server. Try again on better signal.');
-  }catch(e){ toast('Could not turn them on: '+String((e&&e.message)||e)); }
+    if(sub && !pushSameKey(sub, want)){ try{ await sub.unsubscribe(); }catch(e){} sub=null; }
+    if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:want});
+    step='server';
+    const r=await pushSync(sub);
+    pushOn=!!r.ok;
+    toast(r.ok ? 'Notifications on for this phone.'
+      : r.why==='signin' ? 'Your sign in on this phone has run out. Sign in again, then turn them on.'
+      : r.why==='net' ? 'That did not reach the server. Try again on better signal.'
+      : 'The server did not take it ('+(r.status||'error')+'). Try again in a minute.');
+  }catch(e){ toast(pushWhy(step, e)); }
   pushPaint(); render();
 }
 async function pushTurnOff(){
