@@ -780,7 +780,7 @@ function cleanSkills(x) {
   const n = (v, max) => (Number.isInteger(v) && v >= 0 && v <= max) ? v : undefined;
   const out = {};
   const put = (k, v) => { if (v !== undefined) out[k] = v; };
-  put('l', n(x.l, 1)); put('kick', n(x.kick, 1)); put('ctw', n(x.ctw, 3)); put('free', n(x.free, 3));
+  put('l', n(x.l, 2)); put('kick', n(x.kick, 1)); put('ctw', n(x.ctw, 3)); put('free', n(x.free, 3));
   if (Array.isArray(x.adv)) out.adv = x.adv.map(v => String(v).slice(0, 12)).filter(v => /^(press|onearm|shapes|none)$/.test(v)).slice(0, 4);
   if (Array.isArray(x.path)) out.path = x.path.map(v => String(v).slice(0, 8)).filter(v => /^(l|kick|ctw|free|adv)$/.test(v)).slice(0, 5);
   return Object.keys(out).length ? out : null;

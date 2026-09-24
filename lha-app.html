@@ -137,6 +137,21 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
  rgba(3,24,22,.66) 0%,rgba(3,24,22,.40) 26%,rgba(3,24,22,.56) 52%,rgba(3,24,22,.9) 78%,rgba(3,24,22,.94) 100%)}
 #wm.wide::after{background:linear-gradient(90deg,rgba(3,24,22,.9) 0%,rgba(3,24,22,.62) 50%,rgba(3,24,22,.5) 100%)}
 #app.wm{background:transparent;z-index:1}
+#wm.still::after{background:linear-gradient(180deg,rgba(3,24,22,.82) 0%,rgba(3,24,22,.6) 32%,
+ rgba(3,24,22,.66) 60%,rgba(3,24,22,.9) 100%)}
+@keyframes qIn{from{opacity:0;transform:translate3d(34px,0,0)}to{opacity:1;transform:none}}
+@keyframes qInB{from{opacity:0;transform:translate3d(-34px,0,0)}to{opacity:1;transform:none}}
+@keyframes qOut{to{opacity:0;transform:translate3d(-28px,0,0)}}
+@keyframes qOutB{to{opacity:0;transform:translate3d(28px,0,0)}}
+@keyframes qUp{from{opacity:0;transform:translate3d(0,16px,0)}to{opacity:1;transform:none}}
+@keyframes qRail{from{transform:scaleX(0)}to{transform:none}}
+.qwrap.qin{animation:qIn .48s cubic-bezier(.2,.8,.2,1) both}
+.qwrap.qin.qb{animation-name:qInB}
+.qwrap.qout{animation:qOut .17s cubic-bezier(.4,0,1,1) both}
+.qwrap.qout.qb{animation-name:qOutB}
+.qwrap.qin .qup{animation:qUp .52s cubic-bezier(.2,.8,.2,1) both}
+.qpicked{transform:scale(.985);border-color:var(--forest)!important;
+ box-shadow:0 0 0 4px rgba(143,227,214,.55),0 10px 26px rgba(0,0,0,.22)!important;transition:transform .12s,box-shadow .12s}
 #app[data-still="1"] .rise,
 #app[data-still="1"] [style*="animation:rise"],
 #app[data-still="1"] [style*="animation:riseB"],
@@ -10437,15 +10452,16 @@ function profilePct(){
    ends the questions, so a beginner answers one or two and someone working
    on a press answers five. */
 const SKILLS=[
-  {k:'l', q:'Can you hold an L‑shaped handstand?', d:'Feet on a box or the wall, hips stacked over your hands, for 30 seconds.',
-   demo:'p-l-handstand', o:[[1,'Yes, I can'],[0,'Not yet','Or I have never tried one']]},
+  {k:'l', q:'Can you hold an L‑shaped handstand?', d:'Hands down, feet up on a box or the wall, for 30 seconds.',
+   demo:'p-l-handstand', t:'4s', o:[[2,'Yes, and I am stacked','Hips right over my hands'],
+     [1,'Yes, but not stacked','Hips still behind my hands'],[0,'Not yet','Or I have never tried one']]},
   {k:'kick', q:'Can you kick up to the wall?', d:'Back to the wall, both feet up, on your own, most times you try.',
-   demo:'wall-kick-ups', o:[[1,'Yes, I can'],[0,'Not yet']]},
+   demo:'wall-kick-ups', t:'2s', o:[[1,'Yes, I can'],[0,'Not yet']]},
   {k:'ctw', q:'How long can you hold chest-to-wall?', d:'Walked up, belly to the wall, hands close to it, arms straight.',
-   demo:'chest-to-wall-handstand', o:[[0,'Not yet','Not tried, or not managed'],[1,'Under 30 seconds'],
-     [2,'30 to 60 seconds'],[3,'A minute or more','Solid on the wall, and stuck against it']]},
+   demo:'chest-to-wall-handstand', t:'2s', o:[[0,'Not yet'],[1,'I can\'t get all the way to the wall'],
+     [2,'I can hold it for 10 seconds'],[3,'I can hold it for 30 seconds or more']]},
   {k:'free', q:'How long can you balance off the wall?', d:'No wall and no spotter, kicked up on your own.',
-   demo:'straight-entries', o:[[0,'Not yet','I stay on the wall'],[1,'A second or two','Off the wall, then down'],
+   demo:'straight-entries', t:'2s', o:[[0,'Not yet','I stay on the wall'],[1,'A second or two','Off the wall, then down'],
      [2,'5 seconds or more','Freestanding, some of the time'],[3,'30 seconds','Most times I kick up']]},
   {k:'adv', q:'Working on anything more advanced?', d:'Pick any. Elliott sees these, and they shape where he takes you.',
    img:'/assets/welcome/elliott-and-suryava.jpg', multi:true,
@@ -10459,7 +10475,7 @@ function skillNext(s){
   if(s.kick==null) return 1;
   if(!s.kick) return -1;
   if(s.ctw==null) return 2;
-  if(s.ctw<2) return -1;
+  if(s.ctw<3) return -1;
   if(s.free==null) return 3;
   /* the advanced question is for somebody already holding thirty seconds,
      and never for someone who said they are starting from the beginning */
@@ -10471,7 +10487,7 @@ function skillNext(s){
 function skillStage(s){
   s=s||{};
   if(!s.l || !s.kick) return 0;
-  const byWall = s.ctw>=3 ? 2 : s.ctw===2 ? 1 : 0;
+  const byWall = s.ctw>=3 ? 1 : 0;
   const byFree = s.free===3 ? 5 : s.free===2 ? 4 : s.free===1 ? 3 : 0;
   /* never onto a stage still being filmed: Press is marked soon, and a
      person placed there was offered a free week of a stage with nothing in
@@ -10494,12 +10510,13 @@ function skillLine(a){
   if(!s || skillNext(s)>=0) return '';
   if(!s.l) return 'Not upside down yet. Foundations starts from zero.';
   if(!s.kick) return 'An L-shape, and kicking up to the wall is next.';
-  if(s.ctw<2) return s.ctw ? 'Kicking up, and chest-to-wall under 30 seconds so far.' : 'Kicking up, and chest-to-wall is next.';
+  if(s.ctw<3) return s.ctw===2 ? 'Kicking up, and chest-to-wall for about 10 seconds.'
+    : s.ctw===1 ? 'Kicking up, and not all the way to the wall on chest-to-wall yet.' : 'Kicking up, and chest-to-wall is next.';
   const adv=(s.adv||[]).filter(x=>x!=='none').map(x=>({press:'presses',onearm:'one-arm',shapes:'shapes'})[x]).filter(Boolean);
   if(s.free===3) return 'Thirty seconds freestanding most tries'+(adv.length?', and working on '+adv.join(' and ')+'.':'.');
   if(s.free===2) return 'Five seconds or more freestanding, some of the time.';
   if(s.free===1) return 'A second or two off the wall, then down.';
-  return s.ctw>=3 ? 'A minute on the wall, and stuck against it.' : 'Chest-to-wall for 30 to 60 seconds, not off the wall yet.';
+  return 'Chest-to-wall for 30 seconds or more, and not off the wall yet.';
 }
 function skillSettle(a){
   const s=a.skills||{};
@@ -10535,43 +10552,44 @@ function quizBack(){
   st.quizStep=Math.max(0,i-1); save(); render();
 }
 function skillRestart(){ const a=intake(); a.skills={}; delete a.level; advDraft=null; save(); render(); }
-/* the drill it means, as its first frame, and the film on a tap */
+/* the drill it means: its first frame, whole, and the film on a tap */
 function skillDemo(q){
-  if(q.img) return `<div style="position:relative;width:min(200px,56%);aspect-ratio:3/4;border-radius:18px;overflow:hidden;
-      background:var(--sand);margin:0 auto 8px">
-      <img src="${q.img}" alt="Elliott and Suryava, one-arm handstands" loading="eager"
-        onerror="this.parentNode.style.display='none'"
-        style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 40%;display:block"></div>`;
+  if(q.img) return '';
   const d=q.demo && drillById(q.demo), uid=d && uidOfUrl(d.url);
   if(!uid) return '';
-  return `<button type="button" onclick="skillFilm(this,'${esc(q.demo)}')" aria-label="Play ${esc(d.n)}"
-      style="position:relative;display:block;width:100%;aspect-ratio:16/9;border:0;padding:0;border-radius:18px;
-      overflow:hidden;background:#dfe9e7;cursor:pointer;margin-bottom:6px">
-      <img src="${streamThumb(uid)}" alt="" loading="eager" onerror="this.parentNode.style.display='none'"
+  return `<button type="button" class="qup" onclick="skillFilm(this,'${esc(q.demo)}')" aria-label="Play ${esc(d.n)}"
+      style="animation-delay:60ms;position:relative;display:block;width:100%;aspect-ratio:16/9;border:1px solid rgba(255,255,255,.35);
+      padding:0;border-radius:18px;overflow:hidden;background:#0c1f1d;cursor:pointer;margin-bottom:4px;
+      box-shadow:0 14px 34px rgba(0,0,0,.35)">
+      <img src="${STREAM_CDN+sigUid(uid)}/thumbnails/thumbnail.jpg?time=${q.t||'2s'}&height=480" alt="" loading="eager"
+        onerror="this.style.display='none'"
         style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">
-      <span style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,40,37,0) 45%,rgba(0,40,37,.62))"></span>
+      <span style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,40,37,0) 50%,rgba(0,40,37,.66))"></span>
       <span style="position:absolute;left:14px;bottom:12px;right:60px;text-align:left;font:600 13px/1.3 var(--sans);
         color:#fff">${esc(d.n)}</span>
-      <span style="position:absolute;right:12px;bottom:10px;width:38px;height:38px;border-radius:50%;
-        background:rgba(255,255,255,.94);display:grid;place-items:center">
+      <span style="position:absolute;right:12px;bottom:10px;width:40px;height:40px;border-radius:50%;
+        background:rgba(255,255,255,.95);display:grid;place-items:center">
         <svg width="13" height="15" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
     </button>`;
 }
 function skillFilm(el,v){
   const d=drillById(v); if(!d || !d.url) return;
-  const src=sig(d.url);
-  el.onclick=null; el.style.cursor='default';
-  el.innerHTML=`<video src="${esc(src)}" autoplay muted playsinline loop controls
-    style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000"></video>`;
+  const box=document.createElement('div');
+  box.style.cssText='position:relative;width:100%;aspect-ratio:16/9;border-radius:18px;overflow:hidden;background:#000;'
+    +'box-shadow:0 14px 34px rgba(0,0,0,.35)';
+  box.innerHTML=`<video src="${esc(sig(d.url))}" autoplay muted playsinline loop controls
+    style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>`;
+  el.replaceWith(box);
 }
 /* the level question's own screen: one skill at a time, or once they have
    all been answered, what was said and where it lands */
 function skillStepView(a){
   const s=a.skills||{}, n=skillNext(s), P=skillStage(s);
-  const card=(on,body,click)=>`<button onclick="${click}" aria-pressed="${on?'true':'false'}" style="background:#fff;
-    border:1.5px solid ${on?'var(--forest)':'rgba(0,64,61,.10)'};border-radius:16px;padding:14px 16px;
-    box-shadow:${on?'0 0 0 3px rgba(0,102,99,.08)':'0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)'};
+  const card=(on,body,click,k)=>`<button class="qup" onclick="${click}" aria-pressed="${on?'true':'false'}"
+    style="animation-delay:${140+k*60}ms;background:#fff;
+    border:1.5px solid ${on?'var(--forest)':'rgba(255,255,255,.6)'};border-radius:16px;padding:14px 16px;
+    box-shadow:0 10px 26px rgba(0,0,0,.22);
     color:var(--ink);cursor:pointer;text-align:left;width:100%;display:flex;align-items:center;gap:13px">
     <span style="flex:1;min-width:0">${body}</span>
     <span style="flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
@@ -10579,11 +10597,11 @@ function skillStepView(a){
       color:#fff;font:700 12px/1 var(--sans)">${on?'&check;':''}</span></button>`;
   const two=(t,d)=>`<div style="font:600 16px/1.25 var(--sans);color:var(--ink)">${esc(t)}</div>${d?`
     <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:4px">${esc(d)}</div>`:''}`;
-  const ladder=`<div style="margin-top:18px;display:flex;align-items:center;gap:10px">
+  const ladder=`<div class="qup" style="animation-delay:420ms;margin-top:18px;display:flex;align-items:center;gap:10px">
       <span style="display:flex;gap:3px;flex:none">${STAGES.map((_,k)=>`<i style="width:15px;height:5px;border-radius:3px;
-        background:${k<=P?'var(--forest)':'rgba(0,64,61,.14)'}"></i>`).join('')}</span>
-      <span style="font:500 12.5px/1.35 var(--sans);color:var(--grey2)">${n<0?'You land on':'So far'}
-        <b style="color:var(--ink);font-weight:600">${esc(STAGES[P].n)}</b></span></div>`;
+        background:${k<=P?'#8fe3d6':'rgba(255,255,255,.2)'};transition:background .5s"></i>`).join('')}</span>
+      <span style="font:500 12.5px/1.35 var(--sans);color:rgba(255,255,255,.75)">${n<0?'You land on':'So far'}
+        <b style="color:#fff;font-weight:600">${esc(STAGES[P].n)}</b></span></div>`;
   if(n<0){
     const said=SKILLS.filter(q=>s[q.k]!=null).map(q=>{
       const v=s[q.k];
@@ -10594,25 +10612,26 @@ function skillStepView(a){
         <span style="flex:none;max-width:45%;text-align:right;font:600 13.5px/1.4 var(--sans);color:var(--ink)">${esc(t)}</span></div>`;
     }).join('');
     return {q:'That puts you on '+STAGES[P].n+'.', sub:skillLine(a)||'Where your answers land.',
-      body:`<div style="background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:18px;padding:4px 16px">${said}</div>
+      body:`<div class="qup" style="animation-delay:120ms;background:#fff;border-radius:18px;padding:4px 16px;
+          box-shadow:0 10px 26px rgba(0,0,0,.22)">${said}</div>
         ${ladder}
-        <button onclick="skillRestart()" style="align-self:flex-start;background:none;border:none;cursor:pointer;
-          padding:10px 0 0;font:600 13px/1 var(--sans);color:var(--forest)">Answer these again</button>`};
+        <button onclick="quizMove(-1,()=>skillRestart())" style="align-self:flex-start;background:none;border:none;cursor:pointer;
+          padding:10px 0 0;font:600 13px/1 var(--sans);color:#8fe3d6">Answer these again</button>`};
   }
   const q=SKILLS[n];
   let opts;
   if(q.multi){
     const sel=advDraft||s.adv||[];
-    opts=`<div style="display:flex;flex-wrap:wrap;gap:9px">${q.o.map(([v,t])=>{
+    opts=`<div class="qup" style="animation-delay:140ms;display:flex;flex-wrap:wrap;gap:9px">${q.o.map(([v,t])=>{
       const on=sel.indexOf(v)>=0;
       return `<button onclick="toggleAdv('${v}')" aria-pressed="${on?'true':'false'}" style="background:${on?'var(--forest)':'#fff'};
-        color:${on?'var(--on-primary)':'var(--ink)'};border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};
+        color:${on?'#fff':'var(--ink)'};border:1px solid rgba(255,255,255,.6);box-shadow:0 8px 20px rgba(0,0,0,.18);
         border-radius:999px;padding:12px 16px;font:600 13.5px/1 var(--sans);cursor:pointer">${esc(t)}</button>`;}).join('')}</div>
-      <button onclick="doneAdv()" style="width:100%;height:54px;margin-top:16px;border:0;border-radius:14px;cursor:pointer;
-        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 16px/1 var(--sans);
-        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)">${sel.length?'Done':'None of these yet'} &rarr;</button>`;
+      <button class="qup" onclick="quizMove(1,()=>doneAdv())" style="animation-delay:260ms;width:100%;height:54px;margin-top:16px;border:0;
+        border-radius:14px;cursor:pointer;background:#fff;color:var(--deep);box-shadow:0 14px 34px rgba(0,0,0,.35);
+        font:700 16px/1 var(--sans)">${sel.length?'Done':'None of these yet'} &rarr;</button>`;
   } else {
-    opts=q.o.map(([v,t,d])=>card(s[q.k]===v, two(t,d), `pickSkill('${q.k}',${v})`)).join('');
+    opts=q.o.map(([v,t,d],k)=>card(s[q.k]===v, two(t,d), `quizMove(1,()=>pickSkill('${q.k}',${v}),this)`, k)).join('');
   }
   return {q:q.q, sub:q.d, body:`${skillDemo(q)}${opts}${ladder}`};
 }
@@ -10640,15 +10659,57 @@ function stepAnswered(i){
   if(id==='niggles') return true;          /* nothing to flag is an answer */
   return true;
 }
+/* ── the quiz, over film ─────────────────────────────────────────────
+   Each question stands on its own picture (quizBg, drawn behind #app by
+   the same layer as the front door), so the words are light and the
+   answers are white cards. Moving on slides the question out and the next
+   one in with its answers rising one after another; Back runs the other
+   way. A redraw of the same question replays none of it. */
+let quizShown='', quizDir=1;
+function quizKey(){
+  const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i]||{};
+  if(step.id!=='level') return step.id||'';
+  const n=skillNext((st.intake||{}).skills);
+  return 'level:'+(n<0?'done':SKILLS[n].k);
+}
+/* A second tap while the question is on its way out used to be a second
+   answer: it skipped the question after, and could leave a page faded out.
+   One move at a time, and the page is always drawn fresh at the end. */
+let quizBusy=false;
+function quizMove(dir, fn, el){
+  if(quizBusy) return;
+  quizDir=dir;
+  let reduce=false; try{ reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  const b=document.querySelector('#app .qwrap');
+  if(el && el.classList) el.classList.add('qpicked');
+  if(!b || reduce){ fn(); return; }
+  quizBusy=true;
+  setTimeout(()=>{ b.classList.remove('qin','qb'); b.classList.add('qout'); if(dir<0) b.classList.add('qb');
+    setTimeout(()=>{ quizBusy=false; try{ fn(); }finally{ const w=document.querySelector('#app .qwrap');
+      if(w && w.classList.contains('qout')){ w.classList.remove('qout','qb'); } } }, 170); }, el?120:0);
+}
+/* the picture behind the question: Elliott and Suryava, a different one as
+   each question arrives. The drill films stay in front, where they can be
+   seen: behind the words they were too dark to tell what was going on. */
+const QUIZ_STILLS=['/assets/welcome/elliott-and-suryava.jpg','/assets/welcome/elliott-handstand.jpg',
+  '/assets/welcome/suryava-handstand.jpg'];
+function quizBg(){
+  const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i]||{};
+  if(step.id==='goal') return null;   /* the front door's films carry on */
+  const n=step.id==='niggles' ? 5 : skillNext((st.intake||{}).skills);
+  return {src:QUIZ_STILLS[(n<0?4:n)%QUIZ_STILLS.length], portrait:true};
+}
 function screenQuiz(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
+  const key=quizKey(), fresh=key!==quizShown; quizShown=key;
   const rails=INTAKE_STEPS.map((_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
-    background:${n<i?'var(--deep)':n===i?'var(--amber)':'rgba(0,64,61,.15)'}"></i>`).join('');
+    background:${n<i?'#8fe3d6':n===i?'var(--amber)':'rgba(255,255,255,.22)'};${
+    n===i&&fresh?'transform-origin:left;animation:qRail .7s cubic-bezier(.2,.8,.2,1) both':''}"></i>`).join('');
   /* the tick is drawn, so the pressed state has to be said as well */
-  const card=(on,body,click)=>`<button onclick="${click}" aria-pressed="${on?'true':'false'}" style="background:#fff;
-    border:1.5px solid ${on?'var(--forest)':'rgba(0,64,61,.10)'};border-radius:16px;padding:15px 16px;
-    box-shadow:${on?'0 0 0 3px rgba(0,102,99,.08)'
-      :'0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)'};
+  const card=(on,body,click,k)=>`<button class="qup" onclick="${click}" aria-pressed="${on?'true':'false'}"
+    style="animation-delay:${90+k*60}ms;background:#fff;
+    border:1.5px solid ${on?'var(--forest)':'rgba(255,255,255,.6)'};border-radius:16px;padding:15px 16px;
+    box-shadow:0 10px 26px rgba(0,0,0,.22);
     color:var(--ink);cursor:pointer;text-align:left;width:100%;
     display:flex;align-items:center;gap:13px">
     <span style="flex:1;min-width:0">${body}</span>
@@ -10660,75 +10721,74 @@ function screenQuiz(){
     <div style="font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">${esc(d)}</div>`;
 
   let body='';
-  if(step.id==='goal') body=GOALS.map(g=>
-    card(a.goal===g.v, two(g.t,g.d), `pickIntake('goal','${g.v}')`)).join('');
+  if(step.id==='goal') body=GOALS.map((g,k)=>
+    card(a.goal===g.v, two(g.t,g.d), `quizMove(1,()=>pickIntake('goal','${g.v}'),this)`, k)).join('');
 
   let head={q:step.q, sub:step.sub};
   if(step.id==='level'){ const v=skillStepView(a); head={q:v.q, sub:v.sub}; body=v.body; }
 
   if(step.id==='niggles'){
     const sel=a.niggles||[];
-    body=`<div style="display:flex;flex-wrap:wrap;gap:9px">${NIGGLES.map(x=>{
+    body=`<div class="qup" style="animation-delay:90ms;display:flex;flex-wrap:wrap;gap:9px">${NIGGLES.map(x=>{
       const on=sel.indexOf(x)>=0;
-      return `<button onclick="toggleNiggle('${esc(x)}')" style="background:${on?'var(--forest)':'#fff'};
-        color:${on?'var(--on-primary)':'var(--ink)'};border:1px solid ${on?'var(--forest)':'rgba(17,17,17,.08)'};
-        border-radius:999px;padding:12px 16px;
+      return `<button onclick="toggleNiggle('${esc(x)}')" aria-pressed="${on?'true':'false'}" style="background:${on?'var(--forest)':'#fff'};
+        color:${on?'#fff':'var(--ink)'};border:1px solid ${on?'rgba(255,255,255,.6)':'rgba(255,255,255,.6)'};
+        border-radius:999px;padding:12px 16px;box-shadow:0 8px 20px rgba(0,0,0,.18);
         font:600 13.5px/1 var(--sans);cursor:pointer">${esc(x)}</button>`;}).join('')}</div>
       ${sel.length && sel.indexOf('Nothing right now')<0 ? `
       <!-- 6c shows a box here saying what each niggle changes. Nothing in the
            free app adapts to a niggle yet, so this says the true thing: it
            reaches Elliott and shapes what he writes. Give me a line per
            niggle and I will say the specific thing instead. -->
-      <div style="margin-top:16px;padding:13px 15px;border-left:3px solid var(--forest);
-        background:rgba(0,102,99,.05);border-radius:0 12px 12px 0">
-        <div style="font:400 14px/1.5 var(--sans)">
+      <div style="margin-top:16px;padding:13px 15px;border-left:3px solid #8fe3d6;
+        background:rgba(255,255,255,.12);border-radius:0 12px 12px 0;
+        -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)">
+        <div style="font:400 14px/1.5 var(--sans);color:#fff">
           ${esc(sel.filter(x=>x!=='Nothing right now').join(', '))}: noted. It goes to
           Elliott with the rest of your answers and shapes what he suggests. Nothing
           here is off limits because of it.</div>
       </div>`:''}`;
   }
+  const white=`width:100%;height:56px;margin-top:22px;border:0;border-radius:14px;cursor:pointer;
+      background:#fff;color:var(--deep);box-shadow:0 14px 34px rgba(0,0,0,.35);font:700 16px/1 var(--sans)`;
 
   /* .scroll, because #app is a fixed-height flex column with overflow
      hidden — without it the last step runs past the fold and the button
      that finishes the quiz cannot be reached. */
-  return `<div class="scroll s" style="background:transparent;color:var(--ink)">
-    <div style="min-height:100%;padding:calc(env(safe-area-inset-top) + 22px) 24px 34px;
-    display:flex;flex-direction:column;
-    animation:${i%2?'riseB':'rise'} .5s cubic-bezier(.2,.8,.2,1) both">
+  return `<div class="scroll s" style="background:transparent;color:#fff">
+    <div class="qwrap${fresh?' qin'+(quizDir<0?' qb':''):''}" style="min-height:100%;
+    padding:calc(env(safe-area-inset-top) + 22px) 24px 34px;display:flex;flex-direction:column">
     <div style="display:flex;gap:5px">${rails}</div>
     <!-- how many are left and how long it takes, said out loud. Three
          questions unannounced is where a cold visitor leaves. -->
     <div style="margin-top:22px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-      <span style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)">${
+      <span style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:rgba(255,255,255,.7)">${
         step.kick} &middot; ${i+1} OF ${INTAKE_STEPS.length}</span>
-      <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${
+      <span style="font:400 12.5px/1 var(--sans);color:rgba(255,255,255,.7)">${
         i===0 ? 'About a minute'
         : i===INTAKE_STEPS.length-1 ? 'Last one'
         : (INTAKE_STEPS.length-i-1)+' to go'}</span>
     </div>
-    <div style="margin-top:11px;font:400 32px/1.06 var(--serif)">${(()=>{
+    <div style="margin-top:11px;font:400 32px/1.06 var(--serif);color:#fff;text-shadow:0 2px 20px rgba(0,0,0,.35)">${(()=>{
       const w=String(head.q).trim().split(' ');
       const last=w.pop();
-      return esc(w.join(' '))+' <em style="color:var(--forest);font-style:normal">'+esc(last)+'</em>';
+      return esc(w.join(' '))+' <em style="color:#8fe3d6;font-style:normal">'+esc(last)+'</em>';
     })()}</div>
-    <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">${esc(head.sub)}</div>
+    <div style="font:400 14.5px/1.5 var(--sans);color:rgba(255,255,255,.84);margin-top:9px">${esc(head.sub)}</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:24px">${body}</div>
     <!-- The frames make this a button, not a caption. It names the next
          question, so answering reads as progress rather than as a form. It
          only appears once this step has an answer, because a Next that does
          nothing is worse than no Next. -->
-    ${(!INTAKE_STEPS[i+1] && stepAnswered(i))?`<button class="btn" style="width:100%;margin-top:22px"
-      onclick="finishIntake()">See where you land</button>`:''}
-    ${(INTAKE_STEPS[i+1] && stepAnswered(i))?`<button onclick="nextIntake()"
-      style="width:100%;height:56px;margin-top:22px;border:0;border-radius:14px;cursor:pointer;
-      background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
-      box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-      font:600 16px/1 var(--sans)">${
+    ${(!INTAKE_STEPS[i+1] && stepAnswered(i))?`<button class="qup" style="${white};animation-delay:300ms"
+      onclick="quizMove(1,()=>finishIntake())">See where you land</button>`:''}
+    ${(INTAKE_STEPS[i+1] && stepAnswered(i))?`<button class="qup" onclick="quizMove(1,()=>nextIntake())"
+      style="${white};animation-delay:300ms">${
         i===INTAKE_STEPS.length-2 ? 'Last one: '+esc(INTAKE_STEPS[i+1].kick.toLowerCase())
                                   : 'Next: '+esc(INTAKE_STEPS[i+1].kick.toLowerCase())} &rarr;</button>`:''}
-    ${i>0?`<button onclick="quizBack()" style="background:none;border:none;
-      color:var(--grey2);font:500 13px/1 var(--sans);cursor:pointer;margin-top:14px;padding:10px">← Back</button>`
-      :`<button onclick="skipIntake()" style="background:none;border:none;color:var(--grey2);
+    ${i>0?`<button onclick="quizMove(-1,()=>quizBack())" style="background:none;border:none;
+      color:rgba(255,255,255,.75);font:500 13px/1 var(--sans);cursor:pointer;margin-top:14px;padding:10px">← Back</button>`
+      :`<button onclick="skipIntake()" style="background:none;border:none;color:rgba(255,255,255,.75);
         font:500 13px/1.4 var(--sans);cursor:pointer;margin-top:14px;padding:10px">
         Skip and start at Stage 1, ${esc(STAGES[0].n)}</button>`}
     </div></div>`;
@@ -11143,22 +11203,6 @@ function screenOriented(){
      it says so and offers the free week instead. */
   const tasteUsed = gated && (st.token ? tasteLeft() <= 0 : tastedHere());
   const a=intake();
-  const goal=(GOALS.find(g=>g.v===a.goal)||{}).t||'';
-  /* the goal never moved them — it explains why this is the road to it */
-  const bridge = a.goal==='advanced'
-      ? 'You said presses and one-arm. Those are a handstand you can hold without thinking, so that is what we build first.'
-    : a.goal==='improve'
-      ? 'You want a better line. Line comes from the shapes below, not from more time upside down.'
-    : a.goal==='hold'
-      ? (placed>=4 ? 'You want it there every time you kick up. Everything here is aimed at exactly that.'
-                   : 'You want to hold it freestanding. Everything here is aimed at exactly that.')
-      : 'Everything here starts from the beginning. No experience assumed.';
-  const per=st.perWeek||levelDef().def, mins=st.time||30;
-  const row=(n,t,d)=>`<div style="display:flex;gap:10px;padding:14px 0;
-    border-top:${n==='1'?'none':'1px solid rgba(17,17,17,.08)'}">
-    <span style="flex:none;width:18px;font:400 18px/1.1 var(--serif);color:var(--forest)">${n}</span>
-    <span><b style="font:600 14.5px/1.3 var(--sans);color:var(--ink)">${t}</b>
-    <span style="display:block;font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">${d}</span></span></div>`;
 
   /* Two boxes: the page scrolls and the bar under it does not. It was one
      scrolling column with the bar made sticky inside it, which iPhone
@@ -11195,12 +11239,15 @@ function screenOriented(){
         esc(PS.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
       <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:9px">
         Stage ${placed+1} of ${STAGES.length}. ${esc(skillLine(a)||levelDef().d)}</div>
-      <div style="font:400 15.5px/1.5 var(--sans);color:#333;margin-top:16px">${esc(bridge)}</div>
+      <!-- Less to read than it was: the goal's own sentence and three rows
+           about the ladder, the week and the explainers went. What the stage
+           is for, and how often, is what somebody needs before starting. -->
       ${!gated && PS.sum?`<div style="margin-top:20px;border-radius:20px;padding:18px 20px;background:#fff;
         border:1px solid rgba(0,64,61,.12);box-shadow:0 1px 2px rgba(0,64,61,.05)">
         <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">
           WHAT ${esc(PS.n.toUpperCase())} IS FOR</div>
-        <div style="font:400 16px/1.5 var(--sans);color:var(--ink);margin-top:11px">${esc(PS.sum)}</div></div>`:''}
+        <div style="font:400 16px/1.5 var(--sans);color:var(--ink);margin-top:11px">${esc(PS.sum)}</div>
+        ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:10px">${esc(PS.rec)}</div>`:''}</div>`:''}
 
       <!-- The offer, at the one moment it means something: they have just
            been told where they belong and it is not where they can train.
@@ -11221,6 +11268,7 @@ function screenOriented(){
           <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">
             WHAT ${esc(PS.n.toUpperCase())} IS FOR</div>
           <div style="font:400 16px/1.5 var(--sans);color:var(--ink);margin-top:11px">${esc(PS.sum||PS.goal||'')}</div>
+          ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:10px">${esc(PS.rec)}</div>`:''}
           <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
             <div style="font:400 20px/1.25 var(--serif)">
               ${tasteUsed
@@ -11239,25 +11287,6 @@ function screenOriented(){
           </div>
         </div>`;})():''}
 
-      <div style="background:#fff;border:1px solid rgba(17,17,17,.07);border-radius:20px;
-        padding:4px 16px;margin-top:20px;box-shadow:0 1px 2px rgba(17,17,17,.04)">
-        ${(()=>{
-          /* This said five stages beside a header reading "Stage 1 of 6", and
-             described the old gate: a hold you had to hit. The gate is the
-             stage's check points now, so the first thing a new person reads
-             about moving up was the one thing that had changed. */
-          /* the count is the placed stage's: it named Foundations to someone
-             it had just told was on Wall Work */
-          const n=(cpFor(placed)||[]).length;
-          return row('1','The ladder is '+STAGES.length+' stages',
-            'You move up to the next one when you reach the check points for the one you are on. '+
-            (n? esc(PS.n)+' has '+n+'.' : ''));
-        })()}
-        ${row('2','Your first session is ready',
-          mins+' minutes, '+per+'× a week, plus two short wrist and mobility days.')}
-        ${row('3','Questions get answered below',
-          'Every explainer is there whenever you want it. I will suggest one a day.')}
-      </div>
 
     </div></div>
 
@@ -14887,20 +14916,22 @@ function screenCoaching(){
 }
 
 /* ── the welcome gate: free by default, coached with a code ── */
-/* ── the front door, moving ───────────────────────────────────────
+/* ── the film behind the front door and the quiz ─────────────────────
    Elliott and Suryava upside down behind the first screen, darkened so the
-   words read. Only films and photos shot upright, shown as they were shot:
-   one tall panel on a phone, and on a wider screen as many tall panels as
-   fit side by side, so nothing is stretched across a monitor. It lives
-   outside #app because the first seconds of the app are redraws, and a
-   film restarting on every one of them would be a flicker. Stills only for
-   reduced motion, a data saver or a slow line. */
+   words read, and a still behind each quiz question. Only portrait films
+   and photos run as the montage, shown as they were shot: one tall panel
+   on a phone and, on a wider screen, as many tall panels as fit side by
+   side, so nothing is stretched across a monitor. A quiz still is one
+   picture that crossfades to the next. It lives outside #app because the
+   first seconds of the app are redraws, and a film restarting on every one
+   of them would be a flicker. Stills only for reduced motion, a data saver
+   or a slow line. */
 const WM_MEDIA=[
   {v:'/assets/welcome/elliott-handstand.mp4', i:'/assets/welcome/elliott-handstand.jpg'},
   {i:'/assets/welcome/elliott-and-suryava.jpg'},
   {v:'/assets/welcome/suryava-handstand.mp4', i:'/assets/welcome/suryava-handstand.jpg'},
 ];
-const wm={el:null, on:false, panels:[], rs:0};
+const wm={el:null, mode:null, panels:[], rs:0, still:''};
 function wmStill(){
   try{
     if(matchMedia('(prefers-reduced-motion: reduce)').matches) return 'still';
@@ -14909,7 +14940,7 @@ function wmStill(){
   }catch(e){}
   return '';
 }
-function wmCount(){ return Math.max(1, Math.min(3, Math.round(innerWidth/(innerHeight*.5625)))); }
+function wmCount(){ return wm.mode==='still' ? 1 : Math.max(1, Math.min(3, Math.round(innerWidth/(innerHeight*.5625)))); }
 function wmBuild(){
   const n=wmCount();
   if(wm.el && wm.panels.length===n) return;
@@ -14931,8 +14962,9 @@ function wmClear(){
     wm.el.innerHTML=''; }
   wm.panels=[];
 }
-function wmShow(P){
-  const m=WM_MEDIA[P.k], mode=wmStill();
+/* one film or picture into a panel, crossfaded over whatever is there */
+function wmPut(P, m, timed){
+  const mode=wmStill();
   const layers=[...P.el.querySelectorAll('.wl')], next=layers.find(l=>l!==P.front)||layers[0];
   let media, dur=6500;
   if(m.v && !mode){
@@ -14947,40 +14979,46 @@ function wmShow(P){
   }
   next.innerHTML=''; next.appendChild(media);
   const old=P.front;
-  const reveal=()=>{ if(!wm.on) return; next.classList.add('on'); if(old && old!==next) old.classList.remove('on');
+  const reveal=()=>{ if(!wm.mode) return; next.classList.add('on'); if(old && old!==next) old.classList.remove('on');
     setTimeout(()=>{ if(old && old!==next && !old.classList.contains('on')){
       old.querySelectorAll('video').forEach(v=>{ try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} });
       old.innerHTML=''; } }, 1900); };
   if(media.tagName==='VIDEO'){ const pr=media.play(); if(pr && pr.catch) pr.catch(()=>{}); reveal(); }
   else if(media.complete && media.naturalWidth) reveal(); else { media.onload=reveal; media.onerror=reveal; }
   P.front=next;
-  if(mode!=='still') P.timer=setTimeout(()=>wmNext(P), dur);
+  clearTimeout(P.timer); P.timer=0;
+  if(timed && mode!=='still') P.timer=setTimeout(()=>wmNext(P), dur);
 }
+function wmShow(P){ wmPut(P, WM_MEDIA[P.k], true); }
 /* the next film or photo for a panel, never one another panel is showing */
 function wmNext(P){
-  P.timer=0; if(!wm.on) return;
+  P.timer=0; if(wm.mode!=='montage') return;
   const busy=wm.panels.filter(x=>x!==P).map(x=>x.k);
   for(let j=1;j<=WM_MEDIA.length;j++){ const k=(P.k+j)%WM_MEDIA.length; if(busy.indexOf(k)<0 || j===WM_MEDIA.length){ P.k=k; break; } }
   wmShow(P);
 }
-function wmSync(show){
+/* mode: 'montage' (the front door), 'still' with the picture's address
+   (a quiz question), or nothing, which fades it away */
+function wmSync(mode, src){
+  mode=mode||null;
   const app=document.getElementById('app');
-  if(app) app.classList.toggle('wm', !!show);
-  if(show===wm.on) return;
-  wm.on=!!show;
-  if(show){
-    wmBuild(); wm.panels.forEach(P=>{ if(!P.front) wmShow(P); });
-    requestAnimationFrame(()=>{ if(wm.on && wm.el) wm.el.classList.add('on'); });
-  } else if(wm.el){
-    wm.el.classList.remove('on');
-    setTimeout(()=>{ if(!wm.on) wmClear(); }, 800);
+  if(app) app.classList.toggle('wm', !!mode);
+  if(mode!==wm.mode){
+    wm.mode=mode;
+    if(!mode){ if(wm.el){ wm.el.classList.remove('on'); setTimeout(()=>{ if(!wm.mode) wmClear(); }, 800); } return; }
+    wmClear(); wm.still='';
+    wmBuild();
+    wm.el.classList.toggle('still', mode==='still');
+    if(mode==='montage') wm.panels.forEach(P=>wmShow(P));
+    requestAnimationFrame(()=>{ if(wm.mode && wm.el) wm.el.classList.add('on'); });
   }
+  if(mode==='still' && src && src!==wm.still){ wm.still=src; wmBuild(); wmPut(wm.panels[0], {i:src}, false); }
 }
 addEventListener('resize', ()=>{ clearTimeout(wm.rs); wm.rs=setTimeout(()=>{
-  if(wm.on && wm.panels.length!==wmCount()){ wmBuild(); wm.panels.forEach(P=>{ if(!P.front) wmShow(P); }); } }, 300); });
+  if(wm.mode==='montage' && wm.panels.length!==wmCount()){ wmBuild(); wm.panels.forEach(P=>{ if(!P.front) wmShow(P); }); } }, 300); });
 document.addEventListener('visibilitychange', ()=>{
   if(!wm.el) return;
-  wm.el.querySelectorAll('video').forEach(v=>{ try{ if(document.hidden) v.pause(); else if(wm.on){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }catch(e){} });
+  wm.el.querySelectorAll('video').forEach(v=>{ try{ if(document.hidden) v.pause(); else if(wm.mode){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }catch(e){} });
 });
 
 function screenWelcome(){
@@ -16642,7 +16680,15 @@ function render(){
   document.documentElement.style.setProperty('--accent', st.in?'var(--amber)':'var(--sand)');
   document.body.dataset.tier = st.in?'coached':'free';
   /* the film behind the front door, on the front door only */
-  try{ wmSync(st.tab!=='reset' && !(st.tab==='signin' && !st.in) && !st.mode && !st.in); }catch(e){}
+  try{
+    const outside = st.tab==='reset' || (st.tab==='signin' && !st.in) || st.in;
+    const onWelcome = !outside && !st.mode;
+    const onQuiz = !outside && st.mode==='free' && !st.quizDone;
+    const qb = onQuiz ? quizBg() : null;
+    /* a portrait picture on a monitor would be cut to a strip, so there the
+       tall panels carry on instead */
+    wmSync(onWelcome || (onQuiz && (!qb || (qb.portrait && wide()))) ? 'montage' : onQuiz ? 'still' : null, qb && qb.src);
+  }catch(e){}
   if(st.tab==='reset'){ swap(screenReset()); return; }
   if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
   if(!st.mode && !st.in){ swap(screenWelcome()); return; }
