@@ -11372,7 +11372,7 @@ function railTile(o){
       ${o.sub?`<div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:3px">${esc(o.sub)}</div>`:''}
     </div>`;
 }
-const railHTML = (head, sub, items) => `<section class="rise rise-3" style="padding:${wide()?24:20}px 0 0">
+const railHTML = (head, sub, items, tour) => `<section class="rise rise-3"${tour?` data-tour="${tour}"`:''} style="padding:${wide()?24:20}px 0 0">
     <div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
       <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div></div>
     <div style="display:flex;gap:12px;overflow-x:auto;padding:12px 20px 6px;scroll-snap-type:x mandatory;scroll-padding-inline:20px;
@@ -11404,7 +11404,9 @@ function stageFilmsHTML(){
   const films = ex.length ? railHTML('Explainers at '+esc(PS.n), EX_SUB,
       ex.map(({x,i})=>{ const open=explainerOpen(i);
         return railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'',
-          go:open?`openExplainer(${i})`:`lockedExplainer(${i})`, lock:open?'':'FREE ACCOUNT'}); }).join('')) : '';
+          go:open?`openExplainer(${i})`:`lockedExplainer(${i})`, lock:open?'':'FREE ACCOUNT'}); }).join(''),
+      /* the tour's films step points here until the library is on screen */
+      libShown() ? '' : 'explainers') : '';
   const fixes = fx.length ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
       fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix('${esc(f.slug)}')`,
         lock:(f.access==='plus' && !isPlus()) ? paid : ''})).join('')) : '';
@@ -16538,7 +16540,11 @@ const TOURS = {
        pre:()=>{ closeOv(); tourSession(false,false,todayCellIdx()); }},
       {t:'drilllist', h:'Or drill by drill', b:'The same session as a list. Tick, time a set, open a demo.',
        pre:()=>{ tourLeaveMode(); tourSession(false,'work',todayCellIdx()); }},
-      {t:'explainers', h:'Ask, or watch', b:'Type a question. Videos first, then Elliott.',
+      /* the library (with its question box) is there once there is an
+         account and a session; before that it is the stage's own films */
+      {t:'explainers', h:()=>libShown() ? 'Ask, or watch' : 'Films for your stage',
+       b:()=>libShown() ? 'Type a question. Videos first, then Elliott.'
+                        : 'Short films from Elliott on the stage you are on, and its fixes under them. Tap one to watch.',
        pre:()=>{ tourLeaveMode(); }},
       {t:'tabs', h:'The rest', b:()=>'The Ladder, with your progress on it, and '+coachTabLabel()+' for sending me a clip.'
         +(wide() ? ' The library and your messages are at the foot of the column.' : '')},
@@ -16585,14 +16591,19 @@ const TOURS = {
   ladder: {
     n:'The ladder', next:null,
     steps:[
-      {t:'stagegoal', h:'How you leave this stage',
+      /* The ladder tab is three tabs now (check points, the ladder,
+         progress), so each step opens the one its target is on. They
+         opened and closed a fold-out that no longer exists, so the step
+         about all six stages found nothing and the tour stopped short. */
+      {t:'stagegoal', h:'How you leave this stage', always:true,
+       pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } },
        b:'Every stage has a handful of check points. The number beside the stage is how many you have reached, and the amber bar is the same thing drawn. Reach all of them and the next stage opens below.'},
       /* the check points are the page now, so the tour walks you onto them
          rather than past them */
-      {t:'checkpoints', h:'This is the bit that moves you',
+      {t:'checkpoints', h:'This is the bit that moves you', always:true,
        b:()=>'Each one is a thing to be able to do, with a number on it. Drag it to what you managed and it logs as you go. '
          +'Nothing here is a guess: it is what decides when the next stage opens.',
-       pre:()=>{ if(st.ladderOpen){ st.ladderOpen=false; save(); render(); } }},
+       pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } }},
       /* and the ladder gets explained here, once, because it is folded away
          the rest of the time: the daily job is your own progress, not the
          six stages you might be on in a year */
@@ -16601,7 +16612,7 @@ const TOURS = {
          in the DOM at the moment the list is built. Without this the one
          place the ladder ever gets explained was silently skipped. */
       {t:'stagelist', h:'All six stages', always:true,
-       pre:()=>{ if(!st.ladderOpen){ st.ladderOpen=true; save(); render(); } },
+       pre:()=>{ if(ladderTab()!=='ladder'){ st.ladderTab='ladder'; st.ladder3=1; save(); render(); } },
        /* This said "Nothing is locked" over a list showing four padlocks.
           It is true for a subscriber and plainly false for everybody else,
           so it asks the tier rather than stating one answer for both. */
@@ -17140,8 +17151,17 @@ function paintTour(){
   const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
   const w = Math.min(window.innerWidth - 8, r.width + pad*2);
   const h = Math.min(window.innerHeight - 8, r.height + pad*2);
-  const below = top + h + 210 < window.innerHeight;
-  const cardTop = below ? top + h + 12 : Math.max(10, Math.min(top - 218, window.innerHeight - 236));
+  /* Below the hole if it fits, above if that fits. A target taller than
+     the screen (the whole ladder, the check points) fits neither, and the
+     card went to the top, over the part of the list it was talking about:
+     "where you are is the white one" sat on top of the white one. Those
+     get the card at the foot instead; a full screen one (the player) keeps
+     it at the top, where it always was. */
+  const ch = card.offsetHeight || 220, vh = window.innerHeight;
+  const fitsBelow = top + h + ch + 22 < vh, fitsAbove = top - ch - 12 >= 10;
+  const cardTop = fitsBelow ? top + h + 12
+    : fitsAbove ? top - ch - 12
+    : (r.top > 60 ? Math.max(10, vh - ch - 14) : 10);
 
   /* the hole and the card slide; CSS transitions carry them */
   hole.style.top = top + 'px';
@@ -17159,7 +17179,7 @@ function paintTour(){
 
   document.getElementById('tourKick').textContent =
     (def.n||'').toUpperCase() + ' · STEP ' + n + ' OF ' + of;
-  document.getElementById('tourH').textContent = step.h;
+  document.getElementById('tourH').textContent = typeof step.h==='function' ? step.h() : step.h;
   document.getElementById('tourB').textContent =
     (typeof step.b==='function') ? step.b() : step.b;
   document.getElementById('tourGoBtn').textContent =
