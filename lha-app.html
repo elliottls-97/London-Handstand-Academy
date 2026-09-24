@@ -2046,11 +2046,12 @@ async function dlRemove(key){
   dlPaint(key); toast('Removed from this phone.');
   if(st.tab==='home'||st.tab==='today') render();
 }
-async function dlClearAll(){
-  if(!confirm('Remove every saved workout from this phone?')) return;
-  try{ await caches.delete(FILM_CACHE); }catch(e){}
-  dlSet.clear(); st.dlSaved=[]; save(); toast('Saved workouts removed.'); render();
-  if(menuOpen) paintMenu();
+function dlClearAll(){
+  sure('Remove every saved workout from this phone?', 'Remove them', async ()=>{
+    try{ await caches.delete(FILM_CACHE); }catch(e){}
+    dlSet.clear(); st.dlSaved=[]; save(); toast('Saved workouts removed.'); render();
+    if(menuOpen) paintMenu();
+  }, true);
 }
 /* opening one again, from the Train screen */
 function dlOpen(key){
@@ -6817,7 +6818,9 @@ function chMenu(k){
   if(items.length) chatSheet(items);
 }
 function chatDelete(id){
-  if(!confirm('Delete this message for everyone?')) return;
+  sure('Delete this message for everyone?', 'Delete it', ()=>chatDeleteNow(id), true);
+}
+function chatDeleteNow(id){
   const was=(st.msgs||[]).slice();
   st.msgs=was.filter(m=>m.id!==id); save(); repaintChat();
   fetch(AUTH.msgDelete,{method:'POST',headers:authed(),body:JSON.stringify({id})})
@@ -6997,14 +7000,15 @@ let cancelling='';
 function cancelBooking(slug){
   if(cancelling) return;
   const b=(st.bookings||[]).find(x=>x.slug===slug); if(!b) return;
-  const msg = b.refundable ? 'Cancel your place? It is more than 48 hours away, so it is refunded in full.'
-    : (b.paid ? 'Cancel your place? It is inside 48 hours, so it is not refunded automatically.' : 'Cancel your place?');
-  if(!confirm(msg)) return;
-  cancelling=slug; render();
-  fetch('/api/app/workshop/cancel',{method:'POST',headers:authed(),body:JSON.stringify({slug})})
-    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not cancel')))
-    .then(()=>{ cancelling=''; loadBookings(); })
-    .catch(e=>{ cancelling=''; render(); alert(String(e)); });
+  const msg = b.refundable ? 'Cancel your place?\n\nIt is more than 48 hours away, so it is refunded in full.'
+    : (b.paid ? 'Cancel your place?\n\nIt is inside 48 hours, so it is not refunded automatically.' : 'Cancel your place?');
+  sure(msg, 'Cancel my place', ()=>{
+    cancelling=slug; render();
+    fetch('/api/app/workshop/cancel',{method:'POST',headers:authed(),body:JSON.stringify({slug})})
+      .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not cancel')))
+      .then(()=>{ cancelling=''; loadBookings(); })
+      .catch(e=>{ cancelling=''; render(); toast(String(e)); });
+  }, true);
 }
 function bookingsHTML(){
   if(!st.token) return '';
@@ -7119,6 +7123,39 @@ function screenMoreWrap(all, cards){
 let menuOpen=false;
 function openMenu(){ menuOpen=true; paintMenu(); $('#menu').classList.add('on'); }
 function closeMenu(){ menuOpen=false; const m=$('#menu'); if(!m) return; m.classList.remove('on'); m.innerHTML=''; }
+/* ── asked by the app, not by the browser ─────────────────────────────
+   Every "are you sure" was the browser's own confirm(), which some places
+   never show: Instagram's and Facebook's own browsers, some Home Screen
+   apps, a preview pane. It answers Cancel without asking, so the button
+   did nothing at all: Retake the questions, Drop back a stage, Move up,
+   and the rest. The same question, drawn by the app, so it always asks. */
+function sure(msg, ok, fn, danger){
+  const old=document.getElementById('sure'); if(old) old.remove();
+  const parts=String(msg).split('\n\n'), head=parts.shift();
+  const box=document.createElement('div'); box.id='sure';
+  box.setAttribute('role','dialog'); box.setAttribute('aria-modal','true'); box.setAttribute('aria-label', head);
+  box.style.cssText='position:fixed;inset:0;z-index:2000;display:flex;align-items:flex-end;justify-content:center;padding:16px';
+  box.innerHTML=`<div data-x style="position:absolute;inset:0;background:rgba(0,30,28,.45);
+      -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)"></div>
+    <div style="position:relative;width:min(420px,100%);background:#fff;border-radius:22px;padding:22px 20px 14px;
+      box-shadow:0 24px 60px rgba(0,0,0,.3);margin-bottom:env(safe-area-inset-bottom);
+      animation:qUp .28s cubic-bezier(.2,.8,.2,1) both">
+      <div style="font:400 23px/1.2 var(--serif);color:var(--ink)">${esc(head)}</div>
+      ${parts.length?`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${esc(parts.join(' '))}</div>`:''}
+      <button data-ok style="width:100%;height:52px;margin-top:18px;border:0;border-radius:14px;cursor:pointer;
+        background:${danger?'#b3412f':'linear-gradient(180deg,#0a7a76,#006663)'};color:#fff;
+        font:600 16px/1 var(--sans)">${esc(ok||'Yes')}</button>
+      <button data-x style="width:100%;height:46px;margin-top:4px;border:0;background:none;cursor:pointer;
+        font:600 15px/1 var(--sans);color:var(--grey)">Cancel</button>
+    </div>`;
+  const key=e=>{ if(e.key==='Escape') close(); };
+  const close=()=>{ box.remove(); document.removeEventListener('keydown', key); };
+  box.querySelectorAll('[data-x]').forEach(el=>el.addEventListener('click', close));
+  box.querySelector('[data-ok]').addEventListener('click', ()=>{ close(); fn(); });
+  document.addEventListener('keydown', key);
+  document.body.appendChild(box);
+  setTimeout(()=>{ const b=box.querySelector('[data-ok]'); if(b) b.focus(); }, 30);
+}
 function menuScrim(e){ if(e.target && e.target.id==='menu') closeMenu(); }
 function paintMenu(){
   const m=$('#menu'); if(!m || !menuOpen) return;
@@ -11000,31 +11037,66 @@ function chooseFree(thenTrain){
   render();
   if(thenTrain) setTimeout(()=>startDay(-1,'full'), 60);
 }
-/* the offer as a card: the placed stage, what it is for, the week, and the
-   free stage as a choice rather than a default */
+/* the offer as a card: the placed stage, what it is for, and the two ways
+   in, said as two buttons: the free week, or Foundations for free */
 function trialCardHTML(where){
   const placed=placedStage(), PS=STAGES[placed], F=STAGES[FREE_STAGES-1]||STAGES[0];
   const days=PRICE_TRIAL();
   const go = days>0 ? 'Start the '+days+'-day free trial' : 'Open '+esc(PS.n);
   return `<div class="rise rise-1" style="margin:${where==='home'?(wide()?22:14)+'px 20px 0':'18px 20px 0'};
-    padding:16px 18px;border-radius:20px;background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
-    <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WHERE YOU ARE</div>
+    padding:16px 18px 18px;border-radius:20px;background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
+    <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR ANSWERS PUT YOU AT</div>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
-      <span style="font:400 22px/1.15 var(--serif)">${esc(PS.n)}</span>
+      <span style="font:400 24px/1.15 var(--serif)">${esc(PS.n)}</span>
       <span style="flex:none;font:500 12.5px/1 var(--sans);color:var(--grey)">Stage ${placed+1} of ${STAGES.length}</span></div>
     <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(PS.sum||PS.goal||'')}</div>
     <div style="display:flex;gap:4px;margin-top:12px" aria-hidden="true">${STAGES.map((_,i)=>`<span style="flex:1;height:5px;
       border-radius:3px;background:${i<placed?'var(--forest)':i===placed?'var(--deep)':'rgba(0,64,61,.12)'}"></span>`).join('')}</div>
-    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.09)">
-      <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">Your answers put you here.
-        ${days>0?`The free week opens it: nothing is charged until ${esc(firstCharge())}, and cancelling is two taps.`
-                :`It is part of the ${PRICE()} a month ladder.`}</div>
-      <button class="btn" onclick="openTrial()" style="width:100%;margin-top:12px">${go}</button>
-      <button onclick="chooseFree()" style="width:100%;background:none;border:none;cursor:pointer;margin-top:4px;
-        padding:10px;font:600 13.5px/1 var(--sans);color:var(--forest)">Or train ${esc(F.n)} for free</button>
-    </div></div>`;
+    <button class="btn" onclick="openTrial()" style="width:100%;margin-top:16px">${go}</button>
+    <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin-top:7px">${
+      days>0?`Opens ${esc(PS.n)} and every stage. Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps.`
+            :`${esc(PS.n)} and every stage, ${PRICE()} a month.`}</div>
+    <button onclick="chooseFree()" style="width:100%;min-height:50px;margin-top:14px;border-radius:14px;cursor:pointer;
+      border:1px solid rgba(0,64,61,.16);background:#fff;color:var(--deep);font:600 15px/1 var(--sans)">
+      Open ${esc(F.n)} for free</button>
+    <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin-top:7px">
+      Stage ${FREE_STAGES}, free for good. The trial is here whenever you want it.</div>
+  </div>`;
 }
-/* one used, when a session above the free stage actually starts */
+/* ── what the week opens, shown before it is started ──────────────────
+   The explainers and fixes at the stage their answers gave them, locked,
+   so the choice is between two things they can see rather than one they
+   can see and one they are told about. A tap on any of them is the offer. */
+function trialPreviewHTML(){
+  const P=placedStage(), PS=STAGES[P];
+  const ex=(explainersFor(P)||[]).filter(filmed);
+  const fx=fixList().filter(f=>f && f.live!==false && Number(f.stage)===P);
+  if(!ex.length && !fx.length) return '';
+  const lock=`<span style="position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;gap:5px;
+      padding:5px 8px;border-radius:999px;background:rgba(0,20,18,.7);color:#fff;font:700 9.5px/1 var(--sans);letter-spacing:.1em">
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" aria-hidden="true">
+        <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>WITH THE TRIAL</span>`;
+  const tile=(img,title,sub)=>`<div onclick="openTrial()" role="button" tabindex="0" style="flex:none;width:${wide()?220:172}px;
+      scroll-snap-align:start;cursor:pointer">
+      <div style="position:relative;aspect-ratio:16/10;border-radius:16px;overflow:hidden;
+        background:linear-gradient(145deg,#0a7b74,#00403d)">
+        ${img?`<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()"
+          style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">`:''}
+        <span style="position:absolute;inset:0;background:rgba(0,40,37,.28)"></span>${lock}
+      </div>
+      <div style="font:600 13.5px/1.3 var(--sans);margin-top:8px;color:var(--ink)">${esc(title)}</div>
+      ${sub?`<div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:3px">${esc(sub)}</div>`:''}
+    </div>`;
+  const rail=(head,sub,items)=>`<section style="padding:${wide()?24:20}px 0 0">
+      <div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
+        <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div></div>
+      <div style="display:flex;gap:12px;overflow-x:auto;padding:12px 20px 6px;scroll-snap-type:x mandatory;
+        scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div></section>`;
+  return (ex.length?rail('Explainers at '+esc(PS.n), 'Short films from Elliott on what this stage is about.',
+      ex.map(x=>tile(x.uid?streamThumb(x.uid):'', x.q, x.dur||'')).join('')):'')
+    + (fx.length?rail('Fixes at '+esc(PS.n), 'When one thing is holding you back, each of these walks you out of it.',
+      fx.map(f=>tile(fixCover(f), f.name, f.tag||'')).join('')):'');
+}/* one used, when a session above the free stage actually starts */
 /* A free session was only counted when the follow along player started, and
    the drill list was the other half of the same workout: opening Every drill
    at a locked stage spent nothing, so the whole stage was readable, filmed
@@ -11435,27 +11507,33 @@ function goToStage(i){
 }
 function advanceStage(){
   const next=curStage()+1;
-  if(next>=STAGES.length){ alert("You're at the top of the ladder."); return; }
+  if(next>=STAGES.length){ toast("You're at the top of the ladder."); return; }
   if(stageLocked(next)){ openOv('stage'); st.ovStage=next; save(); render(); return; }
-  if(!confirm('Move up to '+STAGES[next].n+'?\n\nYou can always drop back down.')) return;
-  st.stage=next; save(); sendIntake(); render();
+  sure('Move up to '+STAGES[next].n+'?\n\nYou can always drop back down.', 'Move up', ()=>{
+    st.stage=next; save(); sendIntake(); render(); });
 }
 /* not stepBack — the player already owns that name for rewinding a step,
    and this one being defined later was quietly winning */
 function dropStage(){
   if(curStage()<=0) return;
-  if(!confirm('Drop back to '+STAGES[curStage()-1].n+'?')) return;
-  st.stage=curStage()-1; save(); sendIntake(); render();
+  const to=curStage()-1;
+  sure('Drop back to '+STAGES[to].n+'?\n\nYour training history stays.', 'Drop back', ()=>{
+    st.stage=to; save(); sendIntake(); render(); });
 }
 /* dropping back from a stage sheet, which can go further than one rung */
 function dropToStage(i){
   if(i>=curStage()) return;
-  if(!confirm('Drop back to '+STAGES[i].n+'?\n\nYour training history stays.')) return;
-  st.stage=i; save(); sendIntake(); render();
+  sure('Drop back to '+STAGES[i].n+'?\n\nYour training history stays.', 'Drop back', ()=>{
+    st.stage=i; save(); sendIntake(); render(); });
 }
 function retakeIntake(){
-  if(!confirm('Retake the questions?\n\nYour training history stays. This only changes where you are placed.')) return;
-  st.quizDone=false; st.oriented=false; st.quizStep=0; save(); st.tab='quiz'; render();
+  sure('Retake the questions?\n\nYour training history stays. This only changes where you are placed.', 'Retake them', ()=>{
+    /* the skills are asked again from the start, rather than opening on
+       last time's answers */
+    const a=intake(); a.skills={}; delete a.level; advDraft=null; quizShown='';
+    st.quizDone=false; st.oriented=false; st.quizStep=0; save(); st.tab='quiz'; render();
+    window.scrollTo(0,0);
+  });
 }
 
 /* what it takes to move up, and the way to do it */
@@ -12024,7 +12102,7 @@ const libShown = () => !!st.token && sessionsDone().length > 0;
    works, and a way to open it like an app. Everything else comes after a
    first workout. */
 function firstPlacedHTML(){
-  if(trialPending()) return trialCardHTML('home');
+  if(trialPending()) return trialCardHTML('home')+trialPreviewHTML();
   const cs=curStage(), S=STAGES[cs]||STAGES[0], placed=placedStage(), PS=STAGES[placed];
   const above = !!PS && placed>cs;
   return `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
@@ -12676,8 +12754,9 @@ function screenLadder(){
      COME heading, a padlock line, and a spine that only began at the next
      stage, so the ladder did not read as one climb. The padlock is a small
      badge on each locked number and the price is said once, in the heading. */
+  const tp=trialPending(), hereAt=tp?placedStage():cur;
   const rung=(x,i,last)=>{
-    const here=i===cur, behind=i<cur;
+    const here=i===hereAt, behind=i<hereAt;
     /* Behind you is a position. Passed is a claim, and it was being made on
        position alone: a brand new account placed at Wall Work by the quiz
        got a green tick against Foundations, having never done a drill.
@@ -12686,7 +12765,7 @@ function screenLadder(){
     const passed=behind && p.ready;
     /* and the gate label cleared once the gate is open, rather than still
        reading "Opens at 7 / 7 above" beside a header saying all 7 are done. */
-    const opensAt = (i===cur+1 && !(P.of && P.met>=P.of)) ? P.of : 0;
+    const opensAt = (!tp && i===cur+1 && !(P.of && P.met>=P.of)) ? P.of : 0;
     const locked = !here && stageLocked(i);
     const node = here
       ? `<span style="width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;
@@ -12706,7 +12785,18 @@ function screenLadder(){
         ${last?'':`<i style="flex:1;width:2px;border-radius:2px;margin:6px 0 -14px;
           background:${behind?'#0a7b74':'rgba(17,17,17,.12)'}"></i>`}
       </div>
-      ${here ? `<div style="padding-bottom:24px">
+      ${here && tp ? `<div style="padding-bottom:24px">
+        <div style="background:#fff;border-radius:18px;padding:14px 16px 15px;margin-top:-6px;
+          border:1px solid rgba(0,64,61,.08);box-shadow:0 14px 30px -20px rgba(0,48,46,.45)">
+          <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">YOUR ANSWERS PUT YOU HERE</div>
+          <div style="font:400 22px/1.1 var(--serif);margin-top:7px">${esc(x.n)}</div>
+          <div style="margin-top:6px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(x.sum||x.goal)}</div>
+          <button class="btn" onclick="openTrial()" style="width:100%;margin-top:12px">${
+            PRICE_TRIAL()>0?'Start the '+PRICE_TRIAL()+'-day free trial':'Open '+esc(x.n)}</button>
+          <button onclick="chooseFree()" style="width:100%;margin-top:8px;background:none;border:0;padding:8px;cursor:pointer;
+            font:600 13.5px/1 var(--sans);color:var(--forest)">Or open ${esc(STAGES[FREE_STAGES-1].n)} for free</button>
+        </div></div>`
+      : here ? `<div style="padding-bottom:24px">
         <div style="background:#fff;border-radius:18px;padding:14px 16px 15px;margin-top:-6px;overflow:hidden;
           border:1px solid rgba(0,64,61,.08);box-shadow:0 14px 30px -20px rgba(0,48,46,.45)">
           ${stageMedia(i)?`<div style="margin:-14px -16px 14px">${stageMediaHTML(i,'card')}</div>`:''}
@@ -12868,7 +12958,7 @@ function screenLadder(){
          of which the calendar below counts by day. -->
     <div style="padding:18px 16px 26px;display:flex;flex-direction:column;gap:11px">${
       progressBody()}</div>` : `
-    ${ltab!=='checks' ? '' : `${trialPending()?trialCardHTML('ladder'):''}${plateauHTML()}
+    ${ltab!=='checks' ? '' : trialPending() ? `${trialCardHTML('ladder')}${trialPreviewHTML()}<div style="height:24px"></div>` : `${plateauHTML()}
     <div class="rise" data-tour="stagegoal" style="padding:24px 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">You are here &middot; Stage ${cur+1} of ${STAGES.length}</div>
@@ -12968,7 +13058,7 @@ function screenLadder(){
           display:flex;align-items:center;white-space:nowrap">Book a review</span>
       </div>
 
-      <div style="margin:22px 0 24px;display:flex;justify-content:space-between;align-items:center;
+      ${trialPending()?'':`<div style="margin:22px 0 24px;display:flex;justify-content:space-between;align-items:center;
         gap:12px;min-height:44px;font:400 14px/1.4 var(--sans);color:var(--grey)">
         <span>${isPlus() ? 'Nothing is locked.' : cur>0 ? 'Drop back a stage whenever you like.' : 'Already past this?'}</span>
         <span style="display:flex;gap:14px;flex:none">
@@ -12982,7 +13072,7 @@ function screenLadder(){
             cursor:pointer;padding:0;font:600 14px/1 var(--sans);color:var(--deep)">Up to ${
             esc(STAGES[cur+1].n)} &uarr;</button>`:''}
         </span>
-      </div>
+      </div>`}
     </div>`}`}
   </div>`;
 }
@@ -13015,10 +13105,12 @@ function ladderSeg(){
      this screen exists to move and it was two scrolls down inside the
      card. */
   const P=cpProgress(curStage());
-  const count=P.of?`<span id="segcps" style="font:700 11px/1 var(--sans);padding:3px 6px;border-radius:999px;
+  /* while the free week is unanswered the tab is the choice, not
+     Foundations' count */
+  const count=(P.of && !trialPending())?`<span id="segcps" style="font:700 11px/1 var(--sans);padding:3px 6px;border-radius:999px;
     background:${on==='checks'?'rgba(0,102,99,.12)':'rgba(17,17,17,.07)'}">${P.met}/${P.of}</span>`:'';
   return `<div style="padding:${wide()?'0':'16px'} 16px 0"><div class="segrow" style="display:flex;gap:5px;padding:4px;
-    border-radius:15px;background:rgba(17,17,17,.055)">${b('checks','Check points '+count)}${
+    border-radius:15px;background:rgba(17,17,17,.055)">${b('checks',trialPending()?'Your stage':'Check points '+count)}${
     b('ladder','The ladder')}${b('progress','Progress')}</div></div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
@@ -13449,12 +13541,16 @@ const niceDate = t => t ? new Date(t).toLocaleDateString('en-GB',
 
 function cancelSub(undo){
   const b=event&&event.target;
-  if(!undo && !confirm('Stop your '+PRICE()+' subscription renewing?\n\nYou keep the Press until the end of the month you have paid for.')) return;
-  if(b){ b.textContent=undo?'Restarting…':'Cancelling…'; b.disabled=true; }
-  fetch(AUTH.cancel,{method:'POST',headers:authed(),body:JSON.stringify({undo:!!undo})})
-    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
-    .then(d=>{ st.cancelAt=d.cancelAt||0; save(); subInfo=null; drawOv(); loadSubscription(); })
-    .catch(e=>{ if(b){ b.disabled=false; b.textContent=String(e).slice(0,40); } });
+  const go=()=>{
+    if(b){ b.textContent=undo?'Restarting…':'Cancelling…'; b.disabled=true; }
+    fetch(AUTH.cancel,{method:'POST',headers:authed(),body:JSON.stringify({undo:!!undo})})
+      .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
+      .then(d=>{ st.cancelAt=d.cancelAt||0; save(); subInfo=null; drawOv(); loadSubscription(); })
+      .catch(e=>{ if(b){ b.disabled=false; b.textContent=String(e).slice(0,40); } });
+  };
+  /* it said you keep "the Press": the subscription is the whole ladder */
+  if(undo) go();
+  else sure('Stop your '+PRICE()+' subscription renewing?\n\nYou keep every stage until the end of the month you have paid for.', 'Stop it renewing', go, true);
 }
 function whenEnds(){
   if(!st.cancelAt) return '';
@@ -15854,8 +15950,13 @@ function topBar(){
       style="${chip};width:44px;height:44px;border-radius:999px;display:grid;place-items:center;padding:0">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
-    <span style="flex:1;font:600 11px/1 var(--sans);letter-spacing:.14em;transition:color .3s;
-      color:var(--deep)">${label}</span>
+    ${tourOffer()?`<span style="flex:1;min-width:0"><button onclick="showTour()" style="${chip};height:36px;
+      border-radius:999px;padding:0 14px;display:inline-flex;align-items:center;gap:7px;font:600 12.5px/1 var(--sans)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/>
+        <path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>Show me around</button></span>`
+    :`<span style="flex:1;font:600 11px/1 var(--sans);letter-spacing:.14em;transition:color .3s;
+      color:var(--deep)">${label}</span>`}
     ${coachedView()?`<button onclick="fbOpen()" aria-label="Tell us what you think"
       title="Tell us what you think"
       style="${chip};width:44px;height:44px;border-radius:999px;display:grid;place-items:center">
@@ -16269,7 +16370,7 @@ function appPrompts(){
   /* the Home Screen and notifications are asked for after the first workout */
   if(firstVisit()) return false;
   /* the tutorial for this screen comes first */
-  try{ if(!tourDone()){ const tk=st.tab==='today'?'today':st.tab; if(TOURS[tk] && !tourSeen()[tk]) return false; } }catch(e){}
+  /* (the tutorial used to come first; it only runs when asked for now) */
   let phone=false; try{ phone=isIOS() || /android/i.test(navigator.userAgent); }catch(e){}
   if(!phone) return true;
   const now=Date.now(), gap=3*864e5;
@@ -16401,7 +16502,8 @@ function endTour(){
   if(was) markTourSeen(was);
   tourLeaveMode(); tourDropQ();
   const el = document.getElementById('tour'); if(el) el.remove();
-  document.body.style.overflow = '';
+  document.body.style.overflow = '';  /* the top bar's Show me around goes once the tour has been seen */
+  setTimeout(()=>{ try{ render(); }catch(e){} }, 0);
 }
 /* offered, not forced: the next tab's tour is a choice at the end of this
    one, and it runs on its own the first time that tab is opened anyway */
@@ -16427,8 +16529,7 @@ function offerNext(nxt){
        backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)"></div>
      <div class="tour-card" style="bottom:24px">
        <div class="tour-h">That is this screen</div>
-       <div class="tour-b">Want the same for ${esc(TOURS[nxt].n)}? It only takes a moment, and it
-         will show itself the first time you open that tab anyway.</div>
+       <div class="tour-b">Want the same for ${esc(TOURS[nxt].n)}? It only takes a moment.</div>
        <div style="display:flex;align-items:center;gap:9px;margin-top:15px">
          <button onclick="endTour()" class="tour-skip">No thanks</button>
          <span style="flex:1"></span>
@@ -16618,9 +16719,19 @@ function tourDone(){
 /* the account says whether it has been seen, so wait for it: a new phone
    started the tour in the second before the answer arrived */
 let trackHeard=false;
+/* the tour for this tab, offered in the top bar until it has been seen */
+function tourKeyHere(){ return st.tab==='today' ? 'today' : st.tab; }
+function tourOffer(){
+  try{ const k=tourKeyHere(); return !st.preview && !!TOURS[k] && !tourSeen()[k] && !tourKey; }catch(e){ return false; }
+}
+function showTour(){ const k=tourKeyHere(); if(TOURS[k]) startTour(k); }
 /* first visit to a tab, and only once whatever it points at is on show */
 function maybeTour(){
   if(tourKey && st.tab !== tourKey) abortTour();
+  /* Tours no longer start on their own. They arrived uninvited over the
+     screen somebody had just opened; "Show me around" in the top bar and
+     How the app works in the menu start one when it is wanted. */
+  return;
   if(tourKey || st.ov || document.getElementById('tour')) return;
   if(st.token && !trackHeard) return;
   if(tourDone()) return;
