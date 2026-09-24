@@ -215,6 +215,12 @@ async function voiceSweep(done){
   done.voiceDeleted = n;
 }
 
+/* the dashboard's past coaching clients, who get nothing from this job */
+async function pastClients() {
+  const r = await supa.row('settings', 'key=eq.pastclients&select=value').catch(() => null);
+  return (r && r.value) || {};
+}
+
 export default async () => {
   const now = Date.now();
   const done = { reminded: [], chased: [], skipped: 0 };
@@ -223,13 +229,16 @@ export default async () => {
      form check comes from someone who is not a client yet — which makes it
      the worst one to let go quiet. */
   const accounts = (await supa.rows('accounts', 'select=email,name')) || [];
-  const roster = parseClients();
+  /* past coaching clients are sent nothing automatic at all */
+  const past = await pastClients();
+  const roster = parseClients().filter(c => !past[c.email]);
   const known = new Set(roster.map(c => c.email));
   const everyone = roster.concat(
     accounts.filter(a => !known.has(a.email))
       .map(a => ({ email: a.email, name: a.name || a.email, coach: '', lead: true })));
 
   for (const c of everyone) {
+    if (past[c.email]) { done.skipped++; continue; }
     const cyc = await supa.row('cycles', `email=eq.${enc(c.email)}&select=*`)
       .catch(() => null);
     const cycle = cyc ? { n: cyc.n || 1, start: ms(cyc.started_at) } : null;
@@ -395,7 +404,7 @@ async function quietFreeAccounts(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',
     'select=email,name,last_seen,first_seen&order=last_seen.desc&limit=1000')) || [];
-  const roster = new Set(parseClients().map(c => c.email));
+  const roster = new Set(parseClients().map(c => c.email).concat(Object.keys(await pastClients())));
   const names = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
   for (const a of rows) {
     if (!a.email || roster.has(a.email)) continue;
@@ -451,7 +460,7 @@ async function firstTenDays(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',
     'select=email,name,first_seen&order=first_seen.desc&limit=300')) || [];
-  const roster = new Set(parseClients().map(c => c.email));
+  const roster = new Set(parseClients().map(c => c.email).concat(Object.keys(await pastClients())));
   for (const a of rows) {
     if (!a.email || roster.has(a.email)) continue;
     const first = ms(a.first_seen); if (!first) continue;

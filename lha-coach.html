@@ -1741,6 +1741,16 @@ function acctDetails(email){
       .catch(()=>say('Could not set that.'));
   };
 
+  /* ── off coaching, and back ────────────────────────────────────── */
+  window.adPast=function(restore){
+    if(!restore && !confirm('Take '+(nm||email)+' off coaching?\n\nThey keep their app account, their chat, '
+      +'everything they have done and their programme. They go back to the free ladder unless they pay for it, '
+      +'nothing automatic is sent to them, and anything of theirs waiting on Today is cleared. You can put them back at any time.')) return;
+    say(restore?'Putting them back…':'Taking them off coaching…');
+    pastSet(email, restore).then(()=>say(restore?'Back on coaching.':'Off coaching. They are under Past clients.'))
+      .catch(e=>say(String(e)));
+  };
+
   /* ── deleting them ──────────────────────────────────────────────
      Gone for good, and the address has to be typed again to get there. The
      server refuses a coach and refuses a live subscription, so the second
@@ -1800,6 +1810,18 @@ function acctDetails(email){
         so tell them what it is.</div>
       ${fld('adPw','','New password, 8+ characters','Set','adPw()')}
 
+      ${c.archived ? `<div class="kick" style="margin-top:18px">COACHING</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+        Off coaching since ${esc(new Date(c.archived).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}))}.
+        Their account, chat, history and programme are all still here.</div>
+      <button onclick="adPast(true)" style="${bGhost};margin-top:9px;width:100%">Put back on coaching</button>`
+      : c.coached!==false ? `<div class="kick" style="margin-top:18px">COACHING</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+        For a client who has finished. They keep their account, chat, history and programme, go back to
+        the free ladder unless they pay for it, and nothing automatic is sent to them. It does not touch
+        Stripe, so cancel a coaching subscription there. You can put them back at any time.</div>
+      <button onclick="adPast(false)" style="${bGhost};margin-top:9px;width:100%">Remove from coaching</button>` : ''}
+
       <div class="kick" style="margin-top:22px;color:var(--terra)">DELETE</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
         Their messages, progress, check point history, submissions and questions go
@@ -1822,6 +1844,17 @@ function acctDetails(email){
     </div></div>`;
 }
 let acct=null;
+/* take someone off coaching, or put them back: /coach/past */
+function pastSet(email, restore){
+  return fetch(API+'/past',{method:'POST',headers:hdr(),body:JSON.stringify({email, action:restore?'restore':'archive'})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not do that')))
+    .then(d=>{ load(); flash(restore?'Back on coaching':'Off coaching. They are under Past clients.'); return d; });
+}
+function pastRestore(email){
+  const c=clients.find(x=>x.email===email)||{};
+  if(!confirm('Put '+(c.name||email)+' back on coaching?')) return;
+  pastSet(email, true).catch(e=>alert(String(e)));
+}
 function openAcct(email){ acct=email; draw(); }
 function closeAcct(){ acct=null; draw(); }
 function acctHTML(){ return acct?acctDetails(acct):''; }
@@ -7819,15 +7852,15 @@ function rosterHTML(){
     .filter(c=>!q||String(c.name||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q))
     /* a new account that has only had the welcome is not an enquiry, and
        there are a lot of them: they have their own filter, as in Chats */
-    .filter(c=>f==='all'?!chatNew(c):f==='coaching'?c.coached!==false
+    .filter(c=>f==='all'?(!chatNew(c) && !c.archived):f==='coaching'?c.coached!==false
       :f==='waiting'?queue.some(x=>x.email===c.email)
-      :f==='unread'?!!c.unread:f==='enquiries'?(c.coached===false && !chatNew(c))
-      :f==='new'?chatNew(c):true)
+      :f==='unread'?!!c.unread:f==='enquiries'?(c.coached===false && !chatNew(c) && !c.archived)
+      :f==='new'?chatNew(c):f==='past'?!!c.archived:true)
     .sort((a,b)=>((b.coached!==false)-(a.coached!==false))
       ||((queue.some(x=>x.email===b.email)?1:0)-(queue.some(x=>x.email===a.email)?1:0)));
   const picked=pickedList();
   const defs=[['all','All'],['coaching','Coaching'],['waiting','Waiting'],
-              ['unread','Unread'],['enquiries','Enquiries'],['new','New accounts']];
+              ['unread','Unread'],['enquiries','Enquiries'],['new','New accounts'],['past','Past clients']];
   const cols='28px minmax(0,2fr) minmax(0,1fr) 92px 92px';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
@@ -7866,7 +7899,9 @@ function rosterHTML(){
         <div onclick="openClient('${esc(c.email)}')" style="cursor:pointer;min-width:0">
           <div style="display:flex;gap:var(--space-2);align-items:baseline;flex-wrap:wrap">
             <span style="font:600 14.5px/1.3 var(--sans)">${esc(c.name||c.email)}</span>
-            ${c.coached===false?(chatNew(c)?'<span class="tag tag-neutral">New account</span>':'<span class="tag tag-neutral">Enquiry</span>'):''}
+            ${c.archived?`<span class="tag tag-neutral">Past client</span>
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();pastRestore('${esc(c.email)}')">Put back</button>`
+              :c.coached===false?(chatNew(c)?'<span class="tag tag-neutral">New account</span>':'<span class="tag tag-neutral">Enquiry</span>'):''}
             ${c.planOnly?`<span class="tag tag-said" title="Coached in the app by their programme, but not on your coaching list">Not on your list</span>
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();addToRoster('${esc(c.email)}')">Add</button>`:''}
             ${c.unread?`<span class="tag tag-accent">${c.unread} unread</span>`:''}
@@ -10238,14 +10273,15 @@ function chatWhen(t){
    that welcome sits in New accounts; the rest filter by who they are. */
 let chatsFilter='all';
 try{ const s0=localStorage.getItem('lha_coach_chats'); if(s0) chatsFilter=s0; }catch(e){}
-const CHAT_CATS=[['all','All'],['coaching','Coaching'],['enquiry','Enquiries'],['member','Ladder members'],['unread','Unread'],['new','New accounts']];
+const CHAT_CATS=[['all','All'],['coaching','Coaching'],['enquiry','Enquiries'],['member','Ladder members'],['unread','Unread'],['new','New accounts'],['past','Past clients']];
 const chatApplied = c => (apps||[]).some(a=>a.email===c.email);
 const chatAsked = c => (questions||[]).some(q=>q.email===c.email);
 const chatBooked = c => (sessions||[]).some(x=>x.email===c.email);
 /* made an account, got the welcome, and nothing since from either side */
-const chatNew = c => c.coached===false && c.welcomeOnly===true && !c.unread
+const chatNew = c => c.coached===false && !c.archived && c.welcomeOnly===true && !c.unread
   && !chatApplied(c) && !chatAsked(c) && !chatBooked(c);
 function chatKind(c){
+  if(c.archived) return 'past';
   if(c.coached!==false) return 'coaching';
   if(chatNew(c)) return 'new';
   /* paying for the ladder and writing about it, rather than about coaching */
@@ -10257,7 +10293,7 @@ function chatRowHTML(c){
   const L=c.lastMsg, mine=L.from==='coach', k=chatKind(c);
   const typingNow=threadFor===c.email && Date.now()-dTypingAt<8000;
   const prev=L.text ? esc(L.text) : `<i>${L.video?'Video':L.image?'Photo':'Message'}</i>`;
-  const tag=k==='enquiry'?' <em>enquiry</em>':k==='member'?' <em>ladder</em>':k==='new'?' <em>new</em>':'';
+  const tag=k==='enquiry'?' <em>enquiry</em>':k==='member'?' <em>ladder</em>':k==='new'?' <em>new</em>':k==='past'?' <em>past client</em>':'';
   return `<button class="chatrow" data-k="${esc(c.email)}" onclick="openClient('${esc(c.email)}','thread')">
     <span class="av"${k==='new'?' style="background:var(--mist);color:var(--grey)"':''}>${esc((String(c.name||c.email).trim()[0]||'?').toUpperCase())}</span>
     <span class="chatmid"><b>${esc(c.name||c.email)}${tag}</b>
@@ -10273,11 +10309,13 @@ function chatsHTML(){
     .filter(c=>!q||String(c.name||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q))
     .sort((a,b)=>(b.lastMsg.at||0)-(a.lastMsg.at||0));
   if(!CHAT_CATS.some(x=>x[0]===chatsFilter)) chatsFilter='all';
-  const count=id=>withMsg.filter(c=>id==='all'?chatKind(c)!=='new':id==='unread'?!!c.unread:chatKind(c)===id).length;
-  const rows=withMsg.filter(c=>chatsFilter==='all'?chatKind(c)!=='new'
+  /* All is the conversations to keep up with: not new accounts, not past clients */
+  const inAll = c => chatKind(c)!=='new' && chatKind(c)!=='past';
+  const count=id=>withMsg.filter(c=>id==='all'?inAll(c):id==='unread'?!!c.unread:chatKind(c)===id).length;
+  const rows=withMsg.filter(c=>chatsFilter==='all'?inAll(c)
     :chatsFilter==='unread'?!!c.unread:chatKind(c)===chatsFilter);
   const empty={all:'No conversations yet.',coaching:'No messages from coaching clients yet.',enquiry:'No enquiries.',
-    member:'No messages from ladder members.',unread:'Nothing unread.',new:'No new accounts waiting.'}[chatsFilter];
+    member:'No messages from ladder members.',unread:'Nothing unread.',new:'No new accounts waiting.',past:'No past clients.'}[chatsFilter];
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
     <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3)">

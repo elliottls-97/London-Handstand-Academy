@@ -60,6 +60,12 @@ const parseClients = () => (process.env.CLIENTS || '')
 
 let ROSTER = null;                 /* set once per request, never across them */
 let PLANNED = new Set();           /* everyone with a programme, this request */
+/* Past coaching clients, this request. Being coached is decided in several
+   places (the roster, the CLIENTS seed, a programme stored or in the
+   generated file), and the generated file cannot be edited, so taking
+   someone off coaching is a list every one of those checks respects.
+   Nothing of theirs is deleted, and putting them back is one tap. */
+let PAST = {};
 const rosterList = () => ROSTER || parseClients();
 const clients = () => Object.fromEntries(rosterList().map(c => [c.email, c.name]));
 
@@ -300,7 +306,7 @@ async function clientMailAllowed(to) {
     const off = (await getSetting('mailoff')) || {};
     if (off[t] === true) return false;
     if (off[t] === false) return true;
-    if (!clients()[t]) return true;
+    if (!clients()[t] && !PAST[t]) return true;
     const g = await getSetting('mailguard');
     return g ? !g.suppress : false;
   } catch { return false; }
@@ -887,6 +893,11 @@ async function rosterRows() {
       /* nothing in the thread but the welcome the app sent in the coach's name */
       ...(total[a.email] && total[a.email] === welcomes[a.email] && !subbed.has(a.email) ? { welcomeOnly: true } : {}) };
   }
+  /* a past client too, so they can be put back */
+  for (const e of Object.keys(PAST)) {
+    if (!PAST[e] || byEmail[e]) continue;
+    byEmail[e] = { email: e, name: PAST[e].name || e, last: 0, unread: 0 };
+  }
   /* a coaching client always belongs here, even before they say anything */
   for (const e of Object.keys(clients())) {
     byEmail[e] = byEmail[e] || { email: e, name: clients()[e], last: 0, unread: 0 };
@@ -910,10 +921,12 @@ export default async (request) => {
      most of the time of the small ones the chat asks for every few
      seconds. They are fetched together now. */
   const [BOOT, BOOT_PLANS] = await Promise.all([
-    settingsMany(['coaches', 'prices', 'roster']),
+    settingsMany(['coaches', 'prices', 'roster', 'pastclients']),
     supa.rows('settings', 'key=like.programme%3A*&select=key').catch(() => []),
   ]);
   if (path !== '/ladder' && path !== '/stripe/webhook') COACHES_STORED = BOOT.coaches || {};
+  /* every request, so a warm instance never carries another's list */
+  PAST = BOOT.pastclients || {};
   /* the prices, for every route that names one; the webhook needs them too */
   if (path !== '/ladder') PRICES_STORED = BOOT.prices || {};
   /* ── the prices ───────────────────────────────────────────────────
@@ -1290,7 +1303,12 @@ export default async (request) => {
       if (['online', 'inner'].includes(boughtPlan) && ev.type === 'checkout.session.completed') {
         const e2 = acct.email;
         const stored = (await getSetting('roster')) || {};
-        if (!stored[e2] && !clients()[e2]) {
+        /* a past client paying for coaching again is a client again, and is
+           welcomed as one rather than skipped for being on the roster */
+        const pastNow = (await getSetting('pastclients')) || {};
+        const wasPast = !!pastNow[e2];
+        if (wasPast) { delete pastNow[e2]; await setSetting('pastclients', pastNow); PAST = pastNow; }
+        if ((!stored[e2] && !clients()[e2]) || wasPast) {
           stored[e2] = { name: acct.name || e2, coach: '', tier: boughtPlan };
           await setSetting('roster', stored);
           /* Joining the roster puts them behind the client email guard, which
@@ -1396,6 +1414,7 @@ export default async (request) => {
       byEmail.set(email, { email, name: String(v.name || email).slice(0, 60),
                            coach: norm(v.coach || '') });
     }
+    for (const e of Object.keys(PAST)) if (PAST[e]) byEmail.delete(norm(e));
     return Array.from(byEmail.values());
   })();
   /* ── who has a programme ─────────────────────────────────────────
@@ -1406,7 +1425,7 @@ export default async (request) => {
      not on the list, with a button to add them. Nobody is added on their
      own: a client taken off the roster who still has a programme stays off. */
   PLANNED = new Set((BOOT_PLANS || []).map(r => norm(String(r.key || '').slice('programme:'.length)))
-    .concat(Object.keys(programmes.clients || {}).map(norm)).filter(e => e && e.includes('@')));
+    .concat(Object.keys(programmes.clients || {}).map(norm)).filter(e => e && e.includes('@') && !PAST[e]));
 
   /* Someone with a written programme is a coached client, whatever the
      roster says. Being coached was read off the roster alone, so an email
@@ -1414,7 +1433,7 @@ export default async (request) => {
      the free ladder with their plan sitting there unreachable. A programme
      is the more reliable fact of the two, so either one counts. */
   const hasPlan = async e =>
-    !!(programmes.clients[e] || (await getSetting(`programme:${e}`)));
+    !PAST[norm(e)] && !!(programmes.clients[e] || (await getSetting(`programme:${e}`)));
   const isCoached = async e => !!clients()[e] || await hasPlan(e);
 
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
@@ -3187,6 +3206,8 @@ export default async (request) => {
   if (path === '/programme' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
+    /* off coaching: the app goes back to the free ladder, as for anybody */
+    if (PAST[norm(who)]) return json({ error: 'No programme yet' }, 404);
     const plan = await planFor(who);
     if (!plan) return json({ error: 'No programme yet' }, 404);
     const cycle = await cycleGet(db, who, plan);
@@ -5566,6 +5587,49 @@ export default async (request) => {
       return json({ ok: true, email: e, coach: to || primaryCoach() });
     }
 
+    /* ── off coaching, not out of the app ──────────────────────────
+       archive: they stop being a coaching client everywhere, keep their
+       account, chat, history and programme, and nothing automatic goes to
+       them. restore: back on the list with the coach they had. */
+    if (path === '/coach/past') {
+      const past = (await getSetting('pastclients')) || {};
+      if (request.method === 'GET') return json({ past });
+      if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+      const e = norm(body.email);
+      if (!e || !e.includes('@')) return json({ error: 'Need an email' }, 400);
+      if (coachList().includes(e)) return json({ error: 'That is a coach.' }, 400);
+      if (asking && clients()[e] && coachOf(e) && coachOf(e) !== asking && !isPrimary(asking)) {
+        return json({ error: 'That is another coach\'s client.' }, 403);
+      }
+      if (body.action === 'archive') {
+        if (past[e]) return json({ ok: true, email: e, already: true, archived: past[e] });
+        if (!clients()[e] && !PLANNED.has(e)) return json({ error: 'They are not a coaching client.' }, 400);
+        const row = rosterList().find(x => x.email === e) || {};
+        past[e] = { at: Date.now(), by: asking || primaryCoach(), name: row.name || clients()[e] || e, coach: row.coach || '' };
+        await setSetting('pastclients', past); PAST = past;
+        /* what they left waiting is not waiting any more */
+        const now = Date.now();
+        await Promise.all(['msgdone', 'saidseen', 'cpseen', 'trainseen', 'flagseen']
+          .map(k => setSetting(`${k}:${e}`, now).catch(() => {})));
+        await supa.update('submissions', `email=eq.${enc(e)}&status=eq.submitted`,
+          { status: 'reviewed', reviewed_at: new Date().toISOString() }).catch(() => {});
+        return json({ ok: true, email: e, archived: past[e] });
+      }
+      if (body.action === 'restore') {
+        const was = past[e];
+        if (!was) return json({ error: 'They are not on the past list.' }, 404);
+        delete past[e]; await setSetting('pastclients', past); PAST = past;
+        const stored = (await getSetting('roster')) || {};
+        const seeded = parseClients().some(c => c.email === e);
+        if (!seeded && !stored[e] && !programmes.clients[e]) {
+          stored[e] = { name: was.name || e, coach: was.coach || '' };
+          await ensureAcct(e); await setSetting('roster', stored);
+        } else if (stored[e] === null) { delete stored[e]; await setSetting('roster', stored); }
+        return json({ ok: true, email: e, restored: true });
+      }
+      return json({ error: 'Nope' }, 400);
+    }
+
     if (path === '/coach/roster') {
       if (request.method === 'GET') {
         return json({ roster: rosterList(),
@@ -5585,6 +5649,8 @@ export default async (request) => {
           stored[e] = { name: String(body.name || '').slice(0, 60) || e,
                         coach: norm(body.coach || '') };
           await ensureAcct(e);
+          const past = (await getSetting('pastclients')) || {};
+          if (past[e]) { delete past[e]; await setSetting('pastclients', past); PAST = past; }
         }
         await setSetting('roster', stored);
         return json({ ok: true, email: e, removed: !!body.remove });
@@ -5664,6 +5730,9 @@ export default async (request) => {
         delete drafts[id];
         await setSetting(dkey, drafts);
         return state();
+      }
+      if ((act === 'promote' || act === 'advance') && PAST[e]) {
+        return json({ error: 'They are off coaching. Put them back first.' }, 409);
       }
       if (act === 'promote') {
         const id = String(body.id || '');
@@ -5879,7 +5948,7 @@ export default async (request) => {
         const today = new Date().toISOString().slice(0, 10);
         const fresh = (next.checkpoints || [])
           .filter(c => !hadKeys.has(c.k) && (!c.from || c.from <= today));
-        if (fresh.length) {
+        if (fresh.length && !PAST[e]) {
           const nm = clients()[e] || '';
           const T = await emailCopy('newCheckpoints', { name: esc(nm ? nm.split(' ')[0] : 'Hello'),
             n: fresh.length === 1 ? 'a check point' : fresh.length + ' check points',
@@ -6869,6 +6938,7 @@ export default async (request) => {
       const rows = Object.values(roster)
         .filter(r => owns(r.email))
         .map(r => ({ ...r, coached: !!clients()[r.email] || PLANNED.has(r.email),
+          ...(PAST[r.email] ? { archived: PAST[r.email].at || 1 } : {}),
           /* coached in the app by their programme, not on the list here */
           ...(!clients()[r.email] && PLANNED.has(r.email) ? { planOnly: true } : {}),
           ...(clients()[r.email] ? { coach: coachOf(r.email) } : {}) }));
