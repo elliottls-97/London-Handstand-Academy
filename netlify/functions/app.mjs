@@ -4739,10 +4739,15 @@ export default async (request) => {
     const log = {};
     for (const s of (Array.isArray(sessions) ? sessions : [])) {
       for (const it of (Array.isArray(s.items) ? s.items : [])) {
-        const v = it && it.v, n = Number(it && it.reps) || 0;
+        /* a row is one drill: the follow along sends every set of it in one
+           total, the drill list one set a row. The list's "last time" and
+           the Progress card read one set, so it is kept per set, or two
+           sets of eight came back as "last time 16". */
+        const v = it && it.v, got = Math.max(1, Number(it && it.got) || 0), of = Math.max(1, Number(it && it.of) || 0);
+        const n = Math.round((Number(it && it.reps) || 0) / got);
         if (!v || !n) continue;
         (log[v] = log[v] || []).push({ at: Number(s.at) || 0, reps: n, secs: 0,
-                                       want: Number(it.want) || 0, n: it.n || '' });
+                                       want: Math.round((Number(it.want) || 0) / of), n: it.n || '' });
       }
     }
     for (const v of Object.keys(log)) {
@@ -4843,12 +4848,18 @@ export default async (request) => {
              so it carries the day it actually happened and the calendar puts
              it there. Anything outside the last week, or in the future, is
              stamped now. */
-          mode: String(body.session.mode || '').slice(0, 20),
           kind: ['all', 'part', 'none'].includes(body.session.kind) ? body.session.kind : '',
-          mode: ['plan', 'ticks', 'checkin', 'manual', 'player'].includes(body.session.mode) ? body.session.mode : '',
+          /* 'list' is the drill list ticked off. It was not on this list, so
+             every one of those reached the dashboard unlabelled and read as
+             Follow along. */
+          mode: ['plan', 'ticks', 'checkin', 'manual', 'player', 'list'].includes(body.session.mode) ? body.session.mode : '',
+          /* Sessions done on a phone before the account existed arrive in
+             one go when it is made, and can be weeks old: they keep their
+             day, up to sixty back, rather than all landing on today. */
           at: (() => {
             const t = Number(body.session.at) || 0;
-            return (t > now - 8 * 24 * 60 * 60 * 1000 && t <= now) ? t : now;
+            const back = body.session.kept ? 60 : 8;
+            return (t > now - back * 24 * 60 * 60 * 1000 && t <= now) ? t : now;
           })(),
         };
         /* ── one record a day for what is logged against the plan ─────

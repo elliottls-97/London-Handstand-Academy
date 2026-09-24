@@ -3116,7 +3116,8 @@ function volumeBetween(from, to){
       if(rowUnit(it)==='s') secs+=n; else reps+=n;
     });
   });
-  return {reps, secs, sets, mins, drills:drills.size, sessions:ss.length};
+  return {reps, secs, sets, mins, drills:drills.size, sessions:ss.length,
+    whole:ss.filter(s=>s.done||s.kind==='all').length};
 }
 const volumeSince = from => volumeBetween(from, null);
 
@@ -5194,8 +5195,10 @@ function volumeHero(){
   return `<div class="card" style="padding:22px 20px">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
       <span class="kick2">THE WORK, THIS WEEK</span>
+      <!-- finished and part named apart, as the calendar and the week above
+           count them: "4 sessions" here read against "3 of 2" up there -->
       <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${
-        now.sessions} session${now.sessions===1?'':'s'}</span>
+        now.whole} session${now.whole===1?'':'s'}${now.sessions>now.whole?' &middot; '+(now.sessions-now.whole)+' part':''}</span>
     </div>
     <div style="display:flex;gap:14px;margin-top:16px">
       ${stat(now.mins+'m','Training', delta(now.mins,was.mins))}
@@ -5503,7 +5506,10 @@ function trainingCalendar(){
   const mMins=mDays.reduce((a,k)=>a+byDay[k].reduce((b,x)=>b+(Number(x.actual)||Number(x.mins)||0),0),0);
   const mOpens=[...opens].filter(k=>k.slice(0,7)===ym).length;
   /* drills and sets this month, and everything since the first session */
-  const sums=list=>list.reduce((a,x)=>{ a.drills+=(x.drills||new Set((x.items||[]).map(i=>i.v)).size||0);
+  /* drills from the rows where there are rows: both ways of training sent
+     their set count as drills, so a month read 74 drills for 19 */
+  const sums=list=>list.reduce((a,x)=>{ a.drills+=((x.items||[]).length
+      ? new Set(x.items.filter(i=>Number(i.got)>0).map(i=>i.v)).size : (x.drills||0));
     a.sets+=(x.items||[]).reduce((b,it)=>b+(Number(it.got)||0),0) || (x.got||0); return a; },{drills:0,sets:0});
   const mS=sums(mAll);
   const allS=sums(ss);
@@ -8015,12 +8021,12 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
         secs:r.secsPer*r.got});
     });
   })();
-  reportProgress({session:{day:st.day, name:(d&&d.label)||'', done:!!done, items:rows,
+  reportProgress({session:{day:st.day, name:(coachedView()&&d&&d.label)||qLabel||(d&&d.label)||'', done:!!done, items:rows,
     /* how they trained, so the coach's calendar can say whether this was the
        timed follow-along or the drill list ticked off. The player sent
        nothing at all, so every follow-along session was unlabelled. */
     mode:'player',
-    drills:Q.length,
+    drills:rows.length,
     mins:Math.round(Q.reduce((a,x,_i)=>a+work(x.it,x.g||x.grp)+rest(x,_i,Q),0)/60),
     actual: sessionStart?Math.round((Date.now()-sessionStart)/60000):0,
     got: done?Q.length:qi, of: Q.length,
@@ -9840,7 +9846,8 @@ function doLogin(ev){
       save(); render(); loadEntitlement();
       /* a quiz just taken on this phone, not yet on the account */
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
-      if(st.in){ loadProgramme(); loadProgress(); loadThread(); }
+      if(st.in){ loadProgramme(); loadThread(); }
+      loadProgress();
       /* a code typed on the wall before signing in was parked and only ever
          picked up on a cold start, so signing in landed them back on the
          wall with nothing said */
@@ -9878,7 +9885,8 @@ function verifyCode(){
       save(); render(); loadEntitlement();
       /* a quiz just taken on this phone, not yet on the account */
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
-      if(st.in){ loadProgramme(); loadProgress(); loadThread(); }
+      if(st.in){ loadProgramme(); loadThread(); }
+      loadProgress();
       loadLadder(); loadState(); loadTrack(); })
     .catch(()=>{
       const m=$('#authMsg'); if(m) m.textContent='That code did not work. Check it, or send a new one.';
@@ -10033,7 +10041,7 @@ function flushLocalSessions(){
   if(!mine.length || !st.token) return Promise.resolve();
   st.prog.sessions=st.prog.sessions.filter(x=>!(x&&x.local)); save();
   return mine.reduce((p,x)=>p.then(()=>{
-    const row=Object.assign({},x); delete row.local;
+    const row=Object.assign({},x,{kept:true}); delete row.local;
     return fetch(AUTH.progress,{method:'POST',headers:authed(),
       body:JSON.stringify({session:row})}).catch(()=>{});
   }), Promise.resolve());
@@ -10246,9 +10254,11 @@ function reportProgress(extra){
      account, and handed over the first time one is there. */
   if(!st.token){
     const sess=extra && extra.session;
-    if(sess && sess.done){
+    /* part of one is kept too, as part: it is still training, and it goes
+       up with the rest when there is an account */
+    if(sess && (sess.done || Number(sess.got)>0)){
       st.prog=st.prog||{}; st.prog.sessions=(st.prog.sessions||[]).slice(-60);
-      st.prog.sessions.push(Object.assign({at:Date.now()}, sess, {local:true}));
+      st.prog.sessions.push(Object.assign({at:Date.now()}, sess, {done:!!sess.done, local:true}));
       save();
     }
     return Promise.resolve();
@@ -10272,6 +10282,9 @@ function reportProgress(extra){
      sends it on its own, with the shape it was held in. */
   const payload=Object.assign(planReady ? {flags:flags, ladderFlags:ladderFlags} : {}, extra||{});
   return fetch(AUTH.progress,{method:'POST',headers:authed(),body:JSON.stringify(payload)})
+    /* the account's own record back, so the calendar has the drill by
+       drill for the session just done rather than a bare placeholder */
+    .then(function(){ if(extra && extra.session) loadProgress(); })
     .catch(function(){});   /* never let reporting break the session */
 }
 /* whether a drill is anywhere in the coached plan, warm-up included */
@@ -10574,25 +10587,40 @@ function finishChecklist(){
   if(!ticked) return;
   const done=ticked>=(Q||[]).length;
   const mins=Math.round((Q||[]).reduce((a,x,_i)=>a+work(x.it)+rest(x,_i,Q),0)/60);
+  /* there is no clock on the list, so the time is what the ticked sets
+     take: three sets of twenty five were logged as the whole half hour */
+  const took=Math.round((Q||[]).reduce((a,x,_i)=>a+((st.qTick||{})['q'+_i]?work(x.it)+rest(x,_i,Q):0),0)/60);
+  /* One row a drill, as the follow along sends it. A row a set listed a
+     two set drill twice on the calendar, and the drills counted were sets. */
+  const rows=new Map();
+  (Q||[]).forEach((q,i)=>{
+    const a=doseAmount(q.it), got=(st.qTick||{})['q'+i]?1:0;
+    const adj=(st.reps||{})['q'+i]||0, key=q.it.v||q.it.n||('#'+i);
+    if(!rows.has(key)) rows.set(key,{v:q.it.v, n:q.it.n, grp:q.grp||'', of:0, got:0, reps:0,
+      unit:a.unit, per:a.n, secs:0, want:0, dose:String(q.it.d||'').slice(0,40),
+      rate:(st.rate||{})[q.it.v]||''});
+    const r=rows.get(key); r.of++; r.got+=got;
+    /* what they did. Only an adjusted number was recorded before, so a
+       drill done exactly as asked counted for nothing at all. */
+    if(got){ r.reps+=adj||a.n; r.secs+=work(q.it)||0; }
+    /* what was asked for, so short of it or past it is visible on both
+       sides rather than a bare number with nothing to read it against */
+    r.want+=a.n||recommendedReps(q.it)||0;
+  });
   reportProgress({session:{
-    day:st.day, name:((Q[0]&&Q[0].grp)||''), done, mode:'list',
-    drills:Q.length, mins, actual:0, got:ticked, of:Q.length,
-    items:(Q||[]).map((q,i)=>{
-      const a=doseAmount(q.it), got=(st.qTick||{})['q'+i]?1:0;
-      const adj=(st.reps||{})['q'+i]||0;
-      return {v:q.it.v, n:q.it.n, of:1, got,
-        /* what they did. Only an adjusted number was recorded before, so a
-           drill done exactly as asked counted for nothing at all. */
-        reps: got ? (adj||a.n) : 0, unit:a.unit, per:a.n,
-        secs: got ? (work(q.it)||0) : 0,
-        /* what was asked for, so short of it or past it is visible on both
-           sides rather than a bare number with nothing to read it against */
-        want:a.n||recommendedReps(q.it)||0, dose:String(q.it.d||'').slice(0,40),
-        rate:(st.rate||{})[q.it.v]||''};
-    }).slice(0,40)
+    day:st.day, name:qLabel||((Q[0]&&Q[0].grp)||''), done, mode:'list',
+    drills:rows.size, mins, actual:Math.max(1,took), got:ticked, of:Q.length,
+    items:[...rows.values()].slice(0,40)
   }});
-  st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
-  st.prog.sessions.push({at:Date.now(), done:true, mins, mode:'list'});
+  /* Shown straight away with an account, until the server's copy lands.
+     It was pushed for everybody and always as finished, so without an
+     account one session counted twice, and three drills ticked of
+     twenty five counted as a whole session. reportProgress has already
+     kept it on the phone when there is no account. */
+  if(st.token){
+    st.prog=st.prog||{}; st.prog.sessions=st.prog.sessions||[];
+    st.prog.sessions.push({at:Date.now(), done, mins, actual:Math.max(1,took), mode:'list', got:ticked, of:Q.length});
+  }
   logReps();
   if(done) track('finish');
   fixSessionDone(done);
@@ -13480,8 +13508,10 @@ function screenLadder(){
         <div style="flex:none;font:400 64px/.9 var(--serif);white-space:nowrap">${
           sessionsThisWeek()}<span style="font-size:28px;color:var(--grey)"> / ${weekTarget()}</span></div>
         <div style="font:400 15px/1.4 var(--sans);color:var(--grey);padding-bottom:4px">
-          sessions of the ${weekTarget()} a week you set. Finish one and it turns up here
-          and on ${esc((STAGES[cur]||STAGES[0]).n)}.</div>
+          sessions of the ${weekTarget()} a week you set. ${(n=>
+            !n ? 'Finish one and it turns up here and on '+esc((STAGES[cur]||STAGES[0]).n)+'.'
+            : n>=weekTarget() ? 'That is the week done.'
+            : (weekTarget()-n)+' to go.')(sessionsThisWeek())}</div>
       </div>
       ${(()=>{
         /* Monday first, and a day is only "today" once. Part of a session counts
@@ -15938,7 +15968,7 @@ function doResetConfirm(ev){
          empty week, ladder and quiz over what the account had. */
       if(!st.token) return;
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
-      loadLadder(); loadState(); loadTrack(); codeResume(); })
+      loadLadder(); loadState(); loadTrack(); loadProgress(); codeResume(); })
     .catch(e=>rsSay(String(e)));
 }
 
@@ -16096,7 +16126,9 @@ function doJoin(ev){
          never reached the dashboard and the placement waited for some later
          save. A new account has nothing to overwrite: both go now. */
       if(st.token){ try{ if(st.intake && st.intake.level!=null) sendIntake(); }catch(e){}
-        try{ saveState(true); }catch(e){} try{ loadEntitlement(); }catch(e){} }
+        try{ saveState(true); }catch(e){} try{ loadEntitlement(); }catch(e){}
+        /* the sessions done before the account go up to it now, not never */
+        try{ loadProgress(); }catch(e){} }
       /* they came for the free session at their stage: straight to it */
       if(st.joinFor==='taste'){ st.joinFor=''; st.tab='home'; } else st.tab='ladder';
       save(); render();
@@ -16648,7 +16680,8 @@ function refreshAll(){
   toast('Refreshing…');
   const jobs=[loadLadder()];
   if(st.token){ jobs.push(loadEntitlement()); loadThread(); loadSubmissions(); loadTrack(); loadQuestions(); loadSign();
-    if(st.in){ jobs.push(loadProgramme()); loadProgress(); } }
+    if(st.in) jobs.push(loadProgramme());
+    loadProgress(); }
   if(typeof loadPlans==='function') loadPlans();
   if(typeof loadFixes==='function') loadFixes();
   Promise.all(jobs.map(p=>Promise.resolve(p).catch(()=>null))).then(()=>{ pullBusy=false; render(); toast('Up to date.'); });
@@ -17624,7 +17657,11 @@ document.addEventListener('DOMContentLoaded',function(){
      storage from the last time somebody happened to sign in. A verdict
      written yesterday did not exist until they signed out and back in. */
   if(st.token){ loadTrack(); loadThread(); }
-  if(st.in && st.token){ loadProgramme(); loadProgress(); }
+  if(st.in && st.token) loadProgramme();
+  /* every account, not only coached ones: the ladder's own sessions were
+     sent up and never read back, so a follow along never reached its
+     Progress, and a new phone or the Home Screen app showed none at all */
+  if(st.token) loadProgress();
   /* Elliott's reply landed in the thread and nothing went to fetch it: a
      free account loaded the chat only when it tapped the coaching tab, so
      the answer to a form check sat on the server with no dot anywhere.
