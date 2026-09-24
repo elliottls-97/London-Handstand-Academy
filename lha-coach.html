@@ -3293,15 +3293,48 @@ function blocksDo(email, body, ask){
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ blocks[email]=d; blocksBusy=''; draw();
       if(body.action==='promote') flash('Live. They see it on their next open.');
-      if(body.action==='restore') flash('Back on.'); })
+      if(body.action==='restore'||body.action==='restorefile') flash('Back on.');
+      if(body.action==='new') flash('Draft started.'); })
     .catch(e=>{ blocksBusy=''; draw(); alert(String(e)); });
 }
+/* The next block started from an OK or Cancel question ("OK copies it,
+   Cancel starts empty"), which read as a way out rather than a choice, so
+   there looked to be no way to start from the block before. It is a
+   dialog with the choices named. */
+let newBlk=null;          /* {email, label, from} while the dialog is open */
 function blocksNew(email){
-  const label=prompt('What is this block called?', 'Block '+(((blocks[email]||{}).block||1)+1));
-  if(label===null) return;
-  const from=confirm('Start from a copy of what they are training now?\n\nOK copies it. Cancel starts empty.')
-    ? 'live' : '';
-  blocksDo(email, {action:'new', label, from});
+  newBlk={email, label:'Block '+(((blocks[email]||{}).block||1)+1), from:'live'};
+  draw();
+}
+function newBlkGo(){
+  if(!newBlk) return;
+  const {email,label,from}=newBlk; newBlk=null;
+  blocksDo(email, {action:'new', label:String(label||'').trim()||'Next block', from});
+}
+function newBlkHTML(){
+  if(!newBlk) return '';
+  const b=blocks[newBlk.email]||{}, n=b.block||1;
+  const opt=(v,t,sub)=>`<label class="radio" style="align-items:flex-start">
+    <input type="radio" name="nbfrom" ${newBlk.from===v?'checked':''} onchange="newBlk.from=${jsq(v)}">
+    <span><b style="font-weight:600">${t}</b>${sub?`<span class="muted" style="display:block;font-size:12.5px;margin-top:2px">${sub}</span>`:''}</span></label>`;
+  return `<div class="dialog-backdrop" onclick="newBlk=null;draw()">
+    <div class="dialog" onclick="event.stopPropagation()" style="width:min(520px,100%)">
+      <div class="dialog-title">Write the next block</div>
+      <div class="field"><label>Called</label>
+        <input class="input" value="${esc(newBlk.label)}" oninput="newBlk.label=this.value"></div>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        ${opt('live','A copy of Block '+n+', what they train now',
+          ((b.live||{}).days||0)+' days, '+((b.live||{}).drills||0)+' drills. Change what needs changing.')}
+        ${(b.archive||[]).map(a=>opt('arch:'+a.i,'A copy of '+esc(a.label||'an earlier block'),
+          a.days+' days, '+a.drills+' drills, taken off '+(a.at?new Date(a.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):''))).join('')}
+        ${opt('','Empty','Start from nothing.')}
+      </div>
+      <div class="dialog-body">It is a draft: they keep training what they have until you put it live.</div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="newBlk=null;draw()">Cancel</button>
+        <button class="btn btn-primary" onclick="newBlkGo()">Start the draft</button>
+      </div>
+    </div></div>`;
 }
 /* a block written somewhere else, pasted in whole. The server cleans it
    the same way it cleans anything the builder saves, so nothing can come
@@ -3362,6 +3395,10 @@ function blocksHTML(email){
          onclick="blocksDo(${jsq(email)},{action:'promote',id:${jsq(d.id)}},${jsq('Put '+d.label+' live for '+((clients.find(c=>c.email===email)||{}).name||email)+'?\n\nThe block they are on comes off and is kept. The block number moves on and they are emailed.')})">Put it live</button>
        <button class="btn btn-ghost btn-sm" style="color:var(--terra)" ${busy?'disabled':''}
          onclick="blocksDo('${esc(email)}',{action:'discard',id:'${esc(d.id)}'},'Throw this draft away?')">Delete</button>`)).join('')}
+    ${b.file?row('The programme they started with',
+      b.file.days+' days, '+b.file.drills+' drills &middot; from their programme file',
+      `<button class="btn btn-ghost btn-sm" ${busy?'disabled':''}
+        onclick="blocksDo(${jsq(email)},{action:'restorefile'},${jsq('Put '+((clients.find(c=>c.email===email)||{}).name||'their')+' original days back on?\n\nTheir days and warm-up go back to the programme they started with. Check points, explainers and notes stay as they are. What is on now is kept under blocks taken off.\n\nThey are not told, and the block number does not move.')})">Put these days back on</button>`):''}
     ${(b.archive||[]).length?`<details style="margin-top:8px">
       <summary class="muted" style="cursor:pointer;font-size:12.5px">${b.archive.length} block${
         b.archive.length===1?'':'s'} taken off</summary>
@@ -5642,6 +5679,13 @@ function bDelGroup(i,g){
   bMark(); draw();
 }
 function bGroupName(i,g,v){ bDays()[i].groups[g].name=v; bMark(); }
+/* a block moved one place along the day, and still the one open */
+function bMoveGroup(i,g,by){
+  const gs=bDays()[i].groups||[], j=g+by;
+  if(j<0||j>=gs.length) return;
+  const x=gs[g]; gs[g]=gs[j]; gs[j]=x;
+  builder.grp=j; bMark(); draw();
+}
 function bAddItem(i,g){
   bDays()[i].groups[g].items.push({v:'',d:'',nt:''}); bMark(); draw();
 }
@@ -6498,9 +6542,15 @@ function builderHTML(){
               'bPickGrp('+k+')', 'bDelGroup('+di+','+k+')')).join('')}
           <button onclick="bAddGroup(${di})" style="${bGhost}">+ Block</button>
         </div>
-        <div style="margin-top:13px">
+        <div style="margin-top:13px;display:flex;gap:7px;align-items:center">
           <input value="${esc(g.name||'')}" oninput="bGroupName(${di},${gi},this.value)"
-            placeholder="Warm-up" style="width:100%;${bInput};font-weight:600">
+            placeholder="Warm-up" style="flex:1;min-width:0;${bInput};font-weight:600">
+          ${gs.length>1?`<button onclick="bMoveGroup(${di},${gi},-1)" ${gi?'':'disabled'} title="Move this block earlier"
+              aria-label="Move this block earlier" style="${bGhost};padding:6px 11px;${gi?'':'opacity:.35;cursor:default'}">&larr;</button>
+            <button onclick="bMoveGroup(${di},${gi},1)" ${gi<gs.length-1?'':'disabled'} title="Move this block later"
+              aria-label="Move this block later" style="${bGhost};padding:6px 11px;${gi<gs.length-1?'':'opacity:.35;cursor:default'}">&rarr;</button>`:''}
+        </div>
+        <div>
           ${(g.items||[]).map((it,k)=>`
             <div style="display:flex;gap:7px;align-items:center;margin-top:7px;flex-wrap:wrap">
               <span style="flex:none;display:flex;flex-direction:column;gap:2px">
@@ -10151,12 +10201,14 @@ function doCopy(){
   if(copyFrom===copyTo) return alert('Those are the same person.');
   if(!copyDays&&!copyCps&&!copyEx) return alert('Nothing ticked to copy.');
   const name=(clients.find(c=>c.email===copyTo)||{}).name||copyTo;
-  if(!confirm('Copy onto '+name+'?\n\nIt replaces what they have now. Nothing they have already trained is touched.')) return;
+  if(!confirm('Copy onto '+name+'?\n\nIt replaces what they are training now. What they had is kept under Blocks, taken off, and can go back on.')) return;
   copyBusy=true; draw();
   fetch(API+'/programme?email='+encodeURIComponent(copyFrom),{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject('could not read that programme'))
     .then(src=>{
-      const body={email:copyTo};
+      const body={email:copyTo,
+        /* so the server keeps what this replaces, for Put it back on */
+        copiedFrom:(clients.find(c=>c.email===copyFrom)||{}).name||'another client'};
       if(copyDays){ body.days=((src.plan||{}).days)||[]; body.warmup=(src.plan||{}).warmup||null; }
       if(copyCps)  body.checkpoints=((src.plan||{}).checkpoints)||[];
       if(copyEx)   body.explainers=src.explainersOn||[];
@@ -10189,8 +10241,10 @@ function copyHTML(){
         <label class="radio"><input type="checkbox" ${copyEx?'checked':''}
           onchange="copyEx=this.checked">Explainers switched on</label>
       </div>
-      <div class="dialog-body">Replaces what they have now with a copy of this one, then opens
-        the builder so you can change it for them. Their progress is untouched.</div>
+      <div class="dialog-body">Replaces what they are training now with a copy of this one, then
+        opens the builder so you can change it for them. Their progress is untouched, and what they
+        had is kept under Blocks, taken off, so it can go back on. To build their next block from
+        their own, use Write the next block on their page instead.</div>
       <div class="dialog-actions">
         <button class="btn btn-secondary" onclick="closeCopy()"${copyBusy?' disabled':''}>Cancel</button>
         <button class="btn btn-primary" onclick="doCopy()"${copyBusy?' disabled':''}>${
@@ -10415,7 +10469,7 @@ function drawNow(){
     : view==='settings' ? settingsHTML()
     : view==='review'   ? reviewHTML()
     : todayHTML()}</main></div>`
-    + bulkHTML() + copyHTML() + toastHTML()
+    + bulkHTML() + copyHTML() + newBlkHTML() + toastHTML()
     + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML();
   if(html!==lastHTML){ lastHTML=html; morphInto($('#v'), html); }
   syncReview();

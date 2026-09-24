@@ -5783,6 +5783,10 @@ export default async (request) => {
       const sum = p => ({ days: (p && p.days || []).length,
         drills: (p && p.days || []).reduce((n, d) =>
           n + (d.groups || []).reduce((m, g) => m + (g.items || []).length, 0), 0) });
+      /* what a programme trains, drill by drill, to tell two copies apart
+         whatever the builder has tidied in one of them */
+      const shape = p => (p && p.days || []).map(d => (d.groups || []).map(g =>
+        (g.name || '') + ':' + (g.items || []).map(i => i && i.v).join(',')).join('|')).join('||');
       const state = async () => {
         const drafts = (await getSetting(dkey)) || {};
         const arch = (await getSetting(akey)) || [];
@@ -5796,6 +5800,10 @@ export default async (request) => {
             { id, label: (drafts[id] || {}).label || id, at: (drafts[id] || {}).at || 0 },
             sum((drafts[id] || {}).prog))),
           archive: arch.map((a, i) => Object.assign({ i, label: a.label || '', at: a.at || 0 }, sum(a.prog))),
+          /* the programme file they started from, offered back only when
+             what is live no longer trains it */
+          file: (programmes.clients[e] && (programmes.clients[e].days || []).length
+                 && shape(programmes.clients[e]) !== shape(live)) ? sum(programmes.clients[e]) : null,
         });
       };
       if (request.method === 'GET') return state();
@@ -5808,7 +5816,13 @@ export default async (request) => {
         const id = 'b' + Date.now().toString(36);
         const from = String(body.from || '');
         const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        /* a block that came off, as the start of the next one: its days and
+           warm-up, with everything else as it is live now */
+        const ai = /^arch:(\d+)$/.exec(from);
+        const old = ai ? (((await getSetting(akey)) || [])[Number(ai[1])] || {}).prog : null;
         const prog = from === 'live' ? JSON.parse(JSON.stringify(live))
+          : old ? Object.assign(JSON.parse(JSON.stringify(live)),
+              { days: JSON.parse(JSON.stringify(old.days || [])), warmup: old.warmup || null })
           : Object.assign({}, live, { days: [] });
         prog.label = String(body.label || '').slice(0, 40) || 'Next block';
         drafts[id] = { label: prog.label, prog, at: Date.now() };
@@ -5921,6 +5935,24 @@ export default async (request) => {
         await notify(e, { title: 'Block ' + (n + 1) + ' is ready',
           body: 'Your next block is in the app. Same place, new days.',
           url: '/lha-app.html?go=plan', tag: 'block' }, 'reminders');
+        return state();
+      }
+      /* ── the days they started with, back on ──────────────────────
+         Copying another client's programme over this one replaced its days
+         and warm-up and kept no copy. This puts the days and warm-up from
+         their programme file back, and nothing else: check points,
+         explainers and notes stay as they are. It is a repair, so nobody
+         is told and the block number does not move. What was live is kept
+         under blocks taken off. */
+      if (act === 'restorefile') {
+        const file = programmes.clients[e];
+        if (!file || !(file.days || []).length) return json({ error: 'There is no programme file for them.' }, 404);
+        const live = (await getSetting(`programme:${e}`)) || file;
+        const arch = (await getSetting(akey)) || [];
+        arch.unshift({ at: Date.now(), label: 'What was on before their original days went back on', prog: live });
+        await setSetting(akey, arch.slice(0, 12));
+        await setSetting(`programme:${e}`, Object.assign({}, live,
+          { days: JSON.parse(JSON.stringify(file.days)), warmup: file.warmup || null, editedAt: Date.now() }));
         return state();
       }
       if (act === 'restore') {
@@ -6048,6 +6080,15 @@ export default async (request) => {
           await setSetting(`progdrafts:${e}`, drafts);
           /* nobody is training a draft, so nothing is announced */
           return json({ ok: true, draft: slot, plan: hydratePlan(next) });
+        }
+        /* Another client's programme copied over this one kept nothing of
+           what it replaced: Hannah's went that way. What was live is put
+           with the blocks taken off first, so Put it back on undoes it. */
+        if (body.copiedFrom && (live.days || []).length) {
+          const akey = `progarchive:${e}`, arch = (await getSetting(akey)) || [];
+          arch.unshift({ at: Date.now(), prog: live,
+            label: `${live.label || 'Their programme'}, before ${String(body.copiedFrom).slice(0, 60)}'s was copied on` });
+          await setSetting(akey, arch.slice(0, 12));
         }
         await setSetting(`programme:${e}`, next);
 
