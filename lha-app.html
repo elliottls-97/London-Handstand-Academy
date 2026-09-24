@@ -1603,6 +1603,7 @@ function screenToday(){
   ${installNudge()}
   ${pushNudge()}
   ${todayFocus()}
+  ${innerOfferHTML()}
   ${savedHomeHTML()}
 ${/* Once it has been read it is a wall of last month's words at the top of
      every day, and the whole of it is on the Plan screen anyway. New, it is
@@ -9969,7 +9970,7 @@ function doLogin(ev){
       /* a coach signing in here wants the coach view, not a client screen */
       if(d.coach){ leaveTo('/lha-coach.html'); return; }
       st.email=email; st.token=d.token; st.client=d.client;
-      st.in=!!d.coached; st.coached=!!d.coached;            /* coached tier only for actual coaching clients */
+      st.in=!!d.coached; st.coached=!!d.coached; st.tier=String(d.tier||'');            /* coached tier only for actual coaching clients */
       st.plus=!!d.plus;
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
@@ -10205,6 +10206,28 @@ function blockStart(){
     || null;
 }
 function blockNo(){ return (st.cycle && st.cycle.n) || 1; }
+/* ── Inner Circle, offered to a client in their own app ────────────
+   It is not on the coaching screen strangers see: one plan there. A
+   client who has finished a block knows how coaching works and whether
+   they drift, so from their second block the Today screen offers it. I'm
+   interested opens a message to the coach; Not now hides it until the
+   next block. Nobody already in Inner Circle is offered it. */
+const innerOn = () => coachedView() && blockNo()>=2 && !/^inner/.test(st.tier||'') && st.icLater!==blockNo();
+function innerOfferHTML(){
+  if(!innerOn()) return '';
+  return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
+    <div class="kick2" style="color:var(--forest)">INNER CIRCLE</div>
+    <div style="font:400 21px/1.2 var(--serif);margin-top:7px">Want me checking in every week?</div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">I check in every week and adjust
+      your plan as we go. Three places, from ${esc(PRICE('inneronline'))} a month.</div>
+    <div style="display:flex;gap:16px;align-items:center;margin-top:13px">
+      <button class="btn" style="margin:0;min-height:44px;padding:0 18px;width:auto" onclick="innerAsk()">I&rsquo;m interested</button>
+      <button onclick="innerLater()" style="border:0;background:none;cursor:pointer;padding:8px 0;
+        font:600 13px/1 var(--sans);color:var(--grey)">Not now</button>
+    </div></div></div>`;
+}
+function innerAsk(){ askDraft='I\'d like to hear about Inner Circle.'; go('ask'); }
+function innerLater(){ st.icLater=blockNo(); save(); render(); }
 /* uncapped: "week 6 of 6" for ever was the old lie, and a block runs until
    the coach starts the next one rather than for a fixed six weeks */
 function weekNow(){
@@ -14281,7 +14304,7 @@ function loadEntitlement(){
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
-      st.in=!!d.coached; st.coached=!!d.coached;
+      st.in=!!d.coached; st.coached=!!d.coached; st.tier=String(d.tier||'');
       if(!st.in && st.token){ st.mode='free'; st.quizDone=true; }
       if(d.name&&!st.client) st.client=d.name;
       /* the free-check flag has to be in here too: a coach clearing it
@@ -15313,20 +15336,24 @@ function pricingCard(){
    thing the old single card always had. */
 /* buyable when Stripe has a price or a link for exactly this combination */
 const coBuyable = p => (plansOn||[]).indexOf(coBuyKey(p))>-1;
-function coPickK(){
-  if(st.coPick && CO_PLANS.some(p=>p.k===st.coPick)) return st.coPick;
-  const b=CO_PLANS.find(coBuyable);
-  return b ? b.k : CO_PLANS[0].k;
-}
+/* One plan in the app: online coaching, with the London session as an
+   option. Two side by side was a second, dearer question in front of
+   somebody deciding on the first. Inner Circle is a line under it that
+   opens the chat, and Elliott offers it to clients after a block, when he
+   knows who it suits. */
+function coPickK(){ return 'online'; }
 const CO_PLANS = [
   { k:'online', who:'Online coaching', price:'online', withSession:'inperson', buy:'online', buySession:'inperson', flag:'Most people',
     line:'Your own programme, form checks every two weeks. Train anywhere.',
     name:'The programme, anywhere',
     for:'',
-    feats:['Your own programme, rewritten every block',
-           'Form checks on your footage every two weeks',
-           'A two week test I read, and the block adjusted from it',
-           'A thread where you can ask me anything'],
+    /* what it is now, not what it was when it was first priced: the
+       programme lives in the app, filmed and timed, and form checks come
+       back on video */
+    feats:['Your own programme in the app, every drill filmed',
+           'Rewritten every block, from your two week test',
+           'Video form checks on your footage every two weeks',
+           'Message me any time, with clips and voice notes'],
     note:'Cancel any time in the app.' },
   { k:'inner', who:'Inner Circle', price:'inneronline', withSession:'inner', flag:'3 places',
     line:'Online coaching, plus a check-in every week. By application.',
@@ -15521,41 +15548,13 @@ function coPanelHTML(pick){
 function coachingPicker(){
   if(plansOn===null) loadPlans();
   const PLANSC = coPlans();
-  const pick = PLANSC.find(p=>p.k===coPickK()) || PLANSC[0];
-  return `<div class="card" style="padding:18px 20px">
-    <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-      color:#0a7b74">Monthly coaching</div>
-    <div style="font:400 30px/1.06 var(--serif);letter-spacing:-.015em;margin-top:8px">Which one is you?</div>
-    <!-- Two plans across in one row, swiped, the next peeking in, so the
-         choice and its detail stay on screen together. The London session
-         is a switch on the panel below rather than a third card. -->
-    <div id="coRail" class="rail s corail" data-tour="pricing" onscroll="coDots()"
-      style="display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;
-      -webkit-overflow-scrolling:touch;margin:14px -20px 0;padding:4px 20px 6px">
-      ${PLANSC.map(p=>{
-        const on2 = p.k===pick.k;
-        return `<button id="copick-${p.k}" onclick="coPick('${p.k}')" aria-pressed="${on2}"
-          style="flex:0 0 76%;scroll-snap-align:center;text-align:left;cursor:pointer;
-          border-radius:18px;padding:16px 15px 14px;
-          border:1px solid ${on2?'var(--forest)':'rgba(17,17,17,.12)'};
-          background:#fff;
-          box-shadow:${on2?'0 0 0 3px rgba(0,102,99,.1),0 18px 40px -30px rgba(0,48,46,.6)'
-            :'0 1px 2px rgba(0,64,61,.05)'};
-          display:flex;flex-direction:column;gap:7px">
-          ${p.flag?`<span style="align-self:flex-start;font:700 9.5px/1 var(--sans);letter-spacing:.13em;
-            text-transform:uppercase;color:var(--deep);background:var(--amber);
-            border-radius:999px;padding:4px 10px">${esc(p.flag)}</span>`:''}
-          <span style="font:400 19px/1.12 var(--serif);color:var(--ink)">${esc(p.who)}</span>
-          <span style="flex:1;font:400 12.5px/1.4 var(--sans);color:var(--grey)">${esc(p.line)}</span>
-          <span style="display:flex;align-items:baseline;gap:3px">
-            <span data-coprice style="font:400 24px/1 var(--serif);letter-spacing:-.02em;color:var(--forest)">${PRICE(coPriceKey(p))}</span>
-            <span style="font:600 12px/1 var(--sans);color:var(--grey)">/mo</span>
-          </span>
-        </button>`;}).join('')}
-    </div>
-    <div id="coDots" class="codots" style="display:flex;justify-content:center;gap:6px;margin-top:8px">${coDotsHTML(PLANSC,pick)}</div>
-    <div id="coPanel" style="margin:14px -20px -18px;border-radius:0 0 26px 26px;overflow:hidden">${coPanelHTML(pick)}</div>
-  </div>`;
+  const pick = PLANSC.find(p=>p.k==='online') || PLANSC[0];
+  return `<div class="card" data-tour="pricing" style="padding:0;overflow:hidden">
+    <div id="coPanel">${coPanelHTML(pick)}</div>
+  </div>
+  <div style="text-align:center;font:400 13px/1.5 var(--sans);color:var(--grey);padding:2px 12px 4px">
+    Want me checking in every week? <button onclick="askAbout('inner')" style="border:0;background:none;padding:0;
+      cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Ask about Inner Circle</button></div>`;
 }
 function screenCoaching(){
   /* the free form check, for real this time. It used to fire an email and
@@ -17012,8 +17011,8 @@ const TOURS = {
        b:()=>'Film one attempt and I reply on video with the one thing to change. '
          +'One is free with an account, then '+PRICE('check')+' a clip, or included with coaching.'},
       {t:'pricing', h:'If you want the whole thing',
-       b:()=>(wide() ? 'The three side by side: what each one is, and what it costs. ' : 'Swipe the three across to see what each one is, and what it costs. ')
-         +'Everything is month to month, and it only turns up once you have had your form check back.'},
+       b:()=>'Online coaching: your own programme, written and rewritten by me, at '+PRICE('online')+' a month. '
+         +'Add a session in London each month if you are nearby. Cancel any time.'},
       {t:'tiers', h:'Free against coached',
        b:'Side by side, what you get free and what changes when someone is building the programme rather than you picking it off a ladder.'}
     ]

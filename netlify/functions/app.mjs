@@ -1834,6 +1834,9 @@ export default async (request) => {
       email: who,
       name: clients()[who] || acct.name || '',
       coached: coachedNow,
+      /* which plan a coached client bought, where a payment recorded it, so
+         the app does not offer Inner Circle to somebody already in it */
+      tier: coachedNow ? String((((BOOT.roster || {})[who]) || {}).tier || '') : '',
       coach: coachList().includes(who),
       coachName: (await isCoached(who)) ? coachName(coachOf(who)) : '',
       /* plusNow, not the column: a code's plus_until rides in settings and

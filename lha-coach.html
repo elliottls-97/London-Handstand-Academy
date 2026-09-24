@@ -3349,6 +3349,35 @@ function blocksPaste(email){
   const label=(d&&d.label)||prompt('What is this block called?','Next block')||'Next block';
   blocksDo(email, {action:'import', days, label});
 }
+/* ── Inner Circle, offered after a block ───────────────────────────
+   It is not on the app's coaching screen any more: one plan there, and
+   Inner Circle offered to a client once they have finished a block, when it
+   is clear who drifts and would want chasing every week. The prompt shows
+   from their second block until it is written or waved away, remembered
+   on this device. */
+const IC_KEY='lha_ic_offer';
+function icSeen(){ try{ return JSON.parse(localStorage.getItem(IC_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function icMark(email, v){ const m=icSeen(); m[email]=v; try{ localStorage.setItem(IC_KEY, JSON.stringify(m)); }catch(e){} draw(); }
+function icWrite(email){
+  const first=firstName(email)||'there';
+  drafts[email]='Great work finishing your first block, '+first+'. I have a place in Inner Circle: '
+    +'I check in with you every week and adjust the plan as we go. Want to hear more?';
+  icMark(email,'written');
+  setCtab('thread');
+  setTimeout(()=>{ const rb=document.getElementById('reply'); if(rb){ rb.value=drafts[email]; rb.focus(); } }, 60);
+}
+function icOfferHTML(email, b){
+  if(!b || (b.block||1)<2 || icSeen()[email]) return '';
+  const first=firstName(email)||'They';
+  return `<div style="margin-top:12px;padding:12px 14px;border-radius:12px;background:rgba(243,169,73,.14);
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <span style="flex:1;min-width:190px"><b style="font:600 13.5px/1.3 var(--sans)">Offer Inner Circle?</b>
+      <span class="muted" style="display:block;font-size:12.5px;margin-top:2px">${esc(first)} has finished a block.
+        If they drift, weekly check-ins would help.</span></span>
+    <button class="btn btn-primary btn-sm" onclick="icWrite(${jsq(email)})">Write the offer</button>
+    <button class="btn btn-ghost btn-sm" onclick="icMark(${jsq(email)},'no')">Not for them</button>
+  </div>`;
+}
 function blocksHTML(email){
   if(!email) return '';
   blocksLoad(email);
@@ -3379,6 +3408,7 @@ function blocksHTML(email){
     </div>
     <p class="muted" style="font-size:12.5px;margin-top:6px">A draft is theirs to train only once you
       put it live. The block coming off is kept and can go back on.</p>
+    ${icOfferHTML(email, b)}
     ${row('Block '+(b.block||1)+' &middot; live',
       ((b.live||{}).days||0)+' days, '+((b.live||{}).drills||0)+' drills'
         +((b.live||{}).editedAt?' &middot; edited '+when(b.live.editedAt):''),
