@@ -804,6 +804,13 @@ const clearCode = (e, kind) =>
    account with no password yet, which is the same errand. */
 /* The quiz's skill answers: what someone can do, easiest first. Small
    numbers and a short list, and nothing else gets through. */
+/* the quiz's safety check: pain or injury (yes, no, not said) and the time
+   the own-risk box was ticked, never later than now */
+function cleanSafe(x) {
+  if (!x || typeof x !== 'object') return null;
+  return { pain: x.pain === true ? true : x.pain === false ? false : null,
+           ack: Math.max(0, Math.min(Date.now() + 60000, Math.round(Number(x.ack) || 0))) };
+}
 function cleanSkills(x) {
   if (!x || typeof x !== 'object') return null;
   const n = (v, max) => (Number.isInteger(v) && v >= 0 && v <= max) ? v : undefined;
@@ -3980,6 +3987,8 @@ export default async (request) => {
           }
         }
         if (Array.isArray(i.niggles)) out.niggles = i.niggles.slice(0, 20).map(x => String(x).slice(0, 40));
+        const sf = cleanSafe(i.safe);
+        if (sf) out.safe = sf;
         const sk = cleanSkills(i.skills);
         if (sk) out.skills = sk;
         cur.intake = out;
@@ -4223,6 +4232,8 @@ export default async (request) => {
       niggles: Array.isArray(a.niggles) ? a.niggles.slice(0, 8).map(x => String(x).slice(0, 40)) : [],
       mins: Number(a.mins) || null, days: Number(a.days) || null,
       skills: cleanSkills(a.skills),
+      /* pain or injury said, and when they agreed to train at their own risk */
+      safe: cleanSafe(a.safe),
       at: Date.now(),
     };
     await ensureAcct(who);

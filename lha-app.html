@@ -8608,6 +8608,9 @@ function drawOv(){
         Go &middot; ${_wrist?'mobility day'
           :sessionMins()+' min, '+esc(BAND_NAME[stageLevel(_cur)].toLowerCase())}
       </button>
+      <!-- said at the moment of starting, every time, as the quiz said it once -->
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin:-2px 0 2px">
+        Warm up first, and stop if anything hurts.</div>
 
       <!-- mobility sits under Go rather than inside the level control: it is a
            different kind of day, not a fourth difficulty -->
@@ -10803,6 +10806,8 @@ function skillTakeBack(s, keys){
    rather than jumping out of them to the question before. */
 function quizBack(){
   const i=st.quizStep|0, step=INTAKE_STEPS[i]||{};
+  /* came here by skipping: back is the first question, not the skills */
+  if(st.quizSkip){ st.quizSkip=false; st.quizStep=0; save(); render(); return; }
   if(step.id==='level'){
     const a=intake(), s=Object.assign({}, a.skills||{}), path=(s.path||[]).slice();
     if(path.length){ skillTakeBack(s, [path[path.length-1]]); a.skills=s; delete a.level; save(); render(); return; }
@@ -10921,8 +10926,13 @@ const INTAKE_STEPS=[
    sub:'This shapes how I explain things, not where you start.'},
   {id:'level', kick:'WHERE YOU ARE',  q:'Tell us about your handstand.',
    sub:'This is the one that sets your stage.'},   /* asked as SKILLS, one at a time */
-  {id:'niggles',kick:'ANYTHING SORE', q:'Anything I should know about?',
-   sub:'Pick any that apply. It is for me to know, and it does not change where you start.'},
+  /* Elliott's decision (24 Sept): the last question was "anything sore",
+     it did nothing with the answer and said nothing was off limits because
+     of it. It is a safety check now: what handstands load, stop if it
+     hurts, get an injury checked first, and a tick that they train at
+     their own risk, kept with the date. */
+  {id:'niggles',kick:'BEFORE YOU GO UPSIDE DOWN', q:'Any pain or injury right now?',
+   sub:'Handstands put weight through your wrists, shoulders and neck. Build up gradually, and stop if anything hurts. The app is general guidance, not medical advice.'},
   /* "Your week" was the fourth: how long and how hard, before they had seen
      a single drill. Both are asked again by the chooser every time they
      press Start, where the question means something, and the week it was
@@ -10936,7 +10946,8 @@ function stepAnswered(i){
   const a=intake(), id=(INTAKE_STEPS[i]||{}).id;
   if(id==='goal')    return !!a.goal;
   if(id==='level')   return skillNext(a.skills)<0 && a.level!=null;
-  if(id==='niggles') return true;          /* nothing to flag is an answer */
+  /* answered, and the own-risk box ticked */
+  if(id==='niggles'){ const sf=a.safe||{}; return (sf.pain===true || sf.pain===false) && !!sf.ack; }
   return true;
 }
 /* ── the quiz, over film ─────────────────────────────────────────────
@@ -11034,26 +11045,26 @@ function screenQuiz(){
   if(step.id==='level'){ const v=skillStepView(a); head={q:v.q, sub:v.sub}; body=v.body; }
 
   if(step.id==='niggles'){
-    const sel=a.niggles||[];
-    body=`<div class="qup" style="animation-delay:90ms;display:flex;flex-wrap:wrap;gap:9px">${NIGGLES.map(x=>{
-      const on=sel.indexOf(x)>=0;
-      return `<button onclick="toggleNiggle('${esc(x)}')" aria-pressed="${on?'true':'false'}" style="background:${on?'var(--forest)':'#fff'};
-        color:${on?'#fff':'var(--ink)'};border:1px solid ${on?'rgba(255,255,255,.6)':'rgba(255,255,255,.6)'};
-        border-radius:999px;padding:12px 16px;box-shadow:0 8px 20px rgba(0,0,0,.18);
-        font:600 13.5px/1 var(--sans);cursor:pointer">${esc(x)}</button>`;}).join('')}</div>
-      ${sel.length && sel.indexOf('Nothing right now')<0 ? `
-      <!-- 6c shows a box here saying what each niggle changes. Nothing in the
-           free app adapts to a niggle yet, so this says the true thing: it
-           reaches Elliott and shapes what he writes. Give me a line per
-           niggle and I will say the specific thing instead. -->
-      <div style="margin-top:16px;padding:13px 15px;border-left:3px solid #8fe3d6;
-        background:rgba(255,255,255,.12);border-radius:0 12px 12px 0;
-        -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)">
-        <div style="font:400 14px/1.5 var(--sans);color:#fff">
-          ${esc(sel.filter(x=>x!=='Nothing right now').join(', '))}: noted. It goes to
-          Elliott with the rest of your answers and shapes what he suggests. Nothing
-          here is off limits because of it.</div>
-      </div>`:''}`;
+    const sf=a.safe||{}, sel=(a.niggles||[]).filter(x=>x!=='Nothing right now');
+    const yn=(v,t,d,k)=>card(sf.pain===v, two(t,d), `safePain(${v})`, k);
+    body=`${yn(false,"No, I'm good to go",'',0)}${yn(true,'Yes, something hurts or is injured','',1)}
+      ${sf.pain===true?`<div class="qup" style="animation-delay:60ms;margin-top:4px;padding:14px 16px;border-left:3px solid var(--amber);
+        background:rgba(0,0,0,.28);border-radius:0 14px 14px 0;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)">
+        <div style="font:600 15px/1.45 var(--sans);color:#fff">Get it checked by a physio or doctor before you start, and only train when they say it is safe.</div>
+        <div style="font:400 13px/1.45 var(--sans);color:rgba(255,255,255,.78);margin-top:6px">Where is it? It is kept with your answers.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${NIGGLES.filter(x=>x!=='Nothing right now').map(x=>{
+          const on=sel.indexOf(x)>=0;
+          return `<button onclick="toggleNiggle('${esc(x)}')" aria-pressed="${on?'true':'false'}" style="background:${on?'var(--forest)':'#fff'};
+            color:${on?'#fff':'var(--ink)'};border:1px solid rgba(255,255,255,.6);border-radius:999px;padding:10px 14px;
+            font:600 13px/1 var(--sans);cursor:pointer">${esc(x)}</button>`;}).join('')}</div>
+      </div>`:''}
+      ${(sf.pain===true||sf.pain===false)?`<label class="qup" style="animation-delay:90ms;display:flex;gap:12px;align-items:flex-start;margin-top:6px;
+        padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);cursor:pointer">
+        <input type="checkbox" ${sf.ack?'checked':''} onchange="safeAck(this.checked)"
+          style="flex:none;width:22px;height:22px;margin:1px 0 0;accent-color:#8fe3d6;cursor:pointer">
+        <span style="font:500 14.5px/1.45 var(--sans);color:#fff">I'll stop if anything hurts, and I train at my own risk.
+          <a href="/waiver" target="_blank" rel="noopener" onclick="event.stopPropagation()"
+            style="color:#8fe3d6;font-weight:600">Read the waiver</a></span></label>`:''}`;
   }
   const white=`width:100%;height:56px;margin-top:22px;border:0;border-radius:14px;cursor:pointer;
       background:#fff;color:var(--deep);box-shadow:0 14px 34px rgba(0,0,0,.35);font:700 16px/1 var(--sans)`;
@@ -11087,8 +11098,12 @@ function screenQuiz(){
          question, so answering reads as progress rather than as a form. It
          only appears once this step has an answer, because a Next that does
          nothing is worse than no Next. -->
-    ${(!INTAKE_STEPS[i+1] && stepAnswered(i))?`<button class="qup" style="${white};animation-delay:300ms"
-      onclick="quizMove(1,()=>finishIntake())">See where you land</button>`:''}
+    ${!INTAKE_STEPS[i+1] ? (stepAnswered(i)
+      ? `<button class="qup" style="${white};animation-delay:300ms"
+      onclick="quizMove(1,()=>st.quizSkip?skipFinish():finishIntake())">See where you land</button>`
+      : `<button disabled style="${white};opacity:.45;cursor:default">See where you land</button>
+         <div style="font:400 12.5px/1.4 var(--sans);color:rgba(255,255,255,.7);text-align:center;margin-top:8px">${
+           (a.safe&&(a.safe.pain===true||a.safe.pain===false)) ? 'Tick the box to go on.' : 'Answer, then tick the box to go on.'}</div>`) : ''}
     ${(INTAKE_STEPS[i+1] && stepAnswered(i))?`<button class="qup" onclick="quizMove(1,()=>nextIntake())"
       style="${white};animation-delay:300ms">${
         i===INTAKE_STEPS.length-2 ? 'Last one: '+esc(INTAKE_STEPS[i+1].kick.toLowerCase())
@@ -11127,6 +11142,15 @@ function pickIntake(k,v){
   if(k==='goal'||k==='level'){ nextIntake(); return; }
   render();
 }
+function safePain(v){
+  const a=intake(); a.safe=Object.assign({}, a.safe||{}, {pain:!!v});
+  if(!v) a.niggles=['Nothing right now']; else a.niggles=(a.niggles||[]).filter(x=>x!=='Nothing right now');
+  save(); render();
+}
+function safeAck(on){
+  const a=intake(); a.safe=Object.assign({}, a.safe||{}, {ack: on ? Date.now() : 0});
+  save(); render();
+}
 function toggleNiggle(x){
   const a=intake(); let s2=a.niggles||[];
   if(x==='Nothing right now') s2=s2.indexOf(x)>=0?[]:[x];
@@ -11142,7 +11166,15 @@ function nextIntake(){
 /* Some people will not answer three questions and should not be made to. The
    ladder starts at Foundations for everyone anyway, so a skip is a real
    answer: stage one, the default week, and they can retake it from Today. */
+/* Skipping the questions still goes through the safety check: it is the
+   one that is not about where they start. */
 function skipIntake(){
+  st.quizSkip=true;
+  st.quizStep=Math.max(0, INTAKE_STEPS.findIndex(x=>x.id==='niggles'));
+  save(); render();
+}
+function skipFinish(){
+  st.quizSkip=false;
   const L=levelDef();
   st.stage=0; st.placed=0; st.time=st.time||30; st.perWeek=st.perWeek||(L&&L.def)||3;
   st.quizDone=true; st.oriented=false;
@@ -11150,6 +11182,7 @@ function skipIntake(){
   save(); saveStateDown(); render();
 }
 function finishIntake(){
+  st.quizSkip=false;
   const a=intake(), L=levelDef();
   /* where the answers place them, which a free account may not be able to
      reach yet. curStage caps it; this is kept so the upgrade can say what
