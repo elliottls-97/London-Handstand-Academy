@@ -445,6 +445,20 @@ button{color:var(--ink)}
  border-radius:999px;padding:7px 12px;font:600 11px/1 var(--sans);color:var(--grey);cursor:pointer}
 .sheet{position:relative}
 .sheet h2.st{margin:0;padding-right:110px;font:400 24px/1.05 var(--serif);color:var(--ink)}
+/* The drill list does not drag, so no grab. Close, sound and Shrink are
+   one bar that stays at the top while the list scrolls under it: the
+   speaker scrolled away with the title, so sound could only be changed
+   from the top of a long list. */
+.listsheet .grab{display:none}
+.ov .sheet.listsheet,.ov.full .sheet.listsheet{padding-top:0}
+.lbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;
+ margin:0 -18px;padding:10px 14px;background:rgba(250,248,246,.96);
+ backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.ov.full .lbar{padding-top:calc(env(safe-area-inset-top) + 10px)}
+.lbtn{border:0;background:rgba(17,17,17,.06);border-radius:999px;min-height:38px;padding:0 16px;
+ font:600 13px/1 var(--sans);color:var(--ink);cursor:pointer}
+.lbtn.lsnd{width:38px;padding:0;display:grid;place-items:center;background:#fff;border:1px solid rgba(17,17,17,.14)}
+.listsheet h2.st{padding:6px 0 0}
 @media (prefers-reduced-motion:reduce){.ov.on,.sheet{animation:none!important}}
 .ovhead{padding:calc(env(safe-area-inset-top) + 18px) 22px 22px;
  border-bottom:1px solid rgba(0,64,61,.10)}
@@ -893,6 +907,9 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
     padding:12px 22px 28px;animation:fade .25s both}
   .ov.full{align-items:center}
   .ov.full .sheet{height:auto;max-height:86vh;border-radius:28px;padding-top:18px}
+  /* the drill list is a page of work, not a dialog: tall and wide */
+  .ov.full .sheet.listsheet{width:min(820px,92vw);max-width:820px;height:92vh;max-height:92vh}
+  .lbar{margin:0 -22px;padding:14px 20px 10px}
   .sheet .grab{display:none}
   .ov.full .sheet .grab{display:none}
 }
@@ -1058,6 +1075,9 @@ if(PREVIEW){
 }
 let st={};
 try{ st=JSON.parse(localStorage.getItem(K)||'{}')||{}; }catch(e){ st={}; }
+/* no sheet is open when the page loads, whatever was open when it was
+   last saved: a stale one kept setMins and setKind from redrawing Train */
+st.ov=null; st.ovFull=false;
 if(PREVIEW){
   /* start from nothing every time, or the last client previewed bleeds
      into the next one */
@@ -1958,7 +1978,6 @@ function dlHash(list){ let h=5381; String(list.join('|')).split('').forEach(c=>{
 
 /* ── the button on a workout ── */
 function dlRow(key, urls, meta){
-  if(!dlOk()) return '';
   const uids=dlUids(urls); if(!uids.length) return '';
   dlLists[key]={urls, meta:meta||{}};
   const rec=dlRec(key), have=uids.filter(u=>dlSet.has(u)).length;
@@ -1970,6 +1989,17 @@ function dlRow(key, urls, meta){
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg></span>
     ${inner}</div></div>`;
+  /* Instagram's own browser and a few others cannot keep films at all.
+     The row used to vanish there, which is where most people first open
+     the app, so it stays and says where saving does work. */
+  if(!dlOk()){
+    return wrap(`<span style="flex:1;min-width:0">
+      <span style="display:block;font:600 13px/1.3 var(--sans)">Save for no signal</span>
+      <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">Works from the app on your Home Screen.</span>
+    </span>
+    <button onclick="event.stopPropagation();dlStart('${key}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
+      padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Show me how</button>`);
+  }
   if(busy){
     const pc=Math.round(dlBusy.done/Math.max(1,dlBusy.of)*100);
     return wrap(`<span style="flex:1;min-width:0">
@@ -2070,6 +2100,7 @@ let qSaved=null;
 let tasteFinishedKey='';
 async function dlStart(key, anyway){
   if(dlBusy) return;
+  if(!dlOk()){ dlPending=key; openOv('install'); return; }
   /* ── an email first ────────────────────────────────────────────────
      Saving for no signal is for people with an account: it is the moment
      somebody has decided to train with this, and what they save belongs to
@@ -2080,9 +2111,10 @@ async function dlStart(key, anyway){
     try{ closeOv(); }catch(e){}
     goJoin('save'); return;
   }
-  /* in a Safari tab on an iPhone the Home Screen comes first; they can
-     still save here if they choose to */
-  let tab=false; try{ tab=isIOS() && !isStandalone(); }catch(e){}
+  /* in a phone's browser the Home Screen app comes first; they can still
+     save here if they choose to. On an iPhone the app keeps its own
+     storage, so what Safari saves never reaches it; on Android they share. */
+  let tab=false; try{ tab=(isIOS() || /android/i.test(navigator.userAgent)) && !isStandalone(); }catch(e){}
   if(tab && !anyway){ dlPending=key; openOv('install'); return; }
   const L=dlLists[key]; if(!L) return;
   const uids=dlUids(L.urls), want=uids.filter(u=>!dlSet.has(u));
@@ -2142,12 +2174,31 @@ async function dlStart(key, anyway){
 }
 
 /* "Save here in Safari anyway": back to what they were saving, and save it */
-function dlAnyway(){
+/* The install sheet stands in for the list or the explainer it came from,
+   so leaving it goes back there. "Got it" used to close everything, and a
+   workout opened from the Train screen was gone with it. */
+function dlReturn(){
   const k=dlPending; dlPending=''; closeOv();
   const L=dlLists[k]; const kind=L && L.meta && L.meta.kind;
-  if(kind==='q') openOv('list');
+  if(kind==='q'){ st.ovFull=true; openOv('list'); }
   else if(kind==='ex' && st.exOpen!=null) openExplainer(st.exOpen);
-  if(k) setTimeout(()=>dlStart(k, true), 60);
+  return k;
+}
+function dlAnyway(){
+  const k=dlReturn();
+  if(k && dlOk()) setTimeout(()=>dlStart(k, true), 60);
+}
+/* Android's one tap. The app and Chrome share their storage there, so a
+   save asked for before installing carries straight on. */
+function installNow(){
+  if(!installPrompt) return;
+  const p=installPrompt; installPrompt=null;
+  try{ p.prompt(); p.userChoice.then(r=>{
+    const ok=r && r.outcome==='accepted';
+    if(ok){ st.installed=true; save(); }
+    if(!ok){ if(st.ov==='install') drawOv(); return; }
+    if(dlPending) dlAnyway(); else closeOv();
+  }).catch(()=>{}); }catch(e){}
 }
 /* removing one workout keeps any film another saved workout still needs */
 async function dlRemove(key){
@@ -7988,6 +8039,14 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
    demo. It was per video and reset on each render, so turning sound on was
    something you did over and over. */
 const soundOn = () => st.sound !== false;
+/* one film at a time in a sheet or the corner: starting one pauses the
+   rest, so two demos never play over each other */
+document.addEventListener('play', e=>{
+  const v=e.target;
+  if(!v || v.tagName!=='VIDEO' || !v.closest || !v.closest('#ov,#dock')) return;
+  document.querySelectorAll('#ov video, #dock video').forEach(o=>{
+    if(o!==v && !o.paused) try{ o.pause(); }catch(err){} });
+}, true);
 /* ── a film that starts ───────────────────────────────────────────
    An iPhone will not start a film with sound on its own, whatever the
    autoplay attribute says: it sits on its first frame with the browser's
@@ -8152,7 +8211,11 @@ function openOv(kind){
      the reason, so the player is built and started here */
   mountCaptions();
   if(kind==='account' && st.token){ subInfo=null; loadSubscription(); } }
-function ovScrim(e){ if(e.target && e.target.id==='ov') closeOv(); }
+/* The drill list is a workout in progress, so it is left on purpose, with
+   its own Close, and never by a tap beside it or a swipe down from its top:
+   both threw the session away mid-way. */
+const OV_HELD = k => k==='list' || (k==='install' && !!dlPending);
+function ovScrim(e){ if(e.target && e.target.id==='ov' && !OV_HELD(st.ov)) closeOv(); }
 function closeOv(){
   /* the summary is the end of the workout, and of the free one with it */
   if(st.ov==='summary') endTaste();
@@ -8162,6 +8225,61 @@ function closeOv(){
   st.ov=null; st.ovFull=false; save();
   $('#ov').classList.remove('on'); $('#ov').classList.remove('full');
   $('#ov').innerHTML=''; render(); }
+/* ── a list session, kept ─────────────────────────────────────────
+   Closing the list mid-way lost the workout: the ticks stayed but the
+   session they belonged to was gone, and pressing Start built a different
+   one. It is kept on every tick, not only on Close, because a back swipe,
+   a reload or the phone dropping the page lose it just the same. Kept for
+   the rest of the day; the Train screen offers to carry on with it. */
+function listBarHTML(){
+  return `<div class="lbar">
+    <button class="lbtn" onclick="listClose()">Close</button>
+    <span style="flex:1"></span>
+    <button id="l-sound" class="lbtn lsnd" onclick="toggleSound()" aria-label="${soundOn()?'Sound on':'Sound off'}">${soundOn()?VB_SPK:VB_MUTED}</button>
+    <button class="lbtn" id="ovFullBtn" onclick="toggleFull()">${st.ovFull?'Shrink':'Full screen'}</button>
+  </div>`;
+}
+function listKeep(){
+  if(tourKey || st.ov!=='list' || !Array.isArray(Q) || !Q.length) return;
+  const n=Q.filter((_,i)=>(st.qTick||{})['q'+i]).length;
+  st.listHeld = n ? {q:Q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)})),
+    tick:Object.assign({}, st.qTick||{}), reps:Object.assign({}, st.reps||{}),
+    label:qLabel||'', fix:qFix||null, wrist:!!st.ovList, day:new Date().toDateString(), n, of:Q.length} : null;
+  save();
+}
+function listClose(){
+  listKeep();
+  const kept=!tourKey && !!st.listHeld;
+  closeOv();
+  if(kept) toast('Kept for later today.');
+}
+const listHeldNow = () => { const h=st.listHeld; return (h && Array.isArray(h.q) && h.q.length && h.day===new Date().toDateString()) ? h : null; };
+function listResume(){
+  const h=listHeldNow(); if(!h) return;
+  Q=h.q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)}));
+  st.qTick=Object.assign({}, h.tick||{}); st.reps=Object.assign({}, h.reps||{});
+  qLabel=h.label||qLabel; qFix=h.fix||null; sessionSpent=true;
+  st.ovList=!!h.wrist; st.ovRow=null; st.listMode='work'; st.ovFull=true; save();
+  openOv('list');
+}
+function listDiscard(){
+  sure('Throw this session away?\n\nIts ticks go with it. Nothing you have already logged is touched.', 'Throw it away',
+    ()=>{ st.listHeld=null; st.qTick={}; st.reps={}; save(); render(); }, true);
+}
+function listHeldHTML(){
+  const h=listHeldNow(); if(!h) return '';
+  const done=Object.keys(h.tick||{}).filter(k=>h.tick[k]).length;
+  return `<div class="rise rise-1" style="padding:${wide()?16:12}px 20px 0"><div style="display:flex;align-items:center;gap:12px;
+      padding:13px 14px 13px 16px;border-radius:18px;background:#fff;border:1.5px solid rgba(0,102,99,.3);
+      box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">IN PROGRESS</span>
+        <span style="display:block;font:600 15px/1.3 var(--sans);margin-top:6px">${esc(h.label||(h.wrist?'Mobility day':'Your session'))}</span>
+        <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${done} of ${h.of||h.q.length} sets done, kept from earlier today</span></span>
+      <span style="flex:none;display:flex;flex-direction:column;gap:6px;align-items:stretch">
+        <button class="btn" style="margin:0;min-height:40px;padding:0 16px;font-size:14px" onclick="listResume()">Carry on</button>
+        <button onclick="listDiscard()" style="border:0;background:none;cursor:pointer;font:600 12px/1 var(--sans);color:var(--grey);padding:4px">Throw away</button></span>
+    </div></div>`;
+}
 function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'); }
 
 /* ── telling us what you think ─────────────────────────────────────
@@ -8818,13 +8936,7 @@ function drawOv(){
       </div>${restChip(after)}`;}).join('');
     const mins=qMins();
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
-    body=`<button class="fsbtn" id="ovFullBtn" onclick="toggleFull()">${
-      st.ovFull?'Shrink':'Full screen'}</button>
-      <button id="l-sound" onclick="toggleSound()" aria-label="${soundOn()?'Sound on':'Sound off'}"
-        style="position:absolute;top:16px;right:96px;width:32px;height:32px;border:1px solid rgba(17,17,17,.14);
-        border-radius:50%;background:#fff;color:var(--ink);cursor:pointer;display:grid;place-items:center;
-        padding:0">${soundOn()?VB_SPK:VB_MUTED}</button>
-      <div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
+    body=`<div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
         ${qDrills()} drills · ${(Q||[]).length} sets · ${mins} minutes including rest${
           ticked?' · '+ticked+' done':''}</div>
       <!-- the same workout, run for you. It is the first thing on the list
@@ -9080,6 +9192,7 @@ function drawOv(){
   }
   if(st.ov==='install'){
     let ios=false; try{ ios=isIOS(); }catch(e){}
+    const inApp=inAppBrowser(), wait=dlPending, back=wait && ((dlLists[wait]||{}).meta||{}).kind;
     const SHARE=`<svg width="15" height="17" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2"
       stroke-linecap="round" stroke-linejoin="round" aria-label="the share button" style="vertical-align:-2px;margin-left:4px">
       <path d="M12 2v14"/><path d="M7 7l5-5 5 5"/><path d="M5 11H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V12a1 1 0 0 0-1-1h-1"/></svg>`;
@@ -9090,14 +9203,22 @@ function drawOv(){
         t?`<span style="display:block;font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:3px">${t}</span>`:''}</span></div>`;
     body=`<div style="padding:2px 0 6px">
       <div class="kick2">ON YOUR HOME SCREEN</div>
-      <div class="h-lg" style="margin-top:8px">Put the app on your Home Screen.</div>
-      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">It opens full screen with one tap,
-        and it is the safe place to save workouts for a gym with no signal.${ios?' Safari clears what a website saves once you have gone about a week without opening it, and on an iPhone it is the only way to get notifications from the app.':''}</div>
-      ${ios ? step(1,'Tap the share button'+SHARE,'In Safari&rsquo;s bottom bar, or inside its &bull;&bull;&bull; menu. On an iPad it is at the top.')
+      <div class="h-lg" style="margin-top:8px">${wait?'Save it in the app.':'Put the app on your Home Screen.'}</div>
+      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">${wait
+        ? (dlOk() ? 'Films you save play from the app on your Home Screen with no signal at all, so that is the place to save them.'
+                  : 'This browser cannot keep films, so saving for no signal works from the app on your Home Screen.')
+        : 'It opens full screen with one tap, and it is the safe place to save workouts for a gym with no signal.'}${(ios && !inApp)
+        ? (wait ? ' Safari clears what a website saves once you have gone about a week without opening it.'
+                : ' Safari clears what a website saves once you have gone about a week without opening it, and on an iPhone it is the only way to get notifications from the app.') : ''}</div>
+      ${inApp ? step(1, ios?'Open this page in Safari':'Open this page in Chrome',
+                  'Tap &bull;&bull;&bull; at the top right, then Open in '+(ios?'Safari':'browser')+'. You are in this app&rsquo;s own browser, which cannot add anything.')
+            + step(2,'Add it to your Home Screen', ios?'Tap the share button, then Add to Home Screen.':'Tap &bull;&bull;&bull;, then Install app or Add to Home Screen.')
+            + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
+      : ios ? step(1,'Tap the share button'+SHARE,'In Safari&rsquo;s bottom bar, or inside its &bull;&bull;&bull; menu. On an iPad it is at the top.')
             + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it, and leave Open as Web App on.')
             + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
         : installPrompt ? `<button class="btn" style="width:100%;margin-top:16px"
-            onclick="if(doInstall()) closeOv();">Add it to my Home Screen</button>`
+            onclick="installNow()">Add it to my Home Screen</button>`
         : step(1,'Open your browser menu','The three dots at the top right in Chrome.')
           + step(2,'Choose Install app, or Add to Home Screen','')
           + step(3,'Open it from your Home Screen','')}
@@ -9106,9 +9227,10 @@ function drawOv(){
           ? 'The Home Screen app keeps its own storage, apart from Safari, so sign in once when it opens. Your account and progress come with you.'
           : 'The Home Screen app keeps its own storage, apart from Safari. Add your email first and your progress comes with you; without it, it starts fresh there.'}</div>`:''}
       ${(ios && !st.token)?`<button class="btn2" style="width:100%;margin-top:12px" onclick="closeOv();goJoin()">Add my email first</button>`:''}
-      <button class="btn" style="width:100%;margin-top:12px" onclick="closeOv()">Got it</button>
-      ${dlPending?`<button onclick="dlAnyway()" style="display:block;margin:14px auto 0;border:0;background:none;cursor:pointer;
-        font:600 13px/1 var(--sans);color:var(--grey);text-decoration:underline;text-underline-offset:3px">Save here in Safari anyway</button>`:''}
+      <button class="${(wait && installPrompt && !inApp)?'btn2':'btn'}" style="width:100%;margin-top:12px" onclick="${wait?'dlReturn()':'closeOv()'}">${
+        back==='q' ? 'Back to the workout' : back==='ex' ? 'Back to the film' : 'Got it'}</button>
+      ${(wait && dlOk())?`<button onclick="dlAnyway()" style="display:block;margin:14px auto 0;border:0;background:none;cursor:pointer;
+        font:600 13px/1 var(--sans);color:var(--grey);text-decoration:underline;text-underline-offset:3px">Save in ${ios?'Safari':'this browser'} anyway</button>`:''}
     </div>`;
   }
   if(st.ov==='account'){
@@ -9547,13 +9669,13 @@ function drawOv(){
      its own clicks so a tap inside does not shut it */
   const oldSheet=$('#ov').querySelector('.sheet');
   const sheetTop=oldSheet?oldSheet.scrollTop:0;
-  $('#ov').innerHTML=`<div class="sheet" onclick="event.stopPropagation()">
-    <div class="grab"></div>
+  $('#ov').innerHTML=`<div class="sheet${st.ov==='list'?' listsheet':''}" onclick="event.stopPropagation()">
+    ${OV_HELD(st.ov)?'':'<div class="grab"></div>'}${st.ov==='list'?listBarHTML():''}
     ${T[st.ov]?`<h2 class="st">${esc(T[st.ov])}</h2>`:''}
     <div style="padding-top:14px">${body}</div></div>`;
   const sheet=$('#ov').querySelector('.sheet');
   if(sheet && sheetTop) sheet.scrollTop=sheetTop;
-  if(sheet) bindSheetDrag(sheet);
+  if(sheet && !OV_HELD(st.ov)) bindSheetDrag(sheet);
   mountCaptions();
 }
 
@@ -10346,7 +10468,7 @@ function qTickAll(keys,el){
   st.qTick=st.qTick||{};
   const on=!list.every(k=>st.qTick[k]);
   list.forEach(k=>{ if(on) st.qTick[k]=true; else delete st.qTick[k]; });
-  save();
+  save(); listKeep();
   if(el) el.classList.toggle('on', on);
   const row=el&&el.closest('div[style*="border-radius:16px"]');
   if(row) row.style.background = on ? '#faf8f5' : '#fff';
@@ -10357,7 +10479,7 @@ function qTickAll(keys,el){
 function qTick(k,el){
   st.qTick=st.qTick||{};
   const on = st.qTick[k] = !st.qTick[k];
-  save();
+  save(); listKeep();
   /* touch this row only. Redrawing the sheet threw away open demos, the
      stepper you were using and where you had scrolled to. */
   if(el) el.classList.toggle('on', on);
@@ -10402,13 +10524,17 @@ function toggleListDemo(k,btn){
        the caption line low in the frame and the player's own fullscreen and
        rotate along with it. */
     box.innerHTML = uid
-      ? ccWrap(`<video src="${sig(url)}" controls playsinline autoplay loop muted
+      ? ccWrap(`<video src="${sig(url)}" controls playsinline loop ${soundOn()?'':'muted'}
           poster="${streamThumb(uid)}" data-cc="${uid}"
           style="width:100%;background:#11150f;display:block"></video>`,
           'border-radius:16px;overflow:hidden')
       : vidBlock(url,'16/10');
   }
   box.hidden=!open;
+  /* started here, inside the tap, so a phone lets it play with sound; a
+     folded demo stops rather than looping on out of sight */
+  const v=box.querySelector('video');
+  if(v){ if(open){ v.muted=!soundOn(); startFilm(v); } else { try{ v.pause(); }catch(e){} } }
   /* the cues belong with the clip — you are watching it to learn the thing */
   const cues=document.getElementById('cues-'+k); if(cues) cues.hidden=!open;
   if(open) mountCaptions();
@@ -10470,7 +10596,7 @@ function finishChecklist(){
   logReps();
   if(done) track('finish');
   fixSessionDone(done);
-  st.qTick={}; st.reps={}; save(); closeOv(); openOv('summary');
+  st.qTick={}; st.reps={}; st.listHeld=null; save(); closeOv(); openOv('summary');
 }
 
 /* the list's own flag toggle: state, then the two buttons and the note box
@@ -12724,6 +12850,7 @@ function screenHome(){
          answers, the week or Foundations, and a second green button saying
          Start would only have been a third way to ask the same thing -->
     ${trialPending()?'':placeNoteHTML()}
+    ${listHeldHTML()}
     <!-- the film about the app beside Start, under it on a phone, until it
          has been watched or put away -->
     ${trialPending()?'':`<div class="rise rise-2" style="padding:${wide()?20:14}px 20px 0">
@@ -14348,6 +14475,10 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      drill aside rebuilds the same workout, so that one keeps it. */
   const held = !!keep && tasteHeld();
   if(!held) endTaste();
+  /* ticks are kept by place in the list, so a rebuild without one drill
+     would shift them onto the wrong rows: note them by drill and set */
+  const was = (keep && !tourBuild && Array.isArray(Q)) ? Q.map((x,i)=>({id:x.it&&x.it.v, set:x.set,
+    tick:(st.qTick||{})['q'+i], reps:(st.reps||{})['q'+i]})) : null;
   if(tourQ && !tourBuild) tourQ=null;
   qFix=null;
   const mins=wristDay ? (st.time||30) : sessionMins(), s=STAGES[curStage()];
@@ -14654,6 +14785,15 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   out.forEach(q=>{ q.sets=tally[q.it.v]; });
   Q=out;
   qSaved=null;
+  /* a new workout, so no ticks: they were kept by position and landed on
+     whatever the next session happened to have in that place. A session
+     kept from earlier stays kept until it is finished or thrown away. */
+  if(was){
+    const tick={}, reps={};
+    Q.forEach((x,i)=>{ const o=was.find(w=>w.id===(x.it&&x.it.v) && w.set===x.set);
+      if(o && o.tick) tick['q'+i]=true; if(o && o.reps!=null) reps['q'+i]=o.reps; });
+    st.qTick=tick; st.reps=reps;
+  } else if(!tourBuild){ st.qTick={}; st.reps={}; }
   sessionSpent=false;          /* a fresh workout, not yet counted */
   if(held) tasteHand.q=Q;      /* the same workout, rebuilt: still the free one */
   if(listOnly){
@@ -14812,7 +14952,7 @@ function adjustReps(k,by){
   const i=Number(String(k).slice(1));
   const base = st.reps[k]==null ? recommendedReps(((Q||[])[i]||{}).it||{}) : st.reps[k];
   const next=Math.max(0,base+by);
-  st.reps[k]=next; save();
+  st.reps[k]=next; save(); listKeep();
   const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);
   if(a) a.textContent=String(next);
   if(b){ b.textContent = next ? next+' done' : 'Log';
