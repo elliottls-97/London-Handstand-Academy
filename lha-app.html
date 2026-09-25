@@ -8840,10 +8840,8 @@ function drawOv(){
     const _when=_hr<12?"This morning's":_hr<18?"This afternoon's":"Tonight's";
     const _wrist=st.sessionKind==='wrist';
     const _cur=curStage();
-    /* Somebody who has not done a session yet was asked how hard and how
-       long before they knew what a session was. The first one builds at
-       the defaults and says what happens next; the questions come back
-       for the second. */
+    /* somebody who has not done a session yet gets three lines on what
+       happens next, above the two questions */
     const _first=firstVisit() && !_wrist;
     const _kick='font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)';
     const _row='min-height:52px;width:100%;border:0;border-radius:14px;display:flex;align-items:center;'
@@ -8869,16 +8867,14 @@ function drawOv(){
       ${_first ? `<div style="padding:14px 16px;border-radius:16px;background:rgba(0,102,99,.06);
         border:1px solid rgba(0,102,99,.14)">
         <div class="kick2" style="color:var(--forest)">YOUR FIRST SESSION</div>
-        <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${esc(BAND_NAME[stageLevel(_cur)])} level, ${
-          sessionMins()} minutes. Easier, harder and how long come after this one.</div>
-        <ol style="margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;
+        <ol style="margin:9px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;
           font:400 13.5px/1.45 var(--sans);color:var(--grey)">
           <li>Press Go. The player runs it: each drill, its film, the rest between.</li>
           <li>Tick a check point when you hit it. Reach them all and the next stage opens.</li>
           <li>Send one clip whenever you want eyes on it.</li>
         </ol>
       </div>` : ''}
-      ${(_first || bandsFor(_cur).length<2) ? '' : `<div style="${_wrist?'opacity:.4;pointer-events:none':''}">
+      ${bandsFor(_cur).length<2 ? '' : `<div style="${_wrist?'opacity:.4;pointer-events:none':''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;${_kick}">
           <span>LEVEL</span>
           <span style="letter-spacing:0;font-weight:500;text-transform:none;font-size:12px">${
@@ -8899,7 +8895,7 @@ function drawOv(){
             : 'Easier is this stage at a gentler dose, to get used to it. Harder is longer holds, more reps and sets, and more of the hard drills in the mix.'}</div>
       </div>`}
 
-      ${_first ? '' : `<div style="${_wrist?'opacity:.4;pointer-events:none':''}">
+      <div style="${_wrist?'opacity:.4;pointer-events:none':''}">
         <div style="${_kick}">HOW LONG</div>
         <div style="display:flex;gap:8px;margin-top:10px;background:rgba(0,64,61,.08);
           border-radius:14px;padding:4px">
@@ -8912,7 +8908,7 @@ function drawOv(){
         </div>
         <div style="font:400 12px/1 var(--sans);color:var(--grey);margin-top:8px;text-align:right">${
           (!_wrist && stageLevel(_cur)===1 && easyCapped(_cur)) ? 'minutes · easier stops at '+EASY_CAP : 'minutes'}</div>
-      </div>`}
+      </div>
 
       <!-- "Follow along" and "Every drill" were offered here as a choice
            between two things, to somebody who had seen neither, and they
@@ -12188,12 +12184,17 @@ function railTile(o){
       ${o.sub?`<div style="font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:3px">${esc(o.sub)}</div>`:''}
     </div>`;
 }
-const railHTML = (head, sub, items, tour, extra) => `<section class="rise rise-3"${tour?` data-tour="${tour}"`:''} style="padding:${wide()?24:20}px 0 0">
+/* A rail with a question box (extra) is one thing on a phone: the heading,
+   the box and the films sit in one card, rather than a heading, a box and
+   a row of films each floating on the page. */
+const railHTML = (head, sub, items, tour, extra) => { const boxed = !!extra && !wide();
+  return `<section class="rise rise-3"${tour?` data-tour="${tour}"`:''} style="padding:${wide()?24:20}px ${boxed?20:0}px 0">
+    ${boxed?`<div class="card" style="padding:16px 0 8px">`:''}
     <div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
       ${sub?`<div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div>`:''}</div>
     ${extra?`<div style="padding-top:10px">${extra}</div>`:''}
     <div style="display:flex;gap:12px;overflow-x:auto;padding:12px 20px 6px;scroll-snap-type:x mandatory;scroll-padding-inline:20px;
-      scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div></section>`;
+      scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div>${boxed?'</div>':''}</section>`; };
 /* the rails carry a heading and nothing under it: the films say the rest */
 const EX_SUB = '';
 const FX_SUB = '';
@@ -12211,7 +12212,7 @@ function askBoxHTML(){
           <input id="askq" value="${esc(st.q||'')}" oninput="askFilter(this.value)"
             placeholder="Ask a question, or search the films"
             style="width:100%;border:0;border-radius:14px;padding:14px 14px 14px 42px;min-height:48px;
-            background:#fff;font:400 14.5px/1.3 var(--sans)">
+            background:${askInRail()&&!wide()?'rgba(0,64,61,.06)':'#fff'};font:400 14.5px/1.3 var(--sans)">
         </div>
         <div id="askmatches">${askMatches(st.q||'')}</div>
       </div>`;
@@ -13411,7 +13412,9 @@ function placeNoteHTML(side){
    monitor keeps the film beside Start and the note in its own column. */
 function introRowsHTML(){
   if(wide()) return '';
-  const how=howShown(), re=!coachedView() && !!st.quizDone && !st.placeGone;
+  /* one row, not two: the film first, and the retake only once the film
+     has been watched or put away */
+  const how=howShown(), re=!how && !coachedView() && !!st.quizDone && !st.placeGone;
   if(!how && !re) return '';
   const x=(go,label)=>`<button onclick="event.stopPropagation();${go}" aria-label="${label}" title="Hide"
     style="flex:none;width:26px;height:26px;border-radius:50%;border:0;cursor:pointer;background:rgba(0,64,61,.07);
@@ -13597,8 +13600,12 @@ function screenHome(){
         <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${FAQS_READY().length}</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-      </button></section>` : `<section class="rise rise-3" data-tour="explainers" style="padding:${wide()?26:18}px 0 0">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 20px ${wide()?12:6}px">
+      </button></section>` : `<section class="rise rise-3" data-tour="explainers" style="padding:${wide()?26:18}px ${wide()?0:20}px 0">
+      ${/* the heading, the question box and the films are one thing, so
+           they sit in one card rather than a heading, a box and a rail
+           each floating on the page */''}
+      <div class="${wide()?'':'card'}" style="${wide()?'':'padding:16px 0 10px'}">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 ${wide()?20:18}px ${wide()?12:8}px">
         <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">${libHead}</span>
         <button onclick="st.filmsOpen=false;save();render()" aria-expanded="true" style="border:0;background:none;cursor:pointer;
           padding:4px 0;font:600 13px/1 var(--sans);color:var(--forest)">${FAQS_READY().length} films &middot; Hide</button>
@@ -13692,6 +13699,7 @@ function screenHome(){
           </div>`;}).join('')}
       </div>
       ${railMore(FAQS_READY().length)}
+      </div>
     </section>`}
     ${(firstVisit() || st.homeOrder==='fixesFirst')?'':fixesHomeHTML()}
 
