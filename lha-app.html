@@ -1033,6 +1033,10 @@ function trackOpen(){
      app had no idea a subscription had just happened. */
   try{
     const q=new URLSearchParams(location.search);
+    /* the welcome email's button: choose a password and go in */
+    const wt=(q.get('welcome')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,64);
+    if(wt){ st.welcomeTok=wt; st.tab='welcomepw'; st.mode='free'; st.quizDone=true; st.joinSkipped=true; save();
+      history.replaceState(null,'',location.pathname); }
     /* back from paying for coaching: the Stripe link sends them here */
     if(q.get('joined')==='coaching'){ st.joinedAt=Date.now(); save(); history.replaceState(null,'',location.pathname);
       setTimeout(joinedLanding, 400); }
@@ -3622,8 +3626,6 @@ function sendCheckin(){
    The ladder ones are the free product's stage gates and mean nothing to
    someone on a written programme. */
 const cpFor = i => {
-  /* before block one: the onboarding tests the coach set them */
-  if(i==null && awaitingBlock() && (st.obCps||[]).length) return st.obCps;
   if(i==null && coachedView() && Array.isArray(DATA.checkpoints) && DATA.checkpoints.length){
     /* a check point can be written now and scheduled for later, so one with
        a start date does not exist until that date */
@@ -4122,6 +4124,8 @@ function clearedStay(){
   st.clearedFrom=null; closeOv();
 }
 function cpDef(k){
+  /* on Start, before block one, a test is the coach's onboarding one */
+  if(awaitingBlock() && st.tab==='start'){ const ob=(st.obCps||[]).find(x=>x.k===k); if(ob) return ob; }
   const here=(cpFor()||[]).find(x=>x.k===k);
   if(here) return here;
   if(st.ov==='stage') return (cpFor(st.ovStage||0)||[]).find(x=>x.k===k)||null;
@@ -8661,7 +8665,7 @@ function drawOv(){
            /* it is not "every drill" as opposed to something else any more,
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
-           daystart:'', ladderswitch:'', install:'',
+           daystart:'', ladderswitch:'', install:'', youin:'',
            checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:''};
   let body='';
   if(st.ov==='paywall'){ body=paywallBody(); }
@@ -9349,6 +9353,7 @@ function drawOv(){
       <button class="btn2" style="width:100%;margin-top:10px" onclick="st.pushLater=Date.now();save();closeOv()">Not now</button>
     </div>`;
   }
+  if(st.ov==='youin') body=youInHTML();
   if(st.ov==='install'){
     let ios=false; try{ ios=isIOS(); }catch(e){}
     const inApp=inAppBrowser(), wait=dlPending, back=wait && ((dlLists[wait]||{}).meta||{}).kind;
@@ -10246,17 +10251,20 @@ const awaitingBlock = () => !!st.coached && !hasPlan() && st.tier!=='check';
    The questions everyone answers, the tests the coach set with a clip of
    each, the call, and then block one. One page, ticked as it goes. */
 function joinSteps(){
-  const a=intake(), cps=cpFor()||[];
+  const a=intake(), cps=st.obCps||[];
   const tested=cps.filter(c=>cpLast(c.k)).length;
+  const qDone=!!a.goal && a.level!=null;
   return [
-    {k:'q', t:'The questions', short:'A few minutes on you and your training.', done: !!a.goal && a.level!=null},
-    {k:'t', t:'Your tests', short: cps.length ? 'Film yourself on each one and send it to me.' : 'Send me a clip of your handstand.',
+    {k:'in', t:'You\u2019re in', short:'Coaching starts today.', done:true},
+    {k:'q', t: qDone?'Your answers':'A few questions', short: qDone?'From the quiz you took. Anything changed?':'About you, and what you want from this.', done: qDone},
+    {k:'t', t:'Your baseline', short: cps.length ? 'Film yourself on each test and send it to me.' : 'Send me a clip of your handstand.',
       done: cps.length ? tested>=cps.length : false, n:tested, of:cps.length},
-    {k:'call', t:'Your call', short:'Fifteen minutes on what you want from the programme.', done: !!st.callBooked},
+    {k:'call', t:'Your welcome call', short:'Fifteen minutes on what you want from the programme.', done: !!st.callBooked},
     {k:'b', t:'Block one', short:'Written for you, from all of that.', done:false},
   ];
 }
 const OB_ICON={
+  in:'<path d="M12 2l3 6.5 7 .8-5.2 4.8 1.5 7-6.3-3.6L5.7 21l1.5-7L2 9.3l7-.8z"/>',
   q:'<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
   t:'<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
   call:'<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>',
@@ -10302,62 +10310,184 @@ function obTimelineHTML(steps, next){
 /* ── Start: everything before block one ─────────────────────────────
    The timeline says the order; under it, each stop is a section to do. */
 function screenStart(){
+  youInMaybe();
   const first=(st.client||'').split(' ')[0];
-  const steps=joinSteps(), next=steps.findIndex(x=>!x.done), cps=cpFor()||[];
-  const [s0,s1,s2,s3]=steps;
+  const steps=joinSteps(), next=steps.findIndex(x=>!x.done), cps=st.obCps||[];
+  const [,s0,s1,s2,s3]=steps;
+  const a=intake();
+  const goal=(GOALS.find(g=>g.v===a.goal)||{}).t;
+  const pain=a.safe && a.safe.pain==='yes';
   const secHead=(x,extra)=>`<div style="display:flex;align-items:center;gap:10px">
       <span style="flex:none;width:30px;height:30px;border-radius:10px;display:grid;place-items:center;
         background:${x.done?'var(--forest)':'rgba(0,102,99,.1)'};color:${x.done?'var(--on-primary)':'var(--forest)'}">${
         x.done?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>':obIcon(x.k,14)}</span>
       <span style="flex:1;min-width:0;font:400 21px/1.2 var(--serif)">${esc(x.t)}</span>${extra||''}</div>`;
   const cta=(label,go,main)=>`<button class="${main?'btn':'btn2'}" style="margin:14px 0 0;min-height:46px;width:100%" onclick="${go}">${label}</button>`;
+  const quizGo="st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()";
   return `<div class="scroll s">
     <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
-      <div style="font:400 ${wide()?32:28}px/1.1 var(--serif)">Welcome${first?', '+esc(first):''}<em style="color:var(--forest);font-style:normal">.</em></div>
-      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:8px">Four steps, then your programme.</div>
+      <div style="font:400 ${wide()?32:28}px/1.1 var(--serif)">${first?esc(first)+', your':'Your'} programme starts here<em style="color:var(--forest);font-style:normal">.</em></div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:8px">It is written for you, so first I need to see where you are. A few minutes, then I write it.</div>
     </div>
     <div class="rise rise-1" style="padding:18px 20px 0">${obTimelineHTML(steps, next)}</div>
 
     <div class="rise rise-2" style="padding:14px 20px 0;display:flex;flex-direction:column;gap:12px">
       <div id="ob-q" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s0)}
         ${s0.done
-          ? `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">Answered. <button onclick="st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"
-              style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Change them</button></div>`
-          : `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">What you are after, where you are now, and anything that hurts.</div>
-             ${cta('Answer them',"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()",next===0)}`}</div>
+          ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">${[goal, (STAGES[placedStage()]||{}).n, pain?'Something to watch':'No pain'].filter(Boolean)
+              .map(x=>`<span style="padding:6px 11px;border-radius:999px;background:rgba(0,102,99,.07);font:500 13px/1 var(--sans);color:var(--deep)">${esc(x)}</span>`).join('')}</div>
+             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">From the quiz you took. <button onclick="${quizGo}"
+              style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Anything changed?</button></div>`
+          : `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">What you are after, where you are now, and anything that hurts. A few minutes.</div>
+             ${cta('Answer them',quizGo,next===1)}`}</div>
 
       <div id="ob-t" style="scroll-margin-top:90px;padding:10px 2px 0">${secHead(s1, s1.of?`<span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${s1.n} of ${s1.of}</span>`:'')}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${cps.length
-          ? 'Have a go at each, log what you managed, and send me a clip. Can&rsquo;t do one yet? Log a zero.'
+          ? 'Where you are today. I write your programme from these, and in six weeks we test again and see how far you have come. Can&rsquo;t do one yet? Log a zero.'
           : 'I am setting your tests up. Meanwhile, send me a clip of your handstand in the chat.'}</div></div>
       ${cps.length?`<div data-tour="checkpoints" style="display:flex;flex-direction:column;gap:12px">${
         cps.map((c,i)=>cpCard(c,i,cps.length,false)).join('')}</div>`
         : cta('Open the chat',"go('coaching')",false)}
 
       <div id="ob-call" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s2)}
-        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes on what you want from the programme.</div>
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes on what you want from the programme, so it fits you and your week.</div>
         ${s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked. <button onclick="st.callBooked=false;save();render()"
             style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Not booked after all?</button></div>`
-          : cta('Pick a time',"st.callBooked=true;save();render();leaveTo('"+CALL_URL+"')",next===2)}</div>
+          : cta('Pick a time',"st.callBooked=true;save();render();leaveTo('"+CALL_URL+"')",next===3)}</div>
 
       <div id="ob-b" class="card" style="padding:18px;scroll-margin-top:90px;background:linear-gradient(160deg,#fff,rgba(0,102,99,.05))">${secHead(s3)}
-        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">I write it from your answers, your tests and our call. It opens here, and so does the rest of the app.</div></div>
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Written for you from your answers, your baseline and our call. It opens here, and your Train screen becomes your programme.</div></div>
 
       <div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:4px 10px 28px">
-        Questions? <button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
-          font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Message me</button> any time.</div>
+        Keep training on the ladder meanwhile. Questions? <button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
+          font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Message me</button>.</div>
     </div></div>`;
+}
+/* on Train, while block one is being written: where they are with it */
+function obBannerHTML(){
+  if(!awaitingBlock()) return '';
+  const steps=joinSteps(), done=steps.filter(x=>x.done).length, next=steps.find(x=>!x.done);
+  return `<div class="rise rise-1" style="padding:14px 20px 0"><button onclick="go('start')" style="width:100%;display:flex;align-items:center;gap:12px;
+      padding:14px 16px;border-radius:18px;border:1.5px solid rgba(0,102,99,.25);background:#fff;cursor:pointer;text-align:left;color:var(--ink)">
+    <span style="flex:1;min-width:0"><span style="display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR PROGRAMME</span>
+      <span style="display:block;font:600 15px/1.3 var(--sans);margin-top:6px">${next?'Next: '+esc(next.t):'All done'}</span>
+      <span style="display:flex;gap:4px;margin-top:9px">${steps.map(x=>`<i style="flex:1;height:5px;border-radius:3px;background:${x.done?'var(--forest)':'rgba(0,64,61,.12)'}"></i>`).join('')}</span></span>
+    <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${done} of ${steps.length} &rarr;</span>
+  </button></div>`;
+}
+const COACH_PHOTO='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/coach-elliott-headshot.jpg';
+/* ── Choose your password, from the welcome email ───────────────────
+   Somebody who paid on the website has an account and no password. The
+   email's button lands here with a one-time link: their username, one
+   box, and they are in. */
+let wpState={asked:''};
+function screenWelcomePw(){
+  const t=st.welcomeTok;
+  if(wpState.asked!==t){ wpState={asked:t, loading:true};
+    fetch('/api/app/welcome?t='+encodeURIComponent(t)).then(r=>r.json().then(d=>({ok:r.ok,d})))
+      .then(({ok,d})=>{ wpState.loading=false; if(ok) wpState.email=d.email; else { wpState.gone=true; wpState.err=d.error||''; } render(); })
+      .catch(()=>{ wpState.loading=false; wpState.err='Could not reach the server. Check your signal and try again.'; render(); }); }
+  const W=wpState;
+  return `<div class="scroll s"><div style="padding:calc(env(safe-area-inset-top) + 64px) 24px 48px;max-width:440px;margin:0 auto">
+    <img src="${COACH_PHOTO}" alt="" width="72" height="72" style="width:72px;height:72px;border-radius:50%;object-fit:cover;display:block;
+      box-shadow:0 10px 28px -14px rgba(0,40,38,.6)">
+    <div class="kick2" style="color:var(--forest);margin-top:22px">WELCOME TO COACHING</div>
+    <div style="font:400 32px/1.1 var(--serif);margin-top:8px">Choose your password<em style="color:var(--forest);font-style:normal">.</em></div>
+    ${W.loading?`<p style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:14px">One moment&hellip;</p>`
+    : W.gone||W.err&&!W.email ? `<p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:14px">${esc(W.err||'That link has been used or has run out.')}</p>
+        <button class="btn" style="width:100%;margin-top:18px" onclick="delete st.welcomeTok;st.tab='signin';save();render()">Sign in</button>
+        <button class="btn2" style="width:100%;margin-top:9px" onclick="delete st.welcomeTok;resetFirst=true;st.tab='reset';resetStep=0;resetMsg='';save();render()">Set a password with a code</button>`
+    : `<p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">Pick one and you are in. From then on you sign in with your email and this password.</p>
+      <div style="margin-top:20px;font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">YOUR USERNAME</div>
+      <div style="margin-top:8px;padding:14px 16px;border-radius:14px;background:rgba(0,64,61,.06);font:600 15px/1.3 var(--sans);word-break:break-all">${esc(W.email||'')}</div>
+      <form onsubmit="welcomePwGo(event)" style="margin-top:18px">
+        <label for="wpPw" style="display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">PASSWORD</label>
+        <input id="wpPw" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters"
+          style="width:100%;margin-top:8px;padding:14px 16px;border-radius:14px;border:1.5px solid rgba(0,64,61,.18);background:#fff;font:400 16px/1.3 var(--sans)">
+        <input type="hidden" autocomplete="username" value="${esc(W.email||'')}">
+        <div id="wpMsg" style="min-height:20px;margin-top:8px;font:500 13px/1.4 var(--sans);color:var(--red)"></div>
+        <button class="btn" type="submit" style="width:100%;margin-top:6px">Go in</button>
+      </form>`}
+  </div></div>`;
+}
+function welcomePwGo(e){
+  if(e) e.preventDefault();
+  const pw=(document.getElementById('wpPw')||{}).value||'', msg=document.getElementById('wpMsg');
+  if(pw.length<8){ if(msg) msg.textContent='At least 8 characters, please.'; return; }
+  if(msg){ msg.style.color='var(--grey)'; msg.textContent='Setting it…'; }
+  fetch('/api/app/welcome',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:st.welcomeTok,password:pw})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'That did not work')))
+    .then(d=>{ st.email=d.email; st.token=d.token; st.client=d.client||''; st.coached=!!d.coached; st.plus=!!d.plus;
+      st.mode='free'; st.quizDone=true; st.joinSkipped=true; delete st.welcomeTok; st.tab='start'; save();
+      loadEntitlement(); loadLadder(); loadState(); loadTrack(); loadProgress(); loadProgramme(); render(); })
+    .catch(err=>{ if(msg){ msg.style.color='var(--red)'; msg.textContent=String(err); } });
+}
+/* back from paying on the website, not signed in: the email is the way in */
+function screenJoinedOut(){
+  return `<div class="scroll s"><div style="padding:calc(env(safe-area-inset-top) + 64px) 24px 48px;max-width:440px;margin:0 auto">
+    <img src="${COACH_PHOTO}" alt="" width="72" height="72" style="width:72px;height:72px;border-radius:50%;object-fit:cover;display:block">
+    <div class="kick2" style="color:var(--forest);margin-top:22px">PAYMENT DONE</div>
+    <div style="font:400 32px/1.1 var(--serif);margin-top:8px">You&rsquo;re in<em style="color:var(--forest);font-style:normal">.</em></div>
+    <p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">Check your email. Your username and a button to choose your password are on their way, from London Handstand Academy.</p>
+    <button class="btn2" style="width:100%;margin-top:18px" onclick="st.tab='signin';save();render()">I already have a password</button>
+    <button onclick="resetFirst=true;st.tab='reset';resetStep=0;resetMsg='';save();render()" style="display:block;margin:14px auto 0;border:0;background:none;
+      cursor:pointer;font:600 13px/1 var(--sans);color:var(--grey);text-decoration:underline">No email? Set a password with a code</button>
+  </div></div>`;
+}
+/* ── You're in ──────────────────────────────────────────────────────
+   Once, the first time the app opens after paying. Elliott's film where
+   there is one, his face where there is not; that they have been seen,
+   in their own numbers; what is theirs now; and one button. */
+function youInSeenLine(){
+  const n=sessionsDone().length;
+  const logs=(st.track&&st.track.checkpoints)||{};
+  let bit='';
+  for(let i=STAGES.length-1;i>=0 && !bit;i--) for(const c of (cpsFor(i)||[])){
+    const h=logs[c.k]; const v=h&&h.length?h[h.length-1].v:0;
+    if(v>0 && c.kind==='secs'){ bit=v+'s '+String(c.n||'').toLowerCase(); break; }
+  }
+  if(!n && !bit) return '';
+  return 'I have seen your '+(n?n+' session'+(n===1?'':'s'):'')+(n&&bit?' and your ':'')+(bit?bit:'')+'. ';
+}
+function youInHTML(){
+  const first=(st.client||'').split(' ')[0];
+  const film=st.welcomeFilm;
+  const item=(ic,t)=>`<div style="display:flex;gap:12px;align-items:center;text-align:left;padding:10px 0;border-top:1px solid rgba(0,64,61,.08)">
+    <span style="flex:none;width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:rgba(0,102,99,.1);color:var(--forest)">${ic}</span>
+    <span style="font:500 14.5px/1.35 var(--sans)">${t}</span></div>`;
+  const svg=p=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+  return `<div style="position:relative;text-align:center;padding:6px 2px 4px;overflow:hidden">
+    <div class="burst">${Array.from({length:22},(_,i)=>`<i style="--a:${i*16.4}deg;--d:${70+(i%5)*26}px;--t:${300+(i%6)*80}ms;
+      background:${['var(--amber)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
+    ${film ? `<div style="position:relative;max-width:300px;margin:0 auto">${drillFilm(STREAM_CDN+film+'/downloads/default.mp4','3/4')}</div>`
+      : `<img src="${COACH_PHOTO}" alt="Elliott" width="96" height="96" style="position:relative;width:96px;height:96px;border-radius:50%;object-fit:cover;
+          box-shadow:0 14px 32px -16px rgba(0,40,38,.6)">`}
+    <div class="kick2" style="position:relative;color:var(--forest);margin-top:${film?4:18}px">WELCOME TO COACHING</div>
+    <div style="position:relative;font:400 34px/1.08 var(--serif);margin-top:8px">You&rsquo;re in${first?', '+esc(first):''}<em style="color:var(--forest);font-style:normal">.</em></div>
+    <div style="position:relative;font:400 15px/1.55 var(--sans);color:var(--grey);margin:10px auto 0;max-width:36ch">${esc(youInSeenLine())}Your programme is written for you, so first I need to see where you are. It takes a few minutes.</div>
+    <div style="position:relative;margin:18px 0 4px">
+      ${item(svg('<path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14l-4-3-4 3-4-3z"/>'),'A programme written for you, in this app')}
+      ${item(svg('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>'),'Me in the chat, answering within 48 hours')}
+      ${item(svg('<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>'),'Video form checks every two weeks')}
+      ${item(svg('<path d="M4 20h4v-5h4v-5h4V5h4"/>'),'Every stage of the ladder, open now')}
+    </div>
+    <button class="btn" style="position:relative;width:100%;margin-top:14px" onclick="youInGo()">Let&rsquo;s go</button>
+    <div style="position:relative;font:400 italic 15px/1 var(--serif);color:var(--grey);margin-top:14px">Elliott</div>
+  </div>`;
+}
+let youInQueued=false;
+function youInGo(){ st.youInSeen=true; save(); closeOv(); st.tab='start'; render(); }
+function youInMaybe(){
+  if(st.youInSeen || youInQueued || !awaitingBlock()) return;
+  youInQueued=true;
+  setTimeout(()=>{ youInQueued=false; if(!st.youInSeen && !st.ov && awaitingBlock()){ st.ovFull=true; openOv('youin'); } }, 450);
 }
 /* Straight back from Stripe. Signed in, the payment takes a few seconds to
    reach the account, so the app asks until it has, then shows the welcome.
    Signed out, which is everybody who paid on the website, the account was
    made under the address they paid with and needs a password. */
 function joinedLanding(){
-  if(!st.token){
-    resetFirst=true; st.tab='reset'; resetStep=0; resetMsg=''; save(); render();
-    toast('You are in. Set a password with the email you paid with.');
-    return;
-  }
+  if(!st.token){ st.tab='joinedout'; st.mode='free'; st.quizDone=true; st.joinSkipped=true; save(); render(); return; }
   toast('You are in. Setting up your coaching…');
   let n=0;
   const ask=()=>{ n++;
@@ -10441,6 +10571,7 @@ function loadLadder(){
       if(d && d.ladderMedia) { st.ladderMedia=d.ladderMedia; moved=true; }
       if(d && d.explainEdit) { st.explainEdit=d.explainEdit; moved=true; }
       if(d && d.stageIntro)  { st.stageIntro=d.stageIntro;   moved=true; }
+      if(d && typeof d.welcomeFilm==='string') st.welcomeFilm=d.welcomeFilm;
       if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; moved=true; }
       if(d && (d.explainEdit || Array.isArray(d.explainExtra))) rebuildFaqs();
       if(moved){ save(); render(); }
@@ -10459,7 +10590,8 @@ function loadProgramme(){
                const pl=(d&&d.plan)||{};
                st.obCps = ((pl.days||[]).some(x=>(x.groups||[]).some(g=>(g.items||[]).length)))
                  ? null : (Array.isArray(pl.checkpoints) ? pl.checkpoints : null);
-               if(!hasPlan()){ st.in=false; st.mode='free'; if(!st.tab||['today','plan','ask','progress','home','ladder'].indexOf(st.tab)>-1) st.tab='start'; }
+               if(!hasPlan()){ st.in=false; st.mode='free';
+                 if(!st.obEntered || ['today','plan','ask','progress'].indexOf(st.tab)>-1){ st.obEntered=true; st.tab='start'; } }
                /* block one has arrived: the coached layout, opened on Today */
                if(st.coached && !st.in && hasPlan()){
                  st.in=true; if(['home','ladder','coaching','start'].indexOf(st.tab)>-1) st.tab='today'; }
@@ -13219,6 +13351,7 @@ function screenHome(){
     <!-- the stage and how far through it, on one line. Six segments in the
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->
+    ${obBannerHTML()}
     ${(firstVisit()||trialPending()) ? firstPlacedHTML() : `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
       style="padding:${wide()?24:14}px 20px 0;cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -17853,6 +17986,8 @@ function render(){
     wmSync(onWelcome ? 'montage' : onQuiz ? (qb && qb.portrait && wide() ? 'montage' : 'still') : null, qb && qb.src, !!onQuiz);
     if(wm.el) wm.el.classList.toggle('front', !!onWelcome);
   }catch(e){}
+  if(st.tab==='welcomepw' && st.welcomeTok){ swap(screenWelcomePw()); return; }
+  if(st.tab==='joinedout' && !st.token){ swap(screenJoinedOut()); return; }
   if(st.tab==='reset'){ swap(screenReset()); return; }
   if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
   if(!st.mode && !st.in){ swap(screenWelcome()); return; }
@@ -17880,15 +18015,14 @@ function render(){
   /* Paid for coaching, no programme yet: one page of what to do before
      block one, and the chat. The ladder and everything else wait. */
   const onboarding = !coached && awaitingBlock();
-  if(onboarding && ['home','ladder'].indexOf(st.tab)>-1) st.tab='start';
   const screens=coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix}
-    : onboarding ? {start:screenStart,coaching:screenCoaching,more:screenMore}
+    : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix}
     : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix};
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
-  const tabs=onboarding ? [['start','Start'],['coaching','Chat']]
+  const tabs=onboarding ? [['start','Start'],['home','Train'],['ladder','Ladder'],['coaching','Chat']]
     : TABS[coached?'coached':'free'].map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l]);
   if(!screens[st.tab]) st.tab=tabs[0][0];
@@ -17950,6 +18084,7 @@ document.addEventListener('DOMContentLoaded',function(){
   /* cache first so a signed-in client sees their plan instantly, then
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
+  if(st.token && awaitingBlock() && !st.welcomeTok) st.tab='start';
   rollTicks();
   render();
   trackOpen();

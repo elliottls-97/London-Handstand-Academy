@@ -597,6 +597,18 @@ async function seedOnboarding(email) {
     checkpoints: cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })) });
   return true;
 }
+/* ── a way in, by email, for somebody who paid on the website ───────
+   They have an account and no password. The welcome email carries their
+   username and one button, Choose your password: a link that works once,
+   for a fortnight, and signs them straight in once they have picked one.
+   A password itself is never emailed, because emails are forwarded and
+   kept. */
+async function welcomeLink(e) {
+  const b = new Uint8Array(24); crypto.getRandomValues(b);
+  const t = Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  await setCode(norm(e), 'welcome', { code: t, tries: 0, expires_at: iso(Date.now() + 14 * 864e5) });
+  return `${SITE}/lha-app.html?welcome=${t}`;
+}
 async function ensureAcct(e, name) {
   const got = await getAcct(e);
   if (got) return got;
@@ -1450,13 +1462,14 @@ export default async (request) => {
         /* somebody who bought from the website has an account and no
            password, and the sign in screen used to claim one had been sent */
         const noPw = !(await hashFor(db, e2));
+        const link = noPw ? await welcomeLink(e2) : '';
         const T = await emailCopy('welcomeCoaching', { name: esc(first), tier: esc(tierName), coach: esc(coachName(coachOf(e2))),
-          password_line: noPw ? 'First, a password. Open the app, press Set a password on the sign in screen, and a six digit code comes to this address. Sign in with that password from then on.' : '' });
+          password_line: noPw ? `Your username is ${esc(e2)}. Choose a password with the button below and you are in.` : '' });
         await email(e2, T.subject,
           mail({ title: T.title,
             greeting: first,
             paras: T.paras,
-            cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            cta: noPw ? { href: link, label: 'Choose your password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             /* no kind: somebody who has just paid is told they are in
                whatever they have turned off, the same as a receipt */
             signoff: { name: coachName(coachOf(e2)) }, footnote: T.footnote || undefined }));
@@ -1672,6 +1685,26 @@ export default async (request) => {
     await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
     return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
                   client: name, coach: coachList().includes(e),
+                  coached: await isCoached(e), plus: plusNow(acct) });
+  }
+
+  /* ── the welcome link: whose it is, then their password ── */
+  if (path === '/welcome') {
+    const t = String(url.searchParams.get('t') || body.t || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+    const rec = t ? await supa.row('codes', `kind=eq.welcome&code=eq.${enc(t)}&select=*`) : null;
+    if (!rec || Date.now() > ms(rec.expires_at)) {
+      return json({ error: 'That link has been used or has run out. Sign in, or press Forgotten it? to set a password.', gone: true }, 410);
+    }
+    const e = norm(rec.email);
+    if (request.method === 'GET') return json({ email: e });
+    if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+    const pw = String(body.password || '');
+    if (pw.length < 8) return json({ error: 'At least 8 characters, please.' }, 400);
+    await saveAcct({ email: e, hash: await pwHash(pw) });
+    await clearCode(e, 'welcome');
+    const acct = await getAcct(e);
+    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+                  email: e, client: clients()[e] || (acct && acct.name) || e.split('@')[0],
                   coached: await isCoached(e), plus: plusNow(acct) });
   }
 
@@ -2933,6 +2966,8 @@ export default async (request) => {
 
   if (path === '/ladder' && request.method === 'GET') {
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
+                  /* the welcome film a new coaching client sees first */
+                  welcomeFilm: (((await getSetting(ONBOARDING)) || {}).film) || '',
                   /* drills the coach has taken off a stage */
                   ladderOff:   (await getSetting('ladder:off')) || {},
                   /* drills the coach has deleted: off every stage at once */
@@ -5668,11 +5703,17 @@ export default async (request) => {
         const prog = (await getSetting(`programme:${src}`)) || programmes.clients[src] || {};
         const cps = (prog.checkpoints || []).map(cleanOnbCp).filter(c => c.k && c.n).slice(0, 20);
         if (!cps.length) return json({ error: 'They have no check points to copy.' }, 400);
-        const next = { checkpoints: cps, from: clients()[src] || src, at: Date.now() };
+        const next = Object.assign({}, cur, { checkpoints: cps, from: clients()[src] || src, at: Date.now() });
         await setSetting(ONBOARDING, next);
         return json(next);
       }
-      if (body.clear) { const next = { checkpoints: [], at: Date.now() }; await setSetting(ONBOARDING, next); return json(next); }
+      if (body.clear) { const next = Object.assign({}, cur, { checkpoints: [], at: Date.now() }); await setSetting(ONBOARDING, next); return json(next); }
+      /* the short film a new client sees first: a Stream id, or none */
+      if (body.film !== undefined) {
+        const next = Object.assign({}, cur, { film: String(body.film || '').replace(/[^a-f0-9]/gi, '').slice(0, 40) });
+        await setSetting(ONBOARDING, next);
+        return json(next);
+      }
       return json({ error: 'Nothing to do' }, 400);
     }
     if (path === '/coach/checkpoints') {

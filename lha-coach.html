@@ -3377,6 +3377,29 @@ function onbClear(){
   if(!confirm('Clear the tests? New clients will have none until you set them again.')) return;
   onbPost({clear:true}, 'Cleared.');
 }
+/* the short film a new client sees first; the photo stands in until one is set */
+let onbFilmPick='', onbFilmOpen=false;
+function onbFilmChoose(){ onbFilmOpen=!onbFilmOpen; if(onbFilmOpen) streamVidsLoad(); draw(); }
+function onbFilmSet(uid){ onbFilmOpen=false; onbPost({film:uid||''}, uid?'New clients see this film first.':'Film taken off. They see your photo.'); }
+function onbFilmHTML(){
+  const film=(onb&&onb.film)||'';
+  const named=uid=>{ const v=(streamVids||[]).find(x=>x.uid===uid); return v&&v.name ? v.name : uid.slice(0,10)+'&hellip;'; };
+  const list=(streamVids||[]).slice().sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,40);
+  return `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+    <b style="font:600 13.5px/1.3 var(--sans)">Welcome film</b>
+    <p class="muted" style="font-size:12.5px;margin:4px 0 10px">The first thing a new client sees after paying. Thirty seconds from you;
+      until there is one, they see your photo.</p>
+    ${film?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font:500 13px/1.3 var(--sans)">Set: ${esc(named(film))}</span>
+        <button class="btn btn-ghost btn-sm" onclick="onbFilmChoose()">Change</button>
+        <button class="btn btn-ghost btn-sm" onclick="onbFilmSet('')">Take it off</button></div>`
+      :`<button class="btn btn-secondary btn-sm" onclick="onbFilmChoose()">Choose a film</button>`}
+    ${onbFilmOpen?`<div style="margin-top:10px">${streamVidsErr?`<p class="muted" style="font-size:12.5px">${esc(streamVidsErr)}</p>`:''}
+      ${!list.length?'<p class="muted" style="font-size:12.5px">Loading your films&hellip; Upload it to Stream first if it is not there.</p>'
+        :`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select class="input" style="flex:1;min-width:200px" onchange="onbFilmPick=this.value">
+          <option value="">Pick the film&hellip;</option>${list.map(v=>`<option value="${esc(v.uid)}">${esc(v.name||v.uid)}${v.secs?' ('+v.secs+'s)':''}</option>`).join('')}</select>
+          <button class="btn btn-primary btn-sm" onclick="if(onbFilmPick) onbFilmSet(onbFilmPick)">Use it</button></div>`}</div>`:''}
+  </div>`;
+}
 function onboardingHTML(){
   onbLoad();
   const cps=(onb&&onb.checkpoints)||[];
@@ -3384,8 +3407,8 @@ function onboardingHTML(){
   const tgt=c=>c.target!=null ? ' &middot; '+esc(String(c.target))+esc(c.unit||(c.kind==='secs'?'s':'')) : '';
   return `<div class="card" style="margin-top:var(--space-4)">
     <h4 style="margin:0">How a new client starts</h4>
-    <p class="muted" style="font-size:13px;margin:6px 0 12px">After paying, their app is a Start page and the chat until
-      block one: the questions, these tests (each logged, with a clip to you), a call, then block one.</p>
+    <p class="muted" style="font-size:13px;margin:6px 0 12px">After paying, their app opens on Start: your welcome, their answers,
+      these tests as their baseline (each logged, with a clip to you), the welcome call, then block one. The ladder stays open.</p>
     ${onb===null?'<p class="muted" style="font-size:13px">Loading&hellip;</p>'
       : cps.length ? `<div style="display:flex;flex-direction:column;gap:6px">${cps.map((c,i)=>`<div style="font:400 13.5px/1.4 var(--sans)">
           <b style="font-weight:600">${i+1}. ${esc(c.n)}</b><span class="muted">${tgt(c)}</span></div>`).join('')}</div>
@@ -3400,6 +3423,7 @@ function onboardingHTML(){
       <button class="btn btn-primary btn-sm" onclick="onbCopy()">Use these</button>
       ${cps.length?`<button class="btn btn-ghost btn-sm" onclick="onbClear()">Clear</button>`:''}
     </div>
+    ${onbFilmHTML()}
   </div>`;
 }
 /* ── Inner Circle, offered after a block ───────────────────────────
