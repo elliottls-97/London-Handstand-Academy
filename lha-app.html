@@ -4228,6 +4228,10 @@ function cpCardTop(c, i, total){
     </div>
     ${c.note?`<div style="margin-top:7px;padding-left:28px;font:400 13px/1.45 var(--sans);
       color:var(--grey)">${esc(c.note)}</div>`:''}
+    ${c.cam?`<div style="margin-top:7px;padding-left:28px;display:flex;gap:7px;align-items:flex-start;font:500 13px/1.45 var(--sans);color:var(--deep)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        aria-hidden="true" style="flex:none;margin-top:2px"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      <span>Film it ${esc(c.cam.charAt(0).toLowerCase()+c.cam.slice(1))}</span></div>`:''}
     <!-- ── how to test it, shown ──────────────────────────────────
          This was a strip you had to notice and press, so the one thing
          on the card that tells you what the movement actually is went
@@ -6538,7 +6542,7 @@ function loadState(){
   return fetch(AUTH.state,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const before=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked]);
+      const before=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked,st.callDone]);
       if(d.dayMap && Object.keys(d.dayMap).length) st.dayMap=d.dayMap;
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
@@ -6568,9 +6572,12 @@ function loadState(){
       const ob=d.ob||{};
       if(ob.youIn) st.youInSeen=true;
       if(ob.call && !st.callNo) st.callBooked=true;
+      st.callDone=ob.callDone||0;
+      /* the goal the coach set beats the one the quiz gave */
+      if(ob.goal && (st.intake||{}).goal!==ob.goal) st.intake=Object.assign({}, st.intake||{}, {goal:ob.goal});
       save();
       /* same as loadTrack: a redraw for a reply that changed nothing is a blink */
-      const after=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked]);
+      const after=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked,st.callDone]);
       if(after!==before) render();
     })
     .catch(()=>{}).then(()=>{ stateIn=true; });
@@ -10266,10 +10273,12 @@ function joinSteps(){
     {k:'q', t: qDone?'Your answers':'A few questions', short: qDone?'From the quiz you took. Anything changed?':'About you, and what you want from this.', done: qDone},
     {k:'t', t:'Your baseline', short: cps.length ? 'Film yourself on each test and send it to me.' : 'Send me a clip of your handstand.',
       done: cps.length ? tested>=cps.length : false, n:tested, of:cps.length},
-    {k:'call', t:'Your welcome call', short:'Fifteen minutes on what you want from the programme.', done: !!st.callBooked},
-    {k:'b', t:'Block one', short:'Written for you, from all of that.', done:false},
+    {k:'call', t:'Your welcome call', short:'Fifteen minutes to agree what block one works on.', done: !!st.callBooked || !!st.callDone},
+    {k:'b', t:'Block one', short: (baselineIn() && st.callDone) ? 'I am writing it now.' : 'I start writing it once your baseline is in and we have spoken.', done:false},
   ];
 }
+/* every test logged, which is what the baseline being in means */
+function baselineIn(){ const cps=st.obCps||[]; return !!cps.length && cps.every(c=>cpLast(c.k)); }
 /* ── the app and its notifications, as a step ──────────────────────
    Everything after this is answered by Elliott: the baseline clips, the
    questions, the chat. On an iPhone a notification only reaches the app on
@@ -10308,9 +10317,24 @@ const OB_ICON={
   b:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'};
 const obIcon=(k,sz)=>`<svg width="${sz||15}" height="${sz||15}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${OB_ICON[k]||''}</svg>`;
+/* One step at a time: the timeline is the whole picture, and under it only
+   the step they are on. Tapping a stop opens that one instead. A step opened
+   by hand stays open until it is done, then the next one takes its place. */
 function obJump(k){
-  const el=document.getElementById('ob-'+k); if(!el) return;
-  try{ el.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){ el.scrollIntoView(); }
+  if(k==='in'){ st.ovFull=true; openOv('youin'); return; }
+  const x=joinSteps().find(s=>s.k===k);
+  st.obOpen={k, wasDone:!!(x&&x.done)}; save(); render();
+  setTimeout(()=>{ const el=document.getElementById('ob-'+k); if(!el) return;
+    try{ el.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){ el.scrollIntoView(); } }, 60);
+}
+function obOpenK(steps, next){
+  const o=st.obOpen;
+  if(o && o.k){
+    const x=steps.find(s=>s.k===o.k);
+    if(x && !(x.done && !o.wasDone)) return o.k;
+    st.obOpen=null; save();
+  }
+  return (steps[next]||steps[steps.length-1]).k;
 }
 /* ── what happens next, drawn ───────────────────────────────────────
    A stop per step, on a line. Done ones are filled, the one they are on is
@@ -10351,9 +10375,7 @@ function screenStart(){
   const first=(st.client||'').split(' ')[0];
   const steps=joinSteps(), next=steps.findIndex(x=>!x.done), cps=st.obCps||[];
   const S=k=>steps.find(x=>x.k===k)||{}, sA=S('app'), s0=S('q'), s1=S('t'), s2=S('call'), s3=S('b');
-  /* the button that leads is the next thing to do; one step left undone
-     above it does not take that away from everything below */
-  const lead=k=>{ const i=steps.findIndex(x=>!x.done && x.k!=='app'); return i>=0 && steps[i].k===k; };
+  const open=obOpenK(steps, next);
   const a=intake();
   const goal=(GOALS.find(g=>g.v===a.goal)||{}).t;
   const pain=a.safe && a.safe.pain==='yes';
@@ -10372,33 +10394,36 @@ function screenStart(){
     <div class="rise rise-1" style="padding:18px 20px 0">${obTimelineHTML(steps, next)}</div>
 
     <div class="rise rise-2" style="padding:14px 20px 0;display:flex;flex-direction:column;gap:12px">
-      <div id="ob-app" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(sA)}${obAppHTML(sA, !sA.done && next===1)}</div>
+      ${open==='app'?`<div id="ob-app" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(sA)}${obAppHTML(sA, !sA.done)}</div>`:''}
 
-      <div id="ob-q" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s0)}
+      ${open==='q'?`<div id="ob-q" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s0)}
         ${s0.done
           ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">${[goal, (STAGES[placedStage()]||{}).n, pain?'Something to watch':'No pain'].filter(Boolean)
               .map(x=>`<span style="padding:6px 11px;border-radius:999px;background:rgba(0,102,99,.07);font:500 13px/1 var(--sans);color:var(--deep)">${esc(x)}</span>`).join('')}</div>
              <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">From the quiz you took. <button onclick="${quizGo}"
               style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Anything changed?</button></div>`
           : `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">What you are after, where you are now, and anything that hurts. A few minutes.</div>
-             ${cta('Answer them',quizGo,lead('q'))}`}</div>
+             ${cta('Answer them',quizGo,true)}`}</div>`:''}
 
-      <div id="ob-t" style="scroll-margin-top:90px;padding:10px 2px 0">${secHead(s1, s1.of?`<span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${s1.n} of ${s1.of}</span>`:'')}
+      ${open==='t'?`<div id="ob-t" style="scroll-margin-top:90px;padding:10px 2px 0">${secHead(s1, s1.of?`<span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${s1.n} of ${s1.of}</span>`:'')}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${cps.length
-          ? 'Where you are today. I write your programme from these, and in six weeks we test again and see how far you have come. Can&rsquo;t do one yet? Log a zero.'
+          ? 'Where you are today. Film each one and send it; I reply on video within 48 hours. Can&rsquo;t do one yet? Log a zero.'
           : 'I am setting your tests up. Meanwhile, send me a clip of your handstand in the chat.'}</div></div>
       ${cps.length?`<div data-tour="checkpoints" style="display:flex;flex-direction:column;gap:12px">${
         cps.map((c,i)=>cpCard(c,i,cps.length,false)).join('')}</div>`
-        : cta('Open the chat',"go('coaching')",false)}
+        : cta('Open the chat',"go('coaching')",false)}`:''}
 
-      <div id="ob-call" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s2)}
-        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes on what you want from the programme, so it fits you and your week.</div>
-        ${s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked. <button onclick="st.callBooked=false;st.callNo=true;save();saveState();render()"
+      ${open==='call'?`<div id="ob-call" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s2)}
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes once your baseline is in. We agree what block one works on, so it fits you and your week.</div>
+        ${st.callDone?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Done. I have what I need.</div>`
+          : s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked. <button onclick="st.callBooked=false;st.callNo=true;save();saveState();render()"
             style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Not booked after all?</button></div>`
-          : cta('Pick a time',"st.callBooked=true;st.callNo=false;save();saveState(true);render();leaveTo('"+CALL_URL+"')",lead('call'))}</div>
+          : cta('Pick a time',"st.callBooked=true;st.callNo=false;save();saveState(true);render();leaveTo('"+CALL_URL+"')",true)}</div>`:''}
 
-      <div id="ob-b" class="card" style="padding:18px;scroll-margin-top:90px;background:linear-gradient(160deg,#fff,rgba(0,102,99,.05))">${secHead(s3)}
-        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Written for you from your answers, your baseline and our call. It opens here, and your Train screen becomes your programme.</div></div>
+      ${open==='b'?`<div id="ob-b" class="card" style="padding:18px;scroll-margin-top:90px;background:linear-gradient(160deg,#fff,rgba(0,102,99,.05))">${secHead(s3)}
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${obBlockLine()}</div></div>`:''}
+
+      ${starterWeekHTML()}
 
       <!-- coaching is one package: the ladder is theirs as well, before block
            one and after it, where the menu switches between the two -->
@@ -10411,17 +10436,42 @@ function screenStart(){
       </div>
       <div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:4px 10px 28px">
         Questions? <button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
-          font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Message me</button> any time.</div>
+          font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Message me</button> any time. I reply within 48 hours.</div>
     </div></div>`;
 }
-/* on Train, while block one is being written: where they are with it */
+/* what block one is waiting on, said plainly: writing starts once the
+   baseline is in and the call has happened, and only then */
+function obBlockLine(){
+  const b=baselineIn(), c=!!st.callDone;
+  if(b && c) return 'Your baseline is in and we have spoken, so I am writing it now. It opens here, and Train becomes your programme.';
+  const left=[!b?'your baseline is in':'', !c?'we have had our call':''].filter(Boolean).join(' and ');
+  return 'I start writing it once '+left+'. It opens here, and Train becomes your programme.';
+}
+/* ── the starter week ───────────────────────────────────────────────
+   They have paid and should train today, not wait for block one. The
+   ladder week is already built from their answers (their stage, their
+   days, their time), so until block one it is named for what it is. */
+function starterWeekHTML(){
+  if(!awaitingBlock()) return '';
+  const S=STAGES[curStage()]||STAGES[0], done=sessionsThisWeek(), target=weekTarget();
+  return `<div class="card" style="padding:16px 18px;display:flex;gap:13px;align-items:center">
+    <span style="flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:var(--forest);color:var(--on-primary)">
+      <svg width="15" height="17" viewBox="0 0 17 19" fill="currentColor" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>
+    <span style="flex:1;min-width:0"><b style="display:block;font:600 15px/1.3 var(--sans)">Your starter week</b>
+      <span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:2px">${esc(S.n)}, from your answers. ${done} of ${target} done.</span></span>
+    <button class="btn" style="flex:none;margin:0;min-height:40px;padding:0 16px;width:auto" onclick="go('home')">Train</button>
+  </div>`;
+}
+/* on Train, while block one is being written: this is their starter week,
+   and where they are with the steps before block one */
 function obBannerHTML(){
   if(!awaitingBlock()) return '';
   const steps=joinSteps(), done=steps.filter(x=>x.done).length, next=steps.find(x=>!x.done);
   return `<div class="rise rise-1" style="padding:14px 20px 0"><button onclick="go('start')" style="width:100%;display:flex;align-items:center;gap:12px;
       padding:14px 16px;border-radius:18px;border:1.5px solid rgba(0,102,99,.25);background:#fff;cursor:pointer;text-align:left;color:var(--ink)">
-    <span style="flex:1;min-width:0"><span style="display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR PROGRAMME</span>
-      <span style="display:block;font:600 15px/1.3 var(--sans);margin-top:6px">${next?'Next: '+esc(next.t):'All done'}</span>
+    <span style="flex:1;min-width:0"><span style="display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR STARTER WEEK</span>
+      <span style="display:block;font:600 15px/1.3 var(--sans);margin-top:6px">Train here while I write block one.</span>
+      <span style="display:block;font:400 13px/1.3 var(--sans);color:var(--grey);margin-top:4px">${next?'Next step: '+esc(next.t):'Every step done'}</span>
       <span style="display:flex;gap:4px;margin-top:9px">${steps.map(x=>`<i style="flex:1;height:5px;border-radius:3px;background:${x.done?'var(--forest)':'rgba(0,64,61,.12)'}"></i>`).join('')}</span></span>
     <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${done} of ${steps.length} &rarr;</span>
   </button></div>`;
@@ -11908,7 +11958,8 @@ function inFrame(){
 function sendIntake(){
   if(!st.token) return;
   fetch(AUTH.intake,{method:'POST',headers:authed(),
-    body:JSON.stringify({intake:st.intake||{},stage:st.stage})}).catch(()=>{});
+    body:JSON.stringify({intake:st.intake||{},stage:st.stage})})
+    .then(r=>{ if(r.ok && awaitingBlock()) loadProgramme(); }).catch(()=>{});
 }
 
 

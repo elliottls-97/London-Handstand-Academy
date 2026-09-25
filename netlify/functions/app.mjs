@@ -582,20 +582,63 @@ function cleanOnbCp(c) {
     lower: !!(c && c.lower),
     ...(c && c.measure ? { measure: true } : {}),
     demo: String((c && c.demo) || '').slice(0, 60),
+    /* where the camera goes, so the clip shows what the test is about */
+    cam: String((c && c.cam) || '').slice(0, 120),
     ...(Array.isArray(c && c.faces) ? { faces: c.faces.slice(0, 3).map(x => String(x || '').slice(0, 24)) } : {}),
     video: !(c && c.video === false),
     from: '',
   };
 }
+/* The tests can differ by what they came for: somebody learning to kick up
+   and somebody after a press are not tested on the same things. A set per
+   goal, and the general set for any goal without one. */
+const ONB_GOALS = ['learn', 'hold', 'improve', 'advanced'];
+function onbSetFor(ob, goal) {
+  const g = ob && ob.goals && ob.goals[goal];
+  if (g && Array.isArray(g.checkpoints) && g.checkpoints.length) return g.checkpoints;
+  return (ob && Array.isArray(ob.checkpoints)) ? ob.checkpoints : [];
+}
+/* what they came for: the coach's choice first, then what the quiz sent to
+   the account, then what the phone's saved state has */
+async function goalOf(e) {
+  const S = await settingsMany([`intake:${e}`, `state:${e}`]);
+  const st8 = S[`state:${e}`] || {};
+  const g = (st8.ob || {}).goal || (S[`intake:${e}`] || {}).goal || (st8.intake || {}).goal || '';
+  return ONB_GOALS.includes(g) ? g : '';
+}
 async function seedOnboarding(email) {
   const e = norm(email);
   if (!e || (await getSetting(`programme:${e}`)) || programmes.clients[e]) return false;
   const ob = (await getSetting(ONBOARDING)) || {};
-  const cps = Array.isArray(ob.checkpoints) ? ob.checkpoints : [];
+  const goal = await goalOf(e);
+  const cps = onbSetFor(ob, goal);
   if (!cps.length) return false;
-  await setSetting(`programme:${e}`, { days: [], label: 'Before block one', onboarding: true, editedAt: Date.now(),
+  await setSetting(`programme:${e}`, { days: [], label: 'Before block one', onboarding: true,
+    seeded: true, seededFor: goal, startedAt: Date.now(), editedAt: Date.now(),
     checkpoints: cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })) });
   return true;
+}
+/* Somebody who paid on the website is seeded before they have answered a
+   question, so they get the general set. Once the quiz says what they came
+   for, the set for that goal replaces it, as long as nothing has been
+   logged against the old one and the coach has not changed it by hand. */
+async function reseedOnboarding(email, force) {
+  const e = norm(email);
+  const p = await getSetting(`programme:${e}`);
+  /* force: the coach picked the goal, so the set follows it even over
+     tests they chose by hand, but never over tests already logged */
+  if (!p || (!p.seeded && !force) || (p.days || []).length) return false;
+  const goal = await goalOf(e);
+  if (!force && (p.seededFor || '') === goal) return false;
+  const ob = (await getSetting(ONBOARDING)) || {};
+  const cps = onbSetFor(ob, goal);
+  const logs = ((await getSetting(`track:${e}`)) || {}).checkpoints || {};
+  const logged = (p.checkpoints || []).some(c => ((logs[c.k] || []).length));
+  const same = cps.map(c => c.k).join(',') === (p.checkpoints || []).map(c => c.k).join(',');
+  const next = Object.assign({}, p, { seededFor: goal },
+    (!logged && !same && cps.length) ? { checkpoints: cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })) } : {});
+  await setSetting(`programme:${e}`, next);
+  return logged ? 'kept' : true;
 }
 /* ── a way in, by email, for somebody who paid on the website ───────
    They have an account and no password. The welcome email carries their
@@ -3409,7 +3452,7 @@ export default async (request) => {
     if (!who) return json({ error: 'Sign in first' }, 401);
     /* off coaching: the app goes back to the free ladder, as for anybody */
     if (PAST[norm(who)]) return json({ error: 'No programme yet' }, 404);
-    if (await isCoached(who)) { try { await seedOnboarding(who); } catch {} }
+    if (await isCoached(who)) { try { (await seedOnboarding(who)) || (await reseedOnboarding(who)); } catch {} }
     const plan = await planFor(who);
     if (!plan) return json({ error: 'No programme yet' }, 404);
     const cycle = await cycleGet(db, who, plan);
@@ -4094,8 +4137,9 @@ export default async (request) => {
          unless the call is deliberately taken back. */
       if (body.ob && typeof body.ob === 'object') {
         const was = cur.ob || {};
-        cur.ob = { youIn: !!(was.youIn || body.ob.youIn),
-                   call: body.ob.callNo === true ? false : !!(was.call || body.ob.call) };
+        /* callDone is the coach's to set, so it is carried, never taken */
+        cur.ob = Object.assign({}, was, { youIn: !!(was.youIn || body.ob.youIn),
+                   call: body.ob.callNo === true ? false : !!(was.call || body.ob.call) });
       }
       /* the quiz answers, so a new phone does not ask them all again */
       if (body.intake && typeof body.intake === 'object') {
@@ -5706,17 +5750,40 @@ export default async (request) => {
       if (request.method === 'GET') return json(cur);
       if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
       /* one client's check points, as the set every new client starts on */
+      /* which set: a goal's, or blank for the general one */
+      const goal = ONB_GOALS.includes(body.goal) ? body.goal : '';
+      const put = (patch) => {
+        if (!goal) return Object.assign({}, cur, patch);
+        const goals = Object.assign({}, cur.goals || {});
+        goals[goal] = Object.assign({}, goals[goal] || {}, patch);
+        if (patch.checkpoints && !patch.checkpoints.length) delete goals[goal];
+        return Object.assign({}, cur, { goals });
+      };
       if (body.fromClient) {
         const src = norm(body.fromClient);
         if (!owns(src)) return json({ error: 'Not your client' }, 403);
         const prog = (await getSetting(`programme:${src}`)) || programmes.clients[src] || {};
         const cps = (prog.checkpoints || []).map(cleanOnbCp).filter(c => c.k && c.n).slice(0, 20);
         if (!cps.length) return json({ error: 'They have no check points to copy.' }, 400);
-        const next = Object.assign({}, cur, { checkpoints: cps, from: clients()[src] || src, at: Date.now() });
+        /* a camera note already written for a test carries over */
+        const had = {};
+        [cur.checkpoints || []].concat(Object.values(cur.goals || {}).map(g => g.checkpoints || []))
+          .forEach(l => l.forEach(c => { if (c && c.cam && c.n) had[c.n] = c.cam; }));
+        cps.forEach(c => { if (!c.cam && had[c.n]) c.cam = had[c.n]; });
+        const next = put({ checkpoints: cps, from: clients()[src] || src, at: Date.now() });
         await setSetting(ONBOARDING, next);
         return json(next);
       }
-      if (body.clear) { const next = Object.assign({}, cur, { checkpoints: [], at: Date.now() }); await setSetting(ONBOARDING, next); return json(next); }
+      if (body.clear) { const next = put({ checkpoints: [], at: Date.now() }); await setSetting(ONBOARDING, next); return json(next); }
+      /* where the camera goes, test by test */
+      if (body.cam && typeof body.cam === 'object') {
+        const list = goal ? (((cur.goals || {})[goal] || {}).checkpoints || []) : (cur.checkpoints || []);
+        const cps = list.map(c => Object.prototype.hasOwnProperty.call(body.cam, c.k)
+          ? Object.assign({}, c, { cam: String(body.cam[c.k] || '').slice(0, 120) }) : c);
+        const next = put({ checkpoints: cps });
+        await setSetting(ONBOARDING, next);
+        return json(next);
+      }
       /* the short film a new client sees first: a Stream id, or none */
       if (body.film !== undefined) {
         const next = Object.assign({}, cur, { film: String(body.film || '').replace(/[^a-f0-9]/gi, '').slice(0, 40) });
@@ -5724,6 +5791,68 @@ export default async (request) => {
         return json(next);
       }
       return json({ error: 'Nothing to do' }, 400);
+    }
+    /* ── who is starting: paid, block one not written yet ─────────────
+       Everything the coach needs about somebody between paying and block
+       one, in one read: what they said, how far through the baseline they
+       are, whether their phone will hear a reply, the call, and what the
+       coach has sent them since. Writing starts once the baseline is in
+       and the call has happened, and only the coach knows the call did. */
+    if (path === '/coach/starting') {
+      if (request.method === 'POST') {
+        const e = norm(body.email);
+        if (!e) return json({ error: 'Which client?' }, 400);
+        if (!owns(e)) return json({ error: 'Not your client' }, 403);
+        const key = `state:${e}`, cur = (await getSetting(key)) || {};
+        /* their goal, chosen by the coach: their tests become that goal's */
+        if (body.goal !== undefined) {
+          const g = ONB_GOALS.includes(body.goal) ? body.goal : '';
+          cur.ob = Object.assign({}, cur.ob || {}, { goal: g });
+          await setSetting(key, cur);
+          let r = false;
+          try { r = (await seedOnboarding(e)) || (await reseedOnboarding(e, true)); } catch {}
+          const p = (await getSetting(`programme:${e}`)) || {};
+          return json({ ok: true, goal: g, kept: r === 'kept', tests: (p.checkpoints || []).length });
+        }
+        cur.ob = Object.assign({}, cur.ob || {}, { callDone: body.callDone ? Date.now() : 0 });
+        await setSetting(key, cur);
+        return json({ ok: true, callDone: cur.ob.callDone });
+      }
+      const mine = Object.keys(clients()).filter(e => owns(e) && !PAST[e] && !programmes.clients[e]);
+      const S = mine.length ? await settingsMany(mine.flatMap(e => [`programme:${e}`, `intake:${e}`, `state:${e}`, `track:${e}`])) : {};
+      const starting = mine.filter(e => { const p = S[`programme:${e}`]; return !p || !(p.days || []).length; });
+      const out = await Promise.all(starting.map(async e => {
+        const p = S[`programme:${e}`] || {}, st8 = S[`state:${e}`] || {};
+        const it = S[`intake:${e}`] || st8.intake || {};
+        const goal = String((st8.ob || {}).goal || it.goal || '');
+        const logs = (S[`track:${e}`] || {}).checkpoints || {};
+        const cps = p.checkpoints || [];
+        let lastClip = 0, clips = 0, logged = 0;
+        cps.forEach(c => {
+          const h = logs[c.k] || [];
+          if (h.length) logged++;
+          const v = h.filter(x => x && x.video);
+          if (v.length) { clips++; lastClip = Math.max(lastClip, v[v.length - 1].at || 0); }
+        });
+        const since = p.startedAt || 0;
+        const said = await supa.rows('messages',
+          `email=eq.${enc(e)}&sender=eq.coach&select=created_at,body,video,submission&order=created_at.asc`).catch(() => []);
+        /* what the coach wrote, not the automatic welcome */
+        const own = (said || []).filter(m => !isAuto(m.submission)
+          && !isWelcome({ sender: 'coach', body: m.body }) && ms(m.created_at) >= since);
+        const onVideo = own.filter(m => m.video || voiceOf(m.submission)).map(m => ms(m.created_at));
+        let push = false;
+        try { push = ((await pushSubs(e)).subs || []).length > 0; } catch {}
+        const ob = st8.ob || {};
+        return { email: e, name: clients()[e] || e, since,
+          goal, goalByCoach: !!(st8.ob || {}).goal, level: Number.isFinite(Number(it.level)) && it.level !== null ? Number(it.level) : null,
+          pain: !!(it.safe && it.safe.pain === 'yes'), niggles: Array.isArray(it.niggles) ? it.niggles : [],
+          tests: { of: cps.length, logged, clips, lastClip },
+          push, youIn: !!ob.youIn, call: !!ob.call, callDone: ob.callDone || 0,
+          hello: own.length ? ms(own[0].created_at) : 0,
+          videoReply: (lastClip && onVideo.find(t => t >= lastClip)) || 0 };
+      }));
+      return json({ starting: out.sort((a, b) => (a.since || 0) - (b.since || 0)) });
     }
     if (path === '/coach/checkpoints') {
       const all = (await getSetting('ladder:checkpoints')) || {};
@@ -6217,6 +6346,7 @@ export default async (request) => {
                   /* asks how many, with no target and nothing to sign off */
                   ...(c.measure ? { measure: true } : {}),
                   demo: String(c.demo || '').slice(0, 60),
+                  cam: String(c.cam != null ? c.cam : ((was && was.cam) || '')).slice(0, 120),
                   faces: Array.isArray(c.faces)
                     ? c.faces.slice(0, 3).map(x => String(x || '').slice(0, 24)) : undefined,
                   video: c.video !== false,
@@ -6228,6 +6358,8 @@ export default async (request) => {
                 };
               }).filter(c => c.k && c.n)
             : (base.checkpoints || []),
+          /* the coach chose these by hand: the quiz no longer swaps them */
+          ...(Array.isArray(body.checkpoints) ? { seeded: false } : {}),
           editedAt: Date.now(),
         });
         if (slot) {

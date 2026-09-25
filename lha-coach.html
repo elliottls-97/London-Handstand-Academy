@@ -517,7 +517,7 @@ function load(){
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[]; clientsLoaded=true;
       owner = d.youAreOwner !== false;
-      loadQueue(); loadApps(); loadQuestions(); loadFeedback(); loadSessions();
+      loadQueue(); loadApps(); loadQuestions(); loadFeedback(); loadSessions(); loadStarting();
       if(mailguard===null) loadMailguard();
       COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
       if(!sel&&clients.length) sel=clients[0].email; draw();
@@ -656,7 +656,7 @@ function freshen(force){
   /* a minute while you are here, five when you are not; a notification
      about a client, or coming back to the window, fetches straight away */
   if(force || now-queueAt>=(here?60000:300000)){ queueAt=now; loadQueue(); }
-  if(force || now-extrasAt>=300000){ extrasAt=now; loadQuestions(); loadSessions(); }
+  if(force || now-extrasAt>=300000){ extrasAt=now; loadQuestions(); loadSessions(); loadStarting(); }
   const cGap = view==='chats' ? (here?20000:120000) : (here?120000:600000);
   if(force || now-clientsAt>=cGap){ clientsAt=now; refreshClients(); }
 }
@@ -938,11 +938,11 @@ const PROMISE_H=48;
    Clients instead whenever nothing is waiting, unless the coach has already
    pressed something. Five loaders feed the inbox, so the decision waits for
    the last of them rather than guessing from a half-loaded list. */
-let homePending=5, homeSettled=false, userMoved=false;
+let homePending=6, homeSettled=false, userMoved=false;
 function homeStep(){
   if(homeSettled || --homePending>0) return;
   homeSettled=true;
-  if(!userMoved && view==='today' && !inboxItems().length){ view='clients'; draw(); }
+  if(!userMoved && view==='today' && !inboxItems().length && !(starting||[]).length){ view='clients'; draw(); }
 }
 
 /* what was cleared from Today on this screen in the last two minutes: a
@@ -3369,14 +3369,22 @@ function onbPost(body, msg){
     .then(d=>{ onb=d; draw(); if(msg) flash(msg); })
     .catch(e=>alert(String(e)));
 }
+/* the goals the quiz asks about; blank is the general set, for any goal
+   without its own */
+const ONB_GOALS=[['','General'],['learn','Learn to handstand'],['hold','Hold a freestanding handstand'],
+  ['improve','Improve my handstand'],['advanced','Advanced skills']];
+let onbGoal='';
+const onbList=g=>g ? (((onb&&onb.goals)||{})[g]||{}) : (onb||{});
 function onbCopy(){
   if(!onbFrom) return alert('Pick whose check points to use.');
-  onbPost({fromClient:onbFrom}, 'New clients test against these now.');
+  onbPost({fromClient:onbFrom, goal:onbGoal}, onbGoal ? 'Clients after this goal test against these now.' : 'New clients test against these now.');
 }
 function onbClear(){
-  if(!confirm('Clear the tests? New clients will have none until you set them again.')) return;
-  onbPost({clear:true}, 'Cleared.');
+  if(!confirm(onbGoal ? 'Clear the tests for this goal? These clients get the general tests instead.'
+    : 'Clear the general tests? A client whose goal has no set of its own will have none.')) return;
+  onbPost({clear:true, goal:onbGoal}, 'Cleared.');
 }
+function onbCam(k, v){ onbPost({goal:onbGoal, cam:{[k]:String(v||'').trim()}}, 'Saved.'); }
 /* the short film a new client sees first; the photo stands in until one is set */
 let onbFilmPick='', onbFilmOpen=false;
 function onbFilmChoose(){ onbFilmOpen=!onbFilmOpen; if(onbFilmOpen) streamVidsLoad(); draw(); }
@@ -3402,19 +3410,28 @@ function onbFilmHTML(){
 }
 function onboardingHTML(){
   onbLoad();
-  const cps=(onb&&onb.checkpoints)||[];
+  const set=onbList(onbGoal), cps=set.checkpoints||[];
+  const general=((onb&&onb.checkpoints)||[]).length;
   const coached=clients.filter(c=>c.coached!==false);
   const tgt=c=>c.target!=null ? ' &middot; '+esc(String(c.target))+esc(c.unit||(c.kind==='secs'?'s':'')) : '';
   return `<div class="card" style="margin-top:var(--space-4)">
     <h4 style="margin:0">How a new client starts</h4>
     <p class="muted" style="font-size:13px;margin:6px 0 12px">After paying, their app opens on Start: your welcome, their answers,
-      these tests as their baseline (each logged, with a clip to you), the welcome call, then block one. The ladder stays open.</p>
+      these tests as their baseline (each logged, with a clip to you), the welcome call, then block one. They train a starter week from the ladder meanwhile.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${ONB_GOALS.map(([g,label])=>{
+      const n=(onbList(g).checkpoints||[]).length;
+      return `<button class="btn btn-sm ${onbGoal===g?'btn-primary':'btn-secondary'}" onclick="onbGoal='${g}';onbFrom='';draw()">${esc(label)}${n?' &middot; '+n:''}</button>`; }).join('')}</div>
     ${onb===null?'<p class="muted" style="font-size:13px">Loading&hellip;</p>'
-      : cps.length ? `<div style="display:flex;flex-direction:column;gap:6px">${cps.map((c,i)=>`<div style="font:400 13.5px/1.4 var(--sans)">
-          <b style="font-weight:600">${i+1}. ${esc(c.n)}</b><span class="muted">${tgt(c)}</span></div>`).join('')}</div>
-        <p class="muted" style="font-size:12px;margin:8px 0 0">${onb.from?'From '+esc(onb.from)+"'s check points":''}${
-          onb.at?', set '+new Date(onb.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):''}.</p>`
-      : `<p style="font-size:13.5px;margin:0">No tests set yet, so a new client sees the questions and the call only.</p>`}
+      : cps.length ? `<div style="display:flex;flex-direction:column;gap:10px">${cps.map((c,i)=>`<div>
+          <div style="font:400 13.5px/1.4 var(--sans)"><b style="font-weight:600">${i+1}. ${esc(c.n)}</b><span class="muted">${tgt(c)}</span>
+            ${c.demo?'<span class="tag tag-neutral" style="margin-left:6px">demo clip</span>'
+              :'<span class="tag tag-said" style="margin-left:6px" title="Set a demo on this check point in the client it came from, then use these again">no demo clip</span>'}</div>
+          <input class="input" style="margin-top:5px;font-size:13px" value="${esc(c.cam||'')}" maxlength="120"
+            placeholder="Where the camera goes, e.g. Side on, whole body in frame" onchange="onbCam('${esc(c.k)}',this.value)"></div>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">${set.from?'From '+esc(set.from)+"'s check points":''}${
+          set.at?', set '+new Date(set.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):''}.</p>`
+      : onbGoal ? `<p style="font-size:13.5px;margin:0">No tests for this goal, so these clients get the general ${general?general+' ':''}tests.</p>`
+      : `<p style="font-size:13.5px;margin:0">No general tests yet, so a client whose goal has no set sees the questions and the call only.</p>`}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
       <select class="input" style="flex:1;min-width:160px" onchange="onbFrom=this.value">
         <option value="">Use a client's check points&hellip;</option>
@@ -8043,6 +8060,7 @@ function todayHTML(){
     <p style="font:400 15px/1.55 var(--sans);max-width:64ch;margin:0 0 var(--space-4);
       color:${over?'var(--terra)':'var(--grey)'}">${esc(sub.trim())}</p>
     ${pushNudgeHTML()}
+    ${startingHTML()}
     ${all.length?`<div class="tchips">${TODAY_CATS.map(([id,label])=>{
       const n=id==='all'?all.length:all.filter(x=>INBOX_TYPE[x.type].filter===id).length;
       if(id!=='all' && !n) return '';
@@ -8061,6 +8079,91 @@ function todayHTML(){
   </section>`;
 }
 
+
+/* ── Starting: paid, block one not written yet ─────────────────────
+   Between paying and block one there were no jobs on this screen, so a new
+   client could wait a week to hear from you. Each person starting gets a
+   row: what they said, the baseline, whether their phone hears you, the
+   call, and the one thing that is yours to do next. Writing starts once
+   the baseline is in and the call has happened. */
+let starting=null;
+function loadStarting(){
+  fetch(API+'/starting',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ starting=d.starting||[]; draw(); } }).catch(()=>{}).finally(homeStep);
+}
+const GOAL_WORDS={learn:'learn to handstand', hold:'hold a freestanding handstand',
+  improve:'improve your handstand', advanced:'work on advanced skills'};
+function startHello(email){
+  const p=(starting||[]).find(x=>x.email===email)||{};
+  const first=firstName(email)||'there', goal=GOAL_WORDS[p.goal];
+  drafts[email]='Hi '+first+', welcome in. '
+    +(goal?'You said you want to '+goal+(p.pain?', and that something hurts, so tell me more about that when you can':'')+'. ':'')
+    +'First job is your baseline on the Start page: film each test and send it, and I will reply on video within 48 hours. '
+    +'Then a quick call, and I write block one.';
+  openClient(email,'thread');
+  setTimeout(()=>{ const rb=document.getElementById('reply'); if(rb){ rb.value=drafts[email]; rb.focus(); } }, 120);
+}
+function startCall(email, done){
+  fetch(API+'/starting',{method:'POST',headers:hdr(),body:JSON.stringify({email, callDone:!!done})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||r.status)))
+    .then(d=>{ const p=(starting||[]).find(x=>x.email===email); if(p) p.callDone=d.callDone; draw();
+      flash(done?'Call marked done.':'Call marked not done.'); })
+    .catch(e=>alert(String(e)));
+}
+function startGoal(email, g){
+  fetch(API+'/starting',{method:'POST',headers:hdr(),body:JSON.stringify({email, goal:g})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||r.status)))
+    .then(d=>{ const p=(starting||[]).find(x=>x.email===email);
+      if(p){ p.goal=d.goal; p.goalByCoach=!!d.goal; }
+      if(p && p.tests) p.tests.of=d.tests;
+      draw();
+      flash(d.kept ? 'Goal set. They have logged tests already, so their tests stay as they are.'
+        : d.tests ? 'Goal set. Their baseline is now '+d.tests+' test'+(d.tests===1?'':'s')+' for it.' : 'Goal set.');
+      loadStarting(); })
+    .catch(e=>alert(String(e)));
+}
+function startingHTML(){
+  const list=starting||[];
+  if(!list.length) return '';
+  const day=t=>t?Math.floor((Date.now()-t)/864e5)+1:0;
+  const tag=(t,cls)=>`<span class="tag ${cls||'tag-neutral'}">${t}</span>`;
+  return `<div class="card" style="margin:0 0 var(--space-4);padding:18px 20px">
+    <h4 style="margin:0">Starting</h4>
+    <p class="muted" style="font-size:13px;margin:4px 0 6px">Paid, block one not written yet. You write it once the baseline is in and you have had the call.</p>
+    ${list.map(p=>{
+      const T=p.tests||{}, d=day(p.since), baseDone=T.of>0 && T.logged>=T.of;
+      const late=d>=7 && T.clips>0 && !p.videoReply;
+      const next = !p.hello ? ['Say hello',`startHello('${esc(p.email)}')`]
+        : (T.clips>0 && !p.videoReply) ? ['Reply to their baseline on video',`openClient('${esc(p.email)}','thread')`]
+        : (baseDone && p.callDone) ? ['Write block one',`openBuilder('${esc(p.email)}')`]
+        : null;
+      const waiting = next ? '' : !baseDone ? 'Waiting on their baseline.' : !p.callDone ? (p.call?'Call booked. Mark it done after.':'Waiting on them to book the call.') : '';
+      return `<div style="padding:12px 0;border-top:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+            <b style="font:600 14.5px/1.3 var(--sans);cursor:pointer" onclick="openClient('${esc(p.email)}')">${esc(p.name||p.email)}</b>
+            <span class="muted" style="font-size:12.5px">${d?'Day '+d:''}</span>
+            <select class="input" style="width:auto;padding:4px 8px;font-size:12.5px;min-height:0" title="Their goal decides which baseline tests they get"
+              onchange="startGoal('${esc(p.email)}',this.value)">${ONB_GOALS.map(([g,label])=>
+                `<option value="${g}"${(p.goal||'')===g?' selected':''}>${g?esc(label):'No goal yet'}</option>`).join('')}</select>
+            ${p.goalByCoach?'<span class="muted" style="font-size:12px">set by you</span>':''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+            ${p.pain?tag('Something hurts','tag-said'):''}
+            ${tag(p.push?'Notifications on':'No notifications', p.push?'tag-neutral':'tag-said')}
+            ${tag(T.of?'Baseline '+T.logged+' of '+T.of+(T.clips?', '+T.clips+' clip'+(T.clips===1?'':'s'):''):'No tests set', T.of?(baseDone?'tag-accent':'tag-neutral'):'tag-said')}
+            ${tag(p.callDone?'Call done':p.call?'Call booked':'Call not booked', p.callDone?'tag-accent':'tag-neutral')}
+            ${p.videoReply?tag('Baseline answered on video','tag-accent'):''}
+          </div>
+          ${waiting?`<p class="muted" style="font-size:12.5px;margin:6px 0 0">${waiting}</p>`:''}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          ${next?`<button class="btn btn-primary btn-sm"${late?' style="background:var(--terra)" title="A week in and their clips are still waiting on you"':''} onclick="${next[1]}">${next[0]}${late?' (day '+d+')':''}</button>`:''}
+          ${p.callDone?`<button class="btn btn-ghost btn-sm" onclick="startCall('${esc(p.email)}',false)">Call not done</button>`
+            :`<button class="btn btn-secondary btn-sm" onclick="startCall('${esc(p.email)}',true)">Call done</button>`}
+        </div>
+      </div>`; }).join('')}
+  </div>`;
+}
 
 /* ── Clients: the roster ──────────────────────────────────────────── */
 /* coached by a programme but never put on the list: one tap puts them on */

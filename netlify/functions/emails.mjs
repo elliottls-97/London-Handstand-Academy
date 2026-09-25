@@ -229,8 +229,8 @@ export const EMAILS = {
     "title": "You are in.",
     "paras": [
       "{password_line}",
-      "Open the app and your Start page walks you through it: put the app on your Home Screen with notifications on, so you hear the moment I reply; a few questions; a few tests to film and send me; a call to book. Then I write your first block.",
-      "Everything happens in the app from here: your clips, my replies, and your programme."
+      "Open the app and your Start page walks you through it, one step at a time: put the app on your Home Screen with notifications on, so you hear the moment I reply; a few questions; a few tests to film and send me; then a short call where we agree what block one works on. I start writing it as soon as your baseline is in and we have spoken, and you have a starter week to train in the meantime.",
+      "Everything happens in the app from here: your clips, my replies, and your programme. I reply to messages within 48 hours, and form checks come back as a video within 48 hours."
     ]
   },
   "cardFailed": {
