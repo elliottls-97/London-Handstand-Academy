@@ -10790,7 +10790,8 @@ let progQueued=null;
 let visitStart=0, visitSent=false;
 function watchVisit(){
   const begin=()=>{
-    if(visitSent || !st.token) return;
+    /* a coach looking through See their app is not the client visiting */
+    if(visitSent || !st.token || st.preview) return;
     visitSent=true; visitStart=Date.now();
     reportProgress({visit:{ms:0}});
     ['pointerdown','keydown'].forEach(e=>document.removeEventListener(e,begin,true));
@@ -10817,6 +10818,10 @@ function tasteKeptDone(){
     if(r && r.taste && !r.tasteDone){ r.tasteDone=Date.now(); save(); } }catch(e){}
 }
 function reportProgress(extra){
+  /* The dashboard's See their app is read only: the server refuses a write
+     from it, and the first tap sent the visit anyway, so the preview showed
+     401 on /progress. Nothing is sent from a preview. */
+  if(st.preview) return Promise.resolve(false);
   if(extra && extra.session && extra.session.done) tasteKeptDone();
   /* ── no account yet ───────────────────────────────────────────────
      A session done before there is an account went nowhere at all: the
