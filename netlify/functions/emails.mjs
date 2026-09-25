@@ -219,6 +219,8 @@ export const EMAILS = {
   "welcomeCoaching": {
     "name": "Welcome to coaching",
     "when": "When someone buys online coaching or Inner Circle",
+    "always": true,
+    "alwaysWhy": "It carries the password link for somebody who paid on the website.",
     "vars": [
       "name",
       "tier",
@@ -236,6 +238,8 @@ export const EMAILS = {
   "cardFailed": {
     "name": "Card did not go through",
     "when": "When a subscription payment bounces",
+    "always": true,
+    "alwaysWhy": "It is the only thing that tells a client their card bounced.",
     "vars": [
       "name"
     ],
@@ -249,6 +253,8 @@ export const EMAILS = {
   "trialEnds": {
     "name": "Trial ends in three days",
     "when": "Three days before the first charge",
+    "always": true,
+    "alwaysWhy": "It is the only warning before the first charge.",
     "vars": [
       "name",
       "trial",
@@ -395,6 +401,7 @@ export function renderEmail(key, vars, over) {
   const paras = (Array.isArray(rawParas) ? rawParas : String(rawParas || '').split(/\n\s*\n/))
     .map(fill).map(p => p.trim()).filter(Boolean);
   return { subject: fill(pick('subject')), title: fill(pick('title')), paras, footnote: fill(pick('footnote') || ''),
-    /* switched off in the dashboard: held, not sent */
-    off: !!o.off };
+    /* switched off in the dashboard: held, not sent. The few that must
+       always go (a password link, a bounced card, a charge coming) ignore it */
+    off: !!o.off && !d.always };
 }

@@ -3131,13 +3131,14 @@ const handle = async (request) => {
       if (!(await isOwner())) return json(ownerOnly, 403);
       /* on or off, one or all: held emails are not sent until switched back on */
       if (typeof body.allOff === 'boolean') {
-        Object.keys(EMAILS).forEach(k => { over[k] = Object.assign({}, over[k] || {}, { off: body.allOff }); if (!body.allOff) delete over[k].off; if (!Object.keys(over[k]).length) delete over[k]; });
+        Object.keys(EMAILS).filter(k => !EMAILS[k].always).forEach(k => { over[k] = Object.assign({}, over[k] || {}, { off: body.allOff }); if (!body.allOff) delete over[k].off; if (!Object.keys(over[k]).length) delete over[k]; });
         await setSetting('emails', over); EMAIL_OVER = null;
         return json({ ok: true, overrides: over });
       }
       const key = String(body.key || '');
       if (!EMAILS[key]) return json({ error: 'No such email' }, 400);
       if (typeof body.off === 'boolean') {
+        if (EMAILS[key].always && body.off) return json({ error: 'This one always sends. ' + (EMAILS[key].alwaysWhy || '') }, 400);
         over[key] = Object.assign({}, over[key] || {});
         if (body.off) over[key].off = true; else delete over[key].off;
         if (!Object.keys(over[key]).length) delete over[key];
