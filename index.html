@@ -4328,43 +4328,41 @@ function submitQuiz() {
   const sendBtn = document.querySelector('#qStep6 .btn-quiz-next');
   if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
 
-  /* Second home for the same enquiry: a row in the coach dashboard's
-     Applications tab. Formspree and email are one channel, and if that
-     channel breaks the enquiry is simply gone, with nobody knowing it
-     arrived. This one is fire and forget on purpose. Its failure must
-     never stop the person in front of us from getting their confirmation,
-     so nothing here is awaited and nothing here can reject. */
-  try {
-    fetch('/api/app/application', {
+  /* The server first: it puts the enquiry on the dashboard's Applications
+     tab, emails Elliott and emails them. Formspree has a monthly limit, so
+     it is only the backup, for when the server does not answer. */
+  const formspree = function() {
+    return fetch('https://formspree.io/f/xvzjawjv', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({
+        _subject: cfg.subject + ', ' + name,
+        type: cfg.subject,
+        plan: cfg.plan,
         name: name, email: email,
-        answers: {
-          goal: goal, level: level, format: format, commitment: commit,
-          hours: hours.trim ? hours.trim() : hours,
-          injuries: injuries, notes: notes,
-          plan: cfg.plan, source: cfg.subject,
-          ...(stopper ? { stops: stopper } : {})
-        }
+        goal: goal, level: level,
+        format: format, commitment: commit,
+        ...(stopper ? { what_stops_them: stopper } : {}),
+        injuries: injuries, hours: hours, notes: notes
       })
-    }).catch(function(){});
-  } catch (e) {}
-
-  fetch('https://formspree.io/f/xvzjawjv', {
+    });
+  };
+  fetch('/api/app/application', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      _subject: cfg.subject + ', ' + name,
-      type: cfg.subject,
-      plan: cfg.plan,
       name: name, email: email,
-      goal: goal, level: level,
-      format: format, commitment: commit,
-      ...(stopper ? { what_stops_them: stopper } : {}),
-      injuries: injuries, hours: hours, notes: notes
+      answers: {
+        goal: goal, level: level, format: format, commitment: commit,
+        hours: hours.trim ? hours.trim() : hours,
+        injuries: injuries, notes: notes,
+        plan: cfg.plan, source: cfg.subject,
+        ...(stopper ? { stops: stopper } : {})
+      }
     })
   })
+  .then(function(res) { return res.ok ? res : formspree(); })
+  .catch(function() { return formspree(); })
   .then(function(res) {
     if (res.ok) {
       applyQuizFormatToDone(format);

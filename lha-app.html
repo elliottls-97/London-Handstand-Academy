@@ -1396,7 +1396,7 @@ function sendDayFeedback(skip){
     sendAndSay(
       fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text})})
         .then(r=>!!(r&&r.ok))
-        .catch(()=>post({type:'Session feedback',text})),
+        .catch(()=>false),
       'Sent to Elliott. It is in your chat with him.');
   }
   st.fbRate=''; st.fbNote=''; save(); closeOv(); render();
@@ -3605,7 +3605,7 @@ function sendCheckin(){
     .then(()=>{ closeOv(); render(); });
   /* the dashboard showed a check-in as an empty line: the numbers were
      never put into the words it keeps */
-  if(st.in) post({type:'Check-in', ...body,
+  if(st.in) tell({type:'Check-in',
     text:'Training '+body.mood+'/10 · soreness '+body.soreness+'/10 · sleep '+body.sleep+'/10'
       +(String(body.note||'').trim()?' · '+String(body.note).trim():'')});
 }
@@ -8068,11 +8068,9 @@ function sessionFeel(f){
      telling them to go and change it there was the wrong answer twice. */
   if(coachedView()){
     if(dir){
-      reportProgress({feedback:{kind:'session feel', text:f+' · '+((day()&&day().label)||'')}});
       /* it used to say "Told Elliott" the instant the button was pressed,
          which is a claim about a request that had not finished */
-      sendAndSay(post({type:'Session feel',feel:f,day:(day()&&day().label)||'',
-            block:blockNo(),week:weekNow(),_reported:true}),
+      sendAndSay(reportProgress({feedback:{kind:'session feel', text:f+' · '+((day()&&day().label)||'')}}),
         'Told Elliott. He writes the next block from this.');
     }
     closeOv();
@@ -9604,7 +9602,7 @@ function drawOv(){
          ['Just not feeling it','Do the warm-up and one set of entries. If it still feels wrong, stop. That is a real answer.']]
         .map(([h,x])=>`<div class="card" style="padding:18px"><div style="font:600 15px/1.2 var(--sans)">${h}</div>
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${x}</div></div>`).join('')}
-      <button class="btn" onclick="sendAndSay(post({type:'Cannot train',text:'Skipping today'+(day()&&day().label?': '+day().label:'')}),'Told Elliott you are skipping today.');closeOv()">Tell Elliott I&rsquo;m skipping</button></div>`;
+      <button class="btn" onclick="sendAndSay(tell({type:'Cannot train',text:'Skipping today'+(day()&&day().label?': '+day().label:'')}),'Told Elliott you are skipping today.');closeOv()">Tell Elliott I&rsquo;m skipping</button></div>`;
   }
   if(st.ov==='stage'&&S){
     const si=st.ovStage||0;
@@ -10861,8 +10859,9 @@ function reportProgress(extra){
   return fetch(AUTH.progress,{method:'POST',headers:authed(),body:JSON.stringify(payload)})
     /* the account's own record back, so the calendar has the drill by
        drill for the session just done rather than a bare placeholder */
-    .then(function(){ if(extra && extra.session) loadProgress(); })
-    .catch(function(){});   /* never let reporting break the session */
+    .then(function(r){ if(extra && extra.session) loadProgress(); return !!(r && r.ok); })
+    /* never let reporting break the session; say whether it landed */
+    .catch(function(){ return false; });
 }
 /* whether a drill is anywhere in the coached plan, warm-up included */
 function inPlan(v){
@@ -10944,10 +10943,8 @@ function closeWhy(send){
   if(send){
     const t=($('#whyText')||{}).value||'';
     if(whyPicked.length||t.trim()){
-      reportProgress({feedback:{kind:'Stopped early',reasons:whyPicked,text:t,
-        context:whyStopContext}});
-      sendAndSay(post({type:'Stopped early',reasons:whyPicked.join(', '),text:t,
-            where:whyStopContext,_reported:true}), 'Told Elliott why you stopped.');
+      sendAndSay(reportProgress({feedback:{kind:'Stopped early',reasons:whyPicked,text:t,
+        context:whyStopContext}}), 'Told Elliott why you stopped.');
     }
   }
   whyPicked=[]; closeOv();
@@ -11018,8 +11015,19 @@ function signOut(){
   window.scrollTo(0,0);
 }
 
-/* ── flags, tests, and anything else that reaches Elliott ── */
+/* ── what reaches Elliott ────────────────────────────────────────────
+   Everything goes through the server, which keeps it on the dashboard and
+   sends his notification and email. Formspree has a monthly limit and is
+   kept for one thing: a question that could not reach the server, which
+   may be somebody asking about coaching. It was also carrying every flag,
+   check-in and session feel, and the limit was nearly spent. */
 const FORM='https://formspree.io/f/xvzjawjv';
+function tell(payload){
+  if(!st.token) return Promise.resolve(false);
+  return reportProgress({feedback:{kind:payload.type,
+    text:[payload.text,payload.results,payload.flags,payload.reasons].filter(Boolean).join(' \u00b7 ').slice(0,900)}})
+    .then(ok=>ok!==false);
+}
 function post(payload){
   /* email is still the alert; the dashboard is the record */
   /* _reported means the caller already filed the detailed version */
@@ -11264,7 +11272,8 @@ function sendFlags(v){
   if(v) sentLine('flagst-'+v, 'Sending\u2026');
   const names={}; (DATA.days||[]).forEach(d=>(d.groups||[]).forEach(g=>(g.items||[]).forEach(i=>names[i.v]=i.n)));
   const note=x=>String((st.note||{})[x]||'');
-  post({type:'Drill flags',
+  /* the flags themselves go up with the report, and the server tells Elliott */
+  tell({type:'Drill flags',
     flags:f.map(x=>st.rate[x].toUpperCase()+': '+(names[x]||x)+(note(x)?' ("'+note(x)+'")':'')).join('\n')})
     .then(ok=>{
       if(ok===false){
@@ -14714,7 +14723,8 @@ function payHosted(){
     .then(d=>{ if(!d.url) throw 'No checkout link came back';
                if(!leaveTo(d.url)) throw 'Your browser blocked the checkout window. Open the app in its own tab and try again.'; })
     .catch(e=>{
-      post({type:'Wants the app tier',email:st.email||'',text:String(e)});
+      fetch(AUTH.feedback,{method:'POST',headers:authed(),body:JSON.stringify({kind:'bug',
+        text:'Checkout for the full ladder did not open: '+String(e), extra:{email:st.email||''}})}).catch(()=>{});
       if(b){ b.disabled=false; b.textContent='Thanks, I will be in touch'; }
     });
 }

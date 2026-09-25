@@ -536,12 +536,15 @@ function mcUnlock(){
     return;
   }
   if(msg){msg.style.display='block';msg.style.color='var(--ink3)';msg.textContent='Unlocking…';}
-  /* TEMPORARY: Formspree until Beehiiv API key is set. Switch URL to
-     '/.netlify/functions/subscribe' and body to {email, source:'masterclass-press'}. */
-  fetch('https://formspree.io/f/xvzjawjv',{
-    method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
-    body:JSON.stringify({email:email,_subject:'Masterclass unlock (Press) – '+email,type:'Masterclass unlock',source:'masterclass-press'})
-  }).then(function(r){
+  /* The newsletter first. If that is not set up, the address is kept on the
+     coach dashboard instead. Formspree is kept for coaching enquiries. */
+  var keep=function(){ return fetch('/api/app/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({kind:'lead',text:'Masterclass unlock (Press)',email:email,extra:{source:'masterclass-press'}})}); };
+  fetch('/.netlify/functions/subscribe',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:email,source:'masterclass-press'})
+  }).then(function(r){ return r.ok ? r : keep(); }, keep)
+  .then(function(r){
     if(r.ok){ mcDoUnlock(); }
     else { return r.text().then(function(body){ var m='Something went wrong.'; try{var d=JSON.parse(body); if(d&&d.error)m=d.error;}catch(e){} throw new Error(m); }); }
   }).catch(function(err){

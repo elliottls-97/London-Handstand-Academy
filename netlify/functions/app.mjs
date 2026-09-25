@@ -4621,7 +4621,10 @@ const handle = async (request) => {
 
   if (path === '/feedback' && request.method === 'POST') {
     const who = await me();
-    const kinds = ['bug', 'idea', 'review', 'block'];   /* block: the end of a coaching block */
+    /* block: the end of a coaching block. question: a question from a page
+       on the website. lead: an email left for a masterclass. These used to
+       go to Formspree, whose monthly limit is kept for coaching enquiries. */
+    const kinds = ['bug', 'idea', 'review', 'block', 'question', 'lead'];
     const kind = kinds.includes(body.kind) ? body.kind : 'review';
     const text = String(body.text || '').trim().slice(0, 4000);
     if (!text) return json({ error: 'Say something first' }, 400);
@@ -4644,15 +4647,32 @@ const handle = async (request) => {
     const row = {
       id: 'fb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       at: Date.now(), kind, text,
-      email: who || '', name: who ? (clients()[who] || '') : '',
+      email: who || (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email || '').trim()) ? norm(body.email) : ''),
+      name: who ? (clients()[who] || '') : String(body.name || '').trim().slice(0, 60),
       stage: Number(body.stage) || 0,
       plus: !!body.plus,
       app: String(body.build || '').slice(0, 20),
-      extra, done: false,
+      /* an email left for a masterclass is a record, not a job */
+      extra, done: kind === 'lead',
     };
     log.unshift(row);
     await setSetting('feedback:log', log.slice(0, 500));
-    const label = { bug: 'Bug', idea: 'Idea', review: 'Feedback', block: 'Block review' }[kind];
+    if (kind === 'lead') return json({ ok: true });
+    const label = { bug: 'Bug', idea: 'Idea', review: 'Feedback', block: 'Block review', question: 'Question' }[kind];
+    if (kind === 'question') {
+      /* somebody on the website is waiting for an answer: a message, not a sign-up */
+      const nm = row.name || row.email || 'the website';
+      await coachAlert(null, 'messages', { title: 'Question from ' + nm, body: String(text).slice(0, 160), tag: 'wq' });
+      if ((await coachMail(null, 'messages')) && (await rateHit('fbmail:q', 24 * 3600000)) <= 40)
+        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+          `Question from ${nm}${extra.page ? ', ' + extra.page : ''}`,
+          mail({ title: 'A question from the website.',
+            paras: [esc(text), `From <b>${esc(row.name || '')}</b> ${row.email ? '&lt;' + esc(row.email) + '&gt;' : ''}. Reply to them by email.`]
+              .concat(Object.keys(extra).filter(k => k !== 'page').map(k => `<b>${esc(k)}</b>: ${esc(extra[k])}`)),
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
+            signoff: { name: 'London Handstand Academy' } }));
+      return json({ ok: true });
+    }
     await coachAlert(null, 'signups', { title: label + ' from the app', body: String(text || '').slice(0, 160), tag: 'fb' });
     /* anybody can send this, signed in or not, and each one was an email:
        every one is kept in the dashboard, and the first thirty a day are
