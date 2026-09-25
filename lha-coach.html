@@ -3536,7 +3536,73 @@ function blocksHTML(email){
 let builder=null;          /* {email, plan, dirty} while a programme is open */
 let libIndex=null;         /* id → name, for the picker */
 
+/* ── clips of the client, just for them ─────────────────────────────
+   Film Ting doing the drill and she sees herself, not Elliott, wherever
+   it is in her plan, in every block, with Elliott's demo a tap away. Set
+   here, saved at once, separate from the block being written. */
+let ownClips={}, ownOpen='', ownMsg='', ownBusy=false;
+function ownLoad(email){
+  fetch(API+'/clips?email='+encodeURIComponent(email),{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ ownClips[email]=d.clips||{}; draw(); } }).catch(()=>{});
+}
+const ownHas=v=>builder && v && ((ownClips[builder.email]||{})[v]||{}).uid;
+function ownClipBtn(v){
+  if(!builder || !v) return '';
+  const on=!!ownHas(v), first=firstName(builder.email)||'them';
+  return `<button onclick="ownOpen=ownOpen==='${esc(v)}'?'':'${esc(v)}';ownMsg='';if(ownOpen) streamVidsLoad();draw()"
+      title="${on?esc(first)+' sees their own clip of this. Change it or take it off':'A clip of '+esc(first)+' doing this, just for them'}"
+      style="flex:none;border:1px solid ${on?'var(--amber-d)':'var(--line)'};border-radius:10px;
+      background:${on?'rgba(243,169,73,.14)':'#fff'};cursor:pointer;min-height:38px;padding:0 11px;
+      font:600 11.5px/1 var(--sans);color:${on?'#7a4a10':'var(--grey)'};display:inline-flex;align-items:center;gap:6px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+      ${on?'Theirs':'Film them'}</button>`;
+}
+function ownSet(v, uid){
+  if(!builder) return; const email=builder.email; ownBusy=true; draw();
+  return fetch(API+'/clips',{method:'POST',headers:hdr(),body:JSON.stringify({email, v, uid:uid||''})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ ownClips[email]=d.clips||{}; ownBusy=false; ownMsg=uid?'Done. Their app plays this for them now.':'Taken off. They see your demo again.'; draw(); })
+    .catch(e=>{ ownBusy=false; ownMsg=String(e); draw(); });
+}
+function ownUpload(v){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    ownBusy=true; ownMsg='Uploading 0%'; draw();
+    fxUpload(f, pct=>{ ownMsg='Uploading '+pct+'%'; const m=document.getElementById('ownMsg'); if(m) m.textContent=ownMsg; })
+      .then(uid=>ownSet(v, uid).then(()=>{ ownMsg='Uploaded. Cloudflare takes a minute or two to have it ready, then it plays in their app.'; draw(); }))
+      .catch(e=>{ ownBusy=false; ownMsg=String(e); draw(); }); };
+  inp.click();
+}
+function ownClipPanel(v, key){
+  if(!builder || ownOpen!==v) return '';
+  const first=firstName(builder.email)||'them', has=ownHas(v);
+  const list=(streamVids||[]).slice().sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,24);
+  return `<div style="margin:8px 0 4px 30px;padding:12px;border-radius:12px;background:#fffaf2;border:1px solid rgba(243,169,73,.35)">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <b style="font:600 13px/1.3 var(--sans);flex:1;min-width:200px">${esc((libIndex||{})[v]||v)}, just for ${esc(first)}</b>
+      <button class="btn btn-ghost btn-sm" onclick="ownOpen='';draw()">Close</button></div>
+    <p class="muted" style="font-size:12.5px;margin:4px 0 10px">They see this instead of your demo wherever the drill is in their plan, in every block, and can switch to yours.</p>
+    ${has?`<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px">
+        <img src="${fxThumb(has)}" alt="" style="width:96px;aspect-ratio:16/10;object-fit:cover;border-radius:8px;background:var(--mist)">
+        <span style="flex:1;font:500 12.5px/1.4 var(--sans)">Their clip is on.</span>
+        <button class="btn btn-ghost btn-sm" ${ownBusy?'disabled':''} onclick="ownSet('${esc(v)}','')" style="color:var(--terra)">Take theirs off</button></div>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" ${ownBusy?'disabled':''} onclick="ownUpload('${esc(v)}')">${has?'Upload a new one':'Upload a clip of '+esc(first)}</button></div>
+    ${ownMsg?`<div id="ownMsg" style="font:500 12px/1.4 var(--sans);color:var(--grey);margin-top:8px">${esc(ownMsg)}</div>`:''}
+    <div class="kick" style="margin-top:12px">OR ONE ALREADY ON STREAM</div>
+    ${streamVids===null||(!streamVids.length&&!streamVidsErr)?'<p class="muted" style="font-size:12.5px">Loading your films&hellip;</p>'
+      :streamVidsErr&&!list.length?`<p class="muted" style="font-size:12.5px">${esc(streamVidsErr)}</p>`
+      :`<div style="max-height:260px;overflow:auto">${list.map(x=>`<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-top:1px solid rgba(17,17,17,.06)">
+        <img src="${fxThumb(x.uid)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" style="flex:none;width:72px;aspect-ratio:16/10;object-fit:cover;border-radius:8px;background:var(--mist)">
+        <span style="flex:1;min-width:0;font:500 12.5px/1.3 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.name||'Untitled film')}${x.secs?' · '+x.secs+'s':''}</span>
+        ${x.uid===has?'<span class="muted" style="font:600 11.5px/1 var(--sans)">On now</span>'
+          :`<button class="btn btn-secondary btn-sm" ${ownBusy?'disabled':''} onclick="ownSet('${esc(v)}','${esc(x.uid)}')">Use this</button>`}</div>`).join('')}</div>`}
+  </div>`;
+}
 function openBuilder(email, slot, slotLabel){
+  ownLoad(email); ownOpen=''; ownMsg='';
   fetch(API+'/programme?email='+encodeURIComponent(email)+(slot?'&slot='+encodeURIComponent(slot):''),
     {headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
@@ -6743,8 +6809,10 @@ function builderHTML(){
                 cursor:pointer;min-width:40px;min-height:40px;font:600 17px/1 var(--sans);
                 color:var(--forest)">+</button>
               ${clipBtn(it.v)}
+              ${ownClipBtn(it.v)}
               <button onclick="bDelItem(${di},${gi},${k})" style="${bGhost}">×</button>
             </div>
+            ${ownClipPanel(it.v, di+'-'+gi+'-'+k)}
             <!-- The row could set the drill, the dose and a note, and nothing
                  else. The specs write seconds and rests onto items and there
                  was no way to see or change them here, which is half of what

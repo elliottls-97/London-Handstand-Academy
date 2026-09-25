@@ -2482,6 +2482,24 @@ const handle = async (request) => {
     const warmup = w ? { n: w.n, items: w.items.map(hydrateItem).filter(Boolean) } : null;
     return Object.assign({}, base, { days, answers, warmup });
   }
+  /* ── clips of the client themselves ────────────────────────────────
+     A drill filmed of this client, in a session or sent in, plays for them
+     in place of the coach's demo, in every block. The demo stays on the
+     item so the app can switch back to it. Kept apart from the programme so
+     a new block does not lose them. */
+  function ownClips(plan, own) {
+    if (!plan || !own || !Object.keys(own).length) return plan;
+    const put = it => {
+      const c = it && own[it.v];
+      if (!c || !c.uid) return;
+      it.libUrl = it.url || '';
+      it.url = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${c.uid}/downloads/default.mp4`;
+      it.own = true;
+    };
+    (plan.days || []).forEach(d => (d.groups || []).forEach(g => (g.items || []).forEach(put)));
+    ((plan.warmup && plan.warmup.items) || []).forEach(put);
+    return plan;
+  }
   async function planFor(email) {
     await ensureCustom();
     const saved = await getSetting(`programme:${email}`);
@@ -3536,6 +3554,7 @@ const handle = async (request) => {
     if (await isCoached(who)) { try { (await seedOnboarding(who)) || (await reseedOnboarding(who)); } catch {} }
     const plan = await planFor(who);
     if (!plan) return json({ error: 'No programme yet' }, 404);
+    try { ownClips(plan, (await getSetting(`clips:${who}`)) || {}); } catch {}
     const cycle = await cycleGet(db, who, plan);
     return json({ client: clients()[who] || plan.client, plan, cycle,
                   week: (await getSetting(`week:${who}`)) || null,
@@ -5879,6 +5898,28 @@ const handle = async (request) => {
        are, whether their phone will hear a reply, the call, and what the
        coach has sent them since. Writing starts once the baseline is in
        and the call has happened, and only the coach knows the call did. */
+    /* a client's own clips: drill to Stream id, set from the builder */
+    if (path === '/coach/clips') {
+      const e = norm(request.method === 'GET' ? url.searchParams.get('email') : body.email);
+      if (!e) return json({ error: 'Which client?' }, 400);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      const key = `clips:${e}`, cur = (await getSetting(key)) || {};
+      if (request.method === 'GET') return json({ clips: cur });
+      if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+      const v = String(body.v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 64);
+      if (!v) return json({ error: 'Which drill?' }, 400);
+      const uid = String(body.uid || '').replace(/[^a-f0-9]/gi, '').slice(0, 64);
+      if (!uid) { delete cur[v]; await setSetting(key, cur); return json({ ok: true, clips: cur }); }
+      if (Object.keys(cur).length >= 200 && !cur[v]) return json({ error: 'That is a lot of clips for one person.' }, 400);
+      cur[v] = { uid, at: Date.now() };
+      /* played from its download, which Stream only makes once asked */
+      if (process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+        await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,
+          { method: 'POST', headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } }).catch(() => {});
+      }
+      await setSetting(key, cur);
+      return json({ ok: true, clips: cur });
+    }
     if (path === '/coach/starting') {
       if (request.method === 'POST') {
         const e = norm(body.email);

@@ -3003,7 +3003,7 @@ function screenPlan(){
             </div>`:''}
             ${st.repOpen===k?planStepper(k,it):''}
             ${it.nt?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(it.nt)}</div>`:''}
-            ${openD?`${it.url?`<div style="margin-top:11px">${drillFilm(it.url,'16/10')}</div>`:''}
+            ${openD?`${it.url?`<div style="margin-top:11px">${itemFilm(it,'16/10')}</div>`:''}
               ${(it.cues||[]).length?`<ul style="margin:${it.url?'-6px':'9px'} 0 0;padding-left:17px;
                 display:flex;flex-direction:column;gap:5px">${it.cues.map(c=>
                 `<li style="font:400 13px/1.5 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}</ul>`:''}`:''}
@@ -7831,7 +7831,7 @@ function upNextHTML(){
           <span class="p-upchev">▾</span>
         </button>
         <div class="p-updetail">
-          ${it.url?`<div class="p-upvid">${drillFilm(it.url,'16/10')}</div>`
+          ${it.url?`<div class="p-upvid">${itemFilm(it,'16/10',true)}</div>`
                   :''}
           ${it.desc?`<p style="font:600 14px/1.5 var(--sans);margin:12px 0 0">${esc(it.desc)}</p>`:''}
           ${cues.length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px">
@@ -8459,6 +8459,24 @@ function listHeldHTML(){
     </div></div>`;
 }
 function openDrill(gi,ii){ st.ovDrill=day().groups[gi].items[ii]; openOv('drill'); }
+/* ── a clip of them, filmed by their coach ──────────────────────────
+   Where the coach has filmed this client doing the drill, that plays, and
+   the coach's own demo is one tap away. The choice is remembered per drill. */
+function itemFilm(it, aspect, noPick){
+  if(!it || !it.url) return '';
+  const demo=!!(it.own && it.libUrl && (st.filmDemo||{})[it.v]);
+  const film=drillFilm(demo?it.libUrl:it.url, aspect);
+  if(!it.own || noPick || !it.libUrl) return film;
+  const b=(on,label,val)=>`<button onclick="event.stopPropagation();filmPick('${esc(it.v)}',${val})" aria-pressed="${on}"
+    style="flex:1;border:0;border-radius:999px;padding:7px 10px;cursor:pointer;font:600 12.5px/1 var(--sans);
+    background:${on?'#fff':'transparent'};color:${on?'var(--ink)':'var(--grey)'};${on?'box-shadow:0 1px 4px rgba(0,40,38,.15)':''}">${label}</button>`;
+  return film+`<div style="display:flex;gap:2px;padding:3px;margin:8px 0 16px;border-radius:999px;background:rgba(0,64,61,.07)">
+    ${b(!demo,'You','false')}${b(demo,esc(coachLabel()),'true')}</div>`;
+}
+function filmPick(v, demo){
+  st.filmDemo=Object.assign({}, st.filmDemo||{}, {[v]:!!demo}); save();
+  if(st.ov) drawOv(); else render();
+}
 
 /* ── telling us what you think ─────────────────────────────────────
    Three doors, because "feedback" on its own gets nothing: a person who
@@ -8721,7 +8739,7 @@ function drawOv(){
     /* A panel announcing that there is no video is still a video-shaped
        hole at the top of the sheet. The cues are the drill either way, so
        they simply start where the film would have been. */
-    body=`${it.url?drillFilm(it.url,'4/3'):''}
+    body=`${it.url?itemFilm(it,'4/3'):''}
       <div class="kick2">DOSE</div><div class="h-md" style="margin-top:8px">${esc(it.d||'')}</div>
       ${it.desc?`<div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:16px">${esc(it.desc)}</div>`:''}
       ${(it.cues||[]).length?`<div class="kick2" style="margin-top:22px">COACHING CUES</div>
