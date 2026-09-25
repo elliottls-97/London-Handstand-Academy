@@ -9701,6 +9701,25 @@ function emVal(k,f){ const o=(emOver[k]||{}), d=(emDefs[k]||{});
   return Array.isArray(v) ? v.join('\n\n') : (v||''); }
 function emSet(k,f,v){ emDraft[k]=emDraft[k]||{}; emDraft[k][f]=v; emMsg='Not saved yet'; const m=document.getElementById('emMsg'); if(m) m.textContent=emMsg; }
 function emToggle(k){ emOpen = emOpen===k ? '' : k; draw(); }
+/* on or off: an email switched off is held, not sent, until it is back on */
+const emIsOff=k=>!!((emOver[k]||{}).off);
+const EM_WARN={
+  welcomeCoaching:'While this is off, somebody who pays on the website gets no password link. Set a password for them in Settings, New coaching client.',
+  trialEnds:'This is the only warning before the first charge. Stripe still sends its own receipt.',
+  cardFailed:'While this is off, a client whose card bounces is not told to update it.'};
+function emOffSet(k, off){ if(emBusy) return; emBusy=true; draw();
+  fetch(API+'/emails',{method:'POST',headers:hdr(),body:JSON.stringify({key:k, off})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ emOver=d.overrides||{}; emBusy=false; emMsg=off?'Off. It is held, not sent, until you turn it back on.':'On. It sends again.'; draw(); })
+    .catch(e=>{ emBusy=false; emMsg=String(e); draw(); }); }
+function emAll(off){ if(emBusy) return;
+  if(!confirm(off?'Turn every automated email off? Nothing on this list sends until you turn each one back on.'
+    :'Turn every automated email on? Anything still due will send on the next run.')) return;
+  emBusy=true; draw();
+  fetch(API+'/emails',{method:'POST',headers:hdr(),body:JSON.stringify({allOff:off})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ emOver=d.overrides||{}; emBusy=false; emMsg=off?'All off. Turn each one on once you have read it.':'All on.'; draw(); })
+    .catch(e=>{ emBusy=false; emMsg=String(e); draw(); }); }
 function emSave(k){ if(emBusy) return; emBusy=true; emMsg='Saving…'; draw();
   const body={key:k, subject:emVal(k,'subject'), title:emVal(k,'title'), paras:emVal(k,'paras'), footnote:emVal(k,'footnote')};
   const bl=emBlocks(k); if(bl && bl.length) body.blocks=bl.map(b=>{ const o=Object.assign({},b); if(o.t!=='drill'){ delete o.n; } return o; }); else if(bl) body.blocks=[];
@@ -9746,12 +9765,17 @@ function emailsHTML(){
   emLoad();
   const keys=Object.keys(emDefs||{});
   const inp='border:1px solid var(--line);border-radius:9px;padding:8px 9px;font:400 13px/1.4 var(--sans);background:#fff;width:100%';
-  const rows=keys.map(k=>{ const d=emDefs[k]; const changed=!!emOver[k]; const open=emOpen===k;
-    return `<div style="margin-top:8px;border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden">
-      <button onclick="emToggle('${k}')" style="width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:11px 13px;display:flex;gap:10px;align-items:center">
-        <span style="flex:1;min-width:0"><b style="font:600 13.5px/1.3 var(--sans)">${esc(d.name)}</b>
+  const rows=keys.map(k=>{ const d=emDefs[k]; const changed=Object.keys(emOver[k]||{}).some(x=>x!=='off'); const open=emOpen===k; const off=emIsOff(k);
+    return `<div style="margin-top:8px;border:1px solid var(--line);border-radius:12px;background:${off?'#f6f4f1':'#fff'};overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding-right:12px">
+      <button onclick="emToggle('${k}')" style="flex:1;min-width:0;text-align:left;border:0;background:none;cursor:pointer;padding:11px 13px;display:flex;gap:10px;align-items:center">
+        <span style="flex:1;min-width:0"><b style="font:600 13.5px/1.3 var(--sans);${off?'color:var(--grey)':''}">${esc(d.name)}</b>
           <span class="muted" style="display:block;font-size:11.5px;margin-top:2px">${esc(d.when)}</span></span>
         ${changed?'<span class="tag tag-accent">edited</span>':''}<span class="muted">${open?'▴':'▾'}</span></button>
+      <button class="btn btn-sm ${off?'btn-secondary':'btn-primary'}" ${emBusy?'disabled':''} style="flex:none;min-width:58px"
+        title="${off?'Held: not sent. Turn on to send it again':'Sending. Turn off to hold it'}" onclick="emOffSet('${k}',${off?'false':'true'})">${off?'Off':'On'}</button>
+      </div>
+      ${off && EM_WARN[k]?`<div style="margin:0 13px 10px;font:500 12px/1.45 var(--sans);color:var(--terra)">${esc(EM_WARN[k])}</div>`:''}
       ${open?`<div style="padding:0 13px 13px;border-top:1px solid var(--line)">
         <div class="muted" style="font-size:11.5px;margin:10px 0 8px">Placeholders you can use: ${(d.vars||[]).map(v=>'<code>{'+esc(v)+'}</code>').join(' ')}. The greeting line and the button are fixed.</div>
         <label class="muted" style="font-size:11px">Subject</label>
@@ -9773,7 +9797,11 @@ function emailsHTML(){
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <div class="kick">AUTOMATED EMAILS</div><span style="flex:1"></span>
       <span id="emMsg" class="muted" style="font-size:12px">${esc(emMsg)}</span></div>
-    <p class="muted" style="margin:8px 0 4px;max-width:62ch">Every email the app sends by itself. Open one, change the words, save. Placeholders in braces are filled in when it goes. Sign in codes and receipts are not here on purpose.</p>
+    <p class="muted" style="margin:8px 0 4px;max-width:62ch">Every email the app sends by itself. Open one, change the words, save. Off holds it: nothing is sent, and the send log says it was held. Turn it on once you are happy with it. Sign in codes and receipts are not here on purpose.</p>
+    ${keys.length?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 2px">
+      <b style="font:600 13px/1 var(--sans)">${keys.filter(k=>!emIsOff(k)).length} of ${keys.length} on</b><span style="flex:1"></span>
+      <button class="btn btn-secondary btn-sm" ${emBusy?'disabled':''} onclick="emAll(true)">Turn all off</button>
+      <button class="btn btn-secondary btn-sm" ${emBusy?'disabled':''} onclick="emAll(false)">Turn all on</button></div>`:''}
     ${rows||'<p class="muted">Loading…</p>'}
   </div>`;
 }

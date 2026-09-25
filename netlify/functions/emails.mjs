@@ -394,5 +394,7 @@ export function renderEmail(key, vars, over) {
   const rawParas = (Array.isArray(o.blocks) && o.blocks.length) ? blocksToParas(o.blocks) : pick('paras');
   const paras = (Array.isArray(rawParas) ? rawParas : String(rawParas || '').split(/\n\s*\n/))
     .map(fill).map(p => p.trim()).filter(Boolean);
-  return { subject: fill(pick('subject')), title: fill(pick('title')), paras, footnote: fill(pick('footnote') || '') };
+  return { subject: fill(pick('subject')), title: fill(pick('title')), paras, footnote: fill(pick('footnote') || ''),
+    /* switched off in the dashboard: held, not sent */
+    off: !!o.off };
 }

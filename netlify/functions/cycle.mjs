@@ -15,11 +15,12 @@ import { renderEmail } from './emails.mjs';
 import { pushReady, pushSend } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
-let EMAIL_OVER = null;
+let EMAIL_OVER = null, EMAIL_AT = 0;
 async function emailCopy(key, vars) {
-  if (EMAIL_OVER === null) {
+  /* a run kept warm must still see a switch turned off since it started */
+  if (EMAIL_OVER === null || Date.now() - EMAIL_AT > 30000) {
     const r = await supa.row('settings', 'key=eq.emails&select=value').catch(() => null);
-    EMAIL_OVER = (r && r.value) || {};
+    EMAIL_OVER = (r && r.value) || {}; EMAIL_AT = Date.now();
   }
   return renderEmail(key, vars, EMAIL_OVER);
 }
@@ -292,7 +293,7 @@ export default async () => {
       const akey = `blockask:${c.email}:${cycle.n}`;
       if (!(await supa.row('nudges', `key=eq.${enc(akey)}&select=key`).catch(() => null))) {
         const T = await emailCopy('blockAsk', { name: esc((c.name || '').split(' ')[0]), coach: esc(coachNameOf(coach)) });
-        const ok = await email(c.email, T.subject,
+        const ok = !T.off && await email(c.email, T.subject,
           mail({
             title: T.title,
             greeting: (c.name || '').split(' ')[0],
@@ -430,6 +431,7 @@ async function quietFreeAccounts(done) {
     const stage = st && st.value && Number.isInteger(st.value.stage) ? st.value.stage : 0;
     const first_ = (a.name || '').split(' ')[0];
     const T = await emailCopy('quiet' + step.key, { name: esc(first_), stage: esc(names[stage] || 'The ladder') });
+    if (T.off) { done.held = (done.held || 0) + 1; continue; }
     const ok = await email(a.email, T.subject,
       mail({ title: T.title,
         greeting: first_,
@@ -472,6 +474,7 @@ async function firstTenDays(done) {
       const key = `tip:${a.email}:${i}`;
       if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
       const T = await emailCopy('tip' + t.day, { name: esc((a.name || '').split(' ')[0] || '') });
+      if (T.off) { done.held = (done.held || 0) + 1; break; }
       const ok = await email(a.email, T.subject,
         mail({ title: T.title, greeting: (a.name || '').split(' ')[0] || '',
           paras: T.paras,
@@ -519,6 +522,7 @@ async function workshopMail(done) {
         const key = `wsremind:${w.slug}:${p.email}`;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '' });
+          if (T.off) { done.held = (done.held || 0) + 1; continue; }
           await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
               paras: T.paras,
@@ -536,6 +540,7 @@ async function workshopMail(done) {
           const T = await emailCopy('wsThanks', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title),
             review_line: w.reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
             app_line: w.appDays ? `The app is open for you for ${w.appDays} days from your booking, so the drills from today are in there to keep going with.` : 'The drills from today are in the Handstand Ladder app, and Foundations is free.' });
+          if (T.off) { done.held = (done.held || 0) + 1; continue; }
           await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
               paras: T.paras,
@@ -569,6 +574,7 @@ async function sessionMail(done) {
       const key = `sessremind:${x.id}`;
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
         const T = await emailCopy('sessRemind', { name: esc(String(x.name || '').split(' ')[0]), when: esc(whenTxt), place: x.place ? ', at ' + esc(x.place) : '', kind: esc(x.kind) });
+        if (T.off) { done.held = (done.held || 0) + 1; continue; }
         await email(x.email, T.subject, mail({ title: T.title, greeting: String(x.name || '').split(' ')[0],
           paras: T.paras,
           signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
@@ -581,6 +587,7 @@ async function sessionMail(done) {
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
         const paid = x.paid ? '£' + (x.paid / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
         const T = await emailCopy('sessThanks', { name: esc(String(x.name || '').split(' ')[0]), paid: esc(paid) });
+        if (T.off) { done.held = (done.held || 0) + 1; continue; }
         await email(x.email, T.subject, mail({ title: T.title, greeting: String(x.name || '').split(' ')[0],
           paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },

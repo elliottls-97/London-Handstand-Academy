@@ -173,7 +173,10 @@ self.addEventListener('push', event => {
       body: d.body || '',
       icon: '/icons/icon-192.png',
       tag: d.tag || undefined,
-      renotify: !!d.tag,
+      /* a repeat about the same client within minutes replaces the last
+         one on the screen without buzzing again */
+      renotify: !!d.tag && !d.quiet,
+      silent: !!d.quiet,
       data: { url },
     });
   })());

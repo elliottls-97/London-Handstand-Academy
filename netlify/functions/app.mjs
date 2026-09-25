@@ -25,6 +25,7 @@ import programmes from './programmes.mjs';
 import * as supa from './supa.mjs';
 import { EMAILS, renderEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const CODE_TTL = 15 * 60 * 1000;          // a code lasts 15 minutes
 const TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
@@ -435,7 +436,32 @@ async function coachMail(client, kind) {
     return on[kind] !== false;
   } catch { return true; }
 }
+/* ── fewer, better notifications ───────────────────────────────────
+   One thing a client did could send three: a session finished, how it
+   felt, a drill flagged, each with its own tag, so the phone stacked them
+   and buzzed three times. Now everything one request raises about one
+   client goes as a single notification, and anything more about that
+   client in the next ten minutes replaces it on the phone without a sound.
+   After ten minutes the next one is news again. */
+const ALERTS = new AsyncLocalStorage();
+const ALERT_WINDOW = 10 * 60000;
 async function coachAlert(client, kind, payload) {
+  const box = ALERTS.getStore();
+  if (box) { box.q.push({ client, kind, payload }); return; }
+  return sendCoachAlert(client, [{ kind, payload }]);
+}
+async function flushAlerts(box) {
+  const q = (box && box.q) || [];
+  box.q = [];
+  const groups = new Map();
+  q.forEach((a, i) => {
+    const k = a.client ? 'c:' + norm(a.client) : 'n:' + i;
+    if (!groups.has(k)) groups.set(k, { client: a.client, items: [] });
+    groups.get(k).items.push({ kind: a.kind, payload: a.payload });
+  });
+  for (const g of groups.values()) await sendCoachAlert(g.client, g.items);
+}
+async function sendCoachAlert(client, items) {
   try {
     if (!pushReady()) return;
     const to = norm(client ? coachOf(client) : primaryCoach());
@@ -443,12 +469,32 @@ async function coachAlert(client, kind, payload) {
     const rec = await pushSubs(to, 'pushcoach');
     if (!rec.subs.length) return;
     const on = Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {});
-    if (!on[kind]) return;
-    const at = payload && payload.t ? '&t=' + payload.t : '';
+    const mine = items.filter(it => on[it.kind]);
+    if (!mine.length) return;
+    const last = mine[mine.length - 1].payload || {};
+    let payload = Object.assign({}, last);
+    if (client) {
+      const who = norm(client), first = firstNameOf(who);
+      /* what each one says, without the name at the front */
+      const said = p => String((p && p.title) || '').replace(new RegExp('^' + first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':?\\s*', 'i'), '').trim();
+      const key = `alertwin:${to}:${who}`;
+      const now = Date.now();
+      const w = (await getSetting(key)) || null;
+      const open = !!(w && now - (w.at || 0) < ALERT_WINDOW);
+      const lines = (open ? (w.lines || []) : []).concat(mine.map(it => said(it.payload))).filter(Boolean).slice(-6);
+      await setSetting(key, { at: open ? w.at : now, lines });
+      if (lines.length > 1) {
+        payload = { title: first + ': ' + lines.length + ' updates', body: lines.join(' \u00b7 ').slice(0, 180), t: last.t };
+      }
+      /* one per client on the phone, and a repeat inside the window is quiet */
+      payload.tag = 'c:' + who;
+      if (open) payload.quiet = true;
+    }
+    const at = payload.t ? '&t=' + payload.t : '';
     const r = await pushSend(to, Object.assign({
       url: '/lha-coach.html' + (client ? '#c=' + encodeURIComponent(norm(client)) + at : '#today'),
     }, payload, { t: undefined }), 'pushcoach');
-    await mailNote(to, 'Dashboard: ' + String((payload && payload.title) || '').slice(0, 70), 'coach', !!r.sent, r.why || '');
+    await mailNote(to, 'Dashboard: ' + String(payload.title || '').slice(0, 70), 'coach', !!r.sent, r.why || '');
   } catch {}
 }
 const firstNameOf = e => String(clients()[norm(e)] || '').split(' ')[0] || norm(e);
@@ -863,9 +909,21 @@ async function fcGate(who) {
 }
 /* the words for an automated email, with the dashboard's changes on top */
 let EMAIL_OVER = null;
+/* read again every half minute: a server kept warm held the words, and now
+   the on and off switch, from whenever it started, so a change in the
+   dashboard reached only the instance that saved it */
+let EMAIL_AT = 0;
 async function emailCopy(key, vars) {
-  if (EMAIL_OVER === null) EMAIL_OVER = (await getSetting('emails')) || {};
+  if (EMAIL_OVER === null || Date.now() - EMAIL_AT > 30000) {
+    EMAIL_OVER = (await getSetting('emails')) || {}; EMAIL_AT = Date.now();
+  }
   return renderEmail(key, vars, EMAIL_OVER);
+}
+/* An automated email switched off in the dashboard is held: not sent, and
+   written in the send log as held, so what would have gone is visible. */
+async function emailT(T, to, subject, html, kind) {
+  if (T && T.off) { await mailNote(to, subject, kind, false, 'held: switched off in Automated emails'); return false; }
+  return email(to, subject, html, kind);
 }
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
@@ -1021,7 +1079,14 @@ async function rosterRows() {
   return byEmail;
 }
 
-export default async (request) => {
+/* every alert a request raises is held until it has finished, then sent
+   as one per client (coachAlert, above) */
+export default (request) => ALERTS.run({ q: [] }, async () => {
+  const box = ALERTS.getStore();
+  try { return await handle(request); }
+  finally { try { await flushAlerts(box); } catch {} }
+});
+const handle = async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
   const db = store();
@@ -1434,7 +1499,7 @@ export default async (request) => {
           await setSetting(ck, { n: (Number(cur.n) || 0) + 1, bought: (Number(cur.bought) || 0) + 1, at: Date.now() });
           const first = String(acct.name || '').split(' ')[0];
           const T = await emailCopy('checkCredit', { name: esc(first) });
-          await email(acct.email, T.subject,
+          await emailT(T, acct.email, T.subject,
             mail({ title: T.title,
               greeting: first,
               paras: T.paras,
@@ -1508,7 +1573,7 @@ export default async (request) => {
         const link = noPw ? await welcomeLink(e2) : '';
         const T = await emailCopy('welcomeCoaching', { name: esc(first), tier: esc(tierName), coach: esc(coachName(coachOf(e2))),
           password_line: noPw ? `Your username is ${esc(e2)}. Choose a password with the button below and you are in.` : '' });
-        await email(e2, T.subject,
+        await emailT(T, e2, T.subject,
           mail({ title: T.title,
             greeting: first,
             paras: T.paras,
@@ -1525,7 +1590,7 @@ export default async (request) => {
          says so. Stripe retries for a fortnight; this is the only thing
          that turns a bounce back into a payment. */
       const T = await emailCopy('cardFailed', { name: esc((clients()[acct.email] || acct.name || '').split(' ')[0] || '') });
-      await email(acct.email, T.subject,
+      await emailT(T, acct.email, T.subject,
         mail({ title: T.title,
           greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
           paras: T.paras,
@@ -1546,7 +1611,7 @@ export default async (request) => {
       const trialTxt = PRICES.trialDays === 7 ? 'free week' : `free ${PRICES.trialDays} days`;
       const priceTxt = (PRICES.plus && PRICES.plus.label) || '£5';
       const T = await emailCopy('trialEnds', { name: esc((clients()[acct.email] || acct.name || '').split(' ')[0] || ''), trial: esc(trialTxt), price: esc(priceTxt) });
-      await email(acct.email, T.subject,
+      await emailT(T, acct.email, T.subject,
         mail({ title: T.title,
           greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
           paras: T.paras,
@@ -3064,9 +3129,23 @@ export default async (request) => {
     if (request.method === 'GET') return json({ defaults: EMAILS, overrides: over });
     if (request.method === 'POST') {
       if (!(await isOwner())) return json(ownerOnly, 403);
+      /* on or off, one or all: held emails are not sent until switched back on */
+      if (typeof body.allOff === 'boolean') {
+        Object.keys(EMAILS).forEach(k => { over[k] = Object.assign({}, over[k] || {}, { off: body.allOff }); if (!body.allOff) delete over[k].off; if (!Object.keys(over[k]).length) delete over[k]; });
+        await setSetting('emails', over); EMAIL_OVER = null;
+        return json({ ok: true, overrides: over });
+      }
       const key = String(body.key || '');
       if (!EMAILS[key]) return json({ error: 'No such email' }, 400);
-      if (body.reset) { delete over[key]; }
+      if (typeof body.off === 'boolean') {
+        over[key] = Object.assign({}, over[key] || {});
+        if (body.off) over[key].off = true; else delete over[key].off;
+        if (!Object.keys(over[key]).length) delete over[key];
+        await setSetting('emails', over); EMAIL_OVER = null;
+        return json({ ok: true, overrides: over });
+      }
+      const wasOff = !!(over[key] && over[key].off);
+      if (body.reset) { delete over[key]; if (wasOff) over[key] = { off: true }; }
       else {
         const o = {};
         if (typeof body.subject === 'string') o.subject = body.subject.trim().slice(0, 140);
@@ -3089,6 +3168,7 @@ export default async (request) => {
           }).filter(Boolean);
           if (!o.blocks.length) delete o.blocks;
         }
+        if (wasOff) o.off = true;
         over[key] = o;
       }
       await setSetting('emails', over);
@@ -4849,7 +4929,7 @@ export default async (request) => {
     const them = clients()[who] || String(sender.name || '').split(' ')[0] || '';
     const cn = coachName(coachOf(who));
     const T = await emailCopy('clipIn', { name: esc(them), coach: esc(cn), clips: clips.length === 1 ? 'that' : 'those' });
-    await email(who, kind === 'assessment' ? T.subject : T.subject.replace(/clip/i, 'test'),
+    await emailT(T, who, kind === 'assessment' ? T.subject : T.subject.replace(/clip/i, 'test'),
       mail({
         title: kind === 'assessment' ? T.title : T.title.replace(/clip/i, 'test'),
         greeting: them,
@@ -6391,7 +6471,7 @@ export default async (request) => {
           const T = await emailCopy('newCheckpoints', { name: esc(nm ? nm.split(' ')[0] : 'Hello'),
             n: fresh.length === 1 ? 'a check point' : fresh.length + ' check points',
             list: fresh.map(c => `<b>${esc(c.n)}</b>${c.note ? '<br>' + esc(c.note) : ''}`).join('<br><br>') });
-          await email(e, T.subject,
+          await emailT(T, e, T.subject,
             mail({
               title: T.title,
               paras: T.paras,
@@ -7225,7 +7305,7 @@ export default async (request) => {
       if (!replied) {
         const nm = coachName(asking || coachOf(e));
         const T = await emailCopy('answerReady', { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm) });
-        await email(e, T.subject,
+        await emailT(T, e, T.subject,
           mail({
             title: T.title,
             greeting: (clients()[e] || '').split(' ')[0] || '',
@@ -7354,7 +7434,7 @@ export default async (request) => {
         const cpName = String(body.n || '').slice(0, 80) || 'one of your check points';
         const T = await emailCopy(key, { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm),
           checkpoint: esc(cpName) });
-        await email(e, T.subject,
+        await emailT(T, e, T.subject,
           mail({
             title: T.title,
             greeting: (clients()[e] || '').split(' ')[0] || '',
@@ -7520,7 +7600,7 @@ export default async (request) => {
           : image ? `${who2} has sent you a photo.`
           : voice ? `${who2} has sent you a voice note.` : `${who2} has replied.`;
         const T = await emailCopy('coachReplied', { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(who2), text: text ? esc(text.slice(0, 600)) : esc(sent) });
-        await email(e, T.subject,
+        await emailT(T, e, T.subject,
           mail({
             title: T.title,
             greeting: (clients()[e] || '').split(' ')[0] || '',
