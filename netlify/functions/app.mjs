@@ -4088,6 +4088,15 @@ export default async (request) => {
         }
         cur.fixDone = m;
       }
+      /* the welcome seen and the call booked. An iPhone's Home Screen app
+         keeps its own storage, so without these the welcome played again
+         there and a booked call read as not booked. Both stay once said,
+         unless the call is deliberately taken back. */
+      if (body.ob && typeof body.ob === 'object') {
+        const was = cur.ob || {};
+        cur.ob = { youIn: !!(was.youIn || body.ob.youIn),
+                   call: body.ob.callNo === true ? false : !!(was.call || body.ob.call) };
+      }
       /* the quiz answers, so a new phone does not ask them all again */
       if (body.intake && typeof body.intake === 'object') {
         const i = body.intake, out = {};
@@ -4154,7 +4163,7 @@ export default async (request) => {
       stage: Number.isInteger(out.stage) ? out.stage : null,
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {} });
+      fixDone: out.fixDone || {}, ob: out.ob || {} });
   }
 
   /* ── tracking: metrics, habits, check-ins ─────────────────────

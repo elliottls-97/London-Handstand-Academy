@@ -6538,7 +6538,7 @@ function loadState(){
   return fetch(AUTH.state,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const before=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone]);
+      const before=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked]);
       if(d.dayMap && Object.keys(d.dayMap).length) st.dayMap=d.dayMap;
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
@@ -6564,13 +6564,18 @@ function loadState(){
         if(st.placeSent===false) saveState(true); else st.stage=Number(d.stage);
       }
     if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
+      /* the welcome seen and the call booked, from whichever phone did them */
+      const ob=d.ob||{};
+      if(ob.youIn) st.youInSeen=true;
+      if(ob.call && !st.callNo) st.callBooked=true;
       save();
       /* same as loadTrack: a redraw for a reply that changed nothing is a blink */
-      const after=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone]);
+      const after=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked]);
       if(after!==before) render();
     })
-    .catch(()=>{});
+    .catch(()=>{}).then(()=>{ stateIn=true; });
 }
+let stateIn=false;     /* the account's state has been asked for, answered or not */
 /* The server keeps the highest stage it has been told unless this says
    otherwise, because an ordinary save runs before the stored state has come
    back and would send 0. Only the two places that deliberately move somebody
@@ -6593,7 +6598,8 @@ function saveState(now){
       ...((down||placing)?{stageDown:true}:{}),
       ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
       ladderDone:st.ladderDone||{},
-      fixDone:st.fixDone||{}
+      fixDone:st.fixDone||{},
+      ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callNo?{callNo:true}:{})}
     })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
   };
   if(now) send(); else stateQueued=setTimeout(send, 800);
@@ -10256,6 +10262,7 @@ function joinSteps(){
   const qDone=!!a.goal && a.level!=null;
   return [
     {k:'in', t:'You\u2019re in', short:'Coaching starts today.', done:true},
+    {k:'app', t:'Hear from me', short:'The app on your Home Screen, notifications on.', done: appDone()},
     {k:'q', t: qDone?'Your answers':'A few questions', short: qDone?'From the quiz you took. Anything changed?':'About you, and what you want from this.', done: qDone},
     {k:'t', t:'Your baseline', short: cps.length ? 'Film yourself on each test and send it to me.' : 'Send me a clip of your handstand.',
       done: cps.length ? tested>=cps.length : false, n:tested, of:cps.length},
@@ -10263,7 +10270,37 @@ function joinSteps(){
     {k:'b', t:'Block one', short:'Written for you, from all of that.', done:false},
   ];
 }
+/* ── the app and its notifications, as a step ──────────────────────
+   Everything after this is answered by Elliott: the baseline clips, the
+   questions, the chat. On an iPhone a notification only reaches the app on
+   the Home Screen, so that comes first, then the one tap that asks. Done
+   is per phone, which is right: it is this phone that has to hear. A
+   laptop has no Home Screen, so there it is the notifications alone. */
+const appPhone=()=>{ try{ return isIOS() || /android/i.test(navigator.userAgent); }catch(e){ return false; } };
+const appHome=()=>isStandalone() || !appPhone() || !!st.installed;
+function appDone(){ return !!st.appSkip || (appHome() && !!st.pushOk); }
+function obAppHTML(x, main){
+  let ios=false, perm='default';
+  try{ ios=isIOS(); }catch(e){} try{ perm=Notification.permission; }catch(e){}
+  const link=(label,go)=>`<button onclick="${go}" style="border:0;background:none;padding:0;cursor:pointer;
+    font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">${label}</button>`;
+  const line=t=>`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${t}</div>`;
+  const cta=(label,go)=>`<button class="${main?'btn':'btn2'}" style="margin:14px 0 0;min-height:46px;width:100%" onclick="${go}">${label}</button>`;
+  const email=`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px;text-align:center">${
+    link('Email me instead',"st.appSkip=true;save();render()")}</div>`;
+  if(x.done) return st.appSkip && !st.pushOk
+    ? line('My replies come by email. '+link('Use notifications instead',"st.appSkip=false;save();render()"))
+    : line('On. You will hear the moment I reply. '+link('Send a test','pushTestSend()'));
+  if(!appHome()) return line(ios
+      ? 'On an iPhone my replies reach you through the app on your Home Screen. Add it, open it from there and sign in once.'
+      : 'Add it to your Home Screen, then turn notifications on.')
+    + cta(installPrompt&&!ios?'Add it to my Home Screen':'Show me how', installPrompt&&!ios?"if(!doInstall()) openOv('install')":"openOv('install')");
+  if(!pushSupported()) return line('This browser cannot show notifications.')+email;
+  if(perm==='denied') return line('Notifications are blocked for this app. Turn them on for it in your phone settings, then come back.')+email;
+  return line('One tap, so you hear the moment I reply to you.')+cta('Turn on notifications','pushTurnOn()');
+}
 const OB_ICON={
+  app:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   in:'<path d="M12 2l3 6.5 7 .8-5.2 4.8 1.5 7-6.3-3.6L5.7 21l1.5-7L2 9.3l7-.8z"/>',
   q:'<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
   t:'<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
@@ -10276,7 +10313,7 @@ function obJump(k){
   try{ el.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){ el.scrollIntoView(); }
 }
 /* ── what happens next, drawn ───────────────────────────────────────
-   Four stops on a line. Done ones are filled, the one they are on is
+   A stop per step, on a line. Done ones are filled, the one they are on is
    ringed and breathes, the rest wait in grey; the line is filled as far
    as they have got. Tapping a stop goes to it on the page. */
 function obTimelineHTML(steps, next){
@@ -10313,7 +10350,10 @@ function screenStart(){
   youInMaybe();
   const first=(st.client||'').split(' ')[0];
   const steps=joinSteps(), next=steps.findIndex(x=>!x.done), cps=st.obCps||[];
-  const [,s0,s1,s2,s3]=steps;
+  const S=k=>steps.find(x=>x.k===k)||{}, sA=S('app'), s0=S('q'), s1=S('t'), s2=S('call'), s3=S('b');
+  /* the button that leads is the next thing to do; one step left undone
+     above it does not take that away from everything below */
+  const lead=k=>{ const i=steps.findIndex(x=>!x.done && x.k!=='app'); return i>=0 && steps[i].k===k; };
   const a=intake();
   const goal=(GOALS.find(g=>g.v===a.goal)||{}).t;
   const pain=a.safe && a.safe.pain==='yes';
@@ -10332,6 +10372,8 @@ function screenStart(){
     <div class="rise rise-1" style="padding:18px 20px 0">${obTimelineHTML(steps, next)}</div>
 
     <div class="rise rise-2" style="padding:14px 20px 0;display:flex;flex-direction:column;gap:12px">
+      <div id="ob-app" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(sA)}${obAppHTML(sA, !sA.done && next===1)}</div>
+
       <div id="ob-q" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s0)}
         ${s0.done
           ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">${[goal, (STAGES[placedStage()]||{}).n, pain?'Something to watch':'No pain'].filter(Boolean)
@@ -10339,7 +10381,7 @@ function screenStart(){
              <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">From the quiz you took. <button onclick="${quizGo}"
               style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Anything changed?</button></div>`
           : `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">What you are after, where you are now, and anything that hurts. A few minutes.</div>
-             ${cta('Answer them',quizGo,next===1)}`}</div>
+             ${cta('Answer them',quizGo,lead('q'))}`}</div>
 
       <div id="ob-t" style="scroll-margin-top:90px;padding:10px 2px 0">${secHead(s1, s1.of?`<span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${s1.n} of ${s1.of}</span>`:'')}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${cps.length
@@ -10351,16 +10393,25 @@ function screenStart(){
 
       <div id="ob-call" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s2)}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes on what you want from the programme, so it fits you and your week.</div>
-        ${s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked. <button onclick="st.callBooked=false;save();render()"
+        ${s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked. <button onclick="st.callBooked=false;st.callNo=true;save();saveState();render()"
             style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Not booked after all?</button></div>`
-          : cta('Pick a time',"st.callBooked=true;save();render();leaveTo('"+CALL_URL+"')",next===3)}</div>
+          : cta('Pick a time',"st.callBooked=true;st.callNo=false;save();saveState(true);render();leaveTo('"+CALL_URL+"')",lead('call'))}</div>
 
       <div id="ob-b" class="card" style="padding:18px;scroll-margin-top:90px;background:linear-gradient(160deg,#fff,rgba(0,102,99,.05))">${secHead(s3)}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Written for you from your answers, your baseline and our call. It opens here, and your Train screen becomes your programme.</div></div>
 
+      <!-- coaching is one package: the ladder is theirs as well, before block
+           one and after it, where the menu switches between the two -->
+      <div class="card" style="padding:16px 18px;display:flex;gap:13px;align-items:center">
+        <span style="flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:rgba(0,102,99,.1);color:var(--forest)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4v-5h4v-5h4V5h4"/></svg></span>
+        <span style="flex:1;min-width:0"><b style="display:block;font:600 15px/1.3 var(--sans)">The full ladder is included</b>
+          <span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:2px">Every stage and every fix, yours alongside your programme.</span></span>
+        <button class="btn2" style="flex:none;margin:0;min-height:40px;padding:0 14px;width:auto" onclick="go('ladder')">Open it</button>
+      </div>
       <div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;padding:4px 10px 28px">
-        Keep training on the ladder meanwhile. Questions? <button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
-          font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Message me</button>.</div>
+        Questions? <button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
+          font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Message me</button> any time.</div>
     </div></div>`;
 }
 /* on Train, while block one is being written: where they are with it */
@@ -10469,18 +10520,20 @@ function youInHTML(){
       ${item(svg('<path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14l-4-3-4 3-4-3z"/>'),'A programme written for you, in this app')}
       ${item(svg('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>'),'Me in the chat, answering within 48 hours')}
       ${item(svg('<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>'),'Video form checks every two weeks')}
-      ${item(svg('<path d="M4 20h4v-5h4v-5h4V5h4"/>'),'Every stage of the ladder, open now')}
+      ${item(svg('<path d="M4 20h4v-5h4v-5h4V5h4"/>'),'The full ladder too: every stage, every fix')}
     </div>
     <button class="btn" style="position:relative;width:100%;margin-top:14px" onclick="youInGo()">Let&rsquo;s go</button>
     <div style="position:relative;font:400 italic 15px/1 var(--serif);color:var(--grey);margin-top:14px">Elliott</div>
   </div>`;
 }
 let youInQueued=false;
-function youInGo(){ st.youInSeen=true; save(); closeOv(); st.tab='start'; render(); }
+function youInGo(){ st.youInSeen=true; save(); saveState(true); closeOv(); st.tab='start'; render(); }
 function youInMaybe(){
   if(st.youInSeen || youInQueued || !awaitingBlock()) return;
   youInQueued=true;
-  setTimeout(()=>{ youInQueued=false; if(!st.youInSeen && !st.ov && awaitingBlock()){ st.ovFull=true; openOv('youin'); } }, 450);
+  /* not before the account has said whether another phone has shown it */
+  setTimeout(()=>{ youInQueued=false; if(st.token && !stateIn){ youInMaybe(); return; }
+    if(!st.youInSeen && !st.ov && awaitingBlock()){ st.ovFull=true; openOv('youin'); } }, 450);
 }
 /* Straight back from Stripe. Signed in, the payment takes a few seconds to
    reach the account, so the app asks until it has, then shows the welcome.
@@ -15667,7 +15720,8 @@ const CO_PLANS = [
     feats:['Your own programme in the app, every drill filmed',
            'Rewritten every block, from your two week test',
            'Video form checks on your footage every two weeks',
-           'Message me any time, with clips and voice notes'],
+           'Message me any time, with clips and voice notes',
+           'The full ladder app, every stage and fix, included'],
     note:'Cancel any time in the app.' },
   { k:'inner', who:'Inner Circle', price:'inneronline', withSession:'inner', flag:'3 places',
     line:'Online coaching, plus a check-in every week. By application.',
@@ -16877,7 +16931,7 @@ function railFoot(){
   const waiting = msgsNew()>0;
   const name=(st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
   const initials=(name||'?').slice(0,2).toUpperCase();
-  const sub = st.in ? 'COACHED' : 'STAGE '+((trialPending()?placedStage():curStage())+1);
+  const sub = (st.in || awaitingBlock()) ? 'COACHED' : 'STAGE '+((trialPending()?placedStage():curStage())+1);
   const row=(onclick,label,svg,extra)=>`<button onclick="${onclick}" title="${esc(label)}"
     style="display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;border:0;
     border-radius:14px;background:none;cursor:pointer;color:var(--grey);text-align:left;
@@ -17051,7 +17105,7 @@ function topBar(){
   const waiting = msgsNew()>0;
   const name = (st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
   const initials = (name||'?').slice(0,2).toUpperCase();
-  const sub = st.in ? 'COACHED' : 'STAGE '+((trialPending()?placedStage():curStage())+1);
+  const sub = (st.in || awaitingBlock()) ? 'COACHED' : 'STAGE '+((trialPending()?placedStage():curStage())+1);
   /* every button on the bar wears this, the menu included: it was a solid
      dark circle, the heaviest thing at the top of every screen */
   const chip = `flex:none;cursor:pointer;transition:background .3s,border-color .3s,color .3s;
@@ -17378,7 +17432,8 @@ window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installP
   /* it can arrive after the Train screen is drawn, and the button there
      changes from "show me how" to one tap */
   try{ if(st.tab==='home' && !st.ov) render(); }catch(err){} });
-window.addEventListener('appinstalled', ()=>{ installPrompt=null; st.installed=true; save(); track('install'); });
+window.addEventListener('appinstalled', ()=>{ installPrompt=null; st.installed=true; save(); track('install');
+  try{ if(st.tab==='start' && !st.ov) render(); }catch(err){} });
 const isStandalone = () => {
   try{ return window.matchMedia('(display-mode: standalone)').matches
     || window.navigator.standalone===true; }catch(e){ return false; }
@@ -17450,10 +17505,16 @@ function pushWhy(step, e){
 function pushCheck(){
   if(!pushSupported()) { pushOn=false; return; }
   let perm='default'; try{ perm=Notification.permission; }catch(e){}
-  if(perm!=='granted'){ pushOn=false; return; }
+  if(perm!=='granted'){ pushOn=false; pushKept(false); return; }
   navigator.serviceWorker.ready.then(reg=>reg.pushManager.getSubscription()).then(sub=>{
-    pushOn=!!sub; if(sub) pushSync(sub); pushPaint();
+    pushOn=!!sub; if(sub) pushSync(sub); pushKept(!!sub); pushPaint();
   }).catch(()=>{ pushOn=false; });
+}
+/* whether this phone hears, kept, so the Start step knows without waiting */
+function pushKept(on){
+  if(!!st.pushOk===on) return;
+  st.pushOk=on; save();
+  if(st.tab==='start' && !st.ov) render();
 }
 async function pushTurnOn(){
   if(!pushSupported()){ let ios=false; try{ ios=isIOS(); }catch(e){} if(ios) openOv('install'); return; }
@@ -17479,7 +17540,7 @@ async function pushTurnOn(){
     if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:want});
     step='server';
     const r=await pushSync(sub);
-    pushOn=!!r.ok;
+    pushOn=!!r.ok; if(r.ok){ st.pushOk=true; st.appSkip=false; save(); }
     toast(r.ok ? 'Notifications on for this phone.'
       : r.why==='signin' ? 'Your sign in on this phone has run out. Sign in again, then turn them on.'
       : r.why==='net' ? 'That did not reach the server. Try again on better signal.'
@@ -17496,7 +17557,7 @@ async function pushTurnOff(){
       await sub.unsubscribe();
     }
   }catch(e){}
-  pushOn=false; toast('Notifications off for this phone.'); pushPaint();
+  pushOn=false; st.pushOk=false; save(); toast('Notifications off for this phone.'); pushPaint();
 }
 /* An iPhone does not show a notification from the app you are looking at,
    which is exactly where you are when you press this. So it goes in five
