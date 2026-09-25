@@ -1532,7 +1532,10 @@ function todayFocus(){
   return '';
 }
 
+/* set while Today draws: the save for no signal row is asking */
+let todayDlAsk=false;
 function screenToday(){
+  todayDlAsk=false;
   const d=day(), q=queue(), done=allItems(d).filter((_,i)=>false).length;
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
@@ -1618,7 +1621,17 @@ function screenToday(){
       const own=(d.groups||[]).filter(g=>!g.warm).flatMap(g=>g.items||[]);
       const pool=d.noWarm ? [] : ((DATA.warmup&&DATA.warmup.items)||[]);
       const all=own.concat(pool.filter(p=>!own.some(o=>o.v===p.v)));
-      return dlRow('day'+st.day+'-'+dlHash(all.map(it=>it.v||'')), all.map(itUrl),
+      const key='day'+st.day+'-'+dlHash(all.map(it=>it.v||''));
+      /* ── one ask at a time ──────────────────────────────────────────
+         Home Screen, notifications, save for no signal and the Inner
+         Circle offer each had a card here, and together they read as
+         nagging. They queue now: this row waits until the two above it
+         are done or put away, and it can be put away itself. A day that
+         is already saved always shows, because that is news not an ask. */
+      const later = st.dlLater && Date.now()-st.dlLater < 3*864e5;
+      if(!dlRec(key) && (later || installNudge() || pushNudge())) return '';
+      todayDlAsk = !dlRec(key);
+      return dlRow(key, all.map(itUrl),
         {kind:'day', day:st.day, name:d.label+(d.sub?', '+d.sub:'')});
     })()}
   </div>
@@ -1629,7 +1642,7 @@ function screenToday(){
   ${installNudge()}
   ${pushNudge()}
   ${todayFocus()}
-  ${innerOfferHTML()}
+  ${(installNudge()||pushNudge()||todayDlAsk) ? '' : innerOfferHTML()}
   ${savedHomeHTML()}
 ${/* Once it has been read it is a wall of last month's words at the top of
      every day, and the whole of it is on the Plan screen anyway. New, it is
@@ -2057,6 +2070,8 @@ function dlRow(key, urls, meta){
         : (meta&&meta.kind==='ex') ? 'Keeps this explainer on your phone, to watch anywhere.'
         : uids.length+' film'+(uids.length===1?'':'s')+', about '+(uids.length*10)+' MB, kept on this phone.'}</span>
     </span>
+    ${(meta&&meta.kind==='day')?`<button onclick="event.stopPropagation();st.dlLater=Date.now();save();render()"
+      style="flex:none;border:0;background:none;cursor:pointer;padding:8px 2px;font:600 12px/1 var(--sans);color:var(--grey)">Not now</button>`:''}
     <button onclick="event.stopPropagation();dlStart('${key}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
       padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Save</button>`);
 }
@@ -6101,7 +6116,8 @@ function screenProgress(){
 
   const marksBody = `
       
-      <div data-tour="checkpoints">${checkpointsCard()}</div>
+      ${/* flat, as on the ladder: a card round the cards was three layers deep */''}
+      <div data-tour="checkpoints">${checkpointsCard(true)}</div>
 
       ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
@@ -8824,6 +8840,11 @@ function drawOv(){
     const _when=_hr<12?"This morning's":_hr<18?"This afternoon's":"Tonight's";
     const _wrist=st.sessionKind==='wrist';
     const _cur=curStage();
+    /* Somebody who has not done a session yet was asked how hard and how
+       long before they knew what a session was. The first one builds at
+       the defaults and says what happens next; the questions come back
+       for the second. */
+    const _first=firstVisit() && !_wrist;
     const _kick='font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)';
     const _row='min-height:52px;width:100%;border:0;border-radius:14px;display:flex;align-items:center;'
       +'justify-content:space-between;padding:0 16px;cursor:pointer;text-align:left;'
@@ -8845,7 +8866,19 @@ function drawOv(){
           esc((_restCell&&!_full&&_cell) ? _cell.n : (_day?_day.n:(STAGES[_cur]||STAGES[0]).n))}</div>
       </div>
 
-      ${bandsFor(_cur).length<2 ? '' : `<div style="${_wrist?'opacity:.4;pointer-events:none':''}">
+      ${_first ? `<div style="padding:14px 16px;border-radius:16px;background:rgba(0,102,99,.06);
+        border:1px solid rgba(0,102,99,.14)">
+        <div class="kick2" style="color:var(--forest)">YOUR FIRST SESSION</div>
+        <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${esc(BAND_NAME[stageLevel(_cur)])} level, ${
+          sessionMins()} minutes. Easier, harder and how long come after this one.</div>
+        <ol style="margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;
+          font:400 13.5px/1.45 var(--sans);color:var(--grey)">
+          <li>Press Go. The player runs it: each drill, its film, the rest between.</li>
+          <li>Tick a check point when you hit it. Reach them all and the next stage opens.</li>
+          <li>Send one clip whenever you want eyes on it.</li>
+        </ol>
+      </div>` : ''}
+      ${(_first || bandsFor(_cur).length<2) ? '' : `<div style="${_wrist?'opacity:.4;pointer-events:none':''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;${_kick}">
           <span>LEVEL</span>
           <span style="letter-spacing:0;font-weight:500;text-transform:none;font-size:12px">${
@@ -8866,7 +8899,7 @@ function drawOv(){
             : 'Easier is this stage at a gentler dose, to get used to it. Harder is longer holds, more reps and sets, and more of the hard drills in the mix.'}</div>
       </div>`}
 
-      <div style="${_wrist?'opacity:.4;pointer-events:none':''}">
+      ${_first ? '' : `<div style="${_wrist?'opacity:.4;pointer-events:none':''}">
         <div style="${_kick}">HOW LONG</div>
         <div style="display:flex;gap:8px;margin-top:10px;background:rgba(0,64,61,.08);
           border-radius:14px;padding:4px">
@@ -8879,7 +8912,7 @@ function drawOv(){
         </div>
         <div style="font:400 12px/1 var(--sans);color:var(--grey);margin-top:8px;text-align:right">${
           (!_wrist && stageLevel(_cur)===1 && easyCapped(_cur)) ? 'minutes · easier stops at '+EASY_CAP : 'minutes'}</div>
-      </div>
+      </div>`}
 
       <!-- "Follow along" and "Every drill" were offered here as a choice
            between two things, to somebody who had seen neither, and they
