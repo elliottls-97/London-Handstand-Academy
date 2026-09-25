@@ -5326,7 +5326,13 @@ const handle = async (request) => {
      the free ladder felt, which the coach reads if they join coaching. */
   const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs',
                         'fccredits', 'plusuntil', 'visits', 'week', 'wsmine',
-                        'plan', 'ref', 'trialused', 'ladderflags'];
+                        'plan', 'ref', 'trialused', 'ladderflags',
+                        /* a client made before their real address was known
+                           moves when it arrives: their own clips, the block
+                           being written and the ones taken off, what the
+                           coach has read, and the phone that hears them */
+                        'clips', 'progdrafts', 'progarchive',
+                        'cpseen', 'saidseen', 'trainseen', 'flagseen', 'push'];
 
   /* The only order that works, given the foreign keys cascade on delete and
      not on update: the new row first so there is something to point at, then
@@ -5368,9 +5374,14 @@ const handle = async (request) => {
     if (seeded) roster[from] = null; else delete roster[from];
     await setSetting('roster', roster);
 
+    /* whether their emails were let through the client guard: a roster
+       client's new address would otherwise be held by it */
+    const off = (await getSetting('mailoff')) || {};
+    if (off[from] !== undefined) { off[to] = off[from]; delete off[from]; await setSetting('mailoff', off); }
+
     await supa.remove('codes', `email=eq.${enc(from)}`).catch(() => {});
     await supa.remove('accounts', `email=eq.${enc(from)}`);
-    return { ok: true, name: old.name || '' };
+    return { ok: true, name: old.name || (roster[to] && roster[to].name) || '', seen: !!old.last_seen };
   }
 
   /* ── deleting an account ─────────────────────────────────────────
@@ -6617,6 +6628,20 @@ const handle = async (request) => {
 
       const moved = await moveAccount(from, to);
       if (moved.error) return json({ error: moved.error }, moved.status || 400);
+
+      /* never signed in: the account was made for them before their address
+         was known, so this is their welcome, with a way to set a password */
+      if (!moved.seen) {
+        const first = String(moved.name || '').split(' ')[0];
+        const link = await welcomeLink(to);
+        await email(to, `Your London Handstand Academy account${first ? ', ' + first : ''}`,
+          mail({ title: 'Your account is ready.', greeting: first,
+            paras: [`${esc(coachName(coachOf(to) || primaryCoach()))} has set up your account in the London Handstand Academy app.`,
+                    `Your username is ${esc(to)}. Choose a password with the button below and you are in.`],
+            cta: { href: link, label: 'Choose your password' },
+            signoff: { name: coachName(coachOf(to) || primaryCoach()) } }));
+        return json({ ok: true, from, to, name: moved.name, welcomed: true });
+      }
 
       await email(to, 'Your email address was changed',
         mail({ title: 'Your address has moved.',
