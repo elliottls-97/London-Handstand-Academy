@@ -1559,11 +1559,14 @@ const handle = async (request) => {
         const first = String(acct.name || '').split(' ')[0];
         const opener = boughtPlan === 'check'
           ? `Welcome${first ? ' ' + first : ''}. You are set up for form checks. Send a clip here whenever you have one: film from the side, whole body in frame, and I will send you a video back on your own footage, showing what to change.`
-          : `Welcome${first ? ' ' + first : ''}. Before I write block one I need to see where you are. Film two things, from the side with your whole body in frame: a chest-to-wall hold for as long as you can, and one freestanding attempt, however it goes. Send them here and I will build the first two weeks from them.`;
+          /* it asked for its own two clips, which were not the tests on the
+             Start page and never ticked them off, so the client did what the
+             chat said and block one still waited */
+          : `Welcome${first ? ' ' + first : ''}. Your Start page lists the tests I want to see. Film each one there and it comes straight to me. Any questions, ask me here.`;
         try { await threadAdd(db, e2, { from: 'coach', sub: 'auto', text: opener }); } catch {}
         if (await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
           mail({ title: `Someone just bought ${tierName}.`,
-            paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster and has an opening message in their thread asking for a baseline clip.`,
+            paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.`,
                     boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.'],
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
             signoff: { name: 'London Handstand Academy' } }));
@@ -5988,7 +5991,7 @@ const handle = async (request) => {
         const ob = st8.ob || {};
         return { email: e, name: clients()[e] || e, since,
           goal, goalByCoach: !!(st8.ob || {}).goal, level: Number.isFinite(Number(it.level)) && it.level !== null ? Number(it.level) : null,
-          pain: !!(it.safe && it.safe.pain === 'yes'), niggles: Array.isArray(it.niggles) ? it.niggles : [],
+          pain: !!(it.safe && it.safe.pain === true), niggles: Array.isArray(it.niggles) ? it.niggles : [],
           tests: { of: cps.length, logged, clips, lastClip },
           push, youIn: !!ob.youIn, call: !!ob.call, callDone: ob.callDone || 0,
           hello: own.length ? ms(own[0].created_at) : 0,
