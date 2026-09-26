@@ -1357,10 +1357,19 @@ const handle = async (request) => {
        The room is OverGravity's, not ours, so nobody picks a slot from a
        calendar. They pay, say which days suit, and the time is agreed in
        the thread. Paid first, so the ones who ask mean it. */
-    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.session) {
-      const kind = String(obj.metadata.session) === '90' ? '90' : '60';
-      const nm = String((obj.metadata.name || (obj.customer_details && obj.customer_details.name) || '')).slice(0, 60);
-      const prefs = String(obj.metadata.prefs || '').slice(0, 500);
+    /* A payment link carries no metadata, so a one-off £100 was matched on its
+       amount, and £100 was once the coaching price: Max Mundt paid for a 90
+       minute session on 26 Sept and was welcomed as a coaching client. A
+       one-off payment at a session price is a session. */
+    const oneOffAmt = (ev.type === 'checkout.session.completed' && obj.mode === 'payment' && !(obj.metadata && obj.metadata.plan))
+      ? Number(obj.amount_total) : 0;
+    const sessByAmt = oneOffAmt === Number(PRICES.session90.amount) ? '90'
+      : oneOffAmt === Number(PRICES.session60.amount) ? '60' : '';
+    if (ev.type === 'checkout.session.completed' && ((obj.metadata && obj.metadata.session) || sessByAmt)) {
+      const md = obj.metadata || {};
+      const kind = String(md.session || sessByAmt) === '90' ? '90' : '60';
+      const nm = String((md.name || (obj.customer_details && obj.customer_details.name) || '')).slice(0, 60);
+      const prefs = String(md.prefs || '').slice(0, 500);
       if (!e) {
         await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A session payment had no email',
           `<p style="font:16px/1.6 system-ui">${esc(obj.id || '')}, ${kind} minutes, no email on the payment. It is in Stripe; nothing else was recorded.</p>`);
@@ -1416,8 +1425,12 @@ const handle = async (request) => {
       const it = o.items && o.items.data && o.items.data[0];
       return Number((o.plan && o.plan.amount) || (it && it.price && it.price.unit_amount) || 0);
     };
-    const planOf = o => (o.metadata && o.metadata.plan)
-      || ((o.currency || 'gbp') === 'gbp' && byAmount[amountOf(o)]) || '';
+    const planOf = o => { if (o.metadata && o.metadata.plan) return o.metadata.plan;
+      const p = ((o.currency || 'gbp') === 'gbp' && byAmount[amountOf(o)]) || '';
+      /* coaching and the Inner Circle are subscriptions; a one-off payment
+         that happens to match their amount is something else */
+      if ((p === 'online' || p === 'inner') && o.object === 'checkout.session' && o.mode === 'payment') return '';
+      return p; };
 
     let acct = e ? await getAcct(e) : null;
     let custEmail = '';
@@ -1536,7 +1549,13 @@ const handle = async (request) => {
       /* Buying coaching or form checks makes a client, not just a payer.
          Before this the money arrived and nothing else happened: no roster
          entry, no thread, nobody told. */
-      if (['online', 'inner'].includes(boughtPlan) && ev.type === 'checkout.session.completed') {
+      /* Stripe redelivers an event it thinks went unanswered, and each one
+         sent a second welcome and a second opener: Max Mundt had two alerts
+         twenty seconds apart. One welcome per checkout. */
+      const welcomedKey = `welcomed:${obj.id || ''}`;
+      const dupWelcome = !!obj.id && !!(await getSetting(welcomedKey));
+      if (['online', 'inner'].includes(boughtPlan) && ev.type === 'checkout.session.completed' && !dupWelcome) {
+        if (obj.id) await setSetting(welcomedKey, { at: Date.now() });
         const e2 = acct.email;
         const stored = (await getSetting('roster')) || {};
         /* a past client paying for coaching again is a client again, and is
