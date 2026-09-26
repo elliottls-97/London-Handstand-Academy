@@ -16297,7 +16297,7 @@ function screenCoaching(){
       ${sold ? `${coachingPicker()}
       <div class="card" style="padding:20px">
         <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>`
-      : `<button onclick="st.firstOpen=1;save();render()" style="align-self:center;border:0;background:none;cursor:pointer;
+      : `<button onclick="st.coachAsked=true;save();render()" style="align-self:center;border:0;background:none;cursor:pointer;
           padding:10px 4px;font:600 13px/1.4 var(--sans);color:var(--grey)">Here for coaching? <span
           style="color:var(--forest);text-decoration:underline">See the plans</span></button>`}
       ${st.applied
@@ -16848,7 +16848,17 @@ const hadFormCheck = () => !!st.lastReview
    once a form check has come back, the moment they have seen what Elliott
    does, or after a week of using the app, whichever is first. Until then
    the tab is the form check and nothing on it has a price. */
-const coachingOpen = () => hadFormCheck() || (!!st.firstOpen && Date.now()-st.firstOpen >= 7*864e5);
+/* Held back from browsers, never from somebody who needs it: coaching also
+   opens the moment the app can tell they do. Press or one-arm as a goal,
+   which the app does not teach; pain said in the quiz; stuck on the same
+   check points for three weeks; or asking Elliott about coaching in the
+   chat. Or pressing See the plans. */
+const COACH_WORDS = /coach|programme|program|price|cost|£|inner circle|one to one|1:1|1-1|in person/i;
+const coachingNeed = () => { const a=st.intake||{};
+  return !!st.coachAsked || wantsCoaching(a) || !!(a.safe && a.safe.pain===true) || !!plateau()
+    || (st.msgs||[]).some(m=>m && m.from==='me' && COACH_WORDS.test(m.text||'')); };
+const coachingOpen = () => hadFormCheck() || coachingNeed()
+  || (!!st.firstOpen && Date.now()-st.firstOpen >= 7*864e5);
 const coachTabLabel = () => coachingOpen() ? 'Coaching' : 'Form check';
 /* What Elliott has said that has not been looked at. The chat is the one
    place a reply lands, so this is the one signal: the dot on the chat
