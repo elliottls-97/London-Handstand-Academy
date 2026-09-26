@@ -1404,6 +1404,12 @@ const handle = async (request) => {
       }
       if (!freshSess) return json({ ok: true, note: 'session already filed' });
       await ensureAcct(e, nm);
+      /* The account was made and the email said so, with no password and no
+         way to set one: they had to find Forgotten it? on the sign in screen.
+         Somebody without a password gets the same set-a-password link a
+         coaching buyer does. */
+      const sessNoPw = !(await hashFor(db, e));
+      const sessLink = sessNoPw ? await welcomeLink(e) : '';
       const off = (await getSetting('mailoff')) || {};
       if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
       try {
@@ -1414,8 +1420,9 @@ const handle = async (request) => {
         mail({ title: 'Paid. Now the time.', greeting: nm.split(' ')[0] || '',
           paras: [`Your ${kind} minute session in London is paid for. The room at OverGravity is booked around their timetable, so I check your times against it and confirm within 48 hours.`,
                   prefs ? `You said: <b>${esc(prefs)}</b>.` : 'Reply to this with the days and times that suit you.',
-                  'You have an account in the Handstand Ladder app under this address, and the conversation carries on there under Ask as well as by email.'],
-          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+                  sessNoPw ? `You have an account in the Handstand Ladder app under this address, where your booking is, and we can talk there as well as by email. Your username is ${esc(e)}: choose a password with the button below and you are in.`
+                           : 'Your booking is in the Handstand Ladder app under this address, and we can talk there as well as by email.'],
+          cta: { href: sessLink || `${SITE}/lha-app.html`, label: sessNoPw ? 'Choose a password' : 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }));
       await coachAlert(null, 'business', { title: (nm || e) + ' paid for a ' + kind + ' minute session', body: 'Set the time on Today.', tag: 'sess:' + e });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Session to arrange: ${nm || e}, ${kind} min`,
@@ -3053,8 +3060,11 @@ const handle = async (request) => {
         const whenTxt = new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
         try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
           text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
+        const cNoPw = !(await hashFor(db, row.email));
+        const cLink = cNoPw ? await welcomeLink(row.email) : '';
         await email(row.email, `Confirmed: your session, ${whenTxt}`,
           mail({ title: 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
+            cta: cNoPw ? { href: cLink, label: 'See it in the app' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
             paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
                     row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
                     `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
