@@ -16062,7 +16062,7 @@ function screenCoaching(){
   /* Has a form check been sent and answered? Until it has, this screen
      sells nothing: the free one is the whole offer and the prices wait
      underneath the answer it comes back with. */
-  const sold = !signedIn ? false : coachingOpen();
+  const sold = !signedIn ? false : (hadFormCheck() || (!canCheck && !awaiting));
   const tick = t => `<div style="display:flex;gap:9px;align-items:flex-start;margin-top:9px">
       <span style="flex:none;width:16px;height:16px;border-radius:999px;background:var(--forest);
         color:var(--bg);display:grid;place-items:center;font:700 9px/1 var(--sans);margin-top:2px">&check;</span>
@@ -16290,16 +16290,9 @@ function screenCoaching(){
            advert. What it did in practice was hide the only way to buy
            coaching from everybody who had not yet sent a clip, which is
            everybody. The free check stays first; the plans sit under it. -->
-      ${/* Held back again, on Elliott's call, 26 Sept: the plans open once a
-           form check has come back or after a week in the app (coachingOpen).
-           Somebody who arrived wanting coaching, from the website or a
-           friend, still has a way in: one quiet line, not the prices. */''}
-      ${sold ? `${coachingPicker()}
+      ${coachingPicker()}
       <div class="card" style="padding:20px">
-        <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>`
-      : `<button onclick="st.coachAsked=true;save();render()" style="align-self:center;border:0;background:none;cursor:pointer;
-          padding:10px 4px;font:600 13px/1.4 var(--sans);color:var(--grey)">Here for coaching? <span
-          style="color:var(--forest);text-decoration:underline">See the plans</span></button>`}
+        <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
       ${st.applied
         ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
             <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
@@ -16844,22 +16837,7 @@ const TABS={
    description of what is on it and the way in to the rest. */
 const hadFormCheck = () => !!st.lastReview
   || ((st.subs||[]).some(x=>x && x.status==='reviewed'));
-/* Coaching is not offered to somebody who has only just arrived. It opens
-   once a form check has come back, the moment they have seen what Elliott
-   does, or after a week of using the app, whichever is first. Until then
-   the tab is the form check and nothing on it has a price. */
-/* Held back from browsers, never from somebody who needs it: coaching also
-   opens the moment the app can tell they do. Press or one-arm as a goal,
-   which the app does not teach; pain said in the quiz; stuck on the same
-   check points for three weeks; or asking Elliott about coaching in the
-   chat. Or pressing See the plans. */
-const COACH_WORDS = /coach|programme|program|price|cost|£|inner circle|one to one|1:1|1-1|in person/i;
-const coachingNeed = () => { const a=st.intake||{};
-  return !!st.coachAsked || wantsCoaching(a) || !!(a.safe && a.safe.pain===true) || !!plateau()
-    || (st.msgs||[]).some(m=>m && m.from==='me' && COACH_WORDS.test(m.text||'')); };
-const coachingOpen = () => hadFormCheck() || coachingNeed()
-  || (!!st.firstOpen && Date.now()-st.firstOpen >= 7*864e5);
-const coachTabLabel = () => coachingOpen() ? 'Coaching' : 'Form check';
+const coachTabLabel = () => hadFormCheck() ? 'Coaching' : 'Form check';
 /* What Elliott has said that has not been looked at. The chat is the one
    place a reply lands, so this is the one signal: the dot on the chat
    button, the dot on the tab, the count on the Chat segment. */
