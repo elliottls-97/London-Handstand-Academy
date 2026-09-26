@@ -1110,6 +1110,24 @@ if(PREVIEW){
     }).catch(err=>{ tell('Network failed on '+String(u).split('?')[0]); throw err; });
   };
 }
+/* ── the App Store build ─────────────────────────────────────────────
+   Inside the iPhone app the shell adds LHAiOS to the browser's name. Apple
+   does not allow a digital subscription to be sold, priced or pointed at
+   from inside an iOS app except through its own in-app purchase, so there
+   the app sells nothing: no prices, no buy buttons, no "pay on the website".
+   Members sign in and everything they paid for is there. What is bought in
+   person, a workshop or a one to one, is allowed and stays. sells() is the
+   one switch: when Apple in-app purchase is added, IOS_SELL turns it on.
+   ?ios=1 shows the App Store build in a browser; ?ios=0 turns it off. */
+const IOS_APP = (()=>{ try{
+  if(/LHAiOS/.test(navigator.userAgent)) return true;
+  const q=new URLSearchParams(location.search).get('ios');
+  if(q==='1') sessionStorage.setItem('lha_ios','1'); else if(q==='0') sessionStorage.removeItem('lha_ios');
+  return sessionStorage.getItem('lha_ios')==='1'; }catch(e){ return false; } })();
+let IOS_SELL=false;
+const sells = () => !IOS_APP || IOS_SELL;
+/* one line for anything that would have been a price or an offer */
+const MEMBERS = 'for members';
 let st={};
 try{ st=JSON.parse(localStorage.getItem(K)||'{}')||{}; }catch(e){ st={}; }
 /* no sheet is open when the page loads, whatever was open when it was
@@ -2380,7 +2398,7 @@ function savedHomeHTML(){
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
         <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':going?'var(--forest)':'var(--grey)'};margin-top:3px;${going?'font-weight:600':''}">${
           going ? done+' of '+(held.of||held.q.length)+' sets done'
-          : locked ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.'
+          : locked ? (sells() ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.' : 'Part of the full ladder, for members.')
           : gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
           : (r.taste && !isPlus()) ? 'Your free session, saved for no signal. It opens until you have done it.'
           : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+' &middot; needs signal'
@@ -3377,7 +3395,7 @@ function stageMasteryCard(){
           ${i+1}. ${esc(S.n)}</span>
         <span style="flex:none;font:600 11px/1 var(--sans);letter-spacing:.1em;
           color:${state==='now'?'var(--forest)':'var(--grey2)'}">${
-          S.soon?'COMING SOON':paid?PRICE()+'/MO':state==='done'?'DONE':state==='now'?'NOW':''}</span>
+          S.soon?'COMING SOON':paid?(sells()?PRICE()+'/MO':'MEMBERS'):state==='done'?'DONE':state==='now'?'NOW':''}</span>
       </div>
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:6px">
         <span style="font:400 12.5px/1.4 var(--sans);color:var(--grey)">
@@ -4452,7 +4470,7 @@ function cpClipHTML(c, sent){
        and telling a person who has just arrived that their free form check
        is used is the worst of the three things this line can say. */
     const line = can ? 'He watches it himself and says whether it counts.'
-      : st.freeCheckUsed ? 'Your free one is used. '+esc(PRICE('check'))+' a clip after that.'
+      : st.freeCheckUsed ? (sells() ? 'Your free one is used. '+esc(PRICE('check'))+' a clip after that.' : 'Your free one is used.')
       : !st.token ? 'One free with an account.'
       : 'One free with your account.';
     return `<button onclick="${send}" class="cpsend" style="width:100%;margin-top:12px;display:flex;align-items:center;
@@ -6760,7 +6778,7 @@ function subscriptionHTML(){
               ${st.cancelAt
                 ? 'Your renewal is already stopped. Access stays until <b>'+esc(whenEnds())+'</b>.'
                 : coachedSub ? 'Your coaching is active.'
-                : 'Your '+PRICE()+' a month subscription is active.'}</div>
+                : (sells() ? 'Your '+PRICE()+' a month subscription is active.' : 'Your membership is active.')}</div>
             <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">
               We could not reach Stripe just now, so the exact date is not shown.
               Nothing is wrong with your account.</div>
@@ -7411,7 +7429,7 @@ function nextSessionHTML(){
     <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${esc(b.title)}${b.place?' &middot; '+esc(b.place):''}</div>
     ${b.ics?calLinks(b):''}
     <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,64,61,.1)">
-      ${coachedView()?'':`<button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
+      ${(coachedView()||!sells())?'':`<button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
         text-align:left;font:400 13px/1.5 var(--sans);color:var(--grey)">Want me with you between sessions?
         <span style="color:var(--forest);font-weight:600">See online coaching &rarr;</span></button>`}
       <a href="/session.html" target="_blank" rel="noopener" style="font:400 13px/1.5 var(--sans);color:var(--grey);text-decoration:none">
@@ -8771,7 +8789,7 @@ let vbLast=0;
 function drawOv(){
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
-           password:'Change password', account:'Your account', emailchange:'Change email',
+           password:'Change password', account:'Your account', emailchange:'Change email', deleteacct:'Delete your account', members:'For members',
            why:'Why are you stopping?',apply:'Apply for coaching',
            summary:'Session complete',stage:S?S.n:'Stage',
            cleared:'Stage cleared',
@@ -9013,14 +9031,14 @@ function drawOv(){
         <span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.12em;color:#8a5a12">FREE</span>
         <span style="font:400 13px/1.45 var(--sans);color:var(--ink)">
           This is your one free session at <b>${esc(STAGES[curStage()].n)}</b>. After it the ladder
-          is ${PRICE()} a month${trialLine()?', '+trialLine():''}.</span>
+          is ${sells() ? PRICE()+' a month'+(trialLine()?', '+trialLine():'') : MEMBERS}.</span>
       </div>` : ''}
       ${(!_wrist && tasteSpent()) ? `<div style="margin-bottom:12px;padding:13px 14px;border-radius:14px;background:rgba(243,169,73,.16)">
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">You have had your free session at
-          <b>${esc(STAGES[placedStage()].n)}</b>. ${trialLine()?'The free week':'The ladder'} opens it again, and every
+          <b>${esc(STAGES[placedStage()].n)}</b>. ${!sells()?'Membership':trialLine()?'The free week':'The ladder'} opens it again, and every
           stage above it. Until then, Go builds ${esc(STAGES[curStage()].n)}.</div>
         <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
-          <button class="btn" style="flex:1 1 150px;min-height:46px;margin:0" onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>
+          ${sells()?`<button class="btn" style="flex:1 1 150px;min-height:46px;margin:0" onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
           ${tasteBackOk()?`<button class="btn2" style="flex:1 1 150px;min-height:46px;margin:0" onclick="tasteBack()">Back to today's session</button>`:''}
         </div></div>` : ''}
       <button onclick="closeOv();buildFreeSession(${_wrist},true,${_wrist?'null':_arg})"
@@ -9541,7 +9559,7 @@ function drawOv(){
     /* three tiers, and people should never have to guess which one they
        are on or what it costs them */
     const tier = st.in ? {n:'Coaching', d:'Your own programme, written by Elliott.', c:'var(--amber)'}
-      : st.plus ? {n:'Full ladder', d:PRICE()+' a month. Every stage including the Press.', c:'var(--amber)'}
+      : st.plus ? {n:'Full ladder', d:(sells()?PRICE()+' a month. ':'')+'Every stage including the Press.', c:'var(--amber)'}
       : {n:'Free', d:freePlanLine(), c:'var(--sand)'};
     if(!st.prefs) loadPrefs();
     body=`<div class="card" style="padding:18px">
@@ -9567,18 +9585,43 @@ function drawOv(){
       ${(st.plus||st.in)?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${st.in
-          ? 'Your coaching subscription.' : 'The full ladder, '+PRICE()+' a month.'}</div>
+          ? 'Your coaching subscription.' : sells() ? 'The full ladder, '+PRICE()+' a month.' : 'The full ladder.'}</div>
         <div id="subblock">${subscriptionHTML()}</div>
         ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
         ${!st.canCancel&&!st.canManage?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
           To change a card or cancel, message Elliott and it is done the same day.</div>`:''}
       </div>`:''}
-      ${(!st.plus&&!st.in)?`<button class="btn" style="width:100%;margin-top:14px"
+      ${(!st.plus&&!st.in&&sells())?`<button class="btn" style="width:100%;margin-top:14px"
         onclick="closeOv();openStage(FREE_STAGES)">Unlock the rest of the ladder, ${PRICE()}/mo</button>`:''}
       <button class="btn2" style="width:100%;margin-top:14px" onclick="openOv('password')">Change password</button>
       <button class="btn2" style="width:100%;margin-top:10px" onclick="openOv('emailchange')">Change email</button>
-      <button class="btn2" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>`;
+      <button class="btn2" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>
+      <button onclick="openOv('deleteacct')" style="display:block;margin:18px auto 0;border:0;background:none;cursor:pointer;
+        padding:8px;font:600 13px/1 var(--sans);color:var(--terra)">Delete my account</button>`;
+  }
+  /* Deleting your own account. Apple asks it of any app where an account
+     can be made; the password is asked again so a phone left unlocked
+     cannot do it. */
+  /* the App Store build's answer to anything that would have been an offer */
+  if(st.ov==='members'){
+    body=`<div style="font:400 15px/1.6 var(--sans);color:var(--grey)">This part of the ladder is for members:
+        every stage, every film and every fix. If you are a member, sign in with the email you joined with and it is all here.</div>
+      ${st.token?`<button class="btn2" style="width:100%;margin-top:18px" onclick="closeOv()">OK</button>`
+        :`<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();st.tab='signin';save();render()">Sign in</button>
+          <button class="btn2" style="width:100%;margin-top:10px" onclick="closeOv()">Not now</button>`}`;
+  }
+  if(st.ov==='deleteacct'){
+    body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey)">This deletes your account and everything on it:
+        your progress, your check points, your clips and the chat. It cannot be undone.${st.plus||st.in
+        ?' Your subscription is cancelled first, so nothing more is charged.':''}</div>
+      <label for="delPw" style="display:block;margin-top:18px;font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">YOUR PASSWORD</label>
+      <input id="delPw" type="password" autocomplete="current-password" placeholder="Password, or type delete if you never set one"
+        style="width:100%;margin-top:8px;padding:14px 16px;border-radius:14px;border:1.5px solid rgba(0,64,61,.18);background:#fff;font:400 16px/1.3 var(--sans)">
+      <div id="delMsg" style="min-height:20px;margin-top:8px;font:500 13px/1.4 var(--sans);color:var(--red)"></div>
+      <button onclick="deleteMine()" style="width:100%;height:52px;margin-top:6px;border:0;border-radius:14px;cursor:pointer;
+        background:#b3412f;color:#fff;font:600 16px/1 var(--sans)">Delete my account</button>
+      <button class="btn2" style="width:100%;margin-top:10px" onclick="openOv('account')">Keep it</button>`;
   }
   if(st.ov==='password'){
     body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-bottom:20px">
@@ -9837,7 +9880,7 @@ function drawOv(){
       ${ladder}
       <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px">${
         moved ? esc((next.goal||'').replace(/\.$/,''))+'.'
-        : next ? esc(next.n)+' is the '+PRICE()+' tier. You stay on '+esc(from.n)+' until you open it.'
+        : next ? esc(next.n)+(sells()?' is the '+PRICE()+' tier.':' is for members.')+' You stay on '+esc(from.n)+' until you open it.'
         : 'That is the whole ladder. There is nothing below this one.'}</div>
     </div>
     ${film?`<div style="margin-top:14px;border-radius:18px;overflow:hidden;background:#fff;border:1px solid rgba(0,64,61,.10)">
@@ -9857,11 +9900,11 @@ function drawOv(){
         <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:9px">
           ${esc(next.n)}${(function(){const rest=STAGES.length-(st.clearedFrom||0)-2;
             return rest>0 ? ' and the '+(rest===1?'stage':rest+' stages')+' after it' : '';})()
-          } ${STAGES.length-(st.clearedFrom||0)-2>0?'are':'is'} ${PRICE()} a month. ${
+          } ${STAGES.length-(st.clearedFrom||0)-2>0?'are':'is'} ${sells()?PRICE()+' a month':MEMBERS}. ${
           esc((next.goal||'').replace(/\.$/,''))}.</div>
       </div>
-      <button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
-        Open ${esc(next.n)} for ${PRICE()} a month</button>
+      ${sells()?`<button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
+        Open ${esc(next.n)} for ${PRICE()} a month</button>`:''}
       <button class="btn2" style="width:100%;margin-top:9px"
         onclick="st.clearedFrom=null;closeOv()">Keep training ${esc(from.n)}</button>`
      :`<button class="btn" style="width:100%;margin-top:20px"
@@ -9919,9 +9962,9 @@ function drawOv(){
         <div style="font:400 20px/1.25 var(--serif);margin-top:8px">${esc(STAGES[placedStage()].n)} is part of the ladder.</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${
           trialLine() ? 'The free week opens it again, with every stage above it. Nothing is charged until '+esc(firstCharge())+'.'
-                      : 'It is '+PRICE()+' a month for every stage, and you can cancel from the app.'}</div>
-        <button class="btn" style="width:100%;margin-top:13px"
-          onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>
+                      : sells() ? 'It is '+PRICE()+' a month for every stage, and you can cancel from the app.' : 'Every stage is for members.'}</div>
+        ${sells()?`<button class="btn" style="width:100%;margin-top:13px"
+          onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
       </div>`:''}
       <!-- ── the address, now there is something to keep ──────────────
            One session runs with no account at all. This is the end of it,
@@ -10750,6 +10793,7 @@ function joinedLanding(){
    next block. Nobody already in Inner Circle is offered it. */
 const innerOn = () => coachedView() && blockNo()>=2 && !/^inner/.test(st.tier||'') && st.icLater!==blockNo();
 function innerOfferHTML(){
+  if(!sells()) return '';
   if(!innerOn()) return '';
   return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
     <div class="kick2" style="color:var(--forest)">INNER CIRCLE</div>
@@ -11080,6 +11124,18 @@ function closeWhy(send){
 }
 let whyStopContext='';
 
+/* the account, gone for good: asked once more, then signed out */
+function deleteMine(){
+  const v=((document.getElementById('delPw')||{}).value||'').trim(), msg=document.getElementById('delMsg');
+  if(!v){ if(msg) msg.textContent='Your password, or the word delete.'; return; }
+  sure('Delete your account for good?\n\nEverything on it goes, and it cannot be brought back.', 'Delete it', ()=>{
+    if(msg){ msg.style.color='var(--grey)'; msg.textContent='Deleting…'; }
+    fetch('/api/app/me/delete',{method:'POST',headers:authed(),body:JSON.stringify({password:v, confirm:v})})
+      .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'That did not work')))
+      .then(()=>{ closeOv(); signOut(); setTimeout(()=>toast('Your account has been deleted.'), 400); })
+      .catch(e=>{ if(msg){ msg.style.color='var(--red)'; msg.textContent=String(e); } });
+  }, true);
+}
 function signOut(){
   closeMenu();
   /* This phone's notifications belonged to the account signing out, and
@@ -12205,7 +12261,7 @@ const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FRE
    asked of them. Until they say no to the free week they are where their
    answers put them, with the week on offer; Foundations is where they go
    when they choose it (st.freeChoice), not where they are put. */
-const trialPending = () => !coachedView() && !isPlus() && !st.freeChoice && !tasting()
+const trialPending = () => sells() && !coachedView() && !isPlus() && !st.freeChoice && !tasting()
   && placedStage() > FREE_STAGES-1 && !!STAGES[placedStage()];
 function openTrial(at){ st.ovStage = (at!=null && STAGES[at]) ? at : placedStage(); openOv('stage'); }
 function chooseFree(thenTrain){
@@ -12337,7 +12393,7 @@ function stageFilmsHTML(){
   if(coachedView() || trialPending()) return '';
   const P=curStage(), PS=STAGES[P]; if(!PS) return '';
   const ex=stageExplainers(P).filter(o=>o.i>=0), fx=stageFixes(P);
-  const paid = PRICE_TRIAL()>0 ? 'WITH THE TRIAL' : esc(PRICE())+' A MONTH';
+  const paid = !sells() ? 'MEMBERS' : PRICE_TRIAL()>0 ? 'WITH THE TRIAL' : esc(PRICE())+' A MONTH';
   const films = ex.length ? railHTML('Explainers at '+esc(PS.n), EX_SUB,
       ex.map(({x,i})=>{ const open=explainerOpen(i);
         return railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'',
@@ -13268,9 +13324,9 @@ function screenFix(){
 
     ${locked?`<div class="rise rise-1" style="margin:20px 20px 0;padding:18px;border-radius:22px;background:var(--deep);color:#fff">
         <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--sand)">IN THE FULL LADDER</div>
-        <div style="font:400 24px/1.15 var(--serif);margin-top:8px">This fix opens with the ${PRICE()} a month tier.</div>
-        <div style="font:400 14px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:8px">Every fix, every stage of the ladder${trialLine()?', and the '+trialLine():''}.</div>
-        <button class="btn" style="width:100%;margin-top:14px;background:#fff;color:var(--deep)" onclick="openStage(FREE_STAGES)">See what is in it</button>
+        <div style="font:400 24px/1.15 var(--serif);margin-top:8px">${sells()?'This fix opens with the '+PRICE()+' a month tier.':'This fix is for members.'}</div>
+        <div style="font:400 14px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:8px">Every fix, every stage of the ladder${sells()&&trialLine()?', and the '+trialLine():''}.</div>
+        ${sells()?`<button class="btn" style="width:100%;margin-top:14px;background:#fff;color:var(--deep)" onclick="openStage(FREE_STAGES)">See what is in it</button>`:''}
       </div>`
     :`<div class="rise rise-1" style="padding:20px 20px 0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -14430,8 +14486,7 @@ function screenLadder(){
             <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em></div>
           <div style="font:400 14.5px/1.55 var(--sans);color:var(--ink);margin-top:10px">
             ${esc(nxt.n)} is next: ${esc(String(nxt.goal||'').replace(/\.$/,''))}. It and the
-            ${left===1?'stage':left+' stages'} after it ${left===1?'is':'are'} the ${esc(PRICE())} a
-            month tier${days>0?', and the first '+days+' days are free':''}.</div>
+            ${left===1?'stage':left+' stages'} after it ${left===1?'is':'are'} ${sells()?'the '+esc(PRICE())+' a month tier'+(days>0?', and the first '+days+' days are free':''):MEMBERS}.</div>
           <button onclick="openStage(${cur+1})" style="width:100%;min-height:52px;border:0;border-radius:14px;
             margin-top:15px;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
             box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
@@ -14478,7 +14533,7 @@ function screenLadder(){
         <div style="flex:1;min-width:0">
           <div style="font:400 19px/1.2 var(--serif)">Want Elliott&rsquo;s eyes on it?</div>
           <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">
-            Send a clip, get a form check. ${st.freeCheckUsed?PRICE('check')+' a clip':'Free once'}.</div>
+            Send a clip, get a form check. ${st.freeCheckUsed?(sells()?PRICE('check')+' a clip':'Your free one is used'):'Free once'}.</div>
         </div>
         <span style="flex:none;height:44px;padding:0 16px;border-radius:22px;
           border:1.5px solid var(--forest);color:var(--deep);font:600 14px/1 var(--sans);
@@ -14592,11 +14647,11 @@ const FREE_STAGES = 1;
    offer straight. Every screen that states the boundary reads these. */
 const paidRangeLine = () =>
   (FREE_STAGES+1===STAGES.length ? 'Stage '+STAGES.length+' is' : 'Stages '+(FREE_STAGES+1)+' to '+STAGES.length+' are')
-  + ' the '+PRICE()+' tier';
+  + (sells() ? ' the '+PRICE()+' tier' : ' '+MEMBERS);
 const freePlanLine = () =>
   (FREE_STAGES===1 ? esc(STAGES[0].n)+' is' : 'Stages 1 to '+FREE_STAGES+' are')
   + ' free. The other '+(STAGES.length-FREE_STAGES)+' stage'+(STAGES.length-FREE_STAGES===1?' is':'s are')
-  + ' '+PRICE()+' a month.';
+  + ' '+(sells() ? PRICE()+' a month' : MEMBERS)+'.';
 /* The explainers are what an account opens — see FREE_EXPLAINERS. Drill
    demos are part of training, and these stages train free. */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
@@ -14644,13 +14699,15 @@ function screenUpgradeBody(si){
     ${s.soon?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;background:rgba(243,169,73,.14);font:400 13.5px/1.5 var(--sans)">
       ${esc(s.n)} is being filmed and opens for everyone on the ladder the day it is ready.</div>`:''}
     <div class="card" style="margin-top:16px;padding:18px 20px">
-      <div style="font:400 26px/1.1 var(--serif)">${days>0?`Free for a ${week}.`:'The whole ladder.'}
-        <span style="color:var(--forest)">Then ${PRICE()} a month.</span></div>
+      <div style="font:400 26px/1.1 var(--serif)">${!sells()?'The whole ladder.':days>0?`Free for a ${week}.`:'The whole ladder.'}
+        <span style="color:var(--forest)">${sells()?'Then '+PRICE()+' a month.':'For members.'}</span></div>
       <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${
-        days>0?`Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps in your account before then. `:''}${
-        (STAGES.length-FREE_STAGES)} stages, every drill filmed and cued, the check points that move you up.</div>
-      <button class="btn" style="width:100%;margin-top:14px" onclick="startUpgrade()">${
-        days>0?'Start the free '+week:'Open the ladder'}</button>
+        (sells()&&days>0)?`Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps in your account before then. `:''}${
+        (STAGES.length-FREE_STAGES)} stages, every drill filmed and cued, the check points that move you up.${
+        sells()?'':' If you are a member, sign in with the email you joined with.'}</div>
+      ${sells()?`<button class="btn" style="width:100%;margin-top:14px" onclick="startUpgrade()">${
+        days>0?'Start the free '+week:'Open the ladder'}</button>`:(!st.token?`<button class="btn" style="width:100%;margin-top:14px"
+        onclick="closeOv();st.tab='signin';save();render()">Sign in</button>`:'')}
       ${(function(){
         if(!TASTE_ON || placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
         const free = !st.token ? (tastedHere() ? '' : 'Make a free account and you get one free session there first, no card.')
@@ -14664,7 +14721,7 @@ function screenUpgradeBody(si){
       onclick="chooseFree(true)">Train ${esc(STAGES[FREE_STAGES-1].n)} for free instead</button>`
     : curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:12px" onclick="closeOv();goToStage(0)">Stay on ${esc(STAGES[0].n)} for now</button>`
       :`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">${esc(STAGES[0].n)} stays free, always.</div>`}
-    <div style="margin-top:10px;text-align:center">
+    <div style="margin-top:10px;text-align:center"${sells()?'':' hidden'}>
       <button onclick="codeToggle()" id="codeBtn" style="border:0;background:none;cursor:pointer;
         font:600 13px/1 var(--sans);color:var(--forest);padding:8px">Have a code?</button>
       <div id="codeBox" ${st.pendingCode?'':'hidden'} style="display:flex;gap:8px;margin-top:8px">
@@ -14726,6 +14783,7 @@ function codeResume(){
     .catch(()=>{});
 }
 function startUpgrade(){
+  if(!sells()){ st.ov=null; openOv('members'); return; }
   const b=event&&event.target;
   /* no account, no subscription to attach — send them to sign up first.
      The overlay has to close or it sits on top of wherever we send them,
@@ -14756,6 +14814,7 @@ function startUpgrade(){
    opens Stripe's own page instead, so nobody is ever stuck. */
 let payCo=null, payReq=0, paidAsked=false, paidTries=0;
 function openPaywall(){
+  if(!sells()){ openOv('members'); return; }
   if(!st.token){ startUpgrade(); return; }
   if(!st.payPeriod) st.payPeriod = (st.periods||[]).indexOf('year')>-1 ? 'year' : 'month';
   st.ovFull=true; openOv('paywall'); track('checkout');
@@ -15888,6 +15947,7 @@ const trialLine = () => PRICE_TRIAL()>0 ? ('first '+(PRICE_TRIAL()===7?'week':PR
 const PRICE_NOTE = () => ((st.prices||{}).plus||{}).note || 'The price goes up as the ladder fills out. Join now and yours does not.';
 const PRICE_FOUNDING = () => ((st.prices||{}).plus||{}).founding !== false;
 function buyPlan(k){
+  if(!sells()){ openOv('members'); return; }
   if(!st.token){ goJoin(); return; }
   /* the ladder has its own page: monthly, quarterly or yearly, and the
      card form on the same screen */
@@ -16169,6 +16229,7 @@ function coPanelHTML(pick){
       </div>`;
 }
 function coachingPicker(){
+  if(!sells()) return '';
   if(plansOn===null) loadPlans();
   const PLANSC = coPlans();
   const pick = PLANSC.find(p=>p.k==='online') || PLANSC[0];
@@ -16208,7 +16269,7 @@ function screenCoaching(){
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           One clip. A video reply within 48 hours.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Free with an account, then ${PRICE('check')} a clip. Included with coaching.</div>
+          ${sells() ? 'Free with an account, then '+PRICE('check')+' a clip. Included with coaching.' : 'Free with an account.'}</div>
         <button class="btn" style="width:100%;margin-top:16px"
           onclick="goJoin()">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -16298,10 +16359,10 @@ function screenCoaching(){
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">${
           st.freeCheckUsed?'That is your free one used.':'Send a clip, get the one thing to change.'}</div>
-        <button class="btn" style="width:100%;margin-top:16px" onclick="buyPlan('check')">
+        ${sells()?`<button class="btn" style="width:100%;margin-top:16px" onclick="buyPlan('check')">
           Buy a form check, ${PRICE('check')}</button>
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-          Coaching includes one every fortnight, ${PRICE('online')} a month.</div></div>`
+          Coaching includes one every fortnight, ${PRICE('online')} a month.</div>`:''}</div>`
     : `<div class="card" style="padding:22px">
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">${
@@ -16310,7 +16371,7 @@ function screenCoaching(){
           Side on, phone upright, whole body in frame, hands included.</div>
         ${tick(st.coached ? 'As many as you train'
           : st.checkCredits>0 ? (st.checkCredits===1?'One paid for, ready to send':st.checkCredits+' paid for, ready to send')
-          : st.freeCheckUsed ? PRICE('check')+' a clip, or included with coaching'
+          : st.freeCheckUsed ? (sells() ? PRICE('check')+' a clip, or included with coaching' : 'Your free one is used')
           : 'Your first one is free')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
           Send your clip</button>
@@ -16428,8 +16489,8 @@ function screenCoaching(){
            coaching from everybody who had not yet sent a clip, which is
            everybody. The free check stays first; the plans sit under it. -->
       ${coachingPicker()}
-      <div class="card" style="padding:20px">
-        <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
+      ${sells()?`<div class="card" style="padding:20px">
+        <div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>`:''}
       ${st.applied
         ? `<div class="card" style="padding:20px;border:1.5px solid var(--forest)">
             <div class="kick2" style="color:var(--forest)">APPLICATION SENT</div>
@@ -16584,7 +16645,7 @@ function screenWelcome(){
   const foot=`<div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:rgba(255,255,255,.74)">
       ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account keeps your
       progress on any phone; the other ${STAGES.length-FREE_STAGES} stages are
-      ${PRICE()} a month.</div>`;
+      ${sells()?PRICE()+' a month':MEMBERS}.</div>`;
   const credit=`<div style="font:500 11.5px/1.3 var(--sans);color:rgba(255,255,255,.62)">
       On film: Elliott and Suryava, your coaches.</div>`;
 
@@ -17610,7 +17671,7 @@ const TOURS = {
           so it asks the tier rather than stating one answer for both. */
        b:()=>'Where you are is the white one, behind you is teal, ahead is grey. '+tapWord(true)+' any stage to see what it asks for, watch the walkthrough and log its check points. '
          +(isPlus() ? 'Nothing is locked, so you can move on early or come back.'
-                    : 'The padlocked ones open with the '+PRICE()+' tier, and you can move back to a free stage whenever you like.')},
+                    : (sells() ? 'The padlocked ones open with the '+PRICE()+' tier' : 'The padlocked ones are for members')+', and you can move back to a free stage whenever you like.')},
       {t:'buildsession', h:'Train off the ladder',
        b:'Drag for how long you have got and press start. It builds a session for your stage that fits, warm-up included.'}
     ]
@@ -17639,7 +17700,7 @@ const TOURS = {
          is free, which is neither the offer nor the price any more */
       {t:'formcheck', h:'A form check',
        b:()=>'Film one attempt and I reply on video with the one thing to change. '
-         +'One is free with an account, then '+PRICE('check')+' a clip, or included with coaching.'},
+         +(sells() ? 'One is free with an account, then '+PRICE('check')+' a clip, or included with coaching.' : 'One is free with an account.')},
       {t:'pricing', h:'If you want the whole thing',
        b:()=>'Online coaching: your own programme, written and rewritten by me, at '+PRICE('online')+' a month. '
          +'Add a session in London each month if you are nearby. Cancel any time.'},

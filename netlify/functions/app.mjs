@@ -5871,6 +5871,44 @@ const handle = async (request) => {
     return { ok: true, name: old.name || '' };
   }
 
+  /* ── deleting your own account, from the app ─────────────────────
+     Apple requires it of any app where an account can be made, and it is
+     right anyway. The password is asked again, or for an account that has
+     never had one, the word delete; a live subscription is cancelled first
+     so the card stops being charged, and if that fails nothing is deleted. */
+  if (path === '/me/delete' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (coaches()[who] !== undefined || coachList().includes(who)) {
+      return json({ error: 'A coach account is removed from the dashboard, not from here.' }, 400);
+    }
+    const acct = await getAcct(who);
+    if (!acct) return json({ error: 'No account on that address' }, 404);
+    const stored = await hashFor(db, who);
+    if (stored) {
+      if ((await pwHash(String(body.password || ''))) !== stored) return json({ error: 'That password is not right' }, 401);
+    } else if (String(body.confirm || '').trim().toLowerCase() !== 'delete') {
+      return json({ error: 'Type delete to confirm' }, 400);
+    }
+    if (acct.subscription && !acct.cancel_at && stripeKey()) {
+      try { await stripe(`/subscriptions/${enc(acct.subscription)}`, null, 'DELETE'); }
+      catch (err) {
+        const m = String((err && err.message) || err);
+        if (!/already been canceled|No such subscription/i.test(m)) {
+          return json({ error: 'Your subscription could not be cancelled just now, so nothing was deleted. Try again, or email info@londonhandstandacademy.com.' }, 502);
+        }
+      }
+    }
+    const nm = clients()[who] || acct.name || who;
+    const gone = await deleteAccount(who);
+    if (gone.error) return json({ error: gone.error }, gone.status || 400);
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `${nm} deleted their account`,
+      `<p style="font:16px/1.6 system-ui">${esc(nm)} (${esc(who)}) deleted their account from the app.${
+        acct.subscription && !acct.cancel_at ? ' Their subscription was cancelled first.' : ''} Everything on it has gone.</p>`);
+    return json({ ok: true });
+  }
+
+
   if (path === '/email/request' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
