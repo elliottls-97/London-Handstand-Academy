@@ -1812,19 +1812,29 @@ function acctDetails(email){
         so tell them what it is.</div>
       ${fld('adPw','','New password, 8+ characters','Set','adPw()')}
 
-      ${c.archived ? `<div class="kick" style="margin-top:18px">COACHING</div>
-      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
-        Off coaching since ${esc(new Date(c.archived).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}))}.
-        Their account, chat, history and programme are all still here.</div>
-      <button onclick="adPast(true)" style="${bGhost};margin-top:9px;width:100%">Put back on coaching</button>`
-      : c.coached!==false ? `<div class="kick" style="margin-top:18px">COACHING</div>
-      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
-        For a client who has finished. They keep their account, chat, history and programme, go back to
-        the free ladder unless they pay for it, and nothing automatic is sent to them. It does not touch
-        Stripe, so cancel a coaching subscription there. You can put them back at any time.</div>
-      <button onclick="adPast(false)" style="${bGhost};margin-top:9px;width:100%">Remove from coaching</button>` : ''}
+      ${(()=>{ /* What this account has: coaching, or the app on its own. A one to one
+           is not a third kind of account but something any of them can have,
+           so it sits underneath as its own section. */
+        const coached = !c.archived && c.coached!==false;
+        const past = !!c.archived;
+        const mine=(sessions||[]).filter(x=>x.email===email && x.status!=='cancelled' && x.status!=='done');
+        const seg=(on,label,go)=>`<button onclick="${go}" style="flex:1;min-height:44px;border-radius:12px;cursor:pointer;
+          font:600 14px/1 var(--sans);border:1px solid ${on?'var(--forest)':'var(--line)'};
+          background:${on?'var(--forest)':'#fff'};color:${on?'#fff':'var(--ink)'}">${label}</button>`;
+        return `<div class="kick" style="margin-top:18px">WHAT THEY HAVE</div>
+        <div style="display:flex;gap:8px;margin-top:9px">
+          ${seg(coached,'Coaching', coached?'':(past?'adPast(true)':'adCoach()'))}
+          ${seg(!coached,'App only', coached?'adPast(false)':'')}
+        </div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${coached
+          ? 'On coaching: their programme, the chat with you, form checks, and the full ladder.'
+          : past ? 'Past coaching client, on the app now. Their chat, history and programme are all still here.'
+          : 'On the app. Coaching puts them on your roster with a Start page; it does not charge them, so send them the Stripe link if they are paying.'}
+          ${coached?' App only keeps their account, chat and history, and nothing automatic is sent to them. It does not touch Stripe.':''}</div>
+        ${mine.length?`<div style="font:600 12.5px/1.5 var(--sans);color:var(--forest);margin-top:8px">1-2-1 booked: ${mine.map(x=>
+          x.when?new Date(x.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+', '+x.kind+' min':'time to arrange, '+x.kind+' min').join(' · ')}</div>`:''}`; })()}
 
-      <div class="kick" style="margin-top:18px">BOOK A ONE TO ONE</div>
+      <div class="kick" style="margin-top:18px">ADD A 1-2-1</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
         For a session paid another way: a payment link, cash, a bank transfer. They get the confirmation
         by email and in the chat, with a link to add it to their calendar, and it shows on their app.</div>
@@ -1873,6 +1883,15 @@ function pastRestore(email){
   pastSet(email, true).catch(e=>alert(String(e)));
 }
 function openAcct(email){ acct=email; draw(); }
+/* an app account onto coaching: on the roster, with a Start page */
+function adCoach(){
+  const c=clients.find(x=>x.email===acct)||{};
+  if(!confirm('Put '+(c.name||acct)+' on coaching?\n\nThey join your roster and get a Start page. Nothing is charged, so send them the payment link if they are paying.')) return;
+  fetch(API+'/roster',{method:'POST',headers:hdr(),body:JSON.stringify({email:acct, name:c.name||''})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not do that')))
+    .then(()=>{ load(); flash('On coaching'); })
+    .catch(e=>alert(String(e)));
+}
 /* a one to one paid for outside the booking page, booked in by hand: made,
    then given its time, which sends the confirmation */
 function adBook(){
