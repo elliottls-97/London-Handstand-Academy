@@ -12187,14 +12187,16 @@ function railTile(o){
 /* A rail with a question box (extra) is one thing on a phone: the heading,
    the box and the films sit in one card, rather than a heading, a box and
    a row of films each floating on the page. */
+/* On a phone a rail with a question box has no heading: the box says what
+   it searches and the films underneath say the rest, which is a card less
+   on a screen that had too many. */
 const railHTML = (head, sub, items, tour, extra) => { const boxed = !!extra && !wide();
-  return `<section class="rise rise-3"${tour?` data-tour="${tour}"`:''} style="padding:${wide()?24:20}px ${boxed?20:0}px 0">
-    ${boxed?`<div class="card" style="padding:16px 0 8px">`:''}
-    <div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
-      ${sub?`<div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div>`:''}</div>
-    ${extra?`<div style="padding-top:10px">${extra}</div>`:''}
+  return `<section class="rise rise-3"${tour?` data-tour="${tour}"`:''} style="padding:${wide()?24:16}px 0 0">
+    ${boxed?'':`<div style="padding:0 20px"><div style="font:400 ${wide()?24:21}px/1.15 var(--serif)">${head}</div>
+      ${sub?`<div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${sub}</div>`:''}</div>`}
+    ${extra?`<div style="padding-top:${boxed?0:10}px">${extra}</div>`:''}
     <div style="display:flex;gap:12px;overflow-x:auto;padding:12px 20px 6px;scroll-snap-type:x mandatory;scroll-padding-inline:20px;
-      scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div>${boxed?'</div>':''}</section>`; };
+      scrollbar-width:none;-webkit-overflow-scrolling:touch">${items}</div></section>`; };
 /* the rails carry a heading and nothing under it: the films say the rest */
 const EX_SUB = '';
 const FX_SUB = '';
@@ -12203,16 +12205,16 @@ const FX_SUB = '';
    trained ever had, and folded away there. */
 const askInRail = () => !coachedView() && !trialPending() && !!STAGES[curStage()]
   && stageExplainers(curStage()).some(o=>o.i>=0);
-function askBoxHTML(){
+function askBoxHTML(hint){
   return `<div style="padding:0 20px ${wide()?12:8}px">
         <div style="position:relative">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"
             stroke-linecap="round" style="position:absolute;left:15px;top:50%;transform:translateY(-50%)">
             <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
           <input id="askq" value="${esc(st.q||'')}" oninput="askFilter(this.value)"
-            placeholder="Ask a question, or search the films"
+            placeholder="${esc(hint||'Ask a question, or search the films')}"
             style="width:100%;border:0;border-radius:14px;padding:14px 14px 14px 42px;min-height:48px;
-            background:${askInRail()&&!wide()?'rgba(0,64,61,.06)':'#fff'};font:400 14.5px/1.3 var(--sans)">
+            background:#fff;font:400 14.5px/1.3 var(--sans)">
         </div>
         <div id="askmatches">${askMatches(st.q||'')}</div>
       </div>`;
@@ -12244,7 +12246,7 @@ function stageFilmsHTML(){
         return railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'',
           go:open?`openExplainer(${i})`:`lockedExplainer(${i})`, lock:open?'':'FREE ACCOUNT'}); }).join(''),
       /* the tour's films step points here until the library is on screen */
-      libShown() ? '' : 'explainers', askBoxHTML()) : '';
+      libShown() ? '' : 'explainers', askBoxHTML(wide() ? '' : 'Search the '+PS.n+' explainers')) : '';
   const fixes = fx.length ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
       fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix('${esc(f.slug)}')`,
         lock:(f.access==='plus' && !isPlus()) ? paid : ''})).join('')) : '';
