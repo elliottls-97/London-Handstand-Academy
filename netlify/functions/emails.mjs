@@ -213,7 +213,7 @@ export const EMAILS = {
     "subject": "Your form check is ready to send",
     "title": "Your form check is ready to send.",
     "paras": [
-      "Open the app, go to Form check, and send the clip: side on, whole body in frame, one clean attempt. Elliott watches it himself and writes back within 48 hours."
+      "The button below opens it in the app. Send the clip: side on, whole body in frame, one clean attempt. Elliott watches it himself and sends you a video back within 48 hours."
     ]
   },
   "welcomeCoaching": {
@@ -225,14 +225,53 @@ export const EMAILS = {
       "name",
       "tier",
       "coach",
-      "password_line"
+      "password_line",
+      "london_line"
     ],
     "subject": "You are in: {tier}",
     "title": "You are in.",
     "paras": [
       "{password_line}",
       "Open the app and your Start page walks you through it, one step at a time: put the app on your Home Screen with notifications on, so you hear the moment I reply; a few questions; a few tests to film and send me; then a short call where we agree what block one works on. I start writing it as soon as your baseline is in and we have spoken, and you have a starter week to train in the meantime.",
+      "{london_line}",
       "Everything happens in the app from here: your clips, my replies, and your programme. I reply to messages within 48 hours, and form checks come back as a video within 48 hours."
+    ]
+  },
+  "welcomeLadder": {
+    "name": "Welcome to the ladder",
+    "when": "When someone starts the Handstand Ladder",
+    "always": true,
+    "alwaysWhy": "It carries the password link for somebody who paid on the website.",
+    "vars": [
+      "name",
+      "password_line",
+      "trial_line"
+    ],
+    "subject": "You are in: the Handstand Ladder",
+    "title": "The whole ladder is open.",
+    "paras": [
+      "{password_line}",
+      "{trial_line}",
+      "Open the app and press Start for today's session: your stage, every film and your check points are there. If you are not sure where you are, the quiz puts you on the right stage in about a minute."
+    ]
+  },
+  "paidOther": {
+    "name": "Payment received",
+    "when": "When a payment comes through that the app cannot name on its own",
+    "always": true,
+    "alwaysWhy": "It is the only thing that tells somebody their payment arrived.",
+    "vars": [
+      "name",
+      "amount",
+      "product",
+      "password_line"
+    ],
+    "subject": "Thank you: your payment has come through",
+    "title": "Your payment has come through.",
+    "paras": [
+      "Thank you. {amount} for {product} has come through.",
+      "Elliott will be in touch within 48 hours about what happens next, by email and in the app.",
+      "{password_line}"
     ]
   },
   "cardFailed": {

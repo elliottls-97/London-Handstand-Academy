@@ -357,7 +357,11 @@ async function mailNote(to, subject, kind, ok, why, skip) {
     await setSetting('maillog', log.slice(-120));
   } catch { /* a log that fails must never break a send */ }
 }
+/* set when the last email failed because Resend did, not because it was
+   held on purpose: a purchase welcome that hits this is retried by Stripe */
+let mailDown = false;
 async function email(to, subject, html, kind) {
+  mailDown = false;
   if (!process.env.RESEND_API_KEY) return mailNote(to, subject, kind, false, 'Resend is not set up');
   if (!mayEmail(to)) return mailNote(to, subject, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
   if (!(await clientMailAllowed(to))) return mailNote(to, subject, kind, false, 'client email is switched off');
@@ -370,9 +374,11 @@ async function email(to, subject, html, kind) {
     });
     if (r.ok) return mailNote(to, subject, kind, true, '');
     const d = await r.json().catch(() => ({}));
+    mailDown = true;
     return mailNote(to, subject, kind, false,
       (d && d.message) || ('Resend said ' + r.status));
   } catch (err) {
+    mailDown = true;
     return mailNote(to, subject, kind, false, String((err && err.message) || err));
   }
 }
@@ -1284,6 +1290,41 @@ const handle = async (request) => {
     } catch (err) { console.warn('free week card check', err && err.message); return false; }
   };
 
+  /* A Stripe payment link is the other way in. Elliott makes those in the
+     Stripe dashboard without needing a price id, so a tier can go live from
+     a link alone; the checkout session route is used where a price id has
+     been set, because it can carry the account with it. */
+  const LINKS = {
+    /* the app, a month at a time, as a payment link Elliott made */
+    plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
+    check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
+    online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
+    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || 'https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01',
+    inperson2: (PRICES.inperson2||{}).link || process.env.STRIPE_LINK_INPERSON2 || 'https://buy.stripe.com/fZueVdc996Ek7LpdhfefC0d',
+    inperson4: (PRICES.inperson4||{}).link || process.env.STRIPE_LINK_INPERSON4 || 'https://buy.stripe.com/bJebJ11uv9QwfdRb97efC0e',
+    inneronline: (PRICES.inneronline||{}).link || process.env.STRIPE_LINK_INNERONLINE || 'https://buy.stripe.com/fZufZha115Ag4zdb97efC0c',
+    inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
+  };
+  /* Links sold from the private next-steps and offers pages. Each is a real
+     product at a real price, named here so a purchase through one is filed as
+     what it is, never guessed from its amount. Read from the live links on
+     26 Sept 2026. */
+  const LINKS_OLD = {
+    'https://buy.stripe.com/cNibJ1dddd2I0iX3GFefC07': 'inperson',   /* £180 a month, in person and online */
+    'https://buy.stripe.com/6oU8wPc991k06Hl0utefC08': 'online',     /* £100 a month, the old online price */
+    'https://buy.stripe.com/28E9ATc995Ag8PteljefC03': 'session90',  /* £100 once, a 90 minute session */
+    'https://buy.stripe.com/eVqfZhgpp2o45Dh7WVefC09': 'session60',  /* £80 once, "Handstand Audit", sold as the 60 minute session */
+  };
+  const linkNorm = u => String(u || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+  const LINK_KEY = Object.assign({},
+    ...Object.entries(LINKS_OLD).map(([u, k]) => ({ [linkNorm(u)]: k })),
+    ...Object.entries(LINKS).filter(([, u]) => !!u).map(([k, u]) => ({ [linkNorm(u)]: k })));
+  /* every name a plan goes by, and the plan it is */
+  const TIER = { plus: 'plus', plusq: 'plus', plusy: 'plus', check: 'check', online: 'online',
+    inperson: 'online', inperson2: 'online', inperson4: 'online', inner: 'inner', inneronline: 'inner' };
+  /* London sessions a month that come with a plan */
+  const LONDON = { inperson: 1, inperson2: 2, inperson4: 4, inner: 1 };
+
   if (path === '/stripe/webhook' && request.method === 'POST') {
     const raw = await request.text();
     const ok = await stripeSigOK(raw, request.headers.get('stripe-signature'),
@@ -1295,6 +1336,22 @@ const handle = async (request) => {
     const obj = (ev.data && ev.data.object) || {};
     const e = norm(obj.client_reference_id || (obj.customer_details && obj.customer_details.email)
       || obj.customer_email || '');
+    /* ── which payment link it came through ───────────────────────────
+       A payment link carries no metadata, and every purchase through one was
+       filed by its amount: £100 once was coaching, so a 90 minute session
+       made Max Mundt a coaching client, and the £250 two-sessions plan was
+       welcomed as the Inner Circle. The link itself says what was bought.
+       A link we know is filed as what it is; a link we do not know is never
+       guessed at: the buyer is looked after and the coach is asked. */
+    let viaLink = '', linkUrl = '', linkKnown = false;
+    if (ev.type === 'checkout.session.completed' && obj.payment_link && stripeKey()) {
+      try {
+        const pl = await stripe(`/payment_links/${enc(obj.payment_link)}`, null, 'GET');
+        linkUrl = String((pl && pl.url) || '');
+        viaLink = LINK_KEY[linkNorm(linkUrl)] || '';
+        linkKnown = !!linkUrl;
+      } catch (err) { console.warn('payment link lookup', err && err.message); }
+    }
 
     /* find the account either by the address we sent, or by the Stripe
        customer we stored when they checked out */
@@ -1354,13 +1411,18 @@ const handle = async (request) => {
                     over ? `That is ${wsLive(book).length} places taken against ${w.places}. Either make space or refund this one in Stripe.` : ''].filter(Boolean),
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       }
+      /* booking made them an account with no password, and the email said
+         "sign in with this address" */
+      const wsNoPw = !(await hashFor(db, e));
+      const wsLink = wsNoPw ? await welcomeLink(e) : '';
       await email(e, `You are booked: ${w.title}`,
         mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
           paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
                   w.desc ? esc(w.desc) : '',
                   days > 0 ? `The Handstand Ladder app is open for you for ${days} days, every stage. Sign in with this address and it is there.` : '',
-                  `A reminder comes the day before. Sign in to the app with this address to see the booking or cancel it; cancel more than 48 hours before and it is refunded. <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.`].filter(Boolean),
-          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+                  `A reminder comes the day before. Your booking is in the app under this address, where you can cancel it; cancel more than 48 hours before and it is refunded. <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.`,
+                  wsNoPw ? `Your username is ${esc(e)}. Choose a password with the button below and you are in.` : ''].filter(Boolean),
+          cta: wsNoPw ? { href: wsLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }));
       await coachAlert(null, 'business', { title: 'New booking: ' + (nm || e), body: w.title, tag: 'book:' + e });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${w.title}`,
@@ -1380,12 +1442,15 @@ const handle = async (request) => {
        minute session on 26 Sept and was welcomed as a coaching client. A
        one-off payment at a session price is a session. */
     const oneOffAmt = (ev.type === 'checkout.session.completed' && obj.mode === 'payment' && !(obj.metadata && obj.metadata.plan))
-      ? Number(obj.amount_total) : 0;
-    const sessByAmt = oneOffAmt === Number(PRICES.session90.amount) ? '90'
-      : oneOffAmt === Number(PRICES.session60.amount) ? '60' : '';
-    if (ev.type === 'checkout.session.completed' && ((obj.metadata && obj.metadata.session) || sessByAmt)) {
+      ? (Number(obj.amount_total) || 0) : 0;
+    /* a blank price in the dashboard is 0, and 0 must never match: every
+       subscription checkout has a one-off amount of 0 */
+    const s90 = Number(PRICES.session90.amount) || 0, s60 = Number(PRICES.session60.amount) || 0;
+    const sessByLink = viaLink === 'session90' ? '90' : viaLink === 'session60' ? '60' : '';
+    const sessByAmt = (!linkKnown && oneOffAmt > 0) ? (s90 > 0 && oneOffAmt === s90 ? '90' : s60 > 0 && oneOffAmt === s60 ? '60' : '') : '';
+    if (ev.type === 'checkout.session.completed' && ((obj.metadata && obj.metadata.session) || sessByLink || sessByAmt)) {
       const md = obj.metadata || {};
-      const kind = String(md.session || sessByAmt) === '90' ? '90' : '60';
+      const kind = String(md.session || sessByLink || sessByAmt) === '90' ? '90' : '60';
       const nm = String((md.name || (obj.customer_details && obj.customer_details.name) || '')).slice(0, 60);
       const prefs = String(md.prefs || '').slice(0, 500);
       if (!e) {
@@ -1450,12 +1515,21 @@ const handle = async (request) => {
       const it = o.items && o.items.data && o.items.data[0];
       return Number((o.plan && o.plan.amount) || (it && it.price && it.price.unit_amount) || 0);
     };
-    const planOf = o => { if (o.metadata && o.metadata.plan) return o.metadata.plan;
+    const planOf = o => {
+      if (o.metadata && o.metadata.plan) return TIER[o.metadata.plan] || '';
+      /* a link we could read is what it is, and a link we do not know is not guessed */
+      if (o === obj && linkKnown) return TIER[viaLink] || '';
+      /* an invoice with no subscription is a one-off bill, not a plan */
+      if (o.object === 'invoice' && !o.subscription) return '';
       const p = ((o.currency || 'gbp') === 'gbp' && byAmount[amountOf(o)]) || '';
       /* coaching and the Inner Circle are subscriptions; a one-off payment
          that happens to match their amount is something else */
       if ((p === 'online' || p === 'inner') && o.object === 'checkout.session' && o.mode === 'payment') return '';
       return p; };
+    /* the exact plan, kept for what it promises: inperson2 is coaching with
+       two London sessions a month, not just coaching */
+    const variantOf = o => (o.metadata && TIER[o.metadata.plan]) ? o.metadata.plan
+      : (o === obj && linkKnown && TIER[viaLink]) ? viaLink : planOf(o);
 
     let acct = e ? await getAcct(e) : null;
     let custEmail = '';
@@ -1480,17 +1554,21 @@ const handle = async (request) => {
        payment found no account, so there was no client, no welcome and no
        email, and the buyer heard nothing. Coaching makes the account, with
        no password: the welcome email says how to set one by code. */
-    if (!acct && ['online', 'inner'].includes(planOf(obj)) && (e || custEmail)) {
+    if (!acct && (e || custEmail) && (ev.type === 'checkout.session.completed' || ['online', 'inner'].includes(planOf(obj)))) {
       const nmNew = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
       acct = await ensureAcct(e || custEmail, nmNew);
     }
     /* writing {plus:true} into a key with no account behind it would create a
        stub with no password and lock the real person out */
     if (!acct) {
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      const handled = ['checkout.session.completed', 'customer.subscription.created', 'customer.subscription.updated',
+        'customer.subscription.deleted', 'customer.subscription.paused', 'invoice.paid', 'invoice.payment_failed',
+        'customer.subscription.trial_will_end'];
+      if (handled.includes(ev.type)) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         'Stripe webhook could not find an account',
-        `<p style="font:16px/1.6 system-ui">${ev.type} for ${e || obj.customer || 'unknown'}
-         — no matching account, so nothing was changed.</p>`);
+        `<p style="font:16px/1.6 system-ui">${esc(ev.type)} for ${esc(e || obj.customer || 'unknown')}${
+          amountOf(obj) ? ', ' + esc(String(obj.currency || 'gbp').toUpperCase()) + ' ' + (amountOf(obj) / 100).toFixed(2) : ''}${
+          obj.id ? ' (' + esc(obj.id) + ')' : ''}: no matching account, so nothing was changed.</p>`);
       return json({ ok: true, note: 'no account matched' });
     }
     const wasPlus = !!acct.plus;
@@ -1505,6 +1583,9 @@ const handle = async (request) => {
        Stripe ends it for real with subscription.deleted, which is here. */
     const off = ['customer.subscription.deleted', 'customer.subscription.paused'];
 
+    /* a one-off invoice, made by hand in Stripe, is a bill and not a plan:
+       it switched the ladder on for good and filed £100 as coaching */
+    if (ev.type === 'invoice.paid' && obj.object === 'invoice' && !obj.subscription) return json({ ok: true, note: 'one-off invoice' });
     if (on.includes(ev.type)) {
       /* a free week already refused: nothing that arrives after it (an
          update, a late invoice) switches the account on */
@@ -1523,7 +1604,12 @@ const handle = async (request) => {
          from a coached client without asking Stripe again */
       /* the plan: from the metadata a checkout session carries, or, for a
          payment link that carries none, from what was paid */
-      const boughtPlan = planOf(obj);
+      const isCheckout = ev.type === 'checkout.session.completed';
+      const storedPlan = isCheckout ? null : ((await getSetting(`plan:${acct.email}`)) || {});
+      /* a renewal is the plan the checkout filed, not a fresh guess from its
+         amount: the £250 two-sessions plan renewed as the Inner Circle */
+      const boughtPlan = (!isCheckout && storedPlan && TIER[storedPlan.plan]) ? TIER[storedPlan.plan] : planOf(obj);
+      const variant = (!isCheckout && storedPlan && storedPlan.variant) ? storedPlan.variant : variantOf(obj);
       /* ── a form check, bought one at a time ──────────────────────
          Twenty pounds is one clip, not a tier: it adds a credit to the
          account and changes nothing else. A checkout session's status is
@@ -1531,7 +1617,10 @@ const handle = async (request) => {
          switched the whole ladder on for the price of one clip. */
       if (boughtPlan === 'check') {
         acct.plus = plusBefore;
-        if (ev.type === 'checkout.session.completed') {
+        /* one credit per checkout: a redelivered event gave a second credit
+           and a second email every time */
+        const credWon = !obj.id || await supa.insertIfAbsent('nudges', { key: `credit:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
+        if (ev.type === 'checkout.session.completed' && credWon) {
           const ck = `fccredits:${acct.email}`;
           const cur = (await getSetting(ck)) || {};
           await setSetting(ck, { n: (Number(cur.n) || 0) + 1, bought: (Number(cur.bought) || 0) + 1, at: Date.now() });
@@ -1541,12 +1630,14 @@ const handle = async (request) => {
             mail({ title: T.title,
               greeting: first,
               paras: T.paras,
-              cta: { href: `${SITE}/lha-app.html`, label: 'Send the clip' },
-              signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), 'replies');
+              cta: await (async () => (await hashFor(db, acct.email))
+                ? { href: `${SITE}/lha-app.html?go=answer`, label: 'Send the clip' }
+                : { href: await welcomeLink(acct.email), label: 'Choose a password' })(),
+              signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
         }
         return json({ ok: true, credit: true });
       }
-      if (boughtPlan) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, at: Date.now() });
+      if (boughtPlan && (isCheckout || !storedPlan || !storedPlan.plan)) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, variant, at: Date.now() });
       /* the free week has been had: started, or skipped by paying. /checkout
          reads this so a cancelled week cannot be started again */
       const noteBefore = await getSetting(`trialused:${acct.email}`);
@@ -1565,11 +1656,37 @@ const handle = async (request) => {
       }
       /* money that matches no tier used to switch the £5 app on and do
          nothing else: no roster, no thread, no email, no alert */
-      if (!boughtPlan && ev.type === 'checkout.session.completed' && Number(obj.amount_total) > 500) {
-        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A payment matched no tier: ${acct.email}`,
-          mail({ title: 'A payment matched no tier.',
-            paras: [`<b>${esc(acct.email)}</b> paid £${(Number(obj.amount_total) / 100).toFixed(2)} and it matched nothing in the prices. They have the app switched on and nothing else. Add them to the roster from the dashboard, or refund it in Stripe.`],
-            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+      /* ── a purchase we cannot name ─────────────────────────────────
+         It used to switch the ladder on and email the coach "matched no
+         tier", and the buyer heard nothing. Now nothing is switched on by a
+         guess: the buyer is thanked, has an account and a way into it, and
+         the coach is told what was bought and asked to file it. */
+      if (!boughtPlan && isCheckout) {
+        acct.plus = plusBefore;
+        const won = !obj.id || await supa.insertIfAbsent('nudges', { key: `filed:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
+        if (won) {
+          let product = '';
+          if (obj.id && stripeKey()) { try { const li = await stripe(`/checkout/sessions/${enc(obj.id)}/line_items?limit=3`, null, 'GET');
+            product = ((li && li.data) || []).map(x => x.description).filter(Boolean).join(', '); } catch {} }
+          const paidTxt = `£${((Number(obj.amount_total) || 0) / 100).toFixed(2).replace(/\.00$/, '')}`;
+          const first = String(acct.name || (obj.customer_details && obj.customer_details.name) || '').split(' ')[0];
+          const noPw = !(await hashFor(db, acct.email));
+          const link = noPw ? await welcomeLink(acct.email) : '';
+          const T = await emailCopy('paidOther', { name: esc(first), amount: esc(paidTxt), product: esc(product || 'your purchase'),
+            password_line: noPw ? `Your username is ${esc(acct.email)}. Choose a password with the button below and you can see everything in the app.` : '' });
+          await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+            cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+          try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
+            text: `Thanks${first ? ' ' + first : ''}, your payment for ${product || 'this'} has come through. I will be in touch here within 48 hours about what happens next.` }); } catch {}
+          await coachAlert(null, 'business', { title: 'A payment to file: ' + (acct.name || acct.email), body: `${paidTxt}${product ? ', ' + product : ''}`, tag: 'filed:' + acct.email });
+          await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A payment to file: ${acct.name || acct.email}, ${paidTxt}`,
+            mail({ title: 'A payment the app could not name.',
+              paras: [`<b>${esc(acct.name || acct.email)}</b> (${esc(acct.email)}) paid <b>${esc(paidTxt)}</b>${product ? ' for <b>' + esc(product) + '</b>' : ''}${linkUrl ? ' through ' + esc(linkUrl) : ''}.`,
+                      'They have an account, have been thanked, and have been told you will be in touch within 48 hours. Nothing has been switched on.',
+                      'Open their account in the dashboard and choose Coaching, or add a 1-2-1. If this link is one you will use again, tell Claude which plan it is so it is filed automatically next time.'],
+              cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+        }
       }
       /* Buying coaching or form checks makes a client, not just a payer.
          Before this the money arrived and nothing else happened: no roster
@@ -1577,11 +1694,36 @@ const handle = async (request) => {
       /* Stripe redelivers an event it thinks went unanswered, and each one
          sent a second welcome and a second opener: Max Mundt had two alerts
          twenty seconds apart. One welcome per checkout. */
+      /* The claim is a row only one delivery can create, and it is taken back
+         if anything below fails, so Stripe's retry does the whole welcome
+         rather than finding it half done and skipping it. */
       const welcomedKey = `welcomed:${obj.id || ''}`;
-      const dupWelcome = !!obj.id && !!(await getSetting(welcomedKey));
-      if (['online', 'inner'].includes(boughtPlan) && ev.type === 'checkout.session.completed' && !dupWelcome) {
-        if (obj.id) await setSetting(welcomedKey, { at: Date.now() });
+      const claimWelcome = async () => !obj.id || await supa.insertIfAbsent('nudges', { key: welcomedKey, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
+      const unclaimWelcome = async () => { if (obj.id) { try { await supa.remove('nudges', `key=eq.${enc(welcomedKey)}`); } catch {} } };
+      if (boughtPlan === 'plus' && isCheckout && await claimWelcome()) {
+        /* The ladder bought from the website or a link: no email said so, and
+           nothing told somebody with no password how to get in. */
+        try {
+          const first = String(acct.name || (obj.customer_details && obj.customer_details.name) || '').split(' ')[0];
+          const noPw = !(await hashFor(db, acct.email));
+          const link = noPw ? await welcomeLink(acct.email) : '';
+          const trial = obj.mode === 'subscription' && !(Number(obj.amount_total) > 0);
+          const T = await emailCopy('welcomeLadder', { name: esc(first),
+            password_line: noPw ? `Your username is ${esc(acct.email)}. Choose a password with the button below and you are in.` : '',
+            trial_line: trial ? 'Your free week has started. A reminder comes three days before the first charge, and you can cancel from the app before then.' : '' });
+          await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+            cta: noPw ? { href: link, label: 'Choose your password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
+          if (mailDown) throw new Error('the welcome email did not go: Resend failed');
+        } catch (err) { await unclaimWelcome(); throw err; }
+      }
+      if (['online', 'inner'].includes(boughtPlan) && isCheckout && await claimWelcome()) {
+       try {
         const e2 = acct.email;
+        /* the name Stripe has, for an account a subscription event made first */
+        const nmStripe = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
+        if (!acct.name && nmStripe) { acct.name = nmStripe; try { await saveAcct({ email: e2, name: nmStripe }); } catch {} }
+        const london = LONDON[variant] || 0;
         const stored = (await getSetting('roster')) || {};
         /* a past client paying for coaching again is a client again, and is
            welcomed as one rather than skipped for being on the roster */
@@ -1589,14 +1731,30 @@ const handle = async (request) => {
         const wasPast = !!pastNow[e2];
         if (wasPast) { delete pastNow[e2]; await setSetting('pastclients', pastNow); PAST = pastNow; }
         if ((!stored[e2] && !clients()[e2]) || wasPast) {
-          stored[e2] = { name: acct.name || e2, coach: '', tier: boughtPlan };
+          stored[e2] = { name: acct.name || e2, coach: '', tier: variant || boughtPlan };
           await setSetting('roster', stored);
-          /* Joining the roster puts them behind the client email guard, which
-             is on by default and is there for two specific people. Someone
-             who has just paid is not one of them: they are allowed through
-             by name, and can be silenced from their thread like anyone. */
-          const off = (await getSetting('mailoff')) || {};
-          if (off[e2] === undefined) { off[e2] = false; await setSetting('mailoff', off); }
+        } else if (stored[e2] && stored[e2].tier !== (variant || boughtPlan)) {
+          stored[e2] = Object.assign({}, stored[e2], { tier: variant || boughtPlan });
+          await setSetting('roster', stored);
+        }
+        /* Joining the roster puts them behind the client email guard, which
+           is on by default and is there for two specific people. Someone who
+           has just paid is not one of them: they are allowed through by name,
+           and can be silenced from their thread like anyone. This used to
+           happen only for a new roster entry, so somebody already on it paid
+           and their welcome was held. */
+        { const off = (await getSetting('mailoff')) || {};
+          if (off[e2] !== false) { off[e2] = false; await setSetting('mailoff', off); } }
+        /* the London sessions the plan includes go on Today to be arranged,
+           so a £190 buyer is not a £120 buyer who happens to pay more */
+        if (london > 0) {
+          const sl = (await getSetting('sessions')) || [];
+          if (!sl.some(x => x.email === e2 && x.fromPlan === (obj.id || 'plan') )) {
+            sl.unshift({ id: 's' + newId(), email: e2, name: acct.name || nmStripe || '', kind: '60', prefs: '', at: Date.now(),
+              session: '', paid: 0, status: 'toArrange', when: '', place: 'OverGravity, Shadwell',
+              note: `Monthly London session, ${london} a month with ${variant === 'inner' ? 'the Inner Circle' : 'coaching'}`, fromPlan: obj.id || 'plan' });
+            await setSetting('sessions', sl.slice(0, 400));
+          }
         }
         try { await seedOnboarding(e2); } catch {}
         const tierName = { check: 'form checks', online: 'coaching', inner: 'Inner Circle' }[boughtPlan];
@@ -1606,11 +1764,18 @@ const handle = async (request) => {
           /* it asked for its own two clips, which were not the tests on the
              Start page and never ticked them off, so the client did what the
              chat said and block one still waited */
-          : `Welcome${first ? ' ' + first : ''}. Your Start page lists the tests I want to see. Film each one there and it comes straight to me. Any questions, ask me here.`;
-        try { await threadAdd(db, e2, { from: 'coach', sub: 'auto', text: opener }); } catch {}
+          : `Welcome${first ? ' ' + first : ''}. Your Start page lists the tests I want to see. Film each one there and it comes straight to me.${
+              london > 0 ? ` Your London session${london > 1 ? 's are' : ' is'} part of this too: tell me which days and times suit and I will book the room at OverGravity.` : ''} Any questions, ask me here.`;
+        /* once per checkout, even when the welcome is retried */
+        if (!obj.id || await supa.insertIfAbsent('nudges', { key: `opener:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)) {
+          try { await threadAdd(db, e2, { from: 'coach', sub: 'auto', text: opener }); } catch {} }
+        const tierFull = tierName + (london > 0 ? ` with ${london} London session${london > 1 ? 's' : ''} a month` : '');
+        /* the coach heard about a new client only by email, and not at all with business emails off */
+        await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull, tag: 'coachnew:' + e2 });
         if (await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
-          mail({ title: `Someone just bought ${tierName}.`,
-            paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.`,
+          mail({ title: `Someone just bought ${tierFull}.`,
+            paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.${
+                      london > 0 ? ' Their London session is on Today, waiting for a time.' : ''}`,
                     boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.'],
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
             signoff: { name: 'London Handstand Academy' } }));
@@ -1618,8 +1783,9 @@ const handle = async (request) => {
            password, and the sign in screen used to claim one had been sent */
         const noPw = !(await hashFor(db, e2));
         const link = noPw ? await welcomeLink(e2) : '';
-        const T = await emailCopy('welcomeCoaching', { name: esc(first), tier: esc(tierName), coach: esc(coachName(coachOf(e2))),
-          password_line: noPw ? `Your username is ${esc(e2)}. Choose a password with the button below and you are in.` : '' });
+        const T = await emailCopy('welcomeCoaching', { name: esc(first), tier: esc(tierFull), coach: esc(coachName(coachOf(e2))),
+          password_line: noPw ? `Your username is ${esc(e2)}. Choose a password with the button below and you are in.` : '',
+          london_line: london > 0 ? `Your London session${london > 1 ? 's' : ''}, ${london} a month at OverGravity in Shadwell: tell me in the chat which days and times suit and I will book the room.` : '' });
         await emailT(T, e2, T.subject,
           mail({ title: T.title,
             greeting: first,
@@ -1628,6 +1794,10 @@ const handle = async (request) => {
             /* no kind: somebody who has just paid is told they are in
                whatever they have turned off, the same as a receipt */
             signoff: { name: coachName(coachOf(e2)) }, footnote: T.footnote || undefined }));
+        /* the email with the password link did not go because Resend failed:
+           give the claim back and fail, so Stripe delivers it again */
+        if (mailDown) throw new Error('the welcome email did not go: Resend failed');
+       } catch (err) { await unclaimWelcome(); throw err; }
       }
     } else if (off.includes(ev.type)) {
       acct.plus = false;
@@ -1679,7 +1849,7 @@ const handle = async (request) => {
        £120 of coaching arrived as "New £10 subscriber". A coaching start
        has its own "Someone just bought coaching", so it is not said twice. */
     if (acct.plus !== wasPlus) {
-      const planNow = planOf(obj) || (((await getSetting(`plan:${acct.email}`)) || {}).plan) || 'plus';
+      const planNow = (((await getSetting(`plan:${acct.email}`)) || {}).plan) || planOf(obj) || 'plus';
       const coaching = planNow === 'online' || planNow === 'inner';
       const what = planNow === 'inner' ? 'Inner Circle' : coaching ? 'coaching'
         : `${(PRICES.plus && PRICES.plus.label) || '£10'} ladder`;
@@ -1851,7 +2021,9 @@ const handle = async (request) => {
       return json({ error: 'That link has been used or has run out. Sign in, or press Forgotten it? to set a password.', gone: true }, 410);
     }
     const e = norm(rec.email);
-    if (request.method === 'GET') return json({ email: e });
+    /* what the account is for, so the page does not say "welcome to
+       coaching" to somebody who booked a session or a workshop */
+    if (request.method === 'GET') return json({ email: e, coached: await isCoached(e) });
     if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
     const pw = String(body.password || '');
     if (pw.length < 8) return json({ error: 'At least 8 characters, please.' }, 400);
@@ -2089,7 +2261,7 @@ const handle = async (request) => {
     const tr = tw[`trialrefused:${who}`];
     return json({
       trialUsed,
-      trialRefused: !!(tr && Date.now() - (Number(tr.at) || 0) < 3 * 864e5),
+      trialRefused: !!(tr && Date.now() - (Number(tr.at) || 0) < 3 * 864e5) && !plusNow(acct),
       email: who,
       name: clients()[who] || acct.name || '',
       coached: coachedNow,
@@ -2144,21 +2316,6 @@ const handle = async (request) => {
     inner:  { price: () => PRICES.inner.priceId  || process.env.STRIPE_PRICE_INNER,  mode: 'subscription' },
   };
 
-  /* A Stripe payment link is the other way in. Elliott makes those in the
-     Stripe dashboard without needing a price id, so a tier can go live from
-     a link alone; the checkout session route is used where a price id has
-     been set, because it can carry the account with it. */
-  const LINKS = {
-    /* the app, a month at a time, as a payment link Elliott made */
-    plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
-    check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
-    online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
-    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || 'https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01',
-    inperson2: (PRICES.inperson2||{}).link || process.env.STRIPE_LINK_INPERSON2 || 'https://buy.stripe.com/fZueVdc996Ek7LpdhfefC0d',
-    inperson4: (PRICES.inperson4||{}).link || process.env.STRIPE_LINK_INPERSON4 || 'https://buy.stripe.com/bJebJ11uv9QwfdRb97efC0e',
-    inneronline: (PRICES.inneronline||{}).link || process.env.STRIPE_LINK_INNERONLINE || 'https://buy.stripe.com/fZufZha115Ag4zdb97efC0c',
-    inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
-  };
   /* what the app and the site say: labels only, never ids */
   const coplansPublic = () => getSetting('coplans').then(x => x || {});
   const pricesPublic = () => ({

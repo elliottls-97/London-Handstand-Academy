@@ -1049,6 +1049,12 @@ function trackOpen(){
     if(q.get('paid')==='1'){ track('subscribed'); st.justPaid=true; save();
       history.replaceState(null,'',location.pathname);
       setTimeout(()=>{ if(st.justPaid) openOv('paid'); }, 500); }
+    /* came back from Stripe without paying: say so, rather than nothing */
+    if(q.get('paid')==='0'){ history.replaceState(null,'',location.pathname); setTimeout(()=>toast('Nothing was charged.'), 600); }
+    /* back from buying a form check: straight to where the clip goes, and
+       keep asking until the credit has arrived */
+    if(q.get('bought')==='check'){ st.boughtCheck=Date.now(); st.tab='coaching'; st.coTab='check'; save();
+      history.replaceState(null,'',location.pathname); setTimeout(checkLanding, 500); }
     /* a code carried in the link, from the card at the end of a workshop:
        kept until there is an account to put it on */
     const code=(q.get('code')||'').toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,24);
@@ -7337,7 +7343,7 @@ let bookingsAsked=false;
 function loadBookings(){
   if(!st.token) return;
   fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.bookings=d.bookings||[]; save(); if(st.tab==='more'||menuOpen) render(); } }).catch(()=>{});
+    .then(d=>{ if(d){ st.bookings=d.bookings||[]; save(); if(!st.ov) render(); } }).catch(()=>{});
 }
 /* One cancel at a time. Two taps sent two requests, both found the same
    booking, and both asked Stripe to refund the same payment. Stripe refuses
@@ -7395,7 +7401,9 @@ function nextSessionHTML(){
   const time=w?w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';
   return `<div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
     <div class="kick2" style="color:var(--forest)">YOUR SESSION WITH ${esc((typeof coachLabel==='function'?coachLabel():'Elliott').toUpperCase())}</div>
-    <div style="font:400 22px/1.2 var(--serif);margin-top:8px">${w?esc(day)+', '+esc(time):'Time to be agreed'}</div>
+    <div style="font:400 22px/1.2 var(--serif);margin-top:8px">${w?esc(day)+', '+esc(time):'Paid. Now the time.'}</div>
+    ${w?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">I will check the room at OverGravity and confirm a time in the chat within 48 hours. Tell me which days suit.</div>
+    <button class="btn" style="width:100%;margin-top:12px" onclick="st.coTab='chat';save();go('coaching')">Message ${esc(typeof coachLabel==='function'?coachLabel():'Elliott')}</button>`}
     <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${esc(b.title)}${b.place?' &middot; '+esc(b.place):''}</div>
     ${b.ics?calLinks(b):''}
     <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,64,61,.1)">
@@ -8778,10 +8786,13 @@ function drawOv(){
     /* The account is asked again the moment this opens: the card check runs
        when Stripe tells the server, which can be a second or two after they
        arrive back here. */
-    if(!paidAsked){ paidAsked=true;
-      const again=()=>Promise.resolve(loadEntitlement()).then(()=>{ if(st.ov==='paid') drawOv(); });
-      /* and once more a few seconds on, if Stripe had not told us yet */
-      again().then(()=>{ if(!isPlus() && !st.trialRefused) setTimeout(again, 4000); }); }
+    if(!paidAsked){ paidAsked=true; paidTries=0;
+      /* keep asking, not once: Stripe can take a little while to tell the
+         server, and the sheet said "You are in" before anything had */
+      const again=()=>Promise.resolve(loadEntitlement()).then(()=>{
+        paidTries++; if(st.ov==='paid') drawOv();
+        if(!isPlus() && !st.trialRefused && paidTries<20) setTimeout(again, 3000); });
+      again(); }
     const tr=(st.payTrial!=null ? st.payTrial : PRICE_TRIAL());
     if(st.trialRefused && !isPlus()){
       body=`<div style="text-align:center;padding:14px 0 6px">
@@ -8793,6 +8804,15 @@ function drawOv(){
       <button class="btn" style="margin-top:22px" onclick="closeOv();openPaywall()">Subscribe, ${esc(PRICE('plus'))} a month</button>
       <button class="btn2" style="margin-top:10px;width:100%" onclick="closeOv()">Not now</button>
     </div>`;
+    } else if(!isPlus()){
+    body=`<div style="text-align:center;padding:14px 0 6px">
+      <div class="h-lg" style="margin-top:6px">${paidTries<20?'Confirming your payment…':'Your payment is on its way.'}</div>
+      <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">${paidTries<20
+        ? 'Stripe is telling us now. This usually takes a few seconds.'
+        : 'Stripe has not told us yet. It can take a minute. If you paid with a different email address, sign in with that one: the ladder is on that account.'}</div>
+      ${paidTries<20?'':`<button class="btn" style="margin-top:22px" onclick="paidAsked=false;drawOv()">Check again</button>
+      <button class="btn2" style="margin-top:10px;width:100%" onclick="closeOv()">Close</button>`}
+    </div>`;
     } else
     body=`<div style="text-align:center;padding:14px 0 6px">
       <div style="width:56px;height:56px;border-radius:50%;margin:0 auto;display:grid;place-items:center;
@@ -8803,7 +8823,7 @@ function drawOv(){
           ? 'Your first '+(tr===7?'week':tr+' days')+' '+(tr===7?'is':'are')
             +' free, and a note comes three days before the first charge so nothing is a surprise.'
           : 'That is '+PRICE('plus')+' a month from today.'} Cancel any time from your account.</div>
-      <button class="btn" style="margin-top:22px" onclick="closeOv();loadEntitlement()">Carry on</button>
+      <button class="btn" style="margin-top:22px" onclick="closeOv();st.tab='home';save();render()">Start today's session</button>
     </div>`;
   }
   else if(st.ov==='feedback'){ body=fbBody(); }
@@ -10584,15 +10604,19 @@ function screenWelcomePw(){
   const t=st.welcomeTok;
   if(wpState.asked!==t){ wpState={asked:t, loading:true};
     fetch('/api/app/welcome?t='+encodeURIComponent(t)).then(r=>r.json().then(d=>({ok:r.ok,d})))
-      .then(({ok,d})=>{ wpState.loading=false; if(ok) wpState.email=d.email; else { wpState.gone=true; wpState.err=d.error||''; } render(); })
+      .then(({ok,d})=>{ wpState.loading=false; if(ok){ wpState.email=d.email; wpState.coached=!!d.coached; } else { wpState.gone=true; wpState.err=d.error||''; } render(); })
       .catch(()=>{ wpState.loading=false; wpState.err='Could not reach the server. Check your signal and try again.'; render(); }); }
   const W=wpState;
   return `<div class="scroll s"><div style="padding:calc(env(safe-area-inset-top) + 64px) 24px 48px;max-width:440px;margin:0 auto">
     <img src="${COACH_PHOTO}" alt="" width="72" height="72" style="width:72px;height:72px;border-radius:50%;object-fit:cover;display:block;
       box-shadow:0 10px 28px -14px rgba(0,40,38,.6)">
-    <div class="kick2" style="color:var(--forest);margin-top:22px">WELCOME TO COACHING</div>
+    <div class="kick2" style="color:var(--forest);margin-top:22px">${W.coached?'WELCOME TO COACHING':'WELCOME'}</div>
     <div style="font:400 32px/1.1 var(--serif);margin-top:8px">Choose your password<em style="color:var(--forest);font-style:normal">.</em></div>
     ${W.loading?`<p style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:14px">One moment&hellip;</p>`
+    /* the email's only button is this link, so people press it again to
+       reopen the app: somebody already signed in is simply let in */
+    : (W.gone && st.token) ? `<p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:14px">You have already set your password, and you are signed in.</p>
+        <button class="btn" style="width:100%;margin-top:18px" onclick="delete st.welcomeTok;st.tab='home';save();render()">Open the app</button>`
     : W.gone||W.err&&!W.email ? `<p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:14px">${esc(W.err||'That link has been used or has run out.')}</p>
         <button class="btn" style="width:100%;margin-top:18px" onclick="delete st.welcomeTok;st.tab='signin';save();render()">Sign in</button>
         <button class="btn2" style="width:100%;margin-top:9px" onclick="delete st.welcomeTok;resetFirst=true;st.tab='reset';resetStep=0;resetMsg='';save();render()">Set a password with a code</button>`
@@ -10687,6 +10711,20 @@ function youInMaybe(){
    reach the account, so the app asks until it has, then shows the welcome.
    Signed out, which is everybody who paid on the website, the account was
    made under the address they paid with and needs a password. */
+/* A form check bought through the link: the server adds the credit when
+   Stripe tells it, a second or two after they are back. Until it lands the
+   card still read "That is your free one used. Buy a form check". */
+let checkTries=0;
+function checkLanding(){
+  if(!st.token){ toast('Paid. Sign in with the email you paid with to send your clip.'); return; }
+  toast('Payment received. Getting your form check ready…');
+  const again=()=>Promise.resolve(loadEntitlement()).then(()=>{
+    if(st.checkCredits>0 || st.checkOpen){ st.boughtCheck=0; save(); render(); toast('Your form check is ready. Send your clip.'); return; }
+    if(++checkTries<20) setTimeout(again, 3000);
+    else toast('Paid. It can take a minute to appear: pull down to refresh.');
+  });
+  again();
+}
 function joinedLanding(){
   if(!st.token){ st.tab='joinedout'; st.mode='free'; st.quizDone=true; st.joinSkipped=true; save(); render(); return; }
   toast('You are in. Setting up your coaching…');
@@ -14712,7 +14750,7 @@ function startUpgrade(){
    same page underneath. Stripe's embedded checkout draws the form (Apple
    Pay, then card) inside the sheet; where it cannot load, the same button
    opens Stripe's own page instead, so nobody is ever stuck. */
-let payCo=null, payReq=0, paidAsked=false;
+let payCo=null, payReq=0, paidAsked=false, paidTries=0;
 function openPaywall(){
   if(!st.token){ startUpgrade(); return; }
   if(!st.payPeriod) st.payPeriod = (st.periods||[]).indexOf('year')>-1 ? 'year' : 'month';
@@ -14805,7 +14843,11 @@ function payMount(){
      person, so somebody who has had theirs pays through the checkout this
      server makes, which leaves it out. Otherwise the link offered them a
      week, the card check ended it, and they were back where they started. */
-  if(period==='month' && planLinks.plus && !st.trialUsed){
+  /* The link was checked on 26 Sept 2026: it charges £10 on the day, with
+     no free week, while this button said "Start 7 days free, nothing is
+     charged today". A promised free week goes through the checkout this
+     server makes, which sets the week; the link is for a straight month. */
+  if(period==='month' && planLinks.plus && !st.trialUsed && !(PRICE_TRIAL()>0)){
     const days=PRICE_TRIAL();
     host.innerHTML=`<button class="btn" style="width:100%" onclick="payLink()">${days>0
         ? 'Start '+days+' days free &rarr;' : 'Subscribe, '+esc(PRICE('plus'))+' a month &rarr;'}</button>
@@ -16239,6 +16281,12 @@ function screenCoaching(){
             color:var(--forest);font:600 13.5px/1 var(--sans)">Read it in the chat</button>`:''}
         </div>`;
       })()
+    : (!canCheck && st.boughtCheck && Date.now()-st.boughtCheck<15*60000)
+    ? `<div class="card" style="padding:22px;border:1.5px solid var(--forest)">
+        <div class="kick2" style="display:flex;align-items:center;gap:7px;color:var(--forest)">${IC_FORMCHECK}FORM CHECK PAID FOR</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">Getting it ready.</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">Your payment is through. The button to send
+          your clip appears here in a moment; if it has not after a minute, pull down to refresh.</div></div>`
     : !canCheck
     ? `<div class="card" style="padding:22px">
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
@@ -17405,7 +17453,7 @@ function refreshAll(){
   if(pullBusy) return; pullBusy=true;
   toast('Refreshing…');
   const jobs=[loadLadder()];
-  if(st.token){ jobs.push(loadEntitlement()); loadThread(); loadSubmissions(); loadTrack(); loadQuestions(); loadSign();
+  if(st.token){ jobs.push(loadEntitlement()); loadThread(); loadSubmissions(); loadTrack(); loadQuestions(); loadSign(); loadBookings();
     if(st.in) jobs.push(loadProgramme());
     loadProgress(); }
   if(typeof loadPlans==='function') loadPlans();
@@ -18300,6 +18348,9 @@ function render(){
        Ladder: their booking, the quiz and coaching are the whole app */
     .filter(([id])=>!(id==='ladder' && !coached && !quizzed() && nextSession()));
   if(!screens[st.tab]) st.tab=tabs[0][0];
+  /* the Ladder is hidden for somebody who booked a 1-2-1 and has not taken
+     the quiz, but signing in still put them there */
+  if(st.tab==='ladder' && !tabs.some(t=>t[0]==='ladder')) st.tab=tabs[0][0];
   /* being on the screen a number is about is reading it, so it is cleared
      before the tab bar is drawn rather than on the next redraw */
   if(coached && st.tab==='progress' && !st.preview && !document.hidden){
