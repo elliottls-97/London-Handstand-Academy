@@ -4627,6 +4627,32 @@ const handle = async (request) => {
     await pushSave(who, rec);
     return json({ ok: true, phones: rec.subs.length });
   }
+  /* ── the iPhone app's phones ───────────────────────────────────────
+     The App Store app hears through Apple: it hands over a device token,
+     kept beside the web subscriptions, the latest first, six at most. */
+  if (path === '/push/apns' && request.method === 'POST') {
+    const who = await realMe();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const token = String(body.token || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{32,200}$/.test(token)) return json({ error: 'That is not a device token' }, 400);
+    const rec = await pushSubs(who);
+    rec.apns = [{ token, at: Date.now() }].concat((Array.isArray(rec.apns) ? rec.apns : []).filter(x => x && x.token !== token)).slice(0, 6);
+    if (Array.isArray(body.days)) {
+      rec.days = [...new Set(body.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))];
+    }
+    await pushSave(who, rec);
+    return json({ ok: true, phones: rec.subs.length + rec.apns.length });
+  }
+  if (path === '/push/apns/remove' && request.method === 'POST') {
+    const who = await realMe();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const token = String(body.token || '').trim().toLowerCase();
+    const rec = await pushSubs(who);
+    rec.apns = (Array.isArray(rec.apns) ? rec.apns : []).filter(x => x && x.token !== token);
+    await pushSave(who, rec);
+    return json({ ok: true });
+  }
+
   /* asked for by the person, to their own phone, so it is not held by the
      mail guard: nobody is told anything they did not just ask for */
   if (path === '/push/test' && request.method === 'POST') {

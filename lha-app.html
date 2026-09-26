@@ -17757,7 +17757,9 @@ window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installP
   try{ if(st.tab==='home' && !st.ov) render(); }catch(err){} });
 window.addEventListener('appinstalled', ()=>{ installPrompt=null; st.installed=true; save(); track('install');
   try{ if(st.tab==='start' && !st.ov) render(); }catch(err){} });
+/* the iPhone app is installed by definition: no Home Screen nudges there */
 const isStandalone = () => {
+  if(IOS_APP) return true;
   try{ return window.matchMedia('(display-mode: standalone)').matches
     || window.navigator.standalone===true; }catch(e){ return false; }
 };
@@ -17778,7 +17780,42 @@ function installCopy(){
    after a tap asks, so the question is always behind a button. The weekdays
    they plan to train go with the subscription, for the reminder. What they
    hear about is the same set of choices as their emails. */
-const pushSupported = () => { try{ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }catch(e){ return false; } };
+/* The iPhone app hears through Apple, not the web's push service: the
+   shell's notification plugin asks, and the phone's token goes to the
+   server, which sends to it with the rest. */
+const nativePush = () => { try{ return !!(IOS_APP && window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform()
+  && Capacitor.Plugins && Capacitor.Plugins.PushNotifications); }catch(e){ return false; } };
+let nativeHeard=false;
+function nativeListen(){
+  if(nativeHeard) return; nativeHeard=true;
+  const P=Capacitor.Plugins.PushNotifications;
+  P.addListener('registration', t=>{
+    if(!st.token || st.preview) return;
+    fetch('/api/app/push/apns',{method:'POST',headers:authed(),body:JSON.stringify({token:t.value, days:reminderDays()})})
+      .then(r=>{ const was=pushOn; pushOn=r.ok; pushKept(r.ok); if(r.ok){ st.appSkip=false; save(); if(was===false) toast('Notifications are on.'); }
+        pushPaint(); if(!st.ov) render(); }).catch(()=>{});
+  });
+  P.addListener('registrationError', ()=>{ toast('The phone would not turn them on. Try again in a minute.'); });
+  /* a notification tapped opens where its news is */
+  P.addListener('pushNotificationActionPerformed', a=>{
+    try{ const d=(a&&a.notification&&a.notification.data)||{}; const u=new URL(d.url||'/lha-app.html', location.origin);
+      const w=u.searchParams.get('go'); if(w) openFromNotice(w); }catch(e){}
+  });
+}
+async function nativeTurnOn(ask){
+  if(!st.token){ if(ask) goJoin(); return; }
+  const P=Capacitor.Plugins.PushNotifications;
+  nativeListen();
+  let perm={receive:'denied'};
+  try{ perm=await P.checkPermissions(); if(ask && /prompt/.test(perm.receive)) perm=await P.requestPermissions(); }catch(e){}
+  if(perm.receive!=='granted'){
+    pushOn=false; pushKept(false);
+    if(ask) toast(perm.receive==='denied' ? 'Notifications are off for this app. Turn them on in Settings, then Handstand.' : 'Not turned on.');
+    pushPaint(); if(!st.ov) render(); return;
+  }
+  try{ await P.register(); }catch(e){ if(ask) toast('The phone would not turn them on. Try again in a minute.'); }
+}
+const pushSupported = () => { if(nativePush()) return true; try{ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }catch(e){ return false; } };
 let pushOn=null;                         /* this phone: null until checked */
 const b64u8 = s => { const p='='.repeat((4-s.length%4)%4);
   const b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from(b, c=>c.charCodeAt(0)); };
@@ -17826,6 +17863,7 @@ function pushWhy(step, e){
 /* on opening: is this phone on, and if so tell the server again, so a
    changed week and a renewed subscription both reach it */
 function pushCheck(){
+  if(nativePush()){ nativeTurnOn(false); return; }
   if(!pushSupported()) { pushOn=false; return; }
   let perm='default'; try{ perm=Notification.permission; }catch(e){}
   if(perm!=='granted'){ pushOn=false; pushKept(false); return; }
@@ -17840,6 +17878,7 @@ function pushKept(on){
   if(st.tab==='start' && !st.ov) render();
 }
 async function pushTurnOn(){
+  if(nativePush()){ return nativeTurnOn(true); }
   if(!pushSupported()){ let ios=false; try{ ios=isIOS(); }catch(e){} if(ios) openOv('install'); return; }
   if(!st.token){ goJoin(); return; }
   let perm='default';
