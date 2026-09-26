@@ -1639,7 +1639,7 @@ function screenToday(){
 
 
   
-  ${nextSessionHTML()}
+  ${nextSession()?`<div class="pad" style="padding-top:14px">${nextSessionHTML()}</div>`:''}
   ${installNudge()}
   ${pushNudge()}
   ${todayFocus()}
@@ -7367,17 +7367,33 @@ const calLinks = b => `<div style="display:flex;gap:14px;margin-top:8px">
    It was two taps away under More. The next one, within a fortnight, sits
    at the top of Train, with the calendar and, for somebody not already
    coached, the way to have Elliott with them between sessions. */
-function nextSessionHTML(){
-  if(!st.token) return '';
+/* the next one to one within a fortnight, or null */
+function nextSession(){
+  if(!st.token) return null;
   if(!bookingsAsked){ bookingsAsked=true; loadBookings(); }
   const now=Date.now();
-  const b=(st.bookings||[]).filter(x=>x.session && x.status!=='done'
-    && (!x.when || (new Date(x.when).getTime()>now-3*36e5 && new Date(x.when).getTime()<now+14*864e5)))[0];
-  if(!b) return '';
+  return (st.bookings||[]).filter(x=>x.session && x.status!=='done'
+    && (!x.when || (new Date(x.when).getTime()>now-3*36e5 && new Date(x.when).getTime()<now+14*864e5)))[0] || null;
+}
+/* On the free side the session lives on the Coaching tab, so Train stays
+   the ladder: Train carries one line pointing at it. A coached client has
+   no Coaching tab, so the card sits on Today. */
+function sessionLineHTML(){
+  const b=nextSession(); if(!b) return '';
+  const w=b.when?new Date(b.when):null;
+  const when=w?w.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+', '+w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'time to be agreed';
+  return `<div class="pad" style="padding-top:12px"><button onclick="st.coTab='check';save();go('coaching')"
+    style="width:100%;display:flex;align-items:center;gap:10px;border:0;cursor:pointer;text-align:left;
+    padding:12px 14px;border-radius:14px;background:rgba(0,102,99,.07);color:var(--ink)">
+    <span style="flex:1;min-width:0;font:400 13.5px/1.4 var(--sans)"><b style="font-weight:600">Your session</b> &middot; ${esc(when)}${b.place?' &middot; '+esc(String(b.place).split(',')[0]):''}</span>
+    <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">&rarr;</span></button></div>`;
+}
+function nextSessionHTML(){
+  const b=nextSession(); if(!b) return '';
   const w=b.when?new Date(b.when):null;
   const day=w?w.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}):'';
   const time=w?w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';
-  return `<div class="pad" style="padding-top:14px"><div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
+  return `<div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
     <div class="kick2" style="color:var(--forest)">YOUR SESSION WITH ${esc((typeof coachLabel==='function'?coachLabel():'Elliott').toUpperCase())}</div>
     <div style="font:400 22px/1.2 var(--serif);margin-top:8px">${w?esc(day)+', '+esc(time):'Time to be agreed'}</div>
     <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${esc(b.title)}${b.place?' &middot; '+esc(b.place):''}</div>
@@ -7389,7 +7405,7 @@ function nextSessionHTML(){
       <a href="/session.html" target="_blank" rel="noopener" style="font:400 13px/1.5 var(--sans);color:var(--grey);text-decoration:none">
         Another one after this? <span style="color:var(--forest);font-weight:600">Book another session &rarr;</span></a>
     </div>
-  </div></div>`;
+  </div>`;
 }
 function bookingsHTML(){
   if(!st.token) return '';
@@ -13502,7 +13518,33 @@ function homeScreenCard(){
     </div></div></div>`;
 }
 function addToHome(){ if(installPrompt && doInstall()) return; openOv('install'); }
+/* ── somebody who came for a session, not the ladder ──────────────
+   A one to one bought on its own makes an account, and that account opened
+   on the whole ladder: a stage, a Start button, films, search, placed by a
+   quiz it never took. It shows the session and one way in to the rest,
+   the quiz, until they take it. */
+const quizzed = () => { const a=st.intake||{}; return a.level!=null || !!a.goal || !!a.placedBy; };
+function startQuizFromSession(){ st.mode='free'; st.quizDone=false; st.oriented=false; st.quizStep=0; st.tab='quiz'; save(); render(); window.scrollTo(0,0); }
+function sessionHomeHTML(){
+  const hour=new Date().getHours();
+  const hello = hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
+  const name=(st.client||'').split(' ')[0]||'';
+  return `<div class="scroll s">
+    <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+      <div style="font:400 ${wide()?30:26}px/1.1 var(--serif);letter-spacing:-.01em">${esc(hello)}<em style="color:var(--forest);font-style:normal">${name?', '+esc(name):''}.</em></div>
+    </div>
+    <div class="pad" style="padding-top:16px">${nextSessionHTML()}</div>
+    <div class="pad" style="padding-top:12px"><div class="card" style="padding:18px 20px">
+      <div class="kick2">BETWEEN SESSIONS</div>
+      <div style="font:400 20px/1.25 var(--serif);margin-top:8px">Train with the app.</div>
+      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">A few quick questions, about a minute, and it puts you on your stage with a session to follow.</div>
+      <button class="btn" style="width:100%;margin-top:14px" onclick="startQuizFromSession()">Take the quiz</button>
+    </div></div>
+    <div style="height:110px"></div>
+  </div>`;
+}
 function screenHome(){
+  if(!coachedView() && !quizzed() && nextSession()) return sessionHomeHTML();
   const S=STAGES[curStage()]||STAGES[0];
   const done=sessionsThisWeek(), target=weekTarget();
   const didToday=trainedToday();
@@ -13556,7 +13598,7 @@ function screenHome(){
             name?', '+esc(name):''}.</em>`}</div>
     </div>
 
-    ${nextSessionHTML()}
+    ${sessionLineHTML()}
     <!-- the stage and how far through it, on one line. Six segments in the
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->
@@ -16304,6 +16346,7 @@ function screenCoaching(){
     ${(wide()&&!awaitingBlock())?seg:''}
     ${head}
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
+      ${nextSession()?nextSessionHTML():''}
       <div data-tour="formcheck">${checkCard}</div>
       <!-- what actually happens, for somebody who has not had one. Once
            they have, they know how it goes: they have been through it. -->
@@ -16874,7 +16917,7 @@ const TABS={
    description of what is on it and the way in to the rest. */
 const hadFormCheck = () => !!st.lastReview
   || ((st.subs||[]).some(x=>x && x.status==='reviewed'));
-const coachTabLabel = () => hadFormCheck() ? 'Coaching' : 'Form check';
+const coachTabLabel = () => (hadFormCheck() || (st.bookings||[]).some(b=>b&&b.session)) ? 'Coaching' : 'Form check';
 /* What Elliott has said that has not been looked at. The chat is the one
    place a reply lands, so this is the one signal: the dot on the chat
    button, the dot on the tab, the count on the Chat segment. */
