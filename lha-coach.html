@@ -1824,6 +1824,21 @@ function acctDetails(email){
         Stripe, so cancel a coaching subscription there. You can put them back at any time.</div>
       <button onclick="adPast(false)" style="${bGhost};margin-top:9px;width:100%">Remove from coaching</button>` : ''}
 
+      <div class="kick" style="margin-top:18px">BOOK A ONE TO ONE</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
+        For a session paid another way: a payment link, cash, a bank transfer. They get the confirmation
+        by email and in the chat, with a link to add it to their calendar, and it shows on their app.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px">
+        <select id="abKind" style="flex:none;border:1px solid var(--line);border-radius:10px;padding:10px;font:400 14px/1 var(--sans);background:#fff">
+          <option value="60">60 min</option><option value="90">90 min</option></select>
+        <input id="abDate" type="date" style="flex:1;min-width:130px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
+        <input id="abTime" type="time" value="10:00" style="flex:none;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
+        <input id="abPaid" type="number" min="0" placeholder="Paid £" style="flex:none;width:90px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
+      </div>
+      <input id="abPlace" value="OverGravity, Shadwell" style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:400 14px/1 var(--sans);background:#fff">
+      <input id="abNote" placeholder="A note for them (optional)" style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:400 14px/1 var(--sans);background:#fff">
+      <button onclick="adBook()" style="${bGhost};margin-top:9px;width:100%">Book it and tell them</button>
+
       <div class="kick" style="margin-top:22px;color:var(--terra)">DELETE</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
         Their messages, progress, check point history, submissions and questions go
@@ -1858,6 +1873,22 @@ function pastRestore(email){
   pastSet(email, true).catch(e=>alert(String(e)));
 }
 function openAcct(email){ acct=email; draw(); }
+/* a one to one paid for outside the booking page, booked in by hand: made,
+   then given its time, which sends the confirmation */
+function adBook(){
+  const v=id=>((document.getElementById(id)||{}).value||'').trim();
+  const d=v('abDate'), t=v('abTime')||'10:00';
+  if(!d) return alert('Pick the date first.');
+  const c=clients.find(x=>x.email===acct)||{};
+  const say=m=>{ const el=document.getElementById('adMsg'); if(el) el.textContent=m; };
+  say('Booking…');
+  fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify({create:true, email:acct, name:c.name||'',
+      kind:v('abKind')||'60', paid:Math.round((Number(v('abPaid'))||0)*100),
+      when:new Date(d+'T'+t+':00').toISOString(), place:v('abPlace'), note:v('abNote'), status:'arranged'})})
+    .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x.error||'Could not book it')))
+    .then(x=>{ sessions=x.sessions||sessions; say('Booked. They have the confirmation and the calendar link.'); })
+    .catch(e=>say(String(e)));
+}
 function closeAcct(){ acct=null; draw(); }
 function acctHTML(){ return acct?acctDetails(acct):''; }
 function acctBtnHTML(email){

@@ -1639,6 +1639,7 @@ function screenToday(){
 
 
   
+  ${nextSessionHTML()}
   ${installNudge()}
   ${pushNudge()}
   ${todayFocus()}
@@ -7356,19 +7357,54 @@ function cancelBooking(slug){
       .catch(e=>{ cancelling=''; render(); toast(String(e)); });
   }, true);
 }
+/* add a booked session to the phone's calendar: the file opens in Apple
+   Calendar or Outlook, and Google has its own link */
+const calLinks = b => `<div style="display:flex;gap:14px;margin-top:8px">
+    <a href="${esc(b.ics)}" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Add to calendar</a>
+    ${b.gcal?`<a href="${esc(b.gcal)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Google Calendar</a>`:''}</div>`;
+/* ── a one to one coming up, on the first screen ────────────────────
+   Somebody who has booked a session opens the app to see when and where.
+   It was two taps away under More. The next one, within a fortnight, sits
+   at the top of Train, with the calendar and, for somebody not already
+   coached, the way to have Elliott with them between sessions. */
+function nextSessionHTML(){
+  if(!st.token) return '';
+  if(!bookingsAsked){ bookingsAsked=true; loadBookings(); }
+  const now=Date.now();
+  const b=(st.bookings||[]).filter(x=>x.session && x.status!=='done'
+    && (!x.when || (new Date(x.when).getTime()>now-3*36e5 && new Date(x.when).getTime()<now+14*864e5)))[0];
+  if(!b) return '';
+  const w=b.when?new Date(b.when):null;
+  const day=w?w.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}):'';
+  const time=w?w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';
+  return `<div class="pad" style="padding-top:14px"><div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
+    <div class="kick2" style="color:var(--forest)">YOUR SESSION WITH ${esc((typeof coachLabel==='function'?coachLabel():'Elliott').toUpperCase())}</div>
+    <div style="font:400 22px/1.2 var(--serif);margin-top:8px">${w?esc(day)+', '+esc(time):'Time to be agreed'}</div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${esc(b.title)}${b.place?' &middot; '+esc(b.place):''}</div>
+    ${b.ics?calLinks(b):''}
+    <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,64,61,.1)">
+      ${coachedView()?'':`<button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
+        text-align:left;font:400 13px/1.5 var(--sans);color:var(--grey)">Want me with you between sessions?
+        <span style="color:var(--forest);font-weight:600">See online coaching &rarr;</span></button>`}
+      <a href="/session.html" target="_blank" rel="noopener" style="font:400 13px/1.5 var(--sans);color:var(--grey);text-decoration:none">
+        Another one after this? <span style="color:var(--forest);font-weight:600">Book another session &rarr;</span></a>
+    </div>
+  </div></div>`;
+}
 function bookingsHTML(){
   if(!st.token) return '';
   if(!bookingsAsked){ bookingsAsked=true; loadBookings(); }
-  const list=(st.bookings||[]).filter(b=>b.status==='booked' || (Date.now()-new Date(b.when).getTime())<7*864e5);
+  const list=(st.bookings||[]).filter(b=>b.status==='booked' || b.status==='toArrange' || (Date.now()-new Date(b.when).getTime())<7*864e5);
   if(!list.length) return '';
-  const when=b=>b.when?new Date(b.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+  const when=b=>b.when?new Date(b.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Time to be agreed';
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
-    <div class="kick2">YOUR WORKSHOPS</div>
+    <div class="kick2">${list.some(b=>b.session)?'YOUR BOOKINGS':'YOUR WORKSHOPS'}</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
       ${list.map(b=>`<div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between">
         <div style="min-width:0">
           <div style="font:600 15px/1.3 var(--sans)">${esc(b.title)}</div>
           <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:2px">${esc(when(b))}${b.place?' · '+esc(b.place):''}</div>
+          ${b.ics?calLinks(b):''}
           ${b.status!=='booked'?`<div style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:6px">${b.status==='refunded'?'CANCELLED, REFUNDED':'CANCELLED'}</div>`:''}
         </div>
         ${b.canCancel?`<button class="rt" style="flex:none" ${cancelling===b.slug?'disabled':''}
@@ -13520,6 +13556,7 @@ function screenHome(){
             name?', '+esc(name):''}.</em>`}</div>
     </div>
 
+    ${nextSessionHTML()}
     <!-- the stage and how far through it, on one line. Six segments in the
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->

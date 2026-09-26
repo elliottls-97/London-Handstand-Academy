@@ -1010,6 +1010,24 @@ const nudgeMark = (k, stage = 0) =>
    /image down with it — video was unaffected because it uploads straight
    to Cloudflare and never comes through here. */
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+/* A one to one session as a calendar entry: an .ics file any calendar opens,
+   and a Google Calendar link for the ones that would rather. UTC stamps, so
+   the phone shows it in its own time. */
+const sessStamp = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+const sessSpan = x => { const a = new Date(x.when).getTime(); return [a, a + (String(x.kind) === '90' ? 90 : 60) * 60000]; };
+const sessTitle = x => `Handstand session, ${x.kind} minutes`;
+const sessGcal = x => { const [a, b] = sessSpan(x);
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(sessTitle(x))
+    + '&dates=' + sessStamp(a) + '/' + sessStamp(b) + '&location=' + encodeURIComponent(x.place || '')
+    + '&details=' + encodeURIComponent('With Elliott, London Handstand Academy. Wear something you can move in.'); };
+const sessIcs = x => { const [a, b] = sessSpan(x);
+  const esc = t => String(t || '').replace(/([,;\\])/g, '\\$1');
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//London Handstand Academy//Sessions//EN', 'METHOD:PUBLISH',
+    'BEGIN:VEVENT', `UID:${x.id}@londonhandstandacademy.com`, `DTSTAMP:${sessStamp(Date.now())}`,
+    `DTSTART:${sessStamp(a)}`, `DTEND:${sessStamp(b)}`, `SUMMARY:${esc(sessTitle(x))}`,
+    `LOCATION:${esc(x.place)}`, 'DESCRIPTION:With Elliott\\, London Handstand Academy. Wear something you can move in.',
+    'BEGIN:VALARM', 'TRIGGER:-PT2H', 'ACTION:DISPLAY', 'DESCRIPTION:Handstand session', 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n'; };
 
 const IMG_MAX = 3 * 1024 * 1024;
 /* a voice note: two minutes of AAC is about a megabyte, so this is room to
@@ -3007,6 +3025,19 @@ const handle = async (request) => {
     const list = (await getSetting('sessions')) || [];
     if (request.method === 'GET') return json({ sessions: list.filter(x => owns(x.email)) });
     if (request.method === 'POST') {
+      /* A session paid for outside the booking page, a payment link or cash,
+         never reached this list: the coach books it in by hand, and setting
+         the time below sends the same confirmation as any other. */
+      if (body.create) {
+        const ce = norm(body.email);
+        if (!ce || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ce)) return json({ error: 'Their email address' }, 400);
+        const a0 = await getAcct(ce);
+        list.unshift({ id: 's' + newId(), email: ce, name: String(body.name || (a0 && a0.name) || '').slice(0, 60),
+          kind: String(body.kind) === '90' ? '90' : '60', prefs: '', at: Date.now(), session: '',
+          paid: Math.max(0, Math.round(Number(body.paid) || 0)), status: 'toArrange', when: '',
+          place: 'OverGravity, Shadwell', note: '', byHand: true });
+        body.id = list[0].id;
+      }
       const id = String(body.id || '');
       const row = list.find(x => x.id === id);
       if (!row || !owns(row.email)) return json({ error: 'No such session' }, 404);
@@ -3026,7 +3057,9 @@ const handle = async (request) => {
           mail({ title: 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
             paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
                     row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
-                    'A reminder comes the day before. If you need to move it, reply to this.'],
+                    `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
+                    'A reminder comes the day before. If you need to move it, reply to this.',
+                    `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`],
             signoff: { name: coachName(asking || primaryCoach()) } }));
       }
       return json({ ok: true, session: row, sessions: list.filter(x => owns(x.email)) });
@@ -3034,6 +3067,16 @@ const handle = async (request) => {
     return json({ error: 'Nope' }, 405);
   }
 
+  /* ── a session in the client's calendar ───────────────────────────
+     A time and a place, found by the session's own id, which is random and
+     only ever sent to the client: nothing personal is in the file. */
+  if (path === '/session.ics' && request.method === 'GET') {
+    const sid = String(url.searchParams.get('id') || '');
+    const row = ((await getSetting('sessions')) || []).find(x => x.id === sid);
+    if (!row || !row.when) return new Response('Not found', { status: 404 });
+    return new Response(sessIcs(row), { headers: { 'content-type': 'text/calendar; charset=utf-8',
+      'content-disposition': 'attachment; filename="handstand-session.ics"', 'cache-control': 'no-store' } });
+  }
   /* what this account has booked, and cancelling one */
   if (path === '/me/bookings' && request.method === 'GET') {
     const who = await me(); if (!who) return json({ error: 'Sign in first' }, 401);
@@ -3051,6 +3094,14 @@ const handle = async (request) => {
         refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0
           && (!w.when || ms(w.when) - Date.now() > 48 * 3600e3) });
     }
+    /* one to one sessions sit beside the workshops, with a way into the
+       calendar once the time is set */
+    ((await getSetting('sessions')) || []).filter(x => x.email === who && x.status !== 'cancelled').forEach(x => {
+      out.push({ slug: 'sess:' + x.id, session: true, title: `One to one session, ${x.kind} minutes`,
+        when: x.when || '', place: x.place || '', status: x.status === 'toArrange' ? 'toArrange' : x.status === 'done' ? 'done' : 'booked',
+        paid: x.paid || 0, canCancel: false, refundable: false,
+        ics: x.when ? `/api/app/session.ics?id=${enc(x.id)}` : '', gcal: x.when ? sessGcal(x) : '' });
+    });
     out.sort((a, b) => ms(a.when) - ms(b.when));
     return json({ bookings: out });
   }
