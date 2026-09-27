@@ -2682,6 +2682,11 @@ const handle = async (request) => {
       answers = base.explainers.map(v => lib[v]).filter(Boolean)
         .map(x => Object.assign({ t: 'explainer', d: '' }, x));
     }
+    /* the phase explainers and the coach's own, which are Stream films:
+       stored whole, because this function cannot read ladder-data.js */
+    if (Array.isArray(base.explainersX) && base.explainersX.length) {
+      answers = answers.concat(base.explainersX.map(x => ({ t: 'explainer', d: '', v: x.uid, uid: x.uid, q: x.q, a: x.a || '' })));
+    }
     const w = cleanWarmup(base.warmup);
     const warmup = w ? { n: w.n, items: w.items.map(hydrateItem).filter(Boolean) } : null;
     return Object.assign({}, base, { days, answers, warmup });
@@ -6708,15 +6713,25 @@ const handle = async (request) => {
           library: await libraryNow(),
           /* every explainer that exists, and which of them this client has */
           explainerLib: programmes.explainers || {},
-          explainersOn: Array.isArray(cur.explainers)
+          explainersOn: (Array.isArray(cur.explainers)
             ? cur.explainers
-            : (cur.answers || []).map(a => a && a.v).filter(Boolean),
+            : (cur.answers || []).map(a => a && a.v).filter(Boolean))
+            .concat((cur.explainersX || []).map(x => x.id)),
+          explainersX: cur.explainersX || [],
         });
       }
       if (request.method === 'POST') {
         const e = norm(body.email);
         if (!e) return json({ error: 'Which client?' }, 400);
         if (!owns(e)) return json({ error: 'Not your client' }, 403);
+        /* an explainer filmed for this client is played from its MP4
+           outside iPhones, which Stream only makes once asked */
+        if (Array.isArray(body.explainersX) && process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+          await Promise.all(body.explainersX.slice(0, 40)
+            .map(x => String((x && x.uid) || '').replace(/[^a-f0-9]/gi, '').slice(0, 64)).filter(u => u.length === 32)
+            .map(u => fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${u}/downloads`,
+              { method: 'POST', headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } }).catch(() => {})));
+        }
         /* ── which copy is being written ──────────────────────────
            A block was edited in place, so there was no way to write the
            next one without the client training it while it was half
@@ -6758,6 +6773,14 @@ const handle = async (request) => {
                 .filter(v => (programmes.explainers || {})[v])
             : (Array.isArray(base.explainers) ? base.explainers
                : (base.answers || []).map(a => a && a.v).filter(Boolean)),
+          explainersX: Array.isArray(body.explainersX)
+            ? body.explainersX.slice(0, 40).map(x => ({
+                id: String((x && x.id) || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 90),
+                uid: String((x && x.uid) || '').replace(/[^a-f0-9]/gi, '').slice(0, 64),
+                q: String((x && x.q) || '').trim().slice(0, 140),
+                a: String((x && x.a) || '').trim().slice(0, 900),
+              })).filter(x => /^[sx]-/.test(x.id) && x.uid.length === 32 && x.q)
+            : (base.explainersX || []),
           checkpoints: Array.isArray(body.checkpoints)
             ? body.checkpoints.slice(0, 20).map(c => {
                 const was = (base.checkpoints || []).find(x => x.k === c.k);
