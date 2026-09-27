@@ -1448,6 +1448,22 @@ const handle = async (request) => {
     const s90 = Number(PRICES.session90.amount) || 0, s60 = Number(PRICES.session60.amount) || 0;
     const sessByLink = viaLink === 'session90' ? '90' : viaLink === 'session60' ? '60' : '';
     const sessByAmt = (!linkKnown && oneOffAmt > 0) ? (s90 > 0 && oneOffAmt === s90 ? '90' : s60 > 0 && oneOffAmt === s60 ? '60' : '') : '';
+    /* A 1-2-1 the coach booked and asked them to pay for. It is that
+       session, not a new one: without this, a £100 payment matched the
+       session price and filed a second session to arrange. */
+    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.sessPay) {
+      const list = (await getSetting('sessions')) || [];
+      const row = list.find(x => x.id === String(obj.metadata.sessPay));
+      if (!row) return json({ ok: true, note: 'no such session' });
+      if (row.paidRef === obj.id) return json({ ok: true, note: 'already paid' });
+      row.paid = (Number(row.paid) || 0) + (Number(obj.amount_total) || 0);
+      row.paidRef = String(obj.id || ''); row.ask = 0;
+      await setSetting('sessions', list);
+      const whenTxt = row.when ? new Date(row.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : 'time to arrange';
+      try { await threadAdd(db, row.email, { from: 'coach', by: primaryCoach(), text: `Paid, thank you. See you ${row.when ? 'on ' + whenTxt : 'soon'}.` }); } catch {}
+      await coachAlert(row.email, 'business', { title: (row.name || row.email) + ' paid £' + ((Number(obj.amount_total) || 0) / 100).toFixed(0), body: '1-2-1, ' + whenTxt, tag: 'sesspay:' + row.id });
+      return json({ ok: true, note: 'session paid' });
+    }
     if (ev.type === 'checkout.session.completed' && ((obj.metadata && obj.metadata.session) || sessByLink || sessByAmt)) {
       const md = obj.metadata || {};
       const kind = String(md.session || sessByLink || sessByAmt) === '90' ? '90' : '60';
@@ -3204,19 +3220,38 @@ const handle = async (request) => {
         list.unshift({ id: 's' + newId(), email: ce, name: String(body.name || (a0 && a0.name) || '').slice(0, 60),
           kind: String(body.kind) === '90' ? '90' : '60', prefs: '', at: Date.now(), session: '',
           paid: Math.max(0, Math.round(Number(body.paid) || 0)), status: 'toArrange', when: '',
-          place: 'OverGravity, Shadwell', note: '', byHand: true });
+          place: 'OverGravity, Shadwell', note: '', byHand: true,
+          ask: Math.max(0, Math.min(100000, Math.round(Number(body.ask) || 0))) });
         body.id = list[0].id;
       }
       const id = String(body.id || '');
       const row = list.find(x => x.id === id);
       if (!row || !owns(row.email)) return json({ error: 'No such session' }, 404);
       const wasArranged = row.status === 'arranged', wasWhen = row.when, wasStatus = row.status;
+      /* asking them to pay for one already booked: the link goes in the chat */
+      let askedNow = false;
+      if (!body.create && body.ask !== undefined) {
+        const a = Math.max(0, Math.min(100000, Math.round(Number(body.ask) || 0)));
+        askedNow = a > 0 && a !== row.ask; row.ask = a;
+      }
       if (body.when !== undefined) { const t = ms(body.when); row.when = t ? new Date(t).toISOString() : ''; }
       if (typeof body.place === 'string') row.place = body.place.slice(0, 120);
       if (typeof body.note === 'string') row.note = body.note.slice(0, 300);
       if (['toArrange', 'arranged', 'done', 'cancelled'].includes(body.status)) row.status = body.status;
       else if (row.when && row.status === 'toArrange') row.status = 'arranged';
       await setSetting('sessions', list);
+      const payUrl = `${SITE}/api/app/session/pay?id=${enc(row.id)}`;
+      const owes = row.ask > 0 && row.status !== 'cancelled';
+      if (askedNow && !(row.status === 'arranged' && row.when && !wasArranged)) {
+        try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
+          text: `Here is the link to pay £${(row.ask / 100).toFixed(0)} for your session: ${payUrl}` }); } catch {}
+        await email(row.email, 'Paying for your session',
+          mail({ title: 'Your session, ready to pay.', greeting: String(row.name || '').split(' ')[0],
+            cta: { href: payUrl, label: `Pay £${(row.ask / 100).toFixed(0)}` },
+            paras: [`${row.kind} minutes${row.when ? ', ' + esc(new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })) : ''}${row.place ? ', at ' + esc(row.place) : ''}.`,
+                    'The button takes you to a secure Stripe page. If you have already paid another way, reply and say so.'],
+            signoff: { name: coachName(asking || primaryCoach()) } }));
+      }
       /* cancelled by the coach: they hear it in the chat, not by turning up */
       if (row.status === 'cancelled' && wasStatus !== 'cancelled' && row.when) {
         const was = new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
@@ -3227,12 +3262,13 @@ const handle = async (request) => {
       if (row.status === 'arranged' && row.when && (!wasArranged || (wasWhen && wasWhen !== row.when))) {
         const whenTxt = new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
         try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
-          text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
+          text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}${owes ? ` To pay the £${(row.ask / 100).toFixed(0)}: ${payUrl}` : ''}` }); } catch {}
         const cNoPw = !(await hashFor(db, row.email));
         const cLink = cNoPw ? await welcomeLink(row.email) : '';
         await email(row.email, `Confirmed: your session, ${whenTxt}`,
           mail({ title: 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
-            cta: cNoPw ? { href: cLink, label: 'See it in the app' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
+            cta: owes ? { href: payUrl, label: `Pay £${(row.ask / 100).toFixed(0)}` }
+               : cNoPw ? { href: cLink, label: 'See it in the app' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
             paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
                     row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
                     `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
@@ -3245,6 +3281,33 @@ const handle = async (request) => {
     return json({ error: 'Nope' }, 405);
   }
 
+  /* ── paying for a 1-2-1 the coach booked ──────────────────────────
+     A Stripe checkout lasts a day at most, and this link sits in an email
+     for longer, so it makes a fresh one on each click. The id is random and
+     only ever sent to the client, like the calendar link. */
+  if (path === '/session/pay' && request.method === 'GET') {
+    const sid = String(url.searchParams.get('id') || '');
+    const row = ((await getSetting('sessions')) || []).find(x => x.id === sid);
+    const back = m => Response.redirect(`${SITE}/lha-app.html?${m}`, 303);
+    if (!row || row.status === 'cancelled') return back('paid=0');
+    if (!(row.ask > 0)) return back('paidsession=1');
+    if (!stripeKey()) return new Response('Payments are not switched on', { status: 503 });
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(row.ask),
+        'line_items[0][price_data][product_data][name]': `One to one session, ${row.kind} minutes, London`,
+        ...(row.when ? { 'line_items[0][price_data][product_data][description]': new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) + (row.place ? ', ' + row.place : '') } : {}),
+        'line_items[0][quantity]': '1',
+        'metadata[sessPay]': row.id,
+        customer_email: row.email,
+        success_url: `${SITE}/lha-app.html?paidsession=1`,
+        cancel_url: `${SITE}/lha-app.html`,
+      });
+      return Response.redirect(sess.url, 303);
+    } catch (err) { return new Response('Could not open the payment page. Reply to the email and we will sort it.', { status: 502 }); }
+  }
   /* ── a session in the client's calendar ───────────────────────────
      A time and a place, found by the session's own id, which is random and
      only ever sent to the client: nothing personal is in the file. */

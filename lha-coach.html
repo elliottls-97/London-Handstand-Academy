@@ -8490,10 +8490,13 @@ function oneBook(){
   const v=id=>((document.getElementById(id)||{}).value||'').trim();
   const d=v('obDate'), t=v('obTime')||'10:00';
   if(!d) return alert('Pick the date first.');
+  if(v('obHow')==='ask' && !(Number(v('obPaid'))>0)) return alert('How much should they pay?');
   const c=clients.find(x=>x.email===sel)||{};
   sessBusy='new'; draw();
   fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify({create:true, email:sel, name:c.name||'',
-      kind:v('obKind')||'60', paid:Math.round((Number(v('obPaid'))||0)*100),
+      kind:v('obKind')||'60',
+      /* paid already, or asked for: a Pay button in their confirmation */
+      ...(v('obHow')==='ask' ? {ask:Math.round((Number(v('obPaid'))||0)*100)} : {paid:Math.round((Number(v('obPaid'))||0)*100)}),
       when:new Date(d+'T'+t+':00').toISOString(), place:v('obPlace'), note:v('obNote'), status:'arranged'})})
     .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x.error||'Could not book it')))
     .then(x=>{ sessions=x.sessions||sessions; sessBusy=''; draw(); flash('Booked, and they have been told'); })
@@ -8504,6 +8507,15 @@ function oneMoveSave(id){
   const place=(document.getElementById('sp-'+id)||{}).value||'';
   if(!d) return alert('Pick the date first.');
   oneMove=''; sessSet(id,{when:new Date(d+'T'+t+':00').toISOString(), place, status:'arranged'});
+}
+function oneAsk(id,kind){
+  const a=prompt('How much should they pay, in pounds?', kind==='90'?'100':'80'); if(a===null) return;
+  const n=Number(a); if(!(n>0)) return alert('A number of pounds, like 80.');
+  sessSet(id,{ask:Math.round(n*100)}); flash('They have the pay link by email and in the chat');
+}
+function onePayLink(id){
+  const u=location.origin+'/api/app/session/pay?id='+encodeURIComponent(id);
+  try{ navigator.clipboard.writeText(u).then(()=>flash('Pay link copied')); }catch(e){ prompt('The pay link', u); }
 }
 function oneCancel(id){ if(confirm('Cancel this session? They get a message in the chat saying so. Refund it in Stripe if it was paid.')) sessSet(id,{status:'cancelled'}); }
 function oneOnePaneHTML(){
@@ -8522,7 +8534,9 @@ function oneOnePaneHTML(){
       <button class="send" style="width:auto;padding:0 14px" ${sessBusy===x.id?'disabled':''} onclick="${go}('${esc(x.id)}')">${label}</button>
     </div>`; };
   const card=x=>{ const upcoming=soon.indexOf(x)>-1;
-    const st= x.status==='toArrange'?pill('TO ARRANGE','var(--terra)') : x.status==='cancelled'?pill('CANCELLED','var(--grey2)')
+    const owes=x.ask>0 && x.status!=='cancelled';
+    const st= owes?pill('TO PAY · £'+(x.ask/100).toFixed(0),'var(--terra)')
+      : x.status==='toArrange'?pill('TO ARRANGE','var(--terra)') : x.status==='cancelled'?pill('CANCELLED','var(--grey2)')
       : x.status==='done'?pill('DONE','var(--grey)') : upcoming?pill('BOOKED','var(--forest)') : pill('HAPPENED?','var(--grey2)');
     const link=(t,fn)=>`<button onclick="${fn}" style="border:0;background:none;cursor:pointer;padding:0;font:600 12.5px/1 var(--sans);color:var(--deep);text-decoration:underline;text-underline-offset:3px">${t}</button>`;
     return `<div style="border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-top:10px;background:#fff">
@@ -8534,16 +8548,22 @@ function oneOnePaneHTML(){
         : (x.status==='arranged')?`<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
             ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
             ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):''}
-            ${upcoming?link('Cancel','oneCancel(\''+esc(x.id)+'\')'):''}</div>`:''}
+            ${upcoming?link('Cancel','oneCancel(\''+esc(x.id)+'\')'):''}
+            ${!x.paid && !owes && x.status!=='cancelled'?link('Ask them to pay','oneAsk(\''+esc(x.id)+'\',\''+esc(x.kind||'60')+'\')'):''}
+            ${owes?link('Copy the pay link','onePayLink(\''+esc(x.id)+'\')'):''}</div>`:''}
     </div>`; };
   return `<div>
     <div class="kick">BOOK A 1-2-1</div>
     <div class="muted" style="font-size:12.5px;margin-top:5px">They get the confirmation by email and in the chat, with a calendar link, and it shows in their app.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <select id="obKind" style="${inp};flex:none"><option value="60">60 min</option><option value="90">90 min</option></select>
+      <select id="obKind" onchange="const p=document.getElementById('obPaid'); if(p && (!p.value||p.value==='80'||p.value==='100')) p.value=this.value==='90'?'100':'80'" style="${inp};flex:none"><option value="60">60 min</option><option value="90">90 min</option></select>
       <input id="obDate" type="date" style="${inp};flex:1;min-width:130px">
       <input id="obTime" type="time" value="10:00" style="${inp};flex:none">
-      <input id="obPaid" type="number" min="0" placeholder="Paid £" style="${inp};flex:none;width:90px">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+      <select id="obHow" style="${inp};flex:none"><option value="ask">Ask them to pay</option><option value="paid">Already paid</option></select>
+      <span style="font:600 14px/1 var(--sans)">£</span>
+      <input id="obPaid" type="number" min="0" value="80" style="${inp};flex:none;width:90px">
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <input id="obPlace" value="OverGravity, Shadwell" style="${inp};flex:1;min-width:180px">
