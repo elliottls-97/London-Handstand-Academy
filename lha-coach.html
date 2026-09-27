@@ -8480,6 +8480,81 @@ function weekSave(email){
     .catch(e=>{ weekBusy=''; draw(); alert(String(e)); });
 }
 
+/* ── 1-2-1s on the client's own page ─────────────────────────────────
+   Booking one lived in the Account sheet, which nobody opens to book a
+   session. Here: book one (with a time it is confirmed and they are told,
+   with a calendar link), confirm one they paid for, move it (they are
+   told the new time), mark it done, or cancel it (they hear in the chat). */
+let oneMove='';
+function oneBook(){
+  const v=id=>((document.getElementById(id)||{}).value||'').trim();
+  const d=v('obDate'), t=v('obTime')||'10:00';
+  if(!d) return alert('Pick the date first.');
+  const c=clients.find(x=>x.email===sel)||{};
+  sessBusy='new'; draw();
+  fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify({create:true, email:sel, name:c.name||'',
+      kind:v('obKind')||'60', paid:Math.round((Number(v('obPaid'))||0)*100),
+      when:new Date(d+'T'+t+':00').toISOString(), place:v('obPlace'), note:v('obNote'), status:'arranged'})})
+    .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x.error||'Could not book it')))
+    .then(x=>{ sessions=x.sessions||sessions; sessBusy=''; draw(); flash('Booked, and they have been told'); })
+    .catch(e=>{ sessBusy=''; draw(); alert(String(e)); });
+}
+function oneMoveSave(id){
+  const d=(document.getElementById('sd-'+id)||{}).value, t=(document.getElementById('st-'+id)||{}).value||'10:00';
+  const place=(document.getElementById('sp-'+id)||{}).value||'';
+  if(!d) return alert('Pick the date first.');
+  oneMove=''; sessSet(id,{when:new Date(d+'T'+t+':00').toISOString(), place, status:'arranged'});
+}
+function oneCancel(id){ if(confirm('Cancel this session? They get a message in the chat saying so. Refund it in Stripe if it was paid.')) sessSet(id,{status:'cancelled'}); }
+function oneOnePaneHTML(){
+  const f=(x)=>x.when?new Date(x.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Time to arrange';
+  const mine=sessions.filter(x=>x.email===sel).slice().sort((a,b)=>(a.when?new Date(a.when).getTime():9e15)-(b.when?new Date(b.when).getTime():9e15));
+  const now=Date.now();
+  const soon=mine.filter(x=>x.status==='toArrange' || (x.status==='arranged' && (!x.when || new Date(x.when).getTime()>now-3*3600e3)));
+  const past=mine.filter(x=>soon.indexOf(x)<0).reverse();
+  const inp='border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff';
+  const pill=(t,c)=>`<span style="flex:none;padding:4px 9px;border-radius:999px;font:700 9.5px/1 var(--sans);letter-spacing:.1em;background:${c};color:#fff">${t}</span>`;
+  const timeForm=(x,label,go)=>{ const w=x.when?new Date(x.when):null, pad=n=>String(n).padStart(2,'0');
+    return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <input id="sd-${esc(x.id)}" type="date" value="${w?w.getFullYear()+'-'+pad(w.getMonth()+1)+'-'+pad(w.getDate()):''}" style="${inp};flex:1;min-width:130px">
+      <input id="st-${esc(x.id)}" type="time" value="${w?pad(w.getHours())+':'+pad(w.getMinutes()):'10:00'}" style="${inp};flex:none">
+      <input id="sp-${esc(x.id)}" value="${esc(x.place||'OverGravity, Shadwell')}" style="${inp};flex:2;min-width:180px">
+      <button class="send" style="width:auto;padding:0 14px" ${sessBusy===x.id?'disabled':''} onclick="${go}('${esc(x.id)}')">${label}</button>
+    </div>`; };
+  const card=x=>{ const upcoming=soon.indexOf(x)>-1;
+    const st= x.status==='toArrange'?pill('TO ARRANGE','var(--terra)') : x.status==='cancelled'?pill('CANCELLED','var(--grey2)')
+      : x.status==='done'?pill('DONE','var(--grey)') : upcoming?pill('BOOKED','var(--forest)') : pill('HAPPENED?','var(--grey2)');
+    const link=(t,fn)=>`<button onclick="${fn}" style="border:0;background:none;cursor:pointer;padding:0;font:600 12.5px/1 var(--sans);color:var(--deep);text-decoration:underline;text-underline-offset:3px">${t}</button>`;
+    return `<div style="border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-top:10px;background:#fff">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span style="flex:1;min-width:0;font:600 15px/1.3 var(--sans)">${esc(f(x))}</span>${st}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid £'+(x.paid/100).toFixed(0):''}${x.note?' · '+esc(x.note):''}</div>
+      ${x.status==='toArrange'?timeForm(x,'Confirm and tell them','sessConfirm')
+        : oneMove===x.id?timeForm(x,'Move it and tell them','oneMoveSave')
+        : (x.status==='arranged')?`<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
+            ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
+            ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):''}
+            ${link('Cancel','oneCancel(\''+esc(x.id)+'\')')}</div>`:''}
+    </div>`; };
+  return `<div>
+    <div class="kick">BOOK A 1-2-1</div>
+    <div class="muted" style="font-size:12.5px;margin-top:5px">They get the confirmation by email and in the chat, with a calendar link, and it shows in their app.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <select id="obKind" style="${inp};flex:none"><option value="60">60 min</option><option value="90">90 min</option></select>
+      <input id="obDate" type="date" style="${inp};flex:1;min-width:130px">
+      <input id="obTime" type="time" value="10:00" style="${inp};flex:none">
+      <input id="obPaid" type="number" min="0" placeholder="Paid £" style="${inp};flex:none;width:90px">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <input id="obPlace" value="OverGravity, Shadwell" style="${inp};flex:1;min-width:180px">
+      <input id="obNote" placeholder="A note for them (optional)" style="${inp};flex:2;min-width:180px">
+      <button class="send" style="width:auto;padding:0 16px" ${sessBusy==='new'?'disabled':''} onclick="oneBook()">${sessBusy==='new'?'Booking…':'Book it and tell them'}</button>
+    </div>
+    <div class="kick" style="margin-top:24px">COMING UP</div>
+    ${soon.length?soon.map(card).join(''):'<div class="muted" style="font-size:13px;margin-top:8px">Nothing booked.</div>'}
+    ${past.length?`<div class="kick" style="margin-top:24px">BEFORE</div>${past.map(card).join('')}`:''}
+  </div>`;
+}
 function clientScreenHTML(msgs){
   const c=clients.find(x=>x.email===sel)||{};
   if(!sel) return `<section class="glass" style="padding:26px 28px;border-radius:24px">
@@ -8494,9 +8569,12 @@ function clientScreenHTML(msgs){
      programme rather than to see whether somebody can do what it asks.
      They have a tab, and it says how many clips are waiting on you. */
   const cpWait=cpsWaiting(sel);
-  const tabs=[['thread','Thread'],['programme','Programme'],
-              ['marks','Check points'+(cpWait?' · '+cpWait:'')],
-              ['progress','Progress'],['notes','Notes']];
+  /* 1-2-1s: second for someone who only books sessions, last for a client */
+  const up=sessions.filter(x=>x.email===sel && (x.status==='toArrange' || (x.status==='arranged' && (!x.when || new Date(x.when).getTime()>Date.now()-3*3600e3)))).length;
+  const oneTab=['121','1-2-1s'+(up?' · '+up:'')];
+  const tabs=c.coached===false
+    ? [['thread','Thread'],oneTab,['programme','Programme'],['marks','Check points'+(cpWait?' · '+cpWait:'')],['progress','Progress'],['notes','Notes']]
+    : [['thread','Thread'],['programme','Programme'],['marks','Check points'+(cpWait?' · '+cpWait:'')],['progress','Progress'],['notes','Notes'],oneTab];
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     <button class="ghostlink" onclick="goBack()">← ${cameFrom==='today'?'Today':cameFrom==='chats'?'Chats':'Clients'}</button>
     <div style="display:flex;gap:var(--space-4);align-items:flex-end;flex-wrap:wrap;margin:var(--space-2) 0 var(--space-4)">
@@ -8533,6 +8611,7 @@ function clientScreenHTML(msgs){
      :ctab==='programme'?progrPaneHTML()
      :ctab==='marks'?marksPaneHTML()
      :ctab==='progress'?progressPaneHTML()
+     :ctab==='121'?oneOnePaneHTML()
      :notesPaneHTML()}
   </section>`;
 }
@@ -10563,7 +10642,7 @@ function routeHash(h){
   h=String(h||'').replace(/^#/,''); if(!h) return false;
   const p=new URLSearchParams(h);
   const c=p.get('c'), t=p.get('t')||'thread';
-  if(c && clients.some(x=>x.email===c)){ openClient(c, ['thread','marks','progress','notes','programme'].includes(t)?t:'thread'); return true; }
+  if(c && clients.some(x=>x.email===c)){ openClient(c, ['thread','marks','progress','notes','programme','121'].includes(t)?t:'thread'); return true; }
   if(h==='today' || c){ go('today'); freshen(true); return true; }
   return false;
 }

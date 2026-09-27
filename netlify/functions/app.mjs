@@ -3210,15 +3210,21 @@ const handle = async (request) => {
       const id = String(body.id || '');
       const row = list.find(x => x.id === id);
       if (!row || !owns(row.email)) return json({ error: 'No such session' }, 404);
-      const wasArranged = row.status === 'arranged';
+      const wasArranged = row.status === 'arranged', wasWhen = row.when, wasStatus = row.status;
       if (body.when !== undefined) { const t = ms(body.when); row.when = t ? new Date(t).toISOString() : ''; }
       if (typeof body.place === 'string') row.place = body.place.slice(0, 120);
       if (typeof body.note === 'string') row.note = body.note.slice(0, 300);
       if (['toArrange', 'arranged', 'done', 'cancelled'].includes(body.status)) row.status = body.status;
       else if (row.when && row.status === 'toArrange') row.status = 'arranged';
       await setSetting('sessions', list);
-      /* the confirmation, once, when a time is set */
-      if (row.status === 'arranged' && row.when && !wasArranged) {
+      /* cancelled by the coach: they hear it in the chat, not by turning up */
+      if (row.status === 'cancelled' && wasStatus !== 'cancelled' && row.when) {
+        const was = new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+        try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
+          text: `Your session on ${was} is cancelled. Reply here and we will find another time.` }); } catch {}
+      }
+      /* the confirmation, when a time is set, and again when it moves */
+      if (row.status === 'arranged' && row.when && (!wasArranged || (wasWhen && wasWhen !== row.when))) {
         const whenTxt = new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
         try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
           text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
