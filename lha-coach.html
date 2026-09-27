@@ -332,9 +332,7 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 @media (max-width:520px){ .tcard{padding:14px 13px} .tcard-age b{font-size:20px}
   /* the screens set their own padding inline; on a phone that is a third of the width */
   .main > section{padding:20px 15px!important;border-radius:20px!important}
-  .bar nav{gap:0!important;flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;
-    margin:0 -6px;padding:0 6px}
-  .bar nav::-webkit-scrollbar{display:none}
+  .bar nav{gap:2px 0!important;flex-wrap:wrap!important}
   .navbtn{padding:8px 10px!important;font-size:13px!important;flex:none}
   .tline-what{flex-basis:100%;order:3} }
 /* ── the phone ───────────────────────────────────────────────────────
@@ -358,13 +356,18 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
   .inboxAge span:first-child{font-size:21px!important}
   .inboxAct{justify-self:start;padding-top:2px}
   .rosterHead{display:none!important}
-  .rosterRow{grid-template-columns:22px minmax(0,1fr)!important;
-    gap:var(--space-2)!important;align-items:start!important}
-  .rosterRow>div:nth-child(3),
-  .rosterRow>div:nth-child(4),
-  .rosterRow>div:nth-child(5){grid-column:2;font-size:13px!important}
-  .rosterRow>div:nth-child(4):before{content:'adherence ';color:var(--grey2)}
-  .rosterRow>div:nth-child(5):before{content:'waiting ';color:var(--grey2)}
+  .rosterRow{grid-template-columns:22px auto auto minmax(0,1fr)!important;
+    grid-template-areas:"c n n n" ". t a w";gap:2px 10px!important;align-items:start!important}
+  .rosterRow>input{grid-area:c}
+  .rosterRow>div:nth-child(2){grid-area:n}
+  .rosterRow>div:nth-child(3){grid-area:t}
+  .rosterRow>div:nth-child(4){grid-area:a}
+  .rosterRow>div:nth-child(5){grid-area:w}
+  .rosterRow>div:nth-child(n+3){font-size:13px!important;white-space:nowrap}
+  .rosterRow>div:nth-child(4):before,.rosterRow>div:nth-child(5):before{content:'· ';color:var(--grey2)}
+  .promise{display:flex;gap:8px;align-items:baseline;text-align:left!important;flex-basis:100%}
+  .promise>div:first-child{font-size:22px!important}
+  .promise>div:last-child{margin-top:0!important}
 }
 @media (max-width:520px){
   .shell{padding:10px 11px 40px}
@@ -826,8 +829,12 @@ function loadMailguard(set,email){
 /* The one line version, for wherever you happen to be looking. Email being
    off is not a settings detail: it stops sign-ins, receipts and booking
    confirmations without a single error anywhere. */
-function mailAlertHTML(){
+function mailAlertHTML(all){
   if(!owner || !mailguard) return '';
+  /* clients being kept quiet is deliberate and was on every screen for
+     weeks; an alarm that never goes away is one nobody reads. It stays on
+     Settings. What stops sign-ins and receipts still shows everywhere. */
+  if(!all && mailguard.resend && !mailguard.only) return '';
   const bad = !mailguard.resend ? 'Nothing is being emailed to anybody. Resend is not set up.'
     : mailguard.only ? 'Email is going to '+mailguard.only+' test address'+(mailguard.only===1?'':'es')
       +' and nobody else. New sign-ups get no code and cannot get in.'
@@ -839,7 +846,7 @@ function mailAlertHTML(){
     background:rgba(200,122,86,.14);border:1.5px solid var(--terra);border-radius:14px;padding:11px 14px">
     <span style="font:700 9.5px/1.4 var(--sans);letter-spacing:.14em;color:var(--terra)">EMAIL</span>
     <span style="flex:1;min-width:200px;font:400 13px/1.5 var(--sans);color:#23281f">${esc(bad)}</span>
-    <button class="btn btn-secondary btn-sm" onclick="go('settings')">Settings</button>
+    ${all?'':`<button class="btn btn-secondary btn-sm" onclick="go('settings')">Settings</button>`}
   </div>`;
 }
 function mailguardHTML(){
@@ -1514,7 +1521,7 @@ function subsHTML(email){
             onclick="markReviewed('${esc(email)}','${esc(s.id)}',false,'notyet')">Not there yet</button>
         </div>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-          Either one marks it reviewed and shows on their check point beside the number. Reached counts as the check point met, whatever the number said.</div>
+          Reached counts as met, whatever the number said.</div>
       </div>`:''}
       <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
         ${s.clips.length?`<button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
@@ -5862,11 +5869,8 @@ function workoutsHTML(){
       <div>
         <div style="font:400 21px/1.1 var(--serif)">The app's workouts</div>
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px;max-width:62ch">
-          Every drill the ladder uses. The dose sets how many sets a drill gets,
-          so "3 × 8" is three of them; blank seconds means the rule works the
-          length out. A warm-up is the exception, always one pass at 30 seconds.
-          A change here follows the drill into every workout it appears in, and
-          it reaches the app on its next load. No deploy.</div>
+          Every drill the ladder uses, with its dose, seconds and rest. A warm-up
+          is always one pass at 30 seconds. Changes reach the app on its next load.</div>
       </div>
       <button class="send" onclick="wkSave()"${dirty&&!wkBusy?'':' disabled'}
         style="${dirty&&!wkBusy?'':'opacity:.5'}">${
@@ -8188,6 +8192,24 @@ function personCardHTML(p, cat){
   </article>`;
 }
 /* the dashboard can tell you as it happens: said once, where it is useful */
+/* ── this week's sessions, and who has not paid ────────────────────
+   Bookings and money had no place on Today: a session tomorrow was only
+   findable on that client's page. One line each, when there is anything. */
+function sessionsStripHTML(){
+  const now=Date.now(), t=x=>x.when?new Date(x.when).getTime():0;
+  const up=(sessions||[]).filter(x=>x.status==='arranged' && t(x)>now-3*3600e3 && t(x)<now+8*86400e3).sort((a,b)=>t(a)-t(b));
+  const owed=(sessions||[]).filter(x=>x.ask>0 && x.status!=='cancelled');
+  if(!up.length && !owed.length) return '';
+  const who=x=>esc((x.name||x.email||'').split(' ')[0]);
+  const chip=(x,txt)=>`<button onclick="openClient('${esc(x.email)}','121')" style="border:1px solid var(--line);background:#fff;
+    border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${txt}</button>`;
+  const line=(label,items)=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span class="kick" style="flex:none;width:86px">${label}</span>${items.join('')}</div>`;
+  return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 var(--space-4)">
+    ${up.length?line('THIS WEEK',up.map(x=>chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
+    ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · £${(x.ask/100).toFixed(0)}`))):''}
+  </div>`;
+}
 function pushNudgeHTML(){
   if(!cpush.loaded || !cpush.ready || cpush.on || !cpushOK()) return '';
   try{ if(Notification.permission==='denied') return ''; if(Date.now()-Number(localStorage.getItem('lha_cpush_later')||0)<14*864e5) return ''; }catch(e){}
@@ -8226,6 +8248,7 @@ function todayHTML(){
     ${!homeSettled&&all.length?`<p class="muted" style="font-size:13px;margin:0 0 var(--space-2)">Still loading the rest&hellip;</p>`:''}
     <p style="font:400 15px/1.55 var(--sans);max-width:64ch;margin:0 0 var(--space-4);
       color:${over?'var(--terra)':'var(--grey)'}">${esc(sub.trim())}</p>
+    ${sessionsStripHTML()}
     ${pushNudgeHTML()}
     ${startingHTML()}
     ${all.length?`<div class="tchips">${TODAY_CATS.map(([id,label])=>{
@@ -8402,7 +8425,7 @@ function rosterHTML(){
             <span style="font:600 14.5px/1.3 var(--sans)">${esc(c.name||c.email)}</span>
             ${c.archived?`<span class="tag tag-neutral">Past client</span>
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();pastRestore('${esc(c.email)}')">Put back</button>`
-              :c.coached===false?(chatNew(c)?'<span class="tag tag-neutral">New account</span>':'<span class="tag tag-neutral">Enquiry</span>'):''}
+              :c.coached===false?`<span class="tag tag-neutral">${{new:'New account',session:'1-2-1',member:'Ladder'}[chatKind(c)]||'Enquiry'}</span>`:''}
             ${c.planOnly?`<span class="tag tag-said" title="Coached in the app by their programme, but not on your coaching list">Not on your list</span>
               <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();addToRoster('${esc(c.email)}')">Add</button>`:''}
             ${c.unread?`<span class="tag tag-accent">${c.unread} unread</span>`:''}
@@ -8592,20 +8615,25 @@ function clientScreenHTML(msgs){
   /* 1-2-1s: second for someone who only books sessions, last for a client */
   const up=sessions.filter(x=>x.email===sel && (x.status==='toArrange' || (x.status==='arranged' && (!x.when || new Date(x.when).getTime()>Date.now()-3*3600e3)))).length;
   const oneTab=['121','1-2-1s'+(up?' · '+up:'')];
-  const tabs=c.coached===false
-    ? [['thread','Thread'],oneTab,['programme','Programme'],['marks','Check points'+(cpWait?' · '+cpWait:'')],['progress','Progress'],['notes','Notes']]
+  /* Somebody who is not coached has no programme, check points or progress
+     to show: Max got six tabs, four of them empty. Past clients keep theirs,
+     since the history is the point of keeping them. */
+  const bare=c.coached===false && !c.planOnly && !c.archived;
+  const tabs=bare
+    ? [['thread','Thread'],oneTab,['notes','Notes']]
     : [['thread','Thread'],['programme','Programme'],['marks','Check points'+(cpWait?' · '+cpWait:'')],['progress','Progress'],['notes','Notes'],oneTab];
+  if(!tabs.some(t=>t[0]===ctab)) ctab='thread';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     <button class="ghostlink" onclick="goBack()">← ${cameFrom==='today'?'Today':cameFrom==='chats'?'Chats':'Clients'}</button>
     <div style="display:flex;gap:var(--space-4);align-items:flex-end;flex-wrap:wrap;margin:var(--space-2) 0 var(--space-4)">
       <div style="min-width:0;flex:1 1 320px">
         <h1 style="margin:0">${esc(c.name||sel)}</h1>
         <p class="muted" style="font:400 14px/1.5 var(--sans);margin:var(--space-1) 0 0">${
-          esc(sel)}${c.coached===false?(sessions.some(x=>x.email===sel && x.status!=='cancelled')?' · 1-2-1':' · enquiry'):''}${line?' · '+esc(line):''}${c.planOnly?` · <span style="color:var(--terra)">has a programme but is not on your coaching list</span>
+          esc(sel)}${c.coached===false?' · '+({new:'new account',session:'1-2-1',member:'ladder member',past:'past client'}[chatKind(c)]||'enquiry'):''}${line?' · '+esc(line):''}${c.planOnly?` · <span style="color:var(--terra)">has a programme but is not on your coaching list</span>
             <button class="btn btn-ghost btn-sm" onclick="addToRoster('${esc(sel)}')">Add</button>`:''}</p>
-        ${weekNoteHTML(sel)}
+        ${bare?'':weekNoteHTML(sel)}
       </div>
-      ${w?`<div style="text-align:right">
+      ${w?`<div class="promise" style="text-align:right">
         <div style="font:400 32px/1 var(--serif);color:${hrsColor(wh)}">${wh} h</div>
         <div style="font:400 12px/1.4 var(--sans);margin-top:4px;color:${hrsColor(wh)}">${
           wh>=PROMISE_H?'past the '+PROMISE_H+' you promise':(PROMISE_H-wh)+' h left on the promise'}</div>
@@ -8626,6 +8654,9 @@ function clientScreenHTML(msgs){
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="6" y="2" width="12" height="20" rx="2.5"/><line x1="10.5" y1="18.5" x2="13.5" y2="18.5"/></svg>
         See their app</button>
+      <button onclick="openAcct('${esc(sel)}')" title="Name, email, password, what they have"
+        style="background:transparent;border:1px solid var(--line);border-radius:999px;
+        padding:9px 15px;cursor:pointer;font:600 13px/1 var(--sans);color:var(--deep)">Account</button>
     </div>
     ${ctab==='thread'?threadPaneHTML(msgs)
      :ctab==='programme'?progrPaneHTML()
@@ -8777,8 +8808,7 @@ function progrPaneHTML(){
   if(prog[sel]===undefined) return `<p class="muted">Loading ${esc(firstName(sel))}&rsquo;s programme&hellip;</p>`;
   const days=(((prog[sel]||{}).plan)||{}).days||[];
 
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
-    gap:var(--space-6);max-width:1000px">
+  return `<div style="max-width:640px">
     <div>
       <h4>Their programme</h4>
       <p class="muted" style="font:400 13px/1.5 var(--sans);margin-bottom:var(--space-3)">${
@@ -8797,15 +8827,6 @@ function progrPaneHTML(){
         <button class="btn btn-secondary" onclick="openCopy('','${esc(sel)}')">Copy from another client…</button>
       </div>
       ${blocksHTML(sel)}
-    </div>
-    <div>
-      <!-- ── check points live on their own tab ──────────────────────
-           They were listed here, listed again on Progress and worked on
-           the Check points tab, three places showing the same thing and
-           only one of them able to answer a clip. This is the programme:
-           the days, the drills and the blocks. -->
-      <h4>Their account</h4>
-      <div>${acctBtnHTML(sel)}</div>
     </div>
   </div>`;
 }
@@ -9087,8 +9108,7 @@ function progressPaneHTML(){
     <div class="card" style="margin-top:var(--space-6)">
       <div class="kick">WHAT THEY DID, DAY BY DAY</div>
       <p class="muted" style="font:400 13px/1.6 var(--sans);margin:8px 0 0;max-width:66ch">
-        Shaded means a session, solid means they finished it, the bar is how much of it they got
-        through and the number is minutes. Press a day for every drill in it, the sets they reached
+        Shaded is a session, solid is finished, the number is minutes. Press a day for its drills, the sets they reached
         against the sets asked for, and whether they called it easy or hard.</p>
       ${coachCalendar(sel)}
     </div>
@@ -9143,8 +9163,7 @@ function libraryHTML(){
 function libProgrammesHTML(){
   const coached=clients.filter(c=>c.coached!==false);
   return `<p class="muted" style="font:400 14px/1.6 var(--sans);max-width:62ch;margin-bottom:var(--space-4)">
-      Every coaching client's programme. Copy any of them onto somebody else and edit from there:
-      it lands as their programme and nothing they have already done is touched.</p>
+      Copy any programme onto another client and edit from there.</p>
     ${coached.map(c=>{ const days=(((prog[c.email]||{}).plan)||{}).days||[];
       return `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;
         gap:var(--space-3);align-items:baseline;padding:var(--space-2) var(--space-1);
@@ -9754,10 +9773,7 @@ function fixesHTML(){
   if(fxOpen&&fx) return fxEditorHTML();
   const list=Object.values(fixes||{}).sort((a,b)=>(b.live-a.live)||String(a.name).localeCompare(String(b.name)));
   return `<p class="muted" style="font:400 14px/1.6 var(--sans);max-width:66ch;margin-bottom:var(--space-4)">
-      A fix is a four week programme for one problem, sold by a reel about that problem.
-      Each has an article that says why, a pool of drills the app builds sessions from,
-      and a clip asked for before and after. Write it here, switch it live, and it is in
-      the app on its next load. The link for the reel is on each one.</p>
+      A four week programme for one problem, sold by a reel. Switch it live and it is in the app.</p>
     <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3)">
       <button class="btn btn-primary" onclick="fxNew()">New fix</button>
       <span class="muted" style="font-size:12.5px">${list.length?list.filter(f=>f.live).length+' live, '+list.filter(f=>!f.live).length+' in draft':''}</span>
@@ -10717,8 +10733,9 @@ function settingsHTML(){
         so running it now would push stale data over live records. Leave it alone unless
         something has gone wrong.</div>`;
   return `<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;
-    flex-direction:column;gap:var(--space-5);max-width:900px">
+    flex-direction:column;gap:var(--space-5)">
     <div>
+      ${mailAlertHTML(true)}
       <h1 style="margin:0">Settings</h1>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px;max-width:62ch">${
@@ -10978,6 +10995,8 @@ function chatKind(c){
   if(c.archived) return 'past';
   if(c.coached!==false) return 'coaching';
   if(chatNew(c)) return 'new';
+  /* booked a session and never applied for coaching: a 1-2-1 client */
+  if(chatBooked(c) && !chatApplied(c)) return 'session';
   /* paying for the ladder and writing about it, rather than about coaching */
   if(c.plus && !c.subbed && !chatApplied(c) && !chatBooked(c)) return 'member';
   return 'enquiry';
@@ -10987,7 +11006,7 @@ function chatRowHTML(c){
   const L=c.lastMsg, mine=L.from==='coach', k=chatKind(c);
   const typingNow=threadFor===c.email && Date.now()-dTypingAt<8000;
   const prev=L.text ? esc(L.text) : `<i>${L.video?'Video':L.image?'Photo':'Message'}</i>`;
-  const tag=k==='enquiry'?' <em>enquiry</em>':k==='member'?' <em>ladder</em>':k==='new'?' <em>new</em>':k==='past'?' <em>past client</em>':'';
+  const tag=k==='enquiry'?' <em>enquiry</em>':k==='session'?' <em>1-2-1</em>':k==='member'?' <em>ladder</em>':k==='new'?' <em>new</em>':k==='past'?' <em>past client</em>':'';
   return `<button class="chatrow" data-k="${esc(c.email)}" onclick="openClient('${esc(c.email)}','thread')">
     <span class="av"${k==='new'?' style="background:var(--mist);color:var(--grey)"':''}>${esc((String(c.name||c.email).trim()[0]||'?').toUpperCase())}</span>
     <span class="chatmid"><b>${esc(c.name||c.email)}${tag}</b>
