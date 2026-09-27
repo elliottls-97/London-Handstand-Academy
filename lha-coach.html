@@ -4462,7 +4462,7 @@ function exEditFilm(){
   document.body.appendChild(inp);
   inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f||!exDraft) return;
     exEditMsg='Uploading 0%'; draw();
-    fxUpload(f, pct=>{ exEditMsg='Uploading '+pct+'%'; const m=document.getElementById('exEditMsg'); if(m) m.textContent=exEditMsg; })
+    fxUpload(f, pct=>{ exEditMsg='Uploading '+pct+'%'; const m=document.getElementById('exEditMsg'); if(m) m.textContent=exEditMsg; }, 'explainer')
       .then(uid=>{ if(exDraft){ exDraft.uid=uid; } exEditMsg='Uploaded. Save to use it; Cloudflare takes a minute to get it ready.'; draw(); })
       .catch(e=>{ exEditMsg=String(e); draw(); }); };
   inp.click();
@@ -4546,13 +4546,19 @@ function exxFilm(i){
   document.body.appendChild(inp);
   inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
     exExtraMsg='Uploading…'; draw();
-    fxUpload(f, pct=>{ const m=document.getElementById('exxMsg'); if(m) m.textContent='Uploading '+pct+'%'; })
+    fxUpload(f, pct=>{ const m=document.getElementById('exxMsg'); if(m) m.textContent='Uploading '+pct+'%'; }, 'explainer')
       .then(uid=>{ exExtra[i].uid=uid; exExtraMsg='Uploaded. Cloudflare takes a minute to encode it. Save when ready.'; draw(); })
       .catch(e=>{ exExtraMsg=String(e); draw(); }); };
   inp.click();
 }
 function exxSave(){
-  if(exExtraBusy) return; exExtraBusy=true; exExtraMsg='Saving…'; draw();
+  if(exExtraBusy) return;
+  /* the server keeps only rows with a film and a question, so a film
+     saved before its question was typed used to vanish without a word */
+  const half=(exExtra||[]).findIndex(x=>!!(x.uid||'').trim() !== !!(x.q||'').trim());
+  if(half>-1){ const x=exExtra[half]; exExtraMsg=x.uid?'Add the question for explainer '+(half+1)+' before saving.':'Explainer '+(half+1)+' has no film yet.';
+    const m=document.getElementById('exxMsg'); if(m) m.textContent=exExtraMsg; return; }
+  exExtraBusy=true; exExtraMsg='Saving…'; draw();
   fetch(API+'/explain',{method:'POST',headers:hdr(),body:JSON.stringify({extra:exExtra||[]})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ exExtra=d.extra||[]; exExtraBusy=false; exExtraMsg='Saved. The app picks it up on its next load.'; draw(); })
@@ -9395,10 +9401,10 @@ function fxCoverImg(){
   inp.click();
 }
 /* the same direct upload every clip uses */
-function fxUpload(file, onPct){
-  return fetch(APP+'/upload',{method:'POST',headers:hdr(),body:'{}'})
+function fxUpload(file, onPct, kind){
+  return fetch(APP+'/upload',{method:'POST',headers:hdr(),body:JSON.stringify({kind:kind||'library', size:file.size})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
-    .then(d=>new Promise((res,rej)=>{
+    .then(d=>d.tusURL ? fxUploadTus(file, d, onPct) : new Promise((res,rej)=>{
       const fd=new FormData(); fd.append('file',file);
       const x=new XMLHttpRequest(); x.open('POST',d.uploadURL);
       x.upload.onprogress=e=>{ if(e.lengthComputable&&onPct) onPct(Math.round(e.loaded/e.total*100)); };
@@ -9406,6 +9412,28 @@ function fxUpload(file, onPct){
       x.onerror=()=>rej('Upload failed, check your signal');
       x.send(fd);
     }));
+}
+/* Over 200MB Cloudflare will not take a film in one POST, so it goes up
+   in 50MB pieces (the tus protocol), each one saying where it starts.
+   A piece that fails is tried twice more from where Cloudflare says it
+   got to, so a wobble on the wifi does not start the whole film again. */
+function fxUploadTus(file, d, onPct){
+  const PIECE=50*1024*1024;
+  const tus=(method, extra)=>fetch(d.tusURL, Object.assign({method,
+    headers:Object.assign({'Tus-Resumable':'1.0.0'}, (extra&&extra.headers)||{})}, extra&&extra.body?{body:extra.body}:{}));
+  const where=()=>tus('HEAD').then(r=>Number(r.headers.get('Upload-Offset'))||0);
+  const send=(at, tries)=>{
+    if(at>=file.size){ if(onPct) onPct(100); return Promise.resolve(d.uid); }
+    const piece=file.slice(at, Math.min(file.size, at+PIECE));
+    return tus('PATCH',{headers:{'Upload-Offset':String(at),'Content-Type':'application/offset+octet-stream'}, body:piece})
+      .then(r=>{ if(!r.ok) throw new Error('Upload failed ('+r.status+')');
+        const next=Number(r.headers.get('Upload-Offset'))||(at+piece.size);
+        if(onPct) onPct(Math.round(next/file.size*100));
+        return send(next, 0); })
+      .catch(e=> tries<2 ? where().then(at2=>send(at2, tries+1))
+        : Promise.reject(String(e&&e.message||e)==='Failed to fetch' ? 'Upload failed, check your signal' : String(e&&e.message||e)));
+  };
+  return send(0, 0);
 }
 /* drag to reorder, blocks and drills alike */
 function fxDragStart(e,kind,i){ fxDragKind=kind; fxDragI=i;

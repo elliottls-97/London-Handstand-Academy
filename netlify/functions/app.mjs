@@ -3722,6 +3722,15 @@ const handle = async (request) => {
   if (path === '/coach/explain') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('explain:keys')) || {};
+    /* Outside iPhones the app plays /downloads/default.mp4, and Stream
+       answers 404 there until downloads are switched on, per video. Drills
+       and client clips did this on save; explainers never did, so a new
+       one played on an iPhone and nowhere else. Asking twice is harmless. */
+    const playable = async uid => {
+      if (!uid || !process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) return;
+      await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,
+        { method: 'POST', headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } }).catch(() => {});
+    };
     if (request.method === 'GET') return json({ explainKeys: all, extra: (await getSetting('explain:extra')) || [],
       explainEdit: (await getSetting('explain:edit')) || {}, stageIntro: (await getSetting('explain:intro')) || {} });
     /* ── a shipped explainer, changed ────────────────────────────────
@@ -3743,6 +3752,7 @@ const handle = async (request) => {
           .filter(n => Number.isInteger(n) && n >= 0 && n <= 5))].slice(0, 6);
         if (e.off) o.off = true;
         ed[id] = o;
+        await playable(o.uid);
       }
       await setSetting('explain:edit', ed);
       return json({ ok: true, explainEdit: ed });
@@ -3755,6 +3765,7 @@ const handle = async (request) => {
       const intro = (await getSetting('explain:intro')) || {};
       if (body.intro.uid === null) delete intro[st0];
       else intro[st0] = String(body.intro.uid || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+      await playable(intro[st0]);
       await setSetting('explain:intro', intro);
       return json({ ok: true, stageIntro: intro });
     }
@@ -3768,6 +3779,8 @@ const handle = async (request) => {
         stages: (Array.isArray(x && x.stages) ? x.stages : []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 5).slice(0, 6),
         k: (Array.isArray(x && x.k) ? x.k : String((x && x.k) || '').split(',')).map(s => String(s || '').trim().toLowerCase().slice(0, 40)).filter(Boolean).slice(0, 40),
       })).filter(x => x.uid && x.q);
+      const had = new Set(((await getSetting('explain:extra')) || []).map(x => x.uid));
+      await Promise.all(extra.filter(x => !had.has(x.uid)).map(x => playable(x.uid)));
       await setSetting('explain:extra', extra);
       return json({ ok: true, extra });
     }
@@ -4320,6 +4333,34 @@ const handle = async (request) => {
     if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) {
       return json({ error: 'Video upload is not switched on yet' }, 503);
     }
+    /* A client sends a form check, three minutes at most. The coach sends
+       explainers and library films, which run longer: at 180 seconds a
+       five minute explainer uploaded to 100% and Stream then refused it. */
+    const coachU = coachList().includes(who);
+    const maxDur = coachU ? 3600 : 180;
+    const kind = coachU ? String(body.kind || 'library').replace(/[^a-z-]/g, '').slice(0, 20) : 'form-check';
+    const name = `${kind} · ${who} · ${new Date().toISOString().slice(0, 10)}`;
+    /* One POST carries 200MB at most, and a few minutes of iPhone film is
+       more. Anything bigger goes up in pieces (tus), from the browser
+       straight to Cloudflare as before; this only opens the upload. */
+    const size = Math.floor(Number(body.size) || 0);
+    if (coachU && size > 190 * 1024 * 1024) {
+      const b64 = v => Buffer.from(String(v)).toString('base64');
+      try {
+        const res = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream?direct_user=true`,
+          { method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}`,
+                       'Tus-Resumable': '1.0.0', 'Upload-Length': String(size),
+                       'Upload-Creator': who,
+                       'Upload-Metadata': `maxDurationSeconds ${b64(maxDur)},name ${b64(name)}` } });
+        const loc = res.headers.get('location'), uid = res.headers.get('stream-media-id');
+        if (!res.ok || !loc || !uid) return json({ error: `Stream would not open the upload (${res.status})` }, 502);
+        return json({ tusURL: loc, uid });
+      } catch (err) {
+        return json({ error: String(err.message || err) }, 502);
+      }
+    }
     try {
       const res = await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/direct_upload`,
@@ -4327,11 +4368,10 @@ const handle = async (request) => {
           headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}`,
                      'Content-Type': 'application/json' },
           body: JSON.stringify({
-            maxDurationSeconds: 180,          // a form check, not a documentary
+            maxDurationSeconds: maxDur,
             expiry: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
             creator: who,                     // so it can be found and deleted later
-            meta: { name: `${who} · ${new Date().toISOString().slice(0, 10)}`,
-                    uploadedBy: who, kind: 'form-check' },
+            meta: { name, uploadedBy: who, kind },
           }) });
       const d = await res.json();
       if (!d.success) return json({ error: (d.errors && d.errors[0] && d.errors[0].message) || 'Stream said no' }, 502);
