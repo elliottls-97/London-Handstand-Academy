@@ -1039,6 +1039,31 @@
     if (undoStack.length > 25) undoStack.shift();
   }
 
+  /* Every mark glows: a blurred halo of the colour under it, the line, and
+     a thin lighter core, so a red line over a red top and a blue line over
+     a blue mat both read, and the marks look drawn with light rather than
+     felt tip. The eraser stays a plain hole. */
+  const withAlpha = (hex, a) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+  };
+  function glow(context, width, color, path, fill) {
+    context.save();
+    context.globalCompositeOperation = 'source-over';
+    context.lineCap = 'round'; context.lineJoin = 'round';
+    context.shadowColor = color; context.shadowBlur = width * 2.4;
+    context.strokeStyle = withAlpha(color, 0.5); context.fillStyle = withAlpha(color, 0.5);
+    context.lineWidth = width * 2;
+    path(); fill ? context.fill() : context.stroke();
+    context.shadowBlur = 0;
+    context.strokeStyle = color; context.fillStyle = color; context.lineWidth = width;
+    path(); fill ? context.fill() : context.stroke();
+    context.strokeStyle = 'rgba(255,255,255,0.6)'; context.lineWidth = Math.max(1, width * 0.32);
+    if (!fill) { path(); context.stroke(); }
+    context.restore();
+  }
   function drawArrowHead(context, fromX, fromY, toX, toY, size) {
     const angle = Math.atan2(toY - fromY, toX - fromX);
     context.beginPath();
@@ -1046,10 +1071,10 @@
     context.lineTo(toX - size * Math.cos(angle - Math.PI / 7), toY - size * Math.sin(angle - Math.PI / 7));
     context.lineTo(toX - size * Math.cos(angle + Math.PI / 7), toY - size * Math.sin(angle + Math.PI / 7));
     context.closePath();
-    context.fill();
   }
 
   let panDragStart = null;
+  let penPts = [];
 
   /* where the pointer is on the stage canvas itself, which is where the
      title is drawn; the drawing tools work in the video's own pixels */
@@ -1077,16 +1102,17 @@
 
     startPt = stageToNativeCoords(e);
     pushUndo();
-    if (currentTool === 'pen' || currentTool === 'eraser') {
+    if (currentTool === 'eraser') {
       annCtx.lineCap = 'round';
       annCtx.lineJoin = 'round';
       annCtx.lineWidth = parseFloat(thicknessInput.value);
       annCtx.strokeStyle = currentColor;
-      annCtx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
+      annCtx.globalCompositeOperation = 'destination-out';
       annCtx.beginPath();
       annCtx.moveTo(startPt.x, startPt.y);
     } else {
       snapshot = annCtx.getImageData(0, 0, annotationCanvas.width, annotationCanvas.height);
+      penPts = [startPt];
     }
   });
 
@@ -1110,31 +1136,38 @@
     }
 
     const pt = stageToNativeCoords(e);
-    if (currentTool === 'pen' || currentTool === 'eraser') {
+    if (currentTool === 'eraser') {
       annCtx.lineTo(pt.x, pt.y);
       annCtx.stroke();
     } else {
       annCtx.putImageData(snapshot, 0, 0);
-      annCtx.lineWidth = parseFloat(thicknessInput.value);
-      annCtx.strokeStyle = currentColor;
-      annCtx.fillStyle = currentColor;
-      annCtx.globalCompositeOperation = 'source-over';
-      if (currentTool === 'line') {
-        annCtx.beginPath();
-        annCtx.moveTo(startPt.x, startPt.y);
-        annCtx.lineTo(pt.x, pt.y);
-        annCtx.stroke();
+      const w = parseFloat(thicknessInput.value);
+      if (currentTool === 'pen') {
+        penPts.push(pt);
+        glow(annCtx, w, currentColor, () => {
+          annCtx.beginPath();
+          annCtx.moveTo(penPts[0].x, penPts[0].y);
+          for (let i = 1; i < penPts.length; i++) annCtx.lineTo(penPts[i].x, penPts[i].y);
+        });
+      } else if (currentTool === 'line') {
+        glow(annCtx, w, currentColor, () => {
+          annCtx.beginPath();
+          annCtx.moveTo(startPt.x, startPt.y);
+          annCtx.lineTo(pt.x, pt.y);
+        });
       } else if (currentTool === 'arrow') {
-        annCtx.beginPath();
-        annCtx.moveTo(startPt.x, startPt.y);
-        annCtx.lineTo(pt.x, pt.y);
-        annCtx.stroke();
-        drawArrowHead(annCtx, startPt.x, startPt.y, pt.x, pt.y, parseFloat(thicknessInput.value) * 2.5);
+        glow(annCtx, w, currentColor, () => {
+          annCtx.beginPath();
+          annCtx.moveTo(startPt.x, startPt.y);
+          annCtx.lineTo(pt.x, pt.y);
+        });
+        glow(annCtx, w, currentColor, () => drawArrowHead(annCtx, startPt.x, startPt.y, pt.x, pt.y, w * 2.5), true);
       } else if (currentTool === 'circle') {
         const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
-        annCtx.beginPath();
-        annCtx.arc(startPt.x, startPt.y, r, 0, Math.PI * 2);
-        annCtx.stroke();
+        glow(annCtx, w, currentColor, () => {
+          annCtx.beginPath();
+          annCtx.arc(startPt.x, startPt.y, r, 0, Math.PI * 2);
+        });
       }
     }
   });
