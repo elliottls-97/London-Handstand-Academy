@@ -6034,6 +6034,50 @@ function bDelGroup(i,g){
   bMark(); draw();
 }
 function bGroupName(i,g,v){ bDays()[i].groups[g].name=v; bMark(); }
+/* ── moving days and blocks ──────────────────────────────────────────
+   Drag a day tab along the row, or a block tab along its day, or drop a
+   block on another day's tab to move it there. The arrows and the Move to
+   list do the same without a mouse. A day still called just "Day 2" is
+   renumbered to where it now sits, and so is a "Day 2 - ..." at the start
+   of its title; anything else you named it keeps. */
+let bDrag=null;
+function bDragStart(e,kind,i){ bDrag={kind,i};
+  try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain',kind+':'+i); }catch(err){} }
+function bDragOver(e,kind,i){
+  if(!bDrag || (bDrag.kind==='day' && kind!=='day') || (bDrag.kind===kind && bDrag.i===i)) return;
+  e.preventDefault(); e.currentTarget.style.outline='2px dashed var(--forest)'; e.currentTarget.style.outlineOffset='3px'; }
+function bDragLeave(e){ e.currentTarget.style.outline=''; }
+function bDrop(e,kind,i){
+  e.preventDefault(); e.currentTarget.style.outline='';
+  const d=bDrag; bDrag=null; if(!d) return;
+  if(d.kind==='day' && kind==='day') bMoveDayTo(d.i,i);
+  else if(d.kind==='grp' && kind==='grp') bMoveGroupTo(bDay(),d.i,i);
+  else if(d.kind==='grp' && kind==='day') bGroupToDay(bDay(),d.i,i);
+}
+function bDragEnd(){ bDrag=null; document.querySelectorAll('[data-bdnd]').forEach(el=>{ el.style.outline=''; }); }
+function bRenumber(){
+  bDays().forEach((d,k)=>{
+    if(/^\s*day\s*\d+\s*$/i.test(d.label||'')) d.label='Day '+(k+1);
+    if(/^\s*day\s*\d+\b/i.test(d.sub||'')) d.sub=String(d.sub).replace(/^\s*day\s*\d+/i,'Day '+(k+1));
+  });
+}
+function bMoveDayTo(from,to){
+  const days=bDays(); if(from===to||to<0||to>=days.length) return;
+  const [x]=days.splice(from,1); days.splice(to,0,x); bRenumber();
+  builder.day=to; builder.grp=0; builder.warm=false; builder.note=false; bMark(); draw();
+}
+function bMoveDay(i,by){ bMoveDayTo(i,i+by); }
+function bMoveGroupTo(di,from,to){
+  const gs=bDays()[di].groups||[]; if(from===to||to<0||to>=gs.length) return;
+  const [x]=gs.splice(from,1); gs.splice(to,0,x); builder.grp=to; bMark(); draw();
+}
+function bGroupToDay(di,g,dj){
+  dj=Number(dj); if(di===dj || !bDays()[dj]) return;
+  const [x]=(bDays()[di].groups||[]).splice(g,1); if(!x) return;
+  (bDays()[dj].groups=bDays()[dj].groups||[]).push(x);
+  builder.day=dj; builder.grp=bDays()[dj].groups.length-1; bMark(); draw();
+  flash('Moved to '+(bDays()[dj].label||('Day '+(dj+1))));
+}
 /* a block moved one place along the day, and still the one open */
 function bMoveGroup(i,g,by){
   const gs=bDays()[i].groups||[], j=g+by;
@@ -6887,7 +6931,9 @@ function builderHTML(){
   const days=bDays();
   const name=((clients.find(c=>c.email===builder.email)||{}).name)||builder.email;
   const di=bDay(), d=days[di];
-  const tab=(on,label,sub,click,del)=>`<span style="position:relative;display:inline-flex">
+  const tab=(on,label,sub,click,del,dnd)=>`<span style="position:relative;display:inline-flex;border-radius:12px"${dnd?` data-bdnd draggable="true"
+      ondragstart="bDragStart(event,'${dnd[0]}',${dnd[1]})" ondragover="bDragOver(event,'${dnd[0]}',${dnd[1]})"
+      ondragleave="bDragLeave(event)" ondrop="bDrop(event,'${dnd[0]}',${dnd[1]})" ondragend="bDragEnd()" title="Drag to move"`:''}>
     <button onclick="${click}" style="border:1px solid ${on?'transparent':'var(--line)'};
       border-radius:12px;padding:9px 13px;cursor:pointer;text-align:left;
       background:${on?'var(--forest)':'#fff'};color:${on?'#fff':'var(--ink)'};
@@ -6905,7 +6951,7 @@ function builderHTML(){
     ${tab(!!builder.note, 'On this block', nNote?'Elliott\u2019s note':'nothing yet', 'bPickNote()', '')}
     ${tab(!!builder.warm, 'Warm-up', wn?(Math.min(W.n,wn)+' of '+wn+' a day'):'every day', 'bPickWarm()', '')}
     ${days.map((x,i)=>tab(!builder.warm && !builder.note && i===di, x.label||('Day '+(i+1)), x.sub||'',
-        'bPickDay('+i+')', 'bDelDay('+i+')')).join('')}
+        'bPickDay('+i+')', 'bDelDay('+i+')', ['day',i])).join('')}
     <button onclick="bAddDay()" style="${bGhost}">+ Day</button>
     <button onclick="bCopyDayOpen()" style="${bGhost}${dayCopy?';border-color:var(--forest);color:var(--forest)':''}">Copy a day</button>
   </div>${dayCopyHTML()}`;
@@ -6919,6 +6965,10 @@ function builderHTML(){
           placeholder="Strength &amp; balance" style="flex:1;min-width:130px;${bInput}">
         <input value="${esc(d.mins||'')}" oninput="bField(${di},'mins',this.value)"
           placeholder="45" style="flex:0 0 54px;${bInput}">
+        ${days.length>1?`<button onclick="bMoveDay(${di},-1)" ${di?'':'disabled'} title="Move this day earlier"
+            aria-label="Move this day earlier" style="${bGhost};padding:6px 11px;${di?'':'opacity:.35;cursor:default'}">&larr;</button>
+          <button onclick="bMoveDay(${di},1)" ${di<days.length-1?'':'disabled'} title="Move this day later"
+            aria-label="Move this day later" style="${bGhost};padding:6px 11px;${di<days.length-1?'':'opacity:.35;cursor:default'}">&rarr;</button>`:''}
       </div>
       ${lengthLine(d)}
       ${wn?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px;
@@ -6945,7 +6995,7 @@ function builderHTML(){
           padding-top:12px;border-top:1px solid var(--line)">
           ${gs.map((x,k)=>tab(k===gi, x.name||('Block '+(k+1)),
               ((x.items||[]).length)+' drill'+((x.items||[]).length===1?'':'s'),
-              'bPickGrp('+k+')', 'bDelGroup('+di+','+k+')')).join('')}
+              'bPickGrp('+k+')', 'bDelGroup('+di+','+k+')', ['grp',k])).join('')}
           <button onclick="bAddGroup(${di})" style="${bGhost}">+ Block</button>
         </div>
         <div style="margin-top:13px;display:flex;gap:7px;align-items:center">
@@ -6955,6 +7005,11 @@ function builderHTML(){
               aria-label="Move this block earlier" style="${bGhost};padding:6px 11px;${gi?'':'opacity:.35;cursor:default'}">&larr;</button>
             <button onclick="bMoveGroup(${di},${gi},1)" ${gi<gs.length-1?'':'disabled'} title="Move this block later"
               aria-label="Move this block later" style="${bGhost};padding:6px 11px;${gi<gs.length-1?'':'opacity:.35;cursor:default'}">&rarr;</button>`:''}
+          ${days.length>1?`<select onchange="if(this.value!=='')bGroupToDay(${di},${gi},this.value)" title="Move this block to another day"
+            style="${bInput};flex:none;width:auto;padding-right:8px;cursor:pointer">
+            <option value="">Move to&hellip;</option>
+            ${days.map((x,j)=>j===di?'':`<option value="${j}">${esc(x.label||('Day '+(j+1)))}</option>`).join('')}
+          </select>`:''}
         </div>
         <div>
           ${(g.items||[]).map((it,k)=>`
