@@ -5,7 +5,7 @@
 <title>Handstand Coach Review Tool</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600&family=Figtree:wght@400;500;600;700&family=Barlow+Condensed:wght@500&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #ece7e2;
@@ -423,6 +423,11 @@
       radial-gradient(circle at 30% 80%, rgba(243,169,73,.05), transparent 40%), #f4f4f5;
     -webkit-font-smoothing: antialiased; padding: 12px 14px 12px; }
   .embedded header { display: none; }
+  .embedded body { background: transparent; padding: 0; }
+  /* the input restyle above gave every clip name a white box, and the
+     playing clip's white name vanished into it */
+  .clip-row input.clip-title { background: transparent; border: 0; min-height: 0; box-shadow: none; }
+  .clip-row input.clip-title:focus { background: #fff; color: var(--ink); }
   h1 { font: 400 24px/1.1 var(--serif); }
   .layout { gap: 14px; grid-template-columns: minmax(0, 1fr) 300px; }
   .col-left, .col-right { gap: 12px; }
@@ -505,14 +510,15 @@
           <button data-tool="line" class="icon-btn" title="Straight line">╱</button>
           <button data-tool="arrow" class="icon-btn" title="Arrow">➜</button>
           <button data-tool="circle" class="icon-btn" title="Circle">◯</button>
+          <button data-tool="text" class="icon-btn" title="Words on the clip" style="font:600 15px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em">Aa</button>
           <button data-tool="eraser" class="icon-btn" title="Eraser">⌫</button>
           <button data-tool="pan" class="icon-btn" title="Pan around when zoomed in">✋</button>
         </div>
         <button id="undoBtn" title="Undo last mark">Undo</button>
         <button id="clearBtn" title="Clear all marks">Clear</button>
-        <button class="swatch active" style="background:#ff3b30" data-color="#ff3b30"></button>
+        <button class="swatch active" style="background:#7dff3a" data-color="#7dff3a"></button>
+        <button class="swatch" style="background:#ff3b30" data-color="#ff3b30"></button>
         <button class="swatch" style="background:#f3a949" data-color="#f3a949"></button>
-        <button class="swatch" style="background:#7dff3a" data-color="#7dff3a"></button>
         <button class="swatch" style="background:#3fa9ff" data-color="#3fa9ff"></button>
         <button class="swatch" style="background:#ffffff" data-color="#ffffff"></button>
         <label style="margin-left:2px;">Thickness
@@ -691,7 +697,7 @@
   let camEnabled = false;
   let camStream = null;
   let currentTool = 'pen';
-  let currentColor = '#ff3b30';
+  let currentColor = '#7dff3a';
   let drawing = false;
   let startPt = null;
   let snapshot = null;
@@ -1049,25 +1055,37 @@
     const n = parseInt(m[1], 16);
     return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
   };
+  /* the colour mixed toward white, for the lit core */
+  const tint = (hex, k) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return '#ffffff';
+    const n = parseInt(m[1], 16), mix = c => Math.round(c + (255 - c) * k);
+    return `rgb(${mix(n >> 16 & 255)},${mix(n >> 8 & 255)},${mix(n & 255)})`;
+  };
   function glow(context, width, color, path, fill) {
     context.save();
     context.globalCompositeOperation = 'source-over';
     context.lineCap = 'round'; context.lineJoin = 'round';
-    /* a wide bloom, a tighter one, the colour, then a white hot core:
-       the neon tube look, not a felt tip with a shadow */
-    context.shadowColor = color; context.shadowBlur = width * 6;
-    context.strokeStyle = withAlpha(color, 0.35); context.fillStyle = withAlpha(color, 0.35);
-    context.lineWidth = width * 3.2;
+    /* The neon tube: a wide soft haze of the colour, a tight bright glow,
+       the colour itself, and a core that is the colour washed nearly to
+       white. A pure white core read as a white line with a green edge;
+       the tint is what makes it look lit from inside. */
+    context.shadowColor = color; context.shadowBlur = width * 9;
+    context.strokeStyle = withAlpha(color, 0.32); context.fillStyle = withAlpha(color, 0.32);
+    context.lineWidth = width * 2.8;
     path(); fill ? context.fill() : context.stroke();
-    context.shadowBlur = width * 2.5;
-    context.strokeStyle = withAlpha(color, 0.85); context.fillStyle = withAlpha(color, 0.85);
-    context.lineWidth = width * 1.6;
+    context.shadowBlur = width * 3;
+    context.strokeStyle = color; context.fillStyle = color;
+    context.lineWidth = width * 1.5;
     path(); fill ? context.fill() : context.stroke();
     context.shadowBlur = 0;
     context.strokeStyle = color; context.fillStyle = color; context.lineWidth = width;
     path(); fill ? context.fill() : context.stroke();
-    context.strokeStyle = 'rgba(255,255,255,0.95)'; context.lineWidth = Math.max(1.5, width * 0.5);
-    if (!fill) { path(); context.stroke(); }
+    if (!fill) {
+      context.shadowColor = tint(color, 0.85); context.shadowBlur = width * 0.9;
+      context.strokeStyle = tint(color, 0.8); context.lineWidth = Math.max(1.5, width * 0.62);
+      path(); context.stroke();
+    }
     context.restore();
   }
   function drawArrowHead(context, fromX, fromY, toX, toY, size) {
@@ -1081,6 +1099,7 @@
 
   let panDragStart = null;
   let penPts = [];
+  let reviewTo = '';
 
   /* where the pointer is on the stage canvas itself, which is where the
      title is drawn; the drawing tools work in the video's own pixels */
@@ -1090,8 +1109,53 @@
   }
   const onTitle = p => !!(titleRect && showTitleToggle.checked && p.x >= titleRect.x && p.x <= titleRect.x + titleRect.w
     && p.y >= titleRect.y && p.y <= titleRect.y + titleRect.h);
+  /* Words on the clip, the way the reels have them: condensed capitals,
+     spaced out, stacked a few words to a line, white with a soft shadow
+     so they read on a pale wall. Drawn onto the marks layer, so Undo,
+     Clear and the recording all treat them like any other mark. */
+  async function drawWords(pt, text) {
+    const H = annotationCanvas.height, fs = Math.round(Math.min(H, annotationCanvas.width * 1.6) * 0.036);
+    try { await document.fonts.load(`500 ${fs}px "Barlow Condensed"`); } catch (e) {}
+    const ctx = annCtx, gap = fs * 0.2, lh = fs * 1.12;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.font = `500 ${fs}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+    ctx.textBaseline = 'top';
+    const wide = w => [...w].reduce((t, ch) => t + ctx.measureText(ch).width + gap, -gap);
+    const maxW = annotationCanvas.width * 0.5;
+    const lines = [];
+    /* a slash is a line break you choose: "on top / of hands"; otherwise
+       a line holds about twelve letters, which is how the reels stack them */
+    String(text).toUpperCase().split(/\s*\/\s*/).forEach(part => {
+      let fresh = true;
+      part.split(/\s+/).filter(Boolean).forEach(word => {
+        const last = lines[lines.length - 1];
+        if (!fresh && last && wide(last + ' ' + word) <= maxW && (last + ' ' + word).length <= 12) lines[lines.length - 1] = last + ' ' + word;
+        else lines.push(word);
+        fresh = false;
+      });
+    });
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = fs * 0.25; ctx.shadowOffsetY = fs * 0.04;
+    /* kept on the frame: words placed near the right edge move left */
+    const widest = Math.max(...lines.map(wide));
+    const x0 = Math.max(fs * 0.4, Math.min(pt.x, annotationCanvas.width - widest - fs * 0.4));
+    const y0 = Math.max(fs * 0.4, Math.min(pt.y, annotationCanvas.height - lines.length * lh - fs * 0.2));
+    pt = { x: x0, y: y0 };
+    lines.forEach((ln, i) => {
+      let x = pt.x;
+      for (const ch of ln) { ctx.fillText(ch, x, pt.y + i * lh); x += ctx.measureText(ch).width + gap; }
+    });
+    ctx.restore();
+  }
   stage.addEventListener('pointerdown', (e) => {
     if (!videoLoaded) return;
+    if (currentTool === 'text') {
+      const at = stageToNativeCoords(e);
+      const words = prompt('Words on the clip. A / starts a new line.');
+      if (words && words.trim()) { pushUndo(); drawWords(at, words.trim()); }
+      return;
+    }
     const sp = stagePoint(e);
     if (onTitle(sp)) {
       stage.setPointerCapture(e.pointerId);
@@ -1722,7 +1786,7 @@
     }
     const inFrame = (() => { try { return window.parent !== window; } catch (e) { return false; } })();
     send.style.display = inFrame ? 'inline-block' : 'none';
-    send.textContent = 'Send it to them';
+    send.textContent = reviewTo ? 'Send to ' + reviewTo : 'Send it to them';
     send.disabled = false;
     send.onclick = () => {
       send.disabled = true; send.textContent = 'Handing it over…';
@@ -1942,6 +2006,7 @@
       if (i > -1) removeClip(i);
       return;
     }
+    if (d.type === 'lha-review-for') { reviewTo = String(d.name || '').split(' ')[0]; return; }
     if (d.type === 'lha-review-reset') {
       for (let i = clips.length - 1; i >= 0; i--) { if (clips[i].remote) removeClip(i); }
       return;

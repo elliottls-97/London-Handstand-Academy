@@ -7579,7 +7579,10 @@ const handle = async (request) => {
         const e = s.email;
         if (!roster[e] || !owns(e) || s.status !== 'submitted') continue;
         out.push({ email: e, name: nameOf(e), coached: !!clients()[e], id: s.id, kind: s.kind,
-          cycle: s.cycle, at: ms(s.created_at), clips: (s.clips || []).length, numbers: s.numbers || {} });
+          cycle: s.cycle, at: ms(s.created_at), clips: (s.clips || []).length, numbers: s.numbers || {},
+          /* the clips themselves, so the review screen can load the next
+             person's without opening their page first */
+          uids: (s.clips || []).slice(0, 12) });
       }
       /* oldest first: the one closest to breaking the 48-hour promise */
       out.sort((a, b) => (a.at || 0) - (b.at || 0));

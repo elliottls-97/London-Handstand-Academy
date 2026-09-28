@@ -2399,7 +2399,9 @@ window.addEventListener('message', e=>{
   try{ file=new File([e.data.blob], 'review-'+Date.now()+'.'+ext, {type:e.data.blob.type||'video/'+ext}); }
   catch(err){ file=e.data.blob; }
   /* named, not read off sel, which can change while a recording uploads */
-  sendCoachClip(file, tell, to, reviewAnswers());
+  sendCoachClip(file, (ok,err)=>{ tell(ok,err);
+    if(ok){ loadQueue(); const n=reviewWaiting()[0];
+      flash(n ? 'Sent. Next up: '+String(n.name||'').split(' ')[0] : 'Sent. Nothing else waiting.'); syncReview(); } }, to, reviewAnswers());
 });
 /* ── which clips this recording answers ────────────────────────────
    Each clip in the bar says what the recording does for it: answers it,
@@ -3966,6 +3968,7 @@ function reviewPost(clip){
 window.addEventListener('message', e=>{
   if(e.origin!==location.origin || !e.data || e.data.type!=='lha-review-ready') return;
   reviewReady=true;
+  reviewTellFor();
   /* anything queued while the tool was still parsing */
   reviewQueue.filter(c=>c.src && !c.sent).forEach(c=>{ if(reviewPost(c)) c.sent=true; });
 });
@@ -3984,6 +3987,38 @@ function reviewSwitch(email){
     const w=reviewFrame(); if(w) w.postMessage({type:'lha-review-reset'}, location.origin);
   }
   reviewFor=email;
+  reviewTellFor();
+}
+/* the Send button in the tool says who it goes to */
+function reviewTellFor(){
+  const w=reviewFrame(); if(!w || !reviewFor) return;
+  w.postMessage({type:'lha-review-for', name:(clients.find(c=>c.email===reviewFor)||{}).name||''}, location.origin);
+}
+/* ── who else has clips waiting ─────────────────────────────────────
+   Today knows every clip that has not had an answer. The review screen
+   lists the people behind them, oldest first, so finishing one person
+   is one press from starting the next rather than a trip back to Today. */
+function reviewWaiting(){
+  const by=new Map();
+  inboxItems().filter(x=>['point','check','review'].includes(x.type) && (x.uids||[]).length && x.email!==reviewFor)
+    .forEach(x=>{
+      const p=by.get(x.email)||{email:x.email, name:x.name, uids:[], titles:{}, at:x.at||Date.now()};
+      const first=String(x.name||'').split(' ')[0]||'Client';
+      const what=x.type==='point'?((x.numbers||{}).name||'Check point'):x.type==='check'?'Form check':'Block '+(x.cycle||1)+' test';
+      x.uids.forEach((u,i)=>{ if(p.uids.indexOf(u)<0){ p.uids.push(u); p.titles[u]=first+' · '+what+(x.uids.length>1?' · '+(i+1):''); } });
+      p.at=Math.min(p.at, x.at||p.at);
+      by.set(x.email,p);
+    });
+  return [...by.values()].sort((a,b)=>a.at-b.at);
+}
+function reviewNext(email){
+  const p=reviewWaiting().find(x=>x.email===email); if(!p) return;
+  /* their check points, so a clip can be signed off from here */
+  if(tracks[email]===undefined){
+    fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()}).then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d){ tracks[email]=d.track||null; cpDefs[email]=d.checkpoints||[]; syncReview(); } }).catch(()=>{});
+  }
+  reviewClips(email, p.uids, p.name, p.titles);
 }
 function reviewClips(email, uids, name, titles){
   const list=(uids||[]).filter(Boolean);
@@ -4333,15 +4368,28 @@ function ensureReview(){
   if(wrap) return wrap;
   wrap=document.createElement('div');
   wrap.id='reviewWrap';
-  wrap.style.cssText='position:fixed;inset:0;z-index:60;display:none;'
-    +'flex-direction:column;background:var(--bg)';
-  wrap.innerHTML='<div id="reviewBar" style="flex:none;padding:8px 12px;display:flex;'
-    +'align-items:center;gap:9px;flex-wrap:wrap;border-bottom:1px solid var(--line);'
-    +'max-height:104px;overflow:auto;background:var(--surface,#f7f4f1)"></div>'
+  /* It sits under the dashboard's bar, which stays where it is, so Today,
+     Chats or a client are one press away mid review. The iframe is never
+     moved or rebuilt, so going there and back keeps the clips, the marks
+     and a recording in progress. */
+  wrap.style.cssText='position:fixed;left:0;right:0;bottom:0;top:0;z-index:35;display:none;'
+    +'flex-direction:column;padding:0 24px 18px';
+  wrap.innerHTML='<div id="reviewPanel" class="glass" style="flex:1;min-height:0;width:100%;max-width:1180px;margin:0 auto;'
+    +'display:flex;flex-direction:column;border-radius:24px;overflow:hidden;background:#fff">'
+    +'<div id="reviewBar" style="flex:none;padding:16px 20px 12px;border-bottom:1px solid var(--line);'
+    +'max-height:34vh;overflow:auto"></div>'
     +'<iframe id="reviewFrame" src="/coach-review.html" allow="camera;microphone"'
-    +' style="flex:1;width:100%;border:0;display:block"></iframe>';
+    +' style="flex:1;min-height:0;width:100%;border:0;display:block;background:transparent"></iframe></div>';
   document.body.appendChild(wrap);
+  window.addEventListener('resize', ()=>{ if(view==='review') reviewPlace(); });
   return wrap;
+}
+function reviewPlace(){
+  const wrap=document.getElementById('reviewWrap'), bar=document.querySelector('header.bar');
+  if(!wrap) return;
+  const top=bar ? Math.ceil(bar.getBoundingClientRect().bottom)+14 : 0;
+  wrap.style.top=top+'px';
+  wrap.style.padding=(innerWidth<=520?'0 11px 10px':innerWidth<=880?'0 14px 12px':'0 24px 18px');
 }
 /* back to whoever's clips you were watching, not to a list you then have
    to find them in again */
@@ -4377,23 +4425,33 @@ function syncReview(){
     <button onclick="reviewDrop('${esc(c.uid)}')" title="Remove"
       style="cursor:pointer;border:0;background:none;color:var(--grey2);padding:0;
       font-size:14px;line-height:1">×</button></span>`;
-  bar.innerHTML=`<button onclick="reviewBack()" style="cursor:pointer;border:1px solid var(--line);
-      background:#fff;border-radius:9px;padding:6px 11px;font:600 12px/1 var(--sans)">
-      ← Dashboard</button>
-    <span style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">REVIEW${
-      reviewFor?' · FOR '+esc(((clients.find(x=>x.email===reviewFor)||{}).name||reviewFor).toUpperCase()):''}</span>
-    <button onclick="revPickOpen('${esc(reviewFor||sel||'')}')" style="cursor:pointer;border:0;
-      background:var(--forest);color:#fff;border-radius:9px;padding:7px 12px;
-      font:700 12px/1 var(--sans)">+ Add clips</button>
-    ${reviewQueue.map(chip).join('')}
-    ${reviewQueue.length?'':`<span style="font:400 11.5px/1.4 var(--sans);color:var(--grey2)">
-      Add clips picks a client and a day. You can still press Review on a single
-      clip, or add files from this Mac below.</span>`}`;
+  reviewPlace();
+  const who=reviewFor?(clients.find(x=>x.email===reviewFor)||{}):null;
+  const next=reviewWaiting();
+  const nchip=p=>{ const h=Math.round((Date.now()-p.at)/3600000);
+    return `<button onclick="reviewNext('${esc(p.email)}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+      border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 11px;font:600 12px/1 var(--sans);color:var(--ink)">
+      ${esc(String(p.name||p.email).split(' ')[0])}
+      <span style="font-weight:500;color:var(--grey2)">${p.uids.length} clip${p.uids.length===1?'':'s'}</span>
+      <span style="font-weight:600;color:${hrsColor(h)}">${h} h</span></button>`; };
+  bar.innerHTML=`<div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div class="kick">${who?'REVIEWING':'REVIEW'}</div>
+        <div style="font:400 24px/1.15 var(--serif);margin-top:5px">${who?esc(who.name||reviewFor):'Nobody yet'}</div>
+      </div>
+      ${who?`<button class="btn btn-secondary btn-sm" onclick="openClient('${esc(reviewFor)}','thread')">Open ${esc(String(who.name||'').split(' ')[0]||'them')}</button>`:''}
+      <button class="btn btn-secondary btn-sm" onclick="revPickOpen('${esc(reviewFor||sel||'')}')">+ Add clips</button>
+    </div>
+    ${reviewQueue.length?`<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">${reviewQueue.map(chip).join('')}</div>`
+      :`<div class="muted" style="font-size:12.5px;margin-top:8px">${next.length?'Pick who is next below, or add clips.':'Nothing waiting. Add clips, or drop files from this Mac into the tool.'}</div>`}
+    ${next.length?`<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      <span class="kick" style="margin-right:4px">${reviewFor?'NEXT':'WAITING'}</span>${next.map(nchip).join('')}</div>`:''}`;
   revPickPaint();
 }
 /* the tab body is only what shows for the split second before the panel
    opens, and what shows if the panel somehow cannot mount */
 function reviewHTML(){
+  if(document.getElementById('reviewWrap')) return '';
   return `<div class="glass" style="padding:16px 18px">
     <div style="font:400 21px/1.1 var(--serif)">Review a client's footage</div>
     <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px;max-width:66ch">
@@ -7854,7 +7912,7 @@ function inboxItems(){
       : t==='point' ? ('Check point: '+((q.numbers||{}).name||''))
       : ('Block '+(q.cycle||1)+' test');
     out.push({id:'q:'+q.id, type:t, email:q.email, name:q.name||q.email, at:q.at,
-      action:'Open the thread', numbers:q.numbers||{}, clips:q.clips||0, cycle:q.cycle||1,
+      action:'Open the thread', numbers:q.numbers||{}, clips:q.clips||0, cycle:q.cycle||1, uids:q.uids||[],
       detail:what+' · '+q.clips+' clip'+(q.clips===1?'':'s')+(nums?' · '+nums:'')});
   });
   qOpen().forEach(q=>out.push({id:'Q:'+q.id, type:'question', email:q.email,
