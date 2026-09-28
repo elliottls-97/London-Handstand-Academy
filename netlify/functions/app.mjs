@@ -1353,6 +1353,60 @@ const handle = async (request) => {
       } catch (err) { console.warn('payment link lookup', err && err.message); }
     }
 
+    /* ── a refund made in Stripe ─────────────────────────────────────
+       Refunding a 1-2-1 or a workshop in the Stripe dashboard left the
+       booking standing: the session still showed as booked, the place
+       still counted as taken. A full refund cancels what it paid for and
+       tells them in the chat; a part refund is noted on it. A refunded
+       form check takes back one unused credit. Once per refund amount. */
+    if (ev.type === 'charge.refunded' && obj.object === 'charge') {
+      const pi = String(obj.payment_intent || '');
+      const amt = Number(obj.amount_refunded) || 0;
+      const full = !!obj.refunded || amt >= (Number(obj.amount) || 0);
+      const won = await supa.insertIfAbsent('nudges', { key: `refund:${obj.id}:${amt}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
+      if (!won) return json({ ok: true, note: 'refund already filed' });
+      let cs = '';
+      if (pi && stripeKey()) { try { const l = await stripe(`/checkout/sessions?payment_intent=${enc(pi)}&limit=1`, null, 'GET');
+        cs = (l && l.data && l.data[0] && l.data[0].id) || ''; } catch {} }
+      const money = `£${(amt / 100).toFixed(2).replace(/\.00$/, '')}`;
+      const filed = [];
+      const tell = async (who, text) => { try { await threadAdd(db, who, { from: 'coach', sub: 'auto', by: primaryCoach(), text }); } catch {} };
+      const list = (await getSetting('sessions')) || [];
+      let touched = false;
+      for (const row of list) {
+        if (!((pi && row.pi === pi) || (cs && (row.session === cs || row.paidRef === cs)))) continue;
+        row.refunded = amt; touched = true;
+        const when = row.when ? new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+        if (full && !['done', 'cancelled'].includes(row.status)) { row.status = 'cancelled';
+          await tell(row.email, `${money} has been refunded to your card${when ? ' and your session on ' + when + ' is cancelled' : ''}. It shows in a few days.`); }
+        filed.push(`1-2-1 for ${row.name || row.email}${full ? ', cancelled' : ', part refund'}`);
+      }
+      if (touched) await setSetting('sessions', list);
+      const shops = (await getSetting('workshops')) || {};
+      for (const slug of Object.keys(shops)) {
+        const book = (await getSetting(`wsbook:${slug}`)) || [];
+        let hit = false;
+        for (const b of book) {
+          if (!((pi && b.pi === pi) || (cs && b.session === cs))) continue;
+          b.refunded = amt; hit = true;
+          if (full && (b.status || 'booked') === 'booked') { b.status = 'refunded'; b.cancelledAt = Date.now();
+            await tell(b.email, `${money} has been refunded to your card and your place at ${shops[slug].title || 'the workshop'} is cancelled. It shows in a few days.`); }
+          filed.push(`${shops[slug].title || slug} for ${b.name || b.email}${full ? ', place freed' : ', part refund'}`);
+        }
+        if (hit) await setSetting(`wsbook:${slug}`, book);
+      }
+      if (cs && full) {
+        const had = await supa.row('nudges', `key=eq.${enc('credit:' + cs)}&select=key`).catch(() => null);
+        if (had) {
+          const who = norm((obj.billing_details && obj.billing_details.email) || obj.receipt_email || '');
+          const ck = who ? `fccredits:${who}` : '';
+          const cur = ck ? ((await getSetting(ck)) || {}) : {};
+          if (ck && Number(cur.n) > 0) { await setSetting(ck, Object.assign({}, cur, { n: Number(cur.n) - 1 })); filed.push('a form check credit for ' + who); }
+        }
+      }
+      if (filed.length) await coachAlert(null, 'business', { title: `Refund of ${money} filed`, body: filed.join('; '), tag: 'refund:' + obj.id });
+      return json({ ok: true, refund: filed });
+    }
     /* find the account either by the address we sent, or by the Stripe
        customer we stored when they checked out */
     /* stripeIdx used to be a hand-kept map from customer to email. It is a
@@ -1457,7 +1511,7 @@ const handle = async (request) => {
       if (!row) return json({ ok: true, note: 'no such session' });
       if (row.paidRef === obj.id) return json({ ok: true, note: 'already paid' });
       row.paid = (Number(row.paid) || 0) + (Number(obj.amount_total) || 0);
-      row.paidRef = String(obj.id || ''); row.ask = 0;
+      row.paidRef = String(obj.id || ''); row.pi = String(obj.payment_intent || ''); row.ask = 0;
       await setSetting('sessions', list);
       const whenTxt = row.when ? new Date(row.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : 'time to arrange';
       try { await threadAdd(db, row.email, { from: 'coach', by: primaryCoach(), text: `Paid, thank you. See you ${row.when ? 'on ' + whenTxt : 'soon'}.` }); } catch {}
@@ -1480,6 +1534,7 @@ const handle = async (request) => {
       const freshSess = !list.some(x => x.session === obj.id);
       if (freshSess) {
         list.unshift({ id: 's' + newId(), email: e, name: nm, kind, prefs, at: Date.now(), session: String(obj.id || ''),
+          pi: String(obj.payment_intent || ''),
           paid: Number(obj.amount_total) || 0, status: 'toArrange', when: '', place: 'OverGravity, Shadwell', note: '' });
         await setSetting('sessions', list.slice(0, 400));
       }
@@ -1732,6 +1787,39 @@ const handle = async (request) => {
             signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
           if (mailDown) throw new Error('the welcome email did not go: Resend failed');
         } catch (err) { await unclaimWelcome(); throw err; }
+      }
+      /* ── coaching includes the Ladder ───────────────────────────────
+         Somebody on the £10 Ladder who bought coaching kept paying the £10
+         as well: nothing cancelled it. Every Ladder subscription under their
+         email or their Stripe customer is stopped here. A free week is
+         cancelled outright, so it never charges; a paid month runs to its
+         end and does not renew. They are told in the chat, once. Safe to
+         run again: a subscription already stopped is not touched. */
+      if (['online', 'inner'].includes(boughtPlan) && isCheckout && stripeKey()) {
+        try {
+          const keep = String(obj.subscription || '');
+          const custs = new Set([acct.stripe_customer, obj.customer].filter(Boolean));
+          try { const cl = await stripe(`/customers?email=${enc(acct.email)}&limit=10`, null, 'GET');
+            ((cl && cl.data) || []).forEach(c => custs.add(c.id)); } catch {}
+          const stopped = [];
+          for (const cu of custs) {
+            const subs = await stripe(`/subscriptions?customer=${enc(cu)}&status=all&limit=20`, null, 'GET').catch(() => null);
+            for (const sb of ((subs && subs.data) || [])) {
+              if (sb.id === keep || !['active', 'trialing', 'past_due'].includes(sb.status) || sb.cancel_at_period_end) continue;
+              if (planOf(sb) !== 'plus') continue;
+              if (sb.status === 'trialing') await stripe(`/subscriptions/${enc(sb.id)}`, null, 'DELETE');
+              else await stripe(`/subscriptions/${enc(sb.id)}`, { cancel_at_period_end: 'true' });
+              stopped.push(sb);
+            }
+          }
+          if (stopped.length) {
+            const endTxt = stopped.every(x => x.status === 'trialing') ? 'Your free week has been cancelled, so it will never charge.'
+              : `It will not renew${stopped[0].current_period_end ? ' after ' + new Date(stopped[0].current_period_end * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }) : ''}, and you will not be charged for it again.`;
+            try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
+              text: `Coaching includes the whole Ladder, so I have stopped your separate Ladder subscription. ${endTxt}` }); } catch {}
+            await coachAlert(acct.email, 'business', { title: 'Ladder stopped for ' + (acct.name || acct.email), body: 'They moved to coaching; the £10 no longer renews.', tag: 'ladderstop:' + acct.email });
+          }
+        } catch (err) { console.warn('ending the ladder on coaching', err && err.message); }
       }
       if (['online', 'inner'].includes(boughtPlan) && isCheckout && await claimWelcome()) {
        try {
@@ -2449,7 +2537,17 @@ const handle = async (request) => {
        environment from the £5 days (STRIPE_PRICE_PLUS) won over the price
        the dashboard sets, so a returning subscriber was shown £10 and
        charged the old price. */
-    const inline = planKey === 'plus' && !(PRICES.plus && PRICES.plus.priceId) && Number(PRICES.plus && PRICES.plus.amount) > 0;
+    /* A plan sold through a payment link has no price id here, and a code
+       cannot ride on a link, so the app sends anybody with a code to this
+       checkout instead. The price is then made on the spot from the amount
+       the dashboard sets, billed as the plan is. */
+    const pRow = PRICES[planKey] || {};
+    const inline = !(pRow.priceId) && Number(pRow.amount) > 0;
+    const INLINE_NAME = { plus: 'The Handstand Ladder', plusq: 'The Handstand Ladder, every three months', plusy: 'The Handstand Ladder, yearly',
+      check: 'A form check', online: 'Online coaching', inperson: 'Coaching with a London session',
+      inperson2: 'Coaching with two London sessions', inperson4: 'Coaching with four London sessions',
+      inner: 'The Inner Circle', inneronline: 'The Inner Circle, online' };
+    const every = planKey === 'plusy' ? { interval: 'year', n: 1 } : planKey === 'plusq' ? { interval: 'month', n: 3 } : { interval: 'month', n: 1 };
     if (!stripeKey() || (!plan.price() && !inline)) {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
@@ -2465,9 +2563,10 @@ const handle = async (request) => {
         mode: plan.mode,
         ...(inline ? {
           'line_items[0][price_data][currency]': 'gbp',
-          'line_items[0][price_data][unit_amount]': String(Math.round(Number(PRICES.plus.amount))),
-          'line_items[0][price_data][recurring][interval]': 'month',
-          'line_items[0][price_data][product_data][name]': 'The Handstand Ladder',
+          'line_items[0][price_data][unit_amount]': String(Math.round(Number(pRow.amount))),
+          ...(plan.mode === 'subscription' ? { 'line_items[0][price_data][recurring][interval]': every.interval,
+            'line_items[0][price_data][recurring][interval_count]': String(every.n) } : {}),
+          'line_items[0][price_data][product_data][name]': INLINE_NAME[planKey] || 'London Handstand Academy',
         } : { 'line_items[0][price]': plan.price() }),
         'line_items[0][quantity]': '1',
         'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
