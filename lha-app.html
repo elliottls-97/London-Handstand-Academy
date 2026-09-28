@@ -1126,6 +1126,11 @@ const IOS_APP = (()=>{ try{
   return sessionStorage.getItem('lha_ios')==='1'; }catch(e){ return false; } })();
 let IOS_SELL=false;
 const sells = () => !IOS_APP || IOS_SELL;
+/* The Ladder is the one thing the iPhone app sells, through Apple, once the
+   App Store has answered with its product. Coaching, sessions and form
+   checks stay off the iPhone app's shelves (sells() above). */
+let iapProduct=null;
+const sellsLadder = () => !IOS_APP || !!iapProduct;
 /* one line for anything that would have been a price or an offer */
 const MEMBERS = 'for members';
 let st={};
@@ -2398,7 +2403,7 @@ function savedHomeHTML(){
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
         <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':going?'var(--forest)':'var(--grey)'};margin-top:3px;${going?'font-weight:600':''}">${
           going ? done+' of '+(held.of||held.q.length)+' sets done'
-          : locked ? (sells() ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.' : 'Part of the full ladder, for members.')
+          : locked ? (sellsLadder() ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.' : 'Part of the full ladder, for members.')
           : gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
           : (r.taste && !isPlus()) ? 'Your free session, saved for no signal. It opens until you have done it.'
           : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+' &middot; needs signal'
@@ -6778,7 +6783,7 @@ function subscriptionHTML(){
               ${st.cancelAt
                 ? 'Your renewal is already stopped. Access stays until <b>'+esc(whenEnds())+'</b>.'
                 : coachedSub ? 'Your coaching is active.'
-                : (sells() ? 'Your '+PRICE()+' a month subscription is active.' : 'Your membership is active.')}</div>
+                : (sellsLadder() ? 'Your '+PRICE()+' a month subscription is active.' : 'Your membership is active.')}</div>
             <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">
               We could not reach Stripe just now, so the exact date is not shown.
               Nothing is wrong with your account.</div>
@@ -8789,7 +8794,7 @@ let vbLast=0;
 function drawOv(){
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
-           password:'Change password', account:'Your account', emailchange:'Change email', deleteacct:'Delete your account', members:'For members',
+           password:'Change password', account:'Your account', emailchange:'Change email', deleteacct:'Delete your account', members:'For members', iap:'The whole Ladder',
            why:'Why are you stopping?',apply:'Apply for coaching',
            summary:'Session complete',stage:S?S.n:'Stage',
            cleared:'Stage cleared',
@@ -9031,14 +9036,14 @@ function drawOv(){
         <span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.12em;color:#8a5a12">FREE</span>
         <span style="font:400 13px/1.45 var(--sans);color:var(--ink)">
           This is your one free session at <b>${esc(STAGES[curStage()].n)}</b>. After it the ladder
-          is ${sells() ? PRICE()+' a month'+(trialLine()?', '+trialLine():'') : MEMBERS}.</span>
+          is ${sellsLadder() ? PRICE()+' a month'+(trialLine()?', '+trialLine():'') : MEMBERS}.</span>
       </div>` : ''}
       ${(!_wrist && tasteSpent()) ? `<div style="margin-bottom:12px;padding:13px 14px;border-radius:14px;background:rgba(243,169,73,.16)">
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">You have had your free session at
-          <b>${esc(STAGES[placedStage()].n)}</b>. ${!sells()?'Membership':trialLine()?'The free week':'The ladder'} opens it again, and every
+          <b>${esc(STAGES[placedStage()].n)}</b>. ${!sellsLadder()?'Membership':trialLine()?'The free week':'The ladder'} opens it again, and every
           stage above it. Until then, Go builds ${esc(STAGES[curStage()].n)}.</div>
         <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
-          ${sells()?`<button class="btn" style="flex:1 1 150px;min-height:46px;margin:0" onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
+          ${sellsLadder()?`<button class="btn" style="flex:1 1 150px;min-height:46px;margin:0" onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
           ${tasteBackOk()?`<button class="btn2" style="flex:1 1 150px;min-height:46px;margin:0" onclick="tasteBack()">Back to today's session</button>`:''}
         </div></div>` : ''}
       <button onclick="closeOv();buildFreeSession(${_wrist},true,${_wrist?'null':_arg})"
@@ -9559,7 +9564,7 @@ function drawOv(){
     /* three tiers, and people should never have to guess which one they
        are on or what it costs them */
     const tier = st.in ? {n:'Coaching', d:'Your own programme, written by Elliott.', c:'var(--amber)'}
-      : st.plus ? {n:'Full ladder', d:(sells()?PRICE()+' a month. ':'')+'Every stage including the Press.', c:'var(--amber)'}
+      : st.plus ? {n:'Full ladder', d:(sellsLadder()?PRICE()+' a month. ':'')+'Every stage including the Press.', c:'var(--amber)'}
       : {n:'Free', d:freePlanLine(), c:'var(--sand)'};
     if(!st.prefs) loadPrefs();
     body=`<div class="card" style="padding:18px">
@@ -9585,36 +9590,64 @@ function drawOv(){
       ${(st.plus||st.in)?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${st.in
-          ? 'Your coaching subscription.' : sells() ? 'The full ladder, '+PRICE()+' a month.' : 'The full ladder.'}</div>
+          ? 'Your coaching subscription.' : sellsLadder() ? 'The full ladder, '+PRICE()+' a month.' : 'The full ladder.'}</div>
         <div id="subblock">${subscriptionHTML()}</div>
         ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
         ${!st.canCancel&&!st.canManage?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
           To change a card or cancel, message Elliott and it is done the same day.</div>`:''}
       </div>`:''}
-      ${(!st.plus&&!st.in&&sells())?`<button class="btn" style="width:100%;margin-top:14px"
+      ${(!st.plus&&!st.in&&sellsLadder())?`<button class="btn" style="width:100%;margin-top:14px"
         onclick="closeOv();openStage(FREE_STAGES)">Unlock the rest of the ladder, ${PRICE()}/mo</button>`:''}
       <button class="btn2" style="width:100%;margin-top:14px" onclick="openOv('password')">Change password</button>
       <button class="btn2" style="width:100%;margin-top:10px" onclick="openOv('emailchange')">Change email</button>
       <button class="btn2" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>
+      ${IOS_APP && st.appleUntil>Date.now() ? `<div style="margin-top:16px;padding:14px 16px;border-radius:14px;background:rgba(0,102,99,.06);
+          font:400 13.5px/1.5 var(--sans);color:var(--grey)">Your Ladder subscription is billed by Apple.
+          <button class="btn2" style="width:100%;margin-top:10px" onclick="iapManage()">Manage or cancel it</button></div>`
+        : IOS_APP && iapPlugin() ? `<button onclick="iapRestore()" style="display:block;margin:14px auto 0;border:0;background:none;cursor:pointer;
+          padding:8px;font:600 13px/1 var(--sans);color:var(--grey)">Restore purchases</button><div id="iapMsg" style="text-align:center;font:500 13px/1.4 var(--sans);color:var(--grey)"></div>` : ''}
       <button onclick="openOv('deleteacct')" style="display:block;margin:18px auto 0;border:0;background:none;cursor:pointer;
         padding:8px;font:600 13px/1 var(--sans);color:var(--terra)">Delete my account</button>`;
   }
   /* Deleting your own account. Apple asks it of any app where an account
      can be made; the password is asked again so a phone left unlocked
      cannot do it. */
+  /* ── the Ladder, bought through Apple in the iPhone app ────────────
+     What Apple asks to be on the screen before anybody pays: the price
+     and how often, the free days if there are any, how it renews and how
+     to cancel, and the terms and privacy links. Restore is always here. */
+  if(st.ov==='iap'){
+    const p=iapProduct||{}, days=iapTrialDays();
+    body=`<div style="font:400 15px/1.6 var(--sans);color:var(--grey)">Every stage from Foundations to the press, every film and every fix,
+        on this phone and any other you sign in on.</div>
+      <div style="font:400 26px/1.15 var(--serif);margin-top:16px">${days>0?'Free for '+(days===7?'a week':days+' days')+'.':'The whole Ladder.'}
+        <span style="color:var(--forest)">${days>0?'Then ':''}${esc(p.displayPrice||'')} a month.</span></div>
+      <button id="iapBuy" class="btn" style="width:100%;margin-top:18px" onclick="iapBuy()">${days>0?'Start '+(days===7?'the free week':days+' days free'):'Subscribe'}</button>
+      <div id="iapMsg" style="min-height:20px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--grey)"></div>
+      <button class="btn2" style="width:100%;margin-top:2px" onclick="iapRestore()">Restore purchases</button>
+      <div style="font:400 11.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px">${days>0?'Free for '+days+' days, then ':''}${esc(p.displayPrice||'')}
+        a month, charged to your Apple ID. It renews every month until you cancel in Settings, then your name, then Subscriptions,
+        at least 24 hours before it renews.${st.token?'':' No account is needed; make one to keep your progress on another phone.'}
+        <a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" target="_blank" rel="noopener" style="color:var(--grey)">Terms of Use</a>
+        &middot; <a href="https://londonhandstandacademy.com/privacy" target="_blank" rel="noopener" style="color:var(--grey)">Privacy Policy</a></div>`;
+  }
   /* the App Store build's answer to anything that would have been an offer */
   if(st.ov==='members'){
     body=`<div style="font:400 15px/1.6 var(--sans);color:var(--grey)">This part of the ladder is for members:
         every stage, every film and every fix. If you are a member, sign in with the email you joined with and it is all here.</div>
       ${st.token?`<button class="btn2" style="width:100%;margin-top:18px" onclick="closeOv()">OK</button>`
         :`<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();st.tab='signin';save();render()">Sign in</button>
-          <button class="btn2" style="width:100%;margin-top:10px" onclick="closeOv()">Not now</button>`}`;
+          <button class="btn2" style="width:100%;margin-top:10px" onclick="closeOv()">Not now</button>`}
+      ${iapPlugin()?`<button onclick="iapRestore()" style="display:block;margin:14px auto 0;border:0;background:none;cursor:pointer;
+        padding:8px;font:600 13px/1 var(--sans);color:var(--grey)">Restore purchases</button>
+        <div id="iapMsg" style="min-height:18px;text-align:center;font:500 13px/1.4 var(--sans);color:var(--grey)"></div>`:''}`;
   }
   if(st.ov==='deleteacct'){
     body=`<div style="font:400 15px/1.55 var(--sans);color:var(--grey)">This deletes your account and everything on it:
-        your progress, your check points, your clips and the chat. It cannot be undone.${st.plus||st.in
-        ?' Your subscription is cancelled first, so nothing more is charged.':''}</div>
+        your progress, your check points, your clips and the chat. It cannot be undone.${st.appleUntil>Date.now()
+        ?' Your Ladder subscription is billed by Apple, so cancel it in Settings, then your name, then Subscriptions, or Apple keeps charging.'
+        : st.plus||st.in ?' Your subscription is cancelled first, so nothing more is charged.':''}</div>
       <label for="delPw" style="display:block;margin-top:18px;font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">YOUR PASSWORD</label>
       <input id="delPw" type="password" autocomplete="current-password" placeholder="Password, or type delete if you never set one"
         style="width:100%;margin-top:8px;padding:14px 16px;border-radius:14px;border:1.5px solid rgba(0,64,61,.18);background:#fff;font:400 16px/1.3 var(--sans)">
@@ -9900,7 +9933,7 @@ function drawOv(){
         <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:9px">
           ${esc(next.n)}${(function(){const rest=STAGES.length-(st.clearedFrom||0)-2;
             return rest>0 ? ' and the '+(rest===1?'stage':rest+' stages')+' after it' : '';})()
-          } ${STAGES.length-(st.clearedFrom||0)-2>0?'are':'is'} ${sells()?PRICE()+' a month':MEMBERS}. ${
+          } ${STAGES.length-(st.clearedFrom||0)-2>0?'are':'is'} ${sellsLadder()?PRICE()+' a month':MEMBERS}. ${
           esc((next.goal||'').replace(/\.$/,''))}.</div>
       </div>
       ${sells()?`<button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
@@ -9962,7 +9995,7 @@ function drawOv(){
         <div style="font:400 20px/1.25 var(--serif);margin-top:8px">${esc(STAGES[placedStage()].n)} is part of the ladder.</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${
           trialLine() ? 'The free week opens it again, with every stage above it. Nothing is charged until '+esc(firstCharge())+'.'
-                      : sells() ? 'It is '+PRICE()+' a month for every stage, and you can cancel from the app.' : 'Every stage is for members.'}</div>
+                      : sellsLadder() ? 'It is '+PRICE()+' a month for every stage, and you can cancel from the app.' : 'Every stage is for members.'}</div>
         ${sells()?`<button class="btn" style="width:100%;margin-top:13px"
           onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
       </div>`:''}
@@ -12261,7 +12294,7 @@ const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FRE
    asked of them. Until they say no to the free week they are where their
    answers put them, with the week on offer; Foundations is where they go
    when they choose it (st.freeChoice), not where they are put. */
-const trialPending = () => sells() && !coachedView() && !isPlus() && !st.freeChoice && !tasting()
+const trialPending = () => sellsLadder() && !coachedView() && !isPlus() && !st.freeChoice && !tasting()
   && placedStage() > FREE_STAGES-1 && !!STAGES[placedStage()];
 function openTrial(at){ st.ovStage = (at!=null && STAGES[at]) ? at : placedStage(); openOv('stage'); }
 function chooseFree(thenTrain){
@@ -12393,7 +12426,7 @@ function stageFilmsHTML(){
   if(coachedView() || trialPending()) return '';
   const P=curStage(), PS=STAGES[P]; if(!PS) return '';
   const ex=stageExplainers(P).filter(o=>o.i>=0), fx=stageFixes(P);
-  const paid = !sells() ? 'MEMBERS' : PRICE_TRIAL()>0 ? 'WITH THE TRIAL' : esc(PRICE())+' A MONTH';
+  const paid = !sellsLadder() ? 'MEMBERS' : PRICE_TRIAL()>0 ? 'WITH THE TRIAL' : esc(PRICE())+' A MONTH';
   const films = ex.length ? railHTML('Explainers at '+esc(PS.n), EX_SUB,
       ex.map(({x,i})=>{ const open=explainerOpen(i);
         return railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'',
@@ -13324,8 +13357,8 @@ function screenFix(){
 
     ${locked?`<div class="rise rise-1" style="margin:20px 20px 0;padding:18px;border-radius:22px;background:var(--deep);color:#fff">
         <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--sand)">IN THE FULL LADDER</div>
-        <div style="font:400 24px/1.15 var(--serif);margin-top:8px">${sells()?'This fix opens with the '+PRICE()+' a month tier.':'This fix is for members.'}</div>
-        <div style="font:400 14px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:8px">Every fix, every stage of the ladder${sells()&&trialLine()?', and the '+trialLine():''}.</div>
+        <div style="font:400 24px/1.15 var(--serif);margin-top:8px">${sellsLadder()?'This fix opens with the '+PRICE()+' a month tier.':'This fix is for members.'}</div>
+        <div style="font:400 14px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:8px">Every fix, every stage of the ladder${sellsLadder()&&trialLine()?', and the '+trialLine():''}.</div>
         ${sells()?`<button class="btn" style="width:100%;margin-top:14px;background:#fff;color:var(--deep)" onclick="openStage(FREE_STAGES)">See what is in it</button>`:''}
       </div>`
     :`<div class="rise rise-1" style="padding:20px 20px 0">
@@ -14486,7 +14519,7 @@ function screenLadder(){
             <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em></div>
           <div style="font:400 14.5px/1.55 var(--sans);color:var(--ink);margin-top:10px">
             ${esc(nxt.n)} is next: ${esc(String(nxt.goal||'').replace(/\.$/,''))}. It and the
-            ${left===1?'stage':left+' stages'} after it ${left===1?'is':'are'} ${sells()?'the '+esc(PRICE())+' a month tier'+(days>0?', and the first '+days+' days are free':''):MEMBERS}.</div>
+            ${left===1?'stage':left+' stages'} after it ${left===1?'is':'are'} ${sellsLadder()?'the '+esc(PRICE())+' a month tier'+(days>0?', and the first '+days+' days are free':''):MEMBERS}.</div>
           <button onclick="openStage(${cur+1})" style="width:100%;min-height:52px;border:0;border-radius:14px;
             margin-top:15px;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
             box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
@@ -14651,7 +14684,7 @@ const paidRangeLine = () =>
 const freePlanLine = () =>
   (FREE_STAGES===1 ? esc(STAGES[0].n)+' is' : 'Stages 1 to '+FREE_STAGES+' are')
   + ' free. The other '+(STAGES.length-FREE_STAGES)+' stage'+(STAGES.length-FREE_STAGES===1?' is':'s are')
-  + ' '+(sells() ? PRICE()+' a month' : MEMBERS)+'.';
+  + ' '+(sellsLadder() ? PRICE()+' a month' : MEMBERS)+'.';
 /* The explainers are what an account opens — see FREE_EXPLAINERS. Drill
    demos are part of training, and these stages train free. */
 const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
@@ -14699,8 +14732,8 @@ function screenUpgradeBody(si){
     ${s.soon?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;background:rgba(243,169,73,.14);font:400 13.5px/1.5 var(--sans)">
       ${esc(s.n)} is being filmed and opens for everyone on the ladder the day it is ready.</div>`:''}
     <div class="card" style="margin-top:16px;padding:18px 20px">
-      <div style="font:400 26px/1.1 var(--serif)">${!sells()?'The whole ladder.':days>0?`Free for a ${week}.`:'The whole ladder.'}
-        <span style="color:var(--forest)">${sells()?'Then '+PRICE()+' a month.':'For members.'}</span></div>
+      <div style="font:400 26px/1.1 var(--serif)">${!sellsLadder()?'The whole ladder.':days>0?`Free for a ${week}.`:'The whole ladder.'}
+        <span style="color:var(--forest)">${sellsLadder()?'Then '+PRICE()+' a month.':'For members.'}</span></div>
       <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${
         (sells()&&days>0)?`Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps in your account before then. `:''}${
         (STAGES.length-FREE_STAGES)} stages, every drill filmed and cued, the check points that move you up.${
@@ -14783,7 +14816,7 @@ function codeResume(){
     .catch(()=>{});
 }
 function startUpgrade(){
-  if(!sells()){ st.ov=null; openOv('members'); return; }
+  if(!sells()){ st.ov=null; openOv(iapProduct?'iap':'members'); return; }
   const b=event&&event.target;
   /* no account, no subscription to attach — send them to sign up first.
      The overlay has to close or it sits on top of wherever we send them,
@@ -14814,7 +14847,7 @@ function startUpgrade(){
    opens Stripe's own page instead, so nobody is ever stuck. */
 let payCo=null, payReq=0, paidAsked=false, paidTries=0;
 function openPaywall(){
-  if(!sells()){ openOv('members'); return; }
+  if(!sells()){ openOv(iapProduct?'iap':'members'); return; }
   if(!st.token){ startUpgrade(); return; }
   if(!st.payPeriod) st.payPeriod = (st.periods||[]).indexOf('year')>-1 ? 'year' : 'month';
   st.ovFull=true; openOv('paywall'); track('checkout');
@@ -14976,6 +15009,7 @@ function loadEntitlement(){
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
+      st.appleUntil=Number(d.appleUntil)||0;
       /* Coached is one thing and the coached layout another: the layout
          needs a programme. Every refresh of this set it from coached alone,
          so a client waiting for block one was flipped into a Today with
@@ -15934,10 +15968,12 @@ let planLinks={};
    card priced coaching at the app's own price. */
 const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1000,plusq:3900,plusy:12900})[k] || 0;
-const PRICE = (k='plus') => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
+const PRICE = (k='plus') => (k==='plus' && IOS_APP && iapProduct) ? iapProduct.displayPrice
+  : ((((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '');
 /* the free week is once per account: offered again after it has been had,
    it promised a week and Stripe charged on the day */
-const PRICE_TRIAL = () => { if(st.token && st.trialUsed) return 0;
+const PRICE_TRIAL = () => { if(IOS_APP && iapProduct) return iapTrialDays();
+  if(st.token && st.trialUsed) return 0;
   const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
 /* the day the first payment actually lands, which is the number somebody is
    really asking for when a card form appears under the word "free" */
@@ -15947,7 +15983,7 @@ const trialLine = () => PRICE_TRIAL()>0 ? ('first '+(PRICE_TRIAL()===7?'week':PR
 const PRICE_NOTE = () => ((st.prices||{}).plus||{}).note || 'The price goes up as the ladder fills out. Join now and yours does not.';
 const PRICE_FOUNDING = () => ((st.prices||{}).plus||{}).founding !== false;
 function buyPlan(k){
-  if(!sells()){ openOv('members'); return; }
+  if(!sells()){ openOv(k==='plus'&&iapProduct?'iap':'members'); return; }
   if(!st.token){ goJoin(); return; }
   /* the ladder has its own page: monthly, quarterly or yearly, and the
      card form on the same screen */
@@ -16645,7 +16681,7 @@ function screenWelcome(){
   const foot=`<div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:rgba(255,255,255,.74)">
       ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account keeps your
       progress on any phone; the other ${STAGES.length-FREE_STAGES} stages are
-      ${sells()?PRICE()+' a month':MEMBERS}.</div>`;
+      ${sellsLadder()?PRICE()+' a month':MEMBERS}.</div>`;
   const credit=`<div style="font:500 11.5px/1.3 var(--sans);color:rgba(255,255,255,.62)">
       On film: Elliott and Suryava, your coaches.</div>`;
 
@@ -17815,6 +17851,72 @@ async function nativeTurnOn(ask){
   }
   try{ await P.register(); }catch(e){ if(ask) toast('The phone would not turn them on. Try again in a minute.'); }
 }
+/* ── the Ladder through Apple ────────────────────────────────────────
+   The iPhone app's LadderStore plugin talks to StoreKit; the server checks
+   every transaction Apple signed (/iap/verify) and opens the Ladder until
+   the date Apple gives. Signed out, a purchase opens the Ladder on this
+   phone; signed in, it is on the account and follows them. */
+const IAP_LADDER='com.londonhandstandacademy.app.ladder.monthly';
+let IAPP=null, iapStarted=false;
+function iapPlugin(){
+  if(!IOS_APP || !window.Capacitor) return null;
+  try{ if(!IAPP) IAPP = Capacitor.registerPlugin ? Capacitor.registerPlugin('LadderStore') : ((Capacitor.Plugins||{}).LadderStore||null); }catch(e){ IAPP=null; }
+  return IAPP;
+}
+function iapTrialDays(){
+  const p=iapProduct; if(!p || !p.intro || p.intro.mode!=='freeTrial' || !p.introEligible) return 0;
+  const n=Number(p.intro.period&&p.intro.period.value)||0, u=p.intro.period&&p.intro.period.unit;
+  return u==='week'?n*7:u==='day'?n:u==='month'?n*30:0;
+}
+async function iapInit(){
+  const P=iapPlugin(); if(!P || iapStarted) return; iapStarted=true;
+  try{ const r=await P.products({ids:[IAP_LADDER]}); iapProduct=((r&&r.products)||[])[0]||null; }catch(e){ iapProduct=null; }
+  try{ P.addListener('transaction', t=>{ if(t && t.jws) iapSend(t.jws); }); }catch(e){}
+  await iapSync();
+  if(!st.ov) render(); else if(st.ov==='members' && iapProduct){ openOv('iap'); }
+}
+async function iapSend(jws){
+  const r=await fetch('/api/app/iap/verify',{method:'POST',headers:st.token?authed():{'Content-Type':'application/json'},
+    body:JSON.stringify({jws})}).then(x=>x.json()).catch(()=>null);
+  if(r && r.active){ st.plus=true; st.appleUntil=r.expiresAt||0; save(); }
+  return r;
+}
+/* what this Apple ID owns, checked again on every launch: a lapsed
+   subscription on a phone with no account closes itself here */
+async function iapSync(restore){
+  const P=iapPlugin(); if(!P) return 0;
+  let list=[];
+  try{ const r=await (restore?P.restore():P.entitlements()); list=((r&&r.transactions)||[]).filter(t=>t.productId===IAP_LADDER); }catch(e){ return 0; }
+  let on=0; for(const t of list){ const v=await iapSend(t.jws); if(v && v.active) on++; }
+  if(!on && !st.token && st.appleUntil){ st.appleUntil=0; st.plus=false; save(); }
+  return on;
+}
+async function iapBuy(){
+  const P=iapPlugin(); if(!P || !iapProduct) return;
+  const b=document.getElementById('iapBuy'), say=m=>{ const e=document.getElementById('iapMsg'); if(e) e.textContent=m; };
+  if(b){ b.disabled=true; b.textContent='Opening the App Store…'; }
+  let token;
+  if(st.token){ try{ token=(await fetch('/api/app/iap/token',{headers:authed()}).then(x=>x.json())).token; }catch(e){} }
+  try{
+    const r=await P.purchase(Object.assign({id:IAP_LADDER}, token?{accountToken:token}:{}));
+    if(r.status==='purchased'){
+      say('Checking with Apple…');
+      const v=await iapSend(r.jws);
+      if(v && v.active){ track('subscribed'); closeOv(); render(); toast('The whole Ladder is open.'); return; }
+      say((v&&v.error)||'Apple took it, but it could not be checked just now. Tap Restore purchases in a minute.');
+    } else if(r.status==='pending') say('Waiting for approval. It opens by itself when it comes through.');
+    else say('');
+  }catch(e){ say('The App Store did not answer. Try again in a moment.'); }
+  if(b){ b.disabled=false; b.textContent=iapTrialDays()>0?'Start the free week':'Subscribe'; }
+}
+async function iapRestore(){
+  const say=m=>{ const e=document.getElementById('iapMsg'); if(e) e.textContent=m; else toast(m); };
+  say('Asking Apple…');
+  const n=await iapSync(true);
+  if(n){ closeOv(); render(); toast('Restored. The whole Ladder is open.'); }
+  else say('Nothing to restore on this Apple ID.');
+}
+function iapManage(){ const P=iapPlugin(); if(P) P.manage().catch(()=>toast('Open Settings, then your name, then Subscriptions.')); }
 const pushSupported = () => { if(nativePush()) return true; try{ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }catch(e){ return false; } };
 let pushOn=null;                         /* this phone: null until checked */
 const b64u8 = s => { const p='='.repeat((4-s.length%4)%4);
@@ -18634,6 +18736,12 @@ document.addEventListener('DOMContentLoaded',function(){
   }
 });
 render();
+/* The iPhone app holds its logo up until this first screen is drawn, so a
+   slow first load shows the logo rather than a blank green screen. The
+   shell lets go on its own after ten seconds if this never runs. */
+if(IOS_APP){ requestAnimationFrame(()=>requestAnimationFrame(()=>{ try{
+  const sp=window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.SplashScreen;
+  if(sp) sp.hide({fadeOutDuration:250}); }catch(e){} iapInit(); })); }
 </script>
 <div id="player"></div>
 <div id="ov" class="ov s" onclick="ovScrim(event)"></div>

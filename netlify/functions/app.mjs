@@ -26,6 +26,7 @@ import * as supa from './supa.mjs';
 import { EMAILS, renderEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { X509Certificate, verify as nodeVerify } from 'node:crypto';
 
 const CODE_TTL = 15 * 60 * 1000;          // a code lasts 15 minutes
 const TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
@@ -2379,6 +2380,9 @@ const handle = async (request) => {
          every open, so a WORKSHOP26 account was locking itself again the
          next morning */
       plus: plusNow(acct),
+      /* bought in the iPhone app: Apple bills it, so it is managed and
+         cancelled in the phone's Settings, not here */
+      appleUntil: await (async () => { const r = await getSetting(`iap:${who}`); return (r && !r.revoked && r.expiresAt > Date.now()) ? r.expiresAt : 0; })(),
       canManage: !!acct.stripe_customer,
       canCancel: !!(acct.subscription || acct.stripe_customer),
       cancelAt: acct.cancel_at || 0,
@@ -2505,6 +2509,96 @@ const handle = async (request) => {
     } catch (err) { console.warn('free week history', err && err.message); }
     return false;
   };
+
+  /* ── the Ladder bought inside the iPhone app ─────────────────────────
+     Apple takes the money and signs every transaction. The app hands the
+     signed transaction here, this checks Apple signed it (the chain ends in
+     Apple Root CA G3, pinned by its fingerprint) and opens the Ladder until
+     the date Apple says it runs to. Renewals, refunds and lapses arrive
+     from Apple at /iap/notify and move that date. It rides on plus_until,
+     the same date a promo code sets, so a lapsed subscription closes
+     itself even if a message from Apple never comes. A purchase made
+     signed out opens the Ladder on that phone; signing in links it. */
+  const IAP_BUNDLE = 'com.londonhandstandacademy.app';
+  const IAP_LADDER = ['com.londonhandstandacademy.app.ladder.monthly'];
+  const APPLE_ROOT_FP = String(process.env.APPLE_ROOT_FP || '63343ABFB89A6A03EBB57E9B3F5FA7BE7C4F5C756F3017B3A8C488C3653E9179')
+    .replace(/[^0-9a-f]/gi, '').toUpperCase();
+  const appleJWS = jws => {
+    const parts = String(jws || '').split('.');
+    if (parts.length !== 3) throw new Error('not a signed transaction');
+    const dec = x => Buffer.from(x.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    const head = JSON.parse(dec(parts[0]).toString('utf8'));
+    if (head.alg !== 'ES256' || !Array.isArray(head.x5c) || head.x5c.length < 2) throw new Error('not signed the way Apple signs');
+    const certs = head.x5c.map(c => new X509Certificate(Buffer.from(c, 'base64')));
+    for (let i = 0; i + 1 < certs.length; i++) if (!certs[i].verify(certs[i + 1].publicKey)) throw new Error('the certificates do not chain');
+    const root = certs[certs.length - 1];
+    if (root.fingerprint256.replace(/:/g, '').toUpperCase() !== APPLE_ROOT_FP || !root.verify(root.publicKey)) throw new Error('not signed by Apple');
+    const now = Date.now();
+    for (const c of certs) if (now < Date.parse(c.validFrom) || now > Date.parse(c.validTo)) throw new Error('a certificate is out of date');
+    const good = nodeVerify('sha256', Buffer.from(parts[0] + '.' + parts[1]), { key: certs[0].publicKey, dsaEncoding: 'ieee-p1363' }, dec(parts[2]));
+    if (!good) throw new Error('the signature does not match');
+    return JSON.parse(dec(parts[1]).toString('utf8'));
+  };
+  /* the account's token for Apple: the same every time for one account,
+     meaningless to anybody else, carried on the purchase so a renewal
+     finds its account */
+  const iapToken = async e => {
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('lha-iap:' + (process.env.SIGNING_SECRET || '') + ':' + e))).slice(0, 16);
+    h[6] = (h[6] & 0x0f) | 0x40; h[8] = (h[8] & 0x3f) | 0x80;
+    const x = [...h].map(v => v.toString(16).padStart(2, '0')).join('');
+    return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+  };
+  const iapApply = async (who, tx) => {
+    if (tx.bundleId !== IAP_BUNDLE || !IAP_LADDER.includes(tx.productId)) return { active: false, error: 'not the Ladder' };
+    const exp = Number(tx.expiresDate) || 0;
+    const active = !tx.revocationDate && exp > Date.now();
+    const otid = String(tx.originalTransactionId || '');
+    if (who) {
+      const was = (await getSetting(`iap:${who}`)) || {};
+      await setSetting(`iap:${who}`, { otid, productId: tx.productId, expiresAt: exp, env: String(tx.environment || ''),
+        revoked: !!tx.revocationDate, at: Date.now() });
+      if (otid) await setSetting(`iapotid:${otid}`, who);
+      const u = await plusUntilOf(who);
+      if (active) { if (!u || ms(u) < exp) await setSetting(`plusuntil:${who}`, iso(exp)); }
+      /* refunded or revoked: the time Apple gave is taken back, and only that */
+      else if (tx.revocationDate && u && was.expiresAt && Math.abs(ms(u) - was.expiresAt) < 1000) await setSetting(`plusuntil:${who}`, iso(Date.now()));
+    }
+    return { active, expiresAt: exp, productId: tx.productId, trial: tx.offerType === 1 };
+  };
+  if (path === '/iap/token' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const t = await iapToken(who);
+    await setSetting(`iaptok:${t}`, who);
+    return json({ token: t });
+  }
+  if (path === '/iap/verify' && request.method === 'POST') {
+    const who = await me();
+    let tx;
+    try { tx = appleJWS(body.jws); } catch (err) { return json({ error: 'That purchase could not be checked with Apple.', why: String(err.message || err) }, 400); }
+    /* bought by one account and restored on another: not moved silently */
+    if (who && tx.appAccountToken && tx.appAccountToken !== await iapToken(who)) {
+      const owner = await getSetting(`iaptok:${tx.appAccountToken}`);
+      if (owner && owner !== who) return json({ active: false, error: 'That subscription belongs to another account. Sign in with that one.' }, 409);
+    }
+    const r = await iapApply(who || '', tx);
+    return json(Object.assign({ linked: !!who }, r));
+  }
+  if (path === '/iap/notify' && request.method === 'POST') {
+    let n;
+    try { n = appleJWS(body.signedPayload); } catch (err) { return json({ error: 'not from Apple' }, 400); }
+    const d = n.data || {};
+    if (d.bundleId && d.bundleId !== IAP_BUNDLE) return json({ ok: true, ignored: true });
+    let tx = null;
+    try { tx = d.signedTransactionInfo ? appleJWS(d.signedTransactionInfo) : null; } catch (err) { return json({ error: 'bad transaction' }, 400); }
+    if (!tx) return json({ ok: true, note: 'nothing to apply' });
+    const who = norm(String((tx.appAccountToken && await getSetting(`iaptok:${tx.appAccountToken}`))
+      || (tx.originalTransactionId && await getSetting(`iapotid:${tx.originalTransactionId}`)) || ''));
+    const r = await iapApply(who, tx);
+    if (who && n.notificationType === 'SUBSCRIBED') await coachAlert(null, 'business', { title: 'New Ladder subscriber in the iPhone app', body: who, tag: 'iap:' + who });
+    if (who && ['REFUND', 'REVOKE'].includes(n.notificationType)) await coachAlert(null, 'business', { title: 'Apple refunded a Ladder subscription', body: who, tag: 'iapref:' + who });
+    return json({ ok: true, found: !!who, active: r.active });
+  }
 
   if (path === '/checkout' && request.method === 'POST') {
     const who = await me();

@@ -49,8 +49,33 @@ Netlify, Site configuration, Environment variables, add:
 
 Never paste the .p8 file into a chat or commit it: this repository is public.
 
-## Selling inside the app later
+## The Ladder through Apple (in-app purchase)
 
-`sells()` in `lha-app.html` is the one switch. When Apple in-app purchase is
-added (StoreKit in the shell, and the server checking Apple's receipts), set
-`IOS_SELL` and the prices and buttons come back inside the iPhone app.
+The iPhone app sells one thing, the Ladder, through Apple. Coaching, sessions
+and form checks are never sold inside it (`sells()` stays false for them;
+`sellsLadder()` is true once the App Store answers with the product).
+
+- The shell: `CapApp-SPM/Sources/CapApp-SPM/LadderStore.swift` (StoreKit 2).
+- The server: `/api/app/iap/verify` checks each transaction Apple signed,
+  pinned to Apple Root CA G3, and opens the Ladder until the date Apple gives
+  (it rides on plus_until). `/api/app/iap/notify` takes Apple's renewals,
+  refunds and lapses.
+
+### Once, in App Store Connect
+
+1. Agreements, Tax and Banking: accept the Paid Apps agreement, add your bank
+   and tax details. Apple will not sell anything until this is done.
+2. Your app, Monetisation, Subscriptions: a group called Handstand Ladder,
+   with one subscription:
+   - Reference name: The Handstand Ladder, monthly
+   - Product ID: `com.londonhandstandacademy.app.ladder.monthly` (exactly)
+   - Duration: 1 month. Price: £11.99 (UK), let Apple set the others.
+   - Introductory offer: Free, 1 week, new subscribers.
+   - Display name: The Handstand Ladder. Description: Every stage, film and fix.
+   - Review screenshot: the purchase screen from the simulator.
+3. App Information, App Store Server Notifications: version 2, the same URL
+   for Production and Sandbox:
+   `https://londonhandstandacademy.com/api/app/iap/notify`
+4. Test it with a Sandbox tester (Users and Access, Sandbox) on TestFlight.
+   A purchase in the Xcode simulator is signed by Xcode, not Apple, so the
+   server rightly refuses it: the real test is TestFlight.
