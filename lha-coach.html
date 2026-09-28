@@ -5143,9 +5143,7 @@ function wkCpsHTML(stage, inp, btn){
             style="${inp};width:82px;font-weight:600"></label>`}
         <label style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:4px">
           <span style="font:600 8.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">SHOWN BY</span>
-          <select onchange="wkCpSet(${stage},${i},'demo',this.value)" style="${inp};font-weight:600">
-            ${drillOptions(c.demo||'')}
-          </select></label>
+          ${drillPick(c.demo||'','cp:'+stage+':'+i,v=>wkCpSet(stage,i,'demo',v),inp+';font-weight:600')}</label>
         ${c.demo?clipBtn(c.demo):''}
       </div>
       <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:8px">
@@ -5617,8 +5615,7 @@ function workoutsHTML(){
           <!-- swapping the exercise: the same picker the programme builder
                uses, so a row can become a different drill without losing its
                place in the order -->
-          <select onchange="wkSwap(${wkStage},${wkBand},'${v}',this.value)"
-            style="${inp};flex:1;min-width:170px;font-weight:600">${drillOptions(v)}</select>
+          <span style="flex:1;min-width:170px;display:flex">${drillPick(v,'wk:'+wkStage+':'+wkBand+':'+v,to=>wkSwap(wkStage,wkBand,v,to),'flex:1;min-width:0;'+inp+';font-weight:600')}</span>
           ${wkNoDose(v)?`<span title="Nobody has written a dose for this one, so it falls back to 3 × 8"
             style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.11em;border-radius:6px;
             padding:5px 7px;background:rgba(243,169,73,.22);color:#8a5a12">NO DOSE</span>`:''}
@@ -6620,6 +6617,98 @@ function newDrillHTML(){
   </div>`;
 }
 
+/* ── picking a drill by searching for it ─────────────────────────────
+   A plain dropdown of ninety drills only jumps on the first letter, so
+   "walk" found nothing and "cartwheel" meant scrolling to F. This is a
+   button showing the drill, and a search box that opens under it and
+   matches any word anywhere in the name or its id. Arrow keys and Enter
+   work; Escape or a click elsewhere closes it. The box lives outside the
+   screen that redraws, so typing in it is never interrupted. */
+const DP_FN={};
+let dpKey='', dpQ='', dpHi=0;
+const dpNorm=t=>String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+function dpList(sel){
+  return Object.keys(libIndex||{}).filter(v=>v===sel || !drOffSet().has(v));
+}
+function dpFind(q, sel){
+  const ids=dpList(sel), words=dpNorm(q).split(' ').filter(Boolean);
+  const name=v=>libIndex[v]||v;
+  if(!words.length) return ids.sort((a,b)=>name(a).localeCompare(name(b)));
+  const scored=[];
+  ids.forEach(v=>{
+    const hay=dpNorm(name(v))+' '+dpNorm(v);
+    if(!words.every(w=>hay.includes(w))) return;
+    const n=dpNorm(name(v)), first=words[0];
+    const score=(n.startsWith(dpNorm(q))?0:n.split(' ').some(x=>x.startsWith(first))?1:2);
+    scored.push([score,v]);
+  });
+  return scored.sort((a,b)=>a[0]-b[0] || name(a[1]).localeCompare(name(b[1]))).map(x=>x[1]);
+}
+function drillPick(sel, key, fn, style){
+  DP_FN[key]=fn;
+  const label=sel?(libIndex[sel]||sel):'';
+  return `<button type="button" data-dp="${esc(key)}" data-sel="${esc(sel||'')}" onclick="dpOpen(this)"
+    style="${style||''};display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer;background:#fff">
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${label?'':'color:var(--grey2)'}">${
+      esc(label||'Search for a drill…')}</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+      style="flex:none;color:var(--grey2)" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+  </button>`;
+}
+function dpOpen(btn){
+  dpClose();
+  dpKey=btn.dataset.dp; dpQ=''; dpHi=0;
+  const pop=document.createElement('div'); pop.id='drillPop';
+  pop.dataset.sel=btn.dataset.sel||'';
+  const r=btn.getBoundingClientRect();
+  const w=Math.max(r.width, 300), left=Math.min(r.left, innerWidth-w-10);
+  const below=innerHeight-r.bottom>320 || r.top<320;
+  pop.style.cssText=`position:fixed;z-index:95;left:${Math.max(10,left)}px;width:${w}px;`
+    +(below?`top:${r.bottom+4}px;`:`bottom:${innerHeight-r.top+4}px;`)
+    +'background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(0,40,38,.18);'
+    +'padding:8px;display:flex;flex-direction:column;gap:6px;max-height:340px';
+  pop.innerHTML=`<input id="dpIn" placeholder="Type any part of the name" autocomplete="off"
+    style="border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:400 14px/1.2 var(--sans);outline:none">
+    <div id="dpRes" style="overflow:auto;min-height:0;flex:1"></div>`;
+  document.body.appendChild(pop);
+  const inp=pop.querySelector('#dpIn');
+  inp.addEventListener('input',()=>{ dpQ=inp.value; dpHi=0; dpPaint(); });
+  inp.addEventListener('keydown',e=>{
+    const n=dpFind(dpQ, pop.dataset.sel).length;
+    if(e.key==='ArrowDown'){ e.preventDefault(); dpHi=Math.min(n-1,dpHi+1); dpPaint(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); dpHi=Math.max(0,dpHi-1); dpPaint(); }
+    else if(e.key==='Enter'){ e.preventDefault(); const v=dpFind(dpQ, pop.dataset.sel)[dpHi]; if(v) dpChoose(v); }
+    else if(e.key==='Escape'){ e.preventDefault(); dpClose(); }
+  });
+  dpPaint(); inp.focus();
+  setTimeout(()=>document.addEventListener('mousedown', dpOutside, true), 0);
+}
+function dpOutside(e){ const pop=document.getElementById('drillPop'); if(pop && !pop.contains(e.target)) dpClose(); }
+function dpClose(){
+  const pop=document.getElementById('drillPop'); if(pop) pop.remove();
+  document.removeEventListener('mousedown', dpOutside, true);
+}
+function dpPaint(){
+  const pop=document.getElementById('drillPop'); if(!pop) return;
+  const res=pop.querySelector('#dpRes'), sel=pop.dataset.sel;
+  const list=dpFind(dpQ, sel), shown=list.slice(0,60);
+  const mark=t=>{ let out=esc(t); dpNorm(dpQ).split(' ').filter(Boolean).forEach(w=>{
+    out=out.replace(new RegExp('('+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<b>$1</b>'); }); return out; };
+  res.innerHTML = shown.length ? shown.map((v,i)=>`<div data-v="${esc(v)}" onmousedown="event.preventDefault();dpChoose(this.dataset.v)"
+      onmouseenter="dpHi=${i};dpPaint()"
+      style="padding:8px 10px;border-radius:9px;cursor:pointer;display:flex;gap:8px;align-items:baseline;
+      background:${i===dpHi?'rgba(0,102,99,.09)':'transparent'}">
+      <span style="flex:1;min-width:0;font:500 13.5px/1.3 var(--sans);color:var(--ink)">${mark(libIndex[v]||v)}</span>
+      ${v===sel?'<span style="flex:none;font:600 10px/1 var(--sans);letter-spacing:.08em;color:var(--forest)">NOW</span>':''}
+    </div>`).join('')
+    + (list.length>shown.length?`<div class="muted" style="padding:6px 10px;font-size:12px">${list.length-shown.length} more, keep typing</div>`:'')
+    : `<div class="muted" style="padding:10px;font-size:13px">No drill with that in its name.</div>`;
+  const hi=res.children[dpHi]; if(hi && hi.scrollIntoView) hi.scrollIntoView({block:'nearest'});
+}
+function dpChoose(v){
+  const fn=DP_FN[dpKey]; dpClose();
+  if(fn) fn(v);
+}
 function drillOptions(sel){
   const ids=Object.keys(libIndex||{}).filter(v=>v===sel || !drOffSet().has(v)).sort((a,b)=>
     (libIndex[a]||a).localeCompare(libIndex[b]||b));
@@ -6898,7 +6987,7 @@ function warmHTML(){
           <button onclick="bWarmMove(${k},-1)" style="${bTiny}" aria-label="Up">&#9650;</button>
           <button onclick="bWarmMove(${k},1)" style="${bTiny}" aria-label="Down">&#9660;</button></span>
         <label style="flex:1;min-width:190px;display:flex;flex-direction:column;gap:4px">${lab('DRILL')}
-          <select onchange="bWarmItem(${k},'v',this.value)" style="${bInput}">${drillOptions(it.v)}</select></label>
+          ${drillPick(it.v,'w:'+k,v=>bWarmItem(k,'v',v),bInput)}</label>
         <button onclick="bWarmItem(${k},'must',${it.must?'false':'true'})" aria-pressed="${!!it.must}"
           style="flex:none;border-radius:999px;padding:8px 12px;cursor:pointer;font:600 12px/1 var(--sans);
           border:1px solid ${it.must?'var(--forest)':'var(--line)'};background:${it.must?'var(--forest)':'#fff'};
@@ -7018,8 +7107,7 @@ function builderHTML(){
                 <button onclick="bMove(${di},${gi},${k},-1)" style="${bTiny}" aria-label="Up">▲</button>
                 <button onclick="bMove(${di},${gi},${k},1)" style="${bTiny}" aria-label="Down">▼</button>
               </span>
-              <select onchange="bItem(${di},${gi},${k},'v',this.value)"
-                style="flex:1;min-width:200px;${bInput}">${drillOptions(it.v)}</select>
+              <span style="flex:1;min-width:200px;display:flex">${drillPick(it.v,'b:'+di+':'+gi+':'+k,v=>bItem(di,gi,k,'v',v),'flex:1;min-width:0;'+bInput)}</span>
               <button title="Make a new drill"
                 onclick="openNewDrill({kind:'item',day:${di},grp:${gi},idx:${k}})"
                 style="flex:none;border:1px solid var(--line);border-radius:10px;background:#fff;
