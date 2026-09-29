@@ -139,15 +139,38 @@ function mayEmail(to) {
   return true;
 }
 
-/* same switch as app.mjs, same default: a real client is not mailed
-   unless somebody has explicitly turned it back on */
-async function clientMailAllowed(to) {
+/* The same guard as app.mjs, rule for rule. This one read only the
+   CLIENTS variable, so a client added in the dashboard was mailed by the
+   daily job while the app held them, and a person silenced by name got
+   their reminders anyway. It reads what the app reads now: the stored
+   roster, the past clients, the per-person switches and the global one,
+   and it lets a receipt through (a booking's reminder) the way the app
+   does. Read once a minute at most, not once per email. */
+let GUARD = null, GUARD_AT = 0;
+async function guardState() {
+  if (GUARD && Date.now() - GUARD_AT < 60000) return GUARD;
+  const keys = ['roster', 'pastclients', 'mailoff', 'mailguard', 'coaches'];
+  const rows = await supa.rows('settings', `key=in.(${keys.join(',')})&select=key,value`).catch(() => null);
+  if (!rows) return null;
+  const v = Object.fromEntries(rows.map(r => [r.key, r.value]));
+  const past = v.pastclients || {};
+  const roster = new Set(parseClients().map(c => c.email));
+  for (const [e, x] of Object.entries(v.roster || {})) { const n = norm(e); if (x === null) roster.delete(n); else roster.add(n); }
+  for (const e of Object.keys(past)) if (past[e]) roster.delete(norm(e));
+  GUARD = { roster, past, off: v.mailoff || {}, g: v.mailguard, coaches: Object.keys(v.coaches || {}).map(norm) };
+  GUARD_AT = Date.now();
+  return GUARD;
+}
+async function clientMailAllowed(to, receipt) {
   const t = norm(to);
-  if (!parseClients().some(c => c.email === t)) return true;
-  try {
-    const r = await supa.row('settings', `key=eq.mailguard&select=value`);
-    return r && r.value ? !r.value.suppress : false;
-  } catch { return false; }
+  const st = await guardState();
+  if (!st) return false;
+  if (st.coaches.includes(t) || t === norm(process.env.COACH_EMAIL || '') || t === norm(process.env.FROM_EMAIL || '')) return true;
+  if (st.off[t] === true) return false;
+  if (st.off[t] === false) return true;
+  if (receipt) return true;
+  if (!st.roster.has(t) && !st.past[t]) return true;
+  return st.g ? !st.g.suppress : false;
 }
 
 /* same opt-outs the app function honours — a reminder nobody asked for
@@ -175,11 +198,11 @@ async function wantsPush(to, kind) {
   try { return ['push', 'both'].includes(chanOf(await prefsOf(to), kind)); } catch { return true; }
 }
 
-async function email(to, subject, html, kind) {
+async function email(to, subject, html, kind, opts) {
   if (!process.env.RESEND_API_KEY || !to) return false;
   if (!(await wantsEmail(to, kind))) return false;
   if (!mayEmail(to)) return false;
-  if (!(await clientMailAllowed(to))) return false;
+  if (!(await clientMailAllowed(to, !!(opts && opts.receipt)))) return false;
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -223,6 +246,8 @@ async function pastClients() {
 }
 
 export default async () => {
+  /* the guard is read fresh for every run: a switch changed a moment ago counts */
+  GUARD = null;
   const now = Date.now();
   const done = { reminded: [], chased: [], skipped: 0 };
 
@@ -557,10 +582,14 @@ async function workshopMail(done) {
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
-          await email(p.email, T.subject,
+          /* a reminder the booking promised is theirs, like a receipt; and it
+             is only marked as sent when it went, so a held one is not
+             counted as done */
+          const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
               paras: T.paras,
-              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
+          if (!went) { done.held = (done.held || 0) + 1; continue; }
           done.workshops.reminded++;
           await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         }
@@ -605,18 +634,35 @@ async function sessionMail(done) {
     const hoursTo = (at - now) / 3600e3, hoursSince = (now - at) / 3600e3;
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
     if (hoursTo > 12 && hoursTo <= 36) {
-      const key = `sessremind:${x.id}`;
-      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-        const T = await emailCopy('sessRemind', { name: esc(String(x.name || '').split(' ')[0]), when: esc(whenTxt), place: x.place ? ', at ' + esc(x.place) : '', kind: esc(x.kind) });
-        if (T.off) { done.held = (done.held || 0) + 1; continue; }
-        await email(x.email, T.subject, mail({ title: T.title, greeting: String(x.name || '').split(' ')[0],
-          paras: T.paras,
-          signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+      /* one per date: the key was the session alone, so a session moved to
+         another day was never reminded of the new one */
+      const key = `sessremind:${x.id}:${x.when}`;
+      const had = await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null);
+      if (!had) {
+        const first = String(x.name || '').split(' ')[0];
+        let went = false;
+        if (Number(x.ask) > 0) {
+          /* not paid yet, so not confirmed: "see you tomorrow" said nothing
+             about the payment that confirms it */
+          const amt = '£' + (Number(x.ask) / 100).toFixed(Number(x.ask) % 100 ? 2 : 0);
+          went = await email(x.email, `Tomorrow: your session, pay to confirm it`, mail({ title: 'Your session is tomorrow.', greeting: first,
+            paras: [`<b>${esc(whenTxt)}</b>${x.place ? ', at ' + esc(x.place) : ''}. ${esc(x.kind)} minutes.`,
+                    `It is not paid for yet, so it is not confirmed. Paying ${amt} confirms it.`],
+            cta: { href: `${SITE}/api/app/session/pay?id=${enc(x.id)}`, label: `Pay ${amt}` },
+            signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+        } else {
+          const T = await emailCopy('sessRemind', { name: esc(first), when: esc(whenTxt), place: x.place ? ', at ' + esc(x.place) : '', kind: esc(x.kind) });
+          if (T.off) { done.held = (done.held || 0) + 1; continue; }
+          went = await email(x.email, T.subject, mail({ title: T.title, greeting: first,
+            paras: T.paras,
+            signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
+        }
+        if (!went) { done.held = (done.held || 0) + 1; continue; }
         await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         done.sessions.reminded++;
       }
     }
-    if (hoursSince > 10 && hoursSince <= 40) {
+    if (hoursSince > 10 && hoursSince <= 40 && !(Number(x.ask) > 0)) {
       const key = `sessfollow:${x.id}`;
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
         const paid = x.paid ? '£' + (x.paid / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
