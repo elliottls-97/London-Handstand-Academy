@@ -13205,28 +13205,28 @@ const STAGE_STORY = {
      {t:'Building balance',     k:'crow',         x:60}],
   /* the rest drafted from each stage's own check points and its own words
      for what it is about, for Elliott to change. teaser marks the chapters
-     whose films play for somebody who has not opened the stage yet, one or
-     two a stage: a trailer chosen on purpose, the rest locked cards. A
-     chapter whose drill is free plays anyway. Take-Off has one because its
-     other films are members only at the video host and would not play. */
+     whose films play for somebody who has not opened the stage yet, three a
+     stage: a trailer chosen on purpose, the rest locked cards. The server
+     signs exactly these films for anybody (STORY_TEASERS in app.mjs), so a
+     change here needs the same change there. */
   1:[{t:'Owning the wall',               k:'ctw-hold', teaser:1},
-     {t:'Pushing through the shoulders', k:'scap-shrugs'},
-     {t:'Taking weight off the wall',    k:'sl-tuck'},
+     {t:'Pushing through the shoulders', k:'scap-shrugs', teaser:1},
+     {t:'Taking weight off the wall',    k:'sl-tuck', teaser:1},
      {t:'Building pressing strength',    k:'pike-full'}],
   2:[{t:'Stacking the shoulders',        k:'tuck-depth', teaser:1},
      {t:'Leaving the wall on purpose',   k:'slide-off'},
      {t:'Balancing on the box',          k:'box-time', teaser:1},
-     {t:'Cleaning up your entries',      k:'entry-clean'}],
-  3:[{t:'Sliding away',                  k:'side-away'},
-     {t:'Taking off in a tuck',          k:'tuck-takeoff'},
+     {t:'Cleaning up your entries',      k:'entry-clean', teaser:1}],
+  3:[{t:'Sliding away',                  k:'side-away', teaser:1},
+     {t:'Taking off in a tuck',          k:'tuck-takeoff', teaser:1},
      {t:'Lifting off the box',           k:'box-lifts-l', teaser:1}],
   4:[{t:'Finding balance in a tuck',     k:'tuck-entries'},
      {t:'Opening into a straddle',       k:'straddle-entries', teaser:1},
      {t:'Going straight up',             k:'straight-entries', teaser:1},
-     {t:'Changing shape in balance',     k:'straddle-to-straight'}],
+     {t:'Changing shape in balance',     k:'straddle-to-straight', teaser:1}],
   5:[{t:'Building compression',          k:'compression', teaser:1},
      {t:'Pressing on the wall',          k:'press-wall', teaser:1},
-     {t:'Lowering with control',         k:'press-ecc'}]
+     {t:'Lowering with control',         k:'press-ecc', teaser:1}]
 };
 /* preview: for somebody the quiz placed above what they can train yet.
    Every chapter shows, so they see all of what the stage teaches, but only
@@ -13281,21 +13281,32 @@ const STORY_HOLD = 3000, STORY_MOVE = 850;
 /* the films play a quarter faster than they were filmed: a few seconds of a
    drill shows more of it, and at this size nobody is studying the form */
 const STORY_RATE = 1.25, STORY_FROM = .3;
-/* Whether a preview's teaser will actually play here: the host answers for
-   a film's still the same way it does for the film. If it refuses, the
-   chapter stays as a locked card like the others. A still that has not
+/* A preview's teasers are locked films, so the server is asked for a pass
+   for each (/story/preview, the chosen films only), which goes into the
+   film's address and its still. Then whether each will actually play: the
+   host answers for a still the same way it does for the film, and a chapter
+   it refuses stays as a locked card like the others. A still that has not
    answered in four seconds is given the benefit. */
 const STORY_LOCK='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
 function storyProbe(el){
-  const cards=[...el.querySelectorAll('.styr-card')];
-  const uids=[...new Set(cards.filter(c=>c.dataset.lock).map(c=>c.dataset.uid))];
-  const test=uid=>new Promise(res=>{ const im=new Image(); let done=false;
-    const fin=ok=>{ if(!done){ done=true; res([uid,ok]); } };
-    im.onload=()=>fin(true); im.onerror=()=>fin(false); setTimeout(()=>fin(true), 4000);
-    im.src=streamThumb(uid); });
-  return Promise.all(uids.map(test)).then(rs=>{
+  return fetch('/api/app/story/preview?stage='+encodeURIComponent(el.dataset.si))
+    .then(r=>r.ok?r.json():{}).catch(()=>({})).then(d=>{
+    const tk=(d&&d.tokens)||{};
+    const cards=[...el.querySelectorAll('.styr-card')];
+    cards.forEach(c=>{ const u=c.dataset.uid, t=c.dataset.lock && tk[u]; if(!t) return;
+      c.dataset.tok=t;
+      const v=c.querySelector('video');
+      if(v){ v.dataset.src=v.dataset.src.split(u).join(t); if(v.getAttribute('poster')) v.setAttribute('poster', v.getAttribute('poster').split(u).join(t)); } });
+    const seen=new Map();
+    cards.filter(c=>c.dataset.lock).forEach(c=>{ const u=c.dataset.uid; if(!seen.has(u)) seen.set(u, c.dataset.tok||u); });
+    const test=([uid,seg])=>new Promise(res=>{ const im=new Image(); let done=false;
+      const fin=ok=>{ if(!done){ done=true; res([uid,ok]); } };
+      im.onload=()=>fin(true); im.onerror=()=>fin(false); setTimeout(()=>fin(true), 4000);
+      im.src=STREAM_CDN+seg+'/thumbnails/thumbnail.jpg?time=3s&height=320'; });
+    return Promise.all([...seen.entries()].map(test));
+  }).then(rs=>{
     const bad=new Set(rs.filter(r=>!r[1]).map(r=>r[0]));
-    cards.forEach(c=>{ if(!bad.has(c.dataset.uid)) return;
+    el.querySelectorAll('.styr-card').forEach(c=>{ if(!c.dataset.lock || !bad.has(c.dataset.uid)) return;
       c.classList.add('nofilm');
       const v=c.querySelector('video'); if(v) v.remove();
       c.insertAdjacentHTML('afterbegin', `<span class="lk">${STORY_LOCK}MEMBERS</span>`); });

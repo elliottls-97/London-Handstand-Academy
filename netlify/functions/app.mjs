@@ -4275,6 +4275,44 @@ const handle = async (request) => {
     return json({ tokens, exp: exp * 1000 });
   }
 
+  /* ── the story's trailers ──────────────────────────────────────────
+     Somebody the quiz placed above what they can train sees the stage told
+     as a story, and three of its chapters play as a trailer. Those films
+     are locked like the rest of the paid library, so this signs them, and
+     only them, for anybody, for two hours: the films Elliott chose to give
+     away, never a film asked for by id. Keyed by stage, each the film of a
+     teaser chapter in STAGE_STORY in lha-app.html; a film changed on the
+     dashboard since is simply not signed and that chapter shows locked. */
+  const STORY_TEASERS = {
+    1: ['58fc55e74e70f2bd27233abfd289d4e8',   /* chest-to-wall handstand */
+        'e69abfa23dad01d9994ed22666e4fd97',   /* wall scapula shrugs */
+        '19cf721ee5bf8669c3a0a7aa77db847d'],  /* single-leg tuck slides */
+    2: ['3749a6dc6abc40ae2627290d1f446d33',   /* tuck slides */
+        '3f8d978d6e7c21ae14d376815eb90803',   /* knees on box */
+        '4be7868ac0a11251d92d447367dceef1'],  /* straddle entries */
+    3: ['0011bde2e0f70364712159d9442d4803',   /* slide away */
+        'b173a66d935153d532b2748227f253bc',   /* tuck take-offs */
+        '3f8d978d6e7c21ae14d376815eb90803'],  /* knees on box */
+    4: ['4be7868ac0a11251d92d447367dceef1',   /* straddle entries */
+        '2119c2dd78761e507a61728712c5a7ba',   /* straight entries */
+        '195e5344c3399b8ce0bc91931633ab9f'],  /* straddle to straight */
+    5: ['63723a2d387cdb8915b9e18baab55933',   /* pancake lift combo */
+        'eef15d6792347cd1aaeb0be71f222aeb',   /* chest-to-wall press */
+        '29ccefcc5c0dfb837de6272309d647cd'],  /* press eccentrics */
+  };
+  if (path === '/story/preview' && request.method === 'GET') {
+    const list = STORY_TEASERS[Number(url.searchParams.get('stage'))] || [];
+    if (!list.length) return json({ tokens: {} });
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`teaser:${ip}`, 3600000)) > 40) return json({ tokens: {}, slow: true });
+    const k = await streamKey();
+    if (!k) return json({ tokens: {} });
+    const exp = Math.floor(Date.now() / 1000) + 2 * 3600;
+    const tokens = {};
+    for (const uid of list) tokens[uid] = await signUid(k, uid, exp);
+    return json({ tokens, exp: exp * 1000 });
+  }
+
   if (path === '/coach/stream/status' && request.method === 'GET') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const k = await getSetting('stream:key');
