@@ -386,12 +386,26 @@ button.lc-ring:active{transform:scale(.88)}
 /* a card is the films' own shape, 16 by 9, so nothing is cropped */
 .styr-wrap{container-type:inline-size;--pk:42px}
 @media (min-height:760px){.styr-wrap{--pk:92px}}
+.tight .styr-wrap{--pk:22px}
+/* a preview is followed by the offer: where the story is showing it says
+   what the stage is for, so the card only has to say how it opens, and the
+   film about the app waits, so the screen still fits a phone. Decided by
+   whether the story is still there, because a preview whose films are all
+   for members takes itself away and the card has to say it after all. */
+.orient.gated:has([data-story]) .for-sum,.orient.gated:has([data-story]) .app-film{display:none!important}
+.orient.gated:has([data-story]) .for-rest{margin-top:0!important;padding-top:0!important;border-top:0!important}
 .styr{position:relative;height:calc(100cqw * 9 / 16 + 2 * var(--pk));overflow-y:auto;
  scroll-snap-type:y mandatory;overscroll-behavior:contain;display:flex;flex-direction:column;gap:0;
  padding:var(--pk) 0;border-radius:22px;scrollbar-width:none;outline:none;
  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 var(--pk),#000 calc(100% - var(--pk)),transparent 100%);
  mask-image:linear-gradient(180deg,transparent 0,#000 var(--pk),#000 calc(100% - var(--pk)),transparent 100%)}
 .styr::-webkit-scrollbar{display:none}
+.styr{transition:opacity .35s}
+.styr-card.nofilm{background:linear-gradient(145deg,#0b6a65,#00302e)}
+.styr-card.nofilm::before{background:radial-gradient(120% 90% at 85% 10%,rgba(143,227,214,.22),transparent 60%)}
+.styr-card .lk{position:absolute;z-index:3;top:12px;right:12px;display:flex;align-items:center;gap:6px;
+ padding:6px 10px 6px 9px;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;
+ font:700 9px/1 var(--sans);letter-spacing:.14em}
 .styr.glide{scroll-snap-type:none}
 .styr-card{position:relative;flex:none;aspect-ratio:16/9;overflow:hidden;
  background:#0f1412;scroll-snap-align:center;scroll-snap-stop:always;cursor:pointer}
@@ -13210,21 +13224,28 @@ const STAGE_STORY = {
      {t:'Pressing on the wall',          k:'press-wall'},
      {t:'Lowering with control',         k:'press-ecc'}]
 };
-function storyChapters(si){
+/* preview: for somebody the quiz placed above what they can train yet. The
+   story is the best look at what the stage holds, so its films are shown
+   even though the stage is locked; a film the video host will only play to
+   a member is found out when the page opens and its chapter left out. */
+function storyChapters(si, preview){
   const list=cpFor(si)||[];
   return (STAGE_STORY[si]||[]).map(ch=>{
     const c=list.find(x=>x.k===ch.k);
     const d=c && c.demo ? drillById(c.demo) : null;
-    if(!d || !d.url || drillLocked(d.v)) return null;
+    if(!d || !d.url) return null;
+    const locked=drillLocked(d.v);
+    if(locked && !preview) return null;
     const uid=uidOfUrl(d.url);
-    return {t:ch.t, sub:(c.n && c.n.toLowerCase()!==ch.t.toLowerCase()) ? c.n : '', src:filmSrc(d.url), uid,
+    if(locked && !uid) return null;
+    return {t:ch.t, sub:(c.n && c.n.toLowerCase()!==ch.t.toLowerCase()) ? c.n : '', src:filmSrc(d.url), uid, locked,
             x:(ch.x!=null ? Math.max(0, Math.min(100, ch.x)) : 50)};
   }).filter(Boolean);
 }
 /* A slideshow, one chapter at a time with bars along the top, was tried
    beside this and Elliott chose the sliding one. */
-function storyHTML(si){
-  const ch=storyChapters(si); if(ch.length<2) return '';
+function storyHTML(si, preview){
+  const ch=storyChapters(si, preview); if(ch.length<2) return '';
   return storyReelHTML(si, ch);
 }
 function storyReelHTML(si, ch){
@@ -13234,9 +13255,10 @@ function storyReelHTML(si, ch){
      a jump, so it goes round for ever and chapter four has chapter one
      under it and chapter one has chapter four above it */
   const all=[0,1,2].flatMap(k=>ch.map((x,i)=>({x,i,k})));
-  return `<div class="styr-wrap"><div class="styr glide" data-si="${si}" data-n="${ch.length}" tabindex="0" role="group" aria-roledescription="story"
-      aria-label="${esc((STAGES[si]||{}).n||'')} in ${ch.length} chapters. Swipe to move through them.">
-    ${all.map(({x,i,k})=>`<div class="styr-card" data-n="${i}"${k!==1?' aria-hidden="true"':''}>
+  return `<div class="styr-wrap"><div class="styr glide" data-si="${si}" data-n="${ch.length}"${ch.some(x=>x.locked)?' data-probe="1"':''}
+      tabindex="0" role="group" aria-roledescription="story"
+      aria-label="${esc((STAGES[si]||{}).n||'')} in chapters. Swipe to move through them.">
+    ${all.map(({x,i,k})=>`<div class="styr-card" data-n="${i}" data-uid="${esc(x.uid||'')}"${x.locked?' data-lock="1"':''}${k!==1?' aria-hidden="true"':''}>
       <video muted playsinline loop disableremoteplayback preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
         style="object-position:${x.x}% 50%" data-src="${esc(x.src)}"></video>
       <div class="sty-cap"><small>${i+1} OF ${ch.length}</small><b>${esc(x.t)}</b>${x.sub?`<span>${esc(x.sub)}</span>`:''}</div>
@@ -13254,8 +13276,39 @@ const STORY_HOLD = 3000, STORY_MOVE = 850;
 /* the films play a quarter faster than they were filmed: a few seconds of a
    drill shows more of it, and at this size nobody is studying the form */
 const STORY_RATE = 1.25, STORY_FROM = .3;
+/* Which of a preview's locked films will actually play here: the host
+   answers for a film's still the same way it does for the film. A chapter
+   whose film it refuses stays, because what they would learn is the point,
+   and shows its headline on a locked card instead of the film. A still that
+   has not answered in four seconds is given the benefit. */
+const STORY_LOCK='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+function storyProbe(el){
+  const cards=[...el.querySelectorAll('.styr-card')];
+  const uids=[...new Set(cards.filter(c=>c.dataset.lock).map(c=>c.dataset.uid))];
+  const test=uid=>new Promise(res=>{ const im=new Image(); let done=false;
+    const fin=ok=>{ if(!done){ done=true; res([uid,ok]); } };
+    im.onload=()=>fin(true); im.onerror=()=>fin(false); setTimeout(()=>fin(true), 4000);
+    im.src=streamThumb(uid); });
+  return Promise.all(uids.map(test)).then(rs=>{
+    const bad=new Set(rs.filter(r=>!r[1]).map(r=>r[0]));
+    cards.forEach(c=>{ if(!bad.has(c.dataset.uid)) return;
+      c.classList.add('nofilm');
+      const v=c.querySelector('video'); if(v) v.remove();
+      c.insertAdjacentHTML('afterbegin', `<span class="lk">${STORY_LOCK}MEMBERS</span>`); });
+    return true;
+  });
+}
 function storyReelMount(){
   document.querySelectorAll('.styr:not([data-m])').forEach(el=>{
+    if(el.dataset.probe && !el.dataset.probed){
+      el.dataset.m='p'; el.style.opacity='0';
+      storyProbe(el).then(()=>{
+        if(!el.isConnected) return;
+        el.dataset.probed='1'; delete el.dataset.m; el.style.opacity='';
+        storyReelMount();
+      });
+      return;
+    }
     el.dataset.m='1';
     const si=el.dataset.si, n=Number(el.dataset.n)||1, cards=[...el.querySelectorAll('.styr-card')];
     let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
@@ -13275,6 +13328,7 @@ function storyReelMount(){
       cards.forEach((c,m)=>{
         const v=c.querySelector('video');
         c.classList.toggle('on', m===j);
+        if(!v) return;
         if(m===j){ load(v); v.muted=true; v.defaultMuted=true;
           /* a moment in, not at nought: some films open on a title frame
              ("CHEST TO WALL"), which sat under the chapter's own headline */
@@ -13335,7 +13389,7 @@ function storyReelMount(){
       hold(document.visibilityState!=='visible');
     });
     /* start on the chapter it was on, in the middle copy */
-    el.scrollTop=topFor(cards[n+(storyAt[si]||0)]);
+    el.scrollTop=topFor(cards[n+((storyAt[si]||0)%n)]);
     focus(nearest());
     glide();
   });
@@ -13377,7 +13431,7 @@ function screenOriented(){
   const tDays = PRICE_TRIAL();
   const a=intake();
   /* the stage in chapters where Elliott has told it as one */
-  const story = gated ? '' : storyHTML(placed);
+  const story = storyHTML(placed, gated);
 
   /* Two boxes: the page scrolls and the bar under it does not. It was one
      scrolling column with the bar made sticky inside it, which iPhone
@@ -13386,7 +13440,7 @@ function screenOriented(){
      be scrolled for. A bar outside the scroll cannot be scrolled away. */
   return `<div style="flex:1;min-height:0;display:flex;flex-direction:column;color:var(--ink)">
     <div class="scroll s" style="background:transparent;flex:1;min-height:0;padding-bottom:0">
-    <div style="padding:calc(env(safe-area-inset-top) + 20px) 20px 22px">
+    <div class="orient${gated?' gated':''}" style="padding:calc(env(safe-area-inset-top) + 20px) 20px 22px">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">${gated?'Your answers put you at':'You&rsquo;ve landed here'} &middot; Stage ${placed+1} of ${STAGES.length}</div>
       <!-- the line under the name said what their answers showed and what
@@ -13396,10 +13450,10 @@ function screenOriented(){
         esc(PS.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
       <!-- the stage in chapters, where Elliott has told it as one: the films
            say what it is about before a single word does -->
-      ${story ? `<div style="margin-top:22px;font:400 26px/1.1 var(--serif);letter-spacing:-.01em;
+      ${story ? `<div data-story${gated?' class="tight"':''}><div style="margin-top:${gated?16:22}px;font:400 26px/1.1 var(--serif);letter-spacing:-.01em;
         color:var(--ink)">What you&rsquo;ll learn<em style="color:var(--forest);font-style:normal">.</em></div>
       <div style="margin-top:12px">${story}</div>
-      ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:12px">${esc(PS.rec)}</div>`:''}` : ''}
+      ${PS.rec && !gated?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:12px">${esc(PS.rec)}</div>`:''}</div>` : ''}
       <!-- The whole ladder of check points sat here, and it was too much
            for somebody who has only just been placed: the story above says
            what the stage is about, and the check points are on their own
@@ -13431,13 +13485,13 @@ function screenOriented(){
         /* What the stage is for, in a sentence. It was the first four of the
            stage's check points and "and 3 more", which is a test to pass
            before anyone has done a drill of it. */
-        return `<div style="margin-top:22px;border-radius:22px;padding:20px;
+        return `<div style="margin-top:${story?16:22}px;border-radius:22px;padding:${story?'16px 18px':'20px'};
           background:#fff;border:1px solid rgba(0,64,61,.12);box-shadow:0 1px 2px rgba(0,64,61,.05)">
-          <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">
+          <div class="for-sum"><div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">
             WHAT ${esc(PS.n.toUpperCase())} IS FOR</div>
           <div style="font:400 16px/1.5 var(--sans);color:var(--ink);margin-top:11px">${esc(PS.sum||PS.goal||'')}</div>
-          ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:10px">${esc(PS.rec)}</div>`:''}
-          <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
+          ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:10px">${esc(PS.rec)}</div>`:''}</div>
+          <div class="for-rest" style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
             <div style="font:400 20px/1.25 var(--serif)">
               ${!TASTE_ON
                 ? (tDays>0 ? `${esc(PS.n)} opens with the ${tDays}-day free trial.` : `${esc(PS.n)} opens with the ladder.`)
@@ -13461,7 +13515,7 @@ function screenOriented(){
         </div>`;})():''}
       <!-- the film about the app, after what the stage teaches, as a row:
            at the size of a film it pushed the page past one screen -->
-      ${LADDER_INTRO_VIDEO?`<button onclick="st.introKind='app';st.introOpen=true;save();openOv('intro')"
+      ${LADDER_INTRO_VIDEO?`<button class="app-film" onclick="st.introKind='app';st.introOpen=true;save();openOv('intro')"
         style="display:flex;align-items:center;gap:13px;width:100%;margin-top:16px;padding:8px 14px 8px 8px;
         border:1px solid rgba(0,64,61,.12);border-radius:18px;background:#fff;cursor:pointer;text-align:left;
         font:inherit;color:inherit;box-shadow:0 1px 2px rgba(0,64,61,.05)">
