@@ -354,6 +354,30 @@ export default async () => {
 const QUIET_STEPS = [
   { days: 5, key: '5d' }, { days: 14, key: '14d' }, { days: 30, key: '30d' }, { days: 90, key: '90d' },
 ];
+/* ── the streak, counted the way the app counts it ──────────────────
+   Keep this in step with streakInfo() in lha-app.html. Weeks turn over on
+   a Monday by the date in London; a week with a session in it (part of
+   one counts) keeps the run; every four weeks kept earns a rest week, two
+   at most, and a week with nothing in it spends one instead of ending the
+   run. The week in progress never ends a run: it is not over yet. */
+const LONDON_DATE = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
+const londonWeek = t => {
+  const p = LONDON_DATE.formatToParts(new Date(t)), g = k => +p.find(x => x.type === k).value;
+  return Math.floor((Math.round(Date.UTC(g('year'), g('month') - 1, g('day')) / DAY) + 3) / 7);
+};
+export function streakOf(sessions, now = Date.now()) {
+  const ss = (sessions || []).filter(x => x && x.at && x.kind !== 'none');
+  const cur = londonWeek(now), weeks = new Set(ss.map(x => londonWeek(x.at)));
+  let run = 0, rests = 0;
+  if (weeks.size) for (let w = Math.min(...weeks); w <= cur; w++) {
+    if (weeks.has(w)) { run++; if (run % 4 === 0) rests = Math.min(2, rests + 1); }
+    else if (w === cur) break;
+    else if (run && rests) rests--;
+    else run = 0;
+  }
+  return { weeks: run, rests, thisWeek: ss.filter(x => londonWeek(x.at) === cur).length, week: cur };
+}
+
 /* ── a training reminder, to the phone ─────────────────────────────
    Only for somebody who turned notifications on, and never on a day they
    have already trained. The app sends the weekdays they plan to train:
@@ -380,7 +404,17 @@ async function trainingPush(done) {
     const last = Math.max(0, ...sess.map(x => (x && x.at) || 0));
     if (last && new Date(last).toISOString().slice(0, 10) === today) continue;
     let payload = null;
-    if (Array.isArray(rec.days) && rec.days.length) {
+    /* Saturday, a streak of two weeks or more, nothing yet this week and no
+       rest week to cover it: the one day a week it is worth saying. Once a
+       week at most, and it takes the place of the day's other note. */
+    const S = streakOf(sess, now.getTime());
+    const streakKey = `pushstreak:${e}:${S.week}`;
+    if (wd === 5 && S.weeks >= 2 && !S.thisWeek && !S.rests
+        && !(await supa.row('nudges', `key=eq.${enc(streakKey)}&select=key`).catch(() => null))) {
+      payload = { title: `Keep your ${S.weeks} week streak`, body: 'One session by Sunday keeps it going.',
+        url: '/lha-app.html?go=today', tag: 'streak' };
+      await supa.upsert('nudges', { key: streakKey, sent_at: now.toISOString() }, 'key').catch(() => {});
+    } else if (Array.isArray(rec.days) && rec.days.length) {
       if (rec.days.includes(wd)) payload = { title: 'Training day',
         body: 'Your session is ready when you are.', url: '/lha-app.html?go=today', tag: 'train' };
     } else if (last) {
