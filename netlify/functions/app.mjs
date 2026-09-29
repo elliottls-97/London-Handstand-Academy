@@ -290,7 +290,7 @@ function mayEmail(to) {
    Default is SUPPRESSED: if the switch has never been set, or cannot be
    read, a real client is not mailed. Being silent is recoverable; sending
    a test email to a paying client is not. */
-async function clientMailAllowed(to) {
+async function clientMailAllowed(to, receipt) {
   const t = norm(to);
   /* ── a coach is never suppressed ──────────────────────────────────
      This guard exists so a test email cannot reach a paying client while
@@ -308,6 +308,13 @@ async function clientMailAllowed(to) {
     const off = (await getSetting('mailoff')) || {};
     if (off[t] === true) return false;
     if (off[t] === false) return true;
+    /* Their own receipt: a booking or a payment they made themselves, and
+       the reminder it promised. The guard is there so nothing unasked for
+       reaches a coached client while it is on; a receipt for money they
+       just paid is not that. Only a person silenced by name misses one.
+       This replaces the purchase switching them through for good, which
+       let everything after it reach them as well. */
+    if (receipt) return true;
     if (!clients()[t] && !PAST[t]) return true;
     const g = await getSetting('mailguard');
     return g ? !g.suppress : false;
@@ -352,20 +359,24 @@ async function wantsPush(to, kind) {
    are kept with their outcome, and the dashboard reads them. */
 async function mailNote(to, subject, kind, ok, why, skip) {
   try {
-    const log = (await getSetting('maillog')) || [];
-    log.push({ at: Date.now(), to: norm(to), kind: kind || '', ok: !!ok,
-      why: why || '', subject: String(subject || '').slice(0, 80), ...(skip ? { skip: true } : {}) });
-    await setSetting('maillog', log.slice(-120));
+    const entry = { at: Date.now(), to: norm(to), kind: kind || '', ok: !!ok,
+      why: why || '', subject: String(subject || '').slice(0, 80), ...(skip ? { skip: true } : {}) };
+    /* two sends at once each read the log and wrote it back, and one of
+       them vanished; changed in place now, so both are kept */
+    await changeSetting('maillog', log => (Array.isArray(log) ? log : []).concat([entry]).slice(-120));
   } catch { /* a log that fails must never break a send */ }
+  /* whether it went, so a caller can say so truthfully */
+  return !!ok;
 }
 /* set when the last email failed because Resend did, not because it was
    held on purpose: a purchase welcome that hits this is retried by Stripe */
 let mailDown = false;
-async function email(to, subject, html, kind) {
+async function email(to, subject, html, kind, opts) {
   mailDown = false;
+  const receipt = !!(opts && opts.receipt);
   if (!process.env.RESEND_API_KEY) return mailNote(to, subject, kind, false, 'Resend is not set up');
   if (!mayEmail(to)) return mailNote(to, subject, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
-  if (!(await clientMailAllowed(to))) return mailNote(to, subject, kind, false, 'client email is switched off');
+  if (!(await clientMailAllowed(to, receipt))) return mailNote(to, subject, kind, false, 'client email is switched off');
   if (!(await wantsEmail(to, kind))) return mailNote(to, subject, kind, false, 'they chose no emails for ' + kind);
   try {
     const r = await fetch('https://api.resend.com/emails', {
@@ -934,6 +945,34 @@ async function emailT(T, to, subject, html, kind) {
 }
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
+/* ── change a setting without losing somebody else's change ───────────
+   The bookings, the 1-2-1s and the send log are each one setting holding
+   a whole list. Two requests at once each read it, changed their copy and
+   wrote it back, and the second write threw the first away: two people
+   paying for the same workshop within a second, and one of them was never
+   booked. This writes only if nobody has written since it read, and reads
+   again and reapplies the change if somebody has. `fn` gets the current
+   value and returns the new one, or undefined to leave it alone; it can
+   run more than once, so it must not do anything but compute. */
+async function changeSetting(k, fn, tries = 8) {
+  for (let i = 0; i < tries; i++) {
+    const cur = await supa.row('settings', `key=eq.${enc(k)}&select=value,updated_at`);
+    const next = await fn(cur ? cur.value : null);
+    if (next === undefined) return cur ? cur.value : null;
+    if (!cur) {
+      if (await supa.insertIfAbsent('settings', { key: k, value: next, updated_at: nowISO() }, 'key')) return next;
+      continue;
+    }
+    /* strictly later than what was read, so the next writer's check fails
+       even inside the same millisecond */
+    const was = cur.updated_at, stamp = new Date(Math.max(Date.now(), Date.parse(was || 0) + 1)).toISOString();
+    const done = await supa.update('settings', `key=eq.${enc(k)}` + (was ? `&updated_at=eq.${enc(was)}` : '&updated_at=is.null'),
+      { value: next, updated_at: stamp });
+    if (Array.isArray(done) && done.length) return next;
+    await new Promise(r => setTimeout(r, 15 + Math.random() * 40 * (i + 1)));
+  }
+  throw new Error('could not change ' + k + ': it kept changing underneath');
+}
 /* many settings in one read, as a map; anything missing is simply absent */
 async function settingsMany(keys) {
   const out = {};
@@ -1176,9 +1215,30 @@ const handle = async (request) => {
     settingsMany(['coaches', 'prices', 'roster', 'pastclients']),
     supa.rows('settings', 'key=like.programme%3A*&select=key').catch(() => []),
   ]);
-  if (path !== '/ladder' && path !== '/stripe/webhook') COACHES_STORED = BOOT.coaches || {};
+  /* the webhook too: it decides whose coach hears about a payment */
+  if (path !== '/ladder') COACHES_STORED = BOOT.coaches || {};
   /* every request, so a warm instance never carries another's list */
   PAST = BOOT.pastclients || {};
+  /* who counts as a coached client. The environment variable seeds it; the
+     stored roster adds to it and wins on a clash, so a client added in the
+     dashboard is live immediately rather than at the next deploy. Worked
+     out here, before any route, because the Stripe webhook runs before the
+     place this used to be: the mail guard in a payment's emails used
+     whatever roster the previous request on this instance had left, or
+     none at all on a fresh one. */
+  ROSTER = (() => {
+    const seed = parseClients();
+    const stored = BOOT.roster || {};
+    const byEmail = new Map(seed.map(c => [c.email, c]));
+    for (const [e, v] of Object.entries(stored)) {
+      const email = norm(e);
+      if (!email || v === null) { byEmail.delete(email); continue; }
+      byEmail.set(email, { email, name: String(v.name || email).slice(0, 60),
+                           coach: norm(v.coach || '') });
+    }
+    for (const e of Object.keys(PAST)) if (PAST[e]) byEmail.delete(norm(e));
+    return Array.from(byEmail.values());
+  })();
   /* the prices, for every route that names one; the webhook needs them too */
   if (path !== '/ladder') PRICES_STORED = BOOT.prices || {};
   /* ── the prices ───────────────────────────────────────────────────
@@ -1500,8 +1560,6 @@ const handle = async (request) => {
         const cur = await getAcct(e);
         if (!plusNow(cur)) await setSetting(`plusuntil:${e}`, iso(Date.now() + days * DAY));
       }
-      const off = (await getSetting('mailoff')) || {};
-      if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
       const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
       if (!fresh) return json({ ok: true, workshop: slug, note: 'already filed' });
       if (dupPay || over) {
@@ -1586,8 +1644,6 @@ const handle = async (request) => {
          coaching buyer does. */
       const sessNoPw = !(await hashFor(db, e));
       const sessLink = sessNoPw ? await welcomeLink(e) : '';
-      const off = (await getSetting('mailoff')) || {};
-      if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
       try {
         await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
           text: `Thanks, your ${kind} minute session is paid for. ${prefs ? 'You said: "' + prefs + '". ' : ''}I will check the room at OverGravity against that and come back here with a time within 48 hours. If anything changes, say so here.` });
@@ -1881,14 +1937,10 @@ const handle = async (request) => {
           stored[e2] = Object.assign({}, stored[e2], { tier: variant || boughtPlan });
           await setSetting('roster', stored);
         }
-        /* Joining the roster puts them behind the client email guard, which
-           is on by default and is there for two specific people. Someone who
-           has just paid is not one of them: they are allowed through by name,
-           and can be silenced from their thread like anyone. This used to
-           happen only for a new roster entry, so somebody already on it paid
-           and their welcome was held. */
-        { const off = (await getSetting('mailoff')) || {};
-          if (off[e2] !== false) { off[e2] = false; await setSetting('mailoff', off); } }
+        /* Joining the roster puts them behind the client email guard. This
+           used to switch them through by name for good, which overrode a
+           silence the coach had set on purpose. Their purchase emails are
+           receipts now, which the guard lets through on their own. */
         /* the London sessions the plan includes go on Today to be arranged,
            so a £190 buyer is not a £120 buyer who happens to pay more */
         if (london > 0) {
@@ -2010,22 +2062,6 @@ const handle = async (request) => {
 
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
 
-  /* who counts as a coached client. The environment variable seeds it; the
-     stored roster adds to it and wins on a clash, so a client added in the
-     dashboard is live immediately rather than at the next deploy. */
-  ROSTER = await (async () => {
-    const seed = parseClients();
-    const stored = BOOT.roster || {};
-    const byEmail = new Map(seed.map(c => [c.email, c]));
-    for (const [e, v] of Object.entries(stored)) {
-      const email = norm(e);
-      if (!email || v === null) { byEmail.delete(email); continue; }
-      byEmail.set(email, { email, name: String(v.name || email).slice(0, 60),
-                           coach: norm(v.coach || '') });
-    }
-    for (const e of Object.keys(PAST)) if (PAST[e]) byEmail.delete(norm(e));
-    return Array.from(byEmail.values());
-  })();
   /* ── who has a programme ─────────────────────────────────────────
      The app counts someone with a written programme as coached, and the
      dashboard counted only the roster, so an account given a programme
@@ -3281,7 +3317,6 @@ const handle = async (request) => {
         const cur = await getAcct(e);
         if (!plusNow(cur)) await setSetting(`plusuntil:${e}`, iso(Date.now() + freeDays * DAY));
       }
-      const off = (await getSetting('mailoff')) || {}; if (off[e] === undefined) { off[e] = false; await setSetting('mailoff', off); }
       const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
       await email(e, `You are booked: ${w.title}`, mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
         paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
