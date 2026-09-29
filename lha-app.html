@@ -13204,30 +13204,33 @@ const STAGE_STORY = {
      {t:'Learning to kick up',  k:'kickup-rate'},
      {t:'Building balance',     k:'crow',         x:60}],
   /* the rest drafted from each stage's own check points and its own words
-     for what it is about, for Elliott to change */
-  1:[{t:'Owning the wall',               k:'ctw-hold'},
+     for what it is about, for Elliott to change. teaser is the one chapter
+     whose film plays for somebody who has not opened the stage yet: a
+     trailer chosen on purpose, the rest locked cards. */
+  1:[{t:'Owning the wall',               k:'ctw-hold', teaser:1},
      {t:'Pushing through the shoulders', k:'scap-shrugs'},
      {t:'Taking weight off the wall',    k:'sl-tuck'},
      {t:'Building pressing strength',    k:'pike-full'}],
-  2:[{t:'Stacking the shoulders',        k:'tuck-depth'},
+  2:[{t:'Stacking the shoulders',        k:'tuck-depth', teaser:1},
      {t:'Leaving the wall on purpose',   k:'slide-off'},
      {t:'Balancing on the box',          k:'box-time'},
      {t:'Cleaning up your entries',      k:'entry-clean'}],
   3:[{t:'Sliding away',                  k:'side-away'},
      {t:'Taking off in a tuck',          k:'tuck-takeoff'},
-     {t:'Lifting off the box',           k:'box-lifts-l'}],
+     {t:'Lifting off the box',           k:'box-lifts-l', teaser:1}],
   4:[{t:'Finding balance in a tuck',     k:'tuck-entries'},
-     {t:'Opening into a straddle',       k:'straddle-entries'},
+     {t:'Opening into a straddle',       k:'straddle-entries', teaser:1},
      {t:'Going straight up',             k:'straight-entries'},
      {t:'Changing shape in balance',     k:'straddle-to-straight'}],
-  5:[{t:'Building compression',          k:'compression'},
+  5:[{t:'Building compression',          k:'compression', teaser:1},
      {t:'Pressing on the wall',          k:'press-wall'},
      {t:'Lowering with control',         k:'press-ecc'}]
 };
-/* preview: for somebody the quiz placed above what they can train yet. The
-   story is the best look at what the stage holds, so its films are shown
-   even though the stage is locked; a film the video host will only play to
-   a member is found out when the page opens and its chapter left out. */
+/* preview: for somebody the quiz placed above what they can train yet.
+   Every chapter shows, so they see all of what the stage teaches, but only
+   the one Elliott chose as its teaser plays its film; the others are locked
+   cards with their headline, so the locks on the drills still hold. Which
+   films the video host happens to leave open does not decide it. */
 function storyChapters(si, preview){
   const list=cpFor(si)||[];
   return (STAGE_STORY[si]||[]).map(ch=>{
@@ -13237,9 +13240,9 @@ function storyChapters(si, preview){
     const locked=drillLocked(d.v);
     if(locked && !preview) return null;
     const uid=uidOfUrl(d.url);
-    if(locked && !uid) return null;
-    return {t:ch.t, sub:(c.n && c.n.toLowerCase()!==ch.t.toLowerCase()) ? c.n : '', src:filmSrc(d.url), uid, locked,
-            x:(ch.x!=null ? Math.max(0, Math.min(100, ch.x)) : 50)};
+    const shut = locked && (!ch.teaser || !uid);
+    return {t:ch.t, sub:(c.n && c.n.toLowerCase()!==ch.t.toLowerCase()) ? c.n : '', src:shut ? '' : filmSrc(d.url), uid,
+            locked: locked && !shut, shut, x:(ch.x!=null ? Math.max(0, Math.min(100, ch.x)) : 50)};
   }).filter(Boolean);
 }
 /* A slideshow, one chapter at a time with bars along the top, was tried
@@ -13258,9 +13261,9 @@ function storyReelHTML(si, ch){
   return `<div class="styr-wrap"><div class="styr glide" data-si="${si}" data-n="${ch.length}"${ch.some(x=>x.locked)?' data-probe="1"':''}
       tabindex="0" role="group" aria-roledescription="story"
       aria-label="${esc((STAGES[si]||{}).n||'')} in chapters. Swipe to move through them.">
-    ${all.map(({x,i,k})=>`<div class="styr-card" data-n="${i}" data-uid="${esc(x.uid||'')}"${x.locked?' data-lock="1"':''}${k!==1?' aria-hidden="true"':''}>
-      <video muted playsinline loop disableremoteplayback preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
-        style="object-position:${x.x}% 50%" data-src="${esc(x.src)}"></video>
+    ${all.map(({x,i,k})=>`<div class="styr-card${x.shut?' nofilm':''}" data-n="${i}" data-uid="${esc(x.uid||'')}"${x.locked?' data-lock="1"':''}${k!==1?' aria-hidden="true"':''}>
+      ${x.shut ? `<span class="lk">${STORY_LOCK}MEMBERS</span>` : `<video muted playsinline loop disableremoteplayback preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
+        style="object-position:${x.x}% 50%" data-src="${esc(x.src)}"></video>`}
       <div class="sty-cap"><small>${i+1} OF ${ch.length}</small><b>${esc(x.t)}</b>${x.sub?`<span>${esc(x.sub)}</span>`:''}</div>
     </div>`).join('')}
   </div></div>`;
@@ -13276,11 +13279,10 @@ const STORY_HOLD = 3000, STORY_MOVE = 850;
 /* the films play a quarter faster than they were filmed: a few seconds of a
    drill shows more of it, and at this size nobody is studying the form */
 const STORY_RATE = 1.25, STORY_FROM = .3;
-/* Which of a preview's locked films will actually play here: the host
-   answers for a film's still the same way it does for the film. A chapter
-   whose film it refuses stays, because what they would learn is the point,
-   and shows its headline on a locked card instead of the film. A still that
-   has not answered in four seconds is given the benefit. */
+/* Whether a preview's teaser will actually play here: the host answers for
+   a film's still the same way it does for the film. If it refuses, the
+   chapter stays as a locked card like the others. A still that has not
+   answered in four seconds is given the benefit. */
 const STORY_LOCK='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
 function storyProbe(el){
   const cards=[...el.querySelectorAll('.styr-card')];
