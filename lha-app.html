@@ -7997,31 +7997,38 @@ function nextSession(){
   return (st.bookings||[]).filter(x=>x.session && x.status!=='done'
     && (!x.when || (new Date(x.when).getTime()>now-3*36e5 && new Date(x.when).getTime()<now+14*864e5)))[0] || null;
 }
-/* On the free side the session lives on the Coaching tab, so Train stays
-   the ladder: Train carries one line pointing at it. A coached client has
-   no Coaching tab, so the card sits on Today. */
+/* On the free side it was one line on Train pointing at the Coaching tab,
+   and a session somebody had just booked, or still had to pay for, was
+   easy to miss. It is the card now, on Train as on a coached Today. */
 function sessionLineHTML(){
   const b=nextSession(); if(!b) return '';
-  const w=b.when?new Date(b.when):null;
-  const when=w?w.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+', '+w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'time to be agreed';
-  return `<div class="pad" style="padding-top:12px"><button onclick="st.coTab='check';save();go('coaching')"
-    style="width:100%;display:flex;align-items:center;gap:10px;border:0;cursor:pointer;text-align:left;
-    padding:12px 14px;border-radius:14px;background:rgba(0,102,99,.07);color:var(--ink)">
-    <span style="flex:1;min-width:0;font:400 13.5px/1.4 var(--sans)"><b style="font-weight:600">Your session</b> &middot; ${esc(when)}${b.place?' &middot; '+esc(String(b.place).split(',')[0]):''}</span>
-    <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">&rarr;</span></button></div>`;
+  return `<div class="pad" style="padding-top:14px">${nextSessionHTML()}</div>`;
 }
+/* pence as money: £80, £0.50 */
+const penceTxt = p => '£'+((Number(p)||0)/100).toFixed((Number(p)||0)%100?2:0);
+/* Booked and still to pay, or confirmed: the two were drawn the same, so a
+   session nobody had paid for looked settled. One still owed says so, with
+   the button to pay; paying makes it confirmed, with the calendar. */
 function nextSessionHTML(){
   const b=nextSession(); if(!b) return '';
   const w=b.when?new Date(b.when):null;
   const day=w?w.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}):'';
   const time=w?w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';
-  return `<div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
-    <div class="kick2" style="color:var(--forest)">YOUR SESSION WITH ${esc((typeof coachLabel==='function'?coachLabel():'Elliott').toUpperCase())}</div>
+  const owes=Number(b.owes)>0;
+  const chip = owes ? ['TO PAY','rgba(243,169,73,.22)','#6b4108'] : w ? ['CONFIRMED','rgba(0,102,99,.12)','var(--forest)'] : null;
+  return `<div class="card" style="padding:18px 20px;border:1.5px solid ${owes?'rgba(243,169,73,.7)':'rgba(0,102,99,.22)'}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div class="kick2" style="color:var(--forest)">YOUR SESSION WITH ${esc((typeof coachLabel==='function'?coachLabel():'Elliott').toUpperCase())}</div>
+      ${chip?`<span style="flex:none;padding:5px 9px;border-radius:999px;font:700 9px/1 var(--sans);letter-spacing:.14em;
+        background:${chip[1]};color:${chip[2]}">${chip[0]}</span>`:''}
+    </div>
     <div style="font:400 22px/1.2 var(--serif);margin-top:8px">${w?esc(day)+', '+esc(time):'Paid. Now the time.'}</div>
+    ${owes?`<div style="font:500 14px/1.5 var(--sans);color:var(--ink);margin-top:6px">Booked. Pay ${penceTxt(b.owes)} to confirm it.</div>
+      <a class="btn" href="${esc(b.pay)}" style="display:block;text-align:center;text-decoration:none;margin-top:12px">Pay ${penceTxt(b.owes)}</a>`:''}
     ${w?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">I will check the room at OverGravity and confirm a time in the chat within 48 hours. Tell me which days suit.</div>
     <button class="btn" style="width:100%;margin-top:12px" onclick="st.coTab='chat';save();go('coaching')">Message ${esc(typeof coachLabel==='function'?coachLabel():'Elliott')}</button>`}
-    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${esc(b.title)}${b.place?' &middot; '+esc(b.place):''}</div>
-    ${b.ics?calLinks(b):''}
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:${owes?10:4}px">${esc(b.title)}${b.place?' &middot; '+esc(b.place):''}</div>
+    ${b.ics && !owes?calLinks(b):''}
     <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,64,61,.1)">
       ${(coachedView()||!sells())?'':`<button onclick="go('coaching')" style="border:0;background:none;padding:0;cursor:pointer;
         text-align:left;font:400 13px/1.5 var(--sans);color:var(--grey)">Want me with you between sessions?
@@ -8044,7 +8051,8 @@ function bookingsHTML(){
         <div style="min-width:0">
           <div style="font:600 15px/1.3 var(--sans)">${esc(b.title)}</div>
           <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:2px">${esc(when(b))}${b.place?' · '+esc(b.place):''}</div>
-          ${b.ics?calLinks(b):''}
+          ${Number(b.owes)>0?`<div style="font:500 13px/1.4 var(--sans);color:#6b4108;margin-top:4px">Booked. <a href="${esc(b.pay)}"
+            style="color:var(--forest);font-weight:600">Pay ${penceTxt(b.owes)} to confirm it</a></div>`:(b.ics?calLinks(b):'')}
           ${b.status!=='booked'?`<div style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:6px">${b.status==='refunded'?'CANCELLED, REFUNDED':'CANCELLED'}</div>`:''}
         </div>
         ${b.canCancel?`<button class="rt" style="flex:none" ${cancelling===b.slug?'disabled':''}

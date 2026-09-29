@@ -1043,6 +1043,29 @@ async function sessConfirmMail(db, row, by) {
               `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`],
       signoff: { name: coachName(by) } }));
 }
+/* A 1-2-1 that was asked for, paid: recorded once, whichever arrives
+   first, Stripe telling the webhook or the person landing back on the
+   page after paying. The webhook can lag a few seconds and that page must
+   not say it is confirmed while nothing has recorded it. */
+async function sessMarkPaid(db, cs) {
+  const id = String((cs.metadata || {}).sessPay || '');
+  const list = (await getSetting('sessions')) || [];
+  const row = list.find(x => x.id === id);
+  if (!row) return { row: null, fresh: false };
+  const won = await supa.insertIfAbsent('nudges', { key: `sesspaid:${cs.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => row.paidRef !== cs.id);
+  if (!won || row.paidRef === cs.id) return { row, fresh: false };
+  row.paid = (Number(row.paid) || 0) + (Number(cs.amount_total) || 0);
+  row.paidRef = String(cs.id || ''); row.pi = String(cs.payment_intent || ''); row.ask = 0;
+  await setSetting('sessions', list);
+  const confirmed = row.when && row.status === 'arranged';
+  const whenTxt = row.when ? new Date(row.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : 'time to arrange';
+  try { await threadAdd(db, row.email, { from: 'coach', by: primaryCoach(),
+    text: confirmed ? `Paid, thank you. Your session is confirmed: ${whenTxt}.` : `Paid, thank you. See you ${row.when ? 'on ' + whenTxt : 'soon'}.` }); } catch {}
+  /* the confirmation they were promised in the booking email */
+  if (confirmed) { try { await sessConfirmMail(db, row, primaryCoach()); } catch {} }
+  await coachAlert(row.email, 'business', { title: (row.name || row.email) + ' paid ' + sessAmt(cs.amount_total), body: '1-2-1, ' + whenTxt, tag: 'sesspay:' + row.id });
+  return { row, fresh: true };
+}
 /* Stripe will not take a card payment under 30p */
 const SESS_MIN_ASK = 30;
 /* pence as money, with the pence only when there are some: £80, £0.50 */
@@ -1531,21 +1554,9 @@ const handle = async (request) => {
        session, not a new one: without this, a £100 payment matched the
        session price and filed a second session to arrange. */
     if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.sessPay) {
-      const list = (await getSetting('sessions')) || [];
-      const row = list.find(x => x.id === String(obj.metadata.sessPay));
-      if (!row) return json({ ok: true, note: 'no such session' });
-      if (row.paidRef === obj.id) return json({ ok: true, note: 'already paid' });
-      row.paid = (Number(row.paid) || 0) + (Number(obj.amount_total) || 0);
-      row.paidRef = String(obj.id || ''); row.pi = String(obj.payment_intent || ''); row.ask = 0;
-      await setSetting('sessions', list);
-      const whenTxt = row.when ? new Date(row.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : 'time to arrange';
-      const confirmed = row.when && row.status === 'arranged';
-      try { await threadAdd(db, row.email, { from: 'coach', by: primaryCoach(),
-        text: confirmed ? `Paid, thank you. Your session is confirmed: ${whenTxt}.` : `Paid, thank you. See you ${row.when ? 'on ' + whenTxt : 'soon'}.` }); } catch {}
-      /* the confirmation they were promised in the booking email */
-      if (confirmed) { try { await sessConfirmMail(db, row, primaryCoach()); } catch {} }
-      await coachAlert(row.email, 'business', { title: (row.name || row.email) + ' paid ' + sessAmt(obj.amount_total), body: '1-2-1, ' + whenTxt, tag: 'sesspay:' + row.id });
-      return json({ ok: true, note: 'session paid' });
+      const got = await sessMarkPaid(db, obj);
+      if (!got.row) return json({ ok: true, note: 'no such session' });
+      return json({ ok: true, note: got.fresh ? 'session paid' : 'already paid' });
     }
     if (ev.type === 'checkout.session.completed' && ((obj.metadata && obj.metadata.session) || sessByLink || sessByAmt)) {
       const md = obj.metadata || {};
@@ -3530,8 +3541,8 @@ const handle = async (request) => {
         'line_items[0][quantity]': '1',
         'metadata[sessPay]': row.id,
         customer_email: row.email,
-        success_url: `${SITE}/lha-app.html?paidsession=1`,
-        cancel_url: `${SITE}/lha-app.html`,
+        success_url: `${SITE}/api/app/session/done?id=${enc(row.id)}&cs={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${SITE}/api/app/session/done?id=${enc(row.id)}`,
       });
       return Response.redirect(sess.url, 303);
     } catch (err) {
@@ -3548,6 +3559,50 @@ const handle = async (request) => {
 ${why ? `<p style="margin:0;color:#686868;font-size:13px">Stripe said: ${esc(why)}</p>` : ''}
 </div></body>`, { status: 502, headers: { 'content-type': 'text/html; charset=utf-8' } });
     }
+  }
+  /* ── where paying for a 1-2-1 lands ───────────────────────────────
+     A page of its own rather than the app, because plenty of people paying
+     for a session have no account: it said "your session is in Your
+     bookings" to somebody looking at a sign-up screen. It asks Stripe
+     whether this payment went through, records it if the webhook has not
+     yet, and says so, with the time, the calendar, and the way into the
+     app: one tap to set a password for somebody without one. */
+  if (path === '/session/done' && request.method === 'GET') {
+    const sid = String(url.searchParams.get('id') || '');
+    const csId = String(url.searchParams.get('cs') || '').replace(/[^A-Za-z0-9_]/g, '');
+    let row = ((await getSetting('sessions')) || []).find(x => x.id === sid);
+    if (!row) return Response.redirect(`${SITE}/lha-app.html`, 303);
+    let paid = false;
+    if (csId && stripeKey()) {
+      try {
+        const cs = await stripe(`/checkout/sessions/${csId}`, null, 'GET');
+        if (cs && (cs.metadata || {}).sessPay === row.id && cs.payment_status === 'paid') {
+          paid = true;
+          const got = await sessMarkPaid(db, cs);
+          if (got.row) row = got.row;
+        }
+      } catch (err) { console.error('session/done', sid, String(err && err.message || err)); }
+    }
+    const owed = !paid && row.ask > 0;
+    const whenTxt = row.when ? sessWhen(row) : '';
+    const app = (await hashFor(db, row.email)) ? `${SITE}/lha-app.html` : await welcomeLink(row.email);
+    const btn = (href, label, solid) => `<a href="${esc(href)}" style="display:block;text-align:center;margin-top:12px;padding:15px 18px;border-radius:14px;text-decoration:none;font:600 15px/1 system-ui,sans-serif;${solid ? 'background:#006663;color:#fff' : 'color:#006663;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.35)'}">${label}</a>`;
+    const head = paid ? 'Paid. Your session is confirmed.' : owed ? 'Your session is booked, not paid yet.' : 'Your session is confirmed.';
+    const body0 = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your session</title><body style="margin:0;background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
+<div style="max-width:440px;margin:9vh auto 40px;padding:0 22px">
+<div style="font:700 11px/1 system-ui;letter-spacing:.16em;color:#006663">LONDON HANDSTAND ACADEMY</div>
+<h1 style="font:400 30px/1.15 Georgia,serif;margin:14px 0 14px">${head}</h1>
+<div style="background:#fff;border-radius:18px;padding:16px 18px;border:1px solid rgba(0,64,61,.12)">
+<div style="font:600 16px/1.35 system-ui">${whenTxt ? esc(whenTxt) : 'Time to be agreed'}</div>
+<div style="color:#5a5a5a;font-size:14px;margin-top:3px">${esc(String(row.kind))} minutes${row.place ? ', ' + esc(row.place) : ''}</div>
+${!owed && row.when ? `<div style="margin-top:10px;font:600 14px/1.4 system-ui"><a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663">Add to calendar</a> &nbsp;&middot;&nbsp; <a href="${sessGcal(row)}" style="color:#006663">Google Calendar</a></div>` : ''}
+</div>
+${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`${SITE}/api/app/session/pay?id=${enc(row.id)}`, 'Pay ' + sessAmt(row.ask), true)}`
+       : `<p style="margin:14px 0 0">${paid ? 'The confirmation is on its way by email. ' : ''}It is in the app too, with the time and the calendar.</p>${btn(app, 'Open the app', true)}`}
+<p style="margin:16px 0 0;color:#686868;font-size:13px">To move it, reply to the email or message in the app.</p>
+</div></body>`;
+    return new Response(body0, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
   }
   /* ── a session in the client's calendar ───────────────────────────
      A time and a place, found by the session's own id, which is random and
@@ -3582,6 +3637,7 @@ ${why ? `<p style="margin:0;color:#686868;font-size:13px">Stripe said: ${esc(why
       out.push({ slug: 'sess:' + x.id, session: true, title: `One to one session, ${x.kind} minutes`,
         when: x.when || '', place: x.place || '', status: x.status === 'toArrange' ? 'toArrange' : x.status === 'done' ? 'done' : 'booked',
         paid: x.paid || 0, canCancel: false, refundable: false,
+        owes: x.ask > 0 ? x.ask : 0, pay: x.ask > 0 ? `/api/app/session/pay?id=${enc(x.id)}` : '',
         ics: x.when ? `/api/app/session.ics?id=${enc(x.id)}` : '', gcal: x.when ? sessGcal(x) : '' });
     });
     out.sort((a, b) => ms(a.when) - ms(b.when));
