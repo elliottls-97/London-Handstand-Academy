@@ -1023,6 +1023,30 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 const sessStamp = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 const sessSpan = x => { const a = new Date(x.when).getTime(); return [a, a + (String(x.kind) === '90' ? 90 : 60) * 60000]; };
 const sessTitle = x => `Handstand session, ${x.kind} minutes`;
+/* ── a 1-2-1's confirmation ────────────────────────────────────────
+   Only once it is really confirmed: a time set and nothing to pay, or the
+   payment arriving for one that was booked and asked for. It went out the
+   moment a time was set whether or not they had paid, with a Pay button on
+   it, so a session nobody had paid for said "Your session is confirmed". */
+const sessWhen = row => new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+async function sessConfirmMail(db, row, by) {
+  const whenTxt = sessWhen(row);
+  const cNoPw = !(await hashFor(db, row.email));
+  const cLink = cNoPw ? await welcomeLink(row.email) : '';
+  await email(row.email, `Confirmed: your session, ${whenTxt}`,
+    mail({ title: 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
+      cta: cNoPw ? { href: cLink, label: 'See it in the app' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
+      paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
+              row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
+              `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
+              'A reminder comes the day before. If you need to move it, reply to this.',
+              `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`],
+      signoff: { name: coachName(by) } }));
+}
+/* Stripe will not take a card payment under 30p */
+const SESS_MIN_ASK = 30;
+/* pence as money, with the pence only when there are some: £80, £0.50 */
+const sessAmt = p => '£' + (Number(p || 0) / 100).toFixed(Number(p || 0) % 100 ? 2 : 0);
 const sessGcal = x => { const [a, b] = sessSpan(x);
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(sessTitle(x))
     + '&dates=' + sessStamp(a) + '/' + sessStamp(b) + '&location=' + encodeURIComponent(x.place || '')
@@ -1515,8 +1539,12 @@ const handle = async (request) => {
       row.paidRef = String(obj.id || ''); row.pi = String(obj.payment_intent || ''); row.ask = 0;
       await setSetting('sessions', list);
       const whenTxt = row.when ? new Date(row.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : 'time to arrange';
-      try { await threadAdd(db, row.email, { from: 'coach', by: primaryCoach(), text: `Paid, thank you. See you ${row.when ? 'on ' + whenTxt : 'soon'}.` }); } catch {}
-      await coachAlert(row.email, 'business', { title: (row.name || row.email) + ' paid £' + ((Number(obj.amount_total) || 0) / 100).toFixed(0), body: '1-2-1, ' + whenTxt, tag: 'sesspay:' + row.id });
+      const confirmed = row.when && row.status === 'arranged';
+      try { await threadAdd(db, row.email, { from: 'coach', by: primaryCoach(),
+        text: confirmed ? `Paid, thank you. Your session is confirmed: ${whenTxt}.` : `Paid, thank you. See you ${row.when ? 'on ' + whenTxt : 'soon'}.` }); } catch {}
+      /* the confirmation they were promised in the booking email */
+      if (confirmed) { try { await sessConfirmMail(db, row, primaryCoach()); } catch {} }
+      await coachAlert(row.email, 'business', { title: (row.name || row.email) + ' paid ' + sessAmt(obj.amount_total), body: '1-2-1, ' + whenTxt, tag: 'sesspay:' + row.id });
       return json({ ok: true, note: 'session paid' });
     }
     if (ev.type === 'checkout.session.completed' && ((obj.metadata && obj.metadata.session) || sessByLink || sessByAmt)) {
@@ -3406,6 +3434,8 @@ const handle = async (request) => {
       /* A session paid for outside the booking page, a payment link or cash,
          never reached this list: the coach books it in by hand, and setting
          the time below sends the same confirmation as any other. */
+      const askIn = Math.round(Number(body.ask) || 0);
+      if (askIn > 0 && askIn < SESS_MIN_ASK) return json({ error: 'Stripe cannot take less than 30p. Ask for at least £0.30.' }, 400);
       if (body.create) {
         const ce = norm(body.email);
         if (!ce || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ce)) return json({ error: 'Their email address' }, 400);
@@ -3437,10 +3467,10 @@ const handle = async (request) => {
       const owes = row.ask > 0 && row.status !== 'cancelled';
       if (askedNow && !(row.status === 'arranged' && row.when && !wasArranged)) {
         try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
-          text: `Here is the link to pay £${(row.ask / 100).toFixed(0)} for your session: ${payUrl}` }); } catch {}
+          text: `Here is the link to pay ${sessAmt(row.ask)} for your session: ${payUrl}` }); } catch {}
         await email(row.email, 'Paying for your session',
           mail({ title: 'Your session, ready to pay.', greeting: String(row.name || '').split(' ')[0],
-            cta: { href: payUrl, label: `Pay £${(row.ask / 100).toFixed(0)}` },
+            cta: { href: payUrl, label: `Pay ${sessAmt(row.ask)}` },
             paras: [`${row.kind} minutes${row.when ? ', ' + esc(new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })) : ''}${row.place ? ', at ' + esc(row.place) : ''}.`,
                     'The button takes you to a secure Stripe page. If you have already paid another way, reply and say so.'],
             signoff: { name: coachName(asking || primaryCoach()) } }));
@@ -3451,23 +3481,27 @@ const handle = async (request) => {
         try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
           text: `Your session on ${was} is cancelled. Reply here and we will find another time.` }); } catch {}
       }
-      /* the confirmation, when a time is set, and again when it moves */
+      /* a time set, or moved: confirmed if nothing is owed, and if it is,
+         booked and waiting on the payment, which confirms it */
       if (row.status === 'arranged' && row.when && (!wasArranged || (wasWhen && wasWhen !== row.when))) {
-        const whenTxt = new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
-        try { await threadAdd(db, row.email, { from: 'coach', by: asking || primaryCoach(),
-          text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}${owes ? ` To pay the £${(row.ask / 100).toFixed(0)}: ${payUrl}` : ''}` }); } catch {}
-        const cNoPw = !(await hashFor(db, row.email));
-        const cLink = cNoPw ? await welcomeLink(row.email) : '';
-        await email(row.email, `Confirmed: your session, ${whenTxt}`,
-          mail({ title: 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
-            cta: owes ? { href: payUrl, label: `Pay £${(row.ask / 100).toFixed(0)}` }
-               : cNoPw ? { href: cLink, label: 'See it in the app' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
-            paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
-                    row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
-                    `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
-                    'A reminder comes the day before. If you need to move it, reply to this.',
-                    `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`],
-            signoff: { name: coachName(asking || primaryCoach()) } }));
+        const whenTxt = sessWhen(row);
+        const by = asking || primaryCoach();
+        if (owes) {
+          const amt = sessAmt(row.ask);
+          try { await threadAdd(db, row.email, { from: 'coach', by,
+            text: `Booked: ${whenTxt}${row.place ? ', at ' + row.place : ''}. To confirm it, pay ${amt} here: ${payUrl}` }); } catch {}
+          await email(row.email, `Your session, ${whenTxt}: pay to confirm it`,
+            mail({ title: 'Booked. Pay to confirm it.', greeting: String(row.name || '').split(' ')[0],
+              cta: { href: payUrl, label: `Pay ${amt}` },
+              paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
+                      'It is confirmed once it is paid, and the confirmation comes straight after. The button takes you to a secure Stripe page.',
+                      'If you have already paid another way, or the time does not work, reply to this.'],
+              signoff: { name: coachName(by) } }));
+        } else {
+          try { await threadAdd(db, row.email, { from: 'coach', by,
+            text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
+          await sessConfirmMail(db, row, by);
+        }
       }
       return json({ ok: true, session: row, sessions: list.filter(x => owns(x.email)) });
     }
@@ -3485,6 +3519,7 @@ const handle = async (request) => {
     if (!row || row.status === 'cancelled') return back('paid=0');
     if (!(row.ask > 0)) return back('paidsession=1');
     if (!stripeKey()) return new Response('Payments are not switched on', { status: 503 });
+    if (row.ask < SESS_MIN_ASK) console.error('session/pay under the minimum', sid, row.ask);
     try {
       const sess = await stripe('/checkout/sessions', {
         mode: 'payment',
@@ -3499,7 +3534,20 @@ const handle = async (request) => {
         cancel_url: `${SITE}/lha-app.html`,
       });
       return Response.redirect(sess.url, 303);
-    } catch (err) { return new Response('Could not open the payment page. Reply to the email and we will sort it.', { status: 502 }); }
+    } catch (err) {
+      /* It said only that it could not, and the reason was Stripe's, thrown
+         away here. It goes in the function log, and on the page, in
+         Stripe's own words, so whoever sees it can say what it was. */
+      const why = String((err && err.message) || err || '').slice(0, 300);
+      console.error('session/pay', sid, why);
+      return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payment</title><body style="margin:0;background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
+<div style="max-width:440px;margin:12vh auto 0;padding:0 22px">
+<h1 style="font:400 28px/1.15 Georgia,serif;margin:0 0 12px">The payment page would not open.</h1>
+<p style="margin:0 0 12px">Nothing has been charged. Reply to the email this came from and we will sort it.</p>
+${why ? `<p style="margin:0;color:#686868;font-size:13px">Stripe said: ${esc(why)}</p>` : ''}
+</div></body>`, { status: 502, headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }
   }
   /* ── a session in the client's calendar ───────────────────────────
      A time and a place, found by the session's own id, which is random and
@@ -4337,9 +4385,8 @@ const handle = async (request) => {
     const lib = await libraryNow();
     const uidOf = u => { const m = /\/([a-f0-9]{32})\//.exec(String(u || '')); return m ? m[1] : ''; };
     const all = new Set(Object.values(lib.video || {}).map(uidOf).filter(Boolean));
-    /* what stays open: the free stage's drills, the mobility day, drills in
-       a free fix, and anything a client's own programme page still plays
-       unsigned, because those pages are outside the app */
+    /* what stays open: the free stage's drills, the mobility day and drills
+       in a free fix */
     const free = new Set();
     for (const v of (Array.isArray(body.freeDrills) ? body.freeDrills : [])) {
       const u = uidOf((lib.video || {})[String(v)]); if (u) free.add(u);
@@ -4349,18 +4396,15 @@ const handle = async (request) => {
       if (!f || f.access !== 'free') continue;
       for (const d of (f.drills || [])) { const u = uidOf((lib.video || {})[d.v]); if (u) free.add(u); }
     }
-    const walk = (o, depth) => { if (!o || depth > 8) return;
-      if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1)); return; }
-      if (typeof o === 'object') { if (o.url) { const u = uidOf(o.url); if (u) free.add(u); } Object.values(o).forEach(x => walk(x, depth + 1)); } };
-    walk(programmes.clients || {}, 0);
     /* ── which film belongs to which stage ──────────────────────
        The server has never known: the pools live in the app's own data
        file, which is why this route is handed the free drills rather
        than working them out. It is handed the whole map now and writes
        it down, so /sign can give a free account the films for the free
        stage and the one stage it was placed on, and nothing else. */
-    if (body.stageDrills && typeof body.stageDrills === 'object') {
-      const byStage = {};
+    const byStage = {};
+    const hasMap = !!(body.stageDrills && typeof body.stageDrills === 'object');
+    if (hasMap) {
       for (const key of Object.keys(body.stageDrills).slice(0, 24)) {
         const st0 = String(Number(key));
         if (st0 === 'NaN') continue;
@@ -4372,6 +4416,26 @@ const handle = async (request) => {
         }
         if (out.length) byStage[st0] = out;
       }
+    }
+    /* A client's own programme page plays its films unsigned, because those
+       pages are outside the app, so every film on one stayed open. That
+       included the paid stages' own drills: tuck slides, knees on box, the
+       Freestanding entries and the Press films are all on Hannah's or
+       Marina's page, so pressing Lock again never touched them and anybody
+       with the link could play them (29 Sept). A film a paid stage uses is
+       locked now even when a client page has it; the page loses that clip
+       and the client plays it in the app, which signs it for them. Stage 0
+       is the free one (FREE_STAGES in lha-app.html), and a film it uses is
+       in `free` already, so it stays open whatever else uses it. */
+    const paid = new Set();
+    for (const [st0, list] of Object.entries(byStage)) {
+      if (Number(st0) > 0) list.forEach(u => { if (!free.has(u)) paid.add(u); });
+    }
+    const walk = (o, depth) => { if (!o || depth > 8) return;
+      if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1)); return; }
+      if (typeof o === 'object') { if (o.url) { const u = uidOf(o.url); if (u && !paid.has(u)) free.add(u); } Object.values(o).forEach(x => walk(x, depth + 1)); } };
+    walk(programmes.clients || {}, 0);
+    if (hasMap) {
       /* the free fixes travel with the free stage: a fix anybody can read
          has films anybody can play */
       byStage.free = [...free];
