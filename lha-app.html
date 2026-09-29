@@ -403,6 +403,12 @@ button.lc-ring:active{transform:scale(.88)}
 .styr{transition:opacity .35s}
 .styr-card.nofilm{background:linear-gradient(145deg,#0b6a65,#00302e)}
 .styr-card.nofilm::before{background:radial-gradient(120% 90% at 85% 10%,rgba(143,227,214,.22),transparent 60%)}
+/* a locked chapter's picture, softened like the films either side and
+   dimmer than a film when it is the one in the middle, so it reads as a
+   look rather than the thing */
+.styr-card img.still{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+ filter:blur(2px) brightness(.62) saturate(.5);transition:filter .45s ease}
+.styr-card.on img.still{filter:saturate(.72) brightness(.8)}
 .styr-card .lk{position:absolute;z-index:3;top:12px;right:12px;display:flex;align-items:center;gap:6px;
  padding:6px 10px 6px 9px;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;
  font:700 9px/1 var(--sans);letter-spacing:.14em}
@@ -13237,7 +13243,7 @@ function storyReelHTML(si, ch){
       tabindex="0" role="group" aria-roledescription="story"
       aria-label="${esc((STAGES[si]||{}).n||'')} in chapters. Swipe to move through them.">
     ${all.map(({x,i,k})=>`<div class="styr-card${x.shut?' nofilm':''}" data-n="${i}" data-uid="${esc(x.uid||'')}"${x.locked?' data-lock="1"':''}${k!==1?' aria-hidden="true"':''}>
-      ${x.shut ? `<span class="lk">${STORY_LOCK}MEMBERS</span>` : `<video muted playsinline loop disableremoteplayback preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
+      ${x.shut ? `<span class="lk">${STORY_LOCK}MEMBERS</span>${storyStill(x.uid)}` : `<video muted playsinline loop disableremoteplayback preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
         style="object-position:${x.x}% 50%" data-src="${esc(x.src)}"></video>`}
       <div class="sty-cap"><small>${i+1} OF ${ch.length}</small><b>${esc(x.t)}</b>${x.sub?`<span>${esc(x.sub)}</span>`:''}</div>
     </div>`).join('')}
@@ -13260,6 +13266,11 @@ const STORY_RATE = 1.25, STORY_FROM = .3;
    host answers for a still the same way it does for the film, and a chapter
    it refuses stays as a locked card like the others. A still that has not
    answered in four seconds is given the benefit. */
+/* a picture of a locked chapter's drill, from the server, which fetches the
+   still itself so that nothing reaching the phone opens the film. Missing,
+   the card is the plain green one. */
+const storyStill = uid => /^[a-f0-9]{32}$/.test(uid||'')
+  ? `<img class="still" alt="" loading="lazy" decoding="async" src="/api/app/story/still?uid=${uid}" onerror="this.remove()">` : '';
 const STORY_LOCK='<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
 function storyProbe(el){
   return fetch('/api/app/story/preview?stage='+encodeURIComponent(el.dataset.si))
@@ -13282,7 +13293,7 @@ function storyProbe(el){
     el.querySelectorAll('.styr-card').forEach(c=>{ if(!c.dataset.lock || !bad.has(c.dataset.uid)) return;
       c.classList.add('nofilm');
       const v=c.querySelector('video'); if(v) v.remove();
-      c.insertAdjacentHTML('afterbegin', `<span class="lk">${STORY_LOCK}MEMBERS</span>`); });
+      c.insertAdjacentHTML('afterbegin', `<span class="lk">${STORY_LOCK}MEMBERS</span>${storyStill(c.dataset.uid)}`); });
     return true;
   });
 }

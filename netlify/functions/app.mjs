@@ -4423,6 +4423,30 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ tokens, exp: exp * 1000 });
   }
 
+  /* ── a still of a drill, for the story's locked cards ────────────────
+     A chapter that is not a preview shows a picture of its drill rather than
+     a blank card. The still of a members' film is locked at Stream as the
+     film is, and a pass for the still is a pass for the film, so the server
+     fetches it with its own pass and hands on the picture alone: nothing
+     that opens the film ever leaves. Only films in the drill library, one
+     frame each, cached at the edge for a week. */
+  if (path === '/story/still' && request.method === 'GET') {
+    const uid = String(url.searchParams.get('uid') || '').replace(/[^a-f0-9]/g, '');
+    const none = () => new Response('', { status: 404, headers: { 'cache-control': 'public, max-age=300' } });
+    if (uid.length !== 32) return none();
+    const lib = await libraryNow();
+    if (!Object.values(lib.video || {}).some(u => String(u || '').includes('/' + uid + '/'))) return none();
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`still:${ip}`, 3600000)) > 300) return new Response('', { status: 429 });
+    let r;
+    try { r = await fetch(`https://customer-pns1oongdltmkjwa.cloudflarestream.com/${await signedSeg(uid)}/thumbnails/thumbnail.jpg?time=3s&width=640&height=360&fit=crop`); }
+    catch { return none(); }
+    const type = r.headers.get('content-type') || '';
+    if (!r.ok || !/^image\//.test(type)) return none();
+    return new Response(await r.arrayBuffer(), { status: 200, headers: { 'content-type': type,
+      'cache-control': 'public, max-age=86400', 'netlify-cdn-cache-control': 'public, max-age=604800, durable' } });
+  }
+
   if (path === '/coach/stream/status' && request.method === 'GET') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const k = await getSetting('stream:key');
