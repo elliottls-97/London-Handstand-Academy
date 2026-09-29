@@ -410,15 +410,16 @@ button.lc-ring:active{transform:scale(.88)}
 /* a card is the films' own shape, 16 by 9, so nothing is cropped */
 .styr-wrap{container-type:inline-size;--pk:42px}
 @media (min-height:760px){.styr-wrap{--pk:92px}}
-.styr{position:relative;height:calc(100cqw * 9 / 16 + 2 * (12px + var(--pk)));overflow-y:auto;
- scroll-snap-type:y mandatory;overscroll-behavior:contain;display:flex;flex-direction:column;gap:12px;
- padding:calc(12px + var(--pk)) 0;scrollbar-width:none;outline:none;
+.styr{position:relative;height:calc(100cqw * 9 / 16 + 2 * (6px + var(--pk)));overflow-y:auto;
+ scroll-snap-type:y mandatory;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px;
+ padding:calc(6px + var(--pk)) 0;scrollbar-width:none;outline:none;
  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 var(--pk),#000 calc(100% - var(--pk)),transparent 100%);
  mask-image:linear-gradient(180deg,transparent 0,#000 var(--pk),#000 calc(100% - var(--pk)),transparent 100%)}
 .styr::-webkit-scrollbar{display:none}
+.styr.glide{scroll-snap-type:none}
 .styr-card{position:relative;flex:none;aspect-ratio:16/9;border-radius:22px;overflow:hidden;clip-path:inset(0 round 22px);
  background:#0f1412;scroll-snap-align:center;scroll-snap-stop:always;cursor:pointer;
- transform:scale(.9);filter:blur(5px) brightness(.72) saturate(.8);
+ transform:scale(.95);filter:blur(4px) brightness(.74) saturate(.8);
  transition:transform .5s cubic-bezier(.2,.8,.2,1),filter .5s ease}
 .styr-card.on{transform:none;filter:none;cursor:default}
 .styr-card video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
@@ -13241,68 +13242,87 @@ function storyHTML(si){
 }
 function storyReelHTML(si, ch){
   setTimeout(storyReelMount, 0);
-  return `<div class="styr-wrap"><div class="styr" data-si="${si}" tabindex="0" role="group" aria-roledescription="story"
-      aria-label="${esc((STAGES[si]||{}).n||'')} in ${ch.length} chapters. Swipe up for the next.">
-    ${ch.map((x,i)=>`<div class="styr-card${i===(storyAt[si]||0)?' on':''}" data-n="${i}">
+  /* three copies, the middle one the real one: gliding off the end of it
+     lands on the same frame of the next copy, and it is put back without
+     a jump, so it goes round for ever and chapter four has chapter one
+     under it and chapter one has chapter four above it */
+  const all=[0,1,2].flatMap(k=>ch.map((x,i)=>({x,i,k})));
+  return `<div class="styr-wrap"><div class="styr glide" data-si="${si}" data-n="${ch.length}" tabindex="0" role="group" aria-roledescription="story"
+      aria-label="${esc((STAGES[si]||{}).n||'')} in ${ch.length} chapters. Swipe to move through them.">
+    ${all.map(({x,i,k})=>`<div class="styr-card" data-n="${i}"${k!==1?' aria-hidden="true"':''}>
       <video muted playsinline loop preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
         style="object-position:${x.x}% 50%" data-src="${esc(x.src)}"></video>
       <div class="sty-cap"><small>${i+1} OF ${ch.length}</small><b>${esc(x.t)}</b>${x.sub?`<span>${esc(x.sub)}</span>`:''}</div>
     </div>`).join('')}
   </div></div>`;
 }
-/* The chapter crossing the middle of the window is the one that plays; the
-   window moves on by itself every five seconds until somebody swipes it,
-   and picks up again after they have left it alone for a while. It stops at
-   the last chapter rather than rewinding through the others. */
+/* It glides up on its own, slowly, and the chapter crossing the middle of
+   the window is the one that is sharp and playing, about five seconds each.
+   A finger takes it over and it snaps to a chapter like any list; left alone
+   for a few seconds it starts gliding again from wherever it is. Off the
+   screen or in the background it stops. */
+const STORY_SPEED = 40;   /* pixels a second */
 function storyReelMount(){
   document.querySelectorAll('.styr:not([data-m])').forEach(el=>{
     el.dataset.m='1';
-    const si=el.dataset.si, cards=[...el.querySelectorAll('.styr-card')];
+    const si=el.dataset.si, n=Number(el.dataset.n)||1, cards=[...el.querySelectorAll('.styr-card')];
     let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
-    let i=-1, timer=0, idle=0, seen=true, touched=false;
+    let on=-1, seen=true, hands=false, idle=0, raf=0, last=0, pos=0, settle=0;
     const load=v=>{ if(v && !v.getAttribute('src')) v.src=v.dataset.src; };
     const topFor=c=>c.offsetTop - (el.clientHeight - c.offsetHeight)/2;
-    const go=n=>{ const c=cards[Math.max(0,Math.min(cards.length-1,n))]; if(!c) return;
-      el.scrollTo({top:topFor(c), behavior:still?'auto':'smooth'}); };
-    const tick=()=>{ clearTimeout(timer);
-      if(seen && !still && !touched && i<cards.length-1) timer=setTimeout(()=>go(i+1), 5000); };
-    const focus=n=>{
-      if(!el.isConnected || n===i) return;
-      i=n; storyAt[si]=n;
-      cards.forEach((c,j)=>{
+    const lap=()=>cards[n].offsetTop - cards[0].offsetTop;
+    const base=()=>topFor(cards[n]);
+    /* keep it inside the middle copy, a whole lap back or on, which looks the same */
+    const wrap=()=>{ const L=lap(), b0=base();
+      if(el.scrollTop > b0+L-1){ el.scrollTop-=L; pos-=L; } else if(el.scrollTop < b0-L/2){ el.scrollTop+=L; pos+=L; } };
+    const nearest=()=>{ const mid=el.scrollTop + el.clientHeight/2; let best=0, d=1e9;
+      cards.forEach((c,j)=>{ const x=Math.abs(c.offsetTop + c.offsetHeight/2 - mid); if(x<d){ d=x; best=j; } }); return best; };
+    const focus=j=>{
+      if(j===on) return; on=j;
+      const k=j%n; storyAt[si]=k;
+      cards.forEach((c,m)=>{
         const v=c.querySelector('video');
-        c.classList.toggle('on', j===i);
-        if(j===i){ load(v); v.muted=true; try{ v.currentTime=0; }catch(e){} if(seen){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }
-        else { try{ v.pause(); }catch(e){} }
-        if(j===i+1){ v.preload='auto'; load(v); }
+        c.classList.toggle('on', m===j);
+        if(m===j){ load(v); v.muted=true; try{ v.currentTime=0; }catch(e){} if(seen){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }
+        else if(!v.paused){ try{ v.pause(); }catch(e){} }
+        if(m===j+1){ v.preload='auto'; load(v); }
       });
-      tick();
     };
-    /* what is in the middle, measured on every settle of the scroll */
-    const pick=()=>{
-      const mid=el.scrollTop + el.clientHeight/2;
-      let best=0, d=1e9;
-      cards.forEach((c,j)=>{ const x=Math.abs(c.offsetTop + c.offsetHeight/2 - mid); if(x<d){ d=x; best=j; } });
-      focus(best);
+    const frame=t=>{
+      raf=0;
+      if(!el.isConnected) return;
+      if(seen && !hands && !still){
+        const dt=last ? Math.min(.05,(t-last)/1000) : 0;
+        pos+=STORY_SPEED*dt; el.scrollTop=pos; wrap();
+      }
+      last=t;
+      focus(nearest());
+      if(seen && !hands && !still) raf=requestAnimationFrame(frame);
     };
-    let st_=0;
-    el.addEventListener('scroll', ()=>{ clearTimeout(st_); st_=setTimeout(pick, 90); }, {passive:true});
-    const hands=()=>{ touched=true; clearTimeout(timer); clearTimeout(idle);
-      idle=setTimeout(()=>{ touched=false; tick(); }, 9000); };
-    ['pointerdown','wheel','touchstart'].forEach(ev=>el.addEventListener(ev, hands, {passive:true}));
-    el.addEventListener('click', e=>{ const c=e.target.closest('.styr-card'); if(c && !c.classList.contains('on')) go(cards.indexOf(c)); });
+    const glide=()=>{ if(still || hands || !seen || raf) return;
+      el.classList.add('glide'); pos=el.scrollTop; last=0; raf=requestAnimationFrame(frame); };
+    const stop=()=>{ if(raf){ cancelAnimationFrame(raf); raf=0; } };
+    const take=()=>{ hands=true; stop(); el.classList.remove('glide'); clearTimeout(idle);
+      idle=setTimeout(()=>{ hands=false; glide(); }, 5000); };
+    ['pointerdown','wheel','touchstart'].forEach(ev=>el.addEventListener(ev, take, {passive:true}));
+    /* under a finger the middle is read when the list settles */
+    el.addEventListener('scroll', ()=>{ if(!hands) return; clearTimeout(settle);
+      settle=setTimeout(()=>{ wrap(); focus(nearest()); }, 90); }, {passive:true});
+    el.addEventListener('click', e=>{ const c=e.target.closest('.styr-card'); if(!c || c.classList.contains('on')) return;
+      take(); el.scrollTo({top:topFor(c), behavior:still?'auto':'smooth'}); });
     el.addEventListener('keydown', e=>{
-      if(e.key==='ArrowUp'){ e.preventDefault(); hands(); go(i-1); }
-      else if(e.key==='ArrowDown' || e.key===' '){ e.preventDefault(); hands(); go(i+1); }
+      const dir = e.key==='ArrowUp' ? -1 : (e.key==='ArrowDown' || e.key===' ') ? 1 : 0;
+      if(!dir) return; e.preventDefault(); take();
+      const c=cards[Math.max(0,Math.min(cards.length-1,on+dir))]; if(c) el.scrollTo({top:topFor(c), behavior:still?'auto':'smooth'});
     });
-    const hold=on=>{ seen=!on; const v=cards[i] && cards[i].querySelector('video');
-      if(on){ clearTimeout(timer); try{ v.pause(); }catch(e){} }
-      else { if(v){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } tick(); } };
+    const hold=off=>{ seen=!off; const v=cards[on] && cards[on].querySelector('video');
+      if(off){ stop(); try{ v.pause(); }catch(e){} }
+      else { if(v){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } glide(); } };
     if(typeof IntersectionObserver==='function'){
       const io=new IntersectionObserver(es=>{
         if(!el.isConnected){ io.disconnect(); return; }
-        const on=es.some(x=>x.isIntersecting && x.intersectionRatio>=.3);
-        if(on && !seen) hold(false); else if(!on && seen) hold(true);
+        const vis=es.some(x=>x.isIntersecting && x.intersectionRatio>=.3);
+        if(vis && !seen) hold(false); else if(!vis && seen) hold(true);
       },{threshold:[0,.3,.6]});
       io.observe(el);
     }
@@ -13310,10 +13330,11 @@ function storyReelMount(){
       if(!el.isConnected){ document.removeEventListener('visibilitychange', vis); return; }
       hold(document.visibilityState!=='visible');
     });
-    /* back where it was after a redraw, without the scroll showing */
-    const at=storyAt[si]||0;
-    if(at && cards[at]) el.scrollTop=topFor(cards[at]);
-    focus(at);
+    /* start on the chapter it was on, in the middle copy, a little below the
+       middle so it rises into it and gets its whole turn */
+    el.scrollTop=topFor(cards[n+(storyAt[si]||0)]) - (still ? 0 : (cards[1].offsetTop-cards[0].offsetTop)*.42); pos=el.scrollTop;
+    focus(nearest());
+    glide();
   });
 }
 /* One chapter plays at a time and only it and the next have their films
