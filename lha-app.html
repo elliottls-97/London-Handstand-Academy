@@ -10477,6 +10477,10 @@ function drawOv(){
         --y0:0px;--y1:${moved?-RH:0}px;animation:climb 1.6s cubic-bezier(.3,.9,.3,1) both"></span>
     </div>`;
     const film=moved ? (stageIntroUid(ti) || LADDER_INTRO_VIDEO) : '';
+    /* arriving on a stage by clearing the last one is the other way in, and
+       the commonest past Foundations: the new stage's story, where it has
+       one, says what it is about instead of a sentence */
+    const story=moved ? storyHTML(ti) : '';
     body=`<div style="position:relative;text-align:center;padding:16px 0 4px;overflow:hidden">
       <div class="burst">${Array.from({length:22},(_,i)=>
         `<i style="--a:${(i*16.4)}deg;--d:${70+(i%5)*26}px;--t:${900+(i%6)*90}ms;
@@ -10486,11 +10490,14 @@ function drawOv(){
         ? `You are on <em style="color:var(--forest);font-style:normal">${esc(next.n)}.</em>`
         : `That is ${esc(from.n)} done.`}</div>
       ${ladder}
-      <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px">${
+      ${story?'':`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px">${
         moved ? esc((next.goal||'').replace(/\.$/,''))+'.'
         : next ? esc(next.n)+(sells()?' is the '+PRICE()+' tier.':' is for members.')+' You stay on '+esc(from.n)+' until you open it.'
-        : 'That is the whole ladder. There is nothing below this one.'}</div>
+        : 'That is the whole ladder. There is nothing below this one.'}</div>`}
     </div>
+    ${story?`<div style="margin-top:18px;font:400 26px/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)">What you&rsquo;ll learn<em
+      style="color:var(--forest);font-style:normal">.</em></div>
+    <div style="margin-top:12px">${story}</div>`:''}
     ${film?`<div style="margin-top:14px;border-radius:18px;overflow:hidden;background:#fff;border:1px solid rgba(0,64,61,.10)">
       ${qaVideo({uid:film},false).replace('margin-top:11px;border-radius:14px;overflow:hidden','')}
       <div style="padding:11px 14px 13px">
@@ -13181,7 +13188,27 @@ const STAGE_STORY = {
   0:[{t:'Getting upside down',  k:'ch-assist'},
      {t:'Falling off the wall', k:'fall-comfort', x:22},
      {t:'Learning to kick up',  k:'kickup-rate'},
-     {t:'Building balance',     k:'crow',         x:60}]
+     {t:'Building balance',     k:'crow',         x:60}],
+  /* the rest drafted from each stage's own check points and its own words
+     for what it is about, for Elliott to change */
+  1:[{t:'Owning the wall',               k:'ctw-hold'},
+     {t:'Pushing through the shoulders', k:'scap-shrugs'},
+     {t:'Taking weight off the wall',    k:'sl-tuck'},
+     {t:'Building pressing strength',    k:'pike-full'}],
+  2:[{t:'Stacking the shoulders',        k:'tuck-depth'},
+     {t:'Leaving the wall on purpose',   k:'slide-off'},
+     {t:'Balancing on the box',          k:'box-time'},
+     {t:'Cleaning up your entries',      k:'entry-clean'}],
+  3:[{t:'Sliding away',                  k:'side-away'},
+     {t:'Taking off in a tuck',          k:'tuck-takeoff'},
+     {t:'Lifting off the box',           k:'box-lifts-l'}],
+  4:[{t:'Finding balance in a tuck',     k:'tuck-entries'},
+     {t:'Opening into a straddle',       k:'straddle-entries'},
+     {t:'Going straight up',             k:'straight-entries'},
+     {t:'Changing shape in balance',     k:'straddle-to-straight'}],
+  5:[{t:'Building compression',          k:'compression'},
+     {t:'Pressing on the wall',          k:'press-wall'},
+     {t:'Lowering with control',         k:'press-ecc'}]
 };
 function storyChapters(si){
   const list=cpFor(si)||[];
@@ -13226,7 +13253,7 @@ function storyReelHTML(si, ch){
 const STORY_HOLD = 3000, STORY_MOVE = 850;
 /* the films play a quarter faster than they were filmed: a few seconds of a
    drill shows more of it, and at this size nobody is studying the form */
-const STORY_RATE = 1.25;
+const STORY_RATE = 1.25, STORY_FROM = .3;
 function storyReelMount(){
   document.querySelectorAll('.styr:not([data-m])').forEach(el=>{
     el.dataset.m='1';
@@ -13248,7 +13275,11 @@ function storyReelMount(){
       cards.forEach((c,m)=>{
         const v=c.querySelector('video');
         c.classList.toggle('on', m===j);
-        if(m===j){ load(v); v.muted=true; v.defaultMuted=true; try{ v.currentTime=0; }catch(e){}
+        if(m===j){ load(v); v.muted=true; v.defaultMuted=true;
+          /* a moment in, not at nought: some films open on a title frame
+             ("CHEST TO WALL"), which sat under the chapter's own headline */
+          const cue=()=>{ try{ v.currentTime=STORY_FROM; }catch(e){} };
+          if(v.readyState>=1) cue(); else v.addEventListener('loadedmetadata', cue, {once:true});
           v.defaultPlaybackRate=STORY_RATE; v.playbackRate=STORY_RATE;
           if(seen){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }
         else if(!v.paused){ try{ v.pause(); }catch(e){} }
