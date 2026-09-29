@@ -276,11 +276,12 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
  box-shadow:0 14px 30px -18px rgba(0,48,46,.8)}
 .lc-sum.open .ic{background:rgba(255,255,255,.14);color:#fff}
 .lc-sum.open small{color:#8fe3d6}.lc-sum.open .nt{color:#fff}
-.lc-r{position:relative;display:block;width:100%;height:54px;margin:0;padding:0 22px;border:0;
- background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;-webkit-appearance:none;appearance:none}
-.lc-r:focus-visible{outline:none}
-.lc-r:focus-visible .lc-p{box-shadow:0 0 0 3px rgba(0,102,99,.5)}
-.lc-bar{position:absolute;left:9px;right:9px;top:50%;height:4px;margin-top:-2px;border-radius:2px;
+.lc-r{position:relative;padding:0 22px}
+.lc-row{display:flex;align-items:center;gap:11px;width:100%;height:54px;margin:0;padding:0 8px 0 6px;
+ border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;
+ -webkit-appearance:none;appearance:none;border-radius:15px}
+.lc-row:focus-visible{outline:3px solid rgba(0,102,99,.45);outline-offset:-3px}
+.lc-bar{position:absolute;left:9px;right:9px;top:27px;height:4px;margin-top:-2px;border-radius:2px;
  background:rgba(0,64,61,.12);transition:background .5s}
 .lc-bar::before,.lc-bar::after{content:'';position:absolute;top:50%;width:12px;height:12px;margin-top:-6px;
  border-radius:50%;background:#f4f4f5;border:2px solid rgba(0,64,61,.2);transition:background .5s,border-color .5s}
@@ -288,14 +289,23 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .lc-r.on .lc-bar{background:#0a7b74}
 .lc-r.on .lc-bar::before,.lc-r.on .lc-bar::after{background:#0a7b74;border-color:#0a7b74;
  box-shadow:0 0 8px rgba(20,168,156,.6)}
-.lc-p{position:relative;height:100%;display:flex;align-items:center;gap:11px;padding:0 8px 0 6px;
- border-radius:15px;background:#fff;transition:background .5s,box-shadow .5s,transform .15s;
+.lc-p{position:relative;border-radius:15px;background:#fff;transition:background .5s,box-shadow .5s;
  box-shadow:0 1px 2px rgba(0,64,61,.06),0 10px 24px -18px rgba(0,48,46,.55)}
 .lc-r.on .lc-p{background:#e9f3f1}
 .lc-r.nx .lc-p{box-shadow:0 0 0 2px var(--amber),0 12px 26px -16px rgba(243,169,73,.75)}
-.lc-r:active .lc-p{transform:scale(.985)}
+.lc-row:active .lc-th{transform:scale(.93)}
 .lc-th{flex:none;position:relative;width:42px;height:42px;border-radius:10px;overflow:hidden;
- background:#dfe7e5;display:grid;place-items:center;color:var(--forest)}
+ background:#dfe7e5;display:grid;place-items:center;color:var(--forest);transition:transform .15s}
+/* a rung opened: the film and the logging grow out of the same box, and
+   the ladder stretches round it */
+.lc-r.open{z-index:1}
+.lc-r.open .lc-p{background:#fff;box-shadow:0 1px 2px rgba(0,64,61,.06),0 22px 44px -24px rgba(0,48,46,.6)}
+.lc-r.open.nx .lc-p{box-shadow:0 0 0 2px var(--amber),0 22px 44px -24px rgba(0,48,46,.6)}
+.lc-x{overflow:hidden}
+.lc-xi{padding:2px 10px 14px}
+.lc-film>*{margin:0!important;border-radius:12px!important}
+.lc-note{margin-top:10px;font:400 13px/1.45 var(--sans);color:var(--grey)}
+.lc-none{padding:12px;border-radius:12px;background:rgba(17,17,17,.04);font:400 12.5px/1.4 var(--sans);color:var(--grey2)}
 .lc-th img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .lc-th .pl{position:absolute;right:3px;bottom:3px;width:17px;height:17px;border-radius:50%;
  background:rgba(255,255,255,.94);display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.22)}
@@ -5144,8 +5154,10 @@ function climbSummit(si, S){
     <span class="nt">${all?'Open':S.n+' of '+S.n+' opens it'}</span></div>`;
 }
 /* mode: 'b' builds it rung by rung, 'a' arrives, anything else is still.
-   tap: what pressing a rung does, given the check point's k. */
-function climbHTML(si, mode, tap){
+   use: 'log' opens a rung onto its film and the logging, as on the Check
+   points tab; 'watch' onto the film alone, for somebody who has only just
+   been placed. */
+function climbHTML(si, mode, use){
   const S=climbState(si);
   if(!S.n) return '';
   const n=S.n, T=.35, step=.13;
@@ -5163,11 +5175,13 @@ function climbHTML(si, mode, tap){
     const dl=(r.done && r.j<S.climbed && fillPx) ? (df+fillS*Math.min(1,mid/fillPx)*.8).toFixed(2)
            : r.done && r.j<S.climbed ? (df+fillS*(r.j+1)/(n+1)).toFixed(2)
            : (T+r.j*step+.25).toFixed(2);
-    return `<button class="lc-r${r.done?' on':''}${isNext?' nx':''}" data-ck="${esc(r.c.k)}"
-      style="--d:${d}s;--dl:${dl}s" onclick="${tap}('${esc(r.c.k)}')"
-      aria-label="${esc(r.c.n)}. ${esc(rungGoal(r.c))}.${r.done?' Reached.':isNext?' Next.':''}">
+    const open=lcOpen[use]===r.c.k;
+    return `<div class="lc-r${r.done?' on':''}${isNext?' nx':''}${open?' open':''}" data-ck="${esc(r.c.k)}"
+      style="--d:${d}s;--dl:${dl}s">
       <i class="lc-bar"></i>
-      <span class="lc-p">
+      <div class="lc-p">
+        <button class="lc-row" onclick="climbTap(this)" aria-expanded="${open}"
+          aria-label="${esc(r.c.n)}. ${esc(rungGoal(r.c))}.${r.done?' Reached.':isNext?' Next.':''}">
         <span class="lc-th"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${LC_ICON[kind]}</svg>${th?`
           <img src="${esc(th.still)}" alt="" loading="lazy" decoding="async"
@@ -5177,11 +5191,16 @@ function climbHTML(si, mode, tap){
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
         <span class="lc-t"><b>${esc(r.c.n)}</b><small>${climbSub(r,isNext)}</small></span>
         <span class="lc-ring">${climbRing(r)}</span>
-      </span>
-    </button>`;
+        </button>${open?`
+        <div class="lc-x">${rungBody(r.c, r.j, n, use)}</div>`:''}
+      </div>
+    </div>`;
   }).join('');
   if(mode==='b') setTimeout(climbWatch, 0);
-  return `<div class="lc${mode==='b'?' b':mode==='a'?' a':''}" data-si="${si}"
+  /* a rung left open from before this redraw moves the rungs under it, so
+     the fill is placed from where they actually are */
+  if(lcOpen[use]) setTimeout(()=>document.querySelectorAll('.lc[data-si="'+si+'"]').forEach(climbFit), 0);
+  return `<div class="lc${mode==='b'?' b':mode==='a'?' a':''}" data-si="${si}" data-use="${use}"
     style="--ds:${ds.toFixed(2)}s;--df:${df.toFixed(2)}s;--dn:${dn.toFixed(2)}s">
     <div class="lc-body">
       <i class="lc-rail l"><i class="lc-fill" style="height:${climbFillH(S)}"></i></i>
@@ -5236,41 +5255,101 @@ function climbRepaint(){
       if(ring && ring.innerHTML.replace(/\s+/g,'')!==ringH.replace(/\s+/g,'')) ring.innerHTML=ringH;
       const sm=b.querySelector('.lc-t small'); if(sm) sm.innerHTML=climbSub(r, r.j===S.next);
     });
-    el.querySelectorAll('.lc-fill').forEach(f=>{ f.style.height=climbFillH(S); });
+    climbFit(el);
     const sum=el.querySelector('.lc-sum'), sumH=climbSummit(si,S);
     if(sum){ const t=document.createElement('div'); t.innerHTML=sumH;
       if(t.firstElementChild && t.firstElementChild.className!==sum.className) sum.replaceWith(t.firstElementChild); }
   });
 }
-/* on the Check points tab a rung is a way into its card below: opened,
-   its demo playing, brought up under the sticky count */
-function climbTap(k){
-  if(!coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
-  const was=document.getElementById('cpcard-'+k);
-  if(was && was.tagName==='BUTTON'){
-    st.cpUnfold=Object.assign({}, st.cpUnfold||{}, {[k]:1}); save(); render();
-  }
-  const el=document.getElementById('cpcard-'+k); if(!el) return;
-  if(!((st.cpOpen||{})[k]) && document.getElementById('cpdemo-'+k)) toggleCpDemo(k);
-  const sc=el.closest('.scroll');
-  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
-  if(sc){
-    const bar=document.getElementById('cpstick');
-    const off = bar && getComputedStyle(bar).position==='sticky'
-      ? (parseFloat(getComputedStyle(bar).top)||0) + bar.offsetHeight + 12 : 16;
-    const top=el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - off;
-    sc.scrollTo({top:Math.max(0,top), behavior:still?'auto':'smooth'});
-  }
-  if(!still && typeof el.animate==='function')
-    el.animate([{boxShadow:'0 0 0 3px rgba(243,169,73,.95)'},{boxShadow:'0 0 0 3px rgba(243,169,73,0)'}],
-      {duration:1600, delay:450, easing:'ease-out'});
+/* ── a rung, opened where it is ────────────────────────────────────
+   Pressing a rung grows it: the film of the movement plays inside the same
+   box and, on the Check points tab, the slider to log it sits under the
+   film. It used to scroll the page down to a second copy of the check point
+   in a list of cards, which was the thing this replaced. One open at a
+   time, per screen, and kept across redraws for as long as the app is. */
+let lcOpen={};
+function rungBody(c, i, total, use){
+  const drill=c.demo ? drillById(c.demo) : null;
+  const film = drill && drill.url && !drillLocked(drill.v)
+    ? `<div class="lc-film">${drillFilm(drill.url,'16/10')}</div>`
+    : `<div class="lc-none">${drill && drill.url ? 'The film opens with the whole ladder.' : 'No film on this one yet.'}</div>`;
+  const note=c.note ? `<div class="lc-note">${esc(c.note)}</div>` : '';
+  if(use!=='log') return `<div class="lc-xi">${film}${note}</div>`;
+  /* the parts repaintCp swaps keep their ids, so logging redraws the
+     numbers and never the film */
+  const last=cpLast(c.k), pick=c.kind==='yn'||c.kind==='face', met=cpMet(c), cs=cpState(c);
+  const sent=(cpLog()[c.k]||[]).filter(x=>x&&x.video).slice(-1)[0]||null;
+  return `<div class="lc-xi" id="cpcard-${c.k}" data-i="${i}" data-total="${total}"><div id="cptop-${c.k}">
+    ${film}${note}
+    <div style="margin-top:14px"${pick?` id="cppick-${c.k}"`:''}>${cpInput(c)}</div>
+    <div style="margin-top:9px;display:flex;justify-content:space-between;gap:10px;
+      font:400 11.5px/1 var(--sans);color:var(--grey)">
+      <span id="cplogd-${c.k}">${last?'Logged '+esc(cpWhen(last.at)):'Not logged yet'}</span>
+      <span id="cpgo-${c.k}" style="color:${met||cs==='hit'?'var(--forest)':'var(--grey)'};font-weight:${
+        cs==='hit'||cs==='signed'?'700':'400'}">${esc(cpToGo(c))}</span>
+    </div>
+    <div id="cphist-${c.k}">${cpHistoryHTML(c)}</div>
+    <div id="cpup-${c.k}" style="margin-top:9px;font:500 12px/1.4 var(--sans);color:var(--grey)"></div>
+    <div id="cpclip-${c.k}">${c.video===false?'':cpClipHTML(c,sent)}</div>
+  </div></div>`;
 }
-/* anywhere else, a rung plays the film of what it is asking for */
-function climbFilm(k){
-  const c=cpDef(k) || (cpFor(placedStage())||[]).find(x=>x.k===k);
-  const d=c && c.demo ? drillById(c.demo) : null;
-  if(!d || !d.url || drillLocked(d.v)) return;
-  st.ovDrill=d; openOv('drill');
+/* where the fill reaches, measured, once a rung is open and the ladder no
+   longer has the fixed heights climbFillH works from */
+function climbFit(el){
+  const S=climbState(Number(el.dataset.si));
+  let h=climbFillH(S);
+  if(S.climbed && S.climbed<S.n){
+    const body=el.querySelector('.lc-body');
+    const r=el.querySelector('.lc-r[data-ck="'+S.rows[S.climbed-1].c.k+'"]');
+    if(body && r) h=(body.offsetHeight + 8 - (r.offsetTop + 27))+'px';
+  }
+  el.querySelectorAll('.lc-fill').forEach(f=>{ f.style.height=h; });
+}
+function rungShut(r, still){
+  const x=r.querySelector('.lc-x'); r.classList.remove('open');
+  const b=r.querySelector('.lc-row'); if(b) b.setAttribute('aria-expanded','false');
+  if(!x) return;
+  x.querySelectorAll('video').forEach(v=>{ try{ v.pause(); }catch(e){} });
+  /* the fill is measured again once the box has gone, or it stays as tall
+     as the ladder was with this one open */
+  const lc=r.closest('.lc'), gone=()=>{ x.remove(); if(lc) climbFit(lc); };
+  if(still || typeof x.animate!=='function'){ gone(); return; }
+  const a=x.animate([{height:x.offsetHeight+'px',opacity:1},{height:'0px',opacity:0}],
+    {duration:260,easing:'cubic-bezier(.4,0,.2,1)'});
+  a.onfinish=gone;
+}
+function climbTap(btn){
+  const r=btn.closest('.lc-r'), lc=btn.closest('.lc'); if(!r || !lc) return;
+  const use=lc.dataset.use||'log', k=r.dataset.ck;
+  if(use==='log' && !coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
+  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  const was=lcOpen[use];
+  lc.querySelectorAll('.lc-r.open').forEach(o=>rungShut(o, still));
+  if(was===k){ lcOpen[use]=null; return; }
+  lcOpen[use]=k;
+  const S=climbState(Number(lc.dataset.si)), row=S.rows.find(x=>x.c.k===k); if(!row) return;
+  const x=document.createElement('div'); x.className='lc-x';
+  x.innerHTML=rungBody(row.c, row.j, S.n, use);
+  r.querySelector('.lc-p').appendChild(x);
+  r.classList.add('open'); btn.setAttribute('aria-expanded','true');
+  mountCaptions();
+  const v=x.querySelector('video'); if(v){ v.muted=!soundOn(); startFilm(v); }
+  if(!still && typeof x.animate==='function'){
+    const h=x.offsetHeight;
+    x.animate([{height:'0px',opacity:0},{height:h+'px',opacity:1}],{duration:340,easing:'cubic-bezier(.2,.8,.2,1)'})
+      .onfinish=()=>climbFit(lc);
+  }
+  climbFit(lc);
+  /* bring the whole of it into view if it has grown past the tab bar,
+     never further than putting the rung itself at the top */
+  setTimeout(()=>{
+    const sc=r.closest('.scroll'); if(!sc) return;
+    const box=r.getBoundingClientRect(), view=sc.getBoundingClientRect();
+    const floor=view.bottom - (document.querySelector('.tabbar') && !wide() ? 96 : 16);
+    const ceil=view.top + (wide() ? 16 : 80);
+    const by=Math.min(box.bottom-floor, box.top-ceil);
+    if(by>0) sc.scrollBy({top:by, behavior:still?'auto':'smooth'});
+  }, still?0:360);
 }
 /* flat: straight onto the page, as on the ladder tab, where the heading
    above already carries the count and the bar. The card round cards, and
@@ -8607,8 +8686,8 @@ const soundOn = () => st.sound !== false;
    rest, so two demos never play over each other */
 document.addEventListener('play', e=>{
   const v=e.target;
-  if(!v || v.tagName!=='VIDEO' || !v.closest || !v.closest('#ov,#dock,.cpcard')) return;
-  document.querySelectorAll('#ov video, #dock video, .cpcard video').forEach(o=>{
+  if(!v || v.tagName!=='VIDEO' || !v.closest || !v.closest('#ov,#dock,.cpcard,.lc-x')) return;
+  document.querySelectorAll('#ov video, #dock video, .cpcard video, .lc-x video').forEach(o=>{
     if(o!==v && !o.paused) try{ o.pause(); }catch(err){} });
 }, true);
 /* ── a film that starts ───────────────────────────────────────────
@@ -13063,7 +13142,7 @@ function screenOriented(){
           <span style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">WHAT YOU&rsquo;LL LEARN</span>
           <span style="font:600 12px/1 var(--sans);color:var(--grey)">${gated?(cpFor(placed)||[]).length+' check points':'Tap one to watch it'}</span>
         </div>
-        <div style="margin-top:14px">${climbHTML(placed,'b','climbFilm')}</div>
+        <div style="margin-top:14px">${climbHTML(placed,'b','watch')}</div>
       </div>`:''}
       ${wantsCoaching(a)?`<div style="margin-top:16px;border-radius:20px;padding:18px 20px;background:var(--deep);color:#fff">
         <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#8fe3d6">PRESS AND ONE-ARM</div>
@@ -14843,7 +14922,9 @@ function screenLadder(){
            its film on it, climbed from the bottom, the next stage at the
            top, all of it on one screen. A rung opens its card below. The
            goal is on the stage's own sheet and on the ladder tab. -->
-      <div style="margin-top:18px">${climbHTML(cur, climbMode(cur), 'climbTap')}</div>
+      ${cpDue() && (cpFor(cur)||[]).some(c=>cpLast(c.k)) ? `<div style="margin-top:8px;font:500 13.5px/1.45 var(--sans);
+        color:var(--forest)">It has been a fortnight. Worth running through these again.</div>` : ''}
+      <div data-tour="checkpoints" style="margin-top:18px">${climbHTML(cur, climbMode(cur), 'log')}</div>
       ${(function(){
         /* ── they have finished the free stage ────────────────────────
            Somebody who reaches every check point on Foundations and has
@@ -14890,7 +14971,10 @@ function screenLadder(){
          orientation rather than the daily job, so it folds, and the tour
          is where it gets explained the first time. The focus is what you
          are working on, not where you could be in six months. -->
-    <div data-tour="checkpoints" style="padding:22px 16px 0">${checkpointsCard(true)}</div>`}
+    <!-- The list of cards that was here is the ladder above now: each rung
+         opens where it is, onto its film and its slider, so a second copy
+         of all seven a screen further down had nothing left to do. -->
+    <div style="height:28px"></div>`}
 
     ${ltab!=='ladder' ? '' : `<div data-ladderall style="padding:22px 20px 40px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;
@@ -18035,11 +18119,11 @@ const TOURS = {
          about all six stages found nothing and the tour stopped short. */
       {t:'stagegoal', h:'How you leave this stage', always:true,
        pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } },
-       b:'Every stage is a short ladder of its own. Each rung is a check point with its film on it, the first at the bottom, and the one to work on next glows. Reach them all and the stage at the top opens. Press a rung to open it.'},
+       b:'Every stage is a short ladder of its own. Each rung is a check point with its film on it, the first at the bottom, and the one to work on next glows. Reach them all and the stage at the top opens.'},
       /* the check points are the page now, so the tour walks you onto them
          rather than past them */
       {t:'checkpoints', h:'This is the bit that moves you', always:true,
-       b:()=>'Each one is a thing to be able to do, with a number on it. Drag it to what you managed and it logs as you go. '
+       b:()=>'Press a rung and it opens where it is: the film of the movement, and a slider that logs what you managed as you drag it. '
          +'Nothing here is a guess: it is what decides when the next stage opens.',
        pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } }},
       /* and the ladder gets explained here, once, because it is folded away
