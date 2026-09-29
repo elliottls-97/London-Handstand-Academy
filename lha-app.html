@@ -322,6 +322,7 @@ button.lc-ring:active{transform:scale(.88)}
 .lc-ring{flex:none;position:relative;width:44px;height:44px;display:grid;place-items:center;
  font:700 11.5px/1 var(--sans);color:var(--forest)}
 .lc-ring .pg{position:absolute;inset:0;margin:auto;transform:rotate(-90deg)}
+.lc-ring .arc{transition:stroke-dashoffset .16s,stroke .3s,opacity .2s}
 .lc-ring .ok{position:absolute;inset:5px;border-radius:50%;background:var(--forest);display:grid;place-items:center}
 .lc-base{display:flex;align-items:center;gap:10px;margin-top:10px;font:700 9px/1 var(--sans);
  letter-spacing:.18em;color:var(--grey)}
@@ -4944,6 +4945,7 @@ function cpStep(k,by,max){
       if(c0) fill.style.background=cpBarColour(c0, next, cpMet(c0, next)); }
     if(thumb) thumb.style.left='calc('+run+' + 4px)';
   }
+  climbRingLive(k, next);
   ['cpval-','cpstep-'].forEach(pre=>{
     const n=document.getElementById(pre+k);
     if(n) n.textContent=next+(n.dataset.u||'');
@@ -4962,6 +4964,7 @@ function cpType(k, raw){
   const v=Math.min(100000, Math.round(n*10)/10);
   st.cpDraft=Object.assign({},st.cpDraft,{[k]:v}); save();
   const lab=document.getElementById('cpval-'+k); if(lab) lab.textContent=v+(lab.dataset.u||'');
+  climbRingLive(k, v);
   clearTimeout(cpStepT_);
   cpStepT_=setTimeout(()=>saveCheckpoint(k,(st.cpDraft||{})[k]), 900);
 }
@@ -5006,6 +5009,7 @@ function cpDrag(e,k,max,res){
       if(st2) st2.textContent=v+(st2.dataset.u||'');
       /* one object per changed value, not one per move event */
       st.cpDraft=Object.assign({},st.cpDraft,{[k]:v});
+      climbRingLive(k, v);
     }
   };
   const set=ev=>{
@@ -5093,17 +5097,50 @@ function rungGoal(c){
   if(c.unit) return t+c.unit+(lower?' or less':'');
   return t+' reps';
 }
-/* how far along a rung is, 0 to 1, for its ring */
-function rungFrac(c){
-  if(cpDone(c)) return 1;
-  const last=cpLast(c.k); if(!last) return 0;
+/* how far along a rung is, 0 to 1, for its ring: what was logged, or a
+   value still under the finger when one is given */
+function rungFrac(c, at){
+  let v;
+  if(at==null){
+    if(cpDone(c)) return 1;
+    const last=cpLast(c.k); if(!last) return 0;
+    v=Number(last.v)||0;
+  } else v=Number(at)||0;
   const K=CP_KIND[c.kind]||CP_KIND.count, lower=(c.lower!=null)?c.lower:K.lower;
-  const v=Number(last.v)||0, t=cpTarget(c);
+  const t=cpTarget(c);
   if(c.kind==='face') return Math.min(1, v/2);
   if(c.kind==='yn') return v?1:0;
   if(!t) return .5;
   if(lower) return v>0 ? Math.min(1, t/v) : 0;
   return Math.max(0, Math.min(1, v/t));
+}
+/* the ring is the colour the slider is at the same value: terracotta a
+   long way off, amber past half way, green once it is there. Taken from
+   the slider's own colours so the two can never disagree; the faces have
+   their own, and "getting there" is the brown of its button. */
+function rungColour(c, v){
+  if(c.kind==='face') return Number(v)===1 ? '#b07a2a' : '#0a7b74';
+  if(c.kind==='yn') return '#0a7b74';
+  const hex=String(cpBarColour(c, v, cpMet(c, v))).match(/#[0-9a-f]{6}/gi);
+  return hex ? hex[hex.length-1] : '#0a7b74';
+}
+/* while the slider moves, the ring moves with it */
+function climbRingLive(k, v){
+  const ring=document.querySelector('.lc[data-use="log"] .lc-r[data-ck="'+k+'"] .lc-ring');
+  if(!ring || ring.querySelector('.ok')) return;
+  const c=cpDef(k), svg=ring.querySelector('.pg'); if(!c || !svg) return;
+  const p=rungFrac(c, v), C=91.1;
+  let arc=svg.querySelector('.arc');
+  if(!arc){
+    arc=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    [['class','arc'],['cx','17'],['cy','17'],['r','14.5'],['fill','none'],['stroke-width','3'],
+     ['stroke-linecap','round'],['stroke-dasharray',String(C)]].forEach(([a,b])=>arc.setAttribute(a,b));
+    svg.appendChild(arc);
+  }
+  arc.style.animation='none';
+  arc.setAttribute('stroke-dashoffset',(C*(1-p)).toFixed(1));
+  arc.setAttribute('stroke', rungColour(c, v));
+  arc.style.opacity = p>0 ? '1' : '0';
 }
 function climbState(si){
   const list=(si==null ? cpFor() : cpFor(si))||[];
@@ -5151,7 +5188,7 @@ function climbRing(r, use){
     : String(r.j+1);
   return `<svg class="pg" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
     <circle cx="17" cy="17" r="14.5" fill="none" stroke="rgba(0,64,61,.12)" stroke-width="3"/>${r.p>0?`
-    <circle class="arc" cx="17" cy="17" r="14.5" fill="none" stroke="#0a7b74" stroke-width="3"
+    <circle class="arc" cx="17" cy="17" r="14.5" fill="none" stroke="${rungColour(r.c, (cpLast(r.c.k)||{}).v)}" stroke-width="3"
       stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${(C*(1-r.p)).toFixed(1)}"/>`:''}</svg>${inner}`;
 }
 function climbSub(r, isNext){
@@ -5245,8 +5282,8 @@ function climbHTML(si, mode, use){
     <div class="lc-base"><i></i>START<i></i></div>
   </div>`;
 }
-/* The build waits until the foot of the ladder is on screen, because that
-   is where it starts: watching for any of it set it off with only the top
+/* The build waits until most of the ladder is on screen, because it
+   starts at the foot: watching for any of it set it off with only the top
    showing, below a film, and it was over before anyone scrolled down to
    see it. Then it plays once. It is
    written down as seen the moment it starts, and for the few seconds it
@@ -5271,11 +5308,12 @@ function climbWatch(){
       }
     };
     if(typeof IntersectionObserver!=='function'){ go(); return; }
-    const foot=el.querySelector('.lc-base')||el;
+    /* over half of it on screen: enough to watch it build, and reachable
+       where the foot never is without scrolling, on a small phone */
     const io=new IntersectionObserver(es=>{
-      if(es.some(e=>e.isIntersecting)){ io.disconnect(); setTimeout(go, 120); }
-    },{threshold:1});
-    io.observe(foot);
+      if(es.some(e=>e.intersectionRatio>=.55)){ io.disconnect(); setTimeout(go, 120); }
+    },{threshold:[.25,.55,.8,1]});
+    io.observe(el);
   });
 }
 /* after a log, the climb moves in place rather than being redrawn, so
@@ -13126,33 +13164,26 @@ function screenOriented(){
   return `<div style="flex:1;min-height:0;display:flex;flex-direction:column;color:var(--ink)">
     <div class="scroll s" style="background:transparent;flex:1;min-height:0;padding-bottom:0">
     <div style="padding:calc(env(safe-area-inset-top) + 20px) 20px 22px">
-      ${LADDER_INTRO_VIDEO?`<div onclick="st.introKind='app';st.introOpen=true;save();openOv('intro')"
-        style="position:relative;aspect-ratio:16/9;border-radius:24px;overflow:hidden;
-        margin-bottom:26px;cursor:pointer;background:var(--sand);
-        box-shadow:0 1px 2px rgba(0,64,61,.05),0 14px 34px rgba(0,64,61,.14)">
-        <img src="${streamThumb(LADDER_INTRO_VIDEO)}" alt="" loading="eager"
-          style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
-        <span style="position:absolute;inset:0;background:linear-gradient(180deg,
-          rgba(0,64,61,.58),rgba(0,64,61,.10) 48%,rgba(0,64,61,.62))"></span>
-        <div style="position:absolute;top:15px;left:17px;right:17px">
-          <span style="display:block;font:600 9.5px/1 var(--sans);letter-spacing:.14em;
-            color:rgba(255,255,255,.88)">WATCH FIRST &middot; 3 MIN &middot; CAPTIONS ON</span>
-        </div>
-        <div style="position:absolute;left:17px;right:64px;bottom:15px">
-          <span style="display:block;font:400 20px/1.2 var(--serif);color:#fff">
-            How the handstand ladder works</span>
-        </div>
-        <div style="position:absolute;right:16px;bottom:14px;width:46px;height:46px;border-radius:50%;
-          background:rgba(255,255,255,.94);display:grid;place-items:center">
-          <svg width="15" height="17" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
-            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></div>
-      </div>`:''}
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">${gated?'Your answers put you at':'You&rsquo;ve landed here'}</div>
       <div style="font:400 44px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
         esc(PS.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
       <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:9px">
         Stage ${placed+1} of ${STAGES.length}. ${esc(skillLine(a)||levelDef().d)}</div>
+      <!-- What the stage teaches, as the ladder they are about to climb.
+           Joining a stage said what it was for in a sentence and nothing
+           about what they would actually be learning; the check points
+           were a tab away. It builds itself in rung by rung, and a rung
+           plays the film of what it asks for. It comes straight after the
+           stage's name: under the film and the card it started below the
+           fold, an empty space waiting to be scrolled to. -->
+      ${(cpFor(placed)||[]).length?`<div style="margin-top:24px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <span style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">WHAT YOU&rsquo;LL LEARN</span>
+          <span style="font:600 12px/1 var(--sans);color:var(--grey)">${gated?(cpFor(placed)||[]).length+' check points':'Tap one to watch it'}</span>
+        </div>
+        <div style="margin-top:14px">${climbHTML(placed,'b','watch')}</div>
+      </div>`:''}
       <!-- Less to read than it was: the goal's own sentence and three rows
            about the ladder, the week and the explainers went. What the stage
            is for, and how often, is what somebody needs before starting. -->
@@ -13205,17 +13236,27 @@ function screenOriented(){
                  escape route look like the offer. -->
           </div>
         </div>`;})():''}
-      <!-- What the stage teaches, as the ladder they are about to climb.
-           Joining a stage said what it was for in a sentence and nothing
-           about what they would actually be learning; the check points
-           were a tab away. It builds itself in rung by rung, and a rung
-           plays the film of what it asks for. -->
-      ${(cpFor(placed)||[]).length?`<div style="margin-top:26px">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-          <span style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">WHAT YOU&rsquo;LL LEARN</span>
-          <span style="font:600 12px/1 var(--sans);color:var(--grey)">${gated?(cpFor(placed)||[]).length+' check points':'Tap one to watch it'}</span>
+      <!-- the film about the app, after what the stage teaches -->
+      ${LADDER_INTRO_VIDEO?`<div onclick="st.introKind='app';st.introOpen=true;save();openOv('intro')"
+        style="position:relative;aspect-ratio:16/9;border-radius:24px;overflow:hidden;
+        margin-top:24px;cursor:pointer;background:var(--sand);
+        box-shadow:0 1px 2px rgba(0,64,61,.05),0 14px 34px rgba(0,64,61,.14)">
+        <img src="${streamThumb(LADDER_INTRO_VIDEO)}" alt="" loading="eager"
+          style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+        <span style="position:absolute;inset:0;background:linear-gradient(180deg,
+          rgba(0,64,61,.58),rgba(0,64,61,.10) 48%,rgba(0,64,61,.62))"></span>
+        <div style="position:absolute;top:15px;left:17px;right:17px">
+          <span style="display:block;font:600 9.5px/1 var(--sans);letter-spacing:.14em;
+            color:rgba(255,255,255,.88)">WATCH FIRST &middot; 3 MIN &middot; CAPTIONS ON</span>
         </div>
-        <div style="margin-top:14px">${climbHTML(placed,'b','watch')}</div>
+        <div style="position:absolute;left:17px;right:64px;bottom:15px">
+          <span style="display:block;font:400 20px/1.2 var(--serif);color:#fff">
+            How the handstand ladder works</span>
+        </div>
+        <div style="position:absolute;right:16px;bottom:14px;width:46px;height:46px;border-radius:50%;
+          background:rgba(255,255,255,.94);display:grid;place-items:center">
+          <svg width="15" height="17" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></div>
       </div>`:''}
       ${wantsCoaching(a)?`<div style="margin-top:16px;border-radius:20px;padding:18px 20px;background:var(--deep);color:#fff">
         <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#8fe3d6">PRESS AND ONE-ARM</div>
