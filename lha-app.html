@@ -376,7 +376,9 @@ button.lc-ring:active{transform:scale(.88)}
    headline and nothing else: the check points' own demos, a chapter
    every five seconds, bars along the top like a story. Tap to go on,
    the left edge to go back. */
-.sty{position:relative;border-radius:22px;overflow:hidden;background:#0f1412;aspect-ratio:16/11;cursor:pointer;
+/* clip-path as well as overflow: a film being zoomed is drawn on its own
+   layer, which the rounded corners stop clipping, and the corners went square */
+.sty{position:relative;border-radius:22px;overflow:hidden;clip-path:inset(0 round 22px);background:#0f1412;aspect-ratio:16/11;cursor:pointer;
  box-shadow:0 18px 40px -24px rgba(0,48,46,.7);-webkit-user-select:none;user-select:none;outline:none}
 .sty:focus-visible{box-shadow:0 0 0 3px rgba(0,102,99,.5)}
 .sty-slide{position:absolute;inset:0;opacity:0;transition:opacity .6s ease}
@@ -13168,12 +13170,14 @@ function playStageFilm(el, uid){
    tells it. The film comes from the check point as the dashboard has it,
    so changing a demo there changes the chapter. A stage with no story
    here shows none, and a chapter whose film is missing or locked is left
-   out rather than shown empty. */
+   out rather than shown empty. x is where the frame sits across a film
+   that is wider than it, 0 its left edge and 100 its right, for a film
+   whose person is not in the middle. */
 const STAGE_STORY = {
   0:[{t:'Getting upside down',  k:'ch-assist'},
-     {t:'Falling off the wall', k:'fall-comfort'},
+     {t:'Falling off the wall', k:'fall-comfort', x:22},
      {t:'Learning to kick up',  k:'kickup-rate'},
-     {t:'Building balance',     k:'crow'}]
+     {t:'Building balance',     k:'crow',         x:60}]
 };
 function storyChapters(si){
   const list=cpFor(si)||[];
@@ -13182,7 +13186,8 @@ function storyChapters(si){
     const d=c && c.demo ? drillById(c.demo) : null;
     if(!d || !d.url || drillLocked(d.v)) return null;
     const uid=uidOfUrl(d.url);
-    return {t:ch.t, sub:(c.n && c.n.toLowerCase()!==ch.t.toLowerCase()) ? c.n : '', src:filmSrc(d.url), uid};
+    return {t:ch.t, sub:(c.n && c.n.toLowerCase()!==ch.t.toLowerCase()) ? c.n : '', src:filmSrc(d.url), uid,
+            x:(ch.x!=null ? Math.max(0, Math.min(100, ch.x)) : 50)};
   }).filter(Boolean);
 }
 function storyHTML(si){
@@ -13193,6 +13198,7 @@ function storyHTML(si){
     <div class="sty-bars">${ch.map(()=>'<i><b></b></i>').join('')}</div>
     ${ch.map((x,i)=>`<div class="sty-slide${i===0?' on':''}">
       <video muted playsinline loop preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
+        style="object-position:${x.x}% 50%"
         data-src="${esc(x.src)}"></video>
       <div class="sty-cap"><small>${i+1} OF ${ch.length}</small><b>${esc(x.t)}</b>${x.sub?`<span>${esc(x.sub)}</span>`:''}</div>
     </div>`).join('')}
@@ -13305,7 +13311,9 @@ function screenOriented(){
         esc(PS.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
       <!-- the stage in chapters, where Elliott has told it as one: the films
            say what it is about before a single word does -->
-      ${story ? `<div style="margin-top:18px">${story}</div>
+      ${story ? `<div style="margin-top:20px;font:700 9.5px/1 var(--sans);letter-spacing:.16em;
+        color:var(--forest)">WHAT YOU&rsquo;LL LEARN</div>
+      <div style="margin-top:10px">${story}</div>
       ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:12px">${esc(PS.rec)}</div>`:''}` : ''}
       <!-- The whole ladder of check points sat here, and it was too much
            for somebody who has only just been placed: the story above says
