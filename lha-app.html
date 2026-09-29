@@ -13788,18 +13788,23 @@ function placementLinks(){
 /* The shipped explainers as the coach has left them: a new question, a
    film, a summary, different phases, or hidden. Only what was changed is
    stored, so anything untouched still follows ladder-data.js. */
+/* A phase's own come first, then the ones given to it from another phase:
+   put a Foundations explainer on Wall Work from the dashboard and it joins
+   the end of Wall Work's list. It used to lead it, because the lists are
+   walked in phase order and Foundations is phase one. */
 function explainersFor(si){
-  const ed=(st&&st.explainEdit)||{}, own=[];
+  const ed=(st&&st.explainEdit)||{}, own=[], lent=[];
   Object.keys(EXPLAIN).forEach(k=>(EXPLAIN[k]||[]).forEach(x=>{
     const o=ed[x.id];
     if(o && o.off) return;
     const at=(o && Array.isArray(o.stages) && o.stages.length) ? o.stages : [Number(k)];
-    if(at.indexOf(si)<0 || own.some(y=>y.id===x.id)) return;
-    own.push(!o ? x : Object.assign({}, x, o.q?{q:o.q}:{}, typeof o.uid==='string'?{uid:o.uid}:{},
-      typeof o.dur==='string'?{dur:o.dur}:{}, o.sum?{sumOwn:o.sum}:{}));
+    if(at.indexOf(si)<0 || own.some(y=>y.id===x.id) || lent.some(y=>y.id===x.id)) return;
+    const it=!o ? x : Object.assign({}, x, o.q?{q:o.q}:{}, typeof o.uid==='string'?{uid:o.uid}:{},
+      typeof o.dur==='string'?{dur:o.dur}:{}, o.sum?{sumOwn:o.sum}:{});
+    (Number(k)===si ? own : lent).push(it);
   }));
   ((st&&st.explainExtra)||[]).forEach(x=>{ if(x && x.uid && (x.stages||[]).indexOf(si)>-1) own.push({id:'x-'+x.uid, q:x.q, uid:x.uid, k:x.k||[], sum:x.sum||'', own:true}); });
-  return own;
+  return own.concat(lent);
 }
 let FAQS = [];
 function rebuildFaqs(){
