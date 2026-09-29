@@ -379,7 +379,6 @@ button.lc-ring:active{transform:scale(.88)}
 .sty-cap small{display:block;font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#8fe3d6}
 .sty-cap b{display:block;font:400 27px/1.05 var(--serif);margin-top:7px;text-wrap:balance}
 .sty-cap span{display:block;font:500 12.5px/1.2 var(--sans);color:rgba(255,255,255,.82);margin-top:6px}
-@keyframes styIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 /* The window is sized so one chapter sits whole in the middle with a strip
    of each neighbour, which keeps the screen to one phone's height. The films
    touch, one strip of them, square where they meet; only the middle one is
@@ -395,21 +394,21 @@ button.lc-ring:active{transform:scale(.88)}
 .styr::-webkit-scrollbar{display:none}
 .styr.glide{scroll-snap-type:none}
 .styr-card{position:relative;flex:none;aspect-ratio:16/9;overflow:hidden;
- background:#0f1412;scroll-snap-align:center;scroll-snap-stop:always;cursor:pointer;
- filter:blur(2px) brightness(.76) saturate(.62);transition:filter .45s ease}
+ background:#0f1412;scroll-snap-align:center;scroll-snap-stop:always;cursor:pointer}
 /* muted, so the words over them lead: the one playing a little softer than
-   the film itself, the others softened and dimmed but still films */
-.styr-card.on{filter:saturate(.8) brightness(.97);cursor:default}
+   the film itself, the others softened and dimmed but still films. On the
+   film, not the card, so every headline stays sharp and can be read as it
+   slides past, not only once its chapter has landed. */
+.styr-card video{filter:blur(2px) brightness(.76) saturate(.62);transition:filter .45s ease}
+.styr-card.on video{filter:saturate(.8) brightness(.97)}
+.styr-card.on{cursor:default}
 .styr-card video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .styr-card::before{content:'';position:absolute;z-index:1;inset:0;
  background:linear-gradient(180deg,rgba(0,0,0,0) 38%,rgba(0,30,28,.8))}
 .styr-card .sty-cap{bottom:12px}
 .styr-card .sty-cap b{font-size:24px;margin-top:5px}
-.styr-card .sty-cap{transition:opacity .4s}
-.styr-card:not(.on) .sty-cap{opacity:0}
-.styr-card.on .sty-cap small{animation:styIn .55s cubic-bezier(.2,.8,.2,1) .1s both}
-.styr-card.on .sty-cap b{animation:styIn .6s cubic-bezier(.2,.8,.2,1) .2s both}
-.styr-card.on .sty-cap span{animation:styIn .6s cubic-bezier(.2,.8,.2,1) .35s both}
+.styr-card .sty-cap{transition:opacity .45s}
+.styr-card:not(.on) .sty-cap{opacity:.82}
 @media (prefers-reduced-motion:reduce){.styr-card{transition:none!important}}
 .styr-card.on{z-index:1}
 @keyframes pop{0%{opacity:0;transform:rotate(var(--a)) translateY(0) scale(.4)}
@@ -13225,6 +13224,9 @@ function storyReelHTML(si, ch){
    any list; left alone for a few seconds it carries on from there. Off the
    screen or in the background it stops. */
 const STORY_HOLD = 3000, STORY_MOVE = 850;
+/* the films play a quarter faster than they were filmed: a few seconds of a
+   drill shows more of it, and at this size nobody is studying the form */
+const STORY_RATE = 1.25;
 function storyReelMount(){
   document.querySelectorAll('.styr:not([data-m])').forEach(el=>{
     el.dataset.m='1';
@@ -13246,7 +13248,9 @@ function storyReelMount(){
       cards.forEach((c,m)=>{
         const v=c.querySelector('video');
         c.classList.toggle('on', m===j);
-        if(m===j){ load(v); v.muted=true; v.defaultMuted=true; try{ v.currentTime=0; }catch(e){} if(seen){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }
+        if(m===j){ load(v); v.muted=true; v.defaultMuted=true; try{ v.currentTime=0; }catch(e){}
+          v.defaultPlaybackRate=STORY_RATE; v.playbackRate=STORY_RATE;
+          if(seen){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }
         else if(!v.paused){ try{ v.pause(); }catch(e){} }
         if(m===j+1){ v.preload='auto'; load(v); }
       });
