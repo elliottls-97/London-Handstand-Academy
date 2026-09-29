@@ -5007,6 +5007,130 @@ function wkCpReset(stage){
     .then(d=>{ wkCpsData=d.ladderCps||{}; wkCpBusy=false; delete wkCpWork[stage]; draw(); })
     .catch(e=>{ wkCpBusy=false; draw(); alert(String(e)); });
 }
+/* ── the story a stage is told as, after the quiz ──────────────────
+   Somebody the quiz places on a stage sees it as a few cards sliding up,
+   each a headline over one of its check points' films. Here Elliott writes
+   the headlines, picks the check point each card shows, and ticks the ones
+   that play before somebody has paid; the rest show as locked cards. Saved,
+   the films of the ticked ones are the only films the server will hand
+   out for the preview. Nothing saved, the app tells the shipped story. */
+let wkStoryData=null, wkStoryWork={}, wkStoryBusy=false;
+function wkStoryLoad(){
+  if(wkStoryData) return;
+  wkStoryData={};
+  fetch(API+'/story',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ wkStoryData=d.ladderStory||{}; draw(); } })
+    .catch(()=>{});
+}
+const wkStoryShipped = stage => ((typeof STAGE_STORY!=='undefined' && STAGE_STORY[stage])||[])
+  .map(c=>({t:c.t, k:c.k, pv:!!c.teaser}));
+function wkStorySaved(stage){
+  const own=(wkStoryData||{})[stage]||(wkStoryData||{})[String(stage)];
+  return Array.isArray(own) ? own.map(c=>({t:c.t, k:c.k, pv:!!c.pv})) : wkStoryShipped(stage);
+}
+function wkStoryList(stage){
+  if(!wkStoryWork[stage]) wkStoryWork[stage]=wkStorySaved(stage);
+  return wkStoryWork[stage];
+}
+function wkStoryDirty(stage){
+  return !!wkStoryWork[stage] && JSON.stringify(wkStoryWork[stage])!==JSON.stringify(wkStorySaved(stage));
+}
+const WK_STORY_MAX_PV = 4;
+function wkStorySet(stage,i,f,v){
+  const row=wkStoryList(stage)[i]; if(!row) return;
+  if(f==='pv' && v && wkStoryList(stage).filter(c=>c.pv).length>=WK_STORY_MAX_PV){
+    alert('Four previews at most. Untick one first.'); draw(); return; }
+  row[f]=v;
+  /* a headline being typed is not redrawn under the cursor */
+  if(f!=='t') draw();
+}
+function wkStoryMove(stage,i,by){
+  const list=wkStoryList(stage), j=i+by;
+  if(j<0||j>=list.length) return;
+  list.splice(j,0,list.splice(i,1)[0]); draw();
+}
+function wkStoryDel(stage,i){ wkStoryList(stage).splice(i,1); draw(); }
+function wkStoryAdd(stage){
+  const used=new Set(wkStoryList(stage).map(c=>c.k));
+  const c=wkCpList(stage).find(x=>!used.has(x.k)) || wkCpList(stage)[0];
+  wkStoryList(stage).push({t:'', k:c?c.k:'', pv:false}); draw();
+}
+/* the film a card would play: its check point's demo, as the check points
+   tab has it now */
+function wkStoryFilm(stage,k){
+  const c=wkCpList(stage).find(x=>x.k===k), v=c&&c.demo;
+  return v && libVideo[v] ? clipUidOf(libVideo[v]) : '';
+}
+function wkStoryPost(stage, chapters){
+  wkStoryBusy=true; draw();
+  return fetch(API+'/story',{method:'POST',headers:hdr(),body:JSON.stringify({stage:Number(stage), chapters})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ wkStoryData=d.ladderStory||{}; delete wkStoryWork[stage]; wkStoryBusy=false; draw(); flash('Saved. The app tells it this way now.'); })
+    .catch(e=>{ wkStoryBusy=false; draw(); alert(String(e)); });
+}
+function wkStorySave(stage){
+  if(wkStoryBusy) return;
+  const list=wkStoryList(stage).map(c=>({t:String(c.t||'').trim(), k:c.k, pv:!!c.pv}));
+  if(list.some(c=>!c.t)) return alert('Every card needs its headline.');
+  if(!list.length) return alert('Add a card, or put back the shipped story.');
+  wkStoryPost(stage, list.map(c=>Object.assign(c, {uid: c.pv ? wkStoryFilm(stage,c.k) : ''})));
+}
+function wkStoryReset(stage){
+  if(!confirm('Put '+STAGES[stage].n+' back to the story it shipped with?')) return;
+  wkStoryPost(stage, []);
+}
+function wkStoryHTML(stage, inp, btn){
+  wkStoryLoad(); wkCpsLoad();
+  const list=wkStoryList(stage), cps=wkCpList(stage);
+  const free = stage===0;
+  const pvN=list.filter(c=>c.pv).length;
+  const own=Array.isArray((wkStoryData||{})[stage]||(wkStoryData||{})[String(stage)]);
+  const rows=list.map((c,i)=>{
+    const film=wkStoryFilm(stage,c.k), cp=cps.find(x=>x.k===c.k);
+    return `<div style="margin-top:8px;padding:11px 12px;border-radius:13px;background:#fff;
+      border:1px solid ${c.pv?'rgba(0,102,99,.45)':'var(--line)'}">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="flex:none;width:18px;font:700 11px/1 var(--sans);color:var(--grey2)">${i+1}</span>
+        <input value="${esc(c.t||'')}" oninput="wkStorySet(${stage},${i},'t',this.value)" maxlength="60"
+          placeholder="The headline on the card" style="${inp};flex:1;min-width:190px;font-weight:600">
+        <span style="flex:none;display:flex;gap:4px">
+          <button style="${btn}" title="Up" onclick="wkStoryMove(${stage},${i},-1)">&uarr;</button>
+          <button style="${btn}" title="Down" onclick="wkStoryMove(${stage},${i},1)">&darr;</button>
+          <button style="${btn}" title="Take it out" onclick="wkStoryDel(${stage},${i})">&times;</button>
+        </span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 0 26px">
+        <select onchange="wkStorySet(${stage},${i},'k',this.value)" style="${inp};min-width:210px">
+          ${cps.map(x=>`<option value="${esc(x.k)}"${x.k===c.k?' selected':''}>${esc(x.n||x.k)}</option>`).join('')}
+          ${cp?'':`<option value="${esc(c.k)}" selected>${esc(c.k)} (no longer a check point)</option>`}
+        </select>
+        <span style="font:500 12px/1.3 var(--sans);color:${film?'var(--grey)':'#8a5a12'}">${
+          film ? 'Film: '+esc((cp&&cp.demo)||'') : 'No film, so it shows as a card'}</span>
+        ${free?'':`<label style="margin-left:auto;display:flex;gap:7px;align-items:center;cursor:pointer;
+          font:600 12.5px/1 var(--sans);color:${c.pv?'var(--forest)':'var(--grey)'}">
+          <input type="checkbox" ${c.pv?'checked':''} ${film?'':'disabled'}
+            onchange="wkStorySet(${stage},${i},'pv',this.checked)"> Preview</label>`}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:14px;max-width:66ch">
+      After the quiz, somebody placed on ${esc(STAGES[stage].n)} sees it told in cards that slide up, each a
+      headline over one of its check points&rsquo; films. ${free
+        ? 'Foundations is free, so every card plays.'
+        : `Tick <b>Preview</b> on the ones that play before they have paid; the rest show locked.
+           Three is a good number, four at most.`}</div>
+    ${free?'':`<div style="margin-top:10px;font:600 12.5px/1 var(--sans);color:${pvN?'var(--forest)':'#8a5a12'}">${
+      pvN ? pvN+' preview'+(pvN===1?'':'s') : 'No previews: every card shows locked'}</div>`}
+    ${rows}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">
+      <button style="${btn}" onclick="wkStoryAdd(${stage})">+ Add a card</button>
+      <button class="btn" style="margin-left:auto" ${wkStoryBusy?'disabled':''} onclick="wkStorySave(${stage})">${
+        wkStoryBusy?'Saving…':'Save'}</button>
+      ${own?`<button style="${btn}" ${wkStoryBusy?'disabled':''} onclick="wkStoryReset(${stage})">Put back the shipped story</button>`:''}
+    </div>
+    ${wkStoryDirty(stage)?`<div style="font:500 12px/1.4 var(--sans);color:#8a5a12;margin-top:8px">Not saved yet.</div>`:''}`;
+}
 /* ── a picture or a film for each stage ────────────────────────────
    What the app shows on that stage in the Ladder tab: a thumbnail on the
    stage's row, across the top of the card when it is the stage someone
@@ -5535,6 +5659,7 @@ function workoutsHTML(){
     ${bandTab(0,'Every drill', all.length)}
     ${bandTab(-1,'Check points', wkCpList(wkStage).length)}
     ${bandTab(-2,'Picture or film', (wkMedia||{})[wkStage]?'added':'')}
+    ${bandTab(-3,'Preview', wkStage===0?'':(()=>{ wkStoryLoad(); const n=wkStoryList(wkStage).filter(c=>c.pv).length; return n+' playing'; })())}
     ${(function(){ const n=wkGapRows().length; return n?`<button onclick="wkGaps=true;draw()"
       style="cursor:pointer;border-radius:999px;padding:7px 13px;font:600 11.5px/1 var(--sans);
       border:1.5px solid rgba(243,169,73,.6);background:rgba(243,169,73,.14);color:#8a5a12;margin-left:auto">
@@ -5545,6 +5670,16 @@ function workoutsHTML(){
   if(wkBand>0 && bandsFor(wkStage, wkPoolFor(wkStage)).indexOf(wkBand)<0) wkBand=bandsFor(wkStage, wkPoolFor(wkStage))[0];
 
   if(wkGaps) return wkGapsHTML(inp);
+
+  /* ── the story the stage is told as after the quiz, and its preview ── */
+  if(wkBand===-3){
+    return `<div class="glass" style="padding:16px 18px">
+      <div style="font:400 21px/1.1 var(--serif)">Preview, ${esc(STAGES[wkStage].n)}</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
+      ${levelTabs}
+      ${wkStoryHTML(wkStage, inp, btn)}
+    </div>`;
+  }
 
   /* ── the stage's picture or film, on the app's Ladder tab ── */
   if(wkBand===-2){

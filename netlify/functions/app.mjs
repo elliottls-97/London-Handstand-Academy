@@ -3730,6 +3730,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* the ladder's own check points, where the coach has
                      changed a wording, a target or the drill demonstrating it */
                   ladderCps:   (await getSetting('ladder:checkpoints')) || {},
+                  /* the story each stage is told as after the quiz, where the
+                     coach has written it: headlines, films and previews */
+                  ladderStory: (await getSetting('ladder:story')) || {},
                   /* the words the coach has added for finding an explainer */
                   explainKeys: (await getSetting('explain:keys')) || {},
                   /* the shipped explainers as the coach has changed them:
@@ -4384,13 +4387,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      as a story, and three of its chapters play as a trailer. Those films
      are locked like the rest of the paid library, so this signs them, and
      only them, for anybody, for two hours: the films Elliott chose to give
-     away, never a film asked for by id. Keyed by stage, each the film of a
-     teaser chapter in STAGE_STORY in lha-app.html; a film changed on the
-     dashboard since is simply not signed and that chapter shows locked. */
+     away, never a film asked for by id. Elliott picks them on the dashboard
+     (Workouts, a stage, Preview), kept as ladder:teasers; until he has for a
+     stage, these, the films of the teaser chapters in STAGE_STORY in
+     ladder-data.js. A film changed since is not signed and shows locked. */
   const STORY_TEASERS = {
     1: ['58fc55e74e70f2bd27233abfd289d4e8',   /* chest-to-wall handstand */
-        'e69abfa23dad01d9994ed22666e4fd97',   /* wall scapula shrugs */
-        '19cf721ee5bf8669c3a0a7aa77db847d'],  /* single-leg tuck slides */
+        '19cf721ee5bf8669c3a0a7aa77db847d',   /* single-leg tuck slides */
+        '3dc884615d637e2b1cee93aecb79e168'],  /* pike push-ups */
     2: ['3749a6dc6abc40ae2627290d1f446d33',   /* tuck slides */
         '3f8d978d6e7c21ae14d376815eb90803',   /* knees on box */
         '4be7868ac0a11251d92d447367dceef1'],  /* straddle entries */
@@ -4405,7 +4409,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         '29ccefcc5c0dfb837de6272309d647cd'],  /* press eccentrics */
   };
   if (path === '/story/preview' && request.method === 'GET') {
-    const list = STORY_TEASERS[Number(url.searchParams.get('stage'))] || [];
+    const stg = String(Number(url.searchParams.get('stage')));
+    const own = (await getSetting('ladder:teasers')) || {};
+    const list = Object.prototype.hasOwnProperty.call(own, stg) ? (own[stg] || []) : (STORY_TEASERS[stg] || []);
     if (!list.length) return json({ tokens: {} });
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`teaser:${ip}`, 3600000)) > 40) return json({ tokens: {}, slow: true });
@@ -6775,6 +6781,38 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           videoReply: (lastClip && onVideo.find(t => t >= lastClip)) || 0 };
       }));
       return json({ starting: out.sort((a, b) => (a.since || 0) - (b.since || 0)) });
+    }
+    /* ── the story a stage is told as, after the quiz ────────────────
+       Per stage, the chapters: a headline, the check point whose film
+       shows it, and whether it is a preview, playing for somebody who has
+       not opened the stage. The films of the previews come with it, worked
+       out in the dashboard from the check points, and are the only films
+       /story/preview will sign for anybody: four at most. An empty list
+       puts the stage back to the shipped story. */
+    if (path === '/coach/story') {
+      const all = (await getSetting('ladder:story')) || {};
+      if (request.method === 'GET') return json({ ladderStory: all });
+      if (request.method === 'POST') {
+        const stage = String(Number(body.stage));
+        if (!/^[0-5]$/.test(stage)) return json({ error: 'Which stage?' }, 400);
+        const teasers = (await getSetting('ladder:teasers')) || {};
+        const chapters = [], films = [];
+        for (const c of (Array.isArray(body.chapters) ? body.chapters : []).slice(0, 8)) {
+          const t = String((c && c.t) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+          const k = String((c && c.k) || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
+          if (!t || !k) continue;
+          const pv = !!c.pv;
+          const uid = String(c.uid || '').replace(/[^a-f0-9]/g, '');
+          if (pv && uid.length === 32 && films.length < 4 && !films.includes(uid)) films.push(uid);
+          chapters.push(pv ? { t, k, pv: true } : { t, k });
+        }
+        if (chapters.length) { all[stage] = chapters; teasers[stage] = films; }
+        else { delete all[stage]; delete teasers[stage]; }
+        await setSetting('ladder:story', all);
+        await setSetting('ladder:teasers', teasers);
+        return json({ ok: true, ladderStory: all });
+      }
+      return json({ error: 'Nope' }, 405);
     }
     if (path === '/coach/checkpoints') {
       const all = (await getSetting('ladder:checkpoints')) || {};

@@ -11495,6 +11495,7 @@ function loadLadder(){
       if(d && d.ladderMedia) { st.ladderMedia=d.ladderMedia; moved=true; }
       if(d && d.explainEdit) { st.explainEdit=d.explainEdit; moved=true; }
       if(d && d.stageIntro)  { st.stageIntro=d.stageIntro;   moved=true; }
+      if(d && d.ladderStory && typeof d.ladderStory==='object') { st.ladderStory=d.ladderStory; moved=true; }
       if(d && typeof d.welcomeFilm==='string') st.welcomeFilm=d.welcomeFilm;
       if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; moved=true; }
       if(d && (d.explainEdit || Array.isArray(d.explainExtra))) rebuildFaqs();
@@ -13198,59 +13199,23 @@ function playStageFilm(el, uid){
 }
 /* what each of those films covers, written from its captions, so the
    sheet says what you are about to watch the way the explainers do */
-/* ── a stage as a story ─────────────────────────────────────────────
-   Elliott's chapters for a stage, each one a check point whose demo film
-   tells it. The film comes from the check point as the dashboard has it,
-   so changing a demo there changes the chapter. A stage with no story
-   here shows none, and a chapter whose film is missing or locked is left
-   out rather than shown empty. x is where the frame sits across a film
-   that is wider than it, 0 its left edge and 100 its right, for a film
-   whose person is not in the middle. */
-const STAGE_STORY = {
-  0:[{t:'Getting upside down',  k:'ch-assist'},
-     {t:'Falling off the wall', k:'fall-comfort', x:22},
-     {t:'Learning to kick up',  k:'kickup-rate'},
-     {t:'Building balance',     k:'crow',         x:60}],
-  /* the rest drafted from each stage's own check points and its own words
-     for what it is about, for Elliott to change. teaser marks the chapters
-     whose films play for somebody who has not opened the stage yet, three a
-     stage: a trailer chosen on purpose, the rest locked cards. The server
-     signs exactly these films for anybody (STORY_TEASERS in app.mjs), so a
-     change here needs the same change there. */
-  1:[{t:'Owning the wall',               k:'ctw-hold', teaser:1},
-     {t:'Pushing through the shoulders', k:'scap-shrugs', teaser:1},
-     {t:'Taking weight off the wall',    k:'sl-tuck', teaser:1},
-     {t:'Building pressing strength',    k:'pike-full'}],
-  2:[{t:'Stacking the shoulders',        k:'tuck-depth', teaser:1},
-     {t:'Leaving the wall on purpose',   k:'slide-off'},
-     {t:'Balancing on the box',          k:'box-time', teaser:1},
-     {t:'Cleaning up your entries',      k:'entry-clean', teaser:1}],
-  3:[{t:'Sliding away',                  k:'side-away', teaser:1},
-     {t:'Taking off in a tuck',          k:'tuck-takeoff', teaser:1},
-     {t:'Lifting off the box',           k:'box-lifts-l', teaser:1}],
-  4:[{t:'Finding balance in a tuck',     k:'tuck-entries'},
-     {t:'Opening into a straddle',       k:'straddle-entries', teaser:1},
-     {t:'Going straight up',             k:'straight-entries', teaser:1},
-     {t:'Changing shape in balance',     k:'straddle-to-straight', teaser:1}],
-  5:[{t:'Building compression',          k:'compression', teaser:1},
-     {t:'Pressing on the wall',          k:'press-wall', teaser:1},
-     {t:'Lowering with control',         k:'press-ecc', teaser:1}]
-};
-/* preview: for somebody the quiz placed above what they can train yet.
-   Every chapter shows, so they see all of what the stage teaches, but only
-   the ones Elliott chose as its teasers play their films; the others are locked
-   cards with their headline, so the locks on the drills still hold. Which
-   films the video host happens to leave open does not decide it. */
+/* the stage's chapters: Elliott's from the dashboard where he has written
+   them (pv marks a preview), the shipped ones otherwise (teaser) */
+const storySource = si => { const own=(st.ladderStory||{})[si]; return Array.isArray(own) ? own : (STAGE_STORY[si]||[]); };
 function storyChapters(si, preview){
   const list=cpFor(si)||[];
-  return (STAGE_STORY[si]||[]).map(ch=>{
+  const gone=new Set(st.drillsOff||[]);
+  return storySource(si).map(ch=>{
     const c=list.find(x=>x.k===ch.k);
-    const d=c && c.demo ? drillById(c.demo) : null;
+    const d=c && c.demo && !gone.has(c.demo) ? drillById(c.demo) : null;
     if(!d || !d.url) return null;
     const locked=drillLocked(d.v);
     if(locked && !preview) return null;
     const uid=uidOfUrl(d.url);
-    const shut = locked && (!ch.teaser || !uid);
+    const teaser = ch.pv!=null ? !!ch.pv : !!ch.teaser;
+    /* in a preview only the chosen chapters play, free drill or not:
+       what is shown before somebody pays is Elliott's choice */
+    const shut = preview && (!teaser || !uid);
     return {t:ch.t, sub:(c.n && c.n.toLowerCase()!==ch.t.toLowerCase()) ? c.n : '', src:shut ? '' : filmSrc(d.url), uid,
             locked: locked && !shut, shut, x:(ch.x!=null ? Math.max(0, Math.min(100, ch.x)) : 50)};
   }).filter(Boolean);
