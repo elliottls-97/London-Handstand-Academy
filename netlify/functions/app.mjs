@@ -4679,6 +4679,28 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (K.test(k) && v && /^https:\/\//.test(String(v.src || ''))) out.v[k] = { src: String(v.src).slice(0, 500), was: String(v.was || '').slice(0, 500) };
     for (const k of Object.keys((E && E.x) || {}).slice(0, 60)) if (K.test(k) && E.x[k]) out.x[k] = 1;
     if (Array.isArray(E && E.o)) out.o = E.o.filter(k => K.test(String(k))).slice(0, 60);
+    /* the page's title, search description and sharing image */
+    const m = (E && E.m) || {};
+    const mm = { title: String(m.title || '').trim().slice(0, 120), desc: String(m.desc || '').trim().slice(0, 300),
+      img: okSrc(String(m.img || '')) ? String(m.img).slice(0, 500) : '' };
+    Object.keys(mm).forEach(k => { if (!mm[k]) delete mm[k]; });
+    if (Object.keys(mm).length) out.m = mm;
+    /* duplicates of things that repeat */
+    if (Array.isArray(E && E.a)) {
+      const a = E.a.filter(x => x && /^n[a-z0-9]{2,14}$/.test(String(x.id)) && K.test(String(x.tpl)) && K.test(String(x.after || x.tpl)))
+        .slice(0, 40).map(x => ({ id: String(x.id), tpl: String(x.tpl), after: String(x.after || x.tpl) }));
+      if (a.length) out.a = a;
+    }
+    /* the class's dates: each day, its times and where it is booked */
+    const c = (E && E.c) || null;
+    if (c && Array.isArray(c.dates)) {
+      const dates = c.dates.filter(d => d && /^\d{4}-\d{2}-\d{2}$/.test(String(d.d)) && /^\d{2}:\d{2}$/.test(String(d.from)) && /^\d{2}:\d{2}$/.test(String(d.to)))
+        .slice(0, 12).map(d => ({ d: String(d.d), from: String(d.from), to: String(d.to),
+          link: /^https:\/\//.test(String(d.link || '')) ? String(d.link).slice(0, 600) : '' }))
+        .sort((x, y) => (x.d + x.from).localeCompare(y.d + y.from));
+      const price = String(c.price || '').replace(/[^0-9.]/g, '').slice(0, 6);
+      out.c = { dates, ...(price ? { price } : {}) };
+    }
     for (const f of ['t', 'h', 'i', 'v', 'x']) if (!Object.keys(out[f]).length) delete out[f];
     if (!out.o.length) delete out.o;
     return out;

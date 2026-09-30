@@ -177,10 +177,45 @@ $('#frame').addEventListener('load',()=>{
 /* ── the panel ── */
 function drawSide(){
   $('#side').innerHTML=`<div id="picked"></div>
+    ${page==='handstand-class'?'<details open id="datesBox"><summary class="kick" style="cursor:pointer">Class dates</summary><div id="dates" style="margin-top:10px"></div></details>':''}
+    <details id="metaBox"><summary class="kick" style="cursor:pointer">Page settings</summary><div id="meta" style="margin-top:10px"></div></details>
     <div><div class="kick">Sections</div><div class="list" id="secs" style="margin-top:10px"></div></div>
     <div><div class="kick">Changes on this page</div><div class="list" id="changes" style="margin-top:10px"></div></div>
     <div><div class="kick">Published before</div><div class="list" id="hist" style="margin-top:10px"></div></div>`;
-  drawPicked(); drawSecs(); drawChanges(); drawHist();
+  drawPicked(); drawSecs(); drawChanges(); drawHist(); drawMeta(); drawDates();
+}
+function itemBlock(){
+  const it=sel&&sel.item; if(!it) return '';
+  const can=S&&S.canEdit, hidden=!!(E.x&&E.x[it.key]);
+  return `<div class="lbl" style="margin-top:16px">The part it sits in</div>
+    <p class="muted" style="margin:0 0 8px;font-size:12.5px">${esc(it.name)}</p>
+    <div class="row">
+      ${it.added?'':`<button class="ghost" id="dupI"${can?'':' disabled'} title="Add another one just like it, underneath">Duplicate</button>`}
+      ${it.added?`<button class="ghost" id="dupI"${can?'':' disabled'}>Duplicate</button><button class="ghost" id="rmI"${can?'':' disabled'}>Remove</button>`
+        :`<button class="ghost" id="hideI"${can?'':' disabled'}>${hidden?'Show':'Hide'}</button>`}
+    </div>`;
+}
+function wireItem(){
+  const it=sel&&sel.item; if(!it) return;
+  const d=$('#dupI'); if(d) d.addEventListener('click',()=>duplicate(it));
+  const h=$('#hideI'); if(h) h.addEventListener('click',()=>{ E.x=E.x||{}; if(E.x[it.key]) delete E.x[it.key]; else E.x[it.key]=1;
+    if(!Object.keys(E.x).length) delete E.x; site&&site.apply(E); queueSave(); drawPicked(); drawChanges(); });
+  const r=$('#rmI'); if(r) r.addEventListener('click',()=>removeAdded(it.key));
+}
+function duplicate(it){
+  const id='n'+Date.now().toString(36).slice(-6)+Math.random().toString(36).slice(2,5);
+  const tpl=it.added?((E.a||[]).find(a=>a.id===it.key)||{}).tpl:it.tpl;
+  if(!tpl) return;
+  E.a=(E.a||[]).concat([{id,tpl,after:it.key}]);
+  site&&site.apply(E); queueSave(); drawChanges();
+  site&&site.pick(id); toast('Added underneath. Click its words and photos to change them.');
+}
+function removeAdded(id){
+  E.a=(E.a||[]).filter(a=>a.id!==id).map(a=>a.after===id?Object.assign({},a,{after:((E.a||[]).find(x=>x.id===id)||{}).after||a.tpl}):a);
+  if(!E.a.length) delete E.a;
+  ['t','h','i','v'].forEach(k=>{ if(E[k]){ Object.keys(E[k]).forEach(x=>{ if(x.indexOf('add.'+id+'.')===0) delete E[k][x]; }); if(!Object.keys(E[k]).length) delete E[k]; } });
+  if(E.x){ delete E.x[id]; if(!Object.keys(E.x).length) delete E.x; }
+  site&&site.apply(E); site&&site.done(); sel=null; queueSave(); drawPicked(); drawChanges();
 }
 function drawPicked(){
   const el=$('#picked'); if(!el) return;
@@ -204,7 +239,8 @@ function drawPicked(){
       <div class="row" style="margin-top:12px">
         <button class="ghost" id="doneT">Done</button>
         ${(edited||hEdited)?'<button class="ghost" id="resetT">Put back as written</button>':''}
-      </div>`;
+      </div>${itemBlock()}`;
+    wireItem();
     el.querySelectorAll('[data-f]').forEach(b=>b.addEventListener('mousedown',e=>{ e.preventDefault(); if(!site||!can) return;
       const f=b.dataset.f; if(f==='link'){ const u=prompt('Link to (https://… or /page):','https://'); if(!u) return; site.format('createLink',u.trim()); } else site.format(f); }));
     const h=$('#href'); if(h) h.addEventListener('change',()=>{ const v=h.value.trim();
@@ -215,7 +251,7 @@ function drawPicked(){
     const r=$('#resetT'); if(r) r.addEventListener('click',()=>resetKey(sel.key));
     return;
   }
-  if(sel.kind==='v'){ el.innerHTML=`<div class="kick">Video</div><h3>Swap the <em>video.</em></h3>${videoBlock(sel.key,sel.src,sel.origSrc)}`; wireVideo(sel.key,sel.origSrc); return; }
+  if(sel.kind==='v'){ el.innerHTML=`<div class="kick">Video</div><h3>Swap the <em>video.</em></h3>${videoBlock(sel.key,sel.src,sel.origSrc)}${itemBlock()}`; wireVideo(sel.key,sel.origSrc); wireItem(); return; }
   if(sel.kind==='i'){
     const edited=E.i&&E.i[sel.key];
     el.innerHTML=`<div class="kick">${sel.bg?'Cover photo':'Photo'}</div><h3>Swap the <em>${sel.bg?'cover.':'photo.'}</em></h3>
@@ -226,7 +262,8 @@ function drawPicked(){
       </div>
       ${sel.bg?'':`<div class="lbl">Describe it (for search and screen readers)</div>
       <input class="field" id="alt" value="${esc(edited&&edited.alt||sel.alt)}"${can?'':' disabled'}>`}
-      ${sel.video?`<div class="lbl" style="margin-top:16px">The video it plays</div>${videoBlock(sel.video.key,sel.video.src,sel.video.origSrc)}`:''}`;
+      ${sel.video?`<div class="lbl" style="margin-top:16px">The video it plays</div>${videoBlock(sel.video.key,sel.video.src,sel.video.origSrc)}`:''}${itemBlock()}`;
+    wireItem();
     $('#file').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) upload(f); });
     if(sel.video) wireVideo(sel.video.key,sel.video.origSrc);
     if($('#alt')) $('#alt').addEventListener('change',e=>{ const cur=(E.i&&E.i[sel.key]); const alt=e.target.value.trim().slice(0,200);
@@ -241,7 +278,10 @@ function drawPicked(){
         <button class="ghost" id="hideS"${can?'':' disabled'}>${hidden?'Show on the website':'Hide from the website'}</button>
         <button class="tool" id="upS" title="Move up"${can?'':' disabled'}>↑</button>
         <button class="tool" id="downS" title="Move down"${can?'':' disabled'}>↓</button>
-      </div>`;
+      </div>
+      ${sel.bg?`<div class="lbl" style="margin-top:16px">Its big photo</div><img class="thumb" src="${esc(sel.bg.src)}" alt="">
+        <div class="row" style="margin-top:8px"><button class="ghost" id="bgS"${can?'':' disabled'}>Change this photo</button></div>`:''}`;
+    const bgS=$('#bgS'); if(bgS) bgS.addEventListener('click',()=>{ sel=sel.bg; drawPicked(); });
     $('#hideS').addEventListener('click',()=>{ E.x=E.x||{}; if(hidden) delete E.x[sel.key]; else E.x[sel.key]=1; if(!Object.keys(E.x).length) delete E.x;
       site&&site.apply(E); queueSave(); drawPicked(); drawSecs(); drawChanges(); });
     $('#upS').addEventListener('click',()=>moveSec(sel.key,-1));
@@ -305,21 +345,25 @@ function drawSecs(){
 function drawChanges(){
   const el=$('#changes'); if(!el) return;
   const have=site?new Set(site.keys()):null, rows=[];
-  const add=(kind,key,label,text)=>rows.push({kind,key,label,text,stale:have&&!have.has(key)});
-  Object.entries(E.t||{}).forEach(([k,v])=>add('t',k,'Words',v.was||''));
+  const add=(kind,key,label,text)=>rows.push({kind,key,label,text,stale:have&&!have.has(key)&&!/^add\./.test(key)});
+  Object.entries(E.t||{}).forEach(([k,v])=>add('t',k,/^add\./.test(k)?'In a copy':'Words',/^add\./.test(k)?(site&&site.textOf?site.textOf(k):'')||v.was||'':v.was||''));
   Object.entries(E.h||{}).forEach(([k,v])=>add('h',k,'Link',v.href||''));
   Object.entries(E.i||{}).forEach(([k,v])=>add('i',k,'Photo',v.alt||(site&&site.was(k))||''));
   Object.entries(E.v||{}).forEach(([k,v])=>add('v',k,'Video',decodeURIComponent(String(v.was||'').split('/').pop())));
   Object.keys(E.x||{}).forEach(k=>add('x',k,'Hidden',k.replace(/^sec\./,'')));
   if(E.o) rows.push({kind:'o',key:'o',label:'Order',text:'Sections moved'});
+  (E.a||[]).forEach(a=>rows.push({kind:'a',key:a.id,label:'Added',text:'A copy, added underneath'}));
+  if(E.m) rows.push({kind:'m',key:'m',label:'Settings',text:Object.keys(E.m).map(k=>({title:'Title',desc:'Description',img:'Sharing image'}[k])).join(', ')});
+  if(E.c) rows.push({kind:'c',key:'c',label:'Dates',text:(E.c.dates||[]).length+' class date'+((E.c.dates||[]).length===1?'':'s')});
   el.innerHTML = rows.length ? rows.map(r=>`<div class="item${r.stale?' stale':''}" title="${r.stale?'The page no longer says this, so this change no longer applies':''}">
       <span class="k">${r.stale?'Gone':esc(r.label)}</span><span class="t" data-go="${esc(r.key)}">${esc(r.text)}</span>
       ${S&&S.canEdit?`<button class="x" data-rm="${esc(r.kind)}|${esc(r.key)}" title="Undo this change">×</button>`:''}</div>`).join('')
     : '<p class="muted">None yet.</p>';
-  el.querySelectorAll('[data-go]').forEach(t=>t.addEventListener('click',()=>{ if(site&&t.dataset.go!=='o') site.pick(t.dataset.go); }));
+  el.querySelectorAll('[data-go]').forEach(t=>t.addEventListener('click',()=>{ if(site&&!['o','m','c'].includes(t.dataset.go)) site.pick(t.dataset.go); }));
   el.querySelectorAll('[data-rm]').forEach(b=>b.addEventListener('click',()=>{ const [kind,key]=b.dataset.rm.split('|');
-    if(kind==='o') delete E.o; else { delete E[kind][key]; if(!Object.keys(E[kind]).length) delete E[kind]; }
-    site&&site.apply(E); queueSave(); drawChanges(); drawSecs(); if(sel&&sel.key===key){ sel=null; drawPicked(); } }));
+    if(kind==='a'){ removeAdded(key); return; }
+    if(kind==='o'||kind==='m'||kind==='c') delete E[kind]; else { delete E[kind][key]; if(!Object.keys(E[kind]).length) delete E[kind]; }
+    site&&site.apply(E); queueSave(); drawChanges(); drawSecs(); drawMeta(); drawDates(); if(sel&&sel.key===key){ sel=null; drawPicked(); } }));
 }
 function drawHist(){
   const el=$('#hist'); if(!el) return;
@@ -338,23 +382,100 @@ function resetKey(key){
 
 /* a photo: shrunk on this computer first, so a phone's 8 MB picture
    arrives as a web-sized JPEG */
+function putPhoto(file){
+  return new Promise((ok,no)=>{
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{
+      const max=2000, k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+      const c=document.createElement('canvas'); c.width=Math.round(img.naturalWidth*k); c.height=Math.round(img.naturalHeight*k);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
+      let q=.86, data=c.toDataURL('image/jpeg',q);
+      while(data.length>3.8e6 && q>.5){ q-=.08; data=c.toDataURL('image/jpeg',q); }
+      api('POST','/site/image',{data}).then(d=>ok(d.url)).catch(no);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); no('That file would not open as a photo. JPEG or PNG works everywhere.'); };
+    img.src=url;
+  });
+}
 function upload(file){
   const key=sel&&sel.key, was=sel&&sel.origSrc, alt=(E.i&&E.i[key]&&E.i[key].alt)||sel.alt||'';
   toast('Putting the photo up…');
-  const img=new Image(), url=URL.createObjectURL(file);
-  img.onload=()=>{
-    const max=2000, k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
-    const c=document.createElement('canvas'); c.width=Math.round(img.naturalWidth*k); c.height=Math.round(img.naturalHeight*k);
-    c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
-    let q=.86, data=c.toDataURL('image/jpeg',q);
-    while(data.length>3.8e6 && q>.5){ q-=.08; data=c.toDataURL('image/jpeg',q); }
-    api('POST','/site/image',{data}).then(d=>{
-      E.i=E.i||{}; E.i[key]={src:d.url,alt,was};
-      site&&site.apply(E); queueSave(); drawChanges(); if(sel&&sel.key===key){ sel.src=d.url; drawPicked(); } toast('Photo swapped. Publish to put it live.');
-    }).catch(e=>toast(String(e)));
-  };
-  img.onerror=()=>{ URL.revokeObjectURL(url); toast('That file would not open as a photo. JPEG or PNG works everywhere.'); };
-  img.src=url;
+  putPhoto(file).then(url=>{
+    E.i=E.i||{}; E.i[key]={src:url,alt,was};
+    site&&site.apply(E); queueSave(); drawChanges(); if(sel&&sel.key===key){ sel.src=url; drawPicked(); } toast('Photo swapped. Publish to put it live.');
+  }).catch(e=>toast(String(e)));
+}
+
+/* ── the page's title, search description and sharing image ── */
+function drawMeta(){
+  const el=$('#meta'); if(!el) return;
+  const can=S&&S.canEdit, M=E.m||{}, W=(site&&site.meta())||{};
+  el.innerHTML=`<div class="lbl" style="margin-top:0">Title (the browser tab and Google)</div>
+    <input class="field" id="mTitle" value="${esc(M.title||'')}" placeholder="${esc(W.title||'')}"${can?'':' disabled'}>
+    <div class="lbl">Description (under the title in Google)</div>
+    <textarea class="field" id="mDesc" rows="3" placeholder="${esc(W.desc||'')}"${can?'':' disabled'}>${esc(M.desc||'')}</textarea>
+    <div class="lbl">Sharing image (WhatsApp, Instagram, Facebook)</div>
+    ${(M.img||W.img)?`<img class="thumb" src="${esc(M.img||W.img)}" alt="">`:''}
+    <div class="row" style="margin-top:8px">
+      <label class="ghost" style="display:inline-block${can?'':';opacity:.35;pointer-events:none'}">Replace<input type="file" id="mImg" accept="image/jpeg,image/png,image/webp" hidden></label>
+      ${M.img?'<button class="ghost" id="mImgX">Put back</button>':''}
+    </div>
+    <p class="muted" style="margin:8px 0 0;font-size:12px">Leave a box empty to keep what the page says. Links already shared keep their old preview until the app refreshes it.</p>`;
+  const set=(k,v)=>{ E.m=Object.assign({},E.m||{}); if(v) E.m[k]=v; else delete E.m[k]; if(!Object.keys(E.m).length) delete E.m; site&&site.apply(E); queueSave(); drawChanges(); };
+  $('#mTitle').addEventListener('change',e=>set('title',e.target.value.trim().slice(0,120)));
+  $('#mDesc').addEventListener('change',e=>set('desc',e.target.value.trim().slice(0,300)));
+  $('#mImg').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; toast('Putting the photo up…');
+    putPhoto(f).then(u=>{ set('img',u); drawMeta(); toast('Sharing image set. Publish to put it live.'); }).catch(x=>toast(String(x))); });
+  const x=$('#mImgX'); if(x) x.addEventListener('click',()=>{ set('img',''); drawMeta(); });
+}
+
+/* ── the class's dates ── */
+function pageDates(){
+  /* what the page says as written, read from its listings for Google */
+  const out=[]; try{
+    const pd=$('#frame').contentDocument;
+    pd.querySelectorAll('script[type="application/ld+json"]').forEach(x=>{ try{ const j=JSON.parse(x.textContent);
+      if(j['@type']!=='Event') return; const a=String(j.startDate), b=String(j.endDate);
+      out.push({d:a.slice(0,10),from:a.slice(11,16),to:b.slice(11,16),link:(j.offers&&j.offers.url)||''}); }catch(e){} });
+  }catch(e){}
+  return out;
+}
+function drawDates(){
+  const el=$('#dates'); if(!el) return;
+  const can=S&&S.canEdit, C=E.c;
+  if(!C){ el.innerHTML=`<p class="muted" style="margin:0 0 10px">The page shows the dates written into it. Take them over here to add, change or remove dates yourself.</p>
+      <button class="ghost" id="cStart"${can?'':' disabled'}>Manage the dates here</button>`;
+    const b=$('#cStart'); if(b) b.addEventListener('click',()=>{ const d=pageDates(); E.c={price:'25',dates:d.length?d:[{d:'',from:'13:00',to:'14:30',link:''}]}; saveDates(); drawDates(); });
+    return; }
+  const today=new Date().toISOString().slice(0,10);
+  el.innerHTML=`<div class="lbl" style="margin-top:0">Price, in pounds</div>
+    <input class="field" id="cPrice" inputmode="decimal" value="${esc(C.price||'')}" style="width:110px"${can?'':' disabled'}>
+    <div class="lbl">Dates</div>
+    <div class="list">${(C.dates||[]).map((d,i)=>`<div class="item" style="flex-direction:column;align-items:stretch;gap:6px${d.d&&d.d<today?';opacity:.55':''}">
+      <div class="row"><input class="field" type="date" data-c="${i}" data-f="d" value="${esc(d.d)}" style="flex:1"${can?'':' disabled'}>
+        <button class="x" data-cx="${i}" title="Remove this date"${can?'':' disabled'}>×</button></div>
+      <div class="row"><input class="field" type="time" data-c="${i}" data-f="from" value="${esc(d.from)}" style="flex:1"${can?'':' disabled'}>
+        <span class="muted">to</span><input class="field" type="time" data-c="${i}" data-f="to" value="${esc(d.to)}" style="flex:1"${can?'':' disabled'}></div>
+      <input class="field" data-c="${i}" data-f="link" value="${esc(d.link)}" placeholder="Setmore booking link"${can?'':' disabled'}>
+      ${d.d&&d.d<today?'<span class="muted" style="font-size:12px">Past: no longer shown</span>':''}</div>`).join('')}</div>
+    <div class="row" style="margin-top:10px"><button class="ghost" id="cAdd"${can?'':' disabled'}>Add a date</button></div>
+    <p class="muted" style="margin:8px 0 0;font-size:12px">The cards, the Book chooser, the top line and the bar at the foot all follow this list. A date drops off the page once it is over.</p>`;
+  $('#cPrice').addEventListener('change',e=>{ C.price=e.target.value.replace(/[^0-9.]/g,''); saveDates(); });
+  el.querySelectorAll('[data-c]').forEach(inp=>inp.addEventListener('change',()=>{
+    const d=C.dates[+inp.dataset.c]; const v=inp.value.trim();
+    if(inp.dataset.f==='link'&&v&&!/^https:\/\//.test(v)){ toast('The booking link starts with https://'); return; }
+    d[inp.dataset.f]=v; saveDates(); }));
+  el.querySelectorAll('[data-cx]').forEach(b=>b.addEventListener('click',()=>{ C.dates.splice(+b.dataset.cx,1); saveDates(); drawDates(); }));
+  $('#cAdd').addEventListener('click',()=>{
+    const last=(C.dates||[]).slice(-1)[0];
+    let next='';
+    if(last&&last.d){ const t=new Date(last.d+'T12:00:00Z'); t.setUTCDate(t.getUTCDate()+14); next=t.toISOString().slice(0,10); }
+    C.dates.push({d:next,from:(last&&last.from)||'13:00',to:(last&&last.to)||'14:30',link:(last&&last.link)||''});
+    saveDates(); drawDates(); });
+}
+function saveDates(){
+  const C=E.c; if(C) C.dates.sort((a,b)=>(a.d+a.from).localeCompare(b.d+b.from));
+  site&&site.apply(E); queueSave(); drawChanges();
 }
 
 load();

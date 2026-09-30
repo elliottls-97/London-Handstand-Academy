@@ -57,15 +57,63 @@
   };
 
   var texts = [], imgs = [], vids = [], secs = [], byKey = {};
+  var items = [], tpl = {};    /* things that repeat, and a copy of each as written */
+  var meta = {};               /* the page's title, description and sharing image as written */
   var orig = new Map();        /* element -> what it was */
   var touched = new Set();     /* elements an edit has changed */
   var remember = function (el, o) { orig.set(el, Object.assign(orig.get(el) || {}, o)); };
-  var bgUrl = function (el) { var m = /url\(\s*['"]?([^'")]+)['"]?\s*\)/.exec((el.style && el.style.backgroundImage) || ''); return m ? m[1] : ''; };
+  var urlIn = function (v) { var m = /url\(\s*['"]?([^'")]+)['"]?\s*\)/.exec(v || ''); return m ? m[1] : ''; };
+  /* written on the element, or, for one marked data-edit-bg (the big photo
+     at the top of a page), set by the page's styling */
+  var bgUrl = function (el) {
+    return urlIn(el.style && el.style.backgroundImage)
+      || (el.hasAttribute && el.hasAttribute('data-edit-bg') ? urlIn(getComputedStyle(el).backgroundImage) : '');
+  };
   var vidSrc = function (v) { var s = v.querySelector('source'); return v.getAttribute('src') || (s && s.getAttribute('src')) || ''; };
   /* a cover photo drawn as a background often stands in front of a video
      that plays when it is pressed (the team cards): that video is its partner */
   var partner = function (el) { var p = el.parentElement; if (!p) return null;
     for (var c = p.firstElementChild; c; c = c.nextElementSibling) if (c.tagName === 'VIDEO') return c; return null; };
+
+  /* a thing that repeats: one of two or more brothers and sisters of the
+     same kind (FAQ questions, coach cards, photos in a row). Sections and
+     the parts of the page's frame are not. */
+  var sig = function (el) { return el.tagName + '.' + (typeof el.className === 'string' ? el.className.trim() : ''); };
+  function findItems() {
+    var seen = {};
+    Array.prototype.forEach.call(document.body.querySelectorAll('*'), function (p) {
+      if (SKIP[p.tagName] || p.children.length < 2) return;
+      var n = {};
+      for (var c = p.firstElementChild; c; c = c.nextElementSibling) { var g = sig(c); n[g] = (n[g] || 0) + 1; }
+      for (var c2 = p.firstElementChild; c2; c2 = c2.nextElementSibling) {
+        if (n[sig(c2)] < 2 || /^(SECTION|FOOTER|HEADER|NAV|MAIN|SCRIPT|STYLE|SOURCE|BR)$/.test(c2.tagName)) continue;
+        if (!words(c2) && !c2.querySelector('img,video')) continue;
+        var base = 'item.' + hash(sig(c2) + '|' + words(c2).slice(0, 200));
+        var k = seen[base] ? base + '.' + seen[base] : base; seen[base] = (seen[base] || 0) + 1;
+        items.push({ key: k, el: c2 }); byKey[k] = c2; tpl[k] = c2.cloneNode(true); remember(c2, { display: c2.style.display });
+      }
+    });
+  }
+  function readMeta() {
+    var q = function (sel) { var m = document.querySelector(sel); return m ? m.getAttribute('content') || '' : ''; };
+    meta = { title: document.title, desc: q('meta[name="description"]'), img: q('meta[property="og:image"]') };
+  }
+  function setMeta(sel, attr, name, v) {
+    var m = document.querySelector(sel);
+    if (!m) { if (!v) return; m = document.createElement('meta'); m.setAttribute(attr, name); document.head.appendChild(m); }
+    m.setAttribute('content', v);
+  }
+  function applyMeta(M) {
+    M = M || {};
+    var t = M.title || meta.title, d = M.desc || meta.desc, im = M.img ? new URL(M.img, location.origin).href : meta.img;
+    if (document.title !== t) document.title = t;
+    setMeta('meta[name="description"]', 'name', 'description', d);
+    setMeta('meta[property="og:title"]', 'property', 'og:title', t);
+    setMeta('meta[property="og:description"]', 'property', 'og:description', d);
+    setMeta('meta[name="twitter:title"]', 'name', 'twitter:title', t);
+    setMeta('meta[name="twitter:description"]', 'name', 'twitter:description', d);
+    if (im) { setMeta('meta[property="og:image"]', 'property', 'og:image', im); setMeta('meta[name="twitter:image"]', 'name', 'twitter:image', im); }
+  }
 
   function scan() {
     var seen = {};
@@ -110,6 +158,8 @@
       for (var c = el.firstElementChild; c; c = c.nextElementSibling) walk(c);
     };
     walk(document.body);
+    findItems();
+    readMeta();
     /* the page's sections, in the order written, each with a slot so they
        can be put back in any order */
     var list = document.querySelectorAll('body > section, body > footer, body > main > section, body > main > footer, body > header, body > main > header');
@@ -160,10 +210,65 @@
     else if (v.getAttribute('src') !== src) v.setAttribute('src', src);
   };
 
+  /* the words, photos and videos inside a duplicate, known by their place
+     in it: add.<id>.<n> */
+  var added = {}, lastAdd = '';
+  function register(root, id) {
+    var n = 0;
+    var go = function (el) {
+      if (SKIP[el.tagName]) return;
+      if (el.tagName === 'IMG') { var k = 'add.' + id + '.' + (n++); imgs.push({ key: k, el: el, lock: lockOf(el), added: id }); byKey[k] = el; remember(el, { src: el.getAttribute('src'), srcset: el.getAttribute('srcset') }); return; }
+      if (el.tagName === 'VIDEO') { var kv = 'add.' + id + '.' + (n++); vids.push({ key: kv, el: el, lock: lockOf(el), added: id }); byKey[kv] = el; remember(el, { vsrc: vidSrc(el), poster: el.getAttribute('poster') }); return; }
+      var bu = bgUrl(el);
+      if (bu) { var kb = 'add.' + id + '.' + (n++); imgs.push({ key: kb, el: el, lock: lockOf(el), bg: true, added: id }); byKey[kb] = el; remember(el, { bg: el.style.backgroundImage, bgUrl: bu }); }
+      if (ownText(el) && !el.querySelector(BLOCK)) {
+        var said = words(el);
+        if (said) { var kt = 'add.' + id + '.' + (n++); texts.push({ key: kt, el: el, was: said.slice(0, 140), lock: lockOf(el), link: el.tagName === 'A', added: id }); byKey[kt] = el; remember(el, { html: el.innerHTML, href: el.getAttribute('href') }); return; }
+      }
+      for (var c = el.firstElementChild; c; c = c.nextElementSibling) go(c);
+    };
+    go(root);
+  }
+  function unregister(id) {
+    var keep = function (x) { return x.added !== id; };
+    texts = texts.filter(keep); imgs = imgs.filter(keep); vids = vids.filter(keep);
+    Object.keys(byKey).forEach(function (k) { if (k.indexOf('add.' + id + '.') === 0 || k === id) delete byKey[k]; });
+  }
+  function applyAdds(A) {
+    var json = JSON.stringify(A || []);
+    if (json === lastAdd) return;
+    lastAdd = json;
+    Object.keys(added).forEach(function (id) { var el = added[id]; if (el.parentNode) el.parentNode.removeChild(el); touched.delete(el); unregister(id); });
+    added = {};
+    (A || []).forEach(function (a) {
+      var t = tpl[a.tpl]; if (!t || lockOf(byKey[a.tpl] || t)) return;
+      var after = added[a.after] || byKey[a.after] || byKey[a.tpl]; if (!after || !after.parentNode) return;
+      var c = t.cloneNode(true);
+      /* ids made unique, and whatever inside pointed at the old one points at
+         the new: a copied coach card plays its own video, not Elliott's */
+      var ids = [];
+      if (c.id) ids.push(c);
+      Array.prototype.push.apply(ids, c.querySelectorAll('[id]'));
+      ids.forEach(function (el) {
+        var old = el.id, nu = old + '-' + a.id; el.id = nu;
+        Array.prototype.forEach.call([c].concat(Array.prototype.slice.call(c.querySelectorAll('*'))), function (x) {
+          Array.prototype.forEach.call(x.attributes, function (at) { if (at.name !== 'id' && at.value.indexOf(old) > -1) x.setAttribute(at.name, at.value.split("'" + old + "'").join("'" + nu + "'").split('"' + old + '"').join('"' + nu + '"').split('#' + old).join('#' + nu)); });
+        });
+      });
+      c.setAttribute('data-lha-add', a.id);
+      after.parentNode.insertBefore(c, after.nextSibling);
+      added[a.id] = c; byKey[a.id] = c; remember(c, { display: '' });
+      register(c, a.id);
+      if (EDIT) mark(c);
+    });
+  }
+
   /* lay a set of edits over the page. Only what an edit has touched is
      ever put back, so nothing the page's own scripts changed is undone. */
   function apply(E) {
     E = E || {};
+    applyAdds(E.a);
+    applyMeta(E.m);
     var t = E.t || {}, h = E.h || {}, im = E.i || {}, x = E.x || {};
     var want = new Set();
     Object.keys(t).forEach(function (k) {
@@ -196,12 +301,14 @@
       var src = String((vv[k] && vv[k].src) || ''); if (!/^https:\/\//.test(src)) return;
       setVideo(el, src); want.add(el);
     });
-    secs.forEach(function (s) {
-      var hide = !!x[s.key];
-      s.el.style.display = hide && !EDIT ? 'none' : (orig.get(s.el).display || '');
-      s.el.toggleAttribute('data-lha-hidden', hide);
-      if (hide) want.add(s.el);
-    });
+    secs.map(function (s) { return s.el; }).concat(items.map(function (i) { return i.el; }), Object.keys(added).map(function (k) { return added[k]; }))
+      .forEach(function (el) {
+        var key = null;
+        for (var k in byKey) if (byKey[k] === el && (k.indexOf('sec.') === 0 || k.indexOf('item.') === 0 || added[k] === el)) { key = k; break; }
+        var hide = !!(key && x[key]);
+        el.style.display = hide && !EDIT ? 'none' : ((orig.get(el) || {}).display || '');
+        el.toggleAttribute('data-lha-hidden', hide);
+      });
     /* sections in their chosen order: into the slots they were written in */
     var order = Array.isArray(E.o) ? E.o : [];
     var ranked = secs.slice().sort(function (a, b) {
@@ -221,6 +328,8 @@
       if (o.vsrc) setVideo(el, o.vsrc);
     });
     touched = want;
+    window.LHA_SITE_EDITS = E;
+    try { document.dispatchEvent(new CustomEvent('lha-site', { detail: E })); } catch (err) {}
   }
 
   scan();
@@ -264,9 +373,13 @@
     '[data-lha-v]{cursor:pointer}[data-lha-v]:hover{outline:3px dashed rgba(0,102,99,.6);outline-offset:-3px}' +
     '#cookieBar,.cookie-bar{display:none!important}';
   document.head.appendChild(style);
-  texts.forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-t', ''); if (x.lock) x.el.title = x.lock; });
-  imgs.forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-i', ''); if (x.lock) x.el.title = x.lock; });
-  vids.forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-v', ''); if (x.lock) x.el.title = x.lock; });
+  function mark(root) {
+    var inside = function (x) { return !root || root.contains(x.el); };
+    texts.filter(inside).forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-t', ''); if (x.lock) x.el.title = x.lock; });
+    imgs.filter(inside).forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-i', ''); if (x.lock) x.el.title = x.lock; });
+    vids.filter(inside).forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-v', ''); if (x.lock) x.el.title = x.lock; });
+  }
+  mark(null);
 
   var host = null, on = null, onKind = '', onSec = null, typing = null;
   var info = function (kind, rec) {
@@ -280,8 +393,22 @@
     var pv = rec.bg ? partner(rec.el) : null;
     if (pv) { var pr = vids.filter(function (x) { return x.el === pv; })[0];
       if (pr) out.video = { key: pr.key, src: vidSrc(pv), origSrc: (orig.get(pv) || {}).vsrc }; }
+    out.item = itemOf(rec.el);
     return out;
   };
+  /* the nearest thing that repeats, for Duplicate, Hide and Remove */
+  function itemOf(el) {
+    /* named by its first line (an FAQ by its question), not all its words run together */
+    var nameOf = function (p) { var f = texts.filter(function (x) { return p.contains(x.el); })[0]; return ((f && words(f.el)) || words(p) || 'This one').slice(0, 60); };
+    for (var p = el; p && p !== document.body; p = p.parentElement) {
+      for (var id in added) if (added[id] === p) return { key: id, added: true, tpl: p.getAttribute('data-lha-add') && findTpl(id), name: nameOf(p) };
+      var it = items.filter(function (i) { return i.el === p; })[0];
+      if (it) return lockOf(p) ? null : { key: it.key, added: false, tpl: it.key, name: nameOf(p) };
+    }
+    return null;
+  }
+  var lastA = [];
+  function findTpl(id) { var a = lastA.filter(function (x) { return x.id === id; })[0]; return a ? a.tpl : ''; }
   var recOf = function (el) {
     for (var i = 0; i < texts.length; i++) if (texts[i].el === el) return ['t', texts[i]];
     for (var j = 0; j < imgs.length; j++) if (imgs[j].el === el) return ['i', imgs[j]];
@@ -316,7 +443,9 @@
   function selectSection(s) {
     unselect(); onSec = s; s.el.setAttribute('data-lha-sec-on', '');
     s.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    host && host.select({ kind: 's', key: s.key, name: s.name, hidden: s.el.hasAttribute('data-lha-hidden') });
+    var bg = imgs.filter(function (x) { return x.bg && s.el.contains(x.el) && x.el.hasAttribute('data-edit-bg'); })[0];
+    host && host.select({ kind: 's', key: s.key, name: s.name, hidden: s.el.hasAttribute('data-lha-hidden'),
+      bg: bg ? Object.assign(info('i', bg), { kind: 'i' }) : null });
   }
 
   /* nothing on the page does what it normally would: a click picks */
@@ -355,14 +484,25 @@
   window.LHA_SITE = {
     page: PAGE,
     connect: function (h) { host = h; },
-    apply: function (E) { var keep = on; apply(E); if (keep && document.contains(keep)) keep.setAttribute('data-lha-on', ''); },
+    apply: function (E) { var keep = on; lastA = (E && E.a) || []; apply(E); if (keep && document.contains(keep)) keep.setAttribute('data-lha-on', ''); },
+    meta: function () { return meta; },
+    textOf: function (key) { var el = byKey[key]; return el ? words(el).slice(0, 90) : ''; },
     sections: function () { return secs.map(function (s) { return { key: s.key, name: s.name }; }); },
     keys: function () { return Object.keys(byKey); },
     was: function (key) { var r = texts.concat(imgs, vids).filter(function (x) { return x.key === key; })[0]; var o = r ? orig.get(r.el) || {} : {}; return r ? (r.was || o.src || o.bgUrl || o.vsrc || '') : ''; },
     format: function (cmd, arg) { if (on && on.getAttribute('contenteditable')) { on.focus(); document.execCommand(cmd, false, arg || null); commitText(on); } },
     done: function () { unselect(); },
     reset: function (key) { var el = byKey[key]; if (!el) return; var o = orig.get(el); if (o.html !== undefined) el.innerHTML = o.html; },
-    pick: function (key) { var el = byKey[key]; if (!el) return; if (el.tagName === 'SECTION' || el.tagName === 'FOOTER' || el.tagName === 'HEADER') { var s = secs.filter(function (x) { return x.el === el; })[0]; if (s) selectSection(s); return; } el.scrollIntoView({ behavior: 'smooth', block: 'center' }); select(el); },
+    pick: function (key) {
+      var el = byKey[key]; if (!el) return;
+      var s = secs.filter(function (x) { return x.el === el; })[0];
+      if (s) { selectSection(s); return; }
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (recOf(el)) { select(el); return; }
+      /* a whole card (a copy just added): its first words */
+      var first = texts.filter(function (x) { return el.contains(x.el) && !x.lock; })[0];
+      if (first) select(first.el);
+    },
     clean: clean
   };
   try { window.parent.postMessage({ type: 'lha-site-ready', page: PAGE }, location.origin); } catch (e) {}
