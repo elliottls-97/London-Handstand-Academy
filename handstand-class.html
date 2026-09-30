@@ -598,6 +598,20 @@ body.embed .hero-inner{padding-top:56px;}
 .film{position:fixed;inset:0;z-index:1200;background:rgba(10,20,19,.92);display:flex;
   flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px;}
 .film[hidden]{display:none;}
+/* which Saturday: the top and sticky Book buttons ask first */
+.dpick{position:fixed;inset:0;z-index:1200;background:rgba(10,20,19,.72);display:flex;align-items:flex-end;justify-content:center;padding:16px;}
+.dpick[hidden]{display:none;}
+.pick-box{width:min(420px,100%);background:#fff;border-radius:22px;padding:22px 20px 18px;box-shadow:0 30px 70px -30px rgba(0,0,0,.6);}
+@media(min-width:620px){.dpick{align-items:center;}}
+.pick-h{font-family:var(--disp);font-size:22px;color:var(--deep);margin:0 0 4px;}
+.pick-s{font-size:14px;color:var(--ink60);margin:0 0 16px;}
+.pick-d{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;border:1.5px solid var(--line);
+  border-radius:16px;background:#fff;padding:15px 16px;margin-top:10px;cursor:pointer;text-align:left;font:inherit;color:var(--ink);text-decoration:none;}
+.pick-d:hover,.pick-d:focus-visible{border-color:var(--terra);outline:none;}
+.pick-d b{font-size:16px;}
+.pick-d span{font-size:13.5px;color:var(--ink60);}
+.pick-d i{font-style:normal;font-weight:800;color:var(--terra);}
+.pick-x{display:block;margin:14px auto 0;border:0;background:none;color:var(--ink60);font:600 14px var(--body);cursor:pointer;padding:6px 12px;}
 .film-box{width:min(420px,100%);border-radius:22px;overflow:hidden;background:#0f1a19;
   box-shadow:0 30px 70px -30px rgba(0,0,0,.8);}
 .film-box video{display:block;width:100%;aspect-ratio:9/16;max-height:74vh;object-fit:cover;background:#0f1a19;}
@@ -872,7 +886,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     <h1>All Levels<br/>Handstand Class.</h1>
     <p class="sub">Ninety minutes with two coaches at OverGravity, Shadwell. Never been upside down, or working on one arm: you are grouped by level.</p>
     <div class="hero-cta">
-      <a class="btn solid" href="#book" onclick="return openBooking(event);">Book your place, <span data-price>&pound;25</span> &rarr;</a>
+      <a class="btn solid" href="#book" onclick="return pickDate(event);">Book your place, <span data-price>&pound;25</span> &rarr;</a>
       <button type="button" class="hero-watch" onclick="openFilm()">
         <span class="hero-watch-play">&#9654;</span> <span class="ww">Watch the film</span><span class="ws" style="display:none">Film</span>
       </button>
@@ -1075,6 +1089,16 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
           data-booking-url="https://londonhandstandacademy.setmore.com/class-session/5f54fc44-7054-4c72-85fd-35ad030cd6b4?step=user-details&amp;products=6ed2d62d-2ef6-4e19-90cd-feb6dfa838f3&amp;type=class&amp;staff=fa6f37a0-5a25-451d-b761-230cfa671a55&amp;slot=1791633600000&amp;sessionId=5f54fc44-7054-4c72-85fd-35ad030cd6b4&amp;staffSelected=true&amp;customer=" data-new-tab="false">Book</button>
 </div></section>
 
+<div id="pick" class="dpick" hidden onclick="if(event.target===this)closePick()">
+  <div class="pick-box" role="dialog" aria-modal="true" aria-labelledby="pickH">
+    <h3 class="pick-h" id="pickH">Which Saturday?</h3>
+    <p class="pick-s">1:00 to 2:30pm at OverGravity, Shadwell. &pound;25.</p>
+    <button type="button" class="pick-d" id="pick10" onclick="closePick();openBooking(event);"><span><b>Saturday 10 October</b></span><i>Book &rarr;</i></button>
+    <a class="pick-d" id="pick24" href="https://londonhandstandacademy.setmore.com/class-session/5f54fc44-7054-4c72-85fd-35ad030cd6b4" target="_blank" rel="noopener" onclick="closePick()"><span><b>Saturday 24 October</b></span><i>Book &rarr;</i></a>
+    <button type="button" class="pick-x" onclick="closePick()">Not now</button>
+  </div>
+</div>
+
 <div id="film" class="film" hidden onclick="closeFilm(event)">
   <div class="film-box" onclick="event.stopPropagation()">
     <video id="filmVid" controls playsinline preload="none"
@@ -1112,8 +1136,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
 
 <!-- The jump menu has gone with the long page, so a phone gets one bar at
      the foot with the date, the price and Book, until the booking is on screen. -->
-<div class="bookbar" id="bookbar"><span><b data-when="short">Sat 10 Oct</b> &middot; 1:00pm &middot; <span data-price>&pound;25</span></span>
-  <a href="#book" onclick="return openBooking(event);">Book</a></div>
+<div class="bookbar" id="bookbar"><span><b data-when="short">Sat 10 Oct</b> &amp; 24 Oct &middot; 1:00pm &middot; <span data-price>&pound;25</span></span>
+  <a href="#book" onclick="return pickDate(event);">Book</a></div>
 
 <script>
 function playCoach(poster, videoId){
@@ -1436,8 +1460,27 @@ function playRev(poster, id){
 function openBooking(e){
   var w = document.getElementById("Anywhere_button_iframe");
   if (window.__setmoreReady && w) { e.preventDefault(); w.click(); return false; }
+  /* the chooser's button has no address of its own: the 10th's in a new tab */
+  if (e && e.currentTarget && e.currentTarget.id === 'pick10') {
+    window.open(w ? w.getAttribute('data-booking-url') : '#book', '_blank', 'noopener');
+    return false;
+  }
   return true;
 }
+/* Two Saturdays, so the Book buttons at the top and in the bar ask which.
+   Once the 10th is over there is only one, and it goes straight there. */
+function pickDate(e){
+  if (e) e.preventDefault();
+  if (Date.now() > new Date('2026-10-10T14:30:00+01:00').getTime()) {
+    window.open(document.getElementById('pick24').href, '_blank', 'noopener');
+    return false;
+  }
+  var p = document.getElementById('pick'); p.hidden = false;
+  document.getElementById('pick10').focus();
+  return false;
+}
+function closePick(){ document.getElementById('pick').hidden = true; }
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closePick(); });
 </script>
 <script>
 /* Questions form: to the coach dashboard, which emails Elliott. Formspree
