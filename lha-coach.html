@@ -8136,11 +8136,20 @@ let inboxRow='';                   /* the row expanded in place, if any */
 let sessions=[], sessBusy='';
 function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep); }
 const sessOpen = () => sessions.filter(x=>x.status==='toArrange');
+/* pence as money, with the pence only when there are some: 50p showed as £1 */
+const gbp = p => '£'+(Number(p||0)/100).toFixed(Number(p||0)%100?2:0);
+/* what the server says it actually sent: this said "they have been told"
+   whether or not the email went */
+function toldFlash(t, plain){
+  if(!t){ if(plain) flash(plain); return; }
+  const head={confirmed:'Confirmed', asked:'Pay link sent', topay:'Moved, and they are asked to pay to confirm', cancelled:'Cancelled'}[t.what]||'Done';
+  flash(head+'. '+(t.mailed?'They have been emailed.':'The email did not go, so they only have it in the app.'));
+}
 function sessSet(id, patch){
   sessBusy=id; draw();
   fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify(Object.assign({id},patch))})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
-    .then(d=>{ sessions=d.sessions||sessions; sessBusy=''; draw(); if(patch.when) flash('Confirmed, and they have been told'); })
+    .then(d=>{ sessions=d.sessions||sessions; sessBusy=''; draw(); toldFlash(d.told, patch.status==='done'?'Marked done':''); })
     .catch(e=>{ sessBusy=''; draw(); alert(String(e)); });
 }
 function sessConfirm(id){
@@ -8543,7 +8552,7 @@ function sessionsStripHTML(){
     <span class="kick" style="flex:none;width:86px">${label}</span>${items.join('')}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 var(--space-4)">
     ${up.length?line('THIS WEEK',up.map(x=>chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
-    ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · £${(x.ask/100).toFixed(0)}`))):''}
+    ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · ${gbp(x.ask)}`))):''}
   </div>`;
 }
 function pushNudgeHTML(){
@@ -8859,7 +8868,7 @@ function oneBook(){
       ...(v('obHow')==='ask' ? {ask:Math.round((Number(v('obPaid'))||0)*100)} : {paid:Math.round((Number(v('obPaid'))||0)*100)}),
       when:new Date(d+'T'+t+':00').toISOString(), place:v('obPlace'), note:v('obNote'), status:'arranged'})})
     .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x.error||'Could not book it')))
-    .then(x=>{ sessions=x.sessions||sessions; sessBusy=''; draw(); flash('Booked, and they have been told'); })
+    .then(x=>{ sessions=x.sessions||sessions; sessBusy=''; draw(); toldFlash(x.told, 'Booked'); })
     .catch(e=>{ sessBusy=''; draw(); alert(String(e)); });
 }
 function oneMoveSave(id){
@@ -8872,7 +8881,7 @@ function oneAsk(id,kind){
   const a=prompt('How much should they pay, in pounds?', kind==='90'?'100':'80'); if(a===null) return;
   const n=Number(a); if(!(n>0)) return alert('A number of pounds, like 80.');
   if(n<0.3) return alert('Stripe cannot take less than 30p. Ask for at least £0.30.');
-  sessSet(id,{ask:Math.round(n*100)}); flash('They have the pay link by email and in the chat');
+  sessSet(id,{ask:Math.round(n*100)});
 }
 function onePayLink(id){
   const u=location.origin+'/api/app/session/pay?id='+encodeURIComponent(id);
@@ -8896,14 +8905,14 @@ function oneOnePaneHTML(){
     </div>`; };
   const card=x=>{ const upcoming=soon.indexOf(x)>-1;
     const owes=x.ask>0 && x.status!=='cancelled';
-    const st= owes?pill('TO PAY · £'+(x.ask/100).toFixed(0),'var(--terra)')
+    const st= owes?pill('TO PAY · '+gbp(x.ask),'var(--terra)')
       : x.status==='toArrange'?pill('TO ARRANGE','var(--terra)') : x.status==='cancelled'?pill('CANCELLED','var(--grey2)')
       : x.status==='done'?pill('DONE','var(--grey)') : upcoming?pill('BOOKED','var(--forest)') : pill('HAPPENED?','var(--grey2)');
     const link=(t,fn)=>`<button onclick="${fn}" style="border:0;background:none;cursor:pointer;padding:0;font:600 12.5px/1 var(--sans);color:var(--deep);text-decoration:underline;text-underline-offset:3px">${t}</button>`;
     return `<div style="border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-top:10px;background:#fff">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span style="flex:1;min-width:0;font:600 15px/1.3 var(--sans)">${esc(f(x))}</span>${st}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid £'+(x.paid/100).toFixed(0):''}${x.note?' · '+esc(x.note):''}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.note?' · '+esc(x.note):''}</div>
       ${x.status==='toArrange'?timeForm(x,'Confirm and tell them','sessConfirm')
         : oneMove===x.id?timeForm(x,'Move it and tell them','oneMoveSave')
         : (x.status==='arranged')?`<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
