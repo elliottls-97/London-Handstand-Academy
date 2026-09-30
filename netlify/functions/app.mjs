@@ -613,7 +613,48 @@ async function stripe(path, params, method = 'POST', idem) {
   });
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((out.error && out.error.message) || 'Stripe error');
-  return out;
+  return stripeCompat(out);
+}
+/* ── Stripe's newer shapes, read the old way ──────────────────────────
+   The webhook is on API version 2025-12-15 (clover). Since 2025-03-31 an
+   invoice names its subscription under parent, not as invoice.subscription,
+   so every renewal read as a one-off bill and was ignored; a subscription's
+   period end sits on its items, so "cancels on" came out as 1970; an
+   invoice line's price is under pricing; and a promotion code's coupon is
+   under promotion. Everything Stripe sends, by event or by answer, is
+   given the old fields as well, so both versions read the same. */
+function stripeCompat(o) {
+  if (!o || typeof o !== 'object') return o;
+  if (Array.isArray(o.data)) o.data.forEach(stripeCompat);
+  if (o.object === 'subscription') {
+    const it = o.items && o.items.data && o.items.data[0];
+    if (o.current_period_end == null && it && it.current_period_end != null) o.current_period_end = it.current_period_end;
+    if (o.current_period_start == null && it && it.current_period_start != null) o.current_period_start = it.current_period_start;
+  }
+  if (o.object === 'invoice') {
+    const lines = (o.lines && Array.isArray(o.lines.data)) ? o.lines.data : [];
+    if (!o.subscription) {
+      const p = o.parent && o.parent.subscription_details;
+      const lp = lines.map(l => l && l.parent && l.parent.subscription_item_details && l.parent.subscription_item_details.subscription).find(Boolean);
+      const sub = (p && p.subscription) || lp;
+      if (sub) o.subscription = typeof sub === 'string' ? sub : sub.id;
+    }
+    for (const l of lines) {
+      if (l && !l.price && l.pricing && l.pricing.unit_amount_decimal != null)
+        l.price = { unit_amount: Math.round(Number(l.pricing.unit_amount_decimal)) };
+    }
+  }
+  if (o.object === 'promotion_code' && !o.coupon && o.promotion && o.promotion.coupon && typeof o.promotion.coupon === 'object') o.coupon = o.promotion.coupon;
+  return o;
+}
+/* a promotion code with its coupon: the field to expand moved with it */
+async function stripePromoGet(pathBase, listed) {
+  const pre = listed ? 'data.' : '';
+  try { return await stripe(`${pathBase}${pathBase.includes('?') ? '&' : '?'}expand[]=${pre}coupon`, null, 'GET'); }
+  catch (err) {
+    if (/no such/i.test(String(err && err.message))) throw err;
+    return await stripe(`${pathBase}${pathBase.includes('?') ? '&' : '?'}expand[]=${pre}promotion.coupon`, null, 'GET');
+  }
 }
 /* Is this one of Stripe's own promotion codes? Returns the promotion code
    object's id, which is what a Checkout session takes, plus a line a person
@@ -623,9 +664,7 @@ async function stripePromo(code) {
   try {
     /* the coupon is not expanded in a list response, so without this the
        label falls back to "a discount" instead of saying 100% off */
-    const out = await stripe(
-      `/promotion_codes?code=${encodeURIComponent(code)}&active=true&limit=1&expand[]=data.coupon`,
-      null, 'GET');
+    const out = await stripePromoGet(`/promotion_codes?code=${encodeURIComponent(code)}&active=true&limit=1`, true);
     const p = (out.data || [])[0];
     if (!p || !p.active) return null;
     if (p.expires_at && Date.now() / 1000 > p.expires_at) return null;
@@ -654,7 +693,7 @@ function subAmount(sub) {
     Array.isArray(sub.discounts) ? sub.discounts.filter(d => d && typeof d === 'object') : []);
   let amt = base;
   for (const d of ds) {
-    const co = d.coupon || (d.source && d.source.coupon) || null;
+    const co = (d.coupon && typeof d.coupon === 'object' ? d.coupon : null) || (d.source && typeof d.source.coupon === 'object' ? d.source.coupon : null);
     if (!co || typeof co !== 'object') continue;
     if (d.end && next && d.end <= next) continue;
     if (co.percent_off) amt = amt * (1 - Number(co.percent_off) / 100);
@@ -663,6 +702,19 @@ function subAmount(sub) {
   return Math.max(0, Math.round(amt));
 }
 const penceTxt = p => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
+/* Newer versions list a subscription's discounts as bare ids, so the code
+   on them could not be read and the list price was quoted. Asked for again
+   with the coupons in, whichever way this version names them. */
+async function subWithCodes(sub) {
+  if (!sub || !sub.id || !Array.isArray(sub.discounts) || !sub.discounts.some(d => typeof d === 'string')) return sub;
+  for (const ex of ['expand[]=discounts.source.coupon', 'expand[]=discounts']) {
+    try {
+      const full = await stripe(`/subscriptions/${encodeURIComponent(sub.id)}?${ex}`, null, 'GET');
+      if (full && full.id) return full;
+    } catch { /* the other name */ }
+  }
+  return sub;
+}
 
 /* Stripe signs the raw body; verify it ourselves rather than trusting
    a webhook that anyone could POST to. */
@@ -1717,7 +1769,7 @@ const handle = async (request) => {
 
     let ev = {};
     try { ev = JSON.parse(raw); } catch { return json({ error: 'Bad payload' }, 400); }
-    const obj = (ev.data && ev.data.object) || {};
+    const obj = stripeCompat((ev.data && ev.data.object) || {});
     const e = norm(obj.client_reference_id || (obj.customer_details && obj.customer_details.email)
       || obj.customer_email || '');
     /* ── which payment link it came through ───────────────────────────
@@ -2646,7 +2698,7 @@ const handle = async (request) => {
       const days = (obj.trial_end && obj.trial_start) ? Math.round((obj.trial_end - obj.trial_start) / 86400) : (Number(PRICES.trialDays) || 7);
       const trialTxt = days === 7 ? 'free week' : `free ${days} days`;
       const pr = (obj.items && obj.items.data && obj.items.data[0] && obj.items.data[0].price) || {};
-      const due = subAmount(obj);
+      const due = subAmount(stripeKey() ? await subWithCodes(obj) : obj);
       /* a code that makes it free: no charge is coming, so no warning of one */
       if (due === 0) return json({ ok: true, note: 'nothing will be charged' });
       const priceTxt = due != null ? penceTxt(due) : Number(pr.unit_amount) > 0 ? penceTxt(Number(pr.unit_amount)) : ((PRICES.plus && PRICES.plus.label) || '£10');
@@ -3417,7 +3469,7 @@ const handle = async (request) => {
     };
     if (promo) {
       let pc = null;
-      try { pc = await stripe(`/promotion_codes/${enc(promo)}?expand[]=coupon`, null, 'GET'); }
+      try { pc = await stripePromoGet(`/promotion_codes/${enc(promo)}`); }
       catch (err) {
         if (/no such/i.test(String(err && err.message))) return json({ error: 'That code is not one of ours.', badCode: true }, 400);
         return json({ error: 'Could not check the code just now. Try again in a moment.' }, 502);
@@ -3543,7 +3595,7 @@ const handle = async (request) => {
 
       const item = (sub.items && sub.items.data && sub.items.data[0]) || {};
       const price = item.price || {};
-      const due = subAmount(sub);
+      const due = subAmount(await subWithCodes(sub));
       return json({
         status: sub.status,
         renewsAt: (sub.current_period_end || 0) * 1000,
