@@ -1233,6 +1233,11 @@ const nudgeMark = (k, stage = 0) =>
 /* image keys. Lost when the old thread machinery was deleted, which took
    /image down with it — video was unaffected because it uploads straight
    to Cloudflare and never comes through here. */
+/* drills merged or retired (the same list as ladder-data.js): a
+   programme saved in the dashboard that names the old one is sent the new */
+const DRILL_ALIAS = { 'p-bench-zombies-lowers': 'bench-zombies-lowers', 'p-tuck-slides': 'tuck-slides',
+  'p-single-leg-tuck-slides': 'single-leg-tuck-slides', 'lying-crunch-and-contract': 'lying-back-engagements' };
+const drillAlias = v => DRILL_ALIAS[v] || v;
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
 /* A one to one session as a calendar entry: an .ics file any calendar opens,
    and a Google Calendar link for the ones that would rather. UTC stamps, so
@@ -3724,7 +3729,7 @@ const handle = async (request) => {
     return (programmes.library[m] || {})[v];
   };
   function hydrateItem(it) {
-    const v = String(it && it.v || '').slice(0, 64);
+    const v = drillAlias(String(it && it.v || '').slice(0, 64));
     if (!v) return null;
     /* The seconds, rest, sets and amount the coach set on this client's row
        were stored and then dropped here, on the way to the app, so tuning
