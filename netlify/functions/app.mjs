@@ -828,7 +828,13 @@ async function welcomeLink(e) {
   } catch { /* make a new one */ }
   const b = new Uint8Array(24); crypto.getRandomValues(b);
   const t = Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  await setCode(norm(e), 'welcome', { code: t, tries: 0, expires_at: iso(Date.now() + 14 * 864e5) });
+  /* A link that cannot be stored must not stop a purchase. The live
+     database refused the "welcome" kind for five days, the webhook threw on
+     every buyer without a password, and Stripe retried a purchase nobody
+     was ever told about. The app itself is the fallback: "Forgotten it?"
+     sets a password by code. */
+  try { await setCode(norm(e), 'welcome', { code: t, tries: 0, expires_at: iso(Date.now() + 14 * 864e5) }); }
+  catch (err) { console.error('welcome link not stored', String(err && err.message || err)); return `${SITE}/lha-app.html`; }
   return `${SITE}/lha-app.html?welcome=${t}`;
 }
 async function ensureAcct(e, name) {

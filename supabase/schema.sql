@@ -118,7 +118,7 @@ create index if not exists applications_new_idx
 -- ── short-lived and housekeeping ──────────────────────────────
 create table if not exists codes (
   email      text not null,
-  kind       text not null check (kind in ('login','reset')),
+  kind       text not null check (kind in ('login','reset','welcome')),
   code       text not null,
   tries      int not null default 0,
   expires_at timestamptz not null,
@@ -161,3 +161,8 @@ alter table codes        enable row level security;
 alter table rate_limits  enable row level security;
 alter table nudges       enable row level security;
 alter table settings     enable row level security;
+
+-- 30 Sept 2026: the welcome link (choose a password after buying) is a code
+-- of its own kind, and a database made before it refuses to store one.
+-- alter table codes drop constraint codes_kind_check;
+-- alter table codes add constraint codes_kind_check check (kind in ('login','reset','welcome'));
