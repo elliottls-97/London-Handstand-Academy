@@ -5540,6 +5540,88 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       'cache-control': 'public, max-age=86400', 'netlify-cdn-cache-control': 'public, max-age=604800, durable' } });
   }
 
+  /* ── the drills' films, transcribed ────────────────────────────────
+     Stream writes a transcript of a film itself (its AI captions), so
+     nothing is downloaded and the locked films need no unlocking. Each
+     press of Transcribe does what fits in a few seconds: asks for the ones
+     not asked for yet and collects the ones that are ready, so the
+     dashboard keeps pressing it until everything is in. A film with nobody
+     speaking comes back empty and is marked as such. */
+  if (path === '/coach/transcripts') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const lib = await libraryNow();
+    const uidOf = u => { const m = /\/([a-f0-9]{32})\//.exec(String(u || '')); return m ? m[1] : ''; };
+    const T = (await getSetting('transcripts')) || {};
+    const R = (await getSetting('transcripts:review')) || {};
+    const drills = Object.keys(lib.names || {}).map(v => ({ v, n: lib.names[v], uid: uidOf((lib.video || {})[v]),
+      cues: (lib.cues || {})[v] || [], desc: (lib.desc || {})[v] || '' })).filter(d => d.uid);
+    const uids = [...new Set(drills.map(d => d.uid))];
+    const view = () => {
+      const st = u => (T[u] && T[u].status) || 'none-yet';
+      return json({ drills: drills.map(d => Object.assign({}, d, { t: T[d.uid] || null, review: R[d.v] || null })),
+        films: uids.length, done: uids.filter(u => ['ready', 'silent'].includes(st(u))).length,
+        waiting: uids.filter(u => st(u) === 'inprogress').length, failed: uids.filter(u => st(u) === 'error').length,
+        canRun: !!CF_TOK() });
+    };
+    if (request.method === 'GET') return view();
+    if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+    const act = String(body.action || '');
+    if (act === 'review') {
+      const v = String(body.v || '');
+      if (!drills.some(d => d.v === v)) return json({ error: 'No such drill' }, 404);
+      const state = ['ok', 'todo'].includes(body.state) ? body.state : '';
+      await changeSetting('transcripts:review', cur => {
+        const all = Object.assign({}, cur || {});
+        if (!state && !body.note) delete all[v];
+        else all[v] = { state, note: String(body.note || '').slice(0, 400), at: Date.now() };
+        return all;
+      });
+      const fresh = (await getSetting('transcripts:review')) || {};
+      Object.keys(R).forEach(k => delete R[k]); Object.assign(R, fresh);
+      return view();
+    }
+    if (!CF_TOK()) return json({ error: 'The Cloudflare Stream key is not set on the server' }, 503);
+    if (act === 'redo') {
+      const u = String(body.uid || '');
+      if (!uids.includes(u)) return json({ error: 'No such film' }, 404);
+      await cfStream(`/${u}/captions/en`, { method: 'DELETE' });
+      delete T[u];
+      await setSetting('transcripts', T);
+      return view();
+    }
+    if (act !== 'run') return json({ error: 'Nope' }, 400);
+    const t0 = Date.now();
+    const vtt = txt => String(txt || '').split(/\r?\n/)
+      .filter(l => l && !/^WEBVTT/.test(l) && !/-->/.test(l) && !/^\d+$/.test(l.trim()) && !/^(NOTE|STYLE)\b/.test(l))
+      .map(l => l.replace(/<[^>]+>/g, '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    for (const u of uids) {
+      if (Date.now() - t0 > 7000) break;
+      const rec = T[u];
+      if (rec && ['ready', 'silent'].includes(rec.status)) continue;
+      if (rec && rec.status === 'error' && (rec.tries || 0) >= 3) continue;
+      if (!rec || rec.status === 'error') {
+        const g = await cfStream(`/${u}/captions/en/generate`, { method: 'POST' });
+        const msg = ((g.errors || [])[0] || {}).message || '';
+        if (g.success || /already|exist/i.test(msg)) T[u] = { status: 'inprogress', at: Date.now(), tries: ((rec && rec.tries) || 0) + 1 };
+        else T[u] = { status: 'error', err: msg.slice(0, 200) || 'Stream said no', tries: ((rec && rec.tries) || 0) + 1, at: Date.now() };
+        continue;
+      }
+      /* asked for before: is it ready? */
+      const list = await cfStream(`/${u}/captions`, { method: 'GET' });
+      const en = ((list && list.result) || []).find(c => c.language === 'en');
+      if (!en) { T[u] = { status: 'error', err: 'Stream lost the request', tries: (rec.tries || 0), at: Date.now() }; continue; }
+      if (en.status === 'error') { T[u] = { status: 'error', err: 'Stream could not transcribe it', tries: (rec.tries || 0) + 1, at: Date.now() }; continue; }
+      if (en.status && en.status !== 'ready') continue;
+      const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCT()}/stream/${u}/captions/en/vtt`,
+        { headers: { Authorization: `Bearer ${CF_TOK()}` } }).catch(() => null);
+      const text = r && r.ok ? vtt(await r.text()) : '';
+      if (!r || !r.ok) continue;
+      T[u] = text ? { status: 'ready', text: text.slice(0, 8000), at: Date.now() } : { status: 'silent', at: Date.now() };
+    }
+    await setSetting('transcripts', T);
+    return view();
+  }
+
   if (path === '/coach/stream/status' && request.method === 'GET') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const k = await getSetting('stream:key');

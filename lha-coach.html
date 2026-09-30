@@ -9522,7 +9522,7 @@ function notesPaneHTML(){
 /* ── Library ──────────────────────────────────────────────────────── */
 function libraryHTML(){
   const defs=[['fixes','Fixes'],['ladder','Ladder workouts'],['programmes','Programmes'],
-              ['drills','Drills'],['explainers','Explainers']];
+              ['drills','Drills'],['films','Films vs cues'],['explainers','Explainers']];
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     <h1 style="margin:0 0 var(--space-4)">Library</h1>
     <div style="display:flex;gap:6px;margin-bottom:var(--space-4);flex-wrap:wrap">
@@ -9535,8 +9535,154 @@ function libraryHTML(){
      :libTab==='ladder'?workoutsHTML()
      :libTab==='programmes'?libProgrammesHTML()
      :libTab==='drills'?libDrillsHTML()
+     :libTab==='films'?filmsHTML()
      :explainHTML()}
   </section>`;
+}
+/* ── films against what is written ─────────────────────────────────
+   Every drill's film transcribed by Stream, next to its description and
+   cues, with what does not match picked out: a number said in the film and
+   not written (or the other way round), a side that disagrees, words said
+   that the cues never use. It cannot judge meaning, so it sorts rather than
+   decides: the most different first, each marked Fine or To fix. Copy for
+   Claude hands the lot over for rewording in the film's own words. */
+let FV={d:null,busy:false,loading:false,filter:'diff',play:''};
+const FV_STOP=new Set(('a an the and or but if then so to of in on at by for with from up down out over under into onto off is are was were be been '
+  +'being it its this that these those you your we our us i me my he she they them their as than just very really can will would should could do does '
+  +'did doing done have has had get got getting go going gonna want wanna like kind sort bit little lot lots yeah okay ok um uh right now here there '
+  +'when where what which who how all any some more most much many each every also again still keep make sure try trying actually basically '
+  +'thing things something way going well good nice start then let lets let\'s okay just gonna going you\'re we\'re it\'s that\'s don\'t can\'t '
+  +'one two three four five six seven eight nine ten about other before after back take taking sample into onto around through '
+  +'maybe probably pretty quite little bit then than them those there their going gonna were your yours yourself '
+  +'nice sorry thank thanks guys everyone today video').split(/\s+/));
+const fvNum={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,fifteen:15,twenty:20,thirty:30,forty:40,sixty:60,half:.5};
+const fvStem=w=>w.replace(/'s$/,'').replace(/(ing|ed|es|s)$/,'');
+function fvWords(t){ return (String(t||'').toLowerCase().match(/[a-z']+/g)||[]).filter(w=>w.length>3&&!FV_STOP.has(w)); }
+/* numbers with a unit: 1.5 feet, 30 seconds, ten reps */
+function fvNums(t){
+  const out=new Set(), re=/(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|sixty|half)\s*(?:a\s+)?(feet|foot|inch(?:es)?|seconds?|secs?|reps?|times|sets?|minutes?|mins?|cm|centimet(?:re|er)s?|met(?:re|er)s?|degrees?)/gi;
+  let m; while((m=re.exec(String(t||'')))){ const n=isNaN(+m[1])?fvNum[m[1].toLowerCase()]:+m[1];
+    const u=m[2].toLowerCase().replace(/^(foot|feet)$/,'ft').replace(/^inch(es)?$/,'in').replace(/^(seconds?|secs?)$/,'s').replace(/^reps?$/,'reps').replace(/^sets?$/,'sets').replace(/^(minutes?|mins?)$/,'min').replace(/^degrees?$/,'°');
+    out.add(n+' '+u); }
+  return out;
+}
+function fvDiff(d){
+  const said=(d.t&&d.t.text)||'', written=[d.desc||''].concat(d.cues||[]).join(' ');
+  if(!said) return {score:0,missing:[],nSaid:[],nWritten:[],side:''};
+  const W=new Set(fvWords(written).map(fvStem)), freq={};
+  fvWords(said).forEach(w=>{ const k=fvStem(w); if(!W.has(k)) freq[w]=(freq[w]||0)+1; });
+  const missing=Object.keys(freq).sort((a,b)=>freq[b]-freq[a]).slice(0,10);
+  const a=fvNums(said), b=fvNums(written);
+  const nSaid=[...a].filter(x=>!b.has(x)), nWritten=[...b].filter(x=>!a.has(x));
+  const lr=t=>({l:(t.match(/\bleft\b/gi)||[]).length,r:(t.match(/\bright\b/gi)||[]).length});
+  const ls=lr(said), lw=lr(written);
+  const side=(lw.l&&!ls.l&&ls.r)||(lw.r&&!ls.r&&ls.l)?'The film and the cues name different sides':'';
+  const total=new Set(fvWords(said).map(fvStem)).size||1;
+  const score=Math.round(Math.min(10,Object.keys(freq).length/total*14)+nSaid.length*3+nWritten.length*2+(side?3:0));
+  return {score,missing,nSaid,nWritten,side,freq,nWords:Object.keys(freq).length};
+}
+function fvLoad(){
+  if(FV.loading) return; FV.loading=true;
+  fetch(API+'/transcripts',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject())
+    .then(d=>{ FV.d=d; FV.loading=false; draw(); }).catch(()=>{ FV.loading=false; });
+}
+function fvLeft(d){ return (d.drills||[]).filter((x,i,a)=>a.findIndex(y=>y.uid===x.uid)===i)
+  .filter(x=>!x.t||x.t.status==='inprogress'||(x.t.status==='error'&&(x.t.tries||0)<3)).length; }
+function fvRun(){
+  if(FV.busy) return; FV.busy=true; draw();
+  const step=()=>fetch(API+'/transcripts',{method:'POST',headers:hdr(),body:JSON.stringify({action:'run'})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'The server said '+r.status)))
+    .then(d=>{ FV.d=d; draw();
+      if(FV.busy && fvLeft(d)>0) setTimeout(step, d.waiting?6000:400);
+      else { FV.busy=false; draw(); flash(d.done+' of '+d.films+' films transcribed'); } })
+    .catch(e=>{ FV.busy=false; draw(); alert(String(e)); });
+  step();
+}
+function fvMark(v,state){
+  const cur=((FV.d.drills||[]).find(x=>x.v===v)||{}).review||{};
+  const next=cur.state===state?'':state;
+  fetch(API+'/transcripts',{method:'POST',headers:hdr(),body:JSON.stringify({action:'review',v,state:next,note:cur.note||''})})
+    .then(r=>r.json()).then(d=>{ if(d.drills){ FV.d=d; draw(); } });
+}
+function fvNote(v,note){
+  const cur=((FV.d.drills||[]).find(x=>x.v===v)||{}).review||{};
+  fetch(API+'/transcripts',{method:'POST',headers:hdr(),body:JSON.stringify({action:'review',v,state:cur.state||'todo',note})})
+    .then(r=>r.json()).then(d=>{ if(d.drills){ FV.d=d; draw(); } });
+}
+function fvRedo(uid){
+  if(!confirm('Transcribe this film again? The transcript here is thrown away.')) return;
+  fetch(API+'/transcripts',{method:'POST',headers:hdr(),body:JSON.stringify({action:'redo',uid})})
+    .then(r=>r.json()).then(d=>{ if(d.drills){ FV.d=d; draw(); fvRun(); } });
+}
+/* everything marked To fix (or, with nothing marked, every drill with a
+   difference), as text for Claude to reword from the films */
+function fvCopy(){
+  const all=(FV.d&&FV.d.drills)||[];
+  let list=all.filter(d=>d.review&&d.review.state==='todo');
+  if(!list.length) list=all.filter(d=>d.t&&d.t.status==='ready'&&!(d.review&&d.review.state==='ok')&&fvDiff(d).score>0);
+  const txt=['Drills to check against their films. For each: what is said in the film, then what is written.','']
+    .concat(list.map(d=>[`## ${d.n} (${d.v})`,`Film: ${(d.t&&d.t.text)||'(no speech)'}`,`Description: ${d.desc||'(none)'}`,
+      'Cues:',...(d.cues||[]).map(c=>'- '+c), d.review&&d.review.note?`My note: ${d.review.note}`:'',''].filter(x=>x!=='').join('\n'))).join('\n\n');
+  navigator.clipboard.writeText(txt).then(()=>flash(list.length+' drills copied. Paste them to Claude.'))
+    .catch(()=>{ const w=window.open('','_blank'); if(w){ w.document.write('<pre style="white-space:pre-wrap;font:13px/1.5 system-ui">'+esc(txt)+'</pre>'); } });
+}
+function filmsHTML(){
+  if(!FV.d){ fvLoad(); return `<p class="muted">Loading the drills…</p>`; }
+  const D=FV.d, rows=(D.drills||[]).map(d=>Object.assign({},d,{diff:fvDiff(d)}));
+  /* two drills on one film: worth knowing, since one of them is probably wrong */
+  const byFilm={}; rows.forEach(d=>{ (byFilm[d.uid]=byFilm[d.uid]||[]).push(d.n); });
+  const st=d=>d.review&&d.review.state;
+  const is={diff:d=>d.t&&d.t.status==='ready'&&!st(d)&&d.diff.score>0, todo:d=>st(d)==='todo', ok:d=>st(d)==='ok',
+    silent:d=>d.t&&d.t.status==='silent', all:()=>true};
+  const count=k=>rows.filter(is[k]).length;
+  const shown=rows.filter(is[FV.filter]).sort((a,b)=>b.diff.score-a.diff.score||a.n.localeCompare(b.n));
+  const seg=[['diff','Differences'],['todo','To fix'],['ok','Fine'],['silent','No speech'],['all','All']];
+  const hl=(t,miss)=>{ const m=new Set(miss||[]); return esc(t).replace(/[A-Za-z']+/g,w=>m.has(w.toLowerCase())?`<mark style="background:#fdebc8;border-radius:3px;padding:0 1px">${w}</mark>`:w); };
+  const chip=(t,c)=>`<span style="display:inline-block;font:600 11px/1 var(--sans);padding:6px 9px;border-radius:999px;background:${c||'rgba(0,64,61,.08)'};color:var(--deep);margin:0 6px 6px 0">${esc(t)}</span>`;
+  return `<p class="muted" style="font:400 14px/1.6 var(--sans);max-width:66ch;margin:0 0 14px">
+      Every drill's film, transcribed, next to what the app says about it. Highlighted words are said in the film and never written. Mark each Fine or To fix; Copy for Claude hands the To fix ones over for rewording.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <button class="btn btn-primary" onclick="fvRun()" ${FV.busy||!D.canRun?'disabled':''} title="${D.canRun?'':'The Cloudflare Stream key is not set on the server'}">${FV.busy?'Transcribing…':D.done?'Transcribe the rest':'Transcribe the films'}</button>
+      <span class="muted" style="font-size:13px">${D.done} of ${D.films} films transcribed${D.waiting?`, ${D.waiting} with Stream now`:''}${D.failed?`, ${D.failed} failed`:''}</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary" onclick="fvCopy()">Copy for Claude</button>
+    </div>
+    <div style="display:inline-flex;background:rgba(0,64,61,.08);border-radius:14px;padding:4px;gap:2px;margin-bottom:6px;flex-wrap:wrap">
+      ${seg.map(([k,l])=>`<button onclick="FV.filter='${k}';draw()" style="border:0;border-radius:10px;padding:8px 12px;cursor:pointer;font:600 13px/1 var(--sans);
+        background:${FV.filter===k?'#fff':'transparent'};color:${FV.filter===k?'var(--deep)':'var(--grey)'};${FV.filter===k?'box-shadow:0 1px 2px rgba(17,17,17,.08)':''}">${l} <span style="opacity:.6">${count(k)}</span></button>`).join('')}
+    </div>
+    ${shown.length?'':`<p class="muted" style="margin-top:14px">${D.done?'Nothing here.':'Press Transcribe the films to start. Stream takes a few minutes per batch; you can leave this open.'}</p>`}
+    ${shown.map(d=>{
+      const tx=d.t||{}, x=d.diff, r=d.review||{};
+      const status=!tx.status?chip('Not transcribed yet'):tx.status==='inprogress'?chip('With Stream'):tx.status==='error'?chip('Failed: '+(tx.err||''),'rgba(164,80,60,.12)')
+        :tx.status==='silent'?chip('No speech in the film'):'';
+      return `<div data-k="fv-${esc(d.v)}" style="background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px 16px;margin-top:12px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <b style="font:600 15px/1.3 var(--sans)">${esc(d.n)}</b>
+          ${r.state==='ok'?chip('Fine','rgba(0,102,99,.14)'):r.state==='todo'?chip('To fix','#fdebc8'):''}
+          ${[x.nWords?x.nWords+' word'+(x.nWords===1?'':'s'):'',(x.nSaid.length+x.nWritten.length)?(x.nSaid.length+x.nWritten.length)+' number'+((x.nSaid.length+x.nWritten.length)===1?'':'s'):'',x.side?'a side':''].filter(Boolean).map(t=>chip(t)).join('')}
+          ${(byFilm[d.uid]||[]).length>1?chip('Same film as '+byFilm[d.uid].filter(n=>n!==d.n).join(', '),'rgba(143,190,202,.3)'):''}
+          <span style="flex:1"></span>
+          <button class="btn btn-secondary btn-sm" onclick="fvMark('${esc(d.v)}','ok')">${r.state==='ok'?'Not fine':'Fine'}</button>
+          <button class="btn btn-secondary btn-sm" onclick="fvMark('${esc(d.v)}','todo')">${r.state==='todo'?'Not to fix':'To fix'}</button>
+          <button class="btn btn-secondary btn-sm" onclick="libTab='drills';drEdit('${esc(d.v)}')">Edit drill</button>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(150px,200px) 1fr 1fr;gap:14px;margin-top:12px">
+          <div>${FV.play===d.uid
+            ?`<video controls autoplay playsinline src="https://${STREAM_SUB}/${csUid(d.uid)}/downloads/default.mp4" style="width:100%;border-radius:12px;background:#000"></video>`
+            :`<button onclick="FV.play='${d.uid}';draw()" title="Play the film" style="border:0;padding:0;cursor:pointer;width:100%;border-radius:12px;overflow:hidden;background:#0f1a19">
+                <img src="${fxThumb(d.uid)}" alt="" style="width:100%;display:block;aspect-ratio:16/10;object-fit:cover"></button>`}
+            ${tx.status==='ready'||tx.status==='silent'?`<button onclick="fvRedo('${d.uid}')" style="border:0;background:none;color:var(--grey2);font:600 11.5px var(--sans);cursor:pointer;margin-top:6px;padding:0;text-decoration:underline">Transcribe again</button>`:''}</div>
+          <div><div class="kick" style="margin-bottom:6px">In the film</div>
+            ${status||`<div style="font:400 13.5px/1.55 var(--sans);max-height:220px;overflow:auto">${hl(tx.text,x.missing)}</div>`}</div>
+          <div><div class="kick" style="margin-bottom:6px">Written</div>
+            <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-bottom:6px">${esc(d.desc)||'<i>No description</i>'}</div>
+            ${(d.cues||[]).length?`<ul style="margin:0;padding-left:18px;font:400 13.5px/1.55 var(--sans)">${d.cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:'<i class="muted">No cues</i>'}</div>
+        </div>
+        ${(x.nSaid.length||x.nWritten.length||x.side)?`<div style="margin-top:10px">
+          ${x.nSaid.map(n=>chip('Said, not written: '+n,'#fdebc8')).join('')}${x.nWritten.map(n=>chip('Written, not said: '+n,'#fdebc8')).join('')}${x.side?chip(x.side,'#fdebc8'):''}</div>`:''}
+        <input class="input" style="margin-top:8px;width:100%" placeholder="A note for yourself or Claude" value="${esc(r.note||'')}" onchange="fvNote('${esc(d.v)}',this.value)">
+      </div>`; }).join('')}`;
 }
 function libProgrammesHTML(){
   const coached=clients.filter(c=>c.coached!==false);
