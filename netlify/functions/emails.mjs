@@ -207,6 +207,8 @@ export const EMAILS = {
   "checkCredit": {
     "name": "Form check paid for",
     "when": "When someone buys a form check",
+    "always": true,
+    "alwaysWhy": "It is the receipt, and for a new buyer the only way into the app.",
     "vars": [
       "name"
     ],

@@ -337,8 +337,17 @@ async function clientMailAllowed(to, receipt) {
     if (!clients()[t] && !PAST[t]) return true;
     const g = await getSetting('mailguard');
     return g ? !g.suppress : false;
-  } catch { return false; }
+  } catch {
+    /* The switches could not be read. That held everybody, a stranger's
+       Ladder welcome included, and logged it as switched off, so nothing
+       tried again. Somebody who is not a client was never behind the
+       guard; a client is still held, and it counts as a failure to send. */
+    if (!clients()[t] && !PAST[t]) return true;
+    GUARD_DOWN = true;
+    return false;
+  }
 }
+let GUARD_DOWN = false;
 
 /* What someone has chosen to hear about. An email with no kind is one you
    cannot opt out of — a password reset, a receipt, confirmation that
@@ -390,28 +399,78 @@ async function mailNote(to, subject, kind, ok, why, skip) {
 /* set when the last email failed because Resend did, not because it was
    held on purpose: a purchase welcome that hits this is retried by Stripe */
 let mailDown = false;
+/* where a reply goes: fourteen emails say "reply to this" */
+const REPLY_TO = process.env.REPLY_TO || 'info@londonhandstandacademy.com';
 async function email(to, subject, html, kind, opts) {
-  mailDown = false;
+  mailDown = false; GUARD_DOWN = false;
   const receipt = !!(opts && opts.receipt);
+  /* one key per email, carried by every try, so Resend never sends the
+     same one twice even when an answer is lost on the way back */
+  const idem = (opts && opts.idem) || crypto.randomUUID();
+  const later = async why => {
+    mailDown = true;
+    /* A receipt that did not go was lost for good: its once-only claim was
+       already taken, so Stripe's retry stopped at "already filed". It is
+       kept and tried again (flushMailRetry), unless the caller retries it
+       itself. */
+    if (receipt && !(opts && opts.noQueue)) {
+      await changeSetting('mailretry', cur => (Array.isArray(cur) ? cur : [])
+        .filter(m => m.idem !== idem).concat([{ to, subject, html, kind: kind || '', idem, at: Date.now(), last: Date.now(), tries: 0 }]).slice(-50)).catch(() => {});
+      return mailNote(to, subject, kind, false, why + ', kept to try again');
+    }
+    return mailNote(to, subject, kind, false, why);
+  };
   if (!process.env.RESEND_API_KEY) return mailNote(to, subject, kind, false, 'Resend is not set up');
   if (!mayEmail(to)) return mailNote(to, subject, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
-  if (!(await clientMailAllowed(to, receipt))) return mailNote(to, subject, kind, false, 'client email is switched off');
-  if (!(await wantsEmail(to, kind))) return mailNote(to, subject, kind, false, 'they chose no emails for ' + kind);
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: process.env.FROM_EMAIL, to, subject, html }),
-    });
-    if (r.ok) return mailNote(to, subject, kind, true, '');
-    const d = await r.json().catch(() => ({}));
-    mailDown = true;
-    return mailNote(to, subject, kind, false,
-      (d && d.message) || ('Resend said ' + r.status));
-  } catch (err) {
-    mailDown = true;
-    return mailNote(to, subject, kind, false, String((err && err.message) || err));
+  if (!(await clientMailAllowed(to, receipt))) {
+    if (GUARD_DOWN) return later('the mail switches could not be read');
+    return mailNote(to, subject, kind, false, 'client email is switched off');
   }
+  if (!(await wantsEmail(to, kind))) return mailNote(to, subject, kind, false, 'they chose no emails for ' + kind);
+  let why = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idem },
+        body: JSON.stringify({ from: process.env.FROM_EMAIL, to, subject, html, reply_to: REPLY_TO }),
+      });
+      if (r.ok) return mailNote(to, subject, kind, true, '');
+      const d = await r.json().catch(() => ({}));
+      why = (d && d.message) || ('Resend said ' + r.status);
+      /* Resend takes two a second, and a payment sends three at once: a
+         moment's wait and one more go, for that and for Resend being down */
+      if (attempt || !(r.status === 429 || r.status >= 500)) break;
+      await new Promise(res => setTimeout(res, Math.min(2000, (Number(r.headers.get('retry-after')) || 1) * 1000)));
+    } catch (err) {
+      why = String((err && err.message) || err);
+      if (attempt) break;
+      await new Promise(res => setTimeout(res, 500));
+    }
+  }
+  return later(why);
+}
+/* ── receipts that did not go, tried again ─────────────────────────
+   On the next Stripe event or app open, a few minutes apart at most,
+   with the same key so a copy that did go is not sent twice. Given up
+   after a day's worth of tries; the send log keeps each attempt. */
+let MAILQ_AT = 0;
+async function flushMailRetry() {
+  if (Date.now() - MAILQ_AT < 120000) return;
+  MAILQ_AT = Date.now();
+  const q = await getSetting('mailretry').catch(() => null);
+  if (!Array.isArray(q) || !q.length) return;
+  const done = new Set(), bump = new Set();
+  for (const m of q.slice(0, 5)) {
+    if (Date.now() - (Number(m.last) || 0) < 60000) continue;
+    const ok = await email(m.to, m.subject, m.html, m.kind || undefined, { receipt: true, idem: m.idem, noQueue: true });
+    /* sent, or held on purpose now: either way it is finished */
+    if (ok || !mailDown) done.add(m.idem); else bump.add(m.idem);
+  }
+  if (done.size || bump.size) await changeSetting('mailretry', cur => (Array.isArray(cur) ? cur : [])
+    .filter(m => !done.has(m.idem))
+    .map(m => bump.has(m.idem) ? Object.assign({}, m, { tries: (Number(m.tries) || 0) + 1, last: Date.now() }) : m)
+    .filter(m => (Number(m.tries) || 0) < 40)).catch(() => {});
 }
 
 /* ── a notification to their phone ──────────────────────────────
@@ -1143,7 +1202,9 @@ async function sessConfirmMail(db, row, by) {
               row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
               `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
               soon ? 'If you need to move it, reply to this.' : 'A reminder comes the day before. If you need to move it, reply to this.',
-              `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`],
+              /* not to somebody whose coaching includes the session */
+              (row.fromPlan || clients()[norm(row.email)]) ? '' :
+              `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`].filter(Boolean),
       signoff: { name: coachName(by) } }), undefined, { receipt: true });
   /* noted on the session, so the page after paying says "by email" only
      when an email went, and a second payment does not confirm it twice */
@@ -1646,6 +1707,7 @@ const handle = async (request) => {
     const ok = await stripeSigOK(raw, request.headers.get('stripe-signature'),
       process.env.STRIPE_WEBHOOK_SECRET);
     if (!ok) return json({ error: 'Bad signature' }, 400);
+    await flushMailRetry().catch(() => {});
 
     let ev = {};
     try { ev = JSON.parse(raw); } catch { return json({ error: 'Bad payload' }, 400); }
@@ -2026,7 +2088,7 @@ const handle = async (request) => {
                   sessNoPw ? `You have an account in the Handstand Ladder app under this address, where your booking is, and we can talk there as well as by email. Your username is ${esc(e)}: choose a password with the button below and you are in.`
                            : 'Your booking is in the Handstand Ladder app under this address, and we can talk there as well as by email.'],
           cta: { href: sessLink || `${SITE}/lha-app.html`, label: sessNoPw ? 'Choose a password' : 'Open the app' },
-          signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+          signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true, noQueue: true });
       /* Resend down: let go of the claim and fail, and Stripe sends it again */
       if (!sentOk && mailDown) { await supa.remove('nudges', `key=eq.${enc(sessKey)}`).catch(() => {}); return json({ error: 'email failed, retry' }, 500); }
       try {
@@ -2266,7 +2328,7 @@ const handle = async (request) => {
                 cta: await (async () => (await hashFor(db, acct.email))
                   ? { href: `${SITE}/lha-app.html?go=answer`, label: 'Send the clip' }
                   : { href: await welcomeLink(acct.email), label: 'Choose a password' })(),
-                signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
+                signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true, noQueue: true });
             if (mailDown) throw new Error('the form check email did not go: Resend failed');
           } catch (err) { if (obj.id) { try { await supa.remove('nudges', `key=eq.${enc(credKey)}`); } catch {} } throw err; }
           /* in the chat too, where the clip will be sent */
@@ -2397,7 +2459,7 @@ const handle = async (request) => {
             trial_line: trial ? 'Your free week has started. A reminder comes three days before the first charge, and you can cancel from the app before then.' : '' });
           await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
             cta: noPw ? { href: link, label: 'Choose your password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-            signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
+            signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true, noQueue: true });
           if (mailDown) throw new Error('the welcome email did not go: Resend failed');
         } catch (err) { await unclaimWelcome(); throw err; }
       }
@@ -2519,7 +2581,7 @@ const handle = async (request) => {
             cta: noPw ? { href: link, label: 'Choose your password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             /* no kind: somebody who has just paid is told they are in
                whatever they have turned off, the same as a receipt */
-            signoff: { name: coachName(coachOf(e2)) }, footnote: T.footnote || undefined }), undefined, { receipt: true });
+            signoff: { name: coachName(coachOf(e2)) }, footnote: T.footnote || undefined }), undefined, { receipt: true, noQueue: true });
         /* the email with the password link did not go because Resend failed:
            give the claim back and fail, so Stripe delivers it again */
         if (mailDown) throw new Error('the welcome email did not go: Resend failed');
@@ -2981,6 +3043,7 @@ const handle = async (request) => {
 
   /* ── who am I, and what have I paid for ── */
   if (path === '/me') {
+    await flushMailRetry().catch(() => {});
     /* the app asks this on open, so this is the honest moment to say they
        were here — not whenever some row of theirs happened to be written */
     /* realMe, not me: a coach looking at somebody's app must not make

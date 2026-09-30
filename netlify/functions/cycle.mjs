@@ -225,7 +225,7 @@ async function email(to, subject, html, kind, opts) {
                  'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: process.env.FROM_EMAIL || 'info@londonhandstandacademy.com',
-        to, subject, html }),
+        to, subject, html, reply_to: process.env.REPLY_TO || 'info@londonhandstandacademy.com' }),
     });
     return r.ok;
   } catch { return false; }
@@ -677,7 +677,10 @@ async function sessionMail(done) {
         done.sessions.reminded++;
       }
     }
-    if (hoursSince > 10 && hoursSince <= 40 && !(Number(x.ask) > 0)) {
+    /* the day-after note sells the Coaching Programme: not to somebody
+       already in it, whose session came with their plan */
+    const coachedNow = !!x.fromPlan || !!((await guardState()) || { roster: new Set() }).roster.has(norm(x.email));
+    if (hoursSince > 10 && hoursSince <= 40 && !(Number(x.ask) > 0) && !coachedNow) {
       const key = `sessfollow:${x.id}`;
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
         const paid = x.paid ? '£' + (x.paid / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
