@@ -4394,6 +4394,37 @@ function reviewPlace(){
 /* back to whoever's clips you were watching, not to a list you then have
    to find them in again */
 function reviewBack(){ view=(reviewFor&&sel)?'client':'clients'; draw(); }
+/* ── the website editor ──────────────────────────────────────────
+   Its own page, site-editor.html, in a same-origin frame mounted once and
+   never moved, like the review tool: going to Today and back keeps the
+   page you were on and anything half typed. */
+function ensureSite(){
+  let wrap=document.getElementById('siteWrap');
+  if(wrap) return wrap;
+  wrap=document.createElement('div');
+  wrap.id='siteWrap';
+  wrap.style.cssText='position:fixed;left:0;right:0;bottom:0;top:0;z-index:35;display:none;'
+    +'flex-direction:column;padding:0 24px 18px';
+  wrap.innerHTML='<div class="glass" style="flex:1;min-height:0;width:100%;max-width:1440px;margin:0 auto;'
+    +'display:flex;flex-direction:column;border-radius:24px;overflow:hidden;background:#fff">'
+    +'<iframe id="siteFrame" src="/site-editor.html" title="Website editor"'
+    +' style="flex:1;min-height:0;width:100%;border:0;display:block;background:transparent"></iframe></div>';
+  document.body.appendChild(wrap);
+  window.addEventListener('resize', ()=>{ if(view==='site') sitePlace(); });
+  return wrap;
+}
+function sitePlace(){
+  const wrap=document.getElementById('siteWrap'), bar=document.querySelector('header.bar');
+  if(!wrap) return;
+  wrap.style.top=(bar ? Math.ceil(bar.getBoundingClientRect().bottom)+14 : 0)+'px';
+  wrap.style.padding=(innerWidth<=520?'0 11px 10px':innerWidth<=880?'0 14px 12px':'0 24px 18px');
+}
+function syncSite(){
+  const wrap=(view==='site') ? ensureSite() : document.getElementById('siteWrap');
+  if(!wrap) return;
+  wrap.style.display = (view==='site') ? 'flex' : 'none';
+  if(view==='site') sitePlace();
+}
 function syncReview(){
   const wrap=(view==='review') ? ensureReview() : document.getElementById('reviewWrap');
   if(!wrap) return;
@@ -8065,7 +8096,7 @@ function headerHTML(){
   const unreadAll=clients.reduce((t,c)=>t+(c.unread||0),0);
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
                ['review','Review',reviewQueue.length],
-               ['library','Library',0],['settings','Settings',0]];
+               ['library','Library',0],['site','Website',0],['settings','Settings',0]];
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
       cursor:pointer;font:400 30px/1 var(--serif);color:var(--ink);margin-right:auto">Coach<span
@@ -11412,11 +11443,12 @@ function drawNow(){
     : view==='library'  ? libraryHTML()
     : view==='settings' ? settingsHTML()
     : view==='review'   ? reviewHTML()
+    : view==='site'     ? ''
     : todayHTML()}</main></div>`
     + bulkHTML() + copyHTML() + newBlkHTML() + toastHTML()
     + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML();
   if(html!==lastHTML){ lastHTML=html; morphInto($('#v'), html); }
-  syncReview();
+  syncReview(); syncSite();
 }
 let lastHTML='';
 /* ── change what changed, and nothing else ─────────────────────────

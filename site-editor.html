@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Website editor</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- The dashboard's Website tab. Mounted once, in a same-origin frame, the
+     way the review tool is, so switching tabs and back keeps your place.
+     The page being edited sits in a frame of its own with ?siteedit=1, where
+     site-edits.js turns it into the editing surface. -->
+<style>
+:root{--forest:#006663;--deep:#00403d;--ink:#111;--grey:#5a5a5a;--grey2:#686868;--sand:#cfe6ec;--amber:#f3a949;
+  --red:#a4503c;--on-primary:#f7f4f1;--line:rgba(0,64,61,.10);--line2:rgba(0,64,61,.14);
+  --serif:Newsreader,Georgia,serif;--sans:Figtree,system-ui,sans-serif}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:400 14px/1.45 var(--sans);color:var(--ink);background:transparent;display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;cursor:pointer}
+button:disabled{opacity:.35;cursor:not-allowed}
+.bar{flex:none;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--line);background:#fff}
+.kick{font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)}
+.seg{display:inline-flex;background:rgba(0,64,61,.08);border-radius:14px;padding:4px;gap:2px}
+.seg button{border:0;border-radius:10px;padding:8px 13px;background:transparent;color:var(--grey);font:600 13px/1 var(--sans)}
+.seg button.on{background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)}
+.grow{flex:1}
+.status{font:500 12.5px/1.3 var(--sans);color:var(--grey2)}
+.status b{color:var(--amber);font-weight:700}
+.ghost{border:1px solid var(--line2);background:#fff;color:var(--ink);border-radius:999px;padding:10px 16px;font:600 13px/1 var(--sans)}
+.primary{border:0;border-radius:999px;padding:11px 20px;font:600 14px/1 var(--sans);color:var(--on-primary);
+  background:linear-gradient(180deg,#0a7a76,#006663);box-shadow:0 8px 20px rgba(0,102,99,.28),inset 0 1px 0 rgba(255,255,255,.35)}
+.work{flex:1;min-height:0;display:grid;grid-template-columns:1fr 300px}
+.stage{min-width:0;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:16px;
+  background:radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),#f4f4f5}
+.frame{width:100%;height:100%;min-height:600px;border:1px solid var(--line);border-radius:14px;background:#fff;
+  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06);transition:width .25s}
+.stage.phone .frame{width:390px;border-radius:30px;border-width:8px;border-color:#111}
+.side{border-left:1px solid var(--line);background:#fff;overflow:auto;padding:16px 16px 28px;display:flex;flex-direction:column;gap:18px}
+.side h3{margin:6px 0 0;font:400 22px/1.1 var(--serif);letter-spacing:-.01em}
+.side h3 em{color:var(--forest);font-style:normal}
+.muted{color:var(--grey);font-size:13px}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.tool{border:1px solid var(--line2);background:#fff;border-radius:10px;min-width:36px;height:34px;padding:0 10px;font:700 13px/1 var(--sans);color:var(--ink)}
+.tool:hover{border-color:var(--forest)}
+.field{width:100%;border:1px solid var(--line2);border-radius:10px;padding:9px 11px;font:400 13.5px/1.3 var(--sans);background:#fff;color:var(--ink)}
+.field:focus{outline:2px solid rgba(0,102,99,.35);border-color:var(--forest)}
+.lbl{font:600 11px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--grey2);margin:10px 0 6px}
+.thumb{width:100%;max-height:160px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
+.list{display:flex;flex-direction:column;gap:6px}
+.item{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:#fff}
+.item .t{flex:1;min-width:0;font-size:12.5px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;cursor:pointer}
+.item .k{font:700 10px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--forest);flex:none}
+.item.stale{background:#faf6f4}
+.item.stale .k{color:var(--red)}
+.x{border:0;background:none;color:var(--grey2);font-size:16px;line-height:1;padding:2px 4px}
+.x:hover{color:var(--red)}
+.note{border-radius:12px;padding:10px 12px;background:rgba(0,64,61,.06);font-size:12.5px;color:var(--deep)}
+.warn{background:rgba(164,80,60,.08);color:var(--red)}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--deep);color:#fff;border-radius:999px;
+  padding:10px 16px;font:600 13px/1 var(--sans);box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+.blocker{position:fixed;inset:0;display:grid;place-items:center;background:#f4f4f5;z-index:9;padding:24px;text-align:center}
+@media(max-width:880px){.work{grid-template-columns:1fr}.side{border-left:0;border-top:1px solid var(--line);max-height:42vh}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="seg" id="pages"></div>
+  <div class="seg" id="device">
+    <button data-d="desktop" class="on">Desktop</button>
+    <button data-d="phone">Phone</button>
+  </div>
+  <div class="grow"></div>
+  <span class="status" id="status">Loading…</span>
+  <button class="ghost" id="discard" disabled title="Nothing to throw away">Discard changes</button>
+  <button class="primary" id="publish" disabled>Publish</button>
+</div>
+<div class="work">
+  <div class="stage" id="stage"><iframe class="frame" id="frame" title="The page being edited"></iframe></div>
+  <aside class="side" id="side"></aside>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API='/api/app/coach';
+const TOKEN=localStorage.getItem('lha_coach_token')||'';
+const hdr=()=>({'Content-Type':'application/json','Authorization':'Bearer '+TOKEN});
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const PAGES={home:{n:'Home',url:'/index.html'},'handstand-class':{n:'Handstand class',url:'/handstand-class.html'}};
+
+let S=null;                 /* what the server has: draft, live, history */
+let page=(()=>{ try{ return localStorage.getItem('lhaSiteEditPage')||'home'; }catch(e){ return 'home'; } })();
+let E={};                   /* this page's draft edits, changed in place */
+let sel=null;               /* what is picked on the page */
+let site=null;              /* the page's own editing surface */
+let saving=null, saveT=null, busy=false;
+
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'),2600); }
+function api(method, path, body){
+  return fetch(API+path,{method,headers:hdr(),body:body?JSON.stringify(body):undefined})
+    .then(r=>r.json().catch(()=>({})).then(d=>r.ok?d:Promise.reject(d.error||('The server said '+r.status))));
+}
+const count=e=>['t','h','i','x'].reduce((n,k)=>n+Object.keys((e&&e[k])||{}).length,0)+((e&&e.o&&e.o.length)?1:0);
+
+/* ── the bar ── */
+function drawBar(){
+  $('#pages').innerHTML=Object.keys(PAGES).map(k=>`<button data-p="${k}" class="${k===page?'on':''}">${esc(PAGES[k].n)}</button>`).join('');
+  const dirty=S && S.dirty;
+  const when=S && S.at ? new Date(S.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+  $('#status').innerHTML = !S ? 'Loading…'
+    : !S.canEdit ? 'Look only. The website is Elliott\'s to change.'
+    : saving ? 'Saving…'
+    : dirty ? '<b>●</b> Changes not published yet'
+    : when ? 'Live. Published '+esc(when) : 'Nothing published yet';
+  const can=S && S.canEdit;
+  $('#publish').disabled=!(can && dirty); $('#publish').title=dirty?'Put these changes on the website':'Nothing to publish';
+  $('#discard').disabled=!(can && dirty); $('#discard').title=dirty?'Throw away what is not published':'Nothing to throw away';
+}
+$('#pages').addEventListener('click',e=>{ const b=e.target.closest('button[data-p]'); if(!b||b.dataset.p===page) return;
+  flush().then(()=>{ page=b.dataset.p; try{ localStorage.setItem('lhaSiteEditPage',page); }catch(err){} load(); }); });
+$('#device').addEventListener('click',e=>{ const b=e.target.closest('button[data-d]'); if(!b) return;
+  document.querySelectorAll('#device button').forEach(x=>x.classList.toggle('on',x===b));
+  $('#stage').classList.toggle('phone',b.dataset.d==='phone'); });
+$('#publish').addEventListener('click',()=>{ if(busy) return; busy=true;
+  flush().then(()=>api('POST','/site',{action:'publish'})).then(d=>{ S=d; busy=false; drawBar(); drawSide(); toast('Published. It is on the website within a minute.'); })
+    .catch(e=>{ busy=false; toast(String(e)); }); });
+$('#discard').addEventListener('click',()=>{ if(busy) return;
+  if(!confirm('Throw away every change that is not published, on every page?')) return; busy=true;
+  flush().then(()=>api('POST','/site',{action:'discard'})).then(d=>{ S=d; busy=false; load(true); toast('Back to what is live.'); })
+    .catch(e=>{ busy=false; toast(String(e)); }); });
+
+/* ── saving: as you go, a moment after you stop ── */
+function queueSave(){ drawBar(); clearTimeout(saveT); saveT=setTimeout(save,700); }
+function save(){
+  clearTimeout(saveT); saveT=null;
+  if(!S||!S.canEdit) return Promise.resolve();
+  const p=page, body={action:'save',page:p,edits:E};
+  saving=api('POST','/site',body).then(d=>{ const keep=E; S=d; if(p===page){ S.draft[p]=keep; } saving=null; drawBar(); drawChanges(); })
+    .catch(e=>{ saving=null; drawBar(); toast('Not saved: '+e); });
+  drawBar();
+  return saving;
+}
+function flush(){ return saveT ? save() : (saving||Promise.resolve()); }
+window.addEventListener('beforeunload',()=>{ if(saveT) save(); });
+
+/* ── the page ── */
+function load(fresh){
+  sel=null; site=null;
+  const done=d=>{ S=d; E=JSON.parse(JSON.stringify((S.draft||{})[page]||{})); drawBar(); drawSide();
+    $('#frame').src=PAGES[page].url+'?siteedit=1&v='+Date.now(); };
+  if(S && !fresh){ done(S); return; }
+  api('GET','/site').then(done).catch(e=>{
+    document.body.insertAdjacentHTML('beforeend',`<div class="blocker"><div><h3 style="font:400 26px/1.1 var(--serif);margin:0 0 8px">The editor needs the dashboard.</h3>
+      <p class="muted">${esc(String(e))}. Open it from the Website tab, signed in.</p></div></div>`);
+  });
+}
+$('#frame').addEventListener('load',()=>{
+  const w=$('#frame').contentWindow;
+  const hook=(tries)=>{
+    const s=w && w.LHA_SITE;
+    if(!s){ if(tries<40) setTimeout(()=>hook(tries+1),100); else toast('This page has no editing layer yet.'); return; }
+    site=s;
+    s.connect({
+      select:info=>{ sel=info; drawPicked(); },
+      change:(kind,key,rec)=>{ E[kind]=E[kind]||{}; if(rec) E[kind][key]=rec; else delete E[kind][key];
+        if(!Object.keys(E[kind]).length) delete E[kind]; queueSave(); drawChanges(); }
+    });
+    s.apply(E);
+    drawSide();
+  };
+  hook(0);
+});
+
+/* ── the panel ── */
+function drawSide(){
+  $('#side').innerHTML=`<div id="picked"></div>
+    <div><div class="kick">Sections</div><div class="list" id="secs" style="margin-top:10px"></div></div>
+    <div><div class="kick">Changes on this page</div><div class="list" id="changes" style="margin-top:10px"></div></div>
+    <div><div class="kick">Published before</div><div class="list" id="hist" style="margin-top:10px"></div></div>`;
+  drawPicked(); drawSecs(); drawChanges(); drawHist();
+}
+function drawPicked(){
+  const el=$('#picked'); if(!el) return;
+  const can=S&&S.canEdit;
+  if(!sel){ el.innerHTML=`<div class="kick">Edit</div><h3>Click anything on the <em>page.</em></h3>
+    <p class="muted" style="margin:8px 0 0">Words change where they are. A photo can be replaced, a button pointed somewhere else, and a section hidden or moved. It saves as you go; nothing is on the website until you publish.</p>`; return; }
+  if(sel.kind==='lock'){ el.innerHTML=`<div class="kick">Locked</div><h3>Not this <em>one.</em></h3><div class="note" style="margin-top:10px">${esc(sel.lock)}</div>`; return; }
+  if(sel.kind==='t'){
+    const edited=E.t&&E.t[sel.key], hEdited=E.h&&E.h[sel.key];
+    el.innerHTML=`<div class="kick">Words</div><h3>Type on the <em>page.</em></h3>
+      <p class="muted" style="margin:6px 0 10px">Enter to finish, Shift and Enter for a new line.</p>
+      <div class="row">
+        <button class="tool" data-f="bold" title="Bold"><b>B</b></button>
+        <button class="tool" data-f="italic" title="Italic"><i>I</i></button>
+        <button class="tool" data-f="link" title="Make the selected words a link">Link</button>
+        <button class="tool" data-f="unlink" title="Take the link off">Unlink</button>
+        <button class="tool" data-f="removeFormat" title="Plain again">Plain</button>
+      </div>
+      ${sel.link?`<div class="lbl">Goes to</div><input class="field" id="href" value="${esc(sel.href)}" placeholder="https://… or /handstand-class"${can?'':' disabled'}>
+        <p class="muted" style="margin:6px 0 0;font-size:12px">Links to a page here start with /. Anything else starts with https://.</p>`:''}
+      <div class="row" style="margin-top:12px">
+        <button class="ghost" id="doneT">Done</button>
+        ${(edited||hEdited)?'<button class="ghost" id="resetT">Put back as written</button>':''}
+      </div>`;
+    el.querySelectorAll('[data-f]').forEach(b=>b.addEventListener('mousedown',e=>{ e.preventDefault(); if(!site||!can) return;
+      const f=b.dataset.f; if(f==='link'){ const u=prompt('Link to (https://… or /page):','https://'); if(!u) return; site.format('createLink',u.trim()); } else site.format(f); }));
+    const h=$('#href'); if(h) h.addEventListener('change',()=>{ const v=h.value.trim();
+      if(v && !/^(https?:\/\/|mailto:|tel:|\/|#)/i.test(v)){ toast('Start it with https://, /, mailto: or tel:'); return; }
+      E.h=E.h||{}; if(!v||v===sel.origHref) delete E.h[sel.key]; else E.h[sel.key]={href:v,was:sel.origHref};
+      if(!Object.keys(E.h).length) delete E.h; site&&site.apply(E); queueSave(); drawChanges(); });
+    $('#doneT').addEventListener('click',()=>{ site&&site.done(); sel=null; drawPicked(); });
+    const r=$('#resetT'); if(r) r.addEventListener('click',()=>resetKey(sel.key));
+    return;
+  }
+  if(sel.kind==='i'){
+    const edited=E.i&&E.i[sel.key];
+    el.innerHTML=`<div class="kick">Photo</div><h3>Swap the <em>photo.</em></h3>
+      <img class="thumb" src="${esc(sel.src)}" alt="" style="margin-top:10px">
+      <div class="row" style="margin-top:10px">
+        <label class="ghost" style="display:inline-block${can?'':';opacity:.35;pointer-events:none'}">Replace photo<input type="file" id="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" hidden></label>
+        ${edited?'<button class="ghost" id="resetI">Put back</button>':''}
+      </div>
+      <div class="lbl">Describe it (for search and screen readers)</div>
+      <input class="field" id="alt" value="${esc(edited&&edited.alt||sel.alt)}"${can?'':' disabled'}>`;
+    $('#file').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) upload(f); });
+    $('#alt').addEventListener('change',e=>{ const cur=(E.i&&E.i[sel.key]); const alt=e.target.value.trim().slice(0,200);
+      E.i=E.i||{}; E.i[sel.key]=Object.assign({src:sel.src,was:sel.origSrc},cur||{},{alt}); site&&site.apply(E); queueSave(); drawChanges(); });
+    const r=$('#resetI'); if(r) r.addEventListener('click',()=>resetKey(sel.key));
+    return;
+  }
+  if(sel.kind==='s'){
+    const hidden=!!(E.x&&E.x[sel.key]);
+    el.innerHTML=`<div class="kick">Section</div><h3>${esc(sel.name)}</h3>
+      <div class="row" style="margin-top:12px">
+        <button class="ghost" id="hideS"${can?'':' disabled'}>${hidden?'Show on the website':'Hide from the website'}</button>
+        <button class="tool" id="upS" title="Move up"${can?'':' disabled'}>↑</button>
+        <button class="tool" id="downS" title="Move down"${can?'':' disabled'}>↓</button>
+      </div>`;
+    $('#hideS').addEventListener('click',()=>{ E.x=E.x||{}; if(hidden) delete E.x[sel.key]; else E.x[sel.key]=1; if(!Object.keys(E.x).length) delete E.x;
+      site&&site.apply(E); queueSave(); drawPicked(); drawSecs(); drawChanges(); });
+    $('#upS').addEventListener('click',()=>moveSec(sel.key,-1));
+    $('#downS').addEventListener('click',()=>moveSec(sel.key,1));
+  }
+}
+function secOrder(){ const all=site?site.sections().map(s=>s.key):[]; const o=(E.o||[]).filter(k=>all.includes(k)); return o.concat(all.filter(k=>!o.includes(k))); }
+function moveSec(key,d){
+  const o=secOrder(), i=o.indexOf(key), j=i+d; if(i<0||j<0||j>=o.length) return;
+  [o[i],o[j]]=[o[j],o[i]];
+  const all=site.sections().map(s=>s.key);
+  if(JSON.stringify(o)===JSON.stringify(all)) delete E.o; else E.o=o;
+  site.apply(E); site.pick(key); queueSave(); drawSecs(); drawChanges();
+}
+function drawSecs(){
+  const el=$('#secs'); if(!el) return;
+  if(!site){ el.innerHTML='<p class="muted">Loading the page…</p>'; return; }
+  const names={}; site.sections().forEach(s=>names[s.key]=s.name);
+  el.innerHTML=secOrder().map(k=>`<div class="item" data-s="${esc(k)}"><span class="t">${esc(names[k]||k)}</span>${
+    E.x&&E.x[k]?'<span class="k" style="color:var(--grey2)">Hidden</span>':''}</div>`).join('');
+  el.querySelectorAll('[data-s]').forEach(r=>r.addEventListener('click',()=>site.pick(r.dataset.s)));
+}
+function drawChanges(){
+  const el=$('#changes'); if(!el) return;
+  const have=site?new Set(site.keys()):null, rows=[];
+  const add=(kind,key,label,text)=>rows.push({kind,key,label,text,stale:have&&!have.has(key)});
+  Object.entries(E.t||{}).forEach(([k,v])=>add('t',k,'Words',v.was||''));
+  Object.entries(E.h||{}).forEach(([k,v])=>add('h',k,'Link',v.href||''));
+  Object.entries(E.i||{}).forEach(([k,v])=>add('i',k,'Photo',v.alt||(site&&site.was(k))||''));
+  Object.keys(E.x||{}).forEach(k=>add('x',k,'Hidden',k.replace(/^sec\./,'')));
+  if(E.o) rows.push({kind:'o',key:'o',label:'Order',text:'Sections moved'});
+  el.innerHTML = rows.length ? rows.map(r=>`<div class="item${r.stale?' stale':''}" title="${r.stale?'The page no longer says this, so this change no longer applies':''}">
+      <span class="k">${r.stale?'Gone':esc(r.label)}</span><span class="t" data-go="${esc(r.key)}">${esc(r.text)}</span>
+      ${S&&S.canEdit?`<button class="x" data-rm="${esc(r.kind)}|${esc(r.key)}" title="Undo this change">×</button>`:''}</div>`).join('')
+    : '<p class="muted">None yet.</p>';
+  el.querySelectorAll('[data-go]').forEach(t=>t.addEventListener('click',()=>{ if(site&&t.dataset.go!=='o') site.pick(t.dataset.go); }));
+  el.querySelectorAll('[data-rm]').forEach(b=>b.addEventListener('click',()=>{ const [kind,key]=b.dataset.rm.split('|');
+    if(kind==='o') delete E.o; else { delete E[kind][key]; if(!Object.keys(E[kind]).length) delete E[kind]; }
+    site&&site.apply(E); queueSave(); drawChanges(); drawSecs(); if(sel&&sel.key===key){ sel=null; drawPicked(); } }));
+}
+function drawHist(){
+  const el=$('#hist'); if(!el) return;
+  const h=(S&&S.history)||[];
+  el.innerHTML = h.length ? h.map(x=>`<div class="item"><span class="t" style="cursor:default">${esc(new Date(x.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</span>
+      ${S.canEdit?`<button class="ghost" style="padding:7px 12px" data-h="${x.i}">Put back</button>`:''}</div>`).join('')
+    : '<p class="muted">Each time you publish, the version before is kept here.</p>';
+  el.querySelectorAll('[data-h]').forEach(b=>b.addEventListener('click',()=>{
+    if(!confirm('Make that version your draft? Nothing changes on the website until you publish.')) return;
+    flush().then(()=>api('POST','/site',{action:'restore',i:Number(b.dataset.h)})).then(d=>{ S=d; load(true); toast('That version is your draft now.'); }).catch(e=>toast(String(e))); }));
+}
+function resetKey(key){
+  ['t','h','i'].forEach(k=>{ if(E[k]){ delete E[k][key]; if(!Object.keys(E[k]).length) delete E[k]; } });
+  site&&site.apply(E); site&&site.done(); sel=null; queueSave(); drawPicked(); drawChanges();
+}
+
+/* a photo: shrunk on this computer first, so a phone's 8 MB picture
+   arrives as a web-sized JPEG */
+function upload(file){
+  const key=sel&&sel.key, was=sel&&sel.origSrc, alt=(E.i&&E.i[key]&&E.i[key].alt)||sel.alt||'';
+  toast('Putting the photo up…');
+  const img=new Image(), url=URL.createObjectURL(file);
+  img.onload=()=>{
+    const max=2000, k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement('canvas'); c.width=Math.round(img.naturalWidth*k); c.height=Math.round(img.naturalHeight*k);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
+    let q=.86, data=c.toDataURL('image/jpeg',q);
+    while(data.length>3.8e6 && q>.5){ q-=.08; data=c.toDataURL('image/jpeg',q); }
+    api('POST','/site/image',{data}).then(d=>{
+      E.i=E.i||{}; E.i[key]={src:d.url,alt,was};
+      site&&site.apply(E); queueSave(); drawChanges(); if(sel&&sel.key===key){ sel.src=d.url; drawPicked(); } toast('Photo swapped. Publish to put it live.');
+    }).catch(e=>toast(String(e)));
+  };
+  img.onerror=()=>{ URL.revokeObjectURL(url); toast('That file would not open as a photo. JPEG or PNG works everywhere.'); };
+  img.src=url;
+}
+
+load();
+</script>
+</body>
+</html>

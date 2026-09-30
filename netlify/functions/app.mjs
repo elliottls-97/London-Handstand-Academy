@@ -1479,6 +1479,28 @@ const handle = async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
   const db = store();
+  /* ── the website's edits, as published ───────────────────────────
+     Asked for by every page view, so it runs before anything else here and
+     the CDN keeps the answer for a minute: a publish shows within that,
+     and a busy day costs a handful of function runs, not one per visit. */
+  if (path === '/site' && request.method === 'GET') {
+    const page = String(url.searchParams.get('page') || '').replace(/[^a-z0-9-]/g, '').slice(0, 40);
+    const live = (await getSetting('site:live').catch(() => null)) || {};
+    return new Response(JSON.stringify({ e: (live.pages || {})[page] || {}, v: live.at || 0 }), { headers: {
+      'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
+      'Netlify-CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=600, durable' } });
+  }
+  /* a photo put on the website from the editor: public, and never changes
+     once made, so it is cached for good */
+  if (path.startsWith('/site/img/') && request.method === 'GET') {
+    const id = path.slice(10).replace(/[^a-zA-Z0-9]/g, '');
+    const got = id ? await db.getWithMetadata(`siteimg:${id}`, { type: 'arrayBuffer' }).catch(() => null) : null;
+    if (!got || !got.data) return new Response('Not found', { status: 404 });
+    return new Response(got.data, { headers: {
+      'Content-Type': (got.metadata && got.metadata.type) || 'image/jpeg',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Netlify-CDN-Cache-Control': 'public, max-age=31536000, immutable, durable' } });
+  }
   /* The coaches added from the dashboard, before anything asks who is who.
      Every route but the two that never mention a coach and are the ones
      under load: /ladder is fetched on every app open and the webhook is
@@ -4637,6 +4659,83 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     await wsOfferFreed(slug, w);
     return json({ ok: true, status: b.status });
   }
+  /* ── the website editor ──────────────────────────────────────────
+     A draft, what is live, and the last fifteen publishes. The edits are
+     laid over the pages by site-edits.js; nothing here touches the page
+     files, so publishing is instant and costs no deploy. Anyone coaching
+     can look; changing the website is the owner's. */
+  const SITE_PAGES = ['home', 'handstand-class'];
+  const siteClean = E => {
+    const K = /^[a-z0-9.-]{1,90}$/i, out = { t: {}, h: {}, i: {}, x: {}, o: [] };
+    const okHref = v => /^(https?:\/\/|mailto:|tel:|\/|#)/i.test(v) && !/^\/\//.test(v);
+    const okSrc = v => /^(https:\/\/|\/api\/app\/site\/img\/|\/?assets\/)/.test(v);
+    for (const [k, v] of Object.entries((E && E.t) || {}).slice(0, 500))
+      if (K.test(k) && v && typeof v.html === 'string') out.t[k] = { html: v.html.replace(/<\/?(script|style|iframe|object|embed)[^>]*>/gi, '').slice(0, 6000), was: String(v.was || '').slice(0, 140) };
+    for (const [k, v] of Object.entries((E && E.h) || {}).slice(0, 200))
+      if (K.test(k) && v && okHref(String(v.href || '').trim())) out.h[k] = { href: String(v.href).trim().slice(0, 500), was: String(v.was || '').slice(0, 500) };
+    for (const [k, v] of Object.entries((E && E.i) || {}).slice(0, 200))
+      if (K.test(k) && v && okSrc(String(v.src || ''))) out.i[k] = { src: String(v.src).slice(0, 500), alt: String(v.alt || '').slice(0, 200), was: String(v.was || '').slice(0, 500) };
+    for (const k of Object.keys((E && E.x) || {}).slice(0, 60)) if (K.test(k) && E.x[k]) out.x[k] = 1;
+    if (Array.isArray(E && E.o)) out.o = E.o.filter(k => K.test(String(k))).slice(0, 60);
+    for (const f of ['t', 'h', 'i', 'x']) if (!Object.keys(out[f]).length) delete out[f];
+    if (!out.o.length) delete out.o;
+    return out;
+  };
+  const siteState = async () => {
+    const [draft, live, hist] = await Promise.all([getSetting('site:draft'), getSetting('site:live'), getSetting('site:history')]);
+    const d = (draft && draft.pages) || (live && live.pages) || {};
+    const l = (live && live.pages) || {};
+    return { draft: d, live: l, at: (live && live.at) || 0, by: (live && live.by) || '',
+      dirty: JSON.stringify(d) !== JSON.stringify(l), pages: SITE_PAGES,
+      history: (Array.isArray(hist) ? hist : []).map((h, i) => ({ i, at: h.at || 0, by: h.by || '' })) };
+  };
+  if (path === '/coach/site') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (request.method === 'GET') return json(Object.assign(await siteState(), { canEdit: await isOwner() }));
+    if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+    if (!(await isOwner())) return json({ error: 'The website is Elliott\'s to change. Ask him and he can do it in a moment.' }, 403);
+    const who = (await realMe()) || 'owner';
+    const act = String(body.action || '');
+    if (act === 'save') {
+      const page = String(body.page || '');
+      if (!SITE_PAGES.includes(page)) return json({ error: 'No such page' }, 400);
+      const edits = siteClean(body.edits || {});
+      if (JSON.stringify(edits).length > 250000) return json({ error: 'That is more than one page can hold.' }, 413);
+      const live = (await getSetting('site:live')) || {};
+      await changeSetting('site:draft', cur => {
+        const pages = Object.assign({}, (cur && cur.pages) || live.pages || {});
+        if (Object.keys(edits).length) pages[page] = edits; else delete pages[page];
+        return { pages, at: Date.now() };
+      });
+    } else if (act === 'publish') {
+      const draft = (await getSetting('site:draft')) || {};
+      const live = (await getSetting('site:live')) || {};
+      if (live.pages) await changeSetting('site:history', cur => [{ pages: live.pages, at: live.at || 0, by: live.by || '' }]
+        .concat(Array.isArray(cur) ? cur : []).slice(0, 15));
+      await setSetting('site:live', { pages: draft.pages || live.pages || {}, at: Date.now(), by: who });
+    } else if (act === 'discard') {
+      const live = (await getSetting('site:live')) || {};
+      await setSetting('site:draft', { pages: live.pages || {}, at: Date.now() });
+    } else if (act === 'restore') {
+      const hist = (await getSetting('site:history')) || [];
+      const h = hist[Number(body.i)];
+      if (!h) return json({ error: 'That version is not there any more.' }, 404);
+      await setSetting('site:draft', { pages: h.pages || {}, at: Date.now() });
+    } else return json({ error: 'Nope' }, 400);
+    return json(Object.assign(await siteState(), { canEdit: true }));
+  }
+  if (path === '/coach/site/image' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json({ error: 'The website is Elliott\'s to change.' }, 403);
+    const m = IMG_DATA.exec(String(body.data || ''));
+    if (!m) return json({ error: 'That is not a JPEG, PNG or WebP' }, 400);
+    const buf = Buffer.from(m[2], 'base64');
+    if (!buf.length || buf.length > IMG_MAX) return json({ error: 'That photo is too large. Under 3 MB.' }, 413);
+    const id = 'w' + newId();
+    await db.set(`siteimg:${id}`, buf, { metadata: { type: m[1], at: Date.now() } });
+    return json({ url: `/api/app/site/img/${id}` });
+  }
+
   if (path === '/coach/wscodes') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const codes = (await getSetting('wscodes')) || {};
