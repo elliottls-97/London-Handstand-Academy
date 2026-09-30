@@ -2251,7 +2251,10 @@ const handle = async (request) => {
          moment as the checkout, often first, and the checkout makes the
          account. Those told the coach nothing had been changed, about a
          purchase that went on to work. */
-      const early = ['customer.subscription.created', 'customer.subscription.updated', 'invoice.paid'].includes(ev.type);
+      /* and a subscription with no account ending or pausing changes
+         nothing: old £5 test subscriptions set it off, with nothing to do */
+      const early = ['customer.subscription.created', 'customer.subscription.updated', 'invoice.paid',
+        'customer.subscription.deleted', 'customer.subscription.paused'].includes(ev.type);
       if (handled.includes(ev.type) && !early) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         'Stripe webhook could not find an account',
         `<p style="font:16px/1.6 system-ui">${esc(ev.type)} for ${esc(e || obj.customer || 'unknown')}${
