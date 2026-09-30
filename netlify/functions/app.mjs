@@ -1235,9 +1235,12 @@ const nudgeMark = (k, stage = 0) =>
    to Cloudflare and never comes through here. */
 /* drills merged or retired (the same list as ladder-data.js): a
    programme saved in the dashboard that names the old one is sent the new */
-const DRILL_ALIAS = { 'p-pike-pushups': 'pike-press-ups', 'scapula-shrugs': 'wall-scapula-shrugs', 'p-bench-zombies-lowers': 'bench-zombies-lowers', 'p-tuck-slides': 'tuck-slides',
+const DRILL_ALIAS = { 'knees-on-box-pushes': 'chair-assisted-handstand-extensions', 'p-pike-pushups': 'pike-press-ups', 'scapula-shrugs': 'wall-scapula-shrugs', 'p-bench-zombies-lowers': 'bench-zombies-lowers', 'p-tuck-slides': 'tuck-slides',
   'p-single-leg-tuck-slides': 'single-leg-tuck-slides', 'lying-crunch-and-contract': 'lying-back-engagements' };
 const drillAlias = v => DRILL_ALIAS[v] || v;
+/* drills taken out altogether: a saved programme that still has one simply
+   does not show it, rather than a row with no name, film or cues */
+const DRILL_RETIRED = new Set(['p-pancake', 'banded-split-pulls']);
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
 /* A one to one session as a calendar entry: an .ics file any calendar opens,
    and a Google Calendar link for the ones that would rather. UTC stamps, so
@@ -3730,7 +3733,7 @@ const handle = async (request) => {
   };
   function hydrateItem(it) {
     const v = drillAlias(String(it && it.v || '').slice(0, 64));
-    if (!v) return null;
+    if (!v || DRILL_RETIRED.has(v)) return null;
     /* The seconds, rest, sets and amount the coach set on this client's row
        were stored and then dropped here, on the way to the app, so tuning
        a client's programme in the builder changed nothing they trained.
