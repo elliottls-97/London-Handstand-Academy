@@ -4666,7 +4666,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      can look; changing the website is the owner's. */
   const SITE_PAGES = ['home', 'handstand-class'];
   const siteClean = E => {
-    const K = /^[a-z0-9.-]{1,90}$/i, out = { t: {}, h: {}, i: {}, x: {}, o: [] };
+    const K = /^[a-z0-9.-]{1,90}$/i, out = { t: {}, h: {}, i: {}, v: {}, x: {}, o: [] };
     const okHref = v => /^(https?:\/\/|mailto:|tel:|\/|#)/i.test(v) && !/^\/\//.test(v);
     const okSrc = v => /^(https:\/\/|\/api\/app\/site\/img\/|\/?assets\/)/.test(v);
     for (const [k, v] of Object.entries((E && E.t) || {}).slice(0, 500))
@@ -4675,9 +4675,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (K.test(k) && v && okHref(String(v.href || '').trim())) out.h[k] = { href: String(v.href).trim().slice(0, 500), was: String(v.was || '').slice(0, 500) };
     for (const [k, v] of Object.entries((E && E.i) || {}).slice(0, 200))
       if (K.test(k) && v && okSrc(String(v.src || ''))) out.i[k] = { src: String(v.src).slice(0, 500), alt: String(v.alt || '').slice(0, 200), was: String(v.was || '').slice(0, 500) };
+    for (const [k, v] of Object.entries((E && E.v) || {}).slice(0, 60))
+      if (K.test(k) && v && /^https:\/\//.test(String(v.src || ''))) out.v[k] = { src: String(v.src).slice(0, 500), was: String(v.was || '').slice(0, 500) };
     for (const k of Object.keys((E && E.x) || {}).slice(0, 60)) if (K.test(k) && E.x[k]) out.x[k] = 1;
     if (Array.isArray(E && E.o)) out.o = E.o.filter(k => K.test(String(k))).slice(0, 60);
-    for (const f of ['t', 'h', 'i', 'x']) if (!Object.keys(out[f]).length) delete out[f];
+    for (const f of ['t', 'h', 'i', 'v', 'x']) if (!Object.keys(out[f]).length) delete out[f];
     if (!out.o.length) delete out.o;
     return out;
   };
@@ -4734,6 +4736,20 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const id = 'w' + newId();
     await db.set(`siteimg:${id}`, buf, { metadata: { type: m[1], at: Date.now() } });
     return json({ url: `/api/app/site/img/${id}` });
+  }
+
+  /* a video for the website, already uploaded to Stream through /upload:
+     its MP4 switched on, which Stream builds in the background */
+  if (path === '/coach/site/video' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json({ error: 'The website is Elliott\'s to change.' }, 403);
+    const uid = String(body.uid || '');
+    if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That is not a Stream video' }, 400);
+    if (process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+      await fetch(`https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/${uid}/downloads`,
+        { method: 'POST', headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } }).catch(() => {});
+    }
+    return json({ url: `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4` });
   }
 
   if (path === '/coach/wscodes') {

@@ -24,9 +24,15 @@
 
   /* ── what counts as something to edit ── */
   var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1, SVG: 1, SELECT: 1, OPTION: 1,
-    TEXTAREA: 1, INPUT: 1, IFRAME: 1, VIDEO: 1, CANVAS: 1, HEAD: 1 };
+    TEXTAREA: 1, INPUT: 1, IFRAME: 1, CANVAS: 1, HEAD: 1 };
   var BLOCK = 'div,p,h1,h2,h3,h4,h5,h6,ul,ol,li,section,article,aside,header,footer,nav,form,table,figure,blockquote,details,summary,dl,dt,dd,img,video,iframe';
   var norm = function (s) { return String(s || '').replace(/\s+/g, ' ').trim(); };
+  /* the words as read: a line break is a space, not nothing */
+  var words = function (el) {
+    var c = el.cloneNode(true);
+    Array.prototype.forEach.call(c.querySelectorAll('br'), function (b) { b.replaceWith(' '); });
+    return norm(c.textContent);
+  };
   var hash = function (s) {
     var h = 2166136261;
     for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -50,9 +56,16 @@
     return '';
   };
 
-  var texts = [], imgs = [], secs = [], byKey = {};
+  var texts = [], imgs = [], vids = [], secs = [], byKey = {};
   var orig = new Map();        /* element -> what it was */
   var touched = new Set();     /* elements an edit has changed */
+  var remember = function (el, o) { orig.set(el, Object.assign(orig.get(el) || {}, o)); };
+  var bgUrl = function (el) { var m = /url\(\s*['"]?([^'")]+)['"]?\s*\)/.exec((el.style && el.style.backgroundImage) || ''); return m ? m[1] : ''; };
+  var vidSrc = function (v) { var s = v.querySelector('source'); return v.getAttribute('src') || (s && s.getAttribute('src')) || ''; };
+  /* a cover photo drawn as a background often stands in front of a video
+     that plays when it is pressed (the team cards): that video is its partner */
+  var partner = function (el) { var p = el.parentElement; if (!p) return null;
+    for (var c = p.firstElementChild; c; c = c.nextElementSibling) if (c.tagName === 'VIDEO') return c; return null; };
 
   function scan() {
     var seen = {};
@@ -64,16 +77,33 @@
         if (src) {
           var k = keyOf('img.' + hash(src));
           imgs.push({ key: k, el: el, lock: lockOf(el) });
-          byKey[k] = el; orig.set(el, { src: src, srcset: el.getAttribute('srcset') });
+          byKey[k] = el; remember(el, { src: src, srcset: el.getAttribute('srcset') });
         }
         return;
       }
+      if (el.tagName === 'VIDEO') {
+        var vs = vidSrc(el);
+        if (vs) {
+          var vk = keyOf('vid.' + hash(vs));
+          vids.push({ key: vk, el: el, lock: lockOf(el) });
+          byKey[vk] = el; remember(el, { vsrc: vs, poster: el.getAttribute('poster') });
+        }
+        return;
+      }
+      /* a photo drawn as a background: the element stays open for the words
+         and photos inside it */
+      var bu = bgUrl(el);
+      if (bu) {
+        var bk = keyOf('bg.' + hash(bu));
+        imgs.push({ key: bk, el: el, lock: lockOf(el), bg: true });
+        byKey[bk] = el; remember(el, { bg: el.style.backgroundImage, bgUrl: bu });
+      }
       if (ownText(el) && !el.querySelector(BLOCK)) {
-        var words = norm(el.textContent);
-        if (words) {
-          var key = keyOf(el.tagName.toLowerCase() + '.' + hash(words));
-          texts.push({ key: key, el: el, was: words.slice(0, 140), lock: lockOf(el), link: el.tagName === 'A' });
-          byKey[key] = el; orig.set(el, { html: el.innerHTML, href: el.getAttribute('href') });
+        var said = words(el);
+        if (said) {
+          var key = keyOf(el.tagName.toLowerCase() + '.' + hash(said));
+          texts.push({ key: key, el: el, was: said.slice(0, 140), lock: lockOf(el), link: el.tagName === 'A' });
+          byKey[key] = el; remember(el, { html: el.innerHTML, href: el.getAttribute('href') });
           return;
         }
       }
@@ -86,13 +116,13 @@
     var sseen = {};
     Array.prototype.forEach.call(list, function (s) {
       var h = s.querySelector('h1,h2,h3,.eyebrow');
-      var base = s.id ? 'sec.' + s.id : 'sec.' + hash(norm(h ? h.textContent : s.textContent).slice(0, 200));
+      var base = s.id ? 'sec.' + s.id : 'sec.' + hash((h ? words(h) : words(s)).slice(0, 200));
       var n = sseen[base] || 0; sseen[base] = n + 1;
       var key = n ? base + '.' + n : base;
       var slot = document.createComment('lha-site-slot');
       s.parentNode.insertBefore(slot, s);
-      secs.push({ key: key, el: s, slot: slot, name: norm(h ? h.textContent : (s.id || 'Section')).slice(0, 60) });
-      byKey[key] = s; orig.set(s, { display: s.style.display });
+      secs.push({ key: key, el: s, slot: slot, name: (h ? words(h) : (s.id || 'Section')).slice(0, 60) });
+      byKey[key] = s; remember(s, { display: s.style.display });
     });
   }
 
@@ -124,6 +154,11 @@
     return t.innerHTML;
   }
   var safeSrc = function (s) { s = String(s || ''); return /^(https:\/\/|\/api\/app\/site\/img\/|\/assets\/|assets\/)/.test(s) ? s : ''; };
+  var setVideo = function (v, src) {
+    var s = v.querySelector('source');
+    if (s) { if (s.getAttribute('src') !== src) { s.setAttribute('src', src); try { v.load(); } catch (e) {} } }
+    else if (v.getAttribute('src') !== src) v.setAttribute('src', src);
+  };
 
   /* lay a set of edits over the page. Only what an edit has touched is
      ever put back, so nothing the page's own scripts changed is undone. */
@@ -143,11 +178,23 @@
       el.setAttribute('href', href); want.add(el);
     });
     Object.keys(im).forEach(function (k) {
-      var el = byKey[k]; if (!el || el.tagName !== 'IMG' || lockOf(el)) return;
+      var el = byKey[k]; if (!el || lockOf(el)) return;
       var src = safeSrc(im[k] && im[k].src); if (!src) return;
-      if (el.getAttribute('src') !== src) { el.removeAttribute('srcset'); el.setAttribute('src', src); }
-      if (im[k].alt) el.setAttribute('alt', String(im[k].alt).slice(0, 200));
+      if (el.tagName === 'IMG') {
+        if (el.getAttribute('src') !== src) { el.removeAttribute('srcset'); el.setAttribute('src', src); }
+        if (im[k].alt) el.setAttribute('alt', String(im[k].alt).slice(0, 200));
+      } else if (orig.get(el).bgUrl) {
+        el.style.backgroundImage = 'url("' + src.replace(/"/g, '%22') + '")';
+        /* the video behind it starts on the same picture */
+        var v = partner(el); if (v && (v.getAttribute('poster') || '') === orig.get(el).bgUrl) v.setAttribute('poster', src);
+      } else return;
       want.add(el);
+    });
+    var vv = E.v || {};
+    Object.keys(vv).forEach(function (k) {
+      var el = byKey[k]; if (!el || el.tagName !== 'VIDEO' || lockOf(el)) return;
+      var src = String((vv[k] && vv[k].src) || ''); if (!/^https:\/\//.test(src)) return;
+      setVideo(el, src); want.add(el);
     });
     secs.forEach(function (s) {
       var hide = !!x[s.key];
@@ -170,6 +217,8 @@
       if (o.html !== undefined && el.innerHTML !== o.html) el.innerHTML = o.html;
       if (o.href !== undefined && o.href !== null) el.setAttribute('href', o.href);
       if (o.src !== undefined && el.getAttribute('src') !== o.src) { el.setAttribute('src', o.src); if (o.srcset) el.setAttribute('srcset', o.srcset); }
+      if (o.bgUrl) { el.style.backgroundImage = o.bg; var pv = partner(el); if (pv) pv.setAttribute('poster', o.bgUrl); }
+      if (o.vsrc) setVideo(el, o.vsrc);
     });
     touched = want;
   }
@@ -181,12 +230,17 @@
     var CK = 'lhaSite:' + PAGE;
     /* last time's edits straight away, so a returning visitor never sees
        the old words flash first; then the current ones */
-    try { var c = JSON.parse(localStorage.getItem(CK) || 'null'); if (c) apply(c); } catch (e) {}
+    var current = null;
+    try { current = JSON.parse(localStorage.getItem(CK) || 'null'); if (current) apply(current); } catch (e) {}
+    /* the page's own scripts set some photos as it loads (the team's
+       headshots and covers): once they have, the edits go back on top */
+    window.addEventListener('load', function () { if (current) apply(current); });
     fetch(API + '?page=' + encodeURIComponent(PAGE), { credentials: 'omit' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d) return;
         var e = d.e || {};
+        current = e;
         apply(e);
         try { if (Object.keys(e).length) localStorage.setItem(CK, JSON.stringify(e)); else localStorage.removeItem(CK); } catch (err) {}
       }).catch(function () {});
@@ -206,21 +260,32 @@
     '[data-lha-hidden]{opacity:.32;position:relative}' +
     '[data-lha-hidden]::before{content:"Hidden on the website";position:absolute;top:12px;left:12px;z-index:50;' +
     'background:#00403d;color:#fff;font:600 12px/1 system-ui;padding:7px 10px;border-radius:999px}' +
-    '[contenteditable="true"]{cursor:text}';
+    '[contenteditable="true"]{cursor:text}' +
+    '[data-lha-v]{cursor:pointer}[data-lha-v]:hover{outline:3px dashed rgba(0,102,99,.6);outline-offset:-3px}' +
+    '#cookieBar,.cookie-bar{display:none!important}';
   document.head.appendChild(style);
   texts.forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-t', ''); if (x.lock) x.el.title = x.lock; });
   imgs.forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-i', ''); if (x.lock) x.el.title = x.lock; });
+  vids.forEach(function (x) { x.el.setAttribute(x.lock ? 'data-lha-lock' : 'data-lha-v', ''); if (x.lock) x.el.title = x.lock; });
 
   var host = null, on = null, onKind = '', onSec = null, typing = null;
   var info = function (kind, rec) {
     var o = orig.get(rec.el) || {};
-    return { kind: kind, key: rec.key, was: rec.was || '', lock: rec.lock || '', link: !!rec.link,
+    var out = { kind: kind, key: rec.key, was: rec.was || '', lock: rec.lock || '', link: !!rec.link,
       href: rec.el.getAttribute('href') || '', origHref: o.href || '', src: rec.el.getAttribute('src') || '',
       origSrc: o.src || '', alt: rec.el.getAttribute('alt') || '', tag: rec.el.tagName.toLowerCase() };
+    if (rec.bg) { out.bg = true; out.src = bgUrl(rec.el); out.origSrc = o.bgUrl; }
+    if (kind === 'v') { out.src = vidSrc(rec.el); out.origSrc = o.vsrc; out.poster = rec.el.getAttribute('poster') || ''; }
+    /* a cover with a video behind it: both can be changed from one click */
+    var pv = rec.bg ? partner(rec.el) : null;
+    if (pv) { var pr = vids.filter(function (x) { return x.el === pv; })[0];
+      if (pr) out.video = { key: pr.key, src: vidSrc(pv), origSrc: (orig.get(pv) || {}).vsrc }; }
+    return out;
   };
   var recOf = function (el) {
     for (var i = 0; i < texts.length; i++) if (texts[i].el === el) return ['t', texts[i]];
     for (var j = 0; j < imgs.length; j++) if (imgs[j].el === el) return ['i', imgs[j]];
+    for (var v = 0; v < vids.length; v++) if (vids[v].el === el) return ['v', vids[v]];
     return null;
   };
   function unselect() {
@@ -262,7 +327,7 @@
       return;
     }
     e.preventDefault(); e.stopPropagation();
-    var el = t.closest('[data-lha-t],[data-lha-i],[data-lha-lock]');
+    var el = t.closest('[data-lha-t],[data-lha-i],[data-lha-v],[data-lha-lock]');
     if (el && el.hasAttribute('data-lha-lock')) { unselect(); host && host.select({ kind: 'lock', lock: el.getAttribute('title') || 'Locked.' }); return; }
     if (el) { select(el); return; }
     var s = secs.filter(function (x) { return x.el.contains(t); })[0];
@@ -293,7 +358,7 @@
     apply: function (E) { var keep = on; apply(E); if (keep && document.contains(keep)) keep.setAttribute('data-lha-on', ''); },
     sections: function () { return secs.map(function (s) { return { key: s.key, name: s.name }; }); },
     keys: function () { return Object.keys(byKey); },
-    was: function (key) { var r = texts.filter(function (x) { return x.key === key; })[0] || imgs.filter(function (x) { return x.key === key; })[0]; return r ? (r.was || (orig.get(r.el) || {}).src || '') : ''; },
+    was: function (key) { var r = texts.concat(imgs, vids).filter(function (x) { return x.key === key; })[0]; var o = r ? orig.get(r.el) || {} : {}; return r ? (r.was || o.src || o.bgUrl || o.vsrc || '') : ''; },
     format: function (cmd, arg) { if (on && on.getAttribute('contenteditable')) { on.focus(); document.execCommand(cmd, false, arg || null); commitText(on); } },
     done: function () { unselect(); },
     reset: function (key) { var el = byKey[key]; if (!el) return; var o = orig.get(el); if (o.html !== undefined) el.innerHTML = o.html; },

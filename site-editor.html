@@ -61,7 +61,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
   padding:10px 16px;font:600 13px/1 var(--sans);box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.on{opacity:1}
 .blocker{position:fixed;inset:0;display:grid;place-items:center;background:#f4f4f5;z-index:9;padding:24px;text-align:center}
-@media(max-width:880px){.work{grid-template-columns:1fr}.side{border-left:0;border-top:1px solid var(--line);max-height:42vh}}
+@media(max-width:880px){.work{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.stage{padding:10px}.frame{min-height:0}.side{border-left:0;border-top:1px solid var(--line);max-height:40vh}.bar{padding:10px 12px;gap:8px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -103,7 +103,7 @@ function api(method, path, body){
   return fetch(API+path,{method,headers:hdr(),body:body?JSON.stringify(body):undefined})
     .then(r=>r.json().catch(()=>({})).then(d=>r.ok?d:Promise.reject(d.error||('The server said '+r.status))));
 }
-const count=e=>['t','h','i','x'].reduce((n,k)=>n+Object.keys((e&&e[k])||{}).length,0)+((e&&e.o&&e.o.length)?1:0);
+const count=e=>['t','h','i','v','x'].reduce((n,k)=>n+Object.keys((e&&e[k])||{}).length,0)+((e&&e.o&&e.o.length)?1:0);
 
 /* ── the bar ── */
 function drawBar(){
@@ -215,18 +215,21 @@ function drawPicked(){
     const r=$('#resetT'); if(r) r.addEventListener('click',()=>resetKey(sel.key));
     return;
   }
+  if(sel.kind==='v'){ el.innerHTML=`<div class="kick">Video</div><h3>Swap the <em>video.</em></h3>${videoBlock(sel.key,sel.src,sel.origSrc)}`; wireVideo(sel.key,sel.origSrc); return; }
   if(sel.kind==='i'){
     const edited=E.i&&E.i[sel.key];
-    el.innerHTML=`<div class="kick">Photo</div><h3>Swap the <em>photo.</em></h3>
+    el.innerHTML=`<div class="kick">${sel.bg?'Cover photo':'Photo'}</div><h3>Swap the <em>${sel.bg?'cover.':'photo.'}</em></h3>
       <img class="thumb" src="${esc(sel.src)}" alt="" style="margin-top:10px">
       <div class="row" style="margin-top:10px">
         <label class="ghost" style="display:inline-block${can?'':';opacity:.35;pointer-events:none'}">Replace photo<input type="file" id="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" hidden></label>
         ${edited?'<button class="ghost" id="resetI">Put back</button>':''}
       </div>
-      <div class="lbl">Describe it (for search and screen readers)</div>
-      <input class="field" id="alt" value="${esc(edited&&edited.alt||sel.alt)}"${can?'':' disabled'}>`;
+      ${sel.bg?'':`<div class="lbl">Describe it (for search and screen readers)</div>
+      <input class="field" id="alt" value="${esc(edited&&edited.alt||sel.alt)}"${can?'':' disabled'}>`}
+      ${sel.video?`<div class="lbl" style="margin-top:16px">The video it plays</div>${videoBlock(sel.video.key,sel.video.src,sel.video.origSrc)}`:''}`;
     $('#file').addEventListener('change',e=>{ const f=e.target.files[0]; if(f) upload(f); });
-    $('#alt').addEventListener('change',e=>{ const cur=(E.i&&E.i[sel.key]); const alt=e.target.value.trim().slice(0,200);
+    if(sel.video) wireVideo(sel.video.key,sel.video.origSrc);
+    if($('#alt')) $('#alt').addEventListener('change',e=>{ const cur=(E.i&&E.i[sel.key]); const alt=e.target.value.trim().slice(0,200);
       E.i=E.i||{}; E.i[sel.key]=Object.assign({src:sel.src,was:sel.origSrc},cur||{},{alt}); site&&site.apply(E); queueSave(); drawChanges(); });
     const r=$('#resetI'); if(r) r.addEventListener('click',()=>resetKey(sel.key));
     return;
@@ -244,6 +247,44 @@ function drawPicked(){
     $('#upS').addEventListener('click',()=>moveSec(sel.key,-1));
     $('#downS').addEventListener('click',()=>moveSec(sel.key,1));
   }
+}
+/* ── a video: to Cloudflare Stream straight from this computer, the way
+   drill films go, then its MP4 switched on ── */
+function videoBlock(key,src,orig){
+  const can=S&&S.canEdit, edited=E.v&&E.v[key];
+  const name=decodeURIComponent(String(src||'').split('/').filter(Boolean).slice(-2).join('/')).slice(0,60);
+  return `<p class="muted" style="margin:0 0 8px;font-size:12.5px;word-break:break-all">${esc(name||'None')}</p>
+    <div class="row">
+      <label class="ghost" style="display:inline-block${can?'':';opacity:.35;pointer-events:none'}">Replace video<input type="file" id="vfile" accept="video/mp4,video/quicktime,video/*" hidden></label>
+      ${edited?'<button class="ghost" id="resetV">Put back</button>':''}
+    </div>
+    <div id="vprog" class="muted" style="margin-top:8px;font-size:12.5px"></div>`;
+}
+function wireVideo(key,orig){
+  const f=$('#vfile'); if(f) f.addEventListener('change',e=>{ const x=e.target.files[0]; if(x) uploadVideo(x,key,orig); });
+  const r=$('#resetV'); if(r) r.addEventListener('click',()=>{ if(E.v){ delete E.v[key]; if(!Object.keys(E.v).length) delete E.v; }
+    site&&site.apply(E); queueSave(); drawPicked(); drawChanges(); });
+}
+function uploadVideo(file,key,was){
+  const out=t=>{ const p=$('#vprog'); if(p) p.textContent=t; };
+  if(file.size>190*1024*1024){ toast('Under 190 MB, please. Trim it or export it smaller.'); return; }
+  out('Opening the upload…');
+  fetch('/api/app/upload',{method:'POST',headers:hdr(),body:JSON.stringify({size:file.size,kind:'website'})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the upload')))
+    .then(d=>new Promise((ok,no)=>{
+      if(!d.uploadURL) return no('Stream did not give an upload address');
+      const x=new XMLHttpRequest(), fd=new FormData(); fd.append('file',file);
+      x.upload.onprogress=e=>{ if(e.lengthComputable) out('Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };
+      x.onload=()=>x.status<300?ok(d.uid):no('The upload stopped ('+x.status+')');
+      x.onerror=()=>no('The upload stopped. Check the connection and try again.');
+      x.open('POST',d.uploadURL); x.send(fd);
+    }))
+    .then(uid=>api('POST','/site/video',{uid}))
+    .then(d=>{ E.v=E.v||{}; E.v[key]={src:d.url,was:was||''};
+      site&&site.apply(E); queueSave(); drawChanges();
+      out('Uploaded. Stream takes a few minutes to prepare it, so it may not play straight away.');
+      toast('Video swapped. Publish to put it live.'); })
+    .catch(e=>{ out(''); toast(String(e)); });
 }
 function secOrder(){ const all=site?site.sections().map(s=>s.key):[]; const o=(E.o||[]).filter(k=>all.includes(k)); return o.concat(all.filter(k=>!o.includes(k))); }
 function moveSec(key,d){
@@ -268,6 +309,7 @@ function drawChanges(){
   Object.entries(E.t||{}).forEach(([k,v])=>add('t',k,'Words',v.was||''));
   Object.entries(E.h||{}).forEach(([k,v])=>add('h',k,'Link',v.href||''));
   Object.entries(E.i||{}).forEach(([k,v])=>add('i',k,'Photo',v.alt||(site&&site.was(k))||''));
+  Object.entries(E.v||{}).forEach(([k,v])=>add('v',k,'Video',decodeURIComponent(String(v.was||'').split('/').pop())));
   Object.keys(E.x||{}).forEach(k=>add('x',k,'Hidden',k.replace(/^sec\./,'')));
   if(E.o) rows.push({kind:'o',key:'o',label:'Order',text:'Sections moved'});
   el.innerHTML = rows.length ? rows.map(r=>`<div class="item${r.stale?' stale':''}" title="${r.stale?'The page no longer says this, so this change no longer applies':''}">
@@ -290,7 +332,7 @@ function drawHist(){
     flush().then(()=>api('POST','/site',{action:'restore',i:Number(b.dataset.h)})).then(d=>{ S=d; load(true); toast('That version is your draft now.'); }).catch(e=>toast(String(e))); }));
 }
 function resetKey(key){
-  ['t','h','i'].forEach(k=>{ if(E[k]){ delete E[k][key]; if(!Object.keys(E[k]).length) delete E[k]; } });
+  ['t','h','i','v'].forEach(k=>{ if(E[k]){ delete E[k][key]; if(!Object.keys(E[k]).length) delete E[k]; } });
   site&&site.apply(E); site&&site.done(); sel=null; queueSave(); drawPicked(); drawChanges();
 }
 
