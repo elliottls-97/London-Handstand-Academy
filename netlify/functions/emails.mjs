@@ -356,6 +356,35 @@ export const EMAILS = {
       "If you cannot make it, reply to this and we will sort it."
     ]
   },
+  "wsOffer": {
+    "name": "Workshop, three days after: the next step",
+    "when": "3 to 4 days after a workshop, to everyone who came and is not a client",
+    "vars": [
+      "name",
+      "title",
+      "session_line"
+    ],
+    "subject": "Keeping what you found on Saturday",
+    "title": "The next step, if you want one.",
+    "paras": [
+      "Most of what changed for you at {title} came from being watched and corrected. A room of twelve gets a few minutes each; that is the limit of a class.",
+      "{session_line}",
+      "Or, if you would rather talk it through first, book a free 15 minute call and I will tell you honestly where I would start you, even if the answer is the free app."
+    ]
+  },
+  "wsLast": {
+    "name": "Workshop, ten days after: one more note",
+    "when": "9 to 12 days after a workshop, to anyone who has not booked a session or a call",
+    "vars": [
+      "name"
+    ],
+    "subject": "One question",
+    "title": "How is it going?",
+    "paras": [
+      "Ten days on from the class: are you still training the drills, or has it gone quiet? Either answer is fine and I would like to know.",
+      "If you are stuck on one thing, reply with a clip and I will tell you what I see. No charge, no catch."
+    ]
+  },
   "wsThanks": {
     "name": "Workshop, the day after",
     "when": "10 to 40 hours after a workshop",

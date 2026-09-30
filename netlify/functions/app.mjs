@@ -4230,6 +4230,44 @@ const handle = async (request) => {
       return json({ error: String(err.message || err) }, 502);
     }
   }
+  /* ── people who booked through Setmore ──────────────────────────
+     The class page still books through Setmore for now, so the people in
+     the room were not in the app: no reminder, no review ask, no follow
+     up, not on any list. Pasted in here (one per line, "email" or
+     "email, name") they become bookings like any other, so everything
+     that runs after a class runs for them too. Never charged, never told. */
+  if (path === '/coach/workshop/attendees' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const slug = wsSlug(body.slug);
+    const w = ((await getSetting('workshops')) || {})[slug];
+    if (!w) return json({ error: 'No such workshop' }, 404);
+    const rows = String(body.list || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(0, 200).map(l => {
+      /* "email, name", "name <email>", or a whole row copied from Setmore */
+      const em = /[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+/.exec(l);
+      if (!em) return null;
+      const e = norm(em[0]);
+      const nm = l.replace(em[0], ' ').replace(/[<>,;"\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+      return { e, nm };
+    }).filter(Boolean);
+    if (!rows.length) return json({ error: 'No email addresses in that' }, 400);
+    let added = 0, had = 0;
+    await changeSetting(`wsbook:${slug}`, cur => {
+      added = 0; had = 0;
+      const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+      for (const r of rows) {
+        if (l.some(x => x.email === r.e && (x.status || 'booked') === 'booked')) { had++; continue; }
+        l.push({ email: r.e, name: r.nm, at: Date.now(), session: 'ext-' + newId(), paid: 0, status: 'booked', source: 'setmore' });
+        added++;
+      }
+      return added ? l : undefined;
+    });
+    for (const r of rows) {
+      try { await ensureAcct(r.e, r.nm); } catch {}
+      await changeSetting(`wsmine:${r.e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(slug)) return undefined; l.push(slug); return l; }).catch(() => {});
+    }
+    return json({ ok: true, added, had, bookings: (await getSetting(`wsbook:${slug}`)) || [] });
+  }
+
   if (path === '/coach/workshops') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('workshops')) || {};

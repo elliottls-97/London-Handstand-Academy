@@ -572,6 +572,7 @@ async function workshopMail(done) {
   done.workshops = { reminded: 0, asked: 0 };
   const row = await supa.row('settings', 'key=eq.workshops&select=value').catch(() => null);
   const all = (row && row.value) || {};
+  const past = await pastClients();
   const now = Date.now();
   for (const w of Object.values(all)) {
     /* not w.live: taking a full workshop off the site is the obvious thing to
@@ -611,6 +612,49 @@ async function workshopMail(done) {
       }
     }
     const hoursSince = (now - at) / 3600e3;
+    /* ── the part that was missing: turning the room into clients ──────
+       The day after asked for a review and stopped. Three days on, everyone
+       who came and is not already a client is offered the next step (a 1-2-1
+       credited to their first month, or the free call); ten days on, anyone
+       who has not taken it is asked how it is going, with a free look at a
+       clip. Each once, and never to somebody on the roster. */
+    if (hoursSince > 60 && hoursSince <= 240) {
+      const roster = new Set((await rosterList()).map(c => c.email));
+      const sessRow = await supa.row('settings', 'key=eq.sessions&select=value').catch(() => null);
+      const sessions = (sessRow && sessRow.value) || [];
+      const tookIt = e => sessions.some(x => x && x.email === e && x.status !== 'cancelled' && x.status !== 'refunded' && ms(x.at) > at);
+      const days = hoursSince / 24;
+      for (const p of book) {
+        const e = norm(p.email);
+        if (roster.has(e) || past[e]) continue;
+        const first = String(p.name || '').split(' ')[0];
+        if (days >= 2.5 && days <= 4) {
+          const key = `wsoffer:${w.slug}:${e}`;
+          if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+            const T = await emailCopy('wsOffer', { name: esc(first), title: esc(w.title),
+              session_line: `The fastest way on is a one to one at OverGravity: sixty minutes on your handstand alone, £80, and if you join coaching within fourteen days it comes off your first month. Book it at <a href="${SITE}/session.html" style="color:#006663">londonhandstandacademy.com/session</a>.` });
+            if (T.off) { done.held = (done.held || 0) + 1; continue; }
+            await email(e, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+              cta: { href: 'https://calendly.com/londonhandstandacademy-info/intro-call', label: 'Book the free call' },
+              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), 'offers');
+            done.workshops.offered = (done.workshops.offered || 0) + 1;
+            await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+          }
+        }
+        if (days >= 9 && days <= 12 && !tookIt(e)) {
+          const key = `wslast:${w.slug}:${e}`;
+          if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+            const T = await emailCopy('wsLast', { name: esc(first) });
+            if (T.off) { done.held = (done.held || 0) + 1; continue; }
+            await email(e, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+              cta: { href: `${SITE}/lha-app.html?go=answer`, label: 'Send a clip' },
+              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), 'offers');
+            done.workshops.nudged = (done.workshops.nudged || 0) + 1;
+            await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+          }
+        }
+      }
+    }
     if (hoursSince > 10 && hoursSince <= 40) {
       for (const p of book) {
         const key = `wsreview:${w.slug}:${p.email}`;
