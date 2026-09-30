@@ -526,7 +526,7 @@ POOL[5]=[
   {v:"p-chest-to-wall", g:"Strength", L:3},
   {v:"chest-to-wall-toe-taps", g:"Strength", L:3},
   {v:"straddle-to-diamond", g:"Shape changes", L:3},
-  {v:"p-pike-pushups", g:"Strength", L:3},
+  {v:"pike-press-ups", g:"Strength", L:3},
   {v:"straddle-leg-lifts", g:"Pancake", L:3},
   {v:"pancake-to-wide-standing", g:"Pancake", L:3},
   {v:"p-pancake", g:"Press", L:3},
