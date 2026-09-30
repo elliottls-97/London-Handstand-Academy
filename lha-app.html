@@ -1302,6 +1302,7 @@ function trackOpen(){
     if(wt){ st.welcomeTok=wt; st.tab='welcomepw'; st.mode='free'; st.quizDone=true; st.joinSkipped=true; save();
       history.replaceState(null,'',location.pathname); }
     /* back from paying for coaching: the Stripe link sends them here */
+    if(q.get('joined')==='coaching'||q.get('paid')==='1'||q.get('bought')==='check'){ st.promo=null; save(); }
     if(q.get('joined')==='coaching'){ st.joinedAt=Date.now(); save(); history.replaceState(null,'',location.pathname);
       setTimeout(joinedLanding, 400); }
     if(q.get('paid')==='1'){ track('subscribed'); st.justPaid=true; save();
@@ -7578,7 +7579,7 @@ function subscriptionHTML(){
               ? 'Your coaching is arranged with '+esc(coachLabel())+' directly rather than through a card on file here, so there is nothing to change on this screen.'
               : 'No subscription found. If you have paid, message '+esc(coachLabel())+'.'}</div>`;
           const amt = subInfo.amount!=null
-            ? '£'+subInfo.amount.toFixed(2)+' a '+subInfo.interval
+            ? '£'+(subInfo.amount%1?subInfo.amount.toFixed(2):String(subInfo.amount))+' a '+subInfo.interval
             : (coachedSub ? '' : PRICE()+' a month');
           if(subInfo.willCancel) return `
             <div style="background:rgba(196,122,86,.1);border-radius:12px;padding:13px 14px;margin-top:10px">
@@ -9615,9 +9616,9 @@ function drawOv(){
     const tr=(st.payTrial!=null ? st.payTrial : PRICE_TRIAL());
     if(st.trialRefused && !isPlus()){
       body=`<div style="text-align:center;padding:14px 0 6px">
-      <div class="h-lg" style="margin-top:6px">That card has had its free week.</div>
+      <div class="h-lg" style="margin-top:6px">${st.trialRefusedWhy==='account'?'This account has had its free week.':'That card has had its free week.'}</div>
       <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">
-        It has been used for a free week before, so a second one has not started and nothing has been
+        It has had a free week before, so a second one has not started and nothing has been
         charged. The whole ladder is ${esc(PRICE('plus'))} a month from the day you start, and you can
         cancel from your account at any time.</div>
       <button class="btn" style="margin-top:22px" onclick="closeOv();openPaywall()">Subscribe, ${esc(PRICE('plus'))} a month</button>
@@ -15936,6 +15937,8 @@ function paywallBody(){
             background:var(--ink);color:#fff;font:600 11.5px/1 var(--sans)">Save ${r.save}%</span>`:''}
         </button>`; }).join('')}
     </div>
+    ${st.promo?`<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;font:500 13px/1.4 var(--sans);color:var(--forest)">
+      Code applied <button class="btn2" style="padding:5px 12px;font-size:12.5px" onclick="st.promo=null;save();drawOv()">Remove</button></div>`:''}
     <div id="payMount" style="margin-top:18px;min-height:96px"></div>
     <div style="font:400 12.5px/1.55 var(--sans);color:var(--grey2);margin-top:14px;text-align:center">
       ${days>0?`Card now, ${esc(price)} ${label} from ${esc(firstCharge())}, and a note comes three days before so nothing is a surprise. `:''}By subscribing you authorise London Handstand Academy to charge you ${esc(price)} ${label} until you cancel.</div>`;
@@ -15991,6 +15994,12 @@ function payMount(){
     .then(r=>r.json())
     .then(d=>{
       if(req!==payReq) return;
+      /* a code that has run out, or is not for the Ladder, is let go of
+         rather than blocking every purchase until sign out */
+      if(d && d.badCode){ st.promo=null; save(); toast(d.error||'That code did not work.'); drawOv(); return; }
+      /* what this checkout actually gives: the app promised a free week
+         the server had already refused */
+      if(d && d.trialDays!=null){ st.payTrial=Number(d.trialDays)||0; if(!st.payTrial) st.trialUsed=true; save(); }
       if(!d || !d.clientSecret || !d.pk) throw new Error((d&&d.error)||'hosted');
       return loadStripeJs().then(()=>Stripe(d.pk).initEmbeddedCheckout({clientSecret:d.clientSecret}))
         .then(co=>{ if(req!==payReq){ try{co.destroy();}catch(e){} return; }
@@ -16011,10 +16020,12 @@ function payHosted(){
   const b=document.querySelector('#payMount .btn'); if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
   fetch(AUTH.checkout,{method:'POST',headers:authed(),
     body:JSON.stringify(Object.assign({plan:'plus',period}, st.promo?{promo:st.promo}:{}))})
-    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start checkout')))
-    .then(d=>{ if(!d.url) throw 'No checkout link came back';
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d&&d.badCode?d:(d.error||'Could not start checkout'))))
+    .then(d=>{ if(d.trialDays!=null){ st.payTrial=Number(d.trialDays)||0; save(); }
+               if(!d.url) throw 'No checkout link came back';
                if(!leaveTo(d.url)) throw 'Your browser blocked the checkout window. Open the app in its own tab and try again.'; })
     .catch(e=>{
+      if(e && e.badCode){ st.promo=null; save(); if(b){ b.disabled=false; b.textContent='Code removed. Go on without it'; } toast(e.error||'That code did not work.'); return; }
       fetch(AUTH.feedback,{method:'POST',headers:authed(),body:JSON.stringify({kind:'bug',
         text:'Checkout for the full ladder did not open: '+String(e), extra:{email:st.email||''}})}).catch(()=>{});
       if(b){ b.disabled=false; b.textContent='Thanks, I will be in touch'; }
@@ -16029,7 +16040,7 @@ function loadEntitlement(){
     .then(d=>{ if(!d) return;
       const was=st.plus, wasIn=st.in, wasFC=st.canCheck, wasTU=!!st.trialUsed, wasCoached=!!st.coached;
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
-      st.trialUsed=!!d.trialUsed; st.trialRefused=!!d.trialRefused;
+      st.trialUsed=!!d.trialUsed; st.trialRefused=!!d.trialRefused; st.trialRefusedWhy=d.trialRefusedWhy||'';
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
@@ -16110,7 +16121,8 @@ function cancelSub(undo){
   };
   /* it said you keep "the Press": the subscription is the whole ladder */
   if(undo) go();
-  else sure('Stop your '+PRICE()+' subscription renewing?\n\nYou keep every stage until the end of the month you have paid for.', 'Stop it renewing', go, true);
+  else if(subInfo && subInfo.status==='trialing') sure('Cancel your free week?\n\nNothing will be charged.', 'Cancel it', go, true);
+  else sure('Stop your '+(st.coached?'coaching':'Ladder')+' renewing?\n\nYou keep it until the end of the month you have paid for.', 'Stop it renewing', go, true);
 }
 function whenEnds(){
   if(!st.cancelAt) return '';
@@ -17018,7 +17030,9 @@ function buyPlan(k){
   /* a payment link made in Stripe rather than a price id: open it with the
      account's email filled in, so the webhook can find the account when the
      money lands */
-  if(planLinks[k] && !st.promo){
+  /* a code held from the Ladder is the Ladder's: it made coaching skip its
+     link, and could make it free */
+  if(planLinks[k]){
     const u=new URL(planLinks[k]);
     /* the email only: a client_reference_id cannot hold an @, and the
        webhook reads that field first, so a mangled one would beat the real
@@ -17029,7 +17043,7 @@ function buyPlan(k){
     return;
   }
   fetch(AUTH.checkout,{method:'POST',headers:authed(),
-    body:JSON.stringify(Object.assign({plan:k}, st.promo?{promo:st.promo}:{}))})
+    body:JSON.stringify({plan:k})})
     .then(r=>r.json())
     .then(d=>{ if(d.url){ if(!leaveTo(d.url)) throw new Error('frame'); } else throw new Error(d.error||''); })
     .catch(()=>{ if(b){ b.disabled=false; b.textContent='Something went wrong, try again'; } });

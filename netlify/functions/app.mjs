@@ -573,12 +573,37 @@ async function stripePromo(code) {
     if (p.max_redemptions && (p.times_redeemed || 0) >= p.max_redemptions) return null;
     const co = p.coupon || {};
     const off = co.percent_off ? `${co.percent_off}% off`
-      : co.amount_off ? `£${(co.amount_off / 100).toFixed(2)} off` : 'a discount';
+      : co.amount_off ? `£${(co.amount_off / 100).toFixed(co.amount_off % 100 ? 2 : 0)} off` : 'a discount';
     const span = co.duration === 'forever' ? 'for as long as you stay'
       : co.duration === 'repeating' ? `for ${co.duration_in_months} months` : 'on your first month';
     return { id: p.id, label: `${off} ${span}` };
   } catch (err) { return null; }
 }
+
+/* ── what a subscription charges, its code taken off ─────────────────
+   The list price was quoted to somebody on a discount: a 100% code was
+   told "After that it is £10 a month", and the Account sheet showed £10
+   as the next payment. A code that has ended by the next charge is not
+   counted. Pence, or null when the subscription carries no price. */
+function subAmount(sub) {
+  if (!sub) return null;
+  const it = sub.items && sub.items.data && sub.items.data[0];
+  const base = Number((it && it.price && it.price.unit_amount) != null ? it.price.unit_amount : (sub.plan && sub.plan.amount));
+  if (!Number.isFinite(base)) return null;
+  const next = Number(sub.trial_end || sub.current_period_end || 0);
+  const ds = [].concat(sub.discount ? [sub.discount] : [],
+    Array.isArray(sub.discounts) ? sub.discounts.filter(d => d && typeof d === 'object') : []);
+  let amt = base;
+  for (const d of ds) {
+    const co = d.coupon || (d.source && d.source.coupon) || null;
+    if (!co || typeof co !== 'object') continue;
+    if (d.end && next && d.end <= next) continue;
+    if (co.percent_off) amt = amt * (1 - Number(co.percent_off) / 100);
+    else if (co.amount_off) amt = amt - Number(co.amount_off);
+  }
+  return Math.max(0, Math.round(amt));
+}
+const penceTxt = p => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
 
 /* Stripe signs the raw body; verify it ourselves rather than trusting
    a webhook that anyone could POST to. */
@@ -1986,6 +2011,8 @@ const handle = async (request) => {
         return json({ ok: true, note: 'session already filed' });
       await ensureAcct(e, nm);
       const amt = sessAmt(obj.amount_total);
+      /* a session that cost nothing on a code is booked, not "paid for: £0" */
+      const sessFree = !(Number(obj.amount_total) > 0);
       /* The account was made and the email said so, with no password and no
          way to set one: they had to find Forgotten it? on the sign in screen.
          Somebody without a password gets the same set-a-password link a
@@ -1993,8 +2020,8 @@ const handle = async (request) => {
       const sessNoPw = !(await hashFor(db, e));
       const sessLink = sessNoPw ? await welcomeLink(e) : '';
       const sentOk = await email(e, `Your ${kind} minute session: sorting the time`,
-        mail({ title: 'Paid. Now the time.', greeting: nm.split(' ')[0] || '',
-          paras: [`Your ${kind} minute session in London is paid for: ${amt}. The room at OverGravity is booked around their timetable, so I check your times against it and confirm within 48 hours.`,
+        mail({ title: sessFree ? 'Booked. Now the time.' : 'Paid. Now the time.', greeting: nm.split(' ')[0] || '',
+          paras: [`Your ${kind} minute session in London is ${sessFree ? 'booked, free on your code' : 'paid for: ' + amt}. The room at OverGravity is booked around their timetable, so I check your times against it and confirm within 48 hours.`,
                   prefs ? `You said: <b>${esc(prefs)}</b>.` : 'Reply to this with the days and times that suit you.',
                   sessNoPw ? `You have an account in the Handstand Ladder app under this address, where your booking is, and we can talk there as well as by email. Your username is ${esc(e)}: choose a password with the button below and you are in.`
                            : 'Your booking is in the Handstand Ladder app under this address, and we can talk there as well as by email.'],
@@ -2004,8 +2031,8 @@ const handle = async (request) => {
       if (!sentOk && mailDown) { await supa.remove('nudges', `key=eq.${enc(sessKey)}`).catch(() => {}); return json({ error: 'email failed, retry' }, 500); }
       try {
         await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
-          text: prefs ? `Thanks, your ${kind} minute session is paid for. You said: "${prefs}". I will check the room at OverGravity against that and come back here with a time within 48 hours. If anything changes, say so here.`
-                      : `Thanks, your ${kind} minute session is paid for. Tell me here which days and times suit you, and I will check the room at OverGravity and come back with a time within 48 hours.` });
+          text: prefs ? `Thanks, your ${kind} minute session is ${sessFree ? 'booked' : 'paid for'}. You said: "${prefs}". I will check the room at OverGravity against that and come back here with a time within 48 hours. If anything changes, say so here.`
+                      : `Thanks, your ${kind} minute session is ${sessFree ? 'booked' : 'paid for'}. Tell me here which days and times suit you, and I will check the room at OverGravity and come back with a time within 48 hours.` });
       } catch {}
       /* the coach who has them, if they are a client; the academy otherwise */
       await coachAlert(e, 'business', { title: (nm || e) + ' paid for a ' + kind + ' minute session', body: 'Set the time on Today.', tag: 'sess:' + e });
@@ -2030,7 +2057,13 @@ const handle = async (request) => {
     }
     const amountOf = o => {
       if (o.amount_total != null) return Number(o.amount_total);
-      if (o.object === 'invoice') return Number(o.amount_paid || o.total || 0);
+      /* the price on the invoice's line, not what a code left of it: a £0
+         coaching invoice matched no plan and was announced as the Ladder */
+      if (o.object === 'invoice') {
+        const ln = o.lines && o.lines.data && o.lines.data[0];
+        const lp = ln && ((ln.price && ln.price.unit_amount) || (ln.plan && ln.plan.amount));
+        return Number(lp || o.amount_paid || o.total || 0);
+      }
       const it = o.items && o.items.data && o.items.data[0];
       return Number((o.plan && o.plan.amount) || (it && it.price && it.price.unit_amount) || 0);
     };
@@ -2047,6 +2080,15 @@ const handle = async (request) => {
       return p; };
     /* the exact plan, kept for what it promises: inperson2 is coaching with
        two London sessions a month, not just coaching */
+    /* what was paid after a code, for the coach: a 100% month looked
+       exactly like a paid one everywhere */
+    const codeNote = o => {
+      const disc = o.object === 'checkout.session' ? Number(o.total_details && o.total_details.amount_discount) || 0
+        : o.object === 'invoice' ? (o.total_discount_amounts || []).reduce((a, x) => a + (Number(x && x.amount) || 0), 0) : 0;
+      if (!(disc > 0)) return '';
+      const paid = o.object === 'invoice' ? Number(o.amount_paid) || 0 : Number(o.amount_total) || 0;
+      return paid > 0 ? `${penceTxt(paid)} paid, ${penceTxt(disc)} off with a code` : 'Free on a code';
+    };
     const variantOf = o => (o.metadata && TIER[o.metadata.plan]) ? o.metadata.plan
       : (o === obj && linkKnown && TIER[viaLink]) ? viaLink : planOf(o);
 
@@ -2234,14 +2276,17 @@ const handle = async (request) => {
           const who = acct.name || (obj.customer_details && obj.customer_details.name) || acct.email;
           await coachAlert(null, 'business', { title: 'Form check bought: ' + who,
             body: acctMade ? `Paid as ${acct.email}, which had no account, so one was made. They may have another.` : 'The clip lands in the queue.', tag: 'fcbought:' + acct.email });
-          if (acctMade && await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-            `Form check bought on a new account: ${acct.email}`,
-            `<p style="font:16px/1.6 system-ui">${esc(acct.email)} paid for a form check with an email that had no account, so one was made for it.
-             If they already had an account under another address, the credit is on this one: move it in the dashboard.</p>`);
+          const fcPaid = Number(obj.amount_total) > 0 ? penceTxt(Number(obj.amount_total)) : 'free on a code';
+          if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+            acctMade ? `Form check bought on a new account: ${acct.email}` : `Form check bought: ${who}`,
+            `<p style="font:16px/1.6 system-ui">${esc(who)} (${esc(acct.email)}) bought a form check, ${esc(fcPaid)}.${acctMade
+              ? ' They paid with an email that had no account, so one was made for it. If they already had an account under another address, the credit is on this one: move it in the dashboard.'
+              : ' The clip lands in the queue.'}</p>`);
         }
         return json({ ok: true, credit: true });
       }
-      if (boughtPlan && (isCheckout || !storedPlan || !storedPlan.plan)) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, variant, at: Date.now() });
+      if (boughtPlan && (isCheckout || !storedPlan || !storedPlan.plan)) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, variant, at: Date.now(),
+        ...(isCheckout ? { paid: Number(obj.amount_total) || 0, ...(codeNote(obj) ? { code: codeNote(obj) } : {}) } : {}) });
       /* each month a plan with London sessions renews, that month's go on
          Today, once per invoice */
       if (ev.type === 'invoice.paid' && obj.billing_reason === 'subscription_cycle' && (LONDON[variant] || 0) > 0
@@ -2296,20 +2341,25 @@ const handle = async (request) => {
           if (obj.id && stripeKey()) { try { const li = await stripe(`/checkout/sessions/${enc(obj.id)}/line_items?limit=3`, null, 'GET');
             product = ((li && li.data) || []).map(x => x.description).filter(Boolean).join(', '); } catch {} }
           const paidTxt = `£${((Number(obj.amount_total) || 0) / 100).toFixed(2).replace(/\.00$/, '')}`;
+          const freeOnCode = !(Number(obj.amount_total) > 0);
           const first = String(acct.name || (obj.customer_details && obj.customer_details.name) || '').split(' ')[0];
           const noPw = !(await hashFor(db, acct.email));
           const link = noPw ? await welcomeLink(acct.email) : '';
           const T = await emailCopy('paidOther', { name: esc(first), amount: esc(paidTxt), product: esc(product || 'your purchase'),
             password_line: noPw ? `Your username is ${esc(acct.email)}. Choose a password with the button below and you can see everything in the app.` : '' });
-          const thanked = await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+          /* £0 on a code was "Thank you. £0 for your purchase has come through" */
+          const parasP = freeOnCode ? T.paras.map(p => p.includes(esc(paidTxt)) ? `Thank you. ${esc(product || 'Your place')} is yours, free on your code.` : p) : T.paras;
+          const thanked = await emailT(T, acct.email, freeOnCode ? 'Thank you: it is yours' : T.subject, mail({ title: freeOnCode ? 'It is yours.' : T.title, greeting: first, paras: parasP,
             cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
-            text: `Thanks${first ? ' ' + first : ''}, your payment for ${product || 'this'} has come through. I will be in touch here within 48 hours about what happens next.` }); } catch {}
-          await coachAlert(null, 'business', { title: 'A payment to file: ' + (acct.name || acct.email), body: `${paidTxt}${product ? ', ' + product : ''}`, tag: 'filed:' + acct.email });
-          await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A payment to file: ${acct.name || acct.email}, ${paidTxt}`,
+            text: freeOnCode ? `Thanks${first ? ' ' + first : ''}, ${product || 'that'} is yours on your code. I will be in touch here within 48 hours about what happens next.`
+                             : `Thanks${first ? ' ' + first : ''}, your payment for ${product || 'this'} has come through. I will be in touch here within 48 hours about what happens next.` }); } catch {}
+          const paidSay = freeOnCode ? 'free on a code' : paidTxt;
+          await coachAlert(null, 'business', { title: 'A payment to file: ' + (acct.name || acct.email), body: `${paidSay}${product ? ', ' + product : ''}`, tag: 'filed:' + acct.email });
+          await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A payment to file: ${acct.name || acct.email}, ${paidSay}`,
             mail({ title: 'A payment the app could not name.',
-              paras: [`<b>${esc(acct.name || acct.email)}</b> (${esc(acct.email)}) paid <b>${esc(paidTxt)}</b>${product ? ' for <b>' + esc(product) + '</b>' : ''}${linkUrl ? ' through ' + esc(linkUrl) : ''}.`,
+              paras: [`<b>${esc(acct.name || acct.email)}</b> (${esc(acct.email)}) ${freeOnCode ? 'got <b>' + esc(product || 'something') + '</b> free on a code' : 'paid <b>' + esc(paidTxt) + '</b>' + (product ? ' for <b>' + esc(product) + '</b>' : '')}${linkUrl ? ' through ' + esc(linkUrl) : ''}.`,
                       thanked ? 'They have an account, have been thanked, and have been told you will be in touch within 48 hours. Nothing has been switched on.'
                               : 'They have an account and a note in their messages in the app saying you will be in touch within 48 hours. The thank you email did not go, so they may not have seen it. Nothing has been switched on.',
                       'Open their account in the dashboard and choose Coaching, or add a 1-2-1. If this link is one you will use again, tell Claude which plan it is so it is filed automatically next time.'],
@@ -2444,12 +2494,15 @@ const handle = async (request) => {
         /* once per checkout: a welcome retried after Resend failed told the
            coach about the same new client again */
         const coachNew = !obj.id || await supa.insertIfAbsent('nudges', { key: `coachnew:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
-        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull, tag: 'coachnew:' + e2 });
+        /* coaching has no free week, so nothing paid can only be a code */
+        const coNote = codeNote(obj) || (!(Number(obj.amount_total) > 0) ? 'Free on a code' : '');
+        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : ''), tag: 'coachnew:' + e2 });
         if (coachNew && await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
           mail({ title: `Someone just bought ${tierFull}.`,
             paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.${
                       london > 0 ? ' Their London session is on Today, waiting for a time.' : ''}`,
-                    boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.'],
+                    boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.',
+                    coNote ? `<b>${esc(coNote)}.</b>` : ''].filter(Boolean),
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
             signoff: { name: 'London Handstand Academy' } }));
         /* somebody who bought from the website has an account and no
@@ -2525,7 +2578,10 @@ const handle = async (request) => {
       const days = (obj.trial_end && obj.trial_start) ? Math.round((obj.trial_end - obj.trial_start) / 86400) : (Number(PRICES.trialDays) || 7);
       const trialTxt = days === 7 ? 'free week' : `free ${days} days`;
       const pr = (obj.items && obj.items.data && obj.items.data[0] && obj.items.data[0].price) || {};
-      const priceTxt = Number(pr.unit_amount) > 0 ? `£${(Number(pr.unit_amount) / 100).toFixed(2).replace(/\.00$/, '')}` : ((PRICES.plus && PRICES.plus.label) || '£10');
+      const due = subAmount(obj);
+      /* a code that makes it free: no charge is coming, so no warning of one */
+      if (due === 0) return json({ ok: true, note: 'nothing will be charged' });
+      const priceTxt = due != null ? penceTxt(due) : Number(pr.unit_amount) > 0 ? penceTxt(Number(pr.unit_amount)) : ((PRICES.plus && PRICES.plus.label) || '£10');
       const T = await emailCopy('trialEnds', { name: esc((clients()[acct.email] || acct.name || '').split(' ')[0] || ''), trial: esc(trialTxt), price: esc(priceTxt) });
       await emailT(T, acct.email, T.subject,
         mail({ title: T.title,
@@ -2552,18 +2608,22 @@ const handle = async (request) => {
        claimed once per subscription and direction now */
     const sidN = obj.subscription || obj.id || '';
     if (acct.plus !== wasPlus && (!sidN || await supa.insertIfAbsent('nudges', { key: `plusnote:${sidN}:${acct.plus ? 'on' : 'off'}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true))) {
-      const planNow = TIER[(((await getSetting(`plan:${acct.email}`)) || {}).plan)] || planOf(obj) || 'plus';
+      const planRow = (await getSetting(`plan:${acct.email}`)) || {};
+      const planNow = TIER[planRow.plan] || planOf(obj) || '';
       const coaching = planNow === 'online' || planNow === 'inner';
       const what = planNow === 'inner' ? 'Inner Circle' : coaching ? 'coaching'
         : `${(PRICES.plus && PRICES.plus.label) || '£10'} ladder`;
-      if (!(coaching && acct.plus)) {
+      /* a plan nothing could name is the coach's to file, and was told so at
+         the checkout: it is not announced as the Ladder */
+      if (planNow && !(coaching && acct.plus)) {
         const title = acct.plus ? `New ${what} subscriber` : coaching ? `${what[0].toUpperCase() + what.slice(1)} subscription ended` : `${what[0].toUpperCase() + what.slice(1)} cancelled`;
-        await coachAlert(null, 'business', { title, body: acct.email || e, tag: 'plus:' + (acct.email || e) });
+        const codeTxt = acct.plus ? (codeNote(obj) || planRow.code || '') : '';
+        await coachAlert(null, 'business', { title, body: (acct.email || e) + (codeTxt ? '. ' + codeTxt : ''), tag: 'plus:' + (acct.email || e) });
         if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
           `${title}: ${acct.email || e}`,
           `<p style="font:16px/1.6 system-ui">${coaching && !acct.plus
             ? 'Their coaching subscription has ended. They are still on the roster: move them to past clients when you are ready.'
-            : `Access is now ${acct.plus ? 'on' : 'off'}.`}</p>`);
+            : `Access is now ${acct.plus ? 'on' : 'off'}.${codeTxt ? ' ' + esc(codeTxt) + '.' : ''}`}</p>`);
       }
     }
     return json({ ok: true });
@@ -3214,6 +3274,27 @@ const handle = async (request) => {
     /* only ever an id this server handed out from /redeem, never raw user
        input, and Stripe rejects anything that is not a live promotion */
     const promo = /^promo_[A-Za-z0-9]+$/.test(String(body.promo || '')) ? String(body.promo) : '';
+    /* Any code went on any plan: a Ladder code made coaching free, because
+       every plan here is a price made on the spot, so Stripe's own "applies
+       to" can never hold a code to one product. A code is for the Ladder
+       unless the code, or its coupon, lists plans in its metadata in Stripe
+       (plans = online, inner, check, or all). */
+    const codeFits = pc => {
+      const md = Object.assign({}, (pc.coupon && pc.coupon.metadata) || (pc.promotion && pc.promotion.coupon && pc.promotion.coupon.metadata) || {}, pc.metadata || {});
+      const listed = String(md.plans || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
+      if (!listed.length) return LADDER_PLANS.includes(planKey);
+      return listed.includes('all') || listed.includes(planKey) || listed.includes(TIER[planKey] || '');
+    };
+    if (promo) {
+      let pc = null;
+      try { pc = await stripe(`/promotion_codes/${enc(promo)}?expand[]=coupon`, null, 'GET'); }
+      catch (err) {
+        if (/no such/i.test(String(err && err.message))) return json({ error: 'That code is not one of ours.', badCode: true }, 400);
+        return json({ error: 'Could not check the code just now. Try again in a moment.' }, 502);
+      }
+      if (!pc || !pc.active) return json({ error: 'That code has run out.', badCode: true }, 400);
+      if (!codeFits(pc)) return json({ error: 'That code is not for this one.', badCode: true }, 400);
+    }
     /* The monthly ladder is sold through a Stripe payment link, which needs
        no price id here, and the link's free week is set in Stripe. Somebody
        who has had their free week is sent here instead, so it has to work
@@ -3272,8 +3353,10 @@ const handle = async (request) => {
            nobody has to type it a second time on the Stripe page. Stripe
            refuses discounts and allow_promotion_codes together, so it is
            one or the other. */
+        /* the code box on Stripe's page is the Ladder's only, for the same
+           reason: a code typed there skips the check above */
         ...(promo ? { 'discounts[0][promotion_code]': promo }
-                  : { allow_promotion_codes: 'true' }),
+                  : LADDER_PLANS.includes(planKey) ? { allow_promotion_codes: 'true' } : {}),
         ...(embedded ? {} : { success_url: `${origin}/lha-app.html?${back}`,
                               cancel_url: `${origin}/lha-app.html?paid=0` }),
       });
@@ -3322,12 +3405,14 @@ const handle = async (request) => {
 
       const item = (sub.items && sub.items.data && sub.items.data[0]) || {};
       const price = item.price || {};
+      const due = subAmount(sub);
       return json({
         status: sub.status,
         renewsAt: (sub.current_period_end || 0) * 1000,
         cancelAt: acct.cancel_at,
         willCancel: !!sub.cancel_at_period_end,
-        amount: price.unit_amount != null ? price.unit_amount / 100 : null,
+        /* the next charge, with any code taken off */
+        amount: due != null ? due / 100 : price.unit_amount != null ? price.unit_amount / 100 : null,
         currency: (price.currency || 'gbp').toUpperCase(),
         interval: (price.recurring && price.recurring.interval) || 'month',
         plus: acct.plus,
@@ -4328,6 +4413,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       return l;
     });
     b.status = refunded ? 'refunded' : 'cancelled';
+    /* the code's use, given back as a refund gives it back: a guest code
+       with one use stayed used up after the place was cancelled */
+    if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
+      if (!c[b.code]) return undefined; c[b.code] = Object.assign({}, c[b.code], { used: Math.max(0, Number(c[b.code].used || 0) - 1) }); return c; }).catch(() => {});
     const book2 = (await getSetting(`wsbook:${slug}`)) || [];
     const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
     await email(who, `Cancelled: ${w.title}`, mail({ title: 'Your place is cancelled.', greeting: String(b.name || '').split(' ')[0],
