@@ -155,11 +155,26 @@ async function guardState() {
   const v = Object.fromEntries(rows.map(r => [r.key, r.value]));
   const past = v.pastclients || {};
   const roster = new Set(parseClients().map(c => c.email));
-  for (const [e, x] of Object.entries(v.roster || {})) { const n = norm(e); if (x === null) roster.delete(n); else roster.add(n); }
-  for (const e of Object.keys(past)) if (past[e]) roster.delete(norm(e));
-  GUARD = { roster, past, off: v.mailoff || {}, g: v.mailguard, coaches: Object.keys(v.coaches || {}).map(norm) };
+  /* the whole list with names and coaches, the way the app builds it: a
+     client who bought coaching on the website is on the stored roster only,
+     and was treated here as a free account, drip emails and all */
+  const list = new Map(parseClients().map(c => [c.email, c]));
+  for (const [e, x] of Object.entries(v.roster || {})) {
+    const n = norm(e);
+    if (x === null) { roster.delete(n); list.delete(n); continue; }
+    roster.add(n);
+    const was = list.get(n) || {};
+    list.set(n, { email: n, name: (x && x.name) || was.name || n, coach: norm((x && x.coach) || was.coach || '') });
+  }
+  for (const e of Object.keys(past)) if (past[e]) { roster.delete(norm(e)); list.delete(norm(e)); }
+  GUARD = { roster, list: [...list.values()], past, off: v.mailoff || {}, g: v.mailguard, coaches: Object.keys(v.coaches || {}).map(norm) };
   GUARD_AT = Date.now();
   return GUARD;
+}
+/* the coaching roster, stored and environment together */
+async function rosterList() {
+  const st = await guardState();
+  return st ? st.list : parseClients();
 }
 async function clientMailAllowed(to, receipt) {
   const t = norm(to);
@@ -257,7 +272,7 @@ export default async () => {
   const accounts = (await supa.rows('accounts', 'select=email,name')) || [];
   /* past coaching clients are sent nothing automatic at all */
   const past = await pastClients();
-  const roster = parseClients().filter(c => !past[c.email]);
+  const roster = (await rosterList()).filter(c => !past[c.email]);
   const known = new Set(roster.map(c => c.email));
   const everyone = roster.concat(
     accounts.filter(a => !known.has(a.email))
@@ -300,7 +315,7 @@ export default async () => {
                comes back within <b>${REVIEW_HOURS} hours</b>.`],
             cta: { href: `${SITE}/lha-app.html`, label: 'Film your test' },
             signoff: { name: coachNameOf(coach) },
-            footnote: 'One clean attempt at each is plenty — five scrappy ones tell us less.',
+            footnote: 'One clean attempt at each is plenty. Five scrappy ones tell us less.',
           }), 'reminders');
         if (ok) {
           await supa.upsert('nudges',
@@ -464,7 +479,7 @@ async function quietFreeAccounts(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',
     'select=email,name,last_seen,first_seen&order=last_seen.desc&limit=1000')) || [];
-  const roster = new Set(parseClients().map(c => c.email).concat(Object.keys(await pastClients())));
+  const roster = new Set((await rosterList()).map(c => c.email).concat(Object.keys(await pastClients())));
   const names = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
   for (const a of rows) {
     if (!a.email || roster.has(a.email)) continue;
@@ -521,7 +536,7 @@ async function firstTenDays(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',
     'select=email,name,first_seen&order=first_seen.desc&limit=300')) || [];
-  const roster = new Set(parseClients().map(c => c.email).concat(Object.keys(await pastClients())));
+  const roster = new Set((await rosterList()).map(c => c.email).concat(Object.keys(await pastClients())));
   for (const a of rows) {
     if (!a.email || roster.has(a.email)) continue;
     const first = ms(a.first_seen); if (!first) continue;

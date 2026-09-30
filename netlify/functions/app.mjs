@@ -950,8 +950,13 @@ async function fcGate(who) {
   if (won) { await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'free' })); return { ok: true, opened: true }; }
   const n = Number(cur.n) || 0;
   if (n <= 0) {
-    return { ok: false, error: `That is your free form check used. Elliott watches every one himself, `
-      + `so there is one with an account. After that they are ${PRICES.check.label} each, or included with coaching.` };
+    /* PRICES lives inside the handler, so reading it here threw and the
+       person was shown an error instead of the offer */
+    const label = (PRICES_STORED && PRICES_STORED.check && PRICES_STORED.check.label) || '£20';
+    return { ok: false, error: Number(cur.bought) > 0
+      ? `That form check has been used. Another is ${label}, or included with coaching.`
+      : `That is your free form check used. Elliott watches every one himself, `
+        + `so there is one with an account. After that they are ${label} each, or included with coaching.` };
   }
   await setSetting(ck, Object.assign({}, cur, { n: n - 1, spentAt: Date.now(), open: true, openedAt: Date.now(), openedWith: 'credit' }));
   return { ok: true, opened: true };
@@ -970,9 +975,9 @@ async function emailCopy(key, vars) {
 }
 /* An automated email switched off in the dashboard is held: not sent, and
    written in the send log as held, so what would have gone is visible. */
-async function emailT(T, to, subject, html, kind) {
+async function emailT(T, to, subject, html, kind, opts) {
   if (T && T.off) { await mailNote(to, subject, kind, false, 'held: switched off in Automated emails'); return false; }
-  return email(to, subject, html, kind);
+  return email(to, subject, html, kind, opts);
 }
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
@@ -1496,9 +1501,32 @@ const handle = async (request) => {
       const won = await supa.insertIfAbsent('nudges', { key: `trialrefuse:${subId}`, stage: 0, sent_at: nowISO() }, 'key')
         .catch(() => true);
       if (!won) return true;
-      try { await stripe(`/subscriptions/${encodeURIComponent(subId)}`, null, 'DELETE'); }
-      catch (err) { console.warn('free week cancel', err && err.message); }
-      await setSetting(`trialrefused:${acct.email}`, { sub: subId, at: Date.now() });
+      /* The cancel comes before anybody is told nothing will be charged. Its
+         failure was only logged, so a subscription Stripe would not stop
+         charged £10 a week later on an account that had been switched off
+         and told it never would be. Now a failed cancel lets go of the
+         refusal and the claim and fails the event: Stripe sends it again and
+         the cancel is tried again, and the coach hears the first time. */
+      let gone = false;
+      try { await stripe(`/subscriptions/${encodeURIComponent(subId)}`, null, 'DELETE'); gone = true; }
+      catch (err) {
+        console.warn('free week cancel', err && err.message);
+        try { const s2 = await stripe(`/subscriptions/${encodeURIComponent(subId)}`, null, 'GET');
+          gone = !!s2 && ['canceled', 'incomplete_expired'].includes(s2.status); } catch {}
+      }
+      if (!gone) {
+        try { await dropSetting(`trialrefused:${subId}`); } catch {}
+        try { await supa.remove('nudges', `key=eq.${enc('trialrefuse:' + subId)}`); } catch {}
+        if (await supa.insertIfAbsent('nudges', { key: `trialrefusefail:${subId}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)) {
+          await coachAlert(null, 'business', { title: 'A second free week could not be cancelled', body: acct.email, tag: 'trialfail:' + acct.email });
+          await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A second free week could not be cancelled: ${acct.email}`,
+            `<p style="font:16px/1.6 system-ui">${esc(acct.email)} started a free week on ${accountHadOne ? 'an account' : 'a card'} that had one before.
+             Stripe would not cancel it (${esc(subId)}), so they have not been told anything yet and the ladder is not switched on.
+             Stripe sends the event again and the cancel is tried again. If it is still running in Stripe tomorrow, cancel it there, or let it run and it switches on when they pay.</p>`);
+        }
+        const err = new Error('the free week could not be cancelled'); err.redeliver = true; throw err;
+      }
+      await setSetting(`trialrefused:${acct.email}`, { sub: subId, at: Date.now(), why: accountHadOne ? 'account' : 'card' });
       if (!(await getSetting(`trialused:${acct.email}`))) await setSetting(`trialused:${acct.email}`, { at: Date.now(), from: accountHadOne ? 'account' : 'card' });
       const first = String(acct.name || '').split(' ')[0];
       await email(acct.email, 'Your free week',
@@ -1507,16 +1535,16 @@ const handle = async (request) => {
           paras: [accountHadOne
                   ? 'Your account has already had a free week on the Handstand Ladder, so a second one has not started. Nothing has been charged and nothing will be.'
                   : 'The card you used has already had a free week on the Handstand Ladder, so a second one has not started. Nothing has been charged and nothing will be.',
-                  `The whole ladder is still yours whenever you want it: ${esc((PRICES.plus && PRICES.plus.label) || '£5')} a month from the day you start, and you can cancel from the app at any time.`],
+                  `The whole ladder is still yours whenever you want it: ${esc((PRICES.plus && PRICES.plus.label) || '£10')} a month from the day you start, and you can cancel from the app at any time.`],
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-          signoff: { name: 'London Handstand Academy' } }));
+          signoff: { name: 'London Handstand Academy' } }), undefined, { receipt: true });
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A second free week refused: ${acct.email}`,
         `<p style="font:16px/1.6 system-ui">${esc(acct.email)} started a free week ${accountHadOne
           ? 'on an account that had one before'
           : 'on a card that had one before (' + esc((seen && (seen.email || seen.customer)) || 'an earlier subscription') + ')'}.
          It was cancelled before any charge and they were told why.</p>`);
       return true;
-    } catch (err) { console.warn('free week card check', err && err.message); return false; }
+    } catch (err) { if (err && err.redeliver) throw err; console.warn('free week card check', err && err.message); return false; }
   };
 
   /* A Stripe payment link is the other way in. Elliott makes those in the
@@ -1553,6 +1581,40 @@ const handle = async (request) => {
     inperson: 'online', inperson2: 'online', inperson4: 'online', inner: 'inner', inneronline: 'inner' };
   /* London sessions a month that come with a plan */
   const LONDON = { inperson: 1, inperson2: 2, inperson4: 4, inner: 1 };
+  /* what somebody is paying for, in words: the coach was told every
+     cancellation was "their £5 subscription", coaching included */
+  const planName = async who => {
+    const p = TIER[(((await getSetting(`plan:${who}`)) || {}).plan)] || 'plus';
+    return p === 'inner' ? 'Inner Circle' : p === 'online' ? 'coaching' : `${(PRICES.plus && PRICES.plus.label) || '£10'} Ladder`;
+  };
+  /* ── a subscription stopped, or started again, from renewing ─────────
+     Said once whichever way it happened: the app's own button, or Stripe's
+     page, which told nobody. The last state told is kept, so the app's
+     request and the event Stripe sends about it are one notice, and a
+     change of mind is a second. */
+  const renewNote = async (who, subId, stopping, endMs, trialing) => {
+    if (!who || !subId) return;
+    let changed = false;
+    const want = stopping ? 'stop' : 'resume';
+    await changeSetting(`renewstate:${subId}`, cur => {
+      changed = false;
+      if ((cur && cur.s) === want || (!cur && !stopping)) return undefined;
+      changed = true; return { s: want, at: Date.now() };
+    }).catch(() => { changed = true; });
+    if (!changed) return;
+    const what = await planName(who);
+    const nm = clients()[who] || ((await getAcct(who)) || {}).name || who;
+    const end = endMs ? new Date(endMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : '';
+    const title = stopping ? `${nm} stopped their ${what} renewing` : `${nm} turned their ${what} back on`;
+    const body = !stopping ? 'It renews as normal again.'
+      : trialing ? 'It was their free week, so nothing will be charged.'
+      : what === 'coaching' || what === 'Inner Circle'
+        ? `It ends${end ? ' on ' + end : ' at the end of the paid month'}. They stay on the roster until you move them to past clients.`
+        : `It ends${end ? ' on ' + end : ' at the end of the paid month'} and will not charge again.`;
+    await coachAlert(null, 'business', { title, body, tag: 'renew:' + who });
+    if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, title,
+      `<p style="font:16px/1.6 system-ui">${esc(who)}. ${esc(body)}</p>`);
+  };
 
   if (path === '/stripe/webhook' && request.method === 'POST') {
     const raw = await request.text();
@@ -1579,7 +1641,12 @@ const handle = async (request) => {
         linkUrl = String((pl && pl.url) || '');
         viaLink = LINK_KEY[linkNorm(linkUrl)] || '';
         linkKnown = !!linkUrl;
-      } catch (err) { console.warn('payment link lookup', err && err.message); }
+      } catch (err) {
+        /* guessing from the amount welcomed £250 of coaching as the Inner
+           Circle; failing lets Stripe send it again when Stripe answers */
+        console.warn('payment link lookup', err && err.message);
+        return json({ error: 'payment link lookup failed' }, 503);
+      }
     }
 
     /* ── a refund made in Stripe ─────────────────────────────────────
@@ -1679,9 +1746,13 @@ const handle = async (request) => {
         }
         /* ── a form check credit ── */
         if (cs && full) {
-          const had = await supa.row('nudges', `key=eq.${enc('credit:' + cs)}&select=key`).catch(() => null);
+          /* the account the credit went on, kept when it was bought: the
+             card's email is often not the account's, and then the refund
+             took nothing back and told nobody */
+          const cof = await getSetting(`creditof:${cs}`).catch(() => null);
+          const had = cof || await supa.row('nudges', `key=eq.${enc('credit:' + cs)}&select=key`).catch(() => null);
           if (had) {
-            const who = norm((obj.billing_details && obj.billing_details.email) || obj.receipt_email || '');
+            const who = norm((cof && cof.email) || (obj.billing_details && obj.billing_details.email) || obj.receipt_email || '');
             if (who) {
               let took = false;
               await changeSetting(`fccredits:${who}`, cur => { took = false; const c = Object.assign({}, cur || {});
@@ -2002,9 +2073,11 @@ const handle = async (request) => {
        payment found no account, so there was no client, no welcome and no
        email, and the buyer heard nothing. Coaching makes the account, with
        no password: the welcome email says how to set one by code. */
+    let acctMade = false;
     if (!acct && (e || custEmail) && (ev.type === 'checkout.session.completed' || ['online', 'inner'].includes(planOf(obj)))) {
       const nmNew = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
       acct = await ensureAcct(e || custEmail, nmNew);
+      acctMade = !!acct;
     }
     /* writing {plus:true} into a key with no account behind it would create a
        stub with no password and lock the real person out */
@@ -2012,7 +2085,12 @@ const handle = async (request) => {
       const handled = ['checkout.session.completed', 'customer.subscription.created', 'customer.subscription.updated',
         'customer.subscription.deleted', 'customer.subscription.paused', 'invoice.paid', 'invoice.payment_failed',
         'customer.subscription.trial_will_end'];
-      if (handled.includes(ev.type)) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      /* Stripe sends the subscription and the first invoice at the same
+         moment as the checkout, often first, and the checkout makes the
+         account. Those told the coach nothing had been changed, about a
+         purchase that went on to work. */
+      const early = ['customer.subscription.created', 'customer.subscription.updated', 'invoice.paid'].includes(ev.type);
+      if (handled.includes(ev.type) && !early) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         'Stripe webhook could not find an account',
         `<p style="font:16px/1.6 system-ui">${esc(ev.type)} for ${esc(e || obj.customer || 'unknown')}${
           amountOf(obj) ? ', ' + esc(String(obj.currency || 'gbp').toUpperCase()) + ' ' + (amountOf(obj) / 100).toFixed(2) : ''}${
@@ -2020,6 +2098,23 @@ const handle = async (request) => {
       return json({ ok: true, note: 'no account matched' });
     }
     const wasPlus = !!acct.plus;
+    /* the London sessions a plan includes, each its own row on Today, once
+       per payment that bought them: two- and four-session plans put one
+       on, once, and a renewal put on none */
+    const addLondon = async (who, name, n, from, variant) => {
+      let added = 0;
+      await changeSetting('sessions', cur => {
+        added = 0;
+        const l = Array.isArray(cur) ? cur.slice() : [];
+        if (l.some(x => x.email === who && x.fromPlan === from)) return undefined;
+        const rows = Array.from({ length: n }, (_, i) => ({ id: 's' + newId(), email: who, name: name || '', kind: '60', prefs: '', at: Date.now(),
+          session: '', paid: 0, status: 'toArrange', when: '', place: 'OverGravity, Shadwell',
+          note: `Monthly London session${n > 1 ? ` ${i + 1} of ${n}` : ''}, with ${TIER[variant] === 'inner' ? 'the Inner Circle' : 'coaching'}`, fromPlan: from }));
+        added = n;
+        return rows.concat(l).slice(0, 400);
+      });
+      return added;
+    };
     const on  = ['checkout.session.completed', 'customer.subscription.created',
                  'customer.subscription.updated', 'invoice.paid'];
     /* A failed payment is not a cancelled subscription. Stripe keeps a
@@ -2038,7 +2133,30 @@ const handle = async (request) => {
       /* a free week already refused: nothing that arrives after it (an
          update, a late invoice) switches the account on */
       const sidEarly = obj.subscription || (ev.type.startsWith('customer.subscription') ? obj.id : '');
-      if (sidEarly && await getSetting(`trialrefused:${sidEarly}`)) return json({ ok: true, refused: true });
+      if (sidEarly && await getSetting(`trialrefused:${sidEarly}`)) {
+        /* Refused, and charged anyway: the cancel never took. They have
+           paid, so they get what they paid for and the coach is told. */
+        if (!(ev.type === 'invoice.paid' && Number(obj.amount_paid) > 0)) return json({ ok: true, refused: true });
+        if (await supa.insertIfAbsent('nudges', { key: `refusedpaid:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)) {
+          const paidR = `£${((Number(obj.amount_paid) || 0) / 100).toFixed(2).replace(/\.00$/, '')}`;
+          await coachAlert(null, 'business', { title: 'A refused free week was charged', body: `${acct.email}, ${paidR}`, tag: 'refusedpaid:' + acct.email });
+          await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A refused free week was charged: ${acct.email}`,
+            `<p style="font:16px/1.6 system-ui">${esc(acct.email)} was refused a second free week, but Stripe charged ${esc(paidR)} for it anyway (${esc(sidEarly)}).
+             The ladder is switched on for them, since they have paid. Refund it in Stripe if you would rather they were not charged.</p>`);
+        }
+        try { await dropSetting(`trialrefused:${sidEarly}`); } catch {}
+      }
+      /* A Ladder that coaching stopped is not the account's subscription any
+         more. Its "will not renew" update took over the coaching client's
+         subscription id, so the Account sheet showed the £10 Ladder
+         cancelling and Resume restarted it on top of coaching. */
+      if (sidEarly && await getSetting(`ladderstopped:${sidEarly}`)) return json({ ok: true, note: 'a ladder that coaching stopped' });
+      const isCheckout = ev.type === 'checkout.session.completed';
+      const planStored = (await getSetting(`plan:${acct.email}`)) || {};
+      if (!isCheckout && sidEarly && acct.subscription && sidEarly !== acct.subscription
+          && planOf(obj) === 'plus' && ['online', 'inner'].includes(TIER[planStored.plan])) {
+        return json({ ok: true, note: 'a ladder subscription on a coaching account' });
+      }
       const status = obj.status || 'active';
       const plusBefore = !!acct.plus;
       acct.plus = !['canceled', 'unpaid', 'incomplete_expired'].includes(status);
@@ -2047,13 +2165,21 @@ const handle = async (request) => {
       else if (ev.type.startsWith('customer.subscription') && obj.id) acct.subscription = obj.id;
       if (obj.cancel_at_period_end != null) acct.cancel_at = obj.cancel_at_period_end
         ? iso((obj.current_period_end || 0) * 1000) : null;
+      /* the customer the account had before this event, so a Ladder on it
+         is found when coaching stops the Ladder */
+      const prevCus = acct.stripe_customer || '';
       if (obj.customer) acct.stripe_customer = obj.customer;
+      /* renewal switched off or back on in Stripe's own page told nobody */
+      const prevAttr = (ev.data && ev.data.previous_attributes) || {};
+      if (ev.type === 'customer.subscription.updated' && Object.prototype.hasOwnProperty.call(prevAttr, 'cancel_at_period_end')
+          && !!prevAttr.cancel_at_period_end !== !!obj.cancel_at_period_end) {
+        await renewNote(acct.email, obj.id, !!obj.cancel_at_period_end, (Number(obj.current_period_end) || 0) * 1000, obj.status === 'trialing');
+      }
       /* which product they are on, so the app can tell a ladder subscriber
          from a coached client without asking Stripe again */
       /* the plan: from the metadata a checkout session carries, or, for a
          payment link that carries none, from what was paid */
-      const isCheckout = ev.type === 'checkout.session.completed';
-      const storedPlan = isCheckout ? null : ((await getSetting(`plan:${acct.email}`)) || {});
+      const storedPlan = isCheckout ? null : planStored;
       /* a renewal is the plan the checkout filed, not a fresh guess from its
          amount: the £250 two-sessions plan renewed as the Inner Circle */
       const boughtPlan = (!isCheckout && storedPlan && TIER[storedPlan.plan]) ? TIER[storedPlan.plan] : planOf(obj);
@@ -2065,27 +2191,80 @@ const handle = async (request) => {
          switched the whole ladder on for the price of one clip. */
       if (boughtPlan === 'check') {
         acct.plus = plusBefore;
-        /* one credit per checkout: a redelivered event gave a second credit
-           and a second email every time */
-        const credWon = !obj.id || await supa.insertIfAbsent('nudges', { key: `credit:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
-        if (ev.type === 'checkout.session.completed' && credWon) {
-          const ck = `fccredits:${acct.email}`;
-          const cur = (await getSetting(ck)) || {};
-          await setSetting(ck, { n: (Number(cur.n) || 0) + 1, bought: (Number(cur.bought) || 0) + 1, at: Date.now() });
-          const first = String(acct.name || '').split(' ')[0];
-          const T = await emailCopy('checkCredit', { name: esc(first) });
-          await emailT(T, acct.email, T.subject,
-            mail({ title: T.title,
-              greeting: first,
-              paras: T.paras,
-              cta: await (async () => (await hashFor(db, acct.email))
-                ? { href: `${SITE}/lha-app.html?go=answer`, label: 'Send the clip' }
-                : { href: await welcomeLink(acct.email), label: 'Choose a password' })(),
-              signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
+        if (ev.type !== 'checkout.session.completed') return json({ ok: true, credit: false });
+        /* a checkout can complete before the money has: nothing is given
+           until it is there */
+        if (!csPaid(obj)) return json({ ok: true, note: 'form check payment still pending' });
+        /* The credit is once per checkout by itself, changed in place. The
+           claim used to come first, so a write that failed after it lost a
+           paid check for good; and the credit was written whole, which wiped
+           the flag on a check that was open. */
+        const ck = `fccredits:${acct.email}`;
+        await changeSetting(ck, cur => {
+          const c = Object.assign({}, cur || {});
+          const ids = Array.isArray(c.ids) ? c.ids : [];
+          if (obj.id && ids.includes(obj.id)) return undefined;
+          c.n = (Number(c.n) || 0) + 1; c.bought = (Number(c.bought) || 0) + 1; c.at = Date.now();
+          c.ids = ids.concat(obj.id ? [obj.id] : []).slice(-40);
+          return c;
+        });
+        /* which account it went on, for a refund to find */
+        if (obj.id) { try { await setSetting(`creditof:${obj.id}`, { email: acct.email, at: Date.now() }); } catch {} }
+        /* the email, once per checkout, and given back if Resend fails */
+        const credKey = `credit:${obj.id || ''}`;
+        const credWon = !obj.id || await supa.insertIfAbsent('nudges', { key: credKey, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
+        if (credWon) {
+          const first = String(acct.name || (obj.customer_details && obj.customer_details.name) || '').split(' ')[0];
+          try {
+            const T = await emailCopy('checkCredit', { name: esc(first) });
+            await emailT(T, acct.email, T.subject,
+              mail({ title: T.title,
+                greeting: first,
+                paras: T.paras,
+                cta: await (async () => (await hashFor(db, acct.email))
+                  ? { href: `${SITE}/lha-app.html?go=answer`, label: 'Send the clip' }
+                  : { href: await welcomeLink(acct.email), label: 'Choose a password' })(),
+                signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
+            if (mailDown) throw new Error('the form check email did not go: Resend failed');
+          } catch (err) { if (obj.id) { try { await supa.remove('nudges', `key=eq.${enc(credKey)}`); } catch {} } throw err; }
+          /* in the chat too, where the clip will be sent */
+          try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
+            text: `Thanks${first ? ' ' + first : ''}, your form check is ready. Film from the side, whole body in frame, and send the clip here.` }); } catch {}
+          /* the coach was never told a check had been bought */
+          const who = acct.name || (obj.customer_details && obj.customer_details.name) || acct.email;
+          await coachAlert(null, 'business', { title: 'Form check bought: ' + who,
+            body: acctMade ? `Paid as ${acct.email}, which had no account, so one was made. They may have another.` : 'The clip lands in the queue.', tag: 'fcbought:' + acct.email });
+          if (acctMade && await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+            `Form check bought on a new account: ${acct.email}`,
+            `<p style="font:16px/1.6 system-ui">${esc(acct.email)} paid for a form check with an email that had no account, so one was made for it.
+             If they already had an account under another address, the credit is on this one: move it in the dashboard.</p>`);
         }
         return json({ ok: true, credit: true });
       }
       if (boughtPlan && (isCheckout || !storedPlan || !storedPlan.plan)) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, variant, at: Date.now() });
+      /* each month a plan with London sessions renews, that month's go on
+         Today, once per invoice */
+      if (ev.type === 'invoice.paid' && obj.billing_reason === 'subscription_cycle' && (LONDON[variant] || 0) > 0
+          && ['online', 'inner'].includes(boughtPlan)) {
+        const nL = LONDON[variant];
+        if (await addLondon(acct.email, acct.name || clients()[acct.email] || '', nL, obj.id || ('inv' + Date.now()), variant)) {
+          await coachAlert(acct.email, 'business', { title: `London session${nL > 1 ? 's' : ''} to arrange: ${acct.name || acct.email}`,
+            body: `Their ${variant === 'inner' ? 'Inner Circle' : 'coaching'} renewed. ${nL} on Today, waiting for a time.`, tag: 'london:' + acct.email });
+        }
+      }
+      /* the free week turning into a paid month told the coach nothing */
+      if (ev.type === 'invoice.paid' && obj.billing_reason === 'subscription_cycle' && Number(obj.amount_paid) > 0
+          && boughtPlan === 'plus' && obj.subscription) {
+        const tnote = await getSetting(`trialused:${acct.email}`);
+        if (tnote && tnote.sub === obj.subscription
+            && await supa.insertIfAbsent('nudges', { key: `firstpaid:${obj.subscription}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)) {
+          const paidF = `£${((Number(obj.amount_paid) || 0) / 100).toFixed(2).replace(/\.00$/, '')}`;
+          await coachAlert(null, 'business', { title: `Free week to paid: ${acct.name || acct.email}`, body: `${paidF}, first payment for the Ladder.`, tag: 'firstpaid:' + acct.email });
+          if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+            `Free week to paid: ${acct.name || acct.email}`,
+            `<p style="font:16px/1.6 system-ui">${esc(acct.email)} kept the Ladder after their free week. ${esc(paidF)} has been paid.</p>`);
+        }
+      }
       /* the free week has been had: started, or skipped by paying. /checkout
          reads this so a cancelled week cannot be started again */
       const noteBefore = await getSetting(`trialused:${acct.email}`);
@@ -2122,16 +2301,17 @@ const handle = async (request) => {
           const link = noPw ? await welcomeLink(acct.email) : '';
           const T = await emailCopy('paidOther', { name: esc(first), amount: esc(paidTxt), product: esc(product || 'your purchase'),
             password_line: noPw ? `Your username is ${esc(acct.email)}. Choose a password with the button below and you can see everything in the app.` : '' });
-          await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+          const thanked = await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
             cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-            signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+            signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
             text: `Thanks${first ? ' ' + first : ''}, your payment for ${product || 'this'} has come through. I will be in touch here within 48 hours about what happens next.` }); } catch {}
           await coachAlert(null, 'business', { title: 'A payment to file: ' + (acct.name || acct.email), body: `${paidTxt}${product ? ', ' + product : ''}`, tag: 'filed:' + acct.email });
           await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A payment to file: ${acct.name || acct.email}, ${paidTxt}`,
             mail({ title: 'A payment the app could not name.',
               paras: [`<b>${esc(acct.name || acct.email)}</b> (${esc(acct.email)}) paid <b>${esc(paidTxt)}</b>${product ? ' for <b>' + esc(product) + '</b>' : ''}${linkUrl ? ' through ' + esc(linkUrl) : ''}.`,
-                      'They have an account, have been thanked, and have been told you will be in touch within 48 hours. Nothing has been switched on.',
+                      thanked ? 'They have an account, have been thanked, and have been told you will be in touch within 48 hours. Nothing has been switched on.'
+                              : 'They have an account and a note in their messages in the app saying you will be in touch within 48 hours. The thank you email did not go, so they may not have seen it. Nothing has been switched on.',
                       'Open their account in the dashboard and choose Coaching, or add a 1-2-1. If this link is one you will use again, tell Claude which plan it is so it is filed automatically next time.'],
               cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
         }
@@ -2155,13 +2335,19 @@ const handle = async (request) => {
           const first = String(acct.name || (obj.customer_details && obj.customer_details.name) || '').split(' ')[0];
           const noPw = !(await hashFor(db, acct.email));
           const link = noPw ? await welcomeLink(acct.email) : '';
-          const trial = obj.mode === 'subscription' && !(Number(obj.amount_total) > 0);
+          /* a £0 total was read as a free week, so a 100% code with no
+             trial was welcomed to one; the subscription says which it is */
+          let trial = obj.mode === 'subscription' && !(Number(obj.amount_total) > 0);
+          if (obj.subscription && stripeKey()) {
+            try { const sb = await stripe(`/subscriptions/${enc(obj.subscription)}`, null, 'GET');
+              if (sb && sb.status) trial = sb.status === 'trialing'; } catch {}
+          }
           const T = await emailCopy('welcomeLadder', { name: esc(first),
             password_line: noPw ? `Your username is ${esc(acct.email)}. Choose a password with the button below and you are in.` : '',
             trial_line: trial ? 'Your free week has started. A reminder comes three days before the first charge, and you can cancel from the app before then.' : '' });
           await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
             cta: noPw ? { href: link, label: 'Choose your password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-            signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
+            signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (mailDown) throw new Error('the welcome email did not go: Resend failed');
         } catch (err) { await unclaimWelcome(); throw err; }
       }
@@ -2175,15 +2361,22 @@ const handle = async (request) => {
       if (['online', 'inner'].includes(boughtPlan) && isCheckout && stripeKey()) {
         try {
           const keep = String(obj.subscription || '');
-          const custs = new Set([acct.stripe_customer, obj.customer].filter(Boolean));
+          const custs = new Set([prevCus, acct.stripe_customer, obj.customer].filter(Boolean));
           try { const cl = await stripe(`/customers?email=${enc(acct.email)}&limit=10`, null, 'GET');
             ((cl && cl.data) || []).forEach(c => custs.add(c.id)); } catch {}
+          /* the list above matches the email exactly, case and all; the
+             search does not care about case */
+          try { const sr = await stripe(`/customers/search?query=${enc(`email:'${acct.email}'`)}&limit=10`, null, 'GET');
+            ((sr && sr.data) || []).forEach(c => custs.add(c.id)); } catch {}
           const stopped = [];
           for (const cu of custs) {
             const subs = await stripe(`/subscriptions?customer=${enc(cu)}&status=all&limit=20`, null, 'GET').catch(() => null);
             for (const sb of ((subs && subs.data) || [])) {
               if (sb.id === keep || !['active', 'trialing', 'past_due'].includes(sb.status) || sb.cancel_at_period_end) continue;
               if (planOf(sb) !== 'plus') continue;
+              /* noted first, so the events this sends are not read as the
+                 account's own subscription changing */
+              await setSetting(`ladderstopped:${sb.id}`, { email: acct.email, at: Date.now() });
               if (sb.status === 'trialing') await stripe(`/subscriptions/${enc(sb.id)}`, null, 'DELETE');
               else await stripe(`/subscriptions/${enc(sb.id)}`, { cancel_at_period_end: 'true' });
               stopped.push(sb);
@@ -2195,6 +2388,14 @@ const handle = async (request) => {
             try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
               text: `Coaching includes the whole Ladder, so I have stopped your separate Ladder subscription. ${endTxt}` }); } catch {}
             await coachAlert(acct.email, 'business', { title: 'Ladder stopped for ' + (acct.name || acct.email), body: 'They moved to coaching; the £10 no longer renews.', tag: 'ladderstop:' + acct.email });
+          }
+          /* a Ladder bought in the iPhone app is Apple's to stop, not ours */
+          const iap = await getSetting(`iap:${acct.email}`).catch(() => null);
+          if (iap && !iap.revoked && Number(iap.expiresAt) > Date.now()
+              && await supa.insertIfAbsent('nudges', { key: `iapnote:${obj.id || acct.email}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)) {
+            try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
+              text: 'Coaching includes the whole Ladder. Your Ladder subscription is billed by Apple, so I cannot stop it from here: cancel it in your iPhone Settings, under your name, then Subscriptions.' }); } catch {}
+            await coachAlert(acct.email, 'business', { title: 'Apple Ladder still running: ' + (acct.name || acct.email), body: 'They bought coaching and still pay Apple for the Ladder. They have been told how to cancel it.', tag: 'iapstop:' + acct.email });
           }
         } catch (err) { console.warn('ending the ladder on coaching', err && err.message); }
       }
@@ -2224,15 +2425,7 @@ const handle = async (request) => {
            receipts now, which the guard lets through on their own. */
         /* the London sessions the plan includes go on Today to be arranged,
            so a £190 buyer is not a £120 buyer who happens to pay more */
-        if (london > 0) {
-          const sl = (await getSetting('sessions')) || [];
-          if (!sl.some(x => x.email === e2 && x.fromPlan === (obj.id || 'plan') )) {
-            sl.unshift({ id: 's' + newId(), email: e2, name: acct.name || nmStripe || '', kind: '60', prefs: '', at: Date.now(),
-              session: '', paid: 0, status: 'toArrange', when: '', place: 'OverGravity, Shadwell',
-              note: `Monthly London session, ${london} a month with ${variant === 'inner' ? 'the Inner Circle' : 'coaching'}`, fromPlan: obj.id || 'plan' });
-            await setSetting('sessions', sl.slice(0, 400));
-          }
-        }
+        if (london > 0) await addLondon(e2, acct.name || nmStripe || '', london, obj.id || 'plan', variant);
         try { await seedOnboarding(e2); } catch {}
         const tierName = { check: 'form checks', online: 'coaching', inner: 'Inner Circle' }[boughtPlan];
         const first = String(acct.name || '').split(' ')[0];
@@ -2248,8 +2441,11 @@ const handle = async (request) => {
           try { await threadAdd(db, e2, { from: 'coach', sub: 'auto', text: opener }); } catch {} }
         const tierFull = tierName + (london > 0 ? ` with ${london} London session${london > 1 ? 's' : ''} a month` : '');
         /* the coach heard about a new client only by email, and not at all with business emails off */
-        await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull, tag: 'coachnew:' + e2 });
-        if (await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
+        /* once per checkout: a welcome retried after Resend failed told the
+           coach about the same new client again */
+        const coachNew = !obj.id || await supa.insertIfAbsent('nudges', { key: `coachnew:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
+        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull, tag: 'coachnew:' + e2 });
+        if (coachNew && await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
           mail({ title: `Someone just bought ${tierFull}.`,
             paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.${
                       london > 0 ? ' Their London session is on Today, waiting for a time.' : ''}`,
@@ -2270,40 +2466,66 @@ const handle = async (request) => {
             cta: noPw ? { href: link, label: 'Choose your password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             /* no kind: somebody who has just paid is told they are in
                whatever they have turned off, the same as a receipt */
-            signoff: { name: coachName(coachOf(e2)) }, footnote: T.footnote || undefined }));
+            signoff: { name: coachName(coachOf(e2)) }, footnote: T.footnote || undefined }), undefined, { receipt: true });
         /* the email with the password link did not go because Resend failed:
            give the claim back and fail, so Stripe delivers it again */
         if (mailDown) throw new Error('the welcome email did not go: Resend failed');
        } catch (err) { await unclaimWelcome(); throw err; }
       }
     } else if (off.includes(ev.type)) {
+      /* Any subscription ending switched the account off and told the coach
+         it was cancelled: a Ladder that coaching stopped, or a refused free
+         week, ended a coaching client's access. Only the account's own
+         subscription does now. */
+      if (obj.id && await getSetting(`ladderstopped:${obj.id}`)) return json({ ok: true, note: 'a ladder that coaching stopped has ended' });
+      if (acct.subscription && obj.id && obj.id !== acct.subscription) return json({ ok: true, note: 'not the current subscription' });
       acct.plus = false;
     } else if (ev.type === 'invoice.payment_failed') {
       /* Not a cancellation, so nothing is switched off. But nobody was told
          either, and a card that has expired stays expired until somebody
          says so. Stripe retries for a fortnight; this is the only thing
          that turns a bounce back into a payment. */
+      /* once per attempt: Stripe sending the same event again sent the
+         emails again */
+      if (!(await supa.insertIfAbsent('nudges', { key: `cardfail:${obj.id || ev.id}:${obj.attempt_count || 0}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true))) {
+        return json({ ok: true, note: 'already told' });
+      }
       const T = await emailCopy('cardFailed', { name: esc((clients()[acct.email] || acct.name || '').split(' ')[0] || '') });
-      await emailT(T, acct.email, T.subject,
+      /* a bill, so it goes whatever the mail guard says */
+      const cardSent = await emailT(T, acct.email, T.subject,
         mail({ title: T.title,
           greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
           paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-          signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
-      /* the client was told and nobody else was */
+          signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
+      /* and in the app, which reaches somebody whose email does not */
+      try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
+        text: 'Your last payment did not go through. Update your card from Account in the app and Stripe will try it again.' }); } catch {}
       await coachAlert(null, 'business', { title: 'A card was declined', body: clients()[acct.email] || acct.name || acct.email, tag: 'card:' + acct.email });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Card declined: ${clients()[acct.email] || acct.name || acct.email}`,
-        `<p style="font:16px/1.6 system-ui">A payment from ${esc(acct.email)} failed. They have been
-         emailed to update their card. Stripe retries for about two weeks before it cancels.</p>`);
+        `<p style="font:16px/1.6 system-ui">A payment from ${esc(acct.email)} failed. ${cardSent
+          ? 'They have been emailed to update their card, and there is a note in their messages in the app.'
+          : 'The email to them did not go, so there is only a note in their messages in the app. Worth telling them yourself.'}
+         Stripe retries for about two weeks before it cancels.</p>`);
       return json({ ok: true });
     } else if (ev.type === 'customer.subscription.trial_will_end') {
       /* three days out. Nobody should meet the first charge as a surprise:
          that is what gets a small subscription refunded and reported. */
       /* the length of the trial and the price are both settings now, so the
          email says what the checkout actually did rather than £5 and a week */
-      const trialTxt = PRICES.trialDays === 7 ? 'free week' : `free ${PRICES.trialDays} days`;
-      const priceTxt = (PRICES.plus && PRICES.plus.label) || '£5';
+      /* somebody who has cancelled their free week is not charged, and was
+         told it would then be £10 a month */
+      if (obj.cancel_at_period_end || obj.cancel_at || ['canceled', 'incomplete_expired'].includes(obj.status)) return json({ ok: true, note: 'cancelled, nothing will be charged' });
+      if (obj.id && (await getSetting(`trialrefused:${obj.id}`) || await getSetting(`ladderstopped:${obj.id}`))) return json({ ok: true, note: 'not charging' });
+      if (!(await supa.insertIfAbsent('nudges', { key: `twe:${obj.id || ev.id}:${obj.trial_end || ''}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true))) {
+        return json({ ok: true, note: 'already told' });
+      }
+      /* what this subscription will charge, not what the dashboard says today */
+      const days = (obj.trial_end && obj.trial_start) ? Math.round((obj.trial_end - obj.trial_start) / 86400) : (Number(PRICES.trialDays) || 7);
+      const trialTxt = days === 7 ? 'free week' : `free ${days} days`;
+      const pr = (obj.items && obj.items.data && obj.items.data[0] && obj.items.data[0].price) || {};
+      const priceTxt = Number(pr.unit_amount) > 0 ? `£${(Number(pr.unit_amount) / 100).toFixed(2).replace(/\.00$/, '')}` : ((PRICES.plus && PRICES.plus.label) || '£10');
       const T = await emailCopy('trialEnds', { name: esc((clients()[acct.email] || acct.name || '').split(' ')[0] || ''), trial: esc(trialTxt), price: esc(priceTxt) });
       await emailT(T, acct.email, T.subject,
         mail({ title: T.title,
@@ -2312,7 +2534,7 @@ const handle = async (request) => {
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           /* a card is about to be charged, so this is a billing notice and
              not something to opt out of */
-          signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }));
+          signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
       return json({ ok: true });
     } else {
       return json({ ok: true, ignored: ev.type });
@@ -2325,17 +2547,23 @@ const handle = async (request) => {
        out on every event, renewals included, and always as the ladder, so
        £120 of coaching arrived as "New £10 subscriber". A coaching start
        has its own "Someone just bought coaching", so it is not said twice. */
-    if (acct.plus !== wasPlus) {
-      const planNow = (((await getSetting(`plan:${acct.email}`)) || {}).plan) || planOf(obj) || 'plus';
+    /* the checkout, the new subscription and its first invoice each
+       arrive, and a sign-up was two or three "New subscriber" emails:
+       claimed once per subscription and direction now */
+    const sidN = obj.subscription || obj.id || '';
+    if (acct.plus !== wasPlus && (!sidN || await supa.insertIfAbsent('nudges', { key: `plusnote:${sidN}:${acct.plus ? 'on' : 'off'}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true))) {
+      const planNow = TIER[(((await getSetting(`plan:${acct.email}`)) || {}).plan)] || planOf(obj) || 'plus';
       const coaching = planNow === 'online' || planNow === 'inner';
       const what = planNow === 'inner' ? 'Inner Circle' : coaching ? 'coaching'
         : `${(PRICES.plus && PRICES.plus.label) || '£10'} ladder`;
       if (!(coaching && acct.plus)) {
-        const title = acct.plus ? `New ${what} subscriber` : `${what[0].toUpperCase() + what.slice(1)} cancelled`;
+        const title = acct.plus ? `New ${what} subscriber` : coaching ? `${what[0].toUpperCase() + what.slice(1)} subscription ended` : `${what[0].toUpperCase() + what.slice(1)} cancelled`;
         await coachAlert(null, 'business', { title, body: acct.email || e, tag: 'plus:' + (acct.email || e) });
         if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
           `${title}: ${acct.email || e}`,
-          `<p style="font:16px/1.6 system-ui">${esc(ev.type)}: access is now ${acct.plus ? 'on' : 'off'}.</p>`);
+          `<p style="font:16px/1.6 system-ui">${coaching && !acct.plus
+            ? 'Their coaching subscription has ended. They are still on the roster: move them to past clients when you are ready.'
+            : `Access is now ${acct.plus ? 'on' : 'off'}.`}</p>`);
       }
     }
     return json({ ok: true });
@@ -2723,6 +2951,8 @@ const handle = async (request) => {
     return json({
       trialUsed,
       trialRefused: !!(tr && Date.now() - (Number(tr.at) || 0) < 3 * 864e5) && !plusNow(acct),
+      /* the card, or the account: the app blamed the card either way */
+      trialRefusedWhy: (tr && tr.why) || '',
       email: who,
       name: clients()[who] || acct.name || '',
       coached: coachedNow,
@@ -2767,6 +2997,9 @@ const handle = async (request) => {
      the only one; coaching was application-gated with no way to pay. A plan
      only appears here once its Stripe price exists, so switching one on is
      setting an environment variable rather than a deploy of new code. */
+  /* monthly only for now. The quarterly and yearly prices stay wired so
+     switching them back on is adding them here. */
+  const LADDER_PERIODS = ['month'];
   const PLANS = {
     plus:   { price: () => PRICES.plus.priceId   || process.env.STRIPE_PRICE_PLUS,   mode: 'subscription' },
     plusq:  { price: () => (PRICES.plusq||{}).priceId || process.env.STRIPE_PRICE_PLUS_Q, mode: 'subscription' },
@@ -2805,7 +3038,7 @@ const handle = async (request) => {
                   /* which ways of paying for the ladder exist in Stripe */
                   /* monthly only for now. The quarterly and yearly prices
                      stay wired so switching them back on is this one line. */
-                  periods: ['month'],
+                  periods: LADDER_PERIODS,
                   /* what each coaching tier says it includes, where the
                      coach has changed it from what the app ships */
                   coplans: await coplansPublic() });
@@ -2967,7 +3200,10 @@ const handle = async (request) => {
     let planKey = Object.prototype.hasOwnProperty.call(PLANS, body.plan) ? body.plan : 'plus';
     /* the ladder, paid quarterly or yearly: its own Stripe price, the same
        entitlement. The app sends the period; the plan stays 'plus'. */
-    const period = ['month', 'quarter', 'year'].includes(body.period) ? body.period : 'month';
+    /* only a period that is on sale: quarterly and yearly were still taken
+       here, and every message after called them £10 a month */
+    if (body.period && !LADDER_PERIODS.includes(body.period)) return json({ error: 'That one is not switched on yet' }, 503);
+    const period = LADDER_PERIODS.includes(body.period) ? body.period : 'month';
     if (planKey === 'plus' && period === 'quarter') planKey = 'plusq';
     if (planKey === 'plus' && period === 'year') planKey = 'plusy';
     const plan = PLANS[planKey];
@@ -3002,6 +3238,11 @@ const handle = async (request) => {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
     const origin = url.origin;
+    /* where they land after paying: coaching and a form check came back to
+       the Ladder's sheet, which said the whole ladder was open and quoted
+       a free week */
+    const back = TIER[planKey] === 'check' ? 'bought=check'
+      : ['online', 'inner'].includes(TIER[planKey]) ? 'joined=coaching' : 'paid=1';
     /* The free days are the ladder's. They applied to any subscription, so
        coaching bought here would have started with a free week of Elliott's
        time. And they are once per account. */
@@ -3021,7 +3262,7 @@ const handle = async (request) => {
         'line_items[0][quantity]': '1',
         'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
         'metadata[period]': period,
-        ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?paid=1` } : {}),
+        ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?${back}` } : {}),
         /* seven days before the first charge. Card up front, so the people
            who start it mean it, and it converts unless they cancel. */
         ...(freeDays > 0 ? { 'subscription_data[trial_period_days]': String(freeDays) } : {}),
@@ -3033,11 +3274,13 @@ const handle = async (request) => {
            one or the other. */
         ...(promo ? { 'discounts[0][promotion_code]': promo }
                   : { allow_promotion_codes: 'true' }),
-        ...(embedded ? {} : { success_url: `${origin}/lha-app.html?paid=1`,
+        ...(embedded ? {} : { success_url: `${origin}/lha-app.html?${back}`,
                               cancel_url: `${origin}/lha-app.html?paid=0` }),
       });
-      if (embedded) return json({ clientSecret: sess.client_secret, pk: process.env.STRIPE_PUBLISHABLE_KEY });
-      return json({ url: sess.url });
+      /* the days this checkout actually gives, so the app does not promise
+         a free week it has not got */
+      if (embedded) return json({ clientSecret: sess.client_secret, pk: process.env.STRIPE_PUBLISHABLE_KEY, trialDays: freeDays });
+      return json({ url: sess.url, trialDays: freeDays });
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
     }
@@ -3129,12 +3372,10 @@ const handle = async (request) => {
       acct.cancel_at = sub.cancel_at_period_end ? iso((sub.current_period_end || 0) * 1000) : null;
       await saveAcct({ email: who, subscription: acct.subscription,
           cancel_at: acct.cancel_at, plus: acct.plus });
-      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-        `${who} ${body.undo ? 'resumed' : 'cancelled'} their £5 subscription`,
-        `<p style="font:16px/1.6 system-ui">${body.undo
-          ? 'They turned the renewal back on.'
-          : 'It stops renewing. Access runs to the end of the paid month.'}</p>`);
-      return json({ ok: true, cancelAt: acct.cancel_at });
+      /* the plan by name, and shared with the event Stripe sends about the
+         same change, so the coach hears it once */
+      await renewNote(who, acct.subscription, !body.undo, (Number(sub.current_period_end) || 0) * 1000, sub.status === 'trialing');
+      return json({ ok: true, cancelAt: acct.cancel_at, plan: await planName(who), trialing: sub.status === 'trialing' });
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
     }
@@ -6138,7 +6379,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const lines = question ? question
       : Object.entries(numbers).map(([k2, v]) => `${k2}: ${v}`).join(', ');
     await threadAdd(db, who, { from: 'client',
-      text: `${label}${lines ? ' — ' + lines : ''}`, sub: id });
+      text: `${label}${lines ? ': ' + lines : ''}`, sub: id });
     for (const c of clips) {
       await threadAdd(db, who, { from: 'client', text: c.name || c.drill, sub: id,
         ...(c.uid ? { video: c.uid } : {}), ...(c.image ? { image: c.image } : {}) });
