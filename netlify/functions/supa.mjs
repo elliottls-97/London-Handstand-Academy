@@ -18,7 +18,8 @@ const key  = () => process.env.SUPABASE_SERVICE_KEY || '';
    back to Blobs during the migration rather than erroring. */
 export const configured = () => !!(base() && key());
 
-async function rest(path, { method = 'GET', body, prefer } = {}) {
+async function rest(path, opts = {}, tries = 0) {
+  const { method = 'GET', body, prefer } = opts;
   if (!configured()) throw new Error('Supabase is not configured');
   const res = await fetch(`${base()}/rest/v1/${path}`, {
     method,
@@ -31,6 +32,13 @@ async function rest(path, { method = 'GET', body, prefer } = {}) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await res.text();
+  /* "JWT issued at future": Supabase's own clocks a moment apart, which
+     failed whole requests on the live site twice on 30 Sept. A second go a
+     moment later is on the far side of it. */
+  if (res.status === 401 && tries < 2 && /PGRST303|issued at future/i.test(text)) {
+    await new Promise(r => setTimeout(r, 400 * (tries + 1)));
+    return rest(path, opts, tries + 1);
+  }
   if (!res.ok) {
     /* PostgREST puts a real explanation in the body — carry it, because
        "supabase 400" on its own tells nobody anything */
