@@ -7574,6 +7574,8 @@ function subscriptionHTML(){
               onclick="subInfo=null;paintSub();loadSubscription()">Try again</button>
             ${st.cancelAt?'':`<button class="btn2" style="width:100%;margin-top:9px"
               onclick="cancelSub(false)">Cancel subscription</button>`}`;
+          /* Apple bills it, so Apple is where it is changed */
+          if(subInfo.apple) return `<div style="font:400 13.5px/1.5 var(--sans);margin-top:8px">${subInfo.willCancel?'Ends':'Renews'} ${esc(niceDate(subInfo.renewsAt))}. Billed by Apple${IOS_APP?'':': change or cancel it in your iPhone Settings, under your name, then Subscriptions'}.</div>`;
           if(subInfo.none) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">${
             coachedSub
               ? 'Your coaching is arranged with '+esc(coachLabel())+' directly rather than through a card on file here, so there is nothing to change on this screen.'
@@ -10383,11 +10385,11 @@ function drawOv(){
       ${(st.plus||st.in)?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${st.in
-          ? 'Your coaching subscription.' : sellsLadder() ? 'The full ladder, '+PRICE()+' a month.' : 'The full ladder.'}</div>
+          ? 'Your coaching subscription.' : st.appleUntil>Date.now() ? 'The full ladder, through Apple.' : sellsLadder() ? 'The full ladder, '+PRICE()+' a month.' : 'The full ladder.'}</div>
         <div id="subblock">${subscriptionHTML()}</div>
         ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
-        ${!st.canCancel&&!st.canManage?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
+        ${!st.canCancel&&!st.canManage&&!(st.appleUntil>Date.now())?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
           To change a card or cancel, message Elliott and it is done the same day.</div>`:''}
       </div>`:''}
       ${(!st.plus&&!st.in&&sellsLadder())?`<button class="btn" style="width:100%;margin-top:14px"
@@ -16044,7 +16046,17 @@ function loadEntitlement(){
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
+      /* Bought signed out, then signed in or made an account: the server
+         had not heard of the purchase yet, so the Ladder just paid for
+         locked again until the app was relaunched. It is kept open and the
+         purchase is sent with the account, once; the answer after that is
+         the server's. */
+      const localApple = (IOS_APP && st.appleUntil>Date.now()) ? st.appleUntil : 0;
       st.appleUntil=Number(d.appleUntil)||0;
+      if(localApple && !st.appleUntil && st.token && st.iapLinkedFor!==st.email && iapPlugin()){
+        st.plus=true; st.appleUntil=localApple; st.iapLinkedFor=st.email;
+        iapSync().then(()=>loadEntitlement()).catch(()=>{});
+      }
       /* Coached is one thing and the coached layout another: the layout
          needs a programme. Every refresh of this set it from coached alone,
          so a client waiting for block one was flipped into a Today with

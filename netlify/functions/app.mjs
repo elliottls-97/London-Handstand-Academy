@@ -3204,15 +3204,33 @@ const handle = async (request) => {
     const otid = String(tx.originalTransactionId || '');
     if (who) {
       const was = (await getSetting(`iap:${who}`)) || {};
-      await setSetting(`iap:${who}`, { otid, productId: tx.productId, expiresAt: exp, env: String(tx.environment || ''),
-        revoked: !!tx.revocationDate, at: Date.now() });
+      /* Whichever transaction arrived last was kept, so an old month
+         arriving late moved the date back, and a refund of an old month
+         closed the month paid for since. Only the latest is kept now, and a
+         refund takes back time only when it is the latest being refunded. */
+      const tid = String(tx.transactionId || '');
+      const latest = !was.expiresAt || exp >= Number(was.expiresAt) || (tid && tid === was.tid);
+      if (latest) await setSetting(`iap:${who}`, { otid, tid, productId: tx.productId, expiresAt: exp, env: String(tx.environment || ''),
+        revoked: !!tx.revocationDate, at: Date.now(), ...(was.autoRenew === false && !(exp > Number(was.expiresAt || 0)) ? { autoRenew: false } : {}) });
       if (otid) await setSetting(`iapotid:${otid}`, who);
+      /* Apple's free week is a free week: a Stripe checkout does not give
+         a second one */
+      if (tx.offerType === 1 && !(await getSetting(`trialused:${who}`))) await setSetting(`trialused:${who}`, { at: Date.now(), from: 'apple' });
       const u = await plusUntilOf(who);
-      if (active) { if (!u || ms(u) < exp) await setSetting(`plusuntil:${who}`, iso(exp)); }
+      if (active && latest) { if (!u || ms(u) < exp) await setSetting(`plusuntil:${who}`, iso(exp)); }
       /* refunded or revoked: the time Apple gave is taken back, and only that */
-      else if (tx.revocationDate && u && was.expiresAt && Math.abs(ms(u) - was.expiresAt) < 1000) await setSetting(`plusuntil:${who}`, iso(Date.now()));
+      else if (tx.revocationDate && (!was.tid || !tid || tid === was.tid) && u && was.expiresAt && Math.abs(ms(u) - was.expiresAt) < 1000) await setSetting(`plusuntil:${who}`, iso(Date.now()));
     }
     return { active, expiresAt: exp, productId: tx.productId, trial: tx.offerType === 1 };
+  };
+  /* Apple's news for the coach: once per thing (Apple sends the same
+     notification again), and by email as well as push, which says nothing
+     at all when no coach phone has notifications on */
+  const iapTell = async (key, title, who, line) => {
+    if (!(await supa.insertIfAbsent('nudges', { key, stage: 0, sent_at: nowISO() }, 'key').catch(() => true))) return;
+    await coachAlert(null, 'business', { title, body: who, tag: key.split(':')[0] + ':' + who });
+    if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `${title}: ${who}`,
+      `<p style="font:16px/1.6 system-ui">${esc(who)}. ${esc(line)}</p>`);
   };
   if (path === '/iap/token' && request.method === 'GET') {
     const who = await me();
@@ -3225,12 +3243,27 @@ const handle = async (request) => {
     const who = await me();
     let tx;
     try { tx = appleJWS(body.jws); } catch (err) { return json({ error: 'That purchase could not be checked with Apple.', why: String(err.message || err) }, 400); }
-    /* bought by one account and restored on another: not moved silently */
+    /* bought by one account and restored on another: not moved silently.
+       An owner whose account no longer exists (moved or deleted) owns
+       nothing, and the purchase comes to whoever holds it now. */
+    const ownerOf = async o => (o && o !== who && await getAcct(o)) ? o : '';
     if (who && tx.appAccountToken && tx.appAccountToken !== await iapToken(who)) {
-      const owner = await getSetting(`iaptok:${tx.appAccountToken}`);
-      if (owner && owner !== who) return json({ active: false, error: 'That subscription belongs to another account. Sign in with that one.' }, 409);
+      const owner = await ownerOf(await getSetting(`iaptok:${tx.appAccountToken}`));
+      if (owner) return json({ active: false, error: 'That subscription belongs to another account. Sign in with that one.' }, 409);
+      await setSetting(`iaptok:${tx.appAccountToken}`, who);
     }
+    /* A purchase made signed out carries no token, so any account that
+       posted it took it, and the renewals with it: the first account to
+       link it keeps it. */
+    const otidV = String(tx.originalTransactionId || '');
+    if (who && !tx.appAccountToken && otidV) {
+      const owner = await ownerOf(norm(String((await getSetting(`iapotid:${otidV}`)) || '')));
+      if (owner) return json({ active: false, error: 'That subscription belongs to another account. Sign in with that one.' }, 409);
+    }
+    const hadIap = who ? !!(await getSetting(`iap:${who}`)) : true;
     const r = await iapApply(who || '', tx);
+    /* bought signed out, or linked later: Apple's SUBSCRIBED found nobody */
+    if (who && !hadIap && r.active && otidV) await iapTell(`iapsub:${otidV}`, 'New Ladder subscriber in the iPhone app', who, 'Billed by Apple.');
     return json(Object.assign({ linked: !!who }, r));
   }
   if (path === '/iap/notify' && request.method === 'POST') {
@@ -3241,11 +3274,30 @@ const handle = async (request) => {
     let tx = null;
     try { tx = d.signedTransactionInfo ? appleJWS(d.signedTransactionInfo) : null; } catch (err) { return json({ error: 'bad transaction' }, 400); }
     if (!tx) return json({ ok: true, note: 'nothing to apply' });
-    const who = norm(String((tx.appAccountToken && await getSetting(`iaptok:${tx.appAccountToken}`))
+    let who = norm(String((tx.appAccountToken && await getSetting(`iaptok:${tx.appAccountToken}`))
       || (tx.originalTransactionId && await getSetting(`iapotid:${tx.originalTransactionId}`)) || ''));
+    /* an account deleted while Apple still bills it: nothing is filed
+       against the address, and the coach hears once, since only the
+       person can cancel it in their iPhone Settings */
+    if (who && !(await getAcct(who))) {
+      if (tx.expiresDate && Number(tx.expiresDate) > Date.now() && !tx.revocationDate)
+        await iapTell(`iapgone:${tx.originalTransactionId || who}`, 'Apple still bills a deleted account', who,
+          'Their account was deleted but the Ladder subscription is still running with Apple. Only they can cancel it, in their iPhone Settings.');
+      who = '';
+    }
     const r = await iapApply(who, tx);
-    if (who && n.notificationType === 'SUBSCRIBED') await coachAlert(null, 'business', { title: 'New Ladder subscriber in the iPhone app', body: who, tag: 'iap:' + who });
-    if (who && ['REFUND', 'REVOKE'].includes(n.notificationType)) await coachAlert(null, 'business', { title: 'Apple refunded a Ladder subscription', body: who, tag: 'iapref:' + who });
+    const otidN = String(tx.originalTransactionId || '');
+    if (who && n.notificationType === 'SUBSCRIBED') await iapTell(`iapsub:${otidN}`, 'New Ladder subscriber in the iPhone app', who, 'Billed by Apple.');
+    if (who && ['REFUND', 'REVOKE'].includes(n.notificationType)) await iapTell(`iapref:${tx.transactionId || n.notificationUUID}`, 'Apple refunded a Ladder subscription', who, 'The time it paid for has been taken back.');
+    /* renewal switched off, or lapsed: an in-app Stripe cancel told the
+       coach, Apple's told nobody */
+    if (who && n.notificationType === 'DID_CHANGE_RENEWAL_STATUS') {
+      const off = n.subtype === 'AUTO_RENEW_DISABLED';
+      await changeSetting(`iap:${who}`, cur => cur ? Object.assign({}, cur, { autoRenew: !off }) : undefined).catch(() => {});
+      if (off) await iapTell(`iapoff:${n.notificationUUID || otidN + ':' + Date.now()}`, 'Apple Ladder renewal switched off', who,
+        `It ends${r.expiresAt ? ' on ' + new Date(r.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : ''} and will not charge again.`);
+    }
+    if (who && n.notificationType === 'EXPIRED') await iapTell(`iapexp:${otidN}:${tx.expiresDate || ''}`, 'Apple Ladder subscription ended', who, 'Access has closed.');
     return json({ ok: true, found: !!who, active: r.active });
   }
 
@@ -3267,6 +3319,15 @@ const handle = async (request) => {
     if (planKey === 'plus' && period === 'quarter') planKey = 'plusq';
     if (planKey === 'plus' && period === 'year') planKey = 'plusy';
     const plan = PLANS[planKey];
+    /* already paying Apple, or Stripe, for the Ladder: a second Ladder, and
+       a second free week with it, is not sold on top */
+    if (LADDER_PLANS.includes(planKey)) {
+      const iapNow = await getSetting(`iap:${who}`);
+      const acctNow = (await getAcct(who)) || {};
+      if ((iapNow && !iapNow.revoked && Number(iapNow.expiresAt) > Date.now()) || acctNow.plus) {
+        return json({ error: 'You already have the Ladder.', already: true }, 409);
+      }
+    }
     /* Stripe's embedded checkout: the form draws inside the app, and the
        app needs the publishable key and the session's client secret rather
        than a URL. Only when the key is set; otherwise the hosted page. */
@@ -3377,8 +3438,13 @@ const handle = async (request) => {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const acct = (await getAcct(who)) || {};
-    if (!acct.stripe_customer && !acct.subscription) return json({ none: true });
-    if (!stripeKey()) return json({ none: true });
+    /* Apple bills this one: the sheet said "No subscription found, message
+       Elliott", and Elliott cannot cancel an Apple subscription */
+    const iapS = await getSetting(`iap:${who}`);
+    const apple = (iapS && !iapS.revoked && Number(iapS.expiresAt) > Date.now())
+      ? { apple: true, renewsAt: Number(iapS.expiresAt), willCancel: iapS.autoRenew === false, plus: true } : null;
+    if (!acct.stripe_customer && !acct.subscription) return json(apple || { none: true });
+    if (!stripeKey()) return json(apple || { none: true });
 
     try {
       let sub = null;
@@ -3391,7 +3457,10 @@ const handle = async (request) => {
         sub = (list.data || []).find(x =>
           ['active', 'trialing', 'past_due', 'unpaid'].includes(x.status)) || (list.data || [])[0] || null;
       }
-      if (!sub) return json({ none: true });
+      if (!sub) return json(apple || { none: true });
+      /* a Stripe subscription that has ended, for somebody Apple bills now,
+         locked the Ladder they pay Apple for when the sheet opened */
+      if (apple && !['active', 'trialing', 'past_due'].includes(sub.status)) return json(apple);
 
       /* keep what we learned, so cancel does not have to look it up again */
       const before = JSON.stringify([acct.subscription, acct.cancel_at, acct.plus]);
@@ -3415,7 +3484,8 @@ const handle = async (request) => {
         amount: due != null ? due / 100 : price.unit_amount != null ? price.unit_amount / 100 : null,
         currency: (price.currency || 'gbp').toUpperCase(),
         interval: (price.recurring && price.recurring.interval) || 'month',
-        plus: acct.plus,
+        /* the account's access, codes and Apple included, not Stripe's alone */
+        plus: acct.plus || plusNow(acct) || !!apple,
       });
     } catch (err) {
       return json({ error: String(err.message || err) }, 502);
@@ -6120,7 +6190,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const acct = await ensureAcct(who);
     /* already paying: the code is worth nothing to them and should not
        silently shorten anything */
-    if (acct && acct.plus) return json({ ok: true, already: true, plus: true });
+    const iapR = await getSetting(`iap:${who}`);
+    if ((acct && acct.plus) || (iapR && !iapR.revoked && Number(iapR.expiresAt) > Date.now())) return json({ ok: true, already: true, plus: true });
     const usedBy = c.by || [];
     if (usedBy.includes(who)) return json({ error: 'You have used that one already' }, 409);
     const days = Math.max(1, Math.min(365, Number(c.days) || 30));
@@ -6844,7 +6915,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                            being written and the ones taken off, what the
                            coach has read, and the phone that hears them */
                         'clips', 'progdrafts', 'progarchive',
-                        'cpseen', 'saidseen', 'trainseen', 'flagseen', 'push'];
+                        'cpseen', 'saidseen', 'trainseen', 'flagseen', 'push',
+                        /* bought in the iPhone app */
+                        'iap'];
 
   /* The only order that works, given the foreign keys cascade on delete and
      not on update: the new row first so there is something to point at, then
@@ -6886,6 +6959,16 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (seeded) roster[from] = null; else delete roster[from];
     await setSetting('roster', roster);
 
+    /* Apple finds the account by the token on the purchase and by the
+       purchase's first id: both pointed at the old address, so a renewal
+       went to an account that no longer existed and the app then refused
+       the buyer's own purchase */
+    try {
+      const iapNew = await getSetting(`iap:${to}`);
+      if (iapNew && iapNew.otid) await setSetting(`iapotid:${iapNew.otid}`, to);
+      const tokOld = await iapToken(from);
+      if ((await getSetting(`iaptok:${tokOld}`)) === from) await setSetting(`iaptok:${tokOld}`, to);
+    } catch {}
     /* whether their emails were let through the client guard: a roster
        client's new address would otherwise be held by it */
     const off = (await getSetting('mailoff')) || {};
@@ -6910,6 +6993,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const old = await getAcct(e);
     if (!old) return { error: 'No account on that address', status: 404 };
 
+    /* Apple's pointers at this address go too: a renewal then finds nobody
+       rather than filing time against an account that is gone */
+    try {
+      const iapD = await getSetting(`iap:${e}`);
+      if (iapD && iapD.otid && (await getSetting(`iapotid:${iapD.otid}`)) === e) await dropSetting(`iapotid:${iapD.otid}`);
+      const tokD = await iapToken(e);
+      if ((await getSetting(`iaptok:${tokD}`)) === e) await dropSetting(`iaptok:${tokD}`);
+    } catch {}
     for (const k of SETTING_KEYS) await dropSetting(`${k}:${e}`).catch(() => {});
     await dropSetting(`emailchange:${e}`).catch(() => {});
 
@@ -8341,6 +8432,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          spreading it sent every account's hash to the browser to draw a
          list that never needed it. */
       const untils = await plusUntilAll();
+      /* who Apple bills: they were listed as on a free code */
+      const iapRows = (await supa.rows('settings', `select=key,value&key=like.iap%3A*`)) || [];
+      const apple = {}; for (const r of iapRows) { const v = r.value || {}; if (!v.revoked && Number(v.expiresAt) > Date.now()) apple[r.key.slice(4)] = Number(v.expiresAt); }
       return json({ leads: out.map(a => ({
         email: a.email, name: a.name || '',
         ref: refs[a.email] || '',
@@ -8349,7 +8443,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         /* a code, not Stripe, and when it runs out */
         until: untils[a.email] || '',
         last: ms(a.last_seen), first: ms(a.first_seen),
-        stripeCustomer: a.stripe_customer || null })) });
+        stripeCustomer: a.stripe_customer || null,
+        apple: !!apple[a.email], appleUntil: apple[a.email] || 0 })) });
     }
 
     /* everything waiting on a review, across everyone this coach has.
