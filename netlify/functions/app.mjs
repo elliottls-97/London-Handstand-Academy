@@ -4268,6 +4268,39 @@ const handle = async (request) => {
     return json({ ok: true, added, had, bookings: (await getSetting(`wsbook:${slug}`)) || [] });
   }
 
+  /* ── the numbers: the last 30 days, in one read ──────────────────
+     The app records what people do (opened, quiz, signed up, saw the
+     paywall, paid) a day at a time, and nothing ever added it up. This
+     does, with the bookings, the sessions and the roster beside it, so
+     Today can say whether anything is moving. */
+  if (path === '/coach/numbers' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const days = Math.min(90, Math.max(7, Number(url.searchParams.get('days')) || 30));
+    const since = Date.now() - days * 864e5;
+    const keys = []; for (let i = 0; i < days; i++) keys.push('ev:' + new Date(Date.now() - i * 864e5).toISOString().slice(0, 10));
+    const rows = await settingsMany(keys);
+    const app = {}, by = {};
+    for (const r of Object.values(rows)) {
+      for (const [k, v] of Object.entries(r || {})) if (typeof v === 'number') app[k] = (app[k] || 0) + v;
+      for (const [src, ev] of Object.entries((r && r.by) || {})) { by[src] = by[src] || {}; for (const [k, v] of Object.entries(ev || {})) by[src][k] = (by[src][k] || 0) + v; }
+    }
+    const shops = (await getSetting('workshops')) || {};
+    let booked = 0, attended = 0;
+    for (const w of Object.values(shops)) {
+      const b = wsLive((await getSetting(`wsbook:${w.slug}`)) || []);
+      booked += b.filter(x => ms(x.at) > since).length;
+      if (w.when && ms(w.when) > since && ms(w.when) < Date.now()) attended += b.length;
+    }
+    const sessions = ((await getSetting('sessions')) || []).filter(x => x && ms(x.at) > since && !['cancelled', 'refunded'].includes(x.status));
+    const accounts = (await supa.rows('accounts', `select=email,first_seen,plus&first_seen=gt.${enc(new Date(since).toISOString())}`)) || [];
+    const paying = (await supa.rows('accounts', 'select=email&plus=eq.true')) || [];
+    return json({ days, app, by,
+      newAccounts: accounts.length, paying: paying.filter(a => !clients()[a.email]).length,
+      classBookings: booked, classAttended: attended, sessions: sessions.length,
+      sessionsPaid: sessions.filter(x => (Number(x.paid) || 0) > 0).length,
+      clients: Object.keys(clients()).length });
+  }
+
   if (path === '/coach/workshops') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('workshops')) || {};
