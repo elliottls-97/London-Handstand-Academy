@@ -9737,18 +9737,46 @@ function drLoad(){
 function drEdit(v){
   if(drOpen===v){ drOpen=''; drDraft=null; draw(); return; }
   drOpen=v; drMsg='';
-  drDraft={n:(libIndex||{})[v]||v, desc:libDesc[v]||'', cues:(libCues[v]||[]).join('\n')};
-  draw();
+  drDraft={n:(libIndex||{})[v]||v, desc:libDesc[v]||'', cues:(libCues[v]||[]).slice()};
+  if(!drDraft.cues.length) drDraft.cues=[''];
+  draw(); drFocus(0);
 }
-function drSave(){
+/* the cues are a list of lines: Enter adds one below, Backspace on an
+   empty one removes it, the arrows move one up or down */
+/* the redraw reuses input elements, and one you have typed in keeps what
+   you typed over what the draft now says: put the draft back in each */
+function drSync(){ if(!drDraft) return; const set=(id,v)=>{ const el=document.getElementById(id); if(el && el.value!==v) el.value=v; };
+  set('drName',drDraft.n||''); set('drDesc',drDraft.desc||''); (drDraft.cues||[]).forEach((c,i)=>set('drCue'+i,c)); }
+function drFocus(i){ drSync(); setTimeout(()=>{ drSync(); const el=document.getElementById('drCue'+i); if(el){ el.focus(); const n=el.value.length; el.setSelectionRange(n,n); } },0); }
+function drCueKey(e,i){
+  const c=drDraft.cues;
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){ e.preventDefault(); drSave(e.shiftKey); return; }
+  if(e.key==='Escape'){ drOpen=''; drDraft=null; draw(); return; }
+  if(e.key==='Enter'){ e.preventDefault(); const el=e.target, a=el.value.slice(0,el.selectionStart), b=el.value.slice(el.selectionEnd);
+    c[i]=a.trim(); c.splice(i+1,0,b.trim()); draw(); drFocus(i+1); return; }
+  if(e.key==='Backspace'&&!e.target.value&&c.length>1){ e.preventDefault(); c.splice(i,1); draw(); drFocus(Math.max(0,i-1)); return; }
+  if(e.altKey&&(e.key==='ArrowUp'||e.key==='ArrowDown')){ e.preventDefault(); drCueMove(i,e.key==='ArrowUp'?-1:1); }
+}
+function drCueMove(i,d){ const c=drDraft.cues, j=i+d; if(j<0||j>=c.length) return; [c[i],c[j]]=[c[j],c[i]]; draw(); drFocus(j); }
+function drCueDel(i){ drDraft.cues.splice(i,1); if(!drDraft.cues.length) drDraft.cues=['']; draw(); drFocus(Math.min(i,drDraft.cues.length-1)); }
+function drCueAdd(){ drDraft.cues.push(''); draw(); drFocus(drDraft.cues.length-1); }
+/* paste several lines into one cue and they become several cues */
+function drCuePaste(e,i){ const t=(e.clipboardData||window.clipboardData).getData('text'); if(!/\n/.test(t)) return;
+  e.preventDefault(); const lines=t.split(/\r?\n/).map(x=>x.replace(/^\s*[-•*\d.)]+\s*/,'').trim()).filter(Boolean);
+  drDraft.cues.splice(i,1,...lines); draw(); drFocus(i+lines.length-1); }
+/* the next drill in the list as it is shown, for working down it */
+let drShown=[];
+function drSave(next){
   if(drBusy||!drOpen) return;
-  const v=drOpen;
+  const v=drOpen, after=next?drShown[drShown.indexOf(v)+1]:'';
   drBusy=true; draw();
   fetch(API+'/drill',{method:'POST',headers:hdr(),body:JSON.stringify({v, edit:true, n:drDraft.n,
-      desc:drDraft.desc, cues:String(drDraft.cues||'').split('\n').map(x=>x.trim()).filter(Boolean)})})
+      desc:drDraft.desc, cues:(drDraft.cues||[]).map(x=>String(x).trim()).filter(Boolean)})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ const x=d.drill||{}; libIndex[v]=x.n||libIndex[v]; libDesc[v]=x.desc||''; libCues[v]=x.cues||[];
-      drBusy=false; drOpen=''; drDraft=null; draw(); })
+      drBusy=false; drOpen=''; drDraft=null; flash('Saved '+(libIndex[v]||v));
+      if(after){ drEdit(after); setTimeout(()=>{ const el=document.getElementById('drRow-'+after); if(el) el.scrollIntoView({block:'start',behavior:'smooth'}); },30); }
+      else draw(); })
     .catch(e=>{ drBusy=false; drMsg=String(e); draw(); });
 }
 function drDelete(v, back){
@@ -9767,20 +9795,40 @@ function drDelete(v, back){
         +'You can put it back from Deleted drills at the foot of the list.'+also)) go();
     });
 }
+/* the drill's film, signed if it is a locked one */
+function drFilm(v){ const u=clipUidOf(libVideo[v]); if(!u) return libVideo[v]||''; csNeed([u]); return `https://${STREAM_SUB}/${csUid(u)}/downloads/default.mp4`; }
 function drEditHTML(v){
   const d=drDraft; if(!d) return '';
   const inp='border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:500 13px/1.4 var(--sans);background:#fff;width:100%';
   return `<div style="grid-column:1/-1;margin:6px 0 4px;padding:12px;border-radius:12px;background:rgba(0,102,99,.04);
     border:1px solid rgba(0,102,99,.18);display:flex;flex-direction:column;gap:8px">
-    <input value="${esc(d.n)}" oninput="drDraft.n=this.value" placeholder="Name" style="${inp};font-weight:600">
-    <textarea rows="2" oninput="drDraft.desc=this.value" placeholder="What it is for, one or two lines" style="${inp};resize:vertical">${esc(d.desc)}</textarea>
-    <textarea rows="4" oninput="drDraft.cues=this.value" placeholder="Cues, one to a line" style="${inp};resize:vertical">${esc(d.cues)}</textarea>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start">
+    <div style="display:flex;flex-direction:column;gap:8px;min-width:0;flex:1 1 320px">
+    <input id="drName" value="${esc(d.n)}" oninput="drDraft.n=this.value" placeholder="Name" style="${inp};font-weight:600">
+    <textarea id="drDesc" rows="2" oninput="drDraft.desc=this.value" placeholder="What it is for, one or two lines" style="${inp};resize:vertical">${esc(d.desc)}</textarea>
+    <div class="kick" style="margin-top:4px">CUES</div>
+    ${(d.cues||[]).map((c,i)=>`<div style="display:flex;gap:6px;align-items:center">
+      <span style="flex:none;width:18px;text-align:right;font:600 12px/1 var(--sans);color:var(--grey2)">${i+1}</span>
+      <input id="drCue${i}" value="${esc(c)}" placeholder="${i?'Another cue':'A cue, in the words you would say'}" style="${inp}"
+        oninput="drDraft.cues[${i}]=this.value" onkeydown="drCueKey(event,${i})" onpaste="drCuePaste(event,${i})">
+      <button class="btn btn-ghost btn-sm" title="Move up (Option ↑)" ${i?'':'disabled'} onclick="drCueMove(${i},-1)" style="padding:6px 8px">↑</button>
+      <button class="btn btn-ghost btn-sm" title="Move down (Option ↓)" ${i<d.cues.length-1?'':'disabled'} onclick="drCueMove(${i},1)" style="padding:6px 8px">↓</button>
+      <button class="btn btn-ghost btn-sm" title="Remove" onclick="drCueDel(${i})" style="padding:6px 8px;color:var(--terra)">×</button></div>`).join('')}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="drCueAdd()">+ Add a cue</button>
+      <span class="muted" style="font:400 11.5px/1.4 var(--sans)">Enter adds a cue below. Paste a list and each line becomes a cue. ⌘Enter saves, ⇧⌘Enter saves and opens the next drill.</span></div>
+    </div>
+    ${drFilm(v)?`<div style="flex:0 1 190px;min-width:150px;margin:0 auto"><video src="${drFilm(v)}" muted loop autoplay playsinline controls preload="metadata"
+      style="width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:12px;background:#000"></video>
+      <div class="muted" style="font:400 11.5px/1.4 var(--sans);margin-top:4px">The film, to write the cues against.</div></div>`:''}
+    </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       ${clipBtn(v)}
       <button class="btn btn-ghost btn-sm" onclick="clipChooseOpen('${esc(v)}')">${clipChoose===v?'Close the clips':'Choose an existing clip'}</button>
       <span style="flex:1"></span>
       <button class="btn btn-ghost btn-sm" onclick="drDelete('${esc(v)}')" style="color:var(--terra)">Delete</button>
       <button class="btn btn-secondary btn-sm" onclick="drOpen='';drDraft=null;draw()">Cancel</button>
+      ${drShown[drShown.indexOf(v)+1]?`<button class="btn btn-secondary btn-sm" ${drBusy?'disabled':''} onclick="drSave(true)">Save and next</button>`:''}
       <button class="btn btn-primary btn-sm" ${drBusy?'disabled':''} onclick="drSave()">${drBusy?'Saving…':'Save'}</button>
     </div>
     ${drMsg?`<div style="font:500 12px/1.4 var(--sans);color:var(--terra)">${esc(drMsg)}</div>`:''}
@@ -9943,19 +9991,22 @@ function libDrillsHTML(){
   const q=(drillQ||'').trim().toLowerCase();
   /* which have a film and which still need one, so the filming list is
      one press away rather than a scroll down six stages of rows */
-  const byQ=rows.filter(r=>!q||r.name.toLowerCase().includes(q)||r.v.includes(q));
-  const shown=byQ.filter(r=>drillClip==='yes'?hasClip(r.v):drillClip==='no'?!hasClip(r.v):true);
+  const cuesOf=v=>(libCues&&libCues[v])||[];
+  const byQ=rows.filter(r=>!q||r.name.toLowerCase().includes(q)||r.v.includes(q)||cuesOf(r.v).join(' ').toLowerCase().includes(q));
+  const shown=byQ.filter(r=>drillClip==='yes'?hasClip(r.v):drillClip==='no'?!hasClip(r.v):drillClip==='nocues'?!cuesOf(r.v).length:true);
+  drShown=shown.map(r=>r.v);
   /* a drill on no stage, with no clip, is still a drill to film: say where each is used */
   const clipPill=(k,label,n)=>`<button onclick="drillClip='${k}';draw()" style="cursor:pointer;border-radius:999px;
     padding:8px 13px;font:600 12px/1 var(--sans);border:1.5px solid ${drillClip===k?'var(--forest)':'var(--line)'};
     background:${drillClip===k?'var(--forest)':'#fff'};color:${drillClip===k?'#fff':'var(--ink)'}">${label}<span
     style="opacity:.6;font-weight:400"> ${n}</span></button>`;
   return `<div style="display:flex;gap:var(--space-3);align-items:center;margin-bottom:var(--space-3);flex-wrap:wrap">
-      <input class="input" placeholder="Search drills" value="${esc(drillQ)}"
+      <input class="input" placeholder="Search drills and cues" value="${esc(drillQ)}"
         oninput="drillQ=this.value;draw()" style="max-width:300px">
       <span style="display:flex;gap:6px;flex-wrap:wrap">${clipPill('all','All',byQ.length)}${
         clipPill('yes','Has a clip',byQ.filter(r=>hasClip(r.v)).length)}${
         clipPill('no','No clip',byQ.filter(r=>!hasClip(r.v)).length)}${
+        clipPill('nocues','No cues',byQ.filter(r=>!cuesOf(r.v).length).length)}${
         (()=>{ const c=clipCheck(); return clipPill('check','Clips to check',c.sameName.length+c.shared.length); })()}</span>
       <span style="flex:1"></span>
       <button class="btn btn-primary" onclick="openNewDrill()">New drill</button>
@@ -9965,11 +10016,14 @@ function libDrillsHTML(){
       the number is its level there. Levels and doses are set per stage under Ladder workouts.</p>`}
     ${drillClip==='check' ? '' : (()=>{ let opened=false; return shown.slice(0,400).map(r=>{
       const here = drOpen===r.v && !opened; if(here) opened=true;
-      return `<div style="display:grid;
+      const cs=cuesOf(r.v);
+      return `<div id="drRow-${esc(r.v)}" style="display:grid;
       grid-template-columns:minmax(0,1fr) auto 70px 60px;gap:var(--space-3);align-items:center;
       padding:var(--space-2) var(--space-1);border-bottom:1px solid rgba(17,17,17,.08);
       font:400 14px/1.4 var(--sans)">
-      <span style="font-weight:600;min-width:0">${esc(r.name)}</span>
+      <span style="min-width:0;cursor:pointer" onclick="drEdit('${esc(r.v)}')" title="Edit the cues"><span style="font-weight:600">${esc(r.name)}</span>
+        <span style="display:block;font:400 12px/1.45 var(--sans);color:${cs.length?'var(--grey)':'var(--terra)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
+          cs.length?esc(cs.join(' · ')):'No cues yet'}</span></span>
       ${drStageChips(r.v)}
       <span style="color:${hasClip(r.v)?'var(--grey)':'var(--terra)'}">${
         hasClip(r.v)?'has clip':'no clip'}</span>
