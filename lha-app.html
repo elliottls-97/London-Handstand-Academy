@@ -1239,6 +1239,8 @@ const AUTH = {
   emailGo: '/api/app/email/confirm',   // POST {code} → moves the account, new token
   progress:'/api/app/progress',  // POST a summary · GET it back
   signup:'/api/app/signup',      // POST {email,password?,marketing}
+  appleNonce:'/api/app/auth/apple/nonce', // GET → {raw, nonce} for Sign in with Apple
+  apple:'/api/app/auth/apple',   // POST {nonce, identityToken, ...} → {token, email, client}
   me:'/api/app/me',              // GET  {plus, coached, canManage}
   checkout:'/api/app/checkout',  // POST → Stripe Checkout url
   portal:'/api/app/portal',      // POST → Stripe billing portal url
@@ -10446,7 +10448,7 @@ function drawOv(){
         ?' Your Ladder subscription is billed by Apple, so cancel it in Settings, then your name, then Subscriptions, or Apple keeps charging.'
         : st.plus||st.in ?' Your subscription is cancelled first, so nothing more is charged.':''}</div>
       <label for="delPw" style="display:block;margin-top:18px;font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">YOUR PASSWORD</label>
-      <input id="delPw" type="password" autocomplete="current-password" placeholder="Password, or type delete if you never set one"
+      <input id="delPw" type="password" autocomplete="current-password" placeholder="${st.viaApple?'Type delete to confirm':'Password, or type delete if you never set one'}"
         style="width:100%;margin-top:8px;padding:14px 16px;border-radius:14px;border:1.5px solid rgba(0,64,61,.18);background:#fff;font:400 16px/1.3 var(--sans)">
       <div id="delMsg" style="min-height:20px;margin-top:8px;font:500 13px/1.4 var(--sans);color:var(--red)"></div>
       <button onclick="deleteMine()" style="width:100%;height:52px;margin-top:6px;border:0;border-radius:14px;cursor:pointer;
@@ -10937,6 +10939,7 @@ function screenSignIn(){
         Sign in with the email you paid with. First time here? Set a password below and a code comes to that address.</div>`:''}
     </div>
     <form onsubmit="doLogin(event)" style="margin-top:${W?24:18}px;display:flex;flex-direction:column;gap:10px">
+      ${appleBtnHTML(true)}
       <input id="emailIn" type="email" inputmode="email" autocomplete="username"
         placeholder="you@example.com" value="${esc(st.email||'')}" style="${field}">
       <div style="position:relative;display:flex">
@@ -17974,6 +17977,7 @@ function screenJoin(){
           ? 'Optional. It saves your progress, opens the rest of the explainers, and I send tips and new videos as they land.'
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
       <form onsubmit="doJoin(event)" style="display:flex;flex-direction:column;gap:10px">
+        ${appleBtnHTML(false)}
         <input id="joinEm" type="email" inputmode="email" autocomplete="email" required
           placeholder="you@example.com" aria-label="Your email address"
           style="background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:400 15px/1 var(--sans);color:var(--ink);outline:none;min-height:56px">
@@ -18908,6 +18912,80 @@ async function nativeTurnOn(ask){
   }
   try{ await P.register(); }catch(e){ if(ask) toast('The phone would not turn them on. Try again in a minute.'); }
 }
+/* ── Sign in with Apple, in the iPhone app ───────────────────────────
+   The AppleSignIn plugin shows Apple's sheet; the server checks what Apple
+   signed and answers like a sign in. The button only appears once the
+   plugin has answered, so an older build without it never shows one. A
+   first sign in makes the account, so it does both jobs: it sits on Sign
+   in and on Create an account. */
+let APLP=null, appleOK=false;
+function applePlugin(){
+  if(!IOS_APP || !window.Capacitor) return null;
+  try{ if(!APLP) APLP = Capacitor.registerPlugin ? Capacitor.registerPlugin('AppleSignIn') : ((Capacitor.Plugins||{}).AppleSignIn||null); }catch(e){ APLP=null; }
+  return APLP;
+}
+function appleProbe(){
+  const P=applePlugin(); if(!P || appleOK) return;
+  P.available().then(()=>{ appleOK=true; if(!st.ov) render(); }).catch(()=>{});
+}
+/* Apple's own button: black on a light screen, white on the film behind
+   Sign in, the logo and the words its guidelines ask for */
+function appleBtnHTML(onDark){
+  if(!appleOK) return '';
+  const fg=onDark?'#000':'#fff', bg=onDark?'#fff':'#000';
+  return `<button type="button" onclick="appleSignIn()" aria-label="Continue with Apple"
+      style="height:56px;width:100%;border:0;border-radius:14px;cursor:pointer;background:${bg};color:${fg};
+      display:flex;align-items:center;justify-content:center;gap:8px;font:600 17px/1 -apple-system,var(--sans)">
+      <svg width="17" height="20" viewBox="0 0 17 20" fill="currentColor" aria-hidden="true"><path d="M14.05 10.63c-.02-2.24 1.83-3.32 1.91-3.37-1.04-1.52-2.66-1.73-3.24-1.75-1.38-.14-2.69.81-3.39.81-.7 0-1.78-.79-2.92-.77-1.5.02-2.89.87-3.66 2.22-1.56 2.71-.4 6.72 1.12 8.92.75 1.07 1.63 2.28 2.8 2.24 1.12-.05 1.55-.73 2.9-.73 1.36 0 1.74.73 2.92.7 1.21-.02 1.97-1.09 2.71-2.17.85-1.25 1.2-2.46 1.22-2.52-.03-.01-2.34-.9-2.37-3.58ZM11.83 4.04c.62-.75 1.04-1.8.93-2.84-.9.04-1.98.6-2.62 1.35-.58.67-1.08 1.73-.95 2.75 1 .08 2.02-.51 2.64-1.26Z"/></svg>
+      Continue with Apple</button>
+    <div id="appleMsg" role="status" style="font:600 13px/1.5 var(--sans);color:${onDark?'#ffb4a2':'var(--red)'};text-align:center;min-height:0"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:4px 0 2px;font:500 12px/1 var(--sans);color:${onDark?'rgba(255,255,255,.7)':'var(--grey2)'}">
+      <span style="flex:1;height:1px;background:${onDark?'rgba(255,255,255,.2)':'rgba(0,64,61,.12)'}"></span>or with your email
+      <span style="flex:1;height:1px;background:${onDark?'rgba(255,255,255,.2)':'rgba(0,64,61,.12)'}"></span></div>`;
+}
+async function appleSignIn(){
+  const P=applePlugin(); if(!P) return;
+  const say=m=>{ const e=$('#appleMsg'); if(e) e.textContent=m; };
+  say('');
+  let n, a;
+  try{ n=await fetch(AUTH.appleNonce).then(r=>r.ok?r.json():Promise.reject()); }
+  catch(e){ say('No connection just now. Try again in a moment.'); return; }
+  try{ a=await P.signIn({nonce:n.nonce}); }
+  catch(e){ if(String((e&&e.code)||'')!=='CANCELLED') say('Apple did not finish signing you in. Try again.'); return; }
+  say('Signing you in…');
+  let d;
+  try{
+    const r=await fetch(AUTH.apple,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nonce:n.raw, identityToken:a.identityToken, authorizationCode:a.authorizationCode||'',
+        givenName:a.givenName||'', familyName:a.familyName||'', stage:placedStage(), ref:st.ref||''})});
+    d=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.error||'Apple could not confirm that sign in. Try again.');
+  }catch(e){ say(String((e&&e.message)||e)); return; }
+  if(d.coach){ leaveTo('/lha-coach.html'); return; }
+  const from=st.tab;
+  st.email=d.email; st.token=d.token; st.client=d.client; st.viaApple=true;
+  st.in=!!d.coached; st.coached=!!d.coached; st.plus=!!d.plus;
+  if(!st.in){ st.mode='free'; st.quizDone=true;
+    st.tab = (st.joinFor==='taste') ? 'home' : 'ladder'; st.joinFor = st.joinFor==='taste' ? '' : st.joinFor; }
+  save(); render(); loadEntitlement();
+  if(d.fresh){
+    /* a new account has nothing to overwrite: what this phone has goes up */
+    track('signup');
+    try{ if(st.intake && st.intake.level!=null) sendIntake(); }catch(e){}
+    try{ saveState(true); }catch(e){}
+    loadProgress();
+  } else {
+    if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
+    if(st.in){ loadProgramme(); loadThread(); }
+    loadProgress(); loadLadder(); loadState(); loadTrack();
+  }
+  codeResume();
+  /* came from a locked stage to buy it: finish the errand, as joining by
+     email does, rather than leaving them on the ladder to find it again */
+  if(!st.in && st.wantUpgrade!=null && from==='joinFree'){ const w=st.wantUpgrade; st.wantUpgrade=null; save();
+    if(STAGES[w] && w>stageCap()){ st.ovStage=w; openOv('stage'); } else startUpgrade(); }
+}
+
 /* ── the Ladder through Apple ────────────────────────────────────────
    The iPhone app's LadderStore plugin talks to StoreKit; the server checks
    every transaction Apple signed (/iap/verify) and opens the Ladder until
@@ -19798,7 +19876,7 @@ render();
    shell lets go on its own after ten seconds if this never runs. */
 if(IOS_APP){ requestAnimationFrame(()=>requestAnimationFrame(()=>{ try{
   const sp=window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.SplashScreen;
-  if(sp) sp.hide({fadeOutDuration:250}); }catch(e){} iapInit(); })); }
+  if(sp) sp.hide({fadeOutDuration:250}); }catch(e){} iapInit(); appleProbe(); })); }
 </script>
 <div id="player"></div>
 <div id="ov" class="ov s" onclick="ovScrim(event)"></div>

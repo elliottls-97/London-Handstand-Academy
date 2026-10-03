@@ -179,6 +179,73 @@ async function verify(token) {
     return (!p.exp || Date.now() > p.exp) ? null : p;
   } catch { return null; }
 }
+const sha256hex = async s => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))).toString('hex');
+
+/* ── Sign in with Apple ──────────────────────────────────────────────
+   Apple signs an identity token with one of the keys it publishes; it is
+   only believed if that signature checks, it was issued by Apple for this
+   app, and it has not run out. The same .p8 key that sends notifications
+   signs the client secret, once Sign in with Apple is switched on for it;
+   SIWA_KEY and SIWA_KEY_ID take over if a separate key is ever made. The
+   refresh token from the exchange is kept only to revoke it when the
+   account is deleted, which Apple requires. */
+const APPLE_AUD = () => process.env.APNS_TOPIC || 'com.londonhandstandacademy.app';
+let appleKeys = { keys: [], at: 0 };
+async function appleJwks(force) {
+  if (!force && appleKeys.keys.length && Date.now() - appleKeys.at < 6 * 3600000) return appleKeys.keys;
+  const d = await fetch('https://appleid.apple.com/auth/keys').then(r => r.json());
+  appleKeys = { keys: Array.isArray(d.keys) ? d.keys : [], at: Date.now() };
+  return appleKeys.keys;
+}
+async function appleIdToken(tok) {
+  const [h, p, sig] = String(tok || '').split('.');
+  if (!h || !p || !sig) throw new Error('not a token');
+  const part = x => JSON.parse(Buffer.from(x, 'base64url').toString());
+  const head = part(h), pay = part(p);
+  if (head.alg !== 'RS256') throw new Error('alg');
+  /* Apple rotates its keys, so one not seen yet is fetched once more */
+  const jwk = (await appleJwks()).find(k => k.kid === head.kid)
+    || (await appleJwks(true)).find(k => k.kid === head.kid);
+  if (!jwk) throw new Error('key');
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, Buffer.from(sig, 'base64url'),
+    new TextEncoder().encode(h + '.' + p));
+  if (!ok) throw new Error('signature');
+  if (pay.iss !== 'https://appleid.apple.com') throw new Error('issuer');
+  if (![].concat(pay.aud).includes(APPLE_AUD())) throw new Error('audience');
+  if (!pay.exp || pay.exp * 1000 < Date.now()) throw new Error('expired');
+  return pay;
+}
+const siwaKey = () => process.env.SIWA_KEY || process.env.APNS_KEY || '';
+const siwaKid = () => process.env.SIWA_KEY_ID || process.env.APNS_KEY_ID || '';
+const siwaReady = () => !!(siwaKey() && siwaKid() && process.env.APNS_TEAM_ID);
+async function appleSecret() {
+  const pem = String(siwaKey()).replace(/\\n/g, '\n');
+  const der = Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''), 'base64');
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const now = Math.floor(Date.now() / 1000);
+  const part = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const head = part({ alg: 'ES256', kid: siwaKid() });
+  const body = part({ iss: process.env.APNS_TEAM_ID, iat: now, exp: now + 300,
+                      aud: 'https://appleid.apple.com', sub: APPLE_AUD() });
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(head + '.' + body));
+  return head + '.' + body + '.' + Buffer.from(sig).toString('base64url');
+}
+async function appleCall(path, fields) {
+  const r = await fetch('https://appleid.apple.com/auth/' + path, { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(Object.assign({ client_id: APPLE_AUD(), client_secret: await appleSecret() }, fields)) });
+  return { ok: r.ok, d: await r.json().catch(() => ({})) };
+}
+async function appleRefresh(code) {
+  if (!siwaReady() || !code) return '';
+  try { const { ok, d } = await appleCall('token', { code, grant_type: 'authorization_code' });
+        return ok ? String(d.refresh_token || '') : ''; } catch { return ''; }
+}
+async function appleRevoke(refresh) {
+  if (!siwaReady() || !refresh) return false;
+  try { return (await appleCall('revoke', { token: refresh, token_type_hint: 'refresh_token' })).ok; } catch { return false; }
+}
 
 
 /* ── password login ──────────────────────────────────────────
@@ -2970,6 +3037,52 @@ const handle = async (request) => {
   }
 
   /* ── the client's own thread ── */
+  /* ── a new account's first minute ──────────────────────────────────
+     The same for an account made with an email and one made with Apple. */
+  const greetNew = async (e, acct) => {
+    /* The thread opens with a line from the coach rather than an empty
+       box, so the first thing a new account sees under Ask is a person
+       asking if they have a question. It is the cheapest conversation
+       starter there is and it was not being started. */
+    try {
+      await threadAdd(db, e, { from: 'coach', sub: 'auto',
+        text: `Welcome to the ladder. I'm ${coachName(primaryCoach())}, I coach the people this app is built around. If anything about your handstand is confusing, or you want to know what to work on, ask it here. It comes straight to me.` });
+    } catch {}
+    /* ── the day's sign ups, across the whole site ───────────────────
+       Each one sent two emails, one to an address nobody has checked, and
+       the limit above is per address, so a few machines could spend the
+       whole day's email allowance, which also carries sign in codes,
+       password codes and receipts. Past a normal day the accounts still
+       work; the welcome waits, and the coach hears once rather than per
+       account. */
+    const dayN = await rateHit('signup:all', 24 * 3600000);
+    if (dayN === 16) {
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A lot of sign ups today',
+        `<p style="font:16px/1.6 system-ui">More than fifteen new app accounts today. The sign up
+         emails to you stop here until tomorrow, and after fifty the welcome emails do too, to keep
+         the day's email allowance for sign in codes and receipts. The accounts all work. If this
+         is not a campaign or a reel doing well, it may be somebody making accounts in bulk.</p>`);
+    }
+    /* to them, not only to the coach. Transactional: it says what the
+       account is and where the app lives, and nothing it did not ask for. */
+    const nm = String(acct.name || '').split(' ')[0];
+    if (dayN <= 50)
+    await email(e, 'Your Handstand Ladder account',
+      mail({ title: 'You are in.',
+        greeting: nm,
+        paras: ['This is the account your progress saves to, so it follows you between phones and survives a lost one.',
+                `Foundations is free for as long as you want it. The five stages above it are ${PRICES.plus.label} a month${Number(PRICES.trialDays) > 0 ? ' with the first ' + (Number(PRICES.trialDays) === 7 ? 'week' : PRICES.trialDays + ' days') + ' free' : ''}, and you can put it on your home screen from the More tab so it opens like an app.`,
+                'If something is wrong, or you have an idea, the pencil in the top bar reaches me directly.'],
+        cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+        signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
+    await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
+    if (dayN <= 15 && await coachMail(null, 'signups'))
+    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+      `New app sign-up: ${e}`,
+      `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
+       Marketing consent: ${acct.marketing ? 'yes' : 'no'}.</p>`);
+  };
+
   /* ── create an account ───────────────────────────────────────────
      Self-serve, no coach involved. Marketing consent is separate and
      opt-in, which is what UK rules require. */
@@ -3032,54 +3145,78 @@ const handle = async (request) => {
     const ref = String(body.ref || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
     if (ref && !prev.email) await setSetting(`ref:${e}`, ref);
 
-    if (!prev.email) {
-      /* The thread opens with a line from the coach rather than an empty
-         box, so the first thing a new account sees under Ask is a person
-         asking if they have a question. It is the cheapest conversation
-         starter there is and it was not being started. */
-      try {
-        await threadAdd(db, e, { from: 'coach', sub: 'auto',
-          text: `Welcome to the ladder. I'm ${coachName(primaryCoach())}, I coach the people this app is built around. If anything about your handstand is confusing, or you want to know what to work on, ask it here. It comes straight to me.` });
-      } catch {}
-      /* ── the day's sign ups, across the whole site ───────────────────
-         Each one sent two emails, one to an address nobody has checked, and
-         the limit above is per address, so a few machines could spend the
-         whole day's email allowance, which also carries sign in codes,
-         password codes and receipts. Past a normal day the accounts still
-         work; the welcome waits, and the coach hears once rather than per
-         account. */
-      const dayN = await rateHit('signup:all', 24 * 3600000);
-      if (dayN === 16) {
-        await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A lot of sign ups today',
-          `<p style="font:16px/1.6 system-ui">More than fifteen new app accounts today. The sign up
-           emails to you stop here until tomorrow, and after fifty the welcome emails do too, to keep
-           the day's email allowance for sign in codes and receipts. The accounts all work. If this
-           is not a campaign or a reel doing well, it may be somebody making accounts in bulk.</p>`);
-      }
-      /* to them, not only to the coach. Transactional: it says what the
-         account is and where the app lives, and nothing it did not ask for. */
-      const nm = String(acct.name || '').split(' ')[0];
-      if (dayN <= 50)
-      await email(e, 'Your Handstand Ladder account',
-        mail({ title: 'You are in.',
-          greeting: nm,
-          paras: ['This is the account your progress saves to, so it follows you between phones and survives a lost one.',
-                  `Foundations is free for as long as you want it. The five stages above it are ${PRICES.plus.label} a month${Number(PRICES.trialDays) > 0 ? ' with the first ' + (Number(PRICES.trialDays) === 7 ? 'week' : PRICES.trialDays + ' days') + ' free' : ''}, and you can put it on your home screen from the More tab so it opens like an app.`,
-                  'If something is wrong, or you have an idea, the pencil in the top bar reaches me directly.'],
-          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-          signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
-      await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
-      if (dayN <= 15 && await coachMail(null, 'signups'))
-      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-        `New app sign-up: ${e}`,
-        `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
-         Marketing consent: ${acct.marketing ? 'yes' : 'no'}.</p>`);
-    }
+    if (!prev.email) await greetNew(e, acct);
     return json({
       ok: true,
       plus: acct.plus,
       token: acct.hash ? await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }) : null,
     });
+  }
+
+  /* ── Sign in with Apple, from the iPhone app ──────────────────────
+     A nonce first, so a token Apple signed for somebody else's request
+     cannot be replayed here. Then Apple's user id finds the account it
+     was tied to. The first time, the address Apple vouches for decides:
+     an account already on it is signed in to (Apple has proved the
+     address, which is what a code to it proves), and otherwise a new one
+     is made, as Sign up would. A Hide My Email address is an address like
+     any other; mail to it reaches them through Apple. */
+  if (path === '/auth/apple/nonce' && request.method === 'GET') {
+    const raw = await sign({ scope: 'applenonce', exp: Date.now() + 10 * 60000,
+      r: b64url(crypto.getRandomValues(new Uint8Array(12))) });
+    return json({ raw, nonce: await sha256hex(raw) });
+  }
+  if (path === '/auth/apple' && request.method === 'POST') {
+    const no = (m, st = 401) => json({ error: m || 'Apple could not confirm that sign in. Try again.' }, st);
+    const raw = String(body.nonce || '');
+    const np = await verify(raw);
+    if (!np || np.scope !== 'applenonce') return no('That took too long. Try again.');
+    let t;
+    try { t = await appleIdToken(body.identityToken); } catch { return no(); }
+    if (t.nonce !== await sha256hex(raw)) return no();
+    const sub = String(t.sub || '').slice(0, 120);
+    if (!sub) return no();
+
+    let e = norm(String((await getSetting(`applesub:${sub}`)) || ''));
+    if (e && !(await getAcct(e)) && !clients()[e] && !coachList().includes(e)) e = '';
+    if (!e) {
+      const verified = t.email_verified === true || t.email_verified === 'true';
+      e = verified ? norm(String(t.email || '')) : '';
+      if (!e) return no('Apple did not share an email address, and the account needs one. Try again, and pick Share My Email or Hide My Email.', 400);
+    }
+    let acct = await getAcct(e);
+    const known = !!(acct || clients()[e] || coachList().includes(e));
+    const given = String(body.givenName || '').trim(), family = String(body.familyName || '').trim();
+    const fullName = (given + ' ' + family).trim().slice(0, 60);
+    if (!known) {
+      const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`signup:${ip}`, 24 * 3600000)) > 10) {
+        return no('That is a lot of accounts from one place. Try again tomorrow, or sign in.', 429);
+      }
+      acct = { email: e, name: fullName, hash: null, marketing: false,
+               stage: Number.isInteger(Number(body.stage)) && body.stage !== null && body.stage !== '' ? Number(body.stage) : null,
+               plus: false, stripe_customer: null };
+      await saveAcct(acct);
+      const ref = String(body.ref || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+      if (ref) await setSetting(`ref:${e}`, ref);
+      await greetNew(e, acct);
+    } else if (acct && !acct.name && fullName) {
+      await saveAcct(Object.assign({}, acct, { name: fullName }));
+      acct = await getAcct(e);
+    }
+    /* tie Apple's id to the address both ways, and keep the refresh token
+       for the revoke Apple asks for when the account is deleted */
+    const prevA = (await getSetting(`apple:${e}`)) || {};
+    const refresh = (await appleRefresh(String(body.authorizationCode || ''))) || (prevA.sub === sub ? prevA.refresh : '') || '';
+    await setSetting(`apple:${e}`, { sub, refresh, at: Date.now() });
+    await setSetting(`applesub:${sub}`, e);
+
+    const name = clients()[e]
+      || (coachList().includes(e) ? (coaches()[e] || e.split('@')[0]) : '')
+      || (acct && acct.name) || e.split('@')[0];
+    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+                  email: e, client: name, fresh: !known,
+                  coach: coachList().includes(e), coached: await isCoached(e), plus: plusNow(acct) });
   }
 
   /* ── forgotten password ──────────────────────────────────────────
@@ -7339,7 +7476,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                         'clips', 'progdrafts', 'progarchive',
                         'cpseen', 'saidseen', 'trainseen', 'flagseen', 'push',
                         /* bought in the iPhone app */
-                        'iap'];
+                        'iap',
+                        /* signed in with Apple: its user id and refresh token */
+                        'apple'];
 
   /* The only order that works, given the foreign keys cascade on delete and
      not on update: the new row first so there is something to point at, then
@@ -7391,6 +7530,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const tokOld = await iapToken(from);
       if ((await getSetting(`iaptok:${tokOld}`)) === from) await setSetting(`iaptok:${tokOld}`, to);
     } catch {}
+    /* Apple's user id finds the account by address, so it follows too */
+    try {
+      const apNew = await getSetting(`apple:${to}`);
+      if (apNew && apNew.sub) await setSetting(`applesub:${apNew.sub}`, to);
+    } catch {}
     /* whether their emails were let through the client guard: a roster
        client's new address would otherwise be held by it */
     const off = (await getSetting('mailoff')) || {};
@@ -7422,6 +7566,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (iapD && iapD.otid && (await getSetting(`iapotid:${iapD.otid}`)) === e) await dropSetting(`iapotid:${iapD.otid}`);
       const tokD = await iapToken(e);
       if ((await getSetting(`iaptok:${tokD}`)) === e) await dropSetting(`iaptok:${tokD}`);
+    } catch {}
+    /* Signed in with Apple: the token is revoked, as Apple requires of an
+       app that deletes accounts, and Apple's id stops finding this address */
+    try {
+      const ap = await getSetting(`apple:${e}`);
+      if (ap && ap.refresh) await appleRevoke(ap.refresh);
+      if (ap && ap.sub && (await getSetting(`applesub:${ap.sub}`)) === e) await dropSetting(`applesub:${ap.sub}`);
     } catch {}
     for (const k of SETTING_KEYS) await dropSetting(`${k}:${e}`).catch(() => {});
     await dropSetting(`emailchange:${e}`).catch(() => {});
