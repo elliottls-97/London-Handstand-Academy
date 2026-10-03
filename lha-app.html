@@ -3770,7 +3770,7 @@ function stageMasteryCard(){
           ${i+1}. ${esc(S.n)}</span>
         <span style="flex:none;font:600 11px/1 var(--sans);letter-spacing:.1em;
           color:${state==='now'?'var(--forest)':'var(--grey2)'}">${
-          S.soon?'COMING SOON':paid?(sells()?PRICE()+'/MO':'MEMBERS'):state==='done'?'DONE':state==='now'?'NOW':''}</span>
+          S.soon?'COMING SOON':paid?(sellsLadder()?PRICE()+'/MO':'MEMBERS'):state==='done'?'DONE':state==='now'?'NOW':''}</span>
       </div>
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:6px">
         <span style="font:400 12.5px/1.4 var(--sans);color:var(--grey)">
@@ -10714,7 +10714,7 @@ function drawOv(){
       ${ladder}
       ${story?'':`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px">${
         moved ? esc((next.goal||'').replace(/\.$/,''))+'.'
-        : next ? esc(next.n)+(sells()?' is the '+PRICE()+' tier.':' is for members.')+' You stay on '+esc(from.n)+' until you open it.'
+        : next ? esc(next.n)+(sellsLadder()?' is the '+PRICE()+' tier.':' is for members.')+' You stay on '+esc(from.n)+' until you open it.'
         : 'That is the whole ladder. There is nothing below this one.'}</div>`}
     </div>
     ${story?`<div style="margin-top:18px;font:400 26px/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)">What you&rsquo;ll learn<em
@@ -10740,7 +10740,7 @@ function drawOv(){
           } ${STAGES.length-(st.clearedFrom||0)-2>0?'are':'is'} ${sellsLadder()?PRICE()+' a month':MEMBERS}. ${
           esc((next.goal||'').replace(/\.$/,''))}.</div>
       </div>
-      ${sells()?`<button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
+      ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
         Open ${esc(next.n)} for ${PRICE()} a month</button>`:''}
       <button class="btn2" style="width:100%;margin-top:9px"
         onclick="st.clearedFrom=null;closeOv()">Keep training ${esc(from.n)}</button>`
@@ -10801,9 +10801,9 @@ function drawOv(){
         <div style="font:400 20px/1.25 var(--serif);margin-top:8px">${esc(STAGES[placedStage()].n)} is part of the ladder.</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">${
           trialLine() ? 'The free week opens it again, with every stage above it. Nothing is charged until '+esc(firstCharge())+'.'
-                      : sellsLadder() ? 'It is '+PRICE()+' a month for every stage, and you can cancel from the app.' : 'Every stage is for members.'}</div>
-        ${sells()?`<button class="btn" style="width:100%;margin-top:13px"
-          onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
+                      : sellsLadder() ? 'It is '+PRICE()+' a month for every stage, and you can cancel '+(IOS_APP?'in Settings.':'from the app.') : 'Every stage is for members.'}</div>
+        ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:13px"
+          onclick="closeOv();${sells()?'openPaywall()':'startUpgrade()'}">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
       </div>`:''}
       <!-- ── the address, now there is something to keep ──────────────
            One session runs with no account at all. This is the end of it,
@@ -14375,7 +14375,7 @@ function screenFix(){
         <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--sand)">IN THE FULL LADDER</div>
         <div style="font:400 24px/1.15 var(--serif);margin-top:8px">${sellsLadder()?'This fix opens with the '+PRICE()+' a month tier.':'This fix is for members.'}</div>
         <div style="font:400 14px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:8px">Every fix, every stage of the ladder${sellsLadder()&&trialLine()?', and the '+trialLine():''}.</div>
-        ${sells()?`<button class="btn" style="width:100%;margin-top:14px;background:#fff;color:var(--deep)" onclick="openStage(FREE_STAGES)">See what is in it</button>`:''}
+        ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:14px;background:#fff;color:var(--deep)" onclick="openStage(FREE_STAGES)">See what is in it</button>`:''}
       </div>`
     :`<div class="rise rise-1" style="padding:20px 20px 0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -15766,9 +15766,14 @@ function screenUpgradeBody(si){
       <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${
         (sells()&&days>0)?`Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps in your account before then. `:''}${
         (STAGES.length-FREE_STAGES)} stages, every drill filmed and cued, the check points that move you up.${
-        sells()?'':' If you are a member, sign in with the email you joined with.'}</div>
-      ${sells()?`<button class="btn" style="width:100%;margin-top:14px" onclick="startUpgrade()">${
-        days>0?'Start the free '+week:'Open the ladder'}</button>`:(!st.token?`<button class="btn" style="width:100%;margin-top:14px"
+        sellsLadder()?'':' If you are a member, sign in with the email you joined with.'}</div>
+      ${/* sellsLadder, not sells: in the iPhone app the price above came from
+           Apple while this button still asked the website's switch, so the
+           sheet named a price with nothing to press. startUpgrade sends the
+           iPhone app to Apple's purchase sheet. */''}
+      ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:14px" onclick="startUpgrade()">${
+        days>0?'Start the free '+week:'Open the ladder'}</button>${(!sells()&&!st.token)?`<button class="btn2" style="width:100%;margin-top:10px"
+        onclick="closeOv();st.tab='signin';save();render()">Already a member? Sign in</button>`:''}`:(!st.token?`<button class="btn" style="width:100%;margin-top:14px"
         onclick="closeOv();st.tab='signin';save();render()">Sign in</button>`:'')}
       ${(function(){
         if(!TASTE_ON || placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
