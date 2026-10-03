@@ -18989,7 +18989,12 @@ async function appleSignIn(){
   try{ n=await fetch(AUTH.appleNonce).then(r=>r.ok?r.json():Promise.reject()); }
   catch(e){ say('No connection just now. Try again in a moment.'); return; }
   try{ a=await P.signIn({nonce:n.nonce}); }
-  catch(e){ if(String((e&&e.code)||'')!=='CANCELLED') say('Apple did not finish signing you in. Try again.'); return; }
+  catch(e){ if(String((e&&e.code)||'')==='CANCELLED') return;
+    /* Apple's own error number, so a failure after Face ID can be told
+       apart: 1000 is Apple's servers or the app's setup, 1004 a refusal */
+    const m=String((e&&e.message)||''), n=(/error (\d{3,5})/.exec(m)||[])[1];
+    say('Apple did not finish signing you in. Try again.'+(n?' (Apple error '+n+')':m?' ('+m.slice(0,80)+')':''));
+    return; }
   say('Signing you in…');
   let d;
   try{
