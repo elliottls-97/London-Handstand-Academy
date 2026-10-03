@@ -49,6 +49,29 @@ Netlify, Site configuration, Environment variables, add:
 
 Never paste the .p8 file into a chat or commit it: this repository is public.
 
+## Sign in with Apple
+
+Continue with Apple sits on Sign in and on Create an account in the iPhone
+app (not on the website). It only shows once the native plugin answers, so a
+build without it never shows a dead button.
+
+- The shell: `CapApp-SPM/Sources/CapApp-SPM/AppleSignIn.swift`, and the
+  `com.apple.developer.applesignin` entitlement in `App/App.entitlements`.
+- The server: `/api/app/auth/apple/nonce`, then `/api/app/auth/apple`, which
+  checks Apple's identity token against Apple's published keys and ties
+  Apple's user id to the email account (`apple:<email>`, `applesub:<id>`).
+  An existing account on the address Apple verifies is signed in to;
+  otherwise a new one is made and welcomed like an email sign up.
+- Deleting the account revokes Apple's token, which Apple requires. The
+  client secret for that is signed with the push key: key 26CN626Q89 has
+  Sign in with Apple switched on too, so `APNS_KEY` and `APNS_KEY_ID` do
+  both jobs. `SIWA_KEY` and `SIWA_KEY_ID` take over if a separate key is
+  ever made.
+- Hide My Email addresses only receive mail from registered senders:
+  londonhandstandacademy.com, send.londonhandstandacademy.com and
+  info@londonhandstandacademy.com are registered under Services, Sign in
+  with Apple for Email Communication.
+
 ## The Ladder through Apple (in-app purchase)
 
 The iPhone app sells one thing, the Ladder, through Apple. Coaching, sessions
