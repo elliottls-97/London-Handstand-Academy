@@ -13140,7 +13140,7 @@ function trialCardHTML(where){
       border-radius:3px;background:${i<placed?'var(--forest)':i===placed?'var(--deep)':'rgba(0,64,61,.12)'}"></span>`).join('')}</div>
     <button class="btn" onclick="openTrial()" style="width:100%;margin-top:16px">${go}</button>
     <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin-top:7px">${
-      days>0?`Opens ${esc(PS.n)} and every stage. Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps.`
+      days>0?`Opens ${esc(PS.n)} and every stage. Nothing is charged until ${esc(firstCharge())}, and ${CANCEL_LINE()}.`
             :`${esc(PS.n)} and every stage, ${PRICE()} a month.`}</div>
     <button onclick="chooseFree()" style="width:100%;min-height:50px;margin-top:14px;border-radius:14px;cursor:pointer;
       border:1px solid rgba(0,64,61,.16);background:#fff;color:var(--deep);font:600 15px/1 var(--sans)">
@@ -13699,7 +13699,7 @@ function screenOriented(){
                 : `Your first session at ${esc(PS.n)} is free.`}</div>
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
               ${!TASTE_ON
-                ? (tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then it is ${PRICE()} a month for every stage, and cancelling is two taps. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
+                ? (tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then it is ${PRICE()} a month for every stage, and ${CANCEL_LINE()}. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
                            : `${PRICE()} a month for every stage. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`)
                 : tasteUsed
                 ? `${esc(PS.n)} is part of the ${PRICE()} a month ladder${trialLine()?', with the '+trialLine():''}. ${esc(STAGES[stageCap()].n)} stays free either way.`
@@ -17028,6 +17028,9 @@ const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',online:
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1000,plusq:3900,plusy:12900})[k] || 0;
 const PRICE = (k='plus') => (k==='plus' && IOS_APP && iapProduct) ? iapProduct.displayPrice
   : ((((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '');
+/* In the iPhone app the Ladder is billed by Apple, so it is cancelled in
+   Settings, not in the app and not in two taps */
+const CANCEL_LINE = () => (IOS_APP && !sells()) ? 'you cancel in Settings' : 'cancelling is two taps';
 /* the free week is once per account: offered again after it has been had,
    it promised a week and Stripe charged on the day */
 const PRICE_TRIAL = () => { if(IOS_APP && iapProduct) return iapTrialDays();
@@ -17951,10 +17954,17 @@ function screenJoin(){
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
       saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
       : trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
-               +'The account comes first, because the '+trialDays+' is attached to it and it is what you sign back in with. '
+               +(IOS_APP && !sells()
+               /* in the iPhone app Apple takes the payment, not Stripe, and
+                  this page was still describing the website's card form */
+               ? 'The free '+trialDays+' goes through Apple, on your Apple ID, and nothing is charged until '
+                 +firstCharge()+'. Cancel before then in Settings.'
+               : 'The account comes first, because the '+trialDays+' is attached to it and it is what you sign back in with. '
                +'The card goes in on the next page, through Stripe, and nothing is charged until '
-               +firstCharge()+'. Cancelling before then is one tap in the app.'
-       : want ? 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.'
+               +firstCharge()+'. Cancelling before then is one tap in the app.')
+       : want ? (IOS_APP && !sells()
+               ? 'The '+PRICE()+' a month goes through Apple, on your Apple ID.'
+               : 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.')
        : taste ? 'Your first session there is free, and no card is asked for. '
                  +esc((PSJ.goal||'').replace(/\.$/,''))+'.'
            : esc(s.goal||'')}</div>
