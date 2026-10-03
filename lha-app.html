@@ -18956,7 +18956,7 @@ async function nativeTurnOn(ask){
    plugin has answered, so an older build without it never shows one. A
    first sign in makes the account, so it does both jobs: it sits on Sign
    in and on Create an account. */
-let APLP=null, appleOK=false;
+let APLP=null, appleOK=false, appleBusy=false;
 function applePlugin(){
   if(!IOS_APP || !window.Capacitor) return null;
   try{ if(!APLP) APLP = Capacitor.registerPlugin ? Capacitor.registerPlugin('AppleSignIn') : ((Capacitor.Plugins||{}).AppleSignIn||null); }catch(e){ APLP=null; }
@@ -18964,7 +18964,9 @@ function applePlugin(){
 }
 function appleProbe(){
   const P=applePlugin(); if(!P || appleOK) return;
-  P.available().then(()=>{ appleOK=true; if(!st.ov) render(); }).catch(()=>{});
+  /* v 2 is the build that holds Apple's request until it answers; build 3
+     dropped it the moment the sheet opened, so it never shows the button */
+  P.available().then(r=>{ if(r && Number(r.v)>=2){ appleOK=true; if(!st.ov) render(); } }).catch(()=>{});
 }
 /* Apple's own button: black on a light screen, white on the film behind
    Sign in, the logo and the words its guidelines ask for */
@@ -18982,14 +18984,20 @@ function appleBtnHTML(onDark){
       <span style="flex:1;height:1px;background:${onDark?'rgba(255,255,255,.2)':'rgba(0,64,61,.12)'}"></span></div>`;
 }
 async function appleSignIn(){
-  const P=applePlugin(); if(!P) return;
+  const P=applePlugin(); if(!P || appleBusy) return;
+  /* one request at a time: a second one cancelled the first while Apple's
+     sheet was still open */
+  appleBusy=true;
+  try{ await appleSignInOnce(P); } finally{ appleBusy=false; }
+}
+async function appleSignInOnce(P){
   const say=m=>{ const e=$('#appleMsg'); if(e) e.textContent=m; };
   say('');
   let n, a;
   try{ n=await fetch(AUTH.appleNonce).then(r=>r.ok?r.json():Promise.reject()); }
   catch(e){ say('No connection just now. Try again in a moment.'); return; }
   try{ a=await P.signIn({nonce:n.nonce}); }
-  catch(e){ if(String((e&&e.code)||'')==='CANCELLED') return;
+  catch(e){ if(/^(CANCELLED|BUSY)$/.test(String((e&&e.code)||''))) return;
     /* Apple's own error number, so a failure after Face ID can be told
        apart: 1000 is Apple's servers or the app's setup, 1004 a refusal */
     const m=String((e&&e.message)||''), n=(/error (\d{3,5})/.exec(m)||[])[1];

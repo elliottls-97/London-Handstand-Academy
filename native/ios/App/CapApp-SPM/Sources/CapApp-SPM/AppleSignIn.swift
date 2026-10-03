@@ -25,17 +25,21 @@ public class AppleSignInPlugin: CAPPlugin, CAPBridgedPlugin, ASAuthorizationCont
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
     ]
     private var pending: CAPPluginCall?
+    /* held until Apple answers: let go of it and the request dies the moment
+       Apple's sheet opens, while the sheet stays up with nothing listening */
+    private var controller: ASAuthorizationController?
 
     /* the page only shows the button once this answers, so a build made
        before this plugin existed never shows one that does nothing */
     @objc func available(_ call: CAPPluginCall) {
-        call.resolve(["ok": true])
+        call.resolve(["ok": true, "v": 2])
     }
 
     @objc func signIn(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            /* a second tap while Apple's sheet is up replaces the first */
-            if let old = self.pending { old.reject("Replaced by a newer sign in", "CANCELLED") }
+            /* one at a time: a second request while Apple's sheet is up is
+               turned away, and the one the sheet belongs to carries on */
+            if self.pending != nil { call.reject("A sign in is already open", "BUSY"); return }
             self.pending = call
             let request = ASAuthorizationAppleIDProvider().createRequest()
             request.requestedScopes = [.fullName, .email]
@@ -43,6 +47,7 @@ public class AppleSignInPlugin: CAPPlugin, CAPBridgedPlugin, ASAuthorizationCont
             let controller = ASAuthorizationController(authorizationRequests: [request])
             controller.delegate = self
             controller.presentationContextProvider = self
+            self.controller = controller
             controller.performRequests()
         }
     }
@@ -55,6 +60,7 @@ public class AppleSignInPlugin: CAPPlugin, CAPBridgedPlugin, ASAuthorizationCont
                                         didCompleteWithAuthorization authorization: ASAuthorization) {
         guard let call = pending else { return }
         pending = nil
+        self.controller = nil
         guard let cred = authorization.credential as? ASAuthorizationAppleIDCredential,
               let data = cred.identityToken, let token = String(data: data, encoding: .utf8) else {
             call.reject("Apple sent nothing back", "FAILED"); return
@@ -73,6 +79,7 @@ public class AppleSignInPlugin: CAPPlugin, CAPBridgedPlugin, ASAuthorizationCont
                                         didCompleteWithError error: Error) {
         guard let call = pending else { return }
         pending = nil
+        self.controller = nil
         if (error as? ASAuthorizationError)?.code == .canceled {
             call.reject("Cancelled", "CANCELLED"); return
         }
