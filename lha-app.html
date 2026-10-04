@@ -2255,6 +2255,9 @@ const EXPLAINERS='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/explainer-
    image never needs uploading: 37 of them were, as JPGs, and Stream cannot
    ingest a JPG as video so not one of them will ever be ready. */
 const STREAM_CDN='https://customer-pns1oongdltmkjwa.cloudflarestream.com/';
+/* a real Stream id: anything else set from the dashboard is a film that
+   does not exist yet, and a broken player is worse than none */
+const isUid = u => /^[a-f0-9]{32}$/.test(String(u||''));
 /* ── the paid library, signed ────────────────────────────────────
    Locked drills only play with a token in place of the uid. The tokens
    come from /sign for an account that may have them, last six hours, and
@@ -4671,9 +4674,9 @@ function cpCardTop(c, i, total){
          Beside the card where there is a column for it, and behind the
          strip it has always been behind on a phone, where putting it on
          the card pushed everything else off the screen. -->
-    ${!(drill&&drill.url) ? `<div style="margin-top:12px;padding:10px 12px;border-radius:12px;
+    ${!(drill&&drill.url) ? (drill ? '' : `<div style="margin-top:12px;padding:10px 12px;border-radius:12px;
       background:rgba(17,17,17,.04);font:400 12.5px/1.4 var(--sans);color:var(--grey2)">
-      ${drill?'Demo coming soon.':'No demo on this one.'}</div>`
+      No demo on this one.</div>`)
     : wide() ? `<div class="cpfilm" style="margin-top:13px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;
         margin-bottom:8px">
@@ -5605,7 +5608,7 @@ function rungBody(c, i, total, use){
   const drill=c.demo ? drillById(c.demo) : null;
   const film = drill && drill.url && !drillLocked(drill.v)
     ? `<div class="lc-film">${drillFilm(drill.url,'16/10')}</div>`
-    : `<div class="lc-none">${drill && drill.url ? 'The film opens with the whole ladder.' : 'No film on this one yet.'}</div>`;
+    : (drill && drill.url ? `<div class="lc-none">The film opens with the whole ladder.</div>` : '');
   const note=c.note ? `<div class="lc-note">${esc(c.note)}</div>` : '';
   if(use!=='log') return `<div class="lc-xi">${film}${note}</div>`;
   /* the parts repaintCp swaps keep their ids, so logging redraws the
@@ -8416,8 +8419,8 @@ function moreBody(all, cards){
   if(!all){ const m=moreLibrary(); all=m.all; cards=m.cards; }
   return `<div style="padding:16px 0 0">
       <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:20px">
-        ${st.token?`<button class="act" onclick="openOv('password')">Change password</button>
-        <button class="act" onclick="openOv('emailchange')">Change email</button>
+        ${st.token?`${st.hasPw===false?'':`<button class="act" onclick="openOv('password')">Change password</button>
+        <button class="act" onclick="openOv('emailchange')">Change email</button>`}
         <button class="act" onclick="signOut()">Sign out</button>`
         :`<button class="act" onclick="st.tab='signin';save();render()">Already have an account? Sign in</button>`}
       </div>
@@ -8460,7 +8463,7 @@ function moreBody(all, cards){
           background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
           font:600 15px/1 var(--sans);cursor:pointer">${installPrompt?'Add to Home Screen':'Show me how'}</button>`}
-      </div>`:`<div class="card" style="padding:16px 18px;margin-bottom:16px">
+      </div>`:IOS_APP?'':`<div class="card" style="padding:16px 18px;margin-bottom:16px">
         <div class="kick2">ON YOUR HOME SCREEN</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">
           Installed. This is running as an app, so the sessions work without signal.</div>
@@ -10317,8 +10320,8 @@ function drawOv(){
         : 'A nudge on the days you plan to train, and word the moment '+who+' answers a form check or a question.'}</div>
       <div style="margin-top:14px;padding:12px 14px;border-radius:14px;background:rgba(0,102,99,.07);
         font:400 13px/1.5 var(--sans);color:var(--deep)">You choose what you hear about, and how, in Settings. Nothing is sent for the sake of it.</div>
-      <button class="btn" style="width:100%;margin-top:16px" onclick="pushTurnOn();closeOv()">Turn on notifications</button>
-      <button class="btn2" style="width:100%;margin-top:10px" onclick="st.pushLater=Date.now();save();closeOv()">Not now</button>
+      <button class="btn" style="width:100%;margin-top:16px" onclick="pushTurnOn();closeOv()">${IOS_APP?'Continue':'Turn on notifications'}</button>
+      ${IOS_APP?'':`<button class="btn2" style="width:100%;margin-top:10px" onclick="st.pushLater=Date.now();save();closeOv()">Not now</button>`}
     </div>`;
   }
   if(st.ov==='youin') body=youInHTML();
@@ -10409,8 +10412,8 @@ function drawOv(){
       </div>`:''}
       ${(!st.plus&&!st.in&&sellsLadder())?`<button class="btn" style="width:100%;margin-top:14px"
         onclick="closeOv();openStage(FREE_STAGES)">Unlock the rest of the ladder, ${PRICE()}/mo</button>`:''}
-      <button class="btn2" style="width:100%;margin-top:14px" onclick="openOv('password')">Change password</button>
-      <button class="btn2" style="width:100%;margin-top:10px" onclick="openOv('emailchange')">Change email</button>
+      ${st.hasPw===false?'':`<button class="btn2" style="width:100%;margin-top:14px" onclick="openOv('password')">Change password</button>
+      <button class="btn2" style="width:100%;margin-top:10px" onclick="openOv('emailchange')">Change email</button>`}
       <button class="btn2" style="width:100%;margin-top:10px" onclick="signOut()">Sign out</button>
       ${IOS_APP && st.appleUntil>Date.now() ? `<div style="margin-top:16px;padding:14px 16px;border-radius:14px;background:rgba(0,102,99,.06);
           font:400 13.5px/1.5 var(--sans);color:var(--grey)">Your Ladder subscription is billed by Apple.
@@ -10429,8 +10432,8 @@ function drawOv(){
      to cancel, and the terms and privacy links. Restore is always here. */
   if(st.ov==='iap'){
     const p=iapProduct||{}, days=iapTrialDays();
-    body=`<div style="font:400 15px/1.6 var(--sans);color:var(--grey)">Every stage from Foundations to the press, every film and every fix,
-        on this phone and any other you sign in on.</div>
+    body=`<div style="font:400 15px/1.6 var(--sans);color:var(--grey)">Every stage from Foundations to Freestanding, every film and every fix,
+        on this phone and any other you sign in on.${STAGES[5]&&STAGES[5].soon?' The Press joins it as it is filmed.':''}</div>
       <div style="font:400 26px/1.15 var(--serif);margin-top:16px">${days>0?'Free for '+(days===7?'a week':days+' days')+'.':'The whole Ladder.'}
         <span style="color:var(--forest)">${days>0?'Then ':''}${esc(p.displayPrice||'')} a month.</span></div>
       <button id="iapBuy" class="btn" style="width:100%;margin-top:18px" onclick="iapBuy()">${days>0?'Start '+(days===7?'the free week':days+' days free'):'Subscribe'}</button>
@@ -11282,7 +11285,7 @@ function joinSteps(){
   const qDone=!!a.goal && a.level!=null;
   return [
     {k:'in', t:'You\u2019re in', short:'Coaching starts today.', done:true},
-    {k:'app', t:'Hear from me', short:'The app on your Home Screen, notifications on.', done: appDone()},
+    {k:'app', t:'Hear from me', short:IOS_APP?'Notifications on, so you hear when I reply.':'The app on your Home Screen, notifications on.', done: appDone()},
     {k:'q', t: qDone?'Your answers':'A few questions', short: qDone?'From the quiz you took. Anything changed?':'About you, and what you want from this.', done: qDone},
     {k:'t', t:'Your baseline', short: cps.length ? 'Film yourself on each test and send it to me.' : 'Send me a clip of your handstand.',
       done: cps.length ? tested>=cps.length : false, n:tested, of:cps.length},
@@ -11995,7 +11998,11 @@ function signOut(){
      before that token goes. */
   try{
     const tok=st.token;
-    if(tok && !st.preview && pushSupported()){
+    if(tok && !st.preview && nativePush() && st.apnsTok){
+      fetch('/api/app/push/apns/remove',{method:'POST',keepalive:true,
+        headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok},
+        body:JSON.stringify({token:st.apnsTok})}).catch(()=>{});
+    } else if(tok && !st.preview && pushSupported()){
       navigator.serviceWorker.ready.then(r=>r.pushManager.getSubscription()).then(sub=>{
         if(!sub) return;
         fetch(AUTH.pushUnsub,{method:'POST',keepalive:true,
@@ -13384,7 +13391,7 @@ const STAGE_VIDEO = [0,1,2,3,4,5].map(i => i===0 ? '' : (PHASE_INTRO[i]||''));  
    An empty one set there means that phase has no intro film at all. */
 function stageIntroUid(si){
   const o=((st&&st.stageIntro)||{})[si];
-  if(typeof o==='string') return o;
+  if(typeof o==='string') return isUid(o) ? o : '';
   return STAGE_VIDEO[si] || (si===0 ? LADDER_INTRO_VIDEO : '');
 }
 const stageFilm = () => curStage()===0 ? '' : stageIntroUid(curStage());
@@ -14016,7 +14023,7 @@ function explainersFor(si){
       typeof o.dur==='string'?{dur:o.dur}:{}, o.sum?{sumOwn:o.sum}:{});
     (Number(k)===si ? own : lent).push(it);
   }));
-  ((st&&st.explainExtra)||[]).forEach(x=>{ if(x && x.uid && (x.stages||[]).indexOf(si)>-1) own.push({id:'x-'+x.uid, q:x.q, uid:x.uid, k:x.k||[], sum:x.sum||'', own:true}); });
+  ((st&&st.explainExtra)||[]).forEach(x=>{ if(x && isUid(x.uid) && (x.stages||[]).indexOf(si)>-1) own.push({id:'x-'+x.uid, q:x.q, uid:x.uid, k:x.k||[], sum:x.sum||'', own:true}); });
   return own.concat(lent);
 }
 let FAQS = [];
@@ -15403,7 +15410,7 @@ function screenLadder(){
         <em style="color:var(--forest);font-style:normal">account.</em></div>
       <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:13px">
         Every session, every rep and every second you log is kept against your
-        account. Without one it lives in this browser only, and clearing it or
+        account. Without one it lives ${IOS_APP?'on this phone':'in this browser'} only, and clearing it or
         picking up your other phone loses the lot.</div>
       <div class="card" style="margin-top:22px;padding:20px">
         <div class="kick2">WHAT IT KEEPS</div>
@@ -16094,6 +16101,7 @@ function loadEntitlement(){
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
+      if(d.hasPw!==undefined) st.hasPw=!!d.hasPw;
       /* Bought signed out, then signed in or made an account: the server
          had not heard of the purchase yet, so the Ladder just paid for
          locked again until the app was relaunched. It is kept open and the
@@ -18941,6 +18949,8 @@ function nativeListen(){
   const P=Capacitor.Plugins.PushNotifications;
   P.addListener('registration', t=>{
     if(!st.token || st.preview) return;
+    /* kept, so Turn off and Sign out can take this phone off the server */
+    if(t && t.value && st.apnsTok!==t.value){ st.apnsTok=t.value; save(); }
     fetch('/api/app/push/apns',{method:'POST',headers:authed(),body:JSON.stringify({token:t.value, days:reminderDays()})})
       .then(r=>{ const was=pushOn; pushOn=r.ok; pushKept(r.ok); if(r.ok){ st.appSkip=false; save(); if(was===false) toast('Notifications are on.'); }
         pushPaint(); if(!st.ov) render(); }).catch(()=>{});
@@ -18954,10 +18964,14 @@ function nativeListen(){
 }
 async function nativeTurnOn(ask){
   if(!st.token){ if(ask) goJoin(); return; }
+  /* turned off in the app: opening it again must not quietly turn it back on */
+  if(!ask && st.pushOff){ pushOn=false; pushKept(false); pushPaint(); return; }
+  if(ask && st.pushOff){ st.pushOff=false; save(); }
   const P=Capacitor.Plugins.PushNotifications;
   nativeListen();
   let perm={receive:'denied'};
   try{ perm=await P.checkPermissions(); if(ask && /prompt/.test(perm.receive)) perm=await P.requestPermissions(); }catch(e){}
+  if(st.nativePerm!==perm.receive){ st.nativePerm=perm.receive; save(); }
   if(perm.receive!=='granted'){
     pushOn=false; pushKept(false);
     if(ask) toast(perm.receive==='denied' ? 'Notifications are off for this app. Turn them on in Settings, then Handstand.' : 'Not turned on.');
@@ -19226,6 +19240,14 @@ async function pushTurnOn(){
   pushPaint(); render();
 }
 async function pushTurnOff(){
+  /* the iPhone app hears through Apple: this only ever unsubscribed the
+     web's push, so Turn off said off and the notifications kept coming */
+  if(nativePush()){
+    if(st.apnsTok) fetch('/api/app/push/apns/remove',{method:'POST',headers:authed(),
+      body:JSON.stringify({token:st.apnsTok})}).catch(()=>{});
+    st.pushOff=true; pushOn=false; st.pushOk=false; save();
+    toast('Notifications off for this phone.'); pushPaint(); return;
+  }
   try{
     const reg=await navigator.serviceWorker.ready;
     const sub=await reg.pushManager.getSubscription();
@@ -19291,8 +19313,14 @@ function appPrompts(){
     openOv('install'); return true;
   }
   if(!pushSupported()) return true;
-  let perm='default'; try{ perm=Notification.permission; }catch(e){}
-  if(perm!=='default') return true;
+  if(nativePush()){
+    /* the app has no web Notification object, so this read 'default'
+       forever and the sheet kept coming back to people who had said yes */
+    if(st.pushOk || st.pushOff || (st.nativePerm && !/prompt/.test(st.nativePerm))) return true;
+  } else {
+    let perm='default'; try{ perm=Notification.permission; }catch(e){}
+    if(perm!=='default') return true;
+  }
   if((st.pushAskN||0)>=6 || now-(st.pushAsked||0)<gap) return true;
   st.pushAsked=now; st.pushAskN=(st.pushAskN||0)+1; save();
   openOv('notify'); return true;

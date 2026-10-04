@@ -217,16 +217,20 @@ async function appleIdToken(tok) {
   return pay;
 }
 const siwaKey = () => process.env.SIWA_KEY || process.env.APNS_KEY || '';
-const siwaKid = () => process.env.SIWA_KEY_ID || process.env.APNS_KEY_ID || '';
-const siwaReady = () => !!(siwaKey() && siwaKid() && process.env.APNS_TEAM_ID);
+const siwaKid = () => String(process.env.SIWA_KEY_ID || process.env.APNS_KEY_ID || '').trim();
+const siwaTeam = () => String(process.env.APNS_TEAM_ID || '').trim();
+const siwaReady = () => !!(siwaKey() && siwaKid() && siwaTeam());
 async function appleSecret() {
+  /* the same repair as the push key: Netlify kept APNS_KEY on one line,
+     and a key that cannot be read meant no refresh token was ever saved,
+     so deleting an account could not revoke Apple's sign in */
   const pem = String(siwaKey()).replace(/\\n/g, '\n');
-  const der = Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''), 'base64');
+  const der = Buffer.from(pem.replace(/-----[^-]*-----/g, '').replace(/[^A-Za-z0-9+/=]/g, ''), 'base64');
   const key = await crypto.subtle.importKey('pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
   const now = Math.floor(Date.now() / 1000);
   const part = o => Buffer.from(JSON.stringify(o)).toString('base64url');
   const head = part({ alg: 'ES256', kid: siwaKid() });
-  const body = part({ iss: process.env.APNS_TEAM_ID, iat: now, exp: now + 300,
+  const body = part({ iss: siwaTeam(), iat: now, exp: now + 300,
                       aud: 'https://appleid.apple.com', sub: APPLE_AUD() });
   const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(head + '.' + body));
   return head + '.' + body + '.' + Buffer.from(sig).toString('base64url');
@@ -3341,6 +3345,9 @@ const handle = async (request) => {
       appleUntil: await (async () => { const r = await getSetting(`iap:${who}`); return (r && !r.revoked && r.expiresAt > Date.now()) ? r.expiresAt : 0; })(),
       canManage: !!acct.stripe_customer,
       canCancel: !!(acct.subscription || acct.stripe_customer),
+      /* Sign in with Apple accounts have none, and Change password and
+         Change email both ask for the current one */
+      hasPw: !!(acct.hash || passwords()[who]),
       cancelAt: acct.cancel_at || 0,
       /* the one included form check. Its own key, because nothing else
          writes it: folding it into acct would put it in the path of every
@@ -6319,6 +6326,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!who) return json({ error: 'Sign in first' }, 401);
     const token = String(body.token || '').trim().toLowerCase();
     if (!/^[0-9a-f]{32,200}$/.test(token)) return json({ error: 'That is not a device token' }, 400);
+    /* one phone, one account: when somebody else signs in on it, the
+       last account's replies stop arriving on a phone it no longer holds */
+    const prev = await getSetting(`apnsdev:${token}`).catch(() => null);
+    if (prev && prev !== who) {
+      const old = await pushSubs(prev);
+      old.apns = (Array.isArray(old.apns) ? old.apns : []).filter(x => x && x.token !== token);
+      await pushSave(prev, old);
+    }
+    if (prev !== who) await setSetting(`apnsdev:${token}`, who);
     const rec = await pushSubs(who);
     rec.apns = [{ token, at: Date.now() }].concat((Array.isArray(rec.apns) ? rec.apns : []).filter(x => x && x.token !== token)).slice(0, 6);
     if (Array.isArray(body.days)) {
@@ -6334,6 +6350,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const rec = await pushSubs(who);
     rec.apns = (Array.isArray(rec.apns) ? rec.apns : []).filter(x => x && x.token !== token);
     await pushSave(who, rec);
+    if (token && (await getSetting(`apnsdev:${token}`).catch(() => null)) === who) await dropSetting(`apnsdev:${token}`).catch(() => {});
     return json({ ok: true });
   }
 
@@ -7577,6 +7594,29 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
      It does not touch Stripe. A live subscription keeps billing whatever
      happens here, so the caller has to have dealt with that first. */
+  async function dropMedia(e) {
+    if (process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+      const base = `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream`;
+      const H = { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` };
+      const r = await fetch(`${base}?creator=${encodeURIComponent(e)}`, { headers: H })
+        .then(x => x.json()).catch(() => null);
+      for (const v of ((r && r.result) || [])) {
+        /* creator is checked again here: a filter Stream ignored would
+           otherwise hand back every film in the library */
+        if (v && v.creator === e && /^[a-f0-9]{32}$/.test(String(v.uid))) {
+          await fetch(`${base}/${v.uid}`, { method: 'DELETE', headers: H }).catch(() => {});
+        }
+      }
+    }
+    for (const prefix of ['img:', 'voice:']) {
+      const { blobs } = await db.list({ prefix }).catch(() => ({ blobs: [] }));
+      for (const b of (blobs || [])) {
+        const m = await db.getMetadata(b.key).catch(() => null);
+        if (m && m.metadata && m.metadata.owner === e) await db.delete(b.key).catch(() => {});
+      }
+    }
+  }
+
   async function deleteAccount(e) {
     const old = await getAcct(e);
     if (!old) return { error: 'No account on that address', status: 404 };
@@ -7598,6 +7638,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     } catch {}
     for (const k of SETTING_KEYS) await dropSetting(`${k}:${e}`).catch(() => {});
     await dropSetting(`emailchange:${e}`).catch(() => {});
+
+    /* the delete sheet says their clips go with the account, and the rows
+       below only hold pointers: the films themselves are on Stream (each
+       uploaded with the person as its creator) and the photos and voice
+       notes are blobs that name their owner */
+    await dropMedia(e).catch(() => {});
 
     /* applications do not hang off the account row, so nothing takes them */
     await supa.remove('applications', `email=eq.${enc(e)}`).catch(() => {});
