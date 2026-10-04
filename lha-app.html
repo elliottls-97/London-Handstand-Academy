@@ -7564,7 +7564,7 @@ function subscriptionHTML(){
              figure is invented. */
           const coachedSub = !!st.in;
           if(!subInfo) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
-            Checking with Stripe&hellip;</div>`;
+            Checking your subscription&hellip;</div>`;
           /* Stripe would not answer. Never leave a paying account on a
              spinner: say it plainly, keep the cancel button working, and
              offer the try again rather than making them reload. */
@@ -7572,9 +7572,9 @@ function subscriptionHTML(){
               ${st.cancelAt
                 ? 'Your renewal is already stopped. Access stays until <b>'+esc(whenEnds())+'</b>.'
                 : coachedSub ? 'Your coaching is active.'
-                : (sellsLadder() ? 'Your '+PRICE()+' a month subscription is active.' : 'Your membership is active.')}</div>
+                : (sellsLadder() && !IOS_APP ? 'Your '+PRICE()+' a month subscription is active.' : 'Your subscription is active.')}</div>
             <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:7px">
-              We could not reach Stripe just now, so the exact date is not shown.
+              We could not check the billing just now, so the exact date is not shown.
               Nothing is wrong with your account.</div>
             <button class="btn2" style="width:100%;margin-top:12px"
               onclick="subInfo=null;paintSub();loadSubscription()">Try again</button>
@@ -7588,7 +7588,7 @@ function subscriptionHTML(){
               : 'No subscription found. If you have paid, message '+esc(coachLabel())+'.'}</div>`;
           const amt = subInfo.amount!=null
             ? '£'+(subInfo.amount%1?subInfo.amount.toFixed(2):String(subInfo.amount))+' a '+subInfo.interval
-            : (coachedSub ? '' : PRICE()+' a month');
+            : (coachedSub || IOS_APP ? '' : PRICE()+' a month');
           if(subInfo.willCancel) return `
             <div style="background:rgba(196,122,86,.1);border-radius:12px;padding:13px 14px;margin-top:10px">
               <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">CANCELLED</div>
@@ -10393,9 +10393,14 @@ function drawOv(){
       ${(st.plus||st.in)?`<div class="card" style="margin-top:14px;padding:16px">
         <div class="kick2">SUBSCRIPTION</div>
         <div style="font:400 14.5px/1.5 var(--sans);margin-top:8px">${st.in
-          ? 'Your coaching subscription.' : st.appleUntil>Date.now() ? 'The full ladder, through Apple.' : sellsLadder() ? 'The full ladder, '+PRICE()+' a month.' : 'The full ladder.'}</div>
+          ? 'Your coaching subscription.' : st.appleUntil>Date.now() ? 'The full ladder, through Apple.' : (sellsLadder() && !IOS_APP) ? 'The full ladder, '+PRICE()+' a month.' : 'The full ladder.'}</div>
+        <!-- in the iPhone app, a subscription paid on the website: the
+             price shown was Apple's, which is not what this person pays,
+             and the card button opened Stripe inside an Apple app -->
+        ${IOS_APP && !(st.appleUntil>Date.now()) && (st.canManage||st.canCancel) ? `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:4px">
+          Paid on the website, not through Apple.</div>`:''}
         <div id="subblock">${subscriptionHTML()}</div>
-        ${st.canManage?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
+        ${st.canManage&&!IOS_APP?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
         ${!st.canCancel&&!st.canManage&&!(st.appleUntil>Date.now())?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
           To change a card or cancel, message Elliott and it is done the same day.</div>`:''}
