@@ -1189,7 +1189,14 @@ async function fcGate(who) {
   const cur = (await getSetting(ck)) || {};
   if (cur.open) return { ok: true, open: true };
   const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
-  if (won) { await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'free' })); return { ok: true, opened: true }; }
+  /* The free one is claimed before the check is opened, so a write that
+     failed in between spent it on nothing: the next try found it used and
+     offered to sell them one. It is given back, and the next try wins it. */
+  if (won) {
+    try { await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'free' })); }
+    catch (err) { try { await supa.remove('free_checks', `email=eq.${enc(who)}`); } catch {} throw err; }
+    return { ok: true, opened: true };
+  }
   const n = Number(cur.n) || 0;
   if (n <= 0) {
     /* PRICES lives inside the handler, so reading it here threw and the
@@ -6505,6 +6512,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     cur.metrics = cur.metrics || {};
     cur.habits  = cur.habits  || {};
     cur.checkins = cur.checkins || [];
+    /* a check point clip that could not go in, and why, for the app to say */
+    let clipRefused = null;
 
     if (request.method === 'POST') {
       const now = Date.now();
@@ -6558,10 +6567,34 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         /* a clip is optional and it is the point of a coached check point:
            a number on its own says what happened, not whether it was any
            good. Stored as the Stream uid, same as every other upload. */
-        const vid = String(body.checkpoint.video || '').slice(0, 64);
+        let vid = String(body.checkpoint.video || '').slice(0, 64);
         if (k && Number.isFinite(v) && v >= 0 && v <= 100000) {
           cur.checkpoints = cur.checkpoints || {};
           const hist = (cur.checkpoints[k] || []).slice();
+          /* ── the same gate as every other way of sending footage ──
+             A check point clip is a clip for Elliott to watch, so it costs
+             what one costs. The app only offers the camera here to a
+             coached client, but the route was open to anybody with a token
+             and filed a submission and emailed the coach for every one. The
+             number is theirs either way: what the gate decides is whether
+             the clip reaches him.
+             It was asked after the row was built, so a refused clip was kept
+             on the reading and showed on the dashboard with nothing filed,
+             and the app was never told. And when the gate threw, the whole
+             write went with it, the number too. A clip that cannot go in is
+             now dropped before the row is made, the number is saved, and the
+             reply says why. A clip already on the record is not asked about
+             again: it went in once, and asking could spend a credit on it. */
+          const last = hist[hist.length - 1];
+          if (vid && !(last && last.video === vid)) {
+            let why = '', gated = false;
+            if (!/^[a-f0-9]{32}$/.test(vid)) why = 'That clip did not upload properly. Send it again.';
+            else if (!clients()[who]) {
+              try { const g = await fcGate(who); if (!g.ok) { why = g.error; gated = true; } }
+              catch { why = 'Your number is saved, but the clip did not go through. Send it again.'; }
+            }
+            if (why) { clipRefused = Object.assign({ k, error: why }, gated ? { gated: true } : {}); vid = ''; }
+          }
           const row = Object.assign({ v: Math.round(v * 10) / 10, at: Date.now() },
                                     vid ? { video: vid } : {});
           /* Same rule as the app: nudging a slider twice in one session is a
@@ -6571,7 +6604,6 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
              pushed real readings out. A clip already sent is never dropped
              by a later bare number. */
           const day = t => new Date(t || 0).toISOString().slice(0, 10);
-          const last = hist[hist.length - 1];
           if (last && day(last.at) === day(row.at)) {
             if (last.video && !row.video) row.video = last.video;
             /* The coach's verdict is on that row. Moving the slider again the
@@ -6595,20 +6627,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
              email, no place in the queue, only a small play button deep in
              the client's analysis column. Hannah sent hers and Elliott never
              saw them. A new clip is a submission like any other, so it lands
-             in "needs you now" and in Client reviews, and the coach is told. */
-          /* ── the same gate as every other way of sending footage ──
-             A check point clip is a clip for Elliott to watch, so it costs
-             what one costs. The app only offers the camera here to a
-             coached client, but the route was open to anybody with a token
-             and filed a submission and emailed the coach for every one. The
-             number is theirs either way: what the gate decides is whether
-             it reaches him. */
-          let cpFcOk = true;
-          if (vid && !clients()[who]) {
-            const g = await fcGate(who);
-            cpFcOk = !!g.ok;
-          }
-          if (vid && cpFcOk && !(last && last.video === vid)) {
+             in "needs you now" and in Client reviews, and the coach is told.
+             The gate was asked above, so a clip still here has passed it. */
+          if (vid && !(last && last.video === vid)) {
             const defs = (await getSetting(`programme:${who}`)) || programmes.clients[who] || {};
             let cpName = ((defs.checkpoints || []).find(c => c && c.k === k) || {}).n
               || (CHECKPOINT_NAMES[k] || '');
@@ -6638,8 +6659,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       }
       /* a number on a check point, no clip. Dragging a slider logs as it
          goes, so one notification per twenty minutes and it replaces the
-         last one rather than stacking. */
-      if (body.checkpoint && typeof body.checkpoint === 'object' && !body.checkpoint.video
+         last one rather than stacking. A clip turned away leaves a number
+         with no clip, so it counts as one. */
+      if (body.checkpoint && typeof body.checkpoint === 'object' && (!body.checkpoint.video || clipRefused)
           && clients()[who] && pushReady()) {
         const k = String(body.checkpoint.k || '').slice(0, 32);
         const hist = ((cur.checkpoints || {})[k]) || [];
@@ -6664,7 +6686,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     return json({ metrics: cur.metrics, habits: cur.habits,
       checkins: cur.checkins, photos: cur.photos || [],
-      checkpoints: cur.checkpoints || {} });
+      checkpoints: cur.checkpoints || {}, ...(clipRefused ? { clipRefused } : {}) });
   }
 
   /* the intake answers, so the coach sees who someone said they were */
