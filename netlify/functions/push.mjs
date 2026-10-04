@@ -33,12 +33,20 @@ export const pushReady = () => webReady() || apnsReady();
    minutes, and one HTTP/2 request per phone. A token Apple says is gone
    (410, or BadDeviceToken) is dropped like a dead web subscription. */
 let apnsJwt = { t: '', at: 0 };
+/* The .p8 as a proper PEM, whatever the Netlify box did to it: pasted on
+   one line, with \n written out, in quotes or with the header lines lost,
+   the base64 is pulled out and wrapped again at 64 characters. */
+function apnsPem() {
+  const raw = String(process.env.APNS_KEY || '').replace(/\\n/g, '\n');
+  const b64 = raw.replace(/-----[^-]*-----/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
+  return '-----BEGIN PRIVATE KEY-----\n' + (b64.match(/.{1,64}/g) || []).join('\n') + '\n-----END PRIVATE KEY-----\n';
+}
 function apnsToken() {
   if (apnsJwt.t && Date.now() - apnsJwt.at < 50 * 60000) return apnsJwt.t;
   const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const head = b64({ alg: 'ES256', kid: process.env.APNS_KEY_ID });
-  const body = b64({ iss: process.env.APNS_TEAM_ID, iat: Math.floor(Date.now() / 1000) });
-  const key = String(process.env.APNS_KEY).replace(/\\n/g, '\n');
+  const head = b64({ alg: 'ES256', kid: String(process.env.APNS_KEY_ID || '').trim() });
+  const body = b64({ iss: String(process.env.APNS_TEAM_ID || '').trim(), iat: Math.floor(Date.now() / 1000) });
+  const key = apnsPem();
   const sig = crypto.sign('sha256', Buffer.from(head + '.' + body), { key, dsaEncoding: 'ieee-p1363' }).toString('base64url');
   apnsJwt = { t: head + '.' + body + '.' + sig, at: Date.now() };
   return apnsJwt.t;
@@ -49,20 +57,28 @@ function apnsSendAll(tokens, payload) {
   return new Promise(resolve => {
     const res = { sent: 0, gone: [], err: '' };
     if (!tokens.length) return resolve(res);
-    let client;
-    try { client = http2.connect(apnsHost()); } catch (e) { res.err = String(e.message || e); return resolve(res); }
-    client.on('error', e => { res.err = String(e.message || e); });
+    /* a key that cannot be read threw inside here and took the whole
+       request down, so the app only ever heard "That did not send" */
+    let bearer;
+    try { bearer = apnsToken(); }
+    catch (e) { res.err = 'the Apple key in Netlify (APNS_KEY) could not be read: ' + String(e.message || e).slice(0, 80); return resolve(res); }
+    let client, finished = false;
+    const finish = () => { if (finished) return; finished = true; clearTimeout(timer); try { client && client.close(); } catch {} resolve(res); };
+    /* Apple not answering must not hold the request until Netlify kills it */
+    const timer = setTimeout(() => { res.err = res.err || 'Apple did not answer within 8 seconds'; try { client && client.destroy(); } catch {} finish(); }, 8000);
+    try { client = http2.connect(apnsHost()); } catch (e) { res.err = String(e.message || e); return finish(); }
+    client.on('error', e => { res.err = 'could not reach Apple: ' + String(e.message || e).slice(0, 80); finish(); });
     const p = payload || {};
     const note = JSON.stringify(Object.assign({
       aps: Object.assign({ alert: { title: String(p.title || ''), body: String(p.body || '') } },
         p.quiet ? {} : { sound: 'default' }, p.tag ? { 'thread-id': String(p.tag) } : {}) },
       p.url ? { url: String(p.url) } : {}));
     let left = tokens.length;
-    const done = () => { if (--left === 0) { try { client.close(); } catch {} resolve(res); } };
+    const done = () => { if (--left === 0) finish(); };
     for (const t of tokens) {
       let status = 0, text = '';
       const req = client.request({ ':method': 'POST', ':path': '/3/device/' + t,
-        authorization: 'bearer ' + apnsToken(), 'apns-topic': process.env.APNS_TOPIC || 'com.londonhandstandacademy.app',
+        authorization: 'bearer ' + bearer, 'apns-topic': String(process.env.APNS_TOPIC || 'com.londonhandstandacademy.app').trim(),
         'apns-push-type': 'alert', 'apns-priority': p.quiet ? '5' : '10',
         ...(p.tag ? { 'apns-collapse-id': String(p.tag).slice(0, 64) } : {}) });
       req.setEncoding('utf8');

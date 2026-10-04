@@ -6349,9 +6349,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        Screen and watch it arrive the way a real one does. */
     const wait = Math.max(0, Math.min(6000, Number(body.wait) || 0));
     if (wait) await new Promise(r => setTimeout(r, wait));
-    const r = await pushSend(who, { title: 'Notifications are on',
-      body: 'This is how a reply from ' + coachName(coachOf(who) || primaryCoach()) + ' will arrive.',
-      url: '/lha-app.html', tag: 'test' });
+    let r;
+    try {
+      r = await pushSend(who, { title: 'Notifications are on',
+        body: 'This is how a reply from ' + coachName(coachOf(who) || primaryCoach()) + ' will arrive.',
+        url: '/lha-app.html', tag: 'test' });
+    } catch (err) { r = { sent: 0, why: 'the send failed: ' + String((err && err.message) || err).slice(0, 120) }; }
     return json(r);
   }
 
