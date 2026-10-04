@@ -7568,6 +7568,8 @@ function subscriptionHTML(){
           /* Stripe would not answer. Never leave a paying account on a
              spinner: say it plainly, keep the cancel button working, and
              offer the try again rather than making them reload. */
+          if(subInfo.failed && IOS_APP && st.appleUntil>Date.now()) return `<div style="font:400 13.5px/1.5 var(--sans);margin-top:8px">
+              Billed by Apple.</div>`;
           if(subInfo.failed) return `<div style="font:400 13.5px/1.5 var(--sans);margin-top:8px">
               ${st.cancelAt
                 ? 'Your renewal is already stopped. Access stays until <b>'+esc(whenEnds())+'</b>.'
@@ -7596,8 +7598,8 @@ function subscriptionHTML(){
                 You will not be charged again. ${coachedSub?'Your coaching runs':'The whole Ladder stays open'} until
                 <b>${esc(niceDate(subInfo.cancelAt||subInfo.renewsAt))}</b>${coachedSub?'.':', then the account goes back to free.'}</div>
             </div>
-            <button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
-              Resume my subscription</button>`;
+            ${IOS_APP?'':`<button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
+              Resume my subscription</button>`}`;
           return `
             <div style="display:flex;justify-content:space-between;gap:12px;margin-top:10px;
               font:400 14px/1.5 var(--sans)">
@@ -10367,7 +10369,7 @@ function drawOv(){
     /* three tiers, and people should never have to guess which one they
        are on or what it costs them */
     const tier = st.in ? {n:'Coaching', d:'Your own programme, written by Elliott.', c:'var(--amber)'}
-      : st.plus ? {n:'Full ladder', d:(sellsLadder()?PRICE()+' a month. ':'')+'Every stage including the Press.', c:'var(--amber)'}
+      : st.plus ? {n:'Full ladder', d:((IOS_APP ? st.appleUntil>Date.now() && !!PRICE() : sellsLadder())?PRICE()+' a month. ':'')+'Every stage including the Press.', c:'var(--amber)'}
       : {n:'Free', d:freePlanLine(), c:'var(--sand)'};
     if(!st.prefs) loadPrefs();
     body=`<div class="card" style="padding:18px">
@@ -10398,7 +10400,7 @@ function drawOv(){
              price shown was Apple's, which is not what this person pays,
              and the card button opened Stripe inside an Apple app -->
         ${IOS_APP && !(st.appleUntil>Date.now()) && (st.canManage||st.canCancel) ? `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:4px">
-          Paid on the website, not through Apple.</div>`:''}
+          Not billed through Apple.</div>`:''}
         <div id="subblock">${subscriptionHTML()}</div>
         ${st.canManage&&!IOS_APP?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
           Update card or see invoices</button>`:''}
@@ -13714,12 +13716,13 @@ function screenOriented(){
                 : `Your first session at ${esc(PS.n)} is free.`}</div>
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
               ${!TASTE_ON
-                ? (tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then it is ${PRICE()} a month for every stage, and ${CANCEL_LINE()}. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
+                ? (!sellsLadder() ? `${esc(STAGES[stageCap()].n)} is free either way.`
+                  : tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then it is ${PRICE()} a month for every stage, and ${CANCEL_LINE()}. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
                            : `${PRICE()} a month for every stage. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`)
                 : tasteUsed
-                ? `${esc(PS.n)} is part of the ${PRICE()} a month ladder${trialLine()?', with the '+trialLine():''}. ${esc(STAGES[stageCap()].n)} stays free either way.`
+                ? `${esc(PS.n)} is part of the ${sellsLadder()?PRICE()+' a month':'full'} ladder${trialLine()?', with the '+trialLine():''}. ${esc(STAGES[stageCap()].n)} stays free either way.`
                 : st.token
-                ? `No card. After that ${esc(PS.n)} is part of the ${PRICE()} a month ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.`
+                ? `No card. After that ${esc(PS.n)} is part of the ${sellsLadder()?PRICE()+' a month':'full'} ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.`
                 : `Just your email, so it keeps what you did. No card. ${esc(STAGES[stageCap()].n)} is free without one.`}</div>
             <!-- the button for this lives in the sticky bar, which is the
                  one thing always on screen. Two identical green buttons,
@@ -13746,7 +13749,7 @@ function screenOriented(){
           <span style="display:block;margin-top:4px;font:500 12px/1 var(--sans);color:var(--grey)">Watch first &middot; 3 min</span>
         </span>
       </button>`:''}
-      ${wantsCoaching(a)?`<div style="margin-top:16px;border-radius:20px;padding:18px 20px;background:var(--deep);color:#fff">
+      ${wantsCoaching(a)&&sells()?`<div style="margin-top:16px;border-radius:20px;padding:18px 20px;background:var(--deep);color:#fff">
         <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#8fe3d6">PRESS AND ONE-ARM</div>
         <div style="font:400 19px/1.3 var(--serif);margin-top:9px">The app does not teach these yet. Coaching does.</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:rgba(255,255,255,.8);margin-top:7px">
@@ -14311,7 +14314,7 @@ function fixesHomeHTML(){
         ${cover?`<img src="${esc(cover)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">`:''}
         ${locked?`<span style="position:absolute;top:8px;left:8px;font:600 9px/1 var(--sans);letter-spacing:.12em;
           padding:5px 7px;border-radius:5px;background:rgba(17,17,17,.7);color:#fff">${
-          PRICE_TRIAL()>0?'WITH THE TRIAL':esc(PRICE())+' A MONTH'}</span>`:''}
+          !sellsLadder()?'FOR MEMBERS':PRICE_TRIAL()>0?'WITH THE TRIAL':esc(PRICE())+' A MONTH'}</span>`:''}
       </div>
       <div style="padding:12px 13px 14px">
         <div style="font:600 14.5px/1.25 var(--sans)">${esc(f.name)}</div>
@@ -17061,14 +17064,17 @@ let planLinks={};
    card priced coaching at the app's own price. */
 const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1000,plusq:3900,plusy:12900})[k] || 0;
-const PRICE = (k='plus') => (k==='plus' && IOS_APP && iapProduct) ? iapProduct.displayPrice
+/* In the iPhone app the only price is Apple's, and only once the App Store
+   has answered: before that, offline, or after a StoreKit error this fell
+   back to the website's £10 and its free week, which Apple is not offering */
+const PRICE = (k='plus') => (IOS_APP && !IOS_SELL) ? ((k==='plus' && iapProduct) ? iapProduct.displayPrice : '')
   : ((((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '');
 /* In the iPhone app the Ladder is billed by Apple, so it is cancelled in
    Settings, not in the app and not in two taps */
 const CANCEL_LINE = () => (IOS_APP && !sells()) ? 'you cancel in Settings' : 'cancelling is two taps';
 /* the free week is once per account: offered again after it has been had,
    it promised a week and Stripe charged on the day */
-const PRICE_TRIAL = () => { if(IOS_APP && iapProduct) return iapTrialDays();
+const PRICE_TRIAL = () => { if(IOS_APP && !IOS_SELL) return iapProduct ? iapTrialDays() : 0;
   if(st.token && st.trialUsed) return 0;
   const d=Number((st.prices||{}).trialDays); return Number.isFinite(d)?d:7; };
 /* the day the first payment actually lands, which is the number somebody is
@@ -17521,15 +17527,15 @@ function screenCoaching(){
     ? `<div style="padding:18px 16px 30px"><div class="card" style="padding:20px">
         <div class="kick2">CHAT WITH ELLIOTT</div>
         <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          Not sure which plan fits, or whether an injury rules you out? Ask me directly.
+          Not sure ${IOS_APP?'where to start':'which plan fits'}, or whether an injury rules you out? Ask me directly.
           I answer these myself. An account first, so a reply has somewhere to land.</div>
         <button class="btn" style="width:100%;margin-top:14px"
           onclick="goJoin()">Create an account to ask</button>
         <button class="btn2" style="width:100%;margin-top:9px"
           onclick="st.tab='signin';save();render()">I already have one</button>
       </div></div>`
-    : `${chatPushBar()}<div id="chatList" class="clist" data-empty="Nothing here yet.&lt;br&gt;Ask about a drill, something that hurts, or which plan fits."
-        style="flex:1 0 auto">${chatThreadHTML('Nothing here yet.<br>Ask about a drill, something that hurts, or which plan fits.')}</div>
+    : `${chatPushBar()}<div id="chatList" class="clist" data-empty="Nothing here yet.&lt;br&gt;Ask about a drill, something that hurts, or ${IOS_APP?'where to start':'which plan fits'}."
+        style="flex:1 0 auto">${chatThreadHTML('Nothing here yet.<br>Ask about a drill, something that hurts, or '+(IOS_APP?'where to start':'which plan fits')+'.')}</div>
       <div id="chatEnd"></div>
       ${chatComposerHTML('Message '+coachLabel(), !!(st.checkOpen||st.coached))}`;
 
@@ -17998,7 +18004,7 @@ function screenJoin(){
                +'The card goes in on the next page, through Stripe, and nothing is charged until '
                +firstCharge()+'. Cancelling before then is one tap in the app.')
        : want ? (IOS_APP && !sells()
-               ? 'The '+PRICE()+' a month goes through Apple, on your Apple ID.'
+               ? (PRICE()?'The '+PRICE()+' a month':'The full ladder')+' goes through Apple, on your Apple ID.'
                : 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.')
        : taste ? 'Your first session there is free, and no card is asked for. '
                  +esc((PSJ.goal||'').replace(/\.$/,''))+'.'
@@ -19063,7 +19069,8 @@ function iapPlugin(){
    privacy links. One copy, for the purchase sheet and the stage sheet. */
 function iapTermsHTML(){
   const p=iapProduct||{}, days=iapTrialDays();
-  return `<div style="font:400 11.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px">${days>0?'Free for '+days+' days, then ':''}${esc(p.displayPrice||'')}
+  return `<div style="font:400 11.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px"><b style="color:var(--grey)">The Handstand Ladder</b>, a monthly subscription.
+    ${days>0?'Free for '+days+' days, then ':''}${esc(p.displayPrice||'')}
     a month, charged to your Apple ID. It renews every month until you cancel in Settings, then your name, then Subscriptions,
     at least 24 hours before it renews.${st.token?'':' No account is needed; make one to keep your progress on another phone.'}
     <a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" target="_blank" rel="noopener" style="color:var(--grey)">Terms of Use</a>
