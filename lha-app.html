@@ -7474,14 +7474,18 @@ const VIA_ROWS={
   replies:['Replies and answers', ()=>'When '+esc(coachLabel())+' replies, signs off a check point, or your form check is ready.'],
   reminders:['Training reminders', ()=>'Your two-week test, new check points, and a nudge on the days you plan to train.'],
 };
+/* Nothing chosen shows as Notification: the server sends a notification
+   when this phone has them on, and an email only when it has not */
+const viaChosen = k => { const p=st.prefs||{}, v=(p.via||{})[k]; return VIA.some(x=>x[0]===v) || p[k]===false; };
 function viaOf(k){
   const p=st.prefs||{}, v=(p.via||{})[k];
-  return VIA.some(x=>x[0]===v) ? v : p[k]===false ? 'none' : 'both';
+  return VIA.some(x=>x[0]===v) ? v : p[k]===false ? 'none' : 'push';
 }
 function viaNote(k){
   const v=viaOf(k);
   if((v==='push'||v==='both') && pushOn===false){
-    return v==='push' ? 'Notifications are off on this phone, so nothing arrives here until they are on. Turn them on above.'
+    return v==='push' ? (viaChosen(k) ? 'Notifications are off on this phone, so nothing arrives here until they are on. Turn them on above.'
+                                      : 'Notifications are off on this phone, so for now these come by email. Turn them on above.')
       : 'Notifications are off on this phone, so for now these come by email only.';
   }
   if(v==='none' && k==='replies') return 'Nothing is sent. Replies are still waiting in the app when you open it.';
@@ -19227,7 +19231,10 @@ function pushTestSend(){
   toast('Sending in 5 seconds. Go to your Home Screen or lock the phone to see it arrive.');
   fetch(AUTH.pushTest,{method:'POST',headers:authed(),body:JSON.stringify({wait:5000})})
     .then(r=>r.json().catch(()=>({})))
-    .then(d=>{ if(!(d&&d.sent)) toast((d&&(d.error||d.why))||'That did not send.'); })
+    /* said either way: a sent one that never showed is the phone's settings,
+       and the reason a failed one gives is the thing to fix */
+    .then(d=>{ toast((d&&d.sent) ? 'Sent to your phone. If nothing appeared, check Settings, then Handstand, then Notifications.'
+                                 : ((d&&(d.error||d.why))||'That did not send.')); })
     .catch(()=>toast('That did not send.'));
 }
 /* the switch, in their settings */

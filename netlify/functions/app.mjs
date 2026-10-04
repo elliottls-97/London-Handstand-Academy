@@ -427,15 +427,27 @@ let GUARD_DOWN = false;
    reset, a receipt) always goes. */
 const CHANNELS = ['none', 'email', 'push', 'both'];
 const CHANNEL_KINDS = ['replies', 'reminders'];
+/* Nothing chosen is 'auto': a notification when they have a phone with
+   notifications on, and an email only when they have not. Email is capped
+   at a hundred a day, and somebody using the app hears in the app; an
+   explicit Email, Both or None is kept exactly as chosen. */
 const chanOf = (p, kind) => {
   const v = p && p[kind];
-  return CHANNELS.includes(v) ? v : v === false ? 'none' : 'both';
+  return CHANNELS.includes(v) ? v : v === false ? 'none' : 'auto';
 };
+/* a phone that will hear: the website's Home Screen app or the iPhone app */
+async function hasPhone(e, ns) {
+  try { const r = await pushSubs(norm(e), ns); return !!(r.subs.length || (Array.isArray(r.apns) && r.apns.length)); }
+  catch { return false; }
+}
 async function wantsEmail(to, kind) {
   if (!kind) return true;
   try {
     const p = (await getSetting(`prefs:${norm(to)}`)) || {};
-    if (CHANNEL_KINDS.includes(kind)) return ['email', 'both'].includes(chanOf(p, kind));
+    if (CHANNEL_KINDS.includes(kind)) {
+      const c = chanOf(p, kind);
+      return c === 'auto' ? !(await hasPhone(to)) : ['email', 'both'].includes(c);
+    }
     return p[kind] !== false;
   } catch { return true; }
 }
@@ -443,7 +455,7 @@ async function wantsPush(to, kind) {
   if (!kind || !CHANNEL_KINDS.includes(kind)) return true;
   try {
     const p = (await getSetting(`prefs:${norm(to)}`)) || {};
-    return ['push', 'both'].includes(chanOf(p, kind));
+    return ['push', 'both', 'auto'].includes(chanOf(p, kind));
   } catch { return true; }
 }
 
@@ -493,7 +505,13 @@ async function email(to, subject, html, kind, opts) {
     if (GUARD_DOWN) return later('the mail switches could not be read');
     return mailNote(to, subject, kind, false, 'client email is switched off');
   }
-  if (!(await wantsEmail(to, kind))) return mailNote(to, subject, kind, false, 'they chose no emails for ' + kind);
+  if (!(await wantsEmail(to, kind))) {
+    /* under the default, a phone with notifications on is why: said so, so
+       the send log does not read as though they had turned email off */
+    let auto = false;
+    try { auto = CHANNEL_KINDS.includes(kind) && chanOf((await getSetting(`prefs:${norm(to)}`)) || {}, kind) === 'auto'; } catch {}
+    return mailNote(to, subject, kind, false, auto ? 'a notification instead: their phone has them on' : 'they chose no emails for ' + kind);
+  }
   let why = '';
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -553,7 +571,10 @@ async function notify(to, payload, kind) {
   const subj = 'Notification: ' + String((payload && payload.title) || '').slice(0, 70);
   /* said, not silent: "I got the email and not the notification" is
      answered by this line in the dashboard's list of what was sent */
-  if (!rec.subs.length) return mailNote(e, subj, kind, false, 'no phone has notifications on for this account', true);
+  /* the iPhone app's phones are kept beside the web ones (apns); counting
+     only the web ones meant no notification ever reached the iPhone app */
+  if (!rec.subs.length && !(Array.isArray(rec.apns) && rec.apns.length))
+    return mailNote(e, subj, kind, false, 'no phone has notifications on for this account', true);
   if (!mayEmail(e)) return mailNote(e, subj, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
   if (!(await clientMailAllowed(e))) return mailNote(e, subj, kind, false, 'client email is switched off');
   if (!(await wantsPush(e, kind))) return mailNote(e, subj, kind, false, 'they chose no notifications for ' + kind);
@@ -590,13 +611,21 @@ const COACH_ALERT_KINDS = {
    account) and account security (a password or an email changed) always
    send: those are not a kind anybody should be able to miss. */
 const COACH_MAIL_KINDS = { messages: true, checkpoints: true, told: true, business: true, signups: true };
+/* Email is capped at a hundred a day. With a phone or computer that has
+   the coach's notifications on, the routine kinds go there instead of to
+   email unless the dashboard switch for that kind was set on purpose;
+   bookings and payments (business) still email. With no device, every
+   kind emails as it always did, so nothing goes unheard. */
+const COACH_MAIL_ROUTINE = ['messages', 'checkpoints', 'told', 'signups'];
 async function coachMail(client, kind) {
   try {
     const to = norm(client ? coachOf(client) : primaryCoach());
     if (!to) return true;
     const rec = await pushSubs(to, 'pushcoach');
-    const on = Object.assign({}, COACH_MAIL_KINDS, rec.mail || {});
-    return on[kind] !== false;
+    const chosen = rec.mail || {};
+    if (chosen[kind] !== undefined) return chosen[kind] !== false;
+    if (COACH_MAIL_ROUTINE.includes(kind) && (rec.subs.length || (Array.isArray(rec.apns) && rec.apns.length))) return false;
+    return COACH_MAIL_KINDS[kind] !== false;
   } catch { return true; }
 }
 /* ── fewer, better notifications ───────────────────────────────────
@@ -3059,22 +3088,12 @@ const handle = async (request) => {
     if (dayN === 16) {
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A lot of sign ups today',
         `<p style="font:16px/1.6 system-ui">More than fifteen new app accounts today. The sign up
-         emails to you stop here until tomorrow, and after fifty the welcome emails do too, to keep
-         the day's email allowance for sign in codes and receipts. The accounts all work. If this
+         emails to you stop here until tomorrow, to keep the day's email allowance for sign in
+         codes and receipts. The accounts all work. If this
          is not a campaign or a reel doing well, it may be somebody making accounts in bulk.</p>`);
     }
-    /* to them, not only to the coach. Transactional: it says what the
-       account is and where the app lives, and nothing it did not ask for. */
-    const nm = String(acct.name || '').split(' ')[0];
-    if (dayN <= 50)
-    await email(e, 'Your Handstand Ladder account',
-      mail({ title: 'You are in.',
-        greeting: nm,
-        paras: ['This is the account your progress saves to, so it follows you between phones and survives a lost one.',
-                `Foundations is free for as long as you want it. The five stages above it are ${PRICES.plus.label} a month${Number(PRICES.trialDays) > 0 ? ' with the first ' + (Number(PRICES.trialDays) === 7 ? 'week' : PRICES.trialDays + ' days') + ' free' : ''}, and you can put it on your home screen from the More tab so it opens like an app.`,
-                'If something is wrong, or you have an idea, the pencil in the top bar reaches me directly.'],
-        cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-        signoff: { name: 'Elliott, London Handstand Academy' } }), 'replies');
+    /* No welcome email: the welcome is the coach's line in the app (above),
+       and email is kept for what has to be email, a hundred a day at most. */
     await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
     if (dayN <= 15 && await coachMail(null, 'signups'))
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,

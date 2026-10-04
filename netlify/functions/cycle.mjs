@@ -12,7 +12,7 @@
 import programmes from './programmes.mjs';
 import * as supa from './supa.mjs';
 import { renderEmail } from './emails.mjs';
-import { pushReady, pushSend } from './push.mjs';
+import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
 let EMAIL_OVER = null, EMAIL_AT = 0;
@@ -193,10 +193,16 @@ async function clientMailAllowed(to, receipt) {
 /* replies and reminders are each none, email, push or both; an answer
    saved before that was a yes or no, and reads as both or none */
 const CHANNELS = ['none', 'email', 'push', 'both'];
+/* nothing chosen is 'auto': a notification when they have a phone with
+   notifications on, an email only when they have not (as in the app) */
 const chanOf = (p, kind) => {
   const v = p && p[kind];
-  return CHANNELS.includes(v) ? v : v === false ? 'none' : 'both';
+  return CHANNELS.includes(v) ? v : v === false ? 'none' : 'auto';
 };
+async function hasPhone(e) {
+  try { const r = await pushSubs(norm(e)); return !!(r.subs.length || (Array.isArray(r.apns) && r.apns.length)); }
+  catch { return false; }
+}
 async function prefsOf(to) {
   const p = await supa.row('settings', `key=eq.${enc('prefs:' + norm(to))}&select=value`);
   return (p && p.value) || {};
@@ -205,12 +211,15 @@ async function wantsEmail(to, kind) {
   if (!kind) return true;
   try {
     const p = await prefsOf(to);
-    if (kind === 'replies' || kind === 'reminders') return ['email', 'both'].includes(chanOf(p, kind));
+    if (kind === 'replies' || kind === 'reminders') {
+      const c = chanOf(p, kind);
+      return c === 'auto' ? !(await hasPhone(to)) : ['email', 'both'].includes(c);
+    }
     return p[kind] !== false;
   } catch { return true; }
 }
 async function wantsPush(to, kind) {
-  try { return ['push', 'both'].includes(chanOf(await prefsOf(to), kind)); } catch { return true; }
+  try { return ['push', 'both', 'auto'].includes(chanOf(await prefsOf(to), kind)); } catch { return true; }
 }
 
 async function email(to, subject, html, kind, opts) {
@@ -435,7 +444,8 @@ async function trainingPush(done) {
   for (const r of rows) {
     const e = norm(String(r.key || '').slice(5));
     const rec = r.value || {};
-    if (!e || !Array.isArray(rec.subs) || !rec.subs.length) continue;
+    /* the iPhone app's phones (apns) count as much as the web ones */
+    if (!e || !((Array.isArray(rec.subs) && rec.subs.length) || (Array.isArray(rec.apns) && rec.apns.length))) continue;
     if (!(await wantsPush(e, 'reminders')) || !mayEmail(e) || !(await clientMailAllowed(e))) continue;
     const dayKey = `pushtrain:${e}:${today}`;
     if (await supa.row('nudges', `key=eq.${enc(dayKey)}&select=key`).catch(() => null)) continue;
