@@ -1999,23 +1999,70 @@ function dlAskHTML(dl){
   todayDlAsk=true;
   return `<div class="pad" style="padding-top:4px">${row}</div>`;
 }
-/* the check in, as a line: what was logged today, or the way to log it */
-function todayLogHTML(){
+/* ── this week, and logging today ──────────────────────────────────
+   Log today was a line of small print under Start, and what they had done
+   this week was a tab away. Both are on the front screen now, in one card:
+   the seven days coloured the way the Progress calendar colours them, how
+   many sessions against the days in the plan, and Log today as a real
+   button until today is logged, then what was logged. */
+function weekCardHTML(){
+  const now=new Date(), mon=new Date(now.getFullYear(), now.getMonth(), now.getDate()-((now.getDay()+6)%7));
+  const todayK=dayKey(Date.now());
+  const cells=[], letters='MTWTFSS';
+  let trained=0;
+  for(let i=0;i<7;i++){
+    const at=new Date(mon.getFullYear(), mon.getMonth(), mon.getDate()+i, 12);
+    const k=dayKey(at), list=loggedFor(k), isToday=k===todayK, future=!isToday && at>now;
+    const done=list.some(x=>x.done || x.kind==='all');
+    const miss=list.length && list.every(x=>x.kind==='none');
+    if(list.length && !miss) trained++;
+    /* full teal finished, teal weakening with how much was left undone,
+       amber only for a day logged as not trained, as on the calendar */
+    const bg = done ? 'var(--deep)' : miss ? 'var(--amber)'
+      : list.length ? 'rgba(0,102,99,'+(0.30+0.50*calDone(list)).toFixed(2)+')' : 'transparent';
+    const ring = list.length ? 'transparent' : isToday ? 'var(--forest)'
+      : future ? 'rgba(0,64,61,.08)' : 'rgba(0,64,61,.16)';
+    cells.push(`<div style="display:flex;flex-direction:column;align-items:center;gap:7px">
+      <span style="font:${isToday?700:600} 10.5px/1 var(--sans);letter-spacing:.06em;
+        color:${isToday?'var(--forest)':'var(--grey2)'}">${letters[i]}</span>
+      <span style="width:32px;height:32px;border-radius:50%;background:${bg};
+        border:${isToday&&!list.length?2:1}px solid ${ring};display:grid;place-items:center">${done
+        ?`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--on-primary)" stroke-width="3"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`:''}</span>
+    </div>`);
+  }
+  const target=(DATA && DATA.days && DATA.days.length) || 3;
   const logs=loggedToday(), last=logs[logs.length-1];
-  const link='border:0;background:none;padding:6px 2px;cursor:pointer;font:600 13px/1.4 var(--sans);'
-    +'color:var(--forest);text-decoration:underline;text-underline-offset:2px';
-  if(!last) return `<div data-tour="checkin" style="text-align:center;margin-top:6px;
-    font:400 13px/1.4 var(--sans);color:var(--grey)">Trained without the app?
-    <button onclick="openLog()" style="${link}">Log today</button></div>`;
-  const label=last.kind==='all'?'Whole session done'
-    :last.kind==='none'?'Logged as not trained'
-    :'Some of it done'+(last.of&&!last.approx?', '+last.got+' of '+last.of:'');
-  return `<div data-tour="checkin" style="display:flex;align-items:center;justify-content:center;gap:9px;
-    margin-top:6px;font:400 13.5px/1.4 var(--sans);color:var(--ink)">
-    <span style="flex:none;width:9px;height:9px;border-radius:99px;background:${
-      last.kind==='all'?'var(--forest)':last.kind==='none'?'var(--amber)':'var(--sage)'}"></span>
-    <span>${label}.</span>
-    <button onclick="openLog()" style="${link}">Change</button></div>`;
+  let foot;
+  if(!last){
+    foot=`<button onclick="openLog()" style="width:100%;margin-top:16px;height:52px;cursor:pointer;
+      border-radius:16px;border:1px solid rgba(0,64,61,.18);background:rgba(0,102,99,.06);
+      color:var(--deep);font:600 16px/1 var(--sans)">Log today</button>`;
+  } else {
+    const whole=logs.some(x=>x.done || x.kind==='all');
+    const none=!whole && logs.every(x=>x.kind==='none');
+    const label=whole?'Whole session done'
+      :none?'Logged as not trained'
+      :'Some of it done'+(last.of&&!last.approx?', '+last.got+' of '+last.of:'');
+    foot=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
+      margin-top:14px;padding:12px 4px 0;border-top:1px solid rgba(0,64,61,.08)">
+      <span style="font:500 14px/1.4 var(--sans);color:var(--ink)">Today: ${label}.</span>
+      <button onclick="openLog()" style="flex:none;border:0;background:none;padding:6px 2px;cursor:pointer;
+        font:600 13px/1 var(--sans);color:var(--forest);text-decoration:underline;
+        text-underline-offset:2px">Change</button></div>`;
+  }
+  return `<div class="card" data-tour="checkin" style="margin-top:18px;padding:16px 16px 14px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:0 4px">
+      <span class="kick2">THIS WEEK</span>
+      <span style="font:600 12.5px/1 var(--sans);color:var(--forest)">${
+        /* past the plan is past it, not "4 of 3" */
+        trained>target ? trained+' sessions' : trained+' of '+target+' session'+(target===1?'':'s')}</span>
+    </div>
+    <div role="button" tabindex="0" aria-label="Open your training calendar"
+      onclick="st.progTab='track';save();go('progress')"
+      style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:13px;cursor:pointer">${cells.join('')}</div>
+    ${foot}
+  </div>`;
 }
 /* ── what the coach said about this block ──────────────────────────
    New, it is the card on Today: what changed and the first paragraph,
@@ -2190,8 +2237,8 @@ function screenToday(){
     </button>
     ${d.when?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>`:''}
-    ${todayLogHTML()}
     ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
+    ${weekCardHTML()}
   </div>
   ${todaySlotHTML(dl)}
   <div style="height:26px"></div></div>`;
