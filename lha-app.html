@@ -1865,11 +1865,11 @@ function sessionsThisWeekN(){
    screen is worked out from what they have done. This is the only part of
    it that a person wrote, so it goes above the rest of it and stays until
    it is changed. */
-function weekWordHTML(){
+/* bare: without the padding Today gives it, for Plan's column of cards */
+function weekWordHTML(bare){
   const w=st.week; if(!w || !w.text) return '';
   const days=w.at?Math.floor((Date.now()-w.at)/864e5):0;
-  return `<div class="pad" style="padding-top:20px">
-    <div style="border-left:3px solid var(--forest);border-radius:0 14px 14px 0;
+  const note=`<div style="border-left:3px solid var(--forest);border-radius:0 14px 14px 0;
       background:rgba(255,255,255,.7);padding:13px 15px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
         <span style="font:700 9px/1.4 var(--sans);letter-spacing:.14em;color:var(--forest)">
@@ -1878,7 +1878,8 @@ function weekWordHTML(){
       </div>
       <div style="font:400 15px/1.55 var(--sans);color:var(--ink);margin-top:7px;
         white-space:pre-wrap">${esc(w.text)}</div>
-    </div></div>`;
+    </div>`;
+  return bare ? note : `<div class="pad" style="padding-top:20px">${note}</div>`;
 }
 
 
@@ -1948,160 +1949,113 @@ function todayFocus(){
 
 /* set while Today draws: the save for no signal row is asking */
 let todayDlAsk=false;
-function screenToday(){
-  todayDlAsk=false;
-  const d=day(), q=queue(), done=allItems(d).filter((_,i)=>false).length;
-  const total=allItems(d).length;
-  const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
-  const mins=q.reduce((a,s,_i)=>a+work(s.it)+rest(s,_i,q),0);
-  const hWeek=weekNow();
-  const name=(st.client||'').split(' ')[0]||'';
-  const nDone=sessionsDone().length;
-  /* these three used to be typed into the app, so every client was told
-     the same thing about their own block whatever their block said */
+/* ── one thing at a time ─────────────────────────────────────────────
+   Today was a stack: the session, then a card for every nudge, the block
+   note, the explainers, the check in and the last message, so the one
+   thing the screen is for was a button among a dozen. It is the session
+   and one card now, whichever matters most at the moment. The block note
+   and the explainers live on Plan, the Inner Circle offer in the menu. */
+function todaySlotHTML(dl){
+  /* a reply they have not read */
+  if(unreadMsgs()){
+    const m=coachMsgs().slice(-1)[0];
+    return `<div class="pad" style="padding-top:16px">
+      <div class="card" style="padding:16px 18px;display:flex;justify-content:space-between;
+        align-items:center;gap:14px;cursor:pointer" onclick="goAsk()">
+        <div style="min-width:0"><div class="kick2">${esc(coachLabel().toUpperCase())}${
+          m.time?' &middot; '+esc(String(m.time).toUpperCase()):''}</div>
+        <div style="font:400 14px/1.45 var(--sans);margin-top:7px">${esc(String(m.text||'').slice(0,90)
+          +(String(m.text||'').length>90?'…':''))}</div></div>
+        <span style="flex:none;font:400 22px/1 var(--serif);color:var(--forest)">&rarr;</span>
+      </div></div>`;
+  }
+  /* a form check back, a check point just set, or ten days away */
+  const f=todayFocus(); if(f) return f;
+  /* what the coach wrote this week, for the week it was written */
+  if(weekWordFresh()) return weekWordHTML();
+  /* the block note, while it is new */
+  if(blockNew()){ const b=blockNoteHTML(false); if(b) return `<div class="pad" style="padding-top:16px">${b}</div>`; }
+  if(nextSession()) return `<div class="pad" style="padding-top:16px">${nextSessionHTML()}</div>`;
+  /* the asks, one at a time: each waits for the one before it */
+  return installNudge() || pushNudge() || dlAskHTML(dl) || innerOfferHTML();
+}
+const weekWordFresh = () => !!(st.week && st.week.text && (!st.week.at || Date.now()-st.week.at < 7*864e5));
+/* the day's films, for saving for no signal. The warm-up turns over every
+   day, so a saved day is its written blocks plus every drill the warm-up
+   can draw on: the key stays the same from one day to the next, and
+   whichever warm-up comes round plays with no signal. */
+function todayDl(d){
+  const own=(d.groups||[]).filter(g=>!g.warm).flatMap(g=>g.items||[]);
+  const pool=d.noWarm ? [] : ((DATA.warmup&&DATA.warmup.items)||[]);
+  const all=own.concat(pool.filter(p=>!own.some(o=>o.v===p.v)));
+  return {key:'day'+st.day+'-'+dlHash(all.map(it=>it.v||'')), urls:all.map(itUrl),
+    opts:{kind:'day', day:st.day, name:d.label+(d.sub?', '+d.sub:'')}};
+}
+/* the ask to save it; a day already saved is news and sits under Start */
+function dlAskHTML(dl){
+  const later = st.dlLater && Date.now()-st.dlLater < 3*864e5;
+  if(later || dlRec(dl.key)) return '';
+  const row=dlRow(dl.key, dl.urls, dl.opts); if(!row) return '';
+  todayDlAsk=true;
+  return `<div class="pad" style="padding-top:4px">${row}</div>`;
+}
+/* the check in, as a line: what was logged today, or the way to log it */
+function todayLogHTML(){
+  const logs=loggedToday(), last=logs[logs.length-1];
+  const link='border:0;background:none;padding:6px 2px;cursor:pointer;font:600 13px/1.4 var(--sans);'
+    +'color:var(--forest);text-decoration:underline;text-underline-offset:2px';
+  if(!last) return `<div data-tour="checkin" style="text-align:center;margin-top:6px;
+    font:400 13px/1.4 var(--sans);color:var(--grey)">Trained without the app?
+    <button onclick="openLog()" style="${link}">Log today</button></div>`;
+  const label=last.kind==='all'?'Whole session done'
+    :last.kind==='none'?'Logged as not trained'
+    :'Some of it done'+(last.of&&!last.approx?', '+last.got+' of '+last.of:'');
+  return `<div data-tour="checkin" style="display:flex;align-items:center;justify-content:center;gap:9px;
+    margin-top:6px;font:400 13.5px/1.4 var(--sans);color:var(--ink)">
+    <span style="flex:none;width:9px;height:9px;border-radius:99px;background:${
+      last.kind==='all'?'var(--forest)':last.kind==='none'?'var(--amber)':'var(--sage)'}"></span>
+    <span>${label}.</span>
+    <button onclick="openLog()" style="${link}">Change</button></div>`;
+}
+/* ── what the coach said about this block ──────────────────────────
+   New, it is the card on Today: what changed and the first paragraph,
+   with the rest on Plan. On Plan it is all of it, for good. */
+function blockNoteHTML(all){
   const pts=(DATA.changed||[]).map(x=>Array.isArray(x)?x:[x.t||'',x.p||'']).filter(x=>x[0]||x[1]);
-  return `<div class="scroll s">
-  
-  <!-- The green hero has gone, the same way the free side's did. It was a
-       third of the screen before a word had been said, and the one control
-       this screen exists for, Start, was a flat panel the size of a chip.
-       Nothing here has been dropped: the greeting, the six week block, the
-       day, its length and the time it is due are all still on the first
-       screen, on the ground rather than on a slab of green. -->
-  <!-- The greeting was an eyebrow over a line announcing that a session
-       was ready, which the button underneath already says. The greeting
-       is the heading now, at a size that leaves room for the thing this
-       screen is actually for. -->
-  <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
-    <div style="font:400 30px/1.1 var(--serif);letter-spacing:-.01em">${
-      ticked>=total&&total
-        ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
-        : awayDays()>=10
-        ? `Good to <em style="color:var(--forest);font-style:normal">see you back${name?', '+esc(name):''}.</em>`
-        : `Good ${greeting()}<em style="color:var(--forest);font-style:normal">${
-            name?', '+esc(name):''}.</em>`}</div>
-  </div>
-
-  
-  ${weekWordHTML()}
-  ${/* "Block 1 · week 1 · 0 sessions this week" sat between the greeting
-        and the day, three counters nobody came here for. What they have
-        done is a screen of its own. */''}
-<div class="rise rise-1" style="padding:22px 20px 0">
-    <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
-      <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
-        d.sub?', '+esc(d.sub):''}</div>
-      <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">
-        ${/* The coach writes a length on the day and the app was ignoring it,
-             showing its own sum of every set and rest instead. On Hannah's
-             first day that is 61 minutes against the 35 to 40 it was written
-             as, which turns a session somebody can fit into one they cannot.
-             What the coach wrote wins; the player still shows the real clock
-             running against its own estimate while they train. */
-          esc(d.mins ? String(d.mins).replace(/\s*min(utes)?\s*$/i,'').replace(/\s*[\u2013\u2014]\s*/g,' to ')
-             : Math.round(mins/60))} min
-        · ${total} drill${total===1?'':'s'}</span>
-    </div>
-
-    <!-- One button, and it asks how. Start and See the drills were two
-         buttons for the same session, one of them large and green and the
-         other a quiet outline, so the choice read as a main thing and a
-         lesser thing rather than two ways of doing it. Log today is the
-         other thing you might do, so it sits on the same line. -->
-    <div style="display:flex;gap:10px;margin-top:14px;align-items:stretch">
-      <button onclick="openOv('daystart')" style="flex:1;min-width:0;height:68px;border:0;border-radius:18px;
-        background:linear-gradient(180deg,#0a7a76,#006663);
-        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-        color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
-        padding:0 12px 0 22px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
-        onpointerdown="this.style.transform='scale(.985)'"
-        onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
-        <span style="font:600 19px/1.15 var(--sans)">${ticked>=total&&total?'Go again':'Start the session'}</span>
-        <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);
-          display:grid;place-items:center">
-          <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
-            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
-      </button>
-      <button class="btn2" onclick="openLog()"
-        style="flex:none;width:${wide()?'170px':'118px'}">Log today</button>
-    </div>
-    <div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
-      margin-top:10px">${esc(d.when)}</div>
-    ${(function(){
-      /* The warm-up turns over every day, so a saved day is its written
-         blocks plus every drill the warm-up can draw on: the key stays the
-         same from one day to the next, and whichever warm-up comes round
-         plays with no signal. */
-      const own=(d.groups||[]).filter(g=>!g.warm).flatMap(g=>g.items||[]);
-      const pool=d.noWarm ? [] : ((DATA.warmup&&DATA.warmup.items)||[]);
-      const all=own.concat(pool.filter(p=>!own.some(o=>o.v===p.v)));
-      const key='day'+st.day+'-'+dlHash(all.map(it=>it.v||''));
-      /* ── one ask at a time ──────────────────────────────────────────
-         Home Screen, notifications, save for no signal and the Inner
-         Circle offer each had a card here, and together they read as
-         nagging. They queue now: this row waits until the two above it
-         are done or put away, and it can be put away itself. A day that
-         is already saved always shows, because that is news not an ask. */
-      const later = st.dlLater && Date.now()-st.dlLater < 3*864e5;
-      if(!dlRec(key) && (later || installNudge() || pushNudge())) return '';
-      todayDlAsk = !dlRec(key);
-      return dlRow(key, all.map(itUrl),
-        {kind:'day', day:st.day, name:d.label+(d.sub?', '+d.sub:'')});
-    })()}
-  </div>
-
-
-
-  
-  ${nextSession()?`<div class="pad" style="padding-top:14px">${nextSessionHTML()}</div>`:''}
-  ${installNudge()}
-  ${pushNudge()}
-  ${todayFocus()}
-  ${(installNudge()||pushNudge()||todayDlAsk) ? '' : innerOfferHTML()}
-  ${savedHomeHTML()}
-${/* Once it has been read it is a wall of last month's words at the top of
-     every day, and the whole of it is on the Plan screen anyway. New, it is
-     the most important thing here; read, it is one line. */
-   (pts.length||(DATA.read||[]).length) ? (blockNew()||st.readOpen ? `<div class="pad">
-    <div class="card" style="padding:20px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span class="kick2">ELLIOTT ON THIS BLOCK${blockNew()?`
-          <span style="display:inline-block;margin-left:7px;padding:3px 7px;border-radius:99px;
-            background:var(--amber);color:#fff;font:700 8.5px/1 var(--sans);letter-spacing:.1em;
-            vertical-align:1px">UPDATED</span>`:''}</span>
-
-      </div>
-      ${pts.length?`<div class="h-md" style="margin-top:12px">What changed this block</div>
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:15px">
-        ${pts.map(([t,x])=>`<div style="display:flex;gap:12px;align-items:baseline">
-          <span style="font:italic 400 15px/1.2 var(--serif);color:var(--forest);min-width:74px">${esc(t)}</span>
-          <span style="font:400 14px/1.45 var(--sans);flex:1">${esc(x)}</span></div>`).join('')}
-      </div>`:''}
-      ${(DATA.read||[]).length?(function(){
-        /* the first paragraph always, the rest behind Read more. It used to
-           be all of it or none of it, and all of it is a wall. */
-        const paras=DATA.read.map(p=>String(p).replace(/<[^>]+>/g,'').trim()).filter(Boolean);
-        const shown=st.readOpen?paras:paras.slice(0,1);
-        return `<div style="margin-top:${pts.length?16:12}px;${
-          pts.length?'border-top:1px solid rgba(28,32,25,.1);padding-top:15px;':''}display:flex;
-          flex-direction:column;gap:12px">
-          ${shown.map(t=>`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(t)}</div>`).join('')}
-        </div>
-        ${paras.length>1?`<button class="back" style="color:var(--forest);font-weight:700;font-size:12.5px;
-          margin-top:11px;padding:0" onclick="st.readOpen=!st.readOpen;markBlockSeen();render()">${
-          st.readOpen?'Show less':'Read more'}</button>`:''}`;})():''}
-    </div>
-  </div>` : `<div class="pad" style="padding-top:16px">
-    <button onclick="st.readOpen=true;markBlockSeen();render()" style="width:100%;text-align:left;
-      cursor:pointer;border:1px solid rgba(28,32,25,.10);border-radius:14px;padding:12px 14px;
-      background:rgba(255,255,255,.6);display:flex;gap:10px;align-items:center">
-      <span style="flex:1;font:500 12.5px/1.4 var(--sans);color:var(--grey)">What Elliott said about this block</span>
-      <span style="flex:none;font:400 16px/1 var(--serif);color:var(--forest)">→</span>
-    </button></div>`) : ''}
-
-  <!-- the explainers she already has. They were only reachable as an
-       accordion at the bottom of the plan, so nobody found them. -->
-  ${(function(){
+  const paras=(DATA.read||[]).map(p=>String(p).replace(/<[^>]+>/g,'').trim()).filter(Boolean);
+  if(!pts.length && !paras.length) return '';
+  const shown=all?paras:paras.slice(0,1);
+  const more=!all && paras.length>shown.length;
+  const quiet='border:0;background:none;padding:8px 0;cursor:pointer;font:600 13px/1 var(--sans)';
+  return `<div class="card" id="${all?'blocknote':''}" style="padding:20px">
+    <span class="kick2">${esc(coachLabel().toUpperCase())} ON THIS BLOCK${(!all&&blockNew())?`
+      <span style="display:inline-block;margin-left:7px;padding:3px 7px;border-radius:99px;
+        background:var(--amber);color:#fff;font:700 8.5px/1 var(--sans);letter-spacing:.1em;
+        vertical-align:1px">UPDATED</span>`:''}</span>
+    ${pts.length?`<div class="h-md" style="margin-top:12px">What changed this block</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:15px">
+      ${pts.map(([t,x])=>`<div style="display:flex;gap:12px;align-items:baseline">
+        <span style="font:italic 400 15px/1.2 var(--serif);color:var(--forest);min-width:74px">${esc(t)}</span>
+        <span style="font:400 14px/1.45 var(--sans);flex:1">${esc(x)}</span></div>`).join('')}
+    </div>`:''}
+    ${shown.length?`<div style="margin-top:${pts.length?16:12}px;${
+      pts.length?'border-top:1px solid rgba(28,32,25,.1);padding-top:15px;':''}display:flex;
+      flex-direction:column;gap:12px">
+      ${shown.map(t=>`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">${esc(t)}</div>`).join('')}
+    </div>`:''}
+    ${all?'':`<div style="display:flex;gap:18px;align-items:center;margin-top:10px">
+      ${more?`<button onclick="markBlockSeen();go('plan');setTimeout(function(){const e=document.getElementById('blocknote');
+        if(e) e.scrollIntoView({block:'start',behavior:'smooth'});},250)" style="${quiet};color:var(--forest)">Read it all</button>`:''}
+      <button onclick="markBlockSeen();render()" style="${quiet};color:var(--grey)">Got it</button>
+    </div>`}
+  </div>`;
+}
+/* the explainers she already has. They were only reachable as an
+   accordion at the bottom of the plan, so nobody found them; they were a
+   rail on Today, and are a rail at the foot of Plan now, above the
+   questions that have no film. */
+function explainersHTML(){
+  return `  ${(function(){
     const ex=(DATA.answers||[]).filter(a=>a && a.v && (a.t||'explainer')==='explainer');
     if(!ex.length) return '';
     return `<section data-tour="explainers" style="padding:16px 0 0">
@@ -2165,52 +2119,84 @@ ${/* Once it has been read it is a wall of last month's words at the top of
               </div>
             </div>`}
       </div>
-    </section>`;})()}
-
-  <!-- the check in. Ticking every drill was the only way to record a
-       session, so a session that happened away from the phone did not
-       exist. This is the record; ticking is just a way of keeping your
-       place. -->
-  ${loggedToday().length?`<div class="pad">
-    ${(function(){
-      const logs=loggedToday();
-      const lastLog=logs[logs.length-1];
-      const label=k=>k==='all'?'Whole session done'
-        :k==='none'?'Logged as not trained'
-        :'Some of it done';
-      return `<div class="card" data-tour="checkin" style="padding:18px 20px">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-          <span class="kick2">TODAY'S CHECK IN</span>
-          <span style="font:500 12px/1 var(--sans);color:var(--grey2)">${ticked} of ${total} ticked</span>
-        </div>
-        ${lastLog
-          ? `<div style="display:flex;align-items:center;gap:10px;margin-top:13px">
-               <span style="flex:none;width:10px;height:10px;border-radius:99px;background:${
-                 lastLog.kind==='all'?'var(--forest)':lastLog.kind==='none'?'var(--amber)':'var(--sage)'}"></span>
-               <span style="flex:1;font:400 14px/1.45 var(--sans)">${label(lastLog.kind)}${
-                 lastLog.kind==='part'&&lastLog.of&&!lastLog.approx
-                   ? ', '+lastLog.got+' of '+lastLog.of : ''}.</span>
-               <button class="back" style="color:var(--forest);font-weight:700;font-size:11.5px"
-                 onclick="openLog()">Change</button>
-             </div>`
-          : `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:11px">
-               Tell me what actually happened today. You do not have to tick a thing.</div>
-             <button onclick="openLog()" style="margin-top:13px;width:100%;border:0;border-radius:14px;
-               padding:13px;background:var(--forest);color:var(--on-primary);font:600 15px/1 var(--sans);
-               cursor:pointer">Log today</button>`}
-      </div>`;})()}
-  </div>`:''}
-
-  <div style="padding:10px 16px 26px">
-    <div class="card" style="border-radius:22px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer" onclick="goAsk()">
-      <div><div class="kick2">${(()=>{const m=(st.msgs||[]).filter(x=>x.from==='e').pop();
-        return m?('ELLIOTT · '+String(m.time||'').toUpperCase()):'ASK ELLIOTT';})()}</div>
-      <div style="font:400 14px/1.45 var(--sans);margin-top:7px">${(()=>{const m=(st.msgs||[]).filter(x=>x.from==='e').pop();
-        return esc(m?m.text.slice(0,90)+(m.text.length>90?'…':''):'A question, something sore, a week you cannot train. Send it over.');})()}</div></div>
-      <span style="font:400 22px/1 var(--serif);color:var(--forest)">→</span>
-    </div>
-  </div></div>`;
+    </section>`;})()}`;
 }
+function screenToday(){
+  todayDlAsk=false;
+  const d=day(), q=queue(), done=allItems(d).filter((_,i)=>false).length;
+  const total=allItems(d).length;
+  const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
+  const mins=q.reduce((a,s,_i)=>a+work(s.it)+rest(s,_i,q),0);
+  const hWeek=weekNow();
+  const name=(st.client||'').split(' ')[0]||'';
+  const nDone=sessionsDone().length;
+  /* these three used to be typed into the app, so every client was told
+     the same thing about their own block whatever their block said */
+  const dl=todayDl(d);
+  return `<div class="scroll s">
+  
+  <!-- The green hero has gone, the same way the free side's did. It was a
+       third of the screen before a word had been said, and the one control
+       this screen exists for, Start, was a flat panel the size of a chip.
+       Nothing here has been dropped: the greeting, the six week block, the
+       day, its length and the time it is due are all still on the first
+       screen, on the ground rather than on a slab of green. -->
+  <!-- The greeting was an eyebrow over a line announcing that a session
+       was ready, which the button underneath already says. The greeting
+       is the heading now, at a size that leaves room for the thing this
+       screen is actually for. -->
+  <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+    <div style="font:400 30px/1.1 var(--serif);letter-spacing:-.01em">${
+      ticked>=total&&total
+        ? `That is today <em style="color:var(--forest);font-style:normal">done.</em>`
+        : awayDays()>=10
+        ? `Good to <em style="color:var(--forest);font-style:normal">see you back${name?', '+esc(name):''}.</em>`
+        : `Good ${greeting()}<em style="color:var(--forest);font-style:normal">${
+            name?', '+esc(name):''}.</em>`}</div>
+  </div>
+
+  
+<div class="rise rise-1" style="padding:22px 20px 0">
+    <div data-tour="session" style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+      <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${esc(d.label)}${
+        d.sub?', '+esc(d.sub):''}</div>
+      <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">
+        ${/* The coach writes a length on the day and the app was ignoring it,
+             showing its own sum of every set and rest instead. On Hannah's
+             first day that is 61 minutes against the 35 to 40 it was written
+             as, which turns a session somebody can fit into one they cannot.
+             What the coach wrote wins; the player still shows the real clock
+             running against its own estimate while they train. */
+          esc(d.mins ? String(d.mins).replace(/\s*min(utes)?\s*$/i,'').replace(/\s*[\u2013\u2014]\s*/g,' to ')
+             : Math.round(mins/60))} min
+        · ${total} drill${total===1?'':'s'}</span>
+    </div>
+
+    <!-- One button. Log today sat beside it at the same height, so the screen
+         opened on a choice between two things; it is a line underneath now,
+         and once something is logged that line says what. -->
+    <button onclick="openOv('daystart')" style="width:100%;margin-top:14px;height:68px;border:0;border-radius:18px;
+      background:linear-gradient(180deg,#0a7a76,#006663);
+      box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
+      color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
+      padding:0 12px 0 22px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
+      onpointerdown="this.style.transform='scale(.985)'"
+      onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
+      <span style="font:600 19px/1.15 var(--sans)">${ticked>=total&&total?'Go again':'Start the session'}</span>
+      <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);
+        display:grid;place-items:center">
+        <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+    </button>
+    ${d.when?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
+      margin-top:10px">${esc(d.when)}</div>`:''}
+    ${todayLogHTML()}
+    ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
+  </div>
+  ${todaySlotHTML(dl)}
+  <div style="height:26px"></div></div>`;
+}
+
 const greeting=()=>{const h=new Date().getHours();return h<12?'morning':h<18?'afternoon':'evening';};
 const today=()=>new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
 
@@ -2225,6 +2211,9 @@ function planExtras(){
   const para=t=>`<p style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin:0 0 10px">${esc(t)}</p>`;
   const out=[];
 
+  const ww=weekWordHTML(true); if(ww) out.push(ww);
+  const note=blockNoteHTML(true); if(note) out.push(note);
+
   if(D.priority) out.push(`<div class="card" style="padding:20px">
     <div class="kick2">THE PRIORITY</div>
     <div style="font:400 15px/1.55 var(--sans);margin-top:9px">${esc(D.priority)}</div></div>`);
@@ -2234,9 +2223,11 @@ function planExtras(){
     <div class="h-sm" style="font-size:18px;margin-top:8px">${esc(D.honest.t)}</div>
     <div style="margin-top:10px">${(D.honest.p||[]).map(para).join('')}</div></div>`);
 
-  if((D.answers||[]).length) out.push(`<div class="card" style="padding:20px">
+  const inRail=a=>a && a.v && (a.t||'explainer')==='explainer';
+  if((D.answers||[]).some(a=>a && !inRail(a))) out.push(`<div class="card" style="padding:20px">
     <div class="kick2">QUESTIONS I GET ASKED</div>
     <div style="margin-top:6px">${D.answers.map((a,i)=>{
+      if(!a || inRail(a)) return '';
       const open=(st.qa||{})[i];
       return `<div style="border-top:1px solid rgba(28,32,25,.08);padding:13px 0">
         <div onclick="st.qa=st.qa||{};st.qa[${i}]=!st.qa[${i}];save();render()"
@@ -3502,6 +3493,8 @@ function screenPlan(){
     </div>
     <div data-tour="drillrows">${groups}</div>
     <div style="padding:22px 12px 0;display:flex;flex-direction:column;gap:11px">${planExtras()}</div>
+    ${explainersHTML()}
+    ${savedHomeHTML()}
     <div style="height:26px"></div></div>`;
 }
 const PURPOSE={'Warm-up':'Wrists and shoulders','Entries — build to 6':'The position, every time',
@@ -8447,6 +8440,8 @@ function moreBody(all, cards){
           Installed. This is running as an app, so the sessions work without signal.</div>
       </div>`}
 
+      ${coachedView()?innerOfferHTML(true):''}
+      ${coachedView()?fbCardHTML():''}
       ${st.token?knowCard():''}
       ${bookingsHTML()}
 
@@ -8463,17 +8458,7 @@ function moreBody(all, cards){
           ${curStage()>0?`<button class="act" onclick="closeMenu();dropStage()">Drop back a stage</button>`:''}
         </div>
       </div>
-      ${firstVisit()?'':`<div class="card" style="padding:16px 18px;margin-bottom:16px;display:flex;align-items:center;
-        gap:14px;justify-content:space-between">
-        <div style="flex:1">
-          <div class="kick2">TELL US WHAT YOU THINK</div>
-          <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-            Something broken, confusing or missing. It comes straight to me.</div>
-        </div>
-        <button onclick="closeMenu();fbOpen()" style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;
-          border-radius:12px;cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);
-          color:var(--ink)">Tell us</button>
-      </div>`}`}
+      ${firstVisit()?'':fbCardHTML()}`}
 
       ${(dlOk() && (st.dlSaved||[]).length) ? `<div class="card" style="padding:16px 18px;margin-bottom:16px;display:flex;
         align-items:center;gap:14px;justify-content:space-between">
@@ -11607,10 +11592,26 @@ function joinedLanding(){
    interested opens a message to the coach; Not now hides it until the
    next block. Nobody already in Inner Circle is offered it. */
 const innerOn = () => coachedView() && blockNo()>=2 && !/^inner/.test(st.tier||'') && st.icLater!==blockNo();
-function innerOfferHTML(){
+/* the menu's card for telling us what you think: under Where you are
+   placed on the ladder, on its own for a coached client */
+function fbCardHTML(){
+  return `<div class="card" style="padding:16px 18px;margin-bottom:16px;display:flex;align-items:center;
+        gap:14px;justify-content:space-between">
+        <div style="flex:1">
+          <div class="kick2">TELL US WHAT YOU THINK</div>
+          <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
+            Something broken, confusing or missing. It comes straight to me.</div>
+        </div>
+        <button onclick="closeMenu();fbOpen()" style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;
+          border-radius:12px;cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);
+          color:var(--ink)">Tell us</button>
+      </div>`;
+}
+/* inMenu: in the menu rather than on Today, which it was until 5 Oct */
+function innerOfferHTML(inMenu){
   if(!sells()) return '';
   if(!innerOn()) return '';
-  return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)">
+  const card=`<div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)${inMenu?';margin-bottom:16px':''}">
     <div class="kick2" style="color:var(--forest)">INNER CIRCLE</div>
     <div style="font:400 21px/1.2 var(--serif);margin-top:7px">Want me checking in every week?</div>
     <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">I check in every week and adjust
@@ -11619,10 +11620,11 @@ function innerOfferHTML(){
       <button class="btn" style="margin:0;min-height:44px;padding:0 18px;width:auto" onclick="innerAsk()">I&rsquo;m interested</button>
       <button onclick="innerLater()" style="border:0;background:none;cursor:pointer;padding:8px 0;
         font:600 13px/1 var(--sans);color:var(--grey)">Not now</button>
-    </div></div></div>`;
+    </div></div>`;
+  return inMenu ? card : `<div class="pad" style="padding-top:16px">${card}</div>`;
 }
-function innerAsk(){ askDraft='I\'d like to hear about Inner Circle.'; go('ask'); }
-function innerLater(){ st.icLater=blockNo(); save(); render(); }
+function innerAsk(){ askDraft='I\'d like to hear about Inner Circle.'; if(menuOpen) closeMenu(); go('ask'); }
+function innerLater(){ st.icLater=blockNo(); save(); render(); paintMenu(); }
 /* uncapped: "week 6 of 6" for ever was the old lie, and a block runs until
    the coach starts the next one rather than for a fixed six weeks */
 function weekNow(){
@@ -18558,21 +18560,15 @@ function topBar(){
       style="${chip};width:44px;height:44px;border-radius:999px;display:grid;place-items:center;padding:0">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
-    ${tourOffer()?`<span style="flex:1;min-width:0"><button onclick="showTour()" style="${chip};height:36px;
+    ${(tourOffer() && !coachedView())?`<span style="flex:1;min-width:0"><button onclick="showTour()" style="${chip};height:36px;
       border-radius:999px;padding:0 14px;display:inline-flex;align-items:center;gap:7px;font:600 12.5px/1 var(--sans)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/>
         <path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>Show me around</button></span>`
     :`<span style="flex:1;font:600 11px/1 var(--sans);letter-spacing:.14em;transition:color .3s;
       color:var(--deep)">${label}</span>`}
-    ${coachedView()?`<button onclick="fbOpen()" aria-label="Tell us what you think"
-      title="Tell us what you think"
-      style="${chip};width:44px;height:44px;border-radius:999px;display:grid;place-items:center">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-        <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>
-    </button>`:''}
+    ${/* Tell us what you think was a pencil here, a fifth button in a bar
+          of five. It is in the menu with everything else. */''}
     <button onclick="openChat()" aria-label="Messages"
       style="${chip};position:relative;width:44px;height:44px;border-radius:999px;
       display:grid;place-items:center">
@@ -18727,16 +18723,14 @@ const TOURS = {
        b:'The session runs itself. Each set counted down, each rest timed, the clip playing and the cues on screen. You train instead of reading.',
        pre:()=>{ closeOv(); tourSession(false,false); }},
       {t:'drilllist', h:'Or drill by drill',
-       b:'The same session as a list. Tick drills off as you go, change a dose before you start, open the demo, and flag one that was too easy or too hard. Work at your own pace.',
+       b:'The same session as a list. Tick drills off as you go, change a dose before you start, open the demo, and say how each one went. Work at your own pace.',
        pre:()=>{ tourLeaveMode(); tourSession(false,'work'); }},
 
       {t:'checkin', h:'Tell me what happened',
        b:'This is the bit that matters. Log the whole session, some of it, or a day you could not train. You do not have to tick a single drill for it to count.',
        pre:()=>{ tourLeaveMode(); }},
-      {t:'explainers', h:'Your explainers',
-       b:'The videos filmed for your questions. They stay here for good, so you can come back to one when it finally clicks.'},
       {t:'tabs', h:'The rest of it',
-       b:'Plan is the full list of drills, Progress is the calendar of what you did, and Ask reaches me directly.'}
+       b:'Plan is every drill, with my notes on the block and your explainers. Progress is the calendar of what you did, and Ask reaches me directly.'}
     ]
   },
   plan: {
@@ -18745,7 +18739,9 @@ const TOURS = {
       {t:'daytabs', h:'Your days',
        b:()=>'Every day in the block, and how much of the one you are on you have ticked off. '+tapWord(true)+' another day to look ahead, or back at one you have done.'},
       {t:'drillrows', h:'Drill by drill',
-       b:'Every drill with its dose, a demo video and the cues. Tick one off as you go, and if a drill was too easy or too hard say so on the row. That reaches me and it changes what you get next time.'}
+       b:'Every drill with its dose, a demo video and the cues. Tick one off as you go, and press How was it? to tell me a drill was too easy, about right or too hard, with a note if you like. That reaches me and it changes what you get next time.'},
+      {t:'explainers', h:'Your explainers',
+       b:'The videos filmed for your questions, at the foot of the plan. They stay here for good, so you can come back to one when it finally clicks.'}
     ]
   },
   ladder: {
