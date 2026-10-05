@@ -915,6 +915,10 @@ function cleanOnbCp(c) {
    and somebody after a press are not tested on the same things. A set per
    goal, and the general set for any goal without one. */
 const ONB_GOALS = ['learn', 'hold', 'improve', 'advanced'];
+/* how a client said a drill went: the two that ask for a change, and the
+   one that says leave it as written */
+const RATED = ['easy', 'right', 'hard'];
+const RATE_SAID = { easy: 'too easy', right: 'about right', hard: 'too hard' };
 function onbSetFor(ob, goal) {
   const g = ob && ob.goals && ob.goals[goal];
   if (g && Array.isArray(g.checkpoints) && g.checkpoints.length) return g.checkpoints;
@@ -7329,7 +7333,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                 per: Number(x && x.per) || 0,
                 secs: Math.max(0, Math.min(36000, Number(x && x.secs) || 0)),
                 dose: String((x && x.dose) || '').slice(0, 40),
-                rate: ['easy', 'hard'].includes(x && x.rate) ? x.rate : '',
+                rate: ['easy', 'right', 'hard'].includes(x && x.rate) ? x.rate : '',
               }))
             : [],
           /* how it was recorded, and whether it was all of it. A day closed
@@ -7383,10 +7387,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (body.ladderFlags && typeof body.ladderFlags === 'object') {
         const lk = `ladderflags:${who}`, lwas = (await getSetting(lk)) || {}, lout = {};
         for (const [drill, v] of Object.entries(body.ladderFlags).slice(0, 120)) {
-          if (v && (v.rate === 'easy' || v.rate === 'hard')) {
-            const k = String(drill).slice(0, 60), note = String(v.note || '').slice(0, 300);
-            const o = lwas[k], same = o && o.rate === v.rate && (o.note || '') === note;
-            lout[k] = { rate: v.rate, note, at: same ? (o.at || now) : now };
+          const rate = v && RATED.includes(v.rate) ? v.rate : '';
+          const note = String((v && v.note) || '').slice(0, 300);
+          if (rate || note.trim()) {
+            const k = String(drill).slice(0, 60);
+            const o = lwas[k], same = o && (o.rate || '') === rate && (o.note || '') === note;
+            lout[k] = { rate, note, at: same ? (o.at || now) : now };
           }
         }
         await setSetting(lk, lout);
@@ -7399,17 +7405,21 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
            made, and a flag that has just been made or changed is worth
            an email, because the coach had no other way of finding out.
            Marina said several exercises were too hard and nobody knew. */
+        /* About right, and a note written with no rating, are kept the same
+           way. Only too easy, too hard, or words, are worth telling the
+           coach about: a drill that went as written is a record, not news. */
         const was = p.flags || {};
         const fresh = [];
         p.flags = {};
         for (const [drill, v] of Object.entries(body.flags).slice(0, 120)) {
-          if (v && (v.rate === 'easy' || v.rate === 'hard')) {
+          const rate = v && RATED.includes(v.rate) ? v.rate : '';
+          const note = String((v && v.note) || '').slice(0, 300);
+          if (rate || note.trim()) {
             const k = String(drill).slice(0, 60);
-            const note = String(v.note || '').slice(0, 300);
             const old0 = was[k];
-            const same = old0 && old0.rate === v.rate && (old0.note || '') === note;
-            p.flags[k] = { rate: v.rate, note, at: same ? (old0.at || now) : now };
-            if (!same) fresh.push({ k, rate: v.rate, note });
+            const same = old0 && (old0.rate || '') === rate && (old0.note || '') === note;
+            p.flags[k] = { rate, note, at: same ? (old0.at || now) : now };
+            if (!same && (rate === 'easy' || rate === 'hard' || note.trim())) fresh.push({ k, rate, note });
           }
         }
         /* flags arrive together, so one email a quiet spell covers them;
@@ -7417,16 +7427,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (fresh.length && (await rateHit(`flagmail:${who}`, 600000)) === 1) {
           const lib = await libraryNow();
           const nm = clients()[who] || who;
-          const line = f => `<b>${esc((lib.names || {})[f.k] || f.k)}</b>: too ${esc(f.rate)}`
+          const said = f => RATE_SAID[f.rate] || 'a note';
+          const line = f => `<b>${esc((lib.names || {})[f.k] || f.k)}</b>: ${esc(said(f))}`
             + (f.note ? `<br>&ldquo;${esc(f.note)}&rdquo;` : '');
-          await coachAlert(who, 'told', { title: firstNameOf(who) + ' flagged '
-              + (fresh.length === 1 ? 'a drill' : fresh.length + ' drills'),
-            body: fresh.slice(0, 3).map(f => ((lib.names || {})[f.k] || f.k) + ': too ' + f.rate).join(', '),
+          const what = fresh.length === 1 ? 'a drill' : fresh.length + ' drills';
+          await coachAlert(who, 'told', { title: firstNameOf(who) + ' on ' + what,
+            body: fresh.slice(0, 3).map(f => ((lib.names || {})[f.k] || f.k) + ': '
+              + (f.rate ? said(f) : '') + (f.note ? (f.rate ? ', ' : '') + '"' + f.note.slice(0, 60) + '"' : '')).join('; '),
             tag: 'flag:' + who, t: 'programme' });
           if (await coachMail(who, 'told')) await email(coachOf(who),
-            `${nm}: ${fresh.length === 1 ? 'a drill is too ' + fresh[0].rate
-              : fresh.length + ' drills flagged'}`,
-            mail({ title: `${nm} flagged ${fresh.length === 1 ? 'a drill' : fresh.length + ' drills'}.`,
+            `${nm}: ${fresh.length === 1 ? 'a drill ' + (fresh[0].rate ? 'is ' + said(fresh[0]) : 'note')
+              : fresh.length + ' drills'}`,
+            mail({ title: `${nm} on ${what}.`,
               paras: [fresh.map(line).join('<br><br>'),
                       'It is on their plan in the dashboard, against the drill.'],
               cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
@@ -7462,8 +7474,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (clients()[who]) {
         const f = body.feedback;
         const fk = f && typeof f === 'object' ? String(f.kind || 'note') : '';
+        /* a session that felt about right is on the dashboard; it is not
+           a reason to buzz the coach's phone after every session */
         if (fk && !['Drill flags', 'Question'].includes(fk)
-            && !(fk.toLowerCase() === 'session feel' && !f.text)) {
+            && !(fk.toLowerCase() === 'session feel' && (!f.text || /^about right/i.test(String(f.text))))) {
           const bits = [].concat(Array.isArray(f.reasons) ? f.reasons.slice(0, 3) : [], f.text ? [String(f.text)] : []);
           await coachAlert(who, 'told', { title: firstNameOf(who) + ': ' + fk.toLowerCase(),
             body: bits.join(' \u00b7 ').slice(0, 160) || 'Open it on the dashboard.', tag: 'said:' + who, t: 'thread' });

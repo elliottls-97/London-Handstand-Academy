@@ -806,6 +806,17 @@ video{width:100%;display:block;background:#000}
  border:1px solid var(--line);background:#fff;color:var(--grey)}
 .rt.easy.on{background:var(--sage);color:#fff;border-color:transparent}
 .rt.hard.on{background:var(--amber);color:#fff;border-color:transparent}
+/* How was it? on a drill: the button says what was picked, and opens a
+   segmented control and a line to write on underneath */
+.rt.said{background:rgba(0,102,99,.08);color:var(--deep);border-color:rgba(0,64,61,.18)}
+.howbox{margin-top:10px}
+.rateseg{display:flex;gap:4px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px}
+.rateseg button{flex:1;min-width:0;min-height:40px;border:0;border-radius:10px;background:transparent;
+ color:var(--grey);font:600 12.5px/1.15 var(--sans);cursor:pointer;padding:0 4px}
+.rateseg button.on{background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)}
+.howbox input{width:100%;margin-top:8px;background:#fff;border:1px solid rgba(0,64,61,.14);
+ border-radius:12px;padding:10px 12px;min-height:44px;font:400 13.5px/1.4 var(--sans);color:var(--ink)}
+.howsent{margin-top:6px;font:600 11.5px/1.4 var(--sans);color:var(--forest);transition:opacity .4s}
 .why{display:inline-flex;align-items:center;gap:9px;margin-top:10px;background:rgba(0,64,61,.06);
  border-radius:999px;padding:9px 14px;min-height:36px;cursor:pointer;border:none}
 .why b{font:700 11.5px/1 var(--sans);color:var(--forest)}
@@ -1688,7 +1699,7 @@ function sendDayFeedback(skip){
   if(!skip && (note||rate)){
     const d=day();
     const text='Session done: '+d.label+(d.sub?', '+d.sub:'')
-      + (rate?'. Felt '+rate:'') + (note?'. '+note:'');
+      + (rate?'. Felt '+rateWord(rate).toLowerCase():'') + (note?'. '+note:'');
     st.msgs=(st.msgs||[]).concat([{from:'me',text,time:'Just now'}]);
     save();
     sendAndSay(
@@ -3388,7 +3399,6 @@ function screenPlan(){
     const wk=st.why[st.day+'-'+gi];
     const rows=g.items.map((it,ii)=>{
       const k=key(st.day,gi,ii), on=st.tick[k], rate=st.rate[it.v]||'', openD=st.open[k];
-      const flagged=rate==='easy'||rate==='hard';
       return `<div class="row" style="${on?'background:rgba(0,64,61,.035)':''}">
         <div style="display:flex;gap:11px;align-items:center">
           <div class="box ${on?'on':''}" onclick="tick('${k}')">✓</div>
@@ -3423,50 +3433,15 @@ function screenPlan(){
             <div class="rowdose" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px">
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${esc(it.d)}</span>
               ${g.warm?'':planLogBtn(k,it)}
-              <button class="rt ${st.howOpen===k?'on':''}" onclick="st.howOpen=st.howOpen==='${k}'?null:'${k}';save();render()">How did it go?</button>
+              ${howBtnHTML(it.v,'p'+k)}
             </div>
-            ${st.howOpen===k?`<div style="display:flex;gap:7px;margin-top:8px">
-              <button class="rt easy ${rate==='easy'?'on':''}" style="flex:1"
-                onclick="rate('${it.v}','easy')">Too easy</button>
-              <button class="rt hard ${rate==='hard'?'on':''}" style="flex:1"
-                onclick="rate('${it.v}','hard')">Too hard</button>
-            </div>`:''}
+            ${howPanelHTML(it.v,'p'+k)}
             ${st.repOpen===k?planStepper(k,it):''}
             ${it.nt?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${esc(it.nt)}</div>`:''}
             ${openD?`${it.url?`<div style="margin-top:11px">${itemFilm(it,'16/10')}</div>`:''}
               ${(it.cues||[]).length?`<ul style="margin:${it.url?'-6px':'9px'} 0 0;padding-left:17px;
                 display:flex;flex-direction:column;gap:5px">${it.cues.map(c=>
                 `<li style="font:400 13px/1.5 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}</ul>`:''}`:''}
-            ${flagged?`<div style="margin-top:12px;background:#faf0ed;border:1px solid rgba(164,80,60,.22);
-              border-radius:18px;padding:14px">
-              <div style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
-                rate==='hard'?'TOO HARD':'TOO EASY'} &middot; TELL ELLIOTT</div>
-              <input value="${esc(st.note[it.v]||'')}" oninput="st.note['${it.v}']=this.value;save()"
-                placeholder="What happened? (optional)"
-                style="width:100%;background:#fff;border:1px solid rgba(0,64,61,.14);border-radius:14px;
-                padding:12px;margin-top:10px;min-height:44px;
-                font:400 13.5px/1.45 var(--sans);color:var(--ink)">
-              ${flagSentOK(it.v)
-                ? `<div style="display:flex;align-items:flex-start;gap:9px;margin-top:11px">
-                    <span style="flex:none;width:19px;height:19px;border-radius:999px;background:var(--forest);
-                      color:#fff;display:grid;place-items:center;font:700 10px/1 var(--sans);
-                      margin-top:1px">&check;</span>
-                    <span style="flex:1;min-width:0;font:500 12.5px/1.45 var(--sans);color:var(--forest)">
-                      Sent to ${esc(coachLabel())} ${esc(cpWhen(flagAt(it.v)))}.${
-                      flagNote(it.v)?' He has what you wrote with it.':''}</span>
-                  </div>`
-                : `<div style="display:flex;gap:9px;margin-top:10px">
-                    <button id="flagbtn-${esc(it.v)}" onclick="sendFlags('${esc(it.v)}')"
-                      style="flex:1;border:none;min-height:44px;
-                      background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
-                      box-shadow:0 8px 18px rgba(0,102,99,.24),inset 0 1px 0 rgba(255,255,255,.3);
-                      border-radius:999px;padding:12px;font:600 12.5px/1 var(--sans);cursor:pointer">${
-                      flagAt(it.v)?'Send the update':'Send to Elliott'}</button>
-                  </div>
-                  <div id="flagst-${esc(it.v)}" style="font:500 12px/1.45 var(--sans);color:var(--grey);
-                    margin-top:8px;min-height:1px">${
-                    flagAt(it.v)?'Sent '+esc(cpWhen(flagAt(it.v)))+'. You have written more since.':''}</div>`}
-              </div>`:''}
           </div></div></div>`;
     }).join('');
     return `<div style="padding:20px 16px 0">
@@ -6265,7 +6240,7 @@ function appUseCard(){
    was written next to it. */
 function flaggedCard(){
   const r=st.rate||{};
-  const keys=Object.keys(r).filter(v=>r[v]==='easy'||r[v]==='hard');
+  const keys=Object.keys(Object.assign({}, r, st.note||{})).filter(saidOn);
   if(!keys.length) return '';
   const nameOf=v=>{
     for(const d of (DATA.days||[])) for(const g of (d.groups||[]))
@@ -6273,14 +6248,17 @@ function flaggedCard(){
     return (typeof LIBN!=='undefined' && LIBN[v]) || String(v).replace(/-/g,' ');
   };
   const row=(v,i)=>{
-    const hard=r[v]==='hard', note=(st.note||{})[v]||'';
+    const x=r[v]||'', note=(st.note||{})[v]||'';
+    const tone = x==='hard' ? ['rgba(243,169,73,.2)','#7a4a10']
+      : x==='easy' ? ['rgba(143,190,202,.25)','#235968']
+      : x==='right' ? ['rgba(0,102,99,.10)','var(--deep)']
+      : ['rgba(0,64,61,.06)','var(--grey)'];
     return `<div style="padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
       <div style="display:flex;align-items:baseline;gap:10px">
         <span style="flex:1;min-width:0;font:600 14px/1.3 var(--sans)">${esc(nameOf(v))}</span>
         <span style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.14em;
           padding:5px 8px;border-radius:999px;
-          background:${hard?'rgba(243,169,73,.2)':'rgba(143,190,202,.25)'};
-          color:${hard?'#7a4a10':'#235968'}">${hard?'TOO HARD':'TOO EASY'}</span>
+          background:${tone[0]};color:${tone[1]}">${(rateWord(x)||'Note').toUpperCase()}</span>
       </div>
       ${note?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">
         &ldquo;${esc(note)}&rdquo;</div>`:''}
@@ -6288,7 +6266,7 @@ function flaggedCard(){
   };
   return `<div class="card" style="padding:18px 20px">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-      <span class="kick2">WHAT YOU HAVE FLAGGED</span>
+      <span class="kick2">HOW YOUR DRILLS WENT</span>
       <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${keys.length}</span>
     </div>
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
@@ -8982,12 +8960,11 @@ function sessionFeel(f){
      Elliott to change it: nudging a ladder they do not train on and then
      telling them to go and change it there was the wrong answer twice. */
   if(coachedView()){
-    if(dir){
-      /* it used to say "Told Elliott" the instant the button was pressed,
-         which is a claim about a request that had not finished */
-      sendAndSay(reportProgress({feedback:{kind:'session feel', text:f+' · '+((day()&&day().label)||'')}}),
-        'Told Elliott. He writes the next block from this.');
-    }
+    /* it used to say "Told Elliott" the instant the button was pressed,
+       which is a claim about a request that had not finished. About right
+       said nothing at all, so a good session looked like no answer. */
+    sendAndSay(reportProgress({feedback:{kind:'session feel', text:f+' · '+((day()&&day().label)||'')}}),
+      dir ? 'Told Elliott. He writes the next block from this.' : 'Told Elliott.');
     closeOv();
     return;
   }
@@ -9940,7 +9917,6 @@ function drawOv(){
       const logged=grp.keys.map(x=>(st.reps||{})[x]).find(x=>x!=null);
       const reps=logged==null?recommendedReps(it):logged;
       const editing=st.ovRow===gi;
-      const flagged=rate==='easy'||rate==='hard';
       return `<div style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
         border-radius:16px;padding:13px 14px">
         <div style="display:flex;gap:13px;align-items:flex-start">
@@ -9987,10 +9963,7 @@ function drawOv(){
                 style="${logLook(logged!=null)}">${true
                   ? (logged==null?'Log':logged+doseUnit(it.d)+' done')
                   : 'Change time'}</button>
-              ${st.in?`<button class="rt easy ${rate==='easy'?'on':''}" id="easy-${k}"
-                onclick="rateRow('${it.v}','${k}','easy')">Too easy</button>
-              <button class="rt hard ${rate==='hard'?'on':''}" id="hard-${k}"
-                onclick="rateRow('${it.v}','${k}','hard')">Too hard</button>`
+              ${st.in?howBtnHTML(it.v,k)
               /* a sore wrist, no wall, or a drill they simply cannot do this
                  week. It leaves this session and the ones after it for seven
                  days, rather than being skipped again every time. */
@@ -10029,6 +10002,7 @@ function drawOv(){
               <span style="margin-left:auto;font:600 10px/1 var(--sans);letter-spacing:.12em;
                 color:var(--grey2)">REPS DONE</span>
             </div>
+            ${st.in?howPanelHTML(it.v,k):''}
             ${(()=>{
               const last=lastReps(it.v); if(!last) return '';
               const hist=repsHistory(it.v).slice(0,5);
@@ -10056,17 +10030,6 @@ function drawOv(){
             </div>
             ${(st.in&&levelLine(it.v))?`<div id="lvl-${k}" style="margin-top:8px;
               font:600 12px/1.4 var(--sans);color:var(--forest)">${esc(levelLine(it.v))}</div>`:''}
-            ${st.in?`<div id="note-${k}" ${flagged?'':'hidden'}
-              style="margin-top:12px;background:#f4efe9;border-radius:14px;padding:12px">
-              <div id="notelbl-${k}" style="font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--red)">${
-                rate==='hard'?'TOO HARD':'TOO EASY'}</div>
-              <input value="${esc((st.note||{})[it.v]||'')}"
-                oninput="st.note=st.note||{};st.note['${it.v}']=this.value;save();noteSoon('${k}')"
-                placeholder="What happened? (optional)"
-                style="width:100%;margin-top:8px;border:1px solid rgba(17,17,17,.12);border-radius:10px;
-                padding:9px 11px;font:400 13.5px/1.3 var(--sans);background:#fff"></div>`:''}
-            ${st.in?`<div id="rsent-${k}" style="margin-top:7px;font:600 11.5px/1.4 var(--sans);
-              color:var(--forest);transition:opacity .4s"></div>`:''}
           </div>
         </div>
       </div>${restChip(after)}`;}).join('');
@@ -11873,9 +11836,11 @@ function reportProgress(extra){
      tell which is which, so nothing is sent rather than the wrong thing. */
   const flags={}, ladderFlags={};
   const planReady = !st.in || !!(DATA && DATA.days && DATA.days.length);
-  Object.keys(st.rate||{}).forEach(function(v){
-    if(st.rate[v]==='easy'||st.rate[v]==='hard')
-      ((st.in && inPlan(v)) ? flags : ladderFlags)[v]={rate:st.rate[v], note:(st.note||{})[v]||''};
+  /* a rating, a note, or both: About right and a line on its own count */
+  Object.keys(Object.assign({}, st.rate||{}, st.note||{})).forEach(function(v){
+    if(saidOn(v))
+      ((st.in && inPlan(v)) ? flags : ladderFlags)[v]={
+        rate:rateWord((st.rate||{})[v]) ? st.rate[v] : '', note:(st.note||{})[v]||''};
   });
   /* hold used to be on every payload "for the coach's older reads", so the
      server appended a row for the same number on every visit and every flag
@@ -12266,71 +12231,55 @@ function levelLine(v){
   return (row && row.g!=='Warm-up') ? row.g : '';
 }
 
+/* ── how was it ────────────────────────────────────────────────────
+   One button per drill, on the plan and in the session list. It opens
+   Too easy, About right and Too hard, and a line to write on with any of
+   them or none. About right was a button on every row until 29 Aug and
+   went nowhere; now it reaches the coach, quietly unless something is
+   written with it. Everything here repaints in place: the list lives in a
+   sheet that must not be redrawn, and the plan's demo must not restart. */
+function rateWord(r){ return r==='easy'?'Too easy':r==='hard'?'Too hard':r==='right'?'About right':''; }
+function saidOn(v){ return !!(rateWord((st.rate||{})[v]) || String((st.note||{})[v]||'').trim()); }
+function howIsOpen(k){ return !!(howIsOpen.k && howIsOpen.k[k]); }
+function howBtnHTML(v,k){
+  const r=(st.rate||{})[v]||'';
+  return `<button class="rt${rateWord(r)?' said':''}" id="hb-${k}" onclick="howRow('${k}')"
+    aria-expanded="${howIsOpen(k)}">${rateWord(r)||'How was it?'}</button>`;
+}
+function howPanelHTML(v,k){
+  const r=(st.rate||{})[v]||'', ve=esc(v);
+  return `<div id="how-${k}" class="howbox" ${howIsOpen(k)?'':'hidden'}>
+    <div class="rateseg" role="group" aria-label="How was it?">${['easy','right','hard'].map(x=>
+      `<button type="button" id="${x}-${k}" class="${r===x?'on':''}" aria-pressed="${r===x}"
+        onclick="rateRow('${ve}','${k}','${x}')">${rateWord(x)}</button>`).join('')}</div>
+    <input value="${esc((st.note||{})[v]||'')}" aria-label="A note on this drill"
+      oninput="st.note=st.note||{};st.note['${ve}']=this.value;save();noteSoon('${k}')"
+      placeholder="Anything to add? (optional)">
+    <div id="rsent-${k}" class="howsent"></div>
+  </div>`;
+}
+function howRow(k){
+  howIsOpen.k=howIsOpen.k||{};
+  const open=!howIsOpen.k[k];
+  howIsOpen.k[k]=open;
+  const box=document.getElementById('how-'+k), hb=document.getElementById('hb-'+k);
+  if(box) box.hidden=!open;
+  if(hb) hb.setAttribute('aria-expanded', open);
+}
 function rateRow(v,k,r){
-  st.rate=st.rate||{}; st.note=st.note||{};
+  st.rate=st.rate||{};
   const now = st.rate[v]===r ? '' : r;
   st.rate[v]=now;
-  if(now!=='easy'&&now!=='hard') delete st.note[v];
-  /* a rating is only a flag to a coach if there is one; on the ladder it is
-     the thing that moves the work */
-  /* on a coached plan this is a flag for the coach and nothing else; the
-     ladder's difficulty is one dial on the ladder screen now */
   save();
-  reportAndSay('rsent-'+k, now==='hard' ? 'Flagged as too hard'
-    : now==='easy' ? 'Flagged as too easy' : 'Flag taken off');
-  const e=document.getElementById('easy-'+k), h=document.getElementById('hard-'+k);
-  if(e) e.classList.toggle('on', now==='easy');
-  if(h) h.classList.toggle('on', now==='hard');
+  reportAndSay('rsent-'+k, now ? 'Marked '+rateWord(now).toLowerCase() : 'Rating taken off');
+  ['easy','right','hard'].forEach(function(x){
+    const b=document.getElementById(x+'-'+k);
+    if(b){ b.classList.toggle('on', now===x); b.setAttribute('aria-pressed', now===x); }
+  });
+  const hb=document.getElementById('hb-'+k);
+  if(hb){ hb.textContent=rateWord(now)||'How was it?'; hb.classList.toggle('said', !!now); }
   const ll=document.getElementById('lvl-'+k);
   if(ll) ll.textContent = levelLine(v);
-  const box=document.getElementById('note-'+k);
-  if(box){
-    box.hidden = !now;
-    const lbl=document.getElementById('notelbl-'+k);
-    if(lbl && now) lbl.textContent = now==='hard' ? 'TOO HARD' : 'TOO EASY';
-  }
-}
-
-function rate(v,r){ st.rate[v]=st.rate[v]===r?'':r; if(st.rate[v]!=='easy'&&st.rate[v]!=='hard') delete st.note[v]; save(); reportSoon(); render(); }
-/* ── too easy, too hard, and whether he actually got it ───────────
-   Pressing Send to Elliott set a date on a property nothing read, so the
-   screen did not change by a pixel: the same button, the same box, no
-   way of telling whether anything had left the phone. It says which of
-   the three it is now, and the note that went with it is part of the
-   record, so typing more after sending offers to send the update rather
-   than pretending the first one covered it. */
-const flagAt   = v => ((st.flagAt||{})[v]||0);
-const flagNote = v => ((st.flagNote||{})[v]||'');
-const flagDirty= v => String((st.note||{})[v]||'') !== flagNote(v);
-const flagSentOK = v => !!flagAt(v) && !flagDirty(v);
-
-function sendFlags(v){
-  const f=Object.keys(st.rate||{}).filter(x=>st.rate[x]==='easy'||st.rate[x]==='hard');
-  if(!f.length) return;
-  const btn=v?document.getElementById('flagbtn-'+v):null;
-  if(btn){
-    if(btn.disabled) return;
-    btn.disabled=true; btn.style.opacity='.72'; btn.textContent='Sending\u2026';
-  }
-  if(v) sentLine('flagst-'+v, 'Sending\u2026');
-  const names={}; (DATA.days||[]).forEach(d=>(d.groups||[]).forEach(g=>(g.items||[]).forEach(i=>names[i.v]=i.n)));
-  const note=x=>String((st.note||{})[x]||'');
-  /* the flags themselves go up with the report, and the server tells Elliott */
-  tell({type:'Drill flags',
-    flags:f.map(x=>st.rate[x].toUpperCase()+': '+(names[x]||x)+(note(x)?' ("'+note(x)+'")':'')).join('\n')})
-    .then(ok=>{
-      if(ok===false){
-        if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent='Send to Elliott'; }
-        if(v) sentLine('flagst-'+v, 'Not sent. Check your signal and press it again.');
-        return;
-      }
-      const at=Date.now();
-      const A=Object.assign({}, st.flagAt||{}), N=Object.assign({}, st.flagNote||{});
-      f.forEach(x=>{ A[x]=at; N[x]=note(x); });
-      st.flagAt=A; st.flagNote=N;
-      st.flagSent=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'});
-      save(); render();
-    });
 }
 function filmTest(id,name){
   if(upBusy) return;

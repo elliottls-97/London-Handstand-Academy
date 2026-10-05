@@ -3077,8 +3077,7 @@ function dayDetail(email,list,k,p){
               font-variant-numeric:tabular-nums">${none?'not reached':it.got+'/'+it.of}</span>
             ${it.rate?`<span style="flex:none;font:800 8px/1 var(--sans);letter-spacing:.1em;
               padding:3px 5px;border-radius:4px;
-              background:${it.rate==='hard'?'rgba(200,122,86,.25)':'rgba(159,176,152,.4)'};
-              color:${it.rate==='hard'?'#7d3b28':'#0a7b74'}">${it.rate.toUpperCase()}</span>`:''}
+              background:${rateTag(it.rate).tag};color:${rateTag(it.rate).fg}">${rateTag(it.rate).t}</span>`:''}
           </div>`;}).join('')}</div>`
         :`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:7px">
            Logged before the app recorded the drill-by-drill.</div>`}
@@ -7667,20 +7666,18 @@ function frictionHTML(email){
   const rows=Object.entries(p.flags||{})
     .map(([v,f])=>({v, rate:f.rate, note:(f.note||'').trim(),
                     n:(drillName(v)||v), times:f.times||f.count||0}))
-    .filter(r=>r.rate==='hard'||r.rate==='easy')
-    .sort((a,b)=>(a.rate===b.rate?0:a.rate==='hard'?-1:1));
+    .filter(r=>r.rate||r.note)
+    .sort((a,b)=>rateTag(a.rate).o-rateTag(b.rate).o);
   if(!rows.length) return ladderFlagsHTML(p);
-  return `<div class="kick" style="margin-top:26px">WHERE IT IS HARD, WHERE IT IS EASY</div>
+  return `<div class="kick" style="margin-top:26px">HOW EACH DRILL WENT</div>
     <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
     ${rows.map(r=>{
-      const hard=r.rate==='hard';
+      const T=rateTag(r.rate);
       return `<div style="padding:13px 15px;border-radius:16px;
-        background:${hard?'rgba(200,122,86,.12)':'rgba(159,176,152,.20)'};
-        border:1px solid ${hard?'rgba(200,122,86,.30)':'rgba(159,176,152,.42)'}">
+        background:${T.bg};border:1px solid ${T.line}">
         <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
           <span style="font:800 9px/1 var(--sans);letter-spacing:.11em;padding:4px 7px;border-radius:6px;
-            background:${hard?'rgba(200,122,86,.30)':'rgba(159,176,152,.45)'};
-            color:${hard?'#7d3b28':'#0a7b74'}">${hard?'TOO HARD':'TOO EASY'}</span>
+            background:${T.tag};color:${T.fg}">${T.t}</span>
           <b style="font:600 14.5px/1.3 var(--sans)">${esc(r.n)}</b>
           ${r.times?`<span style="margin-left:auto;font:400 12px/1 var(--sans);
             color:var(--grey2)">Flagged ${r.times}×</span>`:''}
@@ -7697,7 +7694,7 @@ function frictionHTML(email){
 function ladderFlagsHTML(p){
   const rows=Object.entries((p&&p.ladderFlags)||{})
     .map(([v,f])=>({v, rate:f.rate, note:(f.note||'').trim(), at:f.at||0, n:drillName(v)}))
-    .filter(r=>r.rate==='hard'||r.rate==='easy')
+    .filter(r=>r.rate||r.note)
     .sort((a,b)=>b.at-a.at);
   if(!rows.length) return '';
   return `<div class="kick" style="margin-top:22px">ON THE FREE LADDER</div>
@@ -7706,7 +7703,7 @@ function ladderFlagsHTML(p){
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:9px">
     ${rows.map(r=>`<div style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;padding:9px 12px;border-radius:12px;
       border:1px solid var(--line);background:#fff">
-      <span style="font:800 9px/1 var(--sans);letter-spacing:.11em;color:${r.rate==='hard'?'#7d3b28':'#0a7b74'}">${r.rate==='hard'?'TOO HARD':'TOO EASY'}</span>
+      <span style="font:800 9px/1 var(--sans);letter-spacing:.11em;color:${rateTag(r.rate).fg}">${rateTag(r.rate).t}</span>
       <b style="font:600 13.5px/1.3 var(--sans)">${esc(r.n)}</b>
       ${r.note?`<span style="font:italic 400 12.5px/1.4 var(--sans);color:var(--grey)">&ldquo;${esc(r.note)}&rdquo;</span>`:''}
       ${r.at?`<span style="margin-left:auto;font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(ago(r.at))}</span>`:''}
@@ -7715,6 +7712,15 @@ function ladderFlagsHTML(p){
 }
 const drillName=v=>((libIndex||{})[v])
   || String(v||'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+/* How the client said a drill went. About right and a note on its own came
+   in with the 5 Oct app: hard first, then easy, then the rest. */
+function rateTag(r){
+  return r==='hard' ? {t:'TOO HARD', fg:'#7d3b28', tag:'rgba(200,122,86,.30)', bg:'rgba(200,122,86,.12)', line:'rgba(200,122,86,.30)', o:0}
+    : r==='easy' ? {t:'TOO EASY', fg:'#0a7b74', tag:'rgba(159,176,152,.45)', bg:'rgba(159,176,152,.20)', line:'rgba(159,176,152,.42)', o:1}
+    : r==='right' ? {t:'ABOUT RIGHT', fg:'var(--deep)', tag:'rgba(0,102,99,.10)', bg:'#fff', line:'var(--line)', o:2}
+    : {t:'NOTE', fg:'var(--grey)', tag:'rgba(28,32,25,.07)', bg:'#fff', line:'var(--line)', o:3};
+}
+const rateSaid=r=>r==='right'?'about right':r?'too '+r:'a note';
 
 let wideActivity=false;   /* activity across the whole width, not a column */
 let openSess=null;   /* which session row is expanded */
@@ -7790,6 +7796,7 @@ function sessionDetail(x,flags){
         : none && hitStop ? {t:'SKIPPED',bg:'rgba(28,32,25,.08)',fg:'var(--grey2)'}
         : it.rate==='hard' ? {t:'HARD',bg:'rgba(200,122,86,.18)',fg:'var(--terra)'}
         : it.rate==='easy' ? {t:'EASY',bg:'rgba(159,176,152,.28)',fg:'var(--forest)'}
+        : it.rate==='right' ? {t:'ABOUT RIGHT',bg:'rgba(0,102,99,.08)',fg:'var(--forest)'}
         : {t:'DONE',bg:'rgba(28,32,25,.08)',fg:'var(--grey)'};
       return `<div style="display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:11px;
         background:${partial?'rgba(200,122,86,.10)':'#fff'};
@@ -8131,7 +8138,7 @@ function flagItems(){
     const seen=Number(p.flagSeen||0);
     const list=Object.keys(p.flags||{})
       .map(k=>Object.assign({k}, p.flags[k]))
-      .filter(x=>x && (x.rate==='easy'||x.rate==='hard') && Number(x.at||0)>seen)
+      .filter(x=>x && (x.rate==='easy'||x.rate==='hard'||String(x.note||'').trim()) && Number(x.at||0)>seen)
       .sort((a,b)=>(b.at||0)-(a.at||0));
     if(list.length) out.push({email:c.email, name:c.name, at:list[0].at||0, list});
   });
@@ -8156,7 +8163,7 @@ const INBOX_TYPE={
   review:     {label:'Block test',       cls:'tag-clip',    filter:'clips',       act:1},
   logged:     {label:'Check point',      cls:'tag-cp',      filter:'checkpoints', act:0},
   said:       {label:'Told you',         cls:'tag-said',    filter:'said',        act:1},
-  flag:       {label:'Too hard or easy', cls:'tag-said',    filter:'said',        act:1},
+  flag:       {label:'How a drill went', cls:'tag-said',    filter:'said',        act:1},
   trained:    {label:'Trained',          cls:'tag-trained', filter:'trained',     act:0},
   question:   {label:'Question',         cls:'tag-msg',     filter:'questions',   act:1},
   application:{label:'Application',      cls:'tag-other',   filter:'other',       act:1},
@@ -8370,7 +8377,7 @@ function weekBehindHTML(){
     const p=prog[c.email]||{};
     (p.sessions||[]).forEach(x=>{ if((x.at||0)>since && x.done){ n.trained++; mark(c.email); } });
     Object.keys(p.flags||{}).forEach(k=>{ const f=p.flags[k];
-      if(f && (f.at||0)>since){ n.flags++; mark(c.email); } });
+      if(f && (f.rate==='easy'||f.rate==='hard') && (f.at||0)>since){ n.flags++; mark(c.email); } });
     (subs[c.email]||[]).forEach(x=>{ if((x.at||0)>since){ n.clips+=(x.clips&&x.clips.length)||1; mark(c.email); } });
   });
   questions.forEach(q=>{ if((q.at||0)>since){ n.questions++; mark(q.email); } });
@@ -8524,8 +8531,8 @@ function lineHTML(r){
       <button class="btn btn-ghost btn-sm" onclick="seenOne('${e}','trained')">Seen</button>`;
   } else if(r.type==='flag'){
     what=r.flags.length===1?'A drill':r.flags.length+' drills';
-    body=`<div class="tsub">${r.flags.map(f=>`<div><b>${esc(drillName(f.k))}</b> <span style="color:${
-      f.rate==='hard'?'var(--terra)':'var(--forest)'}">too ${esc(f.rate)}</span>${f.note?' &middot; &ldquo;'+esc(f.note)+'&rdquo;':''}</div>`).join('')}</div>`;
+    body=`<div class="tsub">${r.flags.map(f=>`<div><b>${esc(drillName(f.k))}</b> ${f.rate?`<span style="color:${
+      f.rate==='hard'?'var(--terra)':'var(--forest)'}">${esc(rateSaid(f.rate))}</span>`:''}${f.note?(f.rate?' &middot; ':'')+'&ldquo;'+esc(f.note)+'&rdquo;':''}</div>`).join('')}</div>`;
     acts=`<button class="btn btn-primary btn-sm" onclick="openBuilder('${e}')">Change their plan</button>
       <button class="btn btn-ghost btn-sm" onclick="flagsSeen('${e}')">Seen</button>`;
   } else if(r.type==='question'){
