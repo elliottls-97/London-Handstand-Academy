@@ -919,6 +919,15 @@ const ONB_GOALS = ['learn', 'hold', 'improve', 'advanced'];
    one that says leave it as written */
 const RATED = ['easy', 'right', 'hard'];
 const RATE_SAID = { easy: 'too easy', right: 'about right', hard: 'too hard' };
+/* What a client has said about each drill over time. The flags hold only
+   the latest, so a drill called too hard last week and about right this
+   week read as about right and nothing else, for both of them. The history
+   is kept in settings (flaglog:{email}), not a column, so no migration;
+   the first time, it starts from the flags already there. */
+const flagLogSeed = flags => Object.entries(flags || {})
+  .map(([k, f]) => ({ k, rate: (f && f.rate) || '', note: (f && f.note) || '', at: (f && f.at) || 0 }))
+  .filter(x => x.at).sort((a, b) => a.at - b.at);
+const flagLogLast = (log, k) => { for (let j = log.length - 1; j >= 0; j--) if (log[j].k === k) return j; return -1; };
 function onbSetFor(ob, goal) {
   const g = ob && ob.goals && ob.goals[goal];
   if (g && Array.isArray(g.checkpoints) && g.checkpoints.length) return g.checkpoints;
@@ -7240,11 +7249,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const n = Math.round((Number(it && it.reps) || 0) / got);
         if (!v || !n) continue;
         (log[v] = log[v] || []).push({ at: Number(s.at) || 0, reps: n, secs: 0,
-                                       want: Math.round((Number(it.want) || 0) / of), n: it.n || '' });
+                                       want: Math.round((Number(it.want) || 0) / of), n: it.n || '',
+                                       unit: it.unit === 's' ? 's' : '' });
       }
     }
+    /* thirty, not eight: the app's drill history shows every time, and
+       eight was about three weeks of a drill done three times a week */
     for (const v of Object.keys(log)) {
-      log[v] = log[v].sort((a, b) => b.at - a.at).slice(0, 8);
+      log[v] = log[v].sort((a, b) => b.at - a.at).slice(0, 30);
     }
     return log;
   }
@@ -7260,12 +7272,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          every visit since visits stopped meaning "a tab woke up", and only
          the coach could see it. */
       const visits = (await getSetting(`visits:${who}`)) || {};
+      const flagLog = (await getSetting(`flaglog:${who}`)) || flagLogSeed(prog && prog.flags);
     return json(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen),
   /* whether they have said their clips may be used in marketing: opt in */
   promo: (((await getSetting(`prefs:${who}`)) || {}).promo === true),
-  repsLog: repsLogFrom(prog.sessions), visits,
+  repsLog: repsLogFrom(prog.sessions), visits, flagLog,
   bestHolds: bestHoldsFrom(prog.holds) } : { visits });
     }
     if (request.method === 'POST') {
@@ -7397,6 +7410,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         }
         await setSetting(lk, lout);
       }
+      let flagLogOut = null;
       if (body.flags && typeof body.flags === 'object') {
         /* ── too hard, too easy ──────────────────────────────────────
            Every flag was stamped with the time of whatever save happened
@@ -7409,7 +7423,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
            way. Only too easy, too hard, or words, are worth telling the
            coach about: a drill that went as written is a record, not news. */
         const was = p.flags || {};
-        const fresh = [];
+        const fresh = [], changed = [];
         p.flags = {};
         for (const [drill, v] of Object.entries(body.flags).slice(0, 120)) {
           const rate = v && RATED.includes(v.rate) ? v.rate : '';
@@ -7419,8 +7433,30 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             const old0 = was[k];
             const same = old0 && (old0.rate || '') === rate && (old0.note || '') === note;
             p.flags[k] = { rate, note, at: same ? (old0.at || now) : now };
+            if (!same) changed.push({ k, rate, note });
             if (!same && (rate === 'easy' || rate === 'hard' || note.trim())) fresh.push({ k, rate, note });
           }
+        }
+        /* the history. Changes to one drill within ten minutes are one
+           entry: a note typed in pauses, or a mind changed straight away.
+           Taken off within ten minutes is an undo and leaves nothing; taken
+           off later leaves what was said, because it was said. */
+        const removed = Object.keys(was).filter(k => !p.flags[k]);
+        if (changed.length || removed.length) {
+          const lk = `flaglog:${who}`;
+          let log = (await getSetting(lk)) || flagLogSeed(was);
+          for (const c of changed) {
+            const i = flagLogLast(log, c.k);
+            const entry = { k: c.k, rate: c.rate, note: c.note, at: now };
+            if (i > -1 && now - (log[i].at || 0) < 600000) log[i] = entry; else log.push(entry);
+          }
+          for (const k of removed) {
+            const i = flagLogLast(log, k);
+            if (i > -1 && now - (log[i].at || 0) < 600000) log.splice(i, 1);
+          }
+          log = log.slice(-300);
+          await setSetting(lk, log);
+          flagLogOut = log;
         }
         /* flags arrive together, so one email a quiet spell covers them;
            switching one back and forth used to send an email every time */
@@ -7495,7 +7531,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       flags: p.flags || {}, tests: p.tests || [], feedback: p.feedback || [],
       best_hold: p.bestHold || null, last_seen: iso(p.lastSeen) || nowISO(),
     }, 'email');
-      return json({ ok: true });
+      /* the history back, so the app shows what was just said without a reload */
+      return json(flagLogOut ? { ok: true, flagLog: flagLogOut } : { ok: true });
     }
   }
 
@@ -7543,7 +7580,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      the free ladder felt, which the coach reads if they join coaching. */
   const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs',
                         'fccredits', 'plusuntil', 'visits', 'week', 'wsmine',
-                        'plan', 'ref', 'trialused', 'ladderflags',
+                        'plan', 'ref', 'trialused', 'ladderflags', 'flaglog',
                         /* a client made before their real address was known
                            moves when it arrives: their own clips, the block
                            being written and the ones taken off, what the
@@ -8938,7 +8975,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       /* one read of every setting and the progress row together: these were
          nine reads one after another, for every client, on every open */
       const [S, prog] = await Promise.all([
-        settingsMany([`programme:${e}`, `week:${e}`, `intake:${e}`, `track:${e}`, `visits:${e}`, `flagseen:${e}`, `ladderflags:${e}`]),
+        settingsMany([`programme:${e}`, `week:${e}`, `intake:${e}`, `track:${e}`, `visits:${e}`, `flagseen:${e}`, `ladderflags:${e}`, `flaglog:${e}`]),
         supa.row('progress', `email=eq.${enc(e)}&select=*`),
       ]);
       /* the same block clock the client is shown, so the two screens cannot
@@ -8958,8 +8995,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         progress: Object.assign(prog ? { opens: prog.opens || [], sessions: prog.sessions || [], holds: prog.holds || [],
   flags: prog.flags || {}, tests: prog.tests || [], feedback: prog.feedback || [],
   bestHold: prog.best_hold || 0, lastSeen: ms(prog.last_seen) } : {},
-          /* how they found the free ladder, kept apart from the plan's flags */
-          { ladderFlags: S[`ladderflags:${e}`] || {} }),
+          /* how they found the free ladder, kept apart from the plan's flags,
+             and everything they have said about the plan's drills over time */
+          { ladderFlags: S[`ladderflags:${e}`] || {},
+            flagLog: S[`flaglog:${e}`] || flagLogSeed(prog && prog.flags) }),
         /* when this coach last said they had read the flags */
         flagSeen: Number(S[`flagseen:${e}`] || 0) });
     }

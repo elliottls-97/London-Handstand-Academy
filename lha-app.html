@@ -6314,27 +6314,97 @@ function appUseCard(){
    again by the person who set them, so there is no way of knowing what
    Elliott has been told. Every one of them, in one place, with whatever
    was written next to it. */
+/* a drill's name from the plan, else the library, else its id */
+function drillNameOf(v){
+  for(const d of ((DATA&&DATA.days)||[])) for(const g of (d.groups||[]))
+    for(const it of (g.items||[])) if(it.v===v && it.n) return it.n;
+  const lib=typeof drillById==='function' ? drillById(v) : null;
+  return (lib && lib.n) || (typeof LIBN!=='undefined' && LIBN[v]) || String(v||'').replace(/-/g,' ');
+}
+function rateChipHTML(x){
+  const tone = x==='hard' ? ['rgba(243,169,73,.2)','#7a4a10']
+    : x==='easy' ? ['rgba(143,190,202,.25)','#235968']
+    : x==='right' ? ['rgba(0,102,99,.10)','var(--deep)']
+    : ['rgba(0,64,61,.06)','var(--grey)'];
+  return `<span style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.14em;
+    padding:5px 8px;border-radius:999px;background:${tone[0]};color:${tone[1]}">${
+    (rateWord(x)||'Note').toUpperCase()}</span>`;
+}
+function openDrillHist(v){ st.histV=v; save(); openOv('drillhist'); }
+/* ── one drill, all of it ───────────────────────────────────────────
+   Drill by drill shows the last time, and How your drills went the
+   latest word. This is the rest: every number logged against the drill
+   and everything said about it, by day, newest first. */
+function drillHistBody(v){
+  const reps=((((st.prog&&st.prog.repsLog)||st.repsLog||{})[v])||[]).filter(x=>x&&x.reps&&x.at);
+  const said=((st.prog&&st.prog.flagLog)||[]).filter(x=>x&&x.k===v&&x.at);
+  /* said on this phone and not back from the account yet */
+  const cur=(st.rate||{})[v]||'', curN=String((st.note||{})[v]||'');
+  const lastSaid=said[said.length-1];
+  if((rateWord(cur)||curN.trim()) && !(lastSaid && (lastSaid.rate||'')===cur && (lastSaid.note||'')===curN))
+    said.push({k:v, rate:cur, note:curN, at:Date.now()});
+  const days={};
+  const at=k=>(days[k]=days[k]||{n:[],s:[]});
+  reps.forEach(x=>at(dayKey(x.at)).n.push(x));
+  said.forEach(x=>at(dayKey(x.at)).s.push(x));
+  const keys=Object.keys(days).sort().reverse();
+  const unit=x=>x.unit==='s'?'s':'';
+  const best=reps.length?Math.max(...reps.map(x=>Number(x.reps)||0)):0;
+  const rows=keys.map((k,i)=>{
+    const d=new Date(k+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+    const D=days[k];
+    return `<div style="display:flex;gap:14px;padding:13px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+      <span style="flex:none;width:74px;font:600 10px/1.5 var(--sans);letter-spacing:.1em;
+        text-transform:uppercase;color:var(--grey2)">${esc(d)}</span>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px">
+        ${D.n.map(x=>`<div style="font:400 17px/1.1 var(--serif);color:${
+          x.want&&Number(x.reps)>=Number(x.want)?'var(--forest)':'var(--ink)'}">${Number(x.reps)}${unit(x)}${
+          x.want?`<span style="font:400 12px/1 var(--sans);color:var(--grey2)"> of ${Number(x.want)}${unit(x)}</span>`:''}</div>`).join('')}
+        ${D.s.map(x=>`<div style="display:flex;flex-direction:column;gap:5px;align-items:flex-start">
+          ${rateWord(x.rate)?rateChipHTML(x.rate):''}
+          ${x.note?`<span style="font:400 13.5px/1.5 var(--sans);color:var(--grey)">&ldquo;${esc(x.note)}&rdquo;</span>`:''}
+        </div>`).join('')}
+      </div></div>`;
+  }).join('');
+  return `<div style="padding:2px">
+    <div class="kick2">EVERY TIME</div>
+    <div class="h-md" style="font-size:24px;margin-top:8px">${esc(drillNameOf(v))}</div>
+    ${best?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">Best ${best}${
+      unit(reps[0]||{})} &middot; logged ${reps.length} time${reps.length===1?'':'s'}</div>`:''}
+    <div style="margin-top:12px">${rows||`<div style="font:400 14px/1.5 var(--sans);color:var(--grey)">
+      Nothing logged on this one yet.</div>`}</div>
+  </div>`;
+}
+/* what was said on a day: the drills rated or written about, and how the
+   session felt, for the calendar's day */
+function daySaidHTML(k){
+  const said=((st.prog&&st.prog.flagLog)||[]).filter(x=>x && x.at && dayKey(x.at)===k);
+  const feel=((st.prog&&st.prog.feedback)||[]).filter(f=>f && f.at && dayKey(f.at)===k
+    && String(f.kind||'').toLowerCase()==='session feel' && f.text);
+  if(!said.length && !feel.length) return '';
+  return `<div style="border-top:1px solid rgba(0,64,61,.1);margin-top:11px;padding-top:11px">
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">WHAT YOU SAID</div>
+    ${feel.map(f=>`<div style="font:400 13px/1.45 var(--sans);margin-top:8px">Felt ${
+      esc(String(f.text).split(' \u00b7 ')[0].toLowerCase())}</div>`).join('')}
+    ${said.map(x=>`<div role="button" tabindex="0" onclick="openDrillHist('${esc(x.k)}')"
+      style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;margin-top:8px;cursor:pointer">
+      <span style="flex:1;min-width:0;font:500 13px/1.35 var(--sans)">${esc(drillNameOf(x.k))}</span>
+      ${rateWord(x.rate)?rateChipHTML(x.rate):''}
+      ${x.note?`<span style="flex:0 0 100%;font:400 12.5px/1.45 var(--sans);color:var(--grey)">&ldquo;${esc(x.note)}&rdquo;</span>`:''}
+    </div>`).join('')}
+  </div>`;
+}
 function flaggedCard(){
   const r=st.rate||{};
   const keys=Object.keys(Object.assign({}, r, st.note||{})).filter(saidOn);
   if(!keys.length) return '';
-  const nameOf=v=>{
-    for(const d of (DATA.days||[])) for(const g of (d.groups||[]))
-      for(const it of (g.items||[])) if(it.v===v && it.n) return it.n;
-    return (typeof LIBN!=='undefined' && LIBN[v]) || String(v).replace(/-/g,' ');
-  };
   const row=(v,i)=>{
     const x=r[v]||'', note=(st.note||{})[v]||'';
-    const tone = x==='hard' ? ['rgba(243,169,73,.2)','#7a4a10']
-      : x==='easy' ? ['rgba(143,190,202,.25)','#235968']
-      : x==='right' ? ['rgba(0,102,99,.10)','var(--deep)']
-      : ['rgba(0,64,61,.06)','var(--grey)'];
-    return `<div style="padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+    return `<div role="button" tabindex="0" onclick="openDrillHist('${esc(v)}')"
+      style="padding:11px 0;cursor:pointer;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
       <div style="display:flex;align-items:baseline;gap:10px">
-        <span style="flex:1;min-width:0;font:600 14px/1.3 var(--sans)">${esc(nameOf(v))}</span>
-        <span style="flex:none;font:700 8.5px/1 var(--sans);letter-spacing:.14em;
-          padding:5px 8px;border-radius:999px;
-          background:${tone[0]};color:${tone[1]}">${(rateWord(x)||'Note').toUpperCase()}</span>
+        <span style="flex:1;min-width:0;font:600 14px/1.3 var(--sans)">${esc(drillNameOf(v))}</span>
+        ${rateChipHTML(x)}
       </div>
       ${note?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:5px">
         &ldquo;${esc(note)}&rdquo;</div>`:''}
@@ -6377,9 +6447,10 @@ function perDrillCard(){
     </div>
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
       The last time you did each, against what it asked for. Short of it is
-      information, not a failure.</div>
+      information, not a failure. Tap one for every time.</div>
     <div style="margin-top:12px">
-    ${shown.map((r,i)=>`<div style="display:flex;align-items:baseline;gap:10px;
+    ${shown.map((r,i)=>`<div role="button" tabindex="0" onclick="openDrillHist('${esc(r.v)}')"
+      style="display:flex;align-items:baseline;gap:10px;cursor:pointer;
       padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
       <span style="flex:1;min-width:0;font:600 14px/1.25 var(--sans)">${esc(r.n)}
         ${r.best>r.reps?`<span style="display:block;font:400 11px/1.3 var(--sans);
@@ -6578,7 +6649,7 @@ function calDayDetail(list, k, opens){
     <div style="font:400 13px/1.55 var(--sans);color:var(--grey);margin-top:6px">${
       opens.has(k) ? 'You opened the app'+(v&&v.n?' '+v.n+(v.n===1?' time':' times'):'')+
         (v&&v.ms?', '+hm(v.ms):'')+', and logged nothing.'
-      : 'Nothing logged.'}</div></div>`;
+      : 'Nothing logged.'}</div>${daySaidHTML(k)}</div>`;
   return `<div style="background:rgba(0,64,61,.05);border-radius:16px;padding:14px 15px;margin-top:14px">
     ${head}
     ${list.map(x=>{
@@ -6619,6 +6690,7 @@ function calDayDetail(list, k, opens){
             </div>`;}).join('')}
         </div>`:''}
       </div>`;}).join('')}
+    ${daySaidHTML(k)}
   </div>`;
 }
 
@@ -9656,7 +9728,7 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:'', streak:''};
+           checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:'', streak:'', drillhist:''};
   let body='';
   if(st.ov==='paywall'){ body=paywallBody(); }
   else if(st.ov==='fcask'){ body=fcAskBody(); }
@@ -9720,6 +9792,7 @@ function drawOv(){
           <span style="font:400 14.5px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
+  if(st.ov==='drillhist'){ body=drillHistBody(st.histV); }
   if(st.ov==='answer'){
     const a=(DATA.answers||[])[st.ovAnswer|0]||{};
     body=`<div style="padding:2px">
@@ -11274,6 +11347,18 @@ function loadProgress(){
          it follows the client to a new phone. The local copy is only what has
          not reached the server yet. */
       if(d.repsLog) st.repsLog=d.repsLog;
+      /* Ratings and notes lived only on the phone they were made on, and a
+         new phone's first report sent an empty list, which wiped them from
+         the account and the coach's dashboard. The account's copy fills in
+         any drill this phone has no word on, and reportProgress sends no
+         flags until this has run once. */
+      if(d.flags && typeof d.flags==='object'){
+        st.rate=st.rate||{}; st.note=st.note||{};
+        Object.keys(d.flags).forEach(v=>{ const f=d.flags[v]||{};
+          if(!(v in st.rate) && !(v in st.note)){
+            if(f.rate) st.rate[v]=f.rate; if(f.note) st.note[v]=f.note; } });
+      }
+      loadProgress.done=true;
       /* the best of each shape is derived from the account's own holds, so a
          new phone knows what they have already done */
       save(); render();
@@ -11920,7 +12005,7 @@ function reportProgress(extra){
      never given, marked too hard. Until the plan has loaded nobody can
      tell which is which, so nothing is sent rather than the wrong thing. */
   const flags={}, ladderFlags={};
-  const planReady = !st.in || !!(DATA && DATA.days && DATA.days.length);
+  const planReady = (!st.in || !!(DATA && DATA.days && DATA.days.length)) && !!loadProgress.done;
   /* a rating, a note, or both: About right and a line on its own count */
   Object.keys(Object.assign({}, st.rate||{}, st.note||{})).forEach(function(v){
     if(saidOn(v))
@@ -11935,7 +12020,12 @@ function reportProgress(extra){
   return fetch(AUTH.progress,{method:'POST',headers:authed(),body:JSON.stringify(payload)})
     /* the account's own record back, so the calendar has the drill by
        drill for the session just done rather than a bare placeholder */
-    .then(function(r){ if(extra && extra.session) loadProgress(); return !!(r && r.ok); })
+    .then(function(r){ if(extra && extra.session) loadProgress();
+      /* the history comes back with the answer, so it shows what was just said */
+      if(r && r.ok && r.json) r.json().then(function(d){
+        if(d && Array.isArray(d.flagLog)){ st.prog=st.prog||{}; st.prog.flagLog=d.flagLog; save(); }
+      }).catch(function(){});
+      return !!(r && r.ok); })
     /* never let reporting break the session; say whether it landed */
     .catch(function(){ return false; });
 }
