@@ -18,10 +18,10 @@
      RESEND_API_KEY   from resend.com
      FROM_EMAIL       "London Handstand Academy <hello@…>"
      COACH_EMAIL      where new-message alerts land
-     CLIENTS          "hannah.mirman@gmail.com:Hannah,marina@x.com:Marina"
+     CLIENTS          "anna@example.com:Anna,ben@example.com:Ben"
    ══════════════════════════════════════════════════════════════ */
 import { getStore } from '@netlify/blobs';
-import programmes from './programmes.mjs';
+import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
 import { EMAILS, renderEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
@@ -943,7 +943,7 @@ async function goalOf(e) {
 }
 async function seedOnboarding(email) {
   const e = norm(email);
-  if (!e || (await getSetting(`programme:${e}`)) || programmes.clients[e]) return false;
+  if (!e || (await getSetting(`programme:${e}`)) || planFile(e)) return false;
   const ob = (await getSetting(ONBOARDING)) || {};
   const goal = await goalOf(e);
   const cps = onbSetFor(ob, goal);
@@ -2911,8 +2911,13 @@ const handle = async (request) => {
      other. The dashboard now counts them the same way and says they are
      not on the list, with a button to add them. Nobody is added on their
      own: a client taken off the roster who still has a programme stays off. */
-  PLANNED = new Set((BOOT_PLANS || []).map(r => norm(String(r.key || '').slice('programme:'.length)))
-    .concat(Object.keys(programmes.clients || {}).map(norm)).filter(e => e && e.includes('@') && !PAST[e]));
+  /* The programme file is keyed by a hash of the address (the repo is
+     public), so it cannot be listed, only asked: a set of the saved ones,
+     and the file asked about anyone who is not in it. Every reader only
+     ever asks .has(email). */
+  const plannedSaved = new Set((BOOT_PLANS || []).map(r => norm(String(r.key || '').slice('programme:'.length)))
+    .filter(e => e && e.includes('@') && !PAST[e]));
+  PLANNED = { has: e => plannedSaved.has(e) || (!!e && !PAST[norm(e)] && !!planFile(e)) };
 
   /* Someone with a written programme is a coached client, whatever the
      roster says. Being coached was read off the roster alone, so an email
@@ -2920,7 +2925,7 @@ const handle = async (request) => {
      the free ladder with their plan sitting there unreachable. A programme
      is the more reliable fact of the two, so either one counts. */
   const hasPlan = async e =>
-    !PAST[norm(e)] && !!(programmes.clients[e] || (await getSetting(`programme:${e}`)));
+    !PAST[norm(e)] && !!(planFile(e) || (await getSetting(`programme:${e}`)));
   const isCoached = async e => !!clients()[e] || await hasPlan(e);
 
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
@@ -4010,7 +4015,7 @@ const handle = async (request) => {
   async function planFor(email) {
     await ensureCustom();
     const saved = await getSetting(`programme:${email}`);
-    return hydratePlan(saved || programmes.clients[email] || null);
+    return hydratePlan(saved || planFile(email) || null);
   }
 
   /* ── the client's own programme ──────────────────────────────────
@@ -6062,7 +6067,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const want = String(url.searchParams.get('uses')).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
       const who = [];
       for (const e of Object.keys(clients())) {
-        const plan = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        const plan = (await getSetting(`programme:${e}`)) || planFile(e) || {};
         const has = ((plan.warmup || {}).items || []).some(x => x && x.v === want)
           || (plan.days || []).some(d => (d.groups || []).some(g => (g.items || []).some(it => it && it.v === want)));
         if (has) who.push(clients()[e] || e);
@@ -6643,7 +6648,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
              in "needs you now" and in Client reviews, and the coach is told.
              The gate was asked above, so a clip still here has passed it. */
           if (vid && !(last && last.video === vid)) {
-            const defs = (await getSetting(`programme:${who}`)) || programmes.clients[who] || {};
+            const defs = (await getSetting(`programme:${who}`)) || planFile(who) || {};
             let cpName = ((defs.checkpoints || []).find(c => c && c.k === k) || {}).n
               || (CHECKPOINT_NAMES[k] || '');
             /* fix:<slug>:start or :finish, named after the fix and the end */
@@ -6653,7 +6658,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
               cpName = (fx.name || slug) + (end === 'finish' ? ', after' : ', before');
             }
             if (!cpName) cpName = k;
-            const plan = programmes.clients[who];
+            const plan = planFile(who);
             let cycleN = 1;
             try { cycleN = (await cycleGet(db, who, plan)).n || 1; } catch {}
             try {
@@ -6680,7 +6685,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const hist = ((cur.checkpoints || {})[k]) || [];
         const got = hist[hist.length - 1];
         if (got && (await rateHit(`cpalert:${who}`, 20 * 60000)) === 1) {
-          const defs = ((await getSetting(`programme:${who}`)) || programmes.clients[who] || {}).checkpoints || [];
+          const defs = ((await getSetting(`programme:${who}`)) || planFile(who) || {}).checkpoints || [];
           const d = defs.find(c => c && c.k === k) || {};
           await coachAlert(who, 'checkpoints', { title: firstNameOf(who) + ' logged a check point',
             body: (d.n || CHECKPOINT_NAMES[k] || k) + ': ' + got.v + (d.target ? ' (target ' + d.target + ')' : ''),
@@ -7099,7 +7104,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   if (path === '/cycle' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const plan = programmes.clients[who];
+    const plan = planFile(who);
     const cycle = await cycleGet(db, who, plan);
     const subs = await subsFor(db, who);
     const current = subs.find(s => s.cycle === cycle.n) || null;
@@ -7154,7 +7159,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       return json({ error: 'Nothing to send' }, 400);
     }
 
-    const plan = programmes.clients[who];
+    const plan = planFile(who);
     const cycle = await cycleGet(db, who, plan);
     await ensureAcct(who);
     const [saved] = await supa.insert('submissions',
@@ -7617,9 +7622,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        lives in the generated file, keyed on the old address. Moving the
        account left it behind and the client read as free, with no plan.
        Snapshot the file version onto the new address so it travels. */
-    if (!(await getSetting(`programme:${to}`)) && programmes.clients[from]) {
+    if (!(await getSetting(`programme:${to}`)) && planFile(from)) {
       await setSetting(`programme:${to}`,
-        Object.assign({}, programmes.clients[from], { movedFrom: from, movedAt: Date.now() }));
+        Object.assign({}, planFile(from), { movedFrom: from, movedAt: Date.now() }));
     }
     /* the roster keys on the address too, so it follows or the client
        quietly stops being anybody's client */
@@ -7907,7 +7912,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           if (!gate.ok) return json({ error: gate.error, gated: true }, 402);
         }
         try {
-          const plan = programmes.clients[who];
+          const plan = planFile(who);
           const cycle = await cycleGet(db, who, plan);
           await ensureAcct(who);
           const [saved] = await supa.insert('submissions',
@@ -8251,7 +8256,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (body.fromClient) {
         const src = norm(body.fromClient);
         if (!owns(src)) return json({ error: 'Not your client' }, 403);
-        const prog = (await getSetting(`programme:${src}`)) || programmes.clients[src] || {};
+        const prog = (await getSetting(`programme:${src}`)) || planFile(src) || {};
         const cps = (prog.checkpoints || []).map(cleanOnbCp).filter(c => c.k && c.n).slice(0, 20);
         if (!cps.length) return json({ error: 'They have no check points to copy.' }, 400);
         /* a camera note already written for a test carries over */
@@ -8329,7 +8334,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         await setSetting(key, cur);
         return json({ ok: true, callDone: cur.ob.callDone });
       }
-      const mine = Object.keys(clients()).filter(e => owns(e) && !PAST[e] && !programmes.clients[e]);
+      const mine = Object.keys(clients()).filter(e => owns(e) && !PAST[e] && !planFile(e));
       const S = mine.length ? await settingsMany(mine.flatMap(e => [`programme:${e}`, `intake:${e}`, `state:${e}`, `track:${e}`])) : {};
       const starting = mine.filter(e => { const p = S[`programme:${e}`]; return !p || !(p.days || []).length; });
       const out = await Promise.all(starting.map(async e => {
@@ -8546,7 +8551,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         delete past[e]; await setSetting('pastclients', past); PAST = past;
         const stored = (await getSetting('roster')) || {};
         const seeded = parseClients().some(c => c.email === e);
-        if (!seeded && !stored[e] && !programmes.clients[e]) {
+        if (!seeded && !stored[e] && !planFile(e)) {
           stored[e] = { name: was.name || e, coach: was.coach || '' };
           await ensureAcct(e); await setSetting('roster', stored);
         } else if (stored[e] === null) { delete stored[e]; await setSetting('roster', stored); }
@@ -8605,9 +8610,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const state = async () => {
         const drafts = (await getSetting(dkey)) || {};
         const arch = (await getSetting(akey)) || [];
-        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        const live = (await getSetting(`programme:${e}`)) || planFile(e) || { days: [] };
         let n = 1;
-        try { n = (await cycleGet(db, e, programmes.clients[e])).n || 1; } catch {}
+        try { n = (await cycleGet(db, e, planFile(e))).n || 1; } catch {}
         return json({
           block: n,
           live: Object.assign({ label: live.label || `Block ${n}`, editedAt: live.editedAt || 0 }, sum(live)),
@@ -8620,8 +8625,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           /* only while they are still on their first block, the one the
              file is: once a later block is live, putting the file's days
              back would put an old block over it */
-          file: (n === 1 && programmes.clients[e] && (programmes.clients[e].days || []).length
-                 && shape(programmes.clients[e]) !== shape(live)) ? sum(programmes.clients[e]) : null,
+          file: (n === 1 && planFile(e) && (planFile(e).days || []).length
+                 && shape(planFile(e)) !== shape(live)) ? sum(planFile(e)) : null,
         });
       };
       if (request.method === 'GET') return state();
@@ -8633,7 +8638,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (act === 'new') {
         const id = 'b' + Date.now().toString(36);
         const from = String(body.from || '');
-        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        const live = (await getSetting(`programme:${e}`)) || planFile(e) || { days: [] };
         /* a block that came off, as the start of the next one: its days and
            warm-up, with everything else as it is live now */
         const ai = /^arch:(\d+)$/.exec(from);
@@ -8652,7 +8657,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const days = cleanDays(body.days);
         if (!days.length) return json({ error: 'No days in that.' }, 400);
         const id = 'b' + Date.now().toString(36);
-        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        const live = (await getSetting(`programme:${e}`)) || planFile(e) || {};
         const prog = Object.assign({}, live, { days,
           label: String(body.label || '').slice(0, 40) || 'Pasted block' });
         drafts[id] = { label: prog.label, prog, at: Date.now() };
@@ -8683,9 +8688,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (!(d.prog.days || []).length) {
           return json({ error: 'That block has no days in it yet.' }, 400);
         }
-        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        const live = (await getSetting(`programme:${e}`)) || planFile(e) || { days: [] };
         let n = 1;
-        try { n = (await cycleGet(db, e, programmes.clients[e])).n || 1; } catch {}
+        try { n = (await cycleGet(db, e, planFile(e))).n || 1; } catch {}
         /* Nothing live but the onboarding check points: this is their first
            block, block one, not the next one. It said "Block 2 is ready" to
            somebody who had never had a block. */
@@ -8740,12 +8745,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          there is a copy of it, which for a client whose first block came
          from the original file there is. */
       if (act === 'advance') {
-        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || null;
+        const live = (await getSetting(`programme:${e}`)) || planFile(e) || null;
         if (!live || !(live.days || []).length) return json({ error: 'There is nothing live to start.' }, 400);
         let n = 1;
-        try { n = (await cycleGet(db, e, programmes.clients[e])).n || 1; } catch {}
+        try { n = (await cycleGet(db, e, planFile(e))).n || 1; } catch {}
         const arch = (await getSetting(akey)) || [];
-        const file = programmes.clients[e];
+        const file = planFile(e);
         if (file && !arch.length && JSON.stringify(file.days || []) !== JSON.stringify(live.days || [])) {
           arch.unshift({ at: Date.now(), label: `Block ${n}`, prog: file });
           await setSetting(akey, arch.slice(0, 12));
@@ -8772,7 +8777,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          is told and the block number does not move. What was live is kept
          under blocks taken off. */
       if (act === 'restorefile') {
-        const file = programmes.clients[e];
+        const file = planFile(e);
         if (!file || !(file.days || []).length) return json({ error: 'There is no programme file for them.' }, 404);
         const live = (await getSetting(`programme:${e}`)) || file;
         const arch = (await getSetting(akey)) || [];
@@ -8787,7 +8792,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const i = Number(body.i);
         const a = arch[i];
         if (!a || !a.prog) return json({ error: 'Nothing to bring back' }, 404);
-        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || { days: [] };
+        const live = (await getSetting(`programme:${e}`)) || planFile(e) || { days: [] };
         arch.splice(i, 1);
         arch.unshift({ at: Date.now(), label: live.label || 'Was live', prog: live });
         await setSetting(akey, arch.slice(0, 12));
@@ -8805,7 +8810,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         await ensureCustom();
         const slot = String(url.searchParams.get('slot') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 24);
         const saved = await getSetting(`programme:${e}`);
-        let cur = saved || programmes.clients[e] || { days: [] };
+        let cur = saved || planFile(e) || { days: [] };
         if (slot) {
           const d = ((await getSetting(`progdrafts:${e}`)) || {})[slot];
           if (d && d.prog) cur = d.prog;
@@ -8844,7 +8849,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
            and the dashboard puts one live when it is ready. */
         const slot = String(body.slot || '').replace(/[^a-z0-9-]/gi, '').slice(0, 24);
         const drafts = (await getSetting(`progdrafts:${e}`)) || {};
-        const live = (await getSetting(`programme:${e}`)) || programmes.clients[e] || {};
+        const live = (await getSetting(`programme:${e}`)) || planFile(e) || {};
         const base = slot ? ((drafts[slot] || {}).prog || live) : live;
         /* only what the builder edits is taken from the request; the rest of
            the plan — the read, the test, the coach's notes — carries over */
@@ -8981,7 +8986,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       /* the same block clock the client is shown, so the two screens cannot
          disagree about which block it is or when the test is due */
       const cyc = clients()[e]
-        ? await cycleGet(db, e, S[`programme:${e}`] || programmes.clients[e] || null)
+        ? await cycleGet(db, e, S[`programme:${e}`] || planFile(e) || null)
         : null;
       return json({ email: e, name: clients()[e] || e,
                     cycle: cyc,
@@ -9579,7 +9584,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         }
 
         const tr = S[`track:${e}`] || {};
-        const defs = (S[`programme:${e}`] || programmes.clients[e] || {}).checkpoints || [];
+        const defs = (S[`programme:${e}`] || planFile(e) || {}).checkpoints || [];
         const cpName = k => ((defs.find(c => c && c.k === k) || {}).n) || CHECKPOINT_NAMES[k] || k;
         /* Clips sent on check points before there was a queue entry for them
            are sitting in the client's track with nowhere to show. Bring each

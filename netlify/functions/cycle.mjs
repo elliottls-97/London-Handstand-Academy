@@ -9,7 +9,7 @@
    It never writes to a thread and never emails twice for the same
    thing — a reminder that arrives daily stops being a reminder.
    ══════════════════════════════════════════════════════════════ */
-import programmes from './programmes.mjs';
+import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
 import { renderEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
@@ -296,7 +296,7 @@ export default async () => {
        Their submissions still need chasing, so fall through to that. */
     if (!cycle && !c.lead) { done.skipped++; continue; }
 
-    const plan = programmes.clients[c.email];
+    const plan = planFile(c.email);
     const days = (plan && Number(plan.testDelayDays)) || 14;
     const dueAt = (cycle ? cycle.start : now) + days * DAY;
     const subs = await subsFor(c.email);
