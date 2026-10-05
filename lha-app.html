@@ -5410,8 +5410,12 @@ function climbRingLive(k, v){
   arc.setAttribute('stroke', rungColour(c, v));
   arc.style.opacity = p>0 ? '1' : '0';
 }
+/* A ladder is a stage's check points, or 'c': the coach's own list for a
+   coached client, whose top is the next block rather than the next stage.
+   data-si carries either, so it is read back through this. */
+function lcSi(v){ return v==='c' ? 'c' : Number(v); }
 function climbState(si){
-  const list=(si==null ? cpFor() : cpFor(si))||[];
+  const list=((si==null || si==='c') ? cpFor() : cpFor(si))||[];
   const rows=list.map((c,j)=>{
     const done = cpAsks(c) ? !!cpLast(c.k) : cpDone(c);
     return {c, j, done, p: done ? 1 : rungFrac(c)};
@@ -5462,6 +5466,13 @@ function climbRing(r, use){
 function climbSub(r, isNext){
   const c=r.c, last=cpLast(c.k), goal=rungGoal(c);
   if(r.done) return esc(goal);
+  /* a coached rung counts once the coach signs it off, so a ticked one
+     that has not filled says whose move it is */
+  if(coachedView()){
+    const cs=cpState(c);
+    if(cs==='hit') return (isNext?'<em>NEXT</em>':'')+'Hit, '+esc(coachLabel())+' to sign off';
+    if(cs==='notyet') return (isNext?'<em>NEXT</em>':'')+'Not yet, says '+esc(coachLabel());
+  }
   const was = last && !cpAsks(c) && c.kind!=='face' && c.kind!=='yn'
     ? ' &middot; last '+esc(String(last.v)+cpUnit(c)+(c.kind==='breaks'?' goes':'')) : '';
   return (isNext?'<em>NEXT</em>':'')+esc(goal)+was;
@@ -5470,6 +5481,10 @@ function climbSummit(si, S){
   const nxt=STAGES[si+1];
   const all=S.n>0 && S.climbed>=S.n;
   const flag='<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>';
+  /* a coached client climbs towards the next block, which the coach writes */
+  if(si==='c') return `<div class="lc-sum${all?' open':''}"><span class="ic">${flag}</span>
+    <span><small>AT THE TOP</small><b>Block ${blockNo()+1}</b></span>
+    <span class="nt">${all?'All reached':S.n+' of '+S.n+' moves you on'}</span></div>`;
   const lock='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
   if(!nxt) return `<div class="lc-sum${all?' open':''}"><span class="ic">${flag}</span>
     <span><small>AT THE TOP</small><b>The whole ladder</b></span>
@@ -5571,7 +5586,7 @@ function climbWatch(){
       if(el.classList.contains('go')) return;
       el.classList.add('go');
       const w=el.closest('.lcw'); if(w) w.classList.add('go');
-      const si=Number(el.dataset.si);
+      const si=lcSi(el.dataset.si);
       if(!((st.climbSeen||{})[si])){
         lcStartedAt[si]=Date.now();
         st.climbSeen=Object.assign({}, st.climbSeen||{}, {[si]:1}); save();
@@ -5597,7 +5612,7 @@ function climbWatch(){
    the fill slides up to the new rung instead of the ladder rebuilding */
 function climbRepaint(){
   document.querySelectorAll('.lc[data-si]').forEach(el=>{
-    const si=Number(el.dataset.si), S=climbState(si);
+    const si=lcSi(el.dataset.si), S=climbState(si);
     S.rows.forEach(r=>{
       const b=el.querySelector('.lc-r[data-ck="'+r.c.k+'"]'); if(!b) return;
       b.classList.toggle('on', r.done); b.classList.toggle('nx', r.j===S.next);
@@ -5661,7 +5676,7 @@ function climbTick(btn){
   const r=btn.closest('.lc-r'), lc=btn.closest('.lc'); if(!r || !lc) return;
   const k=r.dataset.ck, open=()=>climbTap(r.querySelector('.lc-open'));
   if(!coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
-  const row=climbState(Number(lc.dataset.si)).rows.find(x=>x.c.k===k); if(!row) return;
+  const row=climbState(lcSi(lc.dataset.si)).rows.find(x=>x.c.k===k); if(!row) return;
   const c=row.c;
   if(row.done){
     if(lcUndo[k]===undefined) return open();
@@ -5683,7 +5698,7 @@ function climbTick(btn){
 /* where the fill reaches, measured, once a rung is open and the ladder no
    longer has the fixed heights climbFillH works from */
 function climbFit(el){
-  const S=climbState(Number(el.dataset.si));
+  const S=climbState(lcSi(el.dataset.si));
   let h=climbFillH(S);
   if(S.climbed && S.climbed<S.n){
     const body=el.querySelector('.lc-body');
@@ -5714,7 +5729,7 @@ function climbTap(btn){
   lc.querySelectorAll('.lc-r.open').forEach(o=>rungShut(o, still));
   if(was===k){ lcOpen[use]=null; return; }
   lcOpen[use]=k;
-  const S=climbState(Number(lc.dataset.si)), row=S.rows.find(x=>x.c.k===k); if(!row) return;
+  const S=climbState(lcSi(lc.dataset.si)), row=S.rows.find(x=>x.c.k===k); if(!row) return;
   const x=document.createElement('div'); x.className='lc-x';
   x.innerHTML=rungBody(row.c, row.j, S.n, use);
   r.querySelector('.lc-p').appendChild(x);
@@ -5742,6 +5757,27 @@ function climbTap(btn){
 /* flat: straight onto the page, as on the ladder tab, where the heading
    above already carries the count and the bar. The card round cards, and
    the same 0/7 four times over, were what made that screen look busy. */
+/* ── a coached client's check points, as the ladder ─────────────────
+   They were a column of tall cards, one slider each, while the ladder
+   drew the same thing as one picture. Same rungs here, from the coach's
+   list, with the next block at the top. A rung opens onto its film, the
+   logging, its history and the clip for the coach, as on the ladder. */
+function coachClimbHTML(){
+  const S=climbState('c'); if(!S.n) return checkpointsCard(true);
+  const P=cpProgress(), fresh=cpNew();
+  return `${fresh.length?`<div style="display:flex;align-items:center;gap:10px;margin:0 4px 12px">
+      <span style="flex:1;font:600 12.5px/1.4 var(--sans);color:#8a6524">${
+        fresh.length===1?'A new check point from '+esc(coachLabel()):fresh.length+' new check points from '+esc(coachLabel())}</span>
+      <button class="back" style="flex:none;color:var(--forest);font-weight:700;font-size:12.5px"
+        onclick="cpMarkSeen();render()">Got it</button>
+    </div>`:''}
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:0 4px">
+      <span class="kick2">BLOCK ${blockNo()} CHECK POINTS</span>
+      <span style="font:400 32px/1 var(--serif);color:var(--deep)"><span id="heroMet">${P.met}</span><span
+        style="font-size:18px;color:var(--grey)"> / ${P.of}</span></span>
+    </div>
+    <div style="margin-top:12px">${climbHTML('c', climbMode('c'), 'log')}</div>`;
+}
 function checkpointsCard(flat){
   const list=cpFor(); if(!list.length) return '';
   const S=STAGES[curStage()]||{};
@@ -6957,7 +6993,7 @@ function screenProgress(){
   const marksBody = `
       
       ${/* flat, as on the ladder: a card round the cards was three layers deep */''}
-      <div data-tour="checkpoints">${checkpointsCard(true)}</div>
+      <div data-tour="checkpoints">${coachedView() ? coachClimbHTML() : checkpointsCard(true)}</div>
 
       ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
