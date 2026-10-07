@@ -43,24 +43,29 @@ export default async (request, context) => {
   const url = new URL(request.url);
   const page = PAGES[url.pathname];
   if (!page || request.method !== 'GET' || url.searchParams.has('siteedit')) return context.next();
-  let E = null, W = [];
+  let E = null, W = [], setmore = false;
   try {
     const ctl = new AbortController();
     const stop = setTimeout(() => ctl.abort(), 1500);
-    const [r, r2] = await Promise.all([
+    const [r, r2, r3] = await Promise.all([
       fetch(new URL('/api/app/site?page=' + page, url.origin), { signal: ctl.signal }),
-      page === 'handstand-class' ? fetch(new URL('/api/app/workshops', url.origin), { signal: ctl.signal }) : Promise.resolve(null)]);
+      page === 'handstand-class' ? fetch(new URL('/api/app/workshops', url.origin), { signal: ctl.signal }) : Promise.resolve(null),
+      /* the dashboard's switch: the site's own booking, or the old Setmore page */
+      page === 'handstand-class' ? fetch(new URL('/api/app/classpage', url.origin), { signal: ctl.signal }) : Promise.resolve(null)]);
     clearTimeout(stop);
     if (r.ok) E = ((await r.json()) || {}).e || null;
     if (r2 && r2.ok) W = ((await r2.json()) || {}).workshops || [];
+    if (r3 && r3.ok) setmore = ((await r3.json()) || {}).booking === 'setmore';
   } catch { E = E || null; }
   const m = (E && E.m) || {};
-  const title = m.title || (page === 'handstand-class' ? classTitle(W) : '');
+  const title = m.title || (page === 'handstand-class' && !setmore ? classTitle(W) : '');
   const desc = m.desc || '';
   const img = m.img ? new URL(m.img, url.origin).href : '';
-  if (!title && !desc && !img) return context.next();
+  if (!title && !desc && !img && !setmore) return context.next();
 
-  const res = await context.next();
+  /* the Setmore page stands in for the new one, at the same address */
+  const res = setmore ? await fetch(new URL('/handstand-class-setmore.html', url.origin)).catch(() => null) || await context.next()
+                      : await context.next();
   if (res.status !== 200 || !(res.headers.get('content-type') || '').includes('text/html')) return res;
   let html = await res.text();
   try {

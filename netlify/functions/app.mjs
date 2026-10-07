@@ -1603,6 +1603,14 @@ const handle = async (request) => {
      Asked for by every page view, so it runs before anything else here and
      the CDN keeps the answer for a minute: a publish shows within that,
      and a busy day costs a handful of function runs, not one per visit. */
+  /* which class page answers at /handstand-class: the site's own booking,
+     or the old Setmore page kept as the way back. Read by the edge function
+     on every view, so never cached. */
+  if (path === '/classpage' && request.method === 'GET') {
+    const v = await getSetting('classpage').catch(() => null);
+    return new Response(JSON.stringify({ booking: v === 'setmore' ? 'setmore' : 'site' }),
+      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
   if (path === '/site' && request.method === 'GET') {
     const page = String(url.searchParams.get('page') || '').replace(/[^a-z0-9-]/g, '').slice(0, 40);
     const live = (await getSetting('site:live').catch(() => null)) || {};
@@ -4560,8 +4568,15 @@ const handle = async (request) => {
       return out.sort((a, b) => ms(b.when) - ms(a.when));
     };
     const pairNow = async () => Number(((await getSetting('wspair')) || {}).pence) || 0;
-    if (request.method === 'GET') return json({ workshops: await withBook(), pair: await pairNow() });
+    const pageNow = async () => ((await getSetting('classpage').catch(() => null)) === 'setmore' ? 'setmore' : 'site');
+    if (request.method === 'GET') return json({ workshops: await withBook(), pair: await pairNow(), classPage: await pageNow() });
     if (request.method === 'POST') {
+      /* which class page is live: this site's booking, or the Setmore one */
+      if (body.classPage !== undefined) {
+        if (!(await isOwner())) return json(ownerOnly, 403);
+        await setSetting('classpage', body.classPage === 'setmore' ? 'setmore' : 'site');
+        return json({ ok: true, classPage: await pageNow() });
+      }
       /* what two dates together cost, in pence; money, so the owner's */
       if (body.pair !== undefined) {
         if (!(await isOwner())) return json(ownerOnly, 403);

@@ -11035,6 +11035,13 @@ function pricesHTML(){
    page is /workshop.html?slug=… */
 let wshops=null, wsOpen=null, wsf=null, wsBusy=false, wsMsg='';
 let wsPair=0;   /* two dates booked together, in pence; the owner sets it */
+let wsPage='site';   /* which class page answers at /handstand-class */
+function wsPageSave(v){
+  fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({classPage:v})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not save')))
+    .then(d=>{ wsPage=d.classPage||'site'; flash(wsPage==='setmore'?'The class page books through Setmore now':'The class page books through this site now'); draw(); })
+    .catch(e=>flash(String(e)));
+}
 function wsPairSave(v){
   const pence=Math.round((Number(String(v).replace(/[^0-9.]/g,''))||0)*100);
   fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({pair:pence})})
@@ -11045,7 +11052,7 @@ function wsPairSave(v){
 function wsLoad(){
   if(wshops) return; wshops=[];
   fetch(API+'/workshops',{headers:hdr()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ wshops=d.workshops||[]; wsPair=Number(d.pair)||0; draw(); } }).catch(()=>{});
+    .then(d=>{ if(d){ wshops=d.workshops||[]; wsPair=Number(d.pair)||0; wsPage=d.classPage||'site'; draw(); } }).catch(()=>{});
 }
 function wsNew(){ const d=new Date(); d.setDate(d.getDate()+14); d.setHours(12,30,0,0);
   wsf={slug:'',title:'',when:d.toISOString(),place:'OverGravity, Shadwell',desc:'',who:'',price:2500,places:16,appDays:30,reviewUrl:'',live:false}; wsOpen='new'; wsMsg=''; draw(); }
@@ -11145,7 +11152,12 @@ function workshopsHTML(){
     ${owner?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:400 13px/1.5 var(--sans)">
       <b>Two dates together</b><span class="muted">On the class page, booking one Saturday offers the other as well, for</span>
       <span>£</span><input class="input" style="width:72px;min-height:34px;padding:6px 9px" value="${wsPair?(wsPair/100).toFixed(2).replace(/\.00$/,''):''}" placeholder="45"
-        onchange="wsPairSave(this.value)"><span class="muted">Empty means two places at their own prices.</span></div>`:''}
+        onchange="wsPairSave(this.value)"><span class="muted">Empty means two places at their own prices.</span></div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border:1px solid ${wsPage==='setmore'?'rgba(243,169,73,.6)':'var(--line)'};border-radius:12px;font:400 13px/1.5 var(--sans);background:${wsPage==='setmore'?'rgba(243,169,73,.1)':'transparent'}">
+      <b>Class page books through</b>
+      <div style="display:flex;gap:4px;padding:3px;border-radius:10px;background:rgba(0,64,61,.08)">${[['site','This site'],['setmore','Setmore']].map(([k,l])=>`<button class="btn btn-sm" onclick="wsPageSave('${k}')"
+        style="border:0;border-radius:8px;min-height:30px;padding:0 12px;background:${wsPage===k?'#fff':'transparent'};color:${wsPage===k?'var(--deep)':'var(--grey)'};box-shadow:${wsPage===k?'0 1px 2px rgba(17,17,17,.08)':'none'}">${l}</button>`).join('')}</div>
+      <span class="muted">${wsPage==='setmore'?'The old page, booking through Setmore, is live at /handstand-class. Switch back when the site booking is ready.':'The new page with the site\'s own booking is live. Switch to Setmore if it misbehaves; it takes effect at once, no deploy.'}</span></div>`:''}
     ${list.map(w=>{ const live=(w.bookings||[]).filter(b=>b.status!=='cancelled'&&b.status!=='refunded'); return `<div class="row-hit" style="display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:10px 6px;border-bottom:1px solid rgba(17,17,17,.08)">
       <div onclick="wsEdit('${esc(w.slug)}')" style="cursor:pointer;min-width:0">
         <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><span style="font:600 14.5px/1.3 var(--sans)">${esc(w.title)}</span>
