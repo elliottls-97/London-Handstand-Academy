@@ -383,6 +383,7 @@ export default async () => {
 
   try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
   try { await workshopMail(done); } catch (e) { done.workshopError = String(e && e.message || e); }
+  try { await intentMail(done); } catch (e) { done.intentError = String(e && e.message || e); }
   try { await sessionMail(done); } catch (e) { done.sessionError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
   try { await trainingPush(done); } catch (e) { done.pushError = String(e && e.message || e); }
@@ -682,6 +683,44 @@ async function workshopMail(done) {
           await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         }
       }
+    }
+  }
+}
+
+/* ── started booking and stopped ────────────────────────────────────────
+   Somebody who typed their email on the booking sheet, or pressed Book,
+   and never paid. One email, the next morning at the earliest (two hours
+   after they stopped), while the date is still more than three hours
+   away, and never to anyone who holds a place on that date. */
+async function intentMail(done) {
+  done.intents = { reminded: 0 };
+  const row = await supa.row('settings', 'key=eq.workshops&select=value').catch(() => null);
+  const all = (row && row.value) || {};
+  const now = Date.now();
+  for (const w of Object.values(all)) {
+    if (!w || !w.live || !w.when) continue;
+    const at = ms(w.when);
+    if (at - now < 3 * 3600e3) continue;
+    const ir = await supa.row('settings', `key=eq.${enc('wsintent:' + w.slug)}&select=value`).catch(() => null);
+    const intents = ((ir && ir.value) || []).filter(x => x && x.email && now - (x.at || 0) > 2 * 3600e3);
+    if (!intents.length) continue;
+    const br = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
+    const held = new Set(((br && br.value) || []).filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded').map(b => norm(b.email)));
+    const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+    for (const p of intents) {
+      const e = norm(p.email);
+      if (held.has(e)) continue;
+      const key = `wsintent:${w.slug}:${e}`;
+      if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+      const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
+        place: w.place ? ', at ' + esc(w.place) : '', link: `${SITE}/handstand-class#book` });
+      if (T.off) { done.held = (done.held || 0) + 1; continue; }
+      const went = await email(e, T.subject, mail({ title: T.title, greeting: String(p.name || '').split(' ')[0], paras: T.paras,
+        cta: { href: `${SITE}/handstand-class#book`, label: 'Book your place' },
+        signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+      if (!went) { done.held = (done.held || 0) + 1; continue; }
+      done.intents.reminded++;
+      await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
     }
   }
 }

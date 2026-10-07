@@ -4337,6 +4337,33 @@ const handle = async (request) => {
     }
     return json({ ok: true, position: wait.findIndex(x => x.email === e) + 1 });
   }
+  /* ── started booking ───────────────────────────────────────────────
+     An email typed on the booking sheet, or Book pressed, is a person who
+     wanted a place. Kept per workshop (wsintent:<slug>), one entry per
+     address, so the daily run can remind anyone who never got to the end,
+     and the dashboard can show them. Nothing is sent from here. */
+  const wsIntentNote = async (slug, also, e, nm) => {
+    for (const sl of [slug, also].filter(Boolean)) {
+      await changeSetting(`wsintent:${sl}`, cur => {
+        const l = (Array.isArray(cur) ? cur : []).filter(x => x && x.email && Date.now() - (x.at || 0) < 30 * DAY);
+        const i = l.findIndex(x => x.email === e);
+        const row = { email: e, name: nm || (i > -1 ? l[i].name : ''), at: Date.now(), ...(also && sl === slug ? { also } : {}) };
+        if (i > -1) l[i] = row; else l.push(row);
+        return l.slice(-200);
+      }).catch(() => {});
+    }
+  };
+  if (path === '/workshop/intent' && request.method === 'POST') {
+    const slug = wsSlug(body.slug), also = wsSlug(body.also);
+    const e = norm(body.email), nm = String(body.name || '').trim().slice(0, 60);
+    if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ ok: false });
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`wsi:${ip}`, 3600000)) > 60) return json({ ok: false });
+    const all = (await getSetting('workshops')) || {};
+    if (!all[slug] || !all[slug].live) return json({ ok: false });
+    await wsIntentNote(slug, also && also !== slug && all[also] ? also : '', e, nm);
+    return json({ ok: true });
+  }
   if (path === '/workshop/book' && request.method === 'POST') {
     const slug = wsSlug(body.slug);
     const e = norm(body.email);
@@ -4374,6 +4401,8 @@ const handle = async (request) => {
     const pairPence = Number(((await getSetting('wspair')) || {}).pence) || 0;
     const base = w2 ? (pairPence > 0 ? pairPence : (Number(w.price) || 0) + (Number(w2.price) || 0)) : (Number(w.price) || 0);
     const targets = w2 ? [[slug, w], [also, w2]] : [[slug, w]];
+    /* Book pressed is the clearest sign of wanting a place */
+    await wsIntentNote(slug, w2 ? also : '', e, nm);
     const disc = await wsCodeCheck(slug, body.code, base);
     if (disc.error) return json({ error: disc.error }, 400);
     /* a code that leaves a few pence is free: Stripe will not take under 30p */
@@ -4563,7 +4592,11 @@ const handle = async (request) => {
       for (const w of Object.values(all)) {
         const book = (await getSetting(`wsbook:${w.slug}`)) || [];
         const wait = (await getSetting(`wswait:${w.slug}`)) || [];
-        out.push(Object.assign({}, w, { bookings: book, waitlist: wait }));
+        /* started and did not finish: typed an email or pressed Book, not booked */
+        const held = new Set(wsLive(book).map(b => b.email));
+        const intents = ((await getSetting(`wsintent:${w.slug}`)) || []).filter(x => x && x.email && !held.has(x.email))
+          .sort((a, b) => (b.at || 0) - (a.at || 0));
+        out.push(Object.assign({}, w, { bookings: book, waitlist: wait, intents }));
       }
       return out.sort((a, b) => ms(b.when) - ms(a.when));
     };

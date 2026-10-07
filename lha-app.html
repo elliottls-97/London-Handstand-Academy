@@ -15393,7 +15393,7 @@ function wsBookBody(){
   }
   return `<div style="padding:2px">${head}
     <label style="${lab}" for="wsbName">Your name</label><input id="wsbName" style="${fld}" value="${esc(name)}" oninput="wsb.name=this.value" autocomplete="name" placeholder="First and last">
-    <label style="${lab}" for="wsbEmail">Email</label><input id="wsbEmail" type="email" inputmode="email" style="${fld}" value="${esc(email)}" oninput="wsb.email=this.value" autocomplete="email" placeholder="you@example.com">
+    <label style="${lab}" for="wsbEmail">Email</label><input id="wsbEmail" type="email" inputmode="email" style="${fld}" value="${esc(email)}" oninput="wsb.email=this.value" onchange="wsNoteIntent()" autocomplete="email" placeholder="you@example.com">
     ${other?`<label style="display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:12px 14px;cursor:pointer;border-radius:14px;
         border:1px solid ${wsb.pair?'var(--forest)':'rgba(0,64,61,.14)'};background:${wsb.pair?'rgba(0,102,99,.05)':'#fff'};font:400 14px/1.45 var(--sans);color:var(--ink)">
       <input type="checkbox" ${wsb.pair?'checked':''} onchange="wsb.pair=this.checked;wsb.code='';drawOv()" style="flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)">
@@ -15405,6 +15405,18 @@ function wsBookBody(){
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
     <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email${Number(w.appDays)>0?', and the app open for '+w.appDays+' days':''}.</div>
   </div>`;
+}
+/* an email typed in the sheet is noted (once per date and address), so the
+   morning after they can be reminded if they never got to the end */
+let wsNoted={};
+function wsNoteIntent(){
+  const list=wsOpenList(), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
+  const email=(wsb.email!=null?wsb.email:(st.email||'')).trim(), name=(wsb.name!=null?wsb.name:(st.client||'')).trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+  const k=w.slug+'|'+email.toLowerCase(); if(wsNoted[k]) return; wsNoted[k]=1;
+  const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
+  fetch('/api/app/workshop/intent',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,
+    body:JSON.stringify({slug:w.slug, also:(wsb.pair&&other)?other.slug:'', name, email})}).catch(()=>{});
 }
 function wsBookFields(){
   const name=(wsb.name!=null?wsb.name:(st.client||'')).trim(), email=(wsb.email!=null?wsb.email:(st.email||'')).trim();

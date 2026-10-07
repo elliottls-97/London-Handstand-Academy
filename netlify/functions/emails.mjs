@@ -385,6 +385,25 @@ export const EMAILS = {
       "If you are stuck on one thing, reply with a clip and I will tell you what I see. No charge, no catch."
     ]
   },
+  "wsIntent": {
+    "name": "Workshop, started booking and stopped",
+    "when": "The morning after somebody typed their email on the booking page, or pressed Book, and did not pay",
+    "vars": [
+      "name",
+      "title",
+      "when",
+      "place",
+      "link"
+    ],
+    "subject": "Still want a place? {title}",
+    "title": "Your place is not held yet.",
+    "paras": [
+      "You started booking <b>{title}</b>, {when}{place}, and did not get to the end. No payment was taken and nothing is held for you.",
+      "If you still want to come, it takes a minute: <a href=\"{link}\" style=\"color:#006663\">book your place</a>. If you have changed your mind, ignore this and nothing more comes.",
+      "Any question, just reply."
+    ],
+    "footnote": "You are getting this once because you began a booking on our site. There is no list to come off."
+  },
   "wsThanks": {
     "name": "Workshop, the day after",
     "when": "10 to 40 hours after a workshop",

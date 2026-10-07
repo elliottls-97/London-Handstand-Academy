@@ -1336,6 +1336,20 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     else { go.textContent=picked.price>0?'Book, '+picked.priceLabel:'Book my place'; $('bkCodeRow').hidden=!(picked.price>0); }
   });
   var okEmail=function(v){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v); };
+  /* an email typed here is somebody who wanted a place: noted once per
+     date and address, so the morning after they can be reminded if they
+     never got to the end. Nothing is sent from the page. */
+  var noted={};
+  var noteIntent=function(){
+    if(!picked) return;
+    var email=($('bkEmail').value||'').trim(), name=($('bkName').value||'').trim();
+    if(!okEmail(email)) return;
+    var k=picked.slug+'|'+email.toLowerCase(); if(noted[k]) return; noted[k]=1;
+    var also=($('bkPair').checked && picked.other) ? picked.other.slug : '';
+    fetch('/api/app/workshop/intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:picked.slug,also:also,name:name,email:email}),keepalive:true}).catch(function(){});
+  };
+  $('bkEmail').addEventListener('change', noteIntent);
+  $('bkEmail').addEventListener('blur', noteIntent);
   var code=function(){ return (($('bkCode')||{}).value||'').trim().toUpperCase(); };
   $('bkCode').addEventListener('change', function(){
     var c=code(), cm=$('bkCodeMsg'), go=$('bkGo'); if(!picked) return;
