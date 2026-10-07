@@ -1341,6 +1341,12 @@ function trackOpen(){
     if(ref && !st.ref){ st.ref=ref; save(); }
     const fxs=(q.get('fix')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
     if(fxs){ st.fixPending=fxs; save(); history.replaceState(null,'',location.pathname); }
+    /* back from paying for a workshop booked in here: one slug, or two
+       joined with a comma; 0 means they came back without paying */
+    const bk=(q.get('booked')||'').toLowerCase().split(',').map(x=>x.replace(/[^a-z0-9-]/g,'').slice(0,24)).filter(Boolean);
+    if(bk.length){ history.replaceState(null,'',location.pathname);
+      if(bk[0]==='0') setTimeout(()=>toast('Nothing was charged.'), 600);
+      else { st.wsBookedPending=bk; save(); setTimeout(loadWorkshops, 0); } }
     /* the end-of-block email: open the review sheet on that kind */
     if(q.get('review')==='block'){ st.fb=Object.assign({}, st.fb||{}, {kind:'block', sent:false}); st.fbPending=true; save();
       history.replaceState(null,'',location.pathname); }
@@ -9728,7 +9734,7 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:'', streak:'', drillhist:''};
+           checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='paywall'){ body=paywallBody(); }
   else if(st.ov==='fcask'){ body=fcAskBody(); }
@@ -9793,6 +9799,8 @@ function drawOv(){
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
   if(st.ov==='drillhist'){ body=drillHistBody(st.histV); }
+  if(st.ov==='wsbook'){ body=wsBookBody(); }
+  if(st.ov==='wsbooked'){ body=wsBookedBody(); }
   if(st.ov==='answer'){
     const a=(DATA.answers||[])[st.ovAnswer|0]||{};
     body=`<div style="padding:2px">
@@ -15191,6 +15199,9 @@ function loadWorkshops(){
   fetch('/api/app/workshops').then(r=>r.ok?r.json():null)
     .then(d=>{
       const list=(d&&d.workshops)||[];
+      WS_LIST=list; WS_PAIR=Number(d&&d.pair)||0;
+      /* back from paying: the sheet that says so, now the dates are known */
+      if(st.wsBookedPending){ const got=st.wsBookedPending; delete st.wsBookedPending; save(); wsBookedShow(got); }
       const next=list.filter(w=>w && w.left!==0)[0] || list[0] || null;
       if(!next) return;
       WS={ id:'ws-'+next.slug, slug:next.slug, n:next.title||'Workshop',
@@ -15312,12 +15323,158 @@ function workshopPopHTML(){
             background:${x===w.price?'rgba(168,107,22,.14)':'rgba(17,17,17,.055)'};
             color:${x===w.price?'#a86b16':'var(--ink)'}">${esc(x)}</span>`).join('')}
       </div>`:''}
-      <a href="${esc(w.url||'')}" target="_blank" rel="noopener" onclick="closeWorkshop(true)"
-        style="display:block;text-align:center;text-decoration:none;margin-top:14px;border-radius:14px;
-        padding:15px;background:#a86b16;color:#fff;font:700 14px/1 var(--sans)">Book a place</a>
+      <button onclick="wsBookOpen('${esc(w.slug||'')}')"
+        style="display:block;width:100%;text-align:center;margin-top:14px;border:0;border-radius:14px;cursor:pointer;
+        padding:15px;background:#a86b16;color:#fff;font:700 14px/1 var(--sans)">Book a place</button>
       <button onclick="closeWorkshop(true)" style="width:100%;margin-top:6px;border:0;background:none;
         cursor:pointer;padding:11px;color:var(--grey);font:500 13px/1 var(--sans)">Not for me</button>
     </div>
+  </div>`;
+}
+/* ── booking a workshop inside the app ──────────────────────────────
+   The card and the popup used to send people out to the workshop page.
+   The booking is the site's own, so it happens here: name and email from
+   the account, the other date offered at the pair price, Stripe, and back
+   into the app booked. The iPhone app can only show our own domain, so
+   there the payment opens in Safari and this sheet waits for the booking
+   to appear on the account. */
+let WS_LIST=[], WS_PAIR=0;
+let wsb={slug:'', pair:false, code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
+let wsWaitT=0;
+const wsPounds=p=>'£'+(p/100).toFixed(2).replace(/\.00$/,'');
+const wsDay=w=>w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'}):'Date to be confirmed';
+const wsDayShort=w=>w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}):'TBC';
+const wsTime=w=>w&&w.when?new Date(w.when).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'';
+const wsFull=w=>!!w && Number(w.places)>0 && Number(w.left)<=0;
+const wsOpenList=()=>WS_LIST.filter(w=>w && w.when && new Date(w.when).getTime()>Date.now());
+function wsBookOpen(slug){
+  closeWorkshop(true);
+  const list=wsOpenList(); if(!list.length){ toast('Nothing on sale right now.'); return; }
+  const pick=list.find(w=>w.slug===slug) || list.find(w=>!wsFull(w)) || list[0];
+  wsb={slug:pick.slug, pair:false, code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
+  openOv('wsbook');
+}
+function wsBookPick(slug){ wsb.slug=slug; wsb.pair=false; wsb.msg=''; drawOv(); }
+function wsBookBody(){
+  const list=wsOpenList(), w=list.find(x=>x.slug===wsb.slug)||list[0];
+  if(!w) return `<div style="padding:2px;font:400 15px/1.5 var(--sans);color:var(--grey)">Nothing on sale right now. The next dates go out by email first.</div>`;
+  const full=wsFull(w);
+  const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
+  const both=WS_PAIR>0?WS_PAIR:(Number(w.price)+(other?Number(other.price):0));
+  const name=wsb.name!=null?wsb.name:(st.client||''), email=wsb.email!=null?wsb.email:(st.email||'');
+  const fld='width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:13px 14px;font:400 16px/1.3 var(--sans);background:#fff;color:var(--ink)';
+  const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:14px 0 6px';
+  const head=`<div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">In person, London</div>
+    <div style="font:400 30px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">${esc(w.title||'Workshop')}<em style="color:var(--forest);font-style:normal">.</em></div>
+    ${list.length>1?`<div style="display:flex;gap:4px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px;margin-top:14px">${list.map(x=>
+      `<button onclick="wsBookPick('${esc(x.slug)}')" style="flex:1;min-height:44px;border:0;border-radius:10px;cursor:pointer;padding:6px 4px;
+        font:600 13px/1.2 var(--sans);background:${x.slug===w.slug?'#fff':'transparent'};color:${x.slug===w.slug?'var(--deep)':'var(--grey)'};
+        box-shadow:${x.slug===w.slug?'0 1px 2px rgba(17,17,17,.08)':'none'}">${esc(wsDayShort(x))}${wsFull(x)?'<span style="display:block;font:500 10.5px/1 var(--sans);margin-top:3px;color:var(--grey2)">Full</span>':''}</button>`).join('')}</div>`:''}
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:12px">${esc(wsDay(w))}${wsTime(w)?', '+esc(wsTime(w)):''}${w.place?', at '+esc(w.place):''}. ${
+      full?'Full.':esc(w.priceLabel||'')+'.'}${!full&&Number(w.places)>0&&Number(w.left)<=5?' <b>'+w.left+(Number(w.left)===1?' place':' places')+' left.</b>':''}</div>`;
+  if(wsb.waiting){
+    return `<div style="padding:2px">${head}
+      <div class="card" style="margin-top:16px;padding:18px 20px;border:1.5px solid var(--forest)">
+        <div class="kick2" style="color:var(--forest)">PAYING IN SAFARI</div>
+        <div style="font:400 14.5px/1.55 var(--sans);color:var(--ink);margin-top:9px">The card page opened in your browser. Pay there and come back: this shows your place the moment it is booked.</div>
+        <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:9px">Nothing opened? <button onclick="wsBookGo()" style="border:0;background:none;padding:0;cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Try again</button></div>
+      </div>
+      <button onclick="closeOv()" style="width:100%;margin-top:10px;border:0;background:none;cursor:pointer;padding:12px;color:var(--grey2);font:600 13.5px/1 var(--sans)">Close</button>
+    </div>`;
+  }
+  if(full){
+    return `<div style="padding:2px">${head}
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:14px">This one is full. Leave your name and you are emailed first if a place comes free.</div>
+      <label style="${lab}" for="wsbName">Your name</label><input id="wsbName" style="${fld}" value="${esc(name)}" oninput="wsb.name=this.value" autocomplete="name">
+      <label style="${lab}" for="wsbEmail">Email</label><input id="wsbEmail" type="email" inputmode="email" style="${fld}" value="${esc(email)}" oninput="wsb.email=this.value" autocomplete="email">
+      <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsWaitGo()">${wsb.busy?'One moment…':'Put me on the list'}</button>
+      <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:${/first/.test(wsb.msg)?'var(--forest)':'var(--red)'}">${esc(wsb.msg)}</div>
+    </div>`;
+  }
+  return `<div style="padding:2px">${head}
+    <label style="${lab}" for="wsbName">Your name</label><input id="wsbName" style="${fld}" value="${esc(name)}" oninput="wsb.name=this.value" autocomplete="name" placeholder="First and last">
+    <label style="${lab}" for="wsbEmail">Email</label><input id="wsbEmail" type="email" inputmode="email" style="${fld}" value="${esc(email)}" oninput="wsb.email=this.value" autocomplete="email" placeholder="you@example.com">
+    ${other?`<label style="display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:12px 14px;cursor:pointer;border-radius:14px;
+        border:1px solid ${wsb.pair?'var(--forest)':'rgba(0,64,61,.14)'};background:${wsb.pair?'rgba(0,102,99,.05)':'#fff'};font:400 14px/1.45 var(--sans);color:var(--ink)">
+      <input type="checkbox" ${wsb.pair?'checked':''} onchange="wsb.pair=this.checked;wsb.code='';drawOv()" style="flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)">
+      <span>Add <b>${esc(wsDay(other))}</b> as well: ${esc(wsPounds(both))} for both${WS_PAIR>0&&WS_PAIR<Number(w.price)+Number(other.price)
+        ?`<span style="display:block;font-size:12.5px;color:var(--grey)">Instead of ${esc(wsPounds(Number(w.price)+Number(other.price)))} booked one at a time.</span>`:''}</span></label>`:''}
+    ${(!wsb.pair && Number(w.price)>0)?`<label style="${lab}" for="wsbCode">Discount code, optional</label><input id="wsbCode" style="${fld};text-transform:uppercase" value="${esc(wsb.code)}" oninput="wsb.code=this.value" placeholder="CODE" autocomplete="off">`:''}
+    <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${
+      wsb.busy?'One moment…':(wsb.pair?'Book both, '+wsPounds(both):(Number(w.price)>0?'Book, '+(w.priceLabel||wsPounds(w.price)):'Book my place'))}</button>
+    <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email${Number(w.appDays)>0?', and the app open for '+w.appDays+' days':''}.</div>
+  </div>`;
+}
+function wsBookFields(){
+  const name=(wsb.name!=null?wsb.name:(st.client||'')).trim(), email=(wsb.email!=null?wsb.email:(st.email||'')).trim();
+  if(!name){ wsb.msg='Your name, please.'; drawOv(); return null; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ wsb.msg='A real email address, please: the confirmation goes there.'; drawOv(); return null; }
+  return {name, email};
+}
+function wsBookGo(){
+  const list=wsOpenList(), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
+  const f=wsBookFields(); if(!f) return;
+  const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
+  const also=(wsb.pair&&other)?other.slug:'';
+  const slugs=[w.slug].concat(also?[also]:[]);
+  wsb.busy=true; wsb.msg=''; wsb.waiting=false; drawOv();
+  try{ track('workshopbook'); }catch(e){}
+  fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({slug:w.slug, also, name:f.name, email:f.email, code:also?'':(wsb.code||'').trim().toUpperCase(), back:'app'})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the booking')))
+    .then(d=>{
+      if(d.free){ wsBookedShow(slugs); return; }
+      if(!d.url) throw 'Something went wrong. Try again in a moment.';
+      if(IOS_APP){
+        /* Safari takes the payment; this sheet watches the account for the place */
+        window.open(d.url,'_blank','noopener');
+        wsb.busy=false; wsb.waiting=true; drawOv(); wsWaitFor(slugs); return;
+      }
+      location.href=d.url;
+    })
+    .catch(e=>{ wsb.busy=false; wsb.msg=String(e); drawOv(); });
+}
+function wsWaitGo(){
+  const list=wsOpenList(), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
+  const f=wsBookFields(); if(!f) return;
+  wsb.busy=true; wsb.msg=''; drawOv();
+  fetch('/api/app/workshop/wait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:w.slug,name:f.name,email:f.email})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not add you')))
+    .then(d=>{ wsb.msg='You are number '+d.position+' on the list. If a place comes free, you are emailed first.'; drawOv(); })
+    .catch(e=>{ wsb.busy=false; wsb.msg=String(e); drawOv(); });
+}
+/* the iPhone app: the payment happened in Safari, so the booking is looked
+   for on the account every few seconds for a while */
+function wsWaitFor(slugs){
+  clearInterval(wsWaitT); const until=Date.now()+4*60000;
+  wsWaitT=setInterval(()=>{
+    if(Date.now()>until || st.ov!=='wsbook'){ clearInterval(wsWaitT); return; }
+    if(!st.token) return;
+    fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
+      const have=((d&&d.bookings)||[]).filter(b=>b && b.status==='booked').map(b=>b.slug);
+      if(slugs.every(x=>have.indexOf(x)>-1)){ clearInterval(wsWaitT); st.bookings=d.bookings||[]; save(); wsBookedShow(slugs); }
+    }).catch(()=>{});
+  }, 5000);
+}
+function wsBookedShow(slugs){
+  clearInterval(wsWaitT);
+  wsb.done=slugs||[]; wsb.busy=false; wsb.waiting=false;
+  openOv('wsbooked');
+  loadBookings();
+}
+function wsBookedBody(){
+  const dates=wsb.done.map(sl=>WS_LIST.find(w=>w&&w.slug===sl)).filter(Boolean);
+  const first=dates[0];
+  return `<div style="padding:2px;text-align:center">
+    <div style="width:52px;height:52px;border-radius:50%;margin:4px auto 0;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);display:grid;place-items:center;font:700 22px/1 var(--sans)">&check;</div>
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-top:16px">In person, London</div>
+    <div style="font:400 32px/1 var(--serif);letter-spacing:-.015em;margin-top:8px">You are <em style="color:var(--forest);font-style:normal">booked.</em></div>
+    ${first?`<div style="font:400 15px/1.5 var(--sans);margin-top:12px">${esc(first.title||'')}${dates.map(w=>'<br>'+esc(wsDay(w))+(wsTime(w)?', '+esc(wsTime(w)):'')).join('')}${first.place?'<br><span style="color:var(--grey)">'+esc(first.place)+'</span>':''}</div>`:''}
+    <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:12px">A confirmation is on its way to your email, and a reminder comes the day before${dates.length>1?' each one':''}. It is in Your bookings under More, where you can cancel.</div>
+    ${dates.filter(w=>w.when).length?`<div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:12px">${dates.filter(w=>w.when).map(w=>
+      `<a href="/api/app/workshop/ics?slug=${esc(w.slug)}" style="font:600 13px/1 var(--sans);color:var(--forest)">Add ${dates.length>1?esc(wsDayShort(w)):'it'} to your calendar</a>`).join('')}</div>`:''}
+    <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv()">Done</button>
   </div>`;
 }
 /* one line on Today, so a dismissed advert is not a lost one */
