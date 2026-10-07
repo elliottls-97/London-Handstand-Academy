@@ -764,6 +764,9 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
 @media (max-width:760px){.venue{grid-template-columns:1fr;gap:16px}}
 .bopt-fine{max-width:520px;margin:-6px auto 0;font-size:13.5px;line-height:1.5;color:rgba(255,255,255,.72)}
 .bopt-done{text-align:center}
+.bopt-alt{margin:14px auto 0;font-size:12.5px;color:rgba(255,255,255,.55)}
+.bopt-alt a{color:rgba(255,255,255,.8)}
+.bopt-fb .bopt-s b{color:#fff}
 .bopt-tick{width:46px;height:46px;border-radius:50%;background:#fff;color:var(--deep);display:grid;place-items:center;margin:0 auto 12px;font-size:22px;font-weight:900}
 /* the booking sheet: the dates, then a name and an email */
 .pick-back{border:0;background:none;padding:0 0 10px;color:var(--ink60);font:600 13.5px var(--body);cursor:pointer}
@@ -1003,6 +1006,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     <div class="bopt-c"><div class="bopt-k">The dates</div><div class="bopt-s">One moment.</div></div>
   </div>
   <p class="bopt-fine" id="clsFine">Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.</p>
+  <p class="bopt-alt" id="clsAlt" hidden>Problem booking? <a href="https://londonhandstandacademy.setmore.com/class-session/5f54fc44-7054-4c72-85fd-35ad030cd6b4" target="_blank" rel="noopener">Use Setmore instead</a>.</p>
 </div></section>
 
 <!-- ================= COACHES ================= -->
@@ -1193,6 +1197,16 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var post=function(path,body){ return fetch('/api/app/workshop/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){ return r.json().then(function(d){ return r.ok?d:Promise.reject(d.error||'Something went wrong'); }); }); };
   var PLACE='OverGravity, Shadwell';
+  /* Setmore, the old way to book, kept as the way out: shown instead of
+     the cards when the booking system cannot be reached or has no dates,
+     and as a quiet line under them the rest of the time */
+  var SETMORE='https://londonhandstandacademy.setmore.com/class-session/5f54fc44-7054-4c72-85fd-35ad030cd6b4';
+  var fallbackHTML=function(why){
+    return '<div class="bopt-c pick bopt-fb"><div class="bopt-k">'+esc(why||'Book through Setmore')+'</div>'
+      +'<div class="bopt-s" style="margin-top:8px">The dates, times and the '+esc(PLACE)+' address are on the booking page.</div>'
+      +'<a class="bopt-b terrab" href="'+SETMORE+'" target="_blank" rel="noopener">Book through Setmore &rarr;</a>'
+      +'<div class="bopt-s" style="margin:12px 0 0">If it asks you to log in, choose <b>Continue as guest</b>. No account needed.</div></div>';
+  };
 
   function render(){
     var now=Date.now();
@@ -1203,10 +1217,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(price) document.querySelectorAll('[data-price]').forEach(function(el){ el.textContent=price; });
     var sameDay=up.every(function(d){ return parts(d).dow===parts(first||d).dow; });
     var hero=$('clsWhen');
-    if(hero) hero.textContent = !first ? 'New dates coming soon'
+    if(hero) hero.textContent = !first ? 'In person at OverGravity, Shadwell'
       : (soon(first)||short(first)) + (second ? ' & '+(parts(second).m===parts(first).m ? parts(second).dd+' '+parts(second).m.slice(0,3) : short(second).slice(4)) : '') + ' · ' + span(first);
     var intro=$('clsIntro');
-    if(intro) intro.textContent = !first ? 'New dates are on the way.'
+    if(intro) intro.textContent = !first ? 'The dates and times are on the booking page.'
       : up.length===1 ? long(first)+', '+span(first)+', at '+PLACE+'.'
       : (NUM[up.length]||up.length)+(sameDay?' '+parts(first).dow+'s':' dates')+', '+span(first)+', at '+PLACE+'.';
     var cards=$('clsCards');
@@ -1231,9 +1245,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
             +(d.full ? '<a class="bopt-b terrab" href="#book" onclick="return bookWs('+i+',event)">Full, join the waiting list</a>'
                      : '<a class="bopt-b terrab" href="#book" onclick="return bookWs('+i+',event)">'+(i===0?'Book your place':'Book '+esc(parts(d).dd+' '+parts(d).m))+' &rarr;</a>')
             +'</div>';
-        }).join('') || '<div class="bopt-c"><div class="bopt-k">New dates coming soon</div><div class="bopt-s">Ask a question below and you will hear as soon as they are up.</div></div>';
+        }).join('') || fallbackHTML('Book through Setmore');
       }
     }
+    var alt=$('clsAlt'); if(alt) alt.hidden=!(up.length&&!booked.length);
     var fine=$('clsFine'); if(fine){ fine.style.display=(up.length&&!booked.length)?'':'none';
       var open=up.filter(function(d){ return !d.full; });
       fine.textContent=(open.length>1&&PAIR>0 ? 'Both '+(sameDay?parts(first).dow+'s':'dates')+' together: '+pounds(PAIR)+'. ' : '')
@@ -1243,7 +1258,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var ps=$('clsPickS'); if(ps&&first) ps.textContent=span(first)+' at '+PLACE+'.'+(price?' '+price+'.':'');
     var ph=$('pickH'); if(ph&&first) ph.textContent=sameDay?'Which '+parts(first).dow+'?':'Which date?';
     var bar=$('clsBar');
-    if(bar) bar.innerHTML = !first ? 'New dates coming soon'
+    if(bar) bar.innerHTML = !first ? '<b>OverGravity, Shadwell</b> &middot; Saturdays'
       : '<b>'+esc(soon(first)||short(first))+'</b>'+(second?' &amp; '+esc(parts(second).dd+' '+parts(second).m.slice(0,3)):'')+' &middot; '+esc(t12(first.from))+(price?' &middot; <span data-price>'+esc(price)+'</span>':'');
     var also=$('clsAlso');
     if(also){ also.style.display=second?'':'none'; if(second) also.innerHTML='There is another class on <a href="#book" style="color:inherit;font-weight:700;">'+esc(long(second))+'</a>.'; }
@@ -1344,7 +1359,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(d.url){ location.href=d.url; return; }
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:'')); return; }
       throw 'Something went wrong. Try again in a moment.';
-    }).catch(function(err){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent=String(err); });
+    }).catch(function(err){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)';
+      /* a server that cannot be reached, as against one that said no */
+      if(err && err.name==='TypeError'){ msg.innerHTML='Could not reach the booking system. <a href="'+SETMORE+'" target="_blank" rel="noopener" style="color:var(--terra);font-weight:700">Book through Setmore instead</a>.'; return; }
+      msg.textContent=String(err); });
   });
   $('waitForm').addEventListener('submit', function(e){
     e.preventDefault(); if(!picked) return;
@@ -1364,7 +1382,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   };
   fetch('/api/app/workshops').then(function(r){ return r.json(); })
     .then(function(d){ PAIR=Number(d&&d.pair)||0; clsWorkshops((d&&d.workshops)||[]); })
-    .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c) c.innerHTML='<div class="bopt-c"><div class="bopt-k">Could not load the dates</div><div class="bopt-s">Check your signal and reload the page.</div></div>'; });
+    .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c){ c.classList.add('solo'); c.innerHTML=fallbackHTML('Book through Setmore'); } });
   document.addEventListener('lha-site', function(){ if(up.length||booked.length) render(); });
 })();
 </script>
