@@ -5273,11 +5273,30 @@ window.addEventListener('resize', function () {
 (function(){ try{ fetch('/api/app/workshops').then(function(r){return r.json();}).then(function(d){
   var box=document.getElementById('wsLive'); var list=(d&&d.workshops)||[]; if(!box||!list.length) return;
   var esc=function(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
-  box.innerHTML=list.map(function(w){ var when=w.when?new Date(w.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+  /* The All Levels class has a landing page that books every date of it,
+     so its dates are one entry, to that page. Listing each date here as its
+     own option, to the bare booking page, was three options for one class
+     and no way onto the landing page from the home page. Anything else
+     written in the dashboard is its own entry, to its own booking page. */
+  var isClass=function(w){ return /all levels/i.test(w.title||''); };
+  var day=function(w){ return w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}):''; };
+  var cls=list.filter(isClass), rest=list.filter(function(w){ return !isClass(w); });
+  var seen={}, days=cls.map(day).filter(function(x){ if(!x||seen[x]) return false; seen[x]=1; return true; });
+  var html='';
+  if(cls.length){
+    var t=new Date(cls[0].when), tm=t.toLocaleTimeString('en-GB',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:'Europe/London'}).replace(':00','').replace(' ','');
+    var pair=Number(d&&d.pair)||0;
+    html+='<a class="cc-opt cc-opt--feature" data-ws-date="'+esc(cls[cls.length-1].when||'')+'" href="/handstand-class">'
+      +'<span class="cc-opt-name">All Levels Handstand Class</span>'
+      +'<span class="cc-opt-desc">Every level &middot; '+esc(days.join(' & '))+', '+esc(tm)+' &middot; '+esc(cls[0].place||'OverGravity, Shadwell')+'</span>'
+      +'<span class="cc-opt-price">'+esc(cls[0].priceLabel)+(pair&&days.length>1?' &middot; both '+esc('\u00a3'+(pair/100).toFixed(2).replace(/\.00$/,'')):'')+'</span></a>';
+  }
+  html+=rest.map(function(w){ var when=w.when?new Date(w.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
     return '<a class="cc-opt cc-opt--feature" data-ws-date="'+esc(w.when||'')+'" href="/workshop.html?slug='+esc(w.slug)+'">'
       +'<span class="cc-opt-name">'+esc(w.title)+'</span>'
       +'<span class="cc-opt-desc">'+esc([w.who,when,w.place].filter(Boolean).join(' · '))+(w.left>0&&w.left<=5?' · '+w.left+' places left':'')+'</span>'
       +'<span class="cc-opt-price">'+esc(w.priceLabel)+(w.left===0?' · full':'')+'</span></a>'; }).join('');
+  box.innerHTML=html;
   /* Anything written in the dashboard books on our own page. The older
      entries typed into this file book through Setmore, which costs 65p a
      booking and puts someone else's login in front of it, so as soon as
@@ -5287,8 +5306,8 @@ window.addEventListener('resize', function () {
     if(!box.contains(a)) a.style.display='none';
   });
   var hero=document.getElementById('wsHeroLink');
-  if(hero) hero.setAttribute('href','/workshop.html?slug='+list[0].slug);
-  var sub=document.querySelector('#wsChoose .cc-sub'); if(sub&&list.length===1) sub.textContent='One coming up. Pick it and book in a minute, no account needed.';
+  if(hero) hero.setAttribute('href', isClass(list[0]) ? '/handstand-class' : '/workshop.html?slug='+list[0].slug);
+  var sub=document.querySelector('#wsChoose .cc-sub'); if(sub&&(cls.length?1:0)+rest.length===1) sub.textContent='One coming up. Pick it and book in a minute, no account needed.';
   if(window.classDoorPaint) window.classDoorPaint();
 }).catch(function(){}); }catch(e){} })();
 </script>
