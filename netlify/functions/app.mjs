@@ -4410,8 +4410,11 @@ const handle = async (request) => {
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold,
         expires_at: String(Math.floor(Date.now() / 1000) + 30 * 60),
         customer_email: e,
-        success_url: `${url.origin}/workshop.html?slug=${slug}&booked=1`,
-        cancel_url: `${url.origin}/workshop.html?slug=${slug}`,
+        /* the class page books here too, and comes back to itself */
+        success_url: body.back === 'class' ? `${url.origin}/handstand-class.html?booked=${slug}`
+                   : `${url.origin}/workshop.html?slug=${slug}&booked=1`,
+        cancel_url: body.back === 'class' ? `${url.origin}/handstand-class.html#book`
+                  : `${url.origin}/workshop.html?slug=${slug}`,
       });
       return json({ url: sess.url });
     } catch (err) {

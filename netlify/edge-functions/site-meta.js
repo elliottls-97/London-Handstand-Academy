@@ -4,7 +4,8 @@
    never run its scripts, so the editor's own layer (site-edits.js) is too
    late for them. This puts the settings into the page on the way out.
 
-   The class page's title names its next dates, from Class dates, unless a
+   The class page's title names its next dates, from the workshops written
+   in the dashboard (a live one with All Levels in its title), unless a
    title has been written for it.
 
    Anything that goes wrong sends the page exactly as it is: this must never
@@ -15,22 +16,21 @@ const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'Au
 const DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const attr = t => String(t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const offset = ts => {
-  try {
-    const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', timeZoneName: 'shortOffset' }).formatToParts(new Date(ts));
-    const z = (p.find(x => x.type === 'timeZoneName') || {}).value || 'GMT';
-    const m = /GMT([+-]\d+)/.exec(z);
-    return m ? Number(m[1]) * 60 : 0;
-  } catch { return 0; }
+/* a moment, as London sees it */
+const london = ts => {
+  const g = {};
+  new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(ts)).forEach(x => { g[x.type] = x.value; });
+  return g;
 };
-const at = (d, hm) => { const p = d.split('-'), h = hm.split(':'); const g = Date.UTC(+p[0], p[1] - 1, +p[2], +h[0], +h[1]); return g - offset(g) * 60000; };
-const parts = d => { const p = d.d.split('-'), t = new Date(Date.UTC(+p[0], p[1] - 1, +p[2], 12)); return { dow: DAY[t.getUTCDay()], dd: +p[2], m: MON[p[1] - 1] }; };
+const parts = d => { const p = d.split('-'), t = new Date(Date.UTC(+p[0], p[1] - 1, +p[2], 12)); return { dow: DAY[t.getUTCDay()], dd: +p[2], m: MON[p[1] - 1] }; };
 
-function classTitle(c) {
-  const up = (c.dates || []).map(d => ({ ...d, end: at(d.d, d.to), start: at(d.d, d.from) }))
-    .filter(d => d.end > Date.now()).sort((a, b) => a.start - b.start);
+function classTitle(list) {
+  const up = (list || []).filter(w => w && w.when && /all levels/i.test(w.title || ''))
+    .map(w => Date.parse(w.when)).filter(t => t && t + 90 * 60000 > Date.now()).sort((x, y) => x - y)
+    .map(t => { const g = london(t); return parts(g.year + '-' + g.month + '-' + g.day); });
   if (!up.length) return '';
-  const a = parts(up[0]), b = up[1] ? parts(up[1]) : null;
+  const a = up[0], b = up[1] || null;
   const when = a.dow.slice(0, 3) + ' ' + a.dd + (b ? (b.m === a.m ? ' and ' + b.dd + ' ' + a.m : ' ' + a.m + ' and ' + b.dd + ' ' + b.m) : ' ' + a.m);
   return 'All Levels Handstand Class · ' + when + ' · OverGravity, London';
 }
@@ -43,16 +43,19 @@ export default async (request, context) => {
   const url = new URL(request.url);
   const page = PAGES[url.pathname];
   if (!page || request.method !== 'GET' || url.searchParams.has('siteedit')) return context.next();
-  let E = null;
+  let E = null, W = [];
   try {
     const ctl = new AbortController();
     const stop = setTimeout(() => ctl.abort(), 1500);
-    const r = await fetch(new URL('/api/app/site?page=' + page, url.origin), { signal: ctl.signal });
+    const [r, r2] = await Promise.all([
+      fetch(new URL('/api/app/site?page=' + page, url.origin), { signal: ctl.signal }),
+      page === 'handstand-class' ? fetch(new URL('/api/app/workshops', url.origin), { signal: ctl.signal }) : Promise.resolve(null)]);
     clearTimeout(stop);
     if (r.ok) E = ((await r.json()) || {}).e || null;
-  } catch { E = null; }
+    if (r2 && r2.ok) W = ((await r2.json()) || {}).workshops || [];
+  } catch { E = E || null; }
   const m = (E && E.m) || {};
-  const title = m.title || (page === 'handstand-class' && E && E.c ? classTitle(E.c) : '');
+  const title = m.title || (page === 'handstand-class' ? classTitle(W) : '');
   const desc = m.desc || '';
   const img = m.img ? new URL(m.img, url.origin).href : '';
   if (!title && !desc && !img) return context.next();
