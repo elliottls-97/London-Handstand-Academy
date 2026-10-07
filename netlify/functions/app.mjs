@@ -2189,6 +2189,14 @@ const handle = async (request) => {
       if (!(await supa.insertIfAbsent('nudges', { key: `wsbooked:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => anyFresh)))
         return json({ ok: true, workshop: slugs.join(','), note: 'already filed' });
       const bad = results.filter(r => r.problem), good = results.filter(r => !r.problem);
+      /* one date of a pair could not stand: they keep the other at its own
+         price, so what comes back is the rest, not half */
+      if (n > 1 && bad.length === 1 && good.length === 1) {
+        const own = Math.max(0, Number(good[0].w.price) || 0);
+        bad[0].share = Math.max(0, paidNow - own); good[0].share = Math.min(paidNow, own);
+        await changeSetting(`wsbook:${good[0].slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+          const b = l.find(x => x.session === obj.id); if (!b) return undefined; b.paid = good[0].share; b.pairBroken = true; return l; }).catch(() => {});
+      }
       for (const r of bad) {
         const w = r.w, whenTxt = whenOf(w), problem = r.problem;
         if (piNow && stripeKey()) {
@@ -5009,18 +5017,37 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!(await supa.insertIfAbsent('nudges', { key: ckey, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)))
       return json({ ok: true, status: 'cancelled', note: 'already cancelled' });
     let refunded = false, refundErr = '';
-    if (early && b.pi && (b.paid || 0) > 0 && stripeKey()) {
-      try { await stripe('/refunds', { payment_intent: b.pi, ...(b.pair ? { amount: String(b.paid) } : {}) }, 'POST', 'wsrefund:' + (b.session || b.pi) + (b.pair ? ':' + slug : '')); refunded = true; }
+    /* One date of a pair: the pair price was a discount for coming to both,
+       so the date they keep costs its own price and the rest comes back
+       (£45 paid, £25 kept, £20 back). If the other date is already
+       cancelled, this one's share comes back as it is. */
+    let back = Number(b.paid) || 0, keep = null;
+    if (b.pair) {
+      const ob = ((await getSetting(`wsbook:${b.pair}`)) || []).find(x => x.session === b.session && x.email === who && (x.status || 'booked') === 'booked');
+      const ow = ((await getSetting('workshops')) || {})[b.pair];
+      if (ob && ow) {
+        const own = Math.max(0, Number(ow.price) || 0), total = back + (Number(ob.paid) || 0);
+        back = Math.max(0, total - own); keep = { slug: b.pair, paid: Math.min(total, own) };
+      }
+    }
+    if (early && b.pi && back > 0 && stripeKey()) {
+      try { await stripe('/refunds', { payment_intent: b.pi, ...(b.pair ? { amount: String(back) } : {}) }, 'POST', 'wsrefund:' + (b.session || b.pi) + (b.pair ? ':' + slug : '')); refunded = true; }
       catch (err) { refundErr = String(err.message || err); if (/already been refunded/i.test(refundErr)) { refunded = true; refundErr = ''; } }
     }
     await changeSetting(`wsbook:${slug}`, cur => {
       const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
       const r = l.find(x => x.session === b.session && x.email === who);
       if (!r) return undefined;
-      r.status = refunded ? 'refunded' : 'cancelled'; r.cancelledAt = Date.now(); if (refunded) r.autoRefund = true;
+      r.status = refunded ? 'refunded' : 'cancelled'; r.cancelledAt = Date.now(); if (refunded) { r.autoRefund = true; r.refunded = back; }
       return l;
     });
     b.status = refunded ? 'refunded' : 'cancelled';
+    /* the date they kept now carries its full price, so cancelling it later
+       gives back exactly what is left */
+    if (refunded && keep) await changeSetting(`wsbook:${keep.slug}`, cur => {
+      const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+      const r = l.find(x => x.session === b.session && x.email === who); if (!r) return undefined;
+      r.paid = keep.paid; r.pairBroken = true; return l; }).catch(() => {});
     /* the code's use, given back as a refund gives it back: a guest code
        with one use stayed used up after the place was cancelled */
     if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
@@ -5029,7 +5056,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
     await email(who, `Cancelled: ${w.title}`, mail({ title: 'Your place is cancelled.', greeting: String(b.name || '').split(' ')[0],
       paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}.`,
-              refunded ? `Refunded in full to the card you paid with; it shows in a few days.`
+              refunded ? (keep ? `£${(back / 100).toFixed(2).replace(/\.00$/, '')} is refunded to the card you paid with; it shows in a few days. Your other date stands, at its own price of £${(keep.paid / 100).toFixed(2).replace(/\.00$/, '')}.` : `Refunded in full to the card you paid with; it shows in a few days.`)
                 : (b.paid || 0) > 0 ? (early ? 'The refund could not be made automatically, so Elliott will do it by hand.' : 'Inside 48 hours the place cannot be refilled, so it is not refunded automatically. If something serious has happened, reply to this.') : ''].filter(Boolean),
       signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
     /* a refund that did not go through is always said, whatever the email
