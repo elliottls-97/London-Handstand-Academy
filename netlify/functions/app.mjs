@@ -4591,10 +4591,22 @@ const handle = async (request) => {
         return json({ ok: true, workshops: await withBook() });
       }
       const f = body.workshop || {};
-      const slug = wsSlug(f.slug || f.title);
+      let slug = wsSlug(f.slug || f.title);
       if (!slug) return json({ error: 'A workshop needs a title' }, 400);
       const str = (v, n) => String(v == null ? '' : v).slice(0, n);
       const whenMs = ms(f.when);
+      /* The address was the title, so a second workshop with the same title
+         (the same class on another Saturday) saved over the first: Elliott
+         made two and had one. A new one whose address is taken gets its
+         date on the end, then a number, within the 24 characters. */
+      const wasSlug = wsSlug(body.was || '');
+      if (!wasSlug && all[slug]) {
+        const tag = whenMs ? '-' + new Date(whenMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' }).toLowerCase().replace(/[^a-z0-9]+/g, '-') : '';
+        const base = wsSlug(f.title);
+        let cand = (base.slice(0, 24 - tag.length) + tag).replace(/-+$/, '');
+        for (let i = 2; all[cand] && i < 100; i++) cand = base.slice(0, 24 - tag.length - String(i).length - 1) + tag + '-' + i;
+        slug = cand;
+      }
       const w = {
         slug, title: str(f.title, 80) || slug,
         when: whenMs ? new Date(whenMs).toISOString() : '',
