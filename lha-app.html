@@ -1346,7 +1346,7 @@ function trackOpen(){
     const bk=(q.get('booked')||'').toLowerCase().split(',').map(x=>x.replace(/[^a-z0-9-]/g,'').slice(0,24)).filter(Boolean);
     if(bk.length){ history.replaceState(null,'',location.pathname);
       if(bk[0]==='0') setTimeout(()=>toast('Nothing was charged.'), 600);
-      else { st.wsBookedPending=bk; save(); setTimeout(loadWorkshops, 0); } }
+      else { st.wsBookedPending=bk; st.wsBookedBs=(q.get('bs')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,200); save(); setTimeout(loadWorkshops, 0); } }
     /* the end-of-block email: open the review sheet on that kind */
     if(q.get('review')==='block'){ st.fb=Object.assign({}, st.fb||{}, {kind:'block', sent:false}); st.fbPending=true; save();
       history.replaceState(null,'',location.pathname); }
@@ -8305,9 +8305,10 @@ function loadBookings(){
    the second, so the money went back and the person was emailed to say it
    had not. */
 let cancelling='';
+const liveBooking=slug=>(st.bookings||[]).find(x=>x.slug===slug && x.status==='booked')||(st.bookings||[]).find(x=>x.slug===slug);
 function cancelBooking(slug){
   if(cancelling) return;
-  const b=(st.bookings||[]).find(x=>x.slug===slug); if(!b) return;
+  const b=liveBooking(slug); if(!b) return;
   const msg = b.refundable && Number(b.back)>0 ? 'Cancel your place?\n\n'+penceTxt(b.back)+' comes back to your card.'
     : 'Cancel your place?';
   sure(msg, 'Cancel my place', ()=>{
@@ -8322,7 +8323,7 @@ function cancelBooking(slug){
    booking, and a choice of one is a question rather than a list */
 let movingOpen='', moving='';
 function moveBooking(slug, to){
-  const b=(st.bookings||[]).find(x=>x.slug===slug); if(!b || moving) return;
+  const b=liveBooking(slug); if(!b || moving) return;
   const opts=b.moveTo||[];
   if(!to){ if(opts.length===1) to=opts[0].slug; else { movingOpen=movingOpen===slug?'':slug; render(); return; } }
   const o=opts.find(x=>x.slug===to); if(!o) return;
@@ -8368,8 +8369,8 @@ const penceTxt = p => '£'+((Number(p)||0)/100).toFixed((Number(p)||0)%100?2:0);
 function nextSessionHTML(){
   const b=nextSession(); if(!b) return '';
   const w=b.when?new Date(b.when):null;
-  const day=w?w.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}):'';
-  const time=w?w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'';
+  const day=w?w.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'}):'';
+  const time=w?w.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'';
   const owes=Number(b.owes)>0;
   const chip = owes ? ['TO PAY','rgba(243,169,73,.22)','#6b4108'] : w ? ['CONFIRMED','rgba(0,102,99,.12)','var(--forest)'] : null;
   return `<div class="card" style="padding:18px 20px;border:1.5px solid ${owes?'rgba(243,169,73,.7)':'rgba(0,102,99,.22)'}">
@@ -8399,7 +8400,7 @@ function bookingsHTML(){
   if(!bookingsAsked){ bookingsAsked=true; loadBookings(); }
   const list=(st.bookings||[]).filter(b=>b.status==='booked' || b.status==='toArrange' || (Date.now()-new Date(b.when).getTime())<7*864e5);
   if(!list.length) return '';
-  const when=b=>b.when?new Date(b.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Time to be agreed';
+  const when=b=>b.when?new Date(b.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'Time to be agreed';
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
     <div class="kick2">${list.some(b=>b.session)?'YOUR BOOKINGS':'YOUR WORKSHOPS'}</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
@@ -15231,7 +15232,7 @@ function loadWorkshops(){
       if(!next) return;
       WS={ id:'ws-'+next.slug, slug:next.slug, n:next.title||'Workshop',
            when: next.when ? new Date(next.when).toLocaleString('en-GB',
-             {weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}) : '',
+             {weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}) : '',
            where: next.place||'', price: next.priceLabel||'',
            blurb: next.desc||'', uid: next.film||'',
            url: '/workshop.html?slug='+encodeURIComponent(next.slug),
@@ -15364,7 +15365,7 @@ function workshopPopHTML(){
    there the payment opens in Safari and this sheet waits for the booking
    to appear on the account. */
 let WS_LIST=[], WS_PAIR=0;
-let wsb={slug:'', pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
+let wsb={slug:'', pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[], lvl:'', q:''};
 /* every two places cost the pair price, an odd one its own: both dates, two people, or both */
 const wsGroupCost=(units,single)=>WS_PAIR>0?Math.floor(units/2)*WS_PAIR+(units%2)*single:units*single;
 let wsWaitT=0;
@@ -15374,22 +15375,28 @@ const wsDayShort=w=>w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekd
 const wsTime=w=>w&&w.when?new Date(w.when).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'';
 const wsFull=w=>!!w && Number(w.places)>0 && Number(w.left)<=0;
 const wsOpenList=()=>WS_LIST.filter(w=>w && w.when && new Date(w.when).getTime()>Date.now());
+/* the dates of one class: a press workshop is not another date of the all levels class */
+const wsKind=w=>String((w&&w.title)||'').trim().toLowerCase();
+const wsDatesOf=slug=>{ const all=wsOpenList(), w=all.find(x=>x.slug===slug)||all[0]; return w?all.filter(x=>wsKind(x)===wsKind(w)):[]; };
 function wsBookOpen(slug){
   closeWorkshop(true);
   const list=wsOpenList(); if(!list.length){ toast('Nothing on sale right now.'); return; }
   const pick=list.find(w=>w.slug===slug) || list.find(w=>!wsFull(w)) || list[0];
-  wsb={slug:pick.slug, pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
+  wsb={slug:pick.slug, pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[], lvl:'', q:''};
   openOv('wsbook');
 }
-function wsBookPick(slug){ wsb.slug=slug; wsb.pair=false; wsb.msg=''; drawOv(); }
+function wsBookPick(slug){ wsb.slug=slug; wsb.pair=false; wsb.msg=''; wsb.listed=false; drawOv(); }
 function wsBookBody(){
-  const list=wsOpenList(), w=list.find(x=>x.slug===wsb.slug)||list[0];
+  const list=wsDatesOf(wsb.slug), w=list.find(x=>x.slug===wsb.slug)||list[0];
   if(!w) return `<div style="padding:2px;font:400 15px/1.5 var(--sans);color:var(--grey)">Nothing on sale right now. The next dates go out by email first.</div>`;
   const full=wsFull(w);
   const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
   const both=WS_PAIR>0?WS_PAIR:(Number(w.price)+(other?Number(other.price):0));
+  /* two of us needs two places on every date being booked */
+  const room2=x=>!(Number(x.places)>0 && Number(x.left)<2);
+  const roomFor2=room2(w) && !(wsb.pair&&other&&!room2(other));
+  if(!roomFor2) wsb.fr=false;
   const units=(wsb.pair&&other?2:1)*(wsb.fr?2:1), cost=wsGroupCost(units, Number(w.price)||0);
-  const roomFor2=!(Number(w.places)>0 && Number(w.left)<2);
   const name=wsb.name!=null?wsb.name:(st.client||''), email=wsb.email!=null?wsb.email:(st.email||'');
   const fld='width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:13px 14px;font:400 16px/1.3 var(--sans);background:#fff;color:var(--ink)';
   const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:14px 0 6px';
@@ -15407,6 +15414,7 @@ function wsBookBody(){
         <div class="kick2" style="color:var(--forest)">PAYING IN SAFARI</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--ink);margin-top:9px">The card page opened in your browser. Pay there and come back: this shows your place the moment it is booked.</div>
         <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:9px">Nothing opened? <button onclick="wsBookGo()" style="border:0;background:none;padding:0;cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Try again</button></div>
+        ${wsb.gaveUp?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:9px">Paid already? The confirmation email has everything, and it shows in Your bookings under More. <button onclick="wsWaitFor(wsb.slugs)" style="border:0;background:none;padding:0;cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Check again</button></div>`:''}
       </div>
       <button onclick="closeOv()" style="width:100%;margin-top:10px;border:0;background:none;cursor:pointer;padding:12px;color:var(--grey2);font:600 13.5px/1 var(--sans)">Close</button>
     </div>`;
@@ -15416,7 +15424,7 @@ function wsBookBody(){
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:14px">This one is full. Leave your name and you are emailed first if a place comes free.</div>
       <label style="${lab}" for="wsbName">Your name</label><input id="wsbName" style="${fld}" value="${esc(name)}" oninput="wsb.name=this.value" autocomplete="name">
       <label style="${lab}" for="wsbEmail">Email</label><input id="wsbEmail" type="email" inputmode="email" style="${fld}" value="${esc(email)}" oninput="wsb.email=this.value" autocomplete="email">
-      <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsWaitGo()">${wsb.busy?'One moment…':'Put me on the list'}</button>
+      <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy||wsb.listed?'disabled':''} onclick="wsWaitGo()">${wsb.listed?'You are on the list':wsb.busy?'One moment…':'Put me on the list'}</button>
       <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:${/first/.test(wsb.msg)?'var(--forest)':'var(--red)'}">${esc(wsb.msg)}</div>
     </div>`;
   }
@@ -15445,7 +15453,7 @@ function wsBookBody(){
    morning after they can be reminded if they never got to the end */
 let wsNoted={};
 function wsNoteIntent(){
-  const list=wsOpenList(), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
+  const list=wsDatesOf(wsb.slug), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
   const email=(wsb.email!=null?wsb.email:(st.email||'')).trim(), name=(wsb.name!=null?wsb.name:(st.client||'')).trim();
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
   const k=w.slug+'|'+email.toLowerCase(); if(wsNoted[k]) return; wsNoted[k]=1;
@@ -15459,8 +15467,9 @@ function wsBookFields(){
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ wsb.msg='A real email address, please: the confirmation goes there.'; drawOv(); return null; }
   return {name, email};
 }
+const WS_LVLS=[['New to it, never been upside down','New to it','never upside down'],['Learning to freestand','Learning','to freestand'],['Working on press, one arm or push ups','Working on','press, one arm, push ups']];
 function wsBookGo(){
-  const list=wsOpenList(), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
+  const list=wsDatesOf(wsb.slug), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
   const f=wsBookFields(); if(!f) return;
   const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
   const also=(wsb.pair&&other)?other.slug:'';
@@ -15478,7 +15487,7 @@ function wsBookGo(){
       body:JSON.stringify({slug:w.slug, also, friend, name:f.name, email:f.email, code:(also||friend)?'':(wsb.code||'').trim().toUpperCase(), back:'app'})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the booking')))
     .then(d=>{
-      if(d.free){ wsBookedShow(slugs); return; }
+      if(d.free){ st.wsBookedBs=d.bs||''; wsBookedShow(slugs); return; }
       if(!d.url) throw 'Something went wrong. Try again in a moment.';
       if(IOS_APP){
         /* Safari takes the payment; this sheet watches the account for the place */
@@ -15495,25 +15504,33 @@ function wsWaitGo(){
   wsb.busy=true; wsb.msg=''; drawOv();
   fetch('/api/app/workshop/wait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:w.slug,name:f.name,email:f.email})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not add you')))
-    .then(d=>{ wsb.msg='You are number '+d.position+' on the list. If a place comes free, you are emailed first.'; drawOv(); })
+    .then(d=>{ wsb.busy=false; wsb.listed=true; wsb.msg='You are number '+d.position+' on the list. If a place comes free, you are emailed first.'; drawOv(); })
     .catch(e=>{ wsb.busy=false; wsb.msg=String(e); drawOv(); });
 }
 /* the iPhone app: the payment happened in Safari, so the booking is looked
    for on the account every few seconds for a while */
-function wsWaitFor(slugs){
-  clearInterval(wsWaitT); const until=Date.now()+4*60000;
-  wsWaitT=setInterval(()=>{
-    if(Date.now()>until || st.ov!=='wsbook'){ clearInterval(wsWaitT); return; }
-    if(!st.token) return;
-    fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
-      const have=((d&&d.bookings)||[]).filter(b=>b && b.status==='booked').map(b=>b.slug);
-      if(slugs.every(x=>have.indexOf(x)>-1)){ clearInterval(wsWaitT); st.bookings=d.bookings||[]; save(); wsBookedShow(slugs); }
-    }).catch(()=>{});
-  }, 5000);
+let wsChecks=0;
+function wsCheckBooked(){
+  const slugs=wsb.slugs||[];
+  if(st.ov!=='wsbook' || !wsb.waiting){ clearInterval(wsWaitT); return; }
+  if(document.hidden) return;
+  if(++wsChecks>48 || !st.token){ clearInterval(wsWaitT); if(!wsb.gaveUp){ wsb.gaveUp=true; drawOv(); } return; }
+  fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
+    const have=((d&&d.bookings)||[]).filter(b=>b && b.status==='booked').map(b=>b.slug);
+    if(slugs.length && slugs.every(x=>have.indexOf(x)>-1)){ clearInterval(wsWaitT); st.bookings=d.bookings||[]; save(); wsBookedShow(slugs); }
+  }).catch(()=>{});
 }
+function wsWaitFor(slugs){
+  clearInterval(wsWaitT); wsb.slugs=slugs||wsb.slugs||[]; wsChecks=0;
+  if(wsb.gaveUp){ wsb.gaveUp=false; drawOv(); }
+  wsWaitT=setInterval(wsCheckBooked, 5000);
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && st.ov==='wsbook' && wsb.waiting){
+  if(wsb.gaveUp) wsWaitFor(wsb.slugs); else wsCheckBooked(); } });
 function wsBookedShow(slugs){
   clearInterval(wsWaitT);
   wsb.done=slugs||[]; wsb.busy=false; wsb.waiting=false;
+  wsb.bs=st.wsBookedBs||''; delete st.wsBookedBs; wsb.lvl=''; wsb.q=''; wsb.about=''; wsb.aboutMsg=''; save();
   openOv('wsbooked');
   loadBookings();
 }
@@ -15528,8 +15545,46 @@ function wsBookedBody(){
     <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:12px">A confirmation is on its way to your email, and a reminder comes the day before${dates.length>1?' each one':''}. It is in Your bookings under More, where you can cancel.</div>
     ${dates.filter(w=>w.when).length?`<div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:12px">${dates.filter(w=>w.when).map(w=>
       `<a href="/api/app/workshop/ics?slug=${esc(w.slug)}" style="font:600 13px/1 var(--sans);color:var(--forest)">Add ${dates.length>1?esc(wsDayShort(w)):'it'} to your calendar</a>`).join('')}</div>`:''}
+    ${wsAboutHTML()}
     <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv()">Done</button>
   </div>`;
+}
+/* where they are with handstands and anything to know, so the class can be
+   split into groups: asked once the place is theirs. Found by the checkout
+   session it came back with, or by the account. */
+function wsAboutHTML(){
+  if(!wsb.bs && !st.token) return '';
+  if(wsb.about==='saved') return `<div class="card" style="margin-top:16px;padding:16px 18px;text-align:left;font:600 14.5px/1.4 var(--sans)">Thanks, that helps. See you there.</div>`;
+  const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:14px 0 6px';
+  return `<div class="card" style="margin-top:16px;padding:16px 18px;text-align:left">
+    <div style="font:600 15px/1.35 var(--sans)">One more thing, so we can group you</div>
+    <div style="${lab}">Where you are with handstands</div>
+    <div id="wsLvl" style="display:flex;gap:4px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px">${WS_LVLS.map((l,i)=>
+      `<button data-i="${i}" onclick="wsAboutLvl(${i})" style="flex:1;min-width:0;min-height:54px;border:0;border-radius:10px;cursor:pointer;padding:6px 4px;
+        font:600 13px/1.2 var(--sans);${wsLvlStyle(wsb.lvl===l[0])}">${l[1]}<span style="display:block;font:500 10.5px/1.15 var(--sans);margin-top:3px">${l[2]}</span></button>`).join('')}</div>
+    <label style="${lab}" for="wsbQ">Any injuries, or anything I should know? Optional</label>
+    <textarea id="wsbQ" rows="2" maxlength="400" style="width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:12px 14px;font:400 15px/1.4 var(--sans);background:#fff;color:var(--ink);resize:vertical"
+      oninput="wsb.q=this.value" placeholder="A sore wrist, a shoulder, what you would like to work on">${esc(wsb.q||'')}</textarea>
+    <button id="wsAboutGo" class="btn" style="width:100%;margin-top:12px;min-height:50px;background:#fff;color:var(--forest);border:1px solid rgba(0,64,61,.18);box-shadow:none" ${wsb.about==='saving'?'disabled':''} onclick="wsAboutGo()">${wsb.about==='saving'?'One moment…':'Send'}</button>
+    <div id="wsAboutMsg" style="min-height:16px;margin-top:6px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.aboutMsg||'')}</div>
+  </div>`;
+}
+const wsLvlStyle=on=>`background:${on?'#fff':'transparent'};color:${on?'var(--deep)':'var(--grey)'};box-shadow:${on?'0 1px 2px rgba(17,17,17,.08)':'none'}`;
+/* picked in place: a redraw of the sheet would lose the typing and replay its entrance */
+function wsAboutLvl(i){
+  const l=WS_LVLS[i]; if(!l) return; wsb.lvl=wsb.lvl===l[0]?'':l[0];
+  document.querySelectorAll('#wsLvl button').forEach(b=>{ const on=WS_LVLS[+b.dataset.i][0]===wsb.lvl; b.style.background=on?'#fff':'transparent'; b.style.color=on?'var(--deep)':'var(--grey)'; b.style.boxShadow=on?'0 1px 2px rgba(17,17,17,.08)':'none'; });
+}
+function wsAboutGo(){
+  const msg=document.getElementById('wsAboutMsg'), go=document.getElementById('wsAboutGo');
+  const q=(wsb.q||'').trim().slice(0,400);
+  if(!wsb.lvl && !q){ if(msg) msg.textContent='Pick where you are, or write a line.'; return; }
+  wsb.about='saving'; if(go){ go.disabled=true; go.textContent='One moment…'; } if(msg) msg.textContent='';
+  fetch('/api/app/workshop/about',{method:'POST',headers:wsb.bs?{'Content-Type':'application/json'}:authed(),
+      body:JSON.stringify({bs:wsb.bs||'', slugs:wsb.done||[], exp:wsb.lvl||'', q})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not send it')))
+    .then(()=>{ wsb.about='saved'; drawOv(); })
+    .catch(e=>{ wsb.about=''; wsb.aboutMsg=String(e&&e.message||e); drawOv(); });
 }
 /* one line on Today, so a dismissed advert is not a lost one */
 function workshopStrip(){

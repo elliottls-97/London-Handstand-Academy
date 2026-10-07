@@ -598,6 +598,10 @@ async function workshopMail(done) {
   const all = (row && row.value) || {};
   const past = await pastClients();
   const now = Date.now();
+  /* the review link is per workshop and easy to leave blank on a new date;
+     a blank one borrows the link from the latest date that has one, so the
+     day after still has a Leave a review button */
+  const anyReview = (Object.values(all).filter(x => x && /^https:\/\//.test(x.reviewUrl || '')).sort((a, b) => ms(b.when) - ms(a.when))[0] || {}).reviewUrl || '';
   for (const w of Object.values(all)) {
     /* not w.live: taking a full workshop off the site is the obvious thing to
        do once it fills, and it used to silently cancel the reminder and the
@@ -685,20 +689,28 @@ async function workshopMail(done) {
       }
     }
     if (hoursSince > 10 && hoursSince <= 40) {
+      const reviewUrl = w.reviewUrl || anyReview;
       for (const p of book) {
+        /* marked as not there: no thank you for coming */
+        if (p.attended === 'no') continue;
         const key = `wsreview:${w.slug}:${p.email}`;
+        /* one ask a person, not one a date: both Saturdays booked together got two */
+        const once = `wsreviewed:${norm(p.email)}`;
+        const had = await supa.row('nudges', `key=eq.${enc(once)}&select=sent_at`).catch(() => null);
+        if (had && now - ms(had.sent_at) < 45 * 24 * 3600e3) continue;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsThanks', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title),
-            review_line: w.reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
+            review_line: reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
             app_line: w.appDays ? `The app is open for you for ${w.appDays} days from your booking, so the drills from today are in there to keep going with.` : 'The drills from today are in the Handstand Ladder app, and Foundations is free.' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
               paras: T.paras,
-              cta: w.reviewUrl ? { href: w.reviewUrl, label: 'Leave a review' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+              cta: reviewUrl ? { href: reviewUrl, label: 'Leave a review' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
           done.workshops.asked++;
           await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+          await supa.upsert('nudges', { key: once, sent_at: new Date().toISOString() }, 'key').catch(() => {});
         }
       }
     }
@@ -724,7 +736,9 @@ async function intentMail(done) {
     if (!intents.length) continue;
     const br = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
     const pairRow = await supa.row('settings', 'key=eq.wspair&select=value').catch(() => null);
-    const held = new Set(((br && br.value) || []).filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved').map(b => norm(b.email)));
+    /* anyone with a row at all: somebody who booked and then cancelled or
+       moved chose that, and "you started booking" reads as not listening */
+    const held = new Set(((br && br.value) || []).filter(b => b && b.email).map(b => norm(b.email)));
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
     for (const p of intents) {
       const e = norm(p.email);

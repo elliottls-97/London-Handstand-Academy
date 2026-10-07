@@ -11049,6 +11049,18 @@ function wsPairSave(v){
     .then(d=>{ wsPair=Number(d.pair)||0; flash(wsPair?'Two dates together: £'+(wsPair/100).toFixed(2).replace(/\.00$/,''):'No pair price: two dates cost two places'); draw(); })
     .catch(e=>flash(String(e)));
 }
+/* the calendar feed: every class with who is coming, and the 1-2-1s, in
+   the coach's own calendar app. The link is the key, so a new one turns
+   the old one off. */
+let calFeed=null, calBusy=false;
+function calGet(fresh){
+  if(fresh && !confirm('Make a new link? The old one stops working, so any calendar using it needs the new one.')) return;
+  calBusy=true; draw();
+  fetch(API+'/calendar',{method:'POST',headers:hdr(),body:JSON.stringify({new:!!fresh})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not make the link')))
+    .then(d=>{ calBusy=false; calFeed=d; draw(); if(fresh) flash('New link made. The old one is off.'); })
+    .catch(e=>{ calBusy=false; draw(); flash(String(e)); });
+}
 function wsLoad(){
   if(wshops) return; wshops=[];
   fetch(API+'/workshops',{headers:hdr()}).then(r=>r.ok?r.json():null)
@@ -11154,12 +11166,12 @@ function workshopsHTML(){
           <textarea class="input" id="wsAttend" rows="3" placeholder="kate@example.com, Kate&#10;diana@example.com, Diana"></textarea>
           <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="wsAddAttendees('${esc(w.slug||'')}')" ${w.slug?'':'disabled title="Save the workshop first"'}>Add them</button>
           <span class="muted" style="font-size:12px;margin-left:8px">They get the reminder, the review ask and the follow ups like anyone who booked here. Nothing is charged.</span></div>
-        <div class="field" style="grid-column:1/-1"><label>Review link, optional</label><input class="input" value="${esc(w.reviewUrl||'')}" placeholder="https://g.page/r/… the Google review link" oninput="wsSet('reviewUrl',this.value)"></div>
+        <div class="field" style="grid-column:1/-1"><label>Review link, optional: left empty, the day-after email uses the last one set</label><input class="input" value="${esc(w.reviewUrl||'')}" placeholder="https://g.page/r/… the Google review link" oninput="wsSet('reviewUrl',this.value)"></div>
       </div>
       ${w.slug?`<p class="muted" style="font-size:12.5px;margin-top:12px">Booking page: <b style="font-family:ui-monospace,monospace">/workshop.html?slug=${esc(w.slug)}</b>. Everyone booked gets a confirmation, a reminder the day before, and a review ask the day after.</p>`:''}
       ${(()=>{ const live=(w.bookings||[]).filter(b=>b.status!=='cancelled'&&b.status!=='refunded'&&b.status!=='moved'); const gone=(w.bookings||[]).filter(b=>b.status==='cancelled'||b.status==='refunded'||b.status==='moved');
         const others=(wshops||[]).filter(o=>o.slug!==w.slug && o.when && new Date(o.when).getTime()>Date.now());
-        const act=b=>{ if(!w.slug) return ''; const k=`'${esc(w.slug)}','${esc(b.email)}','${esc(b.session||'')}'`;
+        const act=b=>{ if(!w.slug) return ''; const k=`${jsq(w.slug)},${jsq(b.email)},${jsq(b.session||'')}`;
           const btn=(a,l,x,on)=>`<button class="btn btn-ghost btn-sm" style="min-height:30px;padding:0 10px${on?';background:rgba(0,102,99,.1);color:var(--deep)':''}" ${wsBusyRow?'disabled':''} onclick="wsAct(${k},'${a}'${x?','+x:''})">${l}</button>`;
           if(b.status==='moved') return `<span class="muted" style="font-size:12px">Moved to ${esc(b.movedTo||'')}</span>`;
           if(b.status==='cancelled'||b.status==='refunded') return (b.pi&&(Number(b.paid)||0)>(Number(b.refunded)||0)&&owner)?btn('refund','Refund')+`<span class="muted" style="font-size:12px;margin-left:6px">${b.refunded?'£'+(b.refunded/100).toFixed(2).replace(/\.00$/,'')+' refunded':'not refunded'}</span>`:(b.refunded?`<span class="muted" style="font-size:12px">£${(b.refunded/100).toFixed(2).replace(/\.00$/,'')} refunded</span>`:'');
@@ -11177,7 +11189,7 @@ function workshopsHTML(){
         const came=live.filter(b=>b.attended==='yes').length, missed=live.filter(b=>b.attended==='no').length;
         return (live.length?`<h5 style="margin-top:var(--space-6)">Booked · ${live.length}${w.places?' of '+w.places:''}${came||missed?` <span class="muted" style="font-weight:400">· ${came} arrived${missed?', '+missed+' no show':''}</span>`:''}</h5>
           <div style="font:400 13px/1.6 var(--sans)">${live.map(row).join('')}</div>
-          <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(live.map(b=>b.email).join(', '))}');flash('Emails copied')">Copy all emails</button>`
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(live.map(b=>b.email).join(', '))});flash('Emails copied')">Copy all emails</button>`
           :(w.was?'<p class="muted" style="font-size:13px;margin-top:14px">Nobody booked yet.</p>':''))
         +((w.intents||[]).length?`<h5 style="margin-top:var(--space-4)">Started booking, did not finish · ${w.intents.length}</h5>
           <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:5px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
@@ -11201,7 +11213,14 @@ function workshopsHTML(){
       <b>Class page books through</b>
       <div style="display:flex;gap:4px;padding:3px;border-radius:10px;background:rgba(0,64,61,.08)">${[['site','This site'],['setmore','Setmore']].map(([k,l])=>`<button class="btn btn-sm" onclick="wsPageSave('${k}')"
         style="border:0;border-radius:8px;min-height:30px;padding:0 12px;background:${wsPage===k?'#fff':'transparent'};color:${wsPage===k?'var(--deep)':'var(--grey)'};box-shadow:${wsPage===k?'0 1px 2px rgba(17,17,17,.08)':'none'}">${l}</button>`).join('')}</div>
-      <span class="muted">${wsPage==='setmore'?'The old page, booking through Setmore, is live at /handstand-class. Switch back when the site booking is ready.':'The new page with the site\'s own booking is live. Switch to Setmore if it misbehaves; it takes effect at once, no deploy.'}</span></div>`:''}
+      <span class="muted">${wsPage==='setmore'?'The old page, booking through Setmore, is live at /handstand-class. Switch back when the site booking is ready.':'The new page with the site\'s own booking is live. Switch to Setmore if it misbehaves; it takes effect at once, no deploy.'}</span></div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:400 13px/1.5 var(--sans)">
+      <b>Your calendar</b><span class="muted">Every class with who is coming, their level and notes, and your 1-2-1s. It updates by itself.</span>
+      ${calFeed?`<a class="btn btn-primary btn-sm" href="${esc(calFeed.webcal)}">Add to Calendar</a>
+        <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(calFeed.url)});flash('Link copied. In Google Calendar: Other calendars, From URL.')">Copy link</button>
+        <button class="btn btn-ghost btn-sm" onclick="calGet(true)">New link</button>
+        <span class="muted" style="flex-basis:100%;font-size:12px">The link is the key: anyone with it sees names and injury notes. Keep it to your own calendar.</span>`
+      :`<button class="btn btn-secondary btn-sm" ${calBusy?'disabled':''} onclick="calGet(false)">${calBusy?'One moment…':'Get the link'}</button>`}</div>`:''}
     ${list.map(w=>{ const live=(w.bookings||[]).filter(b=>b.status!=='cancelled'&&b.status!=='refunded'&&b.status!=='moved'); return `<div class="row-hit" style="display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:10px 6px;border-bottom:1px solid rgba(17,17,17,.08)">
       <div onclick="wsEdit('${esc(w.slug)}')" style="cursor:pointer;min-width:0">
         <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><span style="font:600 14.5px/1.3 var(--sans)">${esc(w.title)}</span>

@@ -126,9 +126,19 @@ const WS_CUTOFF_H = 24;
 const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/, '');
 const wsWhenTxt = w => w && w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
 const wsPlaces = l => (Array.isArray(l) ? l : []).filter(b => b && (b.status || 'booked') === 'booked');
+/* What the app has refunded on one payment itself. Stripe tells the
+   webhook about every refund, its own included, and one payment can carry
+   four places: without this the webhook took the app's own £20 back on a
+   pair for a refund made in Stripe, and told the guest, who paid nothing,
+   that money had gone back to their card. Written before Stripe is asked,
+   so the notice cannot arrive first, and taken back if Stripe says no. */
+const wsLedger = (pi, amt) => pi ? changeSetting(`wsrefpi:${pi}`, cur => {
+  const c = Object.assign({ app: 0, out: 0 }, cur || {}); c.app = Math.max(0, (Number(c.app) || 0) + (Number(amt) || 0)); return c; }).catch(() => {}) : Promise.resolve();
+/* emails that go into the dashboard and the emails we send: no quotes or angle brackets */
+const wsMailOk = e => /^[^@\s"<>`\\]+@[^@\s"<>`\\]+\.[^@\s"<>`\\]+$/.test(String(e || ''));
 /* a link that manages one place without signing in: signed, and good until the class */
 async function wsManageLink(slug, addr, session, until) {
-  const t = await sign({ k: 'wsm', s: slug, e: norm(addr), x: String(session || ''), exp: (ms(until) || Date.now()) + 6 * 3600e3 });
+  const t = await sign({ k: 'wsm', s: slug, e: norm(addr), x: String(session || ''), exp: (ms(until) || Date.now() + 60 * DAY) + 6 * 3600e3 });
   return `${SITE}/booking.html?t=${t}`;
 }
 async function wsManageRead(t) {
@@ -186,8 +196,9 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
     return { ok: true, status: 'cancelled', note: 'already cancelled' };
   let refunded = false, refundErr = '';
   if (doRefund && b.pi && back > 0 && stripeKey()) {
+    await wsLedger(b.pi, back);
     try { await stripe('/refunds', { payment_intent: b.pi, amount: String(back) }, 'POST', 'wsrefund:' + (b.session || b.pi) + ':' + slug + ':' + (b.movedAt || b.at || '') + ':' + b.email); refunded = true; }
-    catch (err) { refundErr = String(err.message || err); if (/already been refunded/i.test(refundErr)) { refunded = true; refundErr = ''; } }
+    catch (err) { refundErr = String(err.message || err); if (/already been refunded/i.test(refundErr)) { refunded = true; refundErr = ''; } else await wsLedger(b.pi, -back); }
   }
   await changeSetting(`wsbook:${slug}`, cur => {
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
@@ -204,6 +215,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
     r.paid = k.paid; r.pairBroken = true; return l; }).catch(() => {});
   if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
     if (!c[b.code]) return undefined; c[b.code] = Object.assign({}, c[b.code], { used: Math.max(0, Number(c[b.code].used || 0) - 1) }); return c; }).catch(() => {});
+  await changeSetting(`wsmine:${who}`, cur => { const l = Array.isArray(cur) ? cur : []; return l.includes(slug) ? l.filter(x => x !== slug) : undefined; }).catch(() => {});
   const status = refunded ? 'refunded' : 'cancelled';
   const whenTxt = wsWhenTxt(w);
   const paid = Number(b.paid) || 0;
@@ -213,7 +225,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
             refunded ? (keeps.length ? `${wsPounds(back)} is refunded to the card that paid; it shows in a few days. The ${keeps.length === 1 ? 'other place booked with it stands' : keeps.length + ' other places booked with it stand'}.`
                              : `${wsPounds(back)} is refunded to the card that paid; it shows in a few days.`)
               : failed ? 'The refund could not be made automatically, so Elliott will do it by hand.'
-              : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : `Inside ${WS_CUTOFF_H} hours the place cannot be refilled, so it is not refunded.`) : '',
+              : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : early ? 'The places kept cost what was paid on their own, so there is nothing to refund.' : `Inside ${WS_CUTOFF_H} hours the place cannot be refilled, so it is not refunded.`) : '',
             `<a href="${SITE}/handstand-class#book" style="color:#006663">Book another date</a> whenever suits.`].filter(Boolean),
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
   if (b.payer && b.payer !== who && refunded) await email(b.payer, `${b.name || 'Your guest'} cancelled: ${w.title}`, mail({ title: 'A place you paid for is cancelled.',
@@ -230,16 +242,18 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
 /* the coach gives money back on a place already cancelled without it */
 async function wsRefundPlace(slug, addr, session, amount) {
   const who = norm(addr);
-  const b = ((await getSetting(`wsbook:${slug}`)) || []).find(x => x.email === who && x.session === session);
+  const rows0 = ((await getSetting(`wsbook:${slug}`)) || []).filter(x => x.email === who && x.session === session && x.status !== 'moved');
+  const b = rows0[rows0.length - 1];
   if (!b) return { error: 'No such booking', status: 404 };
   if (!b.pi || !stripeKey()) return { error: 'There is no card payment on this one to refund', status: 400 };
   const left = Math.max(0, (Number(b.paid) || 0) - (Number(b.refunded) || 0));
   const amt = Math.min(left, Math.max(0, Math.round(Number(amount) || left)));
   if (!(amt > 0)) return { error: 'Nothing left to refund on this one', status: 400 };
-  try { await stripe('/refunds', { payment_intent: b.pi, amount: String(amt) }, 'POST', 'wscoachrefund:' + b.session + ':' + slug + ':' + amt); }
-  catch (err) { if (!/already been refunded/i.test(String(err.message || err))) return { error: 'Stripe said: ' + String(err.message || err), status: 502 }; }
+  await wsLedger(b.pi, amt);
+  try { await stripe('/refunds', { payment_intent: b.pi, amount: String(amt) }, 'POST', 'wscoachrefund:' + b.session + ':' + slug + ':' + who + ':' + (Number(b.refunded) || 0) + ':' + amt); }
+  catch (err) { if (!/already been refunded/i.test(String(err.message || err))) { await wsLedger(b.pi, -amt); return { error: 'Stripe said: ' + String(err.message || err), status: 502 }; } }
   await changeSetting(`wsbook:${slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-    const r = l.find(x => x.session === session && x.email === who); if (!r) return undefined;
+    const r = l.filter(x => x.session === session && x.email === who && x.status !== 'moved').pop(); if (!r) return undefined;
     r.refunded = (Number(r.refunded) || 0) + amt; if (r.status !== 'booked') r.status = 'refunded'; return l; });
   const w = ((await getSetting('workshops')) || {})[slug] || {};
   await email(who, `Refunded: ${w.title || 'your workshop'}`, mail({ title: 'A refund is on its way.', greeting: String(b.name || '').split(' ')[0],
@@ -278,7 +292,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
     r.status = 'moved'; r.movedTo = to; r.movedAt = Date.now(); return l; });
   /* the other half of a pair now points at the new date */
   if (b.pair && b.pair !== to) await changeSetting(`wsbook:${b.pair}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-    const r = l.find(x => x.session === b.session && x.email === who); if (!r) return undefined; r.pair = to; return l; }).catch(() => {});
+    const r = l.find(x => x.session === b.session && x.email === who && (x.status || 'booked') === 'booked'); if (!r) return undefined; r.pair = to; return l; }).catch(() => {});
   await changeSetting(`wsmine:${who}`, cur => { const l = (Array.isArray(cur) ? cur : []).filter(x => x !== slug); if (!l.includes(to)) l.push(to); return l; }).catch(() => {});
   const link = await wsManageLink(to, who, b.session, w2.when);
   await email(who, `Moved: ${w2.title}, ${new Date(w2.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })}`,
@@ -2181,38 +2195,49 @@ const handle = async (request) => {
           }
           return touched ? l : undefined;
         });
-        /* ── workshops: every booking list, the live ones and the deleted ── */
+        /* ── workshops: every booking list, the live ones and the deleted ──
+           What the app refunded itself was filed and told when it was made.
+           Only what was refunded in Stripe on top of that is news here. */
         const shops = (await getSetting('workshops')) || {};
-        const bookKeys = ((await supa.rows('settings', `key=like.${enc('wsbook:')}*&select=key`).catch(() => [])) || []).map(r => r.key);
+        const ledger = pi ? ((await getSetting(`wsrefpi:${pi}`).catch(() => null)) || {}) : {};
+        const outside = Math.max(0, total - (Number(ledger.app) || 0)), outDelta = outside - (Number(ledger.out) || 0);
+        if (pi && outDelta > 0) await changeSetting(`wsrefpi:${pi}`, cur => Object.assign({ app: 0 }, cur || {}, { out: Math.max(outside, Number((cur || {}).out) || 0) })).catch(() => {});
+        const bookKeys = outDelta > 0 ? ((await supa.rows('settings', `key=like.${enc('wsbook:')}*&select=key`).catch(() => [])) || []).map(r => r.key) : [];
+        const toldPayer = new Set();
         for (const key of bookKeys) {
           const slug = key.slice('wsbook:'.length), w = shops[slug] || { title: 'the workshop' };
-          let freed = false, back = [];
+          let freed = false, back = [], myTells = [], myFiled = [], myTold = new Set();
           await changeSetting(key, cur => {
-            freed = false; back = [];
+            freed = false; back = []; myTells = []; myFiled = []; myTold = new Set(toldPayer);
             const book = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
             let hit = false;
             for (const b of book) {
               if (!((pi && b.pi === pi) || (cs && b.session === cs))) continue;
-              const was = Number(b.refunded) || 0;
-              if (total <= was) continue;
-              b.refunded = total; hit = true;
-              const delta = total - was;
+              const live = (b.status || 'booked') === 'booked';
+              if (!full && !live) continue;
+              if (full && !live && b.status === 'refunded' && (Number(b.refunded) || 0) >= (Number(b.paid) || 0)) continue;
+              hit = true;
+              /* the money is the payer's; a guest hears only about their place */
+              const payer = b.payer || b.email, mine = payer === b.email;
+              const money = mine && !myTold.has(payer) ? (myTold.add(payer), pounds(outDelta)) : '';
               let say = '';
-              if (b.autoRefund) say = '';
-              else if (full && (b.status || 'booked') === 'booked') {
+              if (full && live) {
                 /* the same person with another place still booked: this was a
                    second payment, and the place they hold is not touched */
-                const other = book.some(x => x !== b && x.email === b.email && (x.status || 'booked') === 'booked');
-                if (other) { b.status = 'refunded'; say = `Your second payment of ${pounds(delta)} for ${w.title} has been refunded to your card. Your place is still booked.`; }
-                else { b.status = 'refunded'; b.cancelledAt = Date.now(); freed = true; back.push(b);
-                  say = `${pounds(delta)} has been refunded to your card and your place at ${w.title} is cancelled. It shows in a few days.`; }
-              } else if (full) { b.status = 'refunded'; say = `${pounds(delta)} has been refunded to your card for your place at ${w.title}. It shows in a few days.`; }
-              else say = `${pounds(delta)} of your payment for ${w.title} has been refunded to your card.`;
-              if (say) tells.push({ who: b.email, name: b.name, title: w.title, say });
-              filed.push(`${w.title || slug} for ${b.name || b.email}${full ? ', refunded' : ', part refund'}`);
+                const other = book.some(x => x !== b && x.email === b.email && x.pi !== b.pi && (x.status || 'booked') === 'booked');
+                b.status = 'refunded'; b.refunded = Number(b.paid) || 0;
+                if (other) say = money ? `Your second payment of ${money} for ${w.title} has been refunded to your card. Your place is still booked.` : '';
+                else { b.cancelledAt = Date.now(); freed = true; back.push(b);
+                  say = money ? `${money} has been refunded to your card and your place at ${w.title} is cancelled. It shows in a few days.`
+                      : `Your place at ${w.title} is cancelled${mine ? '' : ', and the payment refunded to the card that paid'}.`; }
+              } else if (full) { b.status = 'refunded'; b.refunded = Number(b.paid) || 0; say = money ? `${money} has been refunded to your card for ${w.title}. It shows in a few days.` : ''; }
+              else say = money ? `${money} of your payment for ${w.title} has been refunded to your card.` : '';
+              if (say) myTells.push({ who: b.email, name: b.name, title: w.title, say });
+              myFiled.push(`${w.title || slug} for ${b.name || b.email}${full ? ', refunded' : ', part refund'}`);
             }
             return hit ? book : undefined;
           });
+          tells.push(...myTells); filed.push(...myFiled); for (const x of myTold) toldPayer.add(x);
           /* what the booking gave, given back: the code's use and the app days */
           for (const b of back) {
             if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
@@ -2252,6 +2277,7 @@ const handle = async (request) => {
         }
         const money = pounds(total);
         if (filed.length) await coachAlert(null, 'business', { title: `Refund of ${money} filed`, body: filed.join('; '), tag: 'refund:' + obj.id });
+        else if (pi && outDelta <= 0 && (Number(ledger.app) || 0) > 0) { /* the app's own refund, filed and told when it was made */ }
         else {
           /* a refund the app has nothing for: coaching, the Ladder, or a
              booking it never saw. Said, rather than nothing at all. */
@@ -2342,6 +2368,8 @@ const handle = async (request) => {
          a second payment, over the limit, or for a date gone by is decided
          here, per date, and those are refunded rather than confirmed. */
       const results = [];
+      /* told on the booked screen before this arrived */
+      const about = (await getSetting(`wsabout:${obj.id}`).catch(() => null)) || {};
       let anyFresh = false, k = 0;
       for (let i = 0; i < n; i++) for (const pp of people) {
         const slug = slugs[i], w = all[slug], share = shareOf(k++);
@@ -2349,7 +2377,8 @@ const handle = async (request) => {
         await changeSetting(`wsbook:${slug}`, cur => {
           fresh = false; problem = '';
           const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-          if (l.some(b => b.session === obj.id && b.email === pp.e)) { count = wsLive(l).length; return undefined; }
+          const ex = l.find(b => b.session === obj.id && b.email === pp.e);
+          if (ex) { problem = ex.autoRefund && ex.why ? ex.why : ''; count = wsLive(l).length; return undefined; }
           fresh = true;
           const live = wsLive(l);
           problem = live.some(b => b.email === pp.e) ? 'twice'
@@ -2358,7 +2387,7 @@ const handle = async (request) => {
           l.push({ email: pp.e, name: pp.nm, at: Date.now(), session: String(obj.id || ''), paid: share, pi: piNow,
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
             ...(pp.e !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}),
-            q: String(md.q || '').slice(0, 400), exp: String(md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
+            q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
           count = wsLive(l).length; return l;
         });
@@ -2368,6 +2397,8 @@ const handle = async (request) => {
       /* the messages, once however many times Stripe sends this */
       if (!(await supa.insertIfAbsent('nudges', { key: `wsbooked:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => anyFresh)))
         return json({ ok: true, workshop: slugs.join(','), note: 'already filed' });
+      /* anything below that throws lets the claim go, so Stripe's retry finishes the job */
+      try {
       const bad = results.filter(r => r.problem);
       let good = results.filter(r => !r.problem);
       /* some places could not stand: the ones that did cost what they cost
@@ -2385,8 +2416,11 @@ const handle = async (request) => {
         const w = r.w, whenTxt = whenOf(w), problem = r.problem;
         if (piNow && stripeKey()) {
           /* a pair: that date's share comes back and the other date stands */
+          const amt = units > 1 ? r.share : paidNow;
+          await wsLedger(piNow, amt);
           try { await stripe('/refunds', { payment_intent: piNow, ...(units > 1 ? { amount: String(r.share) } : {}) }, 'POST', 'wsauto:' + obj.id + (units > 1 ? ':' + r.slug + ':' + r.who : '')); r.back = true; }
-          catch (err) { console.error('workshop auto refund', obj.id, r.slug, String(err && err.message || err)); }
+          catch (err) { if (/already been refunded/i.test(String(err && err.message || err))) r.back = true;
+            else { await wsLedger(piNow, -amt); console.error('workshop auto refund', obj.id, r.slug, String(err && err.message || err)); } }
         }
         const why = problem === 'twice' ? 'You already had a place, so this second payment'
           : problem === 'full' ? 'The last place went to somebody else a moment before you, so your payment'
@@ -2476,6 +2510,7 @@ const handle = async (request) => {
                   md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : ''].filter(Boolean),
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, workshop: slugs.join(','), booked: allGood.map(r => r.count) });
+      } catch (err) { await supa.remove('nudges', `key=eq.${enc('wsbooked:' + obj.id)}`).catch(() => {}); throw err; }
     }
 
     /* ── a one to one session ───────────────────────────────────────
@@ -4504,7 +4539,7 @@ const handle = async (request) => {
   };
   const wsIcs = (w) => {
     const dt = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    const start = ms(w.when), end = start + 2 * 3600e3;
+    const start = ms(w.when), end = start + (/all levels/i.test(w.title || '') ? 90 : 120) * 60e3;
     const escI = t => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
     return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//London Handstand Academy//EN', 'BEGIN:VEVENT',
       `UID:ws-${w.slug}@londonhandstandacademy.com`, `DTSTAMP:${dt(Date.now())}`, `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`,
@@ -4516,6 +4551,45 @@ const handle = async (request) => {
     if (!w || !w.when) return json({ error: 'No such workshop' }, 404);
     return new Response(wsIcs(w), { headers: { 'Content-Type': 'text/calendar; charset=utf-8',
       'Content-Disposition': `attachment; filename="${slug}.ics"` } });
+  }
+  /* ── the coach's calendar: every class with who is coming, and the 1-2-1s ──
+     A feed a calendar app subscribes to, so it cannot send a header: the
+     signed token is in the address. Its version is kept in settings, and
+     making a new link from the dashboard turns the old one off. It carries
+     names and what people said about injuries, so it is the coach's alone. */
+  if (path === '/calendar/coach.ics' && request.method === 'GET') {
+    const p = await verify(String(url.searchParams.get('t') || ''));
+    const cur = (await getSetting('calfeed')) || {};
+    if (!p || p.k !== 'cal' || !cur.v || p.v !== cur.v) return new Response('Not found', { status: 404 });
+    const dt = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const escI = t => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+    /* lines over 75 octets are folded, as the format asks; Google drops events otherwise */
+    const fold = l => { const out = []; let s = l; while (Buffer.byteLength(s) > 74) { let n = 74; while (Buffer.byteLength(s.slice(0, n)) > 74) n--; out.push(s.slice(0, n)); s = ' ' + s.slice(n); } out.push(s); return out.join('\r\n'); };
+    const ev = [], since = Date.now() - 60 * DAY;
+    const all = (await getSetting('workshops')) || {};
+    for (const w of Object.values(all)) {
+      if (!w || !w.when || ms(w.when) < since) continue;
+      const book = wsLive((await getSetting(`wsbook:${w.slug}`)) || []);
+      const start = ms(w.when), end = start + (/all levels/i.test(w.title || '') ? 90 : 120) * 60e3;
+      const lines = book.map(b => [b.name || b.email, b.payer ? 'with ' + (b.with || b.payer) : '', b.exp || '', b.q ? 'Note: ' + b.q : '',
+        b.attended === 'yes' ? 'arrived' : b.attended === 'no' ? 'no show' : ''].filter(Boolean).join(', '));
+      ev.push(['BEGIN:VEVENT', `UID:coach-ws-${w.slug}@londonhandstandacademy.com`, `DTSTAMP:${dt(Date.now())}`,
+        `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`,
+        `SUMMARY:${escI(w.title + ': ' + book.length + (Number(w.places) > 0 ? ' of ' + w.places : '') + ' booked')}`,
+        `LOCATION:${escI(w.place || '')}`,
+        `DESCRIPTION:${escI((lines.length ? lines.join('\n') : 'Nobody booked yet.') + '\n\n' + SITE + '/lha-coach.html')}`, 'END:VEVENT']);
+    }
+    for (const r of ((await getSetting('sessions')) || [])) {
+      if (!r || !r.when || ['cancelled', 'refunded'].includes(r.status) || ms(r.when) < since) continue;
+      const start = ms(r.when), end = start + (String(r.kind) === '90' ? 90 : 60) * 60e3;
+      ev.push(['BEGIN:VEVENT', `UID:coach-121-${r.id || start}@londonhandstandacademy.com`, `DTSTAMP:${dt(Date.now())}`,
+        `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`, `SUMMARY:${escI('1-2-1: ' + (r.name || r.email))}`,
+        `LOCATION:${escI(r.place || '')}`, `DESCRIPTION:${escI([r.note, r.prefs].filter(Boolean).join('\n'))}`, 'END:VEVENT']);
+    }
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//London Handstand Academy//Coach//EN', 'CALSCALE:GREGORIAN',
+      'X-WR-CALNAME:LHA classes and sessions', 'X-WR-TIMEZONE:Europe/London', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H',
+      ...ev.flat(), 'END:VCALENDAR'].map(fold).join('\r\n');
+    return new Response(ics, { headers: { 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'no-store' } });
   }
   if (path === '/workshop/code' && request.method === 'POST') {
     /* /workshop/book is rate limited and this was not, so the codes could be
@@ -4565,10 +4639,44 @@ const handle = async (request) => {
       }).catch(() => {});
     }
   };
+  /* ── after booking: where they are with handstands, and anything to know ──
+     Asked on the booked screen rather than before paying, so the form in
+     front of the card page holds only what the booking needs. Found by the
+     checkout session the page came back with, or by the account in the app.
+     Kept against a session not filed yet, so the webhook adds it when it is. */
+  if (path === '/workshop/about' && request.method === 'POST') {
+    const exp = String(body.exp || '').trim().slice(0, 120), qn = String(body.q || '').trim().slice(0, 400);
+    if (!exp && !qn) return json({ ok: true, saved: 0 });
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`wsa:${ip}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
+    const bs = String(body.bs || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
+    const who = bs ? '' : await me();
+    if (!bs && !who) return json({ error: 'Sign in first' }, 401);
+    const all = (await getSetting('workshops')) || {};
+    const slugs = bs ? Object.keys(all)
+      : (Array.isArray(body.slugs) ? body.slugs : String(body.slugs || '').split(',')).map(wsSlug).filter(Boolean).slice(0, 4);
+    let saved = 0, name = '';
+    for (const sl of slugs) {
+      let n = 0;
+      await changeSetting(`wsbook:${sl}`, cur => {
+        n = 0; const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+        for (const b of l) {
+          if ((b.status || 'booked') !== 'booked') continue;
+          if (bs ? (b.session !== bs || b.payer) : b.email !== who) continue;
+          if (exp) b.exp = exp; if (qn) b.q = qn; n++; name = b.name || b.email;
+        }
+        return n ? l : undefined;
+      }).catch(() => {});
+      saved += n;
+    }
+    if (bs.startsWith('cs_')) await setSetting(`wsabout:${bs}`, { exp, q: qn, at: Date.now() }).catch(() => {});
+    if (qn && (saved || bs)) await coachAlert(null, 'business', { title: 'Booking note' + (name ? ': ' + name : ''), body: qn.slice(0, 140), tag: 'wsabout:' + (bs || who) }).catch(() => {});
+    return json({ ok: true, saved });
+  }
   if (path === '/workshop/intent' && request.method === 'POST') {
     const slug = wsSlug(body.slug), also = wsSlug(body.also);
     const e = norm(body.email), nm = String(body.name || '').trim().slice(0, 60);
-    if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ ok: false });
+    if (!slug || !e || !wsMailOk(e)) return json({ ok: false });
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`wsi:${ip}`, 3600000)) > 60) return json({ ok: false });
     const all = (await getSetting('workshops')) || {};
@@ -4582,7 +4690,7 @@ const handle = async (request) => {
     const nm = String(body.name || '').trim().slice(0, 60);
     const qn = String(body.q || '').trim().slice(0, 400);
     const exp = String(body.exp || '').trim().slice(0, 400);
-    if (!slug || !e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
+    if (!slug || !e || !wsMailOk(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
     /* The limit further down only guarded the paid road. A free place, or a
        code that makes one free, was booked with no limit at all: any made up
        address, a booking email sent to it and one to the coach, the app's
@@ -4606,6 +4714,8 @@ const handle = async (request) => {
     const also = wsSlug(body.also);
     const w2 = also && also !== slug ? all[also] : null;
     if (also && also !== slug && (!w2 || !w2.live)) return json({ error: 'That second date is not open for booking' }, 404);
+    /* the second date is another date of the same class, not another workshop at this one's price */
+    if (w2 && String(w2.title || '').trim().toLowerCase() !== String(w.title || '').trim().toLowerCase()) return json({ error: 'Those two are different workshops. Book them one at a time.' }, 400);
     if (w2 && w2.when && ms(w2.when) < Date.now()) return json({ error: 'The second date has already happened' }, 409);
     const live2 = w2 ? wsLive((await getSetting(`wsbook:${also}`)) || []) : [];
     if (w2 && Number(w2.places) > 0 && live2.length >= Number(w2.places)) return json({ error: 'The second date is full. Book one date, and join its waiting list.', full: true }, 409);
@@ -4617,7 +4727,7 @@ const handle = async (request) => {
        they get their own confirmation, reminder and link to change it. */
     const fr = body.friend && typeof body.friend === 'object' && (body.friend.email || body.friend.name)
       ? { e: norm(body.friend.email), nm: String(body.friend.name || '').trim().slice(0, 60) } : null;
-    if (fr && (!fr.nm || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fr.e))) return json({ error: 'The name and email of the person coming with you, please' }, 400);
+    if (fr && (!fr.nm || !wsMailOk(fr.e))) return json({ error: 'The name and email of the person coming with you, please' }, 400);
     if (fr && fr.e === e) return json({ error: 'The person coming with you needs their own email address' }, 400);
     const people = fr ? [[e, nm], [fr.e, fr.nm]] : [[e, nm]];
     for (const [tSlug, tw] of targets) {
@@ -4655,6 +4765,8 @@ const handle = async (request) => {
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
           return l;
         });
+        if (taken) for (const [uSlug] of targets) await changeSetting(`wsbook:${uSlug}`, cur => {
+          const l = Array.isArray(cur) ? cur : []; return l.some(x => x.session === sid) ? l.filter(x => x.session !== sid) : undefined; }).catch(() => {});
         if (taken === 'full') return json({ error: (tSlug === slug ? 'That one is full' : 'The second date is full'), full: true }, 409);
         if (taken === 'twice') return json({ error: (pe === e ? 'You are' : pn + ' is') + ' already booked on ' + (tSlug === slug ? 'this one' : 'the second date') + '. Check your email.' }, 409);
       }
@@ -4704,7 +4816,7 @@ const handle = async (request) => {
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked${targets.length > 1 ? ' both dates' : ''}.`,
         paras: [`<b>${esc(w.title)}</b>${targets.length > 1 ? ': ' + targets.map(t => esc(whenOfF(t[1]))).join(', and ') : ''}. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''} Free.`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
         cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
-      return json({ ok: true, free: true });
+      return json({ ok: true, free: true, bs: sid });
     }
     if (!stripeKey()) return json({ error: 'Booking is not switched on yet' }, 503);
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
@@ -4743,8 +4855,8 @@ const handle = async (request) => {
         expires_at: String(Math.floor(Date.now() / 1000) + 30 * 60),
         customer_email: e,
         /* the class page and the app book here too, and come back to themselves */
-        success_url: body.back === 'class' ? `${url.origin}/handstand-class.html?booked=${targets.map(t => t[0]).join(',')}`
-                   : body.back === 'app' ? `${url.origin}/lha-app.html?booked=${targets.map(t => t[0]).join(',')}`
+        success_url: body.back === 'class' ? `${url.origin}/handstand-class.html?booked=${targets.map(t => t[0]).join(',')}&bs={CHECKOUT_SESSION_ID}`
+                   : body.back === 'app' ? `${url.origin}/lha-app.html?booked=${targets.map(t => t[0]).join(',')}&bs={CHECKOUT_SESSION_ID}`
                    : `${url.origin}/workshop.html?slug=${slug}&booked=1`,
         cancel_url: body.back === 'class' ? `${url.origin}/handstand-class.html#book`
                   : body.back === 'app' ? `${url.origin}/lha-app.html?booked=0`
@@ -4846,6 +4958,15 @@ const handle = async (request) => {
       clients: Object.keys(clients()).length });
   }
 
+  /* the address of the coach's calendar feed; new: true turns the old one off */
+  if (path === '/coach/calendar' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    let cur = (await getSetting('calfeed')) || {};
+    if (!cur.v || body.new) { cur = { v: newId(), at: Date.now() }; await setSetting('calfeed', cur); }
+    const t = await sign({ k: 'cal', v: cur.v, exp: Date.now() + 5 * 365 * DAY });
+    const href = `${SITE}/api/app/calendar/coach.ics?t=${t}`;
+    return json({ ok: true, url: href, webcal: href.replace(/^https?:/, 'webcal:'), made: cur.at || 0 });
+  }
   if (path === '/coach/workshops') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('workshops')) || {};
@@ -4917,6 +5038,10 @@ const handle = async (request) => {
         for (let i = 2; all[cand] && i < 100; i++) cand = base.slice(0, 24 - tag.length - String(i).length - 1) + tag + '-' + i;
         slug = cand;
       }
+      /* once anybody has booked, the address stays: the links in their
+         emails, the other half of a pair and the refund records all name it.
+         The title can change; the address does not. */
+      if (wasSlug && wasSlug !== slug && all[wasSlug] && ((await getSetting(`wsbook:${wasSlug}`)) || []).length) slug = wasSlug;
       const w = {
         slug, title: str(f.title, 80) || slug,
         when: whenMs ? new Date(whenMs).toISOString() : '',

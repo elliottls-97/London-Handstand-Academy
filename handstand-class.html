@@ -797,6 +797,13 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
 .seg button.on{background:#fff;color:var(--deep);box-shadow:0 1px 3px rgba(17,17,17,.12)}
 .seg button.on small{color:var(--terra);opacity:1}
 .seg button:disabled{opacity:.4;cursor:default}
+.bk-about{margin:18px auto 0;max-width:460px;text-align:left;background:#fff;color:var(--ink);border-radius:20px;padding:18px 18px 16px}
+.bk-about-h{font:600 16px/1.35 var(--body);color:var(--ink)}
+.bk-about .seg-l{margin-top:12px}
+.bk-about label{display:block;font:600 12.5px var(--body);letter-spacing:.04em;color:var(--ink60);margin:14px 0 5px}
+.seg-lvl button{min-height:58px;font-size:14px}
+.seg-lvl button small{font-size:10.5px;line-height:1.15;margin-top:3px}
+.bk-about textarea{width:100%;box-sizing:border-box;font:500 15px/1.4 var(--body);padding:12px 14px;border-radius:12px;border:1px solid rgba(0,64,61,.14);background:#fff;resize:vertical;color:var(--ink)}
 .bk-sum{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:16px 0 4px;padding:14px 16px;border-radius:14px;background:rgba(0,102,99,.06)}
 .bk-sum b{display:block;font:600 15px/1.35 var(--body);color:var(--ink)}
 .bk-sum span{font:400 13px/1.4 var(--body);color:var(--ink60)}
@@ -1235,11 +1242,14 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var PAIR=0;          /* two dates together, in pence, when the owner has set it */
   var pounds=function(v){ return '\u00a3'+(v/100).toFixed(2).replace(/\.00$/,''); };
   /* back from paying: one slug, or two joined with a comma */
+  var BS='';
   var booked=(function(){ var q=new URLSearchParams(location.search), b=(q.get('booked')||'').toLowerCase().split(',').map(function(x){ return x.replace(/[^a-z0-9-]/g,'').slice(0,24); }).filter(Boolean);
+    BS=(q.get('bs')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,200); q.delete('bs');
     if(b.length){ q.delete('booked'); var qs=q.toString(); history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#book'); } return b; })();
   var beacon=function(n){ try{ navigator.sendBeacon('/api/app/event', new Blob([JSON.stringify({n:n})],{type:'application/json'})); }catch(e){} };
   var post=function(path,body){ return fetch('/api/app/workshop/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(function(r){ return r.json().then(function(d){ return r.ok?d:Promise.reject(d.error||'Something went wrong'); }); }); };
+    .then(function(r){ return r.json().catch(function(){ throw new TypeError('no answer'); })
+      .then(function(d){ return r.ok?d:Promise.reject(d.error||'Something went wrong'); }); }); };
   var PLACE='OverGravity, Shadwell';
   /* Setmore, the old way to book, kept as the way out: shown instead of
      the cards when the booking system cannot be reached or has no dates,
@@ -1252,10 +1262,39 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       +'<div class="bopt-s" style="margin:12px 0 0">If it asks you to log in, choose <b>Continue as guest</b>. No account needed.</div></div>';
   };
 
+  /* After paying, not before: where they are with handstands and anything
+     to know, so the class can be split into groups. The form in front of
+     the card page holds only what the booking needs. */
+  var LVLS=[['New to it, never been upside down','New to it','never upside down'],['Learning to freestand','Learning','to freestand'],['Working on press, one arm or push ups','Working on','press, one arm, push ups']];
+  var ab={lvl:'', q:'', state:''};
+  var aboutHTML=function(){
+    if(!BS) return '';
+    if(ab.state==='saved') return '<div class="bk-about"><div class="bk-about-h">Thanks, that helps. See you there.</div></div>';
+    return '<div class="bk-about"><div class="bk-about-h">One more thing, so we can group you</div>'
+      +'<div class="seg-l">Where you are with handstands</div>'
+      +'<div class="seg seg-lvl" id="abLvl">'+LVLS.map(function(l){ return '<button type="button" data-l="'+esc(l[0])+'" class="'+(ab.lvl===l[0]?'on':'')+'">'+esc(l[1])+'<small>'+esc(l[2])+'</small></button>'; }).join('')+'</div>'
+      +'<label for="abQ">Any injuries, or anything I should know? <span style="font-weight:500">Optional</span></label>'
+      +'<textarea id="abQ" rows="2" maxlength="400" placeholder="A sore wrist, a shoulder, what you would like to work on">'+esc(ab.q)+'</textarea>'
+      +'<button type="button" class="pick-go" id="abGo"'+(ab.state==='saving'?' disabled':'')+'>'+(ab.state==='saving'?'One moment…':'Send')+'</button>'
+      +'<div class="pick-msg" id="abMsg" role="status"></div></div>';
+  };
+  var aboutWire=function(){
+    var box=$('abLvl'); if(!box) return;
+    [].forEach.call(box.querySelectorAll('button'),function(b){ b.onclick=function(){ var l=b.getAttribute('data-l'); ab.lvl=ab.lvl===l?'':l;
+      [].forEach.call(box.querySelectorAll('button'),function(x){ x.className=x.getAttribute('data-l')===ab.lvl?'on':''; }); }; });
+    $('abQ').oninput=function(){ ab.q=this.value; };
+    $('abGo').onclick=function(){
+      var m=$('abMsg'); if(!ab.lvl && !ab.q.trim()){ m.textContent='Pick where you are, or write a line.'; return; }
+      ab.state='saving'; this.disabled=true; this.textContent='One moment…'; m.textContent='';
+      post('about',{bs:BS, exp:ab.lvl, q:ab.q.trim().slice(0,400)}).then(function(){ ab.state='saved'; render(); })
+        .catch(function(err){ ab.state=''; var g=$('abGo'); if(g){ g.disabled=false; g.textContent='Send'; }
+          m.textContent=err&&err.name==='TypeError'?'Could not send just now. Reply to your confirmation email instead.':String(err); });
+    };
+  };
   function render(){
     var now=Date.now();
     var E=window.LHA_SITE_EDITS||{};
-    up=up.filter(function(d){ return d.end>now; }).sort(function(a,b){ return a.start-b.start; });
+    up=up.filter(function(d){ return d.start>now; }).sort(function(a,b){ return a.start-b.start; });
     var first=up[0], second=up[1];
     var price=first?first.priceLabel:'';
     if(price) document.querySelectorAll('[data-price]').forEach(function(el){ el.textContent=price; });
@@ -1278,7 +1317,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
           +(done.length?'<div class="bopt-s">'+esc(span(done[0]))+', at '+PLACE+'.</div>':'')
           +'<div class="bopt-s">A confirmation is on its way to your email, and a reminder comes the day before'+(done.length>1?' each one':'')+'.'
           +done.map(function(d){ return ' <a href="/api/app/workshop/ics?slug='+esc(d.slug)+'" style="color:#fff;font-weight:700">Add '+(done.length>1?esc(parts(d).dd+' '+parts(d).m):'it')+' to your calendar</a>.'; }).join('')
-          +'</div></div>';
+          +'</div>'+aboutHTML()+'</div>';
       } else if(up.length){
         cards.innerHTML='';
       } else {
@@ -1294,6 +1333,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         }).join('') || fallbackHTML('Book through Setmore');
       }
     }
+    if(booked.length) aboutWire();
     var alt=$('clsAlt'); if(alt) alt.hidden=!(up.length&&!booked.length);
     /* the panel: the form, moved in once, on the first date with room */
     var panel=$('bookPanel'), form=$('pickForm');
@@ -1355,33 +1395,34 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     return false;
   };
   /* ── the two choices and the summary ── */
+  var codeOk=null, wantTwo=false;
+  var room=function(d){ return !!d && !(d.places>0 && d.left<2); };
   var drawChoices=function(){
     if(!picked) return;
     var open=up.filter(function(x){ return !x.full; });
     var both=$('bkPair').checked && picked.other, two=$('bkFr').checked;
-    var units=(both?2:1)*(two?2:1), cost=groupCost(units, picked.price), full=units*picked.price;
+    var units=(both?2:1)*(two?2:1), cost=costOf(both, two?2:1), full=(two?2:1)*(picked.price+(both?picked.other.price:0));
     var save=full-cost;
     /* When: each date, and both when two have room */
     $('segWhen').innerHTML=up.map(function(d,i){
       var on=!both && d.slug===picked.slug;
       return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'"'+(d.full?' data-full="1"':'')+'>'+esc(short(d))
         +'<small>'+(d.full?'Full, waiting list':d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
-      +(open.length>1?'<button type="button" data-both="1" class="'+(both?'on':'')+'">Both'
+      +(open.length>1&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'">Both'
         +'<small>'+(PAIR>0?esc(pounds(groupCost(2,picked.price)))+(picked.price*2>PAIR?', save '+esc(pounds(picked.price*2-PAIR)):''):'')+'</small></button>':'');
     [].forEach.call($('segWhen').querySelectorAll('button'),function(b){ b.onclick=function(){
       if(b.getAttribute('data-both')){ if(!picked.other){ var o=up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0]; picked.other=o||null; } $('bkPair').checked=!!picked.other; priceNow(); return; }
       var i=+b.getAttribute('data-i'); $('bkPair').checked=false;
       if(up[i].slug!==picked.slug || b.getAttribute('data-full')) keepFields(function(){ inPanel=true; bookWs(i); inPanel=false; }); else priceNow(); }; });
     /* Who: two of us needs two places on every date chosen */
-    var room=function(d){ return !(d.places>0 && d.left<2); };
     var canTwo=!picked.full && room(picked) && (!both || room(picked.other));
     $('segWhoWrap').hidden=!!picked.full;
     var wb=$('segWho').querySelectorAll('button');
-    wb[0].className=two?'':'on'; wb[1].className=two?'on':''; wb[1].disabled=!canTwo && !two;
+    wb[0].className=two?'':'on'; wb[1].className=two?'on':''; wb[1].disabled=!canTwo;
     wb[0].innerHTML='Just me<small>'+(units===(both?2:1)?esc(pounds(groupCost(both?2:1,picked.price))):'')+'</small>';
     wb[1].innerHTML='Two of us<small>'+(canTwo||two?esc(pounds(groupCost((both?2:1)*2,picked.price))):'Only one place left')+'</small>';
-    wb[0].onclick=function(){ $('bkFr').checked=false; priceNow(); };
-    wb[1].onclick=function(){ if(wb[1].disabled) return; $('bkFr').checked=true; priceNow(); setTimeout(function(){ $('bkFrName').focus(); },40); };
+    wb[0].onclick=function(){ wantTwo=false; $('bkFr').checked=false; priceNow(); };
+    wb[1].onclick=function(){ if(wb[1].disabled) return; wantTwo=true; $('bkFr').checked=true; priceNow(); setTimeout(function(){ $('bkFrName').focus(); },40); };
     /* the summary: what they are booking, and what it costs */
     var when=both ? short(picked)+' and '+short(picked.other) : long(picked);
     $('bkSum').hidden=!!picked.full;
@@ -1391,8 +1432,13 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   };
   /* switching date rebuilds the sheet; what has been typed stays */
   var keepFields=function(fn){
-    var keep=['bkName','bkEmail','bkFrName','bkFrEmail'].map(function(id){ return [id,$(id).value]; }), fr=$('bkFr').checked;
-    fn(); keep.forEach(function(k){ $(k[0]).value=k[1]; }); if(fr && !picked.full){ $('bkFr').checked=true; priceNow(); }
+    var keep=['bkName','bkEmail','bkFrName','bkFrEmail','bkCode'].map(function(id){ return [id,$(id).value]; });
+    fn(); keep.forEach(function(k){ $(k[0]).value=k[1]; });
+    if(!$('wtName').value) $('wtName').value=$('bkName').value;
+    if(!$('wtEmail').value) $('wtEmail').value=$('bkEmail').value;
+    if(wantTwo && !picked.full && room(picked)){ $('bkFr').checked=true; }
+    if($('bkCode').value && !picked.full){ $('bkCodeRow').hidden=true; $('bkCodeBox').hidden=false; checkCode(); }
+    priceNow();
   };
   window.bookWs=function(i,e){
     if(e) e.preventDefault();
@@ -1403,7 +1449,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     $('pickFH').textContent=long(d); $('pickFH').hidden=!d.full;
     $('bookForm').hidden=!!d.full; $('waitForm').hidden=!d.full;
     $('bkGo').disabled=false; $('bkGo').textContent=d.price>0?'Book, '+d.priceLabel:'Book my place';
-    $('bkMsg').textContent=''; $('bkCodeMsg').textContent=''; $('bkCode').value=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=!(d.price>0);
+    $('bkMsg').textContent=''; $('bkCodeMsg').textContent=''; $('bkCode').value=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=!(d.price>0); codeOk=null;
     /* the other date, offered alongside: one payment, the pair price */
     var other=up.filter(function(x,j){ return j!==i && !x.full; })[0];
     picked.other=(!d.full && other) ? other : null;
@@ -1425,17 +1471,24 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
      dates, two people, or both (four places, two pairs). The deal already
      applies, so a code steps aside whenever there is more than one place. */
   var groupCost=function(units,single){ return PAIR>0 ? Math.floor(units/2)*PAIR+(units%2)*single : units*single; };
+  /* what is charged: the server's own sum, and a checked code on a single place */
+  var costOf=function(both, people){
+    if(!both && people===1 && codeOk && codeOk.slug===picked.slug) return codeOk.price;
+    return PAIR>0 ? groupCost((both?2:1)*people, picked.price) : people*(picked.price+(both?picked.other.price:0));
+  };
   var priceNow=function(){
     if(!picked) return;
-    var dates=($('bkPair').checked&&picked.other)?2:1, people=$('bkFr').checked?2:1, units=dates*people, go=$('bkGo');
-    var cost=groupCost(units, picked.price);
+    var bothOn=$('bkPair').checked&&picked.other;
+    if($('bkFr').checked && (picked.full || !room(picked) || (bothOn && !room(picked.other)))) $('bkFr').checked=false;
+    var dates=bothOn?2:1, people=$('bkFr').checked?2:1, units=dates*people, go=$('bkGo');
+    var cost=costOf(!!bothOn, people);
     $('bkFrBox').hidden=people<2;
     drawChoices();
     $('bkFrT').innerHTML=people<2?'Bring someone with you'+(PAIR>0&&picked.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(PAIR))+'.</small>':'')
       :'Bringing someone<small>'+units+' places, '+esc(pounds(cost))+'.</small>';
     if(units>1){ go.textContent=(cost>0?'Book '+units+' places, '+pounds(cost):'Book '+units+' places');
-      $('bkCode').value=''; $('bkCodeMsg').textContent=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=true; }
-    else { go.textContent=picked.price>0?'Book, '+picked.priceLabel:'Book my place'; $('bkCodeRow').hidden=!(picked.price>0); }
+      $('bkCode').value=''; $('bkCodeMsg').textContent=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=true; codeOk=null; }
+    else { go.textContent=cost>0?'Book, '+pounds(cost):'Book my place'; $('bkCodeRow').hidden=!(picked.price>0) || !$('bkCodeBox').hidden; }
   };
   $('bkPair').addEventListener('change', priceNow);
   $('bkFr').addEventListener('change', function(){ priceNow(); if(this.checked) setTimeout(function(){ $('bkFrName').focus(); },40); });
@@ -1455,15 +1508,21 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   $('bkEmail').addEventListener('change', noteIntent);
   $('bkEmail').addEventListener('blur', noteIntent);
   var code=function(){ return (($('bkCode')||{}).value||'').trim().toUpperCase(); };
-  $('bkCode').addEventListener('change', function(){
-    var c=code(), cm=$('bkCodeMsg'), go=$('bkGo'); if(!picked) return;
-    if(!c){ cm.textContent=''; go.textContent='Book, '+picked.priceLabel; return; }
-    cm.style.color=''; cm.textContent='Checking…';
-    post('code',{slug:picked.slug,code:c}).then(function(d){
+  var checkCode=function(){
+    var c=code(), cm=$('bkCodeMsg'), slug=picked&&picked.slug; if(!picked) return;
+    codeOk=null;
+    if(!c){ cm.textContent=''; priceNow(); return; }
+    cm.style.color=''; cm.textContent='Checking…'; priceNow();
+    post('code',{slug:slug,code:c}).then(function(d){
+      if(!picked || picked.slug!==slug || code()!==c) return;
+      if(($('bkPair').checked&&picked.other) || $('bkFr').checked){ cm.textContent=''; return; }
+      codeOk={slug:slug, price:Number(d.price)||0};
       cm.style.color='var(--forest)'; cm.textContent=c+' applied: '+picked.priceLabel+' becomes '+d.label+'.';
-      go.textContent=Number(d.price)>0?'Book, '+d.label:'Book my place';
-    }).catch(function(err){ cm.style.color='var(--terra)'; cm.textContent=String(err); go.textContent='Book, '+picked.priceLabel; });
-  });
+      priceNow();
+    }).catch(function(err){ if(!picked || picked.slug!==slug || code()!==c) return;
+      cm.style.color='var(--terra)'; cm.textContent=err&&err.name==='TypeError'?'Could not check the code just now.':String(err); priceNow(); });
+  };
+  $('bkCode').addEventListener('change', checkCode);
   $('bookForm').addEventListener('submit', function(e){
     e.preventDefault(); if(!picked) return;
     var name=($('bkName').value||'').trim(), email=($('bkEmail').value||'').trim(), msg=$('bkMsg'), go=$('bkGo');
@@ -1482,7 +1541,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     }
     post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),back:'class'}).then(function(d){
       if(d.url){ location.href=d.url; return; }
-      if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:'')); return; }
+      if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:''))+(d.bs?'&bs='+encodeURIComponent(d.bs):''); return; }
       throw 'Something went wrong. Try again in a moment.';
     }).catch(function(err){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)';
       /* a server that cannot be reached, as against one that said no */

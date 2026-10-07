@@ -82,15 +82,19 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
       +'<p style="color:var(--grey);font-size:14.5px">'+(d.back>0?(d.pair?'You booked two dates together. The date you keep is charged at its own price, so '+pounds(d.back)+' comes back to your card.':'The '+pounds(d.back)+' you paid goes back to your card, in a few days.'):'Your place is given up and freed for somebody else.')+'</p>'
       +'<button class="ghost" id="cx">Cancel my place</button><div class="msg" id="cmsg"></div></div>'
       +'<div class="fine">You can move or cancel up to '+d.cutoff+' hours before the start. Questions? <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a></div>';
+    /* one thing at a time: a move and a cancel at once each acted on the same place */
+    var working=false, lockAll=function(on){ working=on; [].forEach.call(box.querySelectorAll('.opt[data-to],#cx'),function(x){ if(on) x.dataset.was=x.disabled?'1':''; x.disabled=on||x.dataset.was==='1'; }); };
     [].forEach.call(box.querySelectorAll('.opt[data-to]'),function(b){ b.onclick=function(){
-      var to=b.getAttribute('data-to'), m=document.getElementById('mmsg'); b.disabled=true; m.textContent='Moving…';
+      if(working) return;
+      var to=b.getAttribute('data-to'), m=document.getElementById('mmsg'); lockAll(true); m.textContent='Moving…';
       post({action:'move',to:to}).then(function(){ var o=others.filter(function(x){ return x.slug===to; })[0]; done('You have moved.','Your place is now on '+esc(day(o&&o.when))+'.'); })
-        .catch(function(e){ b.disabled=false; m.textContent=String(e); }); }; });
+        .catch(function(e){ lockAll(false); m.textContent=String(e); }); }; });
     var cx=document.getElementById('cx'); cx.onclick=function(){
       if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, cancel it'+(d.back>0?' and refund '+pounds(d.back):''); return; }
-      var m=document.getElementById('cmsg'); cx.disabled=true; m.textContent='Cancelling…';
+      if(working) return;
+      var m=document.getElementById('cmsg'); lockAll(true); m.textContent='Cancelling…';
       post({action:'cancel'}).then(function(r){ done('Your place is cancelled.', r.refunded?pounds(r.refunded)+' is on its way back to your card.':'Your place has been freed.'); })
-        .catch(function(e){ cx.disabled=false; m.textContent=String(e); }); };
+        .catch(function(e){ lockAll(false); m.textContent=String(e); }); };
   }
   if(!t){ box.innerHTML='<p>This page opens from the link in your booking email.</p>'; return; }
   fetch('/api/app/workshop/manage?t='+encodeURIComponent(t)).then(function(r){ return r.json().then(function(d){ return r.ok?d:Promise.reject(d.error||'Could not load this'); }); })
