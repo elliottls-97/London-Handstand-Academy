@@ -72,7 +72,7 @@ const esc = t => String(t == null ? '' : t)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
+function mail({ title, greeting, paras = [], box, cta, signoff, footnote, image, kicker }) {
   const F = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
   const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#4c5654">${t}</p>`;
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -86,13 +86,16 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
 <tr><td align="center">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
     style="max-width:560px;background:#ffffff;border-radius:18px;
-    border:1px solid #e3e0d6">
+    border:1px solid #e3e0d6;overflow:hidden">
+    ${image ? `<tr><td style="padding:0;line-height:0"><img src="${esc(image.src)}" alt="${esc(image.alt || '')}" width="560"
+      style="display:block;width:100%;height:auto;max-height:300px;object-fit:cover;border-radius:18px 18px 0 0"></td></tr>` : ''}
     <tr><td style="padding:30px 32px 0;text-align:center">
       <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#006663;
         text-transform:uppercase">London Handstand Academy</div>
       <div style="height:1px;background:#e3e6e6;margin:24px 0 0"></div>
     </td></tr>
     <tr><td style="padding:30px 32px 8px">
+      ${kicker ? `<div style="font:600 11px/1 ${F};letter-spacing:.14em;color:#a8680f;text-transform:uppercase;margin:0 0 12px">${esc(kicker)}</div>` : ''}
       <h1 style="margin:0 0 18px;font:700 27px/1.22 ${F};color:#111111;
         letter-spacing:-.015em">${esc(title)}</h1>
       ${greeting ? p(`Hi ${esc(greeting)},`) : ''}
@@ -705,6 +708,7 @@ async function intentMail(done) {
     const intents = ((ir && ir.value) || []).filter(x => x && x.email && now - (x.at || 0) > 2 * 3600e3);
     if (!intents.length) continue;
     const br = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
+    const pairRow = await supa.row('settings', 'key=eq.wspair&select=value').catch(() => null);
     const held = new Set(((br && br.value) || []).filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded').map(b => norm(b.email)));
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
     for (const p of intents) {
@@ -712,11 +716,20 @@ async function intentMail(done) {
       if (held.has(e)) continue;
       const key = `wsintent:${w.slug}:${e}`;
       if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+      const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
+      const pairPence = Number(((pairRow && pairRow.value) || {}).pence) || 0;
       const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-        place: w.place ? ', at ' + esc(w.place) : '', link: `${SITE}/handstand-class#book` });
+        place: w.place ? ', at ' + esc(w.place) : '', price, pair_line: pairPence ? `Both Saturdays together are £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
+        link: `${SITE}/handstand-class#book` });
       if (T.off) { done.held = (done.held || 0) + 1; continue; }
       const went = await email(e, T.subject, mail({ title: T.title, greeting: String(p.name || '').split(' ')[0], paras: T.paras,
-        cta: { href: `${SITE}/handstand-class#book`, label: 'Book your place' },
+        kicker: 'In person, London', image: { src: 'https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/latest-workshop-group-handstand-picture.jpg', alt: 'The last class at OverGravity, everyone upside down' },
+        box: { title: 'What you get', items: [
+          'Ninety minutes with two coaches, Elliott and Suryava, in a small group.',
+          'Grouped by level: never been upside down, learning freestanding, or working on press, one arm or handstand push ups.',
+          `${w.place || 'OverGravity, Shadwell'}: a proper gymnastics space, with wall and soft mats.`,
+          `${price} a place.${pairPence ? ' Both Saturdays together, £' + (pairPence / 100).toFixed(2).replace(/\.00$/, '') + '.' : ''}`] },
+        cta: { href: `${SITE}/handstand-class#book`, label: 'Book your place, ' + price },
         signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
       done.intents.reminded++;

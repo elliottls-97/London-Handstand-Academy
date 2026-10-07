@@ -393,13 +393,16 @@ export const EMAILS = {
       "title",
       "when",
       "place",
+      "price",
+      "pair_line",
       "link"
     ],
-    "subject": "Still want a place? {title}",
+    "subject": "Still want a place? {title}, {when}",
     "title": "Your place is not held yet.",
     "paras": [
-      "You started booking <b>{title}</b>, {when}{place}, and did not get to the end. No payment was taken and nothing is held for you.",
-      "If you still want to come, it takes a minute: <a href=\"{link}\" style=\"color:#006663\">book your place</a>. If you have changed your mind, ignore this and nothing more comes.",
+      "You started booking <b>{title}</b>, {when}{place}, and did not get to the end. No payment was taken and nothing is held for you, so if you want to come, the place is still open.",
+      "People leave the class with a handstand that has moved on in ninety minutes: a first hold against the wall, the first seconds of balance off it, or the next piece of the press. Two coaches and a small group, so you get seen. 5.0 on Google.",
+      "It takes a minute to book, card or Apple Pay, no account. {pair_line} If you have changed your mind, ignore this and nothing more comes.",
       "Any question, just reply."
     ],
     "footnote": "You are getting this once because you began a booking on our site. There is no list to come off."
