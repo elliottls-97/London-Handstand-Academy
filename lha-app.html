@@ -15364,7 +15364,9 @@ function workshopPopHTML(){
    there the payment opens in Safari and this sheet waits for the booking
    to appear on the account. */
 let WS_LIST=[], WS_PAIR=0;
-let wsb={slug:'', pair:false, code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
+let wsb={slug:'', pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
+/* every two places cost the pair price, an odd one its own: both dates, two people, or both */
+const wsGroupCost=(units,single)=>WS_PAIR>0?Math.floor(units/2)*WS_PAIR+(units%2)*single:units*single;
 let wsWaitT=0;
 const wsPounds=p=>'£'+(p/100).toFixed(2).replace(/\.00$/,'');
 const wsDay=w=>w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'}):'Date to be confirmed';
@@ -15376,7 +15378,7 @@ function wsBookOpen(slug){
   closeWorkshop(true);
   const list=wsOpenList(); if(!list.length){ toast('Nothing on sale right now.'); return; }
   const pick=list.find(w=>w.slug===slug) || list.find(w=>!wsFull(w)) || list[0];
-  wsb={slug:pick.slug, pair:false, code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
+  wsb={slug:pick.slug, pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[]};
   openOv('wsbook');
 }
 function wsBookPick(slug){ wsb.slug=slug; wsb.pair=false; wsb.msg=''; drawOv(); }
@@ -15386,6 +15388,8 @@ function wsBookBody(){
   const full=wsFull(w);
   const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
   const both=WS_PAIR>0?WS_PAIR:(Number(w.price)+(other?Number(other.price):0));
+  const units=(wsb.pair&&other?2:1)*(wsb.fr?2:1), cost=wsGroupCost(units, Number(w.price)||0);
+  const roomFor2=!(Number(w.places)>0 && Number(w.left)<2);
   const name=wsb.name!=null?wsb.name:(st.client||''), email=wsb.email!=null?wsb.email:(st.email||'');
   const fld='width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:13px 14px;font:400 16px/1.3 var(--sans);background:#fff;color:var(--ink)';
   const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:14px 0 6px';
@@ -15424,9 +15428,15 @@ function wsBookBody(){
       <input type="checkbox" ${wsb.pair?'checked':''} onchange="wsb.pair=this.checked;wsb.code='';drawOv()" style="flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)">
       <span>Add <b>${esc(wsDay(other))}</b> as well: ${esc(wsPounds(both))} for both${WS_PAIR>0&&WS_PAIR<Number(w.price)+Number(other.price)
         ?`<span style="display:block;font-size:12.5px;color:var(--grey)">Instead of ${esc(wsPounds(Number(w.price)+Number(other.price)))} booked one at a time.</span>`:''}</span></label>`:''}
-    ${(!wsb.pair && Number(w.price)>0)?`<label style="${lab}" for="wsbCode">Discount code, optional</label><input id="wsbCode" style="${fld};text-transform:uppercase" value="${esc(wsb.code)}" oninput="wsb.code=this.value" placeholder="CODE" autocomplete="off">`:''}
+    ${roomFor2?`<label style="display:flex;gap:11px;align-items:flex-start;margin-top:10px;padding:12px 14px;cursor:pointer;border-radius:14px;
+        border:1px solid ${wsb.fr?'var(--forest)':'rgba(0,64,61,.14)'};background:${wsb.fr?'rgba(0,102,99,.05)':'#fff'};font:400 14px/1.45 var(--sans);color:var(--ink)">
+      <input type="checkbox" ${wsb.fr?'checked':''} onchange="wsb.fr=this.checked;wsb.code='';drawOv()" style="flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)">
+      <span>Bring someone with you${WS_PAIR>0&&Number(w.price)*2>WS_PAIR&&!wsb.fr?`<span style="display:block;font-size:12.5px;color:var(--grey)">Two places on the same day: ${esc(wsPounds(WS_PAIR))}.</span>`:''}</span></label>
+    ${wsb.fr?`<label style="${lab}" for="wsbFrName">Their name</label><input id="wsbFrName" style="${fld}" value="${esc(wsb.frName)}" oninput="wsb.frName=this.value" autocomplete="off" placeholder="First and last">
+      <label style="${lab}" for="wsbFrEmail">Their email</label><input id="wsbFrEmail" type="email" inputmode="email" style="${fld}" value="${esc(wsb.frEmail)}" oninput="wsb.frEmail=this.value" autocomplete="off" placeholder="For their own confirmation">`:''}`:''}
+    ${(units===1 && Number(w.price)>0)?`<label style="${lab}" for="wsbCode">Discount code, optional</label><input id="wsbCode" style="${fld};text-transform:uppercase" value="${esc(wsb.code)}" oninput="wsb.code=this.value" placeholder="CODE" autocomplete="off">`:''}
     <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${
-      wsb.busy?'One moment…':(wsb.pair?'Book both, '+wsPounds(both):(Number(w.price)>0?'Book, '+(w.priceLabel||wsPounds(w.price)):'Book my place'))}</button>
+      wsb.busy?'One moment…':(units>1?'Book '+units+' places'+(cost>0?', '+wsPounds(cost):''):(Number(w.price)>0?'Book, '+(w.priceLabel||wsPounds(w.price)):'Book my place'))}</button>
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
     <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email${Number(w.appDays)>0?', and the app open for '+w.appDays+' days':''}. Move or cancel up to 24 hours before.</div>
   </div>`;
@@ -15455,10 +15465,17 @@ function wsBookGo(){
   const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
   const also=(wsb.pair&&other)?other.slug:'';
   const slugs=[w.slug].concat(also?[also]:[]);
+  let friend=null;
+  if(wsb.fr){
+    friend={name:(wsb.frName||'').trim(), email:(wsb.frEmail||'').trim()};
+    if(!friend.name){ wsb.msg='The name of the person coming with you, please.'; drawOv(); return; }
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(friend.email)){ wsb.msg='Their email, please: their confirmation goes there.'; drawOv(); return; }
+    if(friend.email.toLowerCase()===f.email.toLowerCase()){ wsb.msg='They need their own email address.'; drawOv(); return; }
+  }
   wsb.busy=true; wsb.msg=''; wsb.waiting=false; drawOv();
   try{ track('workshopbook'); }catch(e){}
   fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({slug:w.slug, also, name:f.name, email:f.email, code:also?'':(wsb.code||'').trim().toUpperCase(), back:'app'})})
+      body:JSON.stringify({slug:w.slug, also, friend, name:f.name, email:f.email, code:(also||friend)?'':(wsb.code||'').trim().toUpperCase(), back:'app'})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the booking')))
     .then(d=>{
       if(d.free){ wsBookedShow(slugs); return; }

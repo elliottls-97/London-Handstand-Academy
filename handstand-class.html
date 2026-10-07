@@ -1075,6 +1075,13 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         <label for="bkEmail">Email</label>
         <input id="bkEmail" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com">
         <label class="pick-pair" id="bkPairRow" hidden><input type="checkbox" id="bkPair"><span id="bkPairT"></span></label>
+        <label class="pick-pair" id="bkFrRow"><input type="checkbox" id="bkFr"><span id="bkFrT">Bring someone with you</span></label>
+        <div id="bkFrBox" hidden>
+          <label for="bkFrName">Their name</label>
+          <input id="bkFrName" autocomplete="off" placeholder="First and last">
+          <label for="bkFrEmail">Their email</label>
+          <input id="bkFrEmail" type="email" inputmode="email" autocomplete="off" placeholder="For their own confirmation and reminder">
+        </div>
         <div id="bkCodeRow"><button type="button" class="pick-link" onclick="bkShowCode()">Have a code?</button></div>
         <div id="bkCodeBox" hidden>
           <label for="bkCode">Discount code</label>
@@ -1314,6 +1321,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     /* the other date, offered alongside: one payment, the pair price */
     var other=up.filter(function(x,j){ return j!==i && !x.full; })[0];
     picked.other=(!d.full && other) ? other : null;
+    $('bkFr').checked=false; $('bkFrBox').hidden=true; $('bkFrName').value=''; $('bkFrEmail').value=''; $('bkFrRow').hidden=!!d.full||(d.places>0&&d.left<2);
+    $('bkFrT').innerHTML='Bring someone with you'+(PAIR>0&&d.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(PAIR))+'.</small>':'');
     var row=$('bkPairRow'), tick=$('bkPair');
     if(row){ row.hidden=!picked.other; tick.checked=false;
       if(picked.other){ var both=PAIR>0?PAIR:(d.price+other.price), full=d.price+other.price;
@@ -1326,15 +1335,23 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   window.closePick=function(){ var pk=$pick(); if(pk) pk.hidden=true; };
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePick(); });
   window.bkShowCode=function(){ $('bkCodeRow').hidden=true; $('bkCodeBox').hidden=false; $('bkCode').focus(); };
-  /* the pair is already the deal, so a code steps aside while it is ticked */
-  $('bkPair').addEventListener('change', function(){
+  /* Every two places cost the pair price, an odd one its own price: both
+     dates, two people, or both (four places, two pairs). The deal already
+     applies, so a code steps aside whenever there is more than one place. */
+  var groupCost=function(units,single){ return PAIR>0 ? Math.floor(units/2)*PAIR+(units%2)*single : units*single; };
+  var priceNow=function(){
     if(!picked) return;
-    var on=this.checked && picked.other, go=$('bkGo');
-    if(on){ var both=PAIR>0?PAIR:(picked.price+picked.other.price);
-      go.textContent=both>0?'Book both, '+pounds(both):'Book both';
+    var dates=($('bkPair').checked&&picked.other)?2:1, people=$('bkFr').checked?2:1, units=dates*people, go=$('bkGo');
+    var cost=groupCost(units, picked.price);
+    $('bkFrBox').hidden=people<2;
+    $('bkFrT').innerHTML=people<2?'Bring someone with you'+(PAIR>0&&picked.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(PAIR))+'.</small>':'')
+      :'Bringing someone<small>'+units+' places, '+esc(pounds(cost))+'.</small>';
+    if(units>1){ go.textContent=(cost>0?'Book '+units+' places, '+pounds(cost):'Book '+units+' places');
       $('bkCode').value=''; $('bkCodeMsg').textContent=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=true; }
     else { go.textContent=picked.price>0?'Book, '+picked.priceLabel:'Book my place'; $('bkCodeRow').hidden=!(picked.price>0); }
-  });
+  };
+  $('bkPair').addEventListener('change', priceNow);
+  $('bkFr').addEventListener('change', function(){ priceNow(); if(this.checked) setTimeout(function(){ $('bkFrName').focus(); },40); });
   var okEmail=function(v){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v); };
   /* an email typed here is somebody who wanted a place: noted once per
      date and address, so the morning after they can be reminded if they
@@ -1369,7 +1386,14 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     go.disabled=true; var was=go.textContent; go.textContent='One moment…'; msg.textContent='';
     beacon('workshopbook');
     var also=($('bkPair').checked && picked.other) ? picked.other.slug : '';
-    post('book',{slug:picked.slug,also:also,name:name,email:email,code:also?'':code(),back:'class'}).then(function(d){
+    var friend=null;
+    if($('bkFr').checked){
+      friend={name:($('bkFrName').value||'').trim(), email:($('bkFrEmail').value||'').trim()};
+      if(!friend.name){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='The name of the person coming with you, please.'; $('bkFrName').focus(); return; }
+      if(!okEmail(friend.email)){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='Their email, please: their confirmation and reminder go there.'; $('bkFrEmail').focus(); return; }
+      if(friend.email.toLowerCase()===email.toLowerCase()){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='They need their own email address.'; return; }
+    }
+    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),back:'class'}).then(function(d){
       if(d.url){ location.href=d.url; return; }
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:'')); return; }
       throw 'Something went wrong. Try again in a moment.';
