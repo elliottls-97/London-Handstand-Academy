@@ -715,7 +715,28 @@ async function intentMail(done) {
       const e = norm(p.email);
       if (held.has(e)) continue;
       const key = `wsintent:${w.slug}:${e}`;
-      if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+      const first = await supa.row('nudges', `key=eq.${enc(key)}&select=key,sent_at`).catch(() => null);
+      if (first) {
+        /* three days after the first, if they still have no place and the
+           date is still more than a day away: the date once more, and the
+           free app as the way to start at home. The last word on it. */
+        const sentAt = ms(first.sent_at);
+        if (!sentAt || now - sentAt < 3 * DAY || at - now < DAY) continue;
+        const key2 = `wsintent2:${w.slug}:${e}`;
+        if (await supa.row('nudges', `key=eq.${enc(key2)}&select=key`).catch(() => null)) continue;
+        const price2 = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'free';
+        const T2 = await emailCopy('wsIntent2', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
+          price: price2, link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop` });
+        if (T2.off) { done.held = (done.held || 0) + 1; continue; }
+        const went2 = await email(e, T2.subject, mail({ title: T2.title, greeting: String(p.name || '').split(' ')[0], paras: T2.paras,
+          kicker: 'Handstand, this week',
+          cta: { href: `${SITE}/lha-app.html?ref=workshop`, label: 'Try the free app' },
+          signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T2.footnote || undefined }));
+        if (!went2) { done.held = (done.held || 0) + 1; continue; }
+        done.intents.again = (done.intents.again || 0) + 1;
+        await supa.upsert('nudges', { key: key2, sent_at: new Date().toISOString() }, 'key');
+        continue;
+      }
       const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
       const pairPence = Number(((pairRow && pairRow.value) || {}).pence) || 0;
       const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),

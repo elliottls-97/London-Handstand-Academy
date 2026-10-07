@@ -407,6 +407,26 @@ export const EMAILS = {
     ],
     "footnote": "You are getting this once because you began a booking on our site. There is no list to come off."
   },
+  "wsIntent2": {
+    "name": "Workshop, started booking and stopped, three days on",
+    "when": "Three days after the first reminder, if they still have no place and the date is more than a day away",
+    "vars": [
+      "name",
+      "title",
+      "when",
+      "price",
+      "link",
+      "app_link"
+    ],
+    "subject": "Start upside down this week, with or without Saturday",
+    "title": "Two ways to start.",
+    "paras": [
+      "A few days ago you looked at <b>{title}</b>, {when}. Places are still open, and it is still the quickest way to a handstand that works: <a href=\"{link}\" style=\"color:#006663\">book your place, {price}</a>.",
+      "If Saturday is not going to happen, start at home instead. The Handstand Ladder is the path I take my clients down, in an app: six stages from your first wall hold to a freestanding press, with a film for every drill and a session built for the time you have. The first stage is free, no account needed.",
+      "Either way, this is the last email about it. Any question, just reply."
+    ],
+    "footnote": "You are getting this because you began a booking on our site. Nothing more comes after this one."
+  },
   "wsThanks": {
     "name": "Workshop, the day after",
     "when": "10 to 40 hours after a workshop",
