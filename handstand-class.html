@@ -600,7 +600,7 @@ body.embed .hero-inner{padding-top:56px;}
 /* which Saturday: the top and sticky Book buttons ask first */
 .dpick{position:fixed;inset:0;z-index:1200;background:rgba(10,20,19,.72);display:flex;align-items:flex-end;justify-content:center;padding:16px;}
 .dpick[hidden]{display:none;}
-.pick-box{width:min(420px,100%);background:#fff;border-radius:22px;padding:22px 20px 18px;box-shadow:0 30px 70px -30px rgba(0,0,0,.6);}
+.pick-box{width:min(420px,100%);max-height:calc(100dvh - 32px);overflow-y:auto;background:#fff;border-radius:22px;padding:22px 20px 18px;box-shadow:0 30px 70px -30px rgba(0,0,0,.6);}
 @media(min-width:620px){.dpick{align-items:center;}}
 .pick-h{font-family:var(--disp);font-size:22px;color:var(--deep);margin:0 0 4px;}
 .pick-s{font-size:14px;color:var(--ink60);margin:0 0 16px;}
@@ -764,6 +764,12 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
 @media (max-width:760px){.venue{grid-template-columns:1fr;gap:16px}}
 .bopt-fine{max-width:520px;margin:-6px auto 0;font-size:13.5px;line-height:1.5;color:rgba(255,255,255,.72)}
 .bopt-done{text-align:center}
+/* the booking panel, on the green: white, the form inside it */
+.bpanel{max-width:480px;margin:0 auto 18px;background:#fff;color:var(--ink);border-radius:22px;padding:6px 20px 20px;text-align:left;
+ box-shadow:0 24px 50px -28px rgba(0,0,0,.55)}
+.bpanel .seg-l:first-of-type{margin-top:14px}
+.bpanel .pick-h,.bpanel #pickFS,.bpanel .pick-back{display:none}
+.bpanel .pick-f label{margin-top:10px}
 /* the cards line up: the same lines on each, the button at the foot */
 .bopt-c{display:flex;flex-direction:column}
 .bopt-c .bopt-s{margin-bottom:4px}
@@ -1024,6 +1030,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   <div class="bopt" id="clsCards" data-lock="The dates come from Settings, Workshops. A live workshop with All Levels in its title shows here.">
     <div class="bopt-c"><div class="bopt-k">The dates</div><div class="bopt-s">One moment.</div></div>
   </div>
+  <!-- the booking form itself, moved here from the sheet when the page
+       loads: one panel instead of a card per date and a pop-up -->
+  <div class="bpanel" id="bookPanel" hidden></div>
   <p class="bopt-fine" id="clsFine">Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.</p>
   <p class="bopt-alt" id="clsAlt" hidden>Problem booking? <a href="https://londonhandstandacademy.setmore.com/class-session/5f54fc44-7054-4c72-85fd-35ad030cd6b4" target="_blank" rel="noopener">Use Setmore instead</a>.</p>
 </div></section>
@@ -1221,6 +1230,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       full:Number(w.places)>0&&Number(w.left)<=0, title:w.title};
   };
   var up=[];           /* the dates still to come, soonest first */
+  var inPanel=false;   /* filling the panel quietly, not answering a Book button */
   var picked=null;     /* the one being booked */
   var PAIR=0;          /* two dates together, in pence, when the owner has set it */
   var pounds=function(v){ return '\u00a3'+(v/100).toFixed(2).replace(/\.00$/,''); };
@@ -1269,6 +1279,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
           +'<div class="bopt-s">A confirmation is on its way to your email, and a reminder comes the day before'+(done.length>1?' each one':'')+'.'
           +done.map(function(d){ return ' <a href="/api/app/workshop/ics?slug='+esc(d.slug)+'" style="color:#fff;font-weight:700">Add '+(done.length>1?esc(parts(d).dd+' '+parts(d).m):'it')+' to your calendar</a>.'; }).join('')
           +'</div></div>';
+      } else if(up.length){
+        cards.innerHTML='';
       } else {
         cards.innerHTML = up.slice(0,4).map(function(d,i){
           return '<div class="bopt-c'+(i===0?' pick':'')+'">'
@@ -1283,7 +1295,15 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       }
     }
     var alt=$('clsAlt'); if(alt) alt.hidden=!(up.length&&!booked.length);
-    var fine=$('clsFine'); if(fine){ fine.style.display=(up.length&&!booked.length)?'':'none';
+    /* the panel: the form, moved in once, on the first date with room */
+    var panel=$('bookPanel'), form=$('pickForm');
+    if(panel && form && form.parentNode!==panel){ panel.appendChild(form); form.hidden=false; }
+    if(panel) panel.hidden=!(up.length && !booked.length);
+    if(cards) cards.style.display=(up.length && !booked.length)?'none':'';
+    if(up.length && !booked.length && (!picked || !up.some(function(d){ return d.slug===picked.slug; }))){
+      var j=0; for(var q=0;q<up.length;q++){ if(!up[q].full){ j=q; break; } }
+      inPanel=true; bookWs(j); inPanel=false; }
+    var fine=$('clsFine'); if(fine){ fine.style.display='none';
       var open=up.filter(function(d){ return !d.full; });
       fine.textContent=(open.length>1&&PAIR>0 ? 'Both '+(sameDay?parts(first).dow+'s':'dates')+' together: '+pounds(PAIR)+'. ' : '')
         +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
@@ -1331,8 +1351,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   window.pickDate=function(e){
     if(e) e.preventDefault();
     if(!up.length){ var t=$('book'); if(t) t.scrollIntoView({behavior:'smooth'}); return false; }
-    var j=0; for(var k=0;k<up.length;k++){ if(!up[k].full){ j=k; break; } }
-    return bookWs(j);
+    var t0=$('book'); if(t0) t0.scrollIntoView({behavior:'smooth',block:'start'});
+    return false;
   };
   /* ── the two choices and the summary ── */
   var drawChoices=function(){
@@ -1351,7 +1371,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     [].forEach.call($('segWhen').querySelectorAll('button'),function(b){ b.onclick=function(){
       if(b.getAttribute('data-both')){ if(!picked.other){ var o=up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0]; picked.other=o||null; } $('bkPair').checked=!!picked.other; priceNow(); return; }
       var i=+b.getAttribute('data-i'); $('bkPair').checked=false;
-      if(up[i].slug!==picked.slug || b.getAttribute('data-full')) keepFields(function(){ bookWs(i); }); else priceNow(); }; });
+      if(up[i].slug!==picked.slug || b.getAttribute('data-full')) keepFields(function(){ inPanel=true; bookWs(i); inPanel=false; }); else priceNow(); }; });
     /* Who: two of us needs two places on every date chosen */
     var room=function(d){ return !(d.places>0 && d.left<2); };
     var canTwo=!picked.full && room(picked) && (!both || room(picked.other));
@@ -1378,7 +1398,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(e) e.preventDefault();
     var d=up[i]; if(!d) return false;
     picked=d;
-    $pick().hidden=false; pickStep('form');
+    if(!inPanel){ var bk=$('bookPanel'); if(bk && !bk.hidden){ var t0=$('book'); if(t0) t0.scrollIntoView({behavior:'smooth',block:'start'}); } else { $pick().hidden=false; pickStep('form'); } }
     var back=$('pickBack'); if(back) back.hidden=true;   /* the dates are the When choice now */
     $('pickFH').textContent=long(d); $('pickFH').hidden=!d.full;
     $('bookForm').hidden=!!d.full; $('waitForm').hidden=!d.full;
