@@ -145,7 +145,8 @@ const wsGroupCost = (units, single, pair) => pair > 0 ? Math.floor(units / 2) * 
 async function wsRefundFor(b, slug) {
   let back = Number(b.paid) || 0, keeps = [];
   const rows = [];
-  for (const sl of [...new Set([slug, b.pair].filter(Boolean))])
+  const allW = (await getSetting('workshops')) || {};
+  for (const sl of [...new Set([slug, b.pair, ...Object.keys(allW)].filter(Boolean))])
     for (const x of wsPlaces((await getSetting(`wsbook:${sl}`)) || [])) if (x.session === b.session) rows.push({ slug: sl, x });
   if (rows.length > 1 && !String(b.session || '').startsWith('ext-')) {
     const all = (await getSetting('workshops')) || {};
@@ -180,12 +181,12 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
      already refunded, told the client the refund had failed. The cancel
      is claimed first, the refund carries a key Stripe will only act on
      once, and "already refunded" counts as done. */
-  const ckey = `wscancel:${b.session || slug + ':' + who}:${slug}`;
+  const ckey = `wscancel:${b.session || slug + ':' + who}:${slug}:${who}:${b.movedAt || b.at || ''}`;
   if (!(await supa.insertIfAbsent('nudges', { key: ckey, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)))
     return { ok: true, status: 'cancelled', note: 'already cancelled' };
   let refunded = false, refundErr = '';
   if (doRefund && b.pi && back > 0 && stripeKey()) {
-    try { await stripe('/refunds', { payment_intent: b.pi, ...((b.pair || back !== Number(b.paid)) ? { amount: String(back) } : {}) }, 'POST', 'wsrefund:' + (b.session || b.pi) + ':' + slug); refunded = true; }
+    try { await stripe('/refunds', { payment_intent: b.pi, amount: String(back) }, 'POST', 'wsrefund:' + (b.session || b.pi) + ':' + slug + ':' + (b.movedAt || b.at || '') + ':' + b.email); refunded = true; }
     catch (err) { refundErr = String(err.message || err); if (/already been refunded/i.test(refundErr)) { refunded = true; refundErr = ''; } }
   }
   await changeSetting(`wsbook:${slug}`, cur => {
@@ -4630,6 +4631,7 @@ const handle = async (request) => {
     /* Book pressed is the clearest sign of wanting a place */
     await wsIntentNote(slug, w2 ? also : '', e, nm);
     if (fr) await wsIntentNote(slug, w2 ? also : '', fr.e, fr.nm);
+    if (units > 1 && String(body.code || '').trim()) return json({ error: 'A code is for one place. Two places already have the lower price.' }, 400);
     const disc = await wsCodeCheck(slug, body.code, base);
     if (disc.error) return json({ error: disc.error }, 400);
     /* a code that leaves a few pence is free: Stripe will not take under 30p */
