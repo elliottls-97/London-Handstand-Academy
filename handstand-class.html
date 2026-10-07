@@ -775,6 +775,10 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
 .pick-go:disabled{opacity:.7;cursor:default}
 .pick-msg{min-height:1px;margin-top:8px;font-size:13.5px;line-height:1.45;color:var(--terra)}
 .pick-fine{margin:12px 0 0;font-size:12.5px;line-height:1.5;color:var(--ink60)}
+.pick-pair{display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;line-height:1.45;color:var(--ink);cursor:pointer}
+.pick-pair:has(input:checked){border-color:var(--terra);background:rgba(0,102,99,.05)}
+.pick-pair input{flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--terra)}
+.pick-pair small{display:block;color:var(--ink60);font-size:12.5px}
 /* the film as a line under Book, not a second button beside it */
 .hero-film{display:inline-flex;align-items:center;gap:9px;border:0;background:none;padding:6px 0;color:rgba(255,255,255,.9);font:600 14px var(--body);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .hero-film .hero-watch-play{background:rgba(255,255,255,.18)}
@@ -1066,6 +1070,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         <input id="bkName" autocomplete="name" placeholder="First and last">
         <label for="bkEmail">Email</label>
         <input id="bkEmail" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com">
+        <label class="pick-pair" id="bkPairRow" hidden><input type="checkbox" id="bkPair"><span id="bkPairT"></span></label>
         <div id="bkCodeRow"><button type="button" class="pick-link" onclick="bkShowCode()">Have a code?</button></div>
         <div id="bkCodeBox" hidden>
           <label for="bkCode">Discount code</label>
@@ -1179,8 +1184,11 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   };
   var up=[];           /* the dates still to come, soonest first */
   var picked=null;     /* the one being booked */
-  var booked=(function(){ var q=new URLSearchParams(location.search), b=(q.get('booked')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,24);
-    if(b){ q.delete('booked'); var qs=q.toString(); history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#book'); } return b; })();
+  var PAIR=0;          /* two dates together, in pence, when the owner has set it */
+  var pounds=function(v){ return '\u00a3'+(v/100).toFixed(2).replace(/\.00$/,''); };
+  /* back from paying: one slug, or two joined with a comma */
+  var booked=(function(){ var q=new URLSearchParams(location.search), b=(q.get('booked')||'').toLowerCase().split(',').map(function(x){ return x.replace(/[^a-z0-9-]/g,'').slice(0,24); }).filter(Boolean);
+    if(b.length){ q.delete('booked'); var qs=q.toString(); history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#book'); } return b; })();
   var beacon=function(n){ try{ navigator.sendBeacon('/api/app/event', new Blob([JSON.stringify({n:n})],{type:'application/json'})); }catch(e){} };
   var post=function(path,body){ return fetch('/api/app/workshop/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){ return r.json().then(function(d){ return r.ok?d:Promise.reject(d.error||'Something went wrong'); }); }); };
@@ -1205,12 +1213,14 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(cards){
       cards.classList.toggle('solo', up.length<=1);
       cards.classList.toggle('n3', Math.min(up.length,4)===3);
-      var done=booked && up.filter(function(d){ return d.slug===booked; })[0];
-      if(booked){
+      var done=up.filter(function(d){ return booked.indexOf(d.slug)>-1; });
+      if(booked.length){
         cards.innerHTML='<div class="bopt-c pick bopt-done"><div class="bopt-tick">&#10003;</div><div class="bopt-k">You are booked</div>'
-          +(done?'<div class="bopt-p" style="font-size:26px">'+esc(long(done))+'</div><div class="bopt-s">'+esc(span(done))+', at '+PLACE+'.</div>':'')
-          +'<div class="bopt-s">A confirmation is on its way to your email, and a reminder comes the day before.'
-          +(done?' <a href="/api/app/workshop/ics?slug='+esc(done.slug)+'" style="color:#fff;font-weight:700">Add it to your calendar</a>.':'')+'</div></div>';
+          +done.map(function(d){ return '<div class="bopt-p" style="font-size:26px">'+esc(long(d))+'</div>'; }).join('')
+          +(done.length?'<div class="bopt-s">'+esc(span(done[0]))+', at '+PLACE+'.</div>':'')
+          +'<div class="bopt-s">A confirmation is on its way to your email, and a reminder comes the day before'+(done.length>1?' each one':'')+'.'
+          +done.map(function(d){ return ' <a href="/api/app/workshop/ics?slug='+esc(d.slug)+'" style="color:#fff;font-weight:700">Add '+(done.length>1?esc(parts(d).dd+' '+parts(d).m):'it')+' to your calendar</a>.'; }).join('')
+          +'</div></div>';
       } else {
         cards.innerHTML = up.slice(0,4).map(function(d,i){
           return '<div class="bopt-c'+(i===0?' pick':'')+'">'
@@ -1224,7 +1234,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         }).join('') || '<div class="bopt-c"><div class="bopt-k">New dates coming soon</div><div class="bopt-s">Ask a question below and you will hear as soon as they are up.</div></div>';
       }
     }
-    var fine=$('clsFine'); if(fine) fine.style.display=(up.length&&!booked)?'':'none';
+    var fine=$('clsFine'); if(fine){ fine.style.display=(up.length&&!booked.length)?'':'none';
+      var open=up.filter(function(d){ return !d.full; });
+      fine.textContent=(open.length>1&&PAIR>0 ? 'Both '+(sameDay?parts(first).dow+'s':'dates')+' together: '+pounds(PAIR)+'. ' : '')
+        +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
     var pick=$('clsPick'); if(pick) pick.innerHTML=up.map(function(d,i){
       return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('');
     var ps=$('clsPickS'); if(ps&&first) ps.textContent=span(first)+' at '+PLACE+'.'+(price?' '+price+'.':'');
@@ -1255,7 +1268,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       var same=second&&parts(second).m===parts(first).m;
       document.title='All Levels Handstand Class · '+short(first).slice(0,3)+' '+parts(first).dd+(second?(same?' and '+parts(second).dd+' '+parts(first).m:' '+parts(first).m+' and '+parts(second).dd+' '+parts(second).m):' '+parts(first).m)+' · OverGravity, London';
     }
-    if(booked && cards){ var t=$('book'); if(t) setTimeout(function(){ t.scrollIntoView({block:'start'}); },50); }
+    if(booked.length && cards){ var t=$('book'); if(t) setTimeout(function(){ t.scrollIntoView({block:'start'}); },50); }
   }
 
   /* ── the sheet ── */
@@ -1283,6 +1296,14 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     $('bookForm').hidden=!!d.full; $('waitForm').hidden=!d.full;
     $('bkGo').disabled=false; $('bkGo').textContent=d.price>0?'Book, '+d.priceLabel:'Book my place';
     $('bkMsg').textContent=''; $('bkCodeMsg').textContent=''; $('bkCode').value=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=!(d.price>0);
+    /* the other date, offered alongside: one payment, the pair price */
+    var other=up.filter(function(x,j){ return j!==i && !x.full; })[0];
+    picked.other=(!d.full && other) ? other : null;
+    var row=$('bkPairRow'), tick=$('bkPair');
+    if(row){ row.hidden=!picked.other; tick.checked=false;
+      if(picked.other){ var both=PAIR>0?PAIR:(d.price+other.price), full=d.price+other.price;
+        $('bkPairT').innerHTML='Add <b>'+esc(long(other))+'</b> as well'+(both>0?': '+esc(pounds(both))+' for both':'')
+          +(PAIR>0&&PAIR<full?'<small>Instead of '+esc(pounds(full))+' booked one at a time.</small>':''); } }
     $('wtGo').disabled=false; $('wtGo').textContent='Put me on the list'; $('wtMsg').textContent='';
     var f=d.full?$('wtName'):$('bkName'); if(f) setTimeout(function(){ f.focus(); },60);
     return false;
@@ -1290,6 +1311,15 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   window.closePick=function(){ var pk=$pick(); if(pk) pk.hidden=true; };
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePick(); });
   window.bkShowCode=function(){ $('bkCodeRow').hidden=true; $('bkCodeBox').hidden=false; $('bkCode').focus(); };
+  /* the pair is already the deal, so a code steps aside while it is ticked */
+  $('bkPair').addEventListener('change', function(){
+    if(!picked) return;
+    var on=this.checked && picked.other, go=$('bkGo');
+    if(on){ var both=PAIR>0?PAIR:(picked.price+picked.other.price);
+      go.textContent=both>0?'Book both, '+pounds(both):'Book both';
+      $('bkCode').value=''; $('bkCodeMsg').textContent=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=true; }
+    else { go.textContent=picked.price>0?'Book, '+picked.priceLabel:'Book my place'; $('bkCodeRow').hidden=!(picked.price>0); }
+  });
   var okEmail=function(v){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v); };
   var code=function(){ return (($('bkCode')||{}).value||'').trim().toUpperCase(); };
   $('bkCode').addEventListener('change', function(){
@@ -1309,9 +1339,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(!okEmail(email)){ msg.textContent='A real email address, please: the confirmation goes there.'; $('bkEmail').focus(); return; }
     go.disabled=true; var was=go.textContent; go.textContent='One moment…'; msg.textContent='';
     beacon('workshopbook');
-    post('book',{slug:picked.slug,name:name,email:email,code:code(),back:'class'}).then(function(d){
+    var also=($('bkPair').checked && picked.other) ? picked.other.slug : '';
+    post('book',{slug:picked.slug,also:also,name:name,email:email,code:also?'':code(),back:'class'}).then(function(d){
       if(d.url){ location.href=d.url; return; }
-      if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug); return; }
+      if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:'')); return; }
       throw 'Something went wrong. Try again in a moment.';
     }).catch(function(err){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent=String(err); });
   });
@@ -1332,9 +1363,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     render();
   };
   fetch('/api/app/workshops').then(function(r){ return r.json(); })
-    .then(function(d){ clsWorkshops((d&&d.workshops)||[]); })
-    .catch(function(){ if(booked){ render(); return; } var c=$('clsCards'); if(c) c.innerHTML='<div class="bopt-c"><div class="bopt-k">Could not load the dates</div><div class="bopt-s">Check your signal and reload the page.</div></div>'; });
-  document.addEventListener('lha-site', function(){ if(up.length||booked) render(); });
+    .then(function(d){ PAIR=Number(d&&d.pair)||0; clsWorkshops((d&&d.workshops)||[]); })
+    .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c) c.innerHTML='<div class="bopt-c"><div class="bopt-k">Could not load the dates</div><div class="bopt-s">Check your signal and reload the page.</div></div>'; });
+  document.addEventListener('lha-site', function(){ if(up.length||booked.length) render(); });
 })();
 </script>
 <script>

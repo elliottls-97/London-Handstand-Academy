@@ -2119,18 +2119,22 @@ const handle = async (request) => {
        have no account yet; one is made for them, and the app is opened for
        the days the workshop grants. */
     if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.workshop) {
-      const slug = String(obj.metadata.workshop).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
+      /* one date, or two joined with a comma: both Saturdays booked together
+         at the pair price, one payment, a place on each, and each date's
+         share of the money refundable on its own */
+      const slugs = [...new Set(String(obj.metadata.workshop).toLowerCase().split(',')
+        .map(x => x.replace(/[^a-z0-9-]/g, '').slice(0, 24)).filter(Boolean))].slice(0, 2);
       const all = (await getSetting('workshops')) || {};
-      const w = all[slug];
       const nm = String((obj.metadata.name || (obj.customer_details && obj.customer_details.name) || '')).slice(0, 60);
       if (!csPaid(obj)) return json({ ok: true, note: 'workshop payment still pending' });
-      if (!e || !w) {
+      const missing = slugs.filter(sl => !all[sl]);
+      if (!e || !slugs.length || missing.length) {
         /* once, and the payer is told as well: a workshop deleted while its
            page was open left them paid with nothing */
         if (!(await supa.insertIfAbsent('nudges', { key: `wsorphan:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)))
           return json({ ok: true, note: 'workshop not filed, already said' });
         await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A workshop payment could not be filed',
-          `<p style="font:16px/1.6 system-ui">${esc(obj.id || '')} for ${esc(e || 'unknown')} on workshop "${esc(slug)}": ${w ? 'no email on the payment' : 'no such workshop'}. The money is in Stripe; the booking is not recorded. Refund it or book them in by hand.</p>`);
+          `<p style="font:16px/1.6 system-ui">${esc(obj.id || '')} for ${esc(e || 'unknown')} on workshop "${esc(slugs.join(', '))}": ${!missing.length ? 'no email on the payment' : 'no such workshop'}. The money is in Stripe; the booking is not recorded. Refund it or book them in by hand.</p>`);
         if (e) await email(e, 'Your payment: we have it', mail({ title: 'We have your payment.', greeting: nm.split(' ')[0] || '',
           paras: ['Your payment went through, but the workshop it was for has changed since you opened the page. Elliott will be in touch within a day to book you in or refund you in full.'],
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -2138,65 +2142,82 @@ const handle = async (request) => {
       }
       const md = obj.metadata || {};
       const paidNow = Number(obj.amount_total) || 0, piNow = String(obj.payment_intent || '');
+      const n = slugs.length, each = Math.floor(paidNow / n);
+      /* each date's share of what was paid; the first carries the odd penny */
+      const shares = slugs.map((_, i) => i === 0 ? paidNow - each * (n - 1) : each);
+      const pounds = v => '£' + (v / 100).toFixed(2).replace(/\.00$/, '');
+      const whenOf = w => w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      const dayOf = w => w.when ? new Date(w.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : '';
       /* One change nothing else can overwrite, and the checks made inside
          it against the list as it really is: two people paying for the last
          place in the same second each read the list, each saw a place, and
          the second write threw the first booking away. Whether this one is
          a second payment, over the limit, or for a date gone by is decided
-         here, and those are refunded rather than confirmed. */
-      let fresh = false, problem = '', count = 0;
-      const book = await changeSetting(`wsbook:${slug}`, cur => {
-        fresh = false; problem = '';
-        const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-        if (l.some(b => b.session === obj.id)) { count = wsLive(l).length; return undefined; }
-        fresh = true;
-        const live = wsLive(l);
-        problem = live.some(b => b.email === e) ? 'twice'
-          : (Number(w.places) > 0 && live.length >= Number(w.places)) ? 'full'
-          : (w.when && ms(w.when) < Date.now()) ? 'past' : '';
-        l.push({ email: e, name: nm, at: Date.now(), session: String(obj.id || ''), paid: paidNow, pi: piNow,
-          q: String(md.q || '').slice(0, 400), exp: String(md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
-          status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
-        count = wsLive(l).length; return l;
-      }) || [];
+         here, per date, and those are refunded rather than confirmed. */
+      const results = [];
+      let anyFresh = false;
+      for (let i = 0; i < n; i++) {
+        const slug = slugs[i], w = all[slug];
+        let fresh = false, problem = '', count = 0;
+        await changeSetting(`wsbook:${slug}`, cur => {
+          fresh = false; problem = '';
+          const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+          if (l.some(b => b.session === obj.id)) { count = wsLive(l).length; return undefined; }
+          fresh = true;
+          const live = wsLive(l);
+          problem = live.some(b => b.email === e) ? 'twice'
+            : (Number(w.places) > 0 && live.length >= Number(w.places)) ? 'full'
+            : (w.when && ms(w.when) < Date.now()) ? 'past' : '';
+          l.push({ email: e, name: nm, at: Date.now(), session: String(obj.id || ''), paid: shares[i], pi: piNow,
+            ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
+            q: String(md.q || '').slice(0, 400), exp: String(md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
+            status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
+          count = wsLive(l).length; return l;
+        });
+        if (fresh) anyFresh = true;
+        results.push({ slug, w, problem, count, share: shares[i], back: false });
+      }
       /* the messages, once however many times Stripe sends this */
-      if (!(await supa.insertIfAbsent('nudges', { key: `wsbooked:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => fresh)))
-        return json({ ok: true, workshop: slug, note: 'already filed' });
-      const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
-      if (problem) {
-        let back = false;
+      if (!(await supa.insertIfAbsent('nudges', { key: `wsbooked:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => anyFresh)))
+        return json({ ok: true, workshop: slugs.join(','), note: 'already filed' });
+      const bad = results.filter(r => r.problem), good = results.filter(r => !r.problem);
+      for (const r of bad) {
+        const w = r.w, whenTxt = whenOf(w), problem = r.problem;
         if (piNow && stripeKey()) {
-          try { await stripe('/refunds', { payment_intent: piNow }, 'POST', 'wsauto:' + obj.id); back = true; }
-          catch (err) { console.error('workshop auto refund', obj.id, String(err && err.message || err)); }
+          /* a pair: that date's share comes back and the other date stands */
+          try { await stripe('/refunds', { payment_intent: piNow, ...(n > 1 ? { amount: String(r.share) } : {}) }, 'POST', 'wsauto:' + obj.id + (n > 1 ? ':' + r.slug : '')); r.back = true; }
+          catch (err) { console.error('workshop auto refund', obj.id, r.slug, String(err && err.message || err)); }
         }
         const why = problem === 'twice' ? 'You already had a place, so this second payment'
           : problem === 'full' ? 'The last place went to somebody else a moment before you, so your payment'
           : 'That date has already passed, so your payment';
+        const amount = n > 1 ? `for that date, ${pounds(r.share)},` : '';
         await email(e, `${problem === 'twice' ? 'Your second payment' : 'Sorry, no place'}: ${w.title}`, mail({ title: problem === 'twice' ? 'You already have a place.' : 'Sorry, no place this time.',
           greeting: nm.split(' ')[0] || '', paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}.`,
-            `${why} ${back ? 'has been refunded in full. It shows on your card in a few days.' : 'will be refunded in full.'}`,
-            problem === 'full' ? `<a href="${SITE}/workshop.html?slug=${slug}" style="color:#006663">Join the waiting list</a> and you hear first if a place comes free.` : ''].filter(Boolean),
+            `${why} ${amount} ${r.back ? 'has been refunded. It shows on your card in a few days.' : 'will be refunded.'}`.replace(/\s+/g, ' '),
+            n > 1 && good.length ? 'Your other date stands, and its confirmation is on its way.' : '',
+            problem === 'full' ? `<a href="${SITE}/workshop.html?slug=${r.slug}" style="color:#006663">Join the waiting list</a> and you hear first if a place comes free.` : ''].filter(Boolean),
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
         await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Refunded a booking: ${nm || e} for ${w.title}`,
-          mail({ title: 'A booking that could not stand.', paras: [`<b>${esc(nm || e)}</b> paid for <b>${esc(w.title)}</b>: ${problem === 'twice' ? 'a second payment from somebody already booked' : problem === 'full' ? 'the workshop was already full' : 'the date had passed'}.`,
-            back ? 'Refunded automatically, and they have been told.' : 'The automatic refund did not go through: refund it in Stripe. They have been told it will be refunded.'],
+          mail({ title: 'A booking that could not stand.', paras: [`<b>${esc(nm || e)}</b> paid for <b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}: ${problem === 'twice' ? 'a second payment from somebody already booked' : problem === 'full' ? 'the workshop was already full' : 'the date had passed'}.${n > 1 ? ' It was one of a pair; the other date stands.' : ''}`,
+            r.back ? `Refunded automatically${n > 1 ? ' (' + pounds(r.share) + ')' : ''}, and they have been told.` : 'The automatic refund did not go through: refund it in Stripe. They have been told it will be refunded.'],
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
-        return json({ ok: true, workshop: slug, refunded: back, why: problem });
       }
+      if (!good.length) return json({ ok: true, workshop: slugs.join(','), refunded: bad.map(r => r.back), why: bad.map(r => r.problem) });
       if (md.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
         if (!c[md.code]) return undefined;
         const holds = Object.assign({}, c[md.code].holds || {}); if (md.hold) delete holds[md.hold];
         c[md.code] = Object.assign({}, c[md.code], { used: Number(c[md.code].used || 0) + 1, holds }); return c; }).catch(() => {});
-      await changeSetting(`wsmine:${e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(slug)) return undefined; l.push(slug); return l; }).catch(() => {});
+      for (const r of good) await changeSetting(`wsmine:${e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(r.slug)) return undefined; l.push(r.slug); return l; }).catch(() => {});
       await ensureAcct(e, nm);
-      const days = Number(w.appDays) || 0;
+      const days = Math.max(0, ...good.map(r => Number(r.w.appDays) || 0));
       if (days > 0) {
         const cur = await getAcct(e);
         if (!plusNow(cur)) {
           const until = iso(Date.now() + days * DAY);
           await setSetting(`plusuntil:${e}`, until);
           /* kept on the booking, so a refund can take back what it gave */
-          await changeSetting(`wsbook:${slug}`, cur2 => { const l = Array.isArray(cur2) ? cur2.map(x => ({ ...x })) : [];
+          for (const r of good) await changeSetting(`wsbook:${r.slug}`, cur2 => { const l = Array.isArray(cur2) ? cur2.map(x => ({ ...x })) : [];
             const b = l.find(x => x.session === obj.id); if (!b) return undefined; b.plusUntil = until; return l; }).catch(() => {});
         }
       }
@@ -2204,28 +2225,37 @@ const handle = async (request) => {
          "sign in with this address" */
       const wsNoPw = !(await hashFor(db, e));
       const wsLink = wsNoPw ? await welcomeLink(e) : '';
-      const soon = w.when && ms(w.when) - Date.now() < 36 * 3600e3;
-      const sentOk = await email(e, `You are booked: ${w.title}`,
+      const soon = good.some(r => r.w.when && ms(r.w.when) - Date.now() < 36 * 3600e3);
+      const first = good[0].w;
+      const kept = good.reduce((t, r) => t + r.share, 0);
+      const titleTxt = good.length > 1 ? `${first.title}, both dates` : first.title;
+      const dateLine = good.length > 1
+        ? `<b>${esc(first.title)}</b>: ${good.map(r => esc(whenOf(r.w))).join(', and ')}${first.place ? ', at ' + esc(first.place) : ''}. Both dates together, ${pounds(kept)}.`
+        : `<b>${esc(first.title)}</b>${whenOf(first) ? ', ' + esc(whenOf(first)) : ''}${first.place ? ', at ' + esc(first.place) : ''}.`;
+      const icsLinks = good.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">${
+        good.length > 1 ? 'Add ' + esc(dayOf(r.w)) + ' to your calendar' : 'Add it to your calendar'}</a>`).join(' ');
+      const sentOk = await email(e, `You are booked: ${titleTxt}`,
         mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
-          paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
-                  w.desc ? esc(w.desc) : '',
+          paras: [dateLine,
+                  first.desc ? esc(first.desc) : '',
                   days > 0 ? `The Handstand Ladder app is open for you for ${days} days, every stage. Sign in with this address and it is there.` : '',
-                  `${soon ? '' : 'A reminder comes the day before. '}Your booking is in the app under this address, where you can cancel it; cancel more than 48 hours before and it is refunded.${w.when ? ` <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : ''}`,
+                  `${soon ? '' : 'A reminder comes the day before. '}Your booking${good.length > 1 ? 's are' : ' is'} in the app under this address, where you can cancel${good.length > 1 ? ' either date' : ' it'}; cancel more than 48 hours before and it is refunded.${icsLinks ? ' ' + icsLinks + '.' : ''}`,
                   wsNoPw ? `Your username is ${esc(e)}. Choose a password with the button below and you are in.` : ''].filter(Boolean),
           cta: wsNoPw ? { href: wsLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       /* held for somebody silenced by name: it goes in their messages, and
          the coach is told it was held */
       if (!sentOk) { try { await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
-        text: `You are booked: ${w.title}${whenTxt ? ', ' + whenTxt : ''}${w.place ? ', at ' + w.place : ''}.` }); } catch {} }
-      await coachAlert(null, 'business', { title: 'New booking: ' + (nm || e), body: w.title + (sentOk ? '' : ' (their email was held)'), tag: 'book:' + e });
-      if (await coachMail(null, 'business') || !sentOk) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${w.title}`,
-        mail({ title: `${esc(nm || e)} has booked.`,
-          paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${count} of ${w.places || '?'} places taken.${md.code ? ' Code ' + esc(md.code) + '.' : ''}`,
+        text: `You are booked: ${first.title}: ${good.map(r => whenOf(r.w)).filter(Boolean).join(', and ')}${first.place ? ', at ' + first.place : ''}.` }); } catch {} }
+      await coachAlert(null, 'business', { title: 'New booking: ' + (nm || e), body: good.map(r => r.w.title + (r.w.when ? ', ' + dayOf(r.w) : '')).join('; ') + (sentOk ? '' : ' (their email was held)'), tag: 'book:' + e });
+      if (await coachMail(null, 'business') || !sentOk) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm || e} for ${titleTxt}`,
+        mail({ title: `${esc(nm || e)} has booked${good.length > 1 ? ' both dates' : ''}.`,
+          paras: [good.map(r => `<b>${esc(r.w.title)}</b>${whenOf(r.w) ? ', ' + esc(whenOf(r.w)) : ''}. ${r.count} of ${r.w.places || '?'} places taken.`).join('<br>')
+                    + (good.length > 1 ? ` ${pounds(kept)} for the pair.` : '') + (md.code ? ' Code ' + esc(md.code) + '.' : ''),
                   sentOk ? '' : 'Their booking email was held by the client email switch, so it is in their messages in the app instead.',
                   md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : ''].filter(Boolean),
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
-      return json({ ok: true, workshop: slug, booked: count });
+      return json({ ok: true, workshop: slugs.join(','), booked: good.map(r => r.count) });
     }
 
     /* ── a one to one session ───────────────────────────────────────
@@ -4229,7 +4259,8 @@ const handle = async (request) => {
       out.push(wsPublic(w, wsLive(book).length));
     }
     out.sort((a, b) => ms(a.when) - ms(b.when));
-    return json({ workshops: out });
+    /* two dates booked together cost this, when the owner has set it */
+    return json({ workshops: out, pair: Number(((await getSetting('wspair')) || {}).pence) || 0 });
   }
   /* a workshop discount code: pounds or percent off, for one workshop or all,
      with a use count and an expiry. Kept apart from the app codes, which open
@@ -4321,57 +4352,79 @@ const handle = async (request) => {
     const live = wsLive(book);
     if (Number(w.places) > 0 && live.length >= Number(w.places)) return json({ error: 'That one is full', full: true }, 409);
     if (live.some(b => b.email === e)) return json({ error: 'You are already booked on this one. Check your email.' }, 409);
-    const disc = await wsCodeCheck(slug, body.code, Number(w.price) || 0);
+    /* ── both dates together ───────────────────────────────────────────
+       A second date in the same booking: one payment at the pair price the
+       owner set (or the two prices added), one place on each, and the
+       webhook files both from the comma joined metadata. */
+    const also = wsSlug(body.also);
+    const w2 = also && also !== slug ? all[also] : null;
+    if (also && also !== slug && (!w2 || !w2.live)) return json({ error: 'That second date is not open for booking' }, 404);
+    if (w2 && w2.when && ms(w2.when) < Date.now()) return json({ error: 'The second date has already happened' }, 409);
+    const live2 = w2 ? wsLive((await getSetting(`wsbook:${also}`)) || []) : [];
+    if (w2 && Number(w2.places) > 0 && live2.length >= Number(w2.places)) return json({ error: 'The second date is full. Book one date, and join its waiting list.', full: true }, 409);
+    if (w2 && live2.some(b => b.email === e)) return json({ error: 'You are already booked on the second date. Book the one you have not got.' }, 409);
+    const pairPence = Number(((await getSetting('wspair')) || {}).pence) || 0;
+    const base = w2 ? (pairPence > 0 ? pairPence : (Number(w.price) || 0) + (Number(w2.price) || 0)) : (Number(w.price) || 0);
+    const targets = w2 ? [[slug, w], [also, w2]] : [[slug, w]];
+    const disc = await wsCodeCheck(slug, body.code, base);
     if (disc.error) return json({ error: disc.error }, 400);
     /* a code that leaves a few pence is free: Stripe will not take under 30p */
-    let price = Math.max(0, (Number(w.price) || 0) - disc.off);
+    let price = Math.max(0, base - disc.off);
     if (price > 0 && price < 30) price = 0;
     if (!(price > 0)) {
       /* free, or a code that made it free: booked straight away, no Stripe.
          In one change checked against the list as it is, so the last free
          place cannot go twice. */
       const sid = 'free-' + newId();
-      let taken = '';
-      await changeSetting(`wsbook:${slug}`, cur => {
-        taken = '';
-        const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-        const lv = wsLive(l);
-        if (Number(w.places) > 0 && lv.length >= Number(w.places)) { taken = 'full'; return undefined; }
-        if (lv.some(b => b.email === e)) { taken = 'twice'; return undefined; }
-        l.push({ email: e, name: nm, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked' });
-        return l;
-      });
-      if (taken === 'full') return json({ error: 'That one is full', full: true }, 409);
-      if (taken === 'twice') return json({ error: 'You are already booked on this one. Check your email.' }, 409);
+      for (const [tSlug, tw] of targets) {
+        let taken = '';
+        await changeSetting(`wsbook:${tSlug}`, cur => {
+          taken = '';
+          const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+          const lv = wsLive(l);
+          if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
+          if (lv.some(b => b.email === e)) { taken = 'twice'; return undefined; }
+          l.push({ email: e, name: nm, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked',
+            ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}) });
+          return l;
+        });
+        if (taken === 'full') return json({ error: (tSlug === slug ? 'That one is full' : 'The second date is full'), full: true }, 409);
+        if (taken === 'twice') return json({ error: 'You are already booked on ' + (tSlug === slug ? 'this one' : 'the second date') + '. Check your email.' }, 409);
+      }
       if (disc.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
         if (!c[disc.code]) return undefined; c[disc.code] = Object.assign({}, c[disc.code], { used: Number(c[disc.code].used || 0) + 1 }); return c; }).catch(() => {});
       await ensureAcct(e, nm);
-      await changeSetting(`wsmine:${e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(slug)) return undefined; l.push(slug); return l; }).catch(() => {});
+      for (const [tSlug] of targets) await changeSetting(`wsmine:${e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(tSlug)) return undefined; l.push(tSlug); return l; }).catch(() => {});
       /* The paid path opens the app for the days the workshop grants and the
          booked screen promises it either way. The free path did not, so a free
          place, or a code that made it free, sent someone to an app that had
          nothing in it. */
-      const freeDays = Number(w.appDays) || 0;
+      const freeDays = Math.max(0, ...targets.map(t => Number(t[1].appDays) || 0));
       if (freeDays > 0) {
         const cur = await getAcct(e);
         if (!plusNow(cur)) await setSetting(`plusuntil:${e}`, iso(Date.now() + freeDays * DAY));
       }
-      const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      const whenOfF = x => x.when ? new Date(x.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      const whenTxt = whenOfF(w);
       /* the same as a paid booking: a way in for somebody with no password,
          and the calendar */
       const noPw = !(await hashFor(db, e));
       const link = noPw ? await welcomeLink(e) : '';
-      const soon = w.when && ms(w.when) - Date.now() < 36 * 3600e3;
-      await email(e, `You are booked: ${w.title}`, mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
-        paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+      const soon = targets.some(t => t[1].when && ms(t[1].when) - Date.now() < 36 * 3600e3);
+      const icsF = targets.filter(t => t[1].when).map(t => `<a href="${SITE}/api/app/workshop/ics?slug=${t[0]}" style="color:#006663">${
+        targets.length > 1 ? 'Add ' + esc(new Date(t[1].when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })) + ' to your calendar' : 'Add it to your calendar'}</a>`).join(' ');
+      await email(e, `You are booked: ${w.title}${targets.length > 1 ? ', both dates' : ''}`, mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
+        paras: [targets.length > 1
+                  ? `<b>${esc(w.title)}</b>: ${targets.map(t => esc(whenOfF(t[1]))).join(', and ')}${w.place ? ', at ' + esc(w.place) : ''}.`
+                  : `<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
                 freeDays > 0 ? `The Handstand Ladder app is open for you for ${freeDays} days, every stage.` : '',
-                `${soon ? '' : 'A reminder comes the day before. '}Your booking is in the app under this address, where you can cancel it.${w.when ? ` <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : ''}`,
+                `${soon ? '' : 'A reminder comes the day before. '}Your booking${targets.length > 1 ? 's are' : ' is'} in the app under this address, where you can cancel.${icsF ? ' ' + icsF + '.' : ''}`,
                 noPw ? `Your username is ${esc(e)}. Choose a password with the button below and you are in.` : ''].filter(Boolean),
         cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
-      await coachAlert(null, 'business', { title: 'New booking: ' + nm, body: w.title, tag: 'book:' + nm });
-      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked.`,
-        paras: [`<b>${esc(w.title)}</b>. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''}`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
+      await coachAlert(null, 'business', { title: 'New booking: ' + nm, body: w.title + (targets.length > 1 ? ', both dates' : ''), tag: 'book:' + nm });
+      if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked${targets.length > 1 ? ' both dates' : ''}.`,
+        paras: [`<b>${esc(w.title)}</b>${targets.length > 1 ? ': ' + targets.map(t => esc(whenOfF(t[1]))).join(', and ') : ''}. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''} Free.`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
         cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, free: true });
     }
@@ -4401,17 +4454,17 @@ const handle = async (request) => {
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
         'line_items[0][price_data][unit_amount]': String(Math.round(price)),
-        'line_items[0][price_data][product_data][name]': String(w.title).slice(0, 120),
-        ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(new Date(w.when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
+        'line_items[0][price_data][product_data][name]': String(w.title + (w2 ? ', both dates' : '')).slice(0, 120),
+        ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(targets.filter(t => t[1].when).map(t => new Date(t[1].when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })).join(' and ') + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
         'line_items[0][quantity]': '1',
-        'metadata[workshop]': slug,
+        'metadata[workshop]': targets.map(t => t[0]).join(','),
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold,
         expires_at: String(Math.floor(Date.now() / 1000) + 30 * 60),
         customer_email: e,
         /* the class page books here too, and comes back to itself */
-        success_url: body.back === 'class' ? `${url.origin}/handstand-class.html?booked=${slug}`
+        success_url: body.back === 'class' ? `${url.origin}/handstand-class.html?booked=${targets.map(t => t[0]).join(',')}`
                    : `${url.origin}/workshop.html?slug=${slug}&booked=1`,
         cancel_url: body.back === 'class' ? `${url.origin}/handstand-class.html#book`
                   : `${url.origin}/workshop.html?slug=${slug}`,
@@ -4504,8 +4557,15 @@ const handle = async (request) => {
       }
       return out.sort((a, b) => ms(b.when) - ms(a.when));
     };
-    if (request.method === 'GET') return json({ workshops: await withBook() });
+    const pairNow = async () => Number(((await getSetting('wspair')) || {}).pence) || 0;
+    if (request.method === 'GET') return json({ workshops: await withBook(), pair: await pairNow() });
     if (request.method === 'POST') {
+      /* what two dates together cost, in pence; money, so the owner's */
+      if (body.pair !== undefined) {
+        if (!(await isOwner())) return json(ownerOnly, 403);
+        await setSetting('wspair', { pence: Math.max(0, Math.round(Number(body.pair) || 0)) });
+        return json({ ok: true, pair: await pairNow() });
+      }
       /* A coach can write the workshop: the title, the date, the room, who
          it is for, the words. What it costs and whether it goes on sale are
          the owner's, so those three fields keep whatever is already stored
@@ -4888,7 +4948,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       return json({ ok: true, status: 'cancelled', note: 'already cancelled' });
     let refunded = false, refundErr = '';
     if (early && b.pi && (b.paid || 0) > 0 && stripeKey()) {
-      try { await stripe('/refunds', { payment_intent: b.pi }, 'POST', 'wsrefund:' + (b.session || b.pi)); refunded = true; }
+      try { await stripe('/refunds', { payment_intent: b.pi, ...(b.pair ? { amount: String(b.paid) } : {}) }, 'POST', 'wsrefund:' + (b.session || b.pi) + (b.pair ? ':' + slug : '')); refunded = true; }
       catch (err) { refundErr = String(err.message || err); if (/already been refunded/i.test(refundErr)) { refunded = true; refundErr = ''; } }
     }
     await changeSetting(`wsbook:${slug}`, cur => {
