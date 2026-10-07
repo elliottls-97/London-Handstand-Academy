@@ -112,10 +112,167 @@ const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort'
    two of the things that call it, and a const is not hoisted, so asking for
    the workshop list and finishing a payment both threw before doing their
    job. Out here it cannot happen again. */
-const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.status !== 'refunded');
+const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved');
 /* A place that comes free goes to the first person waiting. It was only
    done when somebody cancelled in the app, so a place freed by a refund in
    Stripe sat empty with people waiting for it. */
+/* ── a place: cancelled, refunded, moved ───────────────────────────────
+   One set of rules, used by the app (signed in), the link in the emails
+   (no sign in) and the coach's dashboard. A customer may cancel or move up
+   to WS_CUTOFF_H hours before; cancelling earlier than that refunds what
+   they paid (one date of a pair: the pair price less the kept date's own
+   price). The coach can do either at any time, and choose the refund. */
+const WS_CUTOFF_H = 24;
+const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/, '');
+const wsWhenTxt = w => w && w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+const wsPlaces = l => (Array.isArray(l) ? l : []).filter(b => b && (b.status || 'booked') === 'booked');
+/* a link that manages one place without signing in: signed, and good until the class */
+async function wsManageLink(slug, addr, session, until) {
+  const t = await sign({ k: 'wsm', s: slug, e: norm(addr), x: String(session || ''), exp: (ms(until) || Date.now()) + 6 * 3600e3 });
+  return `${SITE}/booking.html?t=${t}`;
+}
+async function wsManageRead(t) {
+  const p = await verify(String(t || ''));
+  return p && p.k === 'wsm' && p.s && p.e ? p : null;
+}
+/* what one place is worth back if it is cancelled now */
+async function wsRefundFor(b, slug) {
+  let back = Number(b.paid) || 0, keep = null;
+  if (b.pair) {
+    const ob = wsPlaces((await getSetting(`wsbook:${b.pair}`)) || []).find(x => x.session === b.session && x.email === b.email);
+    const ow = ((await getSetting('workshops')) || {})[b.pair];
+    if (ob && ow) {
+      const own = Math.max(0, Number(ow.price) || 0), total = back + (Number(ob.paid) || 0);
+      back = Math.max(0, total - own); keep = { slug: b.pair, paid: Math.min(total, own) };
+    }
+  }
+  return { back, keep };
+}
+/* opts: { by: 'client' | 'coach', refund: 'auto' | 'full' | 'none', quiet } */
+async function wsCancelPlace(slug, addr, session, opts = {}) {
+  const all = (await getSetting('workshops')) || {};
+  const w = all[slug]; if (!w) return { error: 'No such workshop', status: 404 };
+  const who = norm(addr);
+  const book = (await getSetting(`wsbook:${slug}`)) || [];
+  const b = wsPlaces(book).slice().reverse().find(x => x.email === who && (!session || x.session === session));
+  if (!b) return { error: 'No booking to cancel', status: 404 };
+  const coach = opts.by === 'coach';
+  if (!coach && w.when && ms(w.when) < Date.now()) return { error: 'That one has already happened', status: 400 };
+  const early = !w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3;
+  if (!coach && !early) return { error: `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be cancelled online. Reply to your confirmation email and Elliott will sort it.`, status: 400, late: true };
+  const want = coach ? (opts.refund || 'auto') : 'auto';
+  const { back, keep } = await wsRefundFor(b, slug);
+  const doRefund = want === 'full' || (want === 'auto' && early);
+  /* Two taps at once each refunded, and the second, told by Stripe it was
+     already refunded, told the client the refund had failed. The cancel
+     is claimed first, the refund carries a key Stripe will only act on
+     once, and "already refunded" counts as done. */
+  const ckey = `wscancel:${b.session || slug + ':' + who}:${slug}`;
+  if (!(await supa.insertIfAbsent('nudges', { key: ckey, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)))
+    return { ok: true, status: 'cancelled', note: 'already cancelled' };
+  let refunded = false, refundErr = '';
+  if (doRefund && b.pi && back > 0 && stripeKey()) {
+    try { await stripe('/refunds', { payment_intent: b.pi, ...((b.pair || back !== Number(b.paid)) ? { amount: String(back) } : {}) }, 'POST', 'wsrefund:' + (b.session || b.pi) + ':' + slug); refunded = true; }
+    catch (err) { refundErr = String(err.message || err); if (/already been refunded/i.test(refundErr)) { refunded = true; refundErr = ''; } }
+  }
+  await changeSetting(`wsbook:${slug}`, cur => {
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.session === b.session && x.email === who && (x.status || 'booked') === 'booked');
+    if (!r) return undefined;
+    r.status = refunded ? 'refunded' : 'cancelled'; r.cancelledAt = Date.now(); r.cancelledBy = coach ? 'coach' : 'client';
+    if (refunded) { r.autoRefund = !coach; r.refunded = back; }
+    return l;
+  });
+  if (refunded && keep) await changeSetting(`wsbook:${keep.slug}`, cur => {
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.session === b.session && x.email === who); if (!r) return undefined;
+    r.paid = keep.paid; r.pairBroken = true; return l; }).catch(() => {});
+  if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
+    if (!c[b.code]) return undefined; c[b.code] = Object.assign({}, c[b.code], { used: Math.max(0, Number(c[b.code].used || 0) - 1) }); return c; }).catch(() => {});
+  const status = refunded ? 'refunded' : 'cancelled';
+  const whenTxt = wsWhenTxt(w);
+  const paid = Number(b.paid) || 0;
+  const failed = doRefund && !refunded && paid > 0 && !!b.pi;
+  if (!opts.quiet) await email(who, `Cancelled: ${w.title}`, mail({ title: 'Your place is cancelled.', greeting: String(b.name || '').split(' ')[0],
+    paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}.`,
+            refunded ? (keep ? `${wsPounds(back)} is refunded to the card you paid with; it shows in a few days. Your other date stands, at its own price of ${wsPounds(keep.paid)}.`
+                             : `${wsPounds(back)} is refunded to the card you paid with; it shows in a few days.`)
+              : failed ? 'The refund could not be made automatically, so Elliott will do it by hand.'
+              : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : `Inside ${WS_CUTOFF_H} hours the place cannot be refilled, so it is not refunded.`) : '',
+            `<a href="${SITE}/handstand-class#book" style="color:#006663">Book another date</a> whenever suits.`].filter(Boolean),
+    signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+  if (failed) await coachAlert(null, 'business', { title: 'Refund it by hand: ' + (b.name || who), body: w.title, tag: 'wsrefund:' + who });
+  if (!coach && (failed || await coachMail(null, 'business'))) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Cancelled: ${b.name || who}, ${w.title}`,
+    mail({ title: `${esc(b.name || who)} has cancelled.`, paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${refunded ? wsPounds(back) + ' refunded automatically.' : (failed ? 'Refund it in Stripe: ' + esc(refundErr || 'the refund did not go through') + '.' : 'No refund.')}`],
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  if (!coach) await coachAlert(null, 'business', { title: 'Cancelled: ' + (b.name || who), body: w.title + (refunded ? ', refunded ' + wsPounds(back) : ''), tag: 'wscancel:' + who });
+  await wsOfferFreed(slug, w);
+  return { ok: true, status, refunded: refunded ? back : 0, failed };
+}
+/* the coach gives money back on a place already cancelled without it */
+async function wsRefundPlace(slug, addr, session, amount) {
+  const who = norm(addr);
+  const b = ((await getSetting(`wsbook:${slug}`)) || []).find(x => x.email === who && x.session === session);
+  if (!b) return { error: 'No such booking', status: 404 };
+  if (!b.pi || !stripeKey()) return { error: 'There is no card payment on this one to refund', status: 400 };
+  const left = Math.max(0, (Number(b.paid) || 0) - (Number(b.refunded) || 0));
+  const amt = Math.min(left, Math.max(0, Math.round(Number(amount) || left)));
+  if (!(amt > 0)) return { error: 'Nothing left to refund on this one', status: 400 };
+  try { await stripe('/refunds', { payment_intent: b.pi, amount: String(amt) }, 'POST', 'wscoachrefund:' + b.session + ':' + slug + ':' + amt); }
+  catch (err) { if (!/already been refunded/i.test(String(err.message || err))) return { error: 'Stripe said: ' + String(err.message || err), status: 502 }; }
+  await changeSetting(`wsbook:${slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.session === session && x.email === who); if (!r) return undefined;
+    r.refunded = (Number(r.refunded) || 0) + amt; if (r.status !== 'booked') r.status = 'refunded'; return l; });
+  const w = ((await getSetting('workshops')) || {})[slug] || {};
+  await email(who, `Refunded: ${w.title || 'your workshop'}`, mail({ title: 'A refund is on its way.', greeting: String(b.name || '').split(' ')[0],
+    paras: [`${wsPounds(amt)} for <b>${esc(w.title || '')}</b>${wsWhenTxt(w) ? ', ' + esc(wsWhenTxt(w)) : ''} is refunded to the card you paid with. It shows in a few days.`],
+    signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+  return { ok: true, refunded: amt };
+}
+/* a place moved to another date of the class: the record goes with them,
+   with what they paid, and the reminders follow the new date */
+async function wsMovePlace(slug, addr, session, to, opts = {}) {
+  const all = (await getSetting('workshops')) || {};
+  const w = all[slug], w2 = all[to];
+  if (!w || !w2) return { error: 'No such date', status: 404 };
+  if (slug === to) return { error: 'That is the date you already have', status: 400 };
+  const coach = opts.by === 'coach', who = norm(addr);
+  if (!coach && !w2.live) return { error: 'That date is not open for booking', status: 400 };
+  if (w2.when && ms(w2.when) < Date.now()) return { error: 'That date has already happened', status: 400 };
+  if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be moved online. Reply to your confirmation email and Elliott will sort it.`, status: 400, late: true };
+  const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === who && (!session || x.session === session));
+  if (!b) return { error: 'No booking to move', status: 404 };
+  let problem = '';
+  await changeSetting(`wsbook:${to}`, cur => {
+    problem = '';
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const held = wsPlaces(l);
+    if (held.some(x => x.email === who)) { problem = 'You already have a place on that date'; return undefined; }
+    if (!coach && Number(w2.places) > 0 && held.length >= Number(w2.places)) { problem = 'That date is full'; return undefined; }
+    const { status, cancelledAt, ...rest } = b;
+    l.push({ ...rest, at: b.at, movedFrom: slug, movedAt: Date.now(), status: 'booked',
+      ...(b.pair === to ? { pair: undefined } : {}) });
+    return l;
+  });
+  if (problem) return { error: problem, status: 409 };
+  await changeSetting(`wsbook:${slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.session === b.session && x.email === who && (x.status || 'booked') === 'booked'); if (!r) return undefined;
+    r.status = 'moved'; r.movedTo = to; r.movedAt = Date.now(); return l; });
+  /* the other half of a pair now points at the new date */
+  if (b.pair && b.pair !== to) await changeSetting(`wsbook:${b.pair}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.session === b.session && x.email === who); if (!r) return undefined; r.pair = to; return l; }).catch(() => {});
+  await changeSetting(`wsmine:${who}`, cur => { const l = (Array.isArray(cur) ? cur : []).filter(x => x !== slug); if (!l.includes(to)) l.push(to); return l; }).catch(() => {});
+  const link = await wsManageLink(to, who, b.session, w2.when);
+  await email(who, `Moved: ${w2.title}, ${new Date(w2.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })}`,
+    mail({ title: 'Your place has moved.', greeting: String(b.name || '').split(' ')[0],
+      paras: [`<b>${esc(w2.title)}</b>, now on ${esc(wsWhenTxt(w2))}${w2.place ? ', at ' + esc(w2.place) : ''}, instead of ${esc(wsWhenTxt(w))}.`,
+              'Nothing more to pay. A reminder comes the day before.',
+              `<a href="${SITE}/api/app/workshop/ics?slug=${to}" style="color:#006663">Add it to your calendar</a>. Need to change it again? <a href="${link}" style="color:#006663">Manage your booking</a>.`],
+      signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+  if (!coach) await coachAlert(null, 'business', { title: 'Moved: ' + (b.name || who), body: `${w.title}: ${wsWhenTxt(w)} to ${wsWhenTxt(w2)}`, tag: 'wsmove:' + who });
+  await wsOfferFreed(slug, w);
+  return { ok: true, to };
+}
 async function wsOfferFreed(slug, w) {
   try {
     const book = (await getSetting(`wsbook:${slug}`)) || [];
@@ -2250,12 +2407,16 @@ const handle = async (request) => {
         : `<b>${esc(first.title)}</b>${whenOf(first) ? ', ' + esc(whenOf(first)) : ''}${first.place ? ', at ' + esc(first.place) : ''}.`;
       const icsLinks = good.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">${
         good.length > 1 ? 'Add ' + esc(dayOf(r.w)) + ' to your calendar' : 'Add it to your calendar'}</a>`).join(' ');
+      /* cancel or move, without signing in, up to the cutoff */
+      const manage = [];
+      for (const r of good) manage.push(`<a href="${await wsManageLink(r.slug, e, obj.id, r.w.when)}" style="color:#006663">${good.length > 1 ? 'Change ' + esc(dayOf(r.w)) : 'Cancel or move to another date'}</a>`);
       const sentOk = await email(e, `You are booked: ${titleTxt}`,
         mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
           paras: [dateLine,
                   first.desc ? esc(first.desc) : '',
                   days > 0 ? `The Handstand Ladder app is open for you for ${days} days, every stage. Sign in with this address and it is there.` : '',
-                  `${soon ? '' : 'A reminder comes the day before. '}Your booking${good.length > 1 ? 's are' : ' is'} in the app under this address, where you can cancel${good.length > 1 ? ' either date' : ' it'}; cancel more than 48 hours before and it is refunded.${icsLinks ? ' ' + icsLinks + '.' : ''}`,
+                  `${soon ? '' : 'A reminder comes the day before. '}${icsLinks ? icsLinks + '.' : ''}`,
+                  `Can't make it? ${manage.join(' &middot; ')}: up to ${WS_CUTOFF_H} hours before, refunded if you cancel, free to move. It is in the app under this address as well.`,
                   wsNoPw ? `Your username is ${esc(e)}. Choose a password with the button below and you are in.` : ''].filter(Boolean),
           cta: wsNoPw ? { href: wsLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -4463,7 +4624,8 @@ const handle = async (request) => {
                   ? `<b>${esc(w.title)}</b>: ${targets.map(t => esc(whenOfF(t[1]))).join(', and ')}${w.place ? ', at ' + esc(w.place) : ''}.`
                   : `<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
                 freeDays > 0 ? `The Handstand Ladder app is open for you for ${freeDays} days, every stage.` : '',
-                `${soon ? '' : 'A reminder comes the day before. '}Your booking${targets.length > 1 ? 's are' : ' is'} in the app under this address, where you can cancel.${icsF ? ' ' + icsF + '.' : ''}`,
+                `${soon ? '' : 'A reminder comes the day before. '}${icsF ? icsF + '.' : ''}`,
+                `Can't make it? <a href="${await wsManageLink(slug, e, sid, w.when)}" style="color:#006663">Cancel or move to another date</a>, up to ${WS_CUTOFF_H} hours before. It is in the app under this address as well.`,
                 noPw ? `Your username is ${esc(e)}. Choose a password with the button below and you are in.` : ''].filter(Boolean),
         cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -4527,6 +4689,26 @@ const handle = async (request) => {
      up, not on any list. Pasted in here (one per line, "email" or
      "email, name") they become bookings like any other, so everything
      that runs after a class runs for them too. Never charged, never told. */
+  /* the coach on one place: arrived, no show, move, cancel, refund */
+  if (path === '/coach/workshop/booking' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const slug = wsSlug(body.slug), e = norm(body.email), session = String(body.session || '');
+    const act = String(body.action || '');
+    if (['cancel', 'refund'].includes(act) && !(await isOwner())) return json(ownerOnly, 403);
+    let r;
+    if (act === 'arrived' || act === 'noshow' || act === 'unmark') {
+      let found = false;
+      await changeSetting(`wsbook:${slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+        const b = l.find(x => x.email === e && x.session === session); if (!b) return undefined; found = true;
+        if (act === 'unmark') delete b.attended; else b.attended = act === 'arrived' ? 'yes' : 'no'; return l; });
+      r = found ? { ok: true } : { error: 'No such booking', status: 404 };
+    } else if (act === 'move') r = await wsMovePlace(slug, e, session, wsSlug(body.to), { by: 'coach' });
+    else if (act === 'cancel') r = await wsCancelPlace(slug, e, session, { by: 'coach', refund: body.refund === 'full' ? 'full' : body.refund === 'none' ? 'none' : 'auto', quiet: !!body.quiet });
+    else if (act === 'refund') r = await wsRefundPlace(slug, e, session, body.amount);
+    else r = { error: 'Nothing asked', status: 400 };
+    if (r.error) return json(r, r.status || 400);
+    return json(Object.assign({ bookings: (await getSetting(`wsbook:${slug}`)) || [] }, r));
+  }
   if (path === '/coach/workshop/attendees' && request.method === 'POST') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const slug = wsSlug(body.slug);
@@ -4981,9 +5163,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         ics: w.when ? `/api/app/workshop/ics?slug=${enc(slug)}` : '',
         /* a workshop with no date yet reads as 1970, so it counted as already
            over: it could be booked and paid for and never cancelled */
-        canCancel: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) > Date.now()),
+        canCancel: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3),
         refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0
-          && (!w.when || ms(w.when) - Date.now() > 48 * 3600e3) });
+          && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3),
+        back: (b.status || 'booked') === 'booked' ? (await wsRefundFor(b, slug)).back : 0,
+        cutoff: WS_CUTOFF_H,
+        moveTo: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3)
+          ? Object.values(all).filter(o => o && o.live && o.slug !== slug && o.when && ms(o.when) > Date.now()
+              && String(o.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14) === String(w.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14)
+              && !mine.includes(o.slug)).map(o => ({ slug: o.slug, when: o.when })) : [] });
     }
     /* one to one sessions sit beside the workshops, with a way into the
        calendar once the time is set */
@@ -4999,76 +5187,51 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   }
   if (path === '/workshop/cancel' && request.method === 'POST') {
     const who = await me(); if (!who) return json({ error: 'Sign in first' }, 401);
-    const slug = wsSlug(body.slug);
-    const w = ((await getSetting('workshops')) || {})[slug];
-    if (!w) return json({ error: 'No such workshop' }, 404);
-    const book = (await getSetting(`wsbook:${slug}`)) || [];
-    const b = book.slice().reverse().find(x => x.email === who && (x.status || 'booked') === 'booked');
-    if (!b) return json({ error: 'No booking to cancel' }, 404);
-    if (w.when && ms(w.when) < Date.now()) return json({ error: 'That one has already happened' }, 400);
-    /* no date set yet is not "48 hours away", it is "not arranged", and the
-       money should come back */
-    const early = !w.when || ms(w.when) - Date.now() > 48 * 3600e3;
-    /* Two taps at once each refunded, and the second, told by Stripe it was
-       already refunded, told the client the refund had failed. The cancel
-       is claimed first, the refund carries a key Stripe will only act on
-       once, and "already refunded" counts as done. */
-    const ckey = `wscancel:${b.session || slug + ':' + who}`;
-    if (!(await supa.insertIfAbsent('nudges', { key: ckey, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)))
-      return json({ ok: true, status: 'cancelled', note: 'already cancelled' });
-    let refunded = false, refundErr = '';
-    /* One date of a pair: the pair price was a discount for coming to both,
-       so the date they keep costs its own price and the rest comes back
-       (£45 paid, £25 kept, £20 back). If the other date is already
-       cancelled, this one's share comes back as it is. */
-    let back = Number(b.paid) || 0, keep = null;
-    if (b.pair) {
-      const ob = ((await getSetting(`wsbook:${b.pair}`)) || []).find(x => x.session === b.session && x.email === who && (x.status || 'booked') === 'booked');
-      const ow = ((await getSetting('workshops')) || {})[b.pair];
-      if (ob && ow) {
-        const own = Math.max(0, Number(ow.price) || 0), total = back + (Number(ob.paid) || 0);
-        back = Math.max(0, total - own); keep = { slug: b.pair, paid: Math.min(total, own) };
-      }
+    const r = await wsCancelPlace(wsSlug(body.slug), who, '', { by: 'client' });
+    return json(r, r.error ? r.status : 200);
+  }
+  /* signed in: move a place to another date of the class */
+  if (path === '/workshop/move' && request.method === 'POST') {
+    const who = await me(); if (!who) return json({ error: 'Sign in first' }, 401);
+    const r = await wsMovePlace(wsSlug(body.slug), who, '', wsSlug(body.to), { by: 'client' });
+    return json(r, r.error ? r.status : 200);
+  }
+  /* ── the link in the emails: manage one place without signing in ── */
+  if (path === '/workshop/manage') {
+    const t = await wsManageRead(request.method === 'GET' ? url.searchParams.get('t') : body.t);
+    if (!t) return json({ error: 'That link has run out. Sign in to the app with your email, and it is under Your bookings.' }, 401);
+    const all = (await getSetting('workshops')) || {};
+    const book = (await getSetting(`wsbook:${t.s}`)) || [];
+    let b = book.slice().reverse().find(x => x.email === t.e && (!t.x || x.session === t.x));
+    /* moved since the link was sent: follow it */
+    let slug = t.s;
+    for (let hops = 0; b && b.status === 'moved' && b.movedTo && hops < 4; hops++) {
+      slug = b.movedTo; b = ((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === t.e && x.session === b.session);
     }
-    if (early && b.pi && back > 0 && stripeKey()) {
-      try { await stripe('/refunds', { payment_intent: b.pi, ...(b.pair ? { amount: String(back) } : {}) }, 'POST', 'wsrefund:' + (b.session || b.pi) + (b.pair ? ':' + slug : '')); refunded = true; }
-      catch (err) { refundErr = String(err.message || err); if (/already been refunded/i.test(refundErr)) { refunded = true; refundErr = ''; } }
+    if (!b) return json({ error: 'No booking found on that link' }, 404);
+    const w = all[slug] || {};
+    if (request.method === 'POST') {
+      if (rateHit && (await rateHit(`wsman:${t.e}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
+      const r = body.action === 'move' ? await wsMovePlace(slug, t.e, b.session, wsSlug(body.to), { by: 'client' })
+              : body.action === 'cancel' ? await wsCancelPlace(slug, t.e, b.session, { by: 'client' })
+              : { error: 'Nothing asked', status: 400 };
+      return json(r, r.error ? r.status : 200);
     }
-    await changeSetting(`wsbook:${slug}`, cur => {
-      const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-      const r = l.find(x => x.session === b.session && x.email === who);
-      if (!r) return undefined;
-      r.status = refunded ? 'refunded' : 'cancelled'; r.cancelledAt = Date.now(); if (refunded) { r.autoRefund = true; r.refunded = back; }
-      return l;
-    });
-    b.status = refunded ? 'refunded' : 'cancelled';
-    /* the date they kept now carries its full price, so cancelling it later
-       gives back exactly what is left */
-    if (refunded && keep) await changeSetting(`wsbook:${keep.slug}`, cur => {
-      const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-      const r = l.find(x => x.session === b.session && x.email === who); if (!r) return undefined;
-      r.paid = keep.paid; r.pairBroken = true; return l; }).catch(() => {});
-    /* the code's use, given back as a refund gives it back: a guest code
-       with one use stayed used up after the place was cancelled */
-    if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
-      if (!c[b.code]) return undefined; c[b.code] = Object.assign({}, c[b.code], { used: Math.max(0, Number(c[b.code].used || 0) - 1) }); return c; }).catch(() => {});
-    const book2 = (await getSetting(`wsbook:${slug}`)) || [];
-    const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
-    await email(who, `Cancelled: ${w.title}`, mail({ title: 'Your place is cancelled.', greeting: String(b.name || '').split(' ')[0],
-      paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}.`,
-              refunded ? (keep ? `£${(back / 100).toFixed(2).replace(/\.00$/, '')} is refunded to the card you paid with; it shows in a few days. Your other date stands, at its own price of £${(keep.paid / 100).toFixed(2).replace(/\.00$/, '')}.` : `Refunded in full to the card you paid with; it shows in a few days.`)
-                : (b.paid || 0) > 0 ? (early ? 'The refund could not be made automatically, so Elliott will do it by hand.' : 'Inside 48 hours the place cannot be refilled, so it is not refunded automatically. If something serious has happened, reply to this.') : ''].filter(Boolean),
-      signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
-    /* a refund that did not go through is always said, whatever the email
-       switches: it is money somebody is owed */
-    const failed = early && !refunded && (b.paid || 0) > 0;
-    if (failed) await coachAlert(null, 'business', { title: 'Refund it by hand: ' + (b.name || who), body: w.title, tag: 'wsrefund:' + who });
-    if (failed || await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Cancelled: ${b.name || who}, ${w.title}`,
-      mail({ title: `${esc(b.name || who)} has cancelled.`, paras: [`<b>${esc(w.title)}</b>. ${refunded ? 'Refunded automatically.' : (early ? 'Refund it in Stripe: ' + esc(refundErr || 'no payment intent on the booking') : 'Inside 48 hours, not refunded.')} ${wsLive(book2).length} of ${w.places || '?'} places taken now.`],
-        cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
-    /* somebody waiting gets first go at the place */
-    await wsOfferFreed(slug, w);
-    return json({ ok: true, status: b.status });
+    const hoursTo = w.when ? (ms(w.when) - Date.now()) / 3600e3 : 999;
+    const { back } = (b.status || 'booked') === 'booked' ? await wsRefundFor(b, slug) : { back: 0 };
+    const others = [];
+    for (const o of Object.values(all)) {
+      if (!o || !o.live || o.slug === slug || !o.when || ms(o.when) < Date.now()) continue;
+      if (String(o.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14) !== String(w.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14)) continue;
+      const held = wsPlaces((await getSetting(`wsbook:${o.slug}`)) || []);
+      const mine = held.some(x => x.email === t.e);
+      const left = Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : 99;
+      others.push({ slug: o.slug, when: o.when, left, mine });
+    }
+    others.sort((x, y) => ms(x.when) - ms(y.when));
+    return json({ slug, title: w.title, when: w.when, place: w.place, name: b.name || '', status: b.status || 'booked',
+      paid: Number(b.paid) || 0, back, pair: b.pair || '', canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H,
+      cutoff: WS_CUTOFF_H, others });
   }
   /* ── the website editor ──────────────────────────────────────────
      A draft, what is live, and the last fifteen publishes. The edits are

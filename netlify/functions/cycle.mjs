@@ -30,6 +30,16 @@ const REVIEW_HOURS = 48;
 const NUDGE_AFTER = [0, 3];        // days past due — once on the day, once 3 days later
 
 const norm = e => String(e || '').trim().toLowerCase();
+/* the same signed link app.mjs makes: one place, managed without signing
+   in, until the class. The format must match app.mjs sign()/verify(). */
+const WS_CUTOFF_H = 24;
+const b64u = buf => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function manageLink(slug, email, session, until) {
+  const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'wsm', s: slug, e: norm(email), x: String(session || ''), exp: (Date.parse(until) || Date.now()) + 6 * 3600e3 })));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = b64u(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
+  return `${SITE}/booking.html?t=${body}.${mac}`;
+}
 const enc = encodeURIComponent;
 const ms = v => (v ? new Date(v).getTime() : 0);
 
@@ -599,7 +609,7 @@ async function workshopMail(done) {
        reads, and were being sent "see you tomorrow" and then "thank you for
        coming" with a review ask */
     const book = ((b && b.value) || [])
-      .filter(p => p && p.email && p.status !== 'cancelled' && p.status !== 'refunded');
+      .filter(p => p && p.email && p.status !== 'cancelled' && p.status !== 'refunded' && p.status !== 'moved');
     if (!book.length) continue;
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
     const hoursTo = (at - now) / 3600e3;
@@ -615,9 +625,14 @@ async function workshopMail(done) {
           /* a reminder the booking promised is theirs, like a receipt; and it
              is only marked as sent when it went, so a held one is not
              counted as done */
+          /* the reminder is the moment somebody finds out they cannot come:
+             the way to move or cancel goes with it, while it still counts */
+          const canChange = hoursTo > WS_CUTOFF_H;
+          const link = canChange && p.session ? await manageLink(w.slug, p.email, p.session, w.when) : '';
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
-              paras: T.paras,
+              paras: T.paras.concat(link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date or cancel</a> before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'Europe/London' })}.`]
+                : [`Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }
           done.workshops.reminded++;
@@ -709,7 +724,7 @@ async function intentMail(done) {
     if (!intents.length) continue;
     const br = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
     const pairRow = await supa.row('settings', 'key=eq.wspair&select=value').catch(() => null);
-    const held = new Set(((br && br.value) || []).filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded').map(b => norm(b.email)));
+    const held = new Set(((br && br.value) || []).filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved').map(b => norm(b.email)));
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
     for (const p of intents) {
       const e = norm(p.email);

@@ -8291,8 +8291,9 @@ function sendAsk(retryText){
 /* ── More ── */
 /* ── workshops this account has booked ───────────────────────────────
    Booked on the site with an email, so the account already exists; here
-   they see the date and place, and can cancel. More than 48 hours out it
-   refunds itself; inside that it cancels and the coach decides. */
+   they see the date and place, and can cancel or move it to another date
+   of the class. More than 24 hours out a cancel refunds itself; inside
+   that it cannot be changed here. */
 let bookingsAsked=false;
 function loadBookings(){
   if(!st.token) return;
@@ -8307,8 +8308,8 @@ let cancelling='';
 function cancelBooking(slug){
   if(cancelling) return;
   const b=(st.bookings||[]).find(x=>x.slug===slug); if(!b) return;
-  const msg = b.refundable ? 'Cancel your place?\n\nIt is more than 48 hours away, so it is refunded in full.'
-    : (b.paid ? 'Cancel your place?\n\nIt is inside 48 hours, so it is not refunded automatically.' : 'Cancel your place?');
+  const msg = b.refundable && Number(b.back)>0 ? 'Cancel your place?\n\n'+penceTxt(b.back)+' comes back to your card.'
+    : 'Cancel your place?';
   sure(msg, 'Cancel my place', ()=>{
     cancelling=slug; render();
     fetch('/api/app/workshop/cancel',{method:'POST',headers:authed(),body:JSON.stringify({slug})})
@@ -8316,6 +8317,23 @@ function cancelBooking(slug){
       .then(()=>{ cancelling=''; loadBookings(); })
       .catch(e=>{ cancelling=''; render(); toast(String(e)); });
   }, true);
+}
+/* move a place to another date of the same class: the dates come with the
+   booking, and a choice of one is a question rather than a list */
+let movingOpen='', moving='';
+function moveBooking(slug, to){
+  const b=(st.bookings||[]).find(x=>x.slug===slug); if(!b || moving) return;
+  const opts=b.moveTo||[];
+  if(!to){ if(opts.length===1) to=opts[0].slug; else { movingOpen=movingOpen===slug?'':slug; render(); return; } }
+  const o=opts.find(x=>x.slug===to); if(!o) return;
+  const day=new Date(o.when).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'});
+  sure('Move your place to '+day+'?\n\nNothing more to pay.', 'Move it', ()=>{
+    moving=slug; render();
+    fetch('/api/app/workshop/move',{method:'POST',headers:authed(),body:JSON.stringify({slug,to})})
+      .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not move it')))
+      .then(()=>{ moving=''; movingOpen=''; toast('Moved to '+day+'.'); loadBookings(); })
+      .catch(e=>{ moving=''; render(); toast(String(e)); });
+  });
 }
 /* add a booked session to the phone's calendar: the file opens in Apple
    Calendar or Outlook, and Google has its own link */
@@ -8396,11 +8414,18 @@ function bookingsHTML(){
             ['cancelled','refunded','toArrange','done'].includes(b.status)?`<div style="font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:6px">${
               b.status==='refunded'?'CANCELLED, REFUNDED':b.status==='cancelled'?'CANCELLED':b.status==='done'?'DONE':'PAID, TIME TO AGREE'}</div>`:''}
         </div>
-        ${b.canCancel?`<button class="rt" style="flex:none" ${cancelling===b.slug?'disabled':''}
+        <div style="flex:none;display:flex;flex-direction:column;gap:6px">
+        ${(b.moveTo||[]).length?`<button class="rt" ${moving===b.slug?'disabled':''}
+          onclick="moveBooking('${esc(b.slug)}')">${moving===b.slug?'Moving…':'Move'}</button>`:''}
+        ${b.canCancel?`<button class="rt" ${cancelling===b.slug?'disabled':''}
           onclick="cancelBooking('${esc(b.slug)}')">${cancelling===b.slug?'Cancelling…':'Cancel'}</button>`:''}
-      </div>`).join('')}
+        </div>
+      </div>
+      ${movingOpen===b.slug?`<div style="display:flex;flex-direction:column;gap:6px;margin-top:-4px">${(b.moveTo||[]).map(o=>
+        `<button class="rt" style="justify-content:space-between;width:100%" onclick="moveBooking('${esc(b.slug)}','${esc(o.slug)}')">
+          <span>${esc(new Date(o.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}</span><span>Move here</span></button>`).join('')}</div>`:''}`).join('')}
     </div>
-    ${list.some(b=>b.canCancel)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Cancel more than 48 hours before and it is refunded in full.</div>`:''}
+    ${list.some(b=>b.canCancel)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Move or cancel up to 24 hours before; a cancel is refunded to your card.</div>`:''}
   </div>`;
 }
 
@@ -15403,7 +15428,7 @@ function wsBookBody(){
     <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${
       wsb.busy?'One moment…':(wsb.pair?'Book both, '+wsPounds(both):(Number(w.price)>0?'Book, '+(w.priceLabel||wsPounds(w.price)):'Book my place'))}</button>
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email${Number(w.appDays)>0?', and the app open for '+w.appDays+' days':''}.</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email${Number(w.appDays)>0?', and the app open for '+w.appDays+' days':''}. Move or cancel up to 24 hours before.</div>
   </div>`;
 }
 /* an email typed in the sheet is noted (once per date and address), so the
