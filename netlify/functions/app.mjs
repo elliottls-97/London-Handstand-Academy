@@ -4600,6 +4600,10 @@ const handle = async (request) => {
      confirmation and an open app. The day before and the day after are
      handled by the daily job. */
   const wsSlug = x => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+  /* A title with its date in it ("All Levels Handstand Class 24th Oct") is
+     still the same class as the one without, so two dates of it can be
+     booked together. The class page and the app group dates the same way. */
+  const wsBare = t => String(t || '').replace(/\b(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?)\.?(?:,?\s+\d{4})?\b/gi, ' ').replace(/\(\s*\)/g,' ').replace(/[\s,.\u00b7(-]+$/, '').replace(/\s{2,}/g, ' ').trim();
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
     places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
@@ -4943,9 +4947,14 @@ const handle = async (request) => {
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
         'line_items[0][price_data][unit_amount]': String(Math.round(price)),
-        'line_items[0][price_data][product_data][name]': String(w.title + (w2 ? ', both dates' : '') + (fr ? ', 2 people' : '')).slice(0, 120),
-        ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(targets.filter(t => t[1].when).map(t => new Date(t[1].when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })).join(' and ') + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
+        'line_items[0][price_data][product_data][name]': String((w2 ? wsBare(w.title) + ', both dates' : w.title) + (fr ? ', 2 people' : '')).slice(0, 120),
+        /* the dates in date order, whichever was picked first */
+        ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(targets.filter(t => t[1].when).sort((a, b) => ms(a[1].when) - ms(b[1].when)).map(t => new Date(t[1].when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })).join(' and ') + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
+        'line_items[0][price_data][product_data][images][0]': `${SITE}/assets/site/latest-workshop-group-handstand-picture.jpg`,
         'line_items[0][quantity]': '1',
+        /* the button says Book, and under it what happens if plans change */
+        submit_type: 'book',
+        'custom_text[submit][message]': `Move or cancel online up to ${WS_CUTOFF_H} hours before.`,
         'metadata[workshop]': targets.map(t => t[0]).join(','),
         ...(fr ? { 'metadata[friend]': (fr.e + '|' + fr.nm).slice(0, 400) } : {}),
         'metadata[name]': nm,
@@ -5258,6 +5267,8 @@ const handle = async (request) => {
         'line_items[0][quantity]': '1',
         'metadata[session]': kind, 'metadata[name]': nm, 'metadata[prefs]': prefs,
         'payment_method_types[0]': 'card',
+        submit_type: 'book',
+        'custom_text[submit][message]': 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
         success_url: `${url.origin}/session.html?booked=1&kind=${kind}`,
         cancel_url: `${url.origin}/session.html?kind=${kind}`,
@@ -5402,6 +5413,7 @@ const handle = async (request) => {
         ...(row.when ? { 'line_items[0][price_data][product_data][description]': new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) + (row.place ? ', ' + row.place : '') } : {}),
         'line_items[0][quantity]': '1',
         'metadata[sessPay]': row.id,
+        submit_type: 'book',
         /* a card (Apple Pay and Google Pay are cards): a bank transfer
            completes the page before the money arrives */
         'payment_method_types[0]': 'card',
