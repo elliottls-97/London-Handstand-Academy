@@ -43,7 +43,7 @@ export default async (request, context) => {
   const url = new URL(request.url);
   const page = PAGES[url.pathname];
   if (!page || request.method !== 'GET' || url.searchParams.has('siteedit')) return context.next();
-  let E = null, W = [], setmore = false;
+  let E = null, W = [], P = 0, got = false, setmore = false;
   /* Each on its own clock. They shared one abort and one Promise.all, so a
      slow workshop list cost the page its edits and, worse, the Setmore
      switch: the page went out as the site's own whatever the dashboard said. */
@@ -59,7 +59,7 @@ export default async (request, context) => {
       /* the dashboard's switch: the site's own booking, or the old Setmore page */
       page === 'handstand-class' ? get('/api/app/classpage', 1500) : null]);
     E = (s && s.e) || null;
-    W = (w && w.workshops) || [];
+    W = (w && w.workshops) || []; P = Number(w && w.pair) || 0; got = !!(w && w.workshops);
     setmore = !!(c && c.booking === 'setmore');
   } catch { /* the page as it is */ }
   const m = (E && E.m) || {};
@@ -84,6 +84,10 @@ export default async (request, context) => {
       html = setMeta(html, /<meta\s+property="og:description"[^>]*>/i, `<meta property="og:description" content="${attr(desc)}"/>`);
       html = setMeta(html, /<meta\s+name="twitter:description"[^>]*>/i, `<meta name="twitter:description" content="${attr(desc)}">`);
     }
+    /* the dates the page would fetch again before showing its form: handed
+       over with the page, so the form is there as soon as the page is */
+    if (page === 'handstand-class' && !setmore && got)
+      html = html.replace('</head>', '<script>window.__LHA_WS=' + JSON.stringify({ workshops: W, pair: P }).replace(/</g, '\\u003c') + '</script>\n</head>');
     if (img) {
       html = setMeta(html, /<meta\s+property="og:image"[^>]*>/i, `<meta property="og:image" content="${attr(img)}">`);
       html = setMeta(html, /<meta\s+name="twitter:image"[^>]*>/i, `<meta name="twitter:image" content="${attr(img)}">`);

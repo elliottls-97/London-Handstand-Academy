@@ -1827,7 +1827,7 @@ const handle = async (request) => {
     /* held at the edge for fifteen seconds: the switch still takes effect almost at once */
     return new Response(JSON.stringify({ booking: v === 'setmore' ? 'setmore' : 'site' }),
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
-        'Netlify-CDN-Cache-Control': 'public, s-maxage=15, stale-while-revalidate=60' } });
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=15, stale-while-revalidate=600' } });
   }
   if (path === '/site' && request.method === 'GET') {
     const page = String(url.searchParams.get('page') || '').replace(/[^a-z0-9-]/g, '').slice(0, 40);
@@ -4542,7 +4542,7 @@ const handle = async (request) => {
     /* two dates booked together cost this, when the owner has set it */
     return new Response(JSON.stringify({ workshops: out, pair: Number((pairS || {}).pence) || 0 }), { headers: {
       'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
-      'Netlify-CDN-Cache-Control': 'public, s-maxage=20, stale-while-revalidate=120' } });
+      'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=600' } });
   }
   /* a workshop discount code: pounds or percent off, for one workshop or all,
      with a use count and an expiry. Kept apart from the app codes, which open
