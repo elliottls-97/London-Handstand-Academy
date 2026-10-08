@@ -683,18 +683,9 @@ async function workshopMail(done) {
             await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
           }
         }
-        if (days >= 9 && days <= 12 && !tookIt(e)) {
-          const key = `wslast:${w.slug}:${e}`;
-          if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-            const T = await emailCopy('wsLast', { name: esc(first) });
-            if (T.off) { done.held = (done.held || 0) + 1; continue; }
-            await email(e, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
-              cta: { href: `${SITE}/lha-app.html?go=answer`, label: 'Send a clip' },
-              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), 'offers');
-            done.workshops.nudged = (done.workshops.nudged || 0) + 1;
-            await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
-          }
-        }
+        /* the ten-day "are you still training the drills" email is gone (8 Oct
+           2026): a booking had up to seven emails, and this one asked again
+           what the three-day one had just offered */
       }
     }
     if (hoursSince > 10 && hoursSince <= 40) {
