@@ -150,6 +150,21 @@ async function wsManageLink(slug, addr, session, until) {
   const t = await sign({ k: 'wsm', s: slug, e: norm(addr), x: String(session || ''), exp: (ms(until) || Date.now() + 60 * DAY) + 6 * 3600e3 });
   return `${SITE}/booking.html?t=${t}`;
 }
+/* Where the class is, and what changing it means, said the same way in
+   every confirmation (8 Oct 2026: the emails gave "OverGravity, Shadwell"
+   and nothing else, and "Can't make it?" with a link and no rules). */
+const WS_MAP = 'https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB';
+function wsWhereHTML(w) {
+  if (w && w.place && !/overgravity/i.test(w.place)) return `<b>Where:</b> ${esc(w.place)}.`;
+  return `<b>Where:</b> OverGravity, Arch 1, Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. <a href="${WS_MAP}" style="color:#006663">Directions</a>.`;
+}
+/* "Friday 1pm": the last moment it can be changed online */
+const wsCutoffTxt = w => w && w.when ? new Date(ms(w.when) - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1') : '';
+function wsChangeHTML(links, ws, paid) {
+  const cuts = [...new Set((ws || []).map(wsCutoffTxt).filter(Boolean))];
+  const until = cuts.length === 1 ? `Until ${cuts[0]}, ${WS_CUTOFF_H} hours before` : `Up to ${WS_CUTOFF_H} hours before`;
+  return `<b>Need to change it?</b> ${links}. ${until}, you can move to another date at no cost${paid ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel'}. No account or password needed. After that, reply to this email and we will help if we can.`;
+}
 async function wsManageRead(t) {
   const p = await verify(String(t || ''));
   return p && p.k === 'wsm' && p.s && p.e ? p : null;
@@ -323,6 +338,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   await email(who, `Moved: ${w2.title}${w2.when ? ', ' + new Date(w2.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : ''}`,
     mail({ title: 'Your place has moved.', greeting: String(b.name || '').split(' ')[0],
       paras: [`<b>${esc(w2.title)}</b>, now on ${esc(wsWhenTxt(w2))}${w2.place ? ', at ' + esc(w2.place) : ''}, instead of ${esc(wsWhenTxt(w))}.`,
+              wsWhereHTML(w2),
               'Nothing more to pay. A reminder comes the day before.',
               `<a href="${SITE}/api/app/workshop/ics?slug=${to}" style="color:#006663">Add it to your calendar</a>. Need to change it again? <a href="${link}" style="color:#006663">Manage your booking</a>.`],
       signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -2508,13 +2524,13 @@ const handle = async (request) => {
         good.length > 1 ? 'Add ' + esc(dayOf(r.w)) + ' to your calendar' : 'Add it to your calendar'}</a>`).join(' ');
       /* cancel or move, without signing in, up to the cutoff */
       const manage = [];
-      for (const r of good) manage.push(`<a href="${await wsManageLink(r.slug, e, obj.id, r.w.when)}" style="color:#006663">${good.length > 1 ? 'Change ' + esc(dayOf(r.w)) : 'Cancel or move to another date'}</a>`);
+      for (const r of good) manage.push(`<a href="${await wsManageLink(r.slug, e, obj.id, r.w.when)}" style="color:#006663">${good.length > 1 ? 'Change ' + esc(dayOf(r.w)) : 'Move or cancel your booking'}</a>`);
       const sentOk = await email(e, `You are booked: ${titleTxt}`,
         mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
-          paras: [dateLine, guestLine,
+          paras: [dateLine, wsWhereHTML(first), guestLine,
                   first.desc ? esc(first.desc) : '',
                   `${soon ? '' : 'A reminder comes the day before. '}${icsLinks ? icsLinks + '.' : ''}`,
-                  `Can't make it? ${manage.join(' &middot; ')}: up to ${WS_CUTOFF_H} hours before, refunded if you cancel, free to move. It is in the app under this address as well.`,
+                  wsChangeHTML(manage.join(' &middot; '), good.map(r => r.w), kept > 0),
                   wsNoPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
           cta: wsNoPw ? { href: wsLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -2526,12 +2542,13 @@ const handle = async (request) => {
       if (theirs.length) {
         try { await ensureAcct(fr.e, fr.nm); } catch {}
         const glinks = [];
-        for (const r of theirs) glinks.push(`<a href="${await wsManageLink(r.slug, fr.e, obj.id, r.w.when)}" style="color:#006663">${theirs.length > 1 ? 'Change ' + esc(dayOf(r.w)) : 'Cancel or move to another date'}</a>`);
+        for (const r of theirs) glinks.push(`<a href="${await wsManageLink(r.slug, fr.e, obj.id, r.w.when)}" style="color:#006663">${theirs.length > 1 ? 'Change ' + esc(dayOf(r.w)) : 'Move or cancel your booking'}</a>`);
         await email(fr.e, `You are booked: ${theirs[0].w.title}`, mail({ title: 'You are booked.', greeting: fr.nm.split(' ')[0] || '',
           paras: [`${esc(nm || 'A friend')} has booked you a place on <b>${esc(theirs[0].w.title)}</b>: ${theirs.map(r => esc(whenOf(r.w))).join(', and ')}${theirs[0].w.place ? ', at ' + esc(theirs[0].w.place) : ''}.`,
+                  wsWhereHTML(theirs[0].w),
                   theirs[0].w.desc ? esc(theirs[0].w.desc) : '',
                   `A reminder comes the day before. ${theirs.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">Add ${theirs.length > 1 ? esc(dayOf(r.w)) : 'it'} to your calendar</a>`).join(' ')}`,
-                  `Can't make it? ${glinks.join(' &middot; ')}, up to ${WS_CUTOFF_H} hours before.`].filter(Boolean),
+                  wsChangeHTML(glinks.join(' &middot; '), theirs.map(r => r.w), false)].filter(Boolean),
           cta: { href: `${SITE}/handstand-class`, label: 'About the class' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       }
       await coachAlert(null, 'business', { title: 'New booking: ' + (nm || e) + (theirs.length ? ' and ' + fr.nm : ''), body: good.map(r => r.w.title + (r.w.when ? ', ' + dayOf(r.w) : '')).join('; ') + (sentOk ? '' : ' (their email was held)'), tag: 'book:' + e });
@@ -4734,6 +4751,44 @@ const handle = async (request) => {
     }
     return json({ ok: true, position: wait.findIndex(x => x.email === e) + 1 });
   }
+  /* ── find my booking ───────────────────────────────────────────────
+     Lost the confirmation: an address typed on the class page gets its
+     upcoming places emailed to it, each with the link that moves or
+     cancels it. The inbox is the proof, so no code to type, and the page
+     is told the same thing whether the address has a booking or not, so
+     it cannot be used to find out who is coming. (8 Oct 2026) */
+  if (path === '/workshop/find' && request.method === 'POST') {
+    const e = norm(body.email);
+    if (!e || !wsMailOk(e)) return json({ error: 'That does not look like an email address' }, 400);
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`wsf:${ip}`, 3600000)) > 10) return json({ error: 'Too many tries. Give it an hour.' }, 429); }
+    /* one email an hour per address, however many people ask for it */
+    if ((await rateHit(`wsfe:${e}`, 3600000)) > 1) return json({ ok: true });
+    const all = (await getSetting('workshops')) || {};
+    const found = [];
+    for (const slug of ((await getSetting(`wsmine:${e}`)) || [])) {
+      const w = all[slug]; if (!w || (w.when && ms(w.when) < Date.now() - 3 * 3600e3)) continue;
+      const b = ((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === e && (x.status || 'booked') === 'booked');
+      if (b) found.push({ slug, w, b });
+    }
+    if (!found.length) return json({ ok: true });
+    found.sort((a, b) => ms(a.w.when) - ms(b.w.when));
+    const paras = [];
+    for (const { slug, w, b } of found) {
+      const early = !w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3;
+      const link = early && b.session ? await wsManageLink(slug, e, b.session, w.when) : '';
+      paras.push(`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}.${w.when ? ` <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : ''}`);
+      paras.push(link ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel this booking</a>`, [w], Number(b.paid) > 0 && !b.payer)
+                      : `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be changed online. Can't make it? Reply to this email.`);
+    }
+    paras.push(wsWhereHTML(found[0].w));
+    await email(e, found.length > 1 ? 'Your bookings' : `Your booking: ${found[0].w.title}`,
+      mail({ title: found.length > 1 ? 'Your bookings.' : 'Your booking.', greeting: String(found[0].b.name || '').split(' ')[0],
+        paras: ['You asked for your booking on the class page, so here it is.'].concat(paras),
+        footnote: 'Did not ask for this? Nothing has changed, and you can ignore it.',
+        signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => false);
+    return json({ ok: true });
+  }
   /* ── started booking ───────────────────────────────────────────────
      An email typed on the booking sheet, or Book pressed, is a person who
      wanted a place. Kept per workshop (wsintent:<slug>), one entry per
@@ -4884,10 +4939,10 @@ const handle = async (request) => {
         for (const [tSlug] of targets) await changeSetting(`wsmine:${fr.e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(tSlug)) return undefined; l.push(tSlug); return l; }).catch(() => {});
         try { await ensureAcct(fr.e, fr.nm); } catch {}
         const links = [];
-        for (const [tSlug, tw] of targets) links.push(`<a href="${await wsManageLink(tSlug, fr.e, sid, tw.when)}" style="color:#006663">${targets.length > 1 ? 'Change ' + esc(new Date(tw.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })) : 'Cancel or move to another date'}</a>`);
+        for (const [tSlug, tw] of targets) links.push(`<a href="${await wsManageLink(tSlug, fr.e, sid, tw.when)}" style="color:#006663">${targets.length > 1 ? 'Change ' + esc(new Date(tw.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })) : 'Move or cancel your booking'}</a>`);
         await email(fr.e, `You are booked: ${w.title}`, mail({ title: 'You are booked.', greeting: fr.nm.split(' ')[0] || '',
           paras: [`${esc(nm)} has booked you a place on <b>${esc(w.title)}</b>: ${targets.map(t => esc(wsWhenTxt(t[1]))).join(', and ')}${w.place ? ', at ' + esc(w.place) : ''}.`,
-                  'A reminder comes the day before.', `Can't make it? ${links.join(' &middot; ')}, up to ${WS_CUTOFF_H} hours before.`],
+                  wsWhereHTML(w), 'A reminder comes the day before.', wsChangeHTML(links.join(' &middot; '), targets.map(t => t[1]), false)],
           cta: { href: `${SITE}/handstand-class`, label: 'About the class' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       }
       if (disc.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
@@ -4910,8 +4965,9 @@ const handle = async (request) => {
         paras: [targets.length > 1
                   ? `<b>${esc(w.title)}</b>: ${targets.map(t => esc(whenOfF(t[1]))).join(', and ')}${w.place ? ', at ' + esc(w.place) : ''}.`
                   : `<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+                wsWhereHTML(w),
                 `${soon ? '' : 'A reminder comes the day before. '}${icsF ? icsF + '.' : ''}`,
-                `Can't make it? <a href="${await wsManageLink(slug, e, sid, w.when)}" style="color:#006663">Cancel or move to another date</a>, up to ${WS_CUTOFF_H} hours before. It is in the app under this address as well.`,
+                wsChangeHTML(`<a href="${await wsManageLink(slug, e, sid, w.when)}" style="color:#006663">Move or cancel your booking</a>`, targets.map(t => t[1]), false),
                 noPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
         cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -5042,8 +5098,9 @@ const handle = async (request) => {
       const link = await wsManageLink(slug, e, session, w.when);
       const went = await email(e, `Your place: ${w.title}`, mail({ title: 'Your place, again.', greeting: String(b.name || '').split(' ')[0],
         paras: [`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+          wsWhereHTML(w),
           w.when ? `<a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : '',
-          early ? `Can't make it? <a href="${link}" style="color:#006663">Cancel or move to another date</a>, up to ${WS_CUTOFF_H} hours before.` : `Can't make it? Reply to this email.`].filter(Boolean),
+          early ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel your booking</a>`, [w], Number(b.paid) > 0) : `Can't make it? Reply to this email.`].filter(Boolean),
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       r = went ? { ok: true } : { error: 'The email did not go: check the email switch in Settings, Admin', status: 502 };
     } else if (act === 'move') r = await wsMovePlace(slug, e, session, wsSlug(body.to), { by: 'coach' });

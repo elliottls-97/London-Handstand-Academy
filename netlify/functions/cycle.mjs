@@ -624,7 +624,8 @@ async function workshopMail(done) {
       for (const p of book) {
         const key = `wsremind:${w.slug}:${p.email}`;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-          const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '' });
+          const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '',
+            directions: '<a href="https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Directions</a>.' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           /* a reminder the booking promised is theirs, like a receipt; and it
              is only marked as sent when it went, so a held one is not
@@ -635,7 +636,7 @@ async function workshopMail(done) {
           const link = canChange && p.session ? await manageLink(w.slug, p.email, p.session, w.when) : '';
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
-              paras: T.paras.concat(link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date or cancel</a> before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
+              paras: T.paras.concat(link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date or cancel</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
                 : [`Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }

@@ -346,14 +346,16 @@ export const EMAILS = {
       "name",
       "title",
       "when",
-      "place"
+      "place",
+      "directions"
     ],
     "subject": "Tomorrow: {title}",
     "title": "See you tomorrow.",
     "paras": [
       "<b>{title}</b>, {when}{place}.",
-      "Wear something you can move in and bring water. Arrive ten minutes early so we start on time.",
-      "If you cannot make it, reply to this and we will sort it."
+      "We are in <b>Arch 1</b> at OverGravity: Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. {directions}",
+      "Here early? Wait in the café, which is in Arch 1 too. There are changing rooms, so you can change when you get there.",
+      "Bring clothes you can move in and some water. Arrive ten minutes early so we start on time."
     ]
   },
   "wsOffer": {
