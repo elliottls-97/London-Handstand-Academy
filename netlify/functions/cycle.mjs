@@ -42,6 +42,15 @@ async function manageLink(slug, email, session, until) {
 }
 const enc = encodeURIComponent;
 const ms = v => (v ? new Date(v).getTime() : 0);
+/* the same as app.mjs wsWhenTxt: "Saturday 10 October, 1:00 to 2:30pm" */
+const wsClock = t => new Date(t).toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s+/g, '').toLowerCase();
+const wsWhenTxt = w => {
+  if (!w || !w.when) return '';
+  const a = new Date(w.when).getTime(), b = a + (/all levels/i.test(w.title || '') ? 90 : 120) * 60e3;
+  const s = wsClock(a), e = wsClock(b);
+  return new Date(a).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' })
+    + ', ' + (s.slice(-2) === e.slice(-2) ? s.slice(0, -2) : s) + ' to ' + e;
+};
 
 const parseClients = () => (process.env.CLIENTS || '')
   .split(',').map(p => p.trim()).filter(Boolean)
@@ -615,7 +624,7 @@ async function workshopMail(done) {
     const book = ((b && b.value) || [])
       .filter(p => p && p.email && p.status !== 'cancelled' && p.status !== 'refunded' && p.status !== 'moved');
     if (!book.length) continue;
-    const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+    const whenTxt = wsWhenTxt(w);
     const hoursTo = (at - now) / 3600e3;
     if (hoursTo > 12 && hoursTo <= 36) {
       /* the key was per workshop, so once the run had marked it, anyone who
@@ -756,7 +765,7 @@ async function intentMail(done) {
     /* anyone with a row at all: somebody who booked and then cancelled or
        moved chose that, and "you started booking" reads as not listening */
     const held = new Set(((br && br.value) || []).filter(b => b && b.email).map(b => norm(b.email)));
-    const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+    const whenTxt = wsWhenTxt(w);
     for (const p of intents) {
       const e = norm(p.email);
       if (held.has(e) || (heldBy[kind(w)] && heldBy[kind(w)].has(e)) || toldNow.has(e)) continue;

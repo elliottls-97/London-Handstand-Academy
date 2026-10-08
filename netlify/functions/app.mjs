@@ -125,7 +125,17 @@ const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.st
    price). The coach can do either at any time, and choose the refund. */
 const WS_CUTOFF_H = 24;
 const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/, '');
-const wsWhenTxt = w => w && w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+/* "Saturday 10 October, 1:00 to 2:30pm", the way the class page says it.
+   It said "at 13:00" with no end, in every email (8 Oct 2026). */
+const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : 120;
+const wsClock = t => new Date(t).toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s+/g, '').toLowerCase();
+const wsWhenTxt = w => {
+  if (!w || !w.when) return '';
+  const a = new Date(w.when).getTime(), b = a + wsMins(w) * 60e3;
+  const s = wsClock(a), e = wsClock(b);
+  return new Date(a).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' })
+    + ', ' + (s.slice(-2) === e.slice(-2) ? s.slice(0, -2) : s) + ' to ' + e;
+};
 const wsPlaces = l => (Array.isArray(l) ? l : []).filter(b => b && (b.status || 'booked') === 'booked');
 /* What the app has refunded on one payment itself. Stripe tells the
    webhook about every refund, its own included, and one payment can carry
@@ -160,10 +170,18 @@ function wsWhereHTML(w) {
 }
 /* "Friday 1pm": the last moment it can be changed online */
 const wsCutoffTxt = w => w && w.when ? new Date(ms(w.when) - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1') : '';
-function wsChangeHTML(links, ws, paid) {
-  const cuts = [...new Set((ws || []).map(wsCutoffTxt).filter(Boolean))];
-  const until = cuts.length === 1 ? `Until ${cuts[0]}, ${WS_CUTOFF_H} hours before` : `Up to ${WS_CUTOFF_H} hours before`;
-  return `<b>Need to change it?</b> ${links}. ${until}, you can move to another date at no cost${paid ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel'}. No account or password needed. After that, reply to this email and we will help if we can.`;
+/* money: true when they paid, false when it was free, or { payer } for a
+   place somebody else paid for, whose refund goes back to that card */
+function wsChangeHTML(links, ws, money) {
+  const dated = (ws || []).filter(w => w && w.when);
+  const clocks = [...new Set(dated.map(w => wsClock(ms(w.when))))];
+  const until = dated.length === 1 ? `Until ${wsCutoffTxt(dated[0])}, ${WS_CUTOFF_H} hours before`
+    : dated.length > 1 && clocks.length === 1 ? `Until ${clocks[0].replace(':00', '')} the day before each date`
+    : `Up to ${WS_CUTOFF_H} hours before`;
+  const cancel = money && money.payer !== undefined
+      ? `, or cancel, and the money goes back to ${money.payer ? esc(money.payer) + ', who paid' : 'whoever paid'}`
+    : money ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel';
+  return `<b>Need to change it?</b> ${links}. ${until}, you can move to another date at no cost${cancel}. No account or password needed. After that, reply to this email and we will help if we can.`;
 }
 async function wsManageRead(t) {
   const p = await verify(String(t || ''));
@@ -360,7 +378,7 @@ async function wsOfferFreed(slug, w) {
     const wait = ((await getSetting(`wswait:${slug}`)) || []).filter(x => x && x.email && !held.has(norm(x.email))).slice(0, 40);
     if (!wait.length) return;
     const free = Number(w.places) - wsLive(book).length;
-    const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+    const whenTxt = wsWhenTxt(w);
     const href = /all levels/i.test(w.title || '') ? `${SITE}/handstand-class#book` : `${SITE}/workshop.html?slug=${slug}`;
     const day = new Date().toISOString().slice(0, 10);
     for (const x of wait) {
@@ -2413,7 +2431,7 @@ const handle = async (request) => {
       /* each date's share of what was paid; the first carries the odd penny */
       const shareOf = k => k === 0 ? paidNow - each * (units - 1) : each;
       const pounds = v => '£' + (v / 100).toFixed(2).replace(/\.00$/, '');
-      const whenOf = w => w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      const whenOf = wsWhenTxt;
       const dayOf = w => w.when ? new Date(w.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : '';
       /* One change nothing else can overwrite, and the checks made inside
          it against the list as it really is: two people paying for the last
@@ -2548,7 +2566,7 @@ const handle = async (request) => {
                   wsWhereHTML(theirs[0].w),
                   theirs[0].w.desc ? esc(theirs[0].w.desc) : '',
                   `A reminder comes the day before. ${theirs.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">Add ${theirs.length > 1 ? esc(dayOf(r.w)) : 'it'} to your calendar</a>`).join(' ')}`,
-                  wsChangeHTML(glinks.join(' &middot; '), theirs.map(r => r.w), false)].filter(Boolean),
+                  wsChangeHTML(glinks.join(' &middot; '), theirs.map(r => r.w), { payer: nm || '' })].filter(Boolean),
           cta: { href: `${SITE}/handstand-class`, label: 'About the class' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       }
       await coachAlert(null, 'business', { title: 'New booking: ' + (nm || e) + (theirs.length ? ' and ' + fr.nm : ''), body: good.map(r => r.w.title + (r.w.when ? ', ' + dayOf(r.w) : '')).join('; ') + (sentOk ? '' : ' (their email was held)'), tag: 'book:' + e });
@@ -4667,7 +4685,7 @@ const handle = async (request) => {
   };
   const wsIcs = (w) => {
     const dt = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    const start = ms(w.when), end = start + (/all levels/i.test(w.title || '') ? 90 : 120) * 60e3;
+    const start = ms(w.when), end = start + wsMins(w) * 60e3;
     const escI = t => String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
     return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//London Handstand Academy//EN', 'BEGIN:VEVENT',
       `UID:ws-${w.slug}@londonhandstandacademy.com`, `DTSTAMP:${dt(Date.now())}`, `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`,
@@ -4698,7 +4716,7 @@ const handle = async (request) => {
     for (const w of Object.values(all)) {
       if (!w || !w.when || ms(w.when) < since) continue;
       const book = wsLive((await getSetting(`wsbook:${w.slug}`)) || []);
-      const start = ms(w.when), end = start + (/all levels/i.test(w.title || '') ? 90 : 120) * 60e3;
+      const start = ms(w.when), end = start + wsMins(w) * 60e3;
       const lines = book.map(b => [b.name || b.email, b.payer ? 'with ' + (b.with || b.payer) : '', b.exp || '', b.q ? 'Note: ' + b.q : '',
         b.attended === 'yes' ? 'arrived' : b.attended === 'no' ? 'no show' : ''].filter(Boolean).join(', '));
       ev.push(['BEGIN:VEVENT', `UID:coach-ws-${w.slug}@londonhandstandacademy.com`, `DTSTAMP:${dt(Date.now())}`,
@@ -4778,7 +4796,7 @@ const handle = async (request) => {
       const early = !w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3;
       const link = early && b.session ? await wsManageLink(slug, e, b.session, w.when) : '';
       paras.push(`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}.${w.when ? ` <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : ''}`);
-      paras.push(link ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel this booking</a>`, [w], Number(b.paid) > 0 && !b.payer)
+      paras.push(link ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel this booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0)
                       : `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be changed online. Can't make it? Reply to this email.`);
     }
     paras.push(wsWhereHTML(found[0].w));
@@ -4952,7 +4970,7 @@ const handle = async (request) => {
       for (const [tSlug] of targets) await changeSetting(`wswait:${tSlug}`, cur => { const l = Array.isArray(cur) ? cur : [];
         const gone = new Set([e, fr && fr.e].filter(Boolean)); return l.some(x => x && gone.has(norm(x.email))) ? l.filter(x => !(x && gone.has(norm(x.email)))) : undefined; }).catch(() => {});
       /* no app days for a booking, as on the paid path */
-      const whenOfF = x => x.when ? new Date(x.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+      const whenOfF = wsWhenTxt;
       const whenTxt = whenOfF(w);
       /* the same as a paid booking: a way in for somebody with no password,
          and the calendar */
@@ -5100,7 +5118,7 @@ const handle = async (request) => {
         paras: [`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
           wsWhereHTML(w),
           w.when ? `<a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : '',
-          early ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel your booking</a>`, [w], Number(b.paid) > 0) : `Can't make it? Reply to this email.`].filter(Boolean),
+          early ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel your booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0) : `Can't make it? Reply to this email.`].filter(Boolean),
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       r = went ? { ok: true } : { error: 'The email did not go: check the email switch in Settings, Admin', status: 502 };
     } else if (act === 'move') r = await wsMovePlace(slug, e, session, wsSlug(body.to), { by: 'coach' });
