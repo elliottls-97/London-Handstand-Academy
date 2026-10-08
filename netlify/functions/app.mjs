@@ -253,7 +253,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   if (failed) await coachAlert(null, 'business', { title: 'Refund it by hand: ' + (b.name || who), body: w.title, tag: 'wsrefund:' + who });
   if (!coach && (failed || await coachMail(null, 'business'))) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Cancelled: ${b.name || who}, ${w.title}`,
     mail({ title: `${esc(b.name || who)} has cancelled.`, paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${refunded ? wsPounds(back) + ' refunded automatically.' : (failed ? 'Refund it in Stripe: ' + esc(refundErr || 'the refund did not go through') + '.' : 'No refund.')}`],
-      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+      cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
   if (!coach) await coachAlert(null, 'business', { title: 'Cancelled: ' + (b.name || who), body: w.title + (refunded ? ', refunded ' + wsPounds(back) : ''), tag: 'wscancel:' + who });
   await wsOfferFreed(slug, w);
   return { ok: true, status, refunded: refunded ? back : 0, failed };
@@ -2474,7 +2474,7 @@ const handle = async (request) => {
         await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Refunded a booking: ${nm || e} for ${w.title}`,
           mail({ title: 'A booking that could not stand.', paras: [`<b>${esc(nm || e)}</b> paid for <b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}: ${problem === 'twice' ? 'a second payment from somebody already booked' : problem === 'full' ? 'the workshop was already full' : 'the date had passed'}.${n > 1 ? ' It was one of a pair; the other date stands.' : ''}`,
             r.back ? `Refunded automatically${n > 1 ? ' (' + pounds(r.share) + ')' : ''}, and they have been told.` : 'The automatic refund did not go through: refund it in Stripe. They have been told it will be refunded.'],
-            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+            cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
       }
       if (!good.length) return json({ ok: true, workshop: slugs.join(','), refunded: bad.map(r => r.back), why: bad.map(r => r.problem) });
       if (md.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
@@ -2541,7 +2541,7 @@ const handle = async (request) => {
                     + (allGood.length > 1 ? ` ${pounds(kept)} for ${allGood.length} places.` : '') + (md.code ? ' Code ' + esc(md.code) + '.' : ''),
                   sentOk ? '' : 'Their booking email was held by the client email switch, so it is in their messages in the app instead.',
                   md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : ''].filter(Boolean),
-          cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+          cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
       return json({ ok: true, workshop: slugs.join(','), booked: allGood.map(r => r.count) });
       } catch (err) { await supa.remove('nudges', `key=eq.${enc('wsbooked:' + obj.id)}`).catch(() => {}); throw err; }
     }
@@ -4918,7 +4918,7 @@ const handle = async (request) => {
       await coachAlert(null, 'business', { title: 'New booking: ' + nm + (fr ? ' and ' + fr.nm : ''), body: w.title + (targets.length > 1 ? ', both dates' : ''), tag: 'book:' + nm });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked${targets.length > 1 ? ' both dates' : ''}.`,
         paras: [`<b>${esc(w.title)}</b>${targets.length > 1 ? ': ' + targets.map(t => esc(whenOfF(t[1]))).join(', and ') : ''}. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''} Free.`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
-        cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+        cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
       return json({ ok: true, free: true, bs: sid });
     }
     if (!stripeKey()) return json({ error: 'Booking is not switched on yet' }, 503);
