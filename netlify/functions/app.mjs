@@ -730,7 +730,9 @@ async function wantsPush(to, kind) {
 async function mailNote(to, subject, kind, ok, why, skip) {
   try {
     const entry = { at: Date.now(), to: norm(to), kind: kind || '', ok: !!ok,
-      why: why || '', subject: String(subject || '').slice(0, 80), ...(skip ? { skip: true } : {}) };
+      /* a sign in or reset code never sits in the log: anybody who could
+         read it could sign in as that person (8 Oct 2026) */
+      why: why || '', subject: String(subject || '').replace(/\b\d{6}\b/g, '******').slice(0, 80), ...(skip ? { skip: true } : {}) };
     /* two sends at once each read the log and wrote it back, and one of
        them vanished; changed in place now, so both are kept */
     await changeSetting('maillog', log => (Array.isArray(log) ? log : []).concat([entry]).slice(-120));
@@ -5434,7 +5436,12 @@ const handle = async (request) => {
        dashboard swallowed the 500 and showed an empty inbox, so a paid
        session never reached anybody. */
     const asking = await me();
-    const owns = e => !asking || !clients()[norm(e)] || coachOf(e) === asking;
+    /* a second coach never acts on the owner or on another coach, whoever
+       is or is not on the roster: owns() was true for anybody who was not
+       somebody else's client, the owner included (8 Oct 2026) */
+    const owns = e => { const t = norm(e);
+      if (asking && !isPrimary(asking) && t !== asking && (isPrimary(t) || coachList().includes(t))) return false;
+      return !asking || !clients()[t] || coachOf(t) === asking; };
     const list = (await getSetting('sessions')) || [];
     if (request.method === 'GET') return json({ sessions: list.filter(x => owns(x.email)) });
     if (request.method === 'POST') {
@@ -5627,7 +5634,11 @@ ${why ? `<p style="margin:0;color:#686868;font-size:13px">Stripe said: ${esc(why
     const owed = !paid && row.ask > 0;
     const mailed = !!(row.confirmMailedAt && Date.now() - row.confirmMailedAt < 3600e3);
     const whenTxt = row.when ? sessWhen(row) : '';
-    const app = (await hashFor(db, row.email)) ? `${SITE}/lha-app.html` : await welcomeLink(row.email);
+    /* The page answers to the session id alone, and that id is in the
+       calendar and payment links in their emails, so anybody a link was
+       forwarded to could open it. A set-password link is only handed out
+       on the return from paying; otherwise it is the app's own sign in. */
+    const app = (!paid || (await hashFor(db, row.email))) ? `${SITE}/lha-app.html` : await welcomeLink(row.email);
     const btn = (href, label, solid) => `<a href="${esc(href)}" style="display:block;text-align:center;margin-top:12px;padding:15px 18px;border-radius:14px;text-decoration:none;font:600 15px/1 system-ui,sans-serif;${solid ? 'background:#006663;color:#fff' : 'color:#006663;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.35)'}">${label}</a>`;
     const head = paid ? 'Paid. Your session is confirmed.' : owed ? 'Your session is booked, not paid yet.' : 'Your session is confirmed.';
     const body0 = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7799,6 +7810,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     /* an open endpoint, so cap it — five a day per address is generous
        for something you only do once */
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`applyip:${ip}`, 3600000)) > 8) return json({ error: 'Too many tries. Give it an hour.' }, 429); }
     if ((await rateHit(`apply:${e}`, 86400000)) > 5) {
       return json({ error: 'That has been sent already. Check your email.' }, 429);
     }
@@ -7816,8 +7829,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     };
     const name = String(body.name || '').slice(0, 60);
 
+    /* a stranger can send this for any address, so it never renames an
+       account that already has a name (8 Oct 2026) */
     await ensureAcct(e, name);
-    if (name) await saveAcct({ email: e, name });
+    if (name && !((await getAcct(e)) || {}).name) await saveAcct({ email: e, name });
     const [row] = await supa.insert('applications', { email: e, name, answers });
 
     const lines = Object.entries(answers).filter(([, v]) => v)
@@ -8821,7 +8836,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        nobody's yet, so every coach sees them — an unrouted question going
        unanswered is worse than one being seen twice. */
     const asking = await me();
-    const owns = e => !asking || !clients()[norm(e)] || coachOf(e) === asking;
+    /* a second coach never acts on the owner or on another coach, whoever
+       is or is not on the roster: owns() was true for anybody who was not
+       somebody else's client, the owner included (8 Oct 2026) */
+    const owns = e => { const t = norm(e);
+      if (asking && !isPrimary(asking) && t !== asking && (isPrimary(t) || coachList().includes(t))) return false;
+      return !asking || !clients()[t] || coachOf(t) === asking; };
 
     /* wipe a client's activity record — needed for a deletion request,
        and for clearing test data out of a real client's history */
@@ -9404,6 +9424,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (request.method === 'POST') {
         const e = norm(body.email);
         if (!e || !e.includes('@')) return json({ error: 'Need an email' }, 400);
+        if (asking && !isPrimary(asking) && !owns(e)) return json({ error: 'Not your client' }, 403);
+        if (asking && !isPrimary(asking) && body.coach && norm(body.coach) !== asking) {
+          return json({ error: 'You can only add clients to yourself. Ask Elliott to assign them.' }, 403);
+        }
         const stored = (await getSetting('roster')) || {};
         if (body.remove) {
           /* 1-2-1s only (8 Oct 2026): somebody put on coaching who only books
@@ -9884,6 +9908,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (!from || !to) return json({ error: 'Need both addresses' }, 400);
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return json({ error: 'That is not an email address' }, 400);
       if (from === to) return json({ error: 'Those are the same address' }, 400);
+      if (asking && !isPrimary(asking) && (!owns(from) || !owns(to) || isPrimary(from) || coachList().includes(from) || coachList().includes(to))) {
+        return json({ error: 'Not an address you can move. Ask Elliott.' }, 403);
+      }
       if (!owns(from)) return json({ error: 'Not your client' }, 403);
 
       const moved = await moveAccount(from, to);
@@ -9954,6 +9981,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const e = norm(body.email);
       const pw = String(body.password || '');
       if (!e || pw.length < 8) return json({ error: 'Need an email and 8+ characters' }, 400);
+      if (asking && !isPrimary(asking) && !(clients()[e] && coachOf(e) === asking)) {
+        return json({ error: 'Only for your own clients. Ask Elliott for anybody else.' }, 403);
+      }
       /* Setting a password is how a coach helps a client who is locked out.
          Pointed at another coach it is how one takes the other's account,
          and with coaches addable from a screen that stops being theoretical.
@@ -10036,6 +10066,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        themselves within a day, and carrying them over risks importing a
        stale lockout. ?dry=1 reports what it would do and writes nothing. */
     if (path === '/coach/migrate' && request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
       if (!supa.configured()) return json({ error: 'Supabase is not configured' }, 503);
       const dry = url.searchParams.get('dry') === '1';
       const t0 = Date.now();
@@ -10183,7 +10214,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     /* the last sixty emails this site tried to send, and what happened */
     if (path === '/coach/maillog' && request.method === 'GET') {
-      const log = (await getSetting('maillog')) || [];
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const log = ((await getSetting('maillog')) || []).map(x => x && x.subject ? Object.assign({}, x, { subject: String(x.subject).replace(/\b\d{6}\b/g, '******') }) : x);
       return json({ log: log.slice(-60).reverse() });
     }
 
@@ -10835,6 +10867,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* remove a clip from Stream — for a deletion request, or when a form
        check has served its purpose */
     if (path === '/coach/video/delete' && request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
       const uid = String(body.uid || '').replace(/[^a-zA-Z0-9]/g, '');
       if (!uid) return json({ error: 'Which video?' }, 400);
       if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) {
