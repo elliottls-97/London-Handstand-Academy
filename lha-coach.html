@@ -11339,6 +11339,34 @@ function bkCsv(slug){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(w.slug||'class')+'.csv'; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
+/* ── after a class: one short video each, and the coaching offer ──────
+   (8 Oct 2026) Everybody at a class has just met Elliott and been helped
+   by him, the best moment there is to offer coaching. The day after, each
+   person gets the one thing he would change, on video, in their chat,
+   with one line about coaching under it. This opens their chat with that
+   line written; he records or attaches the clip and sends it. Sent means
+   a message from him after the class. */
+function bkVideoSent(w,b){
+  const t=new Date(w.when).getTime();
+  const c=clients.find(x=>x.email===b.email), lm=c&&c.lastMsg;
+  if(lm && lm.from==='coach' && !lm.auto && (lm.at||0)>t) return true;
+  return (threadCache[b.email]||[]).some(m=>m && m.from==='coach' && (m.at||0)>t);
+}
+function bkVideoDue(w,b){ return new Date(w.when).getTime()<Date.now() && bkIsLive(b) && b.attended!=='no'
+  && !(clients.find(x=>x.email===b.email)||{}).coached; }
+function bkVideo(email,name,when){
+  const first=(String(name||'').trim().split(' ')[0])||'there';
+  const day=new Date(when).toLocaleDateString('en-GB',{weekday:'long',timeZone:'Europe/London'});
+  const price=(prices&&prices.online&&prices.online.label)||'£120';
+  const n=places&&Number.isInteger(places.n)?places.n:null;
+  drafts[email]=`Hi ${first}, thanks for coming on ${day}. Here is the one thing I would change in your handstand, in the video below.\n\n`
+    +`If you want me to do this every two weeks, with a plan written around you, that is coaching: ${price} a month`
+    +(n&&n>0?`, and I have ${n} place${n===1?'':'s'} open this month`:'')
+    +`. Reply here, or start at londonhandstandacademy.com/#coaching`;
+  openClient(email,'thread');
+  setTimeout(()=>{ const rb=document.getElementById('reply'); if(rb){ rb.value=drafts[email]; rb.focus(); } },150);
+  flash('Their message is written. Add the clip, then send.');
+}
 function bkRowHTML(w,b,others){
   const k=bkKey(w.slug,b), open=bkRow===k, [st,cls]=bkStatus(b), live=bkIsLive(b);
   const a=`${jsq(w.slug)},${jsq(b.email)},${jsq(b.session||'')}`;
@@ -11350,9 +11378,12 @@ function bkRowHTML(w,b,others){
   const tags=(b.pair?`<span class="tag tag-neutral" title="Both dates in one booking">both dates</span>`:'')
     +(b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:'')
     +(b.source==='setmore'?`<span class="tag tag-neutral">added by hand</span>`:'');
+  const vid=bkVideoDue(w,b)?(bkVideoSent(w,b)
+      ?`<span class="tag tag-neutral" title="You have messaged them since the class">video sent</span>`
+      :`<button class="btn btn-sm btn-primary" style="min-height:30px;padding:0 11px" onclick="event.stopPropagation();bkVideo(${jsq(b.email)},${jsq(b.name||'')},${jsq(w.when)})">Send their video</button>`):'';
   return `<div class="bk-row${open?' bk-open':''}" data-k="${esc(k)}">
     <div class="bk-line" onclick="bkToggle(${jsq(k)})">
-      <div style="min-width:0"><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b style="font:600 14.5px/1.3 var(--sans)">${esc(b.name||b.email)}</b>${who}${tags}</div>
+      <div style="min-width:0"><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b style="font:600 14.5px/1.3 var(--sans)">${esc(b.name||b.email)}</b>${who}${tags}${vid}</div>
         <div class="muted" style="font-size:12.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis">${esc(b.email)}</div></div>
       <div class="bk-c" style="font-size:13px">${b.exp?esc(bkLvlShort(b.exp)):'<span class="muted">not said</span>'}${b.q?`<div class="muted" style="font-size:12.5px;margin-top:2px;white-space:normal">${esc(b.q)}</div>`:''}</div>
       <div class="bk-c" style="font-size:13px">${paid?bkMoney(paid):'<span class="muted">free</span>'}${back?`<div class="muted" style="font-size:12px">${bkMoney(back)} back</div>`:''}</div>
@@ -11420,6 +11451,8 @@ function bookingsPageHTML(){
   const taken=rows.filter(b=>b.status!=='moved').reduce((t,b)=>t+Math.max(0,(Number(b.paid)||0)-(Number(b.refunded)||0)),0);
   const lv=BK_LVLS.map(l=>live.filter(b=>b.exp===l).length);
   const isPast=w&&new Date(w.when).getTime()<now;
+  if(isPast){ placesLoad(); pricesLoad(); }
+  const vDue=isPast?live.filter(b=>bkVideoDue(w,b)):[], vSent=vDue.filter(b=>bkVideoSent(w,b)).length;
   return head+`
     <div style="display:flex;gap:6px;margin-top:20px">${[['soon','Coming up',soon.length],['past','Past',past.length]].map(([k,l,n])=>
       `<button class="btn btn-sm ${(k==='past')===bkPast?'btn-primary':'btn-secondary'}" onclick="bkPast=${k==='past'};bkSel='';bkRow='';draw()">${l}${n?' · '+n:''}</button>`).join('')}</div>
@@ -11428,6 +11461,7 @@ function bookingsPageHTML(){
         <h5 style="margin:0;font-size:22px">${esc(w.title)}</h5>
         <span class="muted" style="font-size:13px">${esc(new Date(w.when).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'}))}, ${esc(bkTime(w))}${w.place?' · '+esc(w.place):''}</span>
         <span style="flex:1"></span>
+        ${vDue.length?`<span class="tag ${vSent===vDue.length?'tag-neutral':'tag-trained'}" title="One short video each, with the coaching line under it">Videos: ${vSent} of ${vDue.length} sent</span>`:''}
         <button class="btn btn-ghost btn-sm" onclick="bkCsv(${jsq(w.slug)})">Download list</button>
         <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(live.map(b=>b.email).join(', '))});flash('Emails copied')">Copy emails</button>
         <button class="btn btn-ghost btn-sm" onclick="setTab='workshops';go('settings');wsEdit(${jsq(w.slug)})">Edit the date</button></div>
