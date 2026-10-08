@@ -10293,6 +10293,31 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       return json({ email: e, used: !!row, at: row ? ms(row.used_at) : 0 });
     }
 
+    /* answering somebody who wrote from the website (8 Oct 2026). Somebody
+       who never signed in has no chat, so there was no way to answer them
+       from here at all. The answer goes by email, from Elliott, quoting what
+       they asked; a reply comes back to info@. With an account it lands in
+       their chat too. */
+    if (path === '/coach/feedback/reply' && request.method === 'POST') {
+      const id = String(body.id || '').trim(), text = String(body.text || '').trim().slice(0, 4000);
+      if (!text) return json({ error: 'Write the answer first' }, 400);
+      const log = (await getSetting('feedback:log')) || [];
+      const f = log.find(x => x && x.id === id);
+      if (!f) return json({ error: 'No such one' }, 404);
+      if (!f.email) return json({ error: 'They left no email address, so there is nowhere to send it' }, 400);
+      if (!owns(f.email)) return json({ error: 'Not your client' }, 403);
+      const first = String(f.name || '').trim().split(' ')[0];
+      const paras = text.split(/\n\s*\n/).map(x => esc(x.trim()).replace(/\n/g, '<br>')).filter(Boolean);
+      if (f.text) paras.push(`<span style="color:#8a8d80">You asked: &ldquo;${esc(String(f.text).slice(0, 400))}&rdquo;</span>`);
+      const went = await email(f.email, 'Your question to London Handstand Academy',
+        mail({ title: 'Your question, answered.', greeting: first, paras,
+          signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+      if (!went) return json({ error: 'The email did not go. Check the email switch in Settings, Admin, or email them yourself.' }, 502);
+      if (await getAcct(f.email)) await threadAdd(db, f.email, { from: 'coach', by: asking || primaryCoach(), text }).catch(() => {});
+      await changeSetting('feedback:log', cur => (Array.isArray(cur) ? cur : []).map(x => x && x.id === id
+        ? Object.assign({}, x, { done: true, answer: text.slice(0, 2000), answeredAt: Date.now() }) : x));
+      return json({ ok: true });
+    }
     if (path === '/coach/feedback') {
       const log = (await getSetting('feedback:log')) || [];
       if (request.method === 'POST') {

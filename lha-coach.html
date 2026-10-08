@@ -1377,6 +1377,18 @@ function loadFeedback(){
     .catch(()=>{}).finally(homeStep);
 }
 const fbOpenList = () => feedback.filter(f=>!f.done && f.kind!=='lead');
+/* answering a website message by email: the only way to reach somebody
+   who never signed in */
+const fbDraft={};
+function fbReply(id){
+  const text=(fbDraft[id]||'').trim();
+  if(!text) return alert('Write the answer first.');
+  fbBusy=id; draw();
+  fetch(API+'/feedback/reply',{method:'POST',headers:hdr(),body:JSON.stringify({id,text})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(()=>{ fbBusy=''; delete fbDraft[id]; inboxRow=''; const f=feedback.find(x=>x.id===id); if(f) f.done=true; flash('Sent by email'); fbAsked=false; loadFeedback(); })
+    .catch(e=>{ fbBusy=''; draw(); alert(String(e)); });
+}
 function fbDone(id,on){
   fbBusy=id; draw();
   fetch(API+'/feedback',{method:'POST',headers:hdr(),body:JSON.stringify({id,done:on})})
@@ -8427,11 +8439,13 @@ function inboxBodyHTML(r){
       ${Object.keys(f.extra).map(k=>`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">
         <b style="color:var(--ink);font-weight:600">${esc(FB_Q[k]||k)}</b> ${esc(f.extra[k])}</div>`).join('')}
     </div>`:''}
-    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
-      <button class="btn btn-primary" onclick="fbDone(${jsq(f.id)},true)"${
-        fbBusy===f.id?' disabled':''}>${fbBusy===f.id?'…':'Done with it'}</button>
-      ${f.email?`<button class="btn btn-secondary" onclick="openClient(${jsq(f.email)})">Open their thread</button>`:''}
-      <span class="muted" style="font-size:12px">stage ${f.stage||'?'}${f.plus?' · £5':''}</span>
+    ${f.email?`<textarea class="input" placeholder="Answer ${esc(String(f.name||'them').split(' ')[0])} by email…" style="min-height:96px"
+      oninput="fbDraft[${jsq(f.id)}]=this.value">${esc(fbDraft[f.id]||'')}</textarea>`:''}
+    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;margin-top:${f.email?'var(--space-2)':'0'}">
+      ${f.email?`<button class="btn btn-primary" onclick="fbReply(${jsq(f.id)})"${fbBusy===f.id?' disabled':''}>${fbBusy===f.id?'Sending…':'Email the answer'}</button>`:''}
+      <button class="btn ${f.email?'btn-ghost':'btn-primary'}" onclick="fbDone(${jsq(f.id)},true)"${
+        fbBusy===f.id?' disabled':''}>${f.email?'Done, no reply needed':(fbBusy===f.id?'…':'Done with it')}</button>
+      <span class="muted" style="font-size:12px">${f.email?'To '+esc(f.email)+'. Their reply comes to info@.':'They left no email address.'}</span>
     </div>`;
   }
   if(r.type==='session'){ const x=r.sess; const busy=sessBusy===x.id;
