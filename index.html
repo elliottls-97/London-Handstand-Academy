@@ -5292,7 +5292,14 @@ window.addEventListener('resize', function () {
   if(cls.length){
     var t=new Date(cls[0].when), tm=t.toLocaleTimeString('en-GB',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:'Europe/London'}).replace(':00','').replace(' ','');
     var pair=Number(d&&d.pair)||0;
-    html+='<a class="cc-opt cc-opt--feature" data-ws-date="'+esc(cls[cls.length-1].when||'')+'" href="/handstand-class">'
+    /* data-ws-date is the last date, so the entry stays until the last one has
+       passed; data-ws-next is the soonest still to come, which is what "Next
+       one" means. Reading the last date there said "Next one Sat 24 Oct"
+       with a class this Saturday. */
+    var ms=function(w){ return w&&w.when?new Date(w.when).getTime():0; }, nowMs=Date.now();
+    var byDate=cls.slice().sort(function(a,b){ return ms(a)-ms(b); });
+    var nextW=byDate.filter(function(w){ return ms(w)>nowMs; })[0]||byDate[0];
+    html+='<a class="cc-opt cc-opt--feature" data-ws-date="'+esc(byDate[byDate.length-1].when||'')+'" data-ws-next="'+esc(nextW.when||'')+'" href="/handstand-class">'
       +'<span class="cc-opt-name">All Levels Handstand Class</span>'
       +'<span class="cc-opt-desc">Every level &middot; '+esc(days.join(' & '))+', '+esc(tm)+' &middot; '+esc(cls[0].place||'OverGravity, Shadwell')+'</span>'
       +'<span class="cc-opt-price">'+esc(cls[0].priceLabel)+(pair&&days.length>1?' &middot; both '+esc('\u00a3'+(pair/100).toFixed(2).replace(/\.00$/,'')):'')+'</span></a>';
@@ -5354,8 +5361,8 @@ window.addEventListener('resize', function () {
       var a = list[i];
       if (a.style.display === 'none' || now > new Date(a.getAttribute('data-ws-date'))) continue;
       var nm = a.querySelector('.cc-opt-name'), ds = a.querySelector('.cc-opt-desc'), pr = a.querySelector('.cc-opt-price');
-      var when = new Date(a.getAttribute('data-ws-date'))
-        .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
+      var when = new Date(a.getAttribute('data-ws-next') || a.getAttribute('data-ws-date'))
+        .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/London' }).replace(',', '');
       return { href: a.getAttribute('href'), name: nm ? nm.textContent.trim() : 'A class', when: when,
                /* the start of the line says who it is for, when the dashboard wrote one */
                who: ds && !/\d/.test(ds.textContent.split('·')[0]) ? ds.textContent.split('·')[0].trim() : '',
