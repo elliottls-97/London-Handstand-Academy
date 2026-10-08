@@ -9332,6 +9332,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (!e || !e.includes('@')) return json({ error: 'Need an email' }, 400);
         const stored = (await getSetting('roster')) || {};
         if (body.remove) {
+          /* 1-2-1s only (8 Oct 2026): somebody put on coaching who only books
+             sessions, as Max was by a £100 payment read as coaching. Off the
+             roster without becoming a past client, and an empty programme
+             goes too, or it would keep them counted as coached. One with
+             drills in it is real work: that is a past client instead. */
+          if (body.oneToOne) {
+            if (planFile(e)) return json({ error: 'They have a written programme', hasProgramme: true }, 409);
+            const pg = await getSetting(`programme:${e}`);
+            const drills = ((pg && pg.days) || []).reduce((n, d) => n + (d.groups || []).reduce((m, g) => m + (g.items || []).length, 0), 0);
+            if (drills) return json({ error: 'They have a written programme', hasProgramme: true }, 409);
+            if (pg) await dropSetting(`programme:${e}`);
+          }
           /* a seeded client cannot simply be dropped from the object — the
              variable would put them straight back, so mark the removal */
           const seeded = parseClients().some(c => c.email === e);

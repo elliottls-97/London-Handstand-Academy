@@ -1858,13 +1858,13 @@ function acctDetails(email){
         return `<div class="kick" style="margin-top:18px">WHAT THEY HAVE</div>
         <div style="display:flex;gap:8px;margin-top:9px">
           ${seg(coached,'Coaching', coached?'':(past?'adPast(true)':'adCoach()'))}
-          ${seg(!coached,'App only', coached?'adPast(false)':'')}
+          ${seg(!coached,'1-2-1s and app', coached?'adOneOnly()':'')}
         </div>
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${coached
           ? 'On coaching: their programme, the chat with you, form checks, and the full ladder.'
           : past ? 'Past coaching client, on the app now. Their chat, history and programme are all still here.'
-          : 'On the app. Coaching puts them on your roster with a Start page; it does not charge them, so send them the Stripe link if they are paying.'}
-          ${coached?' App only keeps their account, chat and history, and nothing automatic is sent to them. It does not touch Stripe.':''}</div>
+          : 'Books 1-2-1s and has the free app. To upgrade them, press Coaching: they join your roster with a Start page. It does not charge them, so send the Stripe link if they are paying.'}
+          ${coached?' 1-2-1s and app keeps their account, chat, history and sessions, with nothing automatic sent. It does not touch Stripe.':''}</div>
         ${mine.length?`<div style="font:600 12.5px/1.5 var(--sans);color:var(--forest);margin-top:8px">1-2-1 booked: ${mine.map(x=>
           x.when?new Date(x.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+', '+x.kind+' min':'time to arrange, '+x.kind+' min').join(' · ')}</div>`:''}`; })()}
 
@@ -1917,6 +1917,24 @@ function pastRestore(email){
   pastSet(email, true).catch(e=>alert(String(e)));
 }
 function openAcct(email){ acct=email; acctMsg=''; acctForce=false; draw(); }
+/* off coaching, for somebody who only books 1-2-1s: off the roster, not a
+   past client, so they keep the short page (Thread, 1-2-1s, Notes). With a
+   programme written they become a past client instead, which keeps it. */
+function adOneOnly(){
+  const c=clients.find(x=>x.email===acct)||{}, who=acct;
+  if(!confirm('Make '+(c.name||who)+' a 1-2-1 client?\n\nThey come off coaching: no programme, check points or check-ins. They keep the app, the chat and their sessions, and you can book more. Press Coaching any time to upgrade them.')) return;
+  fetch(API+'/roster',{method:'POST',headers:hdr(),body:JSON.stringify({email:who, remove:true, oneToOne:true})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
+    .then(()=>{ load(); flash((c.name||who)+' is a 1-2-1 client now'); })
+    .catch(d=>{
+      if(d && d.hasProgramme){
+        if(confirm('They have a programme written. Take them off coaching as a past client instead? The programme is kept and they can be put back.'))
+          pastSet(who,false).catch(e=>alert(String(e)));
+        return;
+      }
+      alert(String((d&&d.error)||d||'Could not do that'));
+    });
+}
 /* an app account onto coaching: on the roster, with a Start page */
 function adCoach(){
   const c=clients.find(x=>x.email===acct)||{};
