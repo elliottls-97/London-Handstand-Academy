@@ -599,7 +599,7 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
         ${footnote ? esc(footnote) + '<br>' : ''}
         <a href="${SITE}" style="color:#8a8d80">londonhandstandacademy.com</a>
         &nbsp;·&nbsp; <a href="mailto:info@londonhandstandacademy.com"
-          style="color:#8a8d80">info@londonhandstandacademy.com</a>
+          style="color:#8a8d80">info@londonhandstandacademy.com</a><!--UNSUB-->
       </div>
     </td></tr>
   </table>
@@ -743,6 +743,20 @@ async function mailNote(to, subject, kind, ok, why, skip) {
 let mailDown = false;
 /* where a reply goes: fourteen emails say "reply to this" */
 const REPLY_TO = process.env.REPLY_TO || 'info@londonhandstandacademy.com';
+/* ── unsubscribe ─────────────────────────────────────────────────
+   Every email to a client carries a link out (8 Oct 2026, Elliott: "all
+   emails need unsubscribe"), and the List-Unsubscribe header mail apps
+   show as their own button. Out means out of everything but what they
+   need: a receipt, a booking they made and its reminder, a sign in or
+   password code. The link is signed, so nobody can unsubscribe anybody
+   else, and lasts five years. */
+const unsubUrl = async to => `${SITE}/api/app/unsub?t=${await sign({ k: 'unsub', e: norm(to), exp: Date.now() + 5 * 365 * 864e5 })}`;
+const isUnsub = async to => { try { return !!(await getSetting(`unsub:${norm(to)}`)); } catch { return false; } };
+const staffAddr = to => { const t = norm(to); return !!t && (coaches()[t] !== undefined || t === norm(process.env.COACH_EMAIL || '') || t === norm(process.env.FROM_EMAIL || '')); };
+const withUnsub = (html, url) => String(html).includes('/api/app/unsub?t=') ? String(html)
+  : String(html).includes('<!--UNSUB-->')
+  ? String(html).replace('<!--UNSUB-->', ` &nbsp;·&nbsp; <a href="${url}" style="color:#8a8d80">Unsubscribe</a>`)
+  : String(html) + `<p style="font:12px/1.5 system-ui;color:#8a8d80;margin-top:24px"><a href="${url}" style="color:#8a8d80">Unsubscribe</a></p>`;
 async function email(to, subject, html, kind, opts) {
   mailDown = false; GUARD_DOWN = false;
   const receipt = !!(opts && opts.receipt);
@@ -764,6 +778,13 @@ async function email(to, subject, html, kind, opts) {
   };
   if (!process.env.RESEND_API_KEY) return mailNote(to, subject, kind, false, 'Resend is not set up');
   if (!mayEmail(to)) return mailNote(to, subject, kind, false, 'blocked by the EMAIL_ONLY or EMAIL_BLOCK list');
+  let headers = {};
+  if (!staffAddr(to)) {
+    if (!receipt && !(opts && opts.essential) && (await isUnsub(to))) return mailNote(to, subject, kind, false, 'they unsubscribed');
+    const uu = await unsubUrl(to);
+    html = withUnsub(html, uu);
+    headers = { 'List-Unsubscribe': `<${uu}>, <mailto:info@londonhandstandacademy.com?subject=unsubscribe>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
+  }
   if (!(await clientMailAllowed(to, receipt))) {
     if (GUARD_DOWN) return later('the mail switches could not be read');
     return mailNote(to, subject, kind, false, 'client email is switched off');
@@ -781,7 +802,7 @@ async function email(to, subject, html, kind, opts) {
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idem },
-        body: JSON.stringify({ from: process.env.FROM_EMAIL, to, subject, html, reply_to: REPLY_TO }),
+        body: JSON.stringify({ from: process.env.FROM_EMAIL, to, subject, html, reply_to: REPLY_TO, headers }),
       });
       if (r.ok) return mailNote(to, subject, kind, true, '');
       const d = await r.json().catch(() => ({}));
@@ -1587,7 +1608,7 @@ async function sendSetCode(e) {
          padding:16px 20px 16px 24px">${esc(code)}</span>`,
         'If you did not ask for this, ignore it. Nothing has changed.'],
       signoff: { line: 'Thanks,', name: 'London Handstand Academy' },
-    }));
+    }), undefined, { essential: true });
 }
 
 /* rate limits: one row per key, window kept as a timestamp */
@@ -3273,6 +3294,43 @@ const handle = async (request) => {
     }
   }
 
+  /* ── unsubscribe: the link at the foot of every email ─────────────
+     Opening it asks first, because mail scanners open links by themselves.
+     A mail app's own Unsubscribe button posts here and is done at once.
+     Undo puts them back. Nothing needs them to sign in: the link is signed. */
+  if (path === '/unsub') {
+    const p = await verify(String(url.searchParams.get('t') || ''));
+    const e = p && p.k === 'unsub' && p.e ? norm(p.e) : '';
+    const t = enc(String(url.searchParams.get('t') || ''));
+    const btn = (label, undo) => `<form method="post" action="/api/app/unsub?t=${t}${undo ? '&amp;undo=1' : ''}">
+      <button style="margin-top:22px;width:100%;min-height:52px;border:0;border-radius:14px;cursor:pointer;font:600 16px system-ui;
+      background:${undo ? '#fff' : 'linear-gradient(180deg,#0a7a76,#006663)'};color:${undo ? '#00403d' : '#f7f4f1'};
+      ${undo ? 'border:1px solid rgba(0,64,61,.18)' : ''}">${label}</button></form>`;
+    const page = (h, msg, more, st) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Email preferences · London Handstand Academy</title></head>
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;box-sizing:border-box;
+  background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
+<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:24px;padding:28px 24px;
+  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#006663">London Handstand Academy</div>
+<h1 style="font:400 32px/1.1 Georgia,serif;margin:12px 0 10px">${h}</h1>
+<p style="margin:0;color:#5a5a5a">${msg}</p>${more || ''}</main></body></html>`,
+      { status: st || 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+    if (!e) return page('That link has run out', 'Email info@londonhandstandacademy.com and we will take you off the list by hand.', '', 400);
+    if (request.method === 'POST') {
+      const undo = url.searchParams.get('undo') === '1';
+      if (undo) await dropSetting(`unsub:${e}`).catch(() => {});
+      else await setSetting(`unsub:${e}`, { at: Date.now() });
+      return undo
+        ? page('You are back on', `Emails to ${esc(e)} will carry on as before.`)
+        : page('You are unsubscribed', `No more emails to ${esc(e)}, except the ones you need: receipts, a booking you make and its reminder, and sign in codes.`,
+            btn('Undo, keep sending me emails', true));
+    }
+    return page('Unsubscribe?', `Stop emails to <b>${esc(e)}</b>. You will still get receipts, a booking you make and its reminder, and sign in codes.`,
+      btn('Unsubscribe', false));
+  }
+
   /* ── who has a programme ─────────────────────────────────────────
      The app counts someone with a written programme as coached, and the
      dashboard counted only the roster, so an account given a programme
@@ -3367,11 +3425,11 @@ const handle = async (request) => {
         await setCode(e, 'login',
           { code, tries: 0, expires_at: iso(Date.now() + CODE_TTL) });
         await email(e, `${code} is your London Handstand Academy code`,
-          `<p style="font:16px/1.5 system-ui">Hi ${name || 'there'},</p>
+          `<p style="font:16px/1.5 system-ui">Hi ${esc(name) || 'there'},</p>
            <p style="font:16px/1.5 system-ui">Your code is</p>
            <p style="font:700 34px/1 system-ui;letter-spacing:6px">${code}</p>
            <p style="font:14px/1.5 system-ui;color:#666">It expires in 15 minutes.
-           If you didn't ask for it, ignore this.</p>`);
+           If you didn't ask for it, ignore this.</p>`, undefined, { essential: true });
       }
     }
     return json({ ok: true });

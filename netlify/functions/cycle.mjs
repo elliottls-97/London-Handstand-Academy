@@ -141,7 +141,7 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote, image,
         ${footnote ? esc(footnote) + '<br>' : ''}
         <a href="${SITE}" style="color:#8a8d80">londonhandstandacademy.com</a>
         &nbsp;·&nbsp; <a href="mailto:info@londonhandstandacademy.com"
-          style="color:#8a8d80">info@londonhandstandacademy.com</a>
+          style="color:#8a8d80">info@londonhandstandacademy.com</a><!--UNSUB-->
       </div>
     </td></tr>
   </table>
@@ -244,11 +244,34 @@ async function wantsPush(to, kind) {
   try { return ['push', 'both', 'auto'].includes(chanOf(await prefsOf(to), kind)); } catch { return true; }
 }
 
+/* ── unsubscribe: the same signed link and the same rule as app.mjs ──
+   Out of everything but a receipt, a booking they made and its reminder. */
+async function signTok(obj) {
+  const body = b64u(new TextEncoder().encode(JSON.stringify(obj)));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return `${body}.${b64u(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)))}`;
+}
+const unsubUrl = async to => `${SITE}/api/app/unsub?t=${await signTok({ k: 'unsub', e: norm(to), exp: Date.now() + 5 * 365 * DAY })}`;
+const isUnsub = async to => !!(await supa.row('settings', `key=eq.${enc('unsub:' + norm(to))}&select=key`).catch(() => null));
+const withUnsub = (html, url) => String(html).includes('/api/app/unsub?t=') ? String(html)
+  : String(html).includes('<!--UNSUB-->')
+  ? String(html).replace('<!--UNSUB-->', ` &nbsp;·&nbsp; <a href="${url}" style="color:#8a8d80">Unsubscribe</a>`)
+  : String(html) + `<p style="font:12px/1.5 system-ui;color:#8a8d80;margin-top:24px"><a href="${url}" style="color:#8a8d80">Unsubscribe</a></p>`;
 async function email(to, subject, html, kind, opts) {
   if (!process.env.RESEND_API_KEY || !to) return false;
   if (!(await wantsEmail(to, kind))) return false;
   if (!mayEmail(to)) return false;
   if (!(await clientMailAllowed(to, !!(opts && opts.receipt)))) return false;
+  const t = norm(to), st = await guardState().catch(() => null);
+  const staff = (st && st.coaches.includes(t)) || coaches()[t] !== undefined
+    || t === norm(process.env.COACH_EMAIL || '') || t === norm(process.env.FROM_EMAIL || '');
+  let headers = {};
+  if (!staff) {
+    if (!(opts && (opts.receipt || opts.essential)) && (await isUnsub(t))) return false;
+    const uu = await unsubUrl(t);
+    html = withUnsub(html, uu);
+    headers = { 'List-Unsubscribe': `<${uu}>, <mailto:info@londonhandstandacademy.com?subject=unsubscribe>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
+  }
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -256,7 +279,7 @@ async function email(to, subject, html, kind, opts) {
                  'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: process.env.FROM_EMAIL || 'info@londonhandstandacademy.com',
-        to, subject, html, reply_to: process.env.REPLY_TO || 'info@londonhandstandacademy.com' }),
+        to, subject, html, headers, reply_to: process.env.REPLY_TO || 'info@londonhandstandacademy.com' }),
     });
     return r.ok;
   } catch { return false; }
