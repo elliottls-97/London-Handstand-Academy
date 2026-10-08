@@ -10051,14 +10051,6 @@ function drawOv(){
           This is your one free session at <b>${esc(STAGES[curStage()].n)}</b>. After it the ladder
           is ${sellsLadder() ? PRICE()+' a month'+(trialLine()?', '+trialLine():'') : MEMBERS}.</span>
       </div>` : ''}
-      ${(!_wrist && tasteSpent()) ? `<div style="margin-bottom:12px;padding:13px 14px;border-radius:14px;background:rgba(243,169,73,.16)">
-        <div style="font:400 13.5px/1.5 var(--sans);color:var(--ink)">You have had your free session at
-          <b>${esc(STAGES[placedStage()].n)}</b>. ${!sellsLadder()?'Membership':trialLine()?'The free week':'The ladder'} opens it again, and every
-          stage above it. Until then, Go builds ${esc(STAGES[curStage()].n)}.</div>
-        <div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">
-          ${sellsLadder()?`<button class="btn" style="flex:1 1 150px;min-height:46px;margin:0" onclick="closeOv();openPaywall()">${trialLine()?'Start the free week':'Open the ladder'}</button>`:''}
-          ${tasteBackOk()?`<button class="btn2" style="flex:1 1 150px;min-height:46px;margin:0" onclick="tasteBack()">Back to today's session</button>`:''}
-        </div></div>` : ''}
       <button onclick="closeOv();buildFreeSession(${_wrist},true,${_wrist?'null':_arg})"
         style="height:60px;width:100%;border:0;border-radius:16px;
         background:linear-gradient(180deg,#0a7a76,#006663);
@@ -11118,7 +11110,7 @@ function toggleFull(){
 /* ── sign in: passwordless email code ─────────────────────────
    Elliott sends a client their email; they get a 6-digit code back.
    No passwords to reset, no accounts to create — the same mechanism
-   lha-worker.js already runs for the masterclass. */
+   (the masterclass and its worker are gone, 8 Oct 2026) */
 function screenSignIn(){
   /* Over the same film as the front door (wmSync), so signing in, and
      signing out, lands somewhere that looks like the academy rather than a
@@ -13284,22 +13276,11 @@ STAGES.forEach(x=>{ x.drills=(x.drillIds||[]).length; });
    function bodies, so they resolve at call time. */
 const placedStage=()=>Math.max(0, Math.min(STAGES.length-1,
   st.stage==null ? 0 : (st.stage|0)));
-/* The free sessions at the stage the quiz placed you on. Two of them, then
-   the wall. Nobody pays for a thing they have not felt, and the old shape
-   showed the price to someone who had not done a single drill. */
-const TASTE_SESSIONS = 1;
-/* Off, by Elliott's decision (24 Sept): there is no free session at a paid
-   stage any more. A stage above Foundations opens with the 7-day free trial
-   or the ladder, and Foundations is free. The machinery stays behind this
-   switch so turning it back on is one word. */
-const TASTE_ON = false;
-/* One per phone as well as one per account. A second email address on the
-   same phone was a second free session, and a third, as fast as they could
-   be typed. Kept outside st so signing out does not clear it. */
-const TASTED_KEY = 'lha_tasted';
-const tastedHere = () => { try{ return !!localStorage.getItem(TASTED_KEY); }catch(e){ return false; } };
-const tasteLeft = () => !TASTE_ON ? 0 : Number.isInteger(st.taste) ? Math.max(0, st.taste)
-  : (tastedHere() ? 0 : TASTE_SESSIONS);
+/* There is no free session at a paid stage: off since 24 Sept, and taken
+   out on 8 Oct 2026 (Elliott: "just use the free trial"). A stage above
+   Foundations opens with the 7-day free trial, and Foundations is free.
+   The few places that still ask are answered here. */
+const tasteLeft = () => 0;
 /* Two free sessions at your stage, on an account. The count lived in the
    phone's storage alone, so a private window or a cleared browser was two
    more sessions at any stage, as often as anyone liked. It is keyed to the
@@ -13316,9 +13297,8 @@ const tasteLeft = () => !TASTE_ON ? 0 : Number.isInteger(st.taste) ? Math.max(0,
    ladder for as long as the app stayed open. It is the one workout the
    free session was spent on now, on the day it was spent, and a new
    workout ends it. */
-let tasteHand=null;             /* {q: that workout's queue, day} */
-const tasteHeld = () => !!(tasteHand && tasteHand.q===Q && (Q||[]).length
-  && tasteHand.day===new Date().toDateString());
+let tasteHand=null;
+const tasteHeld = () => false;
 /* The tour shows the player and the list with a workout it builds, and a
    build at a paid stage spent the free session, twice a tour. A tour's
    workout is built at the free stage and costs nothing. */
@@ -13328,10 +13308,8 @@ function tourSession(wrist, listOnly, dayIdx){
   try{ buildFreeSession(wrist, listOnly, dayIdx); } finally { tourBuild=false; }
   tourQ=Q;
 }
-const tasting = () => TASTE_ON && !isPlus() && !!st.token && placedStage() > FREE_STAGES-1
-  && !tourBuild && !(tourQ && tourQ===Q)
-  && (tasteLeft() > 0 || tasteHeld());
-const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FREE_STAGES-1);
+const tasting = () => false;
+const stageCap=()=>isPlus() ? STAGES.length-1 : FREE_STAGES-1;
 /* ── placed above the free stage, and the week not yet answered ───────
    Somebody whose answers put them on Wall Work was shown "Where you are:
    Foundations" the moment their one free session was used, with a line
@@ -13339,7 +13317,7 @@ const stageCap=()=>isPlus() ? STAGES.length-1 : (tasting() ? placedStage() : FRE
    asked of them. Until they say no to the free week they are where their
    answers put them, with the week on offer; Foundations is where they go
    when they choose it (st.freeChoice), not where they are put. */
-const trialPending = () => sellsLadder() && !coachedView() && !isPlus() && !st.freeChoice && !tasting()
+const trialPending = () => sellsLadder() && !coachedView() && !isPlus() && !st.freeChoice
   && placedStage() > FREE_STAGES-1 && !!STAGES[placedStage()];
 function openTrial(at){ st.ovStage = (at!=null && STAGES[at]) ? at : placedStage(); openOv('stage'); }
 /* A button that already says "Start the free trial" starts it. It opened the
@@ -13501,46 +13479,11 @@ function stageFilmsHTML(){
    session however it is done, and doing it both ways costs one, not two. */
 let sessionSpent=false;
 function spendTaste(wristDay){
-  if(sessionSpent) return;
-  /* a mobility day is wrists and shoulders, not stage work, so it is not
-     one of the free looks at a stage somebody has not paid for */
-  if(wristDay) return;
+  if(sessionSpent || wristDay) return;
   sessionSpent=true;
-  if(!st.in) useTaste();
 }
-function useTaste(){
-  if(tourBuild || tasteHeld()) return;
-  if(!tasting() || tasteLeft()<=0) return;
-  if(curStage() < FREE_STAGES) return;
-  /* a saved or kept workout from the free stage costs nothing */
-  if(qSaved && qSaved.stage!=null && qSaved.stage < FREE_STAGES) return;
-  const at=curStage();
-  st.taste = tasteLeft()-1;
-  tasteHand = {q:Q, day:new Date().toDateString(), stage:at, label:qLabel};
-  try{ localStorage.setItem(TASTED_KEY, String(Date.now())); }catch(e){}
-  /* now, not in 800ms: a reload inside that window kept the session */
-  save(); saveState(true); track('taste', at);
-}
-/* the workout is over: from here the account trains where it can */
+function endTaste(){}
 let tasteLast=null;
-function endTaste(){
-  if(!tasteHand) return;
-  tasteLast=tasteHand; tasteHand=null;
-}
-/* Back to the same workout, the same day. Closing the list by mistake is
-   not a reason to lose it, and it is still one workout, not another. */
-const tasteBackOk = () => !!(tasteLast && tasteLast.day===new Date().toDateString()
-  && (tasteLast.q||[]).length && !isPlus() && tasteLeft()<=0);
-function tasteBack(){
-  if(!tasteBackOk()) return;
-  tasteHand=tasteLast; Q=tasteLast.q; sessionSpent=true;
-  qLabel=tasteLast.label||qLabel; qFix=null;
-  st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true;
-  closeOv(); openOv('list');
-}
-/* placed above the free stage, with the free session behind them */
-const tasteSpent = () => !isPlus() && !!st.token && placedStage()>=FREE_STAGES
-  && !!STAGES[placedStage()] && tasteLeft()<=0 && !tasteHeld();
 const curStage=()=>Math.min(placedStage(), stageCap());
 
 
@@ -13870,7 +13813,7 @@ function screenOriented(){
      free session at a higher stage needs an account, so without one the
      button asks for an email first. With one whose free session is spent,
      it says so and offers the free week instead. */
-  const tasteUsed = gated && (!TASTE_ON || (st.token ? tasteLeft() <= 0 : tastedHere()));
+  const tasteUsed = gated;
   const tDays = PRICE_TRIAL();
   const a=intake();
   /* the stage in chapters where Elliott has told it as one */
@@ -13936,21 +13879,11 @@ function screenOriented(){
           ${PS.rec?`<div style="font:600 14px/1.45 var(--sans);color:var(--forest);margin-top:10px">${esc(PS.rec)}</div>`:''}</div>
           <div class="for-rest" style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(0,64,61,.09)">
             <div style="font:400 20px/1.25 var(--serif)">
-              ${!TASTE_ON
-                ? (tDays>0 ? `${esc(PS.n)} opens with the ${tDays}-day free trial.` : `${esc(PS.n)} opens with the ladder.`)
-                : tasteUsed
-                ? `You have had your free session at ${esc(PS.n)}.`
-                : `Your first session at ${esc(PS.n)} is free.`}</div>
+              ${tDays>0 ? `${esc(PS.n)} opens with the ${tDays}-day free trial.` : `${esc(PS.n)} opens with the ladder.`}</div>
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-              ${!TASTE_ON
-                ? (!sellsLadder() ? `${esc(STAGES[stageCap()].n)} is free either way.`
-                  : tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then it is ${PRICE()} a month for every stage, and ${CANCEL_LINE()}. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
-                           : `${PRICE()} a month for every stage. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`)
-                : tasteUsed
-                ? `${esc(PS.n)} is part of the ${sellsLadder()?PRICE()+' a month':'full'} ladder${trialLine()?', with the '+trialLine():''}. ${esc(STAGES[stageCap()].n)} stays free either way.`
-                : st.token
-                ? `No card. After that ${esc(PS.n)} is part of the ${sellsLadder()?PRICE()+' a month':'full'} ladder, and ${esc(STAGES[stageCap()].n)} stays free either way.`
-                : `Just your email, so it keeps what you did. No card. ${esc(STAGES[stageCap()].n)} is free without one.`}</div>
+              ${!sellsLadder() ? `${esc(STAGES[stageCap()].n)} is free either way.`
+                : tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then it is ${PRICE()} a month for every stage, and ${CANCEL_LINE()}. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
+                         : `${PRICE()} a month for every stage. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`}</div>
             <!-- the button for this lives in the sticky bar, which is the
                  one thing always on screen. Two identical green buttons,
                  one of them scrolling away, was the shape that made the
@@ -14003,16 +13936,13 @@ function screenOriented(){
            the other route is a link under it. Neither asks for money. -->
       <!-- this used to send somebody who had just answered three questions
            to a sign-up form. They get the session first now. -->
-      <button onclick="${!gated || (st.token && !tasteUsed) ? "st.oriented=true;save();go('home')"
+      <button onclick="${!gated ? "st.oriented=true;save();go('home')"
           : !st.token ? (IOS_APP ? "st.oriented=true;save();go('home');beginTrial("+placed+")" : "st.oriented=true;st.joinFor='';st.wantUpgrade="+placed+";save();go('joinFree')")
-          : tasteUsed ? "st.oriented=true;save();go('home');st.ovStage="+placed+";openOv('stage')"
-          : "st.oriented=true;st.joinFor='taste';st.wantUpgrade=null;save();go('joinFree')"}" style="width:100%;border:0;
+          : "st.oriented=true;save();go('home');st.ovStage="+placed+";openOv('stage')"}" style="width:100%;border:0;
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);font:600 17px/1 var(--sans);cursor:pointer">
-        ${!gated ? 'Start your first session'
-          : tasteUsed ? (tDays>0 ? 'Start the '+tDays+'-day free trial' : 'Open '+esc(PS.n))
-          : st.token ? 'Train at '+esc(PS.n) : 'Try '+esc(PS.n)+' free'}</button>
+        ${!gated ? 'Start your first session' : (tDays>0 ? 'Start the '+tDays+'-day free trial' : 'Open '+esc(PS.n))}</button>
       ${gated?`<button onclick="st.oriented=true;save();chooseFree();go('home')"
         style="width:100%;background:none;border:none;cursor:pointer;margin-top:2px;padding:11px;
         font:600 13.5px/1 var(--sans);color:var(--forest)">
@@ -16277,14 +16207,6 @@ function screenUpgradeBody(si){
         days>0?'Start the free '+week:'Open the ladder'}</button>${(!sells()&&!st.token)?`<button class="btn2" style="width:100%;margin-top:10px"
         onclick="closeOv();st.tab='signin';save();render()">Already a member? Sign in</button>`:''}`:(!st.token?`<button class="btn" style="width:100%;margin-top:14px"
         onclick="closeOv();st.tab='signin';save();render()">Sign in</button>`:'')}
-      ${(function(){
-        if(!TASTE_ON || placed<=FREE_STAGES-1 || !STAGES[placed]) return '';
-        const free = !st.token ? (tastedHere() ? '' : 'Make a free account and you get one free session there first, no card.')
-          : (tasteLeft()>0 && !isPlus()) ? 'You have one free session there before this opens.' : '';
-        return free?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:10px">
-          Your answers put you at <b style="color:var(--ink)">${esc(STAGES[placed].n)}</b>. ${free}</div>
-          ${!st.token?`<button class="btn2" style="width:100%;margin-top:10px" onclick="closeOv();goJoin('taste')">Make a free account</button>`:''}`:'';
-      })()}
     </div>
     ${(trialPending() && (st.ovStage|0)===placedStage())?`<button class="btn2" style="width:100%;margin-top:12px"
       onclick="chooseFree(true)">Train ${esc(STAGES[FREE_STAGES-1].n)} for free instead</button>`
@@ -18436,7 +18358,7 @@ function screenJoin(){
      "Stage 1, Foundations" whose first word is "Optional" reads as a switch,
      at the exact moment of commitment. If they came for the free sessions,
      say so. */
-  const taste = TASTE_ON && !want && st.joinFor==='taste' && STAGES[placedStage()] && placedStage()>stageCap() && !tastedHere();
+  const taste = false;
   const PSJ = taste ? STAGES[placedStage()] : null;
   /* Pressing "Start the free week" sent people to the same screen that
      greets somebody who has just done the quiz: "Your starting point,

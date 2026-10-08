@@ -6372,16 +6372,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const acct = apple ? {} : (await getAcct(who)) || {};
     const stt = apple ? {} : (await getSetting(`state:${who}`)) || {};
     const paid = preview || apple || plusNow(acct) || await isCoached(who) || coachList().includes(who);
-    /* There is no free session at a paid stage any more (24 Sept): the paid
-       films are for the trial and the ladder. It gave any free account with
-       no record of one a session's worth of them. */
-    const TASTE_ON = false;
-    let ok = paid;
-    if (!ok && TASTE_ON) {
-      const taste = Number.isInteger(stt.taste) ? stt.taste : 1;
-      ok = taste > 0;
-    }
-    if (!ok) return json({ tokens: {}, exp: 0 });
+    /* No free session at a paid stage (gone 8 Oct 2026): the paid films are
+       for the trial and the ladder, and every Foundations film is open. */
+    if (!paid) return json({ tokens: {}, exp: 0 });
     /* Each set is up to four hundred signatures, and a paid account was not
        counted at all. The app asks again only when something has changed, a
        few times a day; this is far past that. A refusal, not an empty set,
