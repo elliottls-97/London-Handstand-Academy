@@ -4855,8 +4855,13 @@ const handle = async (request) => {
         'line_items[0][price_data][currency]': 'gbp',
         'line_items[0][price_data][unit_amount]': String(Math.round(price)),
         'line_items[0][price_data][product_data][name]': String(w.title + (w2 ? ', both dates' : '') + (fr ? ', 2 people' : '')).slice(0, 120),
-        ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(targets.filter(t => t[1].when).map(t => new Date(t[1].when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })).join(' and ') + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
+        /* the dates in date order, whichever was picked first */
+        ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(targets.filter(t => t[1].when).sort((a, b) => ms(a[1].when) - ms(b[1].when)).map(t => new Date(t[1].when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })).join(' and ') + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
+        'line_items[0][price_data][product_data][images][0]': 'https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/latest-workshop-group-handstand-picture.jpg',
         'line_items[0][quantity]': '1',
+        /* the button says Book, and under it what happens if plans change */
+        submit_type: 'book',
+        'custom_text[submit][message]': `Move or cancel online up to ${WS_CUTOFF_H} hours before.`,
         'metadata[workshop]': targets.map(t => t[0]).join(','),
         ...(fr ? { 'metadata[friend]': (fr.e + '|' + fr.nm).slice(0, 400) } : {}),
         'metadata[name]': nm,
