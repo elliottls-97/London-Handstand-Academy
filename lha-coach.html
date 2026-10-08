@@ -320,6 +320,7 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 .tline-at{flex:none;font:400 12px/1 var(--sans);color:var(--grey2)}
 .tsub{display:flex;flex-direction:column;gap:6px;margin-top:8px;font:400 13.5px/1.5 var(--sans)}
 .tsub .hit{color:var(--forest);font-weight:700}
+.tsub.clamp > :nth-child(n+3){display:none}
 .tmsg{max-width:640px;padding:10px 14px;border-radius:16px 16px 16px 6px;background:#f1eeea;
   font:400 14px/1.5 var(--sans);white-space:pre-wrap;overflow-wrap:anywhere}
 .tmsg i{font-style:normal;font-weight:600;color:var(--forest)}
@@ -457,7 +458,9 @@ let view='today';
 let cameFrom='today';
 let ctab='thread';           /* thread | programme | progress | notes */
 let libTab='ladder';         /* programmes | ladder | drills | explainers */
-let inboxFilter='all';
+let inboxFilter='all', todayNewsOpen=false;
+/* everybody under Also happened, seen in one press */
+function news_seenAll(){ todayPeople().filter(p=>!p.act && p.email).forEach(p=>seenAll(p.email)); todayNewsOpen=false; }
 let rosterQ='', rosterPick={}, drillQ='', drillClip='all';   /* all | yes | no: the Drills tab's clip filter */
 let bulkOpen=false, bulkText='', bulkEmail=true, bulkBusy=0;
 let copyOpen=false, copyFrom='', copyTo='', copyDays=true, copyCps=true, copyEx=false, copyBusy=false;
@@ -8583,6 +8586,10 @@ function seenAll(email){
   fetch(API+'/seen',{method:'POST',headers:hdr(),body:JSON.stringify({email,what:['said','cp','trained','flags']})})
     .then(sendOK).then(()=>flash('Marked as seen')).catch(()=>{ flash('That did not save. Try again.'); loadQueue(); });
 }
+/* a line's list shows two and folds the rest: seven drill ratings in a row
+   was a wall to read before getting to anybody else (8 Oct 2026) */
+const lineMore=new Set();
+function lineMoreToggle(id){ lineMore.has(id)?lineMore.delete(id):lineMore.add(id); draw(); }
 function lineHTML(r){
   const T=INBOX_TYPE[r.type], open=inboxRow===r.id, e=esc(r.email||'');
   const toggle=(label)=>`<button class="btn btn-${open?'secondary':'primary'} btn-sm" onclick="inboxToggle('${esc(r.id)}')">${open?'Close':label}</button>`;
@@ -8640,6 +8647,10 @@ function lineHTML(r){
     if(open) body+=`<div class="qreply">${inboxBodyHTML(r)}</div>`;
     acts=toggle(r.action||'Open');
   }
+  const many=(r.msgs||r.logs||r.said||r.sessions||r.flags||[]).length;
+  if(many>2 && !open && !lineMore.has(r.id)) body=body.replace('<div class="tsub">','<div class="tsub clamp">')
+    +`<button class="ghostlink" style="margin-top:4px" onclick="lineMoreToggle('${esc(r.id)}')">Show ${many-2} more</button>`;
+  else if(many>2 && !open) body+=`<button class="ghostlink" style="margin-top:4px" onclick="lineMoreToggle('${esc(r.id)}')">Show fewer</button>`;
   return `<div class="tline" data-k="${esc(r.id)}">
     <div class="tline-top"><span class="tag ${T.cls}">${T.label}</span>
       <span class="tline-what">${what}</span><span class="tline-at">${esc(ago(r.at))}</span></div>
@@ -8659,7 +8670,7 @@ function personCardHTML(p, cat){
       <span class="av">${esc(initial(p.name))}</span>
       <div class="tcard-who"><b>${esc(p.name)}</b><span>${
         c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+esc(tl):'')):'Not signed in'}</span></div>
-      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs} h</b><span>${hrsState(p.hrs)}</span></div>`
+      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
     </header>
     <div class="tlines">${lines.map(lineHTML).join('')}</div>
@@ -8726,37 +8737,35 @@ function todayHTML(){
   if(!TODAY_CATS.some(c=>c[0]===inboxFilter)) inboxFilter='all';
   const people=todayPeople();
   const all=people.flatMap(p=>p.items);
-  const act=all.filter(x=>INBOX_TYPE[x.type].act);
-  const over=act.filter(x=>x.hrs>=PROMISE_H).length;
   const waitingPeople=people.filter(p=>p.act).length;
   const date=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
-  const head = !homeSettled && !all.length ? 'Checking what came in&hellip;'
-    : act.length ? act.length+' waiting on you'
-    : all.length ? 'Nothing waiting on you' : 'Nothing new';
-  const info=all.length-act.length;
-  const sub = !all.length ? (homeSettled?'Everything sent in has an answer.':'')
-    : (act.length ? (over ? over+' past the '+PROMISE_H+' hours you promise. ' : 'All inside the '+PROMISE_H+' hours you promise. ')
-        +'From '+waitingPeople+' '+(waitingPeople===1?'person':'people')+', oldest first.' : '')
-      + (info ? ' '+info+' more to know about: check points logged and sessions finished.' : '');
-  const cards=people.map(p=>personCardHTML(p, inboxFilter)).filter(Boolean);
-  return numbersHTML()+`<section class="glass" style="padding:26px 28px;border-radius:24px">
+  /* Calmer (8 Oct 2026, "I come on and feel overwhelmed"): the numbers went
+     to Settings, the chips and the red sentence went, the headline counts
+     people rather than items, and only the people waiting on you get a card.
+     The rest folds into one line you open when you want it. */
+  const waiting=people.filter(p=>p.act), news=people.filter(p=>!p.act);
+  const calm = !homeSettled && !all.length ? 'Checking what came in&hellip;'
+    : waitingPeople ? waitingPeople+' '+(waitingPeople===1?'person':'people')+' to answer'
+    : 'Nobody waiting on you';
+  const cards=waiting.map(p=>personCardHTML(p,'all')).filter(Boolean);
+  const newsCards=todayNewsOpen?news.map(p=>personCardHTML(p,'all')).filter(Boolean):[];
+  return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
     <p class="muted" style="font-size:13px;margin:0 0 var(--space-1)">${esc(date)}</p>
-    <h1 style="margin:0 0 var(--space-2)">${head}</h1>
-    ${!homeSettled&&all.length?`<p class="muted" style="font-size:13px;margin:0 0 var(--space-2)">Still loading the rest&hellip;</p>`:''}
-    <p style="font:400 15px/1.55 var(--sans);max-width:64ch;margin:0 0 var(--space-4);
-      color:${over?'var(--terra)':'var(--grey)'}">${esc(sub.trim())}</p>
+    <h1 style="margin:0 0 var(--space-4)">${calm}</h1>
     ${sessionsStripHTML()}
     ${pushNudgeHTML()}
     ${startingHTML()}
-    ${all.length?`<div class="tchips">${TODAY_CATS.map(([id,label])=>{
-      const n=id==='all'?all.length:all.filter(x=>INBOX_TYPE[x.type].filter===id).length;
-      if(id!=='all' && !n) return '';
-      return `<button class="chip${inboxFilter===id?' on':''}" onclick="inboxFilter='${id}';draw()">${label} <i>${n}</i></button>`;
-    }).join('')}</div>`:''}
     <div class="tlist">${cards.join('')
-      || (all.length?`<p class="muted" style="padding:var(--space-3) 0">Nothing of that kind.</p>`:'')}</div>
-    ${weekBehindHTML()}
+      || (homeSettled?`<p class="muted" style="padding:var(--space-2) 0 0">${all.length?'Everything that needs you is answered.':'Everything sent in has an answer.'}</p>`:'')}</div>
+    ${news.length?`<div style="margin-top:var(--space-5)">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="ghostlink" onclick="todayNewsOpen=!todayNewsOpen;draw()">${todayNewsOpen?'Hide':'Also happened'}: ${
+          news.length} ${news.length===1?'person':'people'} trained or logged a check point</button>
+        <button class="ghostlink" onclick="news_seenAll()" style="color:var(--grey)">Mark all as seen</button>
+      </div>
+      ${newsCards.length?`<div class="tlist" style="margin-top:var(--space-3)">${newsCards.join('')}</div>`:''}
+    </div>`:''}
     <div style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--line)">
       <button class="ghostlink" onclick="todayDone=${todayDone?'false':'true'};draw()">${
         todayDone?'Hide what you have dealt with'
@@ -11688,7 +11697,7 @@ function settingsHTML(){
     background:${setTab===k?'var(--forest)':'#fff'};
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
-    setTab==='people' ? `<div>${funnelHTML()}</div><div>${leadsHTML()}</div>
+    setTab==='people' ? `<div>${numbersHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${leadsHTML()}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
   : setTab==='money' ? `${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
       ${owner?stripeHTML():''}
