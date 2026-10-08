@@ -135,7 +135,7 @@ const wsPlaces = l => (Array.isArray(l) ? l : []).filter(b => b && (b.status || 
 const wsLedger = (pi, amt) => pi ? changeSetting(`wsrefpi:${pi}`, cur => {
   const c = Object.assign({ app: 0, out: 0 }, cur || {}); c.app = Math.max(0, (Number(c.app) || 0) + (Number(amt) || 0)); return c; }).catch(() => {}) : Promise.resolve();
 /* emails that go into the dashboard and the emails we send: no quotes or angle brackets */
-const wsMailOk = e => /^[^@\s"<>`\\]+@[^@\s"<>`\\]+\.[^@\s"<>`\\]+$/.test(String(e || ''));
+const wsMailOk = e => /^[^@\s"<>`\\|]+@[^@\s"<>`\\|]+\.[^@\s"<>`\\|]+$/.test(String(e || ''));
 /* a link that manages one place without signing in: signed, and good until the class */
 async function wsManageLink(slug, addr, session, until) {
   const t = await sign({ k: 'wsm', s: slug, e: norm(addr), x: String(session || ''), exp: (ms(until) || Date.now() + 60 * DAY) + 6 * 3600e3 });
@@ -160,8 +160,11 @@ async function wsRefundFor(b, slug) {
     for (const x of wsPlaces((await getSetting(`wsbook:${sl}`)) || [])) if (x.session === b.session) rows.push({ slug: sl, x });
   if (rows.length > 1 && !String(b.session || '').startsWith('ext-')) {
     const all = (await getSetting('workshops')) || {};
-    const single = Math.max(0, Number((all[slug] || {}).price) || 0);
-    const pair = Number(((await getSetting('wspair')) || {}).pence) || 0;
+    /* the prices on the day it was booked: a price changed since must not
+       change what comes back (raised, it came to nothing and read as a
+       failed refund; lowered, it gave back too much) */
+    const single = Math.max(0, Number(b.unit != null ? b.unit : (all[slug] || {}).price) || 0);
+    const pair = b.pairP != null ? Number(b.pairP) || 0 : Number(((await getSetting('wspair')) || {}).pence) || 0;
     const total = rows.reduce((t, r) => t + (Number(r.x.paid) || 0), 0);
     const left = rows.length - 1;
     const cost = Math.min(total, wsGroupCost(left, single, pair));
@@ -205,7 +208,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
     const r = l.find(x => x.session === b.session && x.email === who && (x.status || 'booked') === 'booked');
     if (!r) return undefined;
     r.status = refunded ? 'refunded' : 'cancelled'; r.cancelledAt = Date.now(); r.cancelledBy = coach ? 'coach' : 'client';
-    if (refunded) { r.autoRefund = !coach; r.refunded = back; }
+    if (refunded) { r.autoRefund = !coach; r.refunded = back; if (keeps.length) r.settled = true; }
     return l;
   });
   /* the places left now carry their own price, so a later cancel gives back the rest */
@@ -219,7 +222,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   const status = refunded ? 'refunded' : 'cancelled';
   const whenTxt = wsWhenTxt(w);
   const paid = Number(b.paid) || 0;
-  const failed = doRefund && !refunded && paid > 0 && !!b.pi;
+  const failed = doRefund && !refunded && back > 0 && !!b.pi;
   if (!opts.quiet) await email(who, `Cancelled: ${w.title}`, mail({ title: 'Your place is cancelled.', greeting: String(b.name || '').split(' ')[0],
     paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}.`,
             refunded ? (keeps.length ? `${wsPounds(back)} is refunded to the card that paid; it shows in a few days. The ${keeps.length === 1 ? 'other place booked with it stands' : keeps.length + ' other places booked with it stand'}.`
@@ -246,7 +249,9 @@ async function wsRefundPlace(slug, addr, session, amount) {
   const b = rows0[rows0.length - 1];
   if (!b) return { error: 'No such booking', status: 404 };
   if (!b.pi || !stripeKey()) return { error: 'There is no card payment on this one to refund', status: 400 };
-  const left = Math.max(0, (Number(b.paid) || 0) - (Number(b.refunded) || 0));
+  /* one of a group already refunded its share: the rest of what it paid
+     now pays for the places kept, so there is nothing more on it */
+  const left = b.settled ? 0 : Math.max(0, (Number(b.paid) || 0) - (Number(b.refunded) || 0));
   const amt = Math.min(left, Math.max(0, Math.round(Number(amount) || left)));
   if (!(amt > 0)) return { error: 'Nothing left to refund on this one', status: 400 };
   await wsLedger(b.pi, amt);
@@ -270,6 +275,11 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (slug === to) return { error: 'That is the date you already have', status: 400 };
   const coach = opts.by === 'coach', who = norm(addr);
   if (!coach && !w2.live) return { error: 'That date is not open for booking', status: 400 };
+  /* the dates shown are the same class, but the request can name any slug:
+     a £25 place moved onto a £60 workshop for nothing */
+  const kindOf = x => String(x.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14);   /* as the manage page lists them */
+  if (!coach && (kindOf(w2) !== kindOf(w) || (Number(w2.price) || 0) > (Number(w.price) || 0)))
+    return { error: 'That one is a different workshop. Cancel this place and book it instead.', status: 400 };
   if (w2.when && ms(w2.when) < Date.now()) return { error: 'That date has already happened', status: 400 };
   if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be moved online. Reply to your confirmation email and Elliott will sort it.`, status: 400, late: true };
   const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === who && (!session || x.session === session));
@@ -295,7 +305,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
     const r = l.find(x => x.session === b.session && x.email === who && (x.status || 'booked') === 'booked'); if (!r) return undefined; r.pair = to; return l; }).catch(() => {});
   await changeSetting(`wsmine:${who}`, cur => { const l = (Array.isArray(cur) ? cur : []).filter(x => x !== slug); if (!l.includes(to)) l.push(to); return l; }).catch(() => {});
   const link = await wsManageLink(to, who, b.session, w2.when);
-  await email(who, `Moved: ${w2.title}, ${new Date(w2.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })}`,
+  await email(who, `Moved: ${w2.title}${w2.when ? ', ' + new Date(w2.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : ''}`,
     mail({ title: 'Your place has moved.', greeting: String(b.name || '').split(' ')[0],
       paras: [`<b>${esc(w2.title)}</b>, now on ${esc(wsWhenTxt(w2))}${w2.place ? ', at ' + esc(w2.place) : ''}, instead of ${esc(wsWhenTxt(w))}.`,
               'Nothing more to pay. A reminder comes the day before.',
@@ -2388,6 +2398,7 @@ const handle = async (request) => {
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
             ...(pp.e !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}),
             q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
+            ...(md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
           count = wsLive(l).length; return l;
         });
@@ -4740,7 +4751,6 @@ const handle = async (request) => {
       : people.length * targets.reduce((t, x) => t + (Number(x[1].price) || 0), 0);
     /* Book pressed is the clearest sign of wanting a place */
     await wsIntentNote(slug, w2 ? also : '', e, nm);
-    if (fr) await wsIntentNote(slug, w2 ? also : '', fr.e, fr.nm);
     if (units > 1 && String(body.code || '').trim()) return json({ error: 'A code is for one place. Two places already have the lower price.' }, 400);
     const disc = await wsCodeCheck(slug, body.code, base);
     if (disc.error) return json({ error: disc.error }, 400);
@@ -4760,7 +4770,7 @@ const handle = async (request) => {
           const lv = wsLive(l);
           if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
-          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked',
+          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked', unit: Number(w.price) || 0, pairP: pairPence,
             ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}),
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
           return l;
@@ -4852,6 +4862,7 @@ const handle = async (request) => {
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold,
+        'metadata[unit]': String(Number(w.price) || 0), 'metadata[pairp]': String(pairPence),
         expires_at: String(Math.floor(Date.now() / 1000) + 30 * 60),
         customer_email: e,
         /* the class page and the app book here too, and come back to themselves */
@@ -4883,9 +4894,60 @@ const handle = async (request) => {
     if (act === 'arrived' || act === 'noshow' || act === 'unmark') {
       let found = false;
       await changeSetting(`wsbook:${slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-        const b = l.find(x => x.email === e && x.session === session); if (!b) return undefined; found = true;
+        const b = l.filter(x => x.email === e && x.session === session && x.status !== 'moved').pop(); if (!b) return undefined; found = true;
         if (act === 'unmark') delete b.attended; else b.attended = act === 'arrived' ? 'yes' : 'no'; return l; });
       r = found ? { ok: true } : { error: 'No such booking', status: 404 };
+    } else if (act === 'edit') {
+      /* a typo in a name or an address, or the level and note filled in by
+         hand. A new address goes on every place in that booking (both dates
+         of a pair), on the guest's "paid by", and on their own list, so the
+         app and the reminders follow it. */
+      const nm = body.name != null ? String(body.name).trim().slice(0, 60) : null;
+      const ne = body.newEmail != null ? norm(body.newEmail) : '';
+      const ex = body.exp != null ? String(body.exp).trim().slice(0, 120) : null;
+      const qq = body.q != null ? String(body.q).trim().slice(0, 400) : null;
+      if (ne && ne !== e && !wsMailOk(ne)) return json({ error: 'That is not an email address' }, 400);
+      const all = (await getSetting('workshops')) || {};
+      let hits = 0, clash = '';
+      for (const sl of Object.keys(all)) {
+        const cur = (await getSetting(`wsbook:${sl}`)) || [];
+        if (!cur.some(x => x.session === session && (x.email === e || x.payer === e))) continue;
+        if (ne && ne !== e && cur.some(x => x.email === ne && (x.status || 'booked') === 'booked' && x.session !== session)) { clash = sl; break; }
+      }
+      if (clash) return json({ error: `${ne} already has a place on ${(all[clash] || {}).title || clash}` }, 409);
+      const moved = [];
+      for (const sl of Object.keys(all)) await changeSetting(`wsbook:${sl}`, cur => {
+        const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; let n = 0;
+        for (const x of l) {
+          if (x.session !== session) continue;
+          if (x.email === e) {
+            if (nm != null && nm) x.name = nm; if (ex != null) x.exp = ex; if (qq != null) x.q = qq;
+            if (ne && ne !== e) { x.email = ne; if ((x.status || 'booked') === 'booked') moved.push(sl); }
+            n++;
+          } else if (x.payer === e) { if (ne && ne !== e) x.payer = ne; if (nm) x.with = nm; n++; }
+        }
+        hits += n; return n ? l : undefined;
+      });
+      if (!hits) return json({ error: 'No such booking' }, 404);
+      if (ne && ne !== e && moved.length) {
+        await changeSetting(`wsmine:${e}`, cur => { const l = Array.isArray(cur) ? cur : []; const n = l.filter(x => !moved.includes(x)); return n.length !== l.length ? n : undefined; }).catch(() => {});
+        await changeSetting(`wsmine:${ne}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; for (const x of moved) if (!l.includes(x)) l.push(x); return l; }).catch(() => {});
+        try { await ensureAcct(ne, nm || ''); } catch {}
+      }
+      r = { ok: true, email: ne || e };
+    } else if (act === 'resend') {
+      /* the person has lost the email: what they booked, and the link to change it */
+      const w = ((await getSetting('workshops')) || {})[slug];
+      const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).filter(x => x.email === e && x.session === session).pop();
+      if (!w || !b) return json({ error: 'No such booking' }, 404);
+      const early = !w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3;
+      const link = await wsManageLink(slug, e, session, w.when);
+      const went = await email(e, `Your place: ${w.title}`, mail({ title: 'Your place, again.', greeting: String(b.name || '').split(' ')[0],
+        paras: [`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+          w.when ? `<a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : '',
+          early ? `Can't make it? <a href="${link}" style="color:#006663">Cancel or move to another date</a>, up to ${WS_CUTOFF_H} hours before.` : `Can't make it? Reply to this email.`].filter(Boolean),
+        signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+      r = went ? { ok: true } : { error: 'The email did not go: check the email switch in Settings, Admin', status: 502 };
     } else if (act === 'move') r = await wsMovePlace(slug, e, session, wsSlug(body.to), { by: 'coach' });
     else if (act === 'cancel') r = await wsCancelPlace(slug, e, session, { by: 'coach', refund: body.refund === 'full' ? 'full' : body.refund === 'none' ? 'none' : 'auto', quiet: !!body.quiet });
     else if (act === 'refund') r = await wsRefundPlace(slug, e, session, body.amount);
@@ -5427,7 +5489,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     others.sort((x, y) => ms(x.when) - ms(y.when));
     return json({ slug, title: w.title, when: w.when, place: w.place, name: b.name || '', status: b.status || 'booked',
-      paid: Number(b.paid) || 0, back, pair: b.pair || '', canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H,
+      paid: Number(b.paid) || 0, back, pair: b.pair || '', guest: !!b.payer, group: !!b.with || !!b.pair, canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H,
       cutoff: WS_CUTOFF_H, others });
   }
   /* ── the website editor ──────────────────────────────────────────

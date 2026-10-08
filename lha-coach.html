@@ -378,6 +378,30 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
   .msg{max-width:88%}
 }
 @media (max-width:700px){ .drRow{grid-template-columns:minmax(0,1fr) 64px 56px !important;row-gap:6px !important} .drRow>.drName{grid-column:1/-1} }
+.bk-dates{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:12px}
+.bk-date{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:14px 16px;border-radius:18px;background:#fff;
+  border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06);cursor:pointer;font:inherit;color:var(--ink)}
+.bk-date.on{border:1.5px solid var(--forest)}
+.bk-sums{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.bk-sums>div{background:rgba(0,64,61,.05);border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:3px}
+.bk-sums b{font:600 16px/1.2 var(--sans);color:var(--ink)} .bk-sums span{font:400 11.5px/1.2 var(--sans);color:var(--grey)}
+.bk-head,.bk-line{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.3fr) 76px 112px 196px;gap:12px;align-items:center}
+.bk-head{margin-top:16px;padding:0 12px 8px;font:400 11px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:rgba(17,17,17,.6);border-bottom:1px solid var(--line)}
+.bk-row{border-bottom:1px solid rgba(17,17,17,.07)}
+.bk-line{padding:12px;cursor:pointer;border-radius:12px}
+.bk-line:hover{background:rgba(0,64,61,.04)}
+.bk-open{background:rgba(0,64,61,.045);border-radius:14px}
+.bk-more{padding:2px 12px 16px}
+.bk-edit{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(17,17,17,.08)}
+@media (max-width:880px){
+  .bk-head{display:none}
+  .bk-line{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
+  .bk-line>:nth-child(1){grid-column:1;grid-row:1}
+  .bk-line>:nth-child(4){grid-column:2;grid-row:1;text-align:right}
+  .bk-line>:nth-child(2){grid-column:1/-1;grid-row:2}
+  .bk-line>:nth-child(3){grid-column:1;grid-row:3}
+  .bk-line>:nth-child(5){grid-column:2;grid-row:3}
+}
 </style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
 <!-- Relative, not root relative. "/ladder-data.js" resolves to the disk
      root when the file is opened straight from Finder, so the app loaded
@@ -8098,7 +8122,7 @@ function makeClient(){
    and a row of panels, the ladder and the explainers moved under Library
    and everything you touch twice a year is under Settings. */
 
-function go(v){ userMoved=true; view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
+function go(v){ userMoved=true; if(v==='bookings' && view!=='bookings'){ wshops=null; bkRow=''; } view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
 function openClient(email, tab){
   userMoved=true;
   if(view!=='client') cameFrom=(view==='today'?'today':view==='chats'?'chats':'clients');
@@ -8125,7 +8149,7 @@ function headerHTML(){
      only reach it by finding a clip first, and once you left it there was no
      way back to the clips already loaded. It is a tab again, with its count. */
   const unreadAll=clients.reduce((t,c)=>t+(c.unread||0),0);
-  const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
+  const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],['bookings','Bookings',0],
                ['review','Review',reviewQueue.length],
                ['library','Library',0],['site','Website',0],['settings','Settings',0]];
   return `<header class="bar glass">
@@ -11087,8 +11111,10 @@ function wsAct(slug, email, session, action, extra){
         const w=(wshops||[]).find(x=>x.slug===slug); if(w&&d.bookings) w.bookings=d.bookings;
         /* the open editor holds its own copy of the workshop */
         if(wsf&&(wsf.was===slug||wsf.slug===slug)&&d.bookings) wsf.bookings=d.bookings;
-        if(action==='move'){ wshops=null; wsLoad(); }
+        if(action==='move'||action==='edit'){ wshops=null; wsLoad(); }
+        if(action==='edit'||action==='cancel'||action==='move') bkRow='';
         flash(action==='arrived'?'Marked arrived':action==='noshow'?'Marked no show':action==='unmark'?'Cleared':action==='move'?'Moved, and emailed'
+          :action==='edit'?'Saved':action==='resend'?'Sent them their booking again'
           :action==='refund'?'Refunded £'+((d.refunded||0)/100).toFixed(2).replace(/\.00$/,'')+', and emailed'
           :d.refunded?'Cancelled, £'+(d.refunded/100).toFixed(2).replace(/\.00$/,'')+' refunded, and emailed':'Cancelled, and emailed');
         draw(); })
@@ -11100,7 +11126,7 @@ function wsAct(slug, email, session, action, extra){
 function wsMoveRow(slug, email, session, sel){
   const to=sel.value; sel.value=''; if(!to) return;
   const w=(wshops||[]).find(x=>x.slug===to);
-  if(!confirm('Move them to '+(w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}):to)+'? They are emailed.')) return;
+  if(!confirm('Move them to '+(w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}):to)+'? They are emailed.')) return;
   wsAct(slug, email, session, 'move', {to});
 }
 function wsAddAttendees(slug){
@@ -11130,6 +11156,177 @@ function wsLive(slug){ const w=(wshops||[]).find(x=>x.slug===slug); if(!w) retur
     .then(r=>r.ok?r.json():Promise.reject('could not save')).then(d=>{ wshops=d.workshops||wshops; draw(); flash(w.live?'Off the site':'On the site and taking bookings'); })
     .catch(e=>alert(String(e))); }
 const wsWhen=w=>w.when?new Date(w.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'no date';
+/* ══ Bookings: who is coming, and everything to do about it ═════════
+   The bookings lived inside each workshop's edit screen, under Settings,
+   below the whole form. This is the page for the day to day: each date
+   with its places, then everyone on it with their level, what they told
+   us, what they paid and where they stand, and the changes Setmore made
+   possible: arrived, no show, move, cancel, refund, fix a name or an
+   address, send them their booking again, add someone by hand. */
+let bkSel='', bkQ='', bkPast=false, bkRow='', bkGone=false;
+const BK_LVLS=['New to it, never been upside down','Learning to freestand','Working on press, one arm or push ups'];
+const bkDay=w=>w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}):'No date';
+const bkTime=w=>w&&w.when?new Date(w.when).toLocaleTimeString('en-GB',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:'Europe/London'}).replace(':00','').replace(/\s/g,''):'';
+const bkMoney=p=>'£'+((Number(p)||0)/100).toFixed(2).replace(/\.00$/,'');
+const bkIsLive=b=>!['cancelled','refunded','moved'].includes(b.status||'booked');
+const bkKey=(slug,b)=>slug+'|'+b.email+'|'+(b.session||'');
+/* where somebody stands, in one word, and its colour */
+function bkStatus(b){
+  if(b.status==='moved') return ['Moved','tag-neutral'];
+  if(b.status==='refunded') return [(Number(b.refunded)||0)>=(Number(b.paid)||0)?'Refunded':'Part refunded','tag-neutral'];
+  if(b.status==='cancelled') return ['Cancelled','tag-neutral'];
+  if(b.attended==='yes') return ['Arrived','tag-accent'];
+  if(b.attended==='no') return ['No show','tag-accent-2'];
+  return ['Booked','tag-accent'];
+}
+function bkLvlShort(x){ const i=BK_LVLS.indexOf(x); return i>-1?['New to it','Learning to freestand','Press, one arm, push ups'][i]:(x||''); }
+function bkOpen(slug){ bkSel=slug; bkRow=''; bkQ=''; draw(); }
+function bkToggle(k){ bkRow=bkRow===k?'':k; draw(); }
+function bkEditSave(slug,email,session){
+  const v=id=>{ const el=document.getElementById(id); return el?el.value:''; };
+  const extra={name:v('bkeName').trim(), newEmail:v('bkeEmail').trim(), exp:v('bkeLvl'), q:v('bkeQ')};
+  if(!extra.name) return alert('A name, please.');
+  wsAct(slug,email,session,'edit',extra);
+}
+function bkResend(slug,email,session){
+  if(!confirm('Email '+email+' their booking again, with the link to cancel or move it?')) return;
+  wsAct(slug,email,session,'resend');
+}
+function bkAdd(slug){
+  const box=document.getElementById('bkAttend'); const list=(box&&box.value||'').trim();
+  if(!list) return alert('Type or paste them first: one per line, email then name.');
+  fetch(API+'/workshop/attendees',{method:'POST',headers:hdr(),body:JSON.stringify({slug,list})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not add them')))
+    .then(d=>{ flash(d.added+' added'+(d.had?', '+d.had+' already there':'')); const w=(wshops||[]).find(x=>x.slug===slug); if(w) w.bookings=d.bookings; if(box) box.value=''; draw(); })
+    .catch(e=>alert(String(e)));
+}
+/* a spreadsheet of one date: for the door, or for Suryava */
+function bkCsv(slug){
+  const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return;
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const rows=[['Name','Email','Status','Level','Note','Paid','Refunded','Booked with','Booked at']].concat((w.bookings||[]).map(b=>[
+    b.name||'', b.email, bkStatus(b)[0], b.exp||'', b.q||'', ((Number(b.paid)||0)/100).toFixed(2), ((Number(b.refunded)||0)/100).toFixed(2),
+    b.payer?'Guest of '+(b.with||b.payer):(b.with?'With '+b.with:''), b.at?new Date(b.at).toLocaleString('en-GB',{timeZone:'Europe/London'}):'']));
+  const blob=new Blob([rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(w.slug||'class')+'.csv'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+function bkRowHTML(w,b,others){
+  const k=bkKey(w.slug,b), open=bkRow===k, [st,cls]=bkStatus(b), live=bkIsLive(b);
+  const a=`${jsq(w.slug)},${jsq(b.email)},${jsq(b.session||'')}`;
+  const paid=Number(b.paid)||0, back=Number(b.refunded)||0;
+  const btn=(act,label,x,on,danger)=>`<button class="btn btn-sm ${on?'btn-primary':'btn-secondary'}" style="min-height:32px;padding:0 12px${danger?';color:var(--terra)':''}" ${wsBusyRow?'disabled':''}
+    onclick="event.stopPropagation();wsAct(${a},'${act}'${x?','+x:''})">${label}</button>`;
+  const who=b.payer?`<span class="muted" style="font-size:12px">guest of ${esc(b.with||b.payer)}</span>`
+    :b.with?`<span class="muted" style="font-size:12px">bringing ${esc(b.with)}</span>`:'';
+  const tags=(b.pair?`<span class="tag tag-neutral" title="Both dates in one booking">both dates</span>`:'')
+    +(b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:'')
+    +(b.source==='setmore'?`<span class="tag tag-neutral">added by hand</span>`:'');
+  return `<div class="bk-row${open?' bk-open':''}" data-k="${esc(k)}">
+    <div class="bk-line" onclick="bkToggle(${jsq(k)})">
+      <div style="min-width:0"><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b style="font:600 14.5px/1.3 var(--sans)">${esc(b.name||b.email)}</b>${who}${tags}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis">${esc(b.email)}</div></div>
+      <div class="bk-c" style="font-size:13px">${b.exp?esc(bkLvlShort(b.exp)):'<span class="muted">not said</span>'}${b.q?`<div class="muted" style="font-size:12.5px;margin-top:2px;white-space:normal">${esc(b.q)}</div>`:''}</div>
+      <div class="bk-c" style="font-size:13px">${paid?bkMoney(paid):'<span class="muted">free</span>'}${back?`<div class="muted" style="font-size:12px">${bkMoney(back)} back</div>`:''}</div>
+      <div class="bk-c"><span class="tag ${cls}">${st}</span>${b.status==='moved'&&b.movedTo?`<div class="muted" style="font-size:11.5px;margin-top:3px">to ${esc(bkDay((wshops||[]).find(x=>x.slug===b.movedTo)))}</div>`:''}</div>
+      <div class="bk-c" style="text-align:right">${live?`<span style="display:inline-flex;gap:4px">${btn(b.attended==='yes'?'unmark':'arrived','Arrived','',b.attended==='yes')}${btn(b.attended==='no'?'unmark':'noshow','No show','',b.attended==='no')}</span>`:''}</div>
+    </div>
+    ${open?`<div class="bk-more" onclick="event.stopPropagation()">
+      <div class="muted" style="font-size:12px;margin-bottom:10px">Booked ${esc(ago(b.at))}${b.movedFrom?' · moved here from '+esc(bkDay((wshops||[]).find(x=>x.slug===b.movedFrom))):''}${b.cancelledAt?' · '+(b.status==='refunded'?'refunded':'cancelled')+' '+esc(ago(b.cancelledAt))+(b.cancelledBy?' by '+(b.cancelledBy==='coach'?'you':'them'):''):''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        ${live&&others.length?`<select class="input" style="width:auto;min-height:32px;padding:0 10px;font-size:13px" onchange="wsMoveRow(${a},this)"><option value="">Move to…</option>${others.map(o=>`<option value="${esc(o.slug)}">${esc(bkDay(o))}${o.title!==w.title?' · '+esc(o.title):''} · ${(o.places?Math.max(0,o.places-(o.bookings||[]).filter(bkIsLive).length)+' left':'open')}</option>`).join('')}</select>`:''}
+        ${live?`<button class="btn btn-sm btn-secondary" style="min-height:32px" ${wsBusyRow?'disabled':''} onclick="bkResend(${a})">Send their booking again</button>`:''}
+        ${live&&owner?btn('cancel',paid?'Cancel and refund':'Cancel',"{refund:'full'}",false,true)+(paid?btn('cancel','Cancel, keep the money',"{refund:'none'}",false,true):''):''}
+        ${!live&&b.status!=='moved'&&owner&&b.pi&&paid>back&&!b.settled?btn('refund','Refund '+bkMoney(paid-back)):''}
+      </div>
+      <div class="bk-edit">
+        <div class="field"><label>Name</label><input id="bkeName" class="input" value="${esc(b.name||'')}"></div>
+        <div class="field"><label>Email</label><input id="bkeEmail" class="input" type="email" value="${esc(b.email)}"></div>
+        <div class="field"><label>Level</label><select id="bkeLvl" class="input"><option value="">Not said</option>${BK_LVLS.map(l=>`<option value="${esc(l)}"${b.exp===l?' selected':''}>${esc(bkLvlShort(l))}</option>`).join('')}${b.exp&&!BK_LVLS.includes(b.exp)?`<option value="${esc(b.exp)}" selected>${esc(b.exp)}</option>`:''}</select></div>
+        <div class="field" style="grid-column:1/-1"><label>Injuries or notes</label><textarea id="bkeQ" class="input" rows="2">${esc(b.q||'')}</textarea></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;align-items:center"><button class="btn btn-primary btn-sm" ${wsBusyRow?'disabled':''} onclick="bkEditSave(${a})">Save changes</button>
+          <span class="muted" style="font-size:12px">A new email moves the booking, both dates of a pair, and the reminders to it.</span></div>
+      </div>
+    </div>`:''}
+  </div>`;
+}
+function bookingsPageHTML(){
+  wsLoad();
+  const now=Date.now(), all=(wshops||[]).filter(w=>w.when);
+  /* a class stays under Coming up until the evening of its day, for the register */
+  const soon=all.filter(w=>new Date(w.when).getTime()>now-8*3600e3).sort((a,b)=>new Date(a.when)-new Date(b.when));
+  const past=all.filter(w=>new Date(w.when).getTime()<=now-8*3600e3).sort((a,b)=>new Date(b.when)-new Date(a.when));
+  const list=bkPast?past:soon;
+  if(!bkSel || !all.some(w=>w.slug===bkSel) || !list.some(w=>w.slug===bkSel)) bkSel=(list[0]||{}).slug||'';
+  const w=all.find(x=>x.slug===bkSel);
+  const card=x=>{ const live=(x.bookings||[]).filter(bkIsLive), cap=Number(x.places)||0, on=x.slug===bkSel;
+    const pct=cap?Math.min(100,Math.round(live.length/cap*100)):0;
+    return `<button class="bk-date${on?' on':''}" onclick="bkOpen(${jsq(x.slug)})">
+      <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:${on?'var(--forest)':'var(--grey2)'}">${esc(bkDay(x))}${bkTime(x)?' · '+esc(bkTime(x)):''}</span>
+      <span style="font:400 30px/1 var(--serif);margin-top:10px">${live.length}<span style="font-size:16px;color:var(--grey)">${cap?' of '+cap:''}</span></span>
+      <span class="muted" style="font-size:12px;margin-top:4px;text-align:left">${/all levels/i.test(x.title||'')?'All Levels':esc(x.title||'')}${(x.waitlist||[]).length?' · '+x.waitlist.length+' waiting':''}${x.live?'':' · off the site'}</span>
+      ${cap?`<span style="display:block;height:4px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:10px;overflow:hidden"><span style="display:block;height:100%;width:${pct}%;background:var(--forest)"></span></span>`:''}
+    </button>`; };
+  /* search: anyone, on any date */
+  const q=bkQ.trim().toLowerCase();
+  const found=q?all.flatMap(x=>(x.bookings||[]).filter(b=>String(b.name||'').toLowerCase().includes(q)||String(b.email||'').toLowerCase().includes(q)).map(b=>({w:x,b}))):[];
+  const head=`<section class="glass" style="padding:26px 28px;border-radius:24px">
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <div><div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Bookings</div>
+        <h1 style="margin:8px 0 0">Who is <em style="color:var(--forest);font-style:normal">coming.</em></h1></div>
+      <span style="flex:1"></span>
+      <input class="input" placeholder="Find someone, any date" value="${esc(bkQ)}" oninput="bkQ=this.value;draw()" style="max-width:240px">
+      <button class="btn btn-secondary btn-sm" onclick="wshops=null;draw()">Refresh</button>
+      <button class="btn btn-secondary btn-sm" onclick="setTab='workshops';go('settings');wsNew()">New date</button>
+    </div>`;
+  if(!wshops || (!wshops.length && !all.length)) return head+`<p class="muted" style="margin-top:18px">${wshops?'No workshops yet. New date makes one.':'Loading…'}</p></section>`;
+  if(q) return head+`<h5 style="margin-top:22px">${found.length} found</h5>
+    <div class="bk-list">${found.map(({w:x,b})=>`<div class="bk-row"><div class="bk-line" onclick="bkPast=new Date(${jsq(x.when)}).getTime()<=Date.now()-8*3600e3;bkSel=${jsq(x.slug)};bkQ='';bkRow=${jsq(bkKey(x.slug,b))};draw()">
+      <div style="min-width:0"><b style="font:600 14.5px/1.3 var(--sans)">${esc(b.name||b.email)}</b><div class="muted" style="font-size:12.5px">${esc(b.email)}</div></div>
+      <div class="bk-c" style="font-size:13px">${esc(bkDay(x))}</div><div class="bk-c" style="font-size:13px">${b.paid?bkMoney(b.paid):'free'}</div>
+      <div class="bk-c"><span class="tag ${bkStatus(b)[1]}">${bkStatus(b)[0]}</span></div><div class="bk-c" style="text-align:right"><span class="muted" style="font-size:12px">Open &rarr;</span></div></div></div>`).join('')||'<p class="muted">Nobody by that name or email.</p>'}</div></section>`;
+  const others=w?all.filter(o=>o.slug!==w.slug && new Date(o.when).getTime()>now):[];
+  const rows=w?(w.bookings||[]):[];
+  const live=rows.filter(bkIsLive), gone=rows.filter(b=>!bkIsLive(b));
+  const came=live.filter(b=>b.attended==='yes').length, missed=live.filter(b=>b.attended==='no').length;
+  const taken=rows.filter(b=>b.status!=='moved').reduce((t,b)=>t+Math.max(0,(Number(b.paid)||0)-(Number(b.refunded)||0)),0);
+  const lv=BK_LVLS.map(l=>live.filter(b=>b.exp===l).length);
+  const isPast=w&&new Date(w.when).getTime()<now;
+  return head+`
+    <div style="display:flex;gap:6px;margin-top:20px">${[['soon','Coming up',soon.length],['past','Past',past.length]].map(([k,l,n])=>
+      `<button class="btn btn-sm ${(k==='past')===bkPast?'btn-primary':'btn-secondary'}" onclick="bkPast=${k==='past'};bkSel='';bkRow='';draw()">${l}${n?' · '+n:''}</button>`).join('')}</div>
+    <div class="bk-dates">${list.map(card).join('')||`<p class="muted">${bkPast?'Nothing past yet.':'Nothing coming up. New date makes one.'}</p>`}</div>
+    ${w?`<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:24px">
+        <h5 style="margin:0;font-size:22px">${esc(w.title)}</h5>
+        <span class="muted" style="font-size:13px">${esc(new Date(w.when).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'}))}, ${esc(bkTime(w))}${w.place?' · '+esc(w.place):''}</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-ghost btn-sm" onclick="bkCsv(${jsq(w.slug)})">Download list</button>
+        <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(live.map(b=>b.email).join(', '))});flash('Emails copied')">Copy emails</button>
+        <button class="btn btn-ghost btn-sm" onclick="setTab='workshops';go('settings');wsEdit(${jsq(w.slug)})">Edit the date</button></div>
+      <div class="bk-sums">
+        <div><b>${live.length}${w.places?' of '+w.places:''}</b><span>booked</span></div>
+        ${isPast||came||missed?`<div><b>${came}</b><span>arrived${missed?', '+missed+' no show':''}</span></div>`:''}
+        <div><b>${bkMoney(taken)}</b><span>taken, after refunds</span></div>
+        <div><b>${lv.join(' · ')}</b><span>new · learning · press</span></div>
+        ${(w.waitlist||[]).length?`<div><b>${w.waitlist.length}</b><span>waiting</span></div>`:''}
+      </div>
+      <div class="bk-head"><span>Person</span><span>Level and notes</span><span>Paid</span><span>Status</span><span style="text-align:right">On the day</span></div>
+      <div class="bk-list">${live.map(b=>bkRowHTML(w,b,others)).join('')||'<p class="muted" style="padding:14px 4px">Nobody booked yet.</p>'}</div>
+      <p class="muted" style="font-size:12px;margin-top:8px">Tap someone for everything else: move, cancel, refund, fix their details, or send them their booking again. They are emailed for a move, a cancel and a refund.</p>
+      ${gone.length?`<button class="ghostlink" style="margin-top:14px" onclick="bkGone=!bkGone;draw()">${bkGone?'Hide':'Show'} ${gone.length} cancelled or moved</button>
+        ${bkGone?`<div class="bk-list" style="margin-top:8px">${gone.map(b=>bkRowHTML(w,b,others)).join('')}</div>`:''}`:''}
+      ${(w.waitlist||[]).length?`<h5 style="margin-top:22px">Waiting for a place · ${w.waitlist.length}</h5>
+        <div style="font:400 13px/1.7 var(--sans)">${w.waitlist.map((x,i)=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><span class="muted" style="width:18px">${i+1}</span><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin-top:6px">When a place frees up, the first here is emailed a link to it.</p>`:''}
+      ${(w.intents||[]).length?`<h5 style="margin-top:22px">Started booking, did not pay · ${w.intents.length}</h5>
+        <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin-top:6px">Each gets one reminder the next morning, and another three days later.</p>`:''}
+      <h5 style="margin-top:22px">Add someone by hand</h5>
+      <textarea class="input" id="bkAttend" rows="2" placeholder="kate@example.com, Kate&#10;one per line: a booking taken in person, or from Setmore"></textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="bkAdd(${jsq(w.slug)})">Add them</button>
+        <span class="muted" style="font-size:12px">Nothing is charged. They get the reminder, the review ask and the follow ups like anyone who booked online.</span></div>`:''}
+  </section>`;
+}
 function workshopsHTML(){
   wsLoad();
   if(wsOpen&&wsf){ const w=wsf; const d=w.when?new Date(w.when):new Date(); const pad=n=>String(n).padStart(2,'0');
@@ -11174,7 +11371,7 @@ function workshopsHTML(){
         const act=b=>{ if(!w.slug) return ''; const k=`${jsq(w.slug)},${jsq(b.email)},${jsq(b.session||'')}`;
           const btn=(a,l,x,on)=>`<button class="btn btn-ghost btn-sm" style="min-height:30px;padding:0 10px${on?';background:rgba(0,102,99,.1);color:var(--deep)':''}" ${wsBusyRow?'disabled':''} onclick="wsAct(${k},'${a}'${x?','+x:''})">${l}</button>`;
           if(b.status==='moved') return `<span class="muted" style="font-size:12px">Moved to ${esc(b.movedTo||'')}</span>`;
-          if(b.status==='cancelled'||b.status==='refunded') return (b.pi&&(Number(b.paid)||0)>(Number(b.refunded)||0)&&owner)?btn('refund','Refund')+`<span class="muted" style="font-size:12px;margin-left:6px">${b.refunded?'£'+(b.refunded/100).toFixed(2).replace(/\.00$/,'')+' refunded':'not refunded'}</span>`:(b.refunded?`<span class="muted" style="font-size:12px">£${(b.refunded/100).toFixed(2).replace(/\.00$/,'')} refunded</span>`:'');
+          if(b.status==='cancelled'||b.status==='refunded') return (b.pi&&!b.settled&&(Number(b.paid)||0)>(Number(b.refunded)||0)&&owner)?btn('refund','Refund')+`<span class="muted" style="font-size:12px;margin-left:6px">${b.refunded?'£'+(b.refunded/100).toFixed(2).replace(/\.00$/,'')+' refunded':'not refunded'}</span>`:(b.refunded?`<span class="muted" style="font-size:12px">£${(b.refunded/100).toFixed(2).replace(/\.00$/,'')} refunded</span>`:'');
           return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
             ${btn(b.attended==='yes'?'unmark':'arrived','Arrived','',b.attended==='yes')}${btn(b.attended==='no'?'unmark':'noshow','No show','',b.attended==='no')}
             ${others.length?`<select class="input" style="width:auto;min-height:30px;padding:0 8px;font-size:12.5px" onchange="wsMoveRow(${k},this)"><option value="">Move to…</option>${others.map(o=>`<option value="${esc(o.slug)}">${esc(new Date(o.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}))}${o.title!==w.title?' · '+esc(o.title):''}</option>`).join('')}</select>`:''}
@@ -11794,6 +11991,7 @@ function drawNow(){
     : view==='library'  ? libraryHTML()
     : view==='settings' ? settingsHTML()
     : view==='review'   ? reviewHTML()
+    : view==='bookings' ? bookingsPageHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`
     + bulkHTML() + copyHTML() + newBlkHTML() + toastHTML()

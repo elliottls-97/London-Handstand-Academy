@@ -402,10 +402,10 @@ export const EMAILS = {
     "paras": [
       "You started booking <b>{title}</b>, {when}{place}, and did not get to the end. No payment was taken and nothing is held for you, so if you want to come, the place is still open.",
       "People leave the class with a handstand that has moved on in ninety minutes: a first hold against the wall, the first seconds of balance off it, or the next piece of the press. Two coaches and a small group, so you get seen. 5.0 on Google.",
-      "It takes a minute to book, card or Apple Pay, no account. {pair_line} If you have changed your mind, ignore this and nothing more comes.",
+      "It takes a minute to book, card or Apple Pay, no account. {pair_line} If you have changed your mind, ignore this: there is one more short note in a few days, and that is all.",
       "Any question, just reply."
     ],
-    "footnote": "You are getting this once because you began a booking on our site. There is no list to come off."
+    "footnote": "You are getting this because you began a booking on our site. There is no list to come off."
   },
   "wsIntent2": {
     "name": "Workshop, started booking and stopped, three days on",

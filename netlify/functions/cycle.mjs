@@ -727,10 +727,25 @@ async function intentMail(done) {
   const row = await supa.row('settings', 'key=eq.workshops&select=value').catch(() => null);
   const all = (row && row.value) || {};
   const now = Date.now();
+  /* everyone with a row on any date of a class: somebody who typed their
+     email while one Saturday was picked and paid for the other has booked */
+  const kind = x => String((x && x.title) || '').trim().toLowerCase();
+  const heldBy = {};
+  for (const x of Object.values(all)) {
+    if (!x || !x.slug) continue;
+    const r = await supa.row('settings', `key=eq.${enc('wsbook:' + x.slug)}&select=value`).catch(() => null);
+    const rows = (r && r.value) || [];
+    x.__live = rows.filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved').length;
+    for (const b of rows) if (b && b.email) (heldBy[kind(x)] = heldBy[kind(x)] || new Set()).add(norm(b.email));
+  }
+  /* one email a person a run, though they looked at both dates */
+  const toldNow = new Set();
   for (const w of Object.values(all)) {
     if (!w || !w.live || !w.when) continue;
     const at = ms(w.when);
     if (at - now < 3 * 3600e3) continue;
+    /* "the place is still open" must be true */
+    if (Number(w.places) > 0 && w.__live >= Number(w.places)) continue;
     const ir = await supa.row('settings', `key=eq.${enc('wsintent:' + w.slug)}&select=value`).catch(() => null);
     const intents = ((ir && ir.value) || []).filter(x => x && x.email && now - (x.at || 0) > 2 * 3600e3);
     if (!intents.length) continue;
@@ -742,7 +757,7 @@ async function intentMail(done) {
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
     for (const p of intents) {
       const e = norm(p.email);
-      if (held.has(e)) continue;
+      if (held.has(e) || (heldBy[kind(w)] && heldBy[kind(w)].has(e)) || toldNow.has(e)) continue;
       const key = `wsintent:${w.slug}:${e}`;
       const first = await supa.row('nudges', `key=eq.${enc(key)}&select=key,sent_at`).catch(() => null);
       if (first) {
@@ -762,10 +777,13 @@ async function intentMail(done) {
           cta: { href: `${SITE}/lha-app.html?ref=workshop`, label: 'Try the free app' },
           signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T2.footnote || undefined }));
         if (!went2) { done.held = (done.held || 0) + 1; continue; }
-        done.intents.again = (done.intents.again || 0) + 1;
+        done.intents.again = (done.intents.again || 0) + 1; toldNow.add(e);
         await supa.upsert('nudges', { key: key2, sent_at: new Date().toISOString() }, 'key');
         continue;
       }
+      const anyKey = `wsintentany:${e}`;
+      const hadAny = await supa.row('nudges', `key=eq.${enc(anyKey)}&select=sent_at`).catch(() => null);
+      if (hadAny && now - ms(hadAny.sent_at) < 14 * DAY) continue;
       const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
       const pairPence = Number(((pairRow && pairRow.value) || {}).pence) || 0;
       const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
@@ -782,8 +800,9 @@ async function intentMail(done) {
         cta: { href: `${SITE}/handstand-class#book`, label: 'Book your place, ' + price },
         signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
-      done.intents.reminded++;
+      done.intents.reminded++; toldNow.add(e);
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+      await supa.upsert('nudges', { key: anyKey, sent_at: new Date().toISOString() }, 'key').catch(() => {});
     }
   }
 }
