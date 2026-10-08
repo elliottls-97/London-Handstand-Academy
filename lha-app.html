@@ -1436,6 +1436,10 @@ const $=s=>document.querySelector(s);
    single-quoted attribute, so this changes nothing now; it is here so that
    the day something does, it cannot break out of one. */
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* A value inside an inline handler, as a quoted JS string. esc() alone is
+   not enough there: the page turns &#39; back into an apostrophe before the
+   code runs, so a value with one in it could end the string and run code. */
+const jsq=s=>esc(JSON.stringify(String(s==null?'':s)));
 /* ── the day as they train it ──────────────────────────────────────
    The programme's warm-up is written once and rotates; each day opens
    with today's share of it, then what was written for the day. A day can
@@ -2827,12 +2831,12 @@ function savedHomeHTML(){
     const pic=still(r);
     return `<div style="display:flex;align-items:center;gap:12px;padding:${pic?'10px 14px 10px 10px':'13px 14px'};border-radius:16px;
       background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
-      ${pic?`<button onclick="dlOpen('${esc(r.key)}')" aria-hidden="true" tabindex="-1" style="position:relative;flex:none;width:${wide()?78:64}px;
+      ${pic?`<button onclick="dlOpen(${jsq(r.key)})" aria-hidden="true" tabindex="-1" style="position:relative;flex:none;width:${wide()?78:64}px;
         aspect-ratio:16/11;border:0;padding:0;border-radius:11px;overflow:hidden;cursor:pointer;background:var(--sand);${locked?'opacity:.55':''}">
         <img src="${esc(pic)}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">
         ${going?`<span style="position:absolute;left:5px;bottom:5px;width:9px;height:9px;border-radius:50%;
           background:var(--amber);box-shadow:0 0 0 2px #fff"></span>`:''}</button>`:''}
-      <button onclick="dlOpen('${esc(r.key)}')" style="flex:1;min-width:0;border:0;background:none;padding:0;
+      <button onclick="dlOpen(${jsq(r.key)})" style="flex:1;min-width:0;border:0;background:none;padding:0;
         text-align:left;cursor:pointer;color:var(--ink)">
         ${r.kind==='ex'?`<span style="display:block;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-bottom:5px">EXPLAINER</span>`:''}
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
@@ -2844,9 +2848,9 @@ function savedHomeHTML(){
           : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+' &middot; needs signal'
           : 'Saved for no signal &middot; '+esc(cpWhen(r.at))}</span>
       </button>
-      <button onclick="dlOpen('${esc(r.key)}')" style="flex:none;border:0;border-radius:11px;cursor:pointer;
+      <button onclick="dlOpen(${jsq(r.key)})" style="flex:none;border:0;border-radius:11px;cursor:pointer;
         padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${locked?'&#128274;':going?'Carry on':'Open'}</button>
-      <button onclick="dlRemove('${esc(r.key)}')" aria-label="Remove ${esc(r.name||'this workout')} from this phone" title="Remove"
+      <button onclick="dlRemove(${jsq(r.key)})" aria-label="Remove ${esc(r.name||'this workout')} from this phone" title="Remove"
         style="flex:none;width:30px;height:30px;border-radius:50%;border:0;cursor:pointer;background:rgba(0,64,61,.07);
         color:var(--grey);display:grid;place-items:center;padding:0"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -4215,7 +4219,7 @@ function cpRow(it){
     <span style="font:700 9.5px/1 var(--sans);letter-spacing:.12em;padding:5px 8px;border-radius:999px;
       background:${met?'var(--forest)':'rgba(243,169,73,.22)'};color:${met?'var(--on-primary)':'#7a4a10'}">${met?'&check; CHECK POINT REACHED':'CHECK POINT'}</span>
     ${aim&&!met?`<span style="font:600 12.5px/1 var(--sans);color:var(--grey)">target ${esc(aim)}</span>`:''}
-    ${!met&&aim?`<button onclick="event.stopPropagation();cpReach('${esc(c.k)}')" style="margin-left:auto;border:0;cursor:pointer;
+    ${!met&&aim?`<button onclick="event.stopPropagation();cpReach(${jsq(c.k)})" style="margin-left:auto;border:0;cursor:pointer;
       border-radius:999px;padding:8px 12px;background:var(--forest);color:var(--on-primary);font:600 12px/1 var(--sans)">I got ${esc(aim)}</button>`:''}
   </div>`;
 }
@@ -5073,7 +5077,7 @@ function clipsBody(){
       : c.waiting ? ['With Elliott', 'var(--grey2)', '']
       : ['', '', ''];
     return `<div class="card" style="padding:12px;display:flex;gap:12px;align-items:flex-start">
-      <button onclick="playClip('${esc(c.uid)}')" style="flex:none;width:104px;aspect-ratio:4/3;
+      <button onclick="playClip(${jsq(c.uid)})" style="flex:none;width:104px;aspect-ratio:4/3;
         border:0;padding:0;border-radius:12px;overflow:hidden;background:#101413;cursor:pointer;
         position:relative">
         <img src="${streamThumb(c.uid)}" alt="" loading="lazy"
@@ -6429,7 +6433,7 @@ function daySaidHTML(k){
     <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">WHAT YOU SAID</div>
     ${feel.map(f=>`<div style="font:400 13px/1.45 var(--sans);margin-top:8px">Felt ${
       esc(String(f.text).split(' \u00b7 ')[0].toLowerCase())}</div>`).join('')}
-    ${said.map(x=>`<div role="button" tabindex="0" onclick="openDrillHist('${esc(x.k)}')"
+    ${said.map(x=>`<div role="button" tabindex="0" onclick="openDrillHist(${jsq(x.k)})"
       style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;margin-top:8px;cursor:pointer">
       <span style="flex:1;min-width:0;font:500 13px/1.35 var(--sans)">${esc(drillNameOf(x.k))}</span>
       ${rateWord(x.rate)?rateChipHTML(x.rate):''}
@@ -6443,7 +6447,7 @@ function flaggedCard(){
   if(!keys.length) return '';
   const row=(v,i)=>{
     const x=r[v]||'', note=(st.note||{})[v]||'';
-    return `<div role="button" tabindex="0" onclick="openDrillHist('${esc(v)}')"
+    return `<div role="button" tabindex="0" onclick="openDrillHist(${jsq(v)})"
       style="padding:11px 0;cursor:pointer;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
       <div style="display:flex;align-items:baseline;gap:10px">
         <span style="flex:1;min-width:0;font:600 14px/1.3 var(--sans)">${esc(drillNameOf(v))}</span>
@@ -6492,7 +6496,7 @@ function perDrillCard(){
       The last time you did each, against what it asked for. Short of it is
       information, not a failure. Tap one for every time.</div>
     <div style="margin-top:12px">
-    ${shown.map((r,i)=>`<div role="button" tabindex="0" onclick="openDrillHist('${esc(r.v)}')"
+    ${shown.map((r,i)=>`<div role="button" tabindex="0" onclick="openDrillHist(${jsq(r.v)})"
       style="display:flex;align-items:baseline;gap:10px;cursor:pointer;
       padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
       <span style="flex:1;min-width:0;font:600 14px/1.25 var(--sans)">${esc(r.n)}
@@ -7184,9 +7188,9 @@ function msgStatus(m){
   if(m.failed && m.why==='signin') return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
     Not sent: you have been signed out.${link("st.tab='signin';save();render()",'Sign in again')}</div>`;
   if(m.failed) return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
-    Not sent.${m.video?link(`retrySend('${esc(m.video)}','',${JSON.stringify(m.text||'').replace(/"/g,'&quot;')})`,'Send it again')
-      : m.voice ? link(`retryVoice('${esc(m.voice)}',${Number(m.secs)||0})`,'Send it again')
-      : (!m.image && m.text) ? link(`sendAsk(${JSON.stringify(m.text).replace(/"/g,'&quot;')})`,'Send it again') : ''}</div>`;
+    Not sent.${m.video?link(`retrySend(${jsq(m.video)},'',${esc(JSON.stringify(m.text||''))})`,'Send it again')
+      : m.voice ? link(`retryVoice(${jsq(m.voice)},${Number(m.secs)||0})`,'Send it again')
+      : (!m.image && m.text) ? link(`sendAsk(${esc(JSON.stringify(m.text))})`,'Send it again') : ''}</div>`;
   /* sending, sent and read are the ticks inside the bubble now */
   return '';
 }
@@ -7518,7 +7522,7 @@ function fcAskBody(){
             <span style="display:block;font:600 14px/1.3 var(--sans)">${esc(c.n)}</span>
             <span id="fcup-${esc(c.k)}" style="display:block;font:400 12px/1.4 var(--sans);color:${have?'var(--forest)':'var(--grey2)'};margin-top:2px">${
               have?'Filmed and uploaded':busy?'Uploading…':(c.target!=null&&c.target>0?'Target '+esc(String(c.target))+' '+esc(cpUnit(c)):'')}</span></span>
-          <button class="rt" onclick="fcFilmCp('${esc(c.k)}')" ${busy?'disabled':''}>${have?'Again':'Film'}</button></div>`; }).join('')
+          <button class="rt" onclick="fcFilmCp(${jsq(c.k)})" ${busy?'disabled':''}>${have?'Again':'Film'}</button></div>`; }).join('')
         || `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey)">No check points on this stage yet.</div>`}
     </div>
     <textarea placeholder="Anything to add. Optional." oninput="fcSet('q',this.value)"
@@ -8016,18 +8020,18 @@ function chBubble(m, first, last, byId){
   const media=!!(m.video||m.image);
   return `<div class="crow ${mine?'me':'them'}${first?' first':''}${last?' last':''}" id="msg-${esc(k)}">
     <div class="cb${media?' media':''}" style="touch-action:pan-y"
-      onpointerdown="chDown(event,'${esc(k)}')" onpointermove="chMove(event)" onpointerup="chUp()"
-      onpointercancel="chUp()" onpointerleave="chUp()" oncontextmenu="event.preventDefault();chMenu('${esc(k)}')">
-      ${m.re?`<button class="cq" onclick="event.stopPropagation();chJump('${esc(m.re)}')"><b>${
+      onpointerdown="chDown(event,${jsq(k)})" onpointermove="chMove(event)" onpointerup="chUp()"
+      onpointercancel="chUp()" onpointerleave="chUp()" oncontextmenu="event.preventDefault();chMenu(${jsq(k)})">
+      ${m.re?`<button class="cq" onclick="event.stopPropagation();chJump(${jsq(m.re)})"><b>${
         q?(q.from==='me'?'You':esc(coachLabel())):'Earlier message'}</b><span>${esc(q?chSnip(q):'No longer here')}</span></button>`:''}
       ${m.video?`<div class="cmedia">${clipPoster(m.video,'4/5','34vh')}</div>`:''}
-      ${m.image?`<button class="cmedia" onclick="event.stopPropagation();chPhoto('${esc(m.image)}')" aria-label="Open the photo">
+      ${m.image?`<button class="cmedia" onclick="event.stopPropagation();chPhoto(${jsq(m.image)})" aria-label="Open the photo">
         <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" loading="lazy"></button>`:''}
       ${m.voice?voiceBubbleHTML(esc(m.voice), m.secs, m.at):''}
       ${m.text?`<span class="ct">${chLinks(esc(m.text))}</span>`:''}
       <span class="cspace ${mine?'me':''}"></span>
       <span class="cmeta">${chTime(m.at)}${chTicks(m)}</span>
-      <button class="cmore" onclick="event.stopPropagation();chMenu('${esc(k)}')" aria-label="Message options">
+      <button class="cmore" onclick="event.stopPropagation();chMenu(${jsq(k)})" aria-label="Message options">
         <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
     ${mine?msgStatus(m):''}
@@ -8470,13 +8474,13 @@ function bookingsHTML(){
         </div>
         <div style="flex:none;display:flex;flex-direction:column;gap:6px">
         ${(b.moveTo||[]).length?`<button class="rt" ${moving===b.slug?'disabled':''}
-          onclick="moveBooking('${esc(b.slug)}')">${moving===b.slug?'Moving…':'Move'}</button>`:''}
+          onclick="moveBooking(${jsq(b.slug)})">${moving===b.slug?'Moving…':'Move'}</button>`:''}
         ${b.canCancel?`<button class="rt" ${cancelling===b.slug?'disabled':''}
-          onclick="cancelBooking('${esc(b.slug)}')">${cancelling===b.slug?'Cancelling…':'Cancel'}</button>`:''}
+          onclick="cancelBooking(${jsq(b.slug)})">${cancelling===b.slug?'Cancelling…':'Cancel'}</button>`:''}
         </div>
       </div>
       ${movingOpen===b.slug?`<div style="display:flex;flex-direction:column;gap:6px;margin-top:-4px">${(b.moveTo||[]).map(o=>
-        `<button class="rt" style="justify-content:space-between;width:100%" onclick="moveBooking('${esc(b.slug)}','${esc(o.slug)}')">
+        `<button class="rt" style="justify-content:space-between;width:100%" onclick="moveBooking(${jsq(b.slug)},${jsq(o.slug)})">
           <span>${esc(new Date(o.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}</span><span>Move here</span></button>`).join('')}</div>`:''}`).join('')}
     </div>
     ${list.some(b=>b.canCancel)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Move or cancel up to 24 hours before; a cancel is refunded to your card.</div>`:''}
@@ -9583,7 +9587,7 @@ function itemFilm(it, aspect, noPick){
   const demo=!!(it.own && it.libUrl && (st.filmDemo||{})[it.v]);
   const film=drillFilm(demo?it.libUrl:it.url, aspect);
   if(!it.own || noPick || !it.libUrl) return film;
-  const b=(on,label,val)=>`<button onclick="event.stopPropagation();filmPick('${esc(it.v)}',${val})" aria-pressed="${on}"
+  const b=(on,label,val)=>`<button onclick="event.stopPropagation();filmPick(${jsq(it.v)},${val})" aria-pressed="${on}"
     style="flex:1;border:0;border-radius:999px;padding:7px 10px;cursor:pointer;font:600 12.5px/1 var(--sans);
     background:${on?'#fff':'transparent'};color:${on?'var(--ink)':'var(--grey)'};${on?'box-shadow:0 1px 4px rgba(0,40,38,.15)':''}">${label}</button>`;
   return film+`<div style="display:flex;gap:2px;padding:3px;margin:8px 0 16px;border-radius:999px;background:rgba(0,64,61,.07)">
@@ -9705,7 +9709,7 @@ function fbBody(){
           <div style="font:500 14px/1.45 var(--sans);color:var(--ink)">${esc(q)}</div>
           ${opts
             ? `<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
-                ${opts.map(o=>`<button onclick="fbExtra('${k}','${esc(o)}')"
+                ${opts.map(o=>`<button onclick="fbExtra('${k}',${jsq(o)})"
                   style="${pill(((fb.extra||{})[k])===o)}">${esc(o)}</button>`).join('')}
                </div>`
             : `<input id="fbx-${k}" value="${esc((fb.extra||{})[k]||'')}"
@@ -10039,7 +10043,7 @@ function drawOv(){
         <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:6px">
           Set by Elliott. Go, below, builds a session to your level and time instead.</div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-          ${fx.map(f=>`<button onclick="closeOv();buildFixSession('${esc(f.slug)}',true)"
+          ${fx.map(f=>`<button onclick="closeOv();buildFixSession(${jsq(f.slug)},true)"
             style="${_row};background:#fff;border:1px solid rgba(17,17,17,.10)">
             <span style="min-width:0"><span style="display:block">${esc(f.name)}</span>${f.tag?`<span style="display:block;font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:2px">${esc(f.tag)}</span>`:''}</span>
             <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey)">${fixDrillN(f)} drills${(f.access==='plus'&&!isPlus())?' &middot; &#128274;':''} &rarr;</span></button>`).join('')}
@@ -10187,7 +10191,7 @@ function drawOv(){
               /* a sore wrist, no wall, or a drill they simply cannot do this
                  week. It leaves this session and the ones after it for seven
                  days, rather than being skipped again every time. */
-              :`<button class="rt" onclick="asideRow('${esc(it.v)}')"
+              :`<button class="rt" onclick="asideRow(${jsq(it.v)})"
                 title="Out of your sessions for a week">Not today</button>`}
             </div>
               </div>
@@ -10712,7 +10716,7 @@ function drawOv(){
             style="width:96px;min-height:44px;border:1px solid rgba(0,64,61,.14);border-radius:12px;
             padding:11px;font:700 17px/1 var(--sans)">
           <span style="font:600 10.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2)">${esc(t.u.toUpperCase())}</span>
-          <button onclick="filmTest('${t.id}','${esc(t.n)}')" style="margin-left:auto;flex:none;cursor:pointer;
+          <button onclick="filmTest('${t.id}',${jsq(t.n)})" style="margin-left:auto;flex:none;cursor:pointer;
             border-radius:999px;padding:11px 15px;min-height:44px;font:600 12px/1 var(--sans);
             border:${filmed?'0':'1px solid rgba(0,64,61,.14)'};
             background:${filmed?'linear-gradient(180deg,#0a7a76,#006663)':'#fff'};
@@ -10732,7 +10736,7 @@ function drawOv(){
     const a=st.applyDraft||{};
     const set=(k)=>`oninput="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']=this.value;save()"`;
     const opts=(k,list)=>`<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:9px">
-      ${list.map(o=>`<button onclick="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']='${esc(o)}';save();drawOv()"
+      ${list.map(o=>`<button onclick="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']=${jsq(o)};save();drawOv()"
         style="border:1.5px solid ${a[k]===o?'var(--forest)':'rgba(28,32,25,.16)'};
         background:${a[k]===o?'var(--forest)':'#fff'};color:${a[k]===o?'var(--bg)':'var(--ink)'};
         border-radius:999px;padding:9px 14px;font:500 13px/1 var(--sans);cursor:pointer">
@@ -12167,7 +12171,7 @@ function screenWhyBody(){
   return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">
       Optional, it tells me what to change.</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
-      ${WHY_REASONS.map(r=>`<button onclick="toggleWhy('${esc(r)}')"
+      ${WHY_REASONS.map(r=>`<button onclick="toggleWhy(${jsq(r)})"
         style="display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;
         border:1.5px solid ${whyPicked.includes(r)?'var(--forest)':'transparent'};
         background:${whyPicked.includes(r)?'rgba(47,61,47,.07)':'var(--mist)'};
@@ -12833,7 +12837,7 @@ function skillDemo(q){
         style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 30%;display:block"></div>`;
   const d=q.demo && drillById(q.demo), uid=d && uidOfUrl(d.url);
   if(!uid) return '';
-  return `<button type="button" class="qup" onclick="skillFilm(this,'${esc(q.demo)}')" aria-label="Play ${esc(d.n)}"
+  return `<button type="button" class="qup" onclick="skillFilm(this,${jsq(q.demo)})" aria-label="Play ${esc(d.n)}"
       style="animation-delay:60ms;position:relative;display:block;width:100%;aspect-ratio:16/9;border:1px solid rgba(255,255,255,.35);
       padding:0;border-radius:18px;overflow:hidden;background:#0c1f1d;cursor:pointer;margin-bottom:4px;
       box-shadow:0 14px 34px rgba(0,0,0,.35)">
@@ -13055,7 +13059,7 @@ function screenQuiz(){
         <div style="font:400 13px/1.45 var(--sans);color:rgba(255,255,255,.78);margin-top:6px">Where is it? It is kept with your answers.</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${NIGGLES.filter(x=>x!=='Nothing right now').map(x=>{
           const on=sel.indexOf(x)>=0;
-          return `<button onclick="toggleNiggle('${esc(x)}')" aria-pressed="${on?'true':'false'}" style="background:${on?'var(--forest)':'#fff'};
+          return `<button onclick="toggleNiggle(${jsq(x)})" aria-pressed="${on?'true':'false'}" style="background:${on?'var(--forest)':'#fff'};
             color:${on?'#fff':'var(--ink)'};border:1px solid rgba(255,255,255,.6);border-radius:999px;padding:10px 14px;
             font:600 13px/1 var(--sans);cursor:pointer">${esc(x)}</button>`;}).join('')}</div>
       </div>`:''}
@@ -13467,7 +13471,7 @@ function stageFilmsHTML(){
       /* the tour's films step points here until the library is on screen */
       libShown() ? '' : 'explainers', askBoxHTML(wide() ? '' : 'Search the '+PS.n+' explainers')) : '';
   const fixes = fx.length ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
-      fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix('${esc(f.slug)}')`,
+      fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix(${jsq(f.slug)})`,
         lock:(f.access==='plus' && !isPlus()) ? paid : ''})).join('')) : '';
   return st.homeOrder==='fixesFirst' ? fixes+films : films+fixes;
 }
@@ -13579,7 +13583,7 @@ function stageMediaHTML(i, size){
     style="width:100%;height:100%;object-fit:cover;display:block">${m.kind==='vid'?play(26):''}</span>`;
   return `<div style="position:relative;aspect-ratio:16/10;background:#dfe5e3;overflow:hidden;${
     size==='sheet'?'border-radius:16px;margin-top:14px;':''}${m.kind==='vid'?'cursor:pointer':''}"${m.kind==='vid'
-      ?` onclick="event.stopPropagation();playStageFilm(this,'${esc(m.uid)}')"`:''}>
+      ?` onclick="event.stopPropagation();playStageFilm(this,${jsq(m.uid)})"`:''}>
     <img src="${esc(src)}" alt="${esc((STAGES[i]||{}).n||'')}" loading="lazy" onerror="this.remove()"
       style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">${m.kind==='vid'?play(54):''}</div>`;
 }
@@ -14465,7 +14469,7 @@ function fixesHomeHTML(){
   const card=f=>{
     const n=fixDoneN(f.slug), tot=fixTotal(f), cover=fixCover(f);
     const locked=f.access==='plus' && !isPlus();
-    return `<div onclick="openFix('${esc(f.slug)}')" style="flex:none;width:${wide()?236:176}px;scroll-snap-align:start;
+    return `<div onclick="openFix(${jsq(f.slug)})" style="flex:none;width:${wide()?236:176}px;scroll-snap-align:start;
       background:#fff;border-radius:20px;overflow:hidden;cursor:pointer;box-shadow:0 10px 24px -18px rgba(28,32,25,.5)">
       <div style="aspect-ratio:16/9;background:var(--mist);position:relative">
         ${cover?`<img src="${esc(cover)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">`:''}
@@ -14571,7 +14575,7 @@ function screenFix(){
           cursor:pointer;font:600 13px/1 var(--sans);border:1.5px solid ${mins===m?'var(--forest)':'rgba(0,64,61,.14)'};
           background:${mins===m?'var(--forest)':'#fff'};color:${mins===m?'#fff':'var(--ink)'}">${m} min</button>`).join('')}
       </div>
-      <button onclick="buildFixSession('${esc(f.slug)}',false)" style="height:64px;width:100%;border:0;border-radius:18px;margin-top:10px;
+      <button onclick="buildFixSession(${jsq(f.slug)},false)" style="height:64px;width:100%;border:0;border-radius:18px;margin-top:10px;
         background:linear-gradient(180deg,#0a7a76,#006663);box-shadow:0 12px 30px rgba(0,102,99,.3);color:var(--on-primary);
         display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 22px;cursor:pointer">
         <span style="font:600 18px/1.15 var(--sans)">${finished?'Do it again':n?'Session '+(n+1):'Start the first session'}</span>
@@ -14580,7 +14584,7 @@ function screenFix(){
       </button>
       <!-- one workout here too: the list is the session, and the button
            above runs it for you -->
-      <button onclick="buildFixSession('${esc(f.slug)}',true)" style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;
+      <button onclick="buildFixSession(${jsq(f.slug)},true)" style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;
         font:500 13.5px/1.4 var(--sans);color:var(--forest);padding:8px">See the drills first</button>
 
       ${finished ? clipRow(kF, (f.finish&&f.finish.n)||'Film it again', (f.finish&&f.finish.note)||'Same angle as before. Put the two side by side.', after) : ''}
@@ -15341,7 +15345,7 @@ function workshopPopHTML(){
             background:${x===w.price?'rgba(168,107,22,.14)':'rgba(17,17,17,.055)'};
             color:${x===w.price?'#a86b16':'var(--ink)'}">${esc(x)}</span>`).join('')}
       </div>`:''}
-      <button onclick="wsBookOpen('${esc(w.slug||'')}')"
+      <button onclick="wsBookOpen(${jsq(w.slug||'')})"
         style="display:block;width:100%;text-align:center;margin-top:14px;border:0;border-radius:14px;cursor:pointer;
         padding:15px;background:#a86b16;color:#fff;font:700 14px/1 var(--sans)">Book a place</button>
       <button onclick="closeWorkshop(true)" style="width:100%;margin-top:6px;border:0;background:none;
@@ -15396,7 +15400,7 @@ function wsBookBody(){
   const head=`<div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">In person, London</div>
     <div style="font:400 30px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">${esc(w.title||'Workshop')}<em style="color:var(--forest);font-style:normal">.</em></div>
     ${list.length>1?`<div style="display:flex;gap:4px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px;margin-top:14px">${list.map(x=>
-      `<button onclick="wsBookPick('${esc(x.slug)}')" style="flex:1;min-height:44px;border:0;border-radius:10px;cursor:pointer;padding:6px 4px;
+      `<button onclick="wsBookPick(${jsq(x.slug)})" style="flex:1;min-height:44px;border:0;border-radius:10px;cursor:pointer;padding:6px 4px;
         font:600 13px/1.2 var(--sans);background:${x.slug===w.slug?'#fff':'transparent'};color:${x.slug===w.slug?'var(--deep)':'var(--grey)'};
         box-shadow:${x.slug===w.slug?'0 1px 2px rgba(17,17,17,.08)':'none'}">${esc(wsDayShort(x))}${wsFull(x)?'<span style="display:block;font:500 10.5px/1 var(--sans);margin-top:3px;color:var(--grey2)">Full</span>':''}</button>`).join('')}</div>`:''}
     <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:12px">${esc(wsDay(w))}${wsTime(w)?', '+esc(wsTime(w)):''}${w.place?', at '+esc(w.place):''}. ${
@@ -17828,7 +17832,7 @@ function screenCoaching(){
               <span style="flex:1;min-width:0"><span style="display:block;font:600 14px/1.3 var(--sans)">${esc(c.n)}</span>
                 <span id="fcup-${esc(c.k)}" style="display:block;font:400 12px/1.4 var(--sans);color:${sentK.has(c.k)?'var(--forest)':'var(--grey2)'};margin-top:2px">${
                   sentK.has(c.k)?'Sent':(cpAim(c)?'target '+esc(cpAim(c)):'')}</span></span>
-              <button class="rt" onclick="fcFilmOpen('${esc(c.k)}')">${sentK.has(c.k)?'Again':'Film'}</button></div>`).join('')}
+              <button class="rt" onclick="fcFilmOpen(${jsq(c.k)})">${sentK.has(c.k)?'Again':'Film'}</button></div>`).join('')}
           </div>`:''}
           <button class="btn2" style="width:100%;margin-top:14px" onclick="setCoTab('chat')">Ask or send in the chat</button>
         </div>`;

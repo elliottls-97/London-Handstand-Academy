@@ -3256,6 +3256,22 @@ const handle = async (request) => {
   }
 
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+  /* ── an email address is only ever an email address ─────────────
+     The routes checked for something@something.something, which let a
+     quote, a bracket or a semicolon through. An address like that, sent
+     from the feedback form, ran as code in the dashboard when it was
+     clicked (8 Oct 2026). Every address a request carries, from anybody,
+     is held to the characters an address can have. */
+  {
+    const bad = v => v != null && v !== '' && !(typeof v === 'string' && v.length <= 254
+      && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(v.trim()));
+    const fe = body && body.friend && typeof body.friend === 'object' ? body.friend.email : null;
+    /* next is the new address on these two, and the new password on /password */
+    const nextIsMail = path === '/email/request' || path === '/coach/email';
+    if ([body.email, body.newEmail, nextIsMail ? body.next : null, body.coach, fe, url.searchParams.get('email')].some(bad)) {
+      return json({ error: 'That does not look like an email address' }, 400);
+    }
+  }
 
   /* ── who has a programme ─────────────────────────────────────────
      The app counts someone with a written programme as coached, and the
@@ -3480,7 +3496,7 @@ const handle = async (request) => {
     if (dayN <= 15 && await coachMail(null, 'signups'))
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `New app sign-up: ${e}`,
-      `<p style="font:16px/1.6 system-ui">${e} started the Handstand Ladder.
+      `<p style="font:16px/1.6 system-ui">${esc(e)} started the Handstand Ladder.
        Marketing consent: ${acct.marketing ? 'yes' : 'no'}.</p>`);
   };
 
@@ -7969,7 +7985,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       `${clients()[who] || who}: ${label}`,
       `<p style="font:16px/1.6 system-ui">${clips.length} clip${clips.length === 1 ? '' : 's'}
        and ${Object.keys(numbers).length} number${Object.keys(numbers).length === 1 ? '' : 's'}.</p>
-       <p style="font:15px/1.6 system-ui">${lines || 'No numbers given.'}</p>
+       <p style="font:15px/1.6 system-ui">${esc(lines) || 'No numbers given.'}</p>
        <p style="font:13px/1.5 system-ui;color:#666">Review in the coach view within ${REVIEW_HOURS} hours.</p>`);
 
     return json({ ok: true, id });
@@ -8316,7 +8332,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* tell Elliott, so a password changing is never a silent event */
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${clients()[who] || who} changed their password`,
-      `<p style="font:16px/1.6 system-ui">${clients()[who] || who} (${who}) just changed
+      `<p style="font:16px/1.6 system-ui">${esc(clients()[who] || who)} (${esc(who)}) just changed
        their app password. No action needed unless this is a surprise.</p>`);
 
     return json({ ok: true });
@@ -8701,7 +8717,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if ((await coachMail(who, 'messages')) && (coachedNow || (await rateHit(`msgmail:${who}`, 600000)) === 1))
       await email(coachOf(who) || process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
-        `<p style="font:16px/1.6 system-ui">${text.slice(0, 2000) || `They have ${kind}.`}</p>
+        `<p style="font:16px/1.6 system-ui">${esc(text.slice(0, 2000)) || `They have ${kind}.`}</p>
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
       await coachAlert(who, 'messages', { title: firstNameOf(who) + (text ? '' : ' ' + kind),
         body: text ? text.slice(0, 160) : 'Open it on the dashboard.', tag: 'msg:' + who, t: 'thread' });
