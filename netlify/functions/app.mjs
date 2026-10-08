@@ -27,6 +27,7 @@ import { EMAILS, renderEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { X509Certificate, verify as nodeVerify } from 'node:crypto';
+import vm from 'node:vm';
 
 const CODE_TTL = 15 * 60 * 1000;          // a code lasts 15 minutes
 const TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
@@ -132,6 +133,14 @@ const wsPlaces = l => (Array.isArray(l) ? l : []).filter(b => b && (b.status || 
    pair for a refund made in Stripe, and told the guest, who paid nothing,
    that money had gone back to their card. Written before Stripe is asked,
    so the notice cannot arrive first, and taken back if Stripe says no. */
+/* Cloudflare Stream: here at the top so any route can reach it (the
+   Foundations films are opened from the dashboard's stage edits, which
+   come before the lock route in the handler) */
+const CF_ACCT = () => process.env.CF_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || '3dee8d34bba73b3bbb4f7dfd2e2e4f91';
+const CF_TOK  = () => process.env.CF_STREAM_TOKEN || process.env.CLOUDFLARE_STREAM_TOKEN || '';
+const cfStream = (p, init) => fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCT()}/stream${p}`,
+  Object.assign({ headers: { Authorization: `Bearer ${CF_TOK()}`, 'content-type': 'application/json' } }, init || {}))
+  .then(r => r.json()).catch(err => ({ success: false, errors: [{ message: String(err && err.message || err) }] }));
 const wsLedger = (pi, amt) => pi ? changeSetting(`wsrefpi:${pi}`, cur => {
   const c = Object.assign({ app: 0, out: 0 }, cur || {}); c.app = Math.max(0, (Number(c.app) || 0) + (Number(amt) || 0)); return c; }).catch(() => {}) : Promise.resolve();
 /* emails that go into the dashboard and the emails we send: no quotes or angle brackets */
@@ -3636,6 +3645,13 @@ const handle = async (request) => {
     await (async () => { const w = await realMe(); if (w) await touchSeen(w); })();
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
+    /* App sign ins lasted ninety days and nothing renewed them, so from late
+       November the first accounts would have stopped saving with no word to
+       anybody. Somebody who opens the app gets a new one while theirs has
+       two months or less to run; the app keeps it. */
+    let freshToken = '';
+    try { const t0 = await verify(bearer); if (t0 && t0.scope === 'app' && norm(t0.email) === who && Number(t0.exp) - Date.now() < 60 * DAY)
+      freshToken = await sign({ scope: 'app', email: who, exp: Date.now() + TOKEN_TTL }); } catch {}
     const acct = (await getAcct(who)) || {};
     const coachedNow = await isCoached(who);
     const usedCheck = !!(await supa.row('free_checks', `email=eq.${enc(who)}&select=email`));
@@ -3657,6 +3673,7 @@ const handle = async (request) => {
        instead of welcoming them in */
     const tr = tw[`trialrefused:${who}`];
     return json({
+      ...(freshToken ? { token: freshToken } : {}),
       trialUsed,
       trialRefused: !!(tr && Date.now() - (Number(tr.at) || 0) < 3 * 864e5) && !plusNow(acct),
       /* the card, or the account: the app blamed the card either way */
@@ -4337,6 +4354,65 @@ const handle = async (request) => {
      live in settings and are folded in here, which is the only place that
      has to know they came from somewhere else. */
   const customDrills = () => getSetting('drills:custom').then(d => d || {});
+  /* ── every Foundations film stays open ─────────────────────────────
+     The lock is a snapshot of a list the dashboard works out when Lock is
+     pressed, so a drill added to Foundations afterwards, in the dashboard
+     or in ladder-data.js, stayed locked: a free account saw a black box
+     where Basic Bail Outs or a warm-up should have been. Elliott, 8 Oct
+     2026: every Foundations drill is free. The server works the list out
+     itself now, from ladder-data.js as the site serves it and the stage's
+     changes made in the dashboard, and opens anything in it that is locked:
+     when Lock is pressed, when Foundations is edited, and every six hours
+     from the app's own open. */
+  async function foundationsDrills() {
+    const ids = new Set();
+    const add = v => { const s = String(v || '').toLowerCase(); if (/^[a-z0-9-]{2,80}$/.test(s)) ids.add(s); };
+    /* any v, demo or bare id in a value, however it is nested */
+    const walk = (o, d) => { if (o == null || d > 6) return;
+      if (typeof o === 'string') { add(o); return; }
+      if (Array.isArray(o)) { o.forEach(x => walk(x, d + 1)); return; }
+      if (typeof o === 'object') { if (o.v) add(o.v); if (o.demo) add(o.demo); if (o.items) walk(o.items, d + 1); if (o.drills) walk(o.drills, d + 1); } };
+    try {
+      const src = await fetch(`${SITE}/ladder-data.js`).then(r => r.ok ? r.text() : '').catch(() => '');
+      if (src) {
+        const D = vm.runInNewContext(src + `
+;({ s0: (typeof STAGES !== 'undefined' && STAGES[0]) || null, p0: (typeof POOL !== 'undefined' && POOL[0]) || null,
+    ramp: (typeof RAMP_ALL !== 'undefined' && RAMP_ALL) || null, sec0: (typeof STAGE_SECTIONS !== 'undefined' && STAGE_SECTIONS['0']) || null,
+    cp0: (typeof CHECKPOINTS !== 'undefined' && CHECKPOINTS[0]) || null, wrist: (typeof WRIST_DAY !== 'undefined' && WRIST_DAY) || null })`,
+          { window: {}, console: { log() {}, warn() {}, error() {} } }, { timeout: 1500 });
+        if (D.s0) walk(D.s0.drillIds, 0);
+        walk(D.p0, 0); walk(D.ramp, 0); walk(D.sec0, 0); walk(D.cp0, 0);
+        if (D.wrist) walk(D.wrist.drills, 0);
+      }
+    } catch (err) { console.error('foundations list', String(err && err.message || err)); }
+    const extra = (await getSetting('ladder:extra').catch(() => null)) || {};
+    walk(extra['0'], 0);
+    const bands = (await getSetting('ladder:bands').catch(() => null)) || {};
+    walk(Object.values(bands['0'] || {}), 0);
+    const cps = (await getSetting('ladder:checkpoints').catch(() => null)) || {};
+    walk(cps['0'], 0);
+    return ids;
+  }
+  async function openFoundations() {
+    if (!CF_TOK()) return { opened: 0, skipped: 'no token' };
+    const lockedS = (await getSetting('stream:locked').catch(() => null)) || {};
+    const locked = new Set(lockedS.uids || []);
+    const lib = await libraryNow();
+    const uidOf = u => { const m = /\/([a-f0-9]{32})\//.exec(String(u || '')); return m ? m[1] : ''; };
+    const ids = await foundationsDrills();
+    const uids = [...new Set([...ids].map(v => uidOf((lib.video || {})[v])).filter(Boolean))];
+    let opened = 0;
+    for (const u of uids.filter(x => locked.has(x))) {
+      const r = await cfStream(`/${u}`, { method: 'POST', body: JSON.stringify({ requireSignedURLs: false }) });
+      if (r && r.success) { opened++; locked.delete(u); }
+    }
+    if (opened) await setSetting('stream:locked', Object.assign({}, lockedS, { uids: [...locked], opened: Date.now() }));
+    /* the free list /sign keeps, so a free film is never refused a signature */
+    const map = (await getSetting('stream:stages').catch(() => null)) || {};
+    const free = new Set([...(map.free || []), ...uids]);
+    if (free.size !== (map.free || []).length) await setSetting('stream:stages', Object.assign({}, map, { free: [...free] }));
+    return { opened, foundations: uids.length };
+  }
   async function libraryNow() {
     const base = programmes.library || {};
     const extra = await customDrills();
@@ -5641,6 +5717,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   }
 
   if (path === '/ladder' && request.method === 'GET') {
+    try {
+      const last = Number(await getSetting('stream:fcheck').catch(() => 0)) || 0;
+      if (Date.now() - last > 6 * 3600e3) { await openFoundations(); await setSetting('stream:fcheck', Date.now()); }
+    } catch (err) { console.error('foundations check', String(err && err.message || err)); }
     return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
                   /* the welcome film a new coaching client sees first */
                   welcomeFilm: (((await getSetting(ONBOARDING)) || {}).film) || '',
@@ -5878,6 +5958,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         await setSetting('ladder:off', off);
         if (extraTouched) await setSetting('ladder:extra', extra);
         await setSetting('ladder:bands', all);
+        if (st0 === '0') await openFoundations().catch(() => {});
         return json({ ok: true, ladderOff: off, ladderExtra: extra, bands: all });
       }
       /* ── putting a drill on a stage ──────────────────────────────
@@ -5905,6 +5986,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         extra[st0] = list; off[st0] = [...offs];
         await setSetting('ladder:extra', extra);
         await setSetting('ladder:off', off);
+        await openFoundations().catch(() => {});
         return json({ ok: true, ladderExtra: extra, ladderOff: off, bands: all });
       }
       const stage = String(Number(body.stage));
@@ -6022,6 +6104,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         await setSetting('ladder:bandtiming', bt);
         out.bandTiming = bt;
       }
+      if (stage === '0') await openFoundations().catch(() => {});
       return json(out);
     }
     return json({ error: 'Nope' }, 405);
@@ -6225,11 +6308,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      an account that has paid, is coached, or still has its free session
      gets them. Free drills are never switched to need one, so the free app
      is exactly as it was. */
-  const CF_ACCT = () => process.env.CF_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || '3dee8d34bba73b3bbb4f7dfd2e2e4f91';
-  const CF_TOK  = () => process.env.CF_STREAM_TOKEN || process.env.CLOUDFLARE_STREAM_TOKEN || '';
-  const cfStream = (p, init) => fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCT()}/stream${p}`,
-    Object.assign({ headers: { Authorization: `Bearer ${CF_TOK()}`, 'content-type': 'application/json' } }, init || {}))
-    .then(r => r.json()).catch(err => ({ success: false, errors: [{ message: String(err && err.message || err) }] }));
+  /* CF_ACCT, CF_TOK and cfStream are at the top of the file now */
   const b64u = buf => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   let streamKeyCache = null;
   const streamKey = async () => {
@@ -6277,13 +6356,22 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        instead of showing a locked film as a black box. */
     const pv = await verify(bearer);
     const preview = !!(pv && pv.scope === 'preview');
-    const who = preview ? pv.email : await me();
+    let who = preview ? pv.email : await me();
+    /* The iPhone app sells the Ladder with no account needed, and then
+       could not get the films signed: this asked for a sign in, so a
+       purchase opened every screen and left every paid film black. A
+       subscription Apple has signed, and that is live, is enough. */
+    let apple = false;
+    if (!who && body.jws) {
+      try { const tx = appleJWS(body.jws); const r = await iapApply('', tx);
+        if (r && r.active) { apple = true; who = 'apple:' + String(tx.originalTransactionId || 'x').replace(/[^0-9a-z]/gi, '').slice(0, 40); } } catch {}
+    }
     if (!who) return json({ error: 'Sign in first' }, 401);
     const k = await streamKey();
     if (!k) return json({ tokens: {}, off: true });
-    const acct = (await getAcct(who)) || {};
-    const stt = (await getSetting(`state:${who}`)) || {};
-    const paid = preview || plusNow(acct) || await isCoached(who) || coachList().includes(who);
+    const acct = apple ? {} : (await getAcct(who)) || {};
+    const stt = apple ? {} : (await getSetting(`state:${who}`)) || {};
+    const paid = preview || apple || plusNow(acct) || await isCoached(who) || coachList().includes(who);
     /* There is no free session at a paid stage any more (24 Sept): the paid
        films are for the trial and the ladder. It gave any free account with
        no record of one a session's worth of them. */
@@ -6498,6 +6586,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     for (const v of (Array.isArray(body.freeDrills) ? body.freeDrills : [])) {
       const u = uidOf((lib.video || {})[String(v)]); if (u) free.add(u);
     }
+    /* and every Foundations drill, as the server works it out, whatever the dashboard sent */
+    for (const v of await foundationsDrills()) { const u = uidOf((lib.video || {})[v]); if (u) free.add(u); }
     const fixes = (await getSetting('fixes')) || {};
     for (const f of Object.values(fixes)) {
       if (!f || f.access !== 'free') continue;
@@ -9036,6 +9126,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (order.length) row.order = order;
         if (Object.keys(row).length) all[stage] = row; else delete all[stage];
         await setSetting('ladder:checkpoints', all);
+        if (String(stage) === '0') await openFoundations().catch(() => {});
         return json({ ok: true, ladderCps: all });
       }
       return json({ error: 'Nope' }, 405);

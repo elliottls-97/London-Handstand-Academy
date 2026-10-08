@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v205';
+const CACHE_VERSION = 'lha-v206';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -113,6 +113,12 @@ self.addEventListener('fetch', event => {
   /* nor voice notes: somebody's voice, deleted after a week, and asked for
      in byte ranges that a cache would only get in the way of */
   if (url.pathname.startsWith('/api/app/voice/')) return;
+  /* Nor anybody's own data. It was cached whatever the account, so offline
+     the next person on a shared phone was shown the last one's chat and
+     progress, and a stale copy of the check points was handed back to the
+     app, which wrote it over newer ones. Only what is the same for
+     everybody, and the plan, is kept for no signal; the app keeps the rest. */
+  if (url.pathname.startsWith('/api/app/') && !/^\/api\/app\/(ladder|plans|fixes|workshops|site|programme|me)(\/|$|\?)/.test(url.pathname)) return;
   if (url.hostname.indexOf('formspree.io') > -1) return;
 
   if (url.searchParams.get('lha') === 'saved') {
@@ -140,7 +146,9 @@ self.addEventListener('fetch', event => {
           return res;
         })
         .catch(() => caches.match(req).then(hit =>
-          hit || (/\/lha-coach\.html$/.test(url.pathname) ? Response.error() : caches.match('/lha-app.html'))
+          /* the app's page only for a page; anything else answered with
+             that page read as success to whatever asked */
+          hit || ((req.mode === 'navigate' && !/\/lha-coach\.html$/.test(url.pathname)) ? caches.match('/lha-app.html') : Response.error())
         ))
     );
   }
