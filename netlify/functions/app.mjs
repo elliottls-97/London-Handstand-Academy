@@ -3114,6 +3114,8 @@ const handle = async (request) => {
         if ((!stored[e2] && !clients()[e2]) || wasPast) {
           stored[e2] = { name: acct.name || e2, coach: '', tier: variant || boughtPlan };
           await setSetting('roster', stored);
+          /* a new coaching client takes one of the places the site says are open */
+          await changeSetting('coachplaces', cur => cur && Number(cur.n) > 0 ? { n: Number(cur.n) - 1, at: Date.now(), by: 'purchase' } : undefined).catch(() => {});
         } else if (stored[e2] && stored[e2].tier !== (variant || boughtPlan)) {
           stored[e2] = Object.assign({}, stored[e2], { tier: variant || boughtPlan });
           await setSetting('roster', stored);
@@ -3854,6 +3856,8 @@ const handle = async (request) => {
 
   /* what the app and the site say: labels only, never ids */
   const coplansPublic = () => getSetting('coplans').then(x => x || {});
+  /* coaching places open this month, set by the owner; null shows nothing */
+  const placesPublic = () => getSetting('coachplaces').then(x => x && Number.isInteger(x.n) ? x.n : null).catch(() => null);
   const pricesPublic = () => ({
     plus: { label: PRICES.plus.label, amount: PRICES.plus.amount, founding: !!PRICES.plus.founding, note: PRICES.note },
     plusq: { label: (PRICES.plusq||{}).label || '£39', amount: (PRICES.plusq||{}).amount || 3900 },
@@ -3880,7 +3884,20 @@ const handle = async (request) => {
                   periods: LADDER_PERIODS,
                   /* what each coaching tier says it includes, where the
                      coach has changed it from what the app ships */
-                  coplans: await coplansPublic() });
+                  coplans: await coplansPublic(),
+                  places: await placesPublic() });
+  }
+  /* ── coaching places: how many the home page says are open ── */
+  if (path === '/coach/places') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const n = body.n === null ? null : Math.max(0, Math.min(20, Math.round(Number(body.n))));
+      if (n === null || !Number.isFinite(n)) { await dropSetting('coachplaces').catch(() => {}); return json({ ok: true, n: null }); }
+      await setSetting('coachplaces', { n, at: Date.now(), by: 'coach' });
+      return json({ ok: true, n });
+    }
+    return json({ n: await placesPublic() });
   }
   if (path === '/coach/prices') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);

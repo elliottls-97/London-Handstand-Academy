@@ -11104,6 +11104,32 @@ function pricesSave(){
     .then(d=>{ prices=Object.assign({},prices,d.prices||{}); pricesBusy=false; pricesMsg='Saved. The app and the site read it on their next load.'; draw(); })
     .catch(e=>{ pricesBusy=false; pricesMsg=String(e); draw(); });
 }
+/* ── coaching places: the number the home page says are open this month.
+   Buying coaching takes one off by itself; set it by hand when you can
+   take more, or 0 when you are full. ── */
+let places={n:undefined, busy:false, msg:''};
+function placesLoad(){ if(places.n!==undefined||places.loading) return; places.loading=true;
+  fetch(API+'/places',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ places.n=d?d.n:null; places.loading=false; draw(); }).catch(()=>{ places.loading=false; }); }
+function placesSet(n){ places.busy=true; places.msg=''; draw();
+  fetch(API+'/places',{method:'POST',headers:hdr(),body:JSON.stringify({n})}).then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not save')))
+    .then(d=>{ places.n=d.n; places.busy=false; places.msg='Saved. The home page shows it within a minute.'; draw(); })
+    .catch(e=>{ places.busy=false; places.msg=String(e); draw(); }); }
+function placesHTML(){
+  placesLoad();
+  const n=places.n, on=Number.isInteger(n);
+  const b=(label,go,dis)=>`<button class="btn btn-secondary btn-sm" onclick="${go}" ${dis||places.busy?'disabled':''} style="min-width:40px">${label}</button>`;
+  return `<div class="card">
+    <div class="kick">COACHING PLACES</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px">
+      ${b('&minus;',`placesSet(${on?Math.max(0,n-1):0})`,on&&n<=0)}
+      <span style="font:400 30px/1 var(--serif);min-width:36px;text-align:center">${on?n:'off'}</span>
+      ${b('+',`placesSet(${on?n+1:3})`)}
+      <span class="muted" style="font-size:13px">${on?(n>0?'open this month, shown on the home page':'full: the home page offers the waiting list'):'not shown on the home page'}</span>
+      ${on?b('Hide it','placesSet(null)'):''}
+    </div>
+    ${places.msg?`<p class="muted" style="font-size:12.5px;margin-top:8px">${esc(places.msg)}</p>`:''}
+  </div>`;
+}
 function pricesHTML(){
   pricesLoad();
   if(!prices||!Object.keys(prices).length) return `<div class="card"><div class="kick">PRICES</div><p class="muted" style="margin-top:10px">Loading…</p></div>`;
@@ -11731,7 +11757,7 @@ function settingsHTML(){
   const body =
     setTab==='people' ? `<div>${numbersHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${leadsHTML()}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
-  : setTab==='money' ? `${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
+  : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
       ${owner?stripeHTML():''}
       ${owner?'':`<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch;
         padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)">
