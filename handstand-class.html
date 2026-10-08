@@ -1249,7 +1249,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var beacon=function(n){ try{ navigator.sendBeacon('/api/app/event', new Blob([JSON.stringify({n:n})],{type:'application/json'})); }catch(e){} };
   var post=function(path,body){ return fetch('/api/app/workshop/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){ return r.json().catch(function(){ throw new TypeError('no answer'); })
-      .then(function(d){ return r.ok?d:Promise.reject(d.error||'Something went wrong'); }); }); };
+      .then(function(d){ if(r.ok) return d;
+        /* the reason, as text, with whether the date has just filled */
+        var e=new String(d.error||'Something went wrong'); e.full=!!d.full; return Promise.reject(e); }); }); };
   var PLACE='OverGravity, Shadwell';
   /* Setmore, the old way to book, kept as the way out: shown instead of
      the cards when the booking system cannot be reached or has no dates,
@@ -1513,7 +1515,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     codeOk=null;
     if(!c){ cm.textContent=''; priceNow(); return; }
     cm.style.color=''; cm.textContent='Checking…'; priceNow();
-    post('code',{slug:slug,code:c}).then(function(d){
+    post('code',{slug:slug,code:c,email:($('bkEmail').value||'').trim()}).then(function(d){
       if(!picked || picked.slug!==slug || code()!==c) return;
       if(($('bkPair').checked&&picked.other) || $('bkFr').checked){ cm.textContent=''; return; }
       codeOk={slug:slug, price:Number(d.price)||0};
@@ -1530,6 +1532,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(!name){ msg.textContent='Your name, please.'; $('bkName').focus(); return; }
     if(!okEmail(email)){ msg.textContent='A real email address, please: the confirmation goes there.'; $('bkEmail').focus(); return; }
     go.disabled=true; var was=go.textContent; go.textContent='One moment…'; msg.textContent='';
+    /* kept for this visit, so backing out of the card page does not mean typing it all again */
+    try{ sessionStorage.setItem('lha_bk', JSON.stringify({n:name,e:email})); }catch(e){}
     beacon('workshopbook');
     var also=($('bkPair').checked && picked.other) ? picked.other.slug : '';
     var friend=null;
@@ -1544,6 +1548,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:''))+(d.bs?'&bs='+encodeURIComponent(d.bs):''); return; }
       throw 'Something went wrong. Try again in a moment.';
     }).catch(function(err){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)';
+      /* the date filled while they were on the form: the waiting list, not a dead end */
+      if(err && err.full){ var fi=up.indexOf(picked.other&&String(err).indexOf('second')>-1?picked.other:picked);
+        if(fi>-1){ up[fi].full=true; up[fi].left=0; keepFields(function(){ inPanel=true; bookWs(fi); inPanel=false; });
+          $('wtMsg').style.color='var(--terra)'; $('wtMsg').textContent='That date filled up a moment ago. Leave your name and you hear first if a place comes free.'; return; } }
       /* a server that cannot be reached, as against one that said no */
       if(err && err.name==='TypeError'){ msg.innerHTML='Could not reach the booking system. <a href="'+SETMORE+'" target="_blank" rel="noopener" style="color:var(--terra);font-weight:700">Book through Setmore instead</a>.'; return; }
       msg.textContent=String(err); });
@@ -1568,6 +1576,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     .then(function(d){ PAIR=Number(d&&d.pair)||0; clsWorkshops((d&&d.workshops)||[]); })
     .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c){ c.classList.add('solo'); c.innerHTML=fallbackHTML('Book through Setmore'); } });
   document.addEventListener('lha-site', function(){ if(up.length||booked.length) render(); });
+  /* back from the card page without paying: what they typed is still there */
+  try{ var kept=JSON.parse(sessionStorage.getItem('lha_bk')||'null');
+    if(kept){ if(!$('bkName').value) $('bkName').value=kept.n||''; if(!$('bkEmail').value) $('bkEmail').value=kept.e||''; } }catch(e){}
 })();
 </script>
 <script>

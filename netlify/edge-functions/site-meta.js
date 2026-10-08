@@ -44,19 +44,24 @@ export default async (request, context) => {
   const page = PAGES[url.pathname];
   if (!page || request.method !== 'GET' || url.searchParams.has('siteedit')) return context.next();
   let E = null, W = [], setmore = false;
+  /* Each on its own clock. They shared one abort and one Promise.all, so a
+     slow workshop list cost the page its edits and, worse, the Setmore
+     switch: the page went out as the site's own whatever the dashboard said. */
+  const get = (path, ms) => {
+    const ctl = new AbortController(), stop = setTimeout(() => ctl.abort(), ms);
+    return fetch(new URL(path, url.origin), { signal: ctl.signal }).then(r => r.ok ? r.json() : null)
+      .catch(() => null).finally(() => clearTimeout(stop));
+  };
   try {
-    const ctl = new AbortController();
-    const stop = setTimeout(() => ctl.abort(), 1500);
-    const [r, r2, r3] = await Promise.all([
-      fetch(new URL('/api/app/site?page=' + page, url.origin), { signal: ctl.signal }),
-      page === 'handstand-class' ? fetch(new URL('/api/app/workshops', url.origin), { signal: ctl.signal }) : Promise.resolve(null),
+    const [s, w, c] = await Promise.all([
+      get('/api/app/site?page=' + page, 1200),
+      page === 'handstand-class' ? get('/api/app/workshops', 1500) : null,
       /* the dashboard's switch: the site's own booking, or the old Setmore page */
-      page === 'handstand-class' ? fetch(new URL('/api/app/classpage', url.origin), { signal: ctl.signal }) : Promise.resolve(null)]);
-    clearTimeout(stop);
-    if (r.ok) E = ((await r.json()) || {}).e || null;
-    if (r2 && r2.ok) W = ((await r2.json()) || {}).workshops || [];
-    if (r3 && r3.ok) setmore = ((await r3.json()) || {}).booking === 'setmore';
-  } catch { E = E || null; }
+      page === 'handstand-class' ? get('/api/app/classpage', 1500) : null]);
+    E = (s && s.e) || null;
+    W = (w && w.workshops) || [];
+    setmore = !!(c && c.booking === 'setmore');
+  } catch { /* the page as it is */ }
   const m = (E && E.m) || {};
   const title = m.title || (page === 'handstand-class' && !setmore ? classTitle(W) : '');
   const desc = m.desc || '';

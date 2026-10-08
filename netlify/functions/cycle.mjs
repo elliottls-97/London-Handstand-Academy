@@ -635,7 +635,7 @@ async function workshopMail(done) {
           const link = canChange && p.session ? await manageLink(w.slug, p.email, p.session, w.when) : '';
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
-              paras: T.paras.concat(link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date or cancel</a> before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'Europe/London' })}.`]
+              paras: T.paras.concat(link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date or cancel</a> before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
                 : [`Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }
@@ -652,6 +652,13 @@ async function workshopMail(done) {
        who has not taken it is asked how it is going, with a free look at a
        clip. Each once, and never to somebody on the roster. */
     if (hoursSince > 60 && hoursSince <= 240) {
+      /* somebody still booked for a later date hears after that one, once */
+      const later = new Set();
+      for (const o of Object.values(all)) {
+        if (!o || !o.when || ms(o.when) <= now) continue;
+        const ob = await supa.row('settings', `key=eq.${enc('wsbook:' + o.slug)}&select=value`).catch(() => null);
+        for (const x of ((ob && ob.value) || [])) if (x && x.email && x.status !== 'cancelled' && x.status !== 'refunded' && x.status !== 'moved') later.add(norm(x.email));
+      }
       const roster = new Set((await rosterList()).map(c => c.email));
       const sessRow = await supa.row('settings', 'key=eq.sessions&select=value').catch(() => null);
       const sessions = (sessRow && sessRow.value) || [];
@@ -660,6 +667,8 @@ async function workshopMail(done) {
       for (const p of book) {
         const e = norm(p.email);
         if (roster.has(e) || past[e]) continue;
+        /* marked as not there: "most of what changed for you" reads badly */
+        if (p.attended === 'no' || later.has(e)) continue;
         const first = String(p.name || '').split(' ')[0];
         if (days >= 2.5 && days <= 4) {
           const key = `wsoffer:${w.slug}:${e}`;
@@ -701,7 +710,7 @@ async function workshopMail(done) {
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsThanks', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title),
             review_line: reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
-            app_line: w.appDays ? `The app is open for you for ${w.appDays} days from your booking, so the drills from today are in there to keep going with.` : 'The drills from today are in the Handstand Ladder app, and Foundations is free.' });
+            app_line: 'The drills from today are in the Handstand Ladder app, and the first stage, Foundations, is free.' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
@@ -729,7 +738,8 @@ async function intentMail(done) {
   const now = Date.now();
   /* everyone with a row on any date of a class: somebody who typed their
      email while one Saturday was picked and paid for the other has booked */
-  const kind = x => String((x && x.title) || '').trim().toLowerCase();
+  /* as app.mjs wsKindOf: a date in the title does not make it another class */
+  const kind = x => String((x && x.title) || '').toLowerCase().replace(/\b(\d+(st|nd|rd|th)?|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tues?(day)?|wed(nesday)?|thu(rs)?(day)?|fri(day)?|sat(urday)?|sun(day)?)\b/g, ' ').replace(/[^a-z]+/g, '');
   const heldBy = {};
   for (const x of Object.values(all)) {
     if (!x || !x.slug) continue;
@@ -785,7 +795,9 @@ async function intentMail(done) {
       const hadAny = await supa.row('nudges', `key=eq.${enc(anyKey)}&select=sent_at`).catch(() => null);
       if (hadAny && now - ms(hadAny.sent_at) < 14 * DAY) continue;
       const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
-      const pairPence = Number(((pairRow && pairRow.value) || {}).pence) || 0;
+      const openSame = Object.values(all).filter(x => x && x.live && x.when && ms(x.when) - now > 3 * 3600e3 && kind(x) === kind(w)
+        && !(Number(x.places) > 0 && x.__live >= Number(x.places))).length;
+      const pairPence = openSame > 1 ? Number(((pairRow && pairRow.value) || {}).pence) || 0 : 0;
       const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
         place: w.place ? ', at ' + esc(w.place) : '', price, pair_line: pairPence ? `Both Saturdays together are £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
         link: `${SITE}/handstand-class#book` });

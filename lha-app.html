@@ -8309,7 +8309,7 @@ const liveBooking=slug=>(st.bookings||[]).find(x=>x.slug===slug && x.status==='b
 function cancelBooking(slug){
   if(cancelling) return;
   const b=liveBooking(slug); if(!b) return;
-  const msg = b.refundable && Number(b.back)>0 ? 'Cancel your place?\n\n'+penceTxt(b.back)+' comes back to your card.'
+  const msg = b.refundable && Number(b.back)>0 ? 'Cancel your place?\n\n'+penceTxt(b.back)+(b.guest?' goes back to the card that paid for it.':' comes back to your card.')
     : 'Cancel your place?';
   sure(msg, 'Cancel my place', ()=>{
     cancelling=slug; render();
@@ -15376,7 +15376,8 @@ const wsTime=w=>w&&w.when?new Date(w.when).toLocaleTimeString('en-GB',{hour:'2-d
 const wsFull=w=>!!w && Number(w.places)>0 && Number(w.left)<=0;
 const wsOpenList=()=>WS_LIST.filter(w=>w && w.when && new Date(w.when).getTime()>Date.now());
 /* the dates of one class: a press workshop is not another date of the all levels class */
-const wsKind=w=>String((w&&w.title)||'').trim().toLowerCase();
+/* as the server's wsKindOf: "All Levels Handstand Class 24th Oct" is the same class */
+const wsKind=w=>String((w&&w.title)||'').toLowerCase().replace(/\b(\d+(st|nd|rd|th)?|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tues?(day)?|wed(nesday)?|thu(rs)?(day)?|fri(day)?|sat(urday)?|sun(day)?)\b/g,' ').replace(/[^a-z]+/g,'');
 const wsDatesOf=slug=>{ const all=wsOpenList(), w=all.find(x=>x.slug===slug)||all[0]; return w?all.filter(x=>wsKind(x)===wsKind(w)):[]; };
 function wsBookOpen(slug){
   closeWorkshop(true);
@@ -15446,7 +15447,7 @@ function wsBookBody(){
     <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${
       wsb.busy?'One moment…':(units>1?'Book '+units+' places'+(cost>0?', '+wsPounds(cost):''):(Number(w.price)>0?'Book, '+(w.priceLabel||wsPounds(w.price)):'Book my place'))}</button>
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email${Number(w.appDays)>0?', and the app open for '+w.appDays+' days':''}. Move or cancel up to 24 hours before.</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email. Move or cancel up to 24 hours before.</div>
   </div>`;
 }
 /* an email typed in the sheet is noted (once per date and address), so the

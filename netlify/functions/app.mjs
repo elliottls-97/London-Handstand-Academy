@@ -148,6 +148,13 @@ async function wsManageRead(t) {
 /* Places booked together: two dates, two people, or both. Every two
    places cost the "two places together" price the owner set, an odd one
    its own price, so 1 is £25, 2 are £45, 3 are £70, 4 are £90. */
+/* Which class a date belongs to, from its title. The same class on another
+   Saturday is often titled with its date ("All Levels Handstand Class 24th
+   Oct"), and exact titles made "Both" fail on the live site and hid the
+   second date in the app, so numbers, ordinals, months and day names are
+   dropped before two titles are compared. */
+const WS_DATE_WORDS = /\b(\d+(st|nd|rd|th)?|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tues?(day)?|wed(nesday)?|thu(rs)?(day)?|fri(day)?|sat(urday)?|sun(day)?)\b/g;
+const wsKindOf = w => String((w && w.title) || '').toLowerCase().replace(WS_DATE_WORDS, ' ').replace(/[^a-z]+/g, '');
 const wsGroupCost = (units, single, pair) => pair > 0 ? Math.floor(units / 2) * pair + (units % 2) * single : units * single;
 /* what one place is worth back if it is cancelled now: what the places
    booked with it paid, less what the ones left cost on their own, which
@@ -277,8 +284,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (!coach && !w2.live) return { error: 'That date is not open for booking', status: 400 };
   /* the dates shown are the same class, but the request can name any slug:
      a £25 place moved onto a £60 workshop for nothing */
-  const kindOf = x => String(x.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14);   /* as the manage page lists them */
-  if (!coach && (kindOf(w2) !== kindOf(w) || (Number(w2.price) || 0) > (Number(w.price) || 0)))
+  if (!coach && (wsKindOf(w2) !== wsKindOf(w) || (Number(w2.price) || 0) > (Number(w.price) || 0)))
     return { error: 'That one is a different workshop. Cancel this place and book it instead.', status: 400 };
   if (w2.when && ms(w2.when) < Date.now()) return { error: 'That date has already happened', status: 400 };
   if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be moved online. Reply to your confirmation email and Elliott will sort it.`, status: 400, late: true };
@@ -319,16 +325,27 @@ async function wsOfferFreed(slug, w) {
   try {
     const book = (await getSetting(`wsbook:${slug}`)) || [];
     if (!(Number(w.places) > 0) || wsLive(book).length >= Number(w.places)) return;
-    let first = null;
-    await changeSetting(`wswait:${slug}`, cur => {
-      first = null; const l = Array.isArray(cur) ? cur.slice() : [];
-      if (!l.length) return undefined; first = l.shift(); return l;
-    });
-    if (!first) return;
+    if (!w.live || (w.when && ms(w.when) < Date.now())) return;
+    /* Everyone waiting hears, and the first to book has it. Only the first
+       was taken off the list and told, so if they did not act, or somebody
+       else booked first, nobody else waiting ever heard. They stay on the
+       list until they book; anyone who already holds a place on the date is
+       skipped; and nobody is told twice in a day. */
+    const held = new Set(wsLive(book).map(b => norm(b.email)));
+    const wait = ((await getSetting(`wswait:${slug}`)) || []).filter(x => x && x.email && !held.has(norm(x.email))).slice(0, 40);
+    if (!wait.length) return;
+    const free = Number(w.places) - wsLive(book).length;
     const whenTxt = w.when ? new Date(w.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
-    await email(first.email, `A place has opened up: ${w.title}`, mail({ title: 'A place has opened up.', greeting: String(first.name || '').split(' ')[0],
-      paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. You were next on the list. It is first come, so book now if you still want it.`],
-      cta: { href: `${SITE}/workshop.html?slug=${slug}`, label: 'Book the place' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+    const href = /all levels/i.test(w.title || '') ? `${SITE}/handstand-class#book` : `${SITE}/workshop.html?slug=${slug}`;
+    const day = new Date().toISOString().slice(0, 10);
+    for (const x of wait) {
+      const key = `wsfreed:${slug}:${norm(x.email)}:${day}`;
+      if (!(await supa.insertIfAbsent('nudges', { key, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
+      await email(x.email, `A place has come free: ${w.title}`, mail({ title: 'A place has come free.', greeting: String(x.name || '').split(' ')[0],
+        paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+          `${free > 1 ? free + ' places have' : 'A place has'} come free, and everyone on the waiting list is hearing now. It goes to whoever books first, so if you still want it, book now.`],
+        cta: { href, label: 'Book the place' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => {});
+    }
   } catch (err) { console.error('waiting list', slug, String(err && err.message || err)); }
 }
 
@@ -1807,8 +1824,10 @@ const handle = async (request) => {
      on every view, so never cached. */
   if (path === '/classpage' && request.method === 'GET') {
     const v = await getSetting('classpage').catch(() => null);
+    /* held at the edge for fifteen seconds: the switch still takes effect almost at once */
     return new Response(JSON.stringify({ booking: v === 'setmore' ? 'setmore' : 'site' }),
-      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=15, stale-while-revalidate=60' } });
   }
   if (path === '/site' && request.method === 'GET') {
     const page = String(url.searchParams.get('page') || '').replace(/[^a-z0-9-]/g, '').slice(0, 40);
@@ -2454,21 +2473,16 @@ const handle = async (request) => {
         const holds = Object.assign({}, c[md.code].holds || {}); if (md.hold) delete holds[md.hold];
         c[md.code] = Object.assign({}, c[md.code], { used: Number(c[md.code].used || 0) + 1, holds }); return c; }).catch(() => {});
       for (const r of good) await changeSetting(`wsmine:${r.who}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(r.slug)) return undefined; l.push(r.slug); return l; }).catch(() => {});
+      /* a place booked is a place no longer waited for */
+      for (const r of good) await changeSetting(`wswait:${r.slug}`, cur => { const l = Array.isArray(cur) ? cur : []; return l.some(x => x && norm(x.email) === r.who) ? l.filter(x => !(x && norm(x.email) === r.who)) : undefined; }).catch(() => {});
       await ensureAcct(e, nm);
       const allGood = good;
       const theirs = good.filter(r => r.who !== e);
       good = good.filter(r => r.who === e).length ? good.filter(r => r.who === e) : good;
-      const days = Math.max(0, ...good.map(r => Number(r.w.appDays) || 0));
-      if (days > 0) {
-        const cur = await getAcct(e);
-        if (!plusNow(cur)) {
-          const until = iso(Date.now() + days * DAY);
-          await setSetting(`plusuntil:${e}`, until);
-          /* kept on the booking, so a refund can take back what it gave */
-          for (const r of good) await changeSetting(`wsbook:${r.slug}`, cur2 => { const l = Array.isArray(cur2) ? cur2.map(x => ({ ...x })) : [];
-            const b = l.find(x => x.session === obj.id); if (!b) return undefined; b.plusUntil = until; return l; }).catch(() => {});
-        }
-      }
+      /* A booking used to open every stage of the app for the days the
+         workshop named (thirty by default). Elliott, 8 Oct 2026: a class is
+         a class, the app is its own product, so booking gives nothing in it.
+         Their account still shows the booking and the free first stage. */
       /* booking made them an account with no password, and the email said
          "sign in with this address" */
       const wsNoPw = !(await hashFor(db, e));
@@ -2490,10 +2504,9 @@ const handle = async (request) => {
         mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
           paras: [dateLine, guestLine,
                   first.desc ? esc(first.desc) : '',
-                  days > 0 ? `The Handstand Ladder app is open for you for ${days} days, every stage. Sign in with this address and it is there.` : '',
                   `${soon ? '' : 'A reminder comes the day before. '}${icsLinks ? icsLinks + '.' : ''}`,
                   `Can't make it? ${manage.join(' &middot; ')}: up to ${WS_CUTOFF_H} hours before, refunded if you cancel, free to move. It is in the app under this address as well.`,
-                  wsNoPw ? `Your username is ${esc(e)}. Choose a password with the button below and you are in.` : ''].filter(Boolean),
+                  wsNoPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
           cta: wsNoPw ? { href: wsLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       /* held for somebody silenced by name: it goes in their messages, and
@@ -4514,26 +4527,33 @@ const handle = async (request) => {
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
     places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
-    desc: w.desc, appDays: w.appDays, who: w.who || '', film: w.film || '' });
+    desc: w.desc, who: w.who || '', film: w.film || '' });
   if (path === '/workshops' && request.method === 'GET') {
     const all = (await getSetting('workshops')) || {};
-    const out = [];
-    for (const w of Object.values(all)) {
-      if (!w || !w.live) continue;
-      if (w.when && ms(w.when) < Date.now() - 6 * 3600e3) continue;   /* over */
-      const book = (await getSetting(`wsbook:${w.slug}`)) || [];
-      out.push(wsPublic(w, wsLive(book).length));
-    }
+    /* One booking list at a time, then the pair price: about two seconds,
+       and the class page waited on it twice (once at the edge for its title,
+       once for the form). In parallel, and held at the edge for twenty
+       seconds; /workshop/book checks the places again, so a count a few
+       seconds old can never sell a place twice. */
+    const open = Object.values(all).filter(w => w && w.live && !(w.when && ms(w.when) < Date.now() - 6 * 3600e3));
+    const [books, pairS] = await Promise.all([Promise.all(open.map(w => getSetting(`wsbook:${w.slug}`).catch(() => null))), getSetting('wspair').catch(() => null)]);
+    const out = open.map((w, i) => wsPublic(w, wsLive(books[i] || []).length));
     out.sort((a, b) => ms(a.when) - ms(b.when));
     /* two dates booked together cost this, when the owner has set it */
-    return json({ workshops: out, pair: Number(((await getSetting('wspair')) || {}).pence) || 0 });
+    return new Response(JSON.stringify({ workshops: out, pair: Number((pairS || {}).pence) || 0 }), { headers: {
+      'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
+      'Netlify-CDN-Cache-Control': 'public, s-maxage=20, stale-while-revalidate=120' } });
   }
   /* a workshop discount code: pounds or percent off, for one workshop or all,
      with a use count and an expiry. Kept apart from the app codes, which open
      the ladder rather than take money off. */
   /* uses of a code held by payment pages still open (they last half an hour) */
-  const wsHeld = d => Object.values(d.holds || {}).filter(t => Number(t) > Date.now()).length;
-  const wsCodeCheck = async (slug, code, price) => {
+  /* A use is held per address, not per press of Book: somebody who backed
+     out of Stripe and tried again found their own hold had used the code up
+     for half an hour. Their hold is theirs to reuse. */
+  const wsHoldKey = async e => e ? 'h' + String(await hmac('wshold:' + norm(e))).replace(/[^A-Za-z0-9]/g, '').slice(0, 16) : '';
+  const wsHeld = (d, mine) => Object.entries(d.holds || {}).filter(([k, t]) => Number(t) > Date.now() && k !== mine).length;
+  const wsCodeCheck = async (slug, code, price, who) => {
     const c = String(code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
     if (!c) return { off: 0 };
     const codes = (await getSetting('wscodes')) || {};
@@ -4543,7 +4563,7 @@ const handle = async (request) => {
        set to run until the 30th was dead for the whole of the 30th. The last
        day is a day the code works. */
     if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That code has expired' };
-    if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d) >= Number(d.max)) return { error: 'That code has been used up' };
+    if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That code has been used up' };
     if (d.workshop && d.workshop !== slug) return { error: 'That code is for a different workshop' };
     const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
     return { off, code: c };
@@ -4610,7 +4630,7 @@ const handle = async (request) => {
     const slug = wsSlug(body.slug);
     const w = ((await getSetting('workshops')) || {})[slug];
     if (!w) return json({ error: 'No such workshop' }, 404);
-    const r = await wsCodeCheck(slug, body.code, Number(w.price) || 0);
+    const r = await wsCodeCheck(slug, body.code, Number(w.price) || 0, wsMailOk(norm(body.email)) ? norm(body.email) : '');
     if (r.error) return json({ error: r.error }, 400);
     const price = Math.max(0, (Number(w.price) || 0) - r.off);
     return json({ ok: true, off: r.off, price, label: price ? '£' + (price / 100).toFixed(2).replace(/\.00$/, '') : 'Free' });
@@ -4717,7 +4737,7 @@ const handle = async (request) => {
     const book = (await getSetting(`wsbook:${slug}`)) || [];
     const live = wsLive(book);
     if (Number(w.places) > 0 && live.length >= Number(w.places)) return json({ error: 'That one is full', full: true }, 409);
-    if (live.some(b => b.email === e)) return json({ error: 'You are already booked on this one. Check your email.' }, 409);
+    if (live.some(b => b.email === e)) return json({ error: 'You already have a place on this date under that email. To book a place for someone else, put their name and email in as the booker.' }, 409);
     /* ── both dates together ───────────────────────────────────────────
        A second date in the same booking: one payment at the pair price the
        owner set (or the two prices added), one place on each, and the
@@ -4726,7 +4746,7 @@ const handle = async (request) => {
     const w2 = also && also !== slug ? all[also] : null;
     if (also && also !== slug && (!w2 || !w2.live)) return json({ error: 'That second date is not open for booking' }, 404);
     /* the second date is another date of the same class, not another workshop at this one's price */
-    if (w2 && String(w2.title || '').trim().toLowerCase() !== String(w.title || '').trim().toLowerCase()) return json({ error: 'Those two are different workshops. Book them one at a time.' }, 400);
+    if (w2 && wsKindOf(w2) !== wsKindOf(w)) return json({ error: 'Those two are different workshops. Book them one at a time.' }, 400);
     if (w2 && w2.when && ms(w2.when) < Date.now()) return json({ error: 'The second date has already happened' }, 409);
     const live2 = w2 ? wsLive((await getSetting(`wsbook:${also}`)) || []) : [];
     if (w2 && Number(w2.places) > 0 && live2.length >= Number(w2.places)) return json({ error: 'The second date is full. Book one date, and join its waiting list.', full: true }, 409);
@@ -4752,7 +4772,7 @@ const handle = async (request) => {
     /* Book pressed is the clearest sign of wanting a place */
     await wsIntentNote(slug, w2 ? also : '', e, nm);
     if (units > 1 && String(body.code || '').trim()) return json({ error: 'A code is for one place. Two places already have the lower price.' }, 400);
-    const disc = await wsCodeCheck(slug, body.code, base);
+    const disc = await wsCodeCheck(slug, body.code, base, e);
     if (disc.error) return json({ error: disc.error }, 400);
     /* a code that leaves a few pence is free: Stripe will not take under 30p */
     let price = Math.max(0, base - disc.off);
@@ -4794,15 +4814,9 @@ const handle = async (request) => {
         if (!c[disc.code]) return undefined; c[disc.code] = Object.assign({}, c[disc.code], { used: Number(c[disc.code].used || 0) + 1 }); return c; }).catch(() => {});
       await ensureAcct(e, nm);
       for (const [tSlug] of targets) await changeSetting(`wsmine:${e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(tSlug)) return undefined; l.push(tSlug); return l; }).catch(() => {});
-      /* The paid path opens the app for the days the workshop grants and the
-         booked screen promises it either way. The free path did not, so a free
-         place, or a code that made it free, sent someone to an app that had
-         nothing in it. */
-      const freeDays = Math.max(0, ...targets.map(t => Number(t[1].appDays) || 0));
-      if (freeDays > 0) {
-        const cur = await getAcct(e);
-        if (!plusNow(cur)) await setSetting(`plusuntil:${e}`, iso(Date.now() + freeDays * DAY));
-      }
+      for (const [tSlug] of targets) await changeSetting(`wswait:${tSlug}`, cur => { const l = Array.isArray(cur) ? cur : [];
+        const gone = new Set([e, fr && fr.e].filter(Boolean)); return l.some(x => x && gone.has(norm(x.email))) ? l.filter(x => !(x && gone.has(norm(x.email)))) : undefined; }).catch(() => {});
+      /* no app days for a booking, as on the paid path */
       const whenOfF = x => x.when ? new Date(x.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
       const whenTxt = whenOfF(w);
       /* the same as a paid booking: a way in for somebody with no password,
@@ -4816,10 +4830,9 @@ const handle = async (request) => {
         paras: [targets.length > 1
                   ? `<b>${esc(w.title)}</b>: ${targets.map(t => esc(whenOfF(t[1]))).join(', and ')}${w.place ? ', at ' + esc(w.place) : ''}.`
                   : `<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
-                freeDays > 0 ? `The Handstand Ladder app is open for you for ${freeDays} days, every stage.` : '',
                 `${soon ? '' : 'A reminder comes the day before. '}${icsF ? icsF + '.' : ''}`,
                 `Can't make it? <a href="${await wsManageLink(slug, e, sid, w.when)}" style="color:#006663">Cancel or move to another date</a>, up to ${WS_CUTOFF_H} hours before. It is in the app under this address as well.`,
-                noPw ? `Your username is ${esc(e)}. Choose a password with the button below and you are in.` : ''].filter(Boolean),
+                noPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
         cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       await coachAlert(null, 'business', { title: 'New booking: ' + nm + (fr ? ' and ' + fr.nm : ''), body: w.title + (targets.length > 1 ? ', both dates' : ''), tag: 'book:' + nm });
@@ -4837,13 +4850,13 @@ const handle = async (request) => {
        half an hour, after which the hold lapses by itself. */
     let hold = '';
     if (disc.code) {
-      const tok = 'h' + newId(); let full = false;
+      const tok = (await wsHoldKey(e)) || 'h' + newId(); let full = false;
       await changeSetting('wscodes', cur => {
         full = false; const c = Object.assign({}, cur || {}); const d = c[disc.code];
         if (!d) return undefined;
-        const holds = Object.fromEntries(Object.entries(d.holds || {}).filter(([, t]) => Number(t) > Date.now()));
+        const holds = Object.fromEntries(Object.entries(d.holds || {}).filter(([k, t]) => Number(t) > Date.now() && k !== tok));
         if (Number(d.max) > 0 && Number(d.used || 0) + Object.keys(holds).length >= Number(d.max)) { full = true; return undefined; }
-        holds[tok] = Date.now() + 31 * 60000;
+        holds[tok] = Date.now() + 36 * 60000;
         c[disc.code] = Object.assign({}, d, { holds }); return c;
       });
       if (full) return json({ error: 'That code has been used up' }, 400);
@@ -4863,7 +4876,7 @@ const handle = async (request) => {
         'payment_method_types[0]': 'card',
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold,
         'metadata[unit]': String(Number(w.price) || 0), 'metadata[pairp]': String(pairPence),
-        expires_at: String(Math.floor(Date.now() / 1000) + 30 * 60),
+        expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
         customer_email: e,
         /* the class page and the app book here too, and come back to themselves */
         success_url: body.back === 'class' ? `${url.origin}/handstand-class.html?booked=${targets.map(t => t[0]).join(',')}&bs={CHECKOUT_SESSION_ID}`
@@ -5114,7 +5127,7 @@ const handle = async (request) => {
                      : Math.max(0, Math.round(Number(
                          (all[slug] || all[wsSlug(body.was || '')] || {}).price) || 0)),
         places: Math.max(0, Math.min(200, Math.round(Number(f.places) || 0))),
-        appDays: Math.max(0, Math.min(365, Math.round(Number(f.appDays) || 0))),
+        appDays: 0,   /* bookings give no app access (8 Oct 2026) */
         reviewUrl: /^https:\/\//.test(str(f.reviewUrl, 300)) ? str(f.reviewUrl, 300) : '',
         /* the film that sells it, as a Stream id. The app's card was built
            around one typed into the app itself, which is why it went on
@@ -5426,10 +5439,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0
           && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3),
         back: (b.status || 'booked') === 'booked' ? (await wsRefundFor(b, slug)).back : 0,
-        cutoff: WS_CUTOFF_H,
+        cutoff: WS_CUTOFF_H, guest: !!b.payer,
         moveTo: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3)
           ? Object.values(all).filter(o => o && o.live && o.slug !== slug && o.when && ms(o.when) > Date.now()
-              && String(o.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14) === String(w.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14)
+              && wsKindOf(o) === wsKindOf(w)
               && !mine.includes(o.slug)).map(o => ({ slug: o.slug, when: o.when })) : [] });
     }
     /* one to one sessions sit beside the workshops, with a way into the
@@ -5481,7 +5494,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const others = [];
     for (const o of Object.values(all)) {
       if (!o || !o.live || o.slug === slug || !o.when || ms(o.when) < Date.now()) continue;
-      if (String(o.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14) !== String(w.title || '').toLowerCase().replace(/[^a-z]+/g, '').slice(0, 14)) continue;
+      if (wsKindOf(o) !== wsKindOf(w)) continue;
       const held = wsPlaces((await getSetting(`wsbook:${o.slug}`)) || []);
       const mine = held.some(x => x.email === t.e);
       const left = Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : 99;
