@@ -304,6 +304,12 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 .tcard{background:#fff;border:1px solid rgba(0,64,61,.12);border-radius:20px;padding:16px 18px;
   box-shadow:0 1px 2px rgba(0,64,61,.04)}
 .tcard-h{display:flex;gap:12px;align-items:center}
+.tcard-h.fold{cursor:pointer}
+.tcard-sum{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:10px;padding-left:52px;
+  font:500 12.5px/1.3 var(--sans);color:var(--grey)}
+.tcard-sum i{font-style:normal;color:var(--ink);font-weight:600}
+.tcard-chev{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:var(--grey2);transition:transform .2s}
+.tcard.open .tcard-chev{transform:rotate(180deg)}
 .tcard .av{flex:none;width:38px;height:38px;border-radius:999px;display:grid;place-items:center;
   background:var(--forest);color:var(--on-primary);font:500 17px/1 var(--serif)}
 .tcard-who{flex:1;min-width:0}
@@ -8658,6 +8664,14 @@ function lineHTML(r){
     ${acts?`<div class="tline-acts">${acts}</div>`:''}
   </div>`;
 }
+/* Each card starts folded: who, how long, and what there is to look at.
+   Opening one shows the lines and the buttons (8 Oct 2026, Elliott:
+   "start with them collapsed just showing what is there"). A card whose
+   reply box is open stays open. */
+const cardOpen=new Set();
+function cardToggle(k){ cardOpen.has(k)?cardOpen.delete(k):cardOpen.add(k); draw(); }
+function lineCount(r){ return r.type==='message'?(r.n||1)
+  : (r.said||r.flags||r.sessions||r.logs||[]).length || (r.type==='point'?(r.clips||1):1); }
 function personCardHTML(p, cat){
   const lines=p.items.filter(r=>cat==='all'||INBOX_TYPE[r.type].filter===cat)
     .sort((a,b)=>(LINE_ORDER.indexOf(a.type)-LINE_ORDER.indexOf(b.type))||((a.at||0)-(b.at||0)));
@@ -8665,13 +8679,31 @@ function personCardHTML(p, cat){
   const c=p.email?clients.find(x=>x.email===p.email):null;
   const seenable=p.items.filter(r=>['said','logged','trained','flag'].includes(r.type)).length>1;
   const tl=p.email?trainLine(p.email):'';
-  return `<article class="tcard" data-k="p:${esc(p.email||p.items[0].id)}">
-    <header class="tcard-h">
+  const key='p:'+(p.email||p.items[0].id);
+  const open=cardOpen.has(key) || lines.some(r=>r.id===inboxRow);
+  const sum=lines.map(r=>{ const n=lineCount(r);
+    return `<span>${esc(INBOX_TYPE[r.type].label)}${n>1?' <i>'+n+'</i>':''}</span>`; }).join('<span aria-hidden="true">&middot;</span>');
+  const chev=`<span class="tcard-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>`;
+  if(!open) return `<article class="tcard" data-k="${esc(key)}">
+    <header class="tcard-h fold" role="button" aria-expanded="false" onclick="cardToggle(${jsq(key)})">
       <span class="av">${esc(initial(p.name))}</span>
       <div class="tcard-who"><b>${esc(p.name)}</b><span>${
         c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+esc(tl):'')):'Not signed in'}</span></div>
       ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
+      ${chev}
+    </header>
+    <div class="tcard-sum" onclick="cardToggle(${jsq(key)})" style="cursor:pointer">${sum}</div>
+  </article>`;
+  return `<article class="tcard open" data-k="${esc(key)}">
+    <header class="tcard-h fold" role="button" aria-expanded="true" onclick="cardToggle(${jsq(key)})">
+      <span class="av">${esc(initial(p.name))}</span>
+      <div class="tcard-who"><b>${esc(p.name)}</b><span>${
+        c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+esc(tl):'')):'Not signed in'}</span></div>
+      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
+        :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
+      ${chev}
     </header>
     <div class="tlines">${lines.map(lineHTML).join('')}</div>
     ${c?`<footer class="tcard-f">
