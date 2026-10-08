@@ -8454,7 +8454,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
   async function deleteAccount(e) {
     const old = await getAcct(e);
-    if (!old) return { error: 'No account on that address', status: 404 };
+    /* A client put on the list before they ever signed in has no account
+       row, and was refused as "No account on that address" while staying
+       on the list for good (8 Oct 2026). What there is of them still goes. */
+    const listed = !!clients()[e] || ((await getSetting('roster')) || {})[e] !== undefined;
+    if (!old && !listed) return { error: 'No account on that address', status: 404 };
 
     /* Apple's pointers at this address go too: a renewal then finds nobody
        rather than filing time against an account that is gone */
@@ -8496,8 +8500,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* last, because everything above reads better while the row is there,
        and because this is the one that takes the messages, the progress,
        the submissions, the check point history and the questions with it */
-    await supa.remove('accounts', `email=eq.${enc(e)}`);
-    return { ok: true, name: old.name || '' };
+    if (old) await supa.remove('accounts', `email=eq.${enc(e)}`);
+    return { ok: true, name: (old && old.name) || '' };
   }
 
   /* ── deleting your own account, from the app ─────────────────────
@@ -9848,8 +9852,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (coaches()[e] !== undefined || coachList().includes(e)) {
         return json({ error: 'That is a coach. Remove them from the coaches list instead.' }, 400);
       }
-      const acct = await getAcct(e);
-      if (!acct) return json({ error: 'No account on that address' }, 404);
+      const acct = (await getAcct(e)) || {};
       const live = acct.subscription && !acct.cancel_at;
       if (live && !body.force) {
         return json({ error: 'That account is still on a live subscription. '

@@ -1742,7 +1742,9 @@ function cpsBtnHTML(email){
 function acctDetails(email){
   const c=clients.find(x=>x.email===email)||{};
   const nm=(c.name||'').trim();
-  const say=t=>{ const m=document.getElementById('adMsg'); if(m) m.textContent=t; };
+  /* kept in state, not only in the DOM: the dashboard redraws every few
+     seconds and wiped the answer (and the second Delete) before it was read */
+  const say=t=>{ acctMsg=String(t||''); const m=document.getElementById('adMsg'); if(m) m.textContent=acctMsg; };
 
   window.adRename=function(){
     const v=(document.getElementById('adName')||{}).value.trim();
@@ -1803,7 +1805,7 @@ function acctDetails(email){
       .catch(e=>{
         if(e && e.status===409){
           say(String(e.error||'Still on a live subscription.'));
-          const b=document.getElementById('adDelForce'); if(b) b.hidden=false;
+          acctForce=true; const b=document.getElementById('adDelForce'); if(b) b.hidden=false;
           return;
         }
         say(String((e&&e.error)||'Could not delete that.'));
@@ -1894,15 +1896,15 @@ function acctDetails(email){
           font:400 14px/1 var(--sans);background:#fff">
         <button onclick="adDelete(false)" style="${bGhost};flex:none;
           border-color:rgba(164,80,60,.5);color:var(--terra)">Delete</button></div>
-      <button id="adDelForce" hidden onclick="adDelete(true)" style="${bGhost};margin-top:9px;
+      <button id="adDelForce" ${acctForce?'':'hidden'} onclick="adDelete(true)" style="${bGhost};margin-top:9px;
         width:100%;border-color:var(--terra);color:var(--terra)">
         Delete anyway, I have cancelled it in Stripe</button>
 
       <div id="adMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--forest);
-        text-align:center;min-height:18px;margin-top:16px"></div>
+        text-align:center;min-height:18px;margin-top:16px">${esc(acctMsg)}</div>
     </div></div>`;
 }
-let acct=null;
+let acct=null, acctMsg='', acctForce=false;
 /* take someone off coaching, or put them back: /coach/past */
 function pastSet(email, restore){
   return fetch(API+'/past',{method:'POST',headers:hdr(),body:JSON.stringify({email, action:restore?'restore':'archive'})})
@@ -1914,7 +1916,7 @@ function pastRestore(email){
   if(!confirm('Put '+(c.name||email)+' back on coaching?')) return;
   pastSet(email, true).catch(e=>alert(String(e)));
 }
-function openAcct(email){ acct=email; draw(); }
+function openAcct(email){ acct=email; acctMsg=''; acctForce=false; draw(); }
 /* an app account onto coaching: on the roster, with a Start page */
 function adCoach(){
   const c=clients.find(x=>x.email===acct)||{};
