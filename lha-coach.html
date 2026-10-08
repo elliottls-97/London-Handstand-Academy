@@ -2240,17 +2240,27 @@ const streamStill = uid => `https://${STREAM_SUB}/${uid}/thumbnails/thumbnail.jp
    often now, and a clip started by swapping its still for a player was put
    back to the still by the next redraw, a minute in. */
 const playingClips=new Set();
-function clipPoster(uid, ratio, cap){
+/* big: the play button opens the large viewer rather than playing in the
+   box, for the small thumbnails. Every clip also carries an expand button:
+   a client's clip in a 150px box could not be seen, nor made bigger (8 Oct 2026). */
+const clipExpand=u=>`<button onclick="event.stopPropagation();playCp('${u}')" aria-label="Watch this clip bigger" title="Watch bigger"
+    style="position:absolute;top:8px;right:8px;z-index:2;width:34px;height:34px;border-radius:10px;border:0;cursor:pointer;
+    background:rgba(10,14,12,.62);color:#fff;display:grid;place-items:center">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline>
+      <line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>`;
+function clipPoster(uid, ratio, cap, big){
   const u=esc(String(uid||'')); if(!u) return '';
-  if(playingClips.has(String(uid))) return `<div id="cc-${u}" style="position:relative;width:100%;aspect-ratio:${ratio||'4/5'};
+  if(playingClips.has(String(uid)) && !big) return `<div id="cc-${u}" style="position:relative;width:100%;aspect-ratio:${ratio||'4/5'};
     ${cap?'max-height:'+cap+';':''}background:#101413"><iframe src="${streamEmbed(u)}&autoplay=true" allow="accelerometer; gyroscope;
     autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
-    style="display:block;width:100%;height:100%;border:0"></iframe></div>`;
+    style="display:block;width:100%;height:100%;border:0"></iframe>${clipExpand(u)}</div>`;
   return `<div id="cc-${u}" style="position:relative;width:100%;aspect-ratio:${ratio||'4/5'};
-    ${cap?'max-height:'+cap+';':''}background:#101413">
+    ${cap?'max-height:'+cap+';':''}background:#101413;border-radius:inherit;overflow:hidden">
     <img src="${streamStill(u)}" alt="" loading="lazy"
-      style="display:block;width:100%;height:100%;object-fit:cover">
-    <button onclick="playPoster('${u}')" aria-label="Play this clip"
+      style="display:block;width:100%;height:100%;object-fit:contain">
+    ${clipExpand(u)}
+    <button onclick="${big?`playCp('${u}')`:`playPoster('${u}')`}" aria-label="Play this clip"
       style="position:absolute;inset:0;width:100%;border:0;cursor:pointer;padding:0;
       background:rgba(10,14,12,.16);display:grid;place-items:center">
       <span style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.94);
@@ -2264,31 +2274,41 @@ function playPoster(uid){
   const box=document.getElementById('cc-'+uid); if(!box) return;
   box.innerHTML=`<iframe src="${streamEmbed(uid)}&autoplay=true" allow="accelerometer; gyroscope;
     autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
-    style="display:block;width:100%;height:100%;border:0"></iframe>`;
+    style="display:block;width:100%;height:100%;border:0"></iframe>${clipExpand(esc(String(uid)))}`;
 }
 /* check point clips open where they are, rather than sending you to the
    thread to hunt for the right one */
-function playCp(uid){
+/* As big as the screen allows for a phone clip, playing at once, with full
+   screen, and Esc or a tap outside to close. Wide shows a landscape clip. */
+function playCp(uid, wide){
   let el=document.getElementById('cpPlay');
   if(!el){ el=document.createElement('div'); el.id='cpPlay';
-    el.style.cssText='position:fixed;inset:0;z-index:80;background:rgba(8,20,18,.72);'
-      +'display:grid;place-items:center;padding:20px';
-    el.onclick=e=>{ if(e.target===el) el.remove(); };
-    document.body.appendChild(el); }
-  el.innerHTML=`<div style="width:100%;max-width:520px">
-    <div style="aspect-ratio:9/16;max-height:78vh;border-radius:16px;overflow:hidden;background:#000">
-      <iframe src="${streamEmbed(uid)}" allow="fullscreen"
+    el.style.cssText='position:fixed;inset:0;z-index:80;background:rgba(8,20,18,.82);'
+      +'display:grid;place-items:center;padding:14px';
+    el.onclick=e=>{ if(e.target===el) closeCp(); };
+    document.body.appendChild(el);
+    document.addEventListener('keydown', cpKey); }
+  const box = wide ? 'width:min(94vw, calc((100vh - 110px) * 16 / 9));aspect-ratio:16/9'
+                   : 'width:min(94vw, calc((100vh - 110px) * 9 / 16));aspect-ratio:9/16';
+  el.innerHTML=`<div style="${box.split(';')[0]}">
+    <div style="${box.split(';')[1]};border-radius:16px;overflow:hidden;background:#000">
+      <iframe src="${streamEmbed(uid)}&autoplay=true" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
         style="width:100%;height:100%;border:0;display:block"></iframe></div>
+    <button onclick="playCp('${esc(uid)}',${wide?'false':'true'})"
+      style="display:block;margin:8px auto 0;border:0;background:none;cursor:pointer;color:rgba(255,255,255,.8);
+      font:600 12.5px/1 var(--sans);text-decoration:underline;text-underline-offset:3px">${wide?'Filmed upright? Show it tall':'Filmed sideways? Show it wide'}</button>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <button onclick="document.getElementById('cpPlay').remove();reviewSwitch(sel);reviewClip('${esc(uid)}','Client clip')"
+      <button onclick="closeCp();reviewSwitch(sel);reviewClip('${esc(uid)}','Client clip')"
         style="flex:1;border:0;border-radius:12px;padding:12px;cursor:pointer;
         background:var(--forest);color:#fff;font:600 14px/1 var(--sans)">Review this</button>
-      <button onclick="document.getElementById('cpPlay').remove()"
+      <button onclick="closeCp()"
         style="flex:1;border:0;border-radius:12px;padding:12px;cursor:pointer;
         background:#fff;font:600 14px/1 var(--sans)">Close</button>
     </div>
   </div>`;
 }
+function closeCp(){ const el=document.getElementById('cpPlay'); if(el) el.remove(); document.removeEventListener('keydown', cpKey); }
+function cpKey(e){ if(e.key==='Escape') closeCp(); }
 let upBusy=false;
 function coachSay(m){ const el=document.getElementById('upMsg'); if(el) el.textContent=m; }
 
@@ -9485,7 +9505,7 @@ function marksPaneHTML(){
              : 'Nothing logged yet.'}</div>
       ${hist.length>1?`<div style="margin-top:6px">${recent}</div>`:''}
       ${clip?`<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
-        <div style="flex:0 0 150px">${clipPoster(clip.video,'4/3')}</div>
+        <div style="flex:0 0 170px;border-radius:12px;overflow:hidden">${clipPoster(clip.video,'3/4','',true)}</div>
         <div style="flex:1;min-width:190px">
           ${clip.verdict?`<div class="muted" style="font:400 12px/1.5 var(--sans)">The clip they sent${
               clip.verdictAt?', answered '+esc(ago(clip.verdictAt)):''}.</div>
