@@ -26,6 +26,9 @@ async function emailCopy(key, vars) {
 }
 
 const DAY = 24 * 60 * 60 * 1000;
+/* the business's own Google review box (place id from its listing, 9 Oct
+   2026): any workshop without its own review link uses this one */
+const GOOGLE_REVIEW = 'https://search.google.com/local/writereview?placeid=ChIJo6P50TJyjGQRZIUQzoUnXLo';
 const REVIEW_HOURS = 48;
 const NUDGE_AFTER = [0, 3];        // days past due — once on the day, once 3 days later
 
@@ -633,7 +636,7 @@ async function workshopMail(done) {
   /* the review link is per workshop and easy to leave blank on a new date;
      a blank one borrows the link from the latest date that has one, so the
      day after still has a Leave a review button */
-  const anyReview = (Object.values(all).filter(x => x && /^https:\/\//.test(x.reviewUrl || '')).sort((a, b) => ms(b.when) - ms(a.when))[0] || {}).reviewUrl || '';
+  const anyReview = (Object.values(all).filter(x => x && /^https:\/\//.test(x.reviewUrl || '')).sort((a, b) => ms(b.when) - ms(a.when))[0] || {}).reviewUrl || GOOGLE_REVIEW;
   for (const w of Object.values(all)) {
     /* not w.live: taking a full workshop off the site is the obvious thing to
        do once it fills, and it used to silently cancel the reminder and the
