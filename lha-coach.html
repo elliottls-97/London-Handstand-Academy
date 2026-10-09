@@ -567,7 +567,7 @@ function load(){
          message: every sign-up, each a request and a redraw of the page. */
       clients.filter(c=>c.coached!==false).forEach(c=>fetch(API+'/progress?email='+encodeURIComponent(c.email),{headers:hdr()})
         .then(r=>r.ok?r.json():null)
-        .then(x=>{ if(x){ prog[c.email]=x.progress||{}; if(x.track && !tracks[c.email]) tracks[c.email]=x.track;
+        .then(x=>{ if(x){ prog[c.email]=Object.assign(x.progress||{},{flagSeen:Number(x.flagSeen)||0}); if(x.track && !tracks[c.email]) tracks[c.email]=x.track;
           if(x.checkpoints && !cpDefs[c.email]) cpDefs[c.email]=x.checkpoints; drawSoon(); } }).catch(()=>{}));
       bootRoute();
       cpushLoad();
@@ -582,7 +582,7 @@ function openThread(email){
   sel=email; draw();
   fetch(API+'/progress?email='+encodeURIComponent(email),{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ prog[email]=d.progress||{}; intakes[email]=d.intake||null;
+    .then(d=>{ if(d){ prog[email]=Object.assign(d.progress||{},{flagSeen:Number(d.flagSeen)||0}); intakes[email]=d.intake||null;
                       tracks[email]=d.track||null; cpDefs[email]=d.checkpoints||[];
                       cycles[email]=d.cycle||null;
                       if(weekOpen!==email) weeks[email]=d.week||null;
@@ -704,7 +704,7 @@ function refreshClients(){
     clients=d.clients; drawSoon();
     d.clients.filter(c=>c.coached!==false && !had.has(c.email)).forEach(c=>
       fetch(API+'/progress?email='+encodeURIComponent(c.email),{headers:hdr()}).then(r=>r.ok?r.json():null)
-        .then(x=>{ if(x){ prog[c.email]=x.progress||{}; drawSoon(); } }).catch(()=>{}));
+        .then(x=>{ if(x){ prog[c.email]=Object.assign(x.progress||{},{flagSeen:Number(x.flagSeen)||0}); drawSoon(); } }).catch(()=>{}));
   }).catch(()=>{});
 }
 setInterval(()=>freshen(false), 10000);
@@ -1818,7 +1818,7 @@ function acctDetails(email){
     if(!force && !confirm('Delete '+email+'?\n\nTheir messages, progress, check point '
       +'history, submissions and questions go with it. This cannot be undone.')) return;
     say(force?'Deleting anyway…':'Deleting…');
-    fetch(API+'/coach/account/delete',{method:'POST',headers:hdr(),
+    fetch(API+'/account/delete',{method:'POST',headers:hdr(),
       body:JSON.stringify(force?{email,confirm:v,force:true}:{email,confirm:v})})
       .then(r=>r.json().then(d=>r.ok?d:Promise.reject(Object.assign(d,{status:r.status}))))
       .then(()=>{ acct=null; if(sel===email) sel=''; thread=[]; load();
@@ -8245,7 +8245,9 @@ function headerHTML(){
    and app feedback were five tabs you had to remember to visit. They are
    one list, oldest first, because the oldest is the one closest to
    breaking the 48 hours we promise. */
-/* every client with a flag they have not been told about, newest first */
+/* every client with a flag they have not been told about, newest first.
+   flagSeen comes back beside progress, not in it: it was dropped on every
+   load, so Seen on a drill rating never lasted past a refresh (9 Oct 2026) */
 function flagItems(){
   const out=[];
   clients.forEach(c=>{
