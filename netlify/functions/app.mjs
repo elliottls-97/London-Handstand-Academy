@@ -2137,15 +2137,25 @@ const handle = async (request) => {
      Stripe dashboard without needing a price id, so a tier can go live from
      a link alone; the checkout session route is used where a price id has
      been set, because it can carry the account with it. */
-  const LINKS = {
+  /* the links the site and the app were built with */
+  const LINKS_SHIPPED = {
     /* the app, a month at a time, as a payment link Elliott made */
-    plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
-    check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
-    online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
-    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || 'https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01',
-    inperson2: (PRICES.inperson2||{}).link || process.env.STRIPE_LINK_INPERSON2 || 'https://buy.stripe.com/fZueVdc996Ek7LpdhfefC0d',
-    inperson4: (PRICES.inperson4||{}).link || process.env.STRIPE_LINK_INPERSON4 || 'https://buy.stripe.com/bJebJ11uv9QwfdRb97efC0e',
-    inneronline: (PRICES.inneronline||{}).link || process.env.STRIPE_LINK_INNERONLINE || 'https://buy.stripe.com/fZufZha115Ag4zdb97efC0c',
+    plus: 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
+    check: 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
+    online: 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
+    inperson: 'https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01',
+    inperson2: 'https://buy.stripe.com/fZueVdc996Ek7LpdhfefC0d',
+    inperson4: 'https://buy.stripe.com/bJebJ11uv9QwfdRb97efC0e',
+    inneronline: 'https://buy.stripe.com/fZufZha115Ag4zdb97efC0c',
+  };
+  const LINKS = {
+    plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || LINKS_SHIPPED.plus,
+    check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || LINKS_SHIPPED.check,
+    online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || LINKS_SHIPPED.online,
+    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || LINKS_SHIPPED.inperson,
+    inperson2: (PRICES.inperson2||{}).link || process.env.STRIPE_LINK_INPERSON2 || LINKS_SHIPPED.inperson2,
+    inperson4: (PRICES.inperson4||{}).link || process.env.STRIPE_LINK_INPERSON4 || LINKS_SHIPPED.inperson4,
+    inneronline: (PRICES.inneronline||{}).link || process.env.STRIPE_LINK_INNERONLINE || LINKS_SHIPPED.inneronline,
     inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
   };
   /* Links sold from the private next-steps and offers pages. Each is a real
@@ -2159,8 +2169,15 @@ const handle = async (request) => {
     'https://buy.stripe.com/eVqfZhgpp2o45Dh7WVefC09': 'session60',  /* £80 once, "Handstand Audit", sold as the 60 minute session */
   };
   const linkNorm = u => String(u || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+  /* A link saved in Money replaces the shipped one in LINKS, and the shipped
+     one then filed as nothing: the home page has the £120 and £190 links
+     written into it, so a buyer through either was thanked and left for the
+     coach to file by hand, with no roster, no welcome and no place taken.
+     Each shipped link is a real product at a real price, so it stays known
+     for what it is; a link saved in Money still wins where they differ. */
   const LINK_KEY = Object.assign({},
     ...Object.entries(LINKS_OLD).map(([u, k]) => ({ [linkNorm(u)]: k })),
+    ...Object.entries(LINKS_SHIPPED).map(([k, u]) => ({ [linkNorm(u)]: k })),
     ...Object.entries(LINKS).filter(([, u]) => !!u).map(([k, u]) => ({ [linkNorm(u)]: k })));
   /* every name a plan goes by, and the plan it is */
   const TIER = { plus: 'plus', plusq: 'plus', plusy: 'plus', check: 'check', online: 'online',
