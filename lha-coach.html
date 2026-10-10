@@ -8293,6 +8293,10 @@ let inboxRow='';                   /* the row expanded in place, if any */
 let sessions=[], sessBusy='';
 function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep); }
 const sessOpen = () => sessions.filter(x=>x.status==='toArrange');
+/* what is still to give back by card, the way the server counts it */
+const sessPaysOf = x => Array.isArray(x.pays)?x.pays : x.paidRef?[{ref:x.paidRef,pi:x.pi||'',amount:Number(x.paid)||0}] : x.session?[{ref:x.session,pi:x.pi||'',amount:Number(x.paid)||0}]:[];
+const sessBack = x => sessPaysOf(x).filter(p=>p.pi&&!p.autoRefund).reduce((a,p)=>a+Math.max(0,(Number(p.amount)||0)-(Number((x.refunds||{})[p.ref])||0)),0);
+const sessHand = x => (Number(x.paid)||0)>0 && !sessPaysOf(x).some(p=>p.pi);
 /* a 1-2-1's time as London has it, wherever this computer is */
 const sessLondon = t => new Date(t).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
 /* pence as money, with the pence only when there are some: 50p showed as £1 */
@@ -8302,7 +8306,8 @@ const gbp = p => '£'+(Number(p||0)/100).toFixed(Number(p||0)%100?2:0);
 function toldFlash(t, plain){
   if(!t){ if(plain) flash(plain); return; }
   const head={confirmed:'Confirmed', asked:'Pay link sent', topay:'Moved, and they are asked to pay to confirm', cancelled:'Cancelled'}[t.what]||'Done';
-  flash(head+'. '+(t.mailed?'They have been emailed.':'The email did not go, so they only have it in the app.'));
+  const money=t.what!=='cancelled'?'':t.refunded>0?' and '+gbp(t.refunded)+' refunded to their card':t.refundFailed?', but the refund did not go through: do it in Stripe ('+t.refundFailed+')':t.hand?': give back what they paid by hand':'';
+  flash(head+money+'. '+(t.mailed?'They have been emailed.':'The email did not go, so they only have it in the app.'));
 }
 function sessSet(id, patch){
   sessBusy=id; draw();
@@ -8481,7 +8486,7 @@ function inboxBodyHTML(r){
     <div style="display:flex;gap:var(--space-2);align-items:center;margin-top:var(--space-3);flex-wrap:wrap">
       <button class="btn btn-primary" onclick="sessConfirm(${jsq(x.id)})" ${busy?'disabled':''}>${busy?'Sending…':'Confirm the time'}</button>
       <button class="btn btn-secondary" onclick="openClient(${jsq(x.email)})">Open their thread</button>
-      <button class="btn btn-ghost" onclick="if(confirm('Cancel this session? Refund it in Stripe yourself.')) sessSet(${jsq(x.id)},{status:'cancelled'})" style="color:var(--terra)">Cancelled</button>
+      <button class="btn btn-ghost" onclick="sessCancelAsk(${jsq(x.id)})" style="color:var(--terra)">${sessBack(x)>0?'Cancel and refund '+gbp(sessBack(x)):'Cancel it'}</button>
     </div>`;
   }
   if(r.type==='application'){ const a=r.app, A=a.answers||{};
@@ -9116,7 +9121,35 @@ function onePayLink(id){
   const u=location.origin+'/api/app/session/pay?id='+encodeURIComponent(id);
   try{ navigator.clipboard.writeText(u).then(()=>flash('Pay link copied')); }catch(e){ prompt('The pay link', u); }
 }
-function oneCancel(id){ if(confirm('Cancel this session? They get a message in the chat saying so. Refund it in Stripe if it was paid.')) sessSet(id,{status:'cancelled'}); }
+/* Cancel refunds what they paid by card, through Stripe, the way their own
+   cancel does; "no refund" is for a late cancellation, which the terms let
+   you keep. Paid outside Stripe, you give it back by hand. */
+let oneCancelOpen='';
+function oneCancelHTML(x){
+  const back=sessBack(x), hand=!back&&sessHand(x), id=jsq(x.id);
+  return `<div style="margin-top:10px;padding:12px 14px;border-radius:12px;background:var(--mist)">
+    <div style="font:500 13.5px/1.5 var(--sans)">Cancel it? They are told by email and in the chat${x.room==='hired'?'. If you hired Arch 2, let OverGravity know':''}.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      ${back>0?`<button class="btn btn-primary btn-sm" onclick="oneCancelGo(${id},'full')" ${sessBusy===x.id?'disabled':''}>Cancel and refund ${gbp(back)}</button>
+        <button class="btn btn-secondary btn-sm" onclick="oneCancelGo(${id},'none')" ${sessBusy===x.id?'disabled':''}>Cancel, no refund</button>`
+      :hand?`<button class="btn btn-primary btn-sm" onclick="oneCancelGo(${id},'full')" ${sessBusy===x.id?'disabled':''}>Cancel, and I give back ${gbp(x.paid)}</button>
+        <button class="btn btn-secondary btn-sm" onclick="oneCancelGo(${id},'none')" ${sessBusy===x.id?'disabled':''}>Cancel, no refund</button>`
+      :`<button class="btn btn-primary btn-sm" onclick="oneCancelGo(${id},'none')" ${sessBusy===x.id?'disabled':''}>Cancel it</button>`}
+      <button class="btn btn-ghost btn-sm" onclick="oneCancelOpen='';draw()">Keep it</button>
+    </div>
+    ${back>0||hand?'<div class="muted" style="font-size:12px;margin-top:8px">No refund is for a late cancellation: inside 24 hours the terms let you keep it.</div>':''}
+  </div>`;
+}
+function oneCancelGo(id,refund){ oneCancelOpen=''; sessSet(id,{status:'cancelled',refund}); }
+/* Today's session waiting for a time: no time was found, so it is refunded */
+function sessCancelAsk(id){
+  const x=sessions.find(s=>s.id===id); if(!x) return;
+  const back=sessBack(x), hand=!back&&sessHand(x);
+  if(!confirm(back>0?'Cancel this session and refund '+gbp(back)+' to their card? They are told by email and in the chat.'
+    :hand?'Cancel this session? They paid '+gbp(x.paid)+' outside Stripe, so give it back by hand. They are told you will.'
+    :'Cancel this session? They are told by email and in the chat.')) return;
+  sessSet(id,{status:'cancelled',refund:back>0||hand?'full':'none'});
+}
 function oneOnePaneHTML(){
   const f=(x)=>x.when?new Date(x.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Time to arrange';
   const mine=sessions.filter(x=>x.email===sel).slice().sort((a,b)=>(a.when?new Date(a.when).getTime():9e15)-(b.when?new Date(b.when).getTime():9e15));
@@ -9142,16 +9175,18 @@ function oneOnePaneHTML(){
     return `<div style="border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-top:10px;background:#fff">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span style="flex:1;min-width:0;font:600 15px/1.3 var(--sans)">${esc(f(x))}</span>${st}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.cancelledBy==='client'?' · cancelled by them':''}${(x.moves||[]).some(m=>m.by==='client')&&x.status!=='cancelled'?' · moved by them':''}${x.room==='hired'?' · Arch 2 hired':''}${x.note?' · '+esc(x.note):''}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.cancelledBy==='client'?' · cancelled by them':x.cancelledBy==='coach'?' · cancelled by you':''}${(x.moves||[]).some(m=>m.by==='client')&&x.status!=='cancelled'?' · moved by them':''}${x.room==='hired'?' · Arch 2 hired':''}${x.note?' · '+esc(x.note):''}</div>
       ${x.status==='toArrange'?timeForm(x,'Confirm and tell them','sessConfirm')
         : oneMove===x.id?timeForm(x,'Move it and tell them','oneMoveSave')
         : (x.status==='arranged')?`<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
             ${upcoming&&x.room==='hire'?link('Arch 2 is hired','sessSet(\''+esc(x.id)+'\',{room:\'hired\'})'):''}
             ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
             ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):''}
-            ${upcoming?link('Cancel','oneCancel(\''+esc(x.id)+'\')'):''}
+            ${upcoming?link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()'):''}
             ${!x.paid && !owes && x.status!=='cancelled'?link('Ask them to pay','oneAsk(\''+esc(x.id)+'\',\''+esc(x.kind||'60')+'\')'):''}
             ${owes?link('Copy the pay link','onePayLink(\''+esc(x.id)+'\')'):''}</div>`:''}
+      ${x.status==='toArrange'&&oneCancelOpen!==x.id?`<div style="margin-top:10px">${link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()')}</div>`:''}
+      ${oneCancelOpen===x.id&&['toArrange','arranged'].includes(x.status)?oneCancelHTML(x):''}
     </div>`; };
   return `<div>
     <div class="kick">BOOK A 1-2-1</div>
