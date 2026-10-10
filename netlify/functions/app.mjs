@@ -3092,11 +3092,16 @@ const handle = async (request) => {
              search does not care about case */
           try { const sr = await stripe(`/customers/search?query=${enc(`email:'${acct.email}'`)}&limit=10`, null, 'GET');
             ((sr && sr.data) || []).forEach(c => custs.add(c.id)); } catch {}
-          const stopped = [];
+          const stopped = [], twice = [];
           for (const cu of custs) {
             const subs = await stripe(`/subscriptions?customer=${enc(cu)}&status=all&limit=20`, null, 'GET').catch(() => null);
             for (const sb of ((subs && subs.data) || [])) {
               if (sb.id === keep || !['active', 'trialing', 'past_due'].includes(sb.status) || sb.cancel_at_period_end) continue;
+              /* coaching already running: a payment link sells it again to
+                 somebody who has it (two tabs, or the £190 bought to add the
+                 session), and both went on charging every month. Nothing is
+                 stopped here, since which one stays is the coach's call. */
+              if (['online', 'inner'].includes(planOf(sb))) { twice.push(sb); continue; }
               if (planOf(sb) !== 'plus') continue;
               /* noted first, so the events this sends are not read as the
                  account's own subscription changing */
@@ -3112,6 +3117,18 @@ const handle = async (request) => {
             try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
               text: `Coaching includes the whole Ladder, so I have stopped your separate Ladder subscription. ${endTxt}` }); } catch {}
             await coachAlert(acct.email, 'business', { title: 'Ladder stopped for ' + (acct.name || acct.email), body: 'They moved to coaching; the £10 no longer renews.', tag: 'ladderstop:' + acct.email });
+          }
+          /* said once per checkout, by email whatever the business emails
+             switch says, because it is money taken twice every month */
+          if (twice.length && await supa.insertIfAbsent('nudges', { key: `twocoach:${obj.id || acct.email}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)) {
+            const nmT = acct.name || (obj.customer_details && obj.customer_details.name) || acct.email;
+            const subsT = [keep].concat(twice.map(x => x.id)).filter(Boolean);
+            await coachAlert(acct.email, 'business', { title: 'Paying twice for coaching: ' + nmT, body: 'Cancel one in Stripe', tag: 'twocoach:' + acct.email });
+            await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Paying twice for coaching: ${nmT}`,
+              mail({ title: `${esc(nmT)} now has ${subsT.length} coaching subscriptions.`,
+                paras: [`${esc(acct.email)} has just paid ${esc(penceTxt(Number(obj.amount_total) || 0))} for coaching and was already paying for it. Each of these charges every month until it is stopped: ${subsT.map(esc).join(', ')}.`,
+                        'Cancel the one they no longer want in Stripe, and refund a month that was paid twice. Nothing has been stopped automatically.'],
+                cta: { href: 'https://dashboard.stripe.com/subscriptions', label: 'Open Stripe' } }));
           }
           /* a Ladder bought in the iPhone app is Apple's to stop, not ours */
           const iap = await getSetting(`iap:${acct.email}`).catch(() => null);
