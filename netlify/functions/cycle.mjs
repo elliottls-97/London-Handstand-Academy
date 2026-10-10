@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail, afterClassEmail } from './emails.mjs';
+import { renderEmail, afterClassEmail, nextStepEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -754,12 +754,18 @@ async function workshopMail(done) {
         if (days >= 2.5 && days <= 4) {
           const key = `wsoffer:${w.slug}:${e}`;
           if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-            const T = await emailCopy('wsOffer', { name: esc(first), title: esc(w.title),
-              session_line: `The fastest way on is a one to one at OverGravity: sixty minutes on your handstand alone, £80, and if you join coaching within fourteen days it comes off your first month. Book it at <a href="${SITE}/session.html" style="color:#006663">londonhandstandacademy.com/session</a>.` });
+            const day = new Date(at).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Europe/London' });
+            /* session_line was the 1-2-1 in the old words; it has a card of its
+               own now, at the prices in Money, so an older dashboard edit drops it */
+            const T = await emailCopy('wsOffer', { name: esc(first), title: esc(w.title), day: esc(day), session_line: '' });
             if (T.off) { done.held = (done.held || 0) + 1; continue; }
-            await email(e, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
-              cta: { href: 'https://calendly.com/londonhandstandacademy-info/intro-call', label: 'Book the free call' },
-              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), 'offers');
+            const P = (await afterData()).prices;
+            const M = nextStepEmail({ site: SITE, first, title: T.title, paras: T.paras, footnote: T.footnote,
+              kicker: w.title, s60: P.s60, s90: P.s90, call: 'https://calendly.com/londonhandstandacademy-info/intro-call',
+              photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand at Leadenhall Market' },
+              headshot: '/assets/site/coach-elliott-headshot.jpg',
+              preheader: `A 1-2-1 at OverGravity, from ${P.s60}, or a free 15 minute call.` });
+            await email(e, T.subject, M.html, 'offers', { text: M.text });
             done.workshops.offered = (done.workshops.offered || 0) + 1;
             await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
           }
