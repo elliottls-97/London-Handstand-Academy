@@ -480,17 +480,27 @@ button.lc-ring:active{transform:scale(.88)}
 .lw-k{font:600 12px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)}
 .lw-card{background:#fff;border-radius:24px;border:1px solid rgba(0,64,61,.10);
  box-shadow:0 1px 2px rgba(0,64,61,.06),0 12px 32px rgba(0,64,61,.08)}
-.lw-steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;align-items:end;height:160px}
-.lw-step{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:160px;
+.lw-steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;align-items:end;height:128px;
+ border-bottom:2px solid rgba(0,64,61,.14);padding-bottom:0}
+.lw-step{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:128px;
  border:0;background:none;padding:0;cursor:pointer;font:inherit;min-width:0}
-.lw-bar{width:100%;box-sizing:border-box;border-radius:10px 10px 4px 4px;display:flex;justify-content:center;
- padding-top:7px;transform-origin:50% 100%;animation:lwGrow 560ms var(--e) var(--d,0ms) both}
-.lw-bar b{font:700 13px/1 var(--sans)}
+.lw-figw{display:block;width:100%;flex:none}
+.lw-figw.lw-next{animation:lwGlowF 2.4s ease-in-out 1.4s infinite}
+@keyframes lwGlowF{0%,100%{filter:drop-shadow(0 0 0 rgba(0,102,99,0))}50%{filter:drop-shadow(0 0 6px rgba(0,102,99,.45))}}
+.lw-fig{display:block;width:calc(100% + 10px);margin:0 -5px;height:84px;background:currentColor;flex:none;
+ -webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+ -webkit-mask-position:center bottom;mask-position:center bottom;
+ animation:lwRise 500ms var(--e) calc(var(--d,0ms) + 380ms) both}
+#app[data-still="1"] .lw .lw-fig{animation:none!important}
+/* You hops along the floor to the next figure when a stage is finished */
+@keyframes lwHopF{0%,12%{opacity:1;transform:translate(0,0)}38%{opacity:1;transform:translate(calc(50% + 3px),-16px)}
+  58%,82%{opacity:1;transform:translate(calc(100% + 6px),0)}92%{opacity:0;transform:translate(calc(100% + 6px),0)}
+  93%{opacity:0;transform:translate(0,0)}100%{opacity:1;transform:translate(0,0)}}
+.lw .lw-hop{animation:lwHopF 3.6s ease-in-out 1.8s infinite}
 /* the stage names, under their steps (Elliott, 10 Oct 2026) */
 .lw-names{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}
 .lw-names span{text-align:center;font:600 10px/12px var(--sans);letter-spacing:-.01em;cursor:pointer;
  hyphens:manual;-webkit-hyphens:manual}
-.lw-bar.lw-next{border:2px solid var(--forest);animation:lwGrow 560ms var(--e) var(--d,0ms) both,lwGlow 2.4s ease-in-out 1.4s infinite}
 .lw-you{display:flex;justify-content:center;width:100%}
 .lw-you>span{height:22px;padding:0 9px;border-radius:11px;background:var(--deep);color:#fff;
  font:700 11px/22px var(--sans);letter-spacing:.04em;animation:lwDrop 620ms var(--e) 760ms both,lwPing 1.8s ease-out 1.5s infinite}
@@ -575,9 +585,10 @@ button.lc-ring:active{transform:scale(.88)}
 /* the section a step in the climb points at, picked out as it arrives */
 @keyframes lwFlash{0%,100%{outline-color:rgba(243,169,73,0)}25%,60%{outline-color:rgba(243,169,73,.9)}}
 .lw .lw-flash{outline:3px solid rgba(243,169,73,0);outline-offset:2px;animation:lwFlash 1.5s ease .25s both!important}
-#app[data-still="1"] .lw .lw-in,#app[data-still="1"] .lw .lw-bar,#app[data-still="1"] .lw .lw-segs i:not(.lw-breathe),
+#app[data-still="1"] .lw .lw-in,#app[data-still="1"] .lw .lw-segs i:not(.lw-breathe),
 #app[data-still="1"] .lw .lw-medal,#app[data-still="1"] .lw .lw-draw,#app[data-still="1"] .lw .lw-ac.open .lw-acb{animation:none!important}
-#app[data-still="1"] .lw .lw-bar.lw-next,#app[data-still="1"] .lw .lw-feat{animation:lwGlow 2.4s ease-in-out infinite!important}
+#app[data-still="1"] .lw .lw-feat{animation:lwGlow 2.4s ease-in-out infinite!important}
+#app[data-still="1"] .lw .lw-figw.lw-next{animation:lwGlowF 2.4s ease-in-out infinite!important}
 #app[data-still="1"] .lw .lw-you>span{animation:lwPing 1.8s ease-out infinite!important}
 @media (prefers-reduced-motion: reduce){.lw *,.lw *::after{animation:none!important;transition:none!important}}
 @media (prefers-reduced-motion:reduce){.lc *{animation:none!important;transition:none!important}}
@@ -17305,14 +17316,18 @@ function ladderWholeHTML(){
   const trialBtn = (go,label) => `<button class="lw-go lw-shine" onclick="${go}"><span>${label}</span></button>`;
   const trialWord = days>0 ? `Start ${days} days free` : 'See the full Ladder';
 
-  /* ── the climb: six steps, each a little higher ── */
+  /* ── the climb, as the evolution of man in handstands ──
+     Six of Elliott's own handstands in a row on one floor, the wall kick up
+     to the press, each cut from its stage's picture (Elliott, 10 Oct 2026:
+     "like the evolution of man but in handstand form"). It was rising bars,
+     which read as a chart. Done teal, you amber under You, ahead pale. */
   const bars = STAGES.map((S,i)=>{
     const done = i<here || (i===here && earned);
     const now = i===here && !earned, next = earned && i===here+1;
-    return `<button class="lw-step" onclick="lwStep(${i})" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}. Show it below">
+    return `<button class="lw-step" onclick="lwStep(${i})" style="--d:${120+i*110}ms" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}. Show it below">
       ${i===here?`<span class="lw-you${earned?' lw-hop':''}"><span>You</span></span>`:''}
-      <span class="lw-bar${next?' lw-next':''}" style="height:${30+i*20}px;--d:${120+i*80}ms;background:${
-        done?'var(--forest)':now?'var(--amber)':'var(--sand)'}">${done?LW_TICK(16):`<b style="color:${now?'var(--ink)':'var(--deep)'}">${i+1}</b>`}</span>
+      <span class="lw-figw${next?' lw-next':''}"><span class="lw-fig" style="-webkit-mask-image:url(assets/ladder/sil-${i}.png);mask-image:url(assets/ladder/sil-${i}.png);color:${
+        done?'var(--forest)':now?'#e8962f':next?'var(--forest)':'#bcd5db'}"></span></span>
     </button>`; }).join('');
   /* the names under the steps, on two lines where they need it: a sixth of
      a phone is narrower than Foundations, so the long ones break where a
