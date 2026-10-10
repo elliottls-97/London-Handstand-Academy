@@ -579,9 +579,18 @@ button.lc-ring:active{transform:scale(.88)}
 .lw-move button{height:44px;padding:0 14px;border-radius:22px;border:0;background:transparent;
  font:600 14px/1 var(--sans);color:var(--deep);display:flex;align-items:center;gap:6px;cursor:pointer}
 .lw-move>span{width:1px;height:18px;background:rgba(0,64,61,.16)}
-/* the section a step in the climb points at, picked out as it arrives */
-@keyframes lwFlash{0%,100%{outline-color:rgba(243,169,73,0)}25%,60%{outline-color:rgba(243,169,73,.9)}}
-.lw .lw-flash{outline:3px solid rgba(243,169,73,0);outline-offset:2px;animation:lwFlash 1.5s ease .25s both!important}
+/* the stage opened out of its figure, a pointer at the figure */
+.lw-pop{position:relative;margin-top:14px;overflow:visible}
+.lw-pop[hidden]{display:none}
+.lw-popi{position:relative;background:#eef5f6;border-radius:18px;padding:10px 10px 12px;display:flex;flex-direction:column;
+ gap:12px;transform-origin:var(--cx) 0}
+.lw-popi::before{content:'';position:absolute;top:-6px;left:var(--cx);width:14px;height:14px;margin-left:-7px;
+ background:#eef5f6;border-radius:3px;transform:rotate(45deg)}
+.lw-popi>div{padding:0 6px}
+.lw-popimg{display:block;width:100%;height:170px;border-radius:14px;cursor:pointer}
+.lw-popx{position:absolute;top:18px;right:18px;width:32px;height:32px;border-radius:50%;border:0;cursor:pointer;
+ background:rgba(255,255,255,.92);color:var(--deep);display:grid;place-items:center;padding:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.lw-step[aria-expanded="true"] .lw-figw{filter:drop-shadow(0 6px 10px rgba(0,64,61,.22))}
 #app[data-still="1"] .lw .lw-in,#app[data-still="1"] .lw .lw-segs i:not(.lw-breathe),
 #app[data-still="1"] .lw .lw-medal,#app[data-still="1"] .lw .lw-draw,#app[data-still="1"] .lw .lw-ac.open .lw-acb{animation:none!important}
 #app[data-still="1"] .lw .lw-feat{animation:lwGlow 2.4s ease-in-out infinite!important}
@@ -17309,18 +17318,65 @@ function lwToggle(i){
   });
 }
 function lwChecks(){ st.ladderTab='checks'; save(); render(); }
-/* A step in the climb shows its stage where it is below, opened if it is
-   a card that opens, rather than going straight to the stage's sheet
-   (Elliott, 10 Oct 2026). The section itself still opens the sheet. */
-function lwStep(i){
-  const el=document.querySelector('.lw [data-lw="'+i+'"]'); if(!el){ openStage(i); return; }
-  if(el.classList.contains('lw-ac') && !el.classList.contains('open')) lwToggle(i);
-  const sc=el.closest('.scroll');
+/* ── a stage, out of its figure ──────────────────────────────────────
+   A figure tapped opens its stage as a panel that grows out of it, under
+   the row, its pointer at the figure: the stage's picture, its name and
+   line, and the one thing to do there. It scrolled the page down to the
+   stage's card instead (Elliott, 10 Oct 2026: "the stage animates out of
+   it rather than scrolling down"). The same figure closes it. */
+let lwPopI=null;
+function lwPopHTML(i){
+  const cur=curStage(), tp=trialPending(), here=tp?placedStage():cur, S=STAGES[i]||{}, last=STAGES.length-1;
+  const P=cpProgress(here), earned=!tp && P.of>0 && P.met>=P.of && here<last && stageLocked(here+1);
+  const done = i<here || (i===here && earned), now = i===here && !earned, next = earned && i===here+1;
+  const locked = !isPlus() && stageLocked(i);
+  const tag = done ? 'Done' : now ? 'You are here' : next ? 'Earned' : S.soon ? 'Coming soon' : locked ? 'With the full Ladder' : 'Ahead';
+  const p = cpProgress(i);
+  const btn = now
+    ? `<button class="lw-go" onclick="startDay(-1,'full')"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.5v9l7-4.5z" fill="#fff"/></svg><span>Today&rsquo;s session</span></button>`
+    : `<button class="lw-go" onclick="openStage(${i})"><span>${locked?'See what&rsquo;s in '+esc(S.n):'Open '+esc(S.n)}</span></button>`;
+  return `<div class="lw-popi">
+      <button class="lw-img lw-popimg" onclick="openStage(${i})" aria-label="Open ${esc(S.n)}">${lwImg(i)}</button>
+      <div>
+        <div class="lw-k" style="font-size:11px">Stage ${i+1} &middot; ${tag}</div>
+        <div style="font:400 26px/1.1 var(--serif);color:var(--ink);margin-top:5px">${lwHead(S.n)}</div>
+        <div style="font:400 14px/1.4 var(--sans);color:#3f4f4d;margin-top:5px">${esc(lwLine(i))}</div>
+        ${p.of?`<div style="margin-top:10px">${lwSegs(Math.min(p.met,p.of), p.of, done)}</div>`:''}
+      </div>
+      ${btn}
+      <button class="lw-popx" onclick="lwPick(${i})" aria-label="Close ${esc(S.n)}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>`;
+}
+function lwPick(i){
+  const box=document.getElementById('lwPop'); if(!box){ openStage(i); return; }
   let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
-  if(sc){ const top=el.getBoundingClientRect().top-sc.getBoundingClientRect().top-(wide()?16:92);
-    sc.scrollBy({top, behavior:still?'auto':'smooth'}); }
-  el.classList.remove('lw-flash'); void el.offsetWidth; el.classList.add('lw-flash');
-  setTimeout(()=>el.classList.remove('lw-flash'), 1600);
+  const mark=k=>document.querySelectorAll('.lw-step').forEach((b,j)=>b.setAttribute('aria-expanded', String(j===k)));
+  const anim=typeof box.animate==='function' && !still;
+  if(lwPopI===i){                                   // the same figure: back in
+    lwPopI=null; mark(-1);
+    if(!anim){ box.hidden=true; box.innerHTML=''; return; }
+    const h=box.offsetHeight;
+    box.animate([{height:h+'px'},{height:'0px'}],{duration:260,easing:'cubic-bezier(.4,0,.2,1)'});
+    const inner=box.firstElementChild;
+    if(inner) inner.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.5)'}],{duration:220,easing:'ease',fill:'forwards'});
+    setTimeout(()=>{ if(lwPopI===null){ box.hidden=true; box.innerHTML=''; } }, 250);
+    return;
+  }
+  const had=lwPopI!=null; lwPopI=i; mark(i);
+  box.style.setProperty('--cx', ((i+.5)/STAGES.length*100)+'%');
+  const h0=had?box.offsetHeight:0;
+  box.innerHTML=lwPopHTML(i); box.hidden=false;
+  mountCaptions();
+  if(!anim) return;
+  const h1=box.offsetHeight;
+  box.animate([{height:h0+'px'},{height:h1+'px'}],{duration:380,easing:'cubic-bezier(.2,.8,.2,1)'});
+  box.firstElementChild.animate([{opacity:0,transform:'scale(.25)'},{opacity:1,transform:'none'}],{duration:420,easing:'cubic-bezier(.2,.8,.2,1)'});
+  /* all of it on screen if it opened low */
+  setTimeout(()=>{ const sc=box.closest('.scroll'); if(!sc) return;
+    const r=box.getBoundingClientRect(), v=sc.getBoundingClientRect();
+    const floor=v.bottom-(document.querySelector('.tabbar') && !wide() ? 96 : 16);
+    if(r.bottom>floor) sc.scrollBy({top:Math.min(r.bottom-floor, r.top-v.top-(wide()?16:92)), behavior:'smooth'}); }, 400);
 }
 function ladderWholeHTML(){
   const cur=curStage(), last=STAGES.length-1, tp=trialPending();
@@ -17347,7 +17403,7 @@ function ladderWholeHTML(){
     /* no You marker: the stage you are on is the amber figure with its name
        in bold, and the room the marker took goes to the figures, all the
        same size (Elliott, 10 Oct 2026) */
-    return `<button class="lw-step${i===here?' lw-cur':''}" onclick="lwStep(${i})" style="--d:${120+i*110}ms" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}. Show it below">
+    return `<button class="lw-step${i===here?' lw-cur':''}" onclick="lwPick(${i})" aria-expanded="${lwPopI===i}" style="--d:${120+i*110}ms" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}">
       <span class="lw-figw${next?' lw-next':''}" style="color:${
         done?'var(--forest)':now?'#e8962f':next?'var(--forest)':'#bcd5db'}">${lwFigSVG(i)}</span>
     </button>`; }).join('');
@@ -17356,7 +17412,7 @@ function ladderWholeHTML(){
      person would break them */
   const names = `<div class="lw-names" aria-hidden="true">${STAGES.map((S,i)=>{
     const done = i<here || (i===here && earned), now = i===here && !earned, next = earned && i===here+1;
-    return `<span onclick="lwStep(${i})" style="color:${done?'var(--forest)':now||next?'var(--ink)':'var(--grey)'}${
+    return `<span onclick="lwPick(${i})" style="color:${done?'var(--forest)':now||next?'var(--ink)':'var(--grey)'}${
       now||next?';font-weight:700':''}">${LW_BREAK[S.n]||esc(S.n)}</span>`; }).join('')}</div>`;
   const freeRow = free ? `<div class="lw-in lw-freerow" style="--d:700ms">
       <span style="grid-column:1 / ${FREE_STAGES+1}">Free</span>
@@ -17367,6 +17423,7 @@ function ladderWholeHTML(){
   const climb = `<div class="lw-card lw-in" style="--d:80ms;margin-top:16px;padding:18px">
       <div class="lw-steps">${bars}</div>
       ${names}
+      <div class="lw-pop" id="lwPop"${lwPopI==null?' hidden':''} style="--cx:${lwPopI==null?50:((lwPopI+.5)/STAGES.length*100)}%">${lwPopI==null?'':lwPopHTML(lwPopI)}</div>
       ${freeRow}
       <div class="lw-rule">
         <span>${LW_FLAG(14)}</span>
