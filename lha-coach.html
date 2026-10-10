@@ -8286,13 +8286,15 @@ const INBOX_TYPE={
   application:{label:'Application',      cls:'tag-other',   filter:'other',       act:1},
   session:    {label:'Session booked',   cls:'tag-other',   filter:'other',       act:1},
   hire:       {label:'Hire Arch 2',      cls:'tag-other',   filter:'other',       act:1},
+  request:    {label:'Asked to change',  cls:'tag-msg',     filter:'other',       act:1},
   feedback:   {label:'App feedback',     cls:'tag-neutral', filter:'other',       act:1},
 };
 let inboxRow='';                   /* the row expanded in place, if any */
 /* one to one sessions paid for and waiting for a time */
 let sessions=[], sessBusy='';
 function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep); }
-const sessOpen = () => sessions.filter(x=>x.status==='toArrange');
+/* an ask from the client is answered on its own item, not as one to arrange */
+const sessOpen = () => sessions.filter(x=>x.status==='toArrange' && !x.req);
 /* what is still to give back by card, the way the server counts it */
 const sessPaysOf = x => Array.isArray(x.pays)?x.pays : x.paidRef?[{ref:x.paidRef,pi:x.pi||'',amount:Number(x.paid)||0}] : x.session?[{ref:x.session,pi:x.pi||'',amount:Number(x.paid)||0}]:[];
 const sessBack = x => sessPaysOf(x).filter(p=>p.pi&&!p.autoRefund).reduce((a,p)=>a+Math.max(0,(Number(p.amount)||0)-(Number((x.refunds||{})[p.ref])||0)),0);
@@ -8305,7 +8307,7 @@ const gbp = p => '£'+(Number(p||0)/100).toFixed(Number(p||0)%100?2:0);
    whether or not the email went */
 function toldFlash(t, plain){
   if(!t){ if(plain) flash(plain); return; }
-  const head={confirmed:'Confirmed', asked:'Pay link sent', topay:'Moved, and they are asked to pay to confirm', cancelled:'Cancelled'}[t.what]||'Done';
+  const head={confirmed:'Confirmed', moved:'Moved', kept:'Kept as it is', asked:'Pay link sent', topay:'Moved, and they are asked to pay to confirm', cancelled:'Cancelled'}[t.what]||'Done';
   const money=t.what!=='cancelled'?'':t.refunded>0?' and '+gbp(t.refunded)+' refunded to their card':t.refundFailed?', but the refund did not go through: do it in Stripe ('+t.refundFailed+')':t.hand?': give back what they paid by hand':'';
   flash(head+money+'. '+(t.mailed?'They have been emailed.':'The email did not go, so they only have it in the app.'));
 }
@@ -8380,7 +8382,12 @@ function inboxItems(){
       +(x.prefs?' · prefers: '+clip(x.prefs,80):' · no times given')}));
   /* a time the client picked themselves: the room is not hired until you
      hire it, so it waits here until it is ticked */
-  sessions.filter(x=>x.room==='hire' && x.status==='arranged' && x.when && new Date(x.when).getTime()>Date.now()-3*3600e3)
+  /* the client asked to cancel or move: yours to decide, refund and all */
+  sessions.filter(x=>x.req && ['arranged','toArrange'].includes(x.status) && (!x.when || new Date(x.when).getTime()>Date.now()-3*3600e3))
+    .forEach(x=>out.push({id:'Q2:'+x.id, type:'request', email:x.email, name:x.name||x.email, at:Number(x.req.at)||x.at, action:'Decide', sess:x,
+      detail:(x.req.kind==='cancel'?'Asked to cancel':'Asked to move'+(x.req.slot?' to '+sessLondon(x.req.slot):''))+(x.when?' · '+sessLondon(x.when):'')
+        +(x.req.late?' · under 24 hours':'')+(x.req.prefs?' · suits: '+clip(x.req.prefs,60):'')+(x.req.note?' · "'+clip(x.req.note,80)+'"':'')}));
+  sessions.filter(x=>x.room==='hire' && !x.req && x.status==='arranged' && x.when && new Date(x.when).getTime()>Date.now()-3*3600e3)
     .forEach(x=>out.push({id:'H:'+x.id, type:'hire', email:x.email, name:x.name||x.email, at:(x.moves&&x.moves.length?x.moves[x.moves.length-1].at:x.at),
       action:'Room hired', sess:x, detail:sessLondon(x.when)+', '+x.kind+' minutes'+((x.moves||[]).length?', moved by them':', booked by them')}));
   /* ── too hard, too easy ───────────────────────────────────────
@@ -8466,6 +8473,15 @@ function inboxBodyHTML(r){
       <span class="muted" style="font-size:12px">${f.email?'To '+esc(f.email)+'. Their reply comes to info@.':'They left no email address.'}</span>
     </div>`;
   }
+  if(r.type==='request'){ const x=r.sess, q=x.req||{};
+    const paid=sessHand(x)?'paid '+gbp(x.paid)+' outside Stripe':sessBack(x)>0?'paid '+gbp(sessBack(x))+' by card':x.fromPlan?'part of their coaching':'nothing paid';
+    return `
+    <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${q.kind==='cancel'?'They asked to cancel':'They asked to move it'+(q.slot?' to '+esc(sessLondon(q.slot)):'')}</b>, ${esc(ago(q.at))}.
+      ${x.when?'Booked for '+esc(sessLondon(x.when))+'. ':''}${q.late?'<b>Less than 24 hours\' notice.</b> ':''}They ${esc(paid)}${x.room==='hired'?', and Arch 2 is hired':''}.
+      ${q.prefs?'Days that suit: <i>"'+esc(q.prefs)+'"</i>. ':''}${q.note?'They said: <i>"'+esc(q.note)+'"</i>':''}</p>
+    ${sessDecideHTML(x,true)}
+    <div style="margin-top:var(--space-2)"><button class="btn btn-secondary btn-sm" onclick="openClient(${jsq(x.email)},'121')">Their 1-2-1s</button></div>`;
+  }
   if(r.type==='hire'){ const x=r.sess; const busy=sessBusy===x.id;
     return `
     <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${esc(sessLondon(x.when))}</b>, ${esc(x.kind)} minutes, ${(x.moves||[]).length?'moved there by them':'picked by them on the session page'}. It is confirmed to them. Hire Arch 2 at OverGravity for it, then tick it here.</p>
@@ -8486,8 +8502,8 @@ function inboxBodyHTML(r){
     <div style="display:flex;gap:var(--space-2);align-items:center;margin-top:var(--space-3);flex-wrap:wrap">
       <button class="btn btn-primary" onclick="sessConfirm(${jsq(x.id)})" ${busy?'disabled':''}>${busy?'Sending…':'Confirm the time'}</button>
       <button class="btn btn-secondary" onclick="openClient(${jsq(x.email)})">Open their thread</button>
-      <button class="btn btn-ghost" onclick="sessCancelAsk(${jsq(x.id)})" style="color:var(--terra)">${sessBack(x)>0?'Cancel and refund '+gbp(sessBack(x)):'Cancel it'}</button>
-    </div>`;
+      <button class="btn btn-ghost" onclick="oneCancelOpen=oneCancelOpen===${jsq(x.id)}?'':${jsq(x.id)};draw()" style="color:var(--terra)">Cancel it</button>
+    </div>${oneCancelOpen===x.id?sessDecideHTML(x,false):''}`;
   }
   if(r.type==='application'){ const a=r.app, A=a.answers||{};
     const rows=[['Goal',A.goal],['Level',A.level],['Format',A.format],
@@ -8556,7 +8572,7 @@ const TODAY_CATS=[['all','Everything'],['messages','Messages'],['clips','Clips']
 const initial = n => (String(n||'?').trim()[0]||'?').toUpperCase();
 /* inside a card: what they said to you first, then what they sent, then the news */
 const LINE_ORDER=['message','question','point','check','review','said','flag','logged','trained',
-  'session','hire','application','feedback'];
+  'request','session','hire','application','feedback'];
 function trainLine(email){
   const a=prog[email]?analysis(email):null;
   if(!a) return '';
@@ -9121,35 +9137,74 @@ function onePayLink(id){
   const u=location.origin+'/api/app/session/pay?id='+encodeURIComponent(id);
   try{ navigator.clipboard.writeText(u).then(()=>flash('Pay link copied')); }catch(e){ prompt('The pay link', u); }
 }
-/* Cancel refunds what they paid by card, through Stripe, the way their own
-   cancel does; "no refund" is for a late cancellation, which the terms let
-   you keep. Paid outside Stripe, you give it back by hand. */
+/* ── deciding on a 1-2-1 ──────────────────────────────────────────────
+   You hire and pay for the room, so a refund is yours to choose: in full,
+   a part you type, or none, with a line to them if you like. Answering a
+   client's ask, you can also move it to a new date or keep it as it is.
+   Paid outside Stripe, a refund is yours to give back by hand, and they are
+   told you will. The same panel on Today and on their 1-2-1s. */
 let oneCancelOpen='';
-function oneCancelHTML(x){
-  const back=sessBack(x), hand=!back&&sessHand(x), id=jsq(x.id);
+/* a date and time typed as London time, wherever this computer is */
+const londonISO=(d,t)=>{ const [y,mo,da]=String(d).split('-').map(Number), [h,mi]=String(t||'10:00').split(':').map(Number);
+  const off=x=>{ const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+    .formatToParts(new Date(x)).map(o=>[o.type,o.value])); return Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute)-x; };
+  const g=Date.UTC(y,mo-1,da,h,mi); let u=g-off(g); const o2=off(u); if(o2!==off(g)) u=g-o2; return new Date(u).toISOString(); };
+const londonParts=t=>{ const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+  .formatToParts(new Date(t)).map(o=>[o.type,o.value])); return {d:p.year+'-'+p.month+'-'+p.day, t:p.hour+':'+p.minute}; };
+/* ask: answering their ask, so moving and keeping are offered too */
+function sessDecideHTML(x, ask){
+  const back=sessBack(x), hand=!back&&sessHand(x), id=jsq(x.id), key=esc(x.id), busy=sessBusy===x.id?'disabled':'';
+  const q=x.req||{}, w=q.slot?londonParts(q.slot):x.when?londonParts(x.when):null;
+  const inp='border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff';
+  const money=back>0||hand;
   return `<div style="margin-top:10px;padding:12px 14px;border-radius:12px;background:var(--mist)">
-    <div style="font:500 13.5px/1.5 var(--sans)">Cancel it? They are told by email and in the chat${x.room==='hired'?'. If you hired Arch 2, let OverGravity know':''}.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      ${back>0?`<button class="btn btn-primary btn-sm" onclick="oneCancelGo(${id},'full')" ${sessBusy===x.id?'disabled':''}>Cancel and refund ${gbp(back)}</button>
-        <button class="btn btn-secondary btn-sm" onclick="oneCancelGo(${id},'none')" ${sessBusy===x.id?'disabled':''}>Cancel, no refund</button>`
-      :hand?`<button class="btn btn-primary btn-sm" onclick="oneCancelGo(${id},'full')" ${sessBusy===x.id?'disabled':''}>Cancel, and I give back ${gbp(x.paid)}</button>
-        <button class="btn btn-secondary btn-sm" onclick="oneCancelGo(${id},'none')" ${sessBusy===x.id?'disabled':''}>Cancel, no refund</button>`
-      :`<button class="btn btn-primary btn-sm" onclick="oneCancelGo(${id},'none')" ${sessBusy===x.id?'disabled':''}>Cancel it</button>`}
-      <button class="btn btn-ghost btn-sm" onclick="oneCancelOpen='';draw()">Keep it</button>
-    </div>
-    ${back>0||hand?'<div class="muted" style="font-size:12px;margin-top:8px">No refund is for a late cancellation: inside 24 hours the terms let you keep it.</div>':''}
+    ${ask?'':`<div style="font:500 13.5px/1.5 var(--sans)">Cancel it? They are told by email and in the chat${x.room==='hired'?'. If you hired Arch 2, let OverGravity know':''}.</div>`}
+    <input id="dm-${key}" placeholder="A line for them, optional" style="${inp};width:100%;margin-top:${ask?0:10}px">
+    ${money?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      <span class="kick" style="flex:none;width:84px">${ask?'CANCEL WITH':'REFUND'}</span>
+      <button class="btn btn-primary btn-sm" onclick="decRefund(${id},'full')" ${busy}>${hand?'I give back '+gbp(x.paid):'Refund '+gbp(back)}</button>
+      <span style="display:inline-flex;gap:6px;align-items:center"><span style="font:600 14px/1 var(--sans)">£</span>
+        <input id="dp-${key}" type="number" min="0.3" step="0.01" placeholder="40" style="${inp};width:80px">
+        <button class="btn btn-secondary btn-sm" onclick="decRefund(${id},'part')" ${busy}>${hand?'I give back part':'Refund part'}</button></span>
+      <button class="btn btn-secondary btn-sm" onclick="decRefund(${id},'none')" ${busy}>No refund</button></div>`
+    :`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-${ask?'secondary':'primary'} btn-sm" onclick="decRefund(${id},'none')" ${busy}>Cancel it</button></div>`}
+    ${ask?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      <span class="kick" style="flex:none;width:84px">OR MOVE IT</span>
+      <input id="dd-${key}" type="date" value="${w?w.d:''}" style="${inp}">
+      <input id="dt-${key}" type="time" value="${w?w.t:'10:00'}" style="${inp}">
+      <button class="btn btn-secondary btn-sm" onclick="decMove(${id})" ${busy}>${q.slot?'Move it there':'Move it'}</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      <span class="kick" style="flex:none;width:84px">OR</span>
+      <button class="btn btn-ghost btn-sm" onclick="decKeep(${id})" ${busy}>Keep it as it is</button></div>`
+    :`<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="oneCancelOpen='';draw()">Keep it</button></div>`}
+    ${money?`<div class="muted" style="font-size:12px;margin-top:8px">${hand?'They paid outside Stripe, so a refund is yours to give back by hand: they are told you will.':'Refunds go through Stripe to the card they paid with.'} With less than 24 hours' notice the terms let you keep it.</div>`:''}
   </div>`;
 }
-function oneCancelGo(id,refund){ oneCancelOpen=''; sessSet(id,{status:'cancelled',refund}); }
-/* Today's session waiting for a time: no time was found, so it is refunded */
-function sessCancelAsk(id){
+const decMsg=id=>((document.getElementById('dm-'+id)||{}).value||'').trim();
+function decRefund(id, how){
   const x=sessions.find(s=>s.id===id); if(!x) return;
   const back=sessBack(x), hand=!back&&sessHand(x);
-  if(!confirm(back>0?'Cancel this session and refund '+gbp(back)+' to their card? They are told by email and in the chat.'
-    :hand?'Cancel this session? They paid '+gbp(x.paid)+' outside Stripe, so give it back by hand. They are told you will.'
-    :'Cancel this session? They are told by email and in the chat.')) return;
-  sessSet(id,{status:'cancelled',refund:back>0||hand?'full':'none'});
+  let refund=how;
+  if(how==='part'){
+    const v=Number(String((document.getElementById('dp-'+id)||{}).value||'').replace(/[^0-9.]/g,''));
+    if(!(v>=0.3)) return alert('How much back, in pounds? At least £0.30.');
+    refund=Math.round(v*100);
+    const most=hand?Number(x.paid)||0:back;
+    if(refund>most) return alert('That is more than the '+gbp(most)+' '+(hand?'they paid':'left to refund by card')+'.');
+  }
+  const amt=how==='full'?(hand?Number(x.paid)||0:back):how==='part'?refund:0;
+  if(!confirm(how==='none'?'Cancel it with no refund? They are told it is not refunded.'
+    :hand?'Cancel it? They are told you will give back '+gbp(amt)+'.'
+    :'Cancel it and refund '+gbp(amt)+' to their card?')) return;
+  oneCancelOpen=''; sessSet(id,{status:'cancelled', refund, msg:decMsg(id)});
 }
+function decMove(id){
+  const d=(document.getElementById('dd-'+id)||{}).value, t=(document.getElementById('dt-'+id)||{}).value||'10:00';
+  if(!d) return alert('Pick the date first.');
+  sessSet(id,{when:londonISO(d,t), status:'arranged', msg:decMsg(id)});
+}
+function decKeep(id){ sessSet(id,{keep:true, msg:decMsg(id)}); }
+function oneCancelHTML(x){ return sessDecideHTML(x,false); }
 function oneOnePaneHTML(){
   const f=(x)=>x.when?new Date(x.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Time to arrange';
   const mine=sessions.filter(x=>x.email===sel).slice().sort((a,b)=>(a.when?new Date(a.when).getTime():9e15)-(b.when?new Date(b.when).getTime():9e15));
@@ -9167,7 +9222,8 @@ function oneOnePaneHTML(){
     </div>`; };
   const card=x=>{ const upcoming=soon.indexOf(x)>-1;
     const owes=x.ask>0 && x.status!=='cancelled';
-    const st= owes?pill('TO PAY · '+gbp(x.ask),'var(--terra)')
+    const st= x.req&&upcoming?pill(x.req.kind==='cancel'?'ASKED TO CANCEL':'ASKED TO MOVE','var(--terra)')
+      : owes?pill('TO PAY · '+gbp(x.ask),'var(--terra)')
       : x.room==='hire' && upcoming && x.status==='arranged'?pill('HIRE ARCH 2','var(--terra)')
       : x.status==='toArrange'?pill('TO ARRANGE','var(--terra)') : x.status==='cancelled'?pill('CANCELLED','var(--grey2)')
       : x.status==='done'?pill('DONE','var(--grey)') : upcoming?pill('BOOKED','var(--forest)') : pill('HAPPENED?','var(--grey2)');
@@ -9182,11 +9238,12 @@ function oneOnePaneHTML(){
             ${upcoming&&x.room==='hire'?link('Arch 2 is hired','sessSet(\''+esc(x.id)+'\',{room:\'hired\'})'):''}
             ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
             ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):''}
-            ${upcoming?link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()'):''}
+            ${upcoming&&!x.req?link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()'):''}
             ${!x.paid && !owes && x.status!=='cancelled'?link('Ask them to pay','oneAsk(\''+esc(x.id)+'\',\''+esc(x.kind||'60')+'\')'):''}
             ${owes?link('Copy the pay link','onePayLink(\''+esc(x.id)+'\')'):''}</div>`:''}
-      ${x.status==='toArrange'&&oneCancelOpen!==x.id?`<div style="margin-top:10px">${link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()')}</div>`:''}
-      ${oneCancelOpen===x.id&&['toArrange','arranged'].includes(x.status)?oneCancelHTML(x):''}
+      ${x.status==='toArrange'&&!x.req&&oneCancelOpen!==x.id?`<div style="margin-top:10px">${link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()')}</div>`:''}
+      ${x.req&&upcoming?`<div style="font:500 13px/1.5 var(--sans);margin-top:10px">${x.req.kind==='cancel'?'They asked to cancel':'They asked to move it'+(x.req.slot?' to '+esc(sessLondon(x.req.slot)):'')}${x.req.late?', with less than 24 hours\' notice':''}.${x.req.prefs?' Suits: <i>'+esc(x.req.prefs)+'</i>.':''}${x.req.note?' They said: <i>'+esc(x.req.note)+'</i>':''}</div>${sessDecideHTML(x,true)}`
+        :oneCancelOpen===x.id&&['toArrange','arranged'].includes(x.status)?oneCancelHTML(x):''}
     </div>`; };
   return `<div>
     <div class="kick">BOOK A 1-2-1</div>
