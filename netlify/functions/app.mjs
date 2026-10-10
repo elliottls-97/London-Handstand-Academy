@@ -3153,11 +3153,18 @@ const handle = async (request) => {
         const pastNow = (await getSetting('pastclients')) || {};
         const wasPast = !!pastNow[e2];
         if (wasPast) { delete pastNow[e2]; await setSetting('pastclients', pastNow); PAST = pastNow; }
+        let overFull = false;
         if ((!stored[e2] && !clients()[e2]) || wasPast) {
           stored[e2] = { name: acct.name || e2, coach: '', tier: variant || boughtPlan };
           await setSetting('roster', stored);
-          /* a new coaching client takes one of the places the site says are open */
-          await changeSetting('coachplaces', cur => cur && Number(cur.n) > 0 ? { n: Number(cur.n) - 1, at: Date.now(), by: 'purchase' } : undefined).catch(() => {});
+          /* a new coaching client takes one of the places the site says are
+             open. With none left, Stripe's page still sells it, since a
+             payment link knows nothing of the places, and that went by
+             unremarked: the coach is told it is one over. */
+          await changeSetting('coachplaces', cur => {
+            overFull = !!cur && Number.isInteger(Number(cur.n)) && !(Number(cur.n) > 0);
+            return cur && Number(cur.n) > 0 ? { n: Number(cur.n) - 1, at: Date.now(), by: 'purchase' } : undefined;
+          }).catch(() => {});
         } else if (stored[e2] && stored[e2].tier !== (variant || boughtPlan)) {
           stored[e2] = Object.assign({}, stored[e2], { tier: variant || boughtPlan });
           await setSetting('roster', stored);
@@ -3189,13 +3196,15 @@ const handle = async (request) => {
         const coachNew = !obj.id || await supa.insertIfAbsent('nudges', { key: `coachnew:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
         /* coaching has no free week, so nothing paid can only be a code */
         const coNote = codeNote(obj) || (!(Number(obj.amount_total) > 0) ? 'Free on a code' : '');
-        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : ''), tag: 'coachnew:' + e2 });
-        if (coachNew && await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
+        const overTxt = overFull ? 'The places were at 0, so this is one more client than you set as open this month' : '';
+        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : '') + (overTxt ? '. ' + overTxt : ''), tag: 'coachnew:' + e2 });
+        if (coachNew && (overFull || await coachMail(e2, 'business'))) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}${overFull ? ' (places were full)' : ''}`,
           mail({ title: `Someone just bought ${tierFull}.`,
             paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.${
                       london > 0 ? ' Their London session is on Today, waiting for a time.' : ''}`,
                     boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.',
-                    coNote ? `<b>${esc(coNote)}.</b>` : ''].filter(Boolean),
+                    coNote ? `<b>${esc(coNote)}.</b>` : '',
+                    overTxt ? `<b>${esc(overTxt)}.</b> Take them on, or refund them in Stripe and offer the waiting list.` : ''].filter(Boolean),
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
             signoff: { name: 'London Handstand Academy' } }));
         /* somebody who bought from the website has an account and no
