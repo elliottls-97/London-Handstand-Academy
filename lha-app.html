@@ -816,10 +816,11 @@ video{width:100%;display:block;background:#000}
  border:1px solid var(--line);background:#fff;color:var(--grey)}
 .rt.easy.on{background:var(--sage);color:#fff;border-color:transparent}
 .rt.hard.on{background:var(--amber);color:#fff;border-color:transparent}
-/* a drill row's dots, and what they open */
-.rt.rmore{min-width:38px;min-height:36px;height:36px;padding:0 10px;font-weight:700;letter-spacing:.08em;line-height:1}
-.rmrow{display:contents}
-.rmrow[hidden]{display:none}
+/* the pills under a drill in the session list: one height, and Cues
+   picked out while its cues are showing, so the label need not change
+   width and push the last pill onto a line of its own */
+.rowpills>button{min-height:40px!important}
+.rt[aria-expanded="true"]{background:rgba(0,102,99,.08);color:var(--deep);border-color:rgba(0,64,61,.18)}
 /* How was it? on a drill: the button says what was picked, and opens a
    segmented control and a line to write on underneath */
 .rt.said{background:rgba(0,102,99,.08);color:var(--deep);border-color:rgba(0,64,61,.18)}
@@ -2447,9 +2448,10 @@ function pressHomeHTML(){
     step(R===10&&plan?'cur':'todo', 10, 'Free press', 'Nothing at all. This is the thing.', '')
   ].join('');
   const go = plan
-    ? `<button class="px-go" onclick="buildFixSession('press-plan',false)"><b>Start today's session</b>
+    ? `<div style="margin-top:16px">${goModeHTML()}</div>
+       <button class="px-go" onclick="buildFixSession('press-plan',st.goMode==='list')"><b>Start today's session</b>
         <span>Prep · ${r&&!r.clean?esc(pressLimName(r))+' drills · ':''}Rung ${R} · about ${plan.mins} min</span></button>
-       <button class="px-ghost" onclick="buildFixSession('press-prep',false)">Run the prep on its own · 10 min</button>`
+       <button class="px-ghost" onclick="buildFixSession('press-prep',st.goMode==='list')">Run the prep on its own · 10 min</button>`
     : `<button class="px-go" onclick="openLimiter()"><b>Find your limiting factor</b><span>Film it, keep it, retest at week six</span></button>`;
   const journey=`<div class="px-card">
     <div class="px-k">Your journey</div>
@@ -2674,7 +2676,7 @@ function pressChooserHTML(){
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Your press plan</div>
     <div style="font:400 22px/1.15 var(--serif);margin-top:7px">Week ${pressWeek()} of 6 · ${esc(f.week.phase)}</div>
     <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:4px">Session ${Math.min(n+1,18)} of 18 · about ${f.mins} min</div>
-    <button class="btn pt-go" style="margin-top:12px;min-height:52px" onclick="closeOv();buildFixSession('press-plan',false)">Start your press plan</button>
+    <button class="btn pt-go" style="margin-top:12px;min-height:52px" onclick="closeOv();buildFixSession('press-plan',st.goMode==='list')">Start your press plan</button>
     <div style="font:400 12px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:8px">Or build one from the stage below.</div>
   </div>`;
 }
@@ -4374,7 +4376,7 @@ function screenPlan(){
               <span style="font:700 13px/1 var(--sans);color:var(--forest)">${esc(it.d)}</span>
               ${g.warm?'':(planLogged(k)!=null?planLogBtn(k,it):'')}
               ${howBtnHTML(it.v,'p'+k)}
-              ${g.warm||planLogged(k)!=null?'':rowMoreHTML('p'+k, planLogBtn(k,it))}
+              ${g.warm||planLogged(k)!=null?'':planLogBtn(k,it)}
             </div>
             ${howPanelHTML(it.v,'p'+k)}
             ${st.repOpen===k?planStepper(k,it):''}
@@ -5010,7 +5012,12 @@ const cpFor = i => {
     /* a check point can be written now and scheduled for later, so one with
        a start date does not exist until that date */
     const today=new Date().toISOString().slice(0,10);
-    return DATA.checkpoints.filter(c=>!c.from || c.from<=today);
+    /* one written without a demo shows the drill of the same name, if the
+       library has one, rather than no film at all */
+    return DATA.checkpoints.filter(c=>!c.from || c.from<=today)
+      .map(c=>{ if(!c || c.demo || !c.n) return c;
+        const n=String(c.n).trim().toLowerCase(), d=LIBRARY.find(x=>x && String(x.n||'').trim().toLowerCase()===n);
+        return d ? Object.assign({}, c, {demo:d.v}) : c; });
   }
   return cpsFor(i==null?curStage():i) || [];
 };
@@ -6685,8 +6692,20 @@ function climbTap(btn){
   const use=lc.dataset.use||'log', k=r.dataset.ck;
   if(use==='log' && !coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
   let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
-  const was=lcOpen[use];
-  lc.querySelectorAll('.lc-r.open').forEach(o=>rungShut(o, still));
+  const was=lcOpen[use], sc=r.closest('.scroll');
+  /* A rung open above this one used to fold away over a quarter of a
+     second, so the one just pressed slid up the screen from under the
+     finger (Elliott, 10 Oct 2026: "it moves the checkpoint around the
+     screen"). It goes at once now, and the page moves by what it took up,
+     so the pressed rung stays exactly where it was. One below can still
+     fold: nothing above it moves. */
+  lc.querySelectorAll('.lc-r.open').forEach(o=>{
+    const above = o!==r && (o.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if(!above || !sc || was===k){ rungShut(o, still); return; }
+    const y0=r.getBoundingClientRect().top;
+    rungShut(o, true);
+    sc.scrollTop += r.getBoundingClientRect().top - y0;
+  });
   if(was===k){ lcOpen[use]=null; return; }
   lcOpen[use]=k;
   const S=climbState(lcSi(lc.dataset.si)), row=S.rows.find(x=>x.c.k===k); if(!row) return;
@@ -6697,22 +6716,42 @@ function climbTap(btn){
   const ob=r.querySelector('.lc-open'); if(ob) ob.setAttribute('aria-expanded','true');
   mountCaptions();
   const v=x.querySelector('video'); if(v){ v.muted=!soundOn(); startFilm(v); }
-  if(!still && typeof x.animate==='function'){
-    const h=x.offsetHeight;
-    x.animate([{height:'0px',opacity:0},{height:h+'px',opacity:1}],{duration:340,easing:'cubic-bezier(.2,.8,.2,1)'})
-      .onfinish=()=>climbFit(lc);
-  }
-  climbFit(lc);
-  /* bring the whole of it into view if it has grown past the tab bar,
-     never further than putting the rung itself at the top */
-  setTimeout(()=>{
-    const sc=r.closest('.scroll'); if(!sc) return;
+  /* how far the page has to move to show all of it above the tab bar,
+     never further than putting the rung itself at the top. Worked out
+     now, at its full height, rather than after it had grown: it grew
+     for a third of a second and then the page flew half a screen to
+     catch up, two movements where there should be one. */
+  let by=0;
+  if(sc){
     const box=r.getBoundingClientRect(), view=sc.getBoundingClientRect();
     const floor=view.bottom - (document.querySelector('.tabbar') && !wide() ? 96 : 16);
     const ceil=view.top + (wide() ? 16 : 80);
-    const by=Math.min(box.bottom-floor, box.top-ceil);
-    if(by>0) sc.scrollBy({top:by, behavior:still?'auto':'smooth'});
-  }, still?0:360);
+    by=Math.max(0, Math.min(box.bottom-floor, box.top-ceil));
+  }
+  if(still || typeof requestAnimationFrame!=='function'){
+    if(by) sc.scrollTop += by;
+    climbFit(lc); return;
+  }
+  /* the box opens and the page follows it in the same frames, on the same
+     curve, so the rung rises as it unfolds. A finger on the page takes
+     over: the scroll stops being driven the moment it is not where this
+     left it. */
+  const h=x.offsetHeight, y0=sc?sc.scrollTop:0, t0=performance.now(), T=380;
+  const ease=p=>1-Math.pow(1-p,3);
+  let mine=y0, driving=!!by;
+  x.style.height='0px'; x.style.opacity='0';
+  climbFit(lc);
+  (function frame(now){
+    const p=Math.min(1,(now-t0)/T), e=ease(p);
+    x.style.height=(h*e)+'px'; x.style.opacity=String(Math.min(1,e*1.4));
+    if(driving){
+      if(Math.abs(sc.scrollTop-mine)>2) driving=false;
+      else { sc.scrollTop=y0+by*e; mine=sc.scrollTop; }
+    }
+    if(p<1) return requestAnimationFrame(frame);
+    x.style.height=''; x.style.opacity='';
+    climbFit(lc);
+  })(t0);
 }
 /* flat: straight onto the page, as on the ladder tab, where the heading
    above already carries the count and the bar. The card round cards, and
@@ -7048,17 +7087,6 @@ function planLogBtn(k,it){
   return `<button class="rt" onclick="planOpenRep('${k}')">${u==='s'?'Log time':'Log reps'}</button>`;
 }
 function planOpenRep(k){ st.repOpen=k; save(); render(); }
-/* the row's extras behind its dots, open across redraws */
-const rowMoreOpen=new Set();
-function rowMoreHTML(k, inner){
-  if(!inner) return '';
-  const on=rowMoreOpen.has(k);
-  return `<button class="rt rmore" onclick="rowMore('${k}',this)" aria-expanded="${on}" aria-label="More for this drill">⋯</button>
-    <span class="rmrow" id="rm-${k}"${on?'':' hidden'}>${inner}</span>`;
-}
-function rowMore(k, b){ const el=document.getElementById('rm-'+k); if(!el) return;
-  const on=el.hidden; el.hidden=!on; if(on) rowMoreOpen.add(k); else rowMoreOpen.delete(k);
-  if(b) b.setAttribute('aria-expanded', String(on)); }
 function planStepper(k,it){
   const u=doseUnit(it.d), step=u==='s'?5:1;
   const want=recommendedReps(it)||0;
@@ -10981,11 +11009,12 @@ function drawOv(){
           (!_wrist && stageLevel(_cur)===1 && easyCapped(_cur)) ? 'minutes · easier stops at '+EASY_CAP : 'minutes'}</div>
       </div>
 
-      <!-- "Follow along" and "Every drill" were offered here as a choice
-           between two things, to somebody who had seen neither, and they
-           were never two sessions: they were two ways of doing the same one.
-           There is one workout now. It opens as the list, and the follow
-           along player is a button at the top of it. -->
+      <!-- Follow along or drill by drill. Go started the follow along with
+           the list as a link under it, which assumed everybody wanted to be
+           run through it (Elliott, 10 Oct 2026). It is asked beside the
+           other two questions now and remembered, so Go does what was
+           picked last time. -->
+      ${goModeHTML(_kick,_seg)}
 
       ${(function(){
         /* the coach's set workouts for this stage live in Fixes, so a fix
@@ -11010,23 +11039,19 @@ function drawOv(){
           This is your one free session at <b>${esc(STAGES[curStage()].n)}</b>. After it the ladder
           is ${sellsLadder() ? PRICE()+' a month'+(trialLine()?', '+trialLine():'') : MEMBERS}.</span>
       </div>` : ''}
-      <!-- Go starts it. It opened the list, so a session took four taps and
-           the button called Go did not go (usability review, 10 Oct 2026).
-           The list is the link under it. -->
-      <button onclick="closeOv();buildFreeSession(${_wrist},false,${_wrist?'null':_arg})"
+      <!-- Go starts it, the way chosen above. It opened the list, so a
+           session took four taps and the button called Go did not go
+           (usability review, 10 Oct 2026). -->
+      <button onclick="closeOv();buildFreeSession(${_wrist},st.goMode==='list',${_wrist?'null':_arg})"
         style="height:60px;width:100%;border:0;border-radius:16px;
         background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
         color:var(--on-primary);display:flex;align-items:center;justify-content:center;gap:10px;
         cursor:pointer;font:600 18px/1 var(--sans)">
-        <svg width="15" height="17" viewBox="0 0 17 19" fill="currentColor"><path d="M16 8.63a1 1 0 0 1 0
-          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg>
+        ${goModeIcon()}
         Go &middot; ${_wrist?'mobility day'
           :sessionMins()+' min, '+esc(BAND_NAME[stageLevel(_cur)].toLowerCase())}
       </button>
-      <button onclick="closeOv();buildFreeSession(${_wrist},true,${_wrist?'null':_arg})"
-        style="width:100%;background:none;border:0;cursor:pointer;padding:6px;margin:-6px 0 -4px;
-        font:600 14px/1.3 var(--sans);color:var(--forest)">See the drills first</button>
       <!-- said at the moment of starting, every time, as the quiz said it once -->
       <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin:-2px 0 2px">
         It starts with a warm-up. Stop if anything hurts.</div>
@@ -11141,25 +11166,6 @@ function drawOv(){
                 return bits.length?`<span style="font:500 12.5px/1 var(--sans);color:var(--grey2)">${
                   esc(bits.join(' · '))}</span>`:'';
               })()}
-              <!-- an underlined word among other words did not read as
-                   something to press, and the unit was already said two
-                   items to its left -->
-              ${(()=>{
-                /* Three buttons on every row (the tick, Log and Not today)
-                   and nothing saying which one counted the drill. The tick
-                   does; the rest sit behind the dots until they are wanted,
-                   and a number once logged stays in view (usability review,
-                   10 Oct 2026). */
-                const logB=`<button onclick="toggleStep('${k}')" id="dose-${k}"
-                  style="${logLook(logged!=null)}">${logged==null?'Log':logged+doseUnit(it.d)+' done'}</button>`;
-                /* a sore wrist, no wall, or a drill they simply cannot do this
-                   week. It leaves this session and the ones after it for seven
-                   days, rather than being skipped again every time. */
-                const asideB=`<button class="rt" onclick="asideRow(${jsq(it.v)})"
-                  title="Out of your sessions for a week">Not today</button>`;
-                return (logged!=null?logB:'')+(st.in?howBtnHTML(it.v,k):'')
-                  +rowMoreHTML(k, (logged==null?logB:'')+(st.in?'':asideB));
-              })()}
             </div>
               </div>
               ${it.url?`<button class="rt" style="flex:none;padding:0;width:96px;height:56px;
@@ -11176,7 +11182,7 @@ function drawOv(){
                   -webkit-backdrop-filter:blur(6px);
                   font:600 ${openD?'11':'10'}px/1 var(--sans);padding-left:${openD?'0':'2'}px">${
                   openD?'✕':'▶'}</span></button>`
-                :`<button class="rt" style="flex:none" onclick="toggleCues('${k}',this)">How to</button>`}
+                :''}
             </div>
             <div id="step-${k}" ${editing?'':'hidden'}
               style="display:flex;align-items:center;gap:10px;margin-top:11px">
@@ -11204,11 +11210,38 @@ function drawOv(){
             })()}
             ${it.desc?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">${
               esc(it.desc)}</div>`:''}
+            <!-- The pills sat in the column beside the film's still, about
+                 160px wide on a phone, so Cues, How was it? and the dots
+                 wrapped onto three lines (Elliott, 10 Oct 2026: "stuff
+                 doesn't fit"). They have the card's width under the
+                 description now. The cues only showed once the film was
+                 opened, which nothing said: Cues is its own pill. -->
+            <div class="rowpills" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px">
+              ${(it.cues&&it.cues.length)?`<button class="rt" id="cuesb-${k}" aria-expanded="${cuesOpen.has(k)}"
+                onclick="toggleCues('${k}',this)">Cues</button>`:''}
+              ${(()=>{
+                /* Log and Not today went behind a dots button so the tick
+                   read as the thing that counts a drill (usability review),
+                   and the dots then meant nothing to anybody (Elliott, 10 Oct
+                   2026). They are said in full instead, as what they do: the
+                   tick still counts it, these record a number or take the
+                   drill out for a week. */
+                const u=doseUnit(it.d);
+                const logB=`<button onclick="toggleStep('${k}')" id="dose-${k}"
+                  style="${logLook(logged!=null)}">${logged==null?(u==='s'?'Log time':'Log reps'):logged+u+' done'}</button>`;
+                /* a sore wrist, no wall, or a drill they simply cannot do this
+                   week. It leaves this session and the ones after it for seven
+                   days, rather than being skipped again every time. */
+                const asideB=`<button class="rt" onclick="asideRow(${jsq(it.v)})"
+                  title="Out of your sessions for a week">Skip for a week</button>`;
+                return logB+(st.in?howBtnHTML(it.v,k):asideB);
+              })()}
+            </div>
             <div id="demo-${k}" hidden style="margin-top:11px"></div>
             <!-- the same keys the box ticks, so anything that needs to know
                  which sets a card stands for can read them off it -->
             <span hidden data-keys="${keysJson}"></span>
-            <div id="cues-${k}" hidden style="margin-top:10px">
+            <div id="cues-${k}" ${cuesOpen.has(k)?'':'hidden'} style="margin-top:10px">
               ${(it.cues&&it.cues.length)?`<div style="background:rgba(0,102,99,.05);border-radius:12px;
                 padding:11px 13px">
                 <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">HOW TO DO IT</div>
@@ -13405,8 +13438,8 @@ function toggleListDemo(k,btn){
      folded demo stops rather than looping on out of sight */
   const v=box.querySelector('video');
   if(v){ if(open){ v.muted=!soundOn(); startFilm(v); } else { try{ v.pause(); }catch(e){} } }
-  /* the cues belong with the clip — you are watching it to learn the thing */
-  const cues=document.getElementById('cues-'+k); if(cues) cues.hidden=!open;
+  /* the cues belong with the clip, you are watching it to learn the thing */
+  if(open) toggleCues(k, null, true);
   if(open) mountCaptions();
   /* the button is a still of the film now, so only its overlay changes */
   const glyph=btn.querySelector('span');
@@ -13416,11 +13449,14 @@ function toggleListDemo(k,btn){
   else btn.textContent = open ? 'Hide' : '▶ Demo';
 }
 
-/* a drill with no clip still has cues worth reading */
-function toggleCues(k,btn){
+/* the cues on their own, film or no film, open across redraws */
+const cuesOpen=new Set();
+function toggleCues(k,btn,show){
   const cues=document.getElementById('cues-'+k); if(!cues) return;
-  cues.hidden=!cues.hidden;
-  btn.textContent = cues.hidden ? 'How to' : 'Hide';
+  cues.hidden = show==null ? !cues.hidden : !show;
+  if(cues.hidden) cuesOpen.delete(k); else cuesOpen.add(k);
+  const b=btn||document.getElementById('cuesb-'+k);
+  if(b) b.setAttribute('aria-expanded', String(!cues.hidden));
 }
 
 /* The log control, as a pill rather than an underlined word. Thirty six
@@ -14252,7 +14288,15 @@ function allDrills(){ const out=[];
   DATA.days.forEach(d=>d.groups.forEach(g=>g.items.forEach(it=>{ if(!out.some(x=>x.v===it.v)) out.push(it); })));
   ((DATA.warmup&&DATA.warmup.items)||[]).forEach(it=>{ if(!out.some(x=>x.v===it.v)) out.push(it); });
   return out; }
-const drillById=v0=>{ const v=drillAlias(v0); return allDrills().find(d=>d.v===v)||LIBRARY.find(d=>d.v===v); };
+/* The programme's copy of a drill wins, since it carries the coach's dose
+   and note. A copy written without its film or its cues took nothing from
+   the library, so a check point on Crow pose or Plank pose opened with no
+   film though the library had one (Elliott, 10 Oct 2026). It borrows them. */
+const drillById=v0=>{ const v=drillAlias(v0);
+  const a=allDrills().find(d=>d.v===v), b=LIBRARY.find(d=>d.v===v);
+  if(a && b && (!a.url || !(a.cues||[]).length))
+    return Object.assign({}, a, {url:a.url||b.url||'', cues:(a.cues&&a.cues.length)?a.cues:(b.cues||[]), desc:a.desc||b.desc||''});
+  return a||b; };
 /* free-tier doses: the ladder is drills, not a written prescription */
 /* moved to ladder-data.js */
 /* The number of drills a stage advertises used to be typed by hand, and had
@@ -15590,17 +15634,14 @@ function screenFix(){
           cursor:pointer;font:600 13px/1 var(--sans);border:1.5px solid ${mins===m?'var(--forest)':'rgba(0,64,61,.14)'};
           background:${mins===m?'var(--forest)':'#fff'};color:${mins===m?'#fff':'var(--ink)'}">${m} min</button>`).join('')}
       </div>
-      <button onclick="buildFixSession(${jsq(f.slug)},false)" style="height:64px;width:100%;border:0;border-radius:18px;margin-top:10px;
+      <div style="margin-top:16px">${goModeHTML()}</div>
+      <button onclick="buildFixSession(${jsq(f.slug)},st.goMode==='list')" style="height:64px;width:100%;border:0;border-radius:18px;margin-top:14px;
         background:linear-gradient(180deg,#0a7a76,#006663);box-shadow:0 12px 30px rgba(0,102,99,.3);color:var(--on-primary);
         display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 22px;cursor:pointer">
         <span style="font:600 18px/1.15 var(--sans)">${finished?'Do it again':n?'Session '+(n+1):'Start the first session'}</span>
         <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);display:grid;place-items:center">
-          <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+          ${goModeIcon('#006663')}</span>
       </button>
-      <!-- one workout here too: the list is the session, and the button
-           above runs it for you -->
-      <button onclick="buildFixSession(${jsq(f.slug)},true)" style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;
-        font:500 13.5px/1.4 var(--sans);color:var(--forest);padding:8px">See the drills first</button>
 
       ${finished && !f.noClips ? clipRow(kF, (f.finish&&f.finish.n)||'Film it again', (f.finish&&f.finish.note)||'Same angle as before. Put the two side by side.', after) : ''}
       ${before && !finished && !f.noClips ? `<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Your before clip is in. The after comes at session ${tot}.</div>`:''}
@@ -16201,6 +16242,45 @@ function sessionMins(stage){
    closes. The sheet repaints itself; the screen behind it only needs
    redrawing when there is no sheet in front of it. */
 function setMins(m){ st.time=m; save(); saveState(); if(!st.ov) render(); }
+/* ── follow along or drill by drill ───────────────────────────────
+   One session, two ways to do it, picked where it starts and remembered
+   on the phone. The start sheet repaints itself in place; the fix page is
+   a screen, so it renders. */
+function setGoMode(m){
+  st.goMode = m==='list' ? 'list' : 'follow'; save();
+  if(st.ov==='mode'){ repaintMode(); return; }
+  /* on a page, only the control and the start button's mark change; the
+     start buttons read st.goMode when pressed, so nothing else redraws */
+  document.querySelectorAll('.gomode').forEach(el=>{ el.outerHTML=goModeHTML(); });
+  document.querySelectorAll('.gomode-ico').forEach(el=>{ el.outerHTML=goModeIcon(el.dataset.fill||''); });
+}
+function goModeHTML(kick, seg){
+  const list=st.goMode==='list';
+  kick = kick || 'font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)';
+  seg = seg || (on=>'flex:1;min-height:48px;border:0;border-radius:11px;cursor:pointer;'
+    +'font:600 15px/1 var(--sans);transition:background .18s ease,color .18s ease;'
+    +(on?'background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)'
+        :'background:transparent;color:var(--grey)'));
+  return `<div class="gomode">
+    <div style="${kick}">HOW</div>
+    <div role="radiogroup" style="display:flex;gap:8px;margin-top:10px;background:rgba(0,64,61,.08);
+      border-radius:14px;padding:4px">
+      <button role="radio" aria-checked="${!list}" onclick="setGoMode('follow')" style="${seg(!list)}">Follow along</button>
+      <button role="radio" aria-checked="${list}" onclick="setGoMode('list')" style="${seg(list)}">Drill by drill</button>
+    </div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">${list
+      ? 'A list you work down at your own pace, each drill with its film and a timer.'
+      : 'It runs itself: every set timed, its film playing, the cues on screen.'}</div>
+  </div>`;
+}
+/* the start button's mark: play for the follow along, a list for the list */
+function goModeIcon(fill){
+  return `<span class="gomode-ico" data-fill="${fill||''}" style="display:inline-flex">${st.goMode==='list'
+    ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${fill||'currentColor'}" stroke-width="2.6"
+        stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>`
+    : `<svg width="15" height="17" viewBox="0 0 17 19" fill="${fill||'currentColor'}"><path d="M16 8.63a1 1 0 0 1 0
+        1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg>`}</span>`;
+}
 
 /* Choose how long, choose how hard, press start. This is the whole of
    what Today is for, so it lives there rather than on the ladder: the
