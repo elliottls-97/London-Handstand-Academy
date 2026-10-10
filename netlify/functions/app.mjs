@@ -2655,17 +2655,24 @@ const handle = async (request) => {
       const sessKey = `sessnew:${obj.id}`;
       if (!(await supa.insertIfAbsent('nudges', { key: sessKey, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)))
         return json({ ok: true, note: 'session already filed' });
-      await ensureAcct(e, nm);
       const amt = sessAmt(obj.amount_total);
       /* a session that cost nothing on a code is booked, not "paid for: £0" */
       const sessFree = !(Number(obj.amount_total) > 0);
+      /* Anything that fails before their email has gone lets go of the claim
+         and fails the event, so Stripe's retry sends it. Only Resend failing
+         did: a database blip while the account was made kept the claim, and
+         every retry stopped at "already filed" with the buyer and the coach
+         told nothing, though the money was in. */
+      let sentOk = false;
+      try {
+      await ensureAcct(e, nm);
       /* The account was made and the email said so, with no password and no
          way to set one: they had to find Forgotten it? on the sign in screen.
          Somebody without a password gets the same set-a-password link a
          coaching buyer does. */
       const sessNoPw = !(await hashFor(db, e));
       const sessLink = sessNoPw ? await welcomeLink(e) : '';
-      const sentOk = await email(e, `Your ${kind} minute session: sorting the time`,
+      sentOk = await email(e, `Your ${kind} minute session: sorting the time`,
         mail({ title: sessFree ? 'Booked. Now the time.' : 'Paid. Now the time.', greeting: nm.split(' ')[0] || '',
           paras: [`Your ${kind} minute session in London is ${sessFree ? 'booked, free on your code' : 'paid for: ' + amt}. The room at OverGravity is booked around their timetable, so I check your times against it and confirm within 48 hours.`,
                   prefs ? `You said: <b>${esc(prefs)}</b>.` : 'Reply to this with the days and times that suit you.',
@@ -2673,6 +2680,7 @@ const handle = async (request) => {
                            : 'Your booking is in the Handstand Ladder app under this address, and we can talk there as well as by email.'],
           cta: { href: sessLink || `${SITE}/lha-app.html`, label: sessNoPw ? 'Choose a password' : 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true, noQueue: true });
+      } catch (err) { await supa.remove('nudges', `key=eq.${enc(sessKey)}`).catch(() => {}); throw err; }
       /* Resend down: let go of the claim and fail, and Stripe sends it again */
       if (!sentOk && mailDown) { await supa.remove('nudges', `key=eq.${enc(sessKey)}`).catch(() => {}); return json({ error: 'email failed, retry' }, 500); }
       try {
