@@ -470,9 +470,6 @@ button.lc-ring:active{transform:scale(.88)}
 @keyframes lwCycle{0%{opacity:0}6%{opacity:1}33%{opacity:1}40%{opacity:0}100%{opacity:0}}
 @keyframes lwShine{0%{transform:translateX(-140%) skewX(-18deg)}55%,100%{transform:translateX(260%) skewX(-18deg)}}
 @keyframes lwGlow{0%,100%{box-shadow:0 0 0 0 rgba(0,102,99,0)}50%{box-shadow:0 0 0 6px rgba(0,102,99,.18)}}
-@keyframes lwHop{0%,12%{opacity:1;transform:translate(0,0)}38%{opacity:1;transform:translate(calc(50% + 3px),-34px)}
-  58%,82%{opacity:1;transform:translate(calc(100% + 6px),-20px)}92%{opacity:0;transform:translate(calc(100% + 6px),-20px)}
-  93%{opacity:0;transform:translate(0,0)}100%{opacity:1;transform:translate(0,0)}}
 @keyframes lwPop{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.08);opacity:1}100%{transform:scale(1);opacity:1}}
 @keyframes lwDraw{from{stroke-dashoffset:40}to{stroke-dashoffset:0}}
 @keyframes lwFly{0%{opacity:0;transform:translateY(0) scale(.4)}10%{opacity:1}45%{opacity:0;transform:translateY(-46px) scale(1)}100%{opacity:0;transform:translateY(-46px) scale(1)}}
@@ -482,27 +479,20 @@ button.lc-ring:active{transform:scale(.88)}
  box-shadow:0 1px 2px rgba(0,64,61,.06),0 12px 32px rgba(0,64,61,.08)}
 .lw-steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;align-items:end;height:128px;
  border-bottom:2px solid rgba(0,64,61,.14);padding-bottom:0}
-.lw-step{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:128px;
+.lw-step{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:128px;
  border:0;background:none;padding:0;cursor:pointer;font:inherit;min-width:0}
+.lw-step.lw-cur{z-index:2}
 .lw-figw{display:flex;justify-content:center;width:100%;flex:none}
 .lw-figw.lw-next{animation:lwGlowF 2.4s ease-in-out 1.4s infinite}
 @keyframes lwGlowF{0%,100%{filter:drop-shadow(0 0 0 rgba(0,102,99,0))}50%{filter:drop-shadow(0 0 6px rgba(0,102,99,.45))}}
-.lw-fig{display:block;width:64px;height:84px;flex:none;overflow:visible;
+.lw-fig{display:block;width:77px;height:100px;flex:none;overflow:visible;
  animation:lwRise 500ms var(--e) calc(var(--d,0ms) + 380ms) both}
 #app[data-still="1"] .lw .lw-fig{animation:none!important}
-/* You hops along the floor to the next figure when a stage is finished */
-@keyframes lwHopF{0%,12%{opacity:1;transform:translate(0,0)}38%{opacity:1;transform:translate(calc(50% + 3px),-16px)}
-  58%,82%{opacity:1;transform:translate(calc(100% + 6px),0)}92%{opacity:0;transform:translate(calc(100% + 6px),0)}
-  93%{opacity:0;transform:translate(0,0)}100%{opacity:1;transform:translate(0,0)}}
-.lw .lw-hop{animation:lwHopF 3.6s ease-in-out 1.8s infinite}
+.lw-cur .lw-fig{width:95px;height:124px}
 /* the stage names, under their steps (Elliott, 10 Oct 2026) */
 .lw-names{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}
 .lw-names span{text-align:center;font:600 10px/12px var(--sans);letter-spacing:-.01em;cursor:pointer;
  hyphens:manual;-webkit-hyphens:manual}
-.lw-you{display:flex;justify-content:center;width:100%}
-.lw-you>span{height:22px;padding:0 9px;border-radius:11px;background:var(--deep);color:#fff;
- font:700 11px/22px var(--sans);letter-spacing:.04em;animation:lwDrop 620ms var(--e) 760ms both,lwPing 1.8s ease-out 1.5s infinite}
-.lw-hop{animation:lwHop 3.6s ease-in-out 1.8s infinite}
 .lw-freerow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:8px}
 .lw-freerow span{height:26px;border-radius:13px;border:1px solid rgba(0,64,61,.16);display:flex;align-items:center;
  justify-content:center;gap:6px;font:700 11px/1 var(--sans);letter-spacing:.04em;color:var(--deep);white-space:nowrap}
@@ -587,7 +577,6 @@ button.lc-ring:active{transform:scale(.88)}
 #app[data-still="1"] .lw .lw-medal,#app[data-still="1"] .lw .lw-draw,#app[data-still="1"] .lw .lw-ac.open .lw-acb{animation:none!important}
 #app[data-still="1"] .lw .lw-feat{animation:lwGlow 2.4s ease-in-out infinite!important}
 #app[data-still="1"] .lw .lw-figw.lw-next{animation:lwGlowF 2.4s ease-in-out infinite!important}
-#app[data-still="1"] .lw .lw-you>span{animation:lwPing 1.8s ease-out infinite!important}
 @media (prefers-reduced-motion: reduce){.lw *,.lw *::after{animation:none!important;transition:none!important}}
 @media (prefers-reduced-motion:reduce){.lc *{animation:none!important;transition:none!important}}
 /* ── a stage told in chapters ────────────────────────────────────────
@@ -17332,8 +17321,10 @@ function ladderWholeHTML(){
   const bars = STAGES.map((S,i)=>{
     const done = i<here || (i===here && earned);
     const now = i===here && !earned, next = earned && i===here+1;
-    return `<button class="lw-step" onclick="lwStep(${i})" style="--d:${120+i*110}ms" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}. Show it below">
-      ${i===here?`<span class="lw-you${earned?' lw-hop':''}"><span>You</span></span>`:''}
+    /* no You marker: the stage you are on is the bigger figure, in amber,
+       its name in bold, and the room the marker took goes to the figures
+       (Elliott, 10 Oct 2026) */
+    return `<button class="lw-step${i===here?' lw-cur':''}" onclick="lwStep(${i})" style="--d:${120+i*110}ms" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}. Show it below">
       <span class="lw-figw${next?' lw-next':''}" style="color:${
         done?'var(--forest)':now?'#e8962f':next?'var(--forest)':'#bcd5db'}">${lwFigSVG(i)}</span>
     </button>`; }).join('');
