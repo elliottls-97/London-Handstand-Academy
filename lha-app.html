@@ -398,13 +398,6 @@ button.lc-ring:active{transform:scale(.88)}
 .lc-note{margin-top:10px;font:400 13px/1.45 var(--sans);color:var(--grey)}
 .lc-none{padding:12px;border-radius:12px;background:rgba(17,17,17,.04);font:400 12.5px/1.4 var(--sans);color:var(--grey2)}
 .lc-th img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-/* the check points still to come: empty rungs across the rails, with how
-   many on them */
-.lc-more{display:flex;flex-direction:column;justify-content:space-around;padding:6px 22px}
-.lc-more .lc-mb{display:block;height:4px;margin:9px -13px;border-radius:2px;background:rgba(0,64,61,.08)}
-.lc-more span{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;
- padding:7px 13px;border-radius:999px;background:#fff;border:1.5px dashed rgba(0,64,61,.2);
- font:600 12.5px/1 var(--sans);color:var(--grey)}
 .lc-th .pl{position:absolute;right:3px;bottom:3px;width:17px;height:17px;border-radius:50%;
  background:rgba(255,255,255,.94);display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.22)}
 .lc-t{flex:1;min-width:0}
@@ -487,18 +480,16 @@ button.lc-ring:active{transform:scale(.88)}
 .lw-k{font:600 12px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)}
 .lw-card{background:#fff;border-radius:24px;border:1px solid rgba(0,64,61,.10);
  box-shadow:0 1px 2px rgba(0,64,61,.06),0 12px 32px rgba(0,64,61,.08)}
-.lw-steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;align-items:end;height:184px}
-.lw-step{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:184px;
+.lw-steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;align-items:end;height:160px}
+.lw-step{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;height:160px;
  border:0;background:none;padding:0;cursor:pointer;font:inherit;min-width:0}
 .lw-bar{width:100%;box-sizing:border-box;border-radius:10px 10px 4px 4px;display:flex;justify-content:center;
  padding-top:7px;transform-origin:50% 100%;animation:lwGrow 560ms var(--e) var(--d,0ms) both}
 .lw-bar b{font:700 13px/1 var(--sans)}
-/* each stage's name sits on its own step, right-aligned to it, and hangs
-   out to the left over the lower step: the columns are a sixth of a phone,
-   narrower than "Foundations", and the step to the left is always lower */
-.lw-name{align-self:flex-end;white-space:nowrap;font:600 11px/14px var(--sans);letter-spacing:-.005em;
- position:relative;z-index:1;animation:lwRise 500ms var(--e) var(--d,0ms) both}
-#app[data-still="1"] .lw .lw-name{animation:none!important}
+/* the stage names, under their steps (Elliott, 10 Oct 2026) */
+.lw-names{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}
+.lw-names span{text-align:center;font:600 10px/12px var(--sans);letter-spacing:-.01em;cursor:pointer;
+ hyphens:manual;-webkit-hyphens:manual}
 .lw-bar.lw-next{border:2px solid var(--forest);animation:lwGrow 560ms var(--e) var(--d,0ms) both,lwGlow 2.4s ease-in-out 1.4s infinite}
 .lw-you{display:flex;justify-content:center;width:100%}
 .lw-you>span{height:22px;padding:0 9px;border-radius:11px;background:var(--deep);color:#fff;
@@ -6594,20 +6585,7 @@ function climbHTML(si, mode, use){
   if(!S.n) return '';
   const n=S.n, {T, step, ds, df, fillS, dn}=climbTimes(S);
   const fillPx=S.climbed>=n ? null : 14+(Math.max(1,S.climbed)-1)*(LC_R+LC_G)+LC_R/2;
-  /* The free ladder shows what has been reached and the one to work on
-     next. All seven were open from the start, each with its film and its
-     tick, before anyone had done the first (Elliott, 10 Oct 2026: "they
-     shouldn't need to see checkpoints if they haven't done the previous
-     one"). The rest wait as empty rungs, so it still reads as a ladder.
-     A coach's check points are a set of tests, not a climb: all show. */
-  const gate = use==='log' && si!=='c' && si!=null && S.next>=0;
-  const isLater = r => gate && !r.done && r.j>S.next;
-  const later = S.rows.filter(isLater);
-  const more = later.length ? `<div class="lc-r lc-more" style="--d:${(T+later[later.length-1].j*step).toFixed(2)}s;--dl:0s"
-      role="img" aria-label="${later.length} more check point${later.length===1?'':'s'}, each opens when you reach the one below it">
-      ${later.map(()=>'<i class="lc-mb"></i>').join('')}
-      <span>${later.length} more, one at a time</span></div>` : '';
-  const rungs=more+S.rows.filter(r=>!isLater(r)).slice().reverse().map(r=>{
+  const rungs=S.rows.slice().reverse().map(r=>{
     const isNext=r.j===S.next;
     /* every rung moves while the Check points page first builds; after the
        quiz the story above has the films, so only the next one does */
@@ -12011,16 +11989,7 @@ function drawOv(){
         Drag each one to what you managed, it logs as you go. Reach all ${p.of} and ${
           STAGES[si+1]?esc(STAGES[si+1].n)+' opens below.':'the ladder is done.'}</div>
       <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">
-        ${(()=>{
-          /* as on the ladder: what has been reached and the next one */
-          const list=cpFor(si)||[], S=climbState(si), gate=!coachedView() && S.next>=0;
-          const show=list.map((c,i)=>({c,i})).filter(({i})=>!gate || (S.rows[i]&&S.rows[i].done) || i<=S.next);
-          const left=list.length-show.length;
-          return show.map(({c,i})=>cpCard(c,i,p.of)).join('')
-            + (left?`<div style="padding:13px 15px;border-radius:16px;border:1.5px dashed rgba(0,64,61,.2);
-                font:600 13px/1.4 var(--sans);color:var(--grey);text-align:center">${left} more, one at a time.
-                Each opens when you reach the one before it.</div>`:'');
-        })()}
+        ${(cpFor(si)||[]).map((c,i)=>cpCard(c,i,p.of)).join('')}
       </div>
       <div style="height:14px"></div>`;
     }
@@ -17325,10 +17294,17 @@ function ladderWholeHTML(){
     const now = i===here && !earned, next = earned && i===here+1;
     return `<button class="lw-step" onclick="lwStep(${i})" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}. Show it below">
       ${i===here?`<span class="lw-you${earned?' lw-hop':''}"><span>You</span></span>`:''}
-      <span class="lw-name" style="color:${done?'var(--forest)':now||next?'var(--ink)':'var(--grey)'}${now||next?';font-weight:700':''}">${esc(S.n)}</span>
       <span class="lw-bar${next?' lw-next':''}" style="height:${30+i*20}px;--d:${120+i*80}ms;background:${
         done?'var(--forest)':now?'var(--amber)':'var(--sand)'}">${done?LW_TICK(16):`<b style="color:${now?'var(--ink)':'var(--deep)'}">${i+1}</b>`}</span>
     </button>`; }).join('');
+  /* the names under the steps, on two lines where they need it: a sixth of
+     a phone is narrower than Foundations, so the long ones break where a
+     person would break them */
+  const LW_BREAK={'Foundations':'Founda&shy;tions','Freestanding':'Free&shy;standing'};
+  const names = `<div class="lw-names" aria-hidden="true">${STAGES.map((S,i)=>{
+    const done = i<here || (i===here && earned), now = i===here && !earned, next = earned && i===here+1;
+    return `<span onclick="lwStep(${i})" style="color:${done?'var(--forest)':now||next?'var(--ink)':'var(--grey)'}${
+      now||next?';font-weight:700':''}">${LW_BREAK[S.n]||esc(S.n)}</span>`; }).join('')}</div>`;
   const freeRow = free ? `<div class="lw-in lw-freerow" style="--d:700ms">
       <span style="grid-column:1 / ${FREE_STAGES+1}">Free</span>
       <span style="grid-column:${FREE_STAGES+1} / ${STAGES.length+1};background:#e3eff2;border:0">
@@ -17337,6 +17313,7 @@ function ladderWholeHTML(){
     </div>` : '';
   const climb = `<div class="lw-card lw-in" style="--d:80ms;margin-top:16px;padding:18px">
       <div class="lw-steps">${bars}</div>
+      ${names}
       ${freeRow}
       <div class="lw-rule">
         <span>${LW_FLAG(14)}</span>
