@@ -850,11 +850,29 @@ async function intentMail(done) {
    The reminder, and then the offer the site already makes: the session is
    credited against the first month if they join within fourteen days. */
 async function sessionMail(done) {
-  done.sessions = { reminded: 0, followed: 0 };
+  done.sessions = { reminded: 0, followed: 0, chased: 0 };
   const row = await supa.row('settings', 'key=eq.sessions&select=value').catch(() => null);
   const list = (row && row.value) || [];
   const now = Date.now();
   for (const x of list) {
+    /* Bought, and still no time a day on. The session page and the email
+       both promise a time within 48 hours, and nothing said when that was
+       slipping: the session sat on Today until somebody looked. The coach
+       is told once. The London sessions a plan includes promise no time,
+       so they are left to Today. */
+    if (x && x.status === 'toArrange' && !x.when && !x.fromPlan && (x.session || Number(x.paid) > 0) && now - ms(x.at) > DAY) {
+      const key = `sesschase:${x.id}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        const hrs = Math.round((now - ms(x.at)) / 3600e3);
+        const went = await email(process.env.COACH_EMAIL || primaryCoach(), `No time yet: ${x.name || x.email}, ${x.kind} min, paid ${hrs} hours ago`,
+          mail({ title: `${esc(x.name || x.email)} is still waiting for a time.`,
+            paras: [`They paid for a ${esc(x.kind)} minute session ${hrs} hours ago and no time has been set. They were promised one within 48 hours.`,
+                    x.prefs ? `They said: <b>${esc(x.prefs)}</b>.` : 'They gave no preferred times, so ask them in the chat.',
+                    'If no time works, the session page promises a full refund.'],
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Set the time on Today' } }));
+        if (went) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key'); done.sessions.chased++; }
+      }
+    }
     /* done, not only arranged: marking a session done the moment it finished
        was cancelling the follow-up, which is the only place the offer of the
        fee against the first month is ever made. Cancelled ones are out. */
