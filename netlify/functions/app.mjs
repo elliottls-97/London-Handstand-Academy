@@ -1840,24 +1840,58 @@ const slotUnhold = id => id ? changeSetting('sessholds', cur => {
 const slotTxt = t => new Date(t).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' })
   .replace(':00', '').replace(/\s?([ap]m)$/i, '$1').replace(' at ', ', ');
 
-/* the client cancels: refunded in full when it is early enough */
-async function sessCancelByClient(id, who) {
-  let row = null, why = '', plan = [];
+/* Everything still paid on a session by card, given back through Stripe:
+   used by the client's cancel and the coach's. Noted as refunded before
+   Stripe is asked, so the webhook's notice of the refund finds it already
+   filed and says nothing twice; the key means Stripe makes each refund once,
+   however many times it is asked. A refund Stripe will not make goes back
+   off the row, so the one then made by hand is filed and told when it lands. */
+async function sessRefundRow(id) {
+  let plan = [];
   await changeSetting('sessions', cur => {
-    row = null; why = ''; plan = [];
+    plan = [];
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-    const r = l.find(x => x.id === id && norm(x.email) === norm(who));
-    if (!r) { why = 'none'; return undefined; }
-    const R = sessRules(r);
-    if (!R.canCancel) { why = !R.live ? 'gone' : r.fromPlan ? 'plan' : 'late'; row = r; return undefined; }
+    const r = l.find(x => x.id === id); if (!r) return undefined;
     plan = sessBackOf(r);
-    /* noted as refunded before Stripe is asked, so the webhook's notice of
-       this refund finds it already filed and says nothing twice */
+    if (!plan.length) return undefined;
     const refunds = Object.assign({}, r.refunds || {});
     for (const p of plan) refunds[p.ref] = (Number(refunds[p.ref]) || 0) + p.left;
     r.refunds = refunds;
     r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
     r.pays = sessPays(r).map(p => plan.some(q => q.ref === p.ref) ? { ...p, autoRefund: true } : p);
+    return l;
+  });
+  let back = 0;
+  const failed = [];
+  for (const p of plan) {
+    if (!stripeKey()) { failed.push({ p, why: 'Stripe is not connected' }); continue; }
+    try { await stripe('/refunds', { payment_intent: p.pi, amount: String(p.left) }, 'POST', `sessrefund:${id}:${p.ref}`); back += p.left; }
+    catch (err) {
+      if (/already been refunded/i.test(String(err && err.message))) { back += p.left; continue; }
+      failed.push({ p, why: String((err && err.message) || err).slice(0, 200) });
+    }
+  }
+  if (failed.length) await changeSetting('sessions', cur => {
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === id); if (!r) return undefined;
+    const refunds = Object.assign({}, r.refunds || {});
+    for (const { p } of failed) refunds[p.ref] = Math.max(0, (Number(refunds[p.ref]) || 0) - p.left);
+    r.refunds = refunds; r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
+    r.pays = sessPays(r).map(p => failed.some(f => f.p.ref === p.ref) ? { ...p, autoRefund: false } : p);
+    r.refundFailed = true; return l;
+  }).catch(() => {});
+  return { back, failed };
+}
+/* the client cancels: refunded in full when it is early enough */
+async function sessCancelByClient(id, who) {
+  let row = null, why = '';
+  await changeSetting('sessions', cur => {
+    row = null; why = '';
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id && norm(x.email) === norm(who));
+    if (!r) { why = 'none'; return undefined; }
+    const R = sessRules(r);
+    if (!R.canCancel) { why = !R.live ? 'gone' : r.fromPlan ? 'plan' : 'late'; row = r; return undefined; }
+    /* the cancel is the claim: a second tap finds it cancelled and stops */
     r.cancelledFrom = r.when || ''; r.status = 'cancelled'; r.cancelledAt = Date.now(); r.cancelledBy = 'client';
     row = r; return l;
   });
@@ -1865,25 +1899,7 @@ async function sessCancelByClient(id, who) {
   if (why === 'gone') return { ok: true, note: 'already cancelled', status: row.status };
   if (why === 'plan') return { error: 'This session comes with your coaching, so it can be moved but not cancelled. If no time works this month, message Elliott in the app.', status: 400 };
   if (why === 'late') return { error: `It is less than ${SESS_CUTOFF_H} hours away, so it can no longer be cancelled online. Email info@londonhandstandacademy.com and Elliott will do what he can.`, status: 400, late: true };
-  let back = 0;
-  const failed = [];
-  for (const p of plan) {
-    try { await stripe('/refunds', { payment_intent: p.pi, amount: String(p.left) }, 'POST', `sessrefund:${row.id}:${p.ref}`); back += p.left; }
-    catch (err) {
-      if (/already been refunded/i.test(String(err && err.message))) { back += p.left; continue; }
-      failed.push({ p, why: String((err && err.message) || err).slice(0, 200) });
-    }
-  }
-  /* a refund Stripe would not make goes back off the row, so the one the
-     coach then makes by hand is filed and told when it lands */
-  if (failed.length) await changeSetting('sessions', cur => {
-    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === row.id); if (!r) return undefined;
-    const refunds = Object.assign({}, r.refunds || {});
-    for (const { p } of failed) refunds[p.ref] = Math.max(0, (Number(refunds[p.ref]) || 0) - p.left);
-    r.refunds = refunds; r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
-    r.pays = sessPays(r).map(p => failed.some(f => f.p.ref === p.ref) ? { ...p, autoRefund: false } : p);
-    r.refundFailed = true; return l;
-  }).catch(() => {});
+  const { back, failed } = await sessRefundRow(row.id);
   if (row.cs && stripeKey()) { try { await stripe(`/checkout/sessions/${row.cs}/expire`, {}); } catch { /* paid, expired or gone */ } }
   const was = row.cancelledFrom ? sessWhen({ when: row.cancelledFrom }) : '';
   const hand = sessHandPaid(row);
@@ -6026,12 +6042,31 @@ const handle = async (request) => {
       if (row.status === 'cancelled' && wasStatus !== 'cancelled') {
         if (row.cs && stripeKey()) { try { await stripe(`/checkout/sessions/${row.cs}/expire`, {}); } catch { /* already done or gone */ } }
         const was = row.when ? sessWhen(row) : '';
+        /* The coach's Cancel refunded nothing: the client was told "we will
+           refund you in full" and it waited on Elliott doing it in Stripe.
+           refund: 'full' gives back everything paid by card, now, the same
+           way the client's own cancel does; 'none' is a late cancellation
+           the terms let him keep. Paid outside Stripe, he gives it back by
+           hand and the client is told so. */
         const paidSome = Number(row.paid) > 0 && !(Number(row.refunded) >= Number(row.paid));
-        const line = `Your ${row.kind} minute session${was ? ' on ' + was : ''} is cancelled.`
-          + (paidSome ? ' Reply here and we will either find another time or refund you in full.' : ' Reply here and we will find another time.');
+        const hand = sessHandPaid(row);
+        let back = 0, failed = [];
+        if (body.refund === 'full') ({ back, failed } = await sessRefundRow(row.id));
+        await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === row.id);
+          if (!r) return undefined; r.cancelledAt = Date.now(); r.cancelledBy = 'coach'; r.cancelledFrom = r.when || ''; return l; }).catch(() => {});
+        const money = body.refund === 'full'
+          ? (back > 0 ? ` ${sessAmt(back)} is refunded to the card you paid with. It shows in a few days.`
+            : failed.length ? ' The refund could not be made automatically, so I will make it by hand.'
+            : hand ? ` I will give you back the ${sessAmt(row.paid)} you paid.` : '')
+          : '';
+        const line = `Your ${row.kind} minute session${was ? ' on ' + was : ''} is cancelled.${money}`
+          + (body.refund === 'full' || body.refund === 'none' ? ' Reply here if you would like another time.'
+            : paidSome ? ' Reply here and we will either find another time or refund you in full.' : ' Reply here and we will find another time.');
         try { await threadAdd(db, row.email, { from: 'coach', by, text: line }); } catch {}
-        told = { what: 'cancelled', mailed: await email(row.email, `Cancelled: your session${was ? ', ' + was : ''}`,
+        told = { what: 'cancelled', refunded: back, refundFailed: failed.length ? failed.map(f => f.why).join('; ') : '', hand: body.refund === 'full' && hand,
+          mailed: await email(row.email, `Cancelled: your session${was ? ', ' + was : ''}`,
           mail({ title: 'Your session is cancelled.', greeting: first, paras: [esc(line)], signoff: { name: coachName(by) } }), undefined, { receipt: true }) };
+        if (failed.length) await coachAlert(row.email, 'business', { title: 'Refund it in Stripe: ' + (row.name || row.email), body: failed.map(f => f.why).join('; ').slice(0, 140), tag: 'sessrefund:' + row.id });
         await notify(row.email, { title: 'Your session is cancelled', body: was || 'Reply to find another time', url: '/lha-app.html', tag: 'sess:' + row.id }, 'replies').catch(() => {});
       }
       /* a time set, or moved: confirmed if nothing is owed, and if it is,
@@ -6055,7 +6090,9 @@ const handle = async (request) => {
           told = { what: 'confirmed', mailed: await sessConfirmMail(db, row, by) };
         }
       }
-      return json({ ok: true, session: row, told, sessions: list.filter(x => owns(x.email)) });
+      /* a cancel changed the row again (the refund, who cancelled): the list as it is now */
+      const after = told && told.what === 'cancelled' ? ((await getSetting('sessions')) || list) : list;
+      return json({ ok: true, session: after.find(x => x.id === row.id) || row, told, sessions: after.filter(x => owns(x.email)) });
     }
     return json({ error: 'Nope' }, 405);
   }
