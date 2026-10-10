@@ -22,6 +22,11 @@
    ══════════════════════════════════════════════════════════════ */
 import { getStore } from '@netlify/blobs';
 import programmes, { planFile } from './programmes.mjs';
+import PRESS_DRILLS from './press-drills.mjs';
+/* the Press stage's drills underneath what the dashboard has written:
+   a film or a cue added there wins, field by field */
+const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
+  for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
 import { EMAILS, renderEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
@@ -4369,7 +4374,7 @@ const handle = async (request) => {
      drill, since hydrateItem is sync and runs for every item on the plan. */
   let CUSTOM_NOW = null;
   const ensureCustom = async () => {
-    if (!CUSTOM_NOW) CUSTOM_NOW = (await getSetting('drills:custom')) || {};
+    if (!CUSTOM_NOW) CUSTOM_NOW = withPress(await getSetting('drills:custom'));
     return CUSTOM_NOW;
   };
   /* ── a dose in words, from a timing row ──────────────────────────
@@ -4481,7 +4486,7 @@ const handle = async (request) => {
      the dashboard could not appear in it without a deploy. Custom drills
      live in settings and are folded in here, which is the only place that
      has to know they came from somewhere else. */
-  const customDrills = () => getSetting('drills:custom').then(d => d || {});
+  const customDrills = () => getSetting('drills:custom').then(d => withPress(d));
   /* ── every Foundations film stays open ─────────────────────────────
      The lock is a snapshot of a list the dashboard works out when Lock is
      pressed, so a drill added to Foundations afterwards, in the dashboard
@@ -6972,10 +6977,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const base = programmes.library || {};
         const prev = all[v] || {};
         const prevCues = Array.isArray(prev.cues) ? prev.cues : null;
+        const pd = PRESS_DRILLS[v] || {};
         all[v] = {
-          n: prev.n || (base.names || {})[v] || v.replace(/-/g, ' '),
-          desc: prev.desc != null ? prev.desc : ((base.desc || {})[v] || ''),
-          cues: (prevCues && prevCues.length) ? prevCues : ((base.cues || {})[v] || []),
+          n: prev.n || (base.names || {})[v] || pd.n || v.replace(/-/g, ' '),
+          desc: prev.desc != null ? prev.desc : ((base.desc || {})[v] || pd.desc || ''),
+          cues: (prevCues && prevCues.length) ? prevCues : ((base.cues || {})[v] || pd.cues || []),
           url: `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/downloads/default.mp4`,
           uid,
           at: prev.at || Date.now(),
