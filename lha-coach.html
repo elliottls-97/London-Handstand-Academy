@@ -8285,6 +8285,7 @@ const INBOX_TYPE={
   question:   {label:'Question',         cls:'tag-msg',     filter:'questions',   act:1},
   application:{label:'Application',      cls:'tag-other',   filter:'other',       act:1},
   session:    {label:'Session booked',   cls:'tag-other',   filter:'other',       act:1},
+  hire:       {label:'Hire Arch 2',      cls:'tag-other',   filter:'other',       act:1},
   feedback:   {label:'App feedback',     cls:'tag-neutral', filter:'other',       act:1},
 };
 let inboxRow='';                   /* the row expanded in place, if any */
@@ -8292,6 +8293,8 @@ let inboxRow='';                   /* the row expanded in place, if any */
 let sessions=[], sessBusy='';
 function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep); }
 const sessOpen = () => sessions.filter(x=>x.status==='toArrange');
+/* a 1-2-1's time as London has it, wherever this computer is */
+const sessLondon = t => new Date(t).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
 /* pence as money, with the pence only when there are some: 50p showed as £1 */
 const gbp = p => '£'+(Number(p||0)/100).toFixed(Number(p||0)%100?2:0);
 /* what the server says it actually sent: this said "they have been told"
@@ -8364,9 +8367,17 @@ function inboxItems(){
   fbOpenList().forEach(f=>out.push({id:'F:'+f.id, type:'feedback', email:f.email||'',
     name:f.name||f.email||'Someone not signed in', at:f.at, action:'Read', fb:f,
     detail:((FB_LABEL[f.kind]||FB_LABEL.review)[0])+' · "'+clip(f.text,100)+'"'+(f.kind==='block'&&(f.extra||{}).quote==='Yes'?' · quote OK':'')}));
-  sessOpen().forEach(x=>out.push({id:'S:'+x.id, type:'session', email:x.email, name:x.name||x.email, at:x.at,
+  sessOpen().forEach(x=>out.push({id:'S:'+x.id, type:'session', email:x.email, name:x.name||x.email, at:x.moveAsked||x.at,
     action:'Set the time', sess:x,
-    detail:x.kind+' minutes, paid'+(x.paid?' £'+(x.paid/100).toFixed(2).replace(/\.00$/,''):'')+(x.prefs?' · prefers: '+clip(x.prefs,80):' · no times given')}));
+    detail:x.kind+' minutes'+(x.fromPlan?', with their coaching':x.paid?', paid £'+(x.paid/100).toFixed(2).replace(/\.00$/,''):'')
+      +(x.moveAsked?' · asked to move'+(x.moveFrom?' from '+sessLondon(x.moveFrom):''):'')
+      +(x.pickedGone?' · their pick, '+sessLondon(x.pickedGone.at)+', went while they paid':'')
+      +(x.prefs?' · prefers: '+clip(x.prefs,80):' · no times given')}));
+  /* a time the client picked themselves: the room is not hired until you
+     hire it, so it waits here until it is ticked */
+  sessions.filter(x=>x.room==='hire' && x.status==='arranged' && x.when && new Date(x.when).getTime()>Date.now()-3*3600e3)
+    .forEach(x=>out.push({id:'H:'+x.id, type:'hire', email:x.email, name:x.name||x.email, at:(x.moves&&x.moves.length?x.moves[x.moves.length-1].at:x.at),
+      action:'Room hired', sess:x, detail:sessLondon(x.when)+', '+x.kind+' minutes'+((x.moves||[]).length?', moved by them':', booked by them')}));
   /* ── too hard, too easy ───────────────────────────────────────
      A client flagging a drill is the most useful thing they do between
      blocks and it appeared nowhere: not here, not in an email, only on
@@ -8450,9 +8461,17 @@ function inboxBodyHTML(r){
       <span class="muted" style="font-size:12px">${f.email?'To '+esc(f.email)+'. Their reply comes to info@.':'They left no email address.'}</span>
     </div>`;
   }
+  if(r.type==='hire'){ const x=r.sess; const busy=sessBusy===x.id;
+    return `
+    <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${esc(sessLondon(x.when))}</b>, ${esc(x.kind)} minutes, ${(x.moves||[]).length?'moved there by them':'picked by them on the session page'}. It is confirmed to them. Hire Arch 2 at OverGravity for it, then tick it here.</p>
+    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="sessSet(${jsq(x.id)},{room:'hired'})" ${busy?'disabled':''}>${busy?'Saving…':'Arch 2 is hired'}</button>
+      <button class="btn btn-secondary" onclick="openClient(${jsq(x.email)},'121')">Their 1-2-1s</button>
+    </div>`;
+  }
   if(r.type==='session'){ const x=r.sess; const busy=sessBusy===x.id;
     return `
-    <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${x.kind} minute session</b>, paid ${esc(ago(x.at))}. ${x.prefs?'They said: <i>"'+esc(x.prefs)+'"</i>':'No preferred times given.'} Check the room, then set the time here and they get the confirmation in the thread and by email.</p>
+    <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${x.kind} minute session</b>, ${x.fromPlan?'with their coaching':'paid '+esc(ago(x.at))}.${x.moveAsked?' They asked to move it'+(x.moveFrom?' from '+esc(sessLondon(x.moveFrom)):'')+', '+esc(ago(x.moveAsked))+'.':''}${x.pickedGone?' They picked '+esc(sessLondon(x.pickedGone.at))+', which went while they paid ('+esc(x.pickedGone.why)+').':''} ${x.prefs?'They said: <i>"'+esc(x.prefs)+'"</i>':'No preferred times given.'} Check the room, then set the time here and they get the confirmation in the thread and by email.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;max-width:640px">
       <div class="field"><label>Date</label><input id="sd-${esc(x.id)}" class="input" type="date"></div>
       <div class="field"><label>Time</label><input id="st-${esc(x.id)}" class="input" type="time" value="18:00"></div>
@@ -8532,7 +8551,7 @@ const TODAY_CATS=[['all','Everything'],['messages','Messages'],['clips','Clips']
 const initial = n => (String(n||'?').trim()[0]||'?').toUpperCase();
 /* inside a card: what they said to you first, then what they sent, then the news */
 const LINE_ORDER=['message','question','point','check','review','said','flag','logged','trained',
-  'session','application','feedback'];
+  'session','hire','application','feedback'];
 function trainLine(email){
   const a=prog[email]?analysis(email):null;
   if(!a) return '';
@@ -9116,16 +9135,18 @@ function oneOnePaneHTML(){
   const card=x=>{ const upcoming=soon.indexOf(x)>-1;
     const owes=x.ask>0 && x.status!=='cancelled';
     const st= owes?pill('TO PAY · '+gbp(x.ask),'var(--terra)')
+      : x.room==='hire' && upcoming && x.status==='arranged'?pill('HIRE ARCH 2','var(--terra)')
       : x.status==='toArrange'?pill('TO ARRANGE','var(--terra)') : x.status==='cancelled'?pill('CANCELLED','var(--grey2)')
       : x.status==='done'?pill('DONE','var(--grey)') : upcoming?pill('BOOKED','var(--forest)') : pill('HAPPENED?','var(--grey2)');
     const link=(t,fn)=>`<button onclick="${fn}" style="border:0;background:none;cursor:pointer;padding:0;font:600 12.5px/1 var(--sans);color:var(--deep);text-decoration:underline;text-underline-offset:3px">${t}</button>`;
     return `<div style="border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-top:10px;background:#fff">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span style="flex:1;min-width:0;font:600 15px/1.3 var(--sans)">${esc(f(x))}</span>${st}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.note?' · '+esc(x.note):''}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.cancelledBy==='client'?' · cancelled by them':''}${(x.moves||[]).some(m=>m.by==='client')&&x.status!=='cancelled'?' · moved by them':''}${x.room==='hired'?' · Arch 2 hired':''}${x.note?' · '+esc(x.note):''}</div>
       ${x.status==='toArrange'?timeForm(x,'Confirm and tell them','sessConfirm')
         : oneMove===x.id?timeForm(x,'Move it and tell them','oneMoveSave')
         : (x.status==='arranged')?`<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
+            ${upcoming&&x.room==='hire'?link('Arch 2 is hired','sessSet(\''+esc(x.id)+'\',{room:\'hired\'})'):''}
             ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
             ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):''}
             ${upcoming?link('Cancel','oneCancel(\''+esc(x.id)+'\')'):''}
@@ -11146,6 +11167,100 @@ function placesHTML(){
     ${places.msg?`<p class="muted" style="font-size:12.5px;margin-top:8px">${esc(places.msg)}</p>`:''}
   </div>`;
 }
+/* ── 1-2-1 times: when people can book one, read from Arch 2's calendar ──
+   The hours you offer, the rule for when the room can be hired, and the
+   calendar it is read from. The calendar's address goes in and never comes
+   back: the box stays empty and says whether one is set. Below, what it
+   reads, so you can check it against the calendar before switching it on. */
+let ss={d:null, busy:false, msg:'', loading:false};
+const SS_DAYS=[[1,'Monday'],[2,'Tuesday'],[3,'Wednesday'],[4,'Thursday'],[5,'Friday'],[6,'Saturday'],[0,'Sunday']];
+function ssLoad(fresh){ if(ss.loading) return; ss.loading=true;
+  fetch(API+'/sessslots'+(fresh?'?fresh=1':''),{headers:hdr()}).then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not load')))
+    .then(d=>{ ss.d=d; ss.loading=false; draw(); }).catch(e=>{ ss.loading=false; ss.msg=String(e); draw(); }); }
+function ssSave(extra){
+  const v=id=>((document.getElementById(id)||{}).value||'');
+  const body=Object.assign({hours:Object.fromEntries(SS_DAYS.map(([k])=>[k,v('ssh'+k)])),
+    leadH:v('ssLead'), days:v('ssDays'), step:v('ssStep'), words:v('ssWords'), max:v('ssMax'), gap:v('ssGap')}, extra||{});
+  ss.busy=true; ss.msg=''; draw();
+  fetch(API+'/sessslots',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not save')))
+    .then(d=>{ ss.d=d; ss.busy=false; ss.msg=d.feeds.errs.length?'Saved, but '+d.feeds.errs.join('. ')+'.':'Saved.'; draw(); })
+    .catch(e=>{ ss.busy=false; ss.msg=String(e); draw(); });
+}
+function ssRoomSave(){ const a=((document.getElementById('ssRoom')||{}).value||'').trim(); if(!a) return alert('Paste the address first.'); ssSave({room:a}); }
+function ssBusySave(){ ssSave({busy:((document.getElementById('ssBusy')||{}).value||'').trim()}); }
+const ssDay=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'});
+const ssClock=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
+function sessSlotsHTML(){
+  if(!ss.d){ ssLoad(); return `<div class="card"><div class="kick">1-2-1 TIMES</div><p class="muted" style="margin-top:10px">${ss.msg?esc(ss.msg):'Loading…'}</p></div>`; }
+  const d=ss.d, c=d.conf, f=d.feeds;
+  const inp='min-height:38px;padding:6px 9px';
+  const ago=t=>{ const m=Math.round((Date.now()-t)/60000); return m<1?'just now':m<60?m+' min ago':Math.round(m/60)+' h ago'; };
+  const roomLine=!f.roomSet?'Not set yet.'
+    : f.roomRead?`Set. ${f.events} booking${f.events===1?'':'s'} read ${ago(f.roomAt)}${f.stale?', from the last time it read, because it will not answer now':''}.`
+    : 'Set, but it cannot be read.';
+  const readTag={full:['FULL HIRE','var(--terra)'],booking:['BOOKING','var(--forest)'],free:['FREE, IGNORED','var(--grey2)']};
+  const byDay=list=>{ const m=new Map(); list.forEach(x=>{ const k=ssDay(x.start||x); if(!m.has(k)) m.set(k,[]); m.get(k).push(x); }); return [...m.entries()]; };
+  const ready=f.roomSet&&f.roomRead&&d.hoursSet;
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">1-2-1 TIMES</div><span style="flex:1"></span>
+      <span class="muted" style="font-size:12.5px">${esc(ss.msg)}</span>
+      <label class="radio"><input type="checkbox" ${c.on?'checked':''} ${ss.busy||(!ready&&!c.on)?'disabled':''} onchange="ssSave({on:this.checked})">People pick a time on the session page</label>
+    </div>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">
+      With this on, the session page and the link in every 1-2-1 email offer the times below, and a booking is confirmed the moment it is paid.
+      You are told to hire Arch 2 for it, and it stays on Today until you tick it. Off, people pay first and you agree the time, as before.
+      ${ready?'':'<b>Set the calendar and your hours first, and check the free times below.</b>'}</p>
+    ${f.errs.length?`<p style="font:500 13px/1.5 var(--sans);color:var(--terra);margin:10px 0 0">${esc(f.errs.join('. '))}.</p>`:''}
+
+    <div class="field" style="margin-top:16px"><label>Arch 2's calendar</label>
+      <div class="muted" style="font-size:12.5px;margin:0 0 6px">${esc(roomLine)} In Google Calendar, signed in as OverGravity: Arch 2's settings, then "Secret address in iCal format". Check with OverGravity that they are happy for it to be read.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="ssRoom" class="input" autocomplete="off" placeholder="${f.roomSet?'Set. Paste a new one to replace it':'https://calendar.google.com/calendar/ical/…/basic.ics'}" style="${inp};flex:1;min-width:220px;font:400 12px/1.3 ui-monospace,monospace">
+        <button class="btn btn-secondary btn-sm" onclick="ssRoomSave()" ${ss.busy?'disabled':''}>Save</button>
+        ${f.roomSet?`<button class="btn btn-ghost btn-sm" onclick="if(confirm('Take the calendar off? The picker switches off with it.')) ssSave({room:'',on:false})" ${ss.busy?'disabled':''}>Remove</button>`:''}
+      </div></div>
+    <div class="field" style="margin-top:12px"><label>Your own calendars, optional</label>
+      <div class="muted" style="font-size:12.5px;margin:0 0 6px">${f.busyN?f.busyN+' set'+(f.busyOk?'':', and one cannot be read, so no times are offered until it can')+'.':'None set.'} Anything busy in these is never offered: your clinic diary, your own Google calendar. One address a line.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+        <textarea id="ssBusy" class="input" rows="2" placeholder="${f.busyN?'Set. Paste them again to replace them, or leave empty and Save to remove':'https://…ics'}" style="flex:1;min-width:220px;font:400 12px/1.3 ui-monospace,monospace"></textarea>
+        <button class="btn btn-secondary btn-sm" onclick="ssBusySave()" ${ss.busy?'disabled':''}>Save</button>
+      </div></div>
+
+    <div class="field" style="margin-top:16px"><label>The hours you offer, London time</label>
+      <div style="display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 10px;align-items:center;max-width:520px">
+        ${SS_DAYS.map(([k,n])=>`<span style="font:500 14px/1 var(--sans)">${n}</span><input id="ssh${k}" class="input" value="${esc((c.hours||{})[k]||'')}" placeholder="none, or 18:00-21:00, 7:00-9:00" style="${inp}">`).join('')}
+      </div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:12px;max-width:760px">
+      <div class="field"><label>Full hire, if the title says</label><input id="ssWords" class="input" value="${esc(c.words)}" style="${inp}"></div>
+      <div class="field"><label>Not hireable at this many bookings</label><input id="ssMax" class="input" type="number" min="1" max="20" value="${esc(c.max)}" style="${inp}"></div>
+      <div class="field"><label>Book at least, hours ahead</label><input id="ssLead" class="input" type="number" min="0" value="${esc(c.leadH)}" style="${inp}"></div>
+      <div class="field"><label>Show, days ahead</label><input id="ssDays" class="input" type="number" min="1" max="60" value="${esc(c.days)}" style="${inp}"></div>
+      <div class="field"><label>Start times every</label><select id="ssStep" class="input" style="${inp}">${[15,30,60].map(n=>`<option value="${n}" ${Number(c.step)===n?'selected':''}>${n} minutes</option>`).join('')}</select></div>
+      <div class="field"><label>Gap around 1-2-1s and classes, minutes</label><input id="ssGap" class="input" type="number" min="0" max="120" value="${esc(c.gap)}" style="${inp}"></div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="ssSave()" ${ss.busy?'disabled':''}>${ss.busy?'Saving…':'Save the hours and rules'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="ssLoad(true)">Read the calendar again</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:20px">
+      <div><div class="kick">FREE, NEXT TWO WEEKS, 60 MINUTES</div>
+        ${d.preview.length?byDay(d.preview).map(([k,l])=>`<div style="margin-top:9px"><b style="font:600 13px/1.4 var(--sans)">${esc(k)}</b>
+          <div class="muted" style="font-size:13px">${l.map(t=>esc(ssClock(t))).join(', ')}</div></div>`).join('')
+          :`<p class="muted" style="font-size:13px;margin-top:8px">${!f.roomSet?'Nothing until the calendar is set.':!d.hoursSet?'Nothing until you set your hours.':'Nothing free in your hours.'}</p>`}</div>
+      <div><div class="kick">ARCH 2, NEXT TWO WEEKS, AS READ</div>
+        ${d.room.length?byDay(d.room).map(([k,l])=>`<div style="margin-top:9px"><b style="font:600 13px/1.4 var(--sans)">${esc(k)}</b>
+          ${l.map(x=>{ const tg=readTag[x.read]||readTag.booking; return `<div style="display:flex;gap:8px;align-items:center;margin-top:4px;font:400 13px/1.4 var(--sans)">
+            <span style="flex:none;width:94px;color:var(--grey)">${x.allDay?'All day':esc(ssClock(x.start))+' to '+esc(ssClock(x.end))}</span>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.title||'(no title)')}</span>
+            <span style="flex:none;padding:3px 7px;border-radius:999px;font:700 9px/1 var(--sans);letter-spacing:.08em;background:${tg[1]};color:#fff">${tg[0]}${x.approx?' · EVERY DAY':''}</span></div>`; }).join('')}</div>`).join('')
+          :`<p class="muted" style="font-size:13px;margin-top:8px">${f.roomRead?'No bookings in the next two weeks.':'Not read yet.'}</p>`}
+        ${d.room.some(x=>x.approx)?'<p class="muted" style="font-size:12px;margin-top:8px">EVERY DAY: a repeating booking whose pattern could not be read exactly, so its hours are kept free of 1-2-1s every day. Tell Claude which one, and the reader can learn it.</p>':''}</div>
+    </div>
+  </div>`;
+}
 function pricesHTML(){
   pricesLoad();
   if(!prices||!Object.keys(prices).length) return `<div class="card"><div class="kick">PRICES</div><p class="muted" style="margin-top:10px">Loading…</p></div>`;
@@ -11640,6 +11755,7 @@ const SET_GROUPS=[
   ['money','Money','What things cost, the discount codes and the Stripe connection.'],
   ['app','The app','What the ladder gives people, what is locked, and the words it sends.'],
   ['workshops','Workshops','Dates, places and who has booked.'],
+  ['sessions','1-2-1 times','When people can book a 1-2-1, read from Arch 2\'s calendar at OverGravity.'],
   ['admin','Admin','The email switch and the one-time database jobs. Rarely.'],
 ];
 function setGo(k){ setTab=k; draw(); if(k==='alerts') cpushLoad(); }
@@ -11818,6 +11934,7 @@ function settingsHTML(){
   : setTab==='app' ? `${owner?shortHTML():''}${owner?homeHTML():''}${owner?streamHTML():''}
       ${owner?emailsHTML():''}`
   : setTab==='workshops' ? workshopsHTML()
+  : setTab==='sessions' ? (owner ? sessSlotsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)
   : setTab==='alerts' ? cpushHTML()
   : `${owner?mailguardHTML():''}${owner?maillogHTML():''}${owner?dbHTML():''}
       <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);max-width:62ch">
