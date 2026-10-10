@@ -43,6 +43,13 @@ async function manageLink(slug, email, session, until) {
   const mac = b64u(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
   return `${SITE}/booking.html?t=${body}.${mac}`;
 }
+/* the same for a 1-2-1: app.mjs sessManageLink, which the session page reads */
+async function sessManage(x) {
+  const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'ssm', i: x.id, e: norm(x.email), exp: Date.now() + 180 * DAY })));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = b64u(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
+  return `${SITE}/session.html?m=${body}.${mac}`;
+}
 const enc = encodeURIComponent;
 const ms = v => (v ? new Date(v).getTime() : 0);
 /* the same as app.mjs wsWhenTxt: "Saturday 10 October, 1:00 to 2:30pm" */
@@ -887,6 +894,10 @@ async function sessionMail(done) {
       const had = await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null);
       if (!had) {
         const first = String(x.name || '').split(' ')[0];
+        /* still more than a day off: they can move it, or cancel it with a
+           refund, themselves. Inside that the email already says to reply. */
+        const cut = new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1');
+        const change = hoursTo > WS_CUTOFF_H ? `<b>Can't make it?</b> <a href="${await sessManage(x)}" style="color:#006663">${x.fromPlan ? 'Move it here' : 'Move or cancel it here'}</a> until ${esc(cut)}, no sign in needed.` : '';
         let went = false;
         if (Number(x.ask) > 0) {
           /* not paid yet, so not confirmed: "see you tomorrow" said nothing
@@ -894,14 +905,14 @@ async function sessionMail(done) {
           const amt = '£' + (Number(x.ask) / 100).toFixed(Number(x.ask) % 100 ? 2 : 0);
           went = await email(x.email, `Tomorrow: your session, pay to confirm it`, mail({ title: 'Your session is tomorrow.', greeting: first,
             paras: [`<b>${esc(whenTxt)}</b>${x.place ? ', at ' + esc(x.place) : ''}. ${esc(x.kind)} minutes.`,
-                    `It is not paid for yet, so it is not confirmed. Paying ${amt} confirms it.`],
+                    `It is not paid for yet, so it is not confirmed. Paying ${amt} confirms it.`, change].filter(Boolean),
             cta: { href: `${SITE}/api/app/session/pay?id=${enc(x.id)}`, label: `Pay ${amt}` },
             signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
         } else {
           const T = await emailCopy('sessRemind', { name: esc(first), when: esc(whenTxt), place: x.place ? ', at ' + esc(x.place) : '', kind: esc(x.kind) });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           went = await email(x.email, T.subject, mail({ title: T.title, greeting: first,
-            paras: T.paras,
+            paras: T.paras.concat(change ? [change] : []),
             signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
         }
         if (!went) { done.held = (done.held || 0) + 1; continue; }
