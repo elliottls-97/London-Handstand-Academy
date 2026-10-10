@@ -3202,14 +3202,24 @@ const handle = async (request) => {
         /* coaching has no free week, so nothing paid can only be a code */
         const coNote = codeNote(obj) || (!(Number(obj.amount_total) > 0) ? 'Free on a code' : '');
         const overTxt = overFull ? 'The places were at 0, so this is one more client than you set as open this month' : '';
-        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : '') + (overTxt ? '. ' + overTxt : ''), tag: 'coachnew:' + e2 });
-        if (coachNew && (overFull || await coachMail(e2, 'business'))) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}${overFull ? ' (places were full)' : ''}`,
+        /* The site, the session page and the day-after email all say a one
+           to one comes off the first month if they join within fourteen
+           days. A payment link cannot take it off, so it was only kept if
+           the coach happened to remember: the month was charged in full and
+           nothing said a credit was owed. */
+        const credit = ((await getSetting('sessions').catch(() => null)) || []).filter(x => x && x.email === e2 && !x.fromPlan
+          && !['cancelled', 'refunded'].includes(x.status) && (Number(x.paid) || 0) - (Number(x.refunded) || 0) > 0
+          && (x.when ? ms(x.when) : Number(x.at) || 0) > Date.now() - 14 * 864e5);
+        const creditTxt = credit.length ? `They paid ${credit.map(x => sessAmt((Number(x.paid) || 0) - (Number(x.refunded) || 0)) + ' for a ' + x.kind + ' minute session').join(' and ')} in the last fourteen days, which the site says comes off their first month` : '';
+        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : '') + (overTxt ? '. ' + overTxt : '') + (creditTxt ? '. Session credit owed' : ''), tag: 'coachnew:' + e2 });
+        if (coachNew && (overFull || credit.length || await coachMail(e2, 'business'))) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}${overFull ? ' (places were full)' : ''}${credit.length ? ' (session credit owed)' : ''}`,
           mail({ title: `Someone just bought ${tierFull}.`,
             paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.${
                       london > 0 ? ' Their London session is on Today, waiting for a time.' : ''}`,
                     boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.',
                     coNote ? `<b>${esc(coNote)}.</b>` : '',
-                    overTxt ? `<b>${esc(overTxt)}.</b> Take them on, or refund them in Stripe and offer the waiting list.` : ''].filter(Boolean),
+                    overTxt ? `<b>${esc(overTxt)}.</b> Take them on, or refund them in Stripe and offer the waiting list.` : '',
+                    creditTxt ? `<b>${esc(creditTxt)}.</b> This month was charged in full: refund that amount on it in Stripe.` : ''].filter(Boolean),
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
             signoff: { name: 'London Handstand Academy' } }));
         /* somebody who bought from the website has an account and no
