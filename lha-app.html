@@ -571,6 +571,9 @@ button.lc-ring:active{transform:scale(.88)}
 .lw-film{width:100%;height:180px;border-radius:14px;cursor:pointer}
 .lw-disc{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:28px;
  background:rgba(255,255,255,.94);box-shadow:0 8px 20px rgba(0,64,61,.20);display:flex;align-items:center;justify-content:center}
+.lw-play{border:0;padding:0;cursor:pointer;z-index:2}
+.lw-play:active{transform:scale(.94)}
+.lw-playing{background:#000!important}
 .lw-tag{position:absolute;left:12px;top:12px;font:700 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;
  color:var(--deep);background:rgba(255,255,255,.88);padding:5px 9px;border-radius:9px}
 .lw-pill{height:28px;padding:0 10px;border-radius:14px;border:1px solid rgba(0,64,61,.16);display:inline-flex;
@@ -17325,6 +17328,19 @@ function lwChecks(){ st.ladderTab='checks'; save(); render(); }
    stage's card instead (Elliott, 10 Oct 2026: "the stage animates out of
    it rather than scrolling down"). The same figure closes it. */
 let lwPopI=null;
+/* a stage's picture plays its film where it is: the play button swaps the
+   picture for Stream's player, the way the dashboard's stage films play.
+   A stage with no film keeps its picture and opens its sheet. */
+function lwFilmUid(i){ const u=stageIntroUid(i); return isUid(u) ? u : ''; }
+function lwPlayBtn(i){
+  const u=lwFilmUid(i); if(!u) return '';
+  return `<button class="lw-disc lw-play" onclick="event.stopPropagation();lwPlay(this,${jsq(u)})" aria-label="Play the ${esc((STAGES[i]||{}).n||'')} film">${LW_PLAY(18)}</button>`;
+}
+function lwPlay(btn, uid){
+  const box=btn.closest('.lw-img'); if(!box) return;
+  box.classList.add('lw-playing'); box.onclick=null;
+  playStageFilm(box, uid);
+}
 function lwPopHTML(i){
   const cur=curStage(), tp=trialPending(), here=tp?placedStage():cur, S=STAGES[i]||{}, last=STAGES.length-1;
   const P=cpProgress(here), earned=!tp && P.of>0 && P.met>=P.of && here<last && stageLocked(here+1);
@@ -17336,7 +17352,8 @@ function lwPopHTML(i){
     ? `<button class="lw-go" onclick="startDay(-1,'full')"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.5v9l7-4.5z" fill="#fff"/></svg><span>Today&rsquo;s session</span></button>`
     : `<button class="lw-go" onclick="openStage(${i})"><span>${locked?'See what&rsquo;s in '+esc(S.n):'Open '+esc(S.n)}</span></button>`;
   return `<div class="lw-popi">
-      <button class="lw-img lw-popimg" onclick="openStage(${i})" aria-label="Open ${esc(S.n)}">${lwImg(i)}</button>
+      ${lwFilmUid(i) ? `<div class="lw-img lw-popimg">${lwImg(i)}${lwPlayBtn(i)}</div>`
+        : `<button class="lw-img lw-popimg" onclick="openStage(${i})" aria-label="Open ${esc(S.n)}">${lwImg(i)}</button>`}
       <div>
         <div class="lw-k" style="font-size:11px">Stage ${i+1} &middot; ${tag}</div>
         <div style="font:400 26px/1.1 var(--serif);color:var(--ink);margin-top:5px">${lwHead(S.n)}</div>
@@ -17449,7 +17466,10 @@ function ladderWholeHTML(){
       </div></div>` : '';
 
   /* ── where you are ── */
-  const heroImg = `<button class="lw-img lw-heroimg" onclick="openStage(${here})" aria-label="Open ${esc(H.n)}">
+  const heroImg = lwFilmUid(here) ? `<div class="lw-img lw-heroimg">
+      <span class="lw-kb">${lwImg(here)}</span>${lwPlayBtn(here)}
+      <span class="lw-here lw-ping">${tp?'Your answers put you here':'You are here'}</span>
+    </div>` : `<button class="lw-img lw-heroimg" onclick="openStage(${here})" aria-label="Open ${esc(H.n)}">
       <span class="lw-kb">${lwImg(here)}</span>
       <span class="lw-here lw-ping">${tp?'Your answers put you here':'You are here'}</span>
     </button>`;
@@ -17517,11 +17537,12 @@ function ladderWholeHTML(){
         ${LW_CHEV}
       </button>
       <div class="lw-acb"${on?'':' hidden'}>
-        <button class="lw-img lw-film" onclick="openStage(${i})" aria-label="Watch the ${esc(S.n)} film">
-          <span class="lw-kb">${lwImg(i)}</span>
-          <span class="lw-disc">${LW_PLAY(18)}</span>
+        ${lwFilmUid(i) ? `<div class="lw-img lw-film">
+          <span class="lw-kb">${lwImg(i)}</span>${lwPlayBtn(i)}
           <span class="lw-tag">Watch the film</span>
-        </button>
+        </div>` : `<button class="lw-img lw-film" onclick="openStage(${i})" aria-label="Open ${esc(S.n)}">
+          <span class="lw-kb">${lwImg(i)}</span>
+        </button>`}
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <span class="lw-pill">${ofAt(i)} check points</span>
           ${S.drills?`<span class="lw-pill">${S.drills} drills</span>`:''}
