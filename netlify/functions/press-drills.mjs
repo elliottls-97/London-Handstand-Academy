@@ -22,7 +22,7 @@ export default {
  },
  "p-pike-pushups": {
   "n": "Pike Push-Ups",
-  "desc": "Front deltoid strength,  the fix if you collapse in the take-off.",
+  "desc": "Front deltoid strength: the fix if you collapse in the take-off.",
   "cues": [
    "Push tall, elevate the scapula.",
    "Keep the load off the base of the palm."
@@ -31,7 +31,7 @@ export default {
  },
  "p-bench-zombies-lowers": {
   "n": "Bench Zombie Lowers",
-  "desc": "Step off the bench edge and lower slowly,  adds the eccentric.",
+  "desc": "Step off the bench edge and lower slowly. Adds the eccentric.",
   "cues": [
    "Start on the edge.",
    "Lower slowly to the floor."
@@ -63,7 +63,7 @@ export default {
  },
  "pm-partner-press-circles": {
   "n": "Partner Press Circles",
-  "desc": "Spotted,  own the path with help before you own it alone.",
+  "desc": "Spotted: own the path with help before you own it alone.",
   "cues": [
    "Let the spot take the weight.",
    "Trace the same path each rep."
@@ -169,7 +169,7 @@ export default {
  },
  "pm-tuck-straddle-press-knees-apart": {
   "n": "Tuck Straddle Press, Knees Apart",
-  "desc": "Good for limited flexibility,  this is the bent-knee straddle press.",
+  "desc": "Good for limited flexibility: this is the bent-knee straddle press.",
   "cues": []
  },
  "pm-zombie-press": {
@@ -220,10 +220,27 @@ export default {
  },
  "pm-overhead-reach-holds": {
   "n": "Overhead Reach Holds",
-  "desc": "Active end-range work,  hold what you just opened.",
+  "desc": "Active end-range work: hold what you just opened.",
   "cues": [
    "Reach tall.",
    "Keep the ribs stacked."
+  ]
+ },
+ "pm-chair-handstand-hold": {
+  "n": "Chair-Assisted Handstand Hold",
+  "desc": "The gate. Scapular strength in a stacked position: without it you cannot push tall, and the hips have nowhere to travel.",
+  "cues": [
+   "Feet on a chair, hips stacked over the shoulders.",
+   "Arms straight.",
+   "Push tall through the shoulders and hold."
+  ]
+ },
+ "pm-box-pancake-leg-lifts": {
+  "n": "Box Pancake Leg Lifts",
+  "desc": "Elevated version of the pancake leg lifts: more range, more work.",
+  "cues": [
+   "Full range each rep.",
+   "Control the way down."
   ]
  }
 };

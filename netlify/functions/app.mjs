@@ -23,7 +23,6 @@
 import { getStore } from '@netlify/blobs';
 import programmes, { planFile } from './programmes.mjs';
 import PRESS_DRILLS from './press-drills.mjs';
-import PRESS_FIXES from './press-fixes.mjs';
 /* the Press stage's drills underneath what the dashboard has written:
    a film or a cue added there wins, field by field */
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
@@ -4683,8 +4682,7 @@ const handle = async (request) => {
     drillsN: (f.drills || []).length, locked: true,
   });
   if (path === '/fixes' && request.method === 'GET') {
-    /* the three press limiters ship in code; one saved in the dashboard wins */
-    const all = Object.assign({}, PRESS_FIXES, (await getSetting('fixes')) || {});
+    const all = (await getSetting('fixes')) || {};
     const live = Object.fromEntries(Object.entries(all).filter(([, f]) => f && f.live));
     const full = await fixHydrate(live);
     const who = await me();
@@ -4701,7 +4699,6 @@ const handle = async (request) => {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('fixes')) || {};
     if (request.method === 'GET') {
-      for (const [k, f] of Object.entries(PRESS_FIXES)) if (!all[k]) all[k] = f;
       return json({ fixes: all, library: await libraryNow() });
     }
     if (request.method === 'POST') {
@@ -7307,14 +7304,22 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         }
         cur.fixDone = m;
       }
-      /* the press test: eight answers 0 to 3, the limiter it named, when */
+      /* the press test: eight answers 0 to 3, the limiter it named, when,
+         the plan's session count when it was taken (its block starts there),
+         and the last twelve results as three corner scores, for the retest */
       if (body.pressTest && typeof body.pressTest === 'object') {
-        const sc = {};
-        for (const [k, v] of Object.entries(body.pressTest.scores || {}).slice(0, 12)) {
+        const pt = body.pressTest, sc = {}, K = ['strength', 'mobility', 'patterning'];
+        for (const [k, v] of Object.entries(pt.scores || {}).slice(0, 12)) {
           const n = Number(v); if (/^[a-z-]{2,20}$/.test(k) && Number.isInteger(n) && n >= 0 && n <= 3) sc[k] = n;
         }
-        const lim = ['strength', 'mobility', 'patterning'].includes(body.pressTest.limiter) ? body.pressTest.limiter : '';
-        cur.pressTest = { scores: sc, limiter: lim, at: Number(body.pressTest.at) || Date.now() };
+        const lim = K.includes(pt.limiter) ? pt.limiter : '';
+        const corner = v => (v === null || v === undefined || v === '') ? null
+          : (Number.isFinite(Number(v)) ? Math.max(0, Math.min(3, Math.round(Number(v) * 100) / 100)) : null);
+        const hist = (Array.isArray(pt.hist) ? pt.hist : []).slice(-12)
+          .filter(h => h && typeof h === 'object' && Number.isFinite(Number(h.at)))
+          .map(h => ({ at: Number(h.at), s: Object.fromEntries(K.map(k => [k, corner((h.s || {})[k])])) }));
+        const base = Number.isInteger(Number(pt.base)) ? Math.max(0, Math.min(9999, Number(pt.base))) : 0;
+        cur.pressTest = { scores: sc, limiter: lim, at: Number(pt.at) || Date.now(), base, hist };
       }
       /* the welcome seen and the call booked. An iPhone's Home Screen app
          keeps its own storage, so without these the welcome played again
@@ -7627,6 +7632,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'finish', 'ret7', 'install', 'taste', 'signup', 'code',
                   /* a fix opened, started and finished, and its public page */
                   'fixopen', 'fixstart', 'fixdone', 'sitefix',
+                  /* the press test taken, by the limiter it named */
+                  'presstest',
                   /* a workshop page opened, a booking started, a booking paid */
                   'siteworkshoppage', 'workshopbook', 'workshoppaid',
                   /* a one to one session page opened, and a request started */
