@@ -3147,16 +3147,24 @@ const handle = async (request) => {
         const nmStripe = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
         if (!acct.name && nmStripe) { acct.name = nmStripe; try { await saveAcct({ email: e2, name: nmStripe }); } catch {} }
         const london = LONDON[variant] || 0;
-        const stored = (await getSetting('roster')) || {};
         /* a past client paying for coaching again is a client again, and is
            welcomed as one rather than skipped for being on the roster */
         const pastNow = (await getSetting('pastclients')) || {};
         const wasPast = !!pastNow[e2];
         if (wasPast) { delete pastNow[e2]; await setSetting('pastclients', pastNow); PAST = pastNow; }
         let overFull = false;
-        if ((!stored[e2] && !clients()[e2]) || wasPast) {
-          stored[e2] = { name: acct.name || e2, coach: '', tier: variant || boughtPlan };
-          await setSetting('roster', stored);
+        /* changed in place: two buyers in the same second each read the
+           roster and wrote it back whole, and the second wrote over the
+           first, who was then a paying client nobody had on the list */
+        let joined = false;
+        await changeSetting('roster', cur => {
+          joined = false;
+          const st = Object.assign({}, cur || {}), tier = variant || boughtPlan;
+          if ((!st[e2] && !clients()[e2]) || wasPast) { st[e2] = { name: acct.name || e2, coach: '', tier }; joined = true; return st; }
+          if (st[e2] && st[e2].tier !== tier) { st[e2] = Object.assign({}, st[e2], { tier }); return st; }
+          return undefined;
+        });
+        if (joined) {
           /* a new coaching client takes one of the places the site says are
              open. With none left, Stripe's page still sells it, since a
              payment link knows nothing of the places, and that went by
@@ -3165,9 +3173,6 @@ const handle = async (request) => {
             overFull = !!cur && Number.isInteger(Number(cur.n)) && !(Number(cur.n) > 0);
             return cur && Number(cur.n) > 0 ? { n: Number(cur.n) - 1, at: Date.now(), by: 'purchase' } : undefined;
           }).catch(() => {});
-        } else if (stored[e2] && stored[e2].tier !== (variant || boughtPlan)) {
-          stored[e2] = Object.assign({}, stored[e2], { tier: variant || boughtPlan });
-          await setSetting('roster', stored);
         }
         /* Joining the roster puts them behind the client email guard. This
            used to switch them through by name for good, which overrode a
