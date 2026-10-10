@@ -398,6 +398,13 @@ button.lc-ring:active{transform:scale(.88)}
 .lc-note{margin-top:10px;font:400 13px/1.45 var(--sans);color:var(--grey)}
 .lc-none{padding:12px;border-radius:12px;background:rgba(17,17,17,.04);font:400 12.5px/1.4 var(--sans);color:var(--grey2)}
 .lc-th img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+/* the check points still to come: empty rungs across the rails, with how
+   many on them */
+.lc-more{display:flex;flex-direction:column;justify-content:space-around;padding:6px 22px}
+.lc-more .lc-mb{display:block;height:4px;margin:9px -13px;border-radius:2px;background:rgba(0,64,61,.08)}
+.lc-more span{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;
+ padding:7px 13px;border-radius:999px;background:#fff;border:1.5px dashed rgba(0,64,61,.2);
+ font:600 12.5px/1 var(--sans);color:var(--grey)}
 .lc-th .pl{position:absolute;right:3px;bottom:3px;width:17px;height:17px;border-radius:50%;
  background:rgba(255,255,255,.94);display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.22)}
 .lc-t{flex:1;min-width:0}
@@ -573,6 +580,9 @@ button.lc-ring:active{transform:scale(.88)}
 .lw-move button{height:44px;padding:0 14px;border-radius:22px;border:0;background:transparent;
  font:600 14px/1 var(--sans);color:var(--deep);display:flex;align-items:center;gap:6px;cursor:pointer}
 .lw-move>span{width:1px;height:18px;background:rgba(0,64,61,.16)}
+/* the section a step in the climb points at, picked out as it arrives */
+@keyframes lwFlash{0%,100%{outline-color:rgba(243,169,73,0)}25%,60%{outline-color:rgba(243,169,73,.9)}}
+.lw .lw-flash{outline:3px solid rgba(243,169,73,0);outline-offset:2px;animation:lwFlash 1.5s ease .25s both!important}
 #app[data-still="1"] .lw .lw-in,#app[data-still="1"] .lw .lw-bar,#app[data-still="1"] .lw .lw-segs i:not(.lw-breathe),
 #app[data-still="1"] .lw .lw-medal,#app[data-still="1"] .lw .lw-draw,#app[data-still="1"] .lw .lw-ac.open .lw-acb{animation:none!important}
 #app[data-still="1"] .lw .lw-bar.lw-next,#app[data-still="1"] .lw .lw-feat{animation:lwGlow 2.4s ease-in-out infinite!important}
@@ -6584,7 +6594,20 @@ function climbHTML(si, mode, use){
   if(!S.n) return '';
   const n=S.n, {T, step, ds, df, fillS, dn}=climbTimes(S);
   const fillPx=S.climbed>=n ? null : 14+(Math.max(1,S.climbed)-1)*(LC_R+LC_G)+LC_R/2;
-  const rungs=S.rows.slice().reverse().map(r=>{
+  /* The free ladder shows what has been reached and the one to work on
+     next. All seven were open from the start, each with its film and its
+     tick, before anyone had done the first (Elliott, 10 Oct 2026: "they
+     shouldn't need to see checkpoints if they haven't done the previous
+     one"). The rest wait as empty rungs, so it still reads as a ladder.
+     A coach's check points are a set of tests, not a climb: all show. */
+  const gate = use==='log' && si!=='c' && si!=null && S.next>=0;
+  const isLater = r => gate && !r.done && r.j>S.next;
+  const later = S.rows.filter(isLater);
+  const more = later.length ? `<div class="lc-r lc-more" style="--d:${(T+later[later.length-1].j*step).toFixed(2)}s;--dl:0s"
+      role="img" aria-label="${later.length} more check point${later.length===1?'':'s'}, each opens when you reach the one below it">
+      ${later.map(()=>'<i class="lc-mb"></i>').join('')}
+      <span>${later.length} more, one at a time</span></div>` : '';
+  const rungs=more+S.rows.filter(r=>!isLater(r)).slice().reverse().map(r=>{
     const isNext=r.j===S.next;
     /* every rung moves while the Check points page first builds; after the
        quiz the story above has the films, so only the next one does */
@@ -11988,7 +12011,16 @@ function drawOv(){
         Drag each one to what you managed, it logs as you go. Reach all ${p.of} and ${
           STAGES[si+1]?esc(STAGES[si+1].n)+' opens below.':'the ladder is done.'}</div>
       <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">
-        ${(cpFor(si)||[]).map((c,i)=>cpCard(c,i,p.of)).join('')}
+        ${(()=>{
+          /* as on the ladder: what has been reached and the next one */
+          const list=cpFor(si)||[], S=climbState(si), gate=!coachedView() && S.next>=0;
+          const show=list.map((c,i)=>({c,i})).filter(({i})=>!gate || (S.rows[i]&&S.rows[i].done) || i<=S.next);
+          const left=list.length-show.length;
+          return show.map(({c,i})=>cpCard(c,i,p.of)).join('')
+            + (left?`<div style="padding:13px 15px;border-radius:16px;border:1.5px dashed rgba(0,64,61,.2);
+                font:600 13px/1.4 var(--sans);color:var(--grey);text-align:center">${left} more, one at a time.
+                Each opens when you reach the one before it.</div>`:'');
+        })()}
       </div>
       <div style="height:14px"></div>`;
     }
@@ -12594,6 +12626,12 @@ function loadProgress(){
       save(); render();
     } })
     .catch(()=>{});
+}
+/* nothing to show on Progress yet: no session finished or opened, no day
+   logged and no check point logged */
+function progFresh(){
+  const p=st.prog||{};
+  return !((p.sessions||[]).length) && !((p.days||[]).length) && !Object.keys(cpLog()).length;
 }
 function sessionsDone(){ return ((st.prog&&st.prog.sessions)||[]).filter(x=>x.done); }
 /* The block the coach is running: which one, when it started, when the test
@@ -16999,6 +17037,22 @@ function screenLadder(){
       </div>
     </div>
     <div style="height:28px"></div>`
+    : (ltab==='progress' && progFresh()) ? `
+    <!-- Nothing done yet: the week, a streak, three noughts, an empty month
+         and a card about the work were five ways of saying so (Elliott,
+         10 Oct 2026: stuff "I don't need yet"). One line and the way in.
+         The rest arrives with the first session or the first log. -->
+    <div class="rise" style="padding:26px 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
+        color:var(--forest)">Progress</div>
+      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:9px">It starts with your first
+        <em style="color:var(--forest);font-style:normal">session.</em></div>
+      <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">
+        Finish one and your week, your streak and your reps show up here.</div>
+      <button class="btn" style="width:100%;margin-top:22px" onclick="startDay(-1,'full')">Start your first session</button>
+      <button class="btn2" style="width:100%;margin-top:9px" onclick="logByHand()">Trained without the app? Log it</button>
+    </div>
+    <div style="height:28px"></div>`
     : ltab==='progress' ? `
     <!-- 6f. One number leads: the sessions you have done against the target you
          set yourself. Then the week as seven circles, the check-in if one is
@@ -17238,6 +17292,19 @@ function lwToggle(i){
   });
 }
 function lwChecks(){ st.ladderTab='checks'; save(); render(); }
+/* A step in the climb shows its stage where it is below, opened if it is
+   a card that opens, rather than going straight to the stage's sheet
+   (Elliott, 10 Oct 2026). The section itself still opens the sheet. */
+function lwStep(i){
+  const el=document.querySelector('.lw [data-lw="'+i+'"]'); if(!el){ openStage(i); return; }
+  if(el.classList.contains('lw-ac') && !el.classList.contains('open')) lwToggle(i);
+  const sc=el.closest('.scroll');
+  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  if(sc){ const top=el.getBoundingClientRect().top-sc.getBoundingClientRect().top-(wide()?16:92);
+    sc.scrollBy({top, behavior:still?'auto':'smooth'}); }
+  el.classList.remove('lw-flash'); void el.offsetWidth; el.classList.add('lw-flash');
+  setTimeout(()=>el.classList.remove('lw-flash'), 1600);
+}
 function ladderWholeHTML(){
   const cur=curStage(), last=STAGES.length-1, tp=trialPending();
   const here=tp?placedStage():cur, H=STAGES[here]||STAGES[0];
@@ -17256,7 +17323,7 @@ function ladderWholeHTML(){
   const bars = STAGES.map((S,i)=>{
     const done = i<here || (i===here && earned);
     const now = i===here && !earned, next = earned && i===here+1;
-    return `<button class="lw-step" onclick="openStage(${i})" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}">
+    return `<button class="lw-step" onclick="lwStep(${i})" aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':''}. Show it below">
       ${i===here?`<span class="lw-you${earned?' lw-hop':''}"><span>You</span></span>`:''}
       <span class="lw-name" style="color:${done?'var(--forest)':now||next?'var(--ink)':'var(--grey)'}${now||next?';font-weight:700':''}">${esc(S.n)}</span>
       <span class="lw-bar${next?' lw-next':''}" style="height:${30+i*20}px;--d:${120+i*80}ms;background:${
@@ -17283,7 +17350,7 @@ function ladderWholeHTML(){
   const doneHTML = behind.length ? `<div class="lw-in" style="--d:160ms;margin-top:20px">
       <div class="lw-k" style="padding:0 4px 8px">${allPassed?'Done':'Behind you'}</div>
       <div class="lw-card" style="padding:6px 14px">${behind.map(({S,i,p},j)=>`
-        <button class="lw-done" onclick="openStage(${i})" style="${j?'border-top:1px solid rgba(0,64,61,.08)':''}">
+        <button class="lw-done" data-lw="${i}" onclick="openStage(${i})" style="${j?'border-top:1px solid rgba(0,64,61,.08)':''}">
           <span class="lw-img" style="width:48px;height:48px;border-radius:12px;flex:none">${lwImg(i)}</span>
           <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;text-align:left">
             <span style="font:400 20px/1.1 var(--serif);color:var(--ink)">${esc(S.n)}</span>
@@ -17299,7 +17366,7 @@ function ladderWholeHTML(){
       <span class="lw-kb">${lwImg(here)}</span>
       <span class="lw-here lw-ping">${tp?'Your answers put you here':'You are here'}</span>
     </button>`;
-  const heroHTML = earned ? '' : `<div class="lw-card lw-in" style="--d:260ms;margin-top:16px;overflow:hidden;
+  const heroHTML = earned ? '' : `<div class="lw-card lw-in" data-lw="${here}" style="--d:260ms;margin-top:16px;overflow:hidden;
       box-shadow:0 1px 2px rgba(0,64,61,.06),0 16px 40px rgba(0,64,61,.12)">
       ${heroImg}
       <div style="padding:16px 18px 18px;display:flex;flex-direction:column;gap:12px">
@@ -17328,7 +17395,7 @@ function ladderWholeHTML(){
   /* ── a stage finished, the next one earned but in the full Ladder ── */
   const burst = Array.from({length:8},(_,i)=>`<span class="lw-ray" style="transform:rotate(${i*45}deg)"><i style="background:${
     i%2?'var(--sage)':'var(--forest)'};animation-delay:${1000+(i%2)*120}ms"></i></span>`).join('');
-  const celebrate = earned ? `<div class="lw-card lw-in" style="--d:260ms;margin-top:16px;padding:18px;display:flex;flex-direction:column;gap:14px;
+  const celebrate = earned ? `<div class="lw-card lw-in" data-lw="${here}" style="--d:260ms;margin-top:16px;padding:18px;display:flex;flex-direction:column;gap:14px;
       box-shadow:0 1px 2px rgba(0,64,61,.06),0 16px 40px rgba(0,64,61,.12)">
       <div style="display:flex;align-items:center;gap:16px">
         <span class="lw-burst">${burst}<span class="lw-medal"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff"
@@ -17350,7 +17417,7 @@ function ladderWholeHTML(){
     const on=i===openI, prev=STAGES[i-1]||{};
     const rule = S.soon ? 'Coming soon' : `Opens at ${ofAt(i-1)} of ${ofAt(i-1)} on ${esc(prev.n||'')}`;
     const cta = !free ? `Open ${esc(S.n)}` : trialWord;
-    return `<div class="lw-ac lw-in${on?' open':''}" data-i="${i}" style="--d:${480+k*90}ms">
+    return `<div class="lw-ac lw-in${on?' open':''}" data-i="${i}" data-lw="${i}" style="--d:${480+k*90}ms">
       <button class="lw-act" onclick="lwToggle(${i})" aria-expanded="${on}">
         <span class="lw-img" style="width:96px;height:116px;border-radius:14px;flex:none">${lwImg(i)}</span>
         <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;text-align:left">
@@ -17377,7 +17444,7 @@ function ladderWholeHTML(){
     </div>`;
   };
   const featured = (earned && free) ? (()=>{ const i=here+1, S=STAGES[i]; return `
-      <button class="lw-feat" onclick="openStage(${i})">
+      <button class="lw-feat" data-lw="${i}" onclick="openStage(${i})">
         <span class="lw-img lw-shine" style="display:block;height:190px">
           <span class="lw-kb">${lwImg(i)}</span>
           <span class="lw-earned">${LW_TICK(12)}Earned</span>
