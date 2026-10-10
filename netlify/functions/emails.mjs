@@ -418,19 +418,16 @@ export const EMAILS = {
   },
   "wsThanks": {
     "name": "Workshop, the day after",
-    "when": "10 to 40 hours after a workshop",
+    "when": "10 to 40 hours after a workshop. Under these words: the review button, the next dates, a 1-2-1, coaching and the app, at the prices in Money",
     "vars": [
       "name",
       "title",
-      "review_line",
-      "app_line"
+      "day"
     ],
-    "subject": "How was {title}?",
+    "subject": "Thanks for coming on {day}",
     "title": "Thank you for coming.",
     "paras": [
-      "Two things would help a lot.",
-      "{review_line}",
-      "{app_line}"
+      "Good to have you on the mats on {day}."
     ]
   },
   "sessRemind": {
@@ -505,4 +502,172 @@ export function renderEmail(key, vars, over) {
     /* switched off in the dashboard: held, not sent. The few that must
        always go (a password link, a bounced card, a charge coming) ignore it */
     off: !!o.off && !d.always };
+}
+
+/* ── the day after a class: one email, laid out like the site ─────────
+   (10 Oct 2026) The thank you was a review button and a line about the
+   app. It now carries what comes next too: the next dates, from the
+   workshops written in the dashboard; a 1-2-1; coaching; the app; at the
+   prices set in Money. The words at the top are wsThanks above, so the
+   dashboard still edits and switches them.
+
+   Newsreader and Figtree where the mail app loads them (Apple Mail does);
+   Gmail falls back to Georgia and Helvetica, Outlook is told Georgia and
+   Arial, as it otherwise picks Times New Roman. Tables throughout, as
+   Outlook draws HTML with Word. Gradients, shadows and the ground's
+   washes are extras in their own style block: a client that throws them
+   away still has flat teal and white panels. The plain text part says
+   the same thing with the links written out. */
+export function afterClassEmail(d) {
+  const SERIF = "Newsreader,Georgia,'Times New Roman',serif";
+  const SANS = "Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+  /* the app's tokens; hairlines as solid colours, since Outlook has no rgba */
+  const C = { ink: '#111111', grey: '#5a5a5a', grey2: '#686868', teal: '#006663', deep: '#00403d',
+    line: '#e6ecec', ctl: '#cfdcdb', ground: '#f4f4f5', on: '#f7f4f1', amber: '#f3a949' };
+  const site = d.site || SITE, img = d.assets || site;
+  const f = (fam, size, lh, w) => `font-family:${fam};font-size:${size}px;line-height:${lh}px;font-weight:${w}`;
+  /* the headline pattern: the last word in teal */
+  const lit = t => { const s = String(t || '').trim(), i = s.lastIndexOf(' ');
+    return i < 0 ? `<span style="color:${C.teal}">${s}</span>` : `${s.slice(0, i)} <span style="color:${C.teal}">${s.slice(i + 1)}</span>`; };
+  const kick = t => `<div style="${f(SANS, 11, 15, 600)};letter-spacing:.14em;text-transform:uppercase;color:${C.teal};margin:0 0 10px">${t}</div>`;
+  const para = (t, top = 12) => `<p style="margin:${top}px 0 0;${f(SANS, 16, 25, 400)};color:${C.grey}">${t}</p>`;
+  const btn = (href, label, main) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:18px 0 0"><tr>
+<td class="${main ? 'btnp' : ''}" bgcolor="${main ? C.teal : '#ffffff'}" style="border-radius:14px;background-color:${main ? C.teal : '#ffffff'};${main ? '' : `border:1px solid ${C.ctl};`}mso-padding-alt:${main ? '15px 26px' : '12px 20px'}">
+<a href="${escH(href)}" style="display:inline-block;padding:${main ? '15px 26px' : '12px 20px'};${f(SANS, main ? 16 : 15, 20, 600)};color:${main ? C.on : C.deep};text-decoration:none;border-radius:14px">${label}</a></td></tr></table>`;
+  const card = (inner, pad = '24px 24px 26px') => `<tr><td style="padding:0 0 14px">
+<table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border:1px solid ${C.line};border-radius:24px;border-collapse:separate">
+<tr><td class="px" style="padding:${pad}">${inner}</td></tr></table></td></tr>`;
+  const h2 = t => `<tr><td class="px s" style="padding:20px 24px 12px;${f(SERIF, 30, 34, 400)};letter-spacing:-.015em;color:${C.ink}">${lit(t)}</td></tr>`;
+
+  const first = d.first ? escH(d.first) : '';
+  const title = escH(d.title || 'Thank you for coming.');
+  const paras = (d.paras || []).filter(Boolean);
+  const dates = d.dates || [];
+  const o = d.offers;
+
+  /* ── the panels ── */
+  const hero = `<tr><td style="padding:0 0 14px">
+<table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background:#ffffff;border:1px solid ${C.line};border-radius:24px;border-collapse:separate">
+${d.photo ? `<tr><td style="padding:0;line-height:0;font-size:0"><img src="${escH(img + d.photo.src)}" width="598" alt="${escH(d.photo.alt || '')}" style="display:block;width:100%;max-width:598px;height:auto;border:0;border-radius:23px 23px 0 0;${f(SANS, 14, 20, 400)};color:${C.grey}"></td></tr>` : ''}
+<tr><td class="px" style="padding:26px 24px 28px">
+${d.kicker ? kick(escH(d.kicker)) : ''}
+<h1 class="h1 s" style="margin:0;${f(SERIF, 42, 44, 400)};letter-spacing:-.015em;color:${C.ink}">${lit(title)}</h1>
+${first ? para(`Hi ${first},`, 18) : ''}${paras.map((p, i) => para(p, i || first ? 12 : 18)).join('')}
+</td></tr></table></td></tr>`;
+
+  const review = card(`<div style="font-size:18px;line-height:20px;letter-spacing:3px;color:${C.amber};margin:0 0 12px">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+<div class="s" style="${f(SERIF, 30, 34, 400)};letter-spacing:-.015em;color:${C.ink}">${lit('Leave a review.')}</div>
+${d.review ? para('One minute on Google. It is how the next class fills.', 10) + btn(d.review, 'Write a review', true)
+  : para('Reply with a sentence about how you found it, good or bad. I read every one.', 10)}`);
+
+  const dateRow = (x, last) => {
+    const bits = [x.time, x.place, x.price].filter(Boolean).map(escH);
+    if (x.left != null && x.left > 0 && x.left <= 5) bits.push(`<b style="color:${C.deep}">${x.left} ${x.left === 1 ? 'place' : 'places'} left</b>`);
+    const right = x.booked ? `<span style="${f(SANS, 14, 20, 600)};color:${C.teal};white-space:nowrap">&#10003; Booked</span>`
+      : x.full ? `<span style="${f(SANS, 14, 20, 600)};color:${C.grey2}">Full</span>`
+      : `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr><td class="btnp" bgcolor="${C.teal}" style="border-radius:12px;background-color:${C.teal};mso-padding-alt:10px 18px"><a href="${escH(x.href)}" style="display:inline-block;padding:10px 18px;${f(SANS, 15, 18, 600)};color:${C.on};text-decoration:none;border-radius:12px">Book</a></td></tr></table>`;
+    return `<tr><td style="padding:14px 0;${last ? '' : `border-bottom:1px solid ${C.line}`}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td valign="middle" style="${f(SANS, 16, 22, 600)};color:${C.ink}">${escH(x.day)}${x.what ? `<div style="${f(SANS, 14, 20, 600)};color:${C.teal};margin-top:2px">${escH(x.what)}</div>` : ''}
+<div style="${f(SANS, 14, 20, 400)};color:${C.grey};margin-top:2px">${bits.join(' &middot; ')}</div></td>
+<td valign="middle" align="right" width="92" style="padding-left:12px">${right}</td></tr></table></td></tr>`;
+  };
+  const datesCard = card(dates.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table>`
+    : para('New dates are on the way.', 0) + btn(d.more || `${site}/handstand-class`, 'See the class page', false), dates.length ? '8px 24px' : '24px 24px 26px');
+
+  const offer = (k, name, lines, href, label) => card(`${kick(k)}<div class="s" style="${f(SERIF, 25, 30, 400)};letter-spacing:-.01em;color:${C.ink}">${name}</div>
+${lines.filter(Boolean).map((l, i) => `<p style="margin:${i ? 6 : 10}px 0 0;${f(SANS, 15, 23, 400)};color:${i ? C.grey2 : C.grey}">${l}</p>`).join('')}${href ? btn(href, label, false) : ''}`);
+  const placesLine = o && Number.isInteger(o.places)
+    ? (o.places > 0 ? `<b style="color:${C.deep}">${o.places} ${o.places === 1 ? 'place' : 'places'} open this month.</b>` : 'Full this month.') : '';
+  const offers = o ? h2('Keep going.')
+    + offer('In person &middot; OverGravity', 'A 1-2-1 with Elliott',
+      [`60 minutes, ${escH(o.s60)}. 90 minutes, ${escH(o.s90)}.`, 'Join coaching within 14 days and it comes off your first month.'],
+      `${site}/session.html`, 'Book a session')
+    + offer('Coaching', 'Your own programme',
+      ['A plan written around you, and a video form check every two weeks.',
+        `${escH(o.online)} a month online. ${escH(o.inperson)} with a session in London each month.`, placesLine],
+      `${site}/#coaching`, 'See coaching')
+    + offer('On your own', 'The Handstand Ladder app',
+      [`First stage free. The other five, ${escH(o.app)} a month, ${o.trialDays === 7 ? 'first week' : `${Number(o.trialDays) || 7} days`} free.`,
+        o.store ? `On iPhone, ${escH(o.iphone || '£9.99')} a month. <a href="${escH(o.store)}" style="color:${C.teal};font-weight:600">Get it on the App Store</a>` : ''],
+      `${site}/lha-app.html?ref=classmail`, 'Open the app')
+    : '';
+
+  const sign = `<tr><td class="px" style="padding:18px 24px 6px">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+${d.headshot ? `<td valign="middle" width="48" style="padding-right:12px"><img src="${escH(img + d.headshot)}" width="48" height="48" alt="Elliott" style="display:block;width:48px;height:48px;border-radius:24px;border:0"></td>` : ''}
+<td valign="middle"><div class="s" style="${f(SERIF, 22, 26, 400)};color:${C.ink}">Elliott</div>
+<div style="${f(SANS, 13, 18, 400)};color:${C.grey2}">London Handstand Academy</div></td></tr></table></td></tr>`;
+  const foot = `<tr><td class="px" style="padding:18px 24px 34px;${f(SANS, 12.5, 19, 400)};color:${C.grey2}">
+${d.footnote ? escH(d.footnote) + '<br>' : ''}<a href="${site}" style="color:${C.grey2}">londonhandstandacademy.com</a> &nbsp;&middot;&nbsp; <a href="mailto:info@londonhandstandacademy.com" style="color:${C.grey2}">info@londonhandstandacademy.com</a><!--UNSUB-->
+</td></tr>`;
+
+  const pre = escH(d.preheader || String(d.title || ''));
+  const html = `<!doctype html>
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting"><meta name="format-detection" content="telephone=no,date=no,address=no">
+<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">
+<title>${title}</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<style>body,table,td,p,a,div,span,b{font-family:Arial,Helvetica,sans-serif!important}.s,.s span{font-family:Georgia,serif!important}</style><![endif]-->
+<!--[if !mso]><!--><link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400&amp;family=Figtree:wght@400;600&amp;display=swap" rel="stylesheet"><!--<![endif]-->
+<style>
+body{margin:0;padding:0;background:${C.ground};-webkit-text-size-adjust:100%;text-size-adjust:100%}
+a{color:${C.teal}}
+@media (max-width:520px){.wrap{padding:14px 10px 0!important}.px{padding-left:20px!important;padding-right:20px!important}.h1{font-size:36px!important;line-height:38px!important}}
+</style>
+<style>
+.ground{background-image:radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%)}
+.btnp{background-image:linear-gradient(180deg,#0a7a76,#006663)}
+.card{box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+</style></head>
+<body style="margin:0;padding:0;background:${C.ground}">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${pre}&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
+<table role="presentation" class="ground" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${C.ground}" style="background-color:${C.ground}">
+<tr><td align="center" class="wrap" style="padding:26px 16px 0">
+<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto">
+<tr><td class="px" style="padding:0 24px 16px;${f(SANS, 11, 15, 600)};letter-spacing:.16em;text-transform:uppercase;color:${C.teal}"><a href="${site}" style="color:${C.teal};text-decoration:none">London Handstand Academy</a></td></tr>
+${hero}${review}${h2('Next dates.')}${datesCard}${offers}${sign}${foot}
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table></body></html>`;
+
+  /* ── the same email as plain text ── */
+  const plain = t => String(t || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<a [^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi, (m, h, l) => `${l.replace(/<[^>]+>/g, '')} (${h})`)
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&middot;/g, '·').replace(/&rsquo;/g, '’').replace(/&#10003;/g, '✓')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  const T = [plain(title), ''];
+  if (first) T.push(`Hi ${d.first},`, '');
+  paras.forEach(p => T.push(plain(p), ''));
+  T.push('LEAVE A REVIEW');
+  if (d.review) T.push('One minute on Google. It is how the next class fills.', d.review, '');
+  else T.push('Reply with a sentence about how you found it, good or bad. I read every one.', '');
+  T.push('NEXT DATES');
+  if (dates.length) dates.forEach(x => {
+    T.push([x.day, x.what, x.time, x.place, x.price].filter(Boolean).join(', ')
+      + (x.left != null && x.left > 0 && x.left <= 5 ? `. ${x.left} ${x.left === 1 ? 'place' : 'places'} left` : ''));
+    T.push(x.booked ? 'You are booked.' : x.full ? 'Full.' : `Book: ${x.href}`, '');
+  });
+  else T.push('New dates are on the way.', d.more || `${site}/handstand-class`, '');
+  if (o) {
+    T.push('KEEP GOING', '',
+      `A 1-2-1 with Elliott, at OverGravity. 60 minutes, ${o.s60}. 90 minutes, ${o.s90}. Join coaching within 14 days and it comes off your first month.`,
+      `${site}/session.html`, '',
+      `Coaching, your own programme. A plan written around you, and a video form check every two weeks. ${o.online} a month online. ${o.inperson} with a session in London each month.${placesLine ? ' ' + plain(placesLine) : ''}`,
+      `${site}/#coaching`, '',
+      `The Handstand Ladder app. First stage free. The other five, ${o.app} a month, ${o.trialDays === 7 ? 'first week' : `${Number(o.trialDays) || 7} days`} free.`,
+      `${site}/lha-app.html?ref=classmail`);
+    if (o.store) T.push(`On iPhone, ${o.iphone || '£9.99'} a month: ${o.store}`);
+    T.push('');
+  }
+  T.push('Elliott', 'London Handstand Academy', '');
+  if (d.footnote) T.push(plain(d.footnote));
+  T.push(`${site.replace(/^https?:\/\//, '')} · info@londonhandstandacademy.com`);
+  return { html, text: T.join('\n') };
 }

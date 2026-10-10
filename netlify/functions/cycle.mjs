@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail } from './emails.mjs';
+import { renderEmail, afterClassEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -29,6 +29,22 @@ const DAY = 24 * 60 * 60 * 1000;
 /* the business's own Google review box (place id from its listing, 9 Oct
    2026): any workshop without its own review link uses this one */
 const GOOGLE_REVIEW = 'https://search.google.com/local/writereview?placeid=ChIJo6P50TJyjGQRZIUQzoUnXLo';
+/* the prices the day after email quotes, when the dashboard's Money has
+   not set them: the same defaults as app.mjs PRICE_DEFAULTS */
+const PRICE_LABELS = { online: '£120', inperson: '£190', session60: '£80', session90: '£100', plus: '£10' };
+/* the iPhone app (App Store Connect 6818646346). Apple's lookup finds
+   nothing until it is on sale, so the email offers the App Store only once
+   it is there, without another deploy. Its price is Apple's, set 3 Oct 2026. */
+const IOS_APP_ID = '6818646346', IOS_PRICE = '£9.99';
+async function appStoreLink() {
+  try {
+    const r = await fetch(`https://itunes.apple.com/lookup?id=${IOS_APP_ID}&country=gb`, { signal: AbortSignal.timeout(4000) });
+    const x = r.ok ? ((await r.json()).results || [])[0] : null;
+    return x && /^https:\/\/apps\.apple\.com\//.test(x.trackViewUrl || '') ? String(x.trackViewUrl).split('?')[0] : '';
+  } catch { return ''; }
+}
+/* as app.mjs wsKindOf: a date in the title does not make it another class */
+const wsKind = x => String((x && x.title) || '').toLowerCase().replace(/\b(\d+(st|nd|rd|th)?|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tues?(day)?|wed(nesday)?|thu(rs)?(day)?|fri(day)?|sat(urday)?|sun(day)?)\b/g, ' ').replace(/[^a-z]+/g, '');
 const REVIEW_HOURS = 48;
 const NUDGE_AFTER = [0, 3];        // days past due — once on the day, once 3 days later
 
@@ -269,10 +285,13 @@ async function email(to, subject, html, kind, opts) {
   const staff = (st && st.coaches.includes(t)) || coaches()[t] !== undefined
     || t === norm(process.env.COACH_EMAIL || '') || t === norm(process.env.FROM_EMAIL || '');
   let headers = {};
+  /* a plain text part, when the email brings one; the way out goes on it too */
+  let text = opts && opts.text ? String(opts.text) : '';
   if (!staff) {
     if (!(opts && (opts.receipt || opts.essential)) && (await isUnsub(t))) return false;
     const uu = await unsubUrl(t);
     html = withUnsub(html, uu);
+    if (text) text += `\n\nUnsubscribe: ${uu}`;
     headers = { 'List-Unsubscribe': `<${uu}>, <mailto:info@londonhandstandacademy.com?subject=unsubscribe>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
   }
   try {
@@ -282,7 +301,7 @@ async function email(to, subject, html, kind, opts) {
                  'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: process.env.FROM_EMAIL || 'info@londonhandstandacademy.com',
-        to, subject, html, headers, reply_to: process.env.REPLY_TO || 'info@londonhandstandacademy.com' }),
+        to, subject, html, ...(text ? { text } : {}), headers, reply_to: process.env.REPLY_TO || 'info@londonhandstandacademy.com' }),
     });
     return r.ok;
   } catch { return false; }
@@ -637,6 +656,32 @@ async function workshopMail(done) {
      a blank one borrows the link from the latest date that has one, so the
      day after still has a Leave a review button */
   const anyReview = (Object.values(all).filter(x => x && /^https:\/\//.test(x.reviewUrl || '')).sort((a, b) => ms(b.when) - ms(a.when))[0] || {}).reviewUrl || GOOGLE_REVIEW;
+  /* what the day after email shows under the thank you: the dates still on
+     sale with who holds them, the prices from Money, the coaching places
+     open, the roster. Read once a run, and only when somebody is due one. */
+  let AFTER = null;
+  const afterData = async () => {
+    if (AFTER) return AFTER;
+    const coming = [];
+    for (const o of Object.values(all)) {
+      if (!o || !o.live || !o.when || ms(o.when) <= now) continue;
+      const ob = await supa.row('settings', `key=eq.${enc('wsbook:' + o.slug)}&select=value`).catch(() => null);
+      const held = ((ob && ob.value) || []).filter(x => x && x.email && x.status !== 'cancelled' && x.status !== 'refunded' && x.status !== 'moved');
+      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : null });
+    }
+    coming.sort((a, b) => ms(a.w.when) - ms(b.w.when));
+    const [pr, pl, store, list] = await Promise.all([
+      supa.row('settings', 'key=eq.prices&select=value').catch(() => null),
+      supa.row('settings', 'key=eq.coachplaces&select=value').catch(() => null),
+      appStoreLink(), rosterList()]);
+    const P = k => (pr && pr.value && pr.value[k] && pr.value[k].label) || PRICE_LABELS[k];
+    const trial = pr && pr.value && Number(pr.value.trialDays);
+    AFTER = { coming: coming.slice(0, 3), roster: new Set(list.map(c => c.email)),
+      prices: { s60: P('session60'), s90: P('session90'), online: P('online'), inperson: P('inperson'), app: P('plus'),
+        trialDays: trial > 0 ? trial : 7, places: pl && pl.value && Number.isInteger(pl.value.n) ? pl.value.n : null,
+        store, iphone: IOS_PRICE } };
+    return AFTER;
+  };
   for (const w of Object.values(all)) {
     /* not w.live: taking a full workshop off the site is the obvious thing to
        do once it fills, and it used to silently cancel the reminder and the
@@ -735,15 +780,34 @@ async function workshopMail(done) {
         const had = await supa.row('nudges', `key=eq.${enc(once)}&select=sent_at`).catch(() => null);
         if (had && now - ms(had.sent_at) < 45 * 24 * 3600e3) continue;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-          const T = await emailCopy('wsThanks', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title),
-            review_line: reviewUrl ? 'A sentence about how you found it, where other people will see it. It takes a minute and it is how the next workshop fills.' : 'Reply to this with a sentence about how you found it, good or bad. I read every one.',
-            app_line: 'The drills from today are in the Handstand Ladder app, and the first stage, Foundations, is free.' });
+          const first = String(p.name || '').split(' ')[0];
+          const day = new Date(at).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Europe/London' });
+          /* review_line and app_line belonged to the old words; the review
+             and the app have panels of their own now, so an edit made in the
+             dashboard before 10 Oct 2026 loses those lines rather than
+             saying them twice */
+          const T = await emailCopy('wsThanks', { name: esc(first), title: esc(w.title), day: esc(day), review_line: '', app_line: '' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
-          await email(p.email, T.subject,
-            mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
-              paras: T.paras,
-              cta: reviewUrl ? { href: reviewUrl, label: 'Leave a review' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-              signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+          const A = await afterData(), e = norm(p.email);
+          /* a coaching client hears no coaching pitch, and somebody who
+             turned offers off gets the thank you and the dates only */
+          const pitch = !A.roster.has(e) && (await wantsEmail(e, 'offers'));
+          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: T.paras, footnote: T.footnote,
+            kicker: w.title, review: reviewUrl,
+            photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' },
+            headshot: '/assets/site/coach-elliott-headshot.jpg',
+            preheader: A.coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(A.coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',
+            dates: A.coming.map(c => {
+              const [d0, ...t] = wsWhenTxt(c.w).split(', ');
+              return { day: d0, time: t.join(', '), place: c.w.place || '',
+                what: wsKind(c.w) === wsKind(w) ? '' : c.w.title,
+                price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
+                left: c.left, full: c.left === 0, booked: c.who.has(e),
+                href: /all levels/i.test(c.w.title || '') ? `${SITE}/handstand-class#book` : `${SITE}/workshop.html?slug=${enc(c.w.slug)}` };
+            }),
+            more: `${SITE}/handstand-class`,
+            offers: pitch ? A.prices : null });
+          await email(p.email, T.subject, M.html, undefined, { text: M.text });
           done.workshops.asked++;
           await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
           await supa.upsert('nudges', { key: once, sent_at: new Date().toISOString() }, 'key').catch(() => {});
@@ -765,8 +829,7 @@ async function intentMail(done) {
   const now = Date.now();
   /* everyone with a row on any date of a class: somebody who typed their
      email while one Saturday was picked and paid for the other has booked */
-  /* as app.mjs wsKindOf: a date in the title does not make it another class */
-  const kind = x => String((x && x.title) || '').toLowerCase().replace(/\b(\d+(st|nd|rd|th)?|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tues?(day)?|wed(nesday)?|thu(rs)?(day)?|fri(day)?|sat(urday)?|sun(day)?)\b/g, ' ').replace(/[^a-z]+/g, '');
+  const kind = wsKind;
   const heldBy = {};
   for (const x of Object.values(all)) {
     if (!x || !x.slug) continue;
