@@ -30,6 +30,7 @@ const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILL
 import * as supa from './supa.mjs';
 import { EMAILS, renderEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
+import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { X509Certificate, verify as nodeVerify } from 'node:crypto';
 import vm from 'node:vm';
@@ -1670,24 +1671,32 @@ const sessTitle = x => `Handstand session, ${x.kind} minutes`;
    moment a time was set whether or not they had paid, with a Pay button on
    it, so a session nobody had paid for said "Your session is confirmed". */
 const sessWhen = row => new Date(row.when).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
-async function sessConfirmMail(db, row, by) {
+/* opts: { moved: the time it was before, fresh: booked just now, so
+   somebody with no password is told how into the app } */
+async function sessConfirmMail(db, row, by, opts = {}) {
   const whenTxt = sessWhen(row);
   const cNoPw = !(await hashFor(db, row.email));
   const cLink = cNoPw ? await welcomeLink(row.email) : '';
   /* the reminder goes out on the morning of the day before, so a session
      booked for the next day or so never gets one */
   const soon = row.when && ms(row.when) - Date.now() < 36 * 3600e3;
-  const sent = await email(row.email, `Confirmed: your session, ${whenTxt}`,
-    mail({ title: 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
+  const was = opts.moved ? sessWhen({ when: opts.moved }) : '';
+  const sent = await email(row.email, `${was ? 'Moved' : 'Confirmed'}: your session, ${whenTxt}`,
+    mail({ title: was ? 'Your session has moved.' : 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
       cta: cNoPw ? { href: cLink, label: 'See it in the app' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
-      paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`,
+      paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.${was ? ' Instead of ' + esc(was) + '.' : ''}`,
+              opts.say ? esc(opts.say) : '',
               row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
               `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
-              soon ? 'If you need to move it, reply to this.' : 'A reminder comes the day before. If you need to move it, reply to this.',
+              soon ? '' : 'A reminder comes the day before.',
+              await sessChangeHTML(row),
+              opts.fresh && cNoPw ? `It is in the Handstand Ladder app too, under this address. Your username is ${esc(row.email)}: choose a password with the button below and you are in.` : '',
               /* not to somebody whose coaching includes the session */
               (row.fromPlan || clients()[norm(row.email)]) ? '' :
               `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`].filter(Boolean),
-      signoff: { name: coachName(by) } }), undefined, { receipt: true });
+      /* noQueue: the webhook retries it itself, and a queued copy as well
+         would have sent it twice */
+      signoff: { name: coachName(by) } }), undefined, { receipt: true, ...(opts.noQueue ? { noQueue: true } : {}) });
   /* noted on the session, so the page after paying says "by email" only
      when an email went, and a second payment does not confirm it twice */
   if (sent) await changeSetting('sessions', cur => {
@@ -1695,6 +1704,340 @@ async function sessConfirmMail(db, row, by) {
     if (!r) return undefined; r.confirmMailedAt = Date.now(); r.confirmMailedFor = r.when; return l;
   }).catch(() => {});
   return sent;
+}
+/* ── a 1-2-1 moved or cancelled by the client ──────────────────────────
+   Every change was an email to Elliott. Now there is a link in every email
+   about a session, and in the app. Elliott hires and pays for the room, so
+   a refund is his to decide (10 Oct 2026): a cancel, or a move once the
+   room is hired, is an ask that waits for him on Today, where he chooses a
+   full, part or no refund, a new date, or to keep it as it is. While the
+   room is not hired yet (a time they picked, not ticked as hired), they
+   move it themselves, more than SESS_CUTOFF_H hours before. A London
+   session that comes with coaching moves, and is not cancelled for money:
+   nothing was paid for it on its own. */
+const SESS_CUTOFF_H = 24;
+const sessLen = x => (String(x && x.kind) === '90' ? 90 : 60) * 60e3;
+/* the link that manages one session without signing in: signed, and it
+   names the session and the person, so it can do nothing else */
+async function sessManageLink(row) {
+  const t = await sign({ k: 'ssm', i: row.id, e: norm(row.email), exp: Date.now() + 180 * DAY });
+  return `${SITE}/session.html?m=${t}`;
+}
+async function sessManageRead(t) {
+  const p = await verify(String(t || ''));
+  return p && p.k === 'ssm' && p.i && p.e ? p : null;
+}
+/* What the client may do with it now. Elliott hires the room for each
+   session and pays for it (10 Oct 2026), so a refund is his to decide: a
+   cancel is a request he answers with a full, part or no refund, or a new
+   date. A move they make themselves only while the room is not hired yet,
+   which is a time they picked and he has not ticked as hired; a time he
+   set, he has the room for, so a move then is a request too. */
+function sessRules(row, now = Date.now()) {
+  const at = row && row.when ? ms(row.when) : 0;
+  const live = !!row && !['cancelled', 'refunded', 'done'].includes(row.status) && !(at && at < now);
+  const early = !at || at - now > SESS_CUTOFF_H * 3600e3;
+  const selfMove = live && early && (!at || row.room === 'hire');
+  return { live, early, late: live && !early, selfMove, canMove: live, canCancel: live && !row.fromPlan, req: (live && row.req) || null };
+}
+/* each card payment on it, and what is still to give back on it */
+const sessBackOf = row => sessPays(row).filter(p => p.pi && !p.autoRefund)
+  .map(p => ({ ...p, left: Math.max(0, (Number(p.amount) || 0) - (Number((row.refunds || {})[p.ref]) || 0)) })).filter(p => p.left > 0);
+/* paid, but not by card through Stripe: cash, or a transfer, booked in by hand */
+const sessHandPaid = row => (Number(row.paid) || 0) > 0 && !sessPays(row).some(p => p.pi);
+/* what changing it means, said the same way in each email about it */
+async function sessChangeHTML(row) {
+  const link = await sessManageLink(row), a = t => `<a href="${link}" style="color:#006663">${t}</a>`;
+  if (!row.when) return row.fromPlan ? '' : `<b>Changed your mind?</b> ${a('Ask to cancel it here')}, no account or password needed, and I will come back to you within 48 hours.`;
+  if (row.fromPlan) return `<b>Need to change it?</b> ${a('Ask to move your session')} to another time, no account or password needed.`;
+  return `<b>Need to change it?</b> ${a('Move or cancel your session')}, no account or password needed. I hire the room for each session, so a cancellation or a late move comes to me, and I come back to you within 48 hours with a refund or a new date. With less than ${SESS_CUTOFF_H} hours' notice it may be charged in full.`;
+}
+
+/* ── the times a 1-2-1 can be booked ─────────────────────────────────
+   Read from Arch 2's calendar at OverGravity (slots.mjs says how). Off
+   until Elliott switches it on in the dashboard; while it is off, or the
+   calendar cannot be read, the session page takes a booking the old way,
+   paid first with the time agreed after. */
+const SLOT_DEFAULTS = { on: false, hours: {}, leadH: 24, days: 21, step: 30, words: ['full hire'], max: 2, gap: 0 };
+const slotConf = async () => Object.assign({}, SLOT_DEFAULTS, (await getSetting('sessslots').catch(() => null)) || {});
+/* Read at most every five minutes on a warm server. A calendar that will
+   not answer keeps its last reading for six hours, then counts as unread,
+   and nothing is offered from it. The addresses are secrets: they are
+   never logged, never returned and never put in an error. */
+let FEEDS = { key: '', at: 0 };
+async function slotFeeds(force) {
+  const f = (await getSetting('sessfeeds').catch(() => null)) || {};
+  const room = String(f.room || ''), busy = (Array.isArray(f.busy) ? f.busy : []).map(String).filter(Boolean);
+  const key = await sha256hex(JSON.stringify([room, busy]));
+  if (!force && FEEDS.key === key && Date.now() - FEEDS.at < 5 * 60e3) return FEEDS;
+  const from = Date.now() - DAY, to = Date.now() + 62 * DAY;
+  const read = async u => {
+    let r;
+    try { r = await fetch(u, { signal: AbortSignal.timeout(8000), headers: { accept: 'text/calendar' } }); }
+    catch (err) { throw new Error(/timeout|abort/i.test(String(err && (err.name || err.message))) ? 'did not answer in time' : 'could not be reached'); }
+    if (!r.ok) throw new Error(r.status === 404 ? 'says there is no such calendar: copy the address again' : r.status === 401 || r.status === 403 ? 'refused: the address may have been reset' : 'answered ' + r.status);
+    const t = await r.text();
+    if (!/BEGIN:VCALENDAR/i.test(t)) throw new Error('is not a calendar address');
+    return parseIcs(t, { from, to });
+  };
+  const old = FEEDS.key === key ? FEEDS : {};
+  const next = { key, at: Date.now(), roomSet: !!room, busyN: busy.length, room: null, roomAt: 0, busy: [], busyOk: true, busyAt: 0, errs: [], stale: false };
+  if (room) {
+    try { next.room = await read(room); next.roomAt = Date.now(); }
+    catch (err) {
+      next.errs.push('Arch 2\'s calendar ' + err.message);
+      if (old.room && Date.now() - old.roomAt < 6 * 3600e3) { next.room = old.room; next.roomAt = old.roomAt; next.stale = true; }
+    }
+  }
+  if (busy.length) {
+    try { for (const u of busy) next.busy.push(...await read(u)); next.busyAt = Date.now(); }
+    catch (err) {
+      next.errs.push('Your own calendar ' + err.message);
+      if (old.busyOk && old.busyAt && Date.now() - old.busyAt < 6 * 3600e3) { next.busy = old.busy; next.busyAt = old.busyAt; next.stale = true; }
+      else { next.busy = []; next.busyOk = false; }
+    }
+  }
+  FEEDS = next;
+  return next;
+}
+/* what else fills a time: 1-2-1s with a time, the classes, and the times
+   held while somebody is paying */
+async function slotTaken({ exceptId = '', exceptHold = '', exceptSession = '' } = {}, gapMin = 0) {
+  const gap = Math.max(0, Number(gapMin) || 0) * 60e3, out = [];
+  for (const x of ((await getSetting('sessions')) || [])) {
+    if (!x || !x.when || x.id === exceptId || (exceptSession && x.session === exceptSession) || ['cancelled', 'refunded'].includes(x.status)) continue;
+    out.push({ start: ms(x.when) - gap, end: ms(x.when) + sessLen(x) + gap, what: 'a 1-2-1' });
+  }
+  for (const w of Object.values((await getSetting('workshops')) || {})) if (w && w.when)
+    out.push({ start: ms(w.when) - gap, end: ms(w.when) + wsMins(w) * 60e3 + gap, what: 'a class' });
+  for (const [k, h] of Object.entries((await getSetting('sessholds')) || {}))
+    if (h && k !== exceptHold && Number(h.until) > Date.now()) out.push({ start: h.start, end: h.end, what: 'held at a checkout' });
+  return out;
+}
+/* The times on offer for a length, or why there are none. A time already
+   picked is checked again with slotWhy and earliest: now, so one picked a
+   little over a day ahead is not lost to the lead time while they pay. */
+async function slotState(kind, except = {}, force) {
+  const c = await slotConf();
+  if (!c.on) return { on: false, why: 'off' };
+  const f = await slotFeeds(force);
+  if (!f.roomSet) return { on: false, why: 'Arch 2\'s calendar address is not set' };
+  if (!f.room || !f.busyOk) { await slotDown(f.errs.join('. ')); return { on: false, why: f.errs.join('. ') || 'the calendars could not be read' }; }
+  const ctx = { room: f.room, busy: f.busy, taken: await slotTaken(except, c.gap), rule: { words: ruleWords(c.words), max: c.max },
+    earliest: Date.now() + Math.max(0, Number(c.leadH) || 0) * 3600e3 };
+  const lenMin = String(kind) === '90' ? 90 : 60;
+  return { on: true, conf: c, ctx, lenMin, stale: f.stale,
+    slots: freeSlots({ now: Date.now(), days: c.days, step: c.step, lenMin, hours: c.hours, ...ctx }) };
+}
+/* a calendar that will not read takes the picker away, so the coach hears,
+   once a day */
+async function slotDown(why) {
+  const key = `slotdown:${new Date().toISOString().slice(0, 10)}`;
+  if (!(await supa.insertIfAbsent('nudges', { key, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) return;
+  await coachAlert(null, 'business', { title: '1-2-1 times could not be read', body: String(why || '').slice(0, 140), tag: 'slotdown' });
+  await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, '1-2-1 times could not be read',
+    mail({ title: 'Picking a time is off until the calendar reads again.', paras: [esc(why || 'The calendar could not be read.') + '.',
+      'Until it does, the session page takes bookings the old way: paid first, and you agree the time. Check the address in the dashboard under Settings, 1-2-1 times.'],
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+}
+/* a time held while somebody pays, so two people cannot buy it */
+async function slotHold(start, end, kind) {
+  const id = 'h' + newId();
+  let clash = false;
+  await changeSetting('sessholds', cur => {
+    clash = false;
+    const h = {};
+    for (const [k, v] of Object.entries(cur || {})) if (v && Number(v.until) > Date.now()) h[k] = v;
+    if (Object.values(h).some(v => v.start < end && v.end > start)) { clash = true; return undefined; }
+    h[id] = { start, end, kind, until: Date.now() + 35 * 60e3 };
+    return h;
+  });
+  return clash ? '' : id;
+}
+const slotUnhold = id => id ? changeSetting('sessholds', cur => {
+  if (!cur || !cur[id]) return undefined; const h = { ...cur }; delete h[id]; return h; }).catch(() => {}) : Promise.resolve();
+/* "Tuesday 14 October, 6pm" */
+const slotTxt = t => new Date(t).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' })
+  .replace(':00', '').replace(/\s?([ap]m)$/i, '$1').replace(' at ', ', ');
+
+/* Everything still paid on a session by card, given back through Stripe:
+   used by the client's cancel and the coach's. Noted as refunded before
+   Stripe is asked, so the webhook's notice of the refund finds it already
+   filed and says nothing twice; the key means Stripe makes each refund once,
+   however many times it is asked. A refund Stripe will not make goes back
+   off the row, so the one then made by hand is filed and told when it lands. */
+/* amount: pence, for a part refund; left out, everything still paid */
+async function sessRefundRow(id, amount) {
+  let plan = [];
+  await changeSetting('sessions', cur => {
+    plan = [];
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id); if (!r) return undefined;
+    plan = sessBackOf(r);
+    /* a part refund comes off the payments in turn, none past what it took */
+    if (amount != null) {
+      let rest = Math.max(0, Math.round(Number(amount) || 0));
+      plan = plan.map(p => { const take = Math.min(p.left, rest); rest -= take; return { ...p, left: take }; }).filter(p => p.left > 0);
+    }
+    if (!plan.length) return undefined;
+    const refunds = Object.assign({}, r.refunds || {});
+    for (const p of plan) refunds[p.ref] = (Number(refunds[p.ref]) || 0) + p.left;
+    r.refunds = refunds;
+    r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
+    /* appRefund: the app's own, so Stripe's notice of it is not news; the
+       amounts above are what make it so, and leave room for another part */
+    r.pays = sessPays(r).map(p => plan.some(q => q.ref === p.ref) ? { ...p, appRefund: true } : p);
+    return l;
+  });
+  let back = 0;
+  const failed = [];
+  for (const p of plan) {
+    if (!stripeKey()) { failed.push({ p, why: 'Stripe is not connected' }); continue; }
+    try { await stripe('/refunds', { payment_intent: p.pi, amount: String(p.left) }, 'POST', `sessrefund:${id}:${p.ref}`); back += p.left; }
+    catch (err) {
+      if (/already been refunded/i.test(String(err && err.message))) { back += p.left; continue; }
+      failed.push({ p, why: String((err && err.message) || err).slice(0, 200) });
+    }
+  }
+  if (failed.length) await changeSetting('sessions', cur => {
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === id); if (!r) return undefined;
+    const refunds = Object.assign({}, r.refunds || {});
+    for (const { p } of failed) refunds[p.ref] = Math.max(0, (Number(refunds[p.ref]) || 0) - p.left);
+    r.refunds = refunds; r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
+    r.refundFailed = true; return l;
+  }).catch(() => {});
+  return { back, failed };
+}
+/* The client asks: to cancel, or to move once the room is hired. Nothing
+   changes until the coach answers on Today; the session stands, and they
+   are told so. Asked again, the newer ask replaces the older. */
+async function sessAskByClient(db, id, who, { kind, note = '', slot = '', prefs = '' } = {}) {
+  const rows = (await getSetting('sessions')) || [];
+  const r0 = rows.find(x => x.id === id && norm(x.email) === norm(who));
+  if (!r0) return { error: 'No such session', status: 404 };
+  const R = sessRules(r0);
+  if (!R.live) return { error: 'This session has been cancelled or has already happened.', status: 400 };
+  if (kind === 'cancel' && r0.fromPlan) return { error: 'This session comes with your coaching, so it can be moved but not cancelled. If no time works this month, message Elliott in the app.', status: 400 };
+  const at = kind === 'move' && slot ? ms(slot) : 0;
+  if (kind === 'move' && at) {
+    const S = await slotState(r0.kind, { exceptId: r0.id });
+    if (S.on && !S.slots.some(x => x.start === at)) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  }
+  if (kind === 'move' && !at && !String(prefs).trim()) return { error: 'Say which days and times suit you.', status: 400 };
+  const req = { kind: kind === 'move' ? 'move' : 'cancel', at: Date.now(), late: R.late, note: String(note || '').trim().slice(0, 500),
+    ...(at ? { slot: new Date(at).toISOString() } : {}), ...(String(prefs).trim() ? { prefs: String(prefs).trim().slice(0, 500) } : {}) };
+  let row = null;
+  await changeSetting('sessions', cur => {
+    row = null;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id); if (!r || !sessRules(r).live) return undefined;
+    r.req = req; row = r; return l;
+  });
+  if (!row) return { error: 'This session has been cancelled or has already happened.', status: 400 };
+  const first = String(row.name || '').split(' ')[0];
+  const whenTxt = row.when ? sessWhen(row) : '';
+  const wantTxt = at ? slotTxt(at) : req.prefs ? `a day that suits: "${req.prefs}"` : '';
+  const line = req.kind === 'cancel'
+    ? `You asked to cancel your ${row.kind} minute session${whenTxt ? ' on ' + whenTxt : ''}. I hire the room for each session, so I look at it myself and come back to you within 48 hours, with a refund or a new date. Until then it stands.`
+    : `You asked to move your ${row.kind} minute session${whenTxt ? ' on ' + whenTxt : ''} to ${wantTxt}. I check the room and come back to you within 48 hours. Until then it stands.`;
+  try { await threadAdd(null, row.email, { from: 'coach', sub: 'auto', by: primaryCoach(), text: line }); } catch {}
+  const link = await sessManageLink(row);
+  const mailed = await email(row.email, req.kind === 'cancel' ? 'Your session: asked to cancel' : 'Your session: asked to move',
+    mail({ title: 'Asked. I will come back to you.', greeting: first,
+      paras: [esc(line), req.late ? `It is less than ${SESS_CUTOFF_H} hours away, so it may be charged in full.` : '',
+              `Changed your mind? <a href="${link}" style="color:#006663">Keep your session as it is</a>.`].filter(Boolean),
+      signoff: { name: coachName(primaryCoach()) } }), undefined, { receipt: true });
+  /* the coach decides, so the coach is told, whatever the email switches say */
+  const paidTxt = sessHandPaid(row) ? `paid ${sessAmt(row.paid)} outside Stripe` : sessBackOf(row).length ? `paid ${sessAmt(sessBackOf(row).reduce((a, p) => a + p.left, 0))} by card` : row.fromPlan ? 'part of their coaching' : 'nothing paid';
+  await coachAlert(row.email, 'business', { title: `${row.name || row.email} asked to ${req.kind === 'cancel' ? 'cancel' : 'move'} their session`, body: `${whenTxt || 'No time set'}${req.late ? ', under 24 hours' : ''}. Decide on Today.`, tag: 'sessreq:' + row.id });
+  await email(coachTo(row.email), `Asked to ${req.kind}: ${row.name || row.email}, ${row.kind} min${whenTxt ? ', ' + whenTxt : ''}`,
+    mail({ title: req.kind === 'cancel' ? 'A 1-2-1 they want to cancel.' : 'A 1-2-1 they want to move.',
+      paras: [`<b>${esc(row.name || row.email)}</b> asked to ${req.kind} their ${esc(row.kind)} minute session${whenTxt ? ' on ' + esc(whenTxt) : ''}${req.kind === 'move' ? ' to ' + esc(wantTxt) : ''}.`,
+              `${req.late ? `<b>Less than ${SESS_CUTOFF_H} hours' notice.</b> ` : ''}They ${esc(paidTxt)}${row.room === 'hired' ? ', and Arch 2 is ticked as hired' : ''}.`,
+              req.note ? `They said: <i>${esc(req.note)}</i>` : '',
+              'On Today: a full, part or no refund, a new date, or keep it as it is. They hear nothing more until you choose.'].filter(Boolean),
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  return { ok: true, requested: req.kind, mailed };
+}
+/* the client takes their ask back: the session stands, as it was */
+async function sessAskBack(id, who) {
+  let row = null, had = null;
+  await changeSetting('sessions', cur => {
+    row = null; had = null;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id && norm(x.email) === norm(who)); if (!r || !r.req) return undefined;
+    had = r.req; delete r.req; row = r; return l;
+  });
+  if (!row) return { ok: true, note: 'nothing asked' };
+  await coachAlert(row.email, 'business', { title: `${row.name || row.email} kept their session`, body: `They took back their ask to ${had.kind}.`, tag: 'sessreq:' + row.id });
+  await email(coachTo(row.email), `Kept: ${row.name || row.email}, ${row.kind} min${row.when ? ', ' + sessWhen(row) : ''}`,
+    mail({ title: 'They took their ask back.', paras: [`<b>${esc(row.name || row.email)}</b> no longer wants to ${esc(had.kind)} their session. It stands as it was.`],
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  return { ok: true, kept: true };
+}
+/* The client moves it: to a time they pick, when the times can be read, or
+   back to "to arrange" with the days that suit, when they cannot. */
+async function sessMoveByClient(db, id, who, { slot, prefs } = {}) {
+  const rows = (await getSetting('sessions')) || [];
+  const r0 = rows.find(x => x.id === id && norm(x.email) === norm(who));
+  if (!r0) return { error: 'No such session', status: 404 };
+  const R = sessRules(r0);
+  if (!R.live) return { error: 'This session has been cancelled or has already happened.', status: 400 };
+  /* moved by them only while the room is not hired: otherwise it is an ask */
+  if (!R.selfMove) return { error: 'This one comes to Elliott to move, since the room is hired for it.', status: 400, ask: true };
+  const at = slot ? ms(slot) : 0;
+  if (slot) {
+    const S = await slotState(r0.kind, { exceptId: r0.id });
+    if (!S.on) return { error: 'Picking a time is not working just now. Say which days suit instead, and Elliott will come back with a time.', status: 409, noSlots: true };
+    if (!S.slots.some(x => x.start === at)) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  } else if (!String(prefs || '').trim()) return { error: 'Say which days and times suit you.', status: 400 };
+  let row = null, was = '', clash = false;
+  await changeSetting('sessions', cur => {
+    row = null; was = ''; clash = false;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id); if (!r || !sessRules(r).selfMove) return undefined;
+    /* a 1-2-1 that took the time in the meantime */
+    if (at && l.some(x => x.id !== r.id && x.when && !['cancelled', 'refunded'].includes(x.status) && ms(x.when) < at + sessLen(r) && ms(x.when) + sessLen(x) > at)) { clash = true; return undefined; }
+    was = r.when || '';
+    r.moves = (Array.isArray(r.moves) ? r.moves : []).concat([{ from: was, to: at ? new Date(at).toISOString() : '', at: Date.now(), by: 'client', ...(at ? {} : { prefs: String(prefs).slice(0, 500) }) }]).slice(-10);
+    delete r.req;
+    if (at) { r.when = new Date(at).toISOString(); r.status = 'arranged'; r.room = 'hire'; r.moveAsked = 0; if (!r.place) r.place = 'OverGravity, Shadwell'; }
+    else { r.when = ''; r.status = 'toArrange'; r.prefs = String(prefs).slice(0, 500); r.moveAsked = Date.now(); r.moveFrom = was; delete r.room; }
+    row = r; return l;
+  });
+  if (clash) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  if (!row) return { error: 'This session can no longer be moved online.', status: 400 };
+  const first = String(row.name || '').split(' ')[0], wasTxt = was ? sessWhen({ when: was }) : '';
+  const toCoach = coachTo(row.email);
+  let mailed = false;
+  if (at) {
+    const whenTxt = sessWhen(row);
+    try { await threadAdd(null, row.email, { from: 'coach', sub: 'auto', by: primaryCoach(), text: `Moved: ${whenTxt}${row.place ? ', at ' + row.place : ''}.${wasTxt ? ' Instead of ' + wasTxt + '.' : ''}` }); } catch {}
+    if (Number(row.ask) > 0) {
+      const payUrl = `${SITE}/api/app/session/pay?id=${enc(row.id)}`;
+      mailed = await email(row.email, `Your session, ${whenTxt}: pay to confirm it`, mail({ title: 'Moved. Pay to confirm it.', greeting: first,
+        cta: { href: payUrl, label: `Pay ${sessAmt(row.ask)}` },
+        paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`, 'It is confirmed once it is paid.', await sessChangeHTML(row)],
+        signoff: { name: coachName(primaryCoach()) } }), undefined, { receipt: true });
+    } else mailed = await sessConfirmMail(db, row, primaryCoach(), { moved: was });
+    await coachAlert(row.email, 'business', { title: `${row.name || row.email} moved their session`, body: `${slotTxt(at)}. Hire Arch 2 for it.`, tag: 'sessmove:' + row.id });
+    await email(toCoach, `Moved: ${row.name || row.email}, now ${slotTxt(at)}`, mail({ title: 'A 1-2-1 has moved. Hire Arch 2 for the new time.',
+      paras: [`<b>${esc(row.name || row.email)}</b> moved their ${esc(row.kind)} minute session to <b>${esc(whenTxt)}</b>${wasTxt ? ', from ' + esc(wasTxt) : ''}.`,
+              'It is marked on Today until you tick the room as hired.', wasTxt ? 'If you hired Arch 2 for the old time, that time is free again.' : ''].filter(Boolean),
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  } else {
+    const line = `You asked to move your ${row.kind} minute session${wasTxt ? ' from ' + wasTxt : ''}. You said: "${row.prefs}". I will check the room and come back with a new time within 48 hours.`;
+    try { await threadAdd(null, row.email, { from: 'coach', sub: 'auto', by: primaryCoach(), text: line }); } catch {}
+    mailed = await email(row.email, 'Moving your session', mail({ title: 'Asked. Now the new time.', greeting: first,
+      paras: [esc(line), wasTxt ? `${esc(wasTxt)} is let go, so the new time comes by email and in the app.` : '', await sessChangeHTML(row)].filter(Boolean),
+      signoff: { name: coachName(primaryCoach()) } }), undefined, { receipt: true });
+    await coachAlert(row.email, 'business', { title: `${row.name || row.email} asked to move their session`, body: `Prefers: ${row.prefs}`.slice(0, 140), tag: 'sessmove:' + row.id });
+    await email(toCoach, `Asked to move: ${row.name || row.email}`, mail({ title: 'A 1-2-1 to set a new time for.',
+      paras: [`<b>${esc(row.name || row.email)}</b> asked to move their ${esc(row.kind)} minute session${wasTxt ? ' from ' + esc(wasTxt) : ''}.`, `They said: <b>${esc(row.prefs)}</b>.`,
+              wasTxt ? 'That time is let go. If you hired Arch 2 for it, it is free again.' : '', 'Set the new time on Today and they get the confirmation.'].filter(Boolean),
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  }
+  return { ok: true, session: { when: row.when, status: row.status }, mailed };
 }
 /* a session's payments. There was one reference on the row, so a second
    payment overwrote the first and a refund of either could not be told
@@ -2151,15 +2494,25 @@ const handle = async (request) => {
      Stripe dashboard without needing a price id, so a tier can go live from
      a link alone; the checkout session route is used where a price id has
      been set, because it can carry the account with it. */
-  const LINKS = {
+  /* the links the site and the app were built with */
+  const LINKS_SHIPPED = {
     /* the app, a month at a time, as a payment link Elliott made */
-    plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
-    check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
-    online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
-    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || 'https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01',
-    inperson2: (PRICES.inperson2||{}).link || process.env.STRIPE_LINK_INPERSON2 || 'https://buy.stripe.com/fZueVdc996Ek7LpdhfefC0d',
-    inperson4: (PRICES.inperson4||{}).link || process.env.STRIPE_LINK_INPERSON4 || 'https://buy.stripe.com/bJebJ11uv9QwfdRb97efC0e',
-    inneronline: (PRICES.inneronline||{}).link || process.env.STRIPE_LINK_INNERONLINE || 'https://buy.stripe.com/fZufZha115Ag4zdb97efC0c',
+    plus: 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b',
+    check: 'https://buy.stripe.com/4gMfZhddd7Io8PtgtrefC0f',
+    online: 'https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00',
+    inperson: 'https://buy.stripe.com/9B69ATa11aUAaXB5ONefC01',
+    inperson2: 'https://buy.stripe.com/fZueVdc996Ek7LpdhfefC0d',
+    inperson4: 'https://buy.stripe.com/bJebJ11uv9QwfdRb97efC0e',
+    inneronline: 'https://buy.stripe.com/fZufZha115Ag4zdb97efC0c',
+  };
+  const LINKS = {
+    plus:   PRICES.plus.link   || process.env.STRIPE_LINK_PLUS   || LINKS_SHIPPED.plus,
+    check:  PRICES.check.link  || process.env.STRIPE_LINK_CHECK  || LINKS_SHIPPED.check,
+    online: PRICES.online.link || process.env.STRIPE_LINK_ONLINE || LINKS_SHIPPED.online,
+    inperson: PRICES.inperson.link || process.env.STRIPE_LINK_INPERSON || LINKS_SHIPPED.inperson,
+    inperson2: (PRICES.inperson2||{}).link || process.env.STRIPE_LINK_INPERSON2 || LINKS_SHIPPED.inperson2,
+    inperson4: (PRICES.inperson4||{}).link || process.env.STRIPE_LINK_INPERSON4 || LINKS_SHIPPED.inperson4,
+    inneronline: (PRICES.inneronline||{}).link || process.env.STRIPE_LINK_INNERONLINE || LINKS_SHIPPED.inneronline,
     inner:  PRICES.inner.link  || process.env.STRIPE_LINK_INNER  || '',
   };
   /* Links sold from the private next-steps and offers pages. Each is a real
@@ -2173,8 +2526,15 @@ const handle = async (request) => {
     'https://buy.stripe.com/eVqfZhgpp2o45Dh7WVefC09': 'session60',  /* £80 once, "Handstand Audit", sold as the 60 minute session */
   };
   const linkNorm = u => String(u || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+  /* A link saved in Money replaces the shipped one in LINKS, and the shipped
+     one then filed as nothing: the home page has the £120 and £190 links
+     written into it, so a buyer through either was thanked and left for the
+     coach to file by hand, with no roster, no welcome and no place taken.
+     Each shipped link is a real product at a real price, so it stays known
+     for what it is; a link saved in Money still wins where they differ. */
   const LINK_KEY = Object.assign({},
     ...Object.entries(LINKS_OLD).map(([u, k]) => ({ [linkNorm(u)]: k })),
+    ...Object.entries(LINKS_SHIPPED).map(([k, u]) => ({ [linkNorm(u)]: k })),
     ...Object.entries(LINKS).filter(([, u]) => !!u).map(([k, u]) => ({ [linkNorm(u)]: k })));
   /* every name a plan goes by, and the plan it is */
   const TIER = { plus: 'plus', plusq: 'plus', plusy: 'plus', check: 'check', online: 'online',
@@ -2273,10 +2633,12 @@ const handle = async (request) => {
           cs = (l && l.data && l.data[0] && l.data[0].id) || ''; } catch {} }
         const pounds = p => `£${(p / 100).toFixed(2).replace(/\.00$/, '')}`;
         const filed = [], tells = [];
+        /* a 1-2-1 the client cancelled themselves: refunded by the app, and filed and told then */
+        let ownSess = false;
         /* ── 1-2-1s: matched on any of the session's payments ── */
         const hits = pay => (pi && pay.pi === pi) || (cs && pay.ref === cs);
         await changeSetting('sessions', cur => {
-          filed.length = 0; tells.length = 0;
+          filed.length = 0; tells.length = 0; ownSess = false;
           const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
           let touched = false;
           for (const row of l) {
@@ -2287,7 +2649,7 @@ const handle = async (request) => {
                the same charge, or a stale one, cannot count it twice */
             const refunds = Object.assign({}, row.refunds || {});
             const was = Number(refunds[pay.ref]) || 0;
-            if (total <= was) continue;
+            if (total <= was) { if (pay.autoRefund || pay.appRefund) ownSess = true; continue; }
             refunds[pay.ref] = total; row.refunds = refunds;
             row.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
             touched = true;
@@ -2386,7 +2748,7 @@ const handle = async (request) => {
         }
         const money = pounds(total);
         if (filed.length) await coachAlert(null, 'business', { title: `Refund of ${money} filed`, body: filed.join('; '), tag: 'refund:' + obj.id });
-        else if (pi && outDelta <= 0 && (Number(ledger.app) || 0) > 0) { /* the app's own refund, filed and told when it was made */ }
+        else if (ownSess || (pi && outDelta <= 0 && (Number(ledger.app) || 0) > 0)) { /* the app's own refund, filed and told when it was made */ }
         else {
           /* a refund the app has nothing for: coaching, the Ladder, or a
              booking it never saw. Said, rather than nothing at all. */
@@ -2658,47 +3020,101 @@ const handle = async (request) => {
          go if the email cannot be sent, so Stripe's retry sends it. It used
          to claim first and save the whole list after, so a failed save lost
          the purchase and a coach's edit in the same second could wipe it. */
+      /* A time picked on the session page is checked again now the money is
+         in. A booking in Arch 2, or another 1-2-1, in the minutes they were
+         paying takes it, and then it is arranged by hand as before, with
+         them and the coach told. Only the first delivery decides; a retry
+         reads what it decided. A calendar that cannot be read now leaves it
+         to the hold, which kept the time while they paid. */
+      const slotAt = ms(md.slot || '');
+      let gone = '';
+      if (slotAt && !((await getSetting('sessions')) || []).some(x => x.session === obj.id)) {
+        try {
+          /* read afresh: a booking made in Arch 2 in the last few minutes is the one that matters */
+          const c = await slotConf(), f = await slotFeeds(true);
+          gone = slotWhy(slotAt, slotAt + (kind === '90' ? 90 : 60) * 60e3, { room: f.room || [], busy: f.busyOk ? f.busy : [],
+            taken: await slotTaken({ exceptHold: String(md.hold || '') }, c.gap), rule: { words: ruleWords(c.words), max: c.max }, earliest: Date.now() });
+        } catch (err) { console.warn('session slot check', String(err && err.message || err)); }
+      }
+      const picked = !!slotAt && !gone;
       await changeSetting('sessions', cur => {
         const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
         if (l.some(x => x.session === obj.id)) return undefined;
         l.unshift({ id: 's' + String(obj.id || newId()).slice(-12), email: e, name: nm, kind, prefs, at: Date.now(), session: String(obj.id || ''),
           pi: String(obj.payment_intent || ''), pays: [{ ref: String(obj.id || ''), pi: String(obj.payment_intent || ''), amount: Number(obj.amount_total) || 0, at: Date.now() }],
-          paid: Number(obj.amount_total) || 0, status: 'toArrange', when: '', place: 'OverGravity, Shadwell', note: '' });
+          paid: Number(obj.amount_total) || 0, status: picked ? 'arranged' : 'toArrange', when: picked ? new Date(slotAt).toISOString() : '',
+          place: 'OverGravity, Shadwell', note: '',
+          ...(picked ? { picked: true, room: 'hire' } : slotAt ? { pickedGone: { at: new Date(slotAt).toISOString(), why: gone } } : {}) });
         return l.slice(0, 400);
       });
+      await slotUnhold(String(md.hold || ''));
+      const sRow = ((await getSetting('sessions')) || []).find(x => x.session === obj.id) || {};
+      const sPicked = !!(sRow.picked && sRow.when && sRow.status === 'arranged');
       const sessKey = `sessnew:${obj.id}`;
       if (!(await supa.insertIfAbsent('nudges', { key: sessKey, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)))
         return json({ ok: true, note: 'session already filed' });
-      await ensureAcct(e, nm);
       const amt = sessAmt(obj.amount_total);
       /* a session that cost nothing on a code is booked, not "paid for: £0" */
       const sessFree = !(Number(obj.amount_total) > 0);
+      /* Anything that fails before their email has gone lets go of the claim
+         and fails the event, so Stripe's retry sends it. Only Resend failing
+         did: a database blip while the account was made kept the claim, and
+         every retry stopped at "already filed" with the buyer and the coach
+         told nothing, though the money was in. */
+      let sentOk = false;
+      try {
+      await ensureAcct(e, nm);
+      if (sPicked) sentOk = await sessConfirmMail(db, sRow, primaryCoach(), { fresh: true, noQueue: true });
+      else {
       /* The account was made and the email said so, with no password and no
          way to set one: they had to find Forgotten it? on the sign in screen.
          Somebody without a password gets the same set-a-password link a
          coaching buyer does. */
       const sessNoPw = !(await hashFor(db, e));
       const sessLink = sessNoPw ? await welcomeLink(e) : '';
-      const sentOk = await email(e, `Your ${kind} minute session: sorting the time`,
+      const goneTxt = sRow.pickedGone ? slotTxt(sRow.pickedGone.at) : '';
+      sentOk = await email(e, `Your ${kind} minute session: sorting the time`,
         mail({ title: sessFree ? 'Booked. Now the time.' : 'Paid. Now the time.', greeting: nm.split(' ')[0] || '',
-          paras: [`Your ${kind} minute session in London is ${sessFree ? 'booked, free on your code' : 'paid for: ' + amt}. The room at OverGravity is booked around their timetable, so I check your times against it and confirm within 48 hours.`,
+          paras: [goneTxt ? `Your ${kind} minute session in London is ${sessFree ? 'booked, free on your code' : 'paid for: ' + amt}. The time you picked, ${esc(goneTxt)}, was taken in the minutes you were paying, so I will come back with another within 48 hours. If none suits, it is refunded in full.`
+                          : `Your ${kind} minute session in London is ${sessFree ? 'booked, free on your code' : 'paid for: ' + amt}. The room at OverGravity is booked around their timetable, so I check your times against it and confirm within 48 hours.`,
                   prefs ? `You said: <b>${esc(prefs)}</b>.` : 'Reply to this with the days and times that suit you.',
                   sessNoPw ? `You have an account in the Handstand Ladder app under this address, where your booking is, and we can talk there as well as by email. Your username is ${esc(e)}: choose a password with the button below and you are in.`
-                           : 'Your booking is in the Handstand Ladder app under this address, and we can talk there as well as by email.'],
+                           : 'Your booking is in the Handstand Ladder app under this address, and we can talk there as well as by email.',
+                  sRow.id ? await sessChangeHTML(sRow) : ''].filter(Boolean),
           cta: { href: sessLink || `${SITE}/lha-app.html`, label: sessNoPw ? 'Choose a password' : 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true, noQueue: true });
+      }
+      } catch (err) { await supa.remove('nudges', `key=eq.${enc(sessKey)}`).catch(() => {}); throw err; }
       /* Resend down: let go of the claim and fail, and Stripe sends it again */
       if (!sentOk && mailDown) { await supa.remove('nudges', `key=eq.${enc(sessKey)}`).catch(() => {}); return json({ error: 'email failed, retry' }, 500); }
+      if (sPicked) {
+        const atTxt = slotTxt(sRow.when);
+        try { await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
+          text: `Thanks, your ${kind} minute session is booked: ${sessWhen(sRow)}, at OverGravity. See you there. To move or cancel it, use the link in your confirmation email.` }); } catch {}
+        /* the room is not hired until Elliott hires it: said at once, and on
+           Today until he ticks it, whatever the email switches say */
+        await coachAlert(e, 'business', { title: `${nm || e} booked ${atTxt}`, body: `${kind} minutes, ${amt}. Hire Arch 2 for it.`, tag: 'sess:' + e });
+        await email(coachTo(e), `Booked: ${nm || e}, ${atTxt}, ${kind} min. Hire Arch 2`,
+          mail({ title: `${esc(nm || e)} has booked ${esc(atTxt)}.`,
+            paras: [`${kind} minutes, paid ${amt}, picked on the session page from the times Arch 2's calendar showed free.`,
+                    '<b>Hire Arch 2 for it.</b> It is on Today until you tick the room as hired.',
+                    sentOk ? 'They have their confirmation, with the calendar and the link to move or cancel.' : 'Their email was held, so the confirmation is in their messages in the app only.',
+                    prefs ? `They also said: <b>${esc(prefs)}</b>.` : ''].filter(Boolean),
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+        return json({ ok: true, session: kind, booked: sRow.when });
+      }
       try {
         await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
           text: prefs ? `Thanks, your ${kind} minute session is ${sessFree ? 'booked' : 'paid for'}. You said: "${prefs}". I will check the room at OverGravity against that and come back here with a time within 48 hours. If anything changes, say so here.`
                       : `Thanks, your ${kind} minute session is ${sessFree ? 'booked' : 'paid for'}. Tell me here which days and times suit you, and I will check the room at OverGravity and come back with a time within 48 hours.` });
       } catch {}
       /* the coach who has them, if they are a client; the academy otherwise */
-      await coachAlert(e, 'business', { title: (nm || e) + ' paid for a ' + kind + ' minute session', body: 'Set the time on Today.', tag: 'sess:' + e });
-      if (await coachMail(e, 'business')) await email(coachTo(e), `Session to arrange: ${nm || e}, ${kind} min`,
+      const goneC = sRow.pickedGone ? `They picked ${slotTxt(sRow.pickedGone.at)}, which went while they paid (${sRow.pickedGone.why}).` : '';
+      await coachAlert(e, 'business', { title: (nm || e) + ' paid for a ' + kind + ' minute session', body: goneC ? 'Their time went while they paid. Set another on Today.' : 'Set the time on Today.', tag: 'sess:' + e });
+      if (goneC || await coachMail(e, 'business')) await email(coachTo(e), `Session to arrange: ${nm || e}, ${kind} min`,
         mail({ title: `${esc(nm || e)} has paid ${amt} for a ${kind} minute session.`,
-          paras: [prefs ? `Prefers: <b>${esc(prefs)}</b>.` : 'No preferred times given.', sentOk ? 'Check the room, then set the time on Today and they get the confirmation.' : 'Their email was held, so the opener is in their messages in the app only. Check the room, then set the time on Today.'],
+          paras: [goneC ? `<b>${esc(goneC)}</b> They have been told you will come back with another time within 48 hours.` : '',
+                  prefs ? `Prefers: <b>${esc(prefs)}</b>.` : 'No preferred times given.', sentOk ? 'Check the room, then set the time on Today and they get the confirmation.' : 'Their email was held, so the opener is in their messages in the app only. Check the room, then set the time on Today.'].filter(Boolean),
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, session: kind });
     }
@@ -3081,11 +3497,16 @@ const handle = async (request) => {
              search does not care about case */
           try { const sr = await stripe(`/customers/search?query=${enc(`email:'${acct.email}'`)}&limit=10`, null, 'GET');
             ((sr && sr.data) || []).forEach(c => custs.add(c.id)); } catch {}
-          const stopped = [];
+          const stopped = [], twice = [];
           for (const cu of custs) {
             const subs = await stripe(`/subscriptions?customer=${enc(cu)}&status=all&limit=20`, null, 'GET').catch(() => null);
             for (const sb of ((subs && subs.data) || [])) {
               if (sb.id === keep || !['active', 'trialing', 'past_due'].includes(sb.status) || sb.cancel_at_period_end) continue;
+              /* coaching already running: a payment link sells it again to
+                 somebody who has it (two tabs, or the £190 bought to add the
+                 session), and both went on charging every month. Nothing is
+                 stopped here, since which one stays is the coach's call. */
+              if (['online', 'inner'].includes(planOf(sb))) { twice.push(sb); continue; }
               if (planOf(sb) !== 'plus') continue;
               /* noted first, so the events this sends are not read as the
                  account's own subscription changing */
@@ -3101,6 +3522,18 @@ const handle = async (request) => {
             try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
               text: `Coaching includes the whole Ladder, so I have stopped your separate Ladder subscription. ${endTxt}` }); } catch {}
             await coachAlert(acct.email, 'business', { title: 'Ladder stopped for ' + (acct.name || acct.email), body: 'They moved to coaching; the £10 no longer renews.', tag: 'ladderstop:' + acct.email });
+          }
+          /* said once per checkout, by email whatever the business emails
+             switch says, because it is money taken twice every month */
+          if (twice.length && await supa.insertIfAbsent('nudges', { key: `twocoach:${obj.id || acct.email}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)) {
+            const nmT = acct.name || (obj.customer_details && obj.customer_details.name) || acct.email;
+            const subsT = [keep].concat(twice.map(x => x.id)).filter(Boolean);
+            await coachAlert(acct.email, 'business', { title: 'Paying twice for coaching: ' + nmT, body: 'Cancel one in Stripe', tag: 'twocoach:' + acct.email });
+            await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Paying twice for coaching: ${nmT}`,
+              mail({ title: `${esc(nmT)} now has ${subsT.length} coaching subscriptions.`,
+                paras: [`${esc(acct.email)} has just paid ${esc(penceTxt(Number(obj.amount_total) || 0))} for coaching and was already paying for it. Each of these charges every month until it is stopped: ${subsT.map(esc).join(', ')}.`,
+                        'Cancel the one they no longer want in Stripe, and refund a month that was paid twice. Nothing has been stopped automatically.'],
+                cta: { href: 'https://dashboard.stripe.com/subscriptions', label: 'Open Stripe' } }));
           }
           /* a Ladder bought in the iPhone app is Apple's to stop, not ours */
           const iap = await getSetting(`iap:${acct.email}`).catch(() => null);
@@ -3119,20 +3552,32 @@ const handle = async (request) => {
         const nmStripe = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
         if (!acct.name && nmStripe) { acct.name = nmStripe; try { await saveAcct({ email: e2, name: nmStripe }); } catch {} }
         const london = LONDON[variant] || 0;
-        const stored = (await getSetting('roster')) || {};
         /* a past client paying for coaching again is a client again, and is
            welcomed as one rather than skipped for being on the roster */
         const pastNow = (await getSetting('pastclients')) || {};
         const wasPast = !!pastNow[e2];
         if (wasPast) { delete pastNow[e2]; await setSetting('pastclients', pastNow); PAST = pastNow; }
-        if ((!stored[e2] && !clients()[e2]) || wasPast) {
-          stored[e2] = { name: acct.name || e2, coach: '', tier: variant || boughtPlan };
-          await setSetting('roster', stored);
-          /* a new coaching client takes one of the places the site says are open */
-          await changeSetting('coachplaces', cur => cur && Number(cur.n) > 0 ? { n: Number(cur.n) - 1, at: Date.now(), by: 'purchase' } : undefined).catch(() => {});
-        } else if (stored[e2] && stored[e2].tier !== (variant || boughtPlan)) {
-          stored[e2] = Object.assign({}, stored[e2], { tier: variant || boughtPlan });
-          await setSetting('roster', stored);
+        let overFull = false;
+        /* changed in place: two buyers in the same second each read the
+           roster and wrote it back whole, and the second wrote over the
+           first, who was then a paying client nobody had on the list */
+        let joined = false;
+        await changeSetting('roster', cur => {
+          joined = false;
+          const st = Object.assign({}, cur || {}), tier = variant || boughtPlan;
+          if ((!st[e2] && !clients()[e2]) || wasPast) { st[e2] = { name: acct.name || e2, coach: '', tier }; joined = true; return st; }
+          if (st[e2] && st[e2].tier !== tier) { st[e2] = Object.assign({}, st[e2], { tier }); return st; }
+          return undefined;
+        });
+        if (joined) {
+          /* a new coaching client takes one of the places the site says are
+             open. With none left, Stripe's page still sells it, since a
+             payment link knows nothing of the places, and that went by
+             unremarked: the coach is told it is one over. */
+          await changeSetting('coachplaces', cur => {
+            overFull = !!cur && Number.isInteger(Number(cur.n)) && !(Number(cur.n) > 0);
+            return cur && Number(cur.n) > 0 ? { n: Number(cur.n) - 1, at: Date.now(), by: 'purchase' } : undefined;
+          }).catch(() => {});
         }
         /* Joining the roster puts them behind the client email guard. This
            used to switch them through by name for good, which overrode a
@@ -3161,13 +3606,25 @@ const handle = async (request) => {
         const coachNew = !obj.id || await supa.insertIfAbsent('nudges', { key: `coachnew:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true);
         /* coaching has no free week, so nothing paid can only be a code */
         const coNote = codeNote(obj) || (!(Number(obj.amount_total) > 0) ? 'Free on a code' : '');
-        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : ''), tag: 'coachnew:' + e2 });
-        if (coachNew && await coachMail(e2, 'business')) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}`,
+        const overTxt = overFull ? 'The places were at 0, so this is one more client than you set as open this month' : '';
+        /* The site, the session page and the day-after email all say a one
+           to one comes off the first month if they join within fourteen
+           days. A payment link cannot take it off, so it was only kept if
+           the coach happened to remember: the month was charged in full and
+           nothing said a credit was owed. */
+        const credit = ((await getSetting('sessions').catch(() => null)) || []).filter(x => x && x.email === e2 && !x.fromPlan
+          && !['cancelled', 'refunded'].includes(x.status) && (Number(x.paid) || 0) - (Number(x.refunded) || 0) > 0
+          && (x.when ? ms(x.when) : Number(x.at) || 0) > Date.now() - 14 * 864e5);
+        const creditTxt = credit.length ? `They paid ${credit.map(x => sessAmt((Number(x.paid) || 0) - (Number(x.refunded) || 0)) + ' for a ' + x.kind + ' minute session').join(' and ')} in the last fourteen days, which the site says comes off their first month` : '';
+        if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : '') + (overTxt ? '. ' + overTxt : '') + (creditTxt ? '. Session credit owed' : ''), tag: 'coachnew:' + e2 });
+        if (coachNew && (overFull || credit.length || await coachMail(e2, 'business'))) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}${overFull ? ' (places were full)' : ''}${credit.length ? ' (session credit owed)' : ''}`,
           mail({ title: `Someone just bought ${tierFull}.`,
             paras: [`<b>${esc(acct.name || e2)}</b> (${esc(e2)}) is on the roster, and their Start page asks for their baseline.${
                       london > 0 ? ' Their London session is on Today, waiting for a time.' : ''}`,
                     boughtPlan === 'online' ? 'Block one is yours to write once the clips arrive.' : 'Their clips will land in the queue like any other.',
-                    coNote ? `<b>${esc(coNote)}.</b>` : ''].filter(Boolean),
+                    coNote ? `<b>${esc(coNote)}.</b>` : '',
+                    overTxt ? `<b>${esc(overTxt)}.</b> Take them on, or refund them in Stripe and offer the waiting list.` : '',
+                    creditTxt ? `<b>${esc(creditTxt)}.</b> This month was charged in full: refund that amount on it in Stripe.` : ''].filter(Boolean),
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' },
             signoff: { name: 'London Handstand Academy' } }));
         /* somebody who bought from the website has an account and no
@@ -5429,6 +5886,14 @@ const handle = async (request) => {
   }
 
   /* ── one to one sessions: pay, then arrange ───────────────────────── */
+  /* the times a 1-2-1 can be booked, for the session page: start times
+     only, nothing of what is in the room's calendar */
+  if (path === '/session/slots' && request.method === 'GET') {
+    const kind = url.searchParams.get('kind') === '90' ? '90' : '60';
+    const S = await slotState(kind).catch(err => { console.error('session/slots', String(err && err.message || err)); return { on: false }; });
+    return new Response(JSON.stringify({ on: !!S.on && S.slots.length > 0, kind, slots: S.on ? S.slots.map(x => new Date(x.start).toISOString()) : [] }),
+      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
   if (path === '/session/book' && request.method === 'POST') {
     const kind = String(body.kind) === '90' ? '90' : '60';
     const e = norm(body.email);
@@ -5439,24 +5904,112 @@ const handle = async (request) => {
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`ssb:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
     const price = PRICES[kind === '90' ? 'session90' : 'session60'];
+    /* a time picked from the ones on offer: checked again here, and held
+       for as long as the payment page is open */
+    let at = 0, hold = '';
+    if (body.slot) {
+      at = ms(body.slot);
+      const S = await slotState(kind).catch(() => ({ on: false }));
+      if (!S.on) return json({ error: 'Picking a time is not working just now. Pay and say which days suit, and Elliott will come back with a time.', noSlots: true }, 409);
+      if (!S.slots.some(x => x.start === at)) return json({ error: 'That time has just gone. Pick another.', gone: true }, 409);
+      hold = await slotHold(at, at + (kind === '90' ? 90 : 60) * 60e3, kind);
+      if (!hold) return json({ error: 'Somebody is paying for that time right now. Pick another.', gone: true }, 409);
+    }
     try {
       const sess = await stripe('/checkout/sessions', {
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
         'line_items[0][price_data][unit_amount]': String(Math.round(Number(price.amount) || 0)),
         'line_items[0][price_data][product_data][name]': `One to one session, ${kind} minutes, London`,
-        'line_items[0][price_data][product_data][description]': 'Time arranged with you after payment, around the room at OverGravity.',
+        'line_items[0][price_data][product_data][description]': at ? `${slotTxt(at)}, at OverGravity, Shadwell.` : 'Time arranged with you after payment, around the room at OverGravity.',
         'line_items[0][quantity]': '1',
         'metadata[session]': kind, 'metadata[name]': nm, 'metadata[prefs]': prefs,
+        ...(at ? { 'metadata[slot]': new Date(at).toISOString(), 'metadata[hold]': hold,
+                   /* the hold outlasts the page by a few minutes */
+                   expires_at: String(Math.floor(Date.now() / 1000) + 31 * 60) } : {}),
         'payment_method_types[0]': 'card',
         submit_type: 'book',
-        'custom_text[submit][message]': 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
+        'custom_text[submit][message]': at ? `Booked for ${slotTxt(at)} once you pay. Your confirmation has a link to move it, or to ask to cancel.`
+                                           : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
-        success_url: `${url.origin}/session.html?booked=1&kind=${kind}`,
+        success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}`,
         cancel_url: `${url.origin}/session.html?kind=${kind}`,
       });
       return json({ url: sess.url });
-    } catch (err) { return json({ error: String(err.message || err) }, 502); }
+    } catch (err) { await slotUnhold(hold); return json({ error: String(err.message || err) }, 502); }
+  }
+  /* ── a 1-2-1 managed from the link in its emails ────────────────────
+     No sign in: the link is signed and names the session and the person. */
+  if (path === '/session/manage') {
+    const t = await sessManageRead(request.method === 'GET' ? url.searchParams.get('t') : body.t);
+    if (!t) return json({ error: 'That link has run out. Sign in to the app with your email, and the session is under Your bookings.' }, 401);
+    const row = ((await getSetting('sessions')) || []).find(x => x.id === t.i && norm(x.email) === t.e);
+    if (!row) return json({ error: 'No session found on that link' }, 404);
+    if (request.method === 'POST') {
+      if ((await rateHit(`ssman:${t.e}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
+      const R0 = sessRules(row), slot = body.slot ? String(body.slot) : '', prefs = String(body.prefs || '').trim(), note = String(body.note || '');
+      const r = body.action === 'cancel' ? await sessAskByClient(db, row.id, t.e, { kind: 'cancel', note })
+              : body.action === 'keep' ? await sessAskBack(row.id, t.e)
+              : body.action === 'move' ? (R0.selfMove ? await sessMoveByClient(db, row.id, t.e, { slot, prefs })
+                                                      : await sessAskByClient(db, row.id, t.e, { kind: 'move', slot, prefs, note }))
+              : { error: 'Nothing asked', status: 400 };
+      return json(r, r.error ? r.status : 200);
+    }
+    const R = sessRules(row);
+    const S = R.live ? await slotState(row.kind, { exceptId: row.id }).catch(() => ({ on: false })) : { on: false };
+    return json({ id: row.id, kind: row.kind, when: row.when || '', place: row.place || '', name: row.name || '', status: row.status,
+      fromPlan: !!row.fromPlan, owes: Number(row.ask) > 0 ? Number(row.ask) : 0, paid: Number(row.paid) || 0, refunded: Number(row.refunded) || 0,
+      live: R.live, selfMove: R.selfMove, canMove: R.canMove, canCancel: R.canCancel, late: R.late, cutoff: SESS_CUTOFF_H,
+      req: R.req ? { kind: R.req.kind, at: R.req.at, slot: R.req.slot || '', prefs: R.req.prefs || '' } : null,
+      slots: S.on ? S.slots.filter(x => !row.when || x.start !== ms(row.when)).map(x => new Date(x.start).toISOString()) : null });
+  }
+  /* ── the 1-2-1 times: hours, rules and the calendars they are read from ──
+     The owner's alone: it reads OverGravity's own calendar. The addresses
+     go in and never come back out. */
+  if (path === '/coach/sessslots') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    if (request.method === 'POST') {
+      const cur = await slotConf(), n = (v, lo, hi, d) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : d; };
+      const next = {
+        on: body.on !== undefined ? !!body.on : !!cur.on,
+        hours: body.hours && typeof body.hours === 'object' ? Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map(d => [d, String(body.hours[d] || '').slice(0, 80)])) : cur.hours,
+        leadH: body.leadH !== undefined ? n(body.leadH, 0, 24 * 14, 24) : cur.leadH,
+        days: body.days !== undefined ? n(body.days, 1, 60, 21) : cur.days,
+        step: body.step !== undefined ? ([15, 30, 60].includes(Number(body.step)) ? Number(body.step) : 30) : cur.step,
+        words: body.words !== undefined ? ruleWords(body.words) : cur.words,
+        max: body.max !== undefined ? n(body.max, 1, 20, 2) : cur.max,
+        gap: body.gap !== undefined ? n(body.gap, 0, 120, 0) : cur.gap,
+      };
+      /* the calendar addresses: https only, webcal read as https */
+      const addr = v => { const s = String(v || '').trim().replace(/^webcal:\/\//i, 'https://');
+        return /^https:\/\/[^\s"'<>]{8,600}$/i.test(s) ? s : ''; };
+      if (body.room !== undefined || body.busy !== undefined) {
+        const f = (await getSetting('sessfeeds')) || {};
+        const out = { room: String(f.room || ''), busy: Array.isArray(f.busy) ? f.busy : [] };
+        if (body.room !== undefined) { const a = addr(body.room); if (body.room && !a) return json({ error: 'That is not a calendar address. In Google Calendar it is under the calendar\'s settings, "Secret address in iCal format", and starts https://' }, 400); out.room = a; }
+        if (body.busy !== undefined) { const list = (Array.isArray(body.busy) ? body.busy : String(body.busy).split(/\s+/)).map(addr);
+          if (list.some(x => !x) && String(body.busy).trim()) return json({ error: 'One of your own calendar addresses does not look right. Each one starts https://' }, 400);
+          out.busy = list.filter(Boolean).slice(0, 4); }
+        await setSetting('sessfeeds', out);
+      }
+      await setSetting('sessslots', next);
+    }
+    /* what it reads now, so the dashboard can show it is right */
+    const c = await slotConf();
+    const f = await slotFeeds(request.method === 'POST' || url.searchParams.get('fresh') === '1');
+    const until = Date.now() + 14 * DAY;
+    const rule = { words: ruleWords(c.words), max: c.max };
+    const room = (f.room || []).filter(x => x.end > Date.now() && x.start < until).slice(0, 300)
+      .map(x => ({ start: new Date(x.start).toISOString(), end: new Date(x.end).toISOString(), title: String(x.title || '').slice(0, 80), allDay: !!x.allDay, approx: !!x.approx, read: roomRead(x, rule) }));
+    let preview = [];
+    if (f.room && f.busyOk) {
+      const ctx = { room: f.room, busy: f.busy, taken: await slotTaken({}, c.gap), rule, earliest: Date.now() + Math.max(0, Number(c.leadH) || 0) * 3600e3 };
+      preview = freeSlots({ now: Date.now(), days: Math.min(14, c.days), step: c.step, lenMin: 60, hours: c.hours, ...ctx }).map(x => new Date(x.start).toISOString());
+    }
+    return json({ conf: { on: !!c.on, hours: hoursText(c.hours), leadH: c.leadH, days: c.days, step: c.step, words: ruleWords(c.words).join(', '), max: c.max, gap: c.gap },
+      feeds: { roomSet: !!f.roomSet, busyN: f.busyN || 0, roomRead: !!f.room, busyOk: f.busyOk !== false, stale: !!f.stale, errs: f.errs || [], roomAt: f.roomAt || 0, events: (f.room || []).length },
+      room, preview, hoursSet: Object.values(readHours(c.hours)).some(v => v.length) });
   }
   if (path === '/coach/sessions') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
@@ -5481,6 +6034,9 @@ const handle = async (request) => {
          the time below sends the same confirmation as any other. */
       const askIn = Math.round(Number(body.ask) || 0);
       if (askIn > 0 && askIn < SESS_MIN_ASK) return json({ error: 'Stripe cannot take less than 30p. Ask for at least £0.30.' }, 400);
+      /* a part refund, checked before anything is changed */
+      if (body.refund !== undefined && !['full', 'none'].includes(body.refund) && !(Math.round(Number(body.refund) || 0) >= SESS_MIN_ASK))
+        return json({ error: 'A part refund is at least £0.30. For nothing back, choose No refund.' }, 400);
       let ce = '', a0 = null;
       if (body.create) {
         ce = norm(body.email);
@@ -5511,11 +6067,17 @@ const handle = async (request) => {
           const a = Math.max(0, Math.min(100000, Math.round(Number(body.ask) || 0)));
           askedNow = a > 0 && a !== r.ask; r.ask = a;
         }
-        if (body.when !== undefined) { const t = ms(body.when); r.when = t ? new Date(t).toISOString() : ''; }
+        if (body.when !== undefined) { const t = ms(body.when); r.when = t ? new Date(t).toISOString() : '';
+          /* a time the coach sets is one he has the room for, and answers an ask to move */
+          if (r.when !== before.when) { delete r.room; r.moveAsked = 0; } }
+        /* Arch 2 hired for a time the client picked, ticked off on Today */
+        if (['hire', 'hired'].includes(body.room) && r.when) r.room = body.room;
         if (typeof body.place === 'string') r.place = body.place.slice(0, 120);
         if (typeof body.note === 'string') r.note = body.note.slice(0, 300);
         if (['toArrange', 'arranged', 'done', 'cancelled'].includes(body.status)) r.status = body.status;
         else if (r.when && r.status === 'toArrange') r.status = 'arranged';
+        /* the client's ask is answered by a cancel, a new time, or keeping it */
+        if (r.req && (r.status === 'cancelled' || r.when !== before.when || body.keep)) delete r.req;
         row = r; return l;
       });
       if (missing) return json({ error: 'No such session' }, 404);
@@ -5542,12 +6104,36 @@ const handle = async (request) => {
       if (row.status === 'cancelled' && wasStatus !== 'cancelled') {
         if (row.cs && stripeKey()) { try { await stripe(`/checkout/sessions/${row.cs}/expire`, {}); } catch { /* already done or gone */ } }
         const was = row.when ? sessWhen(row) : '';
+        /* The coach's Cancel refunded nothing: the client was told "we will
+           refund you in full" and it waited on Elliott doing it in Stripe.
+           refund: 'full' gives back everything paid by card, now, the same
+           way the client's own cancel does; 'none' is a late cancellation
+           the terms let him keep. Paid outside Stripe, he gives it back by
+           hand and the client is told so. */
         const paidSome = Number(row.paid) > 0 && !(Number(row.refunded) >= Number(row.paid));
-        const line = `Your ${row.kind} minute session${was ? ' on ' + was : ''} is cancelled.`
-          + (paidSome ? ' Reply here and we will either find another time or refund you in full.' : ' Reply here and we will find another time.');
+        const hand = sessHandPaid(row);
+        /* a part refund: pence, at least 30p (Stripe's least), never more than is left */
+        const part = body.refund !== 'full' && body.refund !== 'none' && Number(body.refund) > 0 ? Math.round(Number(body.refund)) : 0;
+        let back = 0, failed = [];
+        if (body.refund === 'full') ({ back, failed } = await sessRefundRow(row.id));
+        else if (part) ({ back, failed } = await sessRefundRow(row.id, part));
+        await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === row.id);
+          if (!r) return undefined; r.cancelledAt = Date.now(); r.cancelledBy = 'coach'; r.cancelledFrom = r.when || ''; return l; }).catch(() => {});
+        const money = body.refund === 'full' || part
+          ? (back > 0 ? ` ${sessAmt(back)} is refunded to the card you paid with. It shows in a few days.`
+            : failed.length ? ' The refund could not be made automatically, so I will make it by hand.'
+            : hand ? ` I will give you back ${part ? sessAmt(part) : 'the ' + sessAmt(row.paid)} you paid.` : '')
+          : body.refund === 'none' && paidSome ? ' It is not refunded.' : '';
+        const say = String(body.msg || '').trim().slice(0, 600);
+        const line = `Your ${row.kind} minute session${was ? ' on ' + was : ''} is cancelled.${money}`
+          + (say ? ' ' + say : '')
+          + (body.refund === 'full' || body.refund === 'none' || part ? ' Reply here if you would like another time.'
+            : paidSome ? ' Reply here and we will either find another time or refund you in full.' : ' Reply here and we will find another time.');
         try { await threadAdd(db, row.email, { from: 'coach', by, text: line }); } catch {}
-        told = { what: 'cancelled', mailed: await email(row.email, `Cancelled: your session${was ? ', ' + was : ''}`,
+        told = { what: 'cancelled', refunded: back, refundFailed: failed.length ? failed.map(f => f.why).join('; ') : '', hand: (body.refund === 'full' || !!part) && hand,
+          mailed: await email(row.email, `Cancelled: your session${was ? ', ' + was : ''}`,
           mail({ title: 'Your session is cancelled.', greeting: first, paras: [esc(line)], signoff: { name: coachName(by) } }), undefined, { receipt: true }) };
+        if (failed.length) await coachAlert(row.email, 'business', { title: 'Refund it in Stripe: ' + (row.name || row.email), body: failed.map(f => f.why).join('; ').slice(0, 140), tag: 'sessrefund:' + row.id });
         await notify(row.email, { title: 'Your session is cancelled', body: was || 'Reply to find another time', url: '/lha-app.html', tag: 'sess:' + row.id }, 'replies').catch(() => {});
       }
       /* a time set, or moved: confirmed if nothing is owed, and if it is,
@@ -5566,12 +6152,25 @@ const handle = async (request) => {
                       'If you have already paid another way, or the time does not work, reply to this.'],
               signoff: { name: coachName(by) } }), undefined, { receipt: true }) };
         } else {
+          const moved = wasWhen && wasWhen !== row.when ? wasWhen : '';
+          const say = String(body.msg || '').trim().slice(0, 600);
           try { await threadAdd(db, row.email, { from: 'coach', by,
-            text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
-          told = { what: 'confirmed', mailed: await sessConfirmMail(db, row, by) };
+            text: `${moved ? 'Moved' : 'Confirmed'}: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${say || row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
+          told = { what: moved ? 'moved' : 'confirmed', mailed: await sessConfirmMail(db, row, by, { moved, say }) };
         }
       }
-      return json({ ok: true, session: row, told, sessions: list.filter(x => owns(x.email)) });
+      /* the ask answered with "keep it as it is": the session stands */
+      if (body.keep && before.req && !told) {
+        const say = String(body.msg || '').trim().slice(0, 600);
+        const line = `Your ${row.kind} minute session${row.when ? ' on ' + sessWhen(row) : ''} stands as it was.${say ? ' ' + say : ''}`;
+        try { await threadAdd(db, row.email, { from: 'coach', by, text: line }); } catch {}
+        told = { what: 'kept', mailed: await email(row.email, `Your session${row.when ? ', ' + sessWhen(row) : ''}: it stands`,
+          mail({ title: 'Your session stands.', greeting: first, paras: [esc(line), await sessChangeHTML(row)].filter(Boolean),
+            signoff: { name: coachName(by) } }), undefined, { receipt: true }) };
+      }
+      /* a cancel changed the row again (the refund, who cancelled): the list as it is now */
+      const after = told && ['cancelled', 'kept', 'moved'].includes(told.what) ? ((await getSetting('sessions')) || list) : list;
+      return json({ ok: true, session: after.find(x => x.id === row.id) || row, told, sessions: after.filter(x => owns(x.email)) });
     }
     return json({ error: 'Nope' }, 405);
   }
@@ -5726,13 +6325,22 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     /* one to one sessions sit beside the workshops, with a way into the
        calendar once the time is set */
-    ((await getSetting('sessions')) || []).filter(x => x.email === who && x.status !== 'cancelled').forEach(x => {
+    /* moved or cancelled on the session page, from the same signed link
+       the emails carry: canCancel stays the workshops' own button */
+    const mineS = ((await getSetting('sessions')) || []).filter(x => x.email === who && x.status !== 'cancelled');
+    const pickOn = mineS.length ? !!(await slotConf()).on : false;
+    for (const x of mineS) {
+      const R = sessRules(x);
       out.push({ slug: 'sess:' + x.id, session: true, title: `One to one session, ${x.kind} minutes`,
         when: x.when || '', place: x.place || '', status: x.status === 'toArrange' ? 'toArrange' : x.status === 'done' ? 'done' : 'booked',
         paid: x.paid || 0, canCancel: false, refundable: false,
         owes: x.ask > 0 ? x.ask : 0, pay: x.ask > 0 ? `/api/app/session/pay?id=${enc(x.id)}` : '',
-        ics: x.when ? `/api/app/session.ics?id=${enc(x.id)}` : '', gcal: x.when ? sessGcal(x) : '' });
-    });
+        ics: x.when ? `/api/app/session.ics?id=${enc(x.id)}` : '', gcal: x.when ? sessGcal(x) : '',
+        change: R.canMove && (x.when || pickOn || R.canCancel) ? await sessManageLink(x) : '',
+        changeLabel: !R.canMove ? '' : R.req ? 'See what you asked' : x.when ? (R.canCancel ? 'Move or cancel' : 'Move it')
+          : pickOn ? (R.canCancel ? 'Pick a time or cancel' : 'Pick a time') : R.canCancel ? 'Cancel it' : '',
+        asked: R.req ? R.req.kind : '' });
+    }
     out.sort((a, b) => ms(a.when) - ms(b.when));
     return json({ bookings: out });
   }
@@ -7658,7 +8266,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* a workshop page opened, a booking started, a booking paid */
                   'siteworkshoppage', 'workshopbook', 'workshoppaid',
                   /* a one to one session page opened, and a request started */
-                  'sitesessionpage', 'sessionbook',
+                  'sitesessionpage', 'sessionbook', 'sitesessionmanage',
                   /* the website, before the app */
                   'site', 'sitequiz', 'siteapp', 'siteworkshop',
                   /* the homepage's way in: a door picked, the fit check

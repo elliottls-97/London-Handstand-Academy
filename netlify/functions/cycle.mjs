@@ -59,6 +59,13 @@ async function manageLink(slug, email, session, until) {
   const mac = b64u(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
   return `${SITE}/booking.html?t=${body}.${mac}`;
 }
+/* the same for a 1-2-1: app.mjs sessManageLink, which the session page reads */
+async function sessManage(x) {
+  const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'ssm', i: x.id, e: norm(x.email), exp: Date.now() + 180 * DAY })));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = b64u(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
+  return `${SITE}/session.html?m=${body}.${mac}`;
+}
 const enc = encodeURIComponent;
 const ms = v => (v ? new Date(v).getTime() : 0);
 /* the same as app.mjs wsWhenTxt: "Saturday 10 October, 1:00 to 2:30pm" */
@@ -919,15 +926,50 @@ async function intentMail(done) {
    The reminder, and then the offer the site already makes: the session is
    credited against the first month if they join within fourteen days. */
 async function sessionMail(done) {
-  done.sessions = { reminded: 0, followed: 0 };
+  done.sessions = { reminded: 0, followed: 0, chased: 0 };
   const row = await supa.row('settings', 'key=eq.sessions&select=value').catch(() => null);
   const list = (row && row.value) || [];
   const now = Date.now();
   for (const x of list) {
+    /* Bought, and still no time a day on. The session page and the email
+       both promise a time within 48 hours, and nothing said when that was
+       slipping: the session sat on Today until somebody looked. The coach
+       is told once. The London sessions a plan includes promise no time,
+       so they are left to Today. */
+    /* an ask to move starts the 48 hours again, from when it was asked */
+    if (x && x.status === 'toArrange' && !x.when && !x.fromPlan && (x.session || Number(x.paid) > 0) && now - ms(x.moveAsked || x.at) > DAY) {
+      const key = `sesschase:${x.id}${x.moveAsked ? ':' + x.moveAsked : ''}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        const hrs = Math.round((now - ms(x.moveAsked || x.at)) / 3600e3);
+        const went = await email(process.env.COACH_EMAIL || primaryCoach(), `No time yet: ${x.name || x.email}, ${x.kind} min, ${x.moveAsked ? 'asked to move' : 'paid'} ${hrs} hours ago`,
+          mail({ title: `${esc(x.name || x.email)} is still waiting for a time.`,
+            paras: [`${x.moveAsked ? `They asked to move their ${esc(x.kind)} minute session ${hrs} hours ago` : `They paid for a ${esc(x.kind)} minute session ${hrs} hours ago`} and no time has been set. They were promised one within 48 hours.`,
+                    x.prefs ? `They said: <b>${esc(x.prefs)}</b>.` : 'They gave no preferred times, so ask them in the chat.',
+                    'If no time works, the session page promises a full refund.'],
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Set the time on Today' } }));
+        if (went) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key'); done.sessions.chased++; }
+      }
+    }
     /* done, not only arranged: marking a session done the moment it finished
        was cancelling the follow-up, which is the only place the offer of the
        fee against the first month is ever made. Cancelled ones are out. */
+    /* an ask to cancel or move, not answered in a day: the coach is told, once */
+    if (x && x.req && ['arranged', 'toArrange'].includes(x.status) && now - (Number(x.req.at) || 0) > DAY && (!x.when || ms(x.when) > now)) {
+      const key = `sessreqchase:${x.id}:${x.req.at}`;
+      if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        const hrs = Math.round((now - Number(x.req.at)) / 3600e3);
+        const whenTxt = x.when ? new Date(ms(x.when)).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '';
+        const went = await email(process.env.COACH_EMAIL || primaryCoach(), `Still to answer: ${x.name || x.email} asked to ${x.req.kind} ${hrs} hours ago`,
+          mail({ title: `${esc(x.name || x.email)} is waiting for your answer.`,
+            paras: [`They asked to ${esc(x.req.kind)} their ${esc(x.kind)} minute session${whenTxt ? ' on ' + esc(whenTxt) : ''} ${hrs} hours ago. They were told you would come back within 48 hours.`,
+                    'On Today: a full, part or no refund, a new date, or keep it as it is.'],
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Answer on Today' } }));
+        if (went) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key'); done.sessions.chased++; }
+      }
+    }
     if (!x || !x.when || !['arranged', 'done'].includes(x.status)) continue;
+    /* an ask to cancel waits on the coach: no "see you tomorrow" over it */
+    if (x.req && x.req.kind === 'cancel' && x.status === 'arranged') continue;
     const at = ms(x.when);
     const hoursTo = (at - now) / 3600e3, hoursSince = (now - at) / 3600e3;
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
@@ -938,6 +980,12 @@ async function sessionMail(done) {
       const had = await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null);
       if (!had) {
         const first = String(x.name || '').split(' ')[0];
+        /* still more than a day off: they can move it, or cancel it with a
+           refund, themselves. Inside that the email already says to reply. */
+        /* a cancel or a move goes to Elliott, who has hired the room, so the
+           link is there to the end; inside a day the terms may charge it */
+        const change = `<b>Can't make it?</b> <a href="${await sessManage(x)}" style="color:#006663">${x.fromPlan ? 'Ask to move it here' : 'Move or cancel it here'}</a>, no sign in needed.${
+          hoursTo > WS_CUTOFF_H || x.fromPlan ? '' : ` With less than ${WS_CUTOFF_H} hours' notice it may be charged in full.`}`;
         let went = false;
         if (Number(x.ask) > 0) {
           /* not paid yet, so not confirmed: "see you tomorrow" said nothing
@@ -945,14 +993,14 @@ async function sessionMail(done) {
           const amt = '£' + (Number(x.ask) / 100).toFixed(Number(x.ask) % 100 ? 2 : 0);
           went = await email(x.email, `Tomorrow: your session, pay to confirm it`, mail({ title: 'Your session is tomorrow.', greeting: first,
             paras: [`<b>${esc(whenTxt)}</b>${x.place ? ', at ' + esc(x.place) : ''}. ${esc(x.kind)} minutes.`,
-                    `It is not paid for yet, so it is not confirmed. Paying ${amt} confirms it.`],
+                    `It is not paid for yet, so it is not confirmed. Paying ${amt} confirms it.`, change].filter(Boolean),
             cta: { href: `${SITE}/api/app/session/pay?id=${enc(x.id)}`, label: `Pay ${amt}` },
             signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
         } else {
           const T = await emailCopy('sessRemind', { name: esc(first), when: esc(whenTxt), place: x.place ? ', at ' + esc(x.place) : '', kind: esc(x.kind) });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           went = await email(x.email, T.subject, mail({ title: T.title, greeting: first,
-            paras: T.paras,
+            paras: T.paras.concat(change ? [change] : []),
             signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
         }
         if (!went) { done.held = (done.held || 0) + 1; continue; }
