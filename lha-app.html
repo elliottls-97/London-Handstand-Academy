@@ -586,6 +586,11 @@ button.lc-ring:active{transform:scale(.88)}
 .lw-move button{height:44px;padding:0 14px;border-radius:22px;border:0;background:transparent;
  font:600 14px/1 var(--sans);color:var(--deep);display:flex;align-items:center;gap:6px;cursor:pointer}
 .lw-move>span{width:1px;height:18px;background:rgba(0,64,61,.16)}
+.goalb{display:block;width:100%;text-align:left;padding:14px 16px;border-radius:16px;cursor:pointer;
+ background:#fff;border:1.5px solid rgba(0,64,61,.12);font:inherit;color:var(--ink)}
+.goalb.on{border-color:var(--forest);background:#eef5f6}
+.goalb b{display:block;font:600 15.5px/1.25 var(--sans)}
+.goalb span{display:block;font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:4px}
 /* the stage opened out of its figure, a pointer at the figure */
 .lw-pop{position:relative;margin-top:14px;overflow:visible}
 .lw-pop[hidden]{display:none}
@@ -10941,11 +10946,12 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='limiter'){ body=limiterBody(); }
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
+  else if(st.ov==='goal'){ body=goalSheetHTML(); }
   else if(st.ov==='pbendy'){ body=pressBendyBody(); }
   else if(st.ov==='pressdone'){ body=pressDoneBody(); }
   else if(st.ov==='pfilm'){ const u=st.pFilm||''; body=isUid(u) ? ccWrap(`<video src="${hlsOk()?streamHls(u):streamMp4(u)}" controls playsinline autoplay
@@ -13846,10 +13852,15 @@ function profileBits(){
   return [
     {k:'goal', w:10, got:!!a.goal,
      t:'Say what you are after', b:'Answer it', d:'One tap, so I know what you are working towards.',
-     go:"st.tab='quiz';st.quizDone=false;st.quizStep=0;save();render()"},
-    {k:'level', w:20, got:a.level!=null,
+     /* the one question, in a sheet: it reopened the whole quiz, which only
+        drew for a free account and did nothing for anyone else (Elliott,
+        10 Oct 2026: "doesn't do anything"), and for a free account would
+        have walked them back through being placed */
+     go:"openOv('goal')"},
+    /* a coaching client's coach places them: not theirs to answer here */
+    {k:'level', w:20, got:a.level!=null || !!st.in,
      t:'Say where you are now', b:'Answer it', d:'This is the one that puts you on a stage.',
-     go:"st.tab='quiz';st.quizDone=false;st.quizStep=1;save();render()"},
+     go:"retakeIntake()"},
     {k:'baseline', w:30, got:!!a.baseline,
      t:'Send me a clip', b:'Send a clip', d:'One attempt on film, and I can place you properly rather than taking your word for it.',
      go:"go(coachedView()?'ask':'coaching')"},
@@ -13865,6 +13876,23 @@ function profileBits(){
      b:'Train now', d:'Three sessions is the point where what you do starts to say more than what you said.',
      go:"go('home')"}
   ];
+}
+/* what they are after, asked on its own and saved with the rest of the
+   answers, for the coach and for how things get explained */
+function goalSheetHTML(){
+  const a=intake();
+  return `<div style="padding:2px">
+    <div class="kick2">WHAT YOU WANT</div>
+    <div style="font:400 30px/1.05 var(--serif);margin-top:9px">What are you here <em style="color:var(--forest);font-style:normal">to achieve?</em></div>
+    <div style="display:flex;flex-direction:column;gap:9px;margin-top:16px">${GOALS.map(g=>`
+      <button class="goalb${a.goal===g.v?' on':''}" onclick="setGoal('${g.v}')"><b>${esc(g.t)}</b><span>${esc(g.d)}</span></button>`).join('')}
+    </div></div>`;
+}
+function setGoal(v){
+  if(!GOALS.some(g=>g.v===v)) return;
+  const a=intake(); a.goal=v; save();
+  try{ saveState(); }catch(e){}
+  closeOv(); toast('Saved.'); render();
 }
 function profilePct(){
   return profileBits().reduce((n,b)=>n+(b.got?b.w:0), 0);
@@ -21791,7 +21819,10 @@ function render(){
      profile filled in and the level question never answered, because resuming
      the quiz was conditional on the tab still being 'quiz'. It is not the tab
      that decides this, it is whether the quiz is finished. */
-  if(st.mode==='free' && !st.in && !st.quizDone){ st.tab='quiz'; swap(screenQuiz()); return; }
+  /* or when the questions were asked for (Retake, the card on Progress):
+     that only showed for an account whose mode was free, so anywhere else
+     the button did nothing */
+  if(!st.in && !st.quizDone && (st.mode==='free' || st.tab==='quiz')){ st.tab='quiz'; swap(screenQuiz()); return; }
   /* shown once, between finishing the quiz and the ladder */
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !awaitingBlock()){
     swap(screenOriented()); return; }
