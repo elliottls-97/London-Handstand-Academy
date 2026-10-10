@@ -7333,7 +7333,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */
       if (body.pressRung && typeof body.pressRung === 'object') {
         const r = Number(body.pressRung.r);
-        if (Number.isInteger(r) && r >= 1 && r <= 10) cur.pressRung = { r, at: Number(body.pressRung.at) || Date.now() };
+        /* and, after each plan session, which of the rung's sets were clean:
+           two sessions clean in every set is what moves them up */
+        const log = (Array.isArray(body.pressRung.log) ? body.pressRung.log : []).slice(-20)
+          .filter(x => x && Number.isFinite(Number(x.at)) && Number.isInteger(Number(x.r)) && Number(x.r) >= 1 && Number(x.r) <= 10)
+          .map(x => ({ at: Number(x.at), r: Number(x.r), c: (Array.isArray(x.c) ? x.c : []).slice(0, 8).map(Boolean) }));
+        if (Number.isInteger(r) && r >= 1 && r <= 10) cur.pressRung = { r, at: Number(body.pressRung.at) || Date.now(), log };
       }
       /* the welcome seen and the call booked. An iPhone's Home Screen app
          keeps its own storage, so without these the welcome played again
