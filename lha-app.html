@@ -14527,7 +14527,11 @@ function stageFilmsHTML(){
   const fixes = (fx.length||lim) ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
       lim+fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix(${jsq(f.slug)})`,
         lock:(f.access==='plus' && !isPlus()) ? paid : ''})).join('')) : '';
-  return st.homeOrder==='fixesFirst' ? fixes+films : films+fixes;
+  /* a first visit with no fixes to show: the film about the app takes the
+     space, open at the size of a film, rather than a row under Start
+     (Elliott, 10 Oct 2026) */
+  const how = (!fixes && howBig()) ? howBigHTML() : '';
+  return st.homeOrder==='fixesFirst' ? how+fixes+films : how+films+fixes;
 }
 /* one used, when a session above the free stage actually starts */
 /* A free session was only counted when the follow along player started, and
@@ -15791,6 +15795,39 @@ function firstPlacedHTML(){
    before. The menu keeps it after that. */
 const HOW_URL = () => stageIntroUid(0)||LADDER_INTRO_VIDEO;
 const howShown = () => !coachedView() && !st.howGone && !!HOW_URL();
+/* the stage has a fixes rail: its own fixes, or the Press stage's test */
+const stageFixRail = P => stageFixes(P).length>0 || (P===5 && typeof PRESS_TEST!=='undefined');
+/* first time in, and nothing in the fixes rail: the film is shown open */
+const howBig = () => howShown() && firstVisit() && !trialPending() && !stageFixRail(curStage());
+function howBigHTML(){
+  return `<section class="rise rise-2" style="padding:${wide()?22:16}px 20px 0">
+    <div class="howbig" style="position:relative;background:#fff;border-radius:24px;overflow:hidden;
+      border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+      <button onclick="openHowFilm()" aria-label="Play the film about how the app works"
+        style="display:block;width:100%;border:0;padding:0;margin:0;background:none;cursor:pointer;text-align:left;color:var(--ink)">
+        <span style="display:block;position:relative;aspect-ratio:16/9;background:var(--sand)">
+          <img src="${streamThumb(HOW_URL())}" alt="" loading="lazy" onerror="this.remove()"
+            style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+          <!-- in the corner: the film's own still is its title card, and a
+               disc in the middle sat on the title -->
+          <span style="position:absolute;right:14px;bottom:14px;width:52px;height:52px;
+            border-radius:50%;background:rgba(255,255,255,.94);display:grid;place-items:center;
+            box-shadow:0 8px 20px rgba(0,64,61,.22)"><svg width="16" height="18" viewBox="0 0 17 19" fill="#006663">
+            <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+        </span>
+        <span style="display:block;padding:14px 18px 17px">
+          <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">HOW THE APP WORKS</span>
+          <span style="display:block;font:400 26px/1.1 var(--serif);margin-top:8px">Watch this
+            <em style="color:var(--forest);font-style:normal">first.</em></span>
+        </span>
+      </button>
+      <button onclick="howHide()" aria-label="Hide the film about how the app works" title="Hide"
+        style="position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;border:0;cursor:pointer;
+        background:rgba(255,255,255,.92);color:var(--deep);display:grid;place-items:center;padding:0;
+        box-shadow:0 2px 8px rgba(0,0,0,.15)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div></section>`;
+}
 function openHowFilm(){ st.introKind='app'; st.introOpen=true; save(); openOv('intro'); }
 function howHide(){ st.howGone='hidden'; save(); render(); }
 /* watched means most of it, not a tap: opened and closed in ten seconds is
@@ -15807,7 +15844,7 @@ const xBtn = (go, label) => `<button onclick="event.stopPropagation();${go}" ari
 /* row: a cell of the Start row, the height of the button on a wide
    screen. Otherwise a block of its own, for when there is no Start. */
 function howCardHTML(row){
-  if(!howShown()) return '';
+  if(!howShown() || howBig()) return '';
   const url=HOW_URL(), W=wide();
   const card=`<div class="howcard" style="position:relative;min-width:0">
     <div onclick="openHowFilm()" role="button" tabindex="0"
@@ -15859,7 +15896,7 @@ function introRowsHTML(){
   if(wide()) return '';
   /* one row, not two: the film first, and the retake only once the film
      has been watched or put away */
-  const how=howShown(), re=!how && !coachedView() && !!st.quizDone && !st.placeGone;
+  const how=howShown() && !howBig(), re=!howShown() && !coachedView() && !!st.quizDone && !st.placeGone;
   if(!how && !re) return '';
   const x=(go,label)=>`<button onclick="event.stopPropagation();${go}" aria-label="${label}" title="Hide"
     style="flex:none;width:26px;height:26px;border-radius:50%;border:0;cursor:pointer;background:rgba(0,64,61,.07);
@@ -16025,7 +16062,7 @@ function screenHome(){
     <!-- the film about the app beside Start, under it on a phone, until it
          has been watched or put away -->
     ${trialPending()?'':`<div class="rise rise-2" style="padding:${wide()?20:14}px 20px 0">
-    <div class="${(howShown()&&wide())?'startpair':''}">
+    <div class="${(howShown()&&!howBig()&&wide())?'startpair':''}">
     <div class="startrow" style="display:flex;flex-direction:column;gap:${wide()?10:7}px">
       <button data-tour="buildsession" onclick="startDay(${_cellIdx},'full')"
         style="height:${wide()?68:60}px;width:100%;border:0;border-radius:18px;
