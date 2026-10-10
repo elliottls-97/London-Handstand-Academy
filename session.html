@@ -46,6 +46,24 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
 .done{text-align:center;padding:30px 0 10px}
 .done .tick{width:64px;height:64px;border-radius:50%;margin:0 auto;display:grid;place-items:center;background:rgba(0,102,99,.1);color:var(--forest);font-size:30px}
 .foot{font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:30px}.foot a{color:var(--forest)}
+/* the times on offer: a row of days, then that day's times */
+.days{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin:0 -2px;scrollbar-width:none}
+.days::-webkit-scrollbar{display:none}
+.day{flex:none;min-width:64px;padding:10px 10px 9px;border-radius:14px;border:1.5px solid var(--line);background:#fff;cursor:pointer;text-align:center;font:inherit;color:inherit}
+.day b{display:block;font:600 11px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--grey2)}
+.day span{display:block;font:400 22px/1.1 var(--serif);margin-top:5px}
+.day.on{border-color:var(--forest);background:rgba(0,102,99,.06)}.day.on b{color:var(--forest)}
+.times{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;margin-top:10px}
+.time{min-height:46px;border-radius:12px;border:1.5px solid var(--line);background:#fff;cursor:pointer;font:600 15px/1 var(--sans);color:var(--ink)}
+.time.on{border-color:var(--forest);background:var(--forest);color:#fff}
+.time:disabled{opacity:.5;cursor:default}
+.linkb{display:inline;border:0;background:none;padding:0;margin-top:14px;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline;text-underline-offset:3px;text-align:left}
+.ghost{display:block;width:100%;margin-top:14px;border:1px solid var(--line);background:#fff;border-radius:16px;min-height:52px;cursor:pointer;font:600 15px/1 var(--sans);color:var(--terra)}
+.ghost:disabled{opacity:.6;cursor:default}
+.when{font:400 20px/1.4 var(--sans);color:var(--ink);margin:16px 0 0}
+.meta{font:400 15px/1.6 var(--sans);color:var(--grey);margin:4px 0 0}
+.row{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.row b{font:400 24px/1.1 var(--serif)}.row span{font:400 13.5px/1.4 var(--sans);color:var(--grey)}
 @media (max-width:520px){h1{font-size:33px}.wrap{padding:22px 16px 80px}.opts{grid-template-columns:1fr}}
 </style><link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
@@ -61,58 +79,183 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
   const q=new URLSearchParams(location.search);
   let kind=q.get('kind')==='90'?'90':'60';
   const booked=q.get('booked')==='1';
+  const bookedAt=Number(q.get('at'))||0;
+  const mtok=q.get('m')||'';
   const box=document.getElementById('s');
   const beacon=n=>{ try{ navigator.sendBeacon('/api/app/event', JSON.stringify({n})); }catch(e){} };
+  const MAIL='<a href="mailto:info@londonhandstandacademy.com">info@londonhandstandacademy.com</a>';
+  /* times as London has them, whatever the phone is set to */
+  const TZ='Europe/London';
+  const dayKey=t=>new Date(t).toLocaleDateString('en-CA',{timeZone:TZ});
+  const clock=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:TZ}).replace(':00','').replace(/\s/g,'').toLowerCase();
+  const dayShort=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:TZ});
+  const dayLong=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:TZ});
+  const whenTxt=t=>dayLong(t)+', '+clock(t);
+  const pounds=p=>'£'+((Number(p)||0)/100).toFixed((Number(p)||0)%100?2:0);
+  const done=(head,lines,cta)=>{ box.innerHTML='<div class="done"><div class="tick">&#10003;</div><h1 style="font-size:34px;margin-top:18px">'+head+'</h1>'
+    +lines.map(l=>'<p style="margin:14px auto 0;max-width:42ch;text-align:center">'+l+'</p>').join('')
+    +(cta?'<a class="btn" href="'+cta[0]+'" style="max-width:360px;margin:22px auto 0">'+cta[1]+'</a>':'')+'</div>'; };
+  /* a row of days and that day's times, for picking one */
+  function pickerHTML(slots,day,sel,label){
+    const days=[...new Set(slots.map(dayKey))];
+    const times=slots.filter(t=>dayKey(t)===day);
+    return '<div class="days">'+days.map(k=>{ const t=slots.find(x=>dayKey(x)===k);
+        return '<button type="button" class="day'+(k===day?' on':'')+'" data-day="'+k+'"><b>'+esc(new Date(t).toLocaleDateString('en-GB',{weekday:'short',timeZone:TZ}))+'</b><span>'
+          +esc(new Date(t).toLocaleDateString('en-GB',{day:'numeric',timeZone:TZ}))+'</span><b style="margin-top:4px">'+esc(new Date(t).toLocaleDateString('en-GB',{month:'short',timeZone:TZ}))+'</b></button>'; }).join('')+'</div>'
+      +'<div class="times" aria-label="'+esc(label||'Times')+'">'+times.map(t=>'<button type="button" class="time'+(t===sel?' on':'')+'" data-t="'+esc(t)+'">'+esc(clock(t))+'</button>').join('')+'</div>';
+  }
+  function wirePicker(root,onDay,onTime){
+    root.querySelectorAll('.day').forEach(b=>{ b.onclick=()=>onDay(b.getAttribute('data-day')); });
+    root.querySelectorAll('.time').forEach(b=>{ b.onclick=()=>onTime(b.getAttribute('data-t')); });
+  }
+
+  /* ── moving or cancelling, from the link in their emails ── */
+  if(mtok){
+    beacon('sitesessionmanage');
+    let d=null, day='', sel='', busy=false;
+    const post=body=>{ body.t=mtok; return fetch('/api/app/session/manage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x))); };
+    const head=()=>'<div class="kick">Your session</div><h1>'+esc(d.kind)+' minutes with Elliott.</h1>'
+      +'<div class="when">'+(d.when?esc(whenTxt(d.when)):'Time to be agreed')+'</div>'+(d.place?'<div class="meta">'+esc(d.place)+'</div>':'');
+    const drawM=(note)=>{
+      if(d.status==='cancelled'||d.status==='refunded'){ box.innerHTML=head()+'<div class="card"><b>This session is cancelled.</b>'
+        +(d.refunded>0?' '+esc(pounds(d.refunded))+' was refunded to your card.':'')+' <a href="/session.html" style="color:var(--forest)">Book another</a> whenever suits.</div>'; return; }
+      if(!d.canMove){ box.innerHTML=head()+'<div class="card">'+(d.late
+          ?'<b>It is less than '+d.cutoff+' hours away,</b> so it can no longer be moved or cancelled online. Can’t make it? Email '+MAIL+' and Elliott will do what he can.'
+          :'<b>This session has already happened.</b> <a href="/session.html" style="color:var(--forest)">Book another</a> whenever suits.')+'</div>'; return; }
+      const slots=d.slots;
+      if(slots&&slots.length&&!slots.some(t=>dayKey(t)===day)) day=dayKey(slots[0]);
+      let move='';
+      if(slots&&slots.length){
+        move='<div class="card"><div class="row"><b>'+(d.when?'Move to another time':'Pick a time')+'</b><span>No cost</span></div>'
+          +'<p class="muted" style="font-size:14.5px">Times when Arch 2 at OverGravity is free and Elliott can be there.</p>'
+          +pickerHTML(slots,day,sel,'Times')
+          +(sel?'<button class="btn" id="mv">'+(d.when?'Move it to ':'Book ')+esc(dayShort(sel))+', '+esc(clock(sel))+'</button>':'')
+          +'<div class="msg" id="mmsg">'+(note||'')+'</div>'
+          +'<button class="linkb" id="ask1">None of these? Say which days suit instead</button></div>';
+      }
+      const askCard='<div class="card" id="askc"'+(slots&&slots.length?' hidden':'')+'><div class="row"><b>'+(d.when?'Ask for another time':'The days that suit you')+'</b></div>'
+        +(slots&&!slots.length?'<p class="muted" style="font-size:14.5px">No other time is free in the next few weeks, so say what suits and Elliott will look.</p>':'')
+        +'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings."></textarea>'
+        +'<button class="btn" id="ask">'+(d.when?'Ask to move it':'Send these')+'</button><div class="msg" id="amsg"></div>'
+        +'<div class="fine">'+(d.when?'Your current time is let go, and Elliott comes back with a new one within 48 hours, by email and in the app.':'Elliott comes back with a time within 48 hours, by email and in the app.')+'</div></div>';
+      const back=d.back>0?pounds(d.back)+' back':'';
+      const cancel=d.canCancel?'<div class="card"><div class="row"><b>Cancel</b><span>'+esc(back||(d.owes>0?'Nothing to pay':''))+'</span></div>'
+        +'<p class="muted" style="font-size:14.5px">'+(d.back>0?'The '+esc(pounds(d.back))+' you paid goes back to your card, in a few days.'
+          :d.hand?'Elliott gives you back the '+esc(pounds(d.paid))+' you paid.':d.owes>0?'Nothing has been paid, so there is nothing to refund.':'The session is given up.')+'</p>'
+        +'<button class="ghost" id="cx">Cancel my session</button><div class="msg" id="cmsg"></div></div>'
+        :(d.fromPlan?'<div class="card"><p class="muted" style="font-size:14.5px;margin:0">This session comes with your coaching, so it is moved rather than cancelled. If no time works this month, message Elliott in the app.</p></div>':'');
+      const pay=d.owes>0?'<div class="card"><div class="row"><b>Not paid yet</b><span>'+esc(pounds(d.owes))+'</span></div><p class="muted" style="font-size:14.5px">It is confirmed once it is paid.</p><a class="btn" href="/api/app/session/pay?id='+encodeURIComponent(d.id)+'">Pay '+esc(pounds(d.owes))+'</a></div>':'';
+      box.innerHTML=head()+pay+move+askCard+cancel
+        +'<div class="fine" style="margin-top:18px">You can move or cancel up to '+d.cutoff+' hours before. Questions? '+MAIL+'</div>';
+      wirePicker(box,k=>{ day=k; sel=''; drawM(); },t=>{ sel=t; drawM(); });
+      const lock=on=>{ busy=on; box.querySelectorAll('button').forEach(b=>{ b.disabled=on; }); };
+      const mv=document.getElementById('mv');
+      if(mv) mv.onclick=()=>{ if(busy) return; lock(true); document.getElementById('mmsg').textContent=d.when?'Moving…':'Booking…';
+        post({action:'move',slot:sel}).then(()=>done(d.when?'Your session has moved.':'Your session is booked.',['It is now on <b>'+esc(whenTxt(sel))+'</b>. The confirmation is on its way, with the calendar and this same link to change it.'],['/lha-app.html','Open the app']))
+          .catch(e=>{ lock(false); if(e&&e.gone){ return reload('That time has just gone. Pick another.'); }
+            if(e&&e.noSlots){ d.slots=null; drawM(); const m=document.getElementById('amsg'); if(m) m.textContent=String(e.error||''); return; }
+            document.getElementById('mmsg').textContent=String((e&&e.error)||e||'Something went wrong'); }); };
+      const ask1=document.getElementById('ask1');
+      if(ask1) ask1.onclick=()=>{ document.getElementById('askc').hidden=false; ask1.hidden=true; document.getElementById('pf').focus(); };
+      const ask=document.getElementById('ask');
+      if(ask) ask.onclick=()=>{ const prefs=(document.getElementById('pf').value||'').trim(), m=document.getElementById('amsg');
+        if(!prefs){ m.textContent='Say which days and times suit you.'; return; }
+        if(busy) return; lock(true); m.textContent='Sending…';
+        post({action:'move',prefs}).then(()=>done('Asked.',[d.when?'Your time on '+esc(whenTxt(d.when))+' is let go, and Elliott comes back with a new one within 48 hours.':'Elliott comes back with a time within 48 hours.','It comes by email and in the app.']))
+          .catch(e=>{ lock(false); m.textContent=String((e&&e.error)||e||'Something went wrong'); }); };
+      const cx=document.getElementById('cx');
+      if(cx) cx.onclick=()=>{
+        if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, cancel it'+(d.back>0?' and refund '+pounds(d.back):''); return; }
+        if(busy) return; const m=document.getElementById('cmsg'); lock(true); m.textContent='Cancelling…';
+        post({action:'cancel'}).then(r=>done('Your session is cancelled.',[r.refunded>0?esc(pounds(r.refunded))+' is on its way back to your card. It shows in a few days.'
+            :r.failed?'The refund could not be made automatically, so Elliott will make it by hand.':r.hand?'Elliott will give you back what you paid.':'Nothing more to do.','An email with the details is on its way.'],['/session.html','Book another']))
+          .catch(e=>{ lock(false); m.textContent=String((e&&e.error)||e||'Something went wrong'); }); };
+    };
+    const reload=note=>fetch('/api/app/session/manage?t='+encodeURIComponent(mtok)).then(r=>r.json().then(x=>r.ok?x:Promise.reject(x)))
+      .then(x=>{ d=x; sel=''; drawM(note); }).catch(e=>{ box.innerHTML='<div class="kick">Your session</div><p>'+esc(String((e&&e.error)||'This could not be loaded. Email info@londonhandstandacademy.com'))+'</p>'; });
+    reload('');
+    return;
+  }
+
   beacon('sitesessionpage');
   let labels={session60:'£80',session90:'£100'};
+  /* the times on offer, when the dashboard has them switched on; none,
+     and the page takes a booking the old way, paid first */
+  let slots={}, day='', slot='', asking=false;
+  const loadSlots=k=>fetch('/api/app/session/slots?kind='+k).then(r=>r.json()).then(d=>{ slots[k]=(d&&d.on&&Array.isArray(d.slots))?d.slots:[]; }).catch(()=>{ slots[k]=[]; });
   const draw=()=>{
     /* a redraw (60 or 90, or the prices arriving) kept nothing that was typed */
     const kept=['nm','em','pf'].map(id=>{ const el=document.getElementById(id); return [id, el?el.value:'']; });
     draw0();
     kept.forEach(([id,v])=>{ const el=document.getElementById(id); if(el&&v&&!el.value) el.value=v; });
   };
+  const price=()=>kind==='90'?labels.session90:labels.session60;
   const draw0=()=>{
     if(booked){
-      box.innerHTML='<div class="done"><div class="tick">&#10003;</div><h1 style="font-size:34px;margin-top:18px">Paid. Now the time.</h1>'
-        +'<p style="margin:14px auto 0;max-width:42ch;text-align:center">Your '+esc(kind)+' minute session is paid for. Elliott checks your times against the room at OverGravity and confirms within 48 hours, by email and in the app.</p>'
-        +'<p style="margin:14px auto 0;max-width:42ch;text-align:center">You have an account in the Handstand Ladder app under the same email, where your booking is and where we agree the time. An email is on its way with a button to choose your password.</p>'
-        +'<a class="btn" href="/lha-app.html" style="max-width:360px;margin:22px auto 0">Open the app</a></div>';
-      return;
+      if(bookedAt) return done('Booked.',['Your '+esc(kind)+' minute session is on <b>'+esc(whenTxt(bookedAt))+'</b>, at OverGravity in Shadwell.',
+        'The confirmation is on its way by email, with the calendar and a link to move or cancel it, up to 24 hours before. If you are new, it has a button to choose your password for the Handstand Ladder app, where your booking is too.'],['/lha-app.html','Open the app']);
+      return done('Paid. Now the time.',['Your '+esc(kind)+' minute session is paid for. Elliott checks your times against the room at OverGravity and confirms within 48 hours, by email and in the app.',
+        'An email is on its way now. If you are new, it has a button to choose your password for the Handstand Ladder app, where your booking is and where we agree the time.'],['/lha-app.html','Open the app']);
     }
+    const S=slots[kind];
+    const picking=!asking&&Array.isArray(S)&&S.length>0;
+    if(picking&&!S.some(t=>dayKey(t)===day)) day=dayKey(S[0]);
+    if(slot&&!(S||[]).includes(slot)) slot='';
     box.innerHTML='<div class="kick">One to one · London</div><h1>A session with Elliott.</h1>'
       +'<p>Sixty or ninety minutes at OverGravity in Shadwell, on your handstand and nothing else. Film goes in your thread afterwards so you can keep training it.</p>'
       +'<div class="opts">'
       +'<button class="opt '+(kind==='60'?'on':'')+'" data-k="60"><em>60 minutes</em><b>'+esc(labels.session60)+'</b><span>One thing, fixed properly.</span></button>'
       +'<button class="opt '+(kind==='90'?'on':'')+'" data-k="90"><em>90 minutes</em><b>'+esc(labels.session90)+'</b><span>Room to film, test and work two things.</span></button>'
       +'</div>'
-      +'<div class="card">'
+      +(S===undefined?'<div class="card"><p class="muted" style="margin:0">Finding the free times…</p></div>':'')
+      +(picking?'<div class="card"><label>Pick a time</label>'+pickerHTML(S,day,slot,'Times on '+day)
+        +'<button class="linkb" id="none">None of these work? Pay now and say which days suit</button></div>':'')
+      +(S===undefined?'':'<div class="card">'
       +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
       +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
-      +'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings. The more you give, the faster it lands."></textarea>'
-      +'<button class="btn" id="go">Pay '+esc(kind==='90'?labels.session90:labels.session60)+' and request a time</button>'
+      +(picking?'':'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings. The more you give, the faster it lands."></textarea>')
+      +'<button class="btn" id="go"'+(picking&&!slot?' disabled':'')+'>'+(picking?(slot?'Pay '+esc(price())+' and book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):'Pay '+esc(price())+' and request a time')+'</button>'
       +'<div class="msg" id="msg"></div>'
-      +'<div class="fine">Card payment on the next page, through Stripe. The room is booked around the gym’s timetable, so the time is confirmed with you afterwards, within 48 hours. If no time works, it is refunded in full. By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and the <a href="/waiver" target="_blank" rel="noopener">waiver</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>'
-      +'</div>'
+      +'<div class="fine">Card payment on the next page, through Stripe. '+(picking
+        ?'You can move or cancel it yourself up to 24 hours before, and a cancel is refunded in full.'
+        :'The room is booked around the gym’s timetable, so the time is confirmed with you afterwards, within 48 hours. If no time works, it is refunded in full.')
+      +' By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and the <a href="/waiver" target="_blank" rel="noopener">waiver</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>'
+      +(asking&&Array.isArray(S)&&S.length?'<button class="linkb" id="back">Back to the free times</button>':'')
+      +'</div>')
       +'<div class="steps">'
-      +'<div class="step"><i>1</i>Pay and say which days suit.</div>'
-      +'<div class="step"><i>2</i>Elliott checks the room and confirms a time within 48 hours, by email and in the app.</div>'
+      +(picking?'<div class="step"><i>1</i>Pick a time and pay.</div><div class="step"><i>2</i>The confirmation comes straight away, by email and in the app.</div>'
+        :'<div class="step"><i>1</i>Pay and say which days suit.</div><div class="step"><i>2</i>Elliott checks the room and confirms a time within 48 hours, by email and in the app.</div>')
       +'<div class="step"><i>3</i>Train. What you worked on goes into your thread. Join the programme within fourteen days and the session comes off your first month.</div>'
       +'</div>'
-      +'<div class="foot">Questions? <a href="mailto:info@londonhandstandacademy.com">info@londonhandstandacademy.com</a></div>';
-    box.querySelectorAll('.opt').forEach(b=>{ b.onclick=()=>{ kind=b.getAttribute('data-k'); history.replaceState(null,'','/session.html?kind='+kind); draw(); }; });
+      +'<div class="foot">Questions? '+MAIL+'</div>';
+    box.querySelectorAll('.opt').forEach(b=>{ b.onclick=()=>{ kind=b.getAttribute('data-k'); slot=''; history.replaceState(null,'','/session.html?kind='+kind);
+      if(slots[kind]===undefined){ draw(); loadSlots(kind).then(draw); } else draw(); }; });
+    wirePicker(box,k=>{ day=k; slot=''; draw(); },t=>{ slot=t; draw(); });
+    const none=document.getElementById('none'); if(none) none.onclick=()=>{ asking=true; slot=''; draw(); };
+    const bk=document.getElementById('back'); if(bk) bk.onclick=()=>{ asking=false; draw(); };
     const go=document.getElementById('go');
+    if(!go) return;
     go.onclick=()=>{
-      const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim(), prefs=(document.getElementById('pf').value||'').trim();
+      const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim();
+      const pf=document.getElementById('pf'), prefs=pf?(pf.value||'').trim():'';
       const msg=document.getElementById('msg');
       if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
+      if(picking&&!slot){ msg.textContent='Pick a time first.'; return; }
+      const label=go.textContent;
       go.disabled=true; go.textContent='One moment…'; msg.textContent=''; beacon('sessionbook');
-      fetch('/api/app/session/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,name,email,prefs})})
-        .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the payment')))
-        .then(d=>{ if(d.url){ location.href=d.url; return; } throw 'Something went wrong'; })
-        .catch(e=>{ go.disabled=false; go.textContent='Pay '+(kind==='90'?labels.session90:labels.session60)+' and request a time'; msg.textContent=String(e); });
+      fetch('/api/app/session/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({kind,name,email,prefs},picking?{slot}:{}))})
+        .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
+        .then(d=>{ if(d.url){ location.href=d.url; return; } throw {error:'Something went wrong'}; })
+        .catch(e=>{
+          /* the time went while they were choosing: the times again, fresh */
+          if(e&&e.gone){ slot=''; loadSlots(kind).then(()=>{ draw(); const m=document.getElementById('msg'); if(m) m.textContent=String(e.error); }); return; }
+          if(e&&e.noSlots){ slots[kind]=[]; slot=''; draw(); const m=document.getElementById('msg'); if(m) m.textContent=String(e.error); return; }
+          go.disabled=false; go.textContent=label; msg.textContent=String((e&&e.error)||e||'Could not start the payment'); });
     };
   };
   draw();
+  loadSlots(kind).then(draw);
   fetch('/api/app/plans').then(r=>r.json()).then(d=>{ const p=(d&&d.prices)||{};
     if(p.session60&&p.session60.label) labels.session60=p.session60.label;
     if(p.session90&&p.session90.label) labels.session90=p.session90.label; draw(); }).catch(()=>{});
