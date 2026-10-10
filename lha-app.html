@@ -11915,7 +11915,7 @@ function drawOv(){
   }
   if(st.ov==='stage'&&S){
     const si=st.ovStage||0;
-    if(stageLocked(si)){ body=stageMediaHTML(si,'sheet')+screenUpgradeBody(si); }
+    if(stageLocked(si)){ body=stageBannerHTML(si)+screenUpgradeBody(si); }
     else {
     const St=STAGES[si]||STAGES[0];
     const isNow=si===curStage(), isDone=si<curStage();
@@ -11940,7 +11940,7 @@ function drawOv(){
             transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
         <span id="cpnum" style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${p.met}/${p.of}</span>
       </div>
-      ${stageMediaHTML(si,'sheet')}
+      ${stageBannerHTML(si)}
 
       <!-- the film for this stage, where there is one. It was a dark green
            panel with "filming soon" written across it, which is the old
@@ -14777,6 +14777,13 @@ function stageMediaHTML(i, size){
     <img src="${esc(src)}" alt="${esc((STAGES[i]||{}).n||'')}" loading="lazy" onerror="this.remove()"
       style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">${m.kind==='vid'?play(54):''}</div>`;
 }
+/* the top of a stage's sheet: the picture or film set in the dashboard, or
+   else the stage's studio picture, as on the ladder (10 Oct 2026) */
+function stageBannerHTML(si){
+  if(stageMedia(si)) return stageMediaHTML(si,'sheet');
+  const img=lwImg(si); if(!img) return '';
+  return `<div class="lw-img" style="height:190px;border-radius:16px;margin-top:14px">${img}</div>`;
+}
 function playStageFilm(el, uid){
   if(!/^[a-f0-9]{32}$/.test(uid)) return;
   el.onclick=null; el.style.cursor='';
@@ -15904,10 +15911,16 @@ function firstPlacedHTML(){
   return `<div class="rise rise-1" style="padding:${wide()?22:14}px 20px 0"><div data-tour="ladder" onclick="go('ladder')"
     style="padding:16px 18px;border-radius:20px;background:#fff;cursor:pointer;
     box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
-    <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WHERE YOU ARE</div>
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
-      <span style="font:400 22px/1.15 var(--serif)">${esc(S.n)}</span>
-      <span style="flex:none;font:500 12.5px/1 var(--sans);color:var(--grey)">Stage ${cs+1} of ${STAGES.length}</span></div>
+    <!-- the stage's studio picture beside its name, as on the ladder -->
+    <div style="display:flex;align-items:center;gap:14px">
+      <span class="lw-img" style="width:60px;height:60px;border-radius:14px;flex:none">${lwImg(cs)}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WHERE YOU ARE</div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:8px">
+          <span style="font:400 22px/1.15 var(--serif)">${esc(S.n)}</span>
+          <span style="flex:none;font:500 12.5px/1 var(--sans);color:var(--grey)">Stage ${cs+1} of ${STAGES.length}</span></div>
+      </div>
+    </div>
     <!-- the stage's goal line is on the ladder, where the stages are compared;
          here the name is enough -->
     ${above?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">You placed at
@@ -17397,7 +17410,8 @@ function ladderWholeHTML(){
   const card = ({S,i},k) => {
     const on=i===openI, prev=STAGES[i-1]||{};
     const rule = S.soon ? 'Coming soon' : `Opens at ${ofAt(i-1)} of ${ofAt(i-1)} on ${esc(prev.n||'')}`;
-    const cta = !free ? `Open ${esc(S.n)}` : trialWord;
+    /* the trial is offered once, in the panel above; the card opens the stage */
+    const cta = !free ? `Open ${esc(S.n)}` : `See what&rsquo;s in ${esc(S.n)}`;
     return `<div class="lw-ac lw-in${on?' open':''}" data-i="${i}" data-lw="${i}" style="--d:${480+k*90}ms">
       <button class="lw-act" onclick="lwToggle(${i})" aria-expanded="${on}">
         <span class="lw-img" style="width:96px;height:116px;border-radius:14px;flex:none">${lwImg(i)}</span>
@@ -17437,8 +17451,23 @@ function ladderWholeHTML(){
             <span style="font:400 14px/1.35 var(--sans);color:#3f4f4d">${esc(lwLine(i))}</span>
           </span>${LW_RIGHT}
         </span>
-      </button>
-      ${ahead.length?`<div class="lw-k" style="padding:8px">Then</div>`:''}`; })() : '';
+      </button>`; })() : '';
+  /* The next stage is the open card; the ones after it are slim rows with
+     their picture. Five big cards said the six stages a second time under
+     the climb that already shows them (10 Oct 2026). */
+  const slim = list => !list.length ? '' : `<div class="lw-card lw-in" style="--d:600ms;padding:6px 14px">${list.map(({S,i},j)=>`
+      <button class="lw-done" data-lw="${i}" onclick="openStage(${i})" style="${j?'border-top:1px solid rgba(0,64,61,.08)':''}">
+        <span class="lw-img" style="width:48px;height:48px;border-radius:12px;flex:none">${lwImg(i)}</span>
+        <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left">
+          <span style="font:400 19px/1.1 var(--serif);color:var(--ink)">${esc(S.n)}</span>
+          <span style="font:400 12.5px/1.3 var(--sans);color:var(--grey)">Stage ${i+1} &middot; ${
+            S.soon ? 'Coming soon' : 'after '+esc((STAGES[i-1]||{}).n||'')}</span>
+        </span>${LW_RIGHT}
+      </button>`).join('')}</div>`;
+  const openOne = (earned && free) ? [] : ahead.slice(0,1);
+  const rest = (earned && free) ? ahead : ahead.slice(1);
+  const thenK = rest.length && (openOne.length || featured) ? `<div class="lw-k" style="padding:12px 8px 8px">Then</div>` : '';
+  const aheadList = `${openOne.length?`<div class="lw-list">${openOne.map(card).join('')}</div>`:''}${thenK}${slim(rest)}`;
   const aheadHTML = !ahead.length && !featured ? '' : free ? `
     <div class="lw-in lw-panel" style="--d:380ms">
       <div style="padding:0 8px 16px;display:flex;flex-direction:column;gap:6px">
@@ -17449,12 +17478,11 @@ function ladderWholeHTML(){
         <div style="font:400 15px/1.4 var(--sans);color:#3f4f4d">${priceLine}</div>
         ${tp?'':trialBtn(`openStage(${earned?here+1:Math.max(FREE_STAGES,here+1)})`, trialWord)}
       </div>
-      ${featured}
-      <div class="lw-list">${ahead.map(card).join('')}</div>
+      ${featured}${aheadList}
     </div>` : `
     <div style="margin-top:20px">
       <div class="lw-k lw-in" style="--d:380ms;padding:0 4px 8px">Ahead</div>
-      <div class="lw-list">${ahead.map(card).join('')}</div>
+      ${aheadList}
     </div>`;
 
   const formCheck = `<div data-tour="upsell" class="lw-card lw-in" style="--d:700ms;margin-top:16px;padding:16px 16px 16px 18px;
