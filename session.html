@@ -109,7 +109,10 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
     root.querySelectorAll('.time').forEach(b=>{ b.onclick=()=>onTime(b.getAttribute('data-t')); });
   }
 
-  /* ── moving or cancelling, from the link in their emails ── */
+  /* ── moving or cancelling, from the link in their emails ──
+     Elliott hires and pays for the room, so a cancel, or a move once the
+     room is hired, is an ask he answers: a refund, part of one, or a new
+     date. Until the room is hired they move it themselves. */
   if(mtok){
     beacon('sitesessionmanage');
     let d=null, day='', sel='', busy=false;
@@ -117,42 +120,58 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x))); };
     const head=()=>'<div class="kick">Your session</div><h1>'+esc(d.kind)+' minutes with Elliott.</h1>'
       +'<div class="when">'+(d.when?esc(whenTxt(d.when)):'Time to be agreed')+'</div>'+(d.place?'<div class="meta">'+esc(d.place)+'</div>':'');
+    const lateTxt=()=>d.late?'<p style="font:500 14px/1.5 var(--sans);color:var(--terra)">It is less than '+d.cutoff+' hours away, so it may be charged in full.</p>':'';
+    const asked=()=>'Elliott hires the room for each session, so he looks at it himself and comes back to you within 48 hours, with a refund or a new date. Until then your session stands.';
     const drawM=(note)=>{
       if(d.status==='cancelled'||d.status==='refunded'){ box.innerHTML=head()+'<div class="card"><b>This session is cancelled.</b>'
         +(d.refunded>0?' '+esc(pounds(d.refunded))+' was refunded to your card.':'')+' <a href="/session.html" style="color:var(--forest)">Book another</a> whenever suits.</div>'; return; }
-      if(!d.canMove){ box.innerHTML=head()+'<div class="card">'+(d.late
-          ?'<b>It is less than '+d.cutoff+' hours away,</b> so it can no longer be moved or cancelled online. Can’t make it? Email '+MAIL+' and Elliott will do what he can.'
-          :'<b>This session has already happened.</b> <a href="/session.html" style="color:var(--forest)">Book another</a> whenever suits.')+'</div>'; return; }
-      const slots=d.slots;
+      if(!d.live){ box.innerHTML=head()+'<div class="card"><b>This session has already happened.</b> <a href="/session.html" style="color:var(--forest)">Book another</a> whenever suits.</div>'; return; }
+      if(d.req){
+        const what=d.req.kind==='cancel'?'to cancel it':'to move it'+(d.req.slot?' to '+esc(whenTxt(d.req.slot)):'');
+        box.innerHTML=head()+'<div class="card"><div class="row"><b>You asked '+what+'</b></div>'
+          +'<p class="muted" style="font-size:14.5px">'+esc(asked())+'</p>'
+          +'<button class="ghost" id="keep" style="color:var(--forest)">Keep my session as it is</button><div class="msg" id="kmsg"></div></div>'
+          +'<div class="fine" style="margin-top:18px">Questions? '+MAIL+'</div>';
+        const keep=document.getElementById('keep');
+        keep.onclick=()=>{ if(busy) return; busy=true; keep.disabled=true; document.getElementById('kmsg').textContent='One moment…';
+          post({action:'keep'}).then(()=>done('Kept.',['Your session stands'+(d.when?': <b>'+esc(whenTxt(d.when))+'</b>':'')+'.','Elliott has been told.']))
+            .catch(e=>{ busy=false; keep.disabled=false; document.getElementById('kmsg').textContent=String((e&&e.error)||e||'Something went wrong'); }); };
+        return;
+      }
+      const slots=d.slots, self=d.selfMove;
       if(slots&&slots.length&&!slots.some(t=>dayKey(t)===day)) day=dayKey(slots[0]);
       let move='';
       if(slots&&slots.length){
-        move='<div class="card"><div class="row"><b>'+(d.when?'Move to another time':'Pick a time')+'</b><span>No cost</span></div>'
-          +'<p class="muted" style="font-size:14.5px">Times when Arch 2 at OverGravity is free and Elliott can be there.</p>'
+        move='<div class="card"><div class="row"><b>'+(!d.when?'Pick a time':self?'Move to another time':'Ask to move it')+'</b><span>'+(self?'No cost':'')+'</span></div>'
+          +'<p class="muted" style="font-size:14.5px">'+(self?'Times when Arch 2 at OverGravity is free and Elliott can be there.'
+            :'Elliott has hired the room for your time, so a move comes to him. Pick the time you would like, and he comes back to you within 48 hours. Until then your session stands.')+'</p>'
           +pickerHTML(slots,day,sel,'Times')
-          +(sel?'<button class="btn" id="mv">'+(d.when?'Move it to ':'Book ')+esc(dayShort(sel))+', '+esc(clock(sel))+'</button>':'')
+          +(sel?'<button class="btn" id="mv">'+(!d.when?'Book ':self?'Move it to ':'Ask to move it to ')+esc(dayShort(sel))+', '+esc(clock(sel))+'</button>':'')
           +'<div class="msg" id="mmsg">'+(note||'')+'</div>'
           +'<button class="linkb" id="ask1">None of these? Say which days suit instead</button></div>';
       }
-      const askCard='<div class="card" id="askc"'+(slots&&slots.length?' hidden':'')+'><div class="row"><b>'+(d.when?'Ask for another time':'The days that suit you')+'</b></div>'
+      const askCard='<div class="card" id="askc"'+(slots&&slots.length?' hidden':'')+'><div class="row"><b>'+(!d.when?'The days that suit you':self?'Ask for another time':'Ask to move it')+'</b></div>'
         +(slots&&!slots.length?'<p class="muted" style="font-size:14.5px">No other time is free in the next few weeks, so say what suits and Elliott will look.</p>':'')
         +'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings."></textarea>'
-        +'<button class="btn" id="ask">'+(d.when?'Ask to move it':'Send these')+'</button><div class="msg" id="amsg"></div>'
-        +'<div class="fine">'+(d.when?'Your current time is let go, and Elliott comes back with a new one within 48 hours, by email and in the app.':'Elliott comes back with a time within 48 hours, by email and in the app.')+'</div></div>';
-      const back=d.back>0?pounds(d.back)+' back':'';
-      const cancel=d.canCancel?'<div class="card"><div class="row"><b>Cancel</b><span>'+esc(back||(d.owes>0?'Nothing to pay':''))+'</span></div>'
-        +'<p class="muted" style="font-size:14.5px">'+(d.back>0?'The '+esc(pounds(d.back))+' you paid goes back to your card, in a few days.'
-          :d.hand?'Elliott gives you back the '+esc(pounds(d.paid))+' you paid.':d.owes>0?'Nothing has been paid, so there is nothing to refund.':'The session is given up.')+'</p>'
-        +'<button class="ghost" id="cx">Cancel my session</button><div class="msg" id="cmsg"></div></div>'
+        +'<button class="btn" id="ask">'+(!d.when?'Send these':'Ask to move it')+'</button><div class="msg" id="amsg"></div>'
+        +'<div class="fine">'+(!d.when?'Elliott comes back with a time within 48 hours, by email and in the app.'
+          :self?'Your current time is let go, and Elliott comes back with a new one within 48 hours, by email and in the app.'
+          :'Elliott comes back to you within 48 hours. Until then your session stands.')+'</div></div>';
+      const cancel=d.canCancel?'<div class="card"><div class="row"><b>Ask to cancel</b></div>'
+        +'<p class="muted" style="font-size:14.5px">'+esc(asked())+'</p>'+lateTxt()
+        +'<label for="cn">Anything Elliott should know, if you like</label><textarea id="cn" placeholder="What has come up"></textarea>'
+        +'<button class="ghost" id="cx">Ask to cancel my session</button><div class="msg" id="cmsg"></div></div>'
         :(d.fromPlan?'<div class="card"><p class="muted" style="font-size:14.5px;margin:0">This session comes with your coaching, so it is moved rather than cancelled. If no time works this month, message Elliott in the app.</p></div>':'');
       const pay=d.owes>0?'<div class="card"><div class="row"><b>Not paid yet</b><span>'+esc(pounds(d.owes))+'</span></div><p class="muted" style="font-size:14.5px">It is confirmed once it is paid.</p><a class="btn" href="/api/app/session/pay?id='+encodeURIComponent(d.id)+'">Pay '+esc(pounds(d.owes))+'</a></div>':'';
       box.innerHTML=head()+pay+move+askCard+cancel
-        +'<div class="fine" style="margin-top:18px">You can move or cancel up to '+d.cutoff+' hours before. Questions? '+MAIL+'</div>';
+        +'<div class="fine" style="margin-top:18px">'+(d.when?'You can move it yourself to another free time until Elliott has hired the room; after that, and to cancel, you ask and he comes back to you. ':'')+'Questions? '+MAIL+'</div>';
       wirePicker(box,k=>{ day=k; sel=''; drawM(); },t=>{ sel=t; drawM(); });
       const lock=on=>{ busy=on; box.querySelectorAll('button').forEach(b=>{ b.disabled=on; }); };
+      const askedDone=()=>done('Asked.',[esc(asked()),'An email with this is on its way.']);
       const mv=document.getElementById('mv');
-      if(mv) mv.onclick=()=>{ if(busy) return; lock(true); document.getElementById('mmsg').textContent=d.when?'Moving…':'Booking…';
-        post({action:'move',slot:sel}).then(()=>done(d.when?'Your session has moved.':'Your session is booked.',['It is now on <b>'+esc(whenTxt(sel))+'</b>. The confirmation is on its way, with the calendar and this same link to change it.'],['/lha-app.html','Open the app']))
+      if(mv) mv.onclick=()=>{ if(busy) return; lock(true); document.getElementById('mmsg').textContent='One moment…';
+        post({action:'move',slot:sel}).then(r=>{ if(r&&r.requested) return askedDone();
+            done(d.when?'Your session has moved.':'Your session is booked.',['It is now on <b>'+esc(whenTxt(sel))+'</b>. The confirmation is on its way, with the calendar and this same link to change it.'],['/lha-app.html','Open the app']); })
           .catch(e=>{ lock(false); if(e&&e.gone){ return reload('That time has just gone. Pick another.'); }
             if(e&&e.noSlots){ d.slots=null; drawM(); const m=document.getElementById('amsg'); if(m) m.textContent=String(e.error||''); return; }
             document.getElementById('mmsg').textContent=String((e&&e.error)||e||'Something went wrong'); }); };
@@ -162,14 +181,14 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       if(ask) ask.onclick=()=>{ const prefs=(document.getElementById('pf').value||'').trim(), m=document.getElementById('amsg');
         if(!prefs){ m.textContent='Say which days and times suit you.'; return; }
         if(busy) return; lock(true); m.textContent='Sending…';
-        post({action:'move',prefs}).then(()=>done('Asked.',[d.when?'Your time on '+esc(whenTxt(d.when))+' is let go, and Elliott comes back with a new one within 48 hours.':'Elliott comes back with a time within 48 hours.','It comes by email and in the app.']))
+        post({action:'move',prefs}).then(r=>{ if(r&&r.requested) return askedDone();
+            done('Asked.',[d.when?'Your time on '+esc(whenTxt(d.when))+' is let go, and Elliott comes back with a new one within 48 hours.':'Elliott comes back with a time within 48 hours.','It comes by email and in the app.']); })
           .catch(e=>{ lock(false); m.textContent=String((e&&e.error)||e||'Something went wrong'); }); };
       const cx=document.getElementById('cx');
       if(cx) cx.onclick=()=>{
-        if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, cancel it'+(d.back>0?' and refund '+pounds(d.back):''); return; }
-        if(busy) return; const m=document.getElementById('cmsg'); lock(true); m.textContent='Cancelling…';
-        post({action:'cancel'}).then(r=>done('Your session is cancelled.',[r.refunded>0?esc(pounds(r.refunded))+' is on its way back to your card. It shows in a few days.'
-            :r.failed?'The refund could not be made automatically, so Elliott will make it by hand.':r.hand?'Elliott will give you back what you paid.':'Nothing more to do.','An email with the details is on its way.'],['/session.html','Book another']))
+        if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, ask Elliott to cancel it'; return; }
+        if(busy) return; const m=document.getElementById('cmsg'); lock(true); m.textContent='Sending…';
+        post({action:'cancel',note:(document.getElementById('cn').value||'').trim()}).then(askedDone)
           .catch(e=>{ lock(false); m.textContent=String((e&&e.error)||e||'Something went wrong'); }); };
     };
     const reload=note=>fetch('/api/app/session/manage?t='+encodeURIComponent(mtok)).then(r=>r.json().then(x=>r.ok?x:Promise.reject(x)))
@@ -194,7 +213,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
   const draw0=()=>{
     if(booked){
       if(bookedAt) return done('Booked.',['Your '+esc(kind)+' minute session is on <b>'+esc(whenTxt(bookedAt))+'</b>, at OverGravity in Shadwell.',
-        'The confirmation is on its way by email, with the calendar and a link to move or cancel it, up to 24 hours before. If you are new, it has a button to choose your password for the Handstand Ladder app, where your booking is too.'],['/lha-app.html','Open the app']);
+        'The confirmation is on its way by email, with the calendar and a link to move it or ask to cancel. If you are new, it has a button to choose your password for the Handstand Ladder app, where your booking is too.'],['/lha-app.html','Open the app']);
       return done('Paid. Now the time.',['Your '+esc(kind)+' minute session is paid for. Elliott checks your times against the room at OverGravity and confirms within 48 hours, by email and in the app.',
         'An email is on its way now. If you are new, it has a button to choose your password for the Handstand Ladder app, where your booking is and where we agree the time.'],['/lha-app.html','Open the app']);
     }
@@ -218,7 +237,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       +'<button class="btn" id="go"'+(picking&&!slot?' disabled':'')+'>'+(picking?(slot?'Pay '+esc(price())+' and book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):'Pay '+esc(price())+' and request a time')+'</button>'
       +'<div class="msg" id="msg"></div>'
       +'<div class="fine">Card payment on the next page, through Stripe. '+(picking
-        ?'You can move or cancel it yourself up to 24 hours before, and a cancel is refunded in full.'
+        ?'Until Elliott has hired the room you can move it yourself to another free time. To cancel, ask from the link in your email: he hires the room for each session and comes back to you with a refund or a new date.'
         :'The room is booked around the gym’s timetable, so the time is confirmed with you afterwards, within 48 hours. If no time works, it is refunded in full.')
       +' By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and the <a href="/waiver" target="_blank" rel="noopener">waiver</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>'
       +(asking&&Array.isArray(S)&&S.length?'<button class="linkb" id="back">Back to the free times</button>':'')
