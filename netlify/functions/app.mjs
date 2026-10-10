@@ -927,6 +927,15 @@ async function coachMail(client, kind) {
    client in the next ten minutes replaces it on the phone without a sound.
    After ten minutes the next one is news again. */
 const ALERTS = new AsyncLocalStorage();
+/* Work a reply does not need to wait for, such as the email and the push
+   after a sign-off. Netlify keeps the function running for it after the
+   reply where it can (context.waitUntil); where it cannot, it is done
+   before the reply, as it always was. */
+const later = async fn => {
+  const c = (ALERTS.getStore() || {}).ctx;
+  if (c && typeof c.waitUntil === 'function') { c.waitUntil(Promise.resolve().then(fn).catch(() => {})); return; }
+  try { await fn(); } catch {}
+};
 const ALERT_WINDOW = 10 * 60000;
 async function coachAlert(client, kind, payload) {
   const box = ALERTS.getStore();
@@ -1877,7 +1886,7 @@ async function rosterRows() {
 
 /* every alert a request raises is held until it has finished, then sent
    as one per client (coachAlert, above) */
-export default (request) => ALERTS.run({ q: [] }, async () => {
+export default (request, context) => ALERTS.run({ q: [], ctx: context }, async () => {
   const box = ALERTS.getStore();
   try { return await handle(request); }
   finally { try { await flushAlerts(box); } catch {} }
@@ -7639,6 +7648,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'fixopen', 'fixstart', 'fixdone', 'sitefix',
                   /* the press test taken, by the limiter it named */
                   'presstest',
+                  /* a film that would not play, by film and where (no person) */
+                  'filmfail',
                   /* a workshop page opened, a booking started, a booking paid */
                   'siteworkshoppage', 'workshopbook', 'workshoppaid',
                   /* a one to one session page opened, and a request started */
@@ -7673,6 +7684,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const fx = String(body.f || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
     if (fx && n.startsWith('fix') || fx && n === 'sitefix') { row.fix = row.fix || {};
       if (row.fix[fx] || Object.keys(row.fix).length < 80) { row.fix[fx] = row.fix[fx] || {}; row.fix[fx][n] = (row.fix[fx][n] || 0) + 1; } }
+    /* which films fail, and where: pl-hls-1d49ef13 is the follow along,
+       a manifest that would not play, and the film's first eight */
+    if (fx && n === 'filmfail') { row.film = row.film || {};
+      if (row.film[fx] || Object.keys(row.film).length < 80) row.film[fx] = (row.film[fx] || 0) + 1; }
     /* where the quiz put them, which is the one breakdown that matters */
     if (n === 'quiz' || n === 'wall') {
       const st = Number(body.s);
@@ -10883,36 +10898,39 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         }
       }
 
-      /* and they are told, unless a reply is already on its way to them, or
-         this is the coach taking a sign-off back */
-      const thread = await threadLoad(db, e);
-      const lastCoach = Math.max(0, ...thread.filter(m => m.from === 'coach').map(m => m.at || 0));
-      if (!body.quiet && Date.now() - lastCoach > 6 * 3600000) {
-        const nm = coachName(by);
-        /* "has been through what you sent" is wrong when nothing was sent */
-        const key = uid ? 'answerReady' : verdict === 'reached' ? 'cpSigned' : 'cpNotYet';
-        const cpName = String(body.n || '').slice(0, 80) || 'one of your check points';
-        const T = await emailCopy(key, { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm),
-          checkpoint: esc(cpName) });
-        await emailT(T, e, T.subject,
-          mail({
-            title: T.title,
-            greeting: (clients()[e] || '').split(' ')[0] || '',
-            paras: T.paras,
-            cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
-            signoff: { name: nm }, footnote: T.footnote || undefined,
-          }), 'replies');
-      }
-      /* the phone as well, and not held back by a reply earlier in the day:
-         a sign-off is its own piece of news. Taking one back says nothing. */
-      if (!body.quiet) {
-        const cpN = String(body.n || '').slice(0, 80) || 'A check point';
-        await notify(e, verdict === 'reached'
-          ? { title: 'Signed off: ' + cpN, body: note || 'It is green on your check points.',
-              url: '/lha-app.html?go=cps', tag: 'cp-' + k }
-          : { title: 'A note on ' + cpN, body: note || 'Not there yet. There is a note on it in the app.',
-              url: '/lha-app.html?go=cps', tag: 'cp-' + k }, 'replies');
-      }
+      /* the client is told after the reply, so a sign-off shows at once */
+      await later(async () => {
+        /* and they are told, unless a reply is already on its way to them, or
+           this is the coach taking a sign-off back */
+        const thread = await threadLoad(db, e);
+        const lastCoach = Math.max(0, ...thread.filter(m => m.from === 'coach').map(m => m.at || 0));
+        if (!body.quiet && Date.now() - lastCoach > 6 * 3600000) {
+          const nm = coachName(by);
+          /* "has been through what you sent" is wrong when nothing was sent */
+          const key = uid ? 'answerReady' : verdict === 'reached' ? 'cpSigned' : 'cpNotYet';
+          const cpName = String(body.n || '').slice(0, 80) || 'one of your check points';
+          const T = await emailCopy(key, { name: esc((clients()[e] || '').split(' ')[0] || ''), coach: esc(nm),
+            checkpoint: esc(cpName) });
+          await emailT(T, e, T.subject,
+            mail({
+              title: T.title,
+              greeting: (clients()[e] || '').split(' ')[0] || '',
+              paras: T.paras,
+              cta: { href: `${SITE}/lha-app.html`, label: 'Read it' },
+              signoff: { name: nm }, footnote: T.footnote || undefined,
+            }), 'replies');
+        }
+        /* the phone as well, and not held back by a reply earlier in the day:
+           a sign-off is its own piece of news. Taking one back says nothing. */
+        if (!body.quiet) {
+          const cpN = String(body.n || '').slice(0, 80) || 'A check point';
+          await notify(e, verdict === 'reached'
+            ? { title: 'Signed off: ' + cpN, body: note || 'It is green on your check points.',
+                url: '/lha-app.html?go=cps', tag: 'cp-' + k }
+            : { title: 'A note on ' + cpN, body: note || 'Not there yet. There is a note on it in the app.',
+                url: '/lha-app.html?go=cps', tag: 'cp-' + k }, 'replies');
+        }
+      });
       return json({ ok: true, cleared, checkpoints: tr.checkpoints });
     }
 

@@ -3167,6 +3167,41 @@ function probeHls(){
   setTimeout(()=>end(false, true), 4000);
   try{ v.src=streamHls(HLS_PROBE); }catch(e){ end(false); }
 }
+/* ── a film that will not play ─────────────────────────────────────
+   Tried in order, once each per film: a film saved for no signal that the
+   phone has since thrown away goes back to the network; a manifest that
+   will not play goes to the file; a locked film whose token is missing or
+   out of date asks for new ones and tries again. Each failure is counted,
+   by film and where it happened, with nothing about who. */
+const filmTried = v => { try{ return JSON.parse(v.dataset.filmTried||'{}'); }catch(e){ return {}; } };
+function filmFail(v, what){
+  const uid=v.dataset.cc||'', where=v.closest && v.closest('#player') ? 'pl' : 'sh';
+  const key=where+'-'+what+'-'+uid.slice(0,8);
+  if(filmFail.seen[key]) return; filmFail.seen[key]=1;
+  try{ track('filmfail', null, key); }catch(e){}
+}
+filmFail.seen={};
+function filmRecover(v){
+  const cur=String(v.currentSrc||v.src||''), uid=v.dataset.cc||((/\/([a-f0-9]{32})\//.exec(cur)||[])[1])||'';
+  if(!cur || !uid) return;
+  const t=filmTried(v), mark=k=>{ t[k]=cur; v.dataset.filmTried=JSON.stringify(t); };
+  /* it plays on its own again only if it was meant to be playing */
+  const go=src=>{ v.src=src; try{ v.load(); }catch(e){}
+    if((v.closest && v.closest('#player')) || v.autoplay || v.dataset.wantPlay) startFilm(v); };
+  if(cur.indexOf('lha=saved')>-1 && t.saved!==cur){ filmFail(v,'sav'); mark('saved');
+    go(hlsOk() ? streamHls(uid) : streamMp4(uid)); return; }
+  if(cur.indexOf('/manifest/')>-1 && t.mp4!==cur){ filmFail(v,'hls'); mark('mp4'); go(streamMp4(uid)); return; }
+  /* a locked film: the token in the address is the uid itself when there
+     is none, so ask for a set and try the film once more when it lands */
+  if(!t.sign){ filmFail(v,'mp4'); mark('sign');
+    const need = !(SIGN.exp>Date.now()) || !SIGN.t[uid];
+    if(need){ try{ loadSign(); }catch(e){} }
+    setTimeout(()=>{ if(!v.isConnected || v.dataset.cc!==uid) return;
+      const next=hlsOk() ? streamHls(uid) : streamMp4(uid);
+      if(next!==cur || need) go(next); }, need ? 2500 : 600);
+    return; }
+  filmFail(v,'dead');
+}
 /* what to put in a video's src: the ladder where it plays, the file where
    it does not */
 function filmSrc(url){
@@ -3886,15 +3921,12 @@ function vpBar(v, theatre){
      The test for native HLS is conservative, but a browser that says
      yes and then cannot decode would leave a black box with no way out.
      One retry on the plain MP4 and it behaves as it always did. */
-  v.addEventListener('error', ()=>{
-    const cur=String(v.currentSrc||v.src||'');
-    if(cur.indexOf('/manifest/')<0 || v.dataset.mp4Fallback) return;
-    const m=/\/([A-Za-z0-9._-]{20,})\/manifest\//.exec(cur);
-    if(!m) return;
-    v.dataset.mp4Fallback='1';
-    v.src=STREAM_CDN+m[1]+'/downloads/default.mp4';
-    v.load(); try{ v.play().catch(()=>{}); }catch(e){}
-  });
+  /* Per film, not per element: the follow along keeps one element for
+     the whole session, so a flag set by the first film that fell back
+     stopped every later one from falling back, and they stayed black
+     while the same drill played from its own sheet (10 Oct 2026). */
+  v.addEventListener('error', ()=>{ filmRecover(v); });
+  v.addEventListener('play', ()=>{ v.dataset.wantPlay='1'; });
   /* one setting for the whole app, so turning a drill's sound on leaves it
      on for the next drill and for the explainers */
   if(mute) mute.onclick=e=>{ e.stopPropagation();
@@ -6088,7 +6120,10 @@ function cpDrag(e,k,max,res){
      switched off. */
   try{ el.setPointerCapture && el.setPointerCapture(e.pointerId); }catch(err){}
   const move=ev=>set(ev);
+  /* a gesture the phone cancels part way (a call, a notification, the
+     system taking the swipe) ends like a lift: what it reached is logged */
   const up=()=>{ el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',up);
+                 el.removeEventListener('pointercancel',up);
                  if(raf){ cancelAnimationFrame(raf); raf=0; paint(); }
                  ease();
                  /* Letting go logs it. Dragging all the way to the target and
@@ -6099,6 +6134,7 @@ function cpDrag(e,k,max,res){
                  if(val!=null) saveCheckpoint(k, val); else save(); };
   el.addEventListener('pointermove',move);
   el.addEventListener('pointerup',up);
+  el.addEventListener('pointercancel',up);
 }
 /* Wherever the check points live for this account, open them and put the
    list on screen. Coached they are the first tab of Progress; on the
@@ -9768,7 +9804,12 @@ function showStep(){
       vEl.muted=!soundOn();
       const src=filmSrc(it.url);
       if(vEl.getAttribute('data-src')!==src){
-        vEl.setAttribute('data-src',src); vEl.src=src;
+        vEl.setAttribute('data-src',src); delete vEl.dataset.filmTried; vEl.src=src;
+        /* a film that has not shown a frame in eight seconds is stuck, which
+           on a phone looks the same as one that failed */
+        clearTimeout(vEl._watch);
+        vEl._watch=setTimeout(()=>{ if(vEl.isConnected && vEl.getAttribute('data-src')===src
+          && phase!=='rest' && vEl.readyState<2 && !(vEl.error)) filmRecover(vEl); }, 8000);
         /* the drill's own first frame while it loads: a black rectangle
            for two seconds on every set reads as a broken player */
         const pu=uidOfUrl(it.url);
@@ -11809,35 +11850,52 @@ function drawOv(){
    scrolled to the top, so a downward swipe through a long list still scrolls
    the list rather than throwing it away. */
 function bindSheetDrag(sheet){
-  let y0=null, dy=0, live=false;
+  let y0=null, x0=0, dy=0, live=false, decided=false;
+  /* A finger that starts on something that drags by itself (a check point
+     slider, a film's scrub bar, a field, a row that scrolls sideways) is
+     not dragging the sheet. Nor is one that sets off sideways. Both used
+     to pull the sheet down and fade it while you moved a slider, and
+     closed it under you if the finger drifted far enough (10 Oct 2026). */
+  const OWN='[id^="cptrack-"],.vp-bar,input,textarea,select,[data-nodrag]';
+  const sideways=el=>{ for(let n=el; n && n!==sheet; n=n.parentElement){
+    if(n.scrollWidth>n.clientWidth+4){ const o=getComputedStyle(n).overflowX; if(o==='auto'||o==='scroll') return true; } } return false; };
+  const pt=e=>e.touches?e.touches[0]:e;
   const start=e=>{
     if(sheet.scrollTop>0) return;
-    y0=e.touches?e.touches[0].clientY:e.clientY; dy=0; live=true;
-    sheet.classList.add('drag');
+    const t=e.target;
+    if(t && t.closest && (t.closest(OWN) || sideways(t))) return;
+    const p=pt(e); y0=p.clientY; x0=p.clientX; dy=0; live=true; decided=false;
+    if(!e.touches){ window.addEventListener('mousemove',move); window.addEventListener('mouseup',end); }
   };
   const move=e=>{
     if(!live||y0==null) return;
-    const y=e.touches?e.touches[0].clientY:e.clientY;
-    dy=y-y0;
+    const p=pt(e), ddx=p.clientX-x0;
+    dy=p.clientY-y0;
+    /* the first few pixels say which way it is going */
+    if(!decided){
+      if(Math.abs(dy)<8 && Math.abs(ddx)<8) return;
+      decided=true;
+      if(Math.abs(ddx)>Math.abs(dy) || dy<0){ live=false; y0=null; return; }
+      sheet.classList.add('drag');
+    }
     if(dy<=0){ sheet.style.transform=''; return; }
     if(e.cancelable) e.preventDefault();
     sheet.style.transform='translateY('+dy+'px)';
     sheet.style.opacity=String(Math.max(.4, 1-dy/500));
   };
   const end=()=>{
-    if(!live) return;
+    window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',end);
+    if(!live){ y0=null; return; }
     live=false; sheet.classList.remove('drag');
     sheet.style.transform=''; sheet.style.opacity='';
-    if(dy>110){ ovGhostFrom=dy; closeOv(); }
-    y0=null; dy=0;
+    if(decided && dy>110){ ovGhostFrom=dy; closeOv(); }
+    y0=null; dy=0; decided=false;
   };
   sheet.addEventListener('touchstart',start,{passive:true});
   sheet.addEventListener('touchmove',move,{passive:false});
   sheet.addEventListener('touchend',end);
   sheet.addEventListener('touchcancel',end);
   sheet.addEventListener('mousedown',start);
-  window.addEventListener('mousemove',move);
-  window.addEventListener('mouseup',end);
 }
 
 /* a sheet that is really a screen — the drill list, mostly */

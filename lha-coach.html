@@ -2208,9 +2208,14 @@ function formCheckHTML(email){
    The verdict belongs to the check point, not to a review row, so this
    posts the check point and the clip and lets the server find whatever
    submission is carrying it. Works whether or not one exists. */
-let cpVerdictBusy='';
+/* A sign-off shows the moment it is pressed. It used to wait for the
+   server, which sends the client an email and a push before it answers, so
+   each one took a second or two, and while one was out every other Sign it
+   off on the page did nothing at all (10 Oct 2026). Now each check point is
+   busy on its own, the change is drawn at once, and a refusal puts it back. */
+let cpVerdictBusy=new Set();
 function cpVerdict(email,k,uid,verdict,quiet){
-  if(cpVerdictBusy) return;
+  if(cpVerdictBusy.has(k)) return;
   const el=document.getElementById('vnote-cp-'+k);
   const note=el?el.value.trim():'';
   /* with nothing logged the sign-off is the reading, so it carries the
@@ -2218,7 +2223,20 @@ function cpVerdict(email,k,uid,verdict,quiet){
   const def=(cpDefs[email]||[]).find(x=>x.k===k)||{};
   const t=Number(def.target)>0?Number(def.target):null;
   const v=def.kind==='yn'?1:def.kind==='face'?2:(t!=null?t:0);
-  cpVerdictBusy=k; draw();
+  /* the same stamp the server puts on the row, drawn now */
+  const before=tracks[email];
+  const tr=Object.assign({}, before||{}), cps=Object.assign({}, tr.checkpoints||{});
+  let rows=(cps[k]||[]).slice();
+  if(rows.length || verdict==='reached'){
+    if(!rows.length) rows=[{v, at:Date.now()}];
+    const undo=!!quiet && verdict==='notyet', now=Date.now();
+    const stamp=r=>Object.assign({}, r, {verdict, note, verdictAt:now, watchedAt:now, undone:undo||undefined});
+    let hit=false;
+    rows=rows.map(r=>(uid && r && r.video===uid) ? (hit=true, stamp(r)) : r);
+    if(!hit) rows[rows.length-1]=stamp(rows[rows.length-1]);
+    cps[k]=rows; tr.checkpoints=cps; tracks[email]=tr;
+  }
+  cpVerdictBusy.add(k); draw();
   fetch(API+'/checkpoint/verdict',{method:'POST',headers:hdr(),
     body:JSON.stringify({email,k,uid,verdict,note,v,n:def.n||'',quiet:!!quiet})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not save that')))
@@ -2229,9 +2247,9 @@ function cpVerdict(email,k,uid,verdict,quiet){
           ? {...x,status:'reviewed',reviewedAt:Date.now()} : x);
         queue=queue.filter(q=>q.id!==d.cleared);
       }
-      cpVerdictBusy=''; draw();
+      cpVerdictBusy.delete(k); draw();
     })
-    .catch(e=>{ cpVerdictBusy=''; draw(); alert(String(e)); });
+    .catch(e=>{ tracks[email]=before; cpVerdictBusy.delete(k); draw(); alert(String(e)); });
 }
 function markReviewed(email,id,nextBlock,verdict){
   if(nextBlock && !confirm('Mark reviewed and start the next block? '
@@ -9510,7 +9528,7 @@ function marksPaneHTML(){
     const numeric=k.kind!=='yn' && k.kind!=='face';
     const tline=cpTargetLine(k,S.tgt,S.lower);
     const sub = clip ? cpSubFor(sel, clip.video) : null;
-    const busy=cpVerdictBusy===k.k;
+    const busy=cpVerdictBusy.has(k.k);
     const TAG={clip:['clip to watch','tag-accent'], hit:['target hit, sign it off','tag-accent'],
       signed:['signed off','tag-accent'], notyet:['not there yet','tag-accent-2'],
       going:['in progress','tag-neutral'], none:['nothing yet','tag-neutral'],
@@ -9584,10 +9602,10 @@ function marksPaneHTML(){
               font:400 13px/1.3 var(--sans);background:#fff">
             <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
               <button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
-                ${cpVerdictBusy===k.k?'disabled':''}
+                ${cpVerdictBusy.has(k.k)?'disabled':''}
                 onclick="cpVerdict(${jsq(sel)},${jsq(k.k)},${jsq(clip.video)},'reached')">${
-                cpVerdictBusy===k.k?'Saving…':'Sign it off'}</button>
-              <button class="btn btn-ghost btn-sm" ${cpVerdictBusy===k.k?'disabled':''}
+                cpVerdictBusy.has(k.k)?'Saving…':'Sign it off'}</button>
+              <button class="btn btn-ghost btn-sm" ${cpVerdictBusy.has(k.k)?'disabled':''}
                 onclick="cpVerdict(${jsq(sel)},${jsq(k.k)},${jsq(clip.video)},'notyet')">Not there yet</button>
               <button class="btn btn-secondary btn-sm"
                 onclick="reviewCp(${jsq(sel)},${jsq(clip.video)},${jsq(k.n||k.k)})">Open in the review tool &rarr;</button>
