@@ -7321,6 +7321,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const base = Number.isInteger(Number(pt.base)) ? Math.max(0, Math.min(9999, Number(pt.base))) : 0;
         cur.pressTest = { scores: sc, limiter: lim, at: Number(pt.at) || Date.now(), base, hist };
       }
+      /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */
+      if (body.pressRung && typeof body.pressRung === 'object') {
+        const r = Number(body.pressRung.r);
+        if (Number.isInteger(r) && r >= 1 && r <= 10) cur.pressRung = { r, at: Number(body.pressRung.at) || Date.now() };
+      }
       /* the welcome seen and the call booked. An iPhone's Home Screen app
          keeps its own storage, so without these the welcome played again
          there and a booked call read as not booked. Both stay once said,
@@ -7397,7 +7402,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       stage: Number.isInteger(out.stage) ? out.stage : null,
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, ob: out.ob || {} });
+      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pressRung: out.pressRung || null, ob: out.ob || {} });
   }
 
   /* ── tracking: metrics, habits, check-ins ─────────────────────
