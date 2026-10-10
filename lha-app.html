@@ -3,6 +3,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#006663">
+<!-- the front door is dark from the first frame: the page ground is light
+     and the film over it fades in, so somebody signed out saw white text on
+     near white for half a second while it loaded (10 Oct 2026) -->
+<script>try{var s0=JSON.parse(localStorage.getItem('lha_app')||'null');if(!s0||(!s0.in&&!s0.mode))document.documentElement.className+=' frontdoor';}catch(e){}</script>
+<style>html.frontdoor,html.frontdoor body{background:#062522}</style>
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -8795,7 +8800,7 @@ function chBubble(m, first, last, byId){
         q?(q.from==='me'?'You':esc(coachLabel())):'Earlier message'}</b><span>${esc(q?chSnip(q):'No longer here')}</span></button>`:''}
       ${m.video?`<div class="cmedia">${clipPoster(m.video,'4/5','34vh')}</div>`:''}
       ${m.image?`<button class="cmedia" onclick="event.stopPropagation();chPhoto(${jsq(m.image)})" aria-label="Open the photo">
-        <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" loading="lazy"></button>`:''}
+        <img src="${AUTH.image}/${esc(m.image)}" alt="Shared photo" decoding="async"></button>`:''}
       ${m.voice?voiceBubbleHTML(esc(m.voice), m.secs, m.at):''}
       ${m.text?`<span class="ct">${chLinks(esc(m.text))}</span>`:''}
       <span class="cspace ${mine?'me':''}"></span>
@@ -8806,7 +8811,8 @@ function chBubble(m, first, last, byId){
     ${mine?msgStatus(m):''}
   </div>`;
 }
-function chatThreadHTML(empty){
+function chatThreadHTML(empty){ return '<!--thread-->'+chatThreadRows(empty)+'<!--/thread-->'; }
+function chatThreadRows(empty){
   const msgs=(st.msgs||[]).filter(chHasMsg);
   if(!msgs.length && !chatTypingAt) return `<div class="cempty">${empty||'No messages yet.'}</div>`;
   const byId=new Map(msgs.filter(m=>m.id).map(m=>[m.id,m]));
@@ -8850,22 +8856,24 @@ function repaintChat(added){
   if(hs) hs.textContent=Date.now()-chatTypingAt<8000 ? 'typing…' : hs.dataset.idle||'';
   if(near) chatToEnd(false); else { chatNewBelow+=added||0; chatJumpPaint(); }
 }
-/* Redraw the list, except any message with a clip playing in it: that one
-   stays exactly where it is and the rest is rebuilt around it. Replacing it,
-   or even moving it, reloads the player, so a clip being watched restarted
-   whenever a message arrived or the dots came and went. */
+/* Patch the list a message at a time. It was rebuilt whole on every
+   change (the dots arriving, a tick, a message confirmed), so every photo
+   and voice note in the thread was thrown away and loaded again, which is
+   the flashing (10 Oct 2026). A message whose markup has not changed keeps
+   its node; one with a clip playing is never replaced or moved, because
+   that reloads the player. */
 function chatPatch(el, html){
-  const keep=new Map();
-  el.querySelectorAll(':scope > .crow').forEach(r=>{ if(r.id && r.querySelector('iframe')) keep.set(r.id, r); });
-  if(!keep.size){ el.innerHTML=html; return; }
   const tpl=document.createElement('template'); tpl.innerHTML=html;
-  [...el.childNodes].forEach(n=>{ if(!(n.nodeType===1 && keep.has(n.id))) el.removeChild(n); });
+  const want=[...tpl.content.childNodes].filter(n=>n.nodeType===1);
+  const have=new Map();
+  [...el.children].forEach(n=>{ if(n.id) have.set(n.id, n); });
+  const playing=n=>n.classList.contains('crow') && !!n.querySelector('iframe');
+  const out=want.map(n=>{ const o=n.id && have.get(n.id);
+    return (o && (o.outerHTML===n.outerHTML || playing(o))) ? o : n; });
+  const keep=new Set(out);
+  [...el.childNodes].forEach(n=>{ if(!keep.has(n)) el.removeChild(n); });
   let at=el.firstChild;
-  [...tpl.content.childNodes].forEach(n=>{
-    if(n.nodeType===1 && keep.has(n.id)){ at=keep.get(n.id).nextSibling; keep.delete(n.id); return; }
-    el.insertBefore(n, at);
-  });
-  keep.forEach(r=>r.remove());           /* gone from the thread: deleted or taken back */
+  out.forEach(n=>{ if(n===at){ at=at.nextSibling; return; } el.insertBefore(n, at); });
 }
 function chatGrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,132)+'px';
   el.style.overflowY=el.scrollHeight>132?'auto':'hidden'; chatFit(); }
@@ -11836,7 +11844,11 @@ function drawOv(){
      its own clicks so a tap inside does not shut it */
   const oldSheet=$('#ov').querySelector('.sheet');
   const sheetTop=oldSheet?oldSheet.scrollTop:0;
-  $('#ov').innerHTML=`<div class="sheet${st.ov==='list'?' listsheet':''}" onclick="event.stopPropagation()">
+  /* the same sheet drawn again is not arriving: it slid up from the bottom
+     on every tap inside it, and whenever a reply landed (10 Oct 2026) */
+  const again = !!oldSheet && $('#ov').dataset.kind===String(st.ov);
+  $('#ov').dataset.kind=String(st.ov);
+  $('#ov').innerHTML=`<div class="sheet${st.ov==='list'?' listsheet':''}"${again?' style="animation:none"':''} onclick="event.stopPropagation()">
     ${OV_HELD(st.ov)?'':'<div class="grab"></div>'}${st.ov==='list'?listBarHTML():''}
     ${T[st.ov]?`<h2 class="st">${esc(T[st.ov])}</h2>`:''}
     <div style="padding-top:14px">${body}</div></div>`;
@@ -12713,13 +12725,22 @@ function loadLadder(){
   return fetch(AUTH.ladder)
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{
+      /* "moved" was true whenever the reply carried a key at all, which it
+         always does, so every open redrew the screen once the ladder came
+         back. It is true now only when something in it is different. */
+      const KEYS=['timing','explainKeys','ladderExtra','ladderOff','drillsOff','ladderBands','ladderMix','bandTiming',
+        'ladderCps','shortRules','homeOrder','ladderMedia','explainEdit','stageIntro','ladderStory','explainExtra'];
+      const before=JSON.stringify(KEYS.map(k=>st[k]));
       let moved=false;
       if(d && d.timing)      { st.timing=d.timing;           moved=true; }
       if(d && d.explainKeys) { st.explainKeys=d.explainKeys;   moved=true; }
       if(d && d.ladderExtra) { st.ladderExtra=d.ladderExtra; moved=true; }
       if(d && d.ladderOff)   { st.ladderOff=d.ladderOff;     moved=true; }
       if(d && Array.isArray(d.drillsOff)) { st.drillsOff=d.drillsOff; moved=true; }
-      if(d && d.drills && typeof d.drills==='object' && mergeDrills(d.drills)) moved=true;
+      let drillsMoved=false;
+      if(d && d.drills && typeof d.drills==='object'){ drillsMoved=mergeDrills(d.drills);
+        /* kept, so the next open's first screen already has the coach's edits */
+        try{ localStorage.setItem('lha_drills', JSON.stringify(d.drills)); }catch(e){} }
       if(d && d.ladderBands) { st.ladderBands=d.ladderBands; moved=true; }
       if(d && d.ladderMix)   { st.ladderMix=d.ladderMix;     moved=true; }
       if(d && d.bandTiming)  { st.bandTiming=d.bandTiming;   moved=true; }
@@ -12733,6 +12754,7 @@ function loadLadder(){
       if(d && typeof d.welcomeFilm==='string') st.welcomeFilm=d.welcomeFilm;
       if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; moved=true; }
       if(d && (d.explainEdit || Array.isArray(d.explainExtra))) rebuildFaqs();
+      moved = drillsMoved || JSON.stringify(KEYS.map(k=>st[k]))!==before;
       if(moved){ save(); render(); }
       if(moved && st.token) loadSign();
       return true;
@@ -19907,8 +19929,14 @@ function watchScroll(){
     if(on===!!st.scrolled) return;
     st.scrolled=on;
     const bar=document.getElementById('topbar'); if(!bar) return;
-    const old=bar.outerHTML; const next=topBar();
-    if(old!==next) bar.outerHTML=next;
+    /* changed in place, not replaced: a new element never runs the bar's
+       own transition, so the frosting snapped in */
+    const next=topBar(); if(bar.outerHTML===next) return;
+    const t=document.createElement('div'); t.innerHTML=next; const nb=t.firstElementChild;
+    if(!nb || nb.id!=='topbar'){ bar.outerHTML=next; return; }
+    [...bar.attributes].forEach(a=>{ if(!nb.hasAttribute(a.name)) bar.removeAttribute(a.name); });
+    [...nb.attributes].forEach(a=>{ if(bar.getAttribute(a.name)!==a.value) bar.setAttribute(a.name, a.value); });
+    if(bar.innerHTML!==nb.innerHTML) bar.innerHTML=nb.innerHTML;
   };
   sc.addEventListener('scroll', apply, {passive:true});
   apply();
@@ -20929,6 +20957,15 @@ function render(){
        and fetches them again, which on a phone is a blink. If the screen
        would come out identical, nothing is touched. */
     if(same && html===lastDrawn){ skipped=true; return; }
+    /* On the chat a whole-screen swap replaced the message box under the
+       finger: the keyboard dropped and every photo reloaded, whenever
+       anything at all redrew. If only the thread or what is being typed
+       differs, the thread is patched and nothing else is touched. */
+    if(same && onChatScreen() && document.getElementById('chatList')){
+      const shell=h=>String(h||'').replace(/<!--thread-->[\s\S]*?<!--\/thread-->/,'')
+        .replace(/(<textarea[^>]*id="askIn"[^>]*>)[\s\S]*?(<\/textarea>)/,'$1$2');
+      if(shell(html)===shell(lastDrawn)){ lastDrawn=html; skipped=true; repaintChat(); return; }
+    }
     lastDrawn=html;
     /* redrawing the screen you are already on is a state change, not an
        arrival — entrance animations replaying on every tap is what made it
@@ -20945,6 +20982,9 @@ function render(){
        indented by 248 pixels of nothing. */
     app.classList.toggle('harail', !!app.querySelector('.tabbar'));
     const now=app.querySelector('.scroll'); if(now && keepTop) now.scrollTop=keepTop;
+    /* arriving on the chat opens at the newest message rather than at the
+       top and jumping down two frames later */
+    if(!same && onChatScreen()){ const cs=chatScroller(); if(cs) cs.scrollTop=cs.scrollHeight; }
     /* There used to be a requestAnimationFrame here setting still='1' straight
        after an arrival, which killed the entrance animation about sixteen
        milliseconds into its seven hundred: nothing on any screen has animated
@@ -20970,6 +21010,7 @@ function render(){
        two halves of stills on a monitor, where one portrait would stretch */
     wmSync((onWelcome||onSignin) ? 'montage' : onQuiz ? (qb && qb.portrait && wide() ? 'montage' : 'still') : null, qb && qb.src, !!onQuiz);
     if(wm.el){ wm.el.classList.toggle('front', !!(onWelcome||onSignin)); wm.el.classList.toggle('signin', !!onSignin); }
+    document.documentElement.classList.toggle('frontdoor', !!(onWelcome||onSignin));
   }catch(e){}
   if(st.tab==='welcomepw' && st.welcomeTok){ swap(screenWelcomePw()); return; }
   if(st.tab==='joinedout' && !st.token){ swap(screenJoinedOut()); return; }
@@ -21193,6 +21234,17 @@ document.addEventListener('DOMContentLoaded',function(){
     navigator.serviceWorker.register('/sw.js').catch(function(){});
   }
 });
+/* The cached plan goes in before the first draw, not after it. The first
+   screen used to be drawn from the empty default and drawn again a moment
+   later with the plan in it, which cut its entrance off and loaded every
+   picture twice (10 Oct 2026). The same three lines in DOMContentLoaded
+   now find nothing to change, so that draw is skipped. */
+try{ if(st.in && st.token) loadCachedProgramme();
+  /* the coach's drill edits from the last open, so the ladder's reply
+     finds nothing new to draw */
+  try{ const dd=JSON.parse(localStorage.getItem('lha_drills')||'null'); if(dd && typeof dd==='object') mergeDrills(dd); }catch(e){}
+  if(st.token && awaitingBlock() && !st.welcomeTok) st.tab='start';
+  rollTicks(); }catch(e){}
 render();
 /* The iPhone app holds its logo up until this first screen is drawn, so a
    slow first load shows the logo rather than a blank green screen. The
