@@ -867,13 +867,14 @@ async function sessionMail(done) {
        slipping: the session sat on Today until somebody looked. The coach
        is told once. The London sessions a plan includes promise no time,
        so they are left to Today. */
-    if (x && x.status === 'toArrange' && !x.when && !x.fromPlan && (x.session || Number(x.paid) > 0) && now - ms(x.at) > DAY) {
-      const key = `sesschase:${x.id}`;
+    /* an ask to move starts the 48 hours again, from when it was asked */
+    if (x && x.status === 'toArrange' && !x.when && !x.fromPlan && (x.session || Number(x.paid) > 0) && now - ms(x.moveAsked || x.at) > DAY) {
+      const key = `sesschase:${x.id}${x.moveAsked ? ':' + x.moveAsked : ''}`;
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-        const hrs = Math.round((now - ms(x.at)) / 3600e3);
-        const went = await email(process.env.COACH_EMAIL || primaryCoach(), `No time yet: ${x.name || x.email}, ${x.kind} min, paid ${hrs} hours ago`,
+        const hrs = Math.round((now - ms(x.moveAsked || x.at)) / 3600e3);
+        const went = await email(process.env.COACH_EMAIL || primaryCoach(), `No time yet: ${x.name || x.email}, ${x.kind} min, ${x.moveAsked ? 'asked to move' : 'paid'} ${hrs} hours ago`,
           mail({ title: `${esc(x.name || x.email)} is still waiting for a time.`,
-            paras: [`They paid for a ${esc(x.kind)} minute session ${hrs} hours ago and no time has been set. They were promised one within 48 hours.`,
+            paras: [`${x.moveAsked ? `They asked to move their ${esc(x.kind)} minute session ${hrs} hours ago` : `They paid for a ${esc(x.kind)} minute session ${hrs} hours ago`} and no time has been set. They were promised one within 48 hours.`,
                     x.prefs ? `They said: <b>${esc(x.prefs)}</b>.` : 'They gave no preferred times, so ask them in the chat.',
                     'If no time works, the session page promises a full refund.'],
             cta: { href: `${SITE}/lha-coach.html`, label: 'Set the time on Today' } }));
