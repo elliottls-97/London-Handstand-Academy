@@ -22,7 +22,7 @@ export default {
  },
  "p-pike-pushups": {
   "n": "Pike Push-Ups",
-  "desc": "Front deltoid strength ,  the fix if you collapse in the take-off.",
+  "desc": "Front deltoid strength,  the fix if you collapse in the take-off.",
   "cues": [
    "Push tall, elevate the scapula.",
    "Keep the load off the base of the palm."
@@ -31,7 +31,7 @@ export default {
  },
  "p-bench-zombies-lowers": {
   "n": "Bench Zombie Lowers",
-  "desc": "Step off the bench edge and lower slowly ,  adds the eccentric.",
+  "desc": "Step off the bench edge and lower slowly,  adds the eccentric.",
   "cues": [
    "Start on the edge.",
    "Lower slowly to the floor."
@@ -63,7 +63,7 @@ export default {
  },
  "pm-partner-press-circles": {
   "n": "Partner Press Circles",
-  "desc": "Spotted ,  own the path with help before you own it alone.",
+  "desc": "Spotted,  own the path with help before you own it alone.",
   "cues": [
    "Let the spot take the weight.",
    "Trace the same path each rep."
@@ -169,7 +169,7 @@ export default {
  },
  "pm-tuck-straddle-press-knees-apart": {
   "n": "Tuck Straddle Press, Knees Apart",
-  "desc": "Good for limited flexibility ,  this is the bent-knee straddle press.",
+  "desc": "Good for limited flexibility,  this is the bent-knee straddle press.",
   "cues": []
  },
  "pm-zombie-press": {
@@ -201,5 +201,29 @@ export default {
   "n": "Full Press with Support",
   "desc": "When you are ready.",
   "cues": []
+ },
+ "pm-stick-dislocates": {
+  "n": "Stick Dislocates",
+  "desc": "Opens the overhead range the unroll finishes in.",
+  "cues": [
+   "Wide grip to start.",
+   "Slow, no forcing."
+  ]
+ },
+ "pm-wall-slides": {
+  "n": "Wall Slides",
+  "desc": "Grooves the overhead position without load.",
+  "cues": [
+   "Ribs down.",
+   "Wrists stay on the wall."
+  ]
+ },
+ "pm-overhead-reach-holds": {
+  "n": "Overhead Reach Holds",
+  "desc": "Active end-range work,  hold what you just opened.",
+  "cues": [
+   "Reach tall.",
+   "Keep the ribs stacked."
+  ]
  }
 };

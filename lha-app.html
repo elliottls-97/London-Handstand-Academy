@@ -1829,6 +1829,58 @@ function weekMomentHTML(){
 }
 /* Tapping the streak line. The whole of it on one sheet: the last twelve
    weeks, the best run, the rest weeks saved and the next milestone. */
+/* ── find your limiting factor ──────────────────────────────────────
+   The press masterclass's test, one step a screen. The six physical tests
+   score 0 to 3 on strength, mobility or patterning; the lowest average is
+   the limiter and its fix is press-<corner>. The two observations come
+   first, as in the masterclass, and prescribe but do not score. */
+let ptStep=0, ptScores={};
+function openLimiter(){ ptStep=0; ptScores={}; openOv('limiter'); }
+function ptPick(i,lv){ ptScores[PRESS_TEST[i].id]=lv; ptStep=i+1;
+  if(ptStep>=PRESS_TEST.length){ const r=ptResult(); st.pressTest={scores:Object.assign({},ptScores), limiter:r.clean?'':r.worst, at:Date.now()}; save(); saveState(); }
+  drawOv(); }
+function ptBack(){ if(ptStep>0){ ptStep--; drawOv(); } }
+function ptResult(){
+  const acc={strength:[],mobility:[],patterning:[]};
+  PRESS_TEST.forEach(t=>{ if(t.kind==='observe' || !(t.id in ptScores) || !acc[t.corner]) return; acc[t.corner].push(ptScores[t.id]); });
+  const avg={}; Object.keys(acc).forEach(k=>{ avg[k]=acc[k].length ? acc[k].reduce((a,b)=>a+b,0)/acc[k].length : null; });
+  const ranked=Object.keys(avg).filter(k=>avg[k]!=null).sort((a,b)=>avg[a]-avg[b]);
+  const worst=ranked[0]||'strength';
+  return {avg, worst, clean: avg[worst]>=2.5, tie: ranked.filter(k=>Math.abs(avg[k]-avg[worst])<0.001)};
+}
+function limiterBody(){
+  const N=PRESS_TEST.length;
+  if(ptStep<N){
+    const t=PRESS_TEST[ptStep];
+    return `<div style="padding:4px 2px 10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Step ${ptStep+1} of ${N}</div>
+        <div style="flex:1;height:4px;border-radius:4px;background:rgba(0,64,61,.10);overflow:hidden"><i style="display:block;height:100%;width:${Math.round(ptStep/N*100)}%;background:var(--forest)"></i></div></div>
+      <div style="font:400 32px/1.05 var(--serif);letter-spacing:-.01em;margin-top:12px">${esc(t.n)}</div>
+      ${t.how?`<p style="font:400 15px/1.5 var(--sans);color:var(--ink);margin:10px 0 0">${esc(t.how)}</p>`:''}
+      ${t.film?`<p style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin:6px 0 0">${esc(t.film)}</p>`:''}
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">${t.levels.map((l,i)=>`<button onclick="ptPick(${ptStep},${i})"
+        style="text-align:left;border:1px solid rgba(0,64,61,.14);background:${ptScores[t.id]===i?'rgba(0,102,99,.08)':'#fff'};border-radius:16px;padding:13px 15px;cursor:pointer">
+        <b style="display:block;font:600 15px/1.3 var(--sans);color:var(--ink)">${esc(l.l)}</b>${l.note?`<span style="font:400 13px/1.4 var(--sans);color:var(--grey)">${esc(l.note)}</span>`:''}</button>`).join('')}</div>
+      ${ptStep>0?`<button onclick="ptBack()" style="margin-top:12px;border:0;background:none;color:var(--forest);font:600 14px/1 var(--sans);cursor:pointer;padding:8px 0">← Back</button>`:''}
+    </div>`;
+  }
+  const r=ptResult(), C=PRESS_CORNERS[r.worst]||{}, LBL={strength:'Strength',mobility:'Mobility',patterning:'Patterning'};
+  const bar=k=>{ const v=r.avg[k]; if(v==null) return ''; const pct=Math.round(v/3*100);
+    return `<div style="margin-top:10px"><div style="display:flex;justify-content:space-between;font:600 13px/1 var(--sans)"><span>${LBL[k]}</span><span style="color:var(--grey)">${v.toFixed(1)} of 3</span></div>
+      <div style="height:8px;border-radius:8px;background:rgba(0,64,61,.10);margin-top:6px;overflow:hidden"><i style="display:block;height:100%;width:${Math.max(4,pct)}%;background:${k===r.worst&&!r.clean?'var(--amber)':'var(--forest)'}"></i></div></div>`; };
+  return `<div style="padding:4px 2px 10px">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Your limiting factor</div>
+    <div style="font:400 40px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">${r.clean?'Nothing. <em style="color:var(--forest);font-style:normal">Go press.</em>'
+      :`<em style="color:var(--forest);font-style:normal">${esc(r.tie.length>1?r.tie.map(k=>LBL[k]).join(' and '):LBL[r.worst])}.</em>`}</div>
+    ${r.clean?`<p style="font:400 15px/1.5 var(--sans);color:var(--grey);margin:10px 0 0">Every corner is close to clear. Train the press itself, and retest in six weeks.</p>`
+      :`<p style="font:400 15px/1.5 var(--sans);color:var(--ink);margin:10px 0 0">${esc(C.p||'')}</p><p style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:8px 0 0">${esc(C.w||'')}</p>`}
+    <div style="margin-top:14px">${['strength','mobility','patterning'].map(bar).join('')}</div>
+    ${r.clean?`<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv()">Back to the Press stage</button>`
+      :`<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();openFix('press-${r.worst}')">Open the ${esc(LBL[r.worst].toLowerCase())} fix</button>`}
+    <button onclick="openLimiter()" style="display:block;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 14px/1 var(--sans);cursor:pointer;padding:8px 0">Take the test again</button>
+  </div>`;
+}
 function streakSheetHTML(){
   const S=streakInfo(), n=Math.min(S.thisWeek,S.target), warn=streakWarn(S);
   const marks=[1,2,4,8,12,26,52];
@@ -7595,6 +7647,7 @@ function loadState(){
       if(Number.isInteger(d.taste)) st.taste=d.taste;
       /* sessions done on each fix, so a new phone does not start a fix again */
       if(d.fixDone && typeof d.fixDone==='object') st.fixDone=Object.assign({}, d.fixDone, st.fixDone||{});
+      if(d.pressTest && d.pressTest.at && (!st.pressTest || d.pressTest.at>st.pressTest.at)) st.pressTest=d.pressTest;
       /* Where they are on the ladder followed the phone, not the person. It
          was written to the account row by sendIntake and read back by the
          coach's dashboard and by nothing else, so a paying subscriber who
@@ -7644,6 +7697,7 @@ function saveState(now){
       ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
       ladderDone:st.ladderDone||{},
       fixDone:st.fixDone||{},
+      ...(st.pressTest?{pressTest:st.pressTest}:{}),
       ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callNo?{callNo:true}:{})}
     })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
   };
@@ -9828,9 +9882,10 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
-  if(st.ov==='paywall'){ body=paywallBody(); }
+  if(st.ov==='limiter'){ body=limiterBody(); }
+  else if(st.ov==='paywall'){ body=paywallBody(); }
   else if(st.ov==='fcask'){ body=fcAskBody(); }
   else if(st.ov==='streak'){ body=streakSheetHTML(); }
   else if(st.ov==='paid'){
@@ -13481,8 +13536,13 @@ function stageFilmsHTML(){
           go:open?`openExplainer(${i})`:`lockedExplainer(${i})`, lock:open?'':'FREE ACCOUNT'}); }).join(''),
       /* the tour's films step points here until the library is on screen */
       libShown() ? '' : 'explainers', askBoxHTML(wide() ? '' : 'Search the '+PS.n+' explainers')) : '';
-  const fixes = fx.length ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
-      fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix(${jsq(f.slug)})`,
+  /* the Press stage opens with the masterclass test: find the limiter, then
+     its fix (10 Oct 2026) */
+  const lim = P===5 && typeof PRESS_TEST!=='undefined'
+    ? railTile({img:'', title:'Find your limiting factor', sub:st.pressTest&&st.pressTest.limiter
+        ? 'Yours: '+(PRESS_CORNERS[st.pressTest.limiter]||{}).n+' · redo it' : '8 steps, about 10 minutes', go:'openLimiter()'}) : '';
+  const fixes = (fx.length||lim) ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
+      lim+fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix(${jsq(f.slug)})`,
         lock:(f.access==='plus' && !isPlus()) ? paid : ''})).join('')) : '';
   return st.homeOrder==='fixesFirst' ? fixes+films : films+fixes;
 }
@@ -14456,7 +14516,8 @@ function loadFixes(){
       if(st.tab==='fix'||st.tab==='home'||st.fixPending) render(); return true; })
     .catch(()=>false);
 }
-const fixList = () => Object.values(st.fixes||{});
+/* the press limiter fixes wait with the Press stage while it is coming soon */
+const fixList = () => Object.values(st.fixes||{}).filter(f=>!(f && /^press-/.test(f.slug||'') && STAGES[5] && STAGES[5].soon));
 const fixDoneN = slug => Number((st.fixDone||{})[slug]||0);
 const fixTotal = f => (f.weeks||4)*(f.perWeek||3);
 /* a paid fix a free account has not bought arrives without its drills, so

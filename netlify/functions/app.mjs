@@ -23,6 +23,7 @@
 import { getStore } from '@netlify/blobs';
 import programmes, { planFile } from './programmes.mjs';
 import PRESS_DRILLS from './press-drills.mjs';
+import PRESS_FIXES from './press-fixes.mjs';
 /* the Press stage's drills underneath what the dashboard has written:
    a film or a cue added there wins, field by field */
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
@@ -4682,7 +4683,8 @@ const handle = async (request) => {
     drillsN: (f.drills || []).length, locked: true,
   });
   if (path === '/fixes' && request.method === 'GET') {
-    const all = (await getSetting('fixes')) || {};
+    /* the three press limiters ship in code; one saved in the dashboard wins */
+    const all = Object.assign({}, PRESS_FIXES, (await getSetting('fixes')) || {});
     const live = Object.fromEntries(Object.entries(all).filter(([, f]) => f && f.live));
     const full = await fixHydrate(live);
     const who = await me();
@@ -4699,6 +4701,7 @@ const handle = async (request) => {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('fixes')) || {};
     if (request.method === 'GET') {
+      for (const [k, f] of Object.entries(PRESS_FIXES)) if (!all[k]) all[k] = f;
       return json({ fixes: all, library: await libraryNow() });
     }
     if (request.method === 'POST') {
@@ -7304,6 +7307,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         }
         cur.fixDone = m;
       }
+      /* the press test: eight answers 0 to 3, the limiter it named, when */
+      if (body.pressTest && typeof body.pressTest === 'object') {
+        const sc = {};
+        for (const [k, v] of Object.entries(body.pressTest.scores || {}).slice(0, 12)) {
+          const n = Number(v); if (/^[a-z-]{2,20}$/.test(k) && Number.isInteger(n) && n >= 0 && n <= 3) sc[k] = n;
+        }
+        const lim = ['strength', 'mobility', 'patterning'].includes(body.pressTest.limiter) ? body.pressTest.limiter : '';
+        cur.pressTest = { scores: sc, limiter: lim, at: Number(body.pressTest.at) || Date.now() };
+      }
       /* the welcome seen and the call booked. An iPhone's Home Screen app
          keeps its own storage, so without these the welcome played again
          there and a booked call read as not booked. Both stay once said,
@@ -7380,7 +7392,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       stage: Number.isInteger(out.stage) ? out.stage : null,
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {}, ob: out.ob || {} });
+      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, ob: out.ob || {} });
   }
 
   /* ── tracking: metrics, habits, check-ins ─────────────────────
