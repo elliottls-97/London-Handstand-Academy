@@ -1671,6 +1671,7 @@ async function sessConfirmMail(db, row, by, opts = {}) {
     mail({ title: was ? 'Your session has moved.' : 'Your session is confirmed.', greeting: String(row.name || '').split(' ')[0],
       cta: cNoPw ? { href: cLink, label: 'See it in the app' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
       paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.${was ? ' Instead of ' + esc(was) + '.' : ''}`,
+              opts.say ? esc(opts.say) : '',
               row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
               `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
               soon ? '' : 'A reminder comes the day before.',
@@ -1691,14 +1692,15 @@ async function sessConfirmMail(db, row, by, opts = {}) {
   return sent;
 }
 /* ── a 1-2-1 moved or cancelled by the client ──────────────────────────
-   Every change was an email to Elliott, the 24 hours in the terms were
-   kept by nobody, and a cancel refunded nothing until he did it in Stripe.
-   The same rules as a workshop place now: more than SESS_CUTOFF_H hours
-   before, they move it or cancel it themselves, from a link in every email
-   about it or from the app, and a cancel is refunded in full to the card
-   that paid. Inside that, the page says to email. A London session that
-   comes with coaching can be moved, not cancelled: nothing was paid for it
-   on its own. */
+   Every change was an email to Elliott. Now there is a link in every email
+   about a session, and in the app. Elliott hires and pays for the room, so
+   a refund is his to decide (10 Oct 2026): a cancel, or a move once the
+   room is hired, is an ask that waits for him on Today, where he chooses a
+   full, part or no refund, a new date, or to keep it as it is. While the
+   room is not hired yet (a time they picked, not ticked as hired), they
+   move it themselves, more than SESS_CUTOFF_H hours before. A London
+   session that comes with coaching moves, and is not cancelled for money:
+   nothing was paid for it on its own. */
 const SESS_CUTOFF_H = 24;
 const sessLen = x => (String(x && x.kind) === '90' ? 90 : 60) * 60e3;
 /* the link that manages one session without signing in: signed, and it
@@ -1711,12 +1713,18 @@ async function sessManageRead(t) {
   const p = await verify(String(t || ''));
   return p && p.k === 'ssm' && p.i && p.e ? p : null;
 }
-/* what the client may do with it now */
+/* What the client may do with it now. Elliott hires the room for each
+   session and pays for it (10 Oct 2026), so a refund is his to decide: a
+   cancel is a request he answers with a full, part or no refund, or a new
+   date. A move they make themselves only while the room is not hired yet,
+   which is a time they picked and he has not ticked as hired; a time he
+   set, he has the room for, so a move then is a request too. */
 function sessRules(row, now = Date.now()) {
   const at = row && row.when ? ms(row.when) : 0;
   const live = !!row && !['cancelled', 'refunded', 'done'].includes(row.status) && !(at && at < now);
   const early = !at || at - now > SESS_CUTOFF_H * 3600e3;
-  return { live, early, late: live && !early, canMove: live && early, canCancel: live && early && !row.fromPlan };
+  const selfMove = live && early && (!at || row.room === 'hire');
+  return { live, early, late: live && !early, selfMove, canMove: live, canCancel: live && !row.fromPlan, req: (live && row.req) || null };
 }
 /* each card payment on it, and what is still to give back on it */
 const sessBackOf = row => sessPays(row).filter(p => p.pi && !p.autoRefund)
@@ -1726,11 +1734,9 @@ const sessHandPaid = row => (Number(row.paid) || 0) > 0 && !sessPays(row).some(p
 /* what changing it means, said the same way in each email about it */
 async function sessChangeHTML(row) {
   const link = await sessManageLink(row), a = t => `<a href="${link}" style="color:#006663">${t}</a>`;
-  if (!row.when) return row.fromPlan ? '' : `<b>Changed your mind?</b> ${a('Cancel it here')} and it is refunded in full, to the card you paid with. No account or password needed.`;
-  if (row.fromPlan) return `<b>Need to change it?</b> ${a('Move your session')} to another time, up to ${SESS_CUTOFF_H} hours before. No account or password needed. After that, reply to this email.`;
-  const paid = sessPays(row).some(p => p.pi) || Number(row.paid) > 0;
-  return `<b>Need to change it?</b> ${a('Move or cancel your session')}. Up to ${SESS_CUTOFF_H} hours before, you can move it to another time${
-    paid ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel'}. No account or password needed. After that, reply to this email and I will help if I can.`;
+  if (!row.when) return row.fromPlan ? '' : `<b>Changed your mind?</b> ${a('Ask to cancel it here')}, no account or password needed, and I will come back to you within 48 hours.`;
+  if (row.fromPlan) return `<b>Need to change it?</b> ${a('Ask to move your session')} to another time, no account or password needed.`;
+  return `<b>Need to change it?</b> ${a('Move or cancel your session')}, no account or password needed. I hire the room for each session, so a cancellation or a late move comes to me, and I come back to you within 48 hours with a refund or a new date. With less than ${SESS_CUTOFF_H} hours' notice it may be charged in full.`;
 }
 
 /* ── the times a 1-2-1 can be booked ─────────────────────────────────
@@ -1846,19 +1852,27 @@ const slotTxt = t => new Date(t).toLocaleString('en-GB', { weekday: 'long', day:
    filed and says nothing twice; the key means Stripe makes each refund once,
    however many times it is asked. A refund Stripe will not make goes back
    off the row, so the one then made by hand is filed and told when it lands. */
-async function sessRefundRow(id) {
+/* amount: pence, for a part refund; left out, everything still paid */
+async function sessRefundRow(id, amount) {
   let plan = [];
   await changeSetting('sessions', cur => {
     plan = [];
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
     const r = l.find(x => x.id === id); if (!r) return undefined;
     plan = sessBackOf(r);
+    /* a part refund comes off the payments in turn, none past what it took */
+    if (amount != null) {
+      let rest = Math.max(0, Math.round(Number(amount) || 0));
+      plan = plan.map(p => { const take = Math.min(p.left, rest); rest -= take; return { ...p, left: take }; }).filter(p => p.left > 0);
+    }
     if (!plan.length) return undefined;
     const refunds = Object.assign({}, r.refunds || {});
     for (const p of plan) refunds[p.ref] = (Number(refunds[p.ref]) || 0) + p.left;
     r.refunds = refunds;
     r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
-    r.pays = sessPays(r).map(p => plan.some(q => q.ref === p.ref) ? { ...p, autoRefund: true } : p);
+    /* appRefund: the app's own, so Stripe's notice of it is not news; the
+       amounts above are what make it so, and leave room for another part */
+    r.pays = sessPays(r).map(p => plan.some(q => q.ref === p.ref) ? { ...p, appRefund: true } : p);
     return l;
   });
   let back = 0;
@@ -1876,52 +1890,76 @@ async function sessRefundRow(id) {
     const refunds = Object.assign({}, r.refunds || {});
     for (const { p } of failed) refunds[p.ref] = Math.max(0, (Number(refunds[p.ref]) || 0) - p.left);
     r.refunds = refunds; r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
-    r.pays = sessPays(r).map(p => failed.some(f => f.p.ref === p.ref) ? { ...p, autoRefund: false } : p);
     r.refundFailed = true; return l;
   }).catch(() => {});
   return { back, failed };
 }
-/* the client cancels: refunded in full when it is early enough */
-async function sessCancelByClient(id, who) {
-  let row = null, why = '';
+/* The client asks: to cancel, or to move once the room is hired. Nothing
+   changes until the coach answers on Today; the session stands, and they
+   are told so. Asked again, the newer ask replaces the older. */
+async function sessAskByClient(db, id, who, { kind, note = '', slot = '', prefs = '' } = {}) {
+  const rows = (await getSetting('sessions')) || [];
+  const r0 = rows.find(x => x.id === id && norm(x.email) === norm(who));
+  if (!r0) return { error: 'No such session', status: 404 };
+  const R = sessRules(r0);
+  if (!R.live) return { error: 'This session has been cancelled or has already happened.', status: 400 };
+  if (kind === 'cancel' && r0.fromPlan) return { error: 'This session comes with your coaching, so it can be moved but not cancelled. If no time works this month, message Elliott in the app.', status: 400 };
+  const at = kind === 'move' && slot ? ms(slot) : 0;
+  if (kind === 'move' && at) {
+    const S = await slotState(r0.kind, { exceptId: r0.id });
+    if (S.on && !S.slots.some(x => x.start === at)) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  }
+  if (kind === 'move' && !at && !String(prefs).trim()) return { error: 'Say which days and times suit you.', status: 400 };
+  const req = { kind: kind === 'move' ? 'move' : 'cancel', at: Date.now(), late: R.late, note: String(note || '').trim().slice(0, 500),
+    ...(at ? { slot: new Date(at).toISOString() } : {}), ...(String(prefs).trim() ? { prefs: String(prefs).trim().slice(0, 500) } : {}) };
+  let row = null;
   await changeSetting('sessions', cur => {
-    row = null; why = '';
+    row = null;
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-    const r = l.find(x => x.id === id && norm(x.email) === norm(who));
-    if (!r) { why = 'none'; return undefined; }
-    const R = sessRules(r);
-    if (!R.canCancel) { why = !R.live ? 'gone' : r.fromPlan ? 'plan' : 'late'; row = r; return undefined; }
-    /* the cancel is the claim: a second tap finds it cancelled and stops */
-    r.cancelledFrom = r.when || ''; r.status = 'cancelled'; r.cancelledAt = Date.now(); r.cancelledBy = 'client';
-    row = r; return l;
+    const r = l.find(x => x.id === id); if (!r || !sessRules(r).live) return undefined;
+    r.req = req; row = r; return l;
   });
-  if (why === 'none') return { error: 'No such session', status: 404 };
-  if (why === 'gone') return { ok: true, note: 'already cancelled', status: row.status };
-  if (why === 'plan') return { error: 'This session comes with your coaching, so it can be moved but not cancelled. If no time works this month, message Elliott in the app.', status: 400 };
-  if (why === 'late') return { error: `It is less than ${SESS_CUTOFF_H} hours away, so it can no longer be cancelled online. Email info@londonhandstandacademy.com and Elliott will do what he can.`, status: 400, late: true };
-  const { back, failed } = await sessRefundRow(row.id);
-  if (row.cs && stripeKey()) { try { await stripe(`/checkout/sessions/${row.cs}/expire`, {}); } catch { /* paid, expired or gone */ } }
-  const was = row.cancelledFrom ? sessWhen({ when: row.cancelledFrom }) : '';
-  const hand = sessHandPaid(row);
+  if (!row) return { error: 'This session has been cancelled or has already happened.', status: 400 };
   const first = String(row.name || '').split(' ')[0];
-  const money = back > 0 ? `${sessAmt(back)} is refunded to the card you paid with. It shows in a few days.`
-    : failed.length ? 'The refund could not be made automatically, so Elliott will make it by hand.'
-    : hand ? `Elliott will give you back the ${sessAmt(row.paid)} you paid.` : '';
-  const line = `Your ${row.kind} minute session${was ? ' on ' + was : ''} is cancelled. ${money}`.trim();
+  const whenTxt = row.when ? sessWhen(row) : '';
+  const wantTxt = at ? slotTxt(at) : req.prefs ? `a day that suits: "${req.prefs}"` : '';
+  const line = req.kind === 'cancel'
+    ? `You asked to cancel your ${row.kind} minute session${whenTxt ? ' on ' + whenTxt : ''}. I hire the room for each session, so I look at it myself and come back to you within 48 hours, with a refund or a new date. Until then it stands.`
+    : `You asked to move your ${row.kind} minute session${whenTxt ? ' on ' + whenTxt : ''} to ${wantTxt}. I check the room and come back to you within 48 hours. Until then it stands.`;
   try { await threadAdd(null, row.email, { from: 'coach', sub: 'auto', by: primaryCoach(), text: line }); } catch {}
-  const mailed = await email(row.email, `Cancelled: your session${was ? ', ' + was : ''}`, mail({ title: 'Your session is cancelled.', greeting: first,
-    paras: [esc(line), `<a href="${SITE}/session.html" style="color:#006663">Book another</a> whenever suits.`],
-    signoff: { name: coachName(primaryCoach()) } }), undefined, { receipt: true });
-  const toCoach = coachTo(row.email);
-  const coachLine = [`<b>${esc(row.name || row.email)}</b> cancelled their ${esc(row.kind)} minute session${was ? ' on ' + esc(was) : ''}.`,
-    back > 0 ? `${sessAmt(back)} was refunded automatically.` : '',
-    failed.length ? `<b>Refund it in Stripe:</b> ${esc(failed.map(f => f.why).join('; '))}.` : '',
-    hand ? `<b>They paid ${esc(sessAmt(row.paid))} outside Stripe: give it back by hand.</b>` : '',
-    row.when || row.cancelledFrom ? 'If you hired Arch 2 for it, that time is free again.' : ''].filter(Boolean);
-  await coachAlert(row.email, 'business', { title: `${row.name || row.email} cancelled their session`, body: (was || 'No time had been set') + (back ? ', refunded ' + sessAmt(back) : failed.length || hand ? ', refund it by hand' : ''), tag: 'sesscancel:' + row.id });
-  await email(toCoach, `Cancelled: ${row.name || row.email}, ${row.kind} min${was ? ', ' + was : ''}`,
-    mail({ title: 'A 1-2-1 cancelled.', paras: coachLine, cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
-  return { ok: true, status: 'cancelled', refunded: back, failed: failed.length > 0, hand, mailed };
+  const link = await sessManageLink(row);
+  const mailed = await email(row.email, req.kind === 'cancel' ? 'Your session: asked to cancel' : 'Your session: asked to move',
+    mail({ title: 'Asked. I will come back to you.', greeting: first,
+      paras: [esc(line), req.late ? `It is less than ${SESS_CUTOFF_H} hours away, so it may be charged in full.` : '',
+              `Changed your mind? <a href="${link}" style="color:#006663">Keep your session as it is</a>.`].filter(Boolean),
+      signoff: { name: coachName(primaryCoach()) } }), undefined, { receipt: true });
+  /* the coach decides, so the coach is told, whatever the email switches say */
+  const paidTxt = sessHandPaid(row) ? `paid ${sessAmt(row.paid)} outside Stripe` : sessBackOf(row).length ? `paid ${sessAmt(sessBackOf(row).reduce((a, p) => a + p.left, 0))} by card` : row.fromPlan ? 'part of their coaching' : 'nothing paid';
+  await coachAlert(row.email, 'business', { title: `${row.name || row.email} asked to ${req.kind === 'cancel' ? 'cancel' : 'move'} their session`, body: `${whenTxt || 'No time set'}${req.late ? ', under 24 hours' : ''}. Decide on Today.`, tag: 'sessreq:' + row.id });
+  await email(coachTo(row.email), `Asked to ${req.kind}: ${row.name || row.email}, ${row.kind} min${whenTxt ? ', ' + whenTxt : ''}`,
+    mail({ title: req.kind === 'cancel' ? 'A 1-2-1 they want to cancel.' : 'A 1-2-1 they want to move.',
+      paras: [`<b>${esc(row.name || row.email)}</b> asked to ${req.kind} their ${esc(row.kind)} minute session${whenTxt ? ' on ' + esc(whenTxt) : ''}${req.kind === 'move' ? ' to ' + esc(wantTxt) : ''}.`,
+              `${req.late ? `<b>Less than ${SESS_CUTOFF_H} hours' notice.</b> ` : ''}They ${esc(paidTxt)}${row.room === 'hired' ? ', and Arch 2 is ticked as hired' : ''}.`,
+              req.note ? `They said: <i>${esc(req.note)}</i>` : '',
+              'On Today: a full, part or no refund, a new date, or keep it as it is. They hear nothing more until you choose.'].filter(Boolean),
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  return { ok: true, requested: req.kind, mailed };
+}
+/* the client takes their ask back: the session stands, as it was */
+async function sessAskBack(id, who) {
+  let row = null, had = null;
+  await changeSetting('sessions', cur => {
+    row = null; had = null;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id && norm(x.email) === norm(who)); if (!r || !r.req) return undefined;
+    had = r.req; delete r.req; row = r; return l;
+  });
+  if (!row) return { ok: true, note: 'nothing asked' };
+  await coachAlert(row.email, 'business', { title: `${row.name || row.email} kept their session`, body: `They took back their ask to ${had.kind}.`, tag: 'sessreq:' + row.id });
+  await email(coachTo(row.email), `Kept: ${row.name || row.email}, ${row.kind} min${row.when ? ', ' + sessWhen(row) : ''}`,
+    mail({ title: 'They took their ask back.', paras: [`<b>${esc(row.name || row.email)}</b> no longer wants to ${esc(had.kind)} their session. It stands as it was.`],
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  return { ok: true, kept: true };
 }
 /* The client moves it: to a time they pick, when the times can be read, or
    back to "to arrange" with the days that suit, when they cannot. */
@@ -1931,7 +1969,8 @@ async function sessMoveByClient(db, id, who, { slot, prefs } = {}) {
   if (!r0) return { error: 'No such session', status: 404 };
   const R = sessRules(r0);
   if (!R.live) return { error: 'This session has been cancelled or has already happened.', status: 400 };
-  if (!R.canMove) return { error: `It is less than ${SESS_CUTOFF_H} hours away, so it can no longer be moved online. Email info@londonhandstandacademy.com and Elliott will do what he can.`, status: 400, late: true };
+  /* moved by them only while the room is not hired: otherwise it is an ask */
+  if (!R.selfMove) return { error: 'This one comes to Elliott to move, since the room is hired for it.', status: 400, ask: true };
   const at = slot ? ms(slot) : 0;
   if (slot) {
     const S = await slotState(r0.kind, { exceptId: r0.id });
@@ -1942,11 +1981,12 @@ async function sessMoveByClient(db, id, who, { slot, prefs } = {}) {
   await changeSetting('sessions', cur => {
     row = null; was = ''; clash = false;
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
-    const r = l.find(x => x.id === id); if (!r || !sessRules(r).canMove) return undefined;
+    const r = l.find(x => x.id === id); if (!r || !sessRules(r).selfMove) return undefined;
     /* a 1-2-1 that took the time in the meantime */
     if (at && l.some(x => x.id !== r.id && x.when && !['cancelled', 'refunded'].includes(x.status) && ms(x.when) < at + sessLen(r) && ms(x.when) + sessLen(x) > at)) { clash = true; return undefined; }
     was = r.when || '';
     r.moves = (Array.isArray(r.moves) ? r.moves : []).concat([{ from: was, to: at ? new Date(at).toISOString() : '', at: Date.now(), by: 'client', ...(at ? {} : { prefs: String(prefs).slice(0, 500) }) }]).slice(-10);
+    delete r.req;
     if (at) { r.when = new Date(at).toISOString(); r.status = 'arranged'; r.room = 'hire'; r.moveAsked = 0; if (!r.place) r.place = 'OverGravity, Shadwell'; }
     else { r.when = ''; r.status = 'toArrange'; r.prefs = String(prefs).slice(0, 500); r.moveAsked = Date.now(); r.moveFrom = was; delete r.room; }
     row = r; return l;
@@ -2595,7 +2635,7 @@ const handle = async (request) => {
                the same charge, or a stale one, cannot count it twice */
             const refunds = Object.assign({}, row.refunds || {});
             const was = Number(refunds[pay.ref]) || 0;
-            if (total <= was) { if (pay.autoRefund) ownSess = true; continue; }
+            if (total <= was) { if (pay.autoRefund || pay.appRefund) ownSess = true; continue; }
             refunds[pay.ref] = total; row.refunds = refunds;
             row.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
             touched = true;
@@ -3036,7 +3076,7 @@ const handle = async (request) => {
       if (sPicked) {
         const atTxt = slotTxt(sRow.when);
         try { await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
-          text: `Thanks, your ${kind} minute session is booked: ${sessWhen(sRow)}, at OverGravity. See you there. To move or cancel it, use the link in your confirmation email, up to ${SESS_CUTOFF_H} hours before.` }); } catch {}
+          text: `Thanks, your ${kind} minute session is booked: ${sessWhen(sRow)}, at OverGravity. See you there. To move or cancel it, use the link in your confirmation email.` }); } catch {}
         /* the room is not hired until Elliott hires it: said at once, and on
            Today until he ticks it, whatever the email switches say */
         await coachAlert(e, 'business', { title: `${nm || e} booked ${atTxt}`, body: `${kind} minutes, ${amt}. Hire Arch 2 for it.`, tag: 'sess:' + e });
@@ -5875,7 +5915,7 @@ const handle = async (request) => {
                    expires_at: String(Math.floor(Date.now() / 1000) + 31 * 60) } : {}),
         'payment_method_types[0]': 'card',
         submit_type: 'book',
-        'custom_text[submit][message]': at ? `Booked for ${slotTxt(at)} once you pay. Move or cancel it yourself up to ${SESS_CUTOFF_H} hours before, with a full refund.`
+        'custom_text[submit][message]': at ? `Booked for ${slotTxt(at)} once you pay. Your confirmation has a link to move it, or to ask to cancel.`
                                            : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
         success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}`,
@@ -5893,17 +5933,20 @@ const handle = async (request) => {
     if (!row) return json({ error: 'No session found on that link' }, 404);
     if (request.method === 'POST') {
       if ((await rateHit(`ssman:${t.e}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
-      const r = body.action === 'cancel' ? await sessCancelByClient(row.id, t.e)
-              : body.action === 'move' ? await sessMoveByClient(db, row.id, t.e, { slot: body.slot ? String(body.slot) : '', prefs: String(body.prefs || '').trim() })
+      const R0 = sessRules(row), slot = body.slot ? String(body.slot) : '', prefs = String(body.prefs || '').trim(), note = String(body.note || '');
+      const r = body.action === 'cancel' ? await sessAskByClient(db, row.id, t.e, { kind: 'cancel', note })
+              : body.action === 'keep' ? await sessAskBack(row.id, t.e)
+              : body.action === 'move' ? (R0.selfMove ? await sessMoveByClient(db, row.id, t.e, { slot, prefs })
+                                                      : await sessAskByClient(db, row.id, t.e, { kind: 'move', slot, prefs, note }))
               : { error: 'Nothing asked', status: 400 };
       return json(r, r.error ? r.status : 200);
     }
     const R = sessRules(row);
-    const S = R.canMove ? await slotState(row.kind, { exceptId: row.id }).catch(() => ({ on: false })) : { on: false };
+    const S = R.live ? await slotState(row.kind, { exceptId: row.id }).catch(() => ({ on: false })) : { on: false };
     return json({ id: row.id, kind: row.kind, when: row.when || '', place: row.place || '', name: row.name || '', status: row.status,
-      fromPlan: !!row.fromPlan, owes: Number(row.ask) > 0 ? Number(row.ask) : 0, paid: Number(row.paid) || 0,
-      back: sessBackOf(row).reduce((a, p) => a + p.left, 0), hand: sessHandPaid(row), refunded: Number(row.refunded) || 0,
-      canMove: R.canMove, canCancel: R.canCancel, late: R.late, cutoff: SESS_CUTOFF_H,
+      fromPlan: !!row.fromPlan, owes: Number(row.ask) > 0 ? Number(row.ask) : 0, paid: Number(row.paid) || 0, refunded: Number(row.refunded) || 0,
+      live: R.live, selfMove: R.selfMove, canMove: R.canMove, canCancel: R.canCancel, late: R.late, cutoff: SESS_CUTOFF_H,
+      req: R.req ? { kind: R.req.kind, at: R.req.at, slot: R.req.slot || '', prefs: R.req.prefs || '' } : null,
       slots: S.on ? S.slots.filter(x => !row.when || x.start !== ms(row.when)).map(x => new Date(x.start).toISOString()) : null });
   }
   /* ── the 1-2-1 times: hours, rules and the calendars they are read from ──
@@ -5977,6 +6020,9 @@ const handle = async (request) => {
          the time below sends the same confirmation as any other. */
       const askIn = Math.round(Number(body.ask) || 0);
       if (askIn > 0 && askIn < SESS_MIN_ASK) return json({ error: 'Stripe cannot take less than 30p. Ask for at least £0.30.' }, 400);
+      /* a part refund, checked before anything is changed */
+      if (body.refund !== undefined && !['full', 'none'].includes(body.refund) && !(Math.round(Number(body.refund) || 0) >= SESS_MIN_ASK))
+        return json({ error: 'A part refund is at least £0.30. For nothing back, choose No refund.' }, 400);
       let ce = '', a0 = null;
       if (body.create) {
         ce = norm(body.email);
@@ -6016,6 +6062,8 @@ const handle = async (request) => {
         if (typeof body.note === 'string') r.note = body.note.slice(0, 300);
         if (['toArrange', 'arranged', 'done', 'cancelled'].includes(body.status)) r.status = body.status;
         else if (r.when && r.status === 'toArrange') r.status = 'arranged';
+        /* the client's ask is answered by a cancel, a new time, or keeping it */
+        if (r.req && (r.status === 'cancelled' || r.when !== before.when || body.keep)) delete r.req;
         row = r; return l;
       });
       if (missing) return json({ error: 'No such session' }, 404);
@@ -6050,20 +6098,25 @@ const handle = async (request) => {
            hand and the client is told so. */
         const paidSome = Number(row.paid) > 0 && !(Number(row.refunded) >= Number(row.paid));
         const hand = sessHandPaid(row);
+        /* a part refund: pence, at least 30p (Stripe's least), never more than is left */
+        const part = body.refund !== 'full' && body.refund !== 'none' && Number(body.refund) > 0 ? Math.round(Number(body.refund)) : 0;
         let back = 0, failed = [];
         if (body.refund === 'full') ({ back, failed } = await sessRefundRow(row.id));
+        else if (part) ({ back, failed } = await sessRefundRow(row.id, part));
         await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === row.id);
           if (!r) return undefined; r.cancelledAt = Date.now(); r.cancelledBy = 'coach'; r.cancelledFrom = r.when || ''; return l; }).catch(() => {});
-        const money = body.refund === 'full'
+        const money = body.refund === 'full' || part
           ? (back > 0 ? ` ${sessAmt(back)} is refunded to the card you paid with. It shows in a few days.`
             : failed.length ? ' The refund could not be made automatically, so I will make it by hand.'
-            : hand ? ` I will give you back the ${sessAmt(row.paid)} you paid.` : '')
-          : '';
+            : hand ? ` I will give you back ${part ? sessAmt(part) : 'the ' + sessAmt(row.paid)} you paid.` : '')
+          : body.refund === 'none' && paidSome ? ' It is not refunded.' : '';
+        const say = String(body.msg || '').trim().slice(0, 600);
         const line = `Your ${row.kind} minute session${was ? ' on ' + was : ''} is cancelled.${money}`
-          + (body.refund === 'full' || body.refund === 'none' ? ' Reply here if you would like another time.'
+          + (say ? ' ' + say : '')
+          + (body.refund === 'full' || body.refund === 'none' || part ? ' Reply here if you would like another time.'
             : paidSome ? ' Reply here and we will either find another time or refund you in full.' : ' Reply here and we will find another time.');
         try { await threadAdd(db, row.email, { from: 'coach', by, text: line }); } catch {}
-        told = { what: 'cancelled', refunded: back, refundFailed: failed.length ? failed.map(f => f.why).join('; ') : '', hand: body.refund === 'full' && hand,
+        told = { what: 'cancelled', refunded: back, refundFailed: failed.length ? failed.map(f => f.why).join('; ') : '', hand: (body.refund === 'full' || !!part) && hand,
           mailed: await email(row.email, `Cancelled: your session${was ? ', ' + was : ''}`,
           mail({ title: 'Your session is cancelled.', greeting: first, paras: [esc(line)], signoff: { name: coachName(by) } }), undefined, { receipt: true }) };
         if (failed.length) await coachAlert(row.email, 'business', { title: 'Refund it in Stripe: ' + (row.name || row.email), body: failed.map(f => f.why).join('; ').slice(0, 140), tag: 'sessrefund:' + row.id });
@@ -6085,13 +6138,24 @@ const handle = async (request) => {
                       'If you have already paid another way, or the time does not work, reply to this.'],
               signoff: { name: coachName(by) } }), undefined, { receipt: true }) };
         } else {
+          const moved = wasWhen && wasWhen !== row.when ? wasWhen : '';
+          const say = String(body.msg || '').trim().slice(0, 600);
           try { await threadAdd(db, row.email, { from: 'coach', by,
-            text: `Confirmed: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
-          told = { what: 'confirmed', mailed: await sessConfirmMail(db, row, by) };
+            text: `${moved ? 'Moved' : 'Confirmed'}: ${whenTxt}${row.place ? ', at ' + row.place : ''}. ${say || row.note || 'Wear something you can move in. See you there.'}` }); } catch {}
+          told = { what: moved ? 'moved' : 'confirmed', mailed: await sessConfirmMail(db, row, by, { moved, say }) };
         }
       }
+      /* the ask answered with "keep it as it is": the session stands */
+      if (body.keep && before.req && !told) {
+        const say = String(body.msg || '').trim().slice(0, 600);
+        const line = `Your ${row.kind} minute session${row.when ? ' on ' + sessWhen(row) : ''} stands as it was.${say ? ' ' + say : ''}`;
+        try { await threadAdd(db, row.email, { from: 'coach', by, text: line }); } catch {}
+        told = { what: 'kept', mailed: await email(row.email, `Your session${row.when ? ', ' + sessWhen(row) : ''}: it stands`,
+          mail({ title: 'Your session stands.', greeting: first, paras: [esc(line), await sessChangeHTML(row)].filter(Boolean),
+            signoff: { name: coachName(by) } }), undefined, { receipt: true }) };
+      }
       /* a cancel changed the row again (the refund, who cancelled): the list as it is now */
-      const after = told && told.what === 'cancelled' ? ((await getSetting('sessions')) || list) : list;
+      const after = told && ['cancelled', 'kept', 'moved'].includes(told.what) ? ((await getSetting('sessions')) || list) : list;
       return json({ ok: true, session: after.find(x => x.id === row.id) || row, told, sessions: after.filter(x => owns(x.email)) });
     }
     return json({ error: 'Nope' }, 405);
@@ -6259,8 +6323,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         owes: x.ask > 0 ? x.ask : 0, pay: x.ask > 0 ? `/api/app/session/pay?id=${enc(x.id)}` : '',
         ics: x.when ? `/api/app/session.ics?id=${enc(x.id)}` : '', gcal: x.when ? sessGcal(x) : '',
         change: R.canMove && (x.when || pickOn || R.canCancel) ? await sessManageLink(x) : '',
-        changeLabel: !R.canMove ? '' : x.when ? (R.canCancel ? 'Move or cancel' : 'Move it')
-          : pickOn ? (R.canCancel ? 'Pick a time or cancel' : 'Pick a time') : R.canCancel ? 'Cancel it' : '' });
+        changeLabel: !R.canMove ? '' : R.req ? 'See what you asked' : x.when ? (R.canCancel ? 'Move or cancel' : 'Move it')
+          : pickOn ? (R.canCancel ? 'Pick a time or cancel' : 'Pick a time') : R.canCancel ? 'Cancel it' : '',
+        asked: R.req ? R.req.kind : '' });
     }
     out.sort((a, b) => ms(a.when) - ms(b.when));
     return json({ bookings: out });
