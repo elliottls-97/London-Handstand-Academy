@@ -10952,12 +10952,20 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='limiter'){ body=limiterBody(); }
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
   else if(st.ov==='goal'){ body=goalSheetHTML(); }
+  else if(st.ov==='callbook'){ body=`<div style="padding:2px">
+      <div class="kick2">YOUR WELCOME CALL</div>
+      <div style="font:400 28px/1.05 var(--serif);margin-top:9px">Pick a <em style="color:var(--forest);font-style:normal">time.</em></div>
+      <iframe title="Book your welcome call" src="${esc(welcomeCallURL({embed_domain:location.hostname, embed_type:'Inline', hide_gdpr_banner:'1'}))}"
+        style="display:block;width:100%;height:660px;border:0;border-radius:16px;margin-top:14px;background:#fff"></iframe>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px;text-align:center">Booked it another way?
+        <button onclick="callBookedYes()" style="border:0;background:none;padding:0;cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">It&rsquo;s booked</button></div>
+    </div>`; }
   else if(st.ov==='pbendy'){ body=pressBendyBody(); }
   else if(st.ov==='pressdone'){ body=pressDoneBody(); }
   else if(st.ov==='pfilm'){ const u=st.pFilm||''; body=isUid(u) ? ccWrap(`<video src="${hlsOk()?streamHls(u):streamMp4(u)}" controls playsinline autoplay
@@ -12661,6 +12669,31 @@ function blockNo(){ return (st.cycle && st.cycle.n) || 1; }
    the steps the homepage promises, and which are done: the questions,
    the clips, the call, and then block one. The ladder is open meanwhile. */
 const CALL_URL = 'https://calendly.com/londonhandstandacademy-info/intro-call';
+/* ── the welcome call ─────────────────────────────────────────────────
+   Pick a time marked the call booked on the tap, before anything was
+   booked, so Start could say Booked for a call that never happened
+   (booking review, 10 Oct 2026). On the web Calendly opens inside the app
+   and only its own "booked" counts; the iPhone app may load nothing but
+   this site, so there it opens outside and they say so when it is done.
+   Their name and email go with it, tagged welcome-call, so in Calendly it
+   is not taken for a stranger's intro call. */
+const welcomeCallURL = extra => CALL_URL+'?'+new URLSearchParams(Object.assign({
+  name: st.client||'', email: st.email||'', utm_source:'app', utm_campaign:'welcome-call'}, extra||{})).toString();
+function callPick(){
+  st.callOpened=Date.now(); save();
+  if(IOS_APP){ render(); leaveTo(welcomeCallURL()); return; }
+  openOv('callbook');
+}
+function callBookedYes(){
+  st.callBooked=true; st.callNo=false; st.callOpened=0; save(); saveState(true);
+  if(st.ov==='callbook') closeOv();
+  toast('Booked. Talk soon.'); render();
+}
+window.addEventListener('message', e=>{
+  if(!/^https:\/\/([a-z0-9-]+\.)?calendly\.com$/.test(e.origin||'')) return;
+  const ev = e.data && typeof e.data==='object' ? e.data.event : '';
+  if(ev==='calendly.event_scheduled' && st.ov==='callbook') callBookedYes();
+});
 /* A programme is a day with drills in it. DATA starts as one empty Day 1,
    so "has days" was true for everybody, programme or not. */
 const hasPlan = () => !!(DATA && (DATA.days||[]).some(d=>(d.groups||[]).some(g=>(g.items||[]).length)));
@@ -12826,7 +12859,8 @@ function screenStart(){
         ${st.callDone?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Done. I have what I need.</div>`
           : s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked. <button onclick="st.callBooked=false;st.callNo=true;save();saveState();render()"
             style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Not booked after all?</button></div>`
-          : cta('Pick a time',"st.callBooked=true;st.callNo=false;save();saveState(true);render();leaveTo('"+CALL_URL+"')",true)}</div>`:''}
+          : cta('Pick a time',"callPick()",true)+(st.callOpened?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px;text-align:center">Booked it?
+            <button onclick="callBookedYes()" style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Yes, it&rsquo;s booked</button></div>`:'')}</div>`:''}
 
       ${open==='b'?`<div id="ob-b" class="card" style="padding:18px;scroll-margin-top:90px;background:linear-gradient(160deg,#fff,rgba(0,102,99,.05))">${secHead(s3)}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${obBlockLine()}</div></div>`:''}
@@ -17764,7 +17798,12 @@ const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
    coaching client has no programme yet and the app drops them back to the
    ladder, and without it here they paid for coaching and met the paywall
    on Wall Work while waiting for block one to be written. */
-const isPlus = () => !!(st.plus || st.in || st.coached);
+/* ...and only while signed in, or on a purchase this iPhone verified
+   with Apple. A sign in that ran out kept st.plus and st.coached, so the
+   phone went on opening every stage while the server, rightly, signed no
+   paid film for it: the stages open, the films black, nothing to pay. */
+const isPlus = () => !!(st.plus || st.in || st.coached)
+  && (!!st.token || !!st.preview || (typeof IOS_APP!=='undefined' && IOS_APP && (st.appleUntil||0) > Date.now()));
 /* This had no taste term while stageCap and tasting did, so somebody with
    two free sessions at Take-Off was told on the wall that they had them and
    then met the paywall when they tapped the stage, with no way to its check
