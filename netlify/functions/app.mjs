@@ -2859,6 +2859,7 @@ const handle = async (request) => {
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
             ...(pp.e !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}),
             q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
+            ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
             ...(md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
           count = wsLive(l).length; return l;
@@ -3041,6 +3042,7 @@ const handle = async (request) => {
         const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
         if (l.some(x => x.session === obj.id)) return undefined;
         l.unshift({ id: 's' + String(obj.id || newId()).slice(-12), email: e, name: nm, kind, prefs, at: Date.now(), session: String(obj.id || ''),
+          ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
           pi: String(obj.payment_intent || ''), pays: [{ ref: String(obj.id || ''), pi: String(obj.payment_intent || ''), amount: Number(obj.amount_total) || 0, at: Date.now() }],
           paid: Number(obj.amount_total) || 0, status: picked ? 'arranged' : 'toArrange', when: picked ? new Date(slotAt).toISOString() : '',
           place: 'OverGravity, Shadwell', note: '',
@@ -5438,6 +5440,9 @@ const handle = async (request) => {
     const nm = String(body.name || '').trim().slice(0, 60);
     const qn = String(body.q || '').trim().slice(0, 400);
     const exp = String(body.exp || '').trim().slice(0, 400);
+    /* where the visit came from (stats.js), kept on the booking so the
+       numbers can say which source books, not only which one visits */
+    const src = String(body.src || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
     if (!slug || !e || !wsMailOk(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
     /* The limit further down only guarded the paid road. A free place, or a
        code that makes one free, was booked with no limit at all: any made up
@@ -5507,7 +5512,7 @@ const handle = async (request) => {
           const lv = wsLive(l);
           if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
-          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked', unit: Number(w.price) || 0, pairP: pairPence,
+          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked', unit: Number(w.price) || 0, pairP: pairPence, ...(src ? { src } : {}),
             ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}),
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
           return l;
@@ -5598,7 +5603,7 @@ const handle = async (request) => {
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold,
-        'metadata[unit]': String(Number(w.price) || 0), 'metadata[pairp]': String(pairPence),
+        'metadata[unit]': String(Number(w.price) || 0), 'metadata[pairp]': String(pairPence), 'metadata[src]': src,
         expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
         customer_email: e,
         /* the class page and the app book here too, and come back to themselves */
@@ -5742,15 +5747,20 @@ const handle = async (request) => {
     }
     const shops = (await getSetting('workshops')) || {};
     let booked = 0, attended = 0;
+    /* which source booked: the src a booking carried from the page (stats.js) */
+    const bookedBy = {};
+    const tally = (src, k) => { const s2 = src || 'unknown'; bookedBy[s2] = bookedBy[s2] || { classes: 0, sessions: 0 }; bookedBy[s2][k]++; };
     for (const w of Object.values(shops)) {
       const b = wsLive((await getSetting(`wsbook:${w.slug}`)) || []);
       booked += b.filter(x => ms(x.at) > since).length;
+      b.filter(x => ms(x.at) > since && !x.payer && x.source !== 'setmore').forEach(x => tally(x.src, 'classes'));
       if (w.when && ms(w.when) > since && ms(w.when) < Date.now()) attended += b.length;
     }
     const sessions = ((await getSetting('sessions')) || []).filter(x => x && ms(x.at) > since && !['cancelled', 'refunded'].includes(x.status));
+    sessions.filter(x => !x.byHand).forEach(x => tally(x.src, 'sessions'));
     const accounts = (await supa.rows('accounts', `select=email,first_seen,plus&first_seen=gt.${enc(new Date(since).toISOString())}`)) || [];
     const paying = (await supa.rows('accounts', 'select=email&plus=eq.true')) || [];
-    return json({ days, app, by,
+    return json({ days, app, by, bookedBy,
       newAccounts: accounts.length, paying: paying.filter(a => !clients()[a.email]).length,
       classBookings: booked, classAttended: attended, sessions: sessions.length,
       sessionsPaid: sessions.filter(x => (Number(x.paid) || 0) > 0).length,
@@ -5924,6 +5934,7 @@ const handle = async (request) => {
         'line_items[0][price_data][product_data][description]': at ? `${slotTxt(at)}, at OverGravity, Shadwell.` : 'Time arranged with you after payment, around the room at OverGravity.',
         'line_items[0][quantity]': '1',
         'metadata[session]': kind, 'metadata[name]': nm, 'metadata[prefs]': prefs,
+        'metadata[src]': String(body.src || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20),
         ...(at ? { 'metadata[slot]': new Date(at).toISOString(), 'metadata[hold]': hold,
                    /* the hold outlasts the page by a few minutes */
                    expires_at: String(Math.floor(Date.now() / 1000) + 31 * 60) } : {}),
@@ -8269,6 +8280,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'sitesessionpage', 'sessionbook', 'sitesessionmanage',
                   /* the website, before the app */
                   'site', 'sitequiz', 'siteapp', 'siteworkshop',
+                  /* stats.js: a view of each public page, and a click from one
+                     of them towards booking (11 Oct 2026), split by source */
+                  'pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'tobook',
                   /* the homepage's way in: a door picked, the fit check
                      started and finished, what they did about it, and the
                      prompt on the way out */

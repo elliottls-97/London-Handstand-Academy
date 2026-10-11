@@ -1401,7 +1401,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
    so the dashboard's numbers can say whether Instagram sends anyone */
 (function(){ try{
   var q=new URLSearchParams(location.search), r=(q.get('ref')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
-  if(r){ localStorage.setItem('lha_ref',r); history.replaceState(null,'',location.pathname+location.hash); }
+  if(r){ window.LHA_TAG=r; localStorage.setItem('lha_ref',r); history.replaceState(null,'',location.pathname+location.hash); }
   var ref=r||localStorage.getItem('lha_ref')||'';
   var body=JSON.stringify(Object.assign({n:'siteworkshoppage'}, ref?{r:ref}:{}));
   if(navigator.sendBeacon) navigator.sendBeacon('/api/app/event', new Blob([body],{type:'application/json'}));
@@ -1468,7 +1468,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var booked=(function(){ var q=new URLSearchParams(location.search), b=(q.get('booked')||'').toLowerCase().split(',').map(function(x){ return x.replace(/[^a-z0-9-]/g,'').slice(0,24); }).filter(Boolean);
     BS=(q.get('bs')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,200); q.delete('bs');
     if(b.length){ q.delete('booked'); var qs=q.toString(); history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#book'); } return b; })();
-  var beacon=function(n){ try{ navigator.sendBeacon('/api/app/event', new Blob([JSON.stringify({n:n})],{type:'application/json'})); }catch(e){} };
+  var beacon=function(n){ try{ navigator.sendBeacon('/api/app/event', new Blob([JSON.stringify({n:n,r:window.LHA_SRC||''})],{type:'application/json'})); }catch(e){} };
   var post=function(path,body){ return fetch('/api/app/workshop/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){ return r.json().catch(function(){ throw new TypeError('no answer'); })
       .then(function(d){ if(r.ok) return d;
@@ -1786,7 +1786,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(!okEmail(friend.email)){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='Their email, please: their confirmation and reminder go there.'; $('bkFrEmail').focus(); return; }
       if(friend.email.toLowerCase()===email.toLowerCase()){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='They need their own email address.'; return; }
     }
-    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),back:'class'}).then(function(d){
+    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),back:'class',src:window.LHA_SRC||''}).then(function(d){
       if(d.url){ location.href=d.url; return; }
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:''))+(d.bs?'&bs='+encodeURIComponent(d.bs):''); return; }
       throw 'Something went wrong. Try again in a moment.';
@@ -2191,4 +2191,5 @@ function playRev(poster, id){
   if(book && 'IntersectionObserver' in window) new IntersectionObserver(function(e){ atBook=e[0].isIntersecting; paint(); },{threshold:.15}).observe(book);
 })();
 </script>
+<script src="stats.js" defer></script>
 </body></html>
