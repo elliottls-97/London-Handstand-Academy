@@ -3754,6 +3754,53 @@ const handle = async (request) => {
   }
 
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+  /* ── your own visits are not visitors ─────────────────────────────
+     Elliott testing the quiz and the pages went into the numbers as if he
+     were somebody new (11 Oct 2026: "it would include me going on the quiz
+     to test it as a user"). A marked device still sends its counts and they
+     are dropped here. The mark is one cookie, set by this server rather than
+     by a script so Safari keeps it a year and not a week. The dashboard sets
+     it on any browser it is signed in on, which takes in the iPhone app,
+     because a coach signing in there is sent to the dashboard; /me sets it
+     on any other phone or browser. An account used on a marked device is a
+     test account, and New accounts leaves it out. */
+  const meDevice = /(?:^|;\s*)lha_me=1(?:;|$)/.test(request.headers.get('cookie') || '');
+  const meCookie = on => (on ? 'lha_me=1; Max-Age=34560000' : 'lha_me=; Max-Age=0') + '; Path=/; Secure; SameSite=Lax';
+  const markTest = async e => {
+    e = norm(e); if (!e) return;
+    const nc = (await getSetting('notcounted')) || {};
+    if (nc[e]) return;
+    nc[e] = Date.now(); await setSetting('notcounted', nc);
+  };
+  if (path === '/device') {
+    const q = url.searchParams.get('count');
+    const set = request.method === 'POST' ? (typeof body.count === 'boolean' ? body.count : null)
+      : (q === '0' ? false : q === '1' ? true : null);
+    const counted = set === null ? !meDevice : set;
+    const cookie = set === null ? {} : { 'set-cookie': meCookie(!set) };
+    if (request.method === 'POST') return new Response(JSON.stringify({ ok: true, counted }),
+      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cookie } });
+    const btn = (href, label, primary) => `<a href="${href}" style="display:flex;align-items:center;justify-content:center;margin-top:22px;
+      min-height:52px;border-radius:14px;text-decoration:none;font:600 16px system-ui;${primary
+        ? 'background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1'
+        : 'background:#fff;color:#00403d;border:1px solid rgba(0,64,61,.18)'}">${label}</a>`;
+    const [h, msg, more] = counted
+      ? ['This browser is counted.', 'Visits from here go into the numbers like anyone else\'s.',
+         btn('/api/app/device?count=0', 'Leave my visits out', true)]
+      : ['Your visits are left out.', 'The pages, the quiz and the app on this browser stay out of the numbers for a year. Open londonhandstandacademy.com/me once on each phone and browser you test on.',
+         btn('/api/app/device?count=1', 'Count this browser again', false)];
+    return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Your visits · London Handstand Academy</title></head>
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;box-sizing:border-box;
+  background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
+<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:24px;padding:28px 24px;
+  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#006663">London Handstand Academy</div>
+<h1 style="font:400 32px/1.1 Georgia,serif;margin:12px 0 10px">${h}</h1>
+<p style="margin:0;color:#5a5a5a">${msg}</p>${more}</main></body></html>`,
+      { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', ...cookie } });
+  }
   /* ── an email address is only ever an email address ─────────────
      The routes checked for something@something.something, which let a
      quote, a bracket or a semicolon through. An address like that, sent
@@ -4051,6 +4098,7 @@ const handle = async (request) => {
         return json({ error: 'That is a lot of accounts from one place. Try again tomorrow, or sign in.' }, 429);
       } }
     const prev = (await getAcct(e)) || {};
+    if (meDevice) await markTest(e);
 
     /* a password is optional: the email gate after the quiz just wants
        the address, and an account can gain a password later */
@@ -4228,7 +4276,7 @@ const handle = async (request) => {
        were here — not whenever some row of theirs happened to be written */
     /* realMe, not me: a coach looking at somebody's app must not make
        that person look like they opened it. */
-    await (async () => { const w = await realMe(); if (w) await touchSeen(w); })();
+    await (async () => { const w = await realMe(); if (w) await touchSeen(w); if (w && meDevice) await markTest(w); })();
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     /* App sign ins lasted ninety days and nothing renewed them, so from late
@@ -5758,10 +5806,13 @@ const handle = async (request) => {
     }
     const sessions = ((await getSetting('sessions')) || []).filter(x => x && ms(x.at) > since && !['cancelled', 'refunded'].includes(x.status));
     sessions.filter(x => !x.byHand).forEach(x => tally(x.src, 'sessions'));
-    const accounts = (await supa.rows('accounts', `select=email,first_seen,plus&first_seen=gt.${enc(new Date(since).toISOString())}`)) || [];
+    const nc = (await getSetting('notcounted')) || {};
+    const made = (await supa.rows('accounts', `select=email,first_seen,plus&first_seen=gt.${enc(new Date(since).toISOString())}`)) || [];
+    const accounts = made.filter(a => !nc[norm(a.email)]);
     const paying = (await supa.rows('accounts', 'select=email&plus=eq.true')) || [];
     return json({ days, app, by, bookedBy,
-      newAccounts: accounts.length, paying: paying.filter(a => !clients()[a.email]).length,
+      newAccounts: accounts.length, testAccounts: made.length - accounts.length,
+      paying: paying.filter(a => !clients()[a.email] && !nc[norm(a.email)]).length,
       classBookings: booked, classAttended: attended, sessions: sessions.length,
       sessionsPaid: sessions.filter(x => (Number(x.paid) || 0) > 0).length,
       clients: Object.keys(clients()).length });
@@ -8293,6 +8344,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
+    if (meDevice) return json({ ok: true, notCounted: true });
     /* loose, per address: enough for a real phone, not enough to fill a row */
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`ev:${ip}`, 3600000)) > 400) return json({ ok: true });

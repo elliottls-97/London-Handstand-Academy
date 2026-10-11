@@ -548,12 +548,23 @@ function signIn(ev){
     .catch(c=>gate(c===429?'Too many tries. Wait a few minutes.':'That email and password did not match.'));
 }
 
+/* Signed in here means this browser is yours, so your own visits to the
+   site, the quiz and the app on it are left out of the numbers. The server
+   holds the mark as a cookie (see /device); asked once per open, which also
+   keeps it from running out. The iPhone app counts too: a coach signing in
+   there lands on this page. */
+let notMeDone=false;
+function notMe(){
+  if(notMeDone) return; notMeDone=true;
+  fetch('/api/app/device',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"count":false}'}).catch(()=>{});
+}
 function load(){
   clientsAt=extrasAt=Date.now();
   fetch(API+'/clients',{headers:hdr()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ clients=d.clients||[]; clientsLoaded=true;
       owner = d.youAreOwner !== false;
+      notMe();
       loadQueue(); loadApps(); loadQuestions(); loadFeedback(); loadSessions(); loadStarting();
       if(mailguard===null) loadMailguard();
       COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
@@ -8834,7 +8845,7 @@ function numbersHTML(){
     <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><span class="kick">The last ${NUM.days} days</span>
       <span class="muted" style="font-size:12px">${src.length?'Opens from: '+src.map(([k,v])=>esc(k)+' '+v).join(', '):'No tagged links yet (add ?ref=ig to the Instagram link)'}</span></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:14px 18px;margin-top:12px">
-      ${cell(a.open,'App opens')}${cell(a.quiz,'Quizzes done',pct(a.quiz,a.open)+' of opens')}${cell(NUM.newAccounts,'New accounts')}
+      ${cell(a.open,'App opens')}${cell(a.quiz,'Quizzes done',pct(a.quiz,a.open)+' of opens')}${cell(NUM.newAccounts,'New accounts',NUM.testAccounts?NUM.testAccounts+' of yours left out':'')}
       ${cell(a.checkout,'Saw the paywall')}${cell(a.subscribed,'Subscribed',pct(a.subscribed,a.checkout)+' of paywall')}${cell(NUM.paying,'Paying for the app','now')}
       ${cell(NUM.classBookings,'Class bookings')}${cell(NUM.classAttended,'Came to a class')}${cell(NUM.sessions,'1-2-1s booked',NUM.sessionsPaid+' paid')}${cell(NUM.clients,'Coaching clients','now')}
     </div></section>`;
@@ -8869,6 +8880,7 @@ function websiteHTML(){
     </table></div>`:''}
     ${total?`<div class="muted" style="font-size:12.5px;margin-top:10px">${PV_PAGES.map(([k,l])=>esc(l)+' '+(a[k]||0)).join(' &middot; ')}</div>`:''}
     <div class="muted" style="font-size:12px;margin-top:8px">Booked counts class places and 1-2-1s paid for from the site. The Instagram bio should link to londonhandstandacademy.com/ig so those visits are counted as Instagram.</div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Your own visits are left out on any browser this dashboard is signed in on. On another phone or browser, open londonhandstandacademy.com/me once.</div>
   </section>`;
 }
 function todayHTML(){
