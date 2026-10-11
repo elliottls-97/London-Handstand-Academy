@@ -459,6 +459,7 @@ export default async () => {
   try { await workshopMail(done); } catch (e) { done.workshopError = String(e && e.message || e); }
   try { await intentMail(done); } catch (e) { done.intentError = String(e && e.message || e); }
   try { await sessionMail(done); } catch (e) { done.sessionError = String(e && e.message || e); }
+  try { await callRemind(done); } catch (e) { done.callError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
   try { await trainingPush(done); } catch (e) { done.pushError = String(e && e.message || e); }
   try { await voiceSweep(done); } catch (e) { done.voiceError = String(e && e.message || e); }
@@ -768,7 +769,7 @@ async function workshopMail(done) {
             if (T.off) { done.held = (done.held || 0) + 1; continue; }
             const P = (await afterData()).prices;
             const M = nextStepEmail({ site: SITE, first, title: T.title, paras: T.paras, footnote: T.footnote,
-              kicker: w.title, s60: P.s60, s90: P.s90, call: 'https://calendly.com/londonhandstandacademy-info/intro-call',
+              kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/call.html`,
               photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand at Leadenhall Market' },
               headshot: '/assets/site/coach-elliott-headshot.jpg',
               preheader: `A 1-2-1 at OverGravity, from ${P.s60}, or a free 15 minute call.` });
@@ -1025,6 +1026,45 @@ async function sessionMail(done) {
         done.sessions.followed++;
       }
     }
+  }
+}
+
+/* ── calls booked in the app: one reminder, the day before or that morning ──
+   The job runs at nine (UTC) each day, so a call from an hour to a day and
+   an hour off is reminded now: every call gets one, and one only. In their
+   own time zone, with the link to join and the one to move or cancel. */
+async function callRemind(done) {
+  done.calls = { reminded: 0 };
+  const conf = (await supa.row('settings', 'key=eq.callconf&select=value').catch(() => null)) || {};
+  const c = conf.value || {};
+  const row = await supa.row('settings', 'key=eq.calls&select=value').catch(() => null);
+  const list = (row && row.value) || [];
+  const now = Date.now();
+  const zone = tz => { try { if (tz) { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return tz; } } catch {} return 'Europe/London'; };
+  const f = (t, z, o) => new Date(t).toLocaleString('en-GB', Object.assign({ hour: 'numeric', minute: '2-digit', hour12: true, timeZone: z }, o))
+    .replace(':00', '').replace(/\s?([ap]m)/i, '$1').replace(' at ', ', ');
+  for (const x of list) {
+    if (!x || x.status !== 'booked' || !x.when) continue;
+    const at = ms(x.when), hoursTo = (at - now) / 3600e3;
+    if (!(hoursTo > 0.5 && hoursTo <= 24.5)) continue;
+    const key = `callremind:${x.id}:${x.when}`;
+    if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+    const z = zone(x.tz);
+    const today = new Date(at).toLocaleDateString('en-CA', { timeZone: z }) === new Date(now).toLocaleDateString('en-CA', { timeZone: z });
+    const clock = f(at, z, {}), lon = z === 'Europe/London' ? '' : f(at, 'Europe/London', {});
+    const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'csm', i: x.id, e: norm(x.email), exp: now + 120 * DAY })));
+    const key2 = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const manage = `${SITE}/call.html?m=${body}.${b64u(await crypto.subtle.sign('HMAC', key2, new TextEncoder().encode(body)))}`;
+    const kindTxt = x.kind === 'welcome' ? 'welcome call' : 'free call';
+    const went = await email(x.email, `${today ? 'Today' : 'Tomorrow'}: your ${kindTxt} at ${clock}`, mail({
+      title: today ? 'Your call is today.' : 'Your call is tomorrow.', greeting: String(x.name || '').split(' ')[0],
+      paras: [`<b>${esc(clock)}</b>${lon && lon !== clock ? ' your time (' + esc(lon) + ' in London)' : ''}, ${Math.round((Number(x.len) || 15))} minutes with Elliott.`,
+              c.link ? `When it is time, <a href="${esc(c.link)}" style="color:#006663;font-weight:600">join the call here</a>.` : '',
+              `<b>Can't make it?</b> <a href="${manage}" style="color:#006663">Move or cancel it here</a>, no sign in needed.`].filter(Boolean),
+      signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+    if (!went) { done.held = (done.held || 0) + 1; continue; }
+    await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+    done.calls.reminded++;
   }
 }
 

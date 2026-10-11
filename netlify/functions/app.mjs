@@ -1810,6 +1810,9 @@ async function slotTaken({ exceptId = '', exceptHold = '', exceptSession = '' } 
   }
   for (const w of Object.values((await getSetting('workshops')) || {})) if (w && w.when)
     out.push({ start: ms(w.when) - gap, end: ms(w.when) + wsMins(w) * 60e3 + gap, what: 'a class' });
+  /* a call booked in the app: Elliott cannot be at OverGravity and on it */
+  for (const x of ((await getSetting('calls')) || [])) if (x && x.status === 'booked' && x.when)
+    out.push({ start: ms(x.when) - gap, end: ms(x.when) + callLen(x) + gap, what: 'a call' });
   for (const [k, h] of Object.entries((await getSetting('sessholds')) || {}))
     if (h && k !== exceptHold && Number(h.until) > Date.now()) out.push({ start: h.start, end: h.end, what: 'held at a checkout' });
   return out;
@@ -2038,6 +2041,218 @@ async function sessMoveByClient(db, id, who, { slot, prefs } = {}) {
       cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
   }
   return { ok: true, session: { when: row.when, status: row.status }, mailed };
+}
+/* ── calls: the free intro call and the coaching welcome call ─────────────
+   Booked here rather than in Calendly, which kept failing to make the Teams
+   meeting for each booking (11 Oct 2026). A call is a time from the hours
+   Elliott offers calls, clear of his own calendars, the 1-2-1s, the classes
+   and the other calls, with a gap round each, a cap on calls a day and his
+   days off. The meeting is one fixed link he pastes in, so nothing has to be
+   made when somebody books. Times are shown in the booker's own time zone,
+   with London's beside it when they differ: online coaching is from
+   anywhere. A call costs nothing, so it is moved and cancelled at once, by
+   them or by him. Off until he switches it on: until then, and whenever his
+   calendars cannot be read, the old Calendly link is the way in. */
+const CALL_TZ = 'Europe/London';
+const CALL_DEFAULTS = { introOn: false, welcomeOn: false, hours: {}, len: 15, step: 15, leadH: 12, days: 21, gap: 5, maxDay: 6, off: '', link: '', linkName: '' };
+const CALL_CALENDLY = 'https://calendly.com/londonhandstandacademy-info/intro-call';
+const callConf = async () => Object.assign({}, CALL_DEFAULTS, (await getSetting('callconf').catch(() => null)) || {});
+const callLen = x => Math.max(10, Math.min(90, Number(x && x.len) || 15)) * 60e3;
+const callDay = t => new Date(t).toLocaleDateString('en-CA', { timeZone: CALL_TZ });
+const callZone = tz => { try { if (tz) { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return tz; } } catch {} return CALL_TZ; };
+/* "Tuesday 14 October, 6:15pm", in their zone, with London's when it differs */
+function callWhen(t, tz) {
+  const z = callZone(tz);
+  const f = (zz, o) => new Date(t).toLocaleString('en-GB', Object.assign({ hour: 'numeric', minute: '2-digit', hour12: true, timeZone: zz }, o))
+    .replace(':00', '').replace(/\s?([ap]m)/i, '$1').replace(' at ', ', ');
+  const mine = f(z, { weekday: 'long', day: 'numeric', month: 'long' });
+  if (z === CALL_TZ) return mine;
+  const lon = f(CALL_TZ, callDay(t) === new Date(t).toLocaleDateString('en-CA', { timeZone: z }) ? {} : { weekday: 'long' });
+  return mine === f(CALL_TZ, { weekday: 'long', day: 'numeric', month: 'long' }) ? mine : `${mine} your time (${lon} in London)`;
+}
+const CALL_NAME = { intro: 'free call', welcome: 'welcome call' };
+/* "2026-12-24, 2026-12-27 to 2026-12-31" into the London dates off */
+function callDaysOff(v) {
+  const out = new Set();
+  for (const part of String(v || '').split(/[,;\n]+/)) {
+    const m = /(\d{4}-\d{2}-\d{2})(?:\s*(?:to|-)\s*(\d{4}-\d{2}-\d{2}))?/.exec(part.trim()); if (!m) continue;
+    let a = Date.parse(m[1] + 'T12:00:00Z'), b = Date.parse((m[2] || m[1]) + 'T12:00:00Z');
+    if (!(a <= b)) continue;
+    for (let i = 0; a <= b && i < 400; a += DAY, i++) out.add(new Date(a).toISOString().slice(0, 10));
+  }
+  return out;
+}
+async function callManageLink(row) {
+  const t = await sign({ k: 'csm', i: row.id, e: norm(row.email), exp: Date.now() + 120 * DAY });
+  return `${SITE}/call.html?m=${t}`;
+}
+async function callManageRead(t) { const p = await verify(String(t || '')); return p && p.k === 'csm' && p.i && p.e ? p : null; }
+const callIcsUrl = row => `${SITE}/api/app/call.ics?id=${enc(row.id)}`;
+const callGcal = (row, c) => { const a = ms(row.when), b = a + callLen(row);
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(`Call with Elliott, London Handstand Academy`)
+    + '&dates=' + sessStamp(a) + '/' + sessStamp(b) + '&location=' + encodeURIComponent((c && c.link) || '')
+    + '&details=' + encodeURIComponent(`Your ${CALL_NAME[row.kind] || 'call'} with Elliott.${c && c.link ? ' Join: ' + c.link : ''}`); };
+function callIcs(row, c, manage) {
+  const a = ms(row.when), b = a + callLen(row), e = t => String(t || '').replace(/([,;\\])/g, '\\$1').replace(/\r?\n/g, '\\n');
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//London Handstand Academy//Calls//EN', 'METHOD:PUBLISH',
+    'BEGIN:VEVENT', `UID:${row.id}@londonhandstandacademy.com`, `DTSTAMP:${sessStamp(Date.now())}`, `DTSTART:${sessStamp(a)}`, `DTEND:${sessStamp(b)}`,
+    `SUMMARY:${e('Call with Elliott, London Handstand Academy')}`, `LOCATION:${e((c && c.link) || '')}`,
+    `DESCRIPTION:${e(`Your ${CALL_NAME[row.kind] || 'call'} with Elliott.${c && c.link ? '\nJoin: ' + c.link : ''}${manage ? '\nMove or cancel: ' + manage : ''}`)}`,
+    ...(c && c.link ? [`URL:${c.link}`] : []), 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', `DESCRIPTION:${e('Your call with Elliott')}`, 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+}
+/* what is busy for a call: the other calls, the 1-2-1s, the classes, and the
+   times held at a 1-2-1 checkout, each with the gap round it */
+async function callTaken(exceptId, gapMin) {
+  const gap = Math.max(0, Number(gapMin) || 0) * 60e3, out = [];
+  for (const x of ((await getSetting('calls')) || [])) {
+    if (!x || x.id === exceptId || x.status !== 'booked' || !x.when) continue;
+    out.push({ start: ms(x.when) - gap, end: ms(x.when) + callLen(x) + gap, what: 'a call' });
+  }
+  for (const t of await slotTaken({}, gapMin)) if (t.what !== 'a call') out.push(t);
+  return out;
+}
+/* The times on offer for a call, or why there are none. An own calendar that
+   cannot be read takes them away, as it does for 1-2-1s: a call on top of a
+   clinic appointment is worse than the old link for a day. */
+async function callState(kind, except = {}, preview) {
+  const c = await callConf();
+  if (!preview && !(kind === 'welcome' ? c.welcomeOn : c.introOn)) return { on: false, why: 'off', conf: c };
+  if (!preview && !/^https:\/\//.test(c.link || '')) return { on: false, why: 'no call link is set', conf: c };
+  const f = await slotFeeds();
+  if (f.busyN && !f.busyOk) { if (!preview) await slotDown(f.errs.join('. ')); return { on: false, why: f.errs.join('. ') || 'your calendars could not be read', conf: c }; }
+  const taken = await callTaken(except.exceptId, c.gap);
+  const lenMin = Math.round(callLen(c) / 60e3);
+  let slots = freeSlots({ now: Date.now(), days: c.days, step: c.step, lenMin, hours: c.hours, room: [], busy: f.busy || [], taken,
+    rule: { words: [], max: 99 }, earliest: Date.now() + Math.max(0, Number(c.leadH) || 0) * 3600e3 });
+  /* days off, and no more than so many calls a day */
+  const off = callDaysOff(c.off), per = {};
+  for (const x of ((await getSetting('calls')) || [])) if (x && x.status === 'booked' && x.when && x.id !== except.exceptId) per[callDay(x.when)] = (per[callDay(x.when)] || 0) + 1;
+  const cap = Math.max(1, Number(c.maxDay) || 6);
+  slots = slots.filter(s => !off.has(callDay(s.start)) && (per[callDay(s.start)] || 0) < cap);
+  return { on: true, conf: c, slots, lenMin, per, cap };
+}
+/* a call as its booker may see it */
+async function callPublic(row, c) {
+  c = c || await callConf();
+  return { id: row.id, kind: row.kind, when: row.when, len: Math.round(callLen(row) / 60e3), tz: row.tz || '', status: row.status, name: row.name || '',
+    link: row.status === 'booked' ? (c.link || '') : '', linkName: c.linkName || '', ics: callIcsUrl(row), gcal: callGcal(row, c), manage: await callManageLink(row) };
+}
+/* the welcome call is a step on a new client's Start: booked here, it is
+   booked as surely as Calendly's own word, and taken back if cancelled */
+async function callStateOb(row, booked) {
+  if (row.kind !== 'welcome') return;
+  await changeSetting(`state:${norm(row.email)}`, cur => {
+    const s = Object.assign({}, cur || {}), ob = Object.assign({}, s.ob || {});
+    if (booked) Object.assign(ob, { call: true, callBy: 'app', callAt: Number(ob.callAt) || Date.now(), callWhen: row.when, callId: row.id });
+    else if (ob.callId === row.id) Object.assign(ob, { call: false, callBy: '', callAt: 0, callWhen: '', callId: '' });
+    else return undefined;
+    s.ob = ob; return s;
+  }).catch(() => {});
+}
+const callAskTxt = kind => kind === 'welcome'
+  ? 'We agree what block one works on, so it fits you and your week. If your baseline tests are in by then, even better.'
+  : 'Tell me what you are stuck on. I will tell you which of the ways of training with me you actually need, including if the answer is none of them yet.';
+/* the confirmation: booked, or moved from another time */
+async function callMail(row, c, movedFrom, say) {
+  const pub = await callPublic(row, c), when = callWhen(row.when, row.tz), first = String(row.name || '').split(' ')[0];
+  return email(row.email, `${movedFrom ? 'Moved' : 'Booked'}: your ${CALL_NAME[row.kind]}, ${when}`, mail({
+    title: movedFrom ? 'Your call has moved.' : 'Your call is booked.', greeting: first,
+    paras: [`<b>${esc(when)}</b>. ${pub.len} minutes${c.linkName ? ', on ' + esc(c.linkName) : ''}, with Elliott.${movedFrom ? ' Instead of ' + esc(callWhen(movedFrom, row.tz)) + '.' : ''}`,
+            say ? esc(say) : '',
+            c.link ? `At that time, <a href="${esc(c.link)}" style="color:#006663;font-weight:600">join the call here</a>. The link is in the calendar entry too.` : '',
+            esc(callAskTxt(row.kind)),
+            `<a href="${pub.ics}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${pub.gcal}" style="color:#006663;font-weight:600">Google Calendar</a>`,
+            `<b>Need to change it?</b> <a href="${pub.manage}" style="color:#006663">Move or cancel it here</a>, no account or password needed. A reminder comes the day before.`].filter(Boolean),
+    cta: c.link ? { href: c.link, label: 'The call link' } : undefined,
+    signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+}
+/* the coach hears of every booking, move and cancel, whatever the switches say */
+async function callTell(row, what, extra) {
+  const t = `${row.name || row.email}: ${CALL_NAME[row.kind]} ${what}`, when = callWhen(row.when, CALL_TZ);
+  await coachAlert(clients()[norm(row.email)] ? row.email : null, 'business', { title: t, body: when + (extra ? '. ' + extra : ''), tag: 'call:' + row.id });
+  await email(clients()[norm(row.email)] ? coachTo(row.email) : (process.env.COACH_EMAIL || process.env.FROM_EMAIL), `Call ${what}: ${row.name || row.email}, ${when}`,
+    mail({ title: `A ${CALL_NAME[row.kind]} ${what}.`,
+      paras: [`<b>${esc(row.name || row.email)}</b> (${esc(row.email)}), <b>${esc(when)}</b> London time, ${Math.round(callLen(row) / 60e3)} minutes.`,
+              row.note ? `They said: <i>${esc(row.note)}</i>` : '', row.tz && row.tz !== CALL_TZ ? `They are on ${esc(row.tz)} time.` : '', extra ? esc(extra) : '',
+              'It is in your calendar feed, if you have subscribed to it.'].filter(Boolean),
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+}
+/* booked: one change that nothing else can overwrite, so two people cannot
+   take the same time, and one booking of each kind per person */
+async function callBook({ kind, slot, name, email: who, note, tz, src }) {
+  const k = kind === 'welcome' ? 'welcome' : 'intro', at = ms(slot);
+  const S = await callState(k);
+  if (!S.on) return { error: 'Booking a call here is not open just now.', status: 409, off: true };
+  if (!S.slots.some(x => x.start === at)) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  const len = Math.round(callLen(S.conf) / 60e3);
+  let row = null, mine = null, clash = false;
+  await changeSetting('calls', cur => {
+    row = null; mine = null; clash = false;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const live = l.filter(x => x && x.status === 'booked' && ms(x.when) + callLen(x) > Date.now());
+    mine = live.find(x => x.kind === k && norm(x.email) === norm(who)) || null;
+    if (mine) return undefined;
+    if (live.some(x => ms(x.when) < at + len * 60e3 && ms(x.when) + callLen(x) > at)) { clash = true; return undefined; }
+    row = { id: 'c' + newId(), kind: k, email: norm(who), name: String(name || '').slice(0, 60), when: new Date(at).toISOString(), len,
+      tz: callZone(tz), note: String(note || '').trim().slice(0, 500), at: Date.now(), src: String(src || '').slice(0, 20), status: 'booked' };
+    l.unshift(row); return l.slice(0, 800);
+  });
+  if (mine) return { error: `You already have a call booked: ${callWhen(mine.when, tz || mine.tz)}.`, status: 409, already: true, call: await callPublic(mine, S.conf) };
+  if (clash || !row) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  await callStateOb(row, true);
+  const mailed = await callMail(row, S.conf);
+  await callTell(row, 'booked');
+  return { ok: true, call: await callPublic(row, S.conf), mailed };
+}
+/* moved to another free time, by them or by the coach */
+async function callMove(id, slot, by, say) {
+  const rows = (await getSetting('calls')) || [], r0 = rows.find(x => x.id === id);
+  if (!r0 || r0.status !== 'booked') return { error: 'This call has been cancelled or has already happened.', status: 400 };
+  const at = ms(slot);
+  if (by !== 'coach') {
+    const S = await callState(r0.kind, { exceptId: id });
+    if (!S.on) return { error: 'Moving a call here is not open just now. Reply to your confirmation email and Elliott will sort it.', status: 409, off: true };
+    if (!S.slots.some(x => x.start === at)) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  } else if (!(at > Date.now())) return { error: 'Pick a time that has not happened yet.', status: 400 };
+  let row = null, was = '', clash = false;
+  await changeSetting('calls', cur => {
+    row = null; was = ''; clash = false;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id); if (!r || r.status !== 'booked') return undefined;
+    if (l.some(x => x !== r && x.status === 'booked' && ms(x.when) < at + callLen(r) && ms(x.when) + callLen(x) > at)) { clash = true; return undefined; }
+    was = r.when; r.when = new Date(at).toISOString();
+    r.moves = (Array.isArray(r.moves) ? r.moves : []).concat([{ from: was, to: r.when, at: Date.now(), by }]).slice(-10);
+    delete r.reminded; row = r; return l;
+  });
+  if (clash) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
+  if (!row) return { error: 'This call has been cancelled or has already happened.', status: 400 };
+  await callStateOb(row, true);
+  const c = await callConf();
+  const mailed = await callMail(row, c, was, say);
+  await callTell(row, by === 'coach' ? 'moved by you' : 'moved', `From ${callWhen(was, CALL_TZ)}`);
+  return { ok: true, call: await callPublic(row, c), mailed };
+}
+/* cancelled at once: a call costs nothing, so there is nothing to approve */
+async function callCancel(id, by, say) {
+  let row = null;
+  await changeSetting('calls', cur => {
+    row = null;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id); if (!r || r.status !== 'booked') return undefined;
+    r.status = 'cancelled'; r.cancelledAt = Date.now(); r.cancelledBy = by; row = r; return l;
+  });
+  if (!row) return { ok: true, note: 'already cancelled' };
+  await callStateOb(row, false);
+  const when = callWhen(row.when, row.tz), first = String(row.name || '').split(' ')[0];
+  const again = row.kind === 'welcome' ? `${SITE}/lha-app.html` : `${SITE}/call.html`;
+  const mailed = await email(row.email, `Cancelled: your ${CALL_NAME[row.kind]}, ${when}`, mail({
+    title: 'Your call is cancelled.', greeting: first,
+    paras: [`Your ${CALL_NAME[row.kind]} on <b>${esc(when)}</b> is cancelled${by === 'coach' ? ' by Elliott' : ''}.`, say ? esc(say) : '',
+            `<a href="${again}" style="color:#006663">Book another time</a> whenever suits.`].filter(Boolean),
+    signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+  if (by !== 'coach') await callTell(row, 'cancelled');
+  return { ok: true, status: 'cancelled', mailed };
 }
 /* a session's payments. There was one reference on the row, so a second
    payment overwrote the first and a refund of either could not be told
@@ -4406,7 +4621,9 @@ const handle = async (request) => {
                   /* what each coaching tier says it includes, where the
                      coach has changed it from what the app ships */
                   coplans: await coplansPublic(),
-                  places: await placesPublic() });
+                  places: await placesPublic(),
+                  /* the free call booked here (call.html) rather than in Calendly */
+                  calls: await callConf().then(c => ({ intro: !!c.introOn && /^https:\/\//.test(c.link || '') })).catch(() => ({ intro: false })) });
   }
   /* ── coaching places: how many the home page says are open ── */
   if (path === '/coach/places') {
@@ -5346,6 +5563,15 @@ const handle = async (request) => {
         `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`, `SUMMARY:${escI('1-2-1: ' + (r.name || r.email))}`,
         `LOCATION:${escI(r.place || '')}`, `DESCRIPTION:${escI([r.note, r.prefs].filter(Boolean).join('\n'))}`, 'END:VEVENT']);
     }
+    /* the calls booked here, with the link to join them */
+    const cc = await callConf().catch(() => CALL_DEFAULTS);
+    for (const x of ((await getSetting('calls')) || [])) {
+      if (!x || x.status !== 'booked' || !x.when || ms(x.when) < since) continue;
+      const start = ms(x.when), end = start + callLen(x);
+      ev.push(['BEGIN:VEVENT', `UID:coach-call-${x.id}@londonhandstandacademy.com`, `DTSTAMP:${dt(Date.now())}`,
+        `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`, `SUMMARY:${escI((x.kind === 'welcome' ? 'Welcome call: ' : 'Free call: ') + (x.name || x.email))}`,
+        `LOCATION:${escI(cc.link || '')}`, `DESCRIPTION:${escI([x.email, x.note ? 'Note: ' + x.note : '', x.tz && x.tz !== CALL_TZ ? 'Their time zone: ' + x.tz : '', cc.link ? 'Join: ' + cc.link : ''].filter(Boolean).join('\n'))}`, 'END:VEVENT']);
+    }
     const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//London Handstand Academy//Coach//EN', 'CALSCALE:GREGORIAN',
       'X-WR-CALNAME:LHA classes and sessions', 'X-WR-TIMEZONE:Europe/London', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H',
       ...ev.flat(), 'END:VCALENDAR'].map(fold).join('\r\n');
@@ -5947,6 +6173,110 @@ const handle = async (request) => {
   }
 
   /* ── one to one sessions: pay, then arrange ───────────────────────── */
+  /* ── calls: booked here, moved and cancelled from the link in the email ── */
+  if (path === '/call/slots' && request.method === 'GET') {
+    const kind = url.searchParams.get('kind') === 'welcome' ? 'welcome' : 'intro';
+    const S = await callState(kind).catch(err => { console.error('call/slots', String(err && err.message || err)); return { on: false }; });
+    return new Response(JSON.stringify({ on: !!S.on && S.slots.length > 0, open: !!S.on, kind, len: S.lenMin || 15, linkName: (S.conf && S.conf.linkName) || '',
+      slots: S.on ? S.slots.map(x => new Date(x.start).toISOString()) : [], calendly: CALL_CALENDLY }),
+      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  }
+  if (path === '/call/book' && request.method === 'POST') {
+    const kind = body.kind === 'welcome' ? 'welcome' : 'intro';
+    let who = '', nm = '';
+    if (kind === 'welcome') {
+      who = await me();
+      if (!who) return json({ error: 'Sign in first' }, 401);
+      if (!clients()[who]) return json({ error: 'The welcome call is for coaching clients. The free call is at londonhandstandacademy.com/call.html' }, 403);
+      nm = clients()[who] || ((await getAcct(who)) || {}).name || '';
+    } else {
+      who = norm(body.email); nm = String(body.name || '').trim().slice(0, 60);
+      if (!who || !wsMailOk(who) || !nm) return json({ error: 'Your name and a real email address, please.' }, 400);
+      const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`callb:${ip}`, 3600000)) > 12 || (await rateHit(`callbe:${who}`, 3600000)) > 6) return json({ error: 'Too many tries. Try again in an hour.' }, 429);
+    }
+    if (!body.slot) return json({ error: 'Pick a time first.' }, 400);
+    const r = await callBook({ kind, slot: String(body.slot), name: nm, email: who, note: body.note, tz: body.tz, src: body.src });
+    return json(r, r.error ? r.status : 200);
+  }
+  if (path === '/call/manage') {
+    const t = await callManageRead(request.method === 'GET' ? url.searchParams.get('t') : body.t);
+    if (!t) return json({ error: 'That link has run out. Book a new time from the page the call was booked on.' }, 401);
+    const row = ((await getSetting('calls')) || []).find(x => x.id === t.i && norm(x.email) === t.e);
+    if (!row) return json({ error: 'No call found on that link' }, 404);
+    const live = row.status === 'booked' && ms(row.when) + callLen(row) > Date.now();
+    if (request.method === 'POST') {
+      if ((await rateHit(`callm:${t.e}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
+      if (!live) return json({ error: 'This call has been cancelled or has already happened.' }, 400);
+      const r = body.action === 'cancel' ? await callCancel(row.id, 'client')
+              : body.action === 'move' && body.slot ? await callMove(row.id, String(body.slot), 'client')
+              : { error: 'Nothing asked', status: 400 };
+      return json(r, r.error ? r.status : 200);
+    }
+    const S = live ? await callState(row.kind, { exceptId: row.id }).catch(() => ({ on: false })) : { on: false };
+    return json(Object.assign(await callPublic(row), { live, past: !live && row.status === 'booked',
+      slots: S.on ? S.slots.filter(x => x.start !== ms(row.when)).map(x => new Date(x.start).toISOString()) : null }));
+  }
+  if (path === '/call.ics' && request.method === 'GET') {
+    const row = ((await getSetting('calls')) || []).find(x => x.id === String(url.searchParams.get('id') || ''));
+    if (!row || row.status !== 'booked') return new Response('Not found', { status: 404 });
+    return new Response(callIcs(row, await callConf(), await callManageLink(row)), { headers: { 'content-type': 'text/calendar; charset=utf-8',
+      'content-disposition': 'attachment; filename="call-with-elliott.ics"', 'cache-control': 'no-store' } });
+  }
+  /* ── the calls, for the coach: who, when, and moving, cancelling, done ── */
+  if (path === '/coach/calls') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const list = () => getSetting('calls').then(l => (l || []).filter(x => x && x.when && ms(x.when) > Date.now() - 30 * DAY));
+    if (request.method === 'POST') {
+      const id = String(body.id || ''), say = String(body.msg || '').trim().slice(0, 600);
+      const row = ((await getSetting('calls')) || []).find(x => x.id === id);
+      if (!row) return json({ error: 'No such call' }, 404);
+      let r;
+      if (body.action === 'cancel') r = await callCancel(id, 'coach', say);
+      else if (body.action === 'move') r = await callMove(id, String(body.when || ''), 'coach', say);
+      else if (['done', 'noshow', 'booked'].includes(body.action)) {
+        await changeSetting('calls', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const x = l.find(y => y.id === id);
+          if (!x || x.status === 'cancelled') return undefined; x.status = body.action; x.markedAt = Date.now(); return l; });
+        r = { ok: true };
+      } else r = { error: 'Nothing asked', status: 400 };
+      if (r.error) return json(r, r.status);
+      return json(Object.assign({ calls: await list() }, r));
+    }
+    return json({ calls: await list() });
+  }
+  if (path === '/coach/callconf') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const cur = await callConf(), n = (v, lo, hi, d) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : d; };
+      const link = body.link !== undefined ? String(body.link || '').trim() : cur.link;
+      if (link && !/^https:\/\/[^\s"'<>]{8,600}$/i.test(link)) return json({ error: 'The call link starts https://, the way Teams, Meet and Zoom give it.' }, 400);
+      const next = {
+        introOn: body.introOn !== undefined ? !!body.introOn : !!cur.introOn,
+        welcomeOn: body.welcomeOn !== undefined ? !!body.welcomeOn : !!cur.welcomeOn,
+        hours: body.hours && typeof body.hours === 'object' ? Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map(d => [d, String(body.hours[d] || '').slice(0, 80)])) : cur.hours,
+        len: body.len !== undefined ? ([10, 15, 20, 30, 45, 60].includes(Number(body.len)) ? Number(body.len) : 15) : cur.len,
+        step: body.step !== undefined ? ([10, 15, 20, 30, 60].includes(Number(body.step)) ? Number(body.step) : 15) : cur.step,
+        leadH: body.leadH !== undefined ? n(body.leadH, 0, 24 * 14, 12) : cur.leadH,
+        days: body.days !== undefined ? n(body.days, 1, 60, 21) : cur.days,
+        gap: body.gap !== undefined ? n(body.gap, 0, 120, 5) : cur.gap,
+        maxDay: body.maxDay !== undefined ? n(body.maxDay, 1, 30, 6) : cur.maxDay,
+        off: body.off !== undefined ? String(body.off || '').slice(0, 600) : cur.off,
+        link, linkName: body.linkName !== undefined ? String(body.linkName || '').trim().slice(0, 40) : cur.linkName,
+      };
+      /* nothing is offered without hours and a link to join on */
+      const ready = /^https:\/\//.test(next.link) && Object.values(readHours(next.hours)).some(v => v.length);
+      if (!ready) { next.introOn = false; next.welcomeOn = false; }
+      await setSetting('callconf', next);
+    }
+    const c = await callConf();
+    const P = await callState('intro', {}, true).catch(() => ({ on: false }));
+    const f = await slotFeeds();
+    return json({ conf: Object.assign({}, c, { hours: hoursText(c.hours) }), ready: /^https:\/\//.test(c.link || '') && Object.values(readHours(c.hours)).some(v => v.length),
+      busy: { n: f.busyN || 0, ok: f.busyOk !== false, errs: (f.errs || []).filter(x => /^Your own/.test(x)) },
+      preview: P.on ? P.slots.filter(x => x.start < Date.now() + 14 * DAY).map(x => new Date(x.start).toISOString()) : [], previewWhy: P.on ? '' : (P.why || ''),
+      calls: ((await getSetting('calls')) || []).filter(x => x && x.when && ms(x.when) > Date.now() - 30 * DAY) });
+  }
   /* the times a 1-2-1 can be booked, for the session page: start times
      only, nothing of what is in the room's calendar */
   if (path === '/session/slots' && request.method === 'GET') {
@@ -8016,13 +8346,17 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          unless the call is deliberately taken back. */
       if (body.ob && typeof body.ob === 'object') {
         const was = cur.ob || {};
-        const off = body.ob.callNo === true, call = off ? false : !!(was.call || body.ob.call);
+        /* a call booked here is the server's record (callStateOb): a phone
+           with an old copy must not book it again, or take it back, by
+           saying so. It is moved or cancelled from its link. */
+        const app = was.callBy === 'app' || body.ob.callBy === 'app';
+        const off = !app && body.ob.callNo === true, call = app ? !!was.call : off ? false : !!(was.call || body.ob.call);
         /* Who says it is booked: Calendly, which reported the booking, or
            them, when its calendar could not open in the app and they said
            so. Tapping Pick a time used to count, so a call nobody booked read
            as booked here and in the dashboard. Calendly's word is kept over
            theirs; a call taken back loses both. */
-        const by = off ? '' : was.callBy === 'calendly' || body.ob.callBy === 'calendly' ? 'calendly'
+        const by = app ? (was.call ? 'app' : '') : off ? '' : was.callBy === 'calendly' || body.ob.callBy === 'calendly' ? 'calendly'
           : body.ob.callBy === 'them' || was.callBy === 'them' ? 'them' : (call ? was.callBy || '' : '');
         /* callDone is the coach's to set, so it is carried, never taken */
         cur.ob = Object.assign({}, was, { youIn: !!(was.youIn || body.ob.youIn), call, callBy: by,
@@ -8096,7 +8430,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       ladderDone: out.ladderDone || {},
       fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
       /* the coach's own call link for a new client, where one is set */
-      ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || '') } : {}) });
+      ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || ''),
+        ...(await (async () => { const c = await callConf().catch(() => CALL_DEFAULTS);
+          const mine = ((await getSetting('calls')) || []).find(x => x && x.kind === 'welcome' && norm(x.email) === who && x.status === 'booked' && ms(x.when) + callLen(x) > Date.now());
+          return { callHere: !!c.welcomeOn && /^https:\/\//.test(c.link || ''), wcall: mine ? await callPublic(mine, c) : null }; })()) } : {}) });
   }
 
   /* ── tracking: metrics, habits, check-ins ─────────────────────
@@ -10026,7 +10363,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           goal, goalByCoach: !!(st8.ob || {}).goal, level: Number.isFinite(Number(it.level)) && it.level !== null ? Number(it.level) : null,
           pain: !!(it.safe && it.safe.pain === true), niggles: Array.isArray(it.niggles) ? it.niggles : [],
           tests: { of: cps.length, logged, clips, lastClip },
-          push, youIn: !!ob.youIn, call: !!ob.call, callBy: ob.callBy || '', callAt: ob.callAt || 0, callDone: ob.callDone || 0,
+          push, youIn: !!ob.youIn, call: !!ob.call, callBy: ob.callBy || '', callAt: ob.callAt || 0, callWhen: ob.callWhen || '', callDone: ob.callDone || 0,
           hello: own.length ? ms(own[0].created_at) : 0,
           videoReply: (lastClip && onVideo.find(t => t >= lastClip)) || 0 };
       }));
