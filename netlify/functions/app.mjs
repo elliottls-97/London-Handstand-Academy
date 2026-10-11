@@ -8325,6 +8325,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if ((await rateHit(`redeem:${who}`, 3600000)) > 10) {
       return json({ error: 'Too many tries. Give it an hour.' }, 429);
     }
+    /* per address too: accounts cost nothing to make, so ten tries an hour
+       each was as many guesses as anyone cared to make accounts for */
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`redeemip:${ip}`, 3600000)) > 30) return json({ error: 'Too many tries. Give it an hour.' }, 429); }
     const codes = (await getSetting('codes')) || {};
     const c = codes[code];
     /* Two code systems exist and only one of them was being checked here.
