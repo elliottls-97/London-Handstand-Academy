@@ -11219,6 +11219,66 @@ function streamHTML(){
     </div>
   </div>`;
 }
+/* ── what is going wrong on people's phones ─────────────────────────
+   The app sends a line to /err when a script breaks, a request here comes
+   back 5xx or a film will not play, for a real account and not a preview.
+   Grouped by what went wrong and where. Clear one once it is fixed, so a
+   line that comes back means it is not. */
+let errsList=null, errsBusy=false, errsOpen='';
+function errsLoad(force){
+  if(errsList && !force) return; if(!errsList) errsList=[];
+  fetch(API+'/errs',{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ errsList=d.errs||[]; draw(); } }).catch(()=>{});
+}
+function errsClear(id){
+  if(errsBusy) return;
+  if(id==='all' && !confirm('Clear every line? Anything still broken will come back as people hit it.')) return;
+  errsBusy=true; draw();
+  fetch(API+'/errs',{method:'POST',headers:hdr(),body:JSON.stringify({clear:id})}).then(r=>r.ok?r.json():null)
+    .then(d=>{ errsBusy=false; if(d) errsList=d.errs||[]; draw(); }).catch(()=>{ errsBusy=false; draw(); });
+}
+const ERR_KIND={js:'Script', promise:'Script', api:'Server', film:'Film'};
+/* the app sends its tab, the ladder's half and any open sheet, "ladder:checks cp" */
+const ERR_TAB={home:'Home', ladder:'Ladder', 'ladder:ladder':'Ladder', 'ladder:checks':'Check points', 'ladder:prog':'Progress',
+  coaching:'Coaching', more:'More', today:'Today', plan:'Plan', progress:'Progress', ask:'Chat', quiz:'Quiz'};
+const errScreen=k=>{ const [t,ov]=String(k||'').split(' '); return (ERR_TAB[t]||t||'?')+(ov?' ('+ov+' sheet)':''); };
+function errsAgo(t){
+  const m=Math.round((Date.now()-(t||0))/60000);
+  return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+}
+function errsHTML(){
+  errsLoad();
+  const L=errsList||[];
+  const row=e=>{
+    const scr=Object.entries(e.sc||{}).sort((a,b)=>b[1]-a[1]).map(([k,n])=>esc(errScreen(k))+(n>1?' ×'+n:'')).join(', ');
+    const dev=Object.entries(e.dv||{}).map(([k,n])=>(k==='ios'?'iPhone app':'web')+(n>1?' ×'+n:'')).join(', ');
+    const open=errsOpen===e.id;
+    return `<div data-k="err-${esc(e.id)}" style="padding:12px 0;border-top:1px solid rgba(0,64,61,.10)">
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+        <span style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:${e.k==='api'?'var(--red)':'var(--forest)'}">${ERR_KIND[e.k]||'Script'}</span>
+        <b style="font:600 13.5px/1.4 var(--sans);color:var(--ink);flex:1;min-width:200px;word-break:break-word">${esc(e.m)}</b>
+        <span class="muted" style="font-size:12px">${e.n} time${e.n===1?'':'s'}, last ${errsAgo(e.last)}</span>
+        <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px" ${errsBusy?'disabled':''} onclick="errsClear(${esc(JSON.stringify(e.id))})">Fixed</button>
+      </div>
+      <div class="muted" style="font-size:12px;line-height:1.6;margin-top:4px">
+        ${e.w?esc(e.w)+'. ':''}${scr?'On '+scr+'. ':''}${dev?dev+'. ':''}${(e.who||[]).length?'Hit by '+(e.who||[]).map(esc).join(', ')+'. ':'Not signed in. '}
+        First seen ${errsAgo(e.first)}.
+        ${e.stack?`<a href="#" onclick="errsOpen=errsOpen===${esc(JSON.stringify(e.id))}?'':${esc(JSON.stringify(e.id))};draw();return false" style="color:var(--forest)">${open?'Hide the detail':'The detail'}</a>`:''}</div>
+      ${open&&e.stack?`<pre style="margin:8px 0 0;padding:10px 12px;background:rgba(0,64,61,.05);border-radius:10px;font:400 11.5px/1.5 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;color:var(--deep)">${esc(e.stack)}</pre>`:''}
+    </div>`;
+  };
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">WHAT IS GOING WRONG</div><span style="flex:1"></span>
+      <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="errsLoad(true)">Refresh</button>
+      ${L.length?`<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" ${errsBusy?'disabled':''} onclick="errsClear('all')">Clear all</button>`:''}
+    </div>
+    <p class="muted" style="margin:8px 0 6px;max-width:62ch">
+      ${L.length?'Newest first. Press Fixed once it is dealt with; if it comes back, it is not.'
+        :'Nothing has gone wrong for anyone since this was last cleared.'}</p>
+    ${L.slice(0,60).map(row).join('')}
+  </div>`;
+}
 function testersHTML(){
   testersLoad();
   const val = testersDraft==null ? (testers||[]).join('\n') : testersDraft;
@@ -12042,7 +12102,7 @@ function settingsHTML(){
         someone a tier for nothing are all set by the account that owns the business.
         Everything else here is yours. Ask him and he can change any of it in a moment.</div>`}`
   : setTab==='app' ? `${owner?shortHTML():''}${owner?homeHTML():''}${owner?streamHTML():''}
-      ${owner?emailsHTML():''}`
+      ${owner?errsHTML():''}${owner?emailsHTML():''}`
   : setTab==='workshops' ? workshopsHTML()
   : setTab==='sessions' ? (owner ? sessSlotsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)
   : setTab==='alerts' ? cpushHTML()

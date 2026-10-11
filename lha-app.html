@@ -1762,6 +1762,46 @@ if(PREVIEW){
     }).catch(err=>{ tell('Network failed on '+String(u).split('?')[0]); throw err; });
   };
 }
+/* ── what goes wrong on real phones ───────────────────────────────────
+   Outside a preview nothing was told anyone: an error on somebody's phone
+   died in a console nobody had open (Elliott, 11 Oct 2026: "see where
+   people are getting errors"). A script error, a promise nobody caught, a
+   request here that came back 5xx and a film that would not play are sent
+   to /err, once each a visit and no more than eight, with the screen and
+   whether it is the iPhone app. The dashboard lists them, Settings, App.
+   No signal is not an error: a request that never arrived is not sent. */
+window.lhaErr = function(){};
+if(!PREVIEW){
+  const sent=new Set(); let nSent=0;
+  window.lhaErr=function(k, m, w, stk){
+    try{
+      if(nSent>=8 || !m) return;
+      /* a script from another site says only this, and the resize one is the browser talking to itself */
+      if(/^(Uncaught )?Script error\.?$|ResizeObserver loop/.test(String(m))) return;
+      const key=k+'|'+m+'|'+(w||''); if(sent.has(key)) return; sent.add(key); nSent++;
+      let sc='', tok='';
+      try{ sc=(st.tab||'')+(st.tab==='ladder'?':'+(st.ladderTab||''):'')+(st.ov?' '+st.ov:''); tok=st.token||''; }catch(e){}
+      const dv=(navigator.userAgent||'').indexOf('LHAiOS')>=0 ? 'ios' : 'web';
+      const hdr={'Content-Type':'application/json'}; if(tok) hdr.Authorization='Bearer '+tok;
+      realFetchErr('/api/app/err',{method:'POST',headers:hdr,keepalive:true,
+        body:JSON.stringify({k, m:String(m).slice(0,220), w:String(w||'').slice(0,120), sc, dv, st:String(stk||'').slice(0,600)})}).catch(()=>{});
+    }catch(e){}
+  };
+  const realFetchErr=window.fetch.bind(window);
+  window.addEventListener('error', e=>{
+    if(e && e.target && e.target!==window) return;          /* an image or film that did not load is not a script error */
+    lhaErr('js', e.message||'Error', ((e.filename||'').split('/').pop()||'')+':'+(e.lineno||0)+':'+(e.colno||0), e.error && e.error.stack);
+  });
+  window.addEventListener('unhandledrejection', e=>{ const r=e && e.reason; lhaErr('promise', (r && r.message) || String(r), '', r && r.stack); });
+  window.fetch=function(u,o){
+    return realFetchErr(u,o).then(r=>{
+      try{ const p=String(u&&u.url||u);
+        if(r.status>=500 && p.indexOf('/api/app/')>=0 && p.indexOf('/api/app/err')<0)
+          lhaErr('api', r.status+' on '+p.split('?')[0].replace(/^https?:\/\/[^/]+/,''), ''); }catch(e){}
+      return r;
+    });
+  };
+}
 /* ── the App Store build ─────────────────────────────────────────────
    Inside the iPhone app the shell adds LHAiOS to the browser's name. Apple
    does not allow a digital subscription to be sold, priced or pointed at
@@ -3458,6 +3498,8 @@ function filmFail(v, what){
   const key=where+'-'+what+'-'+uid.slice(0,8);
   if(filmFail.seen[key]) return; filmFail.seen[key]=1;
   try{ track('filmfail', null, key); }catch(e){}
+  try{ const d=(typeof LIBRARY!=='undefined' ? LIBRARY : []).find(x=>x && String(x.url||'').indexOf(uid)>=0);
+    lhaErr('film', 'Film would not play'+(d?': '+d.n:'')+' ('+what+')', (where==='pl'?'follow along':'page')+' '+uid.slice(0,8)); }catch(e){}
 }
 filmFail.seen={};
 function filmRecover(v){

@@ -8313,6 +8313,49 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ ok: true });
   }
 
+  /* ── what is going wrong on people's phones ─────────────────────────
+     The app sends a line when something breaks for a real person: a
+     script error, a promise nobody caught, a request to here that came
+     back 5xx, a film that would not play. Kept as one list grouped by what
+     went wrong and where, with how often, when, on which screen and device
+     and which accounts hit it, so Elliott can see it and write to them.
+     Anybody can send these, so it is limited per address and capped. */
+  if (path === '/err' && request.method === 'POST') {
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`err:${ip}`, 3600000)) > 60) return json({ ok: true });
+    const clip = (x, n) => String(x == null ? '' : x).replace(/[\u0000-\u001f]/g, ' ').slice(0, n);
+    const k = ['js', 'promise', 'api', 'film'].includes(body.k) ? body.k : 'js';
+    const m = clip(body.m, 220).trim(); if (!m) return json({ ok: true });
+    const w = clip(body.w, 120), sc = clip(body.sc, 40).replace(/[^a-z0-9:_ -]/gi, ''), dv = body.dv === 'ios' ? 'ios' : 'web';
+    let who = ''; try { who = (await me()) || ''; } catch {}
+    const id = (k + '|' + m + '|' + w).slice(0, 300);
+    const all = (await getSetting('errs')) || {};
+    const e = all[id] || { k, m, w, n: 0, first: Date.now(), sc: {}, dv: {}, who: [] };
+    e.n++; e.last = Date.now();
+    if (sc && (e.sc[sc] || Object.keys(e.sc).length < 12)) e.sc[sc] = (e.sc[sc] || 0) + 1;
+    e.dv[dv] = (e.dv[dv] || 0) + 1;
+    if (who && !e.who.includes(who)) { e.who.unshift(who); e.who = e.who.slice(0, 6); }
+    if (body.st) e.stack = clip(body.st, 600);
+    all[id] = e;
+    const ids = Object.keys(all);
+    if (ids.length > 150) ids.sort((x, y) => (all[x].last || 0) - (all[y].last || 0)).slice(0, ids.length - 150).forEach(x => { delete all[x]; });
+    await setSetting('errs', all);
+    return json({ ok: true });
+  }
+  /* the list, for the owner; clear one or the lot once it is dealt with */
+  if (path === '/coach/errs') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    if (request.method === 'POST') {
+      const all = (await getSetting('errs')) || {};
+      if (body.clear === 'all') await setSetting('errs', {});
+      else if (body.clear && all[body.clear]) { delete all[body.clear]; await setSetting('errs', all); }
+    }
+    const all = (await getSetting('errs')) || {};
+    const list = Object.entries(all).map(([id, e]) => ({ id, ...e })).sort((x, y) => (y.last || 0) - (x.last || 0));
+    return json({ errs: list });
+  }
+
   /* ── a code that unlocks the tier for a while ─────────────────────
      WORKSHOP26 on a screen at the end of a workshop. The comp button in the
      dashboard does this per account by hand; this is the same thing a
