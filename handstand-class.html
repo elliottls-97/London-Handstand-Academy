@@ -1231,7 +1231,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
        loads: one panel instead of a card per date and a pop-up -->
   <div class="bpanel" id="bookPanel" hidden></div>
   <p class="bopt-fine" id="clsFine">Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.</p>
-  <p class="bopt-alt" id="clsAlt" hidden>Problem booking? <a href="https://londonhandstandacademy.setmore.com/class-session/5f54fc44-7054-4c72-85fd-35ad030cd6b4" target="_blank" rel="noopener">Use Setmore instead</a>.</p>
+  <p class="bopt-alt" id="clsAlt" hidden>Problem booking? <a href="mailto:info@londonhandstandacademy.com?subject=Booking%20a%20class">Email info@londonhandstandacademy.com</a>.</p>
   <!-- lost the confirmation: the booking is emailed again, with the link
        that moves or cancels it. The page says the same whatever the address. -->
   <div class="bk-find" id="clsFind">
@@ -1475,15 +1475,18 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         /* the reason, as text, with whether the date has just filled */
         var e=new String(d.error||'Something went wrong'); e.full=!!d.full; return Promise.reject(e); }); }); };
   var PLACE='OverGravity, Shadwell';
-  /* Setmore, the old way to book, kept as the way out: shown instead of
-     the cards when the booking system cannot be reached or has no dates,
-     and as a quiet line under them the rest of the time */
-  var SETMORE='https://londonhandstandacademy.setmore.com/class-session/5f54fc44-7054-4c72-85fd-35ad030cd6b4';
-  var fallbackHTML=function(why){
-    return '<div class="bopt-c pick bopt-fb"><div class="bopt-k">'+esc(why||'Book through Setmore')+'</div>'
-      +'<div class="bopt-s" style="margin-top:8px">The dates, times and the '+esc(PLACE)+' address are on the booking page.</div>'
-      +'<a class="bopt-b terrab" href="'+SETMORE+'" target="_blank" rel="noopener">Book through Setmore &rarr;</a>'
-      +'<div class="bopt-s" style="margin:12px 0 0">If it asks you to log in, choose <b>Continue as guest</b>. No account needed.</div></div>';
+  /* The way out when the dates cannot be shown. It was the old Setmore
+     page, taken down on 11 Oct 2026 (its old prices were what Google
+     listed under our name): now a second try, or an email. */
+  var MAILTO='mailto:info@londonhandstandacademy.com?subject=Booking%20a%20class';
+  var fallbackHTML=function(kind){
+    if(kind==='none') return '<div class="bopt-c pick bopt-fb"><div class="bopt-k">New dates soon</div>'
+      +'<div class="bopt-s" style="margin-top:8px">The next classes are being set. Ask below and you hear as soon as they are up.</div>'
+      +'<a class="bopt-b terrab" href="#sec-app" onclick="var d=document.querySelector(\'.ask-more\');if(d)d.open=true">Ask about the next date &rarr;</a></div>';
+    return '<div class="bopt-c pick bopt-fb"><div class="bopt-k">The dates did not load</div>'
+      +'<div class="bopt-s" style="margin-top:8px">Usually a bad connection. Try again, or email and you are booked by hand.</div>'
+      +'<a class="bopt-b terrab" href="#book" onclick="location.reload();return false">Try again &rarr;</a>'
+      +'<div class="bopt-s" style="margin:12px 0 0"><a href="'+MAILTO+'" style="color:var(--terra);font-weight:700">info@londonhandstandacademy.com</a></div></div>';
   };
 
   /* After paying, not before: where they are with handstands and anything
@@ -1567,7 +1570,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
             +(d.full ? '<a class="bopt-b terrab" href="#book" onclick="return bookWs('+i+',event)">Full, join the waiting list</a>'
                      : '<a class="bopt-b terrab" href="#book" onclick="return bookWs('+i+',event)">'+(i===0?'Book your place':'Book '+esc(parts(d).dd+' '+parts(d).m))+' &rarr;</a>')
             +'</div>';
-        }).join('') || fallbackHTML('Book through Setmore');
+        }).join('') || fallbackHTML('none');
       }
     }
     if(booked.length) aboutWire();
@@ -1793,7 +1796,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         if(fi>-1){ up[fi].full=true; up[fi].left=0; keepFields(function(){ inPanel=true; bookWs(fi); inPanel=false; });
           $('wtMsg').style.color='var(--terra)'; $('wtMsg').textContent='That date filled up a moment ago. Leave your name and you hear first if a place comes free.'; return; } }
       /* a server that cannot be reached, as against one that said no */
-      if(err && err.name==='TypeError'){ msg.innerHTML='Could not reach the booking system. <a href="'+SETMORE+'" target="_blank" rel="noopener" style="color:var(--terra);font-weight:700">Book through Setmore instead</a>.'; return; }
+      if(err && err.name==='TypeError'){ msg.innerHTML='Could not reach the booking system. Try again in a moment, or <a href="'+MAILTO+'" style="color:var(--terra);font-weight:700">email info@londonhandstandacademy.com</a>.'; return; }
       msg.textContent=String(err); });
   });
   $('waitForm').addEventListener('submit', function(e){
@@ -1833,7 +1836,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   (window.__LHA_WS && window.__LHA_WS.workshops ? Promise.resolve(window.__LHA_WS)
     : fetch('/api/app/workshops').then(function(r){ return r.json(); }))
     .then(function(d){ PAIR=Number(d&&d.pair)||0; clsWorkshops((d&&d.workshops)||[]); })
-    .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c){ c.classList.add('solo'); c.innerHTML=fallbackHTML('Book through Setmore'); } });
+    .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c){ c.classList.add('solo'); c.innerHTML=fallbackHTML('error'); } });
   document.addEventListener('lha-site', function(){ if(up.length||booked.length) render(); });
   /* back from the card page without paying: what they typed is still there */
   try{ var kept=JSON.parse(sessionStorage.getItem('lha_bk')||'null');

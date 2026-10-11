@@ -65,35 +65,31 @@ export default async (request, context) => {
   const url = new URL(request.url);
   const page = PAGES[url.pathname];
   if (!page || request.method !== 'GET' || url.searchParams.has('siteedit')) return context.next();
-  let E = null, W = [], P = 0, got = false, setmore = false;
+  let E = null, W = [], P = 0, got = false;
   /* Each on its own clock. They shared one abort and one Promise.all, so a
-     slow workshop list cost the page its edits and, worse, the Setmore
-     switch: the page went out as the site's own whatever the dashboard said. */
+     slow workshop list cost the page its edits. */
   const get = (path, ms) => {
     const ctl = new AbortController(), stop = setTimeout(() => ctl.abort(), ms);
     return fetch(new URL(path, url.origin), { signal: ctl.signal }).then(r => r.ok ? r.json() : null)
       .catch(() => null).finally(() => clearTimeout(stop));
   };
   try {
-    const [s, w, c] = await Promise.all([
+    /* The Setmore switch went with Setmore (11 Oct 2026): the class page is
+       always the site's own booking now. */
+    const [s, w] = await Promise.all([
       get('/api/app/site?page=' + page, 1200),
-      page === 'handstand-class' ? get('/api/app/workshops', 1500) : null,
-      /* the dashboard's switch: the site's own booking, or the old Setmore page */
-      page === 'handstand-class' ? get('/api/app/classpage', 1500) : null]);
+      page === 'handstand-class' ? get('/api/app/workshops', 1500) : null]);
     E = (s && s.e) || null;
     W = (w && w.workshops) || []; P = Number(w && w.pair) || 0; got = !!(w && w.workshops);
-    setmore = !!(c && c.booking === 'setmore');
   } catch { /* the page as it is */ }
   const m = (E && E.m) || {};
-  const title = m.title || (page === 'handstand-class' && !setmore ? classTitle(W) : '');
+  const title = m.title || (page === 'handstand-class' ? classTitle(W) : '');
   const desc = m.desc || '';
   const img = m.img ? new URL(m.img, url.origin).href : '';
-  const events = page === 'handstand-class' && !setmore && got;
-  if (!title && !desc && !img && !setmore && !events) return context.next();
+  const events = page === 'handstand-class' && got;
+  if (!title && !desc && !img && !events) return context.next();
 
-  /* the Setmore page stands in for the new one, at the same address */
-  const res = setmore ? await fetch(new URL('/handstand-class-setmore.html', url.origin)).catch(() => null) || await context.next()
-                      : await context.next();
+  const res = await context.next();
   if (res.status !== 200 || !(res.headers.get('content-type') || '').includes('text/html')) return res;
   let html = await res.text();
   try {
@@ -112,7 +108,7 @@ export default async (request, context) => {
     if (events)
       html = html.replace(/<!--events-->[\s\S]*?<!--\/events-->/, () => '<!--events-->' + classEvents(W, url.origin)
         .map(e => '<script type="application/ld+json">' + JSON.stringify(e).replace(/</g, '\\u003c') + '</script>').join('\n') + '<!--/events-->');
-    if (page === 'handstand-class' && !setmore && got)
+    if (page === 'handstand-class' && got)
       html = html.replace('</head>', '<script>window.__LHA_WS=' + JSON.stringify({ workshops: W, pair: P }).replace(/</g, '\\u003c') + '</script>\n</head>');
     if (img) {
       html = setMeta(html, /<meta\s+property="og:image"[^>]*>/i, `<meta property="og:image" content="${attr(img)}">`);
