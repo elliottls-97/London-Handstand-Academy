@@ -35,6 +35,28 @@ function classTitle(list) {
   return 'All Levels Handstand Class · ' + when + ' · OverGravity, London';
 }
 
+/* The dates as events, for Google's event listings. They were written into
+   the page by hand, so a date added in the dashboard never had one and a
+   date gone stayed listed. These come from the same list as the title. */
+const EV_LOC = { '@type': 'Place', name: 'OverGravity Gymnastics',
+  address: { '@type': 'PostalAddress', streetAddress: 'Arches 160 to 163, Sutton Street', addressLocality: 'London',
+    postalCode: 'E1 0DB', addressRegion: 'Shadwell', addressCountry: 'GB' } };
+function classEvents(list, origin) {
+  return (list || []).filter(w => w && w.when && /all levels/i.test(w.title || '') && Date.parse(w.when) + 90 * 60000 > Date.now())
+    .sort((x, y) => Date.parse(x.when) - Date.parse(y.when)).slice(0, 6)
+    .map(w => { const t = Date.parse(w.when);
+      return { '@context': 'https://schema.org', '@type': 'Event', name: w.title || 'All Levels Handstand Class',
+        image: [origin + '/assets/site/latest-workshop-group-handstand-picture.jpg'],
+        startDate: new Date(t).toISOString(), endDate: new Date(t + 90 * 60000).toISOString(),
+        eventStatus: 'https://schema.org/EventScheduled', eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
+        location: EV_LOC,
+        organizer: { '@type': 'Organization', name: 'London Handstand Academy', url: origin + '/' },
+        performer: [{ '@type': 'Person', name: 'Elliott Staley' }, { '@type': 'Person', name: 'Suryava' }],
+        offers: { '@type': 'Offer', price: String((Number(w.price) || 2500) / 100), priceCurrency: 'GBP',
+          availability: w.left === 0 ? 'https://schema.org/SoldOut' : 'https://schema.org/InStock', url: origin + '/handstand-class' },
+        description: 'A 90 minute all levels handstand class. Complete beginners through to press and one arm work. Every drill has a regression and a progression, so everyone works on the next thing for them.' }; });
+}
+
 function setMeta(html, re, tag) {
   return re.test(html) ? html.replace(re, tag) : html.replace('</head>', tag + '\n</head>');
 }
@@ -66,7 +88,8 @@ export default async (request, context) => {
   const title = m.title || (page === 'handstand-class' && !setmore ? classTitle(W) : '');
   const desc = m.desc || '';
   const img = m.img ? new URL(m.img, url.origin).href : '';
-  if (!title && !desc && !img && !setmore) return context.next();
+  const events = page === 'handstand-class' && !setmore && got;
+  if (!title && !desc && !img && !setmore && !events) return context.next();
 
   /* the Setmore page stands in for the new one, at the same address */
   const res = setmore ? await fetch(new URL('/handstand-class-setmore.html', url.origin)).catch(() => null) || await context.next()
@@ -86,6 +109,9 @@ export default async (request, context) => {
     }
     /* the dates the page would fetch again before showing its form: handed
        over with the page, so the form is there as soon as the page is */
+    if (events)
+      html = html.replace(/<!--events-->[\s\S]*?<!--\/events-->/, () => '<!--events-->' + classEvents(W, url.origin)
+        .map(e => '<script type="application/ld+json">' + JSON.stringify(e).replace(/</g, '\\u003c') + '</script>').join('\n') + '<!--/events-->');
     if (page === 'handstand-class' && !setmore && got)
       html = html.replace('</head>', '<script>window.__LHA_WS=' + JSON.stringify({ workshops: W, pair: P }).replace(/</g, '\\u003c') + '</script>\n</head>');
     if (img) {
