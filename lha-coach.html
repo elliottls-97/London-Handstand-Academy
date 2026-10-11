@@ -8328,7 +8328,10 @@ const INBOX_TYPE={
 let inboxRow='';                   /* the row expanded in place, if any */
 /* one to one sessions paid for and waiting for a time */
 let sessions=[], sessBusy='';
-function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep); }
+function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep);
+  fetch(API+'/calls',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ calls=d.calls||[]; draw(); } }).catch(()=>{}); }
+/* the calls booked here, for This week */
+let calls=[];
 /* an ask from the client is answered on its own item, not as one to arrange */
 const sessOpen = () => sessions.filter(x=>x.status==='toArrange' && !x.req);
 /* what is still to give back by card, the way the server counts it */
@@ -8810,7 +8813,9 @@ function personCardHTML(p, cat){
    findable on that client's page. One line each, when there is anything. */
 function sessionsStripHTML(){
   const now=Date.now(), t=x=>x.when?new Date(x.when).getTime():0;
-  const up=(sessions||[]).filter(x=>x.status==='arranged' && t(x)>now-3*3600e3 && t(x)<now+8*86400e3).sort((a,b)=>t(a)-t(b));
+  const up=(sessions||[]).filter(x=>x.status==='arranged' && t(x)>now-3*3600e3 && t(x)<now+8*86400e3)
+    .concat((calls||[]).filter(x=>x.status==='booked' && t(x)>now-3600e3 && t(x)<now+8*86400e3).map(x=>Object.assign({}, x, {call:true})))
+    .sort((a,b)=>t(a)-t(b));
   const owed=(sessions||[]).filter(x=>x.ask>0 && x.status!=='cancelled');
   if(!up.length && !owed.length) return '';
   const who=x=>esc((x.name||x.email||'').split(' ')[0]);
@@ -8819,7 +8824,9 @@ function sessionsStripHTML(){
   const line=(label,items)=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span class="kick" style="flex:none;width:86px">${label}</span>${items.join('')}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 var(--space-4)">
-    ${up.length?line('THIS WEEK',up.map(x=>chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
+    ${up.length?line('THIS WEEK',up.map(x=>x.call
+      ? `<button onclick="setTab='calls';go('settings')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${x.kind==='welcome'?'welcome call':'free call'}</button>`
+      : chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
     ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · ${gbp(x.ask)}`))):''}
   </div>`;
 }
@@ -8994,11 +9001,12 @@ function startingHTML(){
       /* booked as Calendly reported it, as they said it, or marked by a tap
          before bookings were checked (only older ones) */
       const callTag = p.callDone ? 'Call done' : !p.call ? 'Call not booked'
+        : p.callBy==='app' ? 'Call booked'+(p.callWhen?', '+new Date(p.callWhen).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'')
         : p.callBy==='calendly' ? 'Call booked' : p.callBy==='them' ? 'Call booked, they say' : 'Call booked?';
-      const callTitle = p.call && !p.callDone ? (p.callBy==='calendly' ? 'Calendly reported the booking'+(p.callAt?', '+new Date(p.callAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'')
+      const callTitle = p.call && !p.callDone ? (p.callBy==='app' ? 'Booked here, in your Calls and your calendar feed' : p.callBy==='calendly' ? 'Calendly reported the booking'+(p.callAt?', '+new Date(p.callAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'')
         : p.callBy==='them' ? 'Calendly could not open in their app, so they said they booked it: check Calendly'
         : 'Marked before bookings were checked with Calendly, so it may not be booked: check Calendly') : '';
-      const waiting = next ? '' : !baseDone ? 'Waiting on their baseline.' : !p.callDone ? (p.call?(p.callBy==='calendly'?'Call booked. Mark it done after.':'They may have booked the call: check Calendly, and mark it done after.'):'Waiting on them to book the call.') : '';
+      const waiting = next ? '' : !baseDone ? 'Waiting on their baseline.' : !p.callDone ? (p.call?(['calendly','app'].includes(p.callBy)?'Call booked. Mark it done after.':'They may have booked the call: check Calendly, and mark it done after.'):'Waiting on them to book the call.') : '';
       return `<div style="padding:12px 0;border-top:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div style="flex:1;min-width:220px">
           <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
@@ -9012,7 +9020,7 @@ function startingHTML(){
             ${p.pain?tag('Something hurts','tag-said'):''}
             ${tag(p.push?'Notifications on':'No notifications', p.push?'tag-neutral':'tag-said')}
             ${tag(T.of?'Baseline '+T.logged+' of '+T.of+(T.clips?', '+T.clips+' clip'+(T.clips===1?'':'s'):''):'No tests set', T.of?(baseDone?'tag-accent':'tag-neutral'):'tag-said')}
-            <span title="${esc(callTitle)}">${tag(callTag, p.callDone?'tag-accent':p.call&&p.callBy!=='calendly'?'tag-said':'tag-neutral')}</span>
+            <span title="${esc(callTitle)}">${tag(callTag, p.callDone?'tag-accent':p.call&&!['calendly','app'].includes(p.callBy)?'tag-said':'tag-neutral')}</span>
             ${p.videoReply?tag('Baseline answered on video','tag-accent'):''}
           </div>
           ${waiting?`<p class="muted" style="font-size:12.5px;margin:6px 0 0">${waiting}</p>`:''}
@@ -11414,6 +11422,109 @@ function placesHTML(){
     ${places.msg?`<p class="muted" style="font-size:12.5px;margin-top:8px">${esc(places.msg)}</p>`:''}
   </div>`;
 }
+/* ── Calls: the free intro call and the welcome call, booked here ─────────
+   Instead of Calendly, which kept failing to make the Teams meeting. The
+   hours you take calls, one link everybody joins on, how long, how far
+   ahead, a gap round each, a cap a day and your days off. Your own
+   calendars are the ones set in 1-2-1 times. Below, the free times as they
+   stand, and the calls booked, to mark done or move or cancel. */
+let cc={d:null, busy:false, msg:'', loading:false, move:''};
+function ccLoad(){ if(cc.loading) return; cc.loading=true;
+  fetch(API+'/callconf',{headers:hdr()}).then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not load')))
+    .then(d=>{ cc.d=d; cc.loading=false; calls=d.calls||calls; draw(); }).catch(e=>{ cc.loading=false; cc.msg=String(e); draw(); }); }
+function ccSave(extra){
+  const v=id=>((document.getElementById(id)||{}).value||'');
+  const body=Object.assign({hours:Object.fromEntries(SS_DAYS.map(([k])=>[k,v('cch'+k)])), link:v('ccLink').trim(), linkName:v('ccLinkName').trim(),
+    len:v('ccLen'), step:v('ccStep'), leadH:v('ccLead'), days:v('ccDays'), gap:v('ccGap'), maxDay:v('ccMax'), off:v('ccOff')}, extra||{});
+  cc.busy=true; cc.msg=''; draw();
+  fetch(API+'/callconf',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not save')))
+    .then(d=>{ cc.d=d; cc.busy=false; calls=d.calls||calls; cc.msg=(extra&&(extra.introOn||extra.welcomeOn)&&!d.ready)?'Set the link and your hours first.':'Saved.'; draw(); })
+    .catch(e=>{ cc.busy=false; cc.msg=String(e); draw(); });
+}
+function ccAct(id, action, extra){
+  const body=Object.assign({id, action}, extra||{});
+  if(action==='cancel'){ const m=prompt('Cancel this call? A line for them, if you like (they are told by email):',''); if(m===null) return; body.msg=m; }
+  if(action==='move'){ const d=(document.getElementById('ccd-'+id)||{}).value, t=(document.getElementById('cct-'+id)||{}).value||'18:00';
+    if(!d) return alert('Pick the date first.'); body.when=londonISO(d,t); body.msg=((document.getElementById('ccm-'+id)||{}).value||'').trim(); }
+  cc.busy=true; draw();
+  fetch(API+'/calls',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not save')))
+    .then(d=>{ calls=d.calls||calls; if(cc.d) cc.d.calls=calls; cc.busy=false; cc.move='';
+      flash(action==='cancel'?'Cancelled. '+(d.mailed?'They have been emailed.':'The email did not go.'):action==='move'?'Moved. '+(d.mailed?'They have been emailed.':'The email did not go.'):action==='done'?'Marked done':action==='noshow'?'Marked as a no show':'Saved'); draw(); })
+    .catch(e=>{ cc.busy=false; draw(); alert(String(e)); });
+}
+const ccWhen=t=>new Date(t).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
+function callsSettingsHTML(){
+  if(!cc.d){ ccLoad(); return `<div class="card"><div class="kick">CALLS</div><p class="muted" style="margin-top:10px">${cc.msg?esc(cc.msg):'Loading…'}</p></div>`; }
+  const d=cc.d, c=d.conf, inp='min-height:38px;padding:6px 9px';
+  const sel=(id,opts,val)=>`<select id="${id}" class="input" style="${inp}">${opts.map(n=>`<option value="${n}" ${Number(val)===n?'selected':''}>${n}</option>`).join('')}</select>`;
+  const now=Date.now();
+  const up=(d.calls||[]).filter(x=>x.status==='booked' && new Date(x.when).getTime()>now-3600e3).sort((a,b)=>new Date(a.when)-new Date(b.when));
+  const past=(d.calls||[]).filter(x=>up.indexOf(x)<0).sort((a,b)=>new Date(b.when)-new Date(a.when)).slice(0,12);
+  const pill=(t,col)=>`<span class="tag" style="background:${col};color:#fff">${t}</span>`;
+  const row=x=>{ const w=londonParts(x.when);
+    return `<div style="padding:10px 0;border-top:1px solid var(--line)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <b style="font:600 14px/1.3 var(--sans)">${esc(ccWhen(x.when))}</b>
+        ${pill(x.kind==='welcome'?'WELCOME':'FREE CALL', x.kind==='welcome'?'var(--forest)':'var(--deep)')}
+        ${x.status!=='booked'?pill(x.status==='done'?'DONE':x.status==='noshow'?'NO SHOW':'CANCELLED','var(--grey2)'):''}
+        <span style="font:500 14px/1.3 var(--sans)">${esc(x.name||x.email)}</span><span class="muted" style="font-size:12.5px">${esc(x.email)}${x.tz&&x.tz!=='Europe/London'?' · '+esc(x.tz):''}</span></div>
+      ${x.note?`<div class="muted" style="font-size:13px;margin-top:3px">"${esc(x.note)}"</div>`:''}
+      ${x.status==='booked'?`<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font:600 12.5px/1 var(--sans)">
+        ${new Date(x.when).getTime()<now?`<a href="#" onclick="ccAct(${jsq(x.id)},'done');return false" style="color:var(--deep)">Done</a>
+          <a href="#" onclick="ccAct(${jsq(x.id)},'noshow');return false" style="color:var(--deep)">No show</a>`:''}
+        <a href="#" onclick="cc.move=cc.move===${jsq(x.id)}?'':${jsq(x.id)};draw();return false" style="color:var(--deep)">Move</a>
+        <a href="#" onclick="ccAct(${jsq(x.id)},'cancel');return false" style="color:var(--terra)">Cancel</a></div>
+        ${cc.move===x.id?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <input id="ccd-${esc(x.id)}" type="date" class="input" value="${w.d}" style="${inp};width:auto"><input id="cct-${esc(x.id)}" type="time" class="input" value="${w.t}" style="${inp};width:auto">
+          <input id="ccm-${esc(x.id)}" class="input" placeholder="A line for them, optional" style="${inp};flex:1;min-width:160px">
+          <button class="btn btn-secondary btn-sm" onclick="ccAct(${jsq(x.id)},'move')" ${cc.busy?'disabled':''}>Move it and tell them</button></div>`:''}`:''}
+    </div>`; };
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">CALLS</div><span style="flex:1"></span><span class="muted" style="font-size:12.5px">${esc(cc.msg)}</span></div>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">
+      Booked here instead of Calendly. People pick from your free times in their own time zone, get the link and a calendar file by email,
+      a reminder the day before, and a link to move or cancel. You hear of every booking, and the calls are in your calendar feed.
+      Switched off, the old Calendly link is used, exactly as before.</p>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:12px">
+      <label class="radio"><input type="checkbox" ${c.introOn?'checked':''} ${cc.busy||(!d.ready&&!c.introOn)?'disabled':''} onchange="ccSave({introOn:this.checked})">The free intro call books here</label>
+      <label class="radio"><input type="checkbox" ${c.welcomeOn?'checked':''} ${cc.busy||(!d.ready&&!c.welcomeOn)?'disabled':''} onchange="ccSave({welcomeOn:this.checked})">The welcome call books here</label>
+    </div>
+    ${d.ready?'':'<p style="font:500 13px/1.5 var(--sans);color:var(--terra);margin:8px 0 0">Set the call link and your hours, and save, before switching them on.</p>'}
+    ${d.busy.n&&!d.busy.ok?`<p style="font:500 13px/1.5 var(--sans);color:var(--terra);margin:8px 0 0">${esc(d.busy.errs.join('. ')||'Your own calendar cannot be read')}. Until it can, calls go to Calendly.</p>`:''}
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px;margin-top:14px;max-width:760px">
+      <div class="field"><label>The link everybody joins on</label><input id="ccLink" class="input" value="${esc(c.link||'')}" placeholder="https://teams.microsoft.com/l/meetup-join/…" style="${inp};font:400 12px/1.3 ui-monospace,monospace"></div>
+      <div class="field"><label>On</label><input id="ccLinkName" class="input" value="${esc(c.linkName||'')}" placeholder="Microsoft Teams" style="${inp}"></div>
+    </div>
+    <div class="muted" style="font-size:12.5px;margin-top:4px">One standing meeting you keep for calls, so nothing has to be made when somebody books. In Teams: Calendar, Meet now or a recurring meeting, Copy link.</div>
+    <div class="field" style="margin-top:14px"><label>The hours you take calls, London time</label>
+      <div style="display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 10px;align-items:center;max-width:520px">
+        ${SS_DAYS.map(([k,n])=>`<span style="font:500 14px/1 var(--sans)">${n}</span><input id="cch${k}" class="input" value="${esc((c.hours||{})[k]||'')}" placeholder="none, or 12:00-13:00, 18:00-20:00" style="${inp}">`).join('')}
+      </div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px;max-width:760px">
+      <div class="field"><label>Minutes a call</label>${sel('ccLen',[10,15,20,30,45,60],c.len)}</div>
+      <div class="field"><label>Start times every</label>${sel('ccStep',[10,15,20,30,60],c.step)}</div>
+      <div class="field"><label>Book at least, hours ahead</label><input id="ccLead" class="input" type="number" min="0" value="${esc(c.leadH)}" style="${inp}"></div>
+      <div class="field"><label>Show, days ahead</label><input id="ccDays" class="input" type="number" min="1" max="60" value="${esc(c.days)}" style="${inp}"></div>
+      <div class="field"><label>Gap round each, minutes</label><input id="ccGap" class="input" type="number" min="0" max="120" value="${esc(c.gap)}" style="${inp}"></div>
+      <div class="field"><label>Most calls a day</label><input id="ccMax" class="input" type="number" min="1" max="30" value="${esc(c.maxDay)}" style="${inp}"></div>
+    </div>
+    <div class="field" style="margin-top:10px;max-width:760px"><label>Days off</label><input id="ccOff" class="input" value="${esc(c.off||'')}" placeholder="2026-12-24, 2026-12-27 to 2026-12-31" style="${inp}"></div>
+    <div class="muted" style="font-size:12.5px;margin-top:4px">${d.busy.n?'Your own calendars ('+d.busy.n+', set in 1-2-1 times) are kept clear too.':'Add your own calendars in 1-2-1 times to keep your clinic and the rest of your diary clear of calls.'} 1-2-1s and classes are always kept clear.</div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="ccSave()" ${cc.busy?'disabled':''}>${cc.busy?'Saving…':'Save'}</button></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:20px">
+      <div><div class="kick">FREE, NEXT TWO WEEKS</div>
+        ${d.preview.length?[...new Set(d.preview.map(t=>ssDay(t)))].map(k=>`<div style="margin-top:9px"><b style="font:600 13px/1.4 var(--sans)">${esc(k)}</b>
+          <div class="muted" style="font-size:13px">${d.preview.filter(t=>ssDay(t)===k).map(t=>esc(ssClock(t))).join(', ')}</div></div>`).join('')
+          :`<p class="muted" style="font-size:13px;margin-top:8px">${esc(d.previewWhy||'Nothing free in your hours.')}</p>`}</div>
+      <div><div class="kick">BOOKED</div>${up.length?up.map(row).join(''):'<p class="muted" style="font-size:13px;margin-top:8px">No calls booked.</p>'}
+        ${past.length?`<div class="kick" style="margin-top:16px">BEFORE</div>${past.map(row).join('')}`:''}</div>
+    </div>
+  </div>`;
+}
 /* ── 1-2-1 times: when people can book one, read from Arch 2's calendar ──
    The hours you offer, the rule for when the room can be hired, and the
    calendar it is read from. The calendar's address goes in and never comes
@@ -11998,6 +12109,7 @@ const SET_GROUPS=[
   ['app','The app','What the ladder gives people, what is locked, and the words it sends.'],
   ['workshops','Workshops','Dates, places and who has booked.'],
   ['sessions','1-2-1 times','When people can book a 1-2-1, read from Arch 2\'s calendar at OverGravity.'],
+  ['calls','Calls','The free intro call and the welcome call, booked here instead of Calendly.'],
   ['admin','Admin','The email switch and the one-time database jobs. Rarely.'],
 ];
 function setGo(k){ setTab=k; draw(); if(k==='alerts') cpushLoad(); }
@@ -12176,6 +12288,7 @@ function settingsHTML(){
   : setTab==='app' ? `${owner?shortHTML():''}${owner?homeHTML():''}${owner?streamHTML():''}
       ${owner?errsHTML():''}${owner?emailsHTML():''}`
   : setTab==='workshops' ? workshopsHTML()
+  : setTab==='calls' ? (owner ? callsSettingsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">Calls are set by Elliott.</div>`)
   : setTab==='sessions' ? (owner ? sessSlotsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)
   : setTab==='alerts' ? cpushHTML()
   : `${owner?mailguardHTML():''}${owner?maillogHTML():''}${owner?dbHTML():''}
