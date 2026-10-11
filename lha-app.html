@@ -8749,7 +8749,11 @@ function loadState(){
       /* the welcome seen and the call booked, from whichever phone did them */
       const ob=d.ob||{};
       if(ob.youIn) st.youInSeen=true;
-      if(ob.call && !st.callNo){ st.callBooked=true; if(ob.callBy) st.callBy=ob.callBy; if(ob.callAt) st.callAt=ob.callAt; }
+      /* the welcome call booked in the app is the server's to say: this
+         phone mirrors it, booked or cancelled from wherever */
+      st.callHere=!!d.callHere; st.wcall=d.wcall||null;
+      if(ob.callBy==='app' || st.callBy==='app' || st.wcall){ st.callBooked=!!(ob.call||st.wcall); st.callBy=st.callBooked?'app':''; if(!st.callBooked) st.wcall=null; }
+      else if(ob.call && !st.callNo){ st.callBooked=true; if(ob.callBy) st.callBy=ob.callBy; if(ob.callAt) st.callAt=ob.callAt; }
       st.callDone=ob.callDone||0;
       /* the coach's own call link, when one is set */
       st.welcomeCall=typeof d.welcomeCall==='string'?d.welcomeCall:(st.welcomeCall||'');
@@ -10994,6 +10998,7 @@ function drawOv(){
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
   else if(st.ov==='goal'){ body=goalSheetHTML(); }
+  else if(st.ov==='callbook' && st.callHere){ body=`<div style="padding:2px">${callHereHTML()}</div>`; }
   else if(st.ov==='callbook'){ body=`<div style="padding:2px">
       <div class="kick2">YOUR WELCOME CALL</div>
       <div style="font:400 28px/1.05 var(--serif);margin-top:9px">Pick a <em style="color:var(--forest);font-style:normal">time.</em></div>
@@ -12721,9 +12726,63 @@ const welcomeCallURL = extra => { const base=st.welcomeCall||CALL_URL;
     name: st.client||'', email: st.email||'', a1:'Coaching welcome call: agreeing what block one works on',
     utm_source:'app', utm_campaign:'welcome-call'}, extra||{})).toString(); };
 function callPick(){
+  /* booked here: Elliott's own free times, in this sheet, the iPhone app included */
+  if(st.callHere){ WC.slots=null; WC.sel=''; WC.msg=''; openOv('callbook'); callHereLoad(); return; }
   st.callOpened=Date.now(); save();
   if(IOS_APP){ render(); leaveTo(welcomeCallURL()); return; }
   openOv('callbook');
+}
+/* ── the welcome call booked here, without Calendly ────────────────────
+   The same free times as the site's call page, in this phone's time zone,
+   booked in one tap; the link to join and a calendar file come by email
+   and sit on Start. A time that cannot be offered (booking here switched
+   off, or Elliott's calendars unreadable) falls back to Calendly. */
+const WC={slots:null, day:'', sel:'', msg:'', busy:false};
+const wcTZ=(()=>{ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone||'Europe/London'; }catch(e){ return 'Europe/London'; } })();
+const wcDay=t=>new Date(t).toLocaleDateString('en-CA',{timeZone:wcTZ});
+const wcClock=(t,z)=>new Date(t).toLocaleTimeString('en-GB',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:z||wcTZ}).replace(':00','').replace(/\s/g,'').toLowerCase();
+const wcWhen=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:wcTZ})+', '+wcClock(t)
+  +(wcTZ!=='Europe/London'&&wcClock(t,'Europe/London')!==wcClock(t)?' ('+wcClock(t,'Europe/London')+' in London)':'');
+function callHereLoad(){
+  fetch('/api/app/call/slots?kind=welcome').then(r=>r.json()).then(d=>{
+    if(!d||!d.open){ st.callHere=false; save(); if(st.ov==='callbook'){ closeOv(); callPick(); } return; }
+    WC.slots=d.slots||[]; if(!WC.slots.some(t=>wcDay(t)===WC.day)) WC.day=WC.slots.length?wcDay(WC.slots[0]):'';
+    if(st.ov==='callbook') drawOv();
+  }).catch(()=>{ WC.slots=[]; WC.msg='The times would not load. Try again in a moment.'; if(st.ov==='callbook') drawOv(); });
+}
+function callHereHTML(){
+  const b='border:1.5px solid rgba(0,64,61,.16);background:#fff;cursor:pointer;font:inherit;color:var(--ink)';
+  const head=`<div class="kick2">YOUR WELCOME CALL</div>
+    <div style="font:400 28px/1.05 var(--serif);margin-top:9px">Pick a <em style="color:var(--forest);font-style:normal">time.</em></div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes on video with Elliott, to agree what block one works on.</div>`;
+  if(WC.slots===null) return head+`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:16px">Finding the free times…</div>`;
+  if(!WC.slots.length) return head+`<div style="font:400 14px/1.5 var(--sans);color:var(--ink);margin-top:16px">${esc(WC.msg||'No free times in the next few weeks.')} Message Elliott in the chat and he will find one.</div>`;
+  const days=[...new Set(WC.slots.map(wcDay))], times=WC.slots.filter(t=>wcDay(t)===WC.day);
+  return head+`<div style="display:flex;gap:8px;overflow-x:auto;margin-top:16px;padding-bottom:6px">${days.map(k=>{ const t=WC.slots.find(x=>wcDay(x)===k), on=k===WC.day;
+      return `<button onclick="WC.day=${jsq(k)};WC.sel='';drawOv()" style="${b};flex:none;min-width:62px;padding:9px 8px;border-radius:14px;text-align:center;${on?'border-color:var(--forest);background:rgba(0,102,99,.07)':''}">
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;color:${on?'var(--forest)':'var(--grey2)'}">${esc(new Date(t).toLocaleDateString('en-GB',{weekday:'short',timeZone:wcTZ}).toUpperCase())}</div>
+        <div style="font:400 21px/1.1 var(--serif);margin-top:4px">${esc(new Date(t).toLocaleDateString('en-GB',{day:'numeric',timeZone:wcTZ}))}</div>
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:4px">${esc(new Date(t).toLocaleDateString('en-GB',{month:'short',timeZone:wcTZ}).toUpperCase())}</div></button>`; }).join('')}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;margin-top:8px">${times.map(t=>{ const on=t===WC.sel;
+      return `<button onclick="WC.sel=${jsq(t)};drawOv()" style="${b};min-height:44px;border-radius:12px;font:600 15px/1 var(--sans);${on?'background:var(--forest);border-color:var(--forest);color:#fff':''}">${esc(wcClock(t))}</button>`; }).join('')}</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">Times in your time zone${wcTZ==='Europe/London'?' (London)':', '+esc(wcTZ.replace(/_/g,' ').split('/').pop())+'. Elliott is in London'}.</div>
+    <textarea id="chNote" placeholder="Anything you want to cover, if you like" style="width:100%;min-height:70px;margin-top:12px;padding:11px 13px;border:1px solid rgba(0,64,61,.16);border-radius:14px;font:400 15px/1.4 var(--sans);box-sizing:border-box"></textarea>
+    <button class="btn" style="width:100%;margin-top:12px" ${WC.sel&&!WC.busy?'':'disabled'} onclick="callHereBook()">${WC.busy?'Booking…':WC.sel?'Book '+esc(new Date(WC.sel).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:wcTZ}))+', '+esc(wcClock(WC.sel)):'Pick a time'}</button>
+    ${WC.msg?`<div style="font:500 13.5px/1.5 var(--sans);color:var(--terra);margin-top:10px">${esc(WC.msg)}</div>`:''}`;
+}
+function callHereBook(){
+  if(!WC.sel||WC.busy) return;
+  const note=((document.getElementById('chNote')||{}).value||'').trim();
+  WC.busy=true; WC.msg=''; drawOv();
+  fetch('/api/app/call/book',{method:'POST',headers:authed(),body:JSON.stringify({kind:'welcome',slot:WC.sel,note,tz:wcTZ,src:IOS_APP?'iphone':'app'})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
+    .then(d=>{ WC.busy=false; st.wcall=d.call; st.callBooked=true; st.callBy='app'; st.callAt=Date.now(); st.callNo=false; st.callOpened=0; save();
+      closeOv(); toast('Booked: '+wcWhen(d.call.when)); render(); })
+    .catch(e=>{ WC.busy=false;
+      if(e&&e.already&&e.call){ st.wcall=e.call; st.callBooked=true; st.callBy='app'; save(); closeOv(); render(); return; }
+      if(e&&e.off){ st.callHere=false; save(); closeOv(); callPick(); return; }
+      if(e&&e.gone){ WC.sel=''; WC.msg=String(e.error||'That time has just gone.'); callHereLoad(); return; }
+      WC.msg=String((e&&e.error)||'That did not go through. Try again.'); drawOv(); });
 }
 /* by: 'calendly' when its own booked message said so, else they did. The
    dashboard shows which, so a booking taken on their word gets checked in
@@ -12903,6 +12962,11 @@ function screenStart(){
       ${open==='call'?`<div id="ob-call" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s2)}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes once your baseline is in. We agree what block one works on, so it fits you and your week.</div>
         ${st.callDone?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Done. I have what I need.</div>`
+          : s2.done&&st.callBy==='app'&&st.wcall?`<div style="font:600 15px/1.4 var(--sans);color:var(--ink);margin-top:10px">${esc(wcWhen(st.wcall.when))}</div>
+            <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:4px">${esc(st.wcall.len||15)} minutes${st.wcall.linkName?' on '+esc(st.wcall.linkName):''}. ${
+              st.wcall.link?`<a href="${esc(st.wcall.link)}" target="_blank" rel="noopener" style="color:var(--forest);font-weight:600">Join here</a> at that time. `:''}
+              <a href="${esc(st.wcall.ics)}" style="color:var(--forest);font-weight:600">Add to calendar</a> &middot;
+              <button onclick="leaveTo(${jsq(st.wcall.manage)})" style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.6 var(--sans);color:var(--forest);text-decoration:underline">Move or cancel</button></div>`
           : s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked${st.callBy==='calendly'?', and in my calendar':''}. <button onclick="st.callBooked=false;st.callBy='';st.callAt=0;st.callNo=true;save();saveState();render()"
             style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Not booked after all?</button></div>`
           : cta('Pick a time',"callPick()",true)+(st.callOpened?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px;text-align:center">Booked it?
