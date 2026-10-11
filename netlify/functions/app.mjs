@@ -1245,15 +1245,21 @@ async function seedOnboarding(email) {
   const goal = await goalOf(e);
   const cps = onbSetFor(ob, goal);
   if (!cps.length) return false;
+  /* The tests wait for their goals (Elliott, 11 Oct 2026: a standard list
+     for each goal, once we know it). Somebody who paid on the website before
+     answering a question was given the general set, and could start filming
+     tests chosen for nobody in particular. Now they start with none, and
+     Start asks the questions first; the goal's own set comes in as soon as
+     the answers do (reseedOnboarding, on the next programme load), or when
+     the coach sets their goal in Starting. */
   await setSetting(`programme:${e}`, { days: [], label: 'Before block one', onboarding: true,
-    seeded: true, seededFor: goal, startedAt: Date.now(), editedAt: Date.now(),
-    checkpoints: cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })) });
+    seeded: true, seededFor: goal, startedAt: Date.now(), editedAt: Date.now(), ...(goal ? {} : { heldForGoal: true }),
+    checkpoints: goal ? cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })) : [] });
   return true;
 }
-/* Somebody who paid on the website is seeded before they have answered a
-   question, so they get the general set. Once the quiz says what they came
-   for, the set for that goal replaces it, as long as nothing has been
-   logged against the old one and the coach has not changed it by hand. */
+/* Once the quiz says what they came for, the set for that goal replaces
+   whatever they had, as long as nothing has been logged against it and the
+   coach has not changed it by hand. Held for their goal, that is nothing. */
 async function reseedOnboarding(email, force) {
   const e = norm(email);
   const p = await getSetting(`programme:${e}`);
@@ -1268,7 +1274,7 @@ async function reseedOnboarding(email, force) {
   const logged = (p.checkpoints || []).some(c => ((logs[c.k] || []).length));
   const same = cps.map(c => c.k).join(',') === (p.checkpoints || []).map(c => c.k).join(',');
   const next = Object.assign({}, p, { seededFor: goal },
-    (!logged && !same && cps.length) ? { checkpoints: cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })) } : {});
+    (!logged && !same && cps.length) ? { checkpoints: cps.map(c => Object.assign(cleanOnbCp(c), { addedAt: Date.now() })), heldForGoal: false } : {});
   await setSetting(`programme:${e}`, next);
   return logged ? 'kept' : true;
 }
