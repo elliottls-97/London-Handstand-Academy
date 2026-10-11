@@ -3613,6 +3613,13 @@ function onboardingHTML(){
       <button class="btn btn-primary btn-sm" onclick="onbCopy()">Use these</button>
       ${cps.length?`<button class="btn btn-ghost btn-sm" onclick="onbClear()">Clear</button>`:''}
     </div>
+    <div class="field" style="margin-top:16px"><label>The welcome call, a Calendly link</label>
+      <div class="muted" style="font-size:12.5px;margin:0 0 6px">${onb&&onb.call?'They book this one.':'None set, so they book the public 15 minute intro call.'}
+        Their name and email are filled in, and the booking says it is a coaching welcome call. It counts as booked once Calendly says so.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="onbCall" class="input" value="${esc((onb&&onb.call)||'')}" placeholder="https://calendly.com/londonhandstandacademy-info/welcome-call" style="flex:1;min-width:220px;font-size:13px">
+        <button class="btn btn-secondary btn-sm" onclick="onbPost({call:(document.getElementById('onbCall').value||'').trim()},'Saved. New clients book this call.')">Save</button>
+      </div></div>
     ${onbFilmHTML()}
   </div>`;
 }
@@ -8984,7 +8991,14 @@ function startingHTML(){
         : (T.clips>0 && !p.videoReply) ? ['Reply to their baseline on video',`openClient(${jsq(p.email)},'thread')`]
         : (baseDone && p.callDone) ? ['Write block one',`openBuilder(${jsq(p.email)})`]
         : null;
-      const waiting = next ? '' : !baseDone ? 'Waiting on their baseline.' : !p.callDone ? (p.call?'Call booked. Mark it done after.':'Waiting on them to book the call.') : '';
+      /* booked as Calendly reported it, as they said it, or marked by a tap
+         before bookings were checked (only older ones) */
+      const callTag = p.callDone ? 'Call done' : !p.call ? 'Call not booked'
+        : p.callBy==='calendly' ? 'Call booked' : p.callBy==='them' ? 'Call booked, they say' : 'Call booked?';
+      const callTitle = p.call && !p.callDone ? (p.callBy==='calendly' ? 'Calendly reported the booking'+(p.callAt?', '+new Date(p.callAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'')
+        : p.callBy==='them' ? 'Calendly could not open in their app, so they said they booked it: check Calendly'
+        : 'Marked before bookings were checked with Calendly, so it may not be booked: check Calendly') : '';
+      const waiting = next ? '' : !baseDone ? 'Waiting on their baseline.' : !p.callDone ? (p.call?(p.callBy==='calendly'?'Call booked. Mark it done after.':'They may have booked the call: check Calendly, and mark it done after.'):'Waiting on them to book the call.') : '';
       return `<div style="padding:12px 0;border-top:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div style="flex:1;min-width:220px">
           <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
@@ -8998,7 +9012,7 @@ function startingHTML(){
             ${p.pain?tag('Something hurts','tag-said'):''}
             ${tag(p.push?'Notifications on':'No notifications', p.push?'tag-neutral':'tag-said')}
             ${tag(T.of?'Baseline '+T.logged+' of '+T.of+(T.clips?', '+T.clips+' clip'+(T.clips===1?'':'s'):''):'No tests set', T.of?(baseDone?'tag-accent':'tag-neutral'):'tag-said')}
-            ${tag(p.callDone?'Call done':p.call?'Call booked':'Call not booked', p.callDone?'tag-accent':'tag-neutral')}
+            <span title="${esc(callTitle)}">${tag(callTag, p.callDone?'tag-accent':p.call&&p.callBy!=='calendly'?'tag-said':'tag-neutral')}</span>
             ${p.videoReply?tag('Baseline answered on video','tag-accent'):''}
           </div>
           ${waiting?`<p class="muted" style="font-size:12.5px;margin:6px 0 0">${waiting}</p>`:''}
