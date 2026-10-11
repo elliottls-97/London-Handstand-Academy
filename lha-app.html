@@ -8749,8 +8749,10 @@ function loadState(){
       /* the welcome seen and the call booked, from whichever phone did them */
       const ob=d.ob||{};
       if(ob.youIn) st.youInSeen=true;
-      if(ob.call && !st.callNo) st.callBooked=true;
+      if(ob.call && !st.callNo){ st.callBooked=true; if(ob.callBy) st.callBy=ob.callBy; if(ob.callAt) st.callAt=ob.callAt; }
       st.callDone=ob.callDone||0;
+      /* the coach's own call link, when one is set */
+      st.welcomeCall=typeof d.welcomeCall==='string'?d.welcomeCall:(st.welcomeCall||'');
       /* the goal the coach set beats the one the quiz gave */
       if(ob.goal && (st.intake||{}).goal!==ob.goal) st.intake=Object.assign({}, st.intake||{}, {goal:ob.goal});
       save();
@@ -8786,7 +8788,7 @@ function saveState(now){
       fixDone:st.fixDone||{},
       ...(st.pressTest?{pressTest:st.pressTest}:{}),
       ...(st.pressRung?{pressRung:st.pressRung}:{}),
-      ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callNo?{callNo:true}:{})}
+      ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callBooked&&st.callBy?{callBy:st.callBy, callAt:st.callAt||0}:{}), ...(st.callNo?{callNo:true}:{})}
     })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
   };
   if(now) send(); else stateQueued=setTimeout(send, 800);
@@ -12711,22 +12713,32 @@ const CALL_URL = 'https://calendly.com/londonhandstandacademy-info/intro-call';
    this site, so there it opens outside and they say so when it is done.
    Their name and email go with it, tagged welcome-call, so in Calendly it
    is not taken for a stranger's intro call. */
-const welcomeCallURL = extra => CALL_URL+'?'+new URLSearchParams(Object.assign({
-  name: st.client||'', email: st.email||'', utm_source:'app', utm_campaign:'welcome-call'}, extra||{})).toString();
+/* The call is the coach's own when he has set one in the dashboard
+   (st.welcomeCall, from /state); the public intro call until then. The
+   note fills Calendly's first question, so the booking says what it is. */
+const welcomeCallURL = extra => { const base=st.welcomeCall||CALL_URL;
+  return base+(base.includes('?')?'&':'?')+new URLSearchParams(Object.assign({
+    name: st.client||'', email: st.email||'', a1:'Coaching welcome call: agreeing what block one works on',
+    utm_source:'app', utm_campaign:'welcome-call'}, extra||{})).toString(); };
 function callPick(){
   st.callOpened=Date.now(); save();
   if(IOS_APP){ render(); leaveTo(welcomeCallURL()); return; }
   openOv('callbook');
 }
-function callBookedYes(){
-  st.callBooked=true; st.callNo=false; st.callOpened=0; save(); saveState(true);
+/* by: 'calendly' when its own booked message said so, else they did. The
+   dashboard shows which, so a booking taken on their word gets checked in
+   Calendly; Calendly's word, once given, stays. */
+function callBookedYes(by){
+  st.callBooked=true; st.callNo=false; st.callOpened=0;
+  st.callBy=(by==='calendly'||st.callBy==='calendly')?'calendly':'them'; st.callAt=st.callAt||Date.now();
+  save(); saveState(true);
   if(st.ov==='callbook') closeOv();
   toast('Booked. Talk soon.'); render();
 }
 window.addEventListener('message', e=>{
   if(!/^https:\/\/([a-z0-9-]+\.)?calendly\.com$/.test(e.origin||'')) return;
   const ev = e.data && typeof e.data==='object' ? e.data.event : '';
-  if(ev==='calendly.event_scheduled' && st.ov==='callbook') callBookedYes();
+  if(ev==='calendly.event_scheduled' && st.ov==='callbook') callBookedYes('calendly');
 });
 /* A programme is a day with drills in it. DATA starts as one empty Day 1,
    so "has days" was true for everybody, programme or not. */
@@ -12891,7 +12903,7 @@ function screenStart(){
       ${open==='call'?`<div id="ob-call" class="card" style="padding:18px;scroll-margin-top:90px">${secHead(s2)}
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Fifteen minutes once your baseline is in. We agree what block one works on, so it fits you and your week.</div>
         ${st.callDone?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Done. I have what I need.</div>`
-          : s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked. <button onclick="st.callBooked=false;st.callNo=true;save();saveState();render()"
+          : s2.done?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px">Booked${st.callBy==='calendly'?', and in my calendar':''}. <button onclick="st.callBooked=false;st.callBy='';st.callAt=0;st.callNo=true;save();saveState();render()"
             style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Not booked after all?</button></div>`
           : cta('Pick a time',"callPick()",true)+(st.callOpened?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:10px;text-align:center">Booked it?
             <button onclick="callBookedYes()" style="border:0;background:none;padding:0;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Yes, it&rsquo;s booked</button></div>`:'')}</div>`:''}
