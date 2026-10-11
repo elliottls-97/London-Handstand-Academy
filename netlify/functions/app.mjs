@@ -8016,9 +8016,17 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          unless the call is deliberately taken back. */
       if (body.ob && typeof body.ob === 'object') {
         const was = cur.ob || {};
+        const off = body.ob.callNo === true, call = off ? false : !!(was.call || body.ob.call);
+        /* Who says it is booked: Calendly, which reported the booking, or
+           them, when its calendar could not open in the app and they said
+           so. Tapping Pick a time used to count, so a call nobody booked read
+           as booked here and in the dashboard. Calendly's word is kept over
+           theirs; a call taken back loses both. */
+        const by = off ? '' : was.callBy === 'calendly' || body.ob.callBy === 'calendly' ? 'calendly'
+          : body.ob.callBy === 'them' || was.callBy === 'them' ? 'them' : (call ? was.callBy || '' : '');
         /* callDone is the coach's to set, so it is carried, never taken */
-        cur.ob = Object.assign({}, was, { youIn: !!(was.youIn || body.ob.youIn),
-                   call: body.ob.callNo === true ? false : !!(was.call || body.ob.call) });
+        cur.ob = Object.assign({}, was, { youIn: !!(was.youIn || body.ob.youIn), call, callBy: by,
+          callAt: off ? 0 : (Number(was.callAt) || (call && by ? Math.min(Date.now(), Number(body.ob.callAt) || Date.now()) : 0)) });
       }
       /* the quiz answers, so a new phone does not ask them all again */
       if (body.intake && typeof body.intake === 'object') {
@@ -8086,7 +8094,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       stage: Number.isInteger(out.stage) ? out.stage : null,
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pressRung: out.pressRung || null, ob: out.ob || {} });
+      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
+      /* the coach's own call link for a new client, where one is set */
+      ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || '') } : {}) });
   }
 
   /* ── tracking: metrics, habits, check-ins ─────────────────────
@@ -9912,6 +9922,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         return json(next);
       }
       if (body.clear) { const next = put({ checkpoints: [], at: Date.now() }); await setSetting(ONBOARDING, next); return json(next); }
+      /* the call a new client books: a Calendly link of its own, or none
+         for the public intro call. Not per goal: everybody books the same. */
+      if (body.call !== undefined) {
+        const u = String(body.call || '').trim();
+        if (u && !/^https:\/\/calendly\.com\/[A-Za-z0-9_.\/-]{3,200}$/.test(u)) return json({ error: 'That is not a Calendly link. It looks like https://calendly.com/your-name/welcome-call' }, 400);
+        const next = Object.assign({}, cur, { call: u });
+        await setSetting(ONBOARDING, next);
+        return json(next);
+      }
       /* where the camera goes, test by test */
       if (body.cam && typeof body.cam === 'object') {
         const list = goal ? (((cur.goals || {})[goal] || {}).checkpoints || []) : (cur.checkpoints || []);
@@ -10007,7 +10026,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           goal, goalByCoach: !!(st8.ob || {}).goal, level: Number.isFinite(Number(it.level)) && it.level !== null ? Number(it.level) : null,
           pain: !!(it.safe && it.safe.pain === true), niggles: Array.isArray(it.niggles) ? it.niggles : [],
           tests: { of: cps.length, logged, clips, lastClip },
-          push, youIn: !!ob.youIn, call: !!ob.call, callDone: ob.callDone || 0,
+          push, youIn: !!ob.youIn, call: !!ob.call, callBy: ob.callBy || '', callAt: ob.callAt || 0, callDone: ob.callDone || 0,
           hello: own.length ? ms(own[0].created_at) : 0,
           videoReply: (lastClip && onVideo.find(t => t >= lastClip)) || 0 };
       }));
