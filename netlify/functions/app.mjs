@@ -1766,9 +1766,10 @@ async function sessChangeHTML(row) {
    paid first with the time agreed after. */
 /* Elliott's hours to start from (12 Oct 2026): Monday, Wednesday and
    Friday evenings, and weekends ten to six; his to change in Settings. His
-   own classes, with half an hour either side, are always kept clear. */
+   own classes, with half an hour either side, are always kept clear. Days
+   off start with him away until Wednesday 21 October. */
 const SLOT_DEFAULTS = { on: false, hours: { 1: '18:00-20:00', 3: '18:00-20:00', 5: '18:00-20:00', 6: '10:00-18:00', 0: '10:00-18:00' },
-  leadH: 24, days: 21, step: 30, words: ['full hire'], max: 2, gap: 0, classGap: 30, off: '' };
+  leadH: 24, days: 21, step: 30, words: ['full hire'], max: 2, gap: 0, classGap: 30, off: '2026-10-12 to 2026-10-20' };
 const slotConf = async () => Object.assign({}, SLOT_DEFAULTS, (await getSetting('sessslots').catch(() => null)) || {});
 /* Read at most every five minutes on a warm server. A calendar that will
    not answer keeps its last reading for six hours, then counts as unread,
@@ -2067,7 +2068,8 @@ async function sessMoveByClient(db, id, who, { slot, prefs } = {}) {
    them or by him. Off until he switches it on: until then, and whenever his
    calendars cannot be read, the old Calendly link is the way in. */
 const CALL_TZ = 'Europe/London';
-const CALL_DEFAULTS = { introOn: false, welcomeOn: false, hours: {}, len: 15, step: 15, leadH: 12, days: 21, gap: 5, maxDay: 6, off: '', link: '', linkName: '' };
+/* off: Elliott is away until Wednesday 21 October 2026, until he changes it */
+const CALL_DEFAULTS = { introOn: false, welcomeOn: false, hours: {}, len: 15, step: 15, leadH: 12, days: 21, gap: 5, maxDay: 6, off: '2026-10-12 to 2026-10-20', link: '', linkName: '' };
 const CALL_CALENDLY = 'https://calendly.com/londonhandstandacademy-info/intro-call';
 const callConf = async () => Object.assign({}, CALL_DEFAULTS, (await getSetting('callconf').catch(() => null)) || {});
 const callLen = x => Math.max(10, Math.min(90, Number(x && x.len) || 15)) * 60e3;
