@@ -2028,11 +2028,11 @@ async function sessMoveByClient(db, id, who, { slot, prefs } = {}) {
         cta: { href: payUrl, label: `Pay ${sessAmt(row.ask)}` },
         paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`, 'It is confirmed once it is paid.', await sessChangeHTML(row)],
         signoff: { name: coachName(primaryCoach()) } }), undefined, { receipt: true });
-    } else mailed = await sessConfirmMail(db, row, primaryCoach(), { moved: was });
-    await coachAlert(row.email, 'business', { title: `${row.name || row.email} moved their session`, body: `${slotTxt(at)}. Hire Arch 2 for it.`, tag: 'sessmove:' + row.id });
-    await email(toCoach, `Moved: ${row.name || row.email}, now ${slotTxt(at)}`, mail({ title: 'A 1-2-1 has moved. Hire Arch 2 for the new time.',
+    } else mailed = await sessHeldMail(db, row, { moved: was });
+    await coachAlert(row.email, 'business', { title: `${row.name || row.email} moved their session`, body: `${slotTxt(at)}. Book the room, then confirm it.`, tag: 'sessmove:' + row.id });
+    await email(toCoach, `To confirm: ${row.name || row.email} moved to ${slotTxt(at)}`, mail({ title: 'A 1-2-1 has moved. Book the room for the new time, then confirm it.',
       paras: [`<b>${esc(row.name || row.email)}</b> moved their ${esc(row.kind)} minute session to <b>${esc(whenTxt)}</b>${wasTxt ? ', from ' + esc(wasTxt) : ''}.`,
-              'It is marked on Today until you tick the room as hired.', wasTxt ? 'If you hired Arch 2 for the old time, that time is free again.' : ''].filter(Boolean),
+              'It is on Today until you confirm it.', wasTxt ? 'If you hired Arch 2 for the old time, that time is free again.' : ''].filter(Boolean),
       cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
   } else {
     const line = `You asked to move your ${row.kind} minute session${wasTxt ? ' from ' + wasTxt : ''}. You said: "${row.prefs}". I will check the room and come back with a new time within 48 hours.`;
@@ -2259,6 +2259,25 @@ async function callCancel(id, by, say) {
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
   if (by !== 'coach') await callTell(row, 'cancelled');
   return { ok: true, status: 'cancelled', mailed };
+}
+/* A time they picked is paid for and held, but not confirmed: Elliott hires
+   the half of Arch 2 for it first (12 Oct 2026). The room flag says so,
+   'hire' until he confirms. If it cannot be secured he moves it, and if the
+   new time does not suit them it is refunded. */
+async function sessHeldMail(db, row, opts = {}) {
+  const whenTxt = sessWhen(row), first = String(row.name || '').split(' ')[0];
+  const cNoPw = !(await hashFor(db, row.email));
+  const cLink = cNoPw ? await welcomeLink(row.email) : '';
+  const was = opts.moved ? sessWhen({ when: opts.moved }) : '';
+  return email(row.email, `${was ? 'Moved' : 'Held for you'}: your session, ${whenTxt}`, mail({
+    title: was ? 'Moved. Now I book the room.' : 'Paid. Now I book the room.', greeting: first,
+    cta: cNoPw ? { href: cLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
+    paras: [`<b>${esc(whenTxt)}</b>, at OverGravity, Shadwell. ${row.kind} minutes.${was ? ' Instead of ' + esc(was) + '.' : ''}`,
+            `It is held for you while I book the room around OverGravity's timetable, and I confirm it within 48 hours, by email and in the app, with the calendar entry.`,
+            `If that time cannot be secured, I will offer you another, and if none suits you it is refunded in full.`,
+            await sessChangeHTML(row),
+            opts.fresh && cNoPw ? `It is in the Handstand Ladder app too, under this address. Your username is ${esc(row.email)}: choose a password with the button below and you are in.` : ''].filter(Boolean),
+    signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true, ...(opts.noQueue ? { noQueue: true } : {}) });
 }
 /* a session's payments. There was one reference on the row, so a second
    payment overwrote the first and a refund of either could not be told
@@ -3287,7 +3306,7 @@ const handle = async (request) => {
       let sentOk = false;
       try {
       await ensureAcct(e, nm);
-      if (sPicked) sentOk = await sessConfirmMail(db, sRow, primaryCoach(), { fresh: true, noQueue: true });
+      if (sPicked) sentOk = await sessHeldMail(db, sRow, { fresh: true, noQueue: true });
       else {
       /* The account was made and the email said so, with no password and no
          way to set one: they had to find Forgotten it? on the sign in screen.
@@ -3313,15 +3332,15 @@ const handle = async (request) => {
       if (sPicked) {
         const atTxt = slotTxt(sRow.when);
         try { await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
-          text: `Thanks, your ${kind} minute session is booked: ${sessWhen(sRow)}, at OverGravity. See you there. To move or cancel it, use the link in your confirmation email.` }); } catch {}
+          text: `Thanks, your ${kind} minute session is paid for and held: ${sessWhen(sRow)}, at OverGravity. I book the room now and confirm it within 48 hours. If it cannot be secured I will offer you another time, and if none suits it is refunded in full.` }); } catch {}
         /* the room is not hired until Elliott hires it: said at once, and on
            Today until he ticks it, whatever the email switches say */
-        await coachAlert(e, 'business', { title: `${nm || e} booked ${atTxt}`, body: `${kind} minutes, ${amt}. Hire Arch 2 for it.`, tag: 'sess:' + e });
-        await email(coachTo(e), `Booked: ${nm || e}, ${atTxt}, ${kind} min. Hire Arch 2`,
+        await coachAlert(e, 'business', { title: `${nm || e} picked ${atTxt}`, body: `${kind} minutes, ${amt}. Book the room, then confirm it on Today.`, tag: 'sess:' + e });
+        await email(coachTo(e), `To confirm: ${nm || e}, ${atTxt}, ${kind} min`,
           mail({ title: `${esc(nm || e)} has booked ${esc(atTxt)}.`,
             paras: [`${kind} minutes, paid ${amt}, picked on the session page from the times Arch 2's calendar showed free.`,
-                    '<b>Hire Arch 2 for it.</b> It is on Today until you tick the room as hired.',
-                    sentOk ? 'They have their confirmation, with the calendar and the link to move or cancel.' : 'Their email was held, so the confirmation is in their messages in the app only.',
+                    '<b>Book the room for it, then confirm it on Today.</b> They have been told it is held, not confirmed, and that you confirm within 48 hours. If it cannot be secured, move it there; if the new time does not suit them, refund it.',
+                    sentOk ? '' : 'Their email was held, so the message is in their messages in the app only.',
                     prefs ? `They also said: <b>${esc(prefs)}</b>.` : ''].filter(Boolean),
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
         return json({ ok: true, session: kind, booked: sRow.when });
@@ -6327,7 +6346,7 @@ const handle = async (request) => {
                    expires_at: String(Math.floor(Date.now() / 1000) + 31 * 60) } : {}),
         'payment_method_types[0]': 'card',
         submit_type: 'book',
-        'custom_text[submit][message]': at ? `Booked for ${slotTxt(at)} once you pay. Your confirmation has a link to move it, or to ask to cancel.`
+        'custom_text[submit][message]': at ? `Held for ${slotTxt(at)} once you pay, and confirmed within 48 hours once the room is booked. If it cannot be, another time is offered or it is refunded in full.`
                                            : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
         success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}`,
@@ -6357,7 +6376,7 @@ const handle = async (request) => {
     const S = R.live ? await slotState(row.kind, { exceptId: row.id }).catch(() => ({ on: false })) : { on: false };
     return json({ id: row.id, kind: row.kind, when: row.when || '', place: row.place || '', name: row.name || '', status: row.status,
       fromPlan: !!row.fromPlan, owes: Number(row.ask) > 0 ? Number(row.ask) : 0, paid: Number(row.paid) || 0, refunded: Number(row.refunded) || 0,
-      live: R.live, selfMove: R.selfMove, canMove: R.canMove, canCancel: R.canCancel, late: R.late, cutoff: SESS_CUTOFF_H,
+      live: R.live, selfMove: R.selfMove, held: row.room === 'hire', canMove: R.canMove, canCancel: R.canCancel, late: R.late, cutoff: SESS_CUTOFF_H,
       req: R.req ? { kind: R.req.kind, at: R.req.at, slot: R.req.slot || '', prefs: R.req.prefs || '' } : null,
       slots: S.on ? S.slots.filter(x => !row.when || x.start !== ms(row.when)).map(x => new Date(x.start).toISOString()) : null });
   }
@@ -6468,7 +6487,7 @@ const handle = async (request) => {
         if (body.when !== undefined) { const t = ms(body.when); r.when = t ? new Date(t).toISOString() : '';
           /* a time the coach sets is one he has the room for, and answers an ask to move */
           if (r.when !== before.when) { delete r.room; r.moveAsked = 0; } }
-        /* Arch 2 hired for a time the client picked, ticked off on Today */
+        /* Arch 2 booked for a time the client picked: confirmed, on Today */
         if (['hire', 'hired'].includes(body.room) && r.when) r.room = body.room;
         if (typeof body.place === 'string') r.place = body.place.slice(0, 120);
         if (typeof body.note === 'string') r.note = body.note.slice(0, 300);
@@ -6536,6 +6555,15 @@ const handle = async (request) => {
       }
       /* a time set, or moved: confirmed if nothing is owed, and if it is,
          booked and waiting on the payment, which confirms it */
+      /* the room booked for the time they picked: now it is confirmed */
+      if (before.room === 'hire' && row.room === 'hired' && row.when === wasWhen && row.status === 'arranged') {
+        const whenTxt = sessWhen(row);
+        try { await threadAdd(db, row.email, { from: 'coach', by, text: `Confirmed: ${whenTxt}, at ${row.place || 'OverGravity, Shadwell'}. The room is booked. See you there.` }); } catch {}
+        told = { what: 'confirmed', mailed: await sessConfirmMail(db, row, by, { say: String(body.msg || '').trim().slice(0, 600) }) };
+      }
+      /* a held time Elliott could not secure, moved: said so, and that it is refunded if the new one does not suit */
+      if (before.room === 'hire' && wasWhen && row.when && wasWhen !== row.when && !String(body.msg || '').trim())
+        body.msg = 'I could not secure the room for the time you picked, so I have moved it. If this time does not suit you, use the link below to ask to cancel and it is refunded in full.';
       if (row.status === 'arranged' && row.when && (!wasArranged || (wasWhen && wasWhen !== row.when))) {
         const whenTxt = sessWhen(row);
         if (owes) {
@@ -6737,7 +6765,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         change: R.canMove && (x.when || pickOn || R.canCancel) ? await sessManageLink(x) : '',
         changeLabel: !R.canMove ? '' : R.req ? 'See what you asked' : x.when ? (R.canCancel ? 'Move or cancel' : 'Move it')
           : pickOn ? (R.canCancel ? 'Pick a time or cancel' : 'Pick a time') : R.canCancel ? 'Cancel it' : '',
-        asked: R.req ? R.req.kind : '' });
+        asked: R.req ? R.req.kind : '', held: x.room === 'hire' && x.status === 'arranged' });
     }
     out.sort((a, b) => ms(a.when) - ms(b.when));
     return json({ bookings: out });

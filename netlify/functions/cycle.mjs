@@ -971,6 +971,22 @@ async function sessionMail(done) {
     if (!x || !x.when || !['arranged', 'done'].includes(x.status)) continue;
     /* an ask to cancel waits on the coach: no "see you tomorrow" over it */
     if (x.req && x.req.kind === 'cancel' && x.status === 'arranged') continue;
+    /* a picked time not confirmed yet (the room not booked): no reminder,
+       and the coach is chased once a day has gone by */
+    if (x.room === 'hire' && x.status === 'arranged') {
+      const since = Math.max(Number(x.at) || 0, ...((x.moves || []).map(m => Number(m.at) || 0)));
+      const key = `sessconfirm:${x.id}:${x.when}`;
+      if (now - since > DAY && ms(x.when) > now && !(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
+        const whenTxt = new Date(ms(x.when)).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+        const went = await email(process.env.COACH_EMAIL || primaryCoach(), `Still to confirm: ${x.name || x.email}, ${whenTxt}`,
+          mail({ title: `${esc(x.name || x.email)} is waiting for you to confirm.`,
+            paras: [`Their ${esc(x.kind)} minute session on ${esc(whenTxt)} is paid for and held, not confirmed. They were told you would confirm within 48 hours.`,
+                    'Book the room and confirm it on Today, or move it there if it cannot be secured.'],
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Open Today' } }));
+        if (went) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key'); done.sessions.chased++; }
+      }
+      continue;
+    }
     const at = ms(x.when);
     const hoursTo = (at - now) / 3600e3, hoursSince = (now - at) / 3600e3;
     const whenTxt = new Date(at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
