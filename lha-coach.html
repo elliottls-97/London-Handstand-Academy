@@ -8321,7 +8321,7 @@ const INBOX_TYPE={
   question:   {label:'Question',         cls:'tag-msg',     filter:'questions',   act:1},
   application:{label:'Application',      cls:'tag-other',   filter:'other',       act:1},
   session:    {label:'Session booked',   cls:'tag-other',   filter:'other',       act:1},
-  hire:       {label:'Hire Arch 2',      cls:'tag-other',   filter:'other',       act:1},
+  hire:       {label:'To confirm',       cls:'tag-other',   filter:'other',       act:1},
   request:    {label:'Asked to change',  cls:'tag-msg',     filter:'other',       act:1},
   feedback:   {label:'App feedback',     cls:'tag-neutral', filter:'other',       act:1},
 };
@@ -8428,7 +8428,7 @@ function inboxItems(){
         +(x.req.late?' · under 24 hours':'')+(x.req.prefs?' · suits: '+clip(x.req.prefs,60):'')+(x.req.note?' · "'+clip(x.req.note,80)+'"':'')}));
   sessions.filter(x=>x.room==='hire' && !x.req && x.status==='arranged' && x.when && new Date(x.when).getTime()>Date.now()-3*3600e3)
     .forEach(x=>out.push({id:'H:'+x.id, type:'hire', email:x.email, name:x.name||x.email, at:(x.moves&&x.moves.length?x.moves[x.moves.length-1].at:x.at),
-      action:'Room hired', sess:x, detail:sessLondon(x.when)+', '+x.kind+' minutes'+((x.moves||[]).length?', moved by them':', booked by them')}));
+      action:'Confirm', sess:x, detail:sessLondon(x.when)+', '+x.kind+' minutes'+((x.moves||[]).length?', moved by them':', booked by them')}));
   /* ── too hard, too easy ───────────────────────────────────────
      A client flagging a drill is the most useful thing they do between
      blocks and it appeared nowhere: not here, not in an email, only on
@@ -8523,9 +8523,9 @@ function inboxBodyHTML(r){
   }
   if(r.type==='hire'){ const x=r.sess; const busy=sessBusy===x.id;
     return `
-    <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${esc(sessLondon(x.when))}</b>, ${esc(x.kind)} minutes, ${(x.moves||[]).length?'moved there by them':'picked by them on the session page'}. It is confirmed to them. Hire Arch 2 at OverGravity for it, then tick it here.</p>
+    <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${esc(sessLondon(x.when))}</b>, ${esc(x.kind)} minutes, ${(x.moves||[]).length?'moved there by them':'picked by them on the session page'}, paid and held. They have been told it is not confirmed until you have booked the room. Book the red or cali half of Arch 2, then confirm it here and they get the confirmation with the calendar. Cannot secure it? Move it on their 1-2-1s, and if the new time does not suit them, refund it.</p>
     <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
-      <button class="btn btn-primary" onclick="sessSet(${jsq(x.id)},{room:'hired'})" ${busy?'disabled':''}>${busy?'Saving…':'Arch 2 is hired'}</button>
+      <button class="btn btn-primary" onclick="sessSet(${jsq(x.id)},{room:'hired'})" ${busy?'disabled':''}>${busy?'Saving…':'Room booked, confirm it'}</button>
       <button class="btn btn-secondary" onclick="openClient(${jsq(x.email)},'121')">Their 1-2-1s</button>
     </div>`;
   }
@@ -9325,7 +9325,7 @@ function oneOnePaneHTML(){
     const owes=x.ask>0 && x.status!=='cancelled';
     const st= x.req&&upcoming?pill(x.req.kind==='cancel'?'ASKED TO CANCEL':'ASKED TO MOVE','var(--terra)')
       : owes?pill('TO PAY · '+gbp(x.ask),'var(--terra)')
-      : x.room==='hire' && upcoming && x.status==='arranged'?pill('HIRE ARCH 2','var(--terra)')
+      : x.room==='hire' && upcoming && x.status==='arranged'?pill('TO CONFIRM','var(--terra)')
       : x.status==='toArrange'?pill('TO ARRANGE','var(--terra)') : x.status==='cancelled'?pill('CANCELLED','var(--grey2)')
       : x.status==='done'?pill('DONE','var(--grey)') : upcoming?pill('BOOKED','var(--forest)') : pill('HAPPENED?','var(--grey2)');
     const link=(t,fn)=>`<button onclick="${fn}" style="border:0;background:none;cursor:pointer;padding:0;font:600 12.5px/1 var(--sans);color:var(--deep);text-decoration:underline;text-underline-offset:3px">${t}</button>`;
@@ -9338,7 +9338,7 @@ function oneOnePaneHTML(){
         : x.status==='toArrange'?timeForm(x,'Confirm and tell them','sessConfirm')
         : oneMove===x.id?timeForm(x,'Move it and tell them','oneMoveSave')
         : (x.status==='arranged')?`<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
-            ${upcoming&&x.room==='hire'?link('Arch 2 is hired','sessSet(\''+esc(x.id)+'\',{room:\'hired\'})'):''}
+            ${upcoming&&x.room==='hire'?link('Room booked, confirm it','sessSet(\''+esc(x.id)+'\',{room:\'hired\'})'):''}
             ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
             ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):link('Had it already','oneDone=\''+esc(x.id)+'\';draw()')}
             ${upcoming&&!x.req?link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()'):''}
