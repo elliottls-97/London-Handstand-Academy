@@ -104,6 +104,28 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
           +esc(new Date(t).toLocaleDateString('en-GB',{day:'numeric',timeZone:TZ}))+'</span><b style="margin-top:4px">'+esc(new Date(t).toLocaleDateString('en-GB',{month:'short',timeZone:TZ}))+'</b></button>'; }).join('')+'</div>'
       +'<div class="times" aria-label="'+esc(label||'Times')+'">'+times.map(t=>'<button type="button" class="time'+(t===sel?' on':'')+'" data-t="'+esc(t)+'">'+esc(clock(t))+'</button>').join('')+'</div>';
   }
+  /* what they want to work on, their goals and their training so far:
+     asked once they have booked, saved for Elliott, and changeable from the
+     link in their emails */
+  const ABOUT=[['work','What do you want to work on?','Your handstand, press, a skill, or something that keeps going wrong'],
+    ['goals','What are your goals?','Where you would like to be in a few months'],
+    ['history','What is your training history?','What you have trained before, for how long, and how often you train now']];
+  function aboutHTML(a,head){ a=a||{};
+    return '<div class="card" id="ab" style="text-align:left"><div class="row"><b>'+esc(head)+'</b></div>'
+      +'<p class="muted" style="font-size:14.5px">So Elliott can plan your session before you arrive. Write as much or as little as you like.</p>'
+      +ABOUT.map(([k,l,ph])=>'<label for="ab-'+k+'">'+esc(l)+'</label><textarea id="ab-'+k+'" placeholder="'+esc(ph)+'">'+esc(a[k]||'')+'</textarea>').join('')
+      +'<button class="btn" id="abgo">Send to Elliott</button><div class="msg" id="abmsg"></div></div>'; }
+  function wireAbout(extra,onSaved){
+    const go=document.getElementById('abgo'); if(!go) return;
+    go.onclick=()=>{ const b=Object.assign({},extra), m=document.getElementById('abmsg');
+      ABOUT.forEach(([k])=>{ b[k]=(document.getElementById('ab-'+k).value||'').trim(); });
+      if(!ABOUT.some(([k])=>b[k])){ m.textContent='Write a line in at least one of them.'; return; }
+      go.disabled=true; go.textContent='Sending…'; m.textContent='';
+      fetch('/api/app/session/about',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})
+        .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x)))
+        .then(()=>{ document.getElementById('ab').innerHTML='<div class="row"><b>Thanks, Elliott has it.</b></div>'+(extra.cs?'<p class="muted" style="font-size:14.5px">You can change it from the link in your booking email.</p>':''); if(onSaved) onSaved(b); })
+        .catch(e=>{ go.disabled=false; go.textContent='Send to Elliott'; m.textContent=String((e&&e.error)||'That did not send. Reply to your booking email with it instead.'); }); };
+  }
   function wirePicker(root,onDay,onTime){
     root.querySelectorAll('.day').forEach(b=>{ b.onclick=()=>onDay(b.getAttribute('data-day')); });
     root.querySelectorAll('.time').forEach(b=>{ b.onclick=()=>onTime(b.getAttribute('data-t')); });
@@ -139,6 +161,8 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
             .catch(e=>{ busy=false; keep.disabled=false; document.getElementById('kmsg').textContent=String((e&&e.error)||e||'Something went wrong'); }); };
         return;
       }
+      /* picking a day redraws the page: what they were typing about themselves stays */
+      if(document.getElementById('abgo')){ const t={}; ABOUT.forEach(([k])=>{ t[k]=document.getElementById('ab-'+k).value; }); d.abDraft=t; }
       const slots=d.slots, self=d.selfMove;
       if(slots&&slots.length&&!slots.some(t=>dayKey(t)===day)) day=dayKey(slots[0]);
       let move='';
@@ -164,9 +188,10 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
         +'<button class="ghost" id="cx">Ask to cancel my session</button><div class="msg" id="cmsg"></div></div>'
         :(d.fromPlan?'<div class="card"><p class="muted" style="font-size:14.5px;margin:0">This session comes with your coaching, so it is moved rather than cancelled. If no time works this month, message Elliott in the app.</p></div>':'');
       const pay=d.owes>0?'<div class="card"><div class="row"><b>Not paid yet</b><span>'+esc(pounds(d.owes))+'</span></div><p class="muted" style="font-size:14.5px">It is confirmed once it is paid.</p><a class="btn" href="/api/app/session/pay?id='+encodeURIComponent(d.id)+'">Pay '+esc(pounds(d.owes))+'</a></div>':'';
-      box.innerHTML=head()+pay+move+askCard+cancel
+      box.innerHTML=head()+pay+aboutHTML(d.abDraft||d.about,d.about?'About you':'Before your session')+move+askCard+cancel
         +'<div class="fine" style="margin-top:18px">'+(d.when?'You can move it yourself to another free time until Elliott has hired the room; after that, and to cancel, you ask and he comes back to you. ':'')+'Questions? '+MAIL+'</div>';
       wirePicker(box,k=>{ day=k; sel=''; drawM(); },t=>{ sel=t; drawM(); });
+      wireAbout({t:mtok},b=>{ d.about=b; d.abDraft=null; });
       const lock=on=>{ busy=on; box.querySelectorAll('button').forEach(b=>{ b.disabled=on; }); };
       const askedDone=()=>done('Asked.',[esc(asked()),'An email with this is on its way.']);
       const mv=document.getElementById('mv');
@@ -212,12 +237,21 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
   };
   const price=()=>kind==='90'?labels.session90:labels.session60;
   const draw0=()=>{
-    if(booked){
+    /* drawn once: the times and prices arriving later would wipe what they are typing */
+    if(booked){ if(box.querySelector('.done')) return; paidDone(); return afterPaid(); }
+    draw1();
+  };
+  const afterPaid=()=>{ const cs=q.get('cs')||'';
+    if(!/^cs_/.test(cs)) return;
+    box.querySelector('.done').insertAdjacentHTML('afterend',aboutHTML(null,'Before your session'));
+    wireAbout({cs}); };
+  const paidDone=()=>{
       if(bookedAt) return done('Paid. Now I book the room.',['Your '+esc(kind)+' minute session on <b>'+esc(whenTxt(bookedAt))+'</b> is held for you while Elliott books the room at OverGravity. He confirms it within 48 hours, by email and in the app.',
         'If that time cannot be secured, he offers you another, and if none suits you it is refunded in full. An email is on its way now; if you are new, it has a button to choose your password for the Handstand Ladder app.'],['/lha-app.html','Open the app']);
       return done('Paid. Now the time.',['Your '+esc(kind)+' minute session is paid for. Elliott checks your times against the room at OverGravity and confirms within 48 hours, by email and in the app.',
         'An email is on its way now. If you are new, it has a button to choose your password for the Handstand Ladder app, where your booking is and where we agree the time.'],['/lha-app.html','Open the app']);
-    }
+  };
+  const draw1=()=>{
     const S=slots[kind];
     const picking=!asking&&Array.isArray(S)&&S.length>0;
     if(picking&&!S.some(t=>dayKey(t)===day)) day=dayKey(S[0]);
@@ -230,12 +264,12 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       +'</div>'
       +(S===undefined?'<div class="card"><p class="muted" style="margin:0">Finding the free times…</p></div>':'')
       +(picking?'<div class="card"><label>Pick a time</label>'+pickerHTML(S,day,slot,'Times on '+day)
-        +'<button class="linkb" id="none">None of these work? Pay now and say which days suit</button></div>':'')
+        +'<button class="linkb" id="none">None of these work? Ask for another time</button></div>':'')
       +(S===undefined?'':'<div class="card">'
       +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
       +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
       +(picking?'':'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings. The more you give, the faster it lands."></textarea>')
-      +'<button class="btn" id="go"'+(picking&&!slot?' disabled':'')+'>'+(picking?(slot?'Pay '+esc(price())+' and book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):'Pay '+esc(price())+' and request a time')+'</button>'
+      +'<button class="btn" id="go"'+(picking&&!slot?' disabled':'')+'>'+(picking?(slot?'Pay '+esc(price())+' and book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):(asking?'Pay '+esc(price())+' and ask for these times':'Pay '+esc(price())+' and request a time'))+'</button>'
       +'<div class="msg" id="msg"></div>'
       +'<div class="fine">Card payment on the next page, through Stripe. '+(picking
         ?'Until Elliott has hired the room you can move it yourself to another free time. To cancel, ask from the link in your email: he hires the room for each session and comes back to you with a refund or a new date.'

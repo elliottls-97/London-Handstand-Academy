@@ -56,6 +56,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
 .done .tick{width:64px;height:64px;border-radius:50%;margin:0 auto;display:grid;place-items:center;background:rgba(0,102,99,.1);color:var(--forest);font-size:30px}
 .foot{font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:30px}.foot a{color:var(--forest)}
 @media (max-width:520px){h1{font-size:33px}.wrap{padding:22px 16px 80px}}
+.linkb{display:inline;border:0;background:none;padding:0;margin-top:14px;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline;text-underline-offset:3px;text-align:left}
 </style><link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
@@ -142,34 +143,62 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
 
   /* ── booking the free call ── */
   beacon('sitecall');
-  let slots=[], day='', slot='', busy=false;
+  let slots=[], day='', slot='', busy=false, asking=false;
+  /* asked when they book, so the fifteen minutes go on them */
+  const ABOUT=[['work','What do you want to work on?','Your handstand, press, a skill, or something that keeps going wrong'],
+    ['goals','What are your goals?','Where you would like to be in a few months'],
+    ['history','What is your training history?','What you have trained before, for how long, and how often you train now']];
+  const aboutFields=()=>ABOUT.map(([k,l,ph])=>'<label for="ab-'+k+'">'+esc(l)+'</label><textarea id="ab-'+k+'" placeholder="'+esc(ph)+'"></textarea>').join('');
+  const aboutRead=()=>{ const a={}; ABOUT.forEach(([k])=>{ const el=document.getElementById('ab-'+k); if(el&&el.value.trim()) a[k]=el.value.trim(); }); return a; };
   const draw=()=>{
-    const kept=['nm','em','nt'].map(id=>{ const el=document.getElementById(id); return [id,el?el.value:'']; });
+    const kept=['nm','em','pf'].concat(ABOUT.map(([k])=>'ab-'+k)).map(id=>{ const el=document.getElementById(id); return [id,el?el.value:'']; });
+    const ask=asking||!slots.length;
     if(!slots.some(t=>dayKey(t)===day)) day=slots.length?dayKey(slots[0]):'';
     if(slot&&!slots.includes(slot)) slot='';
     box.innerHTML='<div class="kick">Free call · 15 minutes</div><h1>Fifteen minutes, free.</h1>'
       +'<p>Tell me what you are stuck on. I will tell you which way of training with me you actually need, including if the answer is none of them yet.</p>'
-      +(slots.length?'<div class="card"><label>Pick a time</label>'+pickerHTML(slots,day,slot)+zoneLine()+'</div>'
-        +'<div class="card">'
+      +(!ask?'<div class="card"><label>Pick a time</label>'+pickerHTML(slots,day,slot)+zoneLine()
+        +'<button class="linkb" id="none">None of these work? Ask for another time</button></div>'
+        :'<div class="card"><div class="row"><b>Ask for another time</b></div><p class="muted" style="font-size:14.5px">'
+          +(slots.length?'Say what suits you and Elliott will find a time.':'No free times in the next few weeks. Say what suits you and Elliott will find one.')+'</p>'
+          +'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings."></textarea>'+zoneLine()+'</div>')
+      +'<div class="card">'
         +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
         +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
-        +'<label for="nt">What would you like to talk about, if you like</label><textarea id="nt" placeholder="Where your handstand is now, and what is in the way"></textarea>'
-        +'<button class="btn" id="go"'+(slot?'':' disabled')+'>'+(slot?'Book the call, '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above')+'</button>'
+        +'<p class="muted" style="font-size:14.5px;margin-top:18px">So the call goes on you. Write as much or as little as you like.</p>'
+        +aboutFields()
+        +(ask?'<button class="btn" id="go">Ask for a time</button>'
+          :'<button class="btn" id="go"'+(slot?'':' disabled')+'>'+(slot?'Book the call, '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above')+'</button>')
         +'<div class="msg" id="msg"></div>'
-        +'<div class="fine">A video call. The link to join comes by email, with a calendar file, and a reminder the day before. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div></div>'
-      :'<div class="card"><b>No free times in the next few weeks.</b> <span class="muted">Email '+MAIL+' and Elliott will find one.</span></div>')
+        +'<div class="fine">'+(ask?'Elliott comes back with a time within 48 hours, by email, with the link to join. ':'A video call. The link to join comes by email, with a calendar file, and a reminder the day before. ')
+        +'How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>'
+        +(ask&&slots.length?'<button class="linkb" id="back">Back to the free times</button>':'')+'</div>'
       +'<div class="foot">Questions? '+MAIL+'</div>';
     kept.forEach(([id,v])=>{ const el=document.getElementById(id); if(el&&v) el.value=v; });
     wire(k=>{ day=k; slot=''; draw(); },t=>{ slot=t; draw(); });
+    const none=document.getElementById('none'); if(none) none.onclick=()=>{ asking=true; slot=''; draw(); const p=document.getElementById('pf'); if(p) p.focus(); };
+    const bk=document.getElementById('back'); if(bk) bk.onclick=()=>{ asking=false; draw(); };
     const go=document.getElementById('go');
     if(!go) return;
+    if(ask){ go.onclick=()=>{
+      const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim(), prefs=(document.getElementById('pf').value||'').trim();
+      const msg=document.getElementById('msg');
+      if(!prefs){ msg.textContent='Say which days and times suit you.'; return; }
+      if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
+      if(busy) return; busy=true; go.disabled=true; go.textContent='Sending…'; msg.textContent='';
+      fetch('/api/app/call/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,prefs,about:aboutRead(),tz:TZ})})
+        .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
+        .then(()=>{ beacon('sitecallasked'); done('Asked.',['Elliott comes back to you with a time within 48 hours.','It comes by email to '+esc(email)+', with the link to join.']); })
+        .catch(e=>{ busy=false; if(e&&e.off){ location.replace(CALENDLY); return; }
+          go.disabled=false; go.textContent='Ask for a time'; msg.textContent=String((e&&e.error)||'Something went wrong'); }); };
+      return; }
     go.onclick=()=>{
-      const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim(), note=(document.getElementById('nt').value||'').trim();
+      const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim(), about=aboutRead();
       const msg=document.getElementById('msg');
       if(!slot){ msg.textContent='Pick a time first.'; return; }
       if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
       if(busy) return; busy=true; go.disabled=true; go.textContent='Booking…'; msg.textContent='';
-      fetch('/api/app/call/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'intro',slot,name,email,note,tz:TZ,src:q.get('from')||'site'})})
+      fetch('/api/app/call/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'intro',slot,name,email,about,tz:TZ,src:q.get('from')||'site'})})
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
         .then(d=>{ beacon('sitecallbooked'); const c=d.call;
           box.innerHTML='';

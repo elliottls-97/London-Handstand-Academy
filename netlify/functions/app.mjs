@@ -2189,13 +2189,24 @@ async function callTell(row, what, extra) {
   await email(clients()[norm(row.email)] ? coachTo(row.email) : (process.env.COACH_EMAIL || process.env.FROM_EMAIL), `Call ${what}: ${row.name || row.email}, ${when}`,
     mail({ title: `A ${CALL_NAME[row.kind]} ${what}.`,
       paras: [`<b>${esc(row.name || row.email)}</b> (${esc(row.email)}), <b>${esc(when)}</b> London time, ${Math.round(callLen(row) / 60e3)} minutes.`,
-              row.note ? `They said: <i>${esc(row.note)}</i>` : '', row.tz && row.tz !== CALL_TZ ? `They are on ${esc(row.tz)} time.` : '', extra ? esc(extra) : '',
+              row.note ? `They said: <i>${esc(row.note)}</i>` : '', aboutMailHTML(row.about), row.tz && row.tz !== CALL_TZ ? `They are on ${esc(row.tz)} time.` : '', extra ? esc(extra) : '',
               'It is in your calendar feed, if you have subscribed to it.'].filter(Boolean),
       cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
 }
+/* What they want to work on, their goals and their training so far: asked
+   when they book a free call or a 1-2-1, so Elliott walks in knowing
+   (12 Oct 2026). Each is optional; none at all is nothing. */
+const ABOUT_Q = [['work', 'What they want to work on'], ['goals', 'Their goals'], ['history', 'Their training so far']];
+function aboutClean(b) {
+  const a = {};
+  for (const [k] of ABOUT_Q) { const v = String((b && b[k]) || '').trim().slice(0, 800); if (v) a[k] = v; }
+  return Object.keys(a).length ? a : null;
+}
+const aboutMailHTML = a => a ? ABOUT_Q.filter(([k]) => a[k]).map(([k, l]) => `<b>${l}:</b> <i>${esc(a[k])}</i>`).join('<br>') : '';
+const aboutLine = a => a ? ABOUT_Q.filter(([k]) => a[k]).map(([k]) => a[k]).join(' / ').slice(0, 160) : '';
 /* booked: one change that nothing else can overwrite, so two people cannot
    take the same time, and one booking of each kind per person */
-async function callBook({ kind, slot, name, email: who, note, tz, src }) {
+async function callBook({ kind, slot, name, email: who, note, tz, src, about }) {
   const k = kind === 'welcome' ? 'welcome' : 'intro', at = ms(slot);
   const S = await callState(k);
   if (!S.on) return { error: 'Booking a call here is not open just now.', status: 409, off: true };
@@ -2210,7 +2221,8 @@ async function callBook({ kind, slot, name, email: who, note, tz, src }) {
     if (mine) return undefined;
     if (live.some(x => ms(x.when) < at + len * 60e3 && ms(x.when) + callLen(x) > at)) { clash = true; return undefined; }
     row = { id: 'c' + newId(), kind: k, email: norm(who), name: String(name || '').slice(0, 60), when: new Date(at).toISOString(), len,
-      tz: callZone(tz), note: String(note || '').trim().slice(0, 500), at: Date.now(), src: String(src || '').slice(0, 20), status: 'booked' };
+      tz: callZone(tz), note: String(note || '').trim().slice(0, 500), at: Date.now(), src: String(src || '').slice(0, 20), status: 'booked',
+      ...(aboutClean(about) ? { about: aboutClean(about) } : {}) };
     l.unshift(row); return l.slice(0, 800);
   });
   if (mine) return { error: `You already have a call booked: ${callWhen(mine.when, tz || mine.tz)}.`, status: 409, already: true, call: await callPublic(mine, S.conf) };
@@ -2269,6 +2281,63 @@ async function callCancel(id, by, say) {
   if (by !== 'coach') await callTell(row, 'cancelled');
   return { ok: true, status: 'cancelled', mailed };
 }
+/* None of the free times suit: they say what would, and Elliott finds one
+   and books them in from the dashboard. One open ask a person; asking
+   again updates it. */
+async function callAsk({ name, email: who, prefs, tz, about }) {
+  let row = null, again = false;
+  await changeSetting('callasks', cur => {
+    row = null; again = false;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const open = l.find(x => x && x.status === 'open' && norm(x.email) === norm(who));
+    if (open) { Object.assign(open, { name: name || open.name, prefs, tz: callZone(tz), about: about || open.about || null, again: Date.now() }); row = open; again = true; return l; }
+    row = { id: 'q' + newId(), kind: 'intro', email: norm(who), name, prefs, tz: callZone(tz), about: about || null, at: Date.now(), status: 'open' };
+    l.unshift(row); return l.slice(0, 300);
+  });
+  const first = String(name || '').split(' ')[0];
+  const mailed = await email(row.email, 'Your free call: Elliott will find a time', mail({
+    title: 'Elliott will find a time.', greeting: first,
+    paras: [`You asked for a free call at a time that suits you: <b>${esc(prefs)}</b>.`,
+            'Elliott comes back to you with a time within 48 hours, by email, with the link to join.'],
+    signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+  const t = `${name || row.email}: asked for another call time`;
+  await coachAlert(clients()[row.email] ? row.email : null, 'business', { title: t, body: prefs.slice(0, 140), tag: 'callask:' + row.id });
+  await email(clients()[row.email] ? coachTo(row.email) : (process.env.COACH_EMAIL || process.env.FROM_EMAIL), `Call time asked for: ${name || row.email}`,
+    mail({ title: again ? 'They asked again for a call time.' : 'None of your call times suited them.',
+      paras: [`<b>${esc(name || row.email)}</b> (${esc(row.email)}) would like a free call. What suits them: <i>${esc(prefs)}</i>.`,
+              row.tz && row.tz !== CALL_TZ ? `They are on ${esc(row.tz)} time.` : '', aboutMailHTML(row.about),
+              'Book them in on Today, and they get the time and the link by email.'].filter(Boolean),
+      cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  return { ok: true, again, mailed };
+}
+/* Elliott books an ask in at the time he found: a call like any other,
+   with the confirmation, the link and the calendar file */
+async function callBookAsk(id, when, say) {
+  const q = ((await getSetting('callasks')) || []).find(x => x && x.id === id);
+  if (!q || q.status !== 'open') return { error: 'That one has been dealt with already.', status: 400 };
+  const at = ms(when);
+  if (!(at > Date.now())) return { error: 'Pick a time that has not happened yet.', status: 400 };
+  const c = await callConf(), len = Math.round(callLen(c) / 60e3);
+  let row = null, mine = null, clash = false;
+  await changeSetting('calls', cur => {
+    row = null; mine = null; clash = false;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const live = l.filter(x => x && x.status === 'booked' && ms(x.when) + callLen(x) > Date.now());
+    mine = live.find(x => x.kind === 'intro' && norm(x.email) === norm(q.email)) || null;
+    if (mine) return undefined;
+    if (live.some(x => ms(x.when) < at + len * 60e3 && ms(x.when) + callLen(x) > at)) { clash = true; return undefined; }
+    row = { id: 'c' + newId(), kind: 'intro', email: norm(q.email), name: q.name || '', when: new Date(at).toISOString(), len, tz: q.tz || CALL_TZ,
+      note: '', at: Date.now(), src: 'asked', status: 'booked', ask: q.id, ...(q.about ? { about: q.about } : {}), prefs: q.prefs || '' };
+    l.unshift(row); return l.slice(0, 800);
+  });
+  if (mine) return { error: `They already have a call booked: ${callWhen(mine.when, CALL_TZ)}.`, status: 409 };
+  if (clash || !row) return { error: 'Another call is booked then. Pick another time.', status: 409 };
+  await changeSetting('callasks', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const x = l.find(y => y && y.id === id);
+    if (!x) return undefined; Object.assign(x, { status: 'booked', callId: row.id, doneAt: Date.now() }); return l; });
+  const mailed = await callMail(row, c, '', say);
+  return { ok: true, call: await callPublic(row, c), mailed };
+}
+const callAsksList = () => getSetting('callasks').then(l => (l || []).filter(x => x && (x.status === 'open' || Number(x.doneAt || x.at) > Date.now() - 14 * DAY)));
 /* A time they picked is paid for and held, but not confirmed: Elliott hires
    the half of Arch 2 for it first (12 Oct 2026). The room flag says so,
    'hire' until he confirms. If it cannot be secured he moves it, and if the
@@ -3299,6 +3368,10 @@ const handle = async (request) => {
         return l.slice(0, 400);
       });
       await slotUnhold(String(md.hold || ''));
+      /* about them, sent from the page they landed on before this was filed */
+      const pendAbout = ((await getSetting('sessabout')) || {})[obj.id];
+      if (pendAbout) await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+        const r = l.find(x => x.session === obj.id); if (!r || r.about) return undefined; r.about = pendAbout; return l; });
       const sRow = ((await getSetting('sessions')) || []).find(x => x.session === obj.id) || {};
       const sPicked = !!(sRow.picked && sRow.when && sRow.status === 'arranged');
       const sessKey = `sessnew:${obj.id}`;
@@ -3350,7 +3423,7 @@ const handle = async (request) => {
             paras: [`${kind} minutes, paid ${amt}, picked on the session page from the times Arch 2's calendar showed free.`,
                     '<b>Book the room for it, then confirm it on Today.</b> They have been told it is held, not confirmed, and that you confirm within 48 hours. If it cannot be secured, move it there; if the new time does not suit them, refund it.',
                     sentOk ? '' : 'Their email was held, so the message is in their messages in the app only.',
-                    prefs ? `They also said: <b>${esc(prefs)}</b>.` : ''].filter(Boolean),
+                    prefs ? `They also said: <b>${esc(prefs)}</b>.` : '', aboutMailHTML(sRow.about)].filter(Boolean),
             cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
         return json({ ok: true, session: kind, booked: sRow.when });
       }
@@ -3365,7 +3438,7 @@ const handle = async (request) => {
       if (goneC || await coachMail(e, 'business')) await email(coachTo(e), `Session to arrange: ${nm || e}, ${kind} min`,
         mail({ title: `${esc(nm || e)} has paid ${amt} for a ${kind} minute session.`,
           paras: [goneC ? `<b>${esc(goneC)}</b> They have been told you will come back with another time within 48 hours.` : '',
-                  prefs ? `Prefers: <b>${esc(prefs)}</b>.` : 'No preferred times given.', sentOk ? 'Check the room, then set the time on Today and they get the confirmation.' : 'Their email was held, so the opener is in their messages in the app only. Check the room, then set the time on Today.'].filter(Boolean),
+                  prefs ? `Prefers: <b>${esc(prefs)}</b>.` : 'No preferred times given.', aboutMailHTML(sRow.about), sentOk ? 'Check the room, then set the time on Today and they get the confirmation.' : 'Their email was held, so the opener is in their messages in the app only. Check the room, then set the time on Today.'].filter(Boolean),
           cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
       return json({ ok: true, session: kind });
     }
@@ -6230,7 +6303,17 @@ const handle = async (request) => {
       if ((await rateHit(`callb:${ip}`, 3600000)) > 12 || (await rateHit(`callbe:${who}`, 3600000)) > 6) return json({ error: 'Too many tries. Try again in an hour.' }, 429);
     }
     if (!body.slot) return json({ error: 'Pick a time first.' }, 400);
-    const r = await callBook({ kind, slot: String(body.slot), name: nm, email: who, note: body.note, tz: body.tz, src: body.src });
+    const r = await callBook({ kind, slot: String(body.slot), name: nm, email: who, note: body.note, tz: body.tz, src: body.src, about: body.about });
+    return json(r, r.error ? r.status : 200);
+  }
+  if (path === '/call/ask' && request.method === 'POST') {
+    const who = norm(body.email), nm = String(body.name || '').trim().slice(0, 60), prefs = String(body.prefs || '').trim().slice(0, 500);
+    if (!who || !wsMailOk(who) || !nm) return json({ error: 'Your name and a real email address, please.' }, 400);
+    if (!prefs) return json({ error: 'Say which days and times suit you.' }, 400);
+    if (!(await callConf()).introOn) return json({ error: 'Booking a call here is not open just now.', off: true }, 409);
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`calla:${ip}`, 3600000)) > 8 || (await rateHit(`callae:${who}`, 3600000)) > 4) return json({ error: 'Too many tries. Try again in an hour.' }, 429);
+    const r = await callAsk({ name: nm, email: who, prefs, tz: body.tz, about: aboutClean(body.about) });
     return json(r, r.error ? r.status : 200);
   }
   if (path === '/call/manage') {
@@ -6261,6 +6344,15 @@ const handle = async (request) => {
   if (path === '/coach/calls') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const list = () => getSetting('calls').then(l => (l || []).filter(x => x && x.when && ms(x.when) > Date.now() - 30 * DAY));
+    if (request.method === 'POST' && ['askbook', 'askdone'].includes(body.action)) {
+      const id = String(body.id || ''), say = String(body.msg || '').trim().slice(0, 600);
+      let r = { ok: true };
+      if (body.action === 'askbook') r = await callBookAsk(id, String(body.when || ''), say);
+      else await changeSetting('callasks', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const x = l.find(y => y && y.id === id);
+        if (!x || x.status !== 'open') return undefined; Object.assign(x, { status: 'done', doneAt: Date.now() }); return l; });
+      if (r.error) return json(r, r.status);
+      return json(Object.assign({ calls: await list(), asks: await callAsksList() }, r));
+    }
     if (request.method === 'POST') {
       const id = String(body.id || ''), say = String(body.msg || '').trim().slice(0, 600);
       const row = ((await getSetting('calls')) || []).find(x => x.id === id);
@@ -6274,9 +6366,9 @@ const handle = async (request) => {
         r = { ok: true };
       } else r = { error: 'Nothing asked', status: 400 };
       if (r.error) return json(r, r.status);
-      return json(Object.assign({ calls: await list() }, r));
+      return json(Object.assign({ calls: await list(), asks: await callAsksList() }, r));
     }
-    return json({ calls: await list() });
+    return json({ calls: await list(), asks: await callAsksList() });
   }
   if (path === '/coach/callconf') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
@@ -6309,7 +6401,7 @@ const handle = async (request) => {
     return json({ conf: Object.assign({}, c, { hours: hoursText(c.hours) }), ready: /^https:\/\//.test(c.link || '') && Object.values(readHours(c.hours)).some(v => v.length),
       busy: { n: f.busyN || 0, ok: f.busyOk !== false, errs: (f.errs || []).filter(x => /^Your own/.test(x)) },
       preview: P.on ? P.slots.filter(x => x.start < Date.now() + 14 * DAY).map(x => new Date(x.start).toISOString()) : [], previewWhy: P.on ? '' : (P.why || ''),
-      calls: ((await getSetting('calls')) || []).filter(x => x && x.when && ms(x.when) > Date.now() - 30 * DAY) });
+      calls: ((await getSetting('calls')) || []).filter(x => x && x.when && ms(x.when) > Date.now() - 30 * DAY), asks: await callAsksList() });
   }
   /* the times a 1-2-1 can be booked, for the session page: start times
      only, nothing of what is in the room's calendar */
@@ -6358,11 +6450,50 @@ const handle = async (request) => {
         'custom_text[submit][message]': at ? `Held for ${slotTxt(at)} once you pay, and confirmed within 48 hours once the room is booked. If it cannot be, another time is offered or it is refunded in full.`
                                            : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
-        success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}`,
+        success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}&cs={CHECKOUT_SESSION_ID}`,
         cancel_url: `${url.origin}/session.html?kind=${kind}`,
       });
       return json({ url: sess.url });
     } catch (err) { await slotUnhold(hold); return json({ error: String(err.message || err) }, 502); }
+  }
+  /* ── about them, for a 1-2-1: asked on the page they land on once paid,
+     and on the link in their emails. Straight after paying the session may
+     not be filed yet, so it waits under the payment and the webhook picks
+     it up; it is written there first and the row tried after, so whichever
+     of the two comes second finds the other. ── */
+  if (path === '/session/about' && request.method === 'POST') {
+    const a = aboutClean(body);
+    if (!a) return json({ error: 'Write a line in at least one of them.' }, 400);
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`ssab:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
+    let id = '', e = '', cs = '';
+    if (body.t) {
+      const t = await sessManageRead(body.t);
+      if (!t) return json({ error: 'That link has run out. Reply to your booking email instead.' }, 401);
+      id = t.i; e = t.e;
+    } else {
+      cs = String(body.cs || '');
+      if (!/^cs_[A-Za-z0-9_]{10,200}$/.test(cs) || !stripeKey()) return json({ error: 'Reply to your booking email with this instead.' }, 400);
+      let o = null;
+      try { o = await stripe(`/checkout/sessions/${enc(cs)}`, null, 'GET'); } catch { return json({ error: 'That could not be saved just now. Reply to your booking email with it instead.' }, 502); }
+      if (!o || !(o.metadata && o.metadata.session) || !csPaid(o)) return json({ error: 'Reply to your booking email with this instead.' }, 400);
+      if (Date.now() / 1000 - Number(o.created || 0) > 7 * 86400) return json({ error: 'Use the link in your booking email for this now.' }, 401);
+      e = norm(o.customer_email || (o.customer_details && o.customer_details.email) || '');
+      await changeSetting('sessabout', cur => {
+        const m = Object.assign({}, cur || {}); m[cs] = { ...a, at: Date.now() };
+        return Object.fromEntries(Object.entries(m).sort((x, y) => Number(y[1].at) - Number(x[1].at)).slice(0, 60));
+      });
+    }
+    let row = null;
+    await changeSetting('sessions', cur => {
+      row = null;
+      const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+      const r = l.find(x => (id ? x.id === id : x.session === cs) && norm(x.email) === e);
+      if (!r) return undefined;
+      r.about = { ...a, at: Date.now() }; row = r; return l;
+    });
+    if (row) await coachAlert(row.email, 'business', { title: `${row.name || row.email}: about them, for their 1-2-1`, body: aboutLine(a), tag: 'sessabout:' + row.id });
+    return json({ ok: true, saved: !!row, waiting: !row && !!cs });
   }
   /* ── a 1-2-1 managed from the link in its emails ────────────────────
      No sign in: the link is signed and names the session and the person. */
@@ -6387,6 +6518,7 @@ const handle = async (request) => {
       fromPlan: !!row.fromPlan, owes: Number(row.ask) > 0 ? Number(row.ask) : 0, paid: Number(row.paid) || 0, refunded: Number(row.refunded) || 0,
       live: R.live, selfMove: R.selfMove, held: row.room === 'hire', canMove: R.canMove, canCancel: R.canCancel, late: R.late, cutoff: SESS_CUTOFF_H,
       req: R.req ? { kind: R.req.kind, at: R.req.at, slot: R.req.slot || '', prefs: R.req.prefs || '' } : null,
+      about: row.about ? Object.fromEntries(ABOUT_Q.map(([k]) => [k, row.about[k] || ''])) : null,
       slots: S.on ? S.slots.filter(x => !row.when || x.start !== ms(row.when)).map(x => new Date(x.start).toISOString()) : null });
   }
   /* ── the 1-2-1 times: hours, rules and the calendars they are read from ──
