@@ -1764,7 +1764,11 @@ async function sessChangeHTML(row) {
    until Elliott switches it on in the dashboard; while it is off, or the
    calendar cannot be read, the session page takes a booking the old way,
    paid first with the time agreed after. */
-const SLOT_DEFAULTS = { on: false, hours: {}, leadH: 24, days: 21, step: 30, words: ['full hire'], max: 2, gap: 0 };
+/* Elliott's hours to start from (12 Oct 2026): Monday, Wednesday and
+   Friday evenings, and weekends ten to six; his to change in Settings. His
+   own classes, with half an hour either side, are always kept clear. */
+const SLOT_DEFAULTS = { on: false, hours: { 1: '18:00-20:00', 3: '18:00-20:00', 5: '18:00-20:00', 6: '10:00-18:00', 0: '10:00-18:00' },
+  leadH: 24, days: 21, step: 30, words: ['full hire'], max: 2, gap: 0, classGap: 30, off: '' };
 const slotConf = async () => Object.assign({}, SLOT_DEFAULTS, (await getSetting('sessslots').catch(() => null)) || {});
 /* Read at most every five minutes on a warm server. A calendar that will
    not answer keeps its last reading for six hours, then counts as unread,
@@ -1808,14 +1812,15 @@ async function slotFeeds(force) {
 }
 /* what else fills a time: 1-2-1s with a time, the classes, and the times
    held while somebody is paying */
-async function slotTaken({ exceptId = '', exceptHold = '', exceptSession = '' } = {}, gapMin = 0) {
-  const gap = Math.max(0, Number(gapMin) || 0) * 60e3, out = [];
+/* classGapMin: the gap round Elliott's own classes, which may be wider than the rest */
+async function slotTaken({ exceptId = '', exceptHold = '', exceptSession = '' } = {}, gapMin = 0, classGapMin) {
+  const gap = Math.max(0, Number(gapMin) || 0) * 60e3, cgap = classGapMin == null ? gap : Math.max(0, Number(classGapMin) || 0) * 60e3, out = [];
   for (const x of ((await getSetting('sessions')) || [])) {
     if (!x || !x.when || x.id === exceptId || (exceptSession && x.session === exceptSession) || ['cancelled', 'refunded'].includes(x.status)) continue;
     out.push({ start: ms(x.when) - gap, end: ms(x.when) + sessLen(x) + gap, what: 'a 1-2-1' });
   }
   for (const w of Object.values((await getSetting('workshops')) || {})) if (w && w.when)
-    out.push({ start: ms(w.when) - gap, end: ms(w.when) + wsMins(w) * 60e3 + gap, what: 'a class' });
+    out.push({ start: ms(w.when) - cgap, end: ms(w.when) + wsMins(w) * 60e3 + cgap, what: 'a class' });
   /* a call booked in the app: Elliott cannot be at OverGravity and on it */
   for (const x of ((await getSetting('calls')) || [])) if (x && x.status === 'booked' && x.when)
     out.push({ start: ms(x.when) - gap, end: ms(x.when) + callLen(x) + gap, what: 'a call' });
@@ -1832,11 +1837,13 @@ async function slotState(kind, except = {}, force) {
   const f = await slotFeeds(force);
   if (!f.roomSet) return { on: false, why: 'Arch 2\'s calendar address is not set' };
   if (!f.room || !f.busyOk) { await slotDown(f.errs.join('. ')); return { on: false, why: f.errs.join('. ') || 'the calendars could not be read' }; }
-  const ctx = { room: f.room, busy: f.busy, taken: await slotTaken(except, c.gap), rule: { words: ruleWords(c.words), max: c.max },
+  const ctx = { room: f.room, busy: f.busy, taken: await slotTaken(except, c.gap, c.classGap), rule: { words: ruleWords(c.words), max: c.max },
     earliest: Date.now() + Math.max(0, Number(c.leadH) || 0) * 3600e3 };
   const lenMin = String(kind) === '90' ? 90 : 60;
+  /* and his days off */
+  const off = callDaysOff(c.off);
   return { on: true, conf: c, ctx, lenMin, stale: f.stale,
-    slots: freeSlots({ now: Date.now(), days: c.days, step: c.step, lenMin, hours: c.hours, ...ctx }) };
+    slots: freeSlots({ now: Date.now(), days: c.days, step: c.step, lenMin, hours: c.hours, ...ctx }).filter(x => !off.has(callDay(x.start))) };
 }
 /* a calendar that will not read takes the picker away, so the coach hears,
    once a day */
@@ -3274,7 +3281,7 @@ const handle = async (request) => {
           /* read afresh: a booking made in Arch 2 in the last few minutes is the one that matters */
           const c = await slotConf(), f = await slotFeeds(true);
           gone = slotWhy(slotAt, slotAt + (kind === '90' ? 90 : 60) * 60e3, { room: f.room || [], busy: f.busyOk ? f.busy : [],
-            taken: await slotTaken({ exceptHold: String(md.hold || '') }, c.gap), rule: { words: ruleWords(c.words), max: c.max }, earliest: Date.now() });
+            taken: await slotTaken({ exceptHold: String(md.hold || '') }, c.gap, c.classGap), rule: { words: ruleWords(c.words), max: c.max }, earliest: Date.now() });
         } catch (err) { console.warn('session slot check', String(err && err.message || err)); }
       }
       const picked = !!slotAt && !gone;
@@ -6397,6 +6404,8 @@ const handle = async (request) => {
         words: body.words !== undefined ? ruleWords(body.words) : cur.words,
         max: body.max !== undefined ? n(body.max, 1, 20, 2) : cur.max,
         gap: body.gap !== undefined ? n(body.gap, 0, 120, 0) : cur.gap,
+        classGap: body.classGap !== undefined ? n(body.classGap, 0, 180, 30) : cur.classGap,
+        off: body.off !== undefined ? String(body.off || '').slice(0, 600) : cur.off,
       };
       /* the calendar addresses: https only, webcal read as https */
       const addr = v => { const s = String(v || '').trim().replace(/^webcal:\/\//i, 'https://');
@@ -6421,10 +6430,11 @@ const handle = async (request) => {
       .map(x => ({ start: new Date(x.start).toISOString(), end: new Date(x.end).toISOString(), title: String(x.title || '').slice(0, 80), allDay: !!x.allDay, approx: !!x.approx, read: roomRead(x, rule) }));
     let preview = [];
     if (f.room && f.busyOk) {
-      const ctx = { room: f.room, busy: f.busy, taken: await slotTaken({}, c.gap), rule, earliest: Date.now() + Math.max(0, Number(c.leadH) || 0) * 3600e3 };
-      preview = freeSlots({ now: Date.now(), days: Math.min(14, c.days), step: c.step, lenMin: 60, hours: c.hours, ...ctx }).map(x => new Date(x.start).toISOString());
+      const ctx = { room: f.room, busy: f.busy, taken: await slotTaken({}, c.gap, c.classGap), rule, earliest: Date.now() + Math.max(0, Number(c.leadH) || 0) * 3600e3 };
+      const offP = callDaysOff(c.off);
+      preview = freeSlots({ now: Date.now(), days: Math.min(14, c.days), step: c.step, lenMin: 60, hours: c.hours, ...ctx }).filter(x => !offP.has(callDay(x.start))).map(x => new Date(x.start).toISOString());
     }
-    return json({ conf: { on: !!c.on, hours: hoursText(c.hours), leadH: c.leadH, days: c.days, step: c.step, words: ruleWords(c.words).join(', '), max: c.max, gap: c.gap },
+    return json({ conf: { on: !!c.on, hours: hoursText(c.hours), leadH: c.leadH, days: c.days, step: c.step, words: ruleWords(c.words).join(', '), max: c.max, gap: c.gap, classGap: c.classGap, off: c.off || '' },
       feeds: { roomSet: !!f.roomSet, busyN: f.busyN || 0, roomRead: !!f.room, busyOk: f.busyOk !== false, stale: !!f.stale, errs: f.errs || [], roomAt: f.roomAt || 0, events: (f.room || []).length },
       room, preview, hoursSet: Object.values(readHours(c.hours)).some(v => v.length) });
   }
