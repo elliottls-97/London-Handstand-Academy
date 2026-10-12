@@ -2193,6 +2193,33 @@ async function callTell(row, what, extra) {
               'It is in your calendar feed, if you have subscribed to it.'].filter(Boolean),
       cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
 }
+/* Signing the waiver, and photos. Every class place carries the booker's
+   own acceptance of the participation waiver as it stood (its date) with
+   their typed name, whether anything in its health declaration applies and
+   what, and whether they are fine in photos or want blurring out
+   (12 Oct 2026). The guest on a two place booking is accepted for by the
+   booker, as the terms allow, and their photos are asked on the day.
+   WAIVER_V is waiver.html's "Last updated": change both together. */
+const WAIVER_V = '2026-08-31';
+function wsConsent(b) {
+  const c = b && b.consent && typeof b.consent === 'object' ? b.consent : {};
+  if (c.waiver !== true) return { error: 'Tick to accept the waiver and health declaration first.', consent: true };
+  const sign = String(c.sign || '').trim().slice(0, 80);
+  if (sign.length < 2) return { error: 'Type your full name to sign the waiver.', consent: true };
+  if (!['none', 'some'].includes(c.health)) return { error: 'Say whether anything in the health declaration applies to you.', consent: true };
+  const what = String(c.what || '').trim().slice(0, 300);
+  if (c.health === 'some' && !what) return { error: 'Tell Elliott what in the health declaration applies to you.', consent: true };
+  if (!['ok', 'blur'].includes(c.photo)) return { error: 'Say whether you are fine in photos or want to be blurred out.', consent: true };
+  return { v: WAIVER_V, at: Date.now(), sign, health: c.health, what, photo: c.photo };
+}
+/* the fields on a place: theirs, or the guest's */
+const wsConsentRow = (k, own) => !k ? {} : own
+  ? { waiver: { v: k.v, at: k.at, sign: k.sign }, health: k.health, ...(k.what ? { healthWhat: k.what } : {}), photo: k.photo }
+  : { waiver: { v: k.v, at: k.at, sign: k.sign, by: 'booker' } };
+const wsConsentMeta = k => JSON.stringify({ v: k.v, at: k.at, s: k.sign, h: k.health, w: k.what, p: k.photo }).slice(0, 500);
+const wsConsentRead = m => { try { const o = JSON.parse(m || ''); return o && o.v ? { v: o.v, at: Number(o.at) || 0, sign: String(o.s || ''), health: o.h, what: String(o.w || ''), photo: o.p } : null; } catch { return null; } };
+const wsConsentHTML = k => !k ? '<b>No waiver signed with this booking.</b>'
+  : `Waiver signed by ${esc(k.sign)}. ${k.photo === 'blur' ? '<b>Photos: blur them out.</b>' : 'Photos: fine.'} ${k.health === 'some' ? `<b>Health declaration: ${esc(k.what || 'something applies')}</b>` : 'Health declaration: nothing applies.'}`;
 /* What they want to work on, their goals and their training so far: asked
    when they book a free call or a 1-2-1, so Elliott walks in knowing
    (12 Oct 2026). Each is optional; none at all is nothing. */
@@ -3177,6 +3204,7 @@ const handle = async (request) => {
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
             ...(pp.e !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}),
             q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
+            ...wsConsentRow(wsConsentRead(md.consent), pp.e === e),
             ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
             ...(md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
@@ -3293,7 +3321,7 @@ const handle = async (request) => {
           paras: [good.map(r => `<b>${esc(r.w.title)}</b>${whenOf(r.w) ? ', ' + esc(whenOf(r.w)) : ''}. ${r.count} of ${r.w.places || '?'} places taken.`).join('<br>')
                     + (allGood.length > 1 ? ` ${pounds(kept)} for ${allGood.length} places.` : '') + (md.code ? ' Code ' + esc(md.code) + '.' : ''),
                   sentOk ? '' : 'Their booking email was held by the client email switch, so it is in their messages in the app instead.',
-                  md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : ''].filter(Boolean),
+                  md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : '', wsConsentHTML(wsConsentRead(md.consent))].filter(Boolean),
           cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
       return json({ ok: true, workshop: slugs.join(','), booked: allGood.map(r => r.count) });
       } catch (err) { await supa.remove('nudges', `key=eq.${enc('wsbooked:' + obj.id)}`).catch(() => {}); throw err; }
@@ -5825,6 +5853,8 @@ const handle = async (request) => {
        numbers can say which source books, not only which one visits */
     const src = String(body.src || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
     if (!slug || !e || !wsMailOk(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
+    const consent = wsConsent(body);
+    if (consent.error) return json(consent, 400);
     /* The limit further down only guarded the paid road. A free place, or a
        code that makes one free, was booked with no limit at all: any made up
        address, a booking email sent to it and one to the coach, the app's
@@ -5894,6 +5924,7 @@ const handle = async (request) => {
           if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
           l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked', unit: Number(w.price) || 0, pairP: pairPence, ...(src ? { src } : {}),
+            ...wsConsentRow(consent, pe === e),
             ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}),
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
           return l;
@@ -5941,7 +5972,7 @@ const handle = async (request) => {
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       await coachAlert(null, 'business', { title: 'New booking: ' + nm + (fr ? ' and ' + fr.nm : ''), body: w.title + (targets.length > 1 ? ', both dates' : ''), tag: 'book:' + nm });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${w.title}`, mail({ title: `${esc(nm)} has booked${targets.length > 1 ? ' both dates' : ''}.`,
-        paras: [`<b>${esc(w.title)}</b>${targets.length > 1 ? ': ' + targets.map(t => esc(whenOfF(t[1]))).join(', and ') : ''}. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''} Free.`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : ''].filter(Boolean),
+        paras: [`<b>${esc(w.title)}</b>${targets.length > 1 ? ': ' + targets.map(t => esc(whenOfF(t[1]))).join(', and ') : ''}. ${live.length + 1} of ${w.places || '?'} places.${disc.code ? ' Code ' + esc(disc.code) + '.' : ''} Free.`, qn ? `Asked: <i>${esc(qn)}</i>` : '', exp ? `Experience: ${esc(exp)}` : '', wsConsentHTML(consent)].filter(Boolean),
         cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
       return json({ ok: true, free: true, bs: sid });
     }
@@ -5983,7 +6014,7 @@ const handle = async (request) => {
         ...(fr ? { 'metadata[friend]': (fr.e + '|' + fr.nm).slice(0, 400) } : {}),
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
-        'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold,
+        'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold, 'metadata[consent]': wsConsentMeta(consent),
         'metadata[unit]': String(Number(w.price) || 0), 'metadata[pairp]': String(pairPence), 'metadata[src]': src,
         expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
         customer_email: e,
@@ -6028,6 +6059,8 @@ const handle = async (request) => {
       const ne = body.newEmail != null ? norm(body.newEmail) : '';
       const ex = body.exp != null ? String(body.exp).trim().slice(0, 120) : null;
       const qq = body.q != null ? String(body.q).trim().slice(0, 400) : null;
+      /* photos, as they told you on the day: a guest's, or a change of mind */
+      const ph = ['ok', 'blur', ''].includes(body.photo) ? body.photo : null;
       if (ne && ne !== e && !wsMailOk(ne)) return json({ error: 'That is not an email address' }, 400);
       const all = (await getSetting('workshops')) || {};
       let hits = 0, clash = '';
@@ -6044,6 +6077,7 @@ const handle = async (request) => {
           if (x.session !== session) continue;
           if (x.email === e) {
             if (nm != null && nm) x.name = nm; if (ex != null) x.exp = ex; if (qq != null) x.q = qq;
+            if (ph != null && ph !== (x.photo || '')) { x.photo = ph; x.photoBy = 'coach'; }
             if (ne && ne !== e) { x.email = ne; if ((x.status || 'booked') === 'booked') moved.push(sl); }
             n++;
           } else if (x.payer === e) { if (ne && ne !== e) x.payer = ne; if (nm) x.with = nm; n++; }

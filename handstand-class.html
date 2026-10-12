@@ -864,6 +864,11 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
 .bk-sum span{font:400 13px/1.4 var(--body);color:var(--ink60)}
 .bk-sum .amt{font-family:var(--disp);font-size:30px;line-height:1;color:var(--deep);white-space:nowrap;text-align:right}
 .bk-sum .amt s{display:block;font:400 13px/1.4 var(--body);color:var(--ink60);margin-top:3px}
+.bk-chk{display:flex!important;gap:10px;align-items:flex-start;font:400 14.5px/1.45 var(--body)!important;letter-spacing:0!important;color:var(--ink)!important;margin:8px 0 0!important;cursor:pointer}
+.bk-chk input{width:20px!important;height:20px;flex:none;margin:1px 0 0;padding:0;accent-color:var(--forest,#006663)}
+.bk-chk a{color:var(--deep);font-weight:600}
+.bk-q{font:600 13.5px/1.4 var(--body);color:var(--ink);margin:16px 0 2px}
+.pick-f textarea{width:100%;box-sizing:border-box;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font:16px var(--body);color:var(--ink);background:#fff;min-height:72px;resize:vertical}
 .bk-sub{font:600 15px var(--body);color:var(--ink);margin:20px 0 -2px;padding-top:16px;border-top:1px solid var(--line)}
 .pick-pair{display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;line-height:1.45;color:var(--ink);cursor:pointer}
 .pick-pair:has(input:checked){border-color:var(--terra);background:rgba(0,102,99,.05)}
@@ -1333,10 +1338,25 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
           <input id="bkCode" placeholder="CODE" style="text-transform:uppercase" autocapitalize="characters" autocomplete="off">
           <div class="pick-msg" id="bkCodeMsg" role="status"></div>
         </div>
+        <!-- the waiver, signed with each booking, and photos (12 Oct 2026) -->
+        <div id="bkCons">
+          <div class="bk-sub">Before you train</div>
+          <label class="bk-chk"><input type="checkbox" id="bkWaiver"><span>I have read and accept the <a href="/waiver" target="_blank" rel="noopener">participation waiver</a>, including the health declaration.</span></label>
+          <label for="bkSign">Type your full name to sign it</label>
+          <input id="bkSign" autocomplete="off" placeholder="First and last">
+          <div class="bk-q">Does anything in the health declaration apply to you?</div>
+          <label class="bk-chk"><input type="radio" name="bkHealth" value="none"><span>No, none of it</span></label>
+          <label class="bk-chk"><input type="radio" name="bkHealth" value="some"><span>Yes, something does</span></label>
+          <div id="bkWhatBox" hidden><label for="bkWhat">What applies, so Elliott knows before you start</label><textarea id="bkWhat"></textarea></div>
+          <div class="bk-q">Photos and video at the class</div>
+          <label class="bk-chk"><input type="radio" name="bkPhoto" value="ok"><span>I am happy to be in them</span></label>
+          <label class="bk-chk"><input type="radio" name="bkPhoto" value="blur"><span>Blur me out</span></label>
+          <p class="pick-fine" id="bkFrCons" hidden>You accept the waiver for the person coming with you as well, so check it with them first. Elliott asks them about photos on the day.</p>
+        </div>
         <button type="submit" class="pick-go" id="bkGo">Book</button>
         <div class="pick-msg" id="bkMsg" role="status"></div>
         <p class="pick-fine">Card or Apple Pay on the next page, through Stripe. No account needed. A confirmation and a reminder the day before, by email.</p>
-        <p class="pick-fine">By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and the <a href="/waiver" target="_blank" rel="noopener">waiver</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</p>
+        <p class="pick-fine">By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</p>
       </form>
       <form class="pick-f" id="waitForm" hidden novalidate>
         <p class="pick-s">This one is full. Leave your name and you are emailed first if a place comes free.</p>
@@ -1727,7 +1747,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if($('bkFr').checked && (picked.full || !room(picked) || (bothOn && !room(picked.other)))) $('bkFr').checked=false;
     var dates=bothOn?2:1, people=$('bkFr').checked?2:1, units=dates*people, go=$('bkGo');
     var cost=costOf(!!bothOn, people);
-    $('bkFrBox').hidden=people<2;
+    $('bkFrBox').hidden=people<2; $('bkFrCons').hidden=people<2;
     drawChoices();
     $('bkFrT').innerHTML=people<2?'Bring someone with you'+(PAIR>0&&picked.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(PAIR))+'.</small>':'')
       :'Bringing someone<small>'+units+' places, '+esc(pounds(cost))+'.</small>';
@@ -1768,12 +1788,26 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       cm.style.color='var(--terra)'; cm.textContent=err&&err.name==='TypeError'?'Could not check the code just now.':String(err); priceNow(); });
   };
   $('bkCode').addEventListener('change', checkCode);
+  Array.prototype.forEach.call(document.getElementsByName('bkHealth'), function(r){ r.addEventListener('change', function(){ $('bkWhatBox').hidden=!(r.value==='some'&&r.checked); if(r.value==='some'&&r.checked) $('bkWhat').focus(); }); });
+  var picked1=function(n){ var r=document.querySelector('input[name="'+n+'"]:checked'); return r?r.value:''; };
+  /* the waiver and photos, as the server wants them; a line saying what is missing otherwise */
+  var consentOf=function(){
+    var c={waiver:$('bkWaiver').checked, sign:($('bkSign').value||'').trim(), health:picked1('bkHealth'), what:($('bkWhat').value||'').trim(), photo:picked1('bkPhoto')};
+    if(!c.waiver) return [null,'Tick to accept the waiver and health declaration.','bkWaiver'];
+    if(c.sign.length<2) return [null,'Type your full name to sign the waiver.','bkSign'];
+    if(!c.health) return [null,'Say whether anything in the health declaration applies to you.',null];
+    if(c.health==='some'&&!c.what) return [null,'Tell Elliott what in the health declaration applies to you.','bkWhat'];
+    if(!c.photo) return [null,'Say whether you are happy to be in photos, or want to be blurred out.',null];
+    return [c];
+  };
   $('bookForm').addEventListener('submit', function(e){
     e.preventDefault(); if(!picked) return;
     var name=($('bkName').value||'').trim(), email=($('bkEmail').value||'').trim(), msg=$('bkMsg'), go=$('bkGo');
     msg.style.color='';
     if(!name){ msg.textContent='Your name, please.'; $('bkName').focus(); return; }
     if(!okEmail(email)){ msg.textContent='A real email address, please: the confirmation goes there.'; $('bkEmail').focus(); return; }
+    var cons=consentOf();
+    if(!cons[0]){ msg.style.color='var(--terra)'; msg.textContent=cons[1]; if(cons[2]) $(cons[2]).focus(); else $('bkCons').scrollIntoView({block:'center'}); return; }
     go.disabled=true; var was=go.textContent; go.textContent='One moment…'; msg.textContent='';
     /* kept for this visit, so backing out of the card page does not mean typing it all again */
     try{ sessionStorage.setItem('lha_bk', JSON.stringify({n:name,e:email})); }catch(e){}
@@ -1786,7 +1820,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(!okEmail(friend.email)){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='Their email, please: their confirmation and reminder go there.'; $('bkFrEmail').focus(); return; }
       if(friend.email.toLowerCase()===email.toLowerCase()){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='They need their own email address.'; return; }
     }
-    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),back:'class',src:window.LHA_SRC||''}).then(function(d){
+    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),consent:cons[0],back:'class',src:window.LHA_SRC||''}).then(function(d){
       if(d.url){ location.href=d.url; return; }
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:''))+(d.bs?'&bs='+encodeURIComponent(d.bs):''); return; }
       throw 'Something went wrong. Try again in a moment.';

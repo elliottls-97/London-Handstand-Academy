@@ -16925,11 +16925,37 @@ function wsBookBody(){
     ${wsb.fr?`<label style="${lab}" for="wsbFrName">Their name</label><input id="wsbFrName" style="${fld}" value="${esc(wsb.frName)}" oninput="wsb.frName=this.value" autocomplete="off" placeholder="First and last">
       <label style="${lab}" for="wsbFrEmail">Their email</label><input id="wsbFrEmail" type="email" inputmode="email" style="${fld}" value="${esc(wsb.frEmail)}" oninput="wsb.frEmail=this.value" autocomplete="off" placeholder="For their own confirmation">`:''}`:''}
     ${(units===1 && Number(w.price)>0)?`<label style="${lab}" for="wsbCode">Discount code, optional</label><input id="wsbCode" style="${fld};text-transform:uppercase" value="${esc(wsb.code)}" oninput="wsb.code=this.value" placeholder="CODE" autocomplete="off">`:''}
+    ${wsConsentHTML(lab,fld)}
     <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${
       wsb.busy?'One moment…':(units>1?'Book '+units+' places'+(cost>0?', '+wsPounds(cost):''):(Number(w.price)>0?'Book, '+(w.priceLabel||wsPounds(w.price)):'Book my place'))}</button>
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email. Move or cancel up to 24 hours before.</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email. Move or cancel up to 24 hours before. By booking you agree to the <a href="/terms" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">terms</a>.</div>
   </div>`;
+}
+/* the waiver, signed with each booking, and photos (12 Oct 2026); the
+   answers live on wsb so a redraw keeps them */
+function wsConsentHTML(lab,fld){
+  const row='display:flex;gap:11px;align-items:flex-start;margin-top:10px;cursor:pointer;font:400 14px/1.45 var(--sans);color:var(--ink)';
+  const box='flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)';
+  const q='font:600 13.5px/1.4 var(--sans);color:var(--ink);margin:16px 0 0';
+  const radio=(name,val,txt)=>`<label style="${row}"><input type="radio" name="${name}" ${wsb[name]===val?'checked':''} onchange="wsb.${name}='${val}';drawOv()" style="${box}"><span>${txt}</span></label>`;
+  return `<div style="${q};margin-top:20px;padding-top:14px;border-top:1px solid rgba(0,64,61,.12)">Before you train</div>
+    <label style="${row}"><input type="checkbox" ${wsb.wv?'checked':''} onchange="wsb.wv=this.checked" style="${box}"><span>I have read and accept the <a href="/waiver" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">participation waiver</a>, including the health declaration.</span></label>
+    <label style="${lab}" for="wsbSign">Type your full name to sign it</label><input id="wsbSign" style="${fld}" value="${esc(wsb.sign||'')}" oninput="wsb.sign=this.value" autocomplete="off" placeholder="First and last">
+    <div style="${q}">Does anything in the health declaration apply to you?</div>
+    ${radio('hl','none','No, none of it')}${radio('hl','some','Yes, something does')}
+    ${wsb.hl==='some'?`<label style="${lab}" for="wsbWhat">What applies, so Elliott knows before you start</label><textarea id="wsbWhat" style="${fld};min-height:72px;resize:vertical" oninput="wsb.what=this.value">${esc(wsb.what||'')}</textarea>`:''}
+    <div style="${q}">Photos and video at the class</div>
+    ${radio('ph','ok','I am happy to be in them')}${radio('ph','blur','Blur me out')}
+    ${wsb.fr?'<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:8px">You accept the waiver for the person coming with you as well, so check it with them first. Elliott asks them about photos on the day.</div>':''}`;
+}
+function wsConsentGet(){
+  const c={waiver:!!wsb.wv, sign:String(wsb.sign||'').trim(), health:wsb.hl||'', what:String(wsb.what||'').trim(), photo:wsb.ph||''};
+  const miss=!c.waiver?'Tick to accept the waiver and health declaration.':c.sign.length<2?'Type your full name to sign the waiver.'
+    :!c.health?'Say whether anything in the health declaration applies to you.':c.health==='some'&&!c.what?'Tell Elliott what in the health declaration applies to you.'
+    :!c.photo?'Say whether you are happy to be in photos, or want to be blurred out.':'';
+  if(miss){ wsb.msg=miss; drawOv(); return null; }
+  return c;
 }
 /* an email typed in the sheet is noted (once per date and address), so the
    morning after they can be reminded if they never got to the end */
@@ -16963,10 +16989,11 @@ function wsBookGo(){
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(friend.email)){ wsb.msg='Their email, please: their confirmation goes there.'; drawOv(); return; }
     if(friend.email.toLowerCase()===f.email.toLowerCase()){ wsb.msg='They need their own email address.'; drawOv(); return; }
   }
+  const consent=wsConsentGet(); if(!consent) return;
   wsb.busy=true; wsb.msg=''; wsb.waiting=false; drawOv();
   try{ track('workshopbook'); }catch(e){}
   fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({slug:w.slug, also, friend, name:f.name, email:f.email, code:(also||friend)?'':(wsb.code||'').trim().toUpperCase(), back:'app'})})
+      body:JSON.stringify({slug:w.slug, also, friend, name:f.name, email:f.email, code:(also||friend)?'':(wsb.code||'').trim().toUpperCase(), consent, back:'app'})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the booking')))
     .then(d=>{
       if(d.free){ st.wsBookedBs=d.bs||''; wsBookedShow(slugs); return; }

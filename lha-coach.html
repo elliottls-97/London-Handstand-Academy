@@ -11834,7 +11834,7 @@ function bkOpen(slug){ bkSel=slug; bkRow=''; bkQ=''; draw(); }
 function bkToggle(k){ bkRow=bkRow===k?'':k; draw(); }
 function bkEditSave(slug,email,session){
   const v=id=>{ const el=document.getElementById(id); return el?el.value:''; };
-  const extra={name:v('bkeName').trim(), newEmail:v('bkeEmail').trim(), exp:v('bkeLvl'), q:v('bkeQ')};
+  const extra={name:v('bkeName').trim(), newEmail:v('bkeEmail').trim(), exp:v('bkeLvl'), q:v('bkeQ'), photo:v('bkePhoto')};
   if(!extra.name) return alert('A name, please.');
   wsAct(slug,email,session,'edit',extra);
 }
@@ -11854,8 +11854,10 @@ function bkAdd(slug){
 function bkCsv(slug){
   const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return;
   const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const rows=[['Name','Email','Status','Level','Note','Paid','Refunded','Booked with','Booked at']].concat((w.bookings||[]).map(b=>[
-    b.name||'', b.email, bkStatus(b)[0], b.exp||'', b.q||'', ((Number(b.paid)||0)/100).toFixed(2), ((Number(b.refunded)||0)/100).toFixed(2),
+  const rows=[['Name','Email','Status','Level','Note','Photos','Health declaration','Waiver','Paid','Refunded','Booked with','Booked at']].concat((w.bookings||[]).map(b=>[
+    b.name||'', b.email, bkStatus(b)[0], b.exp||'', b.q||'',
+    b.photo==='blur'?'Blur them out':b.photo==='ok'?'Happy':'Ask', b.health==='some'?(b.healthWhat||'Something applies'):b.health==='none'?'Nothing applies':'',
+    b.waiver?(b.waiver.by==='booker'?'By booker':'Signed'):'No', ((Number(b.paid)||0)/100).toFixed(2), ((Number(b.refunded)||0)/100).toFixed(2),
     b.payer?'Guest of '+(b.with||b.payer):(b.with?'With '+b.with:''), b.at?new Date(b.at).toLocaleString('en-GB',{timeZone:'Europe/London'}):'']));
   const blob=new Blob([rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(w.slug||'class')+'.csv'; a.click();
@@ -11899,7 +11901,13 @@ function bkRowHTML(w,b,others){
     :b.with?`<span class="muted" style="font-size:12px">bringing ${esc(b.with)}</span>`:'';
   const tags=(b.pair?`<span class="tag tag-neutral" title="Both dates in one booking">both dates</span>`:'')
     +(b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:'')
-    +(b.source==='setmore'?`<span class="tag tag-neutral">added by hand</span>`:'');
+    +(b.source==='setmore'?`<span class="tag tag-neutral">added by hand</span>`:'')
+    /* photos and the waiver: the two things to know at the door (12 Oct 2026) */
+    +(b.photo==='blur'?`<span class="tag" style="background:var(--terra);color:#fff" title="They asked to be blurred out of photos and video">BLUR IN PHOTOS</span>`
+      :b.photo==='ok'?`<span class="tag tag-neutral" title="Happy to be in photos and video">photos ok</span>`
+      :live?`<span class="tag tag-neutral" title="Not asked yet: ask them on the day, and set it below">photos: ask</span>`:'')
+    +(b.waiver&&b.waiver.by==='booker'?`<span class="tag tag-neutral" title="${esc('Accepted for them by '+(b.with||b.payer||'the booker')+', '+(b.waiver.v||''))}">waiver by booker</span>`
+      :b.waiver?'':live?`<span class="tag" style="background:var(--terra);color:#fff" title="Booked before the waiver was signed online, or added by hand">NO WAIVER</span>`:'');
   const vid=bkVideoDue(w,b)?(bkVideoSent(w,b)
       ?`<span class="tag tag-neutral" title="You have messaged them since the class">video sent</span>`
       :`<button class="btn btn-sm btn-primary" style="min-height:30px;padding:0 11px" onclick="event.stopPropagation();bkVideo(${jsq(b.email)},${jsq(b.name||'')},${jsq(w.when)})">Send their video</button>`):'';
@@ -11907,7 +11915,7 @@ function bkRowHTML(w,b,others){
     <div class="bk-line" onclick="bkToggle(${jsq(k)})">
       <div style="min-width:0"><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b style="font:600 14.5px/1.3 var(--sans)">${esc(b.name||b.email)}</b>${who}${tags}${vid}</div>
         <div class="muted" style="font-size:12.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis">${esc(b.email)}</div></div>
-      <div class="bk-c" style="font-size:13px">${b.exp?esc(bkLvlShort(b.exp)):'<span class="muted">not said</span>'}${b.q?`<div class="muted" style="font-size:12.5px;margin-top:2px;white-space:normal">${esc(b.q)}</div>`:''}</div>
+      <div class="bk-c" style="font-size:13px">${b.exp?esc(bkLvlShort(b.exp)):'<span class="muted">not said</span>'}${b.q?`<div class="muted" style="font-size:12.5px;margin-top:2px;white-space:normal">${esc(b.q)}</div>`:''}${b.health==='some'?`<div style="font:600 12.5px/1.4 var(--sans);color:var(--terra);margin-top:3px;white-space:normal">Health declaration: ${esc(b.healthWhat||'something applies')}</div>`:''}</div>
       <div class="bk-c" style="font-size:13px">${paid?bkMoney(paid):'<span class="muted">free</span>'}${back?`<div class="muted" style="font-size:12px">${bkMoney(back)} back</div>`:''}</div>
       <div class="bk-c"><span class="tag ${cls}">${st}</span>${b.status==='moved'&&b.movedTo?`<div class="muted" style="font-size:11.5px;margin-top:3px">to ${esc(bkDay((wshops||[]).find(x=>x.slug===b.movedTo)))}</div>`:''}</div>
       <div class="bk-c" style="text-align:right">${live?`<span style="display:inline-flex;gap:4px">${btn(b.attended==='yes'?'unmark':'arrived','Arrived','',b.attended==='yes')}${btn(b.attended==='no'?'unmark':'noshow','No show','',b.attended==='no')}</span>`:''}</div>
@@ -11924,7 +11932,9 @@ function bkRowHTML(w,b,others){
         <div class="field"><label>Name</label><input id="bkeName" class="input" value="${esc(b.name||'')}"></div>
         <div class="field"><label>Email</label><input id="bkeEmail" class="input" type="email" value="${esc(b.email)}"></div>
         <div class="field"><label>Level</label><select id="bkeLvl" class="input"><option value="">Not said</option>${BK_LVLS.map(l=>`<option value="${esc(l)}"${b.exp===l?' selected':''}>${esc(bkLvlShort(l))}</option>`).join('')}${b.exp&&!BK_LVLS.includes(b.exp)?`<option value="${esc(b.exp)}" selected>${esc(b.exp)}</option>`:''}</select></div>
+        <div class="field"><label>Photos</label><select id="bkePhoto" class="input"><option value=""${!b.photo?' selected':''}>Not asked</option><option value="ok"${b.photo==='ok'?' selected':''}>Happy to be in them</option><option value="blur"${b.photo==='blur'?' selected':''}>Blur them out</option></select></div>
         <div class="field" style="grid-column:1/-1"><label>Injuries or notes</label><textarea id="bkeQ" class="input" rows="2">${esc(b.q||'')}</textarea></div>
+        ${b.waiver?`<div class="muted" style="grid-column:1/-1;font-size:12px">Waiver of ${esc(b.waiver.v||'')} ${b.waiver.by==='booker'?'accepted for them by '+esc(b.with||b.payer||'the booker')+', signed':'signed'} &ldquo;${esc(b.waiver.sign||'')}&rdquo;, ${esc(new Date(b.waiver.at).toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}))}.</div>`:''}
         <div style="grid-column:1/-1;display:flex;gap:8px;align-items:center"><button class="btn btn-primary btn-sm" ${wsBusyRow?'disabled':''} onclick="bkEditSave(${a})">Save changes</button>
           <span class="muted" style="font-size:12px">A new email moves the booking, both dates of a pair, and the reminders to it.</span></div>
       </div>

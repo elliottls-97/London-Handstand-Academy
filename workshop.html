@@ -31,6 +31,11 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
 .btn{display:flex;align-items:center;justify-content:center;width:100%;margin-top:16px;min-height:56px;border:0;border-radius:16px;cursor:pointer;
  background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1;font:600 17px/1 var(--sans);box-shadow:0 12px 30px rgba(0,102,99,.3)}
 .btn:disabled{opacity:.6;cursor:default}
+.chk{display:flex;gap:10px;align-items:flex-start;font:400 15px/1.45 var(--sans);letter-spacing:0;text-transform:none;color:var(--ink);margin:10px 0 0;cursor:pointer}
+.chk input{width:20px;min-height:0;height:20px;flex:none;margin:1px 0 0;padding:0;accent-color:var(--forest)}
+.chk a{color:var(--deep,#00403d);font-weight:600}
+.q{font:600 14px/1.4 var(--sans);color:var(--ink);margin:18px 0 2px}
+textarea{width:100%;min-height:72px;padding:12px 14px;font:400 16px/1.4 var(--sans);color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:14px;resize:vertical}
 .msg{font:500 13.5px/1.5 var(--sans);color:var(--terra);margin-top:10px;min-height:20px}
 .fine{font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:12px}
 .fine a{color:var(--deep,#00403d);font-weight:600}
@@ -93,9 +98,20 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
         +'<label for="ex">Where you are with handstands, optional</label><input id="ex" placeholder="Never tried, or wall only, or a few seconds free">'
         +'<label for="qq">Anything you want to ask, optional</label><input id="qq" placeholder="Injuries, what to bring, whether it is right for you">'
         +(w.price>0?'<label for="cd">Discount code, optional</label><div style="display:flex;gap:8px"><input id="cd" placeholder="CODE" style="text-transform:uppercase"><button type="button" id="apply" style="flex:none;min-height:48px;padding:0 16px;border:1px solid var(--line);border-radius:14px;background:#fff;cursor:pointer;font:600 14px/1 var(--sans)">Apply</button></div><div class="msg" id="cmsg" style="color:var(--forest)"></div>':'')
+        /* the waiver, signed with each booking, and photos (12 Oct 2026) */
+        +'<div class="q" style="margin-top:24px">Before you train</div>'
+        +'<label class="chk"><input type="checkbox" id="wv"><span>I have read and accept the <a href="/waiver" target="_blank" rel="noopener">participation waiver</a>, including the health declaration.</span></label>'
+        +'<label for="sg">Type your full name to sign it</label><input id="sg" autocomplete="off" placeholder="First and last">'
+        +'<div class="q">Does anything in the health declaration apply to you?</div>'
+        +'<label class="chk"><input type="radio" name="hl" value="none"><span>No, none of it</span></label>'
+        +'<label class="chk"><input type="radio" name="hl" value="some"><span>Yes, something does</span></label>'
+        +'<div id="hwb" hidden><label for="hw">What applies, so Elliott knows before you start</label><textarea id="hw"></textarea></div>'
+        +'<div class="q">Photos and video at the workshop</div>'
+        +'<label class="chk"><input type="radio" name="ph" value="ok"><span>I am happy to be in them</span></label>'
+        +'<label class="chk"><input type="radio" name="ph" value="blur"><span>Blur me out</span></label>'
         +'<button class="btn" id="go">'+(w.price>0?'Book, '+esc(w.priceLabel):'Book my place')+'</button>'
         +'<div class="msg" id="msg"></div>'
-        +'<div class="fine">'+(w.price>0?'Card payment on the next page, through Stripe. ':'')+'You get a confirmation by email and a reminder the day before. Move or cancel up to 24 hours before, and a cancel is refunded. By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and the <a href="/waiver" target="_blank" rel="noopener">waiver</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>')
+        +'<div class="fine">'+(w.price>0?'Card payment on the next page, through Stripe. ':'')+'You get a confirmation by email and a reminder the day before. Move or cancel up to 24 hours before, and a cancel is refunded. By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>')
       +'</div>'
       +'<div class="foot">Questions? <a href="mailto:info@londonhandstandacademy.com">info@londonhandstandacademy.com</a></div>';
     const wait=document.getElementById('wait');
@@ -116,14 +132,21 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'That code did not work')))
         .then(d=>{ code=c; price=d.price; priceLabel=d.label; cm.style.color='var(--forest)'; cm.textContent=c+' applied: '+w.priceLabel+' becomes '+d.label+'.'; go.textContent=price>0?'Book, '+priceLabel:'Book my place'; })
         .catch(e=>{ code=''; price=w.price; priceLabel=w.priceLabel; cm.style.color='var(--terra)'; cm.textContent=String(e); go.textContent='Book, '+priceLabel; }); }; }
+    document.getElementsByName('hl').forEach(r=>{ r.onchange=()=>{ document.getElementById('hwb').hidden=document.querySelector('input[name="hl"]:checked').value!=='some'; }; });
+    const one=n=>{ const r=document.querySelector('input[name="'+n+'"]:checked'); return r?r.value:''; };
     go.onclick=()=>{
       const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim();
+      const consent={waiver:document.getElementById('wv').checked, sign:(document.getElementById('sg').value||'').trim(), health:one('hl'), what:(document.getElementById('hw').value||'').trim(), photo:one('ph')};
       const exp=((document.getElementById('ex')||{}).value||'').trim(), q=((document.getElementById('qq')||{}).value||'').trim();
       const msg=document.getElementById('msg');
       if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
+      const miss=!consent.waiver?'Tick to accept the waiver and health declaration.':consent.sign.length<2?'Type your full name to sign the waiver.'
+        :!consent.health?'Say whether anything in the health declaration applies to you.':consent.health==='some'&&!consent.what?'Tell Elliott what in the health declaration applies to you.'
+        :!consent.photo?'Say whether you are happy to be in photos, or want to be blurred out.':'';
+      if(miss){ msg.textContent=miss; return; }
       go.disabled=true; go.textContent='One moment…'; msg.textContent='';
       beacon('workshopbook');
-      fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug,name,email,q,exp,code})})
+      fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug,name,email,q,exp,code,consent})})
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the booking')))
         .then(d=>{ if(d.url){ location.href=d.url; return; } if(d.free){ location.href='/workshop.html?slug='+slug+'&booked=1'; return; } throw 'Something went wrong'; })
         .catch(e=>{ go.disabled=false; go.textContent=price>0?'Book, '+priceLabel:'Book my place'; msg.textContent=String(e); });
