@@ -16925,37 +16925,26 @@ function wsBookBody(){
     ${wsb.fr?`<label style="${lab}" for="wsbFrName">Their name</label><input id="wsbFrName" style="${fld}" value="${esc(wsb.frName)}" oninput="wsb.frName=this.value" autocomplete="off" placeholder="First and last">
       <label style="${lab}" for="wsbFrEmail">Their email</label><input id="wsbFrEmail" type="email" inputmode="email" style="${fld}" value="${esc(wsb.frEmail)}" oninput="wsb.frEmail=this.value" autocomplete="off" placeholder="For their own confirmation">`:''}`:''}
     ${(units===1 && Number(w.price)>0)?`<label style="${lab}" for="wsbCode">Discount code, optional</label><input id="wsbCode" style="${fld};text-transform:uppercase" value="${esc(wsb.code)}" oninput="wsb.code=this.value" placeholder="CODE" autocomplete="off">`:''}
-    ${wsConsentHTML(lab,fld)}
+    ${wsConsentHTML()}
     <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${
       wsb.busy?'One moment…':(units>1?'Book '+units+' places'+(cost>0?', '+wsPounds(cost):''):(Number(w.price)>0?'Book, '+(w.priceLabel||wsPounds(w.price)):'Book my place'))}</button>
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
     <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email. Move or cancel up to 24 hours before. By booking you agree to the <a href="/terms" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">terms</a>.</div>
   </div>`;
 }
-/* the waiver, signed with each booking, and photos (12 Oct 2026); the
-   answers live on wsb so a redraw keeps them */
-function wsConsentHTML(lab,fld){
-  const row='display:flex;gap:11px;align-items:flex-start;margin-top:10px;cursor:pointer;font:400 14px/1.45 var(--sans);color:var(--ink)';
+/* the waiver, signed with each booking (12 Oct 2026): one tick, signed
+   with the name they gave. The health declaration and photos are asked once
+   the place is theirs, in wsAboutHTML, so the form in front of the card page
+   stays short (13 Oct 2026). The tick lives on wsb so a redraw keeps it. */
+function wsConsentHTML(){
+  const row='display:flex;gap:11px;align-items:flex-start;margin-top:18px;cursor:pointer;font:400 14px/1.45 var(--sans);color:var(--ink)';
   const box='flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)';
-  const q='font:600 13.5px/1.4 var(--sans);color:var(--ink);margin:16px 0 0';
-  const radio=(name,val,txt)=>`<label style="${row}"><input type="radio" name="${name}" ${wsb[name]===val?'checked':''} onchange="wsb.${name}='${val}';drawOv()" style="${box}"><span>${txt}</span></label>`;
-  return `<div style="${q};margin-top:20px;padding-top:14px;border-top:1px solid rgba(0,64,61,.12)">Before you train</div>
-    <label style="${row}"><input type="checkbox" ${wsb.wv?'checked':''} onchange="wsb.wv=this.checked" style="${box}"><span>I have read and accept the <a href="/waiver" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">participation waiver</a>, including the health declaration.</span></label>
-    <label style="${lab}" for="wsbSign">Type your full name to sign it</label><input id="wsbSign" style="${fld}" value="${esc(wsb.sign||'')}" oninput="wsb.sign=this.value" autocomplete="off" placeholder="First and last">
-    <div style="${q}">Does anything in the health declaration apply to you?</div>
-    ${radio('hl','none','No, none of it')}${radio('hl','some','Yes, something does')}
-    ${wsb.hl==='some'?`<label style="${lab}" for="wsbWhat">What applies, so Elliott knows before you start</label><textarea id="wsbWhat" style="${fld};min-height:72px;resize:vertical" oninput="wsb.what=this.value">${esc(wsb.what||'')}</textarea>`:''}
-    <div style="${q}">Photos and video at the class</div>
-    ${radio('ph','ok','I am happy to be in them')}${radio('ph','blur','Blur me out')}
-    ${wsb.fr?'<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:8px">You accept the waiver for the person coming with you as well, so check it with them first. Elliott asks them about photos on the day.</div>':''}`;
+  return `<label style="${row}"><input type="checkbox" ${wsb.wv?'checked':''} onchange="wsb.wv=this.checked" style="${box}"><span>I accept the <a href="/waiver" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">participation waiver</a></span></label>
+    ${wsb.fr?'<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:8px">You accept it for the person coming with you too, so check it with them first.</div>':''}`;
 }
-function wsConsentGet(){
-  const c={waiver:!!wsb.wv, sign:String(wsb.sign||'').trim(), health:wsb.hl||'', what:String(wsb.what||'').trim(), photo:wsb.ph||''};
-  const miss=!c.waiver?'Tick to accept the waiver and health declaration.':c.sign.length<2?'Type your full name to sign the waiver.'
-    :!c.health?'Say whether anything in the health declaration applies to you.':c.health==='some'&&!c.what?'Tell Elliott what in the health declaration applies to you.'
-    :!c.photo?'Say whether you are happy to be in photos, or want to be blurred out.':'';
-  if(miss){ wsb.msg=miss; drawOv(); return null; }
-  return c;
+function wsConsentGet(name){
+  if(!wsb.wv){ wsb.msg='Tick to accept the waiver.'; drawOv(); return null; }
+  return {waiver:true, sign:String(name||'').trim()};
 }
 /* an email typed in the sheet is noted (once per date and address), so the
    morning after they can be reminded if they never got to the end */
@@ -16989,7 +16978,7 @@ function wsBookGo(){
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(friend.email)){ wsb.msg='Their email, please: their confirmation goes there.'; drawOv(); return; }
     if(friend.email.toLowerCase()===f.email.toLowerCase()){ wsb.msg='They need their own email address.'; drawOv(); return; }
   }
-  const consent=wsConsentGet(); if(!consent) return;
+  const consent=wsConsentGet(f.name); if(!consent) return;
   wsb.busy=true; wsb.msg=''; wsb.waiting=false; drawOv();
   try{ track('workshopbook'); }catch(e){}
   fetch('/api/app/workshop/book',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -17039,7 +17028,7 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden && st.ov=
 function wsBookedShow(slugs){
   clearInterval(wsWaitT);
   wsb.done=slugs||[]; wsb.busy=false; wsb.waiting=false;
-  wsb.bs=st.wsBookedBs||''; delete st.wsBookedBs; wsb.lvl=''; wsb.q=''; wsb.about=''; wsb.aboutMsg=''; save();
+  wsb.bs=st.wsBookedBs||''; delete st.wsBookedBs; wsb.lvl=''; wsb.q=''; wsb.hl=''; wsb.what=''; wsb.ph=''; wsb.about=''; wsb.aboutMsg=''; save();
   openOv('wsbooked');
   loadBookings();
 }
@@ -17058,39 +17047,60 @@ function wsBookedBody(){
     <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv()">Done</button>
   </div>`;
 }
-/* where they are with handstands and anything to know, so the class can be
-   split into groups: asked once the place is theirs. Found by the checkout
-   session it came back with, or by the account. */
+/* asked once the place is theirs: whether anything in the health
+   declaration applies and photos (moved off the booking form, 13 Oct 2026),
+   then where they are with handstands and anything to know, so the class
+   can be split into groups. Found by the checkout session it came back
+   with, or by the account. */
 function wsAboutHTML(){
   if(!wsb.bs && !st.token) return '';
-  if(wsb.about==='saved') return `<div class="card" style="margin-top:16px;padding:16px 18px;text-align:left;font:600 14.5px/1.4 var(--sans)">Thanks, that helps. See you there.</div>`;
-  const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:14px 0 6px';
+  if(wsb.about==='saved') return `<div class="card" style="margin-top:16px;padding:16px 18px;text-align:left;font:600 14.5px/1.4 var(--sans)">Thanks. See you there.</div>`;
+  const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:16px 0 6px';
+  const q='font:600 14px/1.4 var(--sans);color:var(--ink);margin:16px 0 7px';
+  const area='width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:12px 14px;font:400 15px/1.4 var(--sans);background:#fff;color:var(--ink);resize:vertical';
+  const seg=(id,key,opts)=>`<div id="${id}" style="display:flex;gap:4px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px">${opts.map(o=>
+    `<button data-v="${o[0]}" onclick="wsAboutPick('${id}','${key}','${o[0]}')" style="flex:1;min-width:0;min-height:46px;border:0;border-radius:10px;cursor:pointer;padding:6px 4px;
+      font:600 13.5px/1.2 var(--sans);${wsLvlStyle(wsb[key]===o[0])}">${o[1]}</button>`).join('')}</div>`;
   return `<div class="card" style="margin-top:16px;padding:16px 18px;text-align:left">
-    <div style="font:600 15px/1.35 var(--sans)">One more thing, so we can group you</div>
-    <div style="${lab}">Where you are with handstands</div>
+    <div style="font:600 15px/1.35 var(--sans)">Before the class</div>
+    <div style="${q}">Does anything in the <a href="/waiver#health" target="_blank" rel="noopener" style="color:var(--deep)">health declaration</a> apply to you?</div>
+    ${seg('wsHl','hl',[['none','No'],['some','Yes']])}
+    <div id="wsWhatBox" style="display:${wsb.hl==='some'?'block':'none'}"><label style="${lab}" for="wsbWhat">What applies</label>
+      <textarea id="wsbWhat" rows="2" maxlength="300" style="${area}" oninput="wsb.what=this.value">${esc(wsb.what||'')}</textarea></div>
+    <div style="${q}">Photos and video at the class</div>
+    ${seg('wsPh','ph',[['ok','Happy to be in them'],['blur','Blur me out']])}
+    <div style="${lab}">Where you are with handstands, optional</div>
     <div id="wsLvl" style="display:flex;gap:4px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px">${WS_LVLS.map((l,i)=>
       `<button data-i="${i}" onclick="wsAboutLvl(${i})" style="flex:1;min-width:0;min-height:54px;border:0;border-radius:10px;cursor:pointer;padding:6px 4px;
         font:600 13px/1.2 var(--sans);${wsLvlStyle(wsb.lvl===l[0])}">${l[1]}<span style="display:block;font:500 10.5px/1.15 var(--sans);margin-top:3px">${l[2]}</span></button>`).join('')}</div>
-    <label style="${lab}" for="wsbQ">Any injuries, or anything I should know? Optional</label>
-    <textarea id="wsbQ" rows="2" maxlength="400" style="width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:12px 14px;font:400 15px/1.4 var(--sans);background:#fff;color:var(--ink);resize:vertical"
-      oninput="wsb.q=this.value" placeholder="A sore wrist, a shoulder, what you would like to work on">${esc(wsb.q||'')}</textarea>
+    <label style="${lab}" for="wsbQ">Anything else I should know? Optional</label>
+    <textarea id="wsbQ" rows="2" maxlength="400" style="${area}" oninput="wsb.q=this.value" placeholder="What you would like to work on">${esc(wsb.q||'')}</textarea>
     <button id="wsAboutGo" class="btn" style="width:100%;margin-top:12px;min-height:50px;background:#fff;color:var(--forest);border:1px solid rgba(0,64,61,.18);box-shadow:none" ${wsb.about==='saving'?'disabled':''} onclick="wsAboutGo()">${wsb.about==='saving'?'One moment…':'Send'}</button>
     <div id="wsAboutMsg" style="min-height:16px;margin-top:6px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.aboutMsg||'')}</div>
   </div>`;
 }
 const wsLvlStyle=on=>`background:${on?'#fff':'transparent'};color:${on?'var(--deep)':'var(--grey)'};box-shadow:${on?'0 1px 2px rgba(17,17,17,.08)':'none'}`;
+const wsPaint=(sel,isOn)=>document.querySelectorAll(sel).forEach(b=>{ const on=isOn(b); b.style.background=on?'#fff':'transparent'; b.style.color=on?'var(--deep)':'var(--grey)'; b.style.boxShadow=on?'0 1px 2px rgba(17,17,17,.08)':'none'; });
 /* picked in place: a redraw of the sheet would lose the typing and replay its entrance */
 function wsAboutLvl(i){
   const l=WS_LVLS[i]; if(!l) return; wsb.lvl=wsb.lvl===l[0]?'':l[0];
-  document.querySelectorAll('#wsLvl button').forEach(b=>{ const on=WS_LVLS[+b.dataset.i][0]===wsb.lvl; b.style.background=on?'#fff':'transparent'; b.style.color=on?'var(--deep)':'var(--grey)'; b.style.boxShadow=on?'0 1px 2px rgba(17,17,17,.08)':'none'; });
+  wsPaint('#wsLvl button', b=>WS_LVLS[+b.dataset.i][0]===wsb.lvl);
+}
+function wsAboutPick(id,key,v){
+  wsb[key]=v; wsPaint('#'+id+' button', b=>b.dataset.v===v);
+  if(key==='hl'){ const box=document.getElementById('wsWhatBox'); if(box) box.style.display=v==='some'?'block':'none';
+    if(v==='some'){ const t=document.getElementById('wsbWhat'); if(t) t.focus(); } }
 }
 function wsAboutGo(){
   const msg=document.getElementById('wsAboutMsg'), go=document.getElementById('wsAboutGo');
-  const q=(wsb.q||'').trim().slice(0,400);
-  if(!wsb.lvl && !q){ if(msg) msg.textContent='Pick where you are, or write a line.'; return; }
-  wsb.about='saving'; if(go){ go.disabled=true; go.textContent='One moment…'; } if(msg) msg.textContent='';
+  const q=(wsb.q||'').trim().slice(0,400), what=(wsb.what||'').trim().slice(0,300);
+  const say=t=>{ if(msg) msg.textContent=t; };
+  if(!wsb.hl) return say('Say whether anything in the health declaration applies to you.');
+  if(wsb.hl==='some'&&!what){ const t=document.getElementById('wsbWhat'); if(t) t.focus(); return say('Say what applies, so Elliott knows before you start.'); }
+  if(!wsb.ph) return say('Say whether you are happy to be in photos, or want blurring out.');
+  wsb.about='saving'; if(go){ go.disabled=true; go.textContent='One moment…'; } say('');
   fetch('/api/app/workshop/about',{method:'POST',headers:wsb.bs?{'Content-Type':'application/json'}:authed(),
-      body:JSON.stringify({bs:wsb.bs||'', slugs:wsb.done||[], exp:wsb.lvl||'', q})})
+      body:JSON.stringify({bs:wsb.bs||'', slugs:wsb.done||[], exp:wsb.lvl||'', q, health:wsb.hl, what:wsb.hl==='some'?what:'', photo:wsb.ph})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not send it')))
     .then(()=>{ wsb.about='saved'; drawOv(); })
     .catch(e=>{ wsb.about=''; wsb.aboutMsg=String(e&&e.message||e); drawOv(); });

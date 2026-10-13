@@ -2199,27 +2199,38 @@ async function callTell(row, what, extra) {
    what, and whether they are fine in photos or want blurring out
    (12 Oct 2026). The guest on a two place booking is accepted for by the
    booker, as the terms allow, and their photos are asked on the day.
+   The form got too long (13 Oct 2026), so the waiver is now one tick,
+   signed with the name they booked under, and the health declaration and
+   photos are asked once paid, on /workshop/about. A page that still asks
+   them up front keeps working: what it sends is kept.
    WAIVER_V is waiver.html's "Last updated": change both together. */
 const WAIVER_V = '2026-08-31';
-function wsConsent(b) {
+function wsConsent(b, nm) {
   const c = b && b.consent && typeof b.consent === 'object' ? b.consent : {};
-  if (c.waiver !== true) return { error: 'Tick to accept the waiver and health declaration first.', consent: true };
-  const sign = String(c.sign || '').trim().slice(0, 80);
-  if (sign.length < 2) return { error: 'Type your full name to sign the waiver.', consent: true };
-  if (!['none', 'some'].includes(c.health)) return { error: 'Say whether anything in the health declaration applies to you.', consent: true };
-  const what = String(c.what || '').trim().slice(0, 300);
-  if (c.health === 'some' && !what) return { error: 'Tell Elliott what in the health declaration applies to you.', consent: true };
-  if (!['ok', 'blur'].includes(c.photo)) return { error: 'Say whether you are fine in photos or want to be blurred out.', consent: true };
-  return { v: WAIVER_V, at: Date.now(), sign, health: c.health, what, photo: c.photo };
+  if (c.waiver !== true) return { error: 'Tick to accept the waiver first.', consent: true };
+  const sign = String(c.sign || nm || '').trim().slice(0, 80);
+  if (sign.length < 2) return { error: 'Your name, to sign the waiver with.', consent: true };
+  const health = ['none', 'some'].includes(c.health) ? c.health : '';
+  const what = health === 'some' ? String(c.what || '').trim().slice(0, 300) : '';
+  if (health === 'some' && !what) return { error: 'Tell Elliott what in the health declaration applies to you.', consent: true };
+  const photo = ['ok', 'blur'].includes(c.photo) ? c.photo : '';
+  return { v: WAIVER_V, at: Date.now(), sign, ...(health ? { health, what } : {}), ...(photo ? { photo } : {}) };
 }
 /* the fields on a place: theirs, or the guest's */
 const wsConsentRow = (k, own) => !k ? {} : own
-  ? { waiver: { v: k.v, at: k.at, sign: k.sign }, health: k.health, ...(k.what ? { healthWhat: k.what } : {}), photo: k.photo }
+  ? { waiver: { v: k.v, at: k.at, sign: k.sign },
+      ...(k.health ? { health: k.health, ...(k.what ? { healthWhat: k.what } : {}) } : {}), ...(k.photo ? { photo: k.photo } : {}) }
   : { waiver: { v: k.v, at: k.at, sign: k.sign, by: 'booker' } };
 const wsConsentMeta = k => JSON.stringify({ v: k.v, at: k.at, s: k.sign, h: k.health, w: k.what, p: k.photo }).slice(0, 500);
 const wsConsentRead = m => { try { const o = JSON.parse(m || ''); return o && o.v ? { v: o.v, at: Number(o.at) || 0, sign: String(o.s || ''), health: o.h, what: String(o.w || ''), photo: o.p } : null; } catch { return null; } };
 const wsConsentHTML = k => !k ? '<b>No waiver signed with this booking.</b>'
-  : `Waiver signed by ${esc(k.sign)}. ${k.photo === 'blur' ? '<b>Photos: blur them out.</b>' : 'Photos: fine.'} ${k.health === 'some' ? `<b>Health declaration: ${esc(k.what || 'something applies')}</b>` : 'Health declaration: nothing applies.'}`;
+  : `Waiver signed by ${esc(k.sign)}.` + (!k.health && !k.photo ? ' The health declaration and photos are asked now they have paid.'
+    : ` ${k.photo === 'blur' ? '<b>Photos: blur them out.</b>' : k.photo === 'ok' ? 'Photos: fine.' : ''} ${k.health === 'some' ? `<b>Health declaration: ${esc(k.what || 'something applies')}</b>` : k.health === 'none' ? 'Health declaration: nothing applies.' : ''}`);
+/* what the booked screen was told before the payment was filed, laid over
+   what the booking itself carried */
+const wsConsentWith = (k, about) => !k ? k : { ...k,
+  ...(['none', 'some'].includes(about && about.health) ? { health: about.health, what: String(about.what || '') } : {}),
+  ...(['ok', 'blur'].includes(about && about.photo) ? { photo: about.photo } : {}) };
 /* What they want to work on, their goals and their training so far: asked
    when they book a free call or a 1-2-1, so Elliott walks in knowing
    (12 Oct 2026). Each is optional; none at all is nothing. */
@@ -3204,7 +3215,7 @@ const handle = async (request) => {
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
             ...(pp.e !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}),
             q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
-            ...wsConsentRow(wsConsentRead(md.consent), pp.e === e),
+            ...wsConsentRow(pp.e === e ? wsConsentWith(wsConsentRead(md.consent), about) : wsConsentRead(md.consent), pp.e === e),
             ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
             ...(md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
@@ -3321,7 +3332,7 @@ const handle = async (request) => {
           paras: [good.map(r => `<b>${esc(r.w.title)}</b>${whenOf(r.w) ? ', ' + esc(whenOf(r.w)) : ''}. ${r.count} of ${r.w.places || '?'} places taken.`).join('<br>')
                     + (allGood.length > 1 ? ` ${pounds(kept)} for ${allGood.length} places.` : '') + (md.code ? ' Code ' + esc(md.code) + '.' : ''),
                   sentOk ? '' : 'Their booking email was held by the client email switch, so it is in their messages in the app instead.',
-                  md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : '', wsConsentHTML(wsConsentRead(md.consent))].filter(Boolean),
+                  md.q ? `Asked: <i>${esc(md.q)}</i>` : '', md.exp ? `Experience: ${esc(md.exp)}` : '', wsConsentHTML(wsConsentWith(wsConsentRead(md.consent), about))].filter(Boolean),
           cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
       return json({ ok: true, workshop: slugs.join(','), booked: allGood.map(r => r.count) });
       } catch (err) { await supa.remove('nudges', `key=eq.${enc('wsbooked:' + obj.id)}`).catch(() => {}); throw err; }
@@ -5805,7 +5816,12 @@ const handle = async (request) => {
      Kept against a session not filed yet, so the webhook adds it when it is. */
   if (path === '/workshop/about' && request.method === 'POST') {
     const exp = String(body.exp || '').trim().slice(0, 120), qn = String(body.q || '').trim().slice(0, 400);
-    if (!exp && !qn) return json({ ok: true, saved: 0 });
+    /* the health declaration and photos, asked here once paid (13 Oct 2026) */
+    const health = ['none', 'some'].includes(body.health) ? body.health : '';
+    const what = health === 'some' ? String(body.what || '').trim().slice(0, 300) : '';
+    const photo = ['ok', 'blur'].includes(body.photo) ? body.photo : '';
+    if (health === 'some' && !what) return json({ error: 'Say what applies, so Elliott knows before you start.' }, 400);
+    if (!exp && !qn && !health && !photo) return json({ ok: true, saved: 0 });
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`wsa:${ip}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
     const bs = String(body.bs || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
@@ -5822,14 +5838,19 @@ const handle = async (request) => {
         for (const b of l) {
           if ((b.status || 'booked') !== 'booked') continue;
           if (bs ? (b.session !== bs || b.payer) : b.email !== who) continue;
-          if (exp) b.exp = exp; if (qn) b.q = qn; n++; name = b.name || b.email;
+          if (exp) b.exp = exp; if (qn) b.q = qn;
+          if (health) { b.health = health; if (what) b.healthWhat = what; else delete b.healthWhat; }
+          if (photo) { b.photo = photo; delete b.photoBy; }
+          n++; name = b.name || b.email;
         }
         return n ? l : undefined;
       }).catch(() => {});
       saved += n;
     }
-    if (bs.startsWith('cs_')) await setSetting(`wsabout:${bs}`, { exp, q: qn, at: Date.now() }).catch(() => {});
+    if (bs.startsWith('cs_')) await setSetting(`wsabout:${bs}`, { exp, q: qn, ...(health ? { health, what } : {}), ...(photo ? { photo } : {}), at: Date.now() }).catch(() => {});
     if (qn && (saved || bs)) await coachAlert(null, 'business', { title: 'Booking note' + (name ? ': ' + name : ''), body: qn.slice(0, 140), tag: 'wsabout:' + (bs || who) }).catch(() => {});
+    /* something in the health declaration: worth knowing before the day */
+    if (what && (saved || bs)) await coachAlert(null, 'business', { title: 'Health declaration' + (name ? ': ' + name : ''), body: what.slice(0, 140), tag: 'wshealth:' + (bs || who) }).catch(() => {});
     return json({ ok: true, saved });
   }
   if (path === '/workshop/intent' && request.method === 'POST') {
@@ -5853,7 +5874,7 @@ const handle = async (request) => {
        numbers can say which source books, not only which one visits */
     const src = String(body.src || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
     if (!slug || !e || !wsMailOk(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
-    const consent = wsConsent(body);
+    const consent = wsConsent(body, nm);
     if (consent.error) return json(consent, 400);
     /* The limit further down only guarded the paid road. A free place, or a
        code that makes one free, was booked with no limit at all: any made up

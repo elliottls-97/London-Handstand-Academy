@@ -722,9 +722,14 @@ async function workshopMail(done) {
              the way to move or cancel goes with it, while it still counts */
           const canChange = hoursTo > WS_CUTOFF_H;
           const link = canChange && p.session ? await manageLink(w.slug, p.email, p.session, w.when) : '';
+          /* the health declaration and photos are asked once paid (13 Oct
+             2026); anybody who skipped them is asked again here, on the page
+             they would have seen. A guest is asked on the day. */
+          const ask = !p.payer && p.session && (!p.health || !p.photo)
+            ? [`Two quick questions before the class, about your health and photos: <a href="${SITE}/handstand-class.html?booked=${encodeURIComponent(w.slug)}&bs=${encodeURIComponent(p.session)}#book" style="color:#006663">answer them here</a>.`] : [];
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
-              paras: T.paras.concat(link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date or cancel</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
+              paras: T.paras.concat(ask, link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date or cancel</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
                 : [`Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }
