@@ -713,3 +713,102 @@ export function nextStepEmail(d) {
     'Tell me what you are stuck on. I will tell you honestly where I would start you, even if the answer is the free app.', d.call, '');
   return { html, text: mTextEnd(T, d) };
 }
+
+/* ── the editorial email (14 Oct 2026) ────────────────────────────────
+   For the emails that are meant to win somebody over rather than tell
+   them a fact: the first ten days, the newsletter, and next the class
+   follow ups. Built from blocks, after the newsletters Elliott liked: a
+   film still with a two tone headline and a pill button, a white panel
+   for the words with points or numbered steps, a dark panel for the one
+   thing to do, a review. Tables and inline styles for the mail clients;
+   Newsreader and Figtree where a client loads them, Georgia and
+   Helvetica where it does not. Receipts, codes and reminders stay on
+   the plain template: people read those for one fact. */
+/* a still from a drill film, at the size Stream will make (the films are
+   600 high at most) */
+export const filmStill = (uid, sec, h = 600) => `${STREAM}${uid}/thumbnails/thumbnail.jpg?time=${Number(sec) || 2}s&height=${Math.min(600, h)}`;
+const FS = "'Figtree',Helvetica,Arial,sans-serif", FD = "'Newsreader',Georgia,serif";
+/* "Setup. Punchline." in two tones; one sentence stays whole */
+export function twoTone(head, hi) {
+  if (hi != null) return { a: String(head || ''), b: String(hi || '') };
+  const s = String(head || '').trim(), m = s.match(/^(.+?[.?!])\s+(\S.*)$/);
+  return m ? { a: m[1], b: m[2] } : { a: '', b: s };
+}
+const kick = (t, c) => t ? `<div style="font:600 11px/1.3 ${FS};letter-spacing:.16em;text-transform:uppercase;color:${c}">${escH(t)}</div>` : '';
+function pill(b, dark) {
+  if (!b || !b.href) return '';
+  const bg = dark ? 'background:#ffffff' : 'background:linear-gradient(180deg,#0a7a76,#006663);background-color:#006663';
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px"><tr>
+    <td style="${bg};border-radius:999px;padding:12px 12px 12px 26px"><a href="${escH(b.href)}" style="text-decoration:none;display:block">
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+        <td style="padding-right:18px"><div style="font:600 17px/1.2 ${FS};color:${dark ? '#00403d' : '#ffffff'}">${escH(b.label)}</div>
+          ${b.sub ? `<div style="font:600 10.5px/1.4 ${FS};letter-spacing:.12em;text-transform:uppercase;color:${dark ? '#5a5a5a' : '#cfe6ec'};margin-top:3px">${escH(b.sub)}</div>` : ''}</td>
+        <td><div style="width:40px;height:40px;border-radius:50%;background:${dark ? '#006663' : '#ffffff'};color:${dark ? '#ffffff' : '#006663'};font:600 18px/40px Helvetica,Arial,sans-serif;text-align:center">&rarr;</div></td>
+      </tr></table></a></td></tr></table>`;
+}
+const gap = '<tr><td style="height:16px;line-height:16px">&nbsp;</td></tr>';
+const P = t => `<p style="margin:0 0 16px;font:400 17px/1.65 ${FS};color:#2b2f2e">${t}</p>`;
+const blockHTML = {
+  hero: b => `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
+    <tr><td class="pad" style="background:#00403d;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:28px 36px 34px">
+      ${kick(b.kicker, '#8fbeca')}
+      <div class="h1" style="font:400 40px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
+      ${pill(b.btn, true)}</td></tr>`,
+  card: b => `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:34px 36px 20px">
+      ${kick(b.kicker, '#006663')}
+      ${b.head || b.hi ? `<div class="h2" style="font:400 32px/1.1 ${FD};letter-spacing:-.012em;color:#8a8d8c;margin:${b.kicker ? 10 : 0}px 0 0">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#111111">${escH(t.b)}</span>`; })()}</div>` : ''}
+      ${b.points && b.points.length ? `${b.head || b.hi || b.kicker ? '<div style="height:1px;background:#e3e8e8;margin:24px 0 20px"></div>' : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${
+        b.points.reduce((rows, p, i) => { if (i % 2 === 0) rows.push([]); rows[rows.length - 1].push(p); return rows; }, []).map(row => `<tr>${row.map((p, j) =>
+          `<td class="col" width="50%" style="padding:0 ${j ? 0 : 10}px 16px ${j ? 10 : 0}px;vertical-align:top"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="width:44px;height:44px;border-radius:12px;background:#00403d;color:#ffffff;font:600 16px/44px Helvetica,Arial,sans-serif;text-align:center">${p[0]}</td>
+            <td style="padding-left:14px;font:600 15px/1.35 ${FS};color:#111111">${p[1]}</td></tr></table></td>`).join('')}${row.length < 2 ? '<td class="col" width="50%"></td>' : ''}</tr>`).join('')
+      }</table><div style="height:1px;background:#e3e8e8;margin:4px 0 22px"></div>` : (b.head || b.hi ? '<div style="height:22px"></div>' : '')}
+      ${b.greeting ? P(`Hi ${escH(b.greeting)},`) : ''}
+      ${(b.paras || []).slice(0, b.stepsAfter == null ? undefined : b.stepsAfter).map(P).join('')}
+      ${b.steps && b.steps.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px">${b.steps.map((s, i) => `<tr>
+        ${s.img ? `<td class="col stepimg" width="236" style="padding:0 0 18px;vertical-align:top"><img class="stepph" src="${escH(s.img)}" width="236" alt="${escH(s.alt || s.title || '')}" style="display:block;width:236px;max-width:100%;height:auto;border:0;border-radius:14px"></td>` : ''}
+        <td class="col steptxt" style="padding:4px 0 18px ${s.img ? 20 : 0}px;vertical-align:top">
+          <div style="width:28px;height:28px;border-radius:50%;background:#111111;color:#ffffff;font:600 13px/28px Helvetica,Arial,sans-serif;text-align:center">${i + 1}</div>
+          <div style="font:600 17px/1.3 ${FS};color:#111111;margin-top:10px">${escH(s.title)}</div>
+          ${s.text ? `<div style="font:400 15px/1.55 ${FS};color:#5a5a5a;margin-top:4px">${escH(s.text)}</div>` : ''}</td></tr>`).join('')}</table>` : ''}
+      ${b.stepsAfter == null ? '' : (b.paras || []).slice(b.stepsAfter).map(P).join('')}
+      ${b.closer ? `<div style="height:1px;background:#e3e8e8;margin:4px 0 18px"></div><p style="margin:0 0 14px;font:400 18px/1.5 ${FS};color:#111111">${b.closer}</p>` : ''}
+      ${pill(b.btn, false)}${b.btn ? '<div style="height:14px"></div>' : ''}</td></tr>`,
+  dark: b => `<tr><td class="pad" style="background:#0f1a19;border-radius:24px;padding:34px 36px">
+      ${kick(b.kicker, '#8fbeca')}
+      <div class="h2" style="font:400 34px/1.08 ${FD};letter-spacing:-.012em;color:#7f8c8a;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
+      ${(b.paras || []).map(t => `<p style="margin:16px 0 0;font:400 17px/1.65 ${FS};color:#c9d2d1">${t}</p>`).join('')}
+      ${b.card ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;background:#1b2726;border-radius:16px"><tr><td style="padding:16px 20px">
+        ${kick(b.card.kicker, '#f3a949')}<div style="font:400 22px/1.2 ${FD};color:#ffffff;margin-top:8px">${escH(b.card.title)}</div>
+        ${b.card.line ? `<div style="font:400 14px/1.5 ${FS};color:#c9d2d1;margin-top:2px">${escH(b.card.line)}</div>` : ''}</td></tr></table>` : ''}
+      ${pill(b.btn, false)}</td></tr>`,
+  quote: b => `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:30px 36px">
+      <div style="font:400 15px/1 Helvetica,Arial,sans-serif;letter-spacing:3px;color:#006663">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+      <div style="font:400 24px/1.3 ${FD};color:#111111;margin-top:12px">&ldquo;${escH(b.text)}&rdquo;</div>
+      <div style="font:400 14px/1.4 ${FS};color:#5a5a5a;margin-top:12px">${escH(b.by || '')}</div></td></tr>`,
+};
+/* Points are [icon, words] and both are written in the code, so they may
+   carry a <br>; everything typed by a person is escaped. */
+/* blocks in order; the footer carries the why, the address and the
+   unsubscribe (a URL, or <!--UNSUB--> for the sender to fill in) */
+export function richEmail({ title, preheader, blocks = [], sign = 'See you soon, Elliott', why, unsub }) {
+  const body = blocks.filter(Boolean).map(b => (blockHTML[b.t] || (() => ''))(b)).filter(Boolean).join(gap);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
+<title>${escH(title || '')}</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Figtree:wght@400;600&display=swap" rel="stylesheet">
+<style>body{margin:0;padding:0;background:#f4f4f5}a{color:#006663}
+@media (max-width:620px){.wrap{width:100%!important}.pad{padding-left:22px!important;padding-right:22px!important}.h1{font-size:34px!important}.h2{font-size:27px!important}
+.col{display:block!important;width:100%!important;padding:0 0 14px!important}.stepph{width:100%!important}.steptxt{padding:12px 0 26px!important}}</style></head>
+<body style="margin:0;padding:0;background:#f4f4f5">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">${escH(preheader || '')}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5"><tr><td align="center" style="padding:24px 12px 40px">
+<table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px">
+  <tr><td class="pad" style="padding:0 6px 16px;font:600 11px/1 ${FS};letter-spacing:.16em;text-transform:uppercase;color:#006663">London Handstand Academy</td></tr>
+  ${body}
+  <tr><td class="pad" style="padding:26px 10px 0;text-align:center;font:400 12.5px/1.7 ${FS};color:#8a8d80">
+    ${sign ? escH(sign) + '<br>' : ''}${why ? escH(why) + '<br>' : ''}
+    <a href="${SITE}" style="color:#8a8d80">londonhandstandacademy.com</a> &nbsp;&middot;&nbsp; <a href="mailto:info@londonhandstandacademy.com" style="color:#8a8d80">info@londonhandstandacademy.com</a>${unsub ? ` &nbsp;&middot;&nbsp; <a href="${unsub}" style="color:#8a8d80">Unsubscribe</a>` : '<!--UNSUB-->'}
+  </td></tr>
+</table></td></tr></table></body></html>`;
+}

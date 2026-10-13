@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail, afterClassEmail, nextStepEmail } from './emails.mjs';
+import { renderEmail, afterClassEmail, nextStepEmail, richEmail, filmStill } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -652,6 +652,34 @@ async function quietFreeAccounts(done) {
    cue text in the app: Elliott's to rewrite, and they live only here. */
 /* the words live in emails.mjs now, where the dashboard can change them */
 const TIPS = [ { day: 1 }, { day: 2 }, { day: 4 }, { day: 7 }, { day: 10 } ];
+/* What each of the first ten days looks like (14 Oct 2026): a still from
+   the film it is about, and a few points or steps. The words above them
+   stay the ones written in the dashboard; these only frame them. */
+const BAILOUT = '362da5a70cede1b49229a635829656ca';
+const TIP_LOOK = {
+  1: { kicker: 'Day 1 · Wrists first', img: filmStill('a7cd457020f580093be946524a84c3af', 3), alt: 'Wrist circles on the mat',
+       points: [['2', 'Two minutes,<br>every session'], ['&#10003;&#65038;', 'At the top of<br>every session'], ['&#8635;&#65038;', 'A mobility day<br>for the off days'], ['&pound;0', 'Free in<br>Foundations']] },
+  2: { kicker: 'Day 2 · One cue', img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5), alt: 'Chest to wall handstand, pushing the floor away',
+       points: [['&#8593;&#65038;', 'Shoulders up<br>by the ears'], ['|', 'Arms<br>straight'], ['&#8679;&#65038;', 'The whole body<br>reaching up'], ['CC', 'Captions on<br>every film']] },
+  4: { kicker: 'Day 4 · How often', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall',
+       points: [['2&times;', 'Twice<br>a week'], ['15', 'Fifteen minutes<br>is enough'], ['6', 'Six drills,<br>one set each'], ['&#8635;&#65038;', 'A different<br>session each time']] },
+  7: { kicker: 'Day 7 · Film it', img: filmStill('51a36a15330dd845d7099de1712cf8d2', 3), alt: 'A kick up to the wall, filmed side on',
+       points: [['&#9654;&#65038;', 'Side on, phone<br>on the floor'], ['&#9634;&#65038;', 'Your whole body<br>in frame'], ['30s', 'Thirty seconds<br>of film'], ['&#10003;&#65038;', 'Log it as<br>a check point']] },
+  10: { kicker: 'Day 10 · Falling', img: filmStill(BAILOUT, 2), alt: 'Walking up the wall for a bailout',
+       steps: [{ img: filmStill(BAILOUT, 2, 300), title: 'Walk up, hands far out', text: 'Further from the wall than 45 degrees to begin with.' },
+               { img: filmStill(BAILOUT, 7, 300), title: 'One leg out to the side', text: 'Use it to bring that hip down towards the floor.' },
+               { img: filmStill(BAILOUT, 13, 300), title: 'Step a hand out and turn', text: 'Twist out to the side and you are back on your feet.' }] },
+};
+function tipEmail(day, T, first) {
+  const L = TIP_LOOK[day] || {}, href = `${SITE}/lha-app.html?ref=tip${day}`;
+  return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
+    blocks: [
+      { t: 'hero', img: L.img, alt: L.alt, href, kicker: L.kicker, head: T.title, btn: { label: "Open today's session", sub: 'Free in the app', href } },
+      { t: 'card', greeting: first, paras: T.paras, points: L.points, steps: L.steps, stepsAfter: L.steps ? 1 : undefined,
+        btn: L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
+    ],
+    sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
 async function firstTenDays(done) {
   const now = Date.now();
   const rows = (await supa.rows('accounts',
@@ -669,13 +697,7 @@ async function firstTenDays(done) {
       if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
       const T = await emailCopy('tip' + t.day, { name: esc((a.name || '').split(' ')[0] || '') });
       if (T.off) { done.held = (done.held || 0) + 1; break; }
-      const ok = await email(a.email, T.subject,
-        mail({ title: T.title, greeting: (a.name || '').split(' ')[0] || '',
-          paras: T.paras,
-          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
-          signoff: { name: 'Elliott, London Handstand Academy' },
-          footnote: T.footnote || undefined }),
-        'reminders');
+      const ok = await email(a.email, T.subject, tipEmail(t.day, T, (a.name || '').split(' ')[0] || ''), 'reminders');
       if (ok) { await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
                 done.tips = (done.tips || 0) + 1; }
       break;   /* one a day at most, whatever is owed */

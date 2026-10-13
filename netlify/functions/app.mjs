@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -982,15 +982,20 @@ async function newsRender({ subject, body, slug }, test) {
   let w = null;
   if (slug) w = ((await getSetting('workshops')) || {})[slug] || null;
   const left = w ? Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${slug}`)) || []).length) : 0;
-  let html = mail({ title: String(subject || '').slice(0, 150), greeting: test ? test.first : '{{{contact.first_name|there}}}',
-    paras: newsParas(body),
-    box: w ? { title: w.title || 'Handstand class', items: [wsWhenTxt(w), w.place || 'OverGravity, Shadwell',
-      (Number(w.price) ? wsPounds(w.price) : 'Free') + (Number(w.places) ? `, ${left} place${left === 1 ? '' : 's'} left` : '')] } : undefined,
-    cta: w ? { href: newsClassHref(w, slug), label: 'Book your place' } : undefined,
-    signoff: { line: 'See you soon,', name: 'Elliott' },
-    footnote: 'You are getting this because you asked for London Handstand Academy class dates and training notes.' });
-  html = html.replace('<!--UNSUB-->', ` &nbsp;·&nbsp; <a href="${test ? SITE + '/#unsubscribe-preview' : '{{{RESEND_UNSUBSCRIBE_URL}}}'}" style="color:#8a8d80">Unsubscribe</a>`);
-  return html;
+  /* the editorial template (14 Oct 2026): the words in a white panel under
+     the subject in two tones, and a class, when there is one, in the dark
+     panel with its date, places and a Book button */
+  return richEmail({ title: String(subject || '').slice(0, 150), preheader: String(body || '').replace(/\s+/g, ' ').slice(0, 110),
+    blocks: [
+      { t: 'card', head: String(subject || '').slice(0, 150), greeting: test ? test.first : '{{{contact.first_name|there}}}', paras: newsParas(body) },
+      w ? { t: 'dark', kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
+        card: { kicker: (Number(w.places) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
+          line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
+        btn: { label: 'Book your place', sub: /all levels/i.test(w.title || '') ? 'All levels · 90 minutes' : '', href: newsClassHref(w, slug) } } : null,
+    ],
+    sign: 'See you soon, Elliott',
+    why: 'You are getting this because you asked for London Handstand Academy class dates and training notes.',
+    unsub: test ? SITE + '/#unsubscribe-preview' : '{{{RESEND_UNSUBSCRIBE_URL}}}' });
 }
 /* the first email to a new subscriber, and the one asking somebody who
    left whether they want back on */
