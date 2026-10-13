@@ -52,8 +52,9 @@ function classEvents(list, origin) {
         location: EV_LOC,
         organizer: { '@type': 'Organization', name: 'London Handstand Academy', url: origin + '/' },
         performer: [{ '@type': 'Person', name: 'Elliott Staley' }, { '@type': 'Person', name: 'Suryava' }],
-        offers: { '@type': 'Offer', price: String((Number(w.price) || 2500) / 100), priceCurrency: 'GBP',
-          availability: w.left === 0 ? 'https://schema.org/SoldOut' : 'https://schema.org/InStock', url: origin + '/handstand-class' },
+        offers: { '@type': 'Offer', price: String((Number(w.price) || 0) / 100), priceCurrency: 'GBP',
+          /* no place limit is not sold out: the API sends left 0 when places is 0 */
+          availability: Number(w.places) > 0 && w.left === 0 ? 'https://schema.org/SoldOut' : 'https://schema.org/InStock', url: origin + '/handstand-class' },
         description: 'A 90 minute all levels handstand class. Complete beginners through to press and one arm work. Every drill has a regression and a progression, so everyone works on the next thing for them.' }; });
 }
 
