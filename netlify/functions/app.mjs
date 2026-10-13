@@ -14,7 +14,6 @@
 
    Environment (Site settings → Environment variables):
      SIGNING_SECRET   long random string — signs the tokens
-     COACH_KEY        long random string — your own login
      RESEND_API_KEY   from resend.com
      FROM_EMAIL       "London Handstand Academy <hello@…>"
      COACH_EMAIL      where new-message alerts land
@@ -1117,17 +1116,23 @@ async function subWithCodes(sub) {
    a webhook that anyone could POST to. */
 async function stripeSigOK(raw, header, secret) {
   if (!raw || !header || !secret) return false;
-  const parts = Object.fromEntries(header.split(',').map(x => x.split('=')));
-  if (!parts.t || !parts.v1) return false;
-  if (Math.abs(Date.now() / 1000 - Number(parts.t)) > 300) return false;   // replay window
+  /* every v1, not the last: while a webhook secret is being rolled Stripe
+     signs with both and sends two, and keeping one refused real events */
+  const pairs = header.split(',').map(x => { const i = x.indexOf('='); return [x.slice(0, i).trim(), x.slice(i + 1).trim()]; });
+  const t = (pairs.find(([k]) => k === 't') || [])[1];
+  const sigs = pairs.filter(([k]) => k === 'v1').map(([, v]) => v);
+  if (!t || !sigs.length) return false;
+  if (Math.abs(Date.now() / 1000 - Number(t)) > 300) return false;   // replay window
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(parts.t + '.' + raw));
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(t + '.' + raw));
   const hex = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, '0')).join('');
-  if (hex.length !== parts.v1.length) return false;
-  let diff = 0;
-  for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ parts.v1.charCodeAt(i);
-  return diff === 0;
+  return sigs.some(v1 => {
+    if (hex.length !== v1.length) return false;
+    let diff = 0;
+    for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ v1.charCodeAt(i);
+    return diff === 0;
+  });
 }
 
 /* ── the data layer ──────────────────────────────────────────────
@@ -1648,15 +1653,36 @@ async function sendSetCode(e) {
 }
 
 /* rate limits: one row per key, window kept as a timestamp */
+/* One hit on a limit, counted with compare-and-set. It read the count and
+   wrote it back blind, so requests fired in parallel each read the same
+   number and the password lockout (10 in 15 minutes) and the sign in code
+   cap (5 an hour) could be outrun (13 Oct 2026). A write that loses the
+   race reads again; one that keeps losing counts as over the limit, which
+   for a limit is the safe way to fail. */
 async function rateHit(key, windowMs) {
-  const r = await supa.row('rate_limits', `key=eq.${enc(key)}&select=*`);
-  const fresh = r && (Date.now() - ms(r.window_at)) < windowMs;
-  const n = fresh ? (r.n || 0) + 1 : 1;
-  await supa.upsert('rate_limits',
-    { key, n, window_at: fresh ? r.window_at : nowISO() }, 'key');
-  return n;
+  for (let i = 0; i < 8; i++) {
+    const r = await supa.row('rate_limits', `key=eq.${enc(key)}&select=*`);
+    if (!r) {
+      if (await supa.insertIfAbsent('rate_limits', { key, n: 1, window_at: nowISO() }, 'key')) return 1;
+      continue;
+    }
+    const fresh = (Date.now() - ms(r.window_at)) < windowMs;
+    const n = fresh ? (Number(r.n) || 0) + 1 : 1;
+    const done = await supa.update('rate_limits', `key=eq.${enc(key)}&n=eq.${Number(r.n) || 0}&window_at=eq.${enc(r.window_at)}`,
+      { n, window_at: fresh ? r.window_at : nowISO() });
+    if (Array.isArray(done) && done.length) return n;
+    await new Promise(res => setTimeout(res, 10 + Math.random() * 30 * (i + 1)));
+  }
+  return 1e9;
 }
 
+/* A password check, limited the same way everywhere. Every attempt counts
+   before it is checked, so a burst sent in parallel cannot all slip under
+   the limit, and a right one clears the count. /login alone had a limit;
+   changing the password, the email address or deleting the account asked
+   for the current one with none (13 Oct 2026). */
+const pwGate = async e => (await rateHit(`pw:${e}`, 900000)) <= 10;
+const pwClear = e => supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`).catch(() => {});
 const nudgeSent = k => supa.row('nudges', `key=eq.${enc(k)}&select=*`);
 const nudgeMark = (k, stage = 0) =>
   supa.upsert('nudges', { key: k, stage, sent_at: nowISO() }, 'key');
@@ -2276,6 +2302,16 @@ async function callBook({ kind, slot, name, email: who, note, tz, src, about }) 
       ...(aboutClean(about) ? { about: aboutClean(about) } : {}) };
     l.unshift(row); return l.slice(0, 800);
   });
+  /* The free call is booked with no account, so the address typed is all
+     that says who is asking: its existing call, its join link and its signed
+     link to move or cancel it went back to whoever typed the address
+     (13 Oct 2026). Now the link goes to that inbox, as /workshop/find does.
+     The welcome call is booked signed in, by its owner, who sees their own. */
+  if (mine && k !== 'welcome') {
+    /* once an hour per address, however many people type it */
+    if ((await rateHit(`callre:${norm(who)}`, 3600000)) <= 1) await callMail(mine, S.conf).catch(() => {});
+    return { error: 'You already have a call booked with this address. The link to join it, or to move or cancel it, has just been sent to that inbox again.', status: 409, already: true };
+  }
   if (mine) return { error: `You already have a call booked: ${callWhen(mine.when, tz || mine.tz)}.`, status: 409, already: true, call: await callPublic(mine, S.conf) };
   if (clash || !row) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
   await callStateOb(row, true);
@@ -4261,11 +4297,12 @@ const handle = async (request) => {
   const isCoached = async e => !!clients()[e] || await hasPlan(e);
 
   const bearer = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  /* a coach signs in with their own email and password like anyone else;
-     the shared key still works so nothing breaks mid-change */
+  /* a coach signs in with their own email and password like anyone else.
+     The shared COACH_KEY header that also counted as the owner is gone
+     (13 Oct 2026): nothing sent it, and it was a standing secret equal to
+     the owner with no account behind it. */
   const coachList = () => Object.keys(coaches());
   const isCoach = async () => {
-    if (process.env.COACH_KEY && request.headers.get('x-coach-key') === process.env.COACH_KEY) return true;
     /* realMe: a preview token names a client, and a client is never a coach */
     const who = await realMe();
     return !!who && coachList().includes(who);
@@ -4298,10 +4335,8 @@ const handle = async (request) => {
      answer, review, write programmes and run a workshop. They do not set
      prices, mint discount codes, comp a tier or publish a workshop, because
      each of those is money out of the business and none of them is visible
-     from the coaching screens. The shared key is the owner's own secret, so
-     it counts as the owner. */
+     from the coaching screens. */
   const isOwner = async () => {
-    if (process.env.COACH_KEY && request.headers.get('x-coach-key') === process.env.COACH_KEY) return true;
     return isPrimary(await me());
   };
   const ownerOnly = { error: 'That one is Elliott\'s. Prices, discount codes and what a workshop costs are set by the account that owns the business. Ask him and he can change it in a moment.' };
@@ -4355,20 +4390,14 @@ const handle = async (request) => {
     if (!e || !name || !stored || !body.password) return bad();
 
     /* slow the guessing down */
-    const existing = await supa.row('rate_limits', `key=eq.${enc('pw:' + e)}&select=*`);
-    if (existing && (Date.now() - ms(existing.window_at)) < 900000 && existing.n >= 10) {
-      return json({ error: 'Too many attempts. Try again shortly.' }, 429);
-    }
+    if (!(await pwGate(e))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
 
     const got = await pwHash(String(body.password));
     if (got.length !== stored.length) return bad();
     let diff = 0;
     for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ stored.charCodeAt(i);
-    if (diff) {
-      await rateHit(`pw:${e}`, 900000);
-      return bad();
-    }
-    await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
+    if (diff) return bad();
+    await pwClear(e);
     return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
                   client: name, coach: coachList().includes(e),
                   coached: await isCoached(e), plus: plusNow(acct) });
@@ -4881,9 +4910,19 @@ const handle = async (request) => {
     if (parts.length !== 3) throw new Error('not a signed transaction');
     const dec = x => Buffer.from(x.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
     const head = JSON.parse(dec(parts[0]).toString('utf8'));
-    if (head.alg !== 'ES256' || !Array.isArray(head.x5c) || head.x5c.length < 2) throw new Error('not signed the way Apple signs');
+    if (head.alg !== 'ES256' || !Array.isArray(head.x5c) || head.x5c.length !== 3) throw new Error('not signed the way Apple signs');
     const certs = head.x5c.map(c => new X509Certificate(Buffer.from(c, 'base64')));
     for (let i = 0; i + 1 < certs.length; i++) if (!certs[i].verify(certs[i + 1].publicKey)) throw new Error('the certificates do not chain');
+    /* As Apple's own library checks (13 Oct 2026): the root alone was
+       pinned, and Apple issues other certificates under it (Apple Pay keys
+       among them), so any of those could have signed a "purchase". The leaf
+       must carry the App Store receipt marker and be a P-256 key that is
+       not a CA; the intermediate must be a CA carrying Apple's WWDR marker. */
+    const hasOid = (c, hex) => c.raw.includes(Buffer.from(hex, 'hex'));
+    if (certs[0].ca || !certs[1].ca) throw new Error('the certificates are the wrong kind');
+    if (!hasOid(certs[0], '060a2a864886f76364060b01') || !hasOid(certs[1], '060a2a864886f76364060201')) throw new Error('not an App Store certificate');
+    const kd = certs[0].publicKey.asymmetricKeyDetails || {};
+    if (certs[0].publicKey.asymmetricKeyType !== 'ec' || kd.namedCurve !== 'prime256v1') throw new Error('not signed the way Apple signs');
     const root = certs[certs.length - 1];
     if (root.fingerprint256.replace(/:/g, '').toUpperCase() !== APPLE_ROOT_FP || !root.verify(root.publicKey)) throw new Error('not signed by Apple');
     const now = Date.now();
@@ -4946,7 +4985,14 @@ const handle = async (request) => {
   if (path === '/iap/verify' && request.method === 'POST') {
     const who = await me();
     let tx;
-    try { tx = appleJWS(body.jws); } catch (err) { return json({ error: 'That purchase could not be checked with Apple.', why: String(err.message || err) }, 400); }
+    try { tx = appleJWS(body.jws); } catch (err) {
+      /* the marker and certificate checks are new (13 Oct 2026): a real
+         purchase refused by them is told to the coach at once, not found
+         later from a client who paid and was not let in */
+      const why = String(err.message || err);
+      if (/App Store certificate|wrong kind|signed the way/.test(why)) await coachAlert(null, 'business',
+        { title: 'An iPhone purchase failed the Apple check', body: (who || 'signed out') + ': ' + why, tag: 'iapcheck' }).catch(() => {});
+      return json({ error: 'That purchase could not be checked with Apple.', why }, 400); }
     /* bought by one account and restored on another: not moved silently.
        An owner whose account no longer exists (moved or deleted) owns
        nothing, and the purchase comes to whoever holds it now. */
@@ -9813,9 +9859,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (next.length < 8) return json({ error: 'New password must be at least 8 characters' }, 400);
 
     const stored = await hashFor(db, who);
+    if (!(await pwGate(who))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
     if (!stored || (await pwHash(current)) !== stored) {
       return json({ error: 'Current password is wrong' }, 401);
     }
+    await pwClear(who);
     await saveAcct({ email: who, hash: await pwHash(next) });
 
     /* tell Elliott, so a password changing is never a silent event */
@@ -10036,7 +10084,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!acct) return json({ error: 'No account on that address' }, 404);
     const stored = await hashFor(db, who);
     if (stored) {
+      if (!(await pwGate(who))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
       if ((await pwHash(String(body.password || ''))) !== stored) return json({ error: 'That password is not right' }, 401);
+      await pwClear(who);
     } else if (String(body.confirm || '').trim().toLowerCase() !== 'delete') {
       return json({ error: 'Type delete to confirm' }, 400);
     }
@@ -10070,15 +10120,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     /* the password, so a borrowed phone cannot move the account */
     const stored = await hashFor(db, who);
+    if (!(await pwGate(who))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
     if (!stored || (await pwHash(String(body.password || ''))) !== stored) {
       return json({ error: 'Current password is wrong' }, 401);
     }
+    await pwClear(who);
     if (await getAcct(next)) return json({ error: 'There is already an account on that address' }, 409);
     if ((await rateHit(`emailchg:${who}`, 3600000)) > 5) {
       return json({ error: 'Too many attempts. Try again later.' }, 429);
     }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    /* from the crypto source, as every other code here is */
+    const code = (() => { const r = new Uint32Array(1); crypto.getRandomValues(r); return String(100000 + (r[0] % 900000)); })();
     await setSetting(`emailchange:${who}`,
       { next, code, expires: Date.now() + CODE_TTL, tries: 0 });
     await email(next, 'Confirm your new email address',
@@ -11506,6 +11559,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        counters and sent-nudge markers. All are short-lived, all rebuild
        themselves within a day, and carrying them over risks importing a
        stale lockout. ?dry=1 reports what it would do and writes nothing. */
+    /* The one-off copy from Blobs, run on 1 September 2026. A second run
+       would upsert that day's accounts, passwords, progress, blocks and
+       notes over everything written since, so it answers nothing now
+       (13 Oct 2026). The code below it stays only as the record of what
+       was copied; it cannot be reached. */
+    if (path === '/coach/migrate') return json({ error: 'The move from Blobs was done on 1 September 2026 and cannot be run again.' }, 410);
     if (path === '/coach/migrate' && request.method === 'POST') {
       if (!(await isOwner())) return json(ownerOnly, 403);
       if (!supa.configured()) return json({ error: 'Supabase is not configured' }, 503);

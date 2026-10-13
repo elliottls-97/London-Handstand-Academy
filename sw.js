@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v220';
+const CACHE_VERSION = 'lha-v221';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -117,8 +117,11 @@ self.addEventListener('fetch', event => {
      the next person on a shared phone was shown the last one's chat and
      progress, and a stale copy of the check points was handed back to the
      app, which wrote it over newer ones. Only what is the same for
-     everybody, and the plan, is kept for no signal; the app keeps the rest. */
-  if (url.pathname.startsWith('/api/app/') && !/^\/api\/app\/(ladder|plans|fixes|workshops|site|programme|me)(\/|$|\?)/.test(url.pathname)) return;
+     everybody, and the plan, is kept for no signal; the app keeps the rest.
+     /me was on the list, so offline the last account's /me (and its
+     bookings, under /me/) was handed to whoever was signed in (13 Oct 2026);
+     the app keeps its own copy of what /me says. */
+  if (url.pathname.startsWith('/api/app/') && !/^\/api\/app\/(ladder|plans|fixes|workshops|site|programme)(\/|$)/.test(url.pathname)) return;
   if (url.hostname.indexOf('formspree.io') > -1) return;
 
   if (url.searchParams.get('lha') === 'saved') {
