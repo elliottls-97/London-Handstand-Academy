@@ -8455,7 +8455,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!/^https:\/\//.test(endpoint) || endpoint.length > 1000 || !p256dh || !auth) {
       return json({ error: 'That is not a notification subscription' }, 400);
     }
-    const rec = await pushSubs(who);
+    const rec = await pushSubs(who, undefined, { strict: true });
     /* the latest first, one entry per phone, and no more than six */
     rec.subs = [{ endpoint, keys: { p256dh, auth }, at: Date.now() }]
       .concat(rec.subs.filter(x => x && x.endpoint !== endpoint)).slice(0, 6);
@@ -8470,7 +8470,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const who = await realMe();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const endpoint = String(body.endpoint || '');
-    const rec = await pushSubs(who);
+    const rec = await pushSubs(who, undefined, { strict: true });
     rec.subs = rec.subs.filter(x => x && x.endpoint !== endpoint);
     await pushSave(who, rec);
     return json({ ok: true, phones: rec.subs.length });
@@ -8487,12 +8487,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        last account's replies stop arriving on a phone it no longer holds */
     const prev = await getSetting(`apnsdev:${token}`).catch(() => null);
     if (prev && prev !== who) {
-      const old = await pushSubs(prev);
+      const old = await pushSubs(prev, undefined, { strict: true });
       old.apns = (Array.isArray(old.apns) ? old.apns : []).filter(x => x && x.token !== token);
       await pushSave(prev, old);
     }
     if (prev !== who) await setSetting(`apnsdev:${token}`, who);
-    const rec = await pushSubs(who);
+    const rec = await pushSubs(who, undefined, { strict: true });
     rec.apns = [{ token, at: Date.now() }].concat((Array.isArray(rec.apns) ? rec.apns : []).filter(x => x && x.token !== token)).slice(0, 6);
     if (Array.isArray(body.days)) {
       rec.days = [...new Set(body.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))];
@@ -8504,7 +8504,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const who = await realMe();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const token = String(body.token || '').trim().toLowerCase();
-    const rec = await pushSubs(who);
+    const rec = await pushSubs(who, undefined, { strict: true });
     rec.apns = (Array.isArray(rec.apns) ? rec.apns : []).filter(x => x && x.token !== token);
     await pushSave(who, rec);
     if (token && (await getSetting(`apnsdev:${token}`).catch(() => null)) === who) await dropSetting(`apnsdev:${token}`).catch(() => {});
@@ -11973,7 +11973,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         mail: Object.assign({}, COACH_MAIL_KINDS, rec.mail || {}) });
     }
     if (path === '/coach/push' && request.method === 'POST') {
-      const rec = await pushSubs(asking || primaryCoach(), 'pushcoach');
+      const rec = await pushSubs(asking || primaryCoach(), 'pushcoach', { strict: true });
       if (body.sub) {
         const sb = body.sub || {};
         const endpoint = String(sb.endpoint || '');

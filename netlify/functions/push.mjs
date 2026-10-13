@@ -109,9 +109,13 @@ function keys() {
    sent their clients' news on the client side, or the other way round. */
 const keyOf = (e, ns) => (ns || 'push') + ':' + norm(e);
 
-/* the phones this person has allowed, and the days they train */
-export async function pushSubs(e, ns) {
-  const r = await supa.row('settings', `key=eq.${enc(keyOf(e, ns))}&select=value`).catch(() => null);
+/* the phones this person has allowed, and the days they train. A sender
+   can treat a failed read as no phones; a writer must not, or the save
+   that follows wipes every phone they have (13 Oct 2026), so a writer asks
+   with { strict: true } and a failed read throws. */
+export async function pushSubs(e, ns, opts) {
+  const read = supa.row('settings', `key=eq.${enc(keyOf(e, ns))}&select=value`);
+  const r = (opts && opts.strict) ? await read : await read.catch(() => null);
   const v = (r && r.value) || {};
   return Object.assign({}, v, { subs: Array.isArray(v.subs) ? v.subs : [] });
 }

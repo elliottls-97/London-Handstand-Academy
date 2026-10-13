@@ -283,7 +283,13 @@ const withUnsub = (html, url) => String(html).includes('/api/app/unsub?t=') ? St
   : String(html).includes('<!--UNSUB-->')
   ? String(html).replace('<!--UNSUB-->', ` &nbsp;·&nbsp; <a href="${url}" style="color:#8a8d80">Unsubscribe</a>`)
   : String(html) + `<p style="font:12px/1.5 system-ui;color:#8a8d80;margin-top:24px"><a href="${url}" style="color:#8a8d80">Unsubscribe</a></p>`;
+/* true when the last send was tried and failed, as opposed to held on
+   purpose (unsubscribed, switched off, the mail guard): the after-class
+   emails were marked sent either way, and a failed thank you also blocked
+   the next one for 45 days (13 Oct 2026) */
+let sendFailed = false;
 async function email(to, subject, html, kind, opts) {
+  sendFailed = false;
   if (!process.env.RESEND_API_KEY || !to) return false;
   if (!(await wantsEmail(to, kind))) return false;
   if (!mayEmail(to)) return false;
@@ -301,18 +307,31 @@ async function email(to, subject, html, kind, opts) {
     if (text) text += `\n\nUnsubscribe: ${uu}`;
     headers = { 'List-Unsubscribe': `<${uu}>, <mailto:info@londonhandstandacademy.com?subject=unsubscribe>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
   }
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-                 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: process.env.FROM_EMAIL || 'info@londonhandstandacademy.com',
-        to, subject, html, ...(text ? { text } : {}), headers, reply_to: process.env.REPLY_TO || 'info@londonhandstandacademy.com' }),
-    });
-    return r.ok;
-  } catch { return false; }
+  const payload = JSON.stringify({
+    from: process.env.FROM_EMAIL || 'info@londonhandstandacademy.com',
+    to, subject, html, ...(text ? { text } : {}), headers, reply_to: process.env.REPLY_TO || 'info@londonhandstandacademy.com' });
+  /* Resend allows two a second and answers 429 past that; one more try
+     after a pause, under the same key so a slow first answer is not sent
+     twice. The run is once a day, so a failure here is the whole window. */
+  const idem = 'cycle-' + (await sha256hex(to + '|' + subject + '|' + new Date().toISOString().slice(0, 10))).slice(0, 40);
+  for (let i = 0; i < 2; i++) {
+    try {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+                   'Content-Type': 'application/json', 'Idempotency-Key': idem },
+        body: payload,
+      });
+      if (r.ok) return true;
+      if (r.status !== 429 && r.status < 500) break;
+    } catch {}
+    if (i === 0) await new Promise(res => setTimeout(res, 1200));
+  }
+  sendFailed = true;
+  console.error('cycle email failed', subject.slice(0, 80));
+  return false;
 }
+const sha256hex = async s => Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))).toString('hex');
 
 async function subsFor(who) {
   const rows = await supa.rows('submissions',
@@ -343,12 +362,12 @@ async function pastClients() {
   return (r && r.value) || {};
 }
 
-export default async () => {
-  /* the guard is read fresh for every run: a switch changed a moment ago counts */
-  GUARD = null;
-  const now = Date.now();
-  const done = { reminded: [], chased: [], skipped: 0 };
-
+/* ── the coaching loop: tests due, block reviews, clips waiting ─────
+   Its own job now, run after the reminders that bookings promise, and each
+   person on their own: it was the one part of the run with no catch, so a
+   single failed read cancelled every later email that day, the class,
+   1-2-1 and call reminders included, and nothing recorded it (13 Oct 2026). */
+async function coachingLoop(done, now) {
   /* Anyone who has sent something, not only the coaching roster. A one-off
      form check comes from someone who is not a client yet — which makes it
      the worst one to let go quiet. */
@@ -362,107 +381,122 @@ export default async () => {
       .map(a => ({ email: a.email, name: a.name || a.email, coach: '', lead: true })));
 
   for (const c of everyone) {
-    if (past[c.email]) { done.skipped++; continue; }
-    const cyc = await supa.row('cycles', `email=eq.${enc(c.email)}&select=*`)
-      .catch(() => null);
-    const cycle = cyc ? { n: cyc.n || 1, start: ms(cyc.started_at) } : null;
-    /* no cycle means no block underway — nothing to remind them about.
-       Their submissions still need chasing, so fall through to that. */
-    if (!cycle && !c.lead) { done.skipped++; continue; }
+    try {
+      if (past[c.email]) { done.skipped++; continue; }
+      const cyc = await supa.row('cycles', `email=eq.${enc(c.email)}&select=*`)
+        .catch(() => null);
+      const cycle = cyc ? { n: cyc.n || 1, start: ms(cyc.started_at) } : null;
+      /* no cycle means no block underway — nothing to remind them about.
+         Their submissions still need chasing, so fall through to that. */
+      if (!cycle && !c.lead) { done.skipped++; continue; }
 
-    const plan = planFile(c.email);
-    const days = (plan && Number(plan.testDelayDays)) || 14;
-    const dueAt = (cycle ? cycle.start : now) + days * DAY;
-    const subs = await subsFor(c.email);
-    const mine = c.lead ? subs : subs.filter(s => s.cycle === cycle.n);
-    const coach = c.coach || primaryCoach();
+      const plan = planFile(c.email);
+      const days = (plan && Number(plan.testDelayDays)) || 14;
+      const dueAt = (cycle ? cycle.start : now) + days * DAY;
+      const subs = await subsFor(c.email);
+      const mine = c.lead ? subs : subs.filter(s => s.cycle === cycle.n);
+      const coach = c.coach || primaryCoach();
 
-    /* 1 — footage is due and has not arrived */
-    if (!c.lead && !mine.length && now >= dueAt) {
-      const overdueDays = Math.floor((now - dueAt) / DAY);
-      /* how many nudges are owed by now. Counting rather than matching the
-         exact day means a missed run catches up instead of losing the
-         reminder for good. */
-      const stage = NUDGE_AFTER.filter(d => overdueDays >= d).length - 1;
-      const key = `remind:${c.email}:${cycle.n}`;
-      const sent = await supa.row('nudges', `key=eq.${enc(key)}&select=*`).catch(() => null);
-      if (stage >= 0 && !(sent && sent.stage >= stage)) {
-        const ok = await email(c.email,
-          overdueDays === 0 ? 'Time to film your test' : 'Still waiting on your clips',
-          mail({
-            title: overdueDays === 0 ? 'Time to film your test.' : 'Still waiting on your clips.',
-            greeting: (c.name || '').split(' ')[0],
-            paras: [`You are ${days} days into this block, which is the point where
-              the test drills tell us what to change.`,
-              `Numbers and clips go in together from the app, and ${esc(coachNameOf(coach))}
-               comes back within <b>${REVIEW_HOURS} hours</b>.`],
-            cta: { href: `${SITE}/lha-app.html`, label: 'Film your test' },
-            signoff: { name: coachNameOf(coach) },
-            footnote: 'One clean attempt at each is plenty. Five scrappy ones tell us less.',
-          }), 'reminders');
-        if (ok) {
-          await supa.upsert('nudges',
-            { key, stage, sent_at: new Date().toISOString() }, 'key');
-          done.reminded.push(c.email);
+      /* 1 — footage is due and has not arrived */
+      if (!c.lead && !mine.length && now >= dueAt) {
+        const overdueDays = Math.floor((now - dueAt) / DAY);
+        /* how many nudges are owed by now. Counting rather than matching the
+           exact day means a missed run catches up instead of losing the
+           reminder for good. */
+        const stage = NUDGE_AFTER.filter(d => overdueDays >= d).length - 1;
+        const key = `remind:${c.email}:${cycle.n}`;
+        const sent = await supa.row('nudges', `key=eq.${enc(key)}&select=*`).catch(() => null);
+        if (stage >= 0 && !(sent && sent.stage >= stage)) {
+          const ok = await email(c.email,
+            overdueDays === 0 ? 'Time to film your test' : 'Still waiting on your clips',
+            mail({
+              title: overdueDays === 0 ? 'Time to film your test.' : 'Still waiting on your clips.',
+              greeting: (c.name || '').split(' ')[0],
+              paras: [`You are ${days} days into this block, which is the point where
+                the test drills tell us what to change.`,
+                `Numbers and clips go in together from the app, and ${esc(coachNameOf(coach))}
+                 comes back within <b>${REVIEW_HOURS} hours</b>.`],
+              cta: { href: `${SITE}/lha-app.html`, label: 'Film your test' },
+              signoff: { name: coachNameOf(coach) },
+              footnote: 'One clean attempt at each is plenty. Five scrappy ones tell us less.',
+            }), 'reminders');
+          if (ok) {
+            await supa.upsert('nudges',
+              { key, stage, sent_at: new Date().toISOString() }, 'key');
+            done.reminded.push(c.email);
+          }
         }
       }
-    }
 
-    /* 1b, the block is over: ask how it went, once, whatever else happens.
-       Testimonials were only ever asked for when the coach remembered, so
-       the ask is automatic: three questions and a request for a filmed
-       line, answered in the app, landing on Today as a block review. */
-    if (!c.lead && cycle && now >= dueAt) {
-      const akey = `blockask:${c.email}:${cycle.n}`;
-      if (!(await supa.row('nudges', `key=eq.${enc(akey)}&select=key`).catch(() => null))) {
-        const T = await emailCopy('blockAsk', { name: esc((c.name || '').split(' ')[0]), coach: esc(coachNameOf(coach)) });
-        const ok = !T.off && await email(c.email, T.subject,
-          mail({
-            title: T.title,
-            greeting: (c.name || '').split(' ')[0],
-            paras: T.paras,
-            cta: { href: `${SITE}/lha-app.html?review=block`, label: 'Answer in the app' },
-            signoff: { name: coachNameOf(coach) },
-            footnote: T.footnote || undefined,
-          }), 'reminders');
-        if (ok) {
-          await supa.upsert('nudges', { key: akey, sent_at: new Date().toISOString() }, 'key');
-          (done.asked = done.asked || []).push(c.email);
+      /* 1b, the block is over: ask how it went, once, whatever else happens.
+         Testimonials were only ever asked for when the coach remembered, so
+         the ask is automatic: three questions and a request for a filmed
+         line, answered in the app, landing on Today as a block review. */
+      if (!c.lead && cycle && now >= dueAt) {
+        const akey = `blockask:${c.email}:${cycle.n}`;
+        if (!(await supa.row('nudges', `key=eq.${enc(akey)}&select=key`).catch(() => null))) {
+          const T = await emailCopy('blockAsk', { name: esc((c.name || '').split(' ')[0]), coach: esc(coachNameOf(coach)) });
+          const ok = !T.off && await email(c.email, T.subject,
+            mail({
+              title: T.title,
+              greeting: (c.name || '').split(' ')[0],
+              paras: T.paras,
+              cta: { href: `${SITE}/lha-app.html?review=block`, label: 'Answer in the app' },
+              signoff: { name: coachNameOf(coach) },
+              footnote: T.footnote || undefined,
+            }), 'reminders');
+          if (ok) {
+            await supa.upsert('nudges', { key: akey, sent_at: new Date().toISOString() }, 'key');
+            (done.asked = done.asked || []).push(c.email);
+          }
         }
       }
-    }
 
-    /* 2 — it arrived and nobody has looked at it */
-    for (const s of mine) {
-      if (s.status !== 'submitted') continue;
-      if (now - (s.at || 0) < REVIEW_HOURS * 60 * 60 * 1000) continue;
-      const ckey = `chase:${s.id}`;
-      if (await supa.row('nudges', `key=eq.${enc(ckey)}&select=key`).catch(() => null)) continue;
-      const hrs = Math.round((now - s.at) / 3600000);
-      const ok = await email(coach,
-        `${c.name} has been waiting ${hrs} hours`,
-        mail({
-          title: `${esc(c.name)} is still waiting.`,
-          paras: [`${esc(c.name)} sent ${s.clips.length} clip${s.clips.length === 1 ? '' : 's'}
-            ${hrs} hours ago and nobody has marked it reviewed. The promise is ${REVIEW_HOURS} hours.`],
-          cta: { href: `${SITE}/lha-coach.html`, label: 'Open the coach view' },
-        }));
-      if (ok) {
-        await supa.upsert('nudges', { key: ckey, sent_at: new Date().toISOString() }, 'key');
-        done.chased.push(c.email);
+      /* 2 — it arrived and nobody has looked at it */
+      for (const s of mine) {
+        if (s.status !== 'submitted') continue;
+        if (now - (s.at || 0) < REVIEW_HOURS * 60 * 60 * 1000) continue;
+        const ckey = `chase:${s.id}`;
+        if (await supa.row('nudges', `key=eq.${enc(ckey)}&select=key`).catch(() => null)) continue;
+        const hrs = Math.round((now - s.at) / 3600000);
+        const ok = await email(coach,
+          `${c.name} has been waiting ${hrs} hours`,
+          mail({
+            title: `${esc(c.name)} is still waiting.`,
+            paras: [`${esc(c.name)} sent ${s.clips.length} clip${s.clips.length === 1 ? '' : 's'}
+              ${hrs} hours ago and nobody has marked it reviewed. The promise is ${REVIEW_HOURS} hours.`],
+            cta: { href: `${SITE}/lha-coach.html`, label: 'Open the coach view' },
+          }));
+        if (ok) {
+          await supa.upsert('nudges', { key: ckey, sent_at: new Date().toISOString() }, 'key');
+          done.chased.push(c.email);
+        }
       }
-    }
-
+    } catch (e) { (done.coachingErrors = done.coachingErrors || []).push(c.email + ': ' + String((e && e.message) || e).slice(0, 160)); }
+  }
 }
 
-  try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
+export default async () => {
+  /* the guard is read fresh for every run: a switch changed a moment ago counts */
+  GUARD = null;
+  const now = Date.now();
+  const done = { reminded: [], chased: [], skipped: 0 };
+
+  /* the reminders bookings promise go first: each has one 24 hour window,
+     so anything that goes wrong further down must not cost them */
   try { await workshopMail(done); } catch (e) { done.workshopError = String(e && e.message || e); }
-  try { await intentMail(done); } catch (e) { done.intentError = String(e && e.message || e); }
   try { await sessionMail(done); } catch (e) { done.sessionError = String(e && e.message || e); }
   try { await callRemind(done); } catch (e) { done.callError = String(e && e.message || e); }
+  try { await coachingLoop(done, now); } catch (e) { done.coachingError = String(e && e.message || e); }
+
+  try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
+  try { await intentMail(done); } catch (e) { done.intentError = String(e && e.message || e); }
   try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
   try { await trainingPush(done); } catch (e) { done.pushError = String(e && e.message || e); }
   try { await voiceSweep(done); } catch (e) { done.voiceError = String(e && e.message || e); }
+  /* the response body of a scheduled run is thrown away, so the run says
+     what it did in the function log, where a bad day can be found */
+  console.log('cycle', JSON.stringify(done));
   return new Response(JSON.stringify(done), {
     headers: { 'Content-Type': 'application/json' } });
 };
@@ -656,7 +690,7 @@ async function firstTenDays(done) {
    The daily run at nine means each window is hit exactly once. */
 async function workshopMail(done) {
   done.workshops = { reminded: 0, asked: 0 };
-  const row = await supa.row('settings', 'key=eq.workshops&select=value').catch(() => null);
+  const row = await supa.row('settings', 'key=eq.workshops&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */
   const all = (row && row.value) || {};
   const past = await pastClients();
   const now = Date.now();
@@ -779,6 +813,9 @@ async function workshopMail(done) {
               headshot: '/assets/site/coach-elliott-headshot.jpg',
               preheader: `A 1-2-1 at OverGravity, from ${P.s60}, or a free 15 minute call.` });
             await email(e, T.subject, M.html, 'offers', { text: M.text });
+            /* a failed send is not marked, so the next run can try; a held
+               one (offers off, unsubscribed) is, as before */
+            if (sendFailed) { done.failed = (done.failed || 0) + 1; continue; }
             done.workshops.offered = (done.workshops.offered || 0) + 1;
             await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
           }
@@ -827,6 +864,7 @@ async function workshopMail(done) {
             more: `${SITE}/handstand-class`,
             offers: pitch ? A.prices : null });
           await email(p.email, T.subject, M.html, undefined, { text: M.text });
+          if (sendFailed) { done.failed = (done.failed || 0) + 1; continue; }
           done.workshops.asked++;
           await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
           await supa.upsert('nudges', { key: once, sent_at: new Date().toISOString() }, 'key').catch(() => {});
@@ -843,7 +881,7 @@ async function workshopMail(done) {
    away, and never to anyone who holds a place on that date. */
 async function intentMail(done) {
   done.intents = { reminded: 0 };
-  const row = await supa.row('settings', 'key=eq.workshops&select=value').catch(() => null);
+  const row = await supa.row('settings', 'key=eq.workshops&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */
   const all = (row && row.value) || {};
   const now = Date.now();
   /* everyone with a row on any date of a class: somebody who typed their
@@ -933,7 +971,7 @@ async function intentMail(done) {
    credited against the first month if they join within fourteen days. */
 async function sessionMail(done) {
   done.sessions = { reminded: 0, followed: 0, chased: 0 };
-  const row = await supa.row('settings', 'key=eq.sessions&select=value').catch(() => null);
+  const row = await supa.row('settings', 'key=eq.sessions&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */
   const list = (row && row.value) || [];
   const now = Date.now();
   for (const x of list) {
@@ -1043,6 +1081,7 @@ async function sessionMail(done) {
           paras: T.paras,
           cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+        if (sendFailed) { done.failed = (done.failed || 0) + 1; continue; }
         await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
         done.sessions.followed++;
       }
@@ -1058,7 +1097,7 @@ async function callRemind(done) {
   done.calls = { reminded: 0 };
   const conf = (await supa.row('settings', 'key=eq.callconf&select=value').catch(() => null)) || {};
   const c = conf.value || {};
-  const row = await supa.row('settings', 'key=eq.calls&select=value').catch(() => null);
+  const row = await supa.row('settings', 'key=eq.calls&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */
   const list = (row && row.value) || [];
   const now = Date.now();
   const zone = tz => { try { if (tz) { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return tz; } } catch {} return 'Europe/London'; };

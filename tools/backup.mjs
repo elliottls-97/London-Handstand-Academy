@@ -29,14 +29,21 @@ if (!URL_ || !KEY) {
    that leaves out the thing you needed. */
 const TABLES = ['accounts', 'messages', 'progress', 'coach_notes', 'cycles',
   'submissions', 'free_checks', 'applications', 'codes', 'rate_limits',
-  'nudges', 'settings'];
+  'nudges', 'settings',
+  /* supabase/questions.sql: clients' questions and the answers, which no
+     backup held (13 Oct 2026) */
+  'questions'];
+/* Each page is read in key order: paging with Range and no order lets
+   PostgreSQL hand the same row to two pages and skip another, silently. */
+const ORDER = { accounts: 'email', progress: 'email', coach_notes: 'email', cycles: 'email',
+  free_checks: 'email', codes: 'email,kind', rate_limits: 'key', nudges: 'key', settings: 'key' };
 
 const PAGE = 1000;
 
 async function pull(table) {
   const rows = [];
   for (let from = 0; ; from += PAGE) {
-    const r = await fetch(`${URL_}/rest/v1/${table}?select=*`, {
+    const r = await fetch(`${URL_}/rest/v1/${table}?select=*&order=${ORDER[table] || 'id'}`, {
       headers: { apikey: KEY, Authorization: `Bearer ${KEY}`,
                  Range: `${from}-${from + PAGE - 1}` },
     });
@@ -60,7 +67,7 @@ for (const t of TABLES) {
     total += rows.length;
     console.log(`${String(rows.length).padStart(6)}  ${t}`);
   } catch (e) {
-    /* one missing table must not cost you the other eleven */
+    /* one missing table must not cost you the others */
     console.error(`  FAILED  ${t}: ${e.message}`);
   }
 }
