@@ -8218,7 +8218,7 @@ function headerHTML(){
   const unreadAll=clients.reduce((t,c)=>t+(c.unread||0),0);
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],['bookings','Bookings',0],
                ['review','Review',reviewQueue.length],
-               ['library','Library',0],['site','Website',0],['settings','Settings',0]];
+               ['library','Library',0],['site','Website',0],['news','Newsletter',0],['settings','Settings',0]];
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
       cursor:pointer;font:400 30px/1 var(--serif);color:var(--ink);margin-right:auto">Coach<span
@@ -11924,6 +11924,160 @@ function bkRowHTML(w,b,others){
     </div>`:''}
   </div>`;
 }
+/* ══ the newsletter (14 Oct 2026) ═══════════════════════════════════
+   It was beehiiv, out of sight of everything here. The list is the app's
+   own now: who is on it, where they came from, whether they have booked
+   since, and a send that leaves out anyone already booked on the date it
+   is about. Sending goes through Resend a few addresses at a time, so the
+   page asks again until the whole list is in, then hands it over once. */
+let news=null, newsBusy='', newsMsg='', newsQ='', newsPrev='', newsImp=null, newsFrom=null;
+let nw={subject:'',body:'',slug:'',auto:''};
+const NEWS_SRC={beehiiv:'beehiiv',app:'The app',booking:'Booking a class','newsletter-footer':'Website footer','leaving-class':'Class page, leaving',
+  'leaving-home':'Home page, leaving','workshop-waitlist':'No dates yet',site:'Website',links:'Links page'};
+function newsLoad(sync){ if(newsBusy==='load') return; newsBusy='load';
+  fetch(API+'/news'+(sync?'?sync=1':''),{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ newsBusy=''; if(d){ news=d; if(newsFrom===null) newsFrom=d.from||''; } draw(); }).catch(()=>{ newsBusy=''; draw(); }); }
+async function newsPost(act, body){
+  const r=await fetch(API+'/news/'+act,{method:'POST',headers:hdr(),body:JSON.stringify(body||{})});
+  const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||('The server said '+r.status)); return d; }
+const newsDay=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'Europe/London'}):'';
+/* a class picked fills in the words, until the coach has changed them */
+function newsPick(slug){
+  const c=(news&&news.classes||[]).find(x=>x.slug===slug);
+  const auto=c?{subject:`New class date: ${c.whenTxt.split(',')[0]}`,
+    body:`The next ${/all levels/i.test(c.title||'')?'All Levels Handstand Class':c.title} is on ${c.whenTxt}, at OverGravity in Shadwell.\n\nTwo coaches and a small group, and you are grouped by level: first time at the wall, learning to freestand, or press and one arm work.\n\nPlaces go quickly, so book early if you want one.`}:{subject:'',body:''};
+  const was=nw.auto?JSON.parse(nw.auto):{subject:'',body:''};
+  if(!nw.subject||nw.subject===was.subject) nw.subject=auto.subject;
+  if(!nw.body||nw.body===was.body) nw.body=auto.body;
+  nw.slug=slug; nw.auto=JSON.stringify(auto); newsPrev=''; draw(); }
+function newsPreview(){ newsBusy='prev'; newsMsg=''; draw();
+  newsPost('preview',{subject:nw.subject,body:nw.body,slug:nw.slug}).then(d=>{ newsPrev=d.html||''; })
+    .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
+function newsTest(){ if(!nw.subject.trim()){ newsMsg='A subject first.'; draw(); return; } newsBusy='test'; newsMsg=''; draw();
+  newsPost('test',{subject:nw.subject,body:nw.body,slug:nw.slug}).then(d=>{ newsMsg='Test sent to '+d.to+'.'; })
+    .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
+/* start it, then keep asking until it has gone */
+async function newsSend(retryId){
+  if(!retryId){
+    if(!nw.subject.trim()||!nw.body.trim()){ newsMsg='A subject and some words first.'; draw(); return; }
+    const c=(news.classes||[]).find(x=>x.slug===nw.slug);
+    if(!confirm(`Send "${nw.subject}" to everyone on the list who can be emailed${c?', except anyone already booked on '+c.whenTxt.split(',')[0]:''}?`)) return;
+  }
+  newsBusy='send'; newsMsg='Getting the list ready…'; draw();
+  try{
+    let d=retryId?await newsPost('send',{id:retryId,retry:true}):await newsPost('send',{subject:nw.subject,body:nw.body,slug:nw.slug});
+    for(let i=0;i<200 && (d.status==='adding'||d.status==='ready');i++){
+      newsMsg=`Adding ${d.done} of ${d.total} to the send…`; draw();
+      d=await newsPost('send',{id:d.id});
+    }
+    if(d.status==='sent'){ newsMsg=`Sent to ${d.total-(d.fails||0)} people.${d.fails?' '+d.fails+' could not be added; the list below says who.':''}`; nw={subject:'',body:'',slug:'',auto:''}; newsPrev=''; }
+    else if(d.status==='sending') newsMsg='It is already on its way.';
+    else newsMsg=d.error||'It did not go. Try again from the list of sends.';
+  }catch(e){ newsMsg=e.message; }
+  newsBusy=''; news=null; newsLoad(); draw();
+}
+function newsRemove(e){ if(!confirm('Take '+e+' off the list?')) return;
+  newsPost('remove',{email:e}).then(()=>{ news=null; newsLoad(); }).catch(err=>{ newsMsg=err.message; draw(); }); }
+function newsSaveFrom(){ newsBusy='from'; draw();
+  newsPost('conf',{from:newsFrom}).then(d=>{ newsFrom=d.from; newsMsg='Saved. Newsletters send from '+d.from+'.'; news=null; newsLoad(); })
+    .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
+function newsAddApp(){ newsBusy='app'; draw();
+  newsPost('app').then(d=>{ newsMsg=`${d.added} app account${d.added===1?'':'s'} added.${d.off?' '+d.off+' had unsubscribed and were left off.':''}`; news=null; newsLoad(); })
+    .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
+/* beehiiv's export: a CSV with a header row, quoted where it needs to be */
+function newsCsv(t){
+  const rows=[]; let row=[], f='', q=false;
+  for(let i=0;i<t.length;i++){ const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; continue; }
+    if(c==='"') q=true; else if(c===','){ row.push(f); f=''; } else if(c==='\n'||c==='\r'){ if(c==='\r'&&t[i+1]==='\n') i++; row.push(f); rows.push(row); row=[]; f=''; } else f+=c; }
+  if(f||row.length){ row.push(f); rows.push(row); }
+  const head=(rows.shift()||[]).map(h=>h.trim().toLowerCase());
+  const col=re=>head.findIndex(h=>re.test(h));
+  const ce=col(/^e-?mail(\s*address)?$/), cn=col(/first[\s_-]*name|^name$/), cd=col(/created|subscribed|signed|date/), cs=col(/^status$/);
+  if(ce<0) return {error:'No email column in that file.'};
+  const out=[]; let skipped=0;
+  for(const r of rows){ const e=String(r[ce]||'').trim().toLowerCase(); if(!e) continue;
+    if(cs>=0 && r[cs] && !/^(active|validating|pending)$/i.test(String(r[cs]).trim())){ skipped++; continue; }
+    out.push({email:e,name:cn>=0?String(r[cn]||'').trim():'',at:cd>=0?String(r[cd]||'').trim():''}); }
+  return {rows:out, skipped};
+}
+function newsFile(inp){ const f=inp.files&&inp.files[0]; if(!f) return;
+  f.text().then(t=>{ newsImp=newsCsv(t); newsMsg=newsImp.error||''; draw(); }); }
+function newsImport(){ if(!newsImp||!newsImp.rows) return; newsBusy='imp'; draw();
+  newsPost('import',{rows:newsImp.rows,src:'beehiiv'}).then(d=>{ newsMsg=`${d.added} added${d.already?', '+d.already+' already on the list':''}${d.off?', '+d.off+' who had unsubscribed left off':''}${d.bad?', '+d.bad+' not email addresses':''}.`; newsImp=null; news=null; newsLoad(); })
+    .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
+function newsHTML(){
+  if(!news) newsLoad();
+  const L=(news&&news.list)||[], on=L.filter(x=>x.on), owner=!!(news&&news.owner);
+  const head=`<section class="glass" style="padding:26px 28px;border-radius:24px">
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <div><div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Newsletter</div>
+        <h1 style="margin:8px 0 0">${news?on.length:'…'} on the <em style="color:var(--forest);font-style:normal">list.</em></h1></div>
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary btn-sm" onclick="news=null;newsLoad(true)" ${newsBusy==='load'?'disabled':''}>Refresh</button>
+    </div>
+    ${news&&!news.ready?`<p class="muted" style="margin:14px 0 0">Resend is not set up, so nothing can be sent yet.</p>`:''}
+    ${news&&news.sync&&!news.sync.ok?`<p style="margin:14px 0 0;color:var(--terra);font-size:14px">Could not read unsubscribes from Resend: ${esc(news.sync.why)}</p>`:''}
+    ${newsMsg?`<p style="margin:14px 0 0;font-size:14px;color:var(--deep)" role="status">${esc(newsMsg)}</p>`:''}
+  </section>`;
+  if(!news) return head+`<p class="muted" style="margin-top:18px">Loading…</p>`;
+  const cls=news.classes||[];
+  const chip=(slug,label)=>`<button onclick="newsPick(${jsq(slug)})" class="btn btn-sm ${nw.slug===slug?'btn-primary':'btn-secondary'}">${esc(label)}</button>`;
+  const compose=`<section class="glass" style="padding:22px 24px;border-radius:24px;margin-top:16px">
+    <h5 style="margin:0 0 12px">Write one</h5>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:13px">About</span>
+      ${chip('','Nothing in particular')}${cls.map(c=>chip(c.slug,c.whenTxt.split(',')[0]+(/all levels/i.test(c.title||'')?'':' · '+c.title))).join('')}</div>
+    <input class="input" style="margin-top:12px" placeholder="Subject" value="${esc(nw.subject)}" oninput="nw.subject=this.value">
+    <textarea class="input" style="margin-top:10px;min-height:200px;resize:vertical" placeholder="What you want to say. A blank line starts a new paragraph."
+      oninput="nw.body=this.value">${esc(nw.body)}</textarea>
+    <p class="muted" style="font-size:12.5px;margin:8px 0 0">Each email opens "Hi" and their first name, and ends with an unsubscribe link.${nw.slug?' The class, its time, price and places left go in a box with a Book button, and anyone already booked on it is left out.':''}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button class="btn btn-secondary btn-sm" onclick="newsPreview()" ${newsBusy?'disabled':''}>${newsBusy==='prev'?'Loading…':'Preview'}</button>
+      <button class="btn btn-secondary btn-sm" onclick="newsTest()" ${newsBusy?'disabled':''}>${newsBusy==='test'?'Sending…':'Send me a test'}</button>
+      ${owner?`<button class="btn btn-primary btn-sm" onclick="newsSend()" ${newsBusy||!news.ready?'disabled':''}>${newsBusy==='send'?'Sending…':'Send to the list'}</button>`:`<span class="muted" style="font-size:12.5px;align-self:center">Sending to the list is Elliott's.</span>`}
+    </div>
+    ${newsPrev?`<iframe title="Preview" srcdoc="${esc(newsPrev)}" style="margin-top:16px;width:100%;height:620px;border:1px solid rgba(0,64,61,.12);border-radius:16px;background:#f4f4f5"></iframe>`:''}
+  </section>`;
+  const st=x=>x.status==='sent'?['Sent','tag-accent']:x.status==='failed'?['Did not go','tag-accent-2']:['In progress','tag-neutral'];
+  const sends=(news.sends||[]).length?`<section class="glass" style="padding:22px 24px;border-radius:24px;margin-top:16px">
+    <h5 style="margin:0 0 6px">Sent</h5>
+    ${news.sends.map(x=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)">
+      <div style="flex:1;min-width:0"><b style="font:600 14px/1.3 var(--sans)">${esc(x.subject)}</b>
+        <div class="muted" style="font-size:12.5px">${newsDay(x.sentAt||x.at)} · ${x.total} ${x.total===1?'person':'people'}${x.fails?' · '+x.fails+' not added':''}${x.error?' · '+esc(x.error):''}</div></div>
+      <span class="tag ${st(x)[1]}">${st(x)[0]}</span>
+      ${owner&&(x.status==='failed'||x.status==='adding'||x.status==='ready')?`<button class="btn btn-secondary btn-sm" onclick="newsSend(${jsq(x.id)})" ${newsBusy?'disabled':''}>Try again</button>`:''}
+    </div>`).join('')}</section>`:'';
+  const q=newsQ.trim().toLowerCase();
+  const shown=L.filter(x=>!q||x.email.includes(q)||String(x.name).toLowerCase().includes(q));
+  const list=`<section class="glass" style="padding:22px 24px;border-radius:24px;margin-top:16px">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h5 style="margin:0">Who is on it</h5>
+      <span class="muted" style="font-size:12.5px">${on.length} on · ${L.length-on.length} unsubscribed · ${on.filter(x=>x.booked).length} have booked a class</span>
+      <span style="flex:1"></span><input class="input" style="max-width:220px" placeholder="Find someone" value="${esc(newsQ)}" oninput="newsQ=this.value;draw()"></div>
+    ${shown.length?`<div style="overflow-x:auto;margin-top:10px"><table style="width:100%;border-collapse:collapse;min-width:560px">
+      ${shown.slice(0,400).map(x=>`<tr data-k="${esc(x.email)}" style="border-top:1px solid var(--line);${x.on?'':'opacity:.55'}">
+        <td style="padding:9px 8px 9px 0"><b style="font:600 14px/1.3 var(--sans)">${esc(x.name||x.email.split('@')[0])}</b><div class="muted" style="font-size:12.5px">${esc(x.email)}</div></td>
+        <td style="padding:9px 8px;font-size:13px" title="${esc(x.how)}">${esc(NEWS_SRC[x.src]||x.src||'')}<div class="muted" style="font-size:12px">${newsDay(x.at)}</div></td>
+        <td style="padding:9px 8px;font-size:13px">${x.booked?`${x.booked} class${x.booked===1?'':'es'}`:'<span class="muted">No class yet</span>'}${x.client?' · <span class="tag tag-accent">Client</span>':''}</td>
+        <td style="padding:9px 0 9px 8px;text-align:right">${x.on?`<button class="btn btn-secondary btn-sm" onclick="newsRemove(${jsq(x.email)})">Remove</button>`:`<span class="muted" style="font-size:12px">Off since ${newsDay(x.off)}${x.offBy?', '+esc(x.offBy):''}</span>`}</td>
+      </tr>`).join('')}</table></div>`:`<p class="muted" style="margin:12px 0 0">${L.length?'Nobody matches.':'Nobody yet. Bring the beehiiv list across below.'}</p>`}
+  </section>`;
+  const tools=owner?`<section class="glass" style="padding:22px 24px;border-radius:24px;margin-top:16px">
+    <h5 style="margin:0 0 6px">Bring people across</h5>
+    <p class="muted" style="font-size:13px;margin:0 0 10px">In beehiiv, Subscribers, Export, and choose the CSV here. Only active subscribers come across, with the date they signed up. Nobody gets an email for being imported.</p>
+    <input type="file" accept=".csv,text/csv" onchange="newsFile(this)">
+    ${newsImp&&newsImp.rows?`<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:14px">${newsImp.rows.length} found${newsImp.skipped?', '+newsImp.skipped+' unsubscribed in beehiiv left out':''}.</span>
+      <button class="btn btn-primary btn-sm" onclick="newsImport()" ${newsBusy?'disabled':''}>${newsBusy==='imp'?'Adding…':'Add them'}</button></div>`:''}
+    ${news.appYes?`<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:14px">${news.appYes} app account${news.appYes===1?'':'s'} said yes to "Tips and workshops, by email" and ${news.appYes===1?'is':'are'} not on the list.</span>
+      <button class="btn btn-secondary btn-sm" onclick="newsAddApp()" ${newsBusy?'disabled':''}>${newsBusy==='app'?'Adding…':'Add them'}</button></div>`:''}
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+      <div class="muted" style="font-size:13px;margin-bottom:6px">Sent from</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input class="input" style="max-width:460px" value="${esc(newsFrom==null?news.from:newsFrom)}" oninput="newsFrom=this.value">
+        <button class="btn btn-secondary btn-sm" onclick="newsSaveFrom()" ${newsBusy?'disabled':''}>Save</button></div>
+      <p class="muted" style="font-size:12.5px;margin:8px 0 0">Its domain must be verified in Resend. A separate one, news.londonhandstandacademy.com, keeps a spam report on a newsletter away from the receipts.${news.ownKey?'':' Sending uses the main Resend key; if Resend says it can only send single emails, add a Full access key in Netlify as RESEND_NEWS_KEY.'}</p>
+    </div></section>`:'';
+  return head+compose+sends+list+tools;
+}
 function bookingsPageHTML(){
   wsLoad();
   const now=Date.now(), all=(wshops||[]).filter(w=>w.when);
@@ -12670,6 +12824,7 @@ function drawNow(){
     : view==='settings' ? settingsHTML()
     : view==='review'   ? reviewHTML()
     : view==='bookings' ? bookingsPageHTML()
+    : view==='news'     ? newsHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`
     + bulkHTML() + copyHTML() + newBlkHTML() + toastHTML()

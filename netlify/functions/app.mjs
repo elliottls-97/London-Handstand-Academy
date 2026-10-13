@@ -644,7 +644,7 @@ function mayEmail(to) {
    Default is SUPPRESSED: if the switch has never been set, or cannot be
    read, a real client is not mailed. Being silent is recoverable; sending
    a test email to a paying client is not. */
-async function clientMailAllowed(to, receipt) {
+async function clientMailAllowed(to, receipt, pre) {
   const t = norm(to);
   /* ── a coach is never suppressed ──────────────────────────────────
      This guard exists so a test email cannot reach a paying client while
@@ -659,7 +659,7 @@ async function clientMailAllowed(to, receipt) {
     /* a per-person setting beats the global one in both directions, so a
        single client can be silenced while the rest carry on, or allowed
        through while everyone else is held */
-    const off = (await getSetting('mailoff')) || {};
+    const off = (pre ? pre.off : await getSetting('mailoff')) || {};
     if (off[t] === true) return false;
     if (off[t] === false) return true;
     /* Their own receipt: a booking or a payment they made themselves, and
@@ -670,7 +670,7 @@ async function clientMailAllowed(to, receipt) {
        let everything after it reach them as well. */
     if (receipt) return true;
     if (!clients()[t] && !PAST[t]) return true;
-    const g = await getSetting('mailguard');
+    const g = pre ? pre.guard : await getSetting('mailguard');
     return g ? !g.suppress : false;
   } catch {
     /* The switches could not be read. That held everybody, a stranger's
@@ -847,6 +847,169 @@ async function flushMailRetry() {
     .filter(m => !done.has(m.idem))
     .map(m => bump.has(m.idem) ? Object.assign({}, m, { tries: (Number(m.tries) || 0) + 1, last: Date.now() }) : m)
     .filter(m => (Number(m.tries) || 0) < 40)).catch(() => {});
+}
+
+/* ── the newsletter (14 Oct 2026) ────────────────────────────────────
+   It was beehiiv, apart from everything else: somebody who signed up
+   there was invisible here, and every new class date was written twice.
+   The list lives here now, in settings under `news`, each address with
+   where it came from and what it agreed to. It goes out through Resend's
+   broadcasts, which do not count against the hundred a day the receipts
+   and codes share. A send builds a Resend segment of exactly who it is
+   for (on the list, not unsubscribed from anything, not held by the mail
+   switches, and for a class date not already booked on it), a few at a
+   time so no call runs long, and then hands the broadcast over. Resend
+   keeps who unsubscribed through a newsletter's own link: that is read
+   back before every send, and whenever the dashboard asks. */
+const NEWS_FROM = 'Elliott, London Handstand Academy <news@news.londonhandstandacademy.com>';
+/* a key that can only send single emails cannot make contacts or
+   broadcasts, so a separate full access one can be given for this */
+const newsKey = () => process.env.RESEND_NEWS_KEY || process.env.RESEND_API_KEY || '';
+const nap = t => new Promise(r => setTimeout(r, t));
+async function rsApi(path, method = 'GET', body) {
+  for (let i = 0; ; i++) {
+    let r;
+    try {
+      r = await fetch('https://api.resend.com' + path, { method, signal: AbortSignal.timeout(8000),
+        headers: { Authorization: `Bearer ${newsKey()}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}) });
+    } catch (err) {
+      if (i >= 2) return { ok: false, status: 0, data: { message: String((err && err.message) || err) } };
+      await nap(400 * (i + 1)); continue;
+    }
+    const data = await r.json().catch(() => ({}));
+    /* ten calls a second for the whole account, receipts included */
+    if (r.status === 429 && i < 3) { await nap(Math.min(3000, (Number(r.headers.get('retry-after')) || 1) * 1000)); continue; }
+    return { ok: r.ok, status: r.status, data: data || {} };
+  }
+}
+/* what went wrong, in words that say what to do about it */
+function rsWhy(r) {
+  const d = (r && r.data) || {}, m = String(d.message || d.error || '');
+  if (d.name === 'restricted_api_key' || /restricted/i.test(m))
+    return 'The Resend key can only send single emails. In Resend, API Keys, make a Full access key and add it in Netlify as RESEND_NEWS_KEY.';
+  if (/domain/i.test(m) && /verif/i.test(m))
+    return 'The sending address is on a domain Resend has not verified yet. Add it under Domains in Resend and put its records in GoDaddy, or send from the main address for now.';
+  return m || ('Resend said ' + ((r && r.status) || 'nothing'));
+}
+const newsConf = async () => Object.assign({ from: NEWS_FROM }, (await getSetting('newsconf').catch(() => null)) || {});
+/* add, never put back: somebody who left is asked before they are on again */
+async function newsAddMany(rows) {
+  const res = { added: 0, already: 0, off: 0, bad: 0, out: {} };
+  await changeSetting('news', cur => {
+    const l = Object.assign({}, cur || {});
+    res.added = 0; res.already = 0; res.off = 0; res.bad = 0; res.out = {};
+    for (const r of rows) {
+      const e = norm(r && r.email);
+      if (!e || !wsMailOk(e)) { res.bad++; continue; }
+      const was = l[e], n = String((r && r.name) || '').trim().slice(0, 60);
+      if (was && !was.on) { res.off++; res.out[e] = 'off'; continue; }
+      if (was) { res.already++; res.out[e] = 'already'; if (!was.n && n) l[e] = Object.assign({}, was, { n }); continue; }
+      l[e] = { n, src: String((r && r.src) || 'site').slice(0, 24), at: Number(r && r.at) || Date.now(), how: String((r && r.how) || '').slice(0, 160), on: true };
+      res.added++; res.out[e] = 'added';
+    }
+    return res.added || rows.some(r => res.out[norm(r && r.email)] === 'already' && r && r.name) ? l : undefined;
+  });
+  return res;
+}
+const newsAdd = async (email, o) => (await newsAddMany([Object.assign({ email }, o)])).out[norm(email)] || 'bad';
+async function newsSet(email, on, by) {
+  const e = norm(email); let hit = false;
+  await changeSetting('news', cur => {
+    hit = false;
+    const l = Object.assign({}, cur || {}), x = l[e];
+    if (!x || !!x.on === !!on) return undefined;
+    hit = true;
+    const y = Object.assign({}, x, { on: !!on });
+    if (on) { delete y.off; delete y.offBy; y.back = Date.now(); } else { y.off = Date.now(); y.offBy = String(by || '').slice(0, 40); }
+    l[e] = y; return l;
+  });
+  /* Resend's own flag, so a broadcast cannot reach them either way */
+  if (hit && newsKey()) await rsApi(`/contacts/${enc(e)}`, 'PATCH', { unsubscribed: !on }).catch(() => {});
+  return hit;
+}
+/* Who unsubscribed through a newsletter's link, read back from Resend,
+   and which addresses Resend already holds (so a send adds those to its
+   segment rather than creating them again with a fresh yes). */
+async function newsSync() {
+  if (!newsKey()) return { ok: false, why: 'Resend is not set up' };
+  const gone = [], have = new Set(); let after = '';
+  for (let page = 0; page < 40; page++) {
+    const r = await rsApi('/contacts?limit=100' + (after ? '&after=' + enc(after) : ''));
+    if (!r.ok) return { ok: false, why: rsWhy(r) };
+    const d = Array.isArray(r.data.data) ? r.data.data : [];
+    for (const c of d) if (c && c.email) { have.add(norm(c.email)); if (c.unsubscribed) gone.push(norm(c.email)); }
+    if (!r.data.has_more || !d.length) break;
+    after = d[d.length - 1].id;
+  }
+  let off = 0;
+  if (gone.length) await changeSetting('news', cur => {
+    const l = Object.assign({}, cur || {}); off = 0;
+    for (const e of gone) if (l[e] && l[e].on) { l[e] = Object.assign({}, l[e], { on: false, off: Date.now(), offBy: 'a newsletter link' }); off++; }
+    return off ? l : undefined;
+  });
+  return { ok: true, off, have };
+}
+/* who a send reaches: the mail switches decide exactly as they do for any
+   other email, read once for the whole list rather than once a person */
+async function newsWho(slug) {
+  const l = (await getSetting('news')) || {};
+  const booked = slug ? new Set(wsLive((await getSetting(`wsbook:${slug}`)) || []).map(b => norm(b.email))) : new Set();
+  const on = Object.entries(l).filter(([e, x]) => x && x.on && !booked.has(e) && mayEmail(e));
+  const S = await settingsMany(['mailoff', 'mailguard', ...on.map(([e]) => `unsub:${e}`)]);
+  const pre = { off: S.mailoff || {}, guard: S.mailguard };
+  const out = [];
+  for (const [e, x] of on) {
+    /* out of everything, unless they asked for the newsletter since */
+    const u = S[`unsub:${e}`];
+    if (u && (Number(u.at) || 1) > Math.max(Number(x.at) || 0, Number(x.back) || 0)) continue;
+    if (!(await clientMailAllowed(e, false, pre))) continue;
+    out.push({ e, n: x.n || '' });
+  }
+  return { who: out, booked: booked.size };
+}
+/* A class to point at, from the dashboard's list: the next All Levels
+   date unless one is named, with the booking link the class page uses. */
+const newsClassHref = (w, slug) => /all levels/i.test((w && w.title) || '') ? `${SITE}/handstand-class?src=newsletter#book` : `${SITE}/workshop.html?slug=${enc(slug)}&src=newsletter`;
+/* Paragraphs from what the coach typed: a blank line between, links made
+   links, nothing else read as HTML. First names and the unsubscribe link
+   are Resend's to fill in, per person. */
+function newsParas(body) {
+  return String(body || '').replace(/\r/g, '').split(/\n\s*\n/).map(t => t.trim()).filter(Boolean).slice(0, 40)
+    .map(t => esc(t).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" style="color:#006663;font-weight:600">$1</a>').replace(/\n/g, '<br>'));
+}
+async function newsRender({ subject, body, slug }, test) {
+  let w = null;
+  if (slug) w = ((await getSetting('workshops')) || {})[slug] || null;
+  const left = w ? Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${slug}`)) || []).length) : 0;
+  let html = mail({ title: String(subject || '').slice(0, 150), greeting: test ? test.first : '{{{contact.first_name|there}}}',
+    paras: newsParas(body),
+    box: w ? { title: w.title || 'Handstand class', items: [wsWhenTxt(w), w.place || 'OverGravity, Shadwell',
+      (Number(w.price) ? wsPounds(w.price) : 'Free') + (Number(w.places) ? `, ${left} place${left === 1 ? '' : 's'} left` : '')] } : undefined,
+    cta: w ? { href: newsClassHref(w, slug), label: 'Book your place' } : undefined,
+    signoff: { line: 'See you soon,', name: 'Elliott' },
+    footnote: 'You are getting this because you asked for London Handstand Academy class dates and training notes.' });
+  html = html.replace('<!--UNSUB-->', ` &nbsp;·&nbsp; <a href="${test ? SITE + '/#unsubscribe-preview' : '{{{RESEND_UNSUBSCRIBE_URL}}}'}" style="color:#8a8d80">Unsubscribe</a>`);
+  return html;
+}
+/* the first email to a new subscriber, and the one asking somebody who
+   left whether they want back on */
+async function newsWelcome(e, n) {
+  const all = Object.values((await getSetting('workshops')) || {}).filter(w => w && w.live && w.when && ms(w.when) > Date.now() && /all levels/i.test(w.title || ''))
+    .sort((a, b) => ms(a.when) - ms(b.when));
+  const w = all[0];
+  return email(e, 'You are on the list', mail({ title: 'You are on the list.', greeting: String(n || '').split(' ')[0] || undefined,
+    paras: ['New class dates come here first, with the odd training note. No more than twice a month.',
+      w ? `The next All Levels class is <b>${esc(wsWhenTxt(w))}</b> at ${esc(w.place || 'OverGravity, Shadwell')}.` : ''].filter(Boolean),
+    cta: w ? { href: `${SITE}/handstand-class?src=newsletter#book`, label: 'Book a place' } : undefined,
+    signoff: { line: 'See you soon,', name: 'Elliott' } }), 'news', { essential: true });
+}
+async function newsAskBack(e) {
+  const t = await sign({ k: 'newsback', e, exp: Date.now() + 7 * 864e5 });
+  return email(e, 'Back on the list?', mail({ title: 'Back on the list?',
+    paras: ['Somebody, probably you, asked for London Handstand Academy class dates at this address. You unsubscribed before, so nothing is sent until you say yes.',
+      'If it was not you, ignore this and nothing changes.'],
+    cta: { href: `${SITE}/api/app/news/back?t=${t}`, label: 'Yes, add me back' } }), 'news', { essential: true });
 }
 
 /* ── a notification to their phone ──────────────────────────────
@@ -4263,6 +4426,9 @@ const handle = async (request) => {
       const undo = url.searchParams.get('undo') === '1';
       if (undo) await dropSetting(`unsub:${e}`).catch(() => {});
       else await setSetting(`unsub:${e}`, { at: Date.now() });
+      /* out of everything is out of the newsletter, and undo puts it back */
+      if (!undo) await newsSet(e, false, 'the unsubscribe link').catch(() => {});
+      else if ((((await getSetting('news')) || {})[e] || {}).offBy === 'the unsubscribe link') await newsSet(e, true).catch(() => {});
       return undo
         ? page('You are back on', `Emails to ${esc(e)} will carry on as before.`)
         : page('You are unsubscribed', `No more emails to ${esc(e)}, except the ones you need: receipts, a booking you make and its reminder, and sign in codes.`,
@@ -4553,6 +4719,7 @@ const handle = async (request) => {
       stripe_customer: prev.stripe_customer || null,
     };
     await saveAcct(acct);
+    if (acct.marketing && !prev.marketing) await newsAdd(e, { name: acct.name, src: 'app', how: 'Ticked "Tips and workshops, by email" when signing up in the app' }).catch(() => {});
     /* where the account came from, kept beside it rather than in a column */
     const ref = String(body.ref || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
     if (ref && !prev.email) await setSetting(`ref:${e}`, ref);
@@ -5831,6 +5998,182 @@ const handle = async (request) => {
      cancels it. The inbox is the proof, so no code to type, and the page
      is told the same thing whether the address has a booking or not, so
      it cannot be used to find out who is coming. (8 Oct 2026) */
+  /* ── the newsletter: signing up, from any page on the site ──────────
+     Posted from the site's own pages only. Every answer is the same, so
+     the form cannot be used to learn who is on the list. */
+  if (path === '/news/subscribe' && request.method === 'POST') {
+    const origin = request.headers.get('origin') || '';
+    if (origin && !(origin === SITE || origin === 'https://www.londonhandstandacademy.com' || /^http:\/\/localhost(:\d+)?$/.test(origin)))
+      return json({ error: 'Not from this site' }, 403);
+    const e = norm(body.email), nm = String(body.name || '').trim().slice(0, 60);
+    const src = String(body.src || body.source || 'site').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) || 'site';
+    if (!e || !wsMailOk(e)) return json({ error: 'A valid email address is required.' }, 400);
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`nsub:${ip}`, 3600000)) > 10) return json({ error: 'Too many tries. Try again in an hour.' }, 429);
+    /* the same address typed again and again gets one email an hour at most */
+    const quiet = (await rateHit(`nsube:${e}`, 3600000)) > 1;
+    const r = await newsAdd(e, { name: nm, src, how: `Signed up on the website (${src})` });
+    if (!quiet && r === 'added') await newsWelcome(e, nm).catch(() => {});
+    if (!quiet && r === 'off') await newsAskBack(e).catch(() => {});
+    return json({ ok: true });
+  }
+  /* the link in "Back on the list?": a page with a button, so a mail
+     scanner opening the link does not answer for them */
+  if (path === '/news/back') {
+    const p = await verify(String(url.searchParams.get('t') || ''));
+    const e = p && p.k === 'newsback' && p.e ? norm(p.e) : '';
+    const page = (h, msg, more) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>The newsletter · London Handstand Academy</title></head>
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
+<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:24px;padding:28px 24px;box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#006663">London Handstand Academy</div>
+<h1 style="font:400 32px/1.1 Georgia,serif;margin:12px 0 10px">${h}</h1><p style="margin:0;color:#5a5a5a">${msg}</p>${more || ''}</main></body></html>`,
+      { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+    if (!e) return page('That link has run out', 'Sign up again on <a href="https://londonhandstandacademy.com" style="color:#006663">the website</a> and a new one comes.');
+    if (request.method === 'POST') {
+      await newsSet(e, true);
+      return page('You are back on', `Class dates and the odd training note will come to ${esc(e)} again.`);
+    }
+    return page('Back on the list?', `Class dates and the odd training note, to <b>${esc(e)}</b>. No more than twice a month.`,
+      `<form method="post" action="/api/app/news/back?t=${enc(String(url.searchParams.get('t') || ''))}"><button style="margin-top:22px;width:100%;min-height:52px;border:0;border-radius:14px;cursor:pointer;font:600 16px system-ui;background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1">Yes, add me back</button></form>`);
+  }
+  /* ── the newsletter in the dashboard ───────────────────────────────
+     Reading the list and removing somebody is any coach's. Importing,
+     the sender and sending to everyone are the owner's: one press reaches
+     the whole list. */
+  if (path === '/coach/news' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    let sync = null;
+    if (url.searchParams.get('sync') === '1' && newsKey()) sync = await newsSync().catch(err => ({ ok: false, why: String(err.message || err) }));
+    const l = (await getSetting('news')) || {};
+    const all = (await getSetting('workshops')) || {};
+    const booked = {}, taken = {};
+    for (const w of Object.values(all)) {
+      if (!w || !w.slug) continue;
+      const book = (await getSetting(`wsbook:${w.slug}`)) || [];
+      taken[w.slug] = wsPlaces(book).length;
+      for (const b of wsLive(book)) {
+        const e = norm(b.email); if (!e) continue;
+        const x = booked[e] || (booked[e] = { n: 0, last: '' });
+        x.n++; if (!x.last || ms(w.when) > ms(x.last)) x.last = w.when;
+      }
+    }
+    let accts = [];
+    try { accts = (await supa.rows('accounts', 'select=email,marketing')) || []; } catch {}
+    const hasAcct = new Set(accts.map(a => norm(a.email)));
+    const appYes = accts.filter(a => a.marketing && !l[norm(a.email)]).length;
+    const list = Object.entries(l).map(([e, x]) => ({ email: e, name: x.n || '', src: x.src || '', at: x.at || 0, how: x.how || '', on: !!x.on,
+      off: x.off || 0, offBy: x.offBy || '', booked: (booked[e] || {}).n || 0, lastClass: (booked[e] || {}).last || '',
+      client: !!clients()[e], app: hasAcct.has(e) })).sort((a, b) => (b.at || 0) - (a.at || 0));
+    const sends = ((await getSetting('newssends')) || []).map(x => ({ id: x.id, at: x.at, subject: x.subject, slug: x.slug || '', status: x.status,
+      total: x.total || (x.todo || []).length, done: x.i || 0, fails: (x.fails || []).length, error: x.error || '', sentAt: x.sentAt || 0 }));
+    const classes = Object.values(all).filter(w => w && w.when && ms(w.when) > Date.now())
+      .sort((a, b) => ms(a.when) - ms(b.when)).map(w => ({ slug: w.slug, title: w.title, when: w.when, live: !!w.live, whenTxt: wsWhenTxt(w),
+        price: w.price || 0, places: w.places || 0, left: Math.max(0, (Number(w.places) || 0) - (taken[w.slug] || 0)) }));
+    return json({ list, sends, classes, appYes, from: (await newsConf()).from, ready: !!newsKey(), ownKey: !!process.env.RESEND_NEWS_KEY,
+      owner: await isOwner(), sync: sync ? { ok: !!sync.ok, why: sync.why || '', off: sync.off || 0 } : null });
+  }
+  if (path.startsWith('/coach/news/') && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const act = path.slice('/coach/news/'.length);
+    if (act === 'remove') {
+      const ok = await newsSet(body.email, false, 'removed by a coach');
+      return json({ ok });
+    }
+    if (act === 'preview') return json({ html: await newsRender(body, { first: 'Elliott' }) });
+    if (act === 'test') {
+      const to = await me();
+      if (!String(body.subject || '').trim()) return json({ error: 'A subject first.' }, 400);
+      const ok = await email(to, '[Test] ' + String(body.subject).slice(0, 150), await newsRender(body, { first: (clients()[to] || coaches()[to] || 'Elliott').split(' ')[0] }), undefined);
+      return ok ? json({ ok: true, to }) : json({ error: 'The test did not send. The send log in Settings, Admin says why.' }, 502);
+    }
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    if (act === 'conf') {
+      const from = String(body.from || '').trim().slice(0, 120);
+      if (from && !/^([^<>]*<)?[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>?$/.test(from)) return json({ error: 'That is not an email address. Name <address@domain> or just the address.' }, 400);
+      await setSetting('newsconf', Object.assign({}, (await getSetting('newsconf')) || {}, { from: from || NEWS_FROM }));
+      return json({ ok: true, from: (await newsConf()).from });
+    }
+    if (act === 'import') {
+      const rows = (Array.isArray(body.rows) ? body.rows : []).slice(0, 2000);
+      const src = String(body.src || 'beehiiv').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) || 'import';
+      const res = await newsAddMany(rows.map(r => {
+        const at = ms(r && r.at) || 0;
+        return { email: r && r.email, name: r && r.name, src, at: at || Date.now(),
+          how: `Signed up on ${src === 'beehiiv' ? 'beehiiv' : src}${at ? ', ' + new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London' }) : ''}` };
+      }));
+      return json({ ok: true, added: res.added, already: res.already, off: res.off, bad: res.bad });
+    }
+    if (act === 'app') {
+      let accts = [];
+      try { accts = (await supa.rows('accounts', 'marketing=eq.true&select=email,name')) || []; } catch (err) { return json({ error: String(err.message || err) }, 500); }
+      const res = await newsAddMany(accts.map(a => ({ email: a.email, name: a.name || '', src: 'app', how: 'Ticked "Tips and workshops, by email" in the app' })));
+      return json({ ok: true, added: res.added, already: res.already, off: res.off });
+    }
+    if (act === 'send') {
+      if (!newsKey()) return json({ error: 'Resend is not set up.' }, 400);
+      let rec;
+      if (!body.id) {
+        const subject = String(body.subject || '').trim().slice(0, 150), text = String(body.body || '').slice(0, 8000);
+        const slug = body.slug ? wsSlug(body.slug) : '';
+        if (!subject || !text.trim()) return json({ error: 'A subject and some words first.' }, 400);
+        const sy = await newsSync();
+        if (!sy.ok) return json({ error: sy.why }, 502);
+        const { who } = await newsWho(slug);
+        if (!who.length) return json({ error: 'Nobody to send it to.' }, 400);
+        const seg = await rsApi('/segments', 'POST', { name: `LHA ${new Date().toISOString().slice(0, 10)} ${subject}`.slice(0, 90) });
+        if (!seg.ok || !seg.data.id) return json({ error: rsWhy(seg) }, 502);
+        rec = { id: 'n' + newId(), at: Date.now(), by: await me(), subject, body: text, slug, seg: seg.data.id,
+          todo: who.map(x => [x.e, x.n, sy.have.has(x.e) ? 1 : 0]), total: who.length, i: 0, fails: [], status: 'adding' };
+        await changeSetting('newssends', cur => [rec].concat(Array.isArray(cur) ? cur : []).slice(0, 30));
+        return json({ id: rec.id, status: rec.status, done: 0, total: rec.total });
+      }
+      rec = ((await getSetting('newssends')) || []).find(x => x.id === String(body.id));
+      if (!rec) return json({ error: 'That send is not there any more.' }, 404);
+      if (body.retry && rec.status === 'failed' && !rec.bid) rec.status = (rec.i || 0) >= rec.total ? 'ready' : 'adding';
+      /* a few at a time, each in the segment this send owns */
+      if (rec.status === 'adding') {
+        const t0 = Date.now(), fails = [];
+        let i = rec.i || 0, stop = '';
+        while (i < rec.todo.length && Date.now() - t0 < 6000) {
+          const [e, n, have] = rec.todo[i];
+          let r = have ? { ok: false } : await rsApi('/contacts', 'POST', { email: e, ...(n ? { first_name: String(n).split(' ')[0] } : {}), segments: [{ id: rec.seg }] });
+          if (!r.ok) r = await rsApi(`/contacts/${enc(e)}/segments/${enc(rec.seg)}`, 'POST');
+          if (!r.ok) {
+            const why = rsWhy(r);
+            if (r.status === 401 || r.status === 403) { stop = why; break; }
+            fails.push([e, why]);
+          }
+          i++; await nap(120);
+        }
+        rec.i = i; rec.fails = (rec.fails || []).concat(fails).slice(0, 200);
+        if (stop) { rec.status = 'failed'; rec.error = stop; }
+        else if (i >= rec.todo.length) rec.status = 'ready';
+        const keep = rec;
+        await changeSetting('newssends', cur => (Array.isArray(cur) ? cur : []).map(x => x.id === keep.id ? Object.assign({}, x, { i: keep.i, fails: keep.fails, status: keep.status, error: keep.error || '' }) : x));
+        if (rec.status !== 'ready') return json({ id: rec.id, status: rec.status, done: rec.i, total: rec.total, error: rec.error || '' });
+      }
+      /* handed over once: whoever claims it sends it, a second press does not */
+      if (rec.status === 'ready') {
+        let mine = false;
+        await changeSetting('newssends', cur => { mine = false; const l = (Array.isArray(cur) ? cur : []).map(x => ({ ...x }));
+          const x = l.find(y => y.id === rec.id); if (!x || x.status !== 'ready') return undefined; x.status = 'sending'; x.claimAt = Date.now(); mine = true; return l; });
+        if (!mine) return json({ id: rec.id, status: 'sending', done: rec.i, total: rec.total });
+        const conf = await newsConf();
+        const b = await rsApi('/broadcasts', 'POST', { segment_id: rec.seg, from: conf.from, reply_to: REPLY_TO, subject: rec.subject,
+          html: await newsRender(rec), name: rec.subject.slice(0, 60), send: true });
+        const done = b.ok && b.data.id;
+        await changeSetting('newssends', cur => (Array.isArray(cur) ? cur : []).map(x => x.id !== rec.id ? x
+          : done ? Object.assign({}, x, { status: 'sent', bid: b.data.id, sentAt: Date.now(), todo: [], error: '' })
+          : Object.assign({}, x, { status: 'failed', error: rsWhy(b) })));
+        return done ? json({ id: rec.id, status: 'sent', done: rec.total, total: rec.total, fails: (rec.fails || []).length })
+          : json({ id: rec.id, status: 'failed', error: rsWhy(b), done: rec.i, total: rec.total }, 502);
+      }
+      return json({ id: rec.id, status: rec.status, done: rec.i || 0, total: rec.total, error: rec.error || '' });
+    }
+    return json({ error: 'Not found' }, 404);
+  }
   if (path === '/workshop/find' && request.method === 'POST') {
     const e = norm(body.email);
     if (!e || !wsMailOk(e)) return json({ error: 'That does not look like an email address' }, 400);
@@ -5953,6 +6296,8 @@ const handle = async (request) => {
        speed. So it is held here, before any of that. */
     { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
       if ((await rateHit(`wsb1:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429); }
+    /* "Email me new class dates": a yes given here stands whether or not they go on to pay */
+    if (body.news === true) await newsAdd(e, { name: nm, src: 'booking', how: 'Ticked "Email me new class dates" when booking' }).catch(() => {});
     const all = (await getSetting('workshops')) || {};
     const w = all[slug];
     if (!w || !w.live) return json({ error: 'That workshop is not open for booking' }, 404);
@@ -8466,6 +8811,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       await setSetting(`prefs:${who}`, cur);
       if (body.marketing !== undefined) {
         await saveAcct({ email: who, marketing: body.marketing !== false });
+        /* the same yes or no is the newsletter's */
+        if (body.marketing !== false) await newsAdd(who, { name: clients()[who] || '', src: 'app', how: 'Turned on "Tips and workshops, by email" in the app' }).then(r => r === 'off' ? newsSet(who, true) : r).catch(() => {});
+        else await newsSet(who, false, 'the app').catch(() => {});
       }
     }
     const p = (await getSetting(`prefs:${who}`)) || {};

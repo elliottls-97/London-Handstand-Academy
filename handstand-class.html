@@ -1342,6 +1342,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
              booking form is too long now with the waiver"). -->
         <div id="bkCons">
           <label class="bk-chk"><input type="checkbox" id="bkWaiver"><span>I accept the <button type="button" class="bk-wv" id="bkWvOpen">participation waiver</button></span></label>
+          <label class="bk-chk"><input type="checkbox" id="bkNews"><span>Email me new class dates</span></label>
           <p class="pick-fine" id="bkFrCons" hidden>You accept it for the person coming with you too, so check it with them first.</p>
         </div>
         <button type="submit" class="pick-go" id="bkGo">Book</button>
@@ -1847,7 +1848,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(!okEmail(friend.email)){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='Their email, please: their confirmation and reminder go there.'; $('bkFrEmail').focus(); return; }
       if(friend.email.toLowerCase()===email.toLowerCase()){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='They need their own email address.'; return; }
     }
-    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),consent:cons[0],back:'class',src:window.LHA_SRC||''}).then(function(d){
+    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),consent:cons[0],news:!!($('bkNews')||{}).checked,back:'class',src:window.LHA_SRC||''}).then(function(d){
       if(d.url){ location.href=d.url; return; }
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:''))+(d.bs?'&bs='+encodeURIComponent(d.bs):''); return; }
       throw 'Something went wrong. Try again in a moment.';
@@ -2023,13 +2024,13 @@ function toggleFaq(btn){
     if(!name){ msg.className='xwk-msg err'; msg.textContent='Please enter your first name.'; return; }
     if(!email || email.indexOf('@')<0){ msg.className='xwk-msg err'; msg.textContent='Please enter a valid email address.'; return; }
     msg.className='xwk-msg'; msg.textContent='Subscribing\u2026';
-    fetch('/.netlify/functions/subscribe',{
+    fetch('/api/app/news/subscribe',{
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:email,name:name,source:'workshop-waitlist'})
     }).then(function(r){
       if(!r.ok) throw new Error('failed');
       msg.className='xwk-msg';
-      msg.textContent="You're on the list \u2014 thanks, "+name+"! We'll email the next dates.";
+      msg.textContent="You're on the list. Thanks, "+name+"! We'll email the next dates.";
       document.getElementById('xwkForm').style.display='none';
       try{
         localStorage.setItem('lha-subscribed','1');
@@ -2039,7 +2040,7 @@ function toggleFaq(btn){
       }catch(err){}
     }).catch(function(){
       msg.className='xwk-msg err';
-      msg.textContent='Something went wrong \u2014 email info@londonhandstandacademy.com and we\u2019ll add you.';
+      msg.textContent='Something went wrong. Email info@londonhandstandacademy.com and we\u2019ll add you.';
     });
   });
 })();
