@@ -16,7 +16,7 @@
     var PAGES = { '/': 'home', '/index.html': 'home', '/handstand-class': 'class', '/handstand-class.html': 'class',
       '/handstand-classes-london': 'classes', '/handstand-classes-london.html': 'classes',
       '/learn-to-handstand-london': 'learn', '/learn-to-handstand-london.html': 'learn',
-      '/session': 'session', '/session.html': 'session' };
+      '/session': 'session', '/session.html': 'session', '/links': 'links', '/links.html': 'links' };
     var page = PAGES[location.pathname];
     if (!page) return;
     var clean = function (v) { return String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20); };

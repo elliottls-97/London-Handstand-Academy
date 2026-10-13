@@ -9001,7 +9001,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'site', 'sitequiz', 'siteapp', 'siteworkshop',
                   /* stats.js: a view of each public page, and a click from one
                      of them towards booking (11 Oct 2026), split by source */
-                  'pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'tobook',
+                  'pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks', 'tobook',
                   /* the homepage's way in: a door picked, the fit check
                      started and finished, what they did about it, and the
                      prompt on the way out */
