@@ -1541,8 +1541,21 @@ async function emailCopy(key, vars) {
 /* An automated email switched off in the dashboard is held: not sent, and
    written in the send log as held, so what would have gone is visible. */
 async function emailT(T, to, subject, html, kind, opts) {
-  if (T && T.off) { await mailNote(to, subject, kind, false, 'held: switched off in Automated emails'); return false; }
+  /* held on purpose, not down: the flag is for the webhook's "Resend is
+     down, let Stripe try again", and a stale one from an earlier send on
+     this instance made a purchase's event fail (13 Oct 2026) */
+  if (T && T.off) { mailDown = false; await mailNote(to, subject, kind, false, 'held: switched off in Automated emails'); return false; }
   return email(to, subject, html, kind, opts);
+}
+/* A free account's one form check is closed once it has been answered,
+   however it was answered: Mark reviewed, a reply carrying the submission,
+   a review recording, or a verdict on its clip. It closed on Mark reviewed
+   alone, so in the usual flow (a video reply) it stayed open for good and
+   every later clip went through free (13 Oct 2026). */
+async function closeCheck(e) {
+  if (clients()[e]) return;
+  await changeSetting(`fccredits:${e}`, cur => cur && cur.open
+    ? Object.assign({}, cur, { open: false, closedAt: Date.now() }) : undefined).catch(() => {});
 }
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
@@ -1898,7 +1911,7 @@ async function sessRefundRow(id, amount) {
     }
     if (!plan.length) return undefined;
     const refunds = Object.assign({}, r.refunds || {});
-    for (const p of plan) refunds[p.ref] = (Number(refunds[p.ref]) || 0) + p.left;
+    for (const p of plan) { p.before = Number(refunds[p.ref]) || 0; refunds[p.ref] = p.before + p.left; }
     r.refunds = refunds;
     r.refunded = Object.values(refunds).reduce((a, b) => a + (Number(b) || 0), 0);
     /* appRefund: the app's own, so Stripe's notice of it is not news; the
@@ -1910,7 +1923,7 @@ async function sessRefundRow(id, amount) {
   const failed = [];
   for (const p of plan) {
     if (!stripeKey()) { failed.push({ p, why: 'Stripe is not connected' }); continue; }
-    try { await stripe('/refunds', { payment_intent: p.pi, amount: String(p.left) }, 'POST', `sessrefund:${id}:${p.ref}`); back += p.left; }
+    try { await stripe('/refunds', { payment_intent: p.pi, amount: String(p.left) }, 'POST', `sessrefund:${id}:${p.ref}:${p.before || 0}:${p.left}`); back += p.left; }
     catch (err) {
       if (/already been refunded/i.test(String(err && err.message))) { back += p.left; continue; }
       failed.push({ p, why: String((err && err.message) || err).slice(0, 200) });
@@ -2636,8 +2649,15 @@ const handle = async (request) => {
      anything. Netlify bills a request by how long it runs, and this was
      most of the time of the small ones the chat asks for every few
      seconds. They are fetched together now. */
+  /* Whose token this is, for one more key in the same read: an address
+     that was moved or deleted is marked gone, and a token issued before
+     the mark is signed out. Tokens were good for ninety days whatever
+     happened, so a deleted account came back from the person's other
+     phone at its next save (13 Oct 2026). */
+  const tok0 = await verify((request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')).catch(() => null);
+  const goneKey = tok0 && tok0.email ? `gone:${norm(tok0.email)}` : '';
   const [BOOT, BOOT_PLANS] = await Promise.all([
-    settingsMany(['coaches', 'prices', 'roster', 'pastclients']),
+    settingsMany(['coaches', 'prices', 'roster', 'pastclients'].concat(goneKey ? [goneKey] : [])),
     supa.rows('settings', 'key=like.programme%3A*&select=key').catch(() => []),
   ]);
   /* the webhook too: it decides whose coach hears about a payment */
@@ -3881,7 +3901,7 @@ const handle = async (request) => {
           }
           if (stopped.length) {
             const endTxt = stopped.every(x => x.status === 'trialing') ? 'Your free week has been cancelled, so it will never charge.'
-              : `It will not renew${stopped[0].current_period_end ? ' after ' + new Date(stopped[0].current_period_end * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }) : ''}, and you will not be charged for it again.`;
+              : `It will not renew${stopped[0].current_period_end ? ' after ' + new Date(stopped[0].current_period_end * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : ''}, and you will not be charged for it again.`;
             try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
               text: `Coaching includes the whole Ladder, so I have stopped your separate Ladder subscription. ${endTxt}` }); } catch {}
             await coachAlert(acct.email, 'business', { title: 'Ladder stopped for ' + (acct.name || acct.email), body: 'They moved to coaching; the £10 no longer renews.', tag: 'ladderstop:' + acct.email });
@@ -4256,13 +4276,15 @@ const handle = async (request) => {
      them, and it is nobody at all the moment a request tries to change
      something. That is the whole of the read-only guarantee, in one
      place, rather than a flag every route has to remember. */
+  const gone = p => !!(goneKey && BOOT[goneKey] && norm(p.email) === goneKey.slice(5)
+    && Number(BOOT[goneKey].at) > (Number(p.iat) || 0));
   const realMe = async () => {
     const p = await verify(bearer);
-    return p && p.scope === 'app' ? p.email : null;
+    return p && p.scope === 'app' && !gone(p) ? p.email : null;
   };
   const me = async () => {
     const p = await verify(bearer);
-    if (!p) return null;
+    if (!p || gone(p)) return null;
     if (p.scope === 'app') return p.email;
     if (p.scope === 'preview' && request.method === 'GET') return p.email;
     return null;
@@ -4347,7 +4369,7 @@ const handle = async (request) => {
       return bad();
     }
     await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
-    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+    return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
                   client: name, coach: coachList().includes(e),
                   coached: await isCoached(e), plus: plusNow(acct) });
   }
@@ -4369,7 +4391,7 @@ const handle = async (request) => {
     await saveAcct({ email: e, hash: await pwHash(pw) });
     await clearCode(e, 'welcome');
     const acct = await getAcct(e);
-    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+    return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
                   email: e, client: clients()[e] || (acct && acct.name) || e.split('@')[0],
                   coached: await isCoached(e), plus: plusNow(acct) });
   }
@@ -4396,7 +4418,7 @@ const handle = async (request) => {
       return bad();
     }
     await clearCode(e, 'login');
-    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+    return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
                   client: name || e.split('@')[0],
                   /* /login has always said this and /verify never did, so the
                      code door could not reach the dashboard however the
@@ -4510,7 +4532,7 @@ const handle = async (request) => {
     return json({
       ok: true,
       plus: acct.plus,
-      token: acct.hash ? await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }) : null,
+      token: acct.hash ? await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }) : null,
     });
   }
 
@@ -4562,7 +4584,9 @@ const handle = async (request) => {
       if (ref) await setSetting(`ref:${e}`, ref);
       await greetNew(e, acct);
     } else if (acct && !acct.name && fullName) {
-      await saveAcct(Object.assign({}, acct, { name: fullName }));
+      /* the name alone: the whole row carried plus_until, which is not a
+         column, so Apple sign in failed for anyone given time on a code */
+      await saveAcct({ email: e, name: fullName });
       acct = await getAcct(e);
     }
     /* tie Apple's id to the address both ways, and keep the refresh token
@@ -4575,7 +4599,7 @@ const handle = async (request) => {
     const name = clients()[e]
       || (coachList().includes(e) ? (coaches()[e] || e.split('@')[0]) : '')
       || (acct && acct.name) || e.split('@')[0];
-    return json({ token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }),
+    return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
                   email: e, client: name, fresh: !known,
                   coach: coachList().includes(e), coached: await isCoached(e), plus: plusNow(acct) });
   }
@@ -4627,7 +4651,7 @@ const handle = async (request) => {
       `${e} reset their password`,
       '<p style="font:16px/1.6 system-ui">Via the forgotten-password flow.</p>');
     return json({ ok: true,
-      token: await sign({ scope: 'app', email: e, exp: Date.now() + TOKEN_TTL }) });
+      token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }) });
   }
 
   /* ── who am I, and what have I paid for ── */
@@ -4646,7 +4670,7 @@ const handle = async (request) => {
        two months or less to run; the app keeps it. */
     let freshToken = '';
     try { const t0 = await verify(bearer); if (t0 && t0.scope === 'app' && norm(t0.email) === who && Number(t0.exp) - Date.now() < 60 * DAY)
-      freshToken = await sign({ scope: 'app', email: who, exp: Date.now() + TOKEN_TTL }); } catch {}
+      freshToken = await sign({ scope: 'app', email: who, iat: Date.now(), exp: Date.now() + TOKEN_TTL }); } catch {}
     const acct = (await getAcct(who)) || {};
     const coachedNow = await isCoached(who);
     const usedCheck = !!(await supa.row('free_checks', `email=eq.${enc(who)}&select=email`));
@@ -6190,7 +6214,8 @@ const handle = async (request) => {
       const b = wsLive((await getSetting(`wsbook:${w.slug}`)) || []);
       booked += b.filter(x => ms(x.at) > since).length;
       b.filter(x => ms(x.at) > since && !x.payer && x.source !== 'setmore').forEach(x => tally(x.src, 'classes'));
-      if (w.when && ms(w.when) > since && ms(w.when) < Date.now()) attended += b.length;
+      /* the no shows marked on the day are not "came to a class" */
+      if (w.when && ms(w.when) > since && ms(w.when) < Date.now()) attended += b.filter(x => x.attended !== 'no').length;
     }
     const sessions = ((await getSetting('sessions')) || []).filter(x => x && ms(x.at) > since && !['cancelled', 'refunded'].includes(x.status));
     sessions.filter(x => !x.byHand).forEach(x => tally(x.src, 'sessions'));
@@ -8815,7 +8840,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             try {
               await supa.insert('submissions', { email: who, kind: 'checkpoint', cycle: cycleN,
                 numbers: { k, v: row.v, name: cpName }, clips: [vid], status: 'submitted' });
-            } catch {}
+            } catch (err) { console.error('checkpoint submission', String((err && err.message) || err).slice(0, 300)); }
             if (await coachMail(who, 'checkpoints')) await email(coachOf(who), `Check point clip from ${clients()[who] || who}`,
               mail({ title: 'A check point clip came in.',
                 paras: [`<b>${esc(clients()[who] || who)}</b> sent a clip for <b>${esc(cpName)}</b>, logged at ${esc(String(row.v))}.`],
@@ -8919,7 +8944,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                      prompt on the way out */
                   'sitedoorapp', 'sitedoorclass', 'sitedoorcoach',
                   'sitefit', 'sitefitdone', 'sitefitsend',
-                  'sitecheckout', 'sitecall', 'sitecallbooked',
+                  'sitecheckout', 'sitecall', 'sitecallbooked', 'sitecallasked',
                   'siteleave', 'siteleavesend'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
@@ -8930,32 +8955,38 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if ((await rateHit(`ev:${ip}`, 3600000)) > 400) return json({ ok: true });
     const day = new Date().toISOString().slice(0, 10);
     const key = `ev:${day}`;
-    const row = (await getSetting(key)) || {};
-    row[n] = (row[n] || 0) + 1;
     /* where they came from: a ref carried on the link, kept by the app as a
        first touch, sent with every event after. And which fix, for a fix. */
     const src = String(body.r || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
-    /* Anybody can send these, and each new source or fix name was a new key
-       in the day's row, so a loop of made-up names grew one row without end,
-       read and written whole on every beacon. A real day has a few dozen. */
-    if (src) { row.by = row.by || {};
-      if (row.by[src] || Object.keys(row.by).length < 150) { row.by[src] = row.by[src] || {}; row.by[src][n] = (row.by[src][n] || 0) + 1; } }
     const fx = String(body.f || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
-    if (fx && n.startsWith('fix') || fx && n === 'sitefix') { row.fix = row.fix || {};
-      if (row.fix[fx] || Object.keys(row.fix).length < 80) { row.fix[fx] = row.fix[fx] || {}; row.fix[fx][n] = (row.fix[fx][n] || 0) + 1; } }
-    /* which films fail, and where: pl-hls-1d49ef13 is the follow along,
-       a manifest that would not play, and the film's first eight */
-    if (fx && n === 'filmfail') { row.film = row.film || {};
-      if (row.film[fx] || Object.keys(row.film).length < 80) row.film[fx] = (row.film[fx] || 0) + 1; }
-    /* where the quiz put them, which is the one breakdown that matters */
-    if (n === 'quiz' || n === 'wall') {
-      const st = Number(body.s);
-      if (Number.isInteger(st) && st >= 0 && st <= 5) {
-        row[n + 'By'] = row[n + 'By'] || {};
-        row[n + 'By'][st] = (row[n + 'By'][st] || 0) + 1;
+    /* Added inside one compare-and-set. Read then written whole, two beacons
+       a moment apart (a page view and the counter on the same page) each
+       read the day's row and the later write threw the earlier count away
+       (13 Oct 2026). */
+    await changeSetting(key, cur => {
+      const row = JSON.parse(JSON.stringify(cur || {}));
+      row[n] = (row[n] || 0) + 1;
+      /* Anybody can send these, and each new source or fix name was a new key
+         in the day's row, so a loop of made-up names grew one row without end,
+         read and written whole on every beacon. A real day has a few dozen. */
+      if (src) { row.by = row.by || {};
+        if (row.by[src] || Object.keys(row.by).length < 150) { row.by[src] = row.by[src] || {}; row.by[src][n] = (row.by[src][n] || 0) + 1; } }
+      if (fx && n.startsWith('fix') || fx && n === 'sitefix') { row.fix = row.fix || {};
+        if (row.fix[fx] || Object.keys(row.fix).length < 80) { row.fix[fx] = row.fix[fx] || {}; row.fix[fx][n] = (row.fix[fx][n] || 0) + 1; } }
+      /* which films fail, and where: pl-hls-1d49ef13 is the follow along,
+         a manifest that would not play, and the film's first eight */
+      if (fx && n === 'filmfail') { row.film = row.film || {};
+        if (row.film[fx] || Object.keys(row.film).length < 80) row.film[fx] = (row.film[fx] || 0) + 1; }
+      /* where the quiz put them, which is the one breakdown that matters */
+      if (n === 'quiz' || n === 'wall') {
+        const st = Number(body.s);
+        if (Number.isInteger(st) && st >= 0 && st <= 5) {
+          row[n + 'By'] = row[n + 'By'] || {};
+          row[n + 'By'][st] = (row[n + 'By'][st] || 0) + 1;
+        }
       }
-    }
-    await setSetting(key, row);
+      return row;
+    }).catch(() => {});
     return json({ ok: true });
   }
 
@@ -9809,7 +9840,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                         /* bought in the iPhone app */
                         'iap',
                         /* signed in with Apple: its user id and refresh token */
-                        'apple'];
+                        'apple',
+                        /* an unsubscribe is consent and has to follow them, or
+                           a new address is emailed what they turned off; and
+                           what the coach marked as needing no reply */
+                        'unsub', 'msgdone'];
 
   /* The only order that works, given the foreign keys cascade on delete and
      not on update: the new row first so there is something to point at, then
@@ -9821,7 +9856,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!old) return { error: 'No account to move', status: 404 };
     if (await getAcct(to)) return { error: 'There is already an account on that address', status: 409 };
 
-    await supa.upsert('accounts', Object.assign({}, old, { email: to }), 'email');
+    /* getAcct folds plus_until on from settings; it is not a column, so the
+       move threw for every App Store buyer, code redeemer and comp
+       (13 Oct 2026). It moves with the settings below. */
+    const { plus_until: _pu, ...oldRow } = old;
+    await supa.upsert('accounts', Object.assign({}, oldRow, { email: to }), 'email');
     for (const t of EMAIL_TABLES) {
       await supa.update(t, `email=eq.${enc(from)}`, { email: to }).catch(() => {});
     }
@@ -9873,6 +9912,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     await supa.remove('codes', `email=eq.${enc(from)}`).catch(() => {});
     await supa.remove('accounts', `email=eq.${enc(from)}`);
+    await setSetting(`gone:${from}`, { at: Date.now(), to });
     return { ok: true, name: old.name || (roster[to] && roster[to].name) || '', seen: !!old.last_seen };
   }
 
@@ -9934,6 +9974,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     } catch {}
     for (const k of SETTING_KEYS) await dropSetting(`${k}:${e}`).catch(() => {});
     await dropSetting(`emailchange:${e}`).catch(() => {});
+    await changeSetting('mailoff', cur => cur && cur[e] !== undefined ? (({ [e]: _, ...rest }) => rest)(cur) : undefined).catch(() => {});
 
     /* the delete sheet says their clips go with the account, and the rows
        below only hold pointers: the films themselves are on Stream (each
@@ -9958,6 +9999,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        and because this is the one that takes the messages, the progress,
        the submissions, the check point history and the questions with it */
     if (old) await supa.remove('accounts', `email=eq.${enc(e)}`);
+    /* every phone still signed in to it is signed out at its next request */
+    await setSetting(`gone:${e}`, { at: Date.now() }).catch(() => {});
     return { ok: true, name: (old && old.name) || '' };
   }
 
@@ -10073,7 +10116,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     /* a fresh token, because the old one is signed for the old address */
     return json({ ok: true, email: next,
-                  token: await sign({ scope: 'app', email: next, exp: Date.now() + TOKEN_TTL }) });
+                  token: await sign({ scope: 'app', email: next, iat: Date.now(), exp: Date.now() + TOKEN_TTL }) });
   }
 
   if (path === '/messages') {
@@ -10590,7 +10633,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           && !isWelcome({ sender: 'coach', body: m.body }) && ms(m.created_at) >= since);
         const onVideo = own.filter(m => m.video || voiceOf(m.submission)).map(m => ms(m.created_at));
         let push = false;
-        try { push = ((await pushSubs(e)).subs || []).length > 0; } catch {}
+        /* the iPhone app's phones too, not only web push */
+        try { push = await hasPhone(e); } catch {}
         const ob = st8.ob || {};
         return { email: e, name: clients()[e] || e, since,
           goal, goalByCoach: !!(st8.ob || {}).goal, level: Number.isFinite(Number(it.level)) && it.level !== null ? Number(it.level) : null,
@@ -10745,8 +10789,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (to && coaches()[to] === undefined) return json({ error: 'Not a coach' }, 400);
       const stored = (await getSetting('roster')) || {};
       const was = stored[e] || rosterList().find(x => x.email === e) || {};
-      stored[e] = { name: was.name || e, coach: to };
-      await setSetting('roster', stored);
+      /* merged, and onto the list as it is now: replacing the entry dropped
+         the tier the purchase wrote, so an Inner Circle client was offered
+         the Inner Circle (13 Oct 2026) */
+      await changeSetting('roster', cur => Object.assign({}, cur || {},
+        { [e]: Object.assign({}, (cur || {})[e] || {}, { name: was.name || e, coach: to }) }));
       return json({ ok: true, email: e, coach: to || primaryCoach() });
     }
 
@@ -10825,8 +10872,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           if (seeded) stored[e] = null; else delete stored[e];
         } else {
           if (Object.keys(stored).length >= 200) return json({ error: 'Roster is full' }, 400);
-          stored[e] = { name: String(body.name || '').slice(0, 60) || e,
-                        coach: norm(body.coach || '') };
+          stored[e] = Object.assign({}, stored[e] || {}, { name: String(body.name || '').slice(0, 60) || e,
+                        coach: norm(body.coach || '') });
           await ensureAcct(e);
           const past = (await getSetting('pastclients')) || {};
           if (past[e]) { delete past[e]; await setSetting('pastclients', past); PAST = past; }
@@ -11880,7 +11927,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                 created_at: new Date(r.at || Date.now()).toISOString() });
               seenClip.add(r.video);
               if (made) (waiting || []).push(made);
-            } catch {}
+            } catch (err) { console.error('checkpoint backfill', String((err && err.message) || err).slice(0, 300)); }
           }
         }
         /* ── a check point logged with no clip ───────────────────────
@@ -12113,11 +12160,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          coach said beside what they logged. */
       /* marking a free account's clip reviewed closes the form check: the
          next clip they send needs the next credit */
-      if (!clients()[e]) {
-        const ck = `fccredits:${e}`;
-        const cur = (await getSetting(ck)) || {};
-        if (cur.open) await setSetting(ck, Object.assign({}, cur, { open: false, closedAt: Date.now() }));
-      }
+      await closeCheck(e);
       if (rec.kind === 'checkpoint') {
         const verdict = ['reached', 'notyet'].includes(body.verdict) ? body.verdict : '';
         const note = String(body.note || '').slice(0, 300);
@@ -12210,6 +12253,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             numbers: Object.assign({}, row.numbers || {}, { verdict, verdictNote: note }),
           });
           cleared = row.id;
+          await closeCheck(e);
         }
       }
 
@@ -12387,6 +12431,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (added && added.id && (undo.rows.length || undo.subs.length)) {
           await setSetting(`unsend:${added.id}`, undo).catch(() => {});
         }
+        /* a reply that answers a submission closes a free account's form
+           check, as Mark reviewed does */
+        if (undo.subs.length) await closeCheck(e);
 
         /* a reply is the thing clients are waiting for, so say so */
         const who2 = coachName(asking || coachOf(e));
