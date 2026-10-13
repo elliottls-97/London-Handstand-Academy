@@ -57,8 +57,26 @@ a.card.main{flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:h
 .main .btn{display:block;margin-top:14px;text-align:center;border-radius:16px;padding:16px;
   background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1;font:600 17px/1 var(--sans);
   box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)}
-.foot{margin-top:26px;text-align:center;font:400 13.5px/1.6 var(--sans);color:var(--grey)}
-.foot a{color:var(--deep);font-weight:600}
+/* a question goes to Elliott, as from the class page */
+.ask{margin-top:10px;background:#fff;border-radius:20px;border:1px solid rgba(0,64,61,.10);
+  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+.ask summary{display:flex;align-items:center;gap:14px;padding:16px 18px;cursor:pointer;list-style:none}
+.ask summary::-webkit-details-marker{display:none}
+.ask .t{flex:1;min-width:0}
+.ask b{display:block;font:400 20px/1.15 var(--serif)}
+.ask .t span{display:block;font:400 14px/1.35 var(--sans);color:var(--grey);margin-top:3px}
+.ask i{flex:none;font-style:normal;color:var(--forest);font-size:24px;line-height:1;transition:transform .2s}
+.ask[open] i{transform:rotate(45deg)}
+.ask form{display:grid;gap:10px;padding:0 18px 18px}
+.ask input,.ask textarea{width:100%;font:400 16px/1.4 var(--sans);color:var(--ink);background:#fff;
+  border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:13px 14px;resize:vertical}
+.ask input:focus,.ask textarea:focus{outline:2px solid rgba(0,102,99,.35);outline-offset:1px}
+.ask button{border:0;border-radius:16px;padding:16px;cursor:pointer;background:linear-gradient(180deg,#0a7a76,#006663);
+  color:#f7f4f1;font:600 17px/1 var(--sans);box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)}
+.ask button:disabled{opacity:.6}
+.qout{font:500 14px/1.45 var(--sans);color:var(--deep)}
+.qout.err{color:#a4503c}
+.qout a{color:inherit}
 </style>
 </head>
 <body>
@@ -85,7 +103,16 @@ a.card.main{flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:h
     <a class="card" href="/call"><div class="t"><b>A free 15 minute call</b><span>Not sure which? Ask Elliott</span></div><i aria-hidden="true">&rarr;</i></a>
   </div>
 
-  <div class="foot">Questions? <a href="mailto:info@londonhandstandacademy.com">info@londonhandstandacademy.com</a></div>
+  <details class="ask" id="ask">
+    <summary><span class="t"><b>A question?</b><span>Ask Elliott, usually answered the same day</span></span><i aria-hidden="true">+</i></summary>
+    <form id="qForm" novalidate>
+      <input type="text" id="qName" placeholder="First name" autocomplete="given-name" required>
+      <input type="email" id="qEmail" placeholder="Email, for the reply" autocomplete="email" required>
+      <textarea id="qMsg" rows="4" placeholder="What would you like to know?" required></textarea>
+      <button type="submit" id="qSend">Send</button>
+      <div class="qout" id="qOut" role="status" aria-live="polite"></div>
+    </form>
+  </details>
 </main>
 <script>
 /* the next class's date and the places left, from the dashboard's list */
@@ -107,6 +134,31 @@ a.card.main{flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:h
     el.innerHTML = fmt(w.when) + ' &middot; OverGravity' + more + left;
     if (w.price > 0) document.getElementById('cta').innerHTML = 'Book a place, &pound;' + (w.price / 100).toFixed(w.price % 100 ? 2 : 0);
   }).catch(function () {});
+})();
+</script>
+<script>
+/* the question, to Elliott's inbox in the dashboard, as from the class page */
+(function () {
+  var f = document.getElementById('qForm'), $ = function (i) { return document.getElementById(i); };
+  f.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = $('qName').value.trim(), email = $('qEmail').value.trim(), msg = $('qMsg').value.trim(), out = $('qOut'), btn = $('qSend');
+    var no = function (t) { out.className = 'qout err'; out.textContent = t; };
+    if (!name) return no('Your first name, please.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return no('An email address, so Elliott can reply.');
+    if (!msg) return no('What would you like to know?');
+    btn.disabled = true; btn.textContent = 'Sending'; out.textContent = '';
+    fetch('/api/app/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'question', text: msg, name: name, email: email, extra: { page: 'Instagram links page', email: email } })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('failed');
+      f.reset(); out.className = 'qout'; out.textContent = 'Sent. Elliott will reply by email.'; btn.textContent = 'Sent';
+    }).catch(function () {
+      out.className = 'qout err';
+      out.innerHTML = 'That did not send. Email <a href="mailto:info@londonhandstandacademy.com">info@londonhandstandacademy.com</a> instead.';
+      btn.disabled = false; btn.textContent = 'Send';
+    });
+  });
 })();
 </script>
 <script src="stats.js" defer></script>
