@@ -58,6 +58,9 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);-webki
 .wrap{position:relative;z-index:1}
 h1{font:400 34px/1 var(--serif);margin:0}
 .kick{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
+/* the activity panels came from the app with these two names and not their styles */
+.kick2{font:600 9.5px/1 var(--sans);letter-spacing:.16em;color:var(--grey2)}
+.h-sm{font:400 22px/1 var(--serif)}
 .grid{display:grid;grid-template-columns:260px minmax(320px,1fr) minmax(340px,1.15fr);
  gap:18px;margin-top:22px;align-items:start}
 @media(max-width:1120px){
@@ -1010,10 +1013,13 @@ function loadQueue(){
       /* drawing the queue is what turns a loose check point clip into a
          submission, so anything already on screen for this client is a
          read from before that happened */
-      if(sel) fetch(API+'/submissions?email='+encodeURIComponent(sel),{headers:hdr()})
+      /* filed under whoever was asked about: a switch of client while this
+         was in flight stored one client's submissions as the other's */
+      const who=sel;
+      if(who) fetch(API+'/submissions?email='+encodeURIComponent(who),{headers:hdr()})
         .then(r=>r.ok?r.json():null)
-        .then(x=>{ if(x){ subs[sel]=x.submissions||[]; } }).catch(()=>{})
-        .finally(()=>{ subsLoaded[sel]=true; draw(); });
+        .then(x=>{ if(x){ subs[who]=x.submissions||[]; } }).catch(()=>{})
+        .finally(()=>{ subsLoaded[who]=true; draw(); });
     } })
     .catch(()=>{}).finally(homeStep);
 }
@@ -1279,7 +1285,7 @@ function leadsHTML(){
       ${stat(leads.length,'SIGNED UP','every account ever')}
       ${stat(live.length,'STILL TRAINING','opened it in the last fortnight')}
       ${stat(fresh.length,'NEW THIS WEEK','')}
-      ${stat(paid.length,'ON £5','including anyone you have comped')}
+      ${stat(paid.length,'ON THE LADDER','including anyone you have comped')}
     </div>
     <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:16px">
       <input value="${esc(leadQ)}" oninput="leadQ=this.value;draw()" placeholder="Find an address…"
@@ -1317,7 +1323,7 @@ function leadsHTML(){
             font:600 11.5px/1 var(--sans);background:#fff;
             border:1.5px solid ${a.plus?'var(--line)':'var(--forest)'};
             color:${a.plus?'var(--grey)':'var(--forest)'};opacity:${busy?.5:1}">
-            ${busy?'…':a.plus?'Take it back':'Give them £5 free'}</button>`:''}
+            ${busy?'…':a.plus?'Take it back':'Give them the Ladder free'}</button>`:''}
         </div>`;}).join('')
         || '<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey2)">Nobody matches.</div>'}
     </div>
@@ -1356,7 +1362,7 @@ function stripeHTML(){
     <div class="kick">PAYMENTS${bad?' · CHECK THIS':''}</div>
     <div style="margin-top:10px">
       ${line('SECRET KEY', c.secretKey, c.secretKey!=='missing' && !/TEST/.test(c.secretKey||''))}
-      ${line('£5 PRICE', c.priceId, c.priceId!=='missing')}
+      ${line('LADDER PRICE', c.priceId, c.priceId!=='missing')}
       ${line('WEBHOOK SECRET', c.webhookSecret, c.webhookSecret!=='missing')}
       ${line('BUILD', (c.context||'')+' · '+(c.branch||''), true)}
     </div>
@@ -1429,7 +1435,7 @@ function feedbackHTML(){
       ${f.email?`<span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(f.email)}</span>`:''}
       <span style="flex:1"></span>
       <span style="font:400 11.5px/1 var(--sans);color:var(--grey2)">
-        stage ${f.stage||'?'}${f.plus?' · £5':''}${f.at?' · '+ago(f.at):''}</span>
+        stage ${f.stage||'?'}${f.plus?' · on the Ladder':''}${f.at?' · '+ago(f.at):''}</span>
     </div>
     <div style="font:400 14.5px/1.6 var(--sans);color:var(--ink);margin-top:9px;
       white-space:pre-wrap">${esc(f.text||'')}</div>
@@ -1581,9 +1587,9 @@ function subsHTML(email){
           Reached counts as met, whatever the number said.</div>
       </div>`:''}
       <div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">
-        ${s.clips.length?`<button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
-          onclick="reviewClips(${jsq(email)},${esc(JSON.stringify(s.clips))},${jsq((clients.find(c=>c.email===email)||{}).name||'Client')})">
-          Review ${s.clips.length===1?'this clip':'these '+s.clips.length+' clips'}</button>`:''}
+        ${clipUids(s.clips).length?`<button class="send" style="width:auto;padding:0 14px;font-size:12.5px"
+          onclick="reviewClips(${jsq(email)},${esc(JSON.stringify(clipUids(s.clips)))},${jsq((clients.find(c=>c.email===email)||{}).name||'Client')})">
+          Review ${clipUids(s.clips).length===1?'this clip':'these '+clipUids(s.clips).length+' clips'}</button>`:''}
         <button class="send" style="width:auto;padding:0 14px;font-size:12.5px;background:var(--mist);color:var(--ink)"
           onclick="markReviewed(${jsq(email)},${jsq(s.id)},false)">${
           s.kind==='checkpoint' ? 'Watched it, answering in the chat' : 'Mark reviewed'}</button>
@@ -1987,7 +1993,7 @@ function adBook(){
   say('Booking…');
   fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify({create:true, email:acct, name:c.name||'',
       kind:v('abKind')||'60', paid:Math.round((Number(v('abPaid'))||0)*100),
-      when:new Date(d+'T'+t+':00').toISOString(), place:v('abPlace'), note:v('abNote'), status:'arranged'})})
+      when:londonISO(d,t), place:v('abPlace'), note:v('abNote'), status:'arranged'})})
     .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x.error||'Could not book it')))
     .then(x=>{ sessions=x.sessions||sessions; say('Booked. They have the confirmation and the calendar link.'); })
     .catch(e=>say(String(e)));
@@ -5819,7 +5825,7 @@ function workoutsHTML(){
     ${bandTab(-1,'Check points', wkCpList(wkStage).length)}
     ${bandTab(-2,'Picture or film', (wkMedia||{})[wkStage]?'added':'')}
     ${bandTab(-3,'Preview', wkStage===0?'':(()=>{ wkStoryLoad(); const n=wkStoryList(wkStage).filter(c=>c.pv).length; return n+' playing'; })())}
-    ${(function(){ const n=wkGapRows().length; return n?`<button onclick="wkGaps=true;draw()"
+    ${(function(){ const n=wkGapRows().length; return n?`<button onclick="wkGaps=true;wkBand=0;draw()"
       style="cursor:pointer;border-radius:999px;padding:7px 13px;font:600 11.5px/1 var(--sans);
       border:1.5px solid rgba(243,169,73,.6);background:rgba(243,169,73,.14);color:#8a5a12;margin-left:auto">
       ${n} missing</button>`:''; })()}
@@ -6480,12 +6486,6 @@ function bCpSet(i,f,v){
 /* ── the explainer library ─────────────────────────────────────────
    The same four videos were pasted into each spec by hand, so switching one
    on for a client meant a rebuild. One library, a switch per client. */
-function bExToggle(v){
-  const on=builder.exOn=builder.exOn||[];
-  const i=on.indexOf(v);
-  if(i<0) on.push(v); else on.splice(i,1);
-  bMark(); draw();
-}
 /* Every explainer there is, by where it lives: filmed just for this client,
    your own, each phase's, and the four older ones. The older ones are
    stored by name as before; the rest are Stream films, stored whole on
@@ -6843,7 +6843,8 @@ function newDrillHTML(){
   const lab='font:600 11px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);text-transform:uppercase';
   const inp='width:100%;margin-top:7px;border:1px solid var(--line);border-radius:11px;'
     +'padding:11px 12px;font:400 14px/1.35 var(--sans);background:#fff';
-  return `<div onclick="if(event.target===this)closeNewDrill()" style="position:fixed;inset:0;z-index:75;
+  /* above the programme builder (80): its + opens this sheet, which sat underneath and looked dead (13 Oct 2026) */
+  return `<div onclick="if(event.target===this)closeNewDrill()" style="position:fixed;inset:0;z-index:85;
     background:rgba(8,20,18,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
     display:flex;justify-content:center;overflow-y:auto;padding:22px 14px">
     <div style="width:100%;max-width:560px;height:max-content;background:var(--bg);border-radius:22px;
@@ -7748,7 +7749,9 @@ function blockLineHTML(email){
   const D=86400000;
   const wk=Math.max(1, Math.floor((Date.now()-c.start)/(7*D))+1);
   const due=Math.ceil(((c.dueAt||0)-Date.now())/D);
-  const sent=(subs[email]||[]).some(s=>s.status==='submitted'&&s.kind!=='assessment');
+  /* this block's test, not any clip: a check point clip waiting made the
+     line say the test was in and stopped it saying it was late (13 Oct 2026) */
+  const sent=(subs[email]||[]).some(s=>s.status==='submitted'&&s.kind==='test'&&(s.cycle||1)===(c.n||1));
   const late=!sent && due<0;
   const long=wk>=6;
   return `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:var(--space-4);
@@ -8384,7 +8387,7 @@ function sessConfirm(id){
   const d=(document.getElementById('sd-'+id)||{}).value, t=(document.getElementById('st-'+id)||{}).value||'18:00';
   const place=(document.getElementById('sp-'+id)||{}).value||'', note=(document.getElementById('sn-'+id)||{}).value||'';
   if(!d) return alert('Pick the date first.');
-  sessSet(id,{when:new Date(d+'T'+t+':00').toISOString(), place, note, status:'arranged'});
+  sessSet(id,{when:londonISO(d,t), place, note, status:'arranged'});
 }
 let todayDone=false;               /* the history, which is not the job in hand */
 function inboxToggle(id){ inboxRow = inboxRow===id?'':id; draw(); }
@@ -9239,7 +9242,7 @@ function oneDoneSave(id){
   const d=(document.getElementById('sd-'+id)||{}).value, t=(document.getElementById('st-'+id)||{}).value||'10:00';
   const place=(document.getElementById('sp-'+id)||{}).value||'';
   if(!d) return alert('Pick the day it happened.');
-  const when=new Date(d+'T'+t+':00');
+  const when=new Date(londonISO(d,t));
   if(when.getTime()>Date.now()) return alert('That is still to come. Pick the day it happened.');
   oneDone=''; sessSet(id,{when:when.toISOString(), place, status:'done'});
 }
@@ -9252,14 +9255,14 @@ function oneBook(){
   const c=clients.find(x=>x.email===sel)||{};
   /* a time already gone is a session they have had: booking it would send
      them a confirmation for it */
-  const had=new Date(d+'T'+t+':00').getTime()<Date.now();
+  const had=new Date(londonISO(d,t)).getTime()<Date.now();
   if(had && !confirm('That time has passed. Save it as a session they have had? Nothing is sent to them.')) return;
   sessBusy='new'; draw();
   fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify({create:true, email:sel, name:c.name||'',
       kind:v('obKind')||'60',
       /* paid already, or asked for: a Pay button in their confirmation */
       ...(v('obHow')==='ask' ? {ask:Math.round((Number(v('obPaid'))||0)*100)} : {paid:Math.round((Number(v('obPaid'))||0)*100)}),
-      when:new Date(d+'T'+t+':00').toISOString(), place:v('obPlace'), note:v('obNote'), status:had?'done':'arranged'})})
+      when:londonISO(d,t), place:v('obPlace'), note:v('obNote'), status:had?'done':'arranged'})})
     .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x.error||'Could not book it')))
     .then(x=>{ sessions=x.sessions||sessions; sessBusy=''; draw(); toldFlash(x.told, had?'Saved as done':'Booked'); })
     .catch(e=>{ sessBusy=''; draw(); alert(String(e)); });
@@ -9268,7 +9271,7 @@ function oneMoveSave(id){
   const d=(document.getElementById('sd-'+id)||{}).value, t=(document.getElementById('st-'+id)||{}).value||'10:00';
   const place=(document.getElementById('sp-'+id)||{}).value||'';
   if(!d) return alert('Pick the date first.');
-  oneMove=''; sessSet(id,{when:new Date(d+'T'+t+':00').toISOString(), place, status:'arranged'});
+  oneMove=''; sessSet(id,{when:londonISO(d,t), place, status:'arranged'});
 }
 function oneAsk(id,kind){
   const a=prompt('How much should they pay, in pounds?', kind==='90'?'100':'80'); if(a===null) return;
@@ -9356,10 +9359,10 @@ function oneOnePaneHTML(){
   const past=mine.filter(x=>soon.indexOf(x)<0).reverse();
   const inp='border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff';
   const pill=(t,c)=>`<span style="flex:none;padding:4px 9px;border-radius:999px;font:700 9.5px/1 var(--sans);letter-spacing:.1em;background:${c};color:#fff">${t}</span>`;
-  const timeForm=(x,label,go)=>{ const w=x.when?new Date(x.when):null, pad=n=>String(n).padStart(2,'0');
+  const timeForm=(x,label,go)=>{ const w=x.when?londonParts(x.when):null;
     return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <input id="sd-${esc(x.id)}" type="date" value="${w?w.getFullYear()+'-'+pad(w.getMonth()+1)+'-'+pad(w.getDate()):''}" style="${inp};flex:1;min-width:130px">
-      <input id="st-${esc(x.id)}" type="time" value="${w?pad(w.getHours())+':'+pad(w.getMinutes()):'10:00'}" style="${inp};flex:none">
+      <input id="sd-${esc(x.id)}" type="date" value="${w?w.d:''}" style="${inp};flex:1;min-width:130px">
+      <input id="st-${esc(x.id)}" type="time" value="${w?w.t:'10:00'}" style="${inp};flex:none">
       <input id="sp-${esc(x.id)}" value="${esc(x.place||'OverGravity, Shadwell')}" style="${inp};flex:2;min-width:180px">
       <button class="send" style="width:auto;padding:0 14px" ${sessBusy===x.id?'disabled':''} onclick="${go}(${jsq(x.id)})">${label}</button>
     </div>`; };
@@ -9487,12 +9490,17 @@ function clientScreenHTML(msgs){
    or a check point, and anything dropped straight into the thread. Newest
    first, each with what it was for, so you can take three of them into the
    review tool and leave the rest. */
+/* A form check or block test stores each clip as {drill,name,uid,image}
+   and a check point clip as a bare uid. The review tool takes uids, and was
+   handed the objects, so it asked for the clip "[object Object]" (13 Oct 2026).
+   A photo with no film is not a clip. */
+const clipUids = list => (list||[]).map(c=>typeof c==='string'?c:(c&&(c.uid||c.video))||'').filter(Boolean);
 function clientClips(email){
   const out=[], seen=new Set();
   const add=(uid,label,at)=>{ if(!uid||seen.has(uid)) return; seen.add(uid); out.push({uid,label,at:at||0}); };
   (subs[email]||[]).forEach(s=>{
     const what=s.kind==='assessment'?'Form check':s.kind==='checkpoint'?('Check point: '+((s.numbers||{}).name||'')):('Block '+(s.cycle||1)+' test');
-    (s.clips||[]).forEach((u,i)=>add(u, what+((s.clips||[]).length>1?' · clip '+(i+1):''), s.at));
+    (s.clips||[]).forEach((u,i)=>add(typeof u==='string'?u:(u&&(u.uid||u.video))||'', what+((s.clips||[]).length>1?' · clip '+(i+1):''), s.at));
   });
   /* A check point clip is written to the client's track the moment they send
      it. It becomes a submission later, when the queue is next drawn, so
@@ -9512,7 +9520,9 @@ function clipPickGo(){
   clipPickOn=false;
   reviewClips(sel, uids, (clients.find(c=>c.email===sel)||{}).name||'Client');
 }
-function clipPickerHTML(){
+/* named apart from the drill chooser's clipPickerHTML(v): two declarations
+   under one name, the later won, and this picker never drew (13 Oct 2026) */
+function clientClipPickerHTML(){
   const all=clientClips(sel);
   if(!all.length) return `<p class="muted" style="font-size:13px;margin:10px 0 0">Nothing from them yet.</p>`;
   const n=all.filter(c=>clipSel[c.uid]).length;
@@ -9547,7 +9557,7 @@ function threadPaneHTML(msgs){
     ${sub?`<div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;
       padding:var(--space-3);background:var(--surface);border-radius:var(--r-md);margin-bottom:var(--space-4)">
       <div style="flex:1 1 240px;font:400 14px/1.5 var(--sans)"><b>${
-        sub.kind==='assessment'?'Form check':'Block test'} waiting</b> · ${
+        subLabel(Object.assign({}, sub, {at:0}))} waiting</b> · ${
         (sub.clips||[]).length} clip${(sub.clips||[]).length===1?'':'s'}</div>
       <button class="btn btn-secondary" onclick="reviewAllFrom(${jsq(sel)})">Review the clips</button>
       <button class="btn btn-ghost" onclick="clipPickOn=!clipPickOn;draw()">Pick which</button>
@@ -9555,7 +9565,7 @@ function threadPaneHTML(msgs){
     ${!sub?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:var(--space-3)">
       <button class="btn btn-secondary btn-sm" onclick="clipPickOn=!clipPickOn;draw()">${clipPickOn?'Hide their clips':'Review their clips'}</button>
     </div>`:''}
-    ${clipPickOn?clipPickerHTML():''}
+    ${clipPickOn?clientClipPickerHTML():''}
     ${subsHTML(sel)}
     ${(!threadLoaded||threadFor!==sel) && thread.length && threadFor===sel
       ? `<div class="muted" style="font:500 12px/1.4 var(--sans);margin-top:var(--space-2)">
@@ -10489,6 +10499,8 @@ function fxEdit(slug){
 }
 function fxClose(){
   if(fxDirty && !confirm('Close without saving?')) return;
+  /* its preview goes with it, rather than staying open over the next screen */
+  if(fxPrev){ fxPrev=false; clearInterval(fxPrevTimer); fxPrevTimer=null; const w=document.getElementById('fxPrevWrap'); if(w) w.remove(); }
   fxOpen=null; fx=null; fxDirty=false; draw();
 }
 function fxSet(k,v){
@@ -10725,7 +10737,10 @@ function fxPreviewPost(){
    blocks dragged, added and removed. It posts the article back and this
    side owns it from there: the form, the dirty flag and Save. */
 window.addEventListener('message', e=>{
-  if(e.origin!==location.origin || !e.data || !fx) return;
+  /* the email canvas posts the same messages as the fix preview, and this
+     returned on "no fix open" before it looked, so every edit on the email
+     canvas was dropped and Save kept the old words (13 Oct 2026) */
+  if(e.origin!==location.origin || !e.data) return;
   const d=e.data;
   if(d.type==='lha-fix-edit' && Array.isArray(d.article) && emCanvasKey){
     const k=emCanvasKey; emDraft[k]=emDraft[k]||{}; emDraft[k].blocks=d.article; emMsg='Not saved yet';
@@ -10746,6 +10761,7 @@ window.addEventListener('message', e=>{
     inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
       fxUpload(f, ()=>{}).then(uid=>{ emDraft[k].blocks[at].uid=uid; emCanvasLast=''; emCanvasPost(); }).catch(e=>alert(String(e))); };
     inp.click(); return; }
+  if(!fx) return;
   if(d.type==='lha-fix-edit' && Array.isArray(d.article)){
     const structural = JSON.stringify(d.article.map(b=>b&&b.t)) !== JSON.stringify((fx.article||[]).map(b=>b&&b.t));
     fx.article=d.article.map(b=>{ const o=Object.assign({},b); delete o.n; delete o.url; return o; });
@@ -11064,6 +11080,9 @@ function emCanvasPost(){
   try{ fr.contentWindow.postMessage({type:'lha-fix-draft', email, edit:true, explainers, drills}, location.origin); }catch(e){}
 }
 function emCanvasOpen(k){
+  /* the fix preview uses the same frame ids, so it goes first, or the email
+     was written into the hidden fix frame and this one stayed blank */
+  if(fxPrev) fxPreviewToggle();
   emCanvasClose(); emCanvasKey=k; emCanvasLast='';
   const w=document.createElement('div'); w.id='fxPrevWrap';
   w.style.cssText='position:fixed;top:0;right:0;bottom:0;width:430px;max-width:100vw;z-index:900;background:#dcdad6;box-shadow:-20px 0 50px -30px rgba(0,0,0,.5);display:flex;flex-direction:column';
@@ -11474,7 +11493,7 @@ function placesHTML(){
 let cc={d:null, busy:false, msg:'', loading:false, move:''};
 function ccLoad(){ if(cc.loading) return; cc.loading=true;
   fetch(API+'/callconf',{headers:hdr()}).then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not load')))
-    .then(d=>{ cc.d=d; cc.loading=false; calls=d.calls||calls; callAsks=d.asks||callAsks; draw(); }).catch(e=>{ cc.loading=false; cc.msg=String(e); draw(); }); }
+    .then(d=>{ cc.d=d; cc.loading=false; cc.failed=false; calls=d.calls||calls; callAsks=d.asks||callAsks; draw(); }).catch(e=>{ cc.loading=false; cc.failed=true; cc.msg=String(e); draw(); }); }
 function ccSave(extra){
   const v=id=>((document.getElementById(id)||{}).value||'');
   const body=Object.assign({hours:Object.fromEntries(SS_DAYS.map(([k])=>[k,v('cch'+k)])), link:v('ccLink').trim(), linkName:v('ccLinkName').trim(),
@@ -11499,7 +11518,9 @@ function ccAct(id, action, extra){
 }
 const ccWhen=t=>new Date(t).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
 function callsSettingsHTML(){
-  if(!cc.d){ ccLoad(); return `<div class="card"><div class="kick">CALLS</div><p class="muted" style="margin-top:10px">${cc.msg?esc(cc.msg):'Loading…'}</p></div>`; }
+  /* a failed load waits for Try again: drawing used to start the next
+     request, so one error became a request per round trip (13 Oct 2026) */
+  if(!cc.d){ if(!cc.failed) ccLoad(); return `<div class="card"><div class="kick">CALLS</div><p class="muted" style="margin-top:10px">${cc.msg?esc(cc.msg):'Loading…'}</p>${cc.failed?`<button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="cc.failed=false;cc.msg='';draw()">Try again</button>`:''}</div>`; }
   const d=cc.d, c=d.conf, inp='min-height:38px;padding:6px 9px';
   const sel=(id,opts,val)=>`<select id="${id}" class="input" style="${inp}">${opts.map(n=>`<option value="${n}" ${Number(val)===n?'selected':''}>${n}</option>`).join('')}</select>`;
   const now=Date.now();
@@ -11577,7 +11598,7 @@ let ss={d:null, busy:false, msg:'', loading:false};
 const SS_DAYS=[[1,'Monday'],[2,'Tuesday'],[3,'Wednesday'],[4,'Thursday'],[5,'Friday'],[6,'Saturday'],[0,'Sunday']];
 function ssLoad(fresh){ if(ss.loading) return; ss.loading=true;
   fetch(API+'/sessslots'+(fresh?'?fresh=1':''),{headers:hdr()}).then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not load')))
-    .then(d=>{ ss.d=d; ss.loading=false; draw(); }).catch(e=>{ ss.loading=false; ss.msg=String(e); draw(); }); }
+    .then(d=>{ ss.d=d; ss.loading=false; ss.failed=false; draw(); }).catch(e=>{ ss.loading=false; ss.failed=true; ss.msg=String(e); draw(); }); }
 function ssSave(extra){
   const v=id=>((document.getElementById(id)||{}).value||'');
   const body=Object.assign({hours:Object.fromEntries(SS_DAYS.map(([k])=>[k,v('ssh'+k)])),
@@ -11593,7 +11614,7 @@ function ssBusySave(){ ssSave({busy:((document.getElementById('ssBusy')||{}).val
 const ssDay=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'});
 const ssClock=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
 function sessSlotsHTML(){
-  if(!ss.d){ ssLoad(); return `<div class="card"><div class="kick">1-2-1 TIMES</div><p class="muted" style="margin-top:10px">${ss.msg?esc(ss.msg):'Loading…'}</p></div>`; }
+  if(!ss.d){ if(!ss.failed) ssLoad(); return `<div class="card"><div class="kick">1-2-1 TIMES</div><p class="muted" style="margin-top:10px">${ss.msg?esc(ss.msg):'Loading…'}</p>${ss.failed?`<button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="ss.failed=false;ss.msg='';draw()">Try again</button>`:''}</div>`; }
   const d=ss.d, c=d.conf, f=d.feeds;
   const inp='min-height:38px;padding:6px 9px';
   const ago=t=>{ const m=Math.round((Date.now()-t)/60000); return m<1?'just now':m<60?m+' min ago':Math.round(m/60)+' h ago'; };
@@ -11673,7 +11694,7 @@ function pricesHTML(){
     return `<div style="display:grid;grid-template-columns:minmax(120px,1.4fr) 84px 96px minmax(160px,2fr);gap:10px;align-items:center;
       padding:10px 0;border-bottom:1px solid rgba(17,17,17,.08)">
       <div><div style="font:600 14px/1.3 var(--sans)">${esc(name)}</div><div class="muted" style="font-size:11.5px">${esc(unit)}</div></div>
-      <input class="input" value="${esc(t.label||'')}" placeholder="£5" oninput="priceSet('${k}','label',this.value)" style="min-height:38px;padding:6px 9px" title="What the app and site say">
+      <input class="input" value="${esc(t.label||'')}" placeholder="£10" oninput="priceSet('${k}','label',this.value)" style="min-height:38px;padding:6px 9px" title="What the app and site say">
       <input class="input" value="${t.amount!=null?(t.amount/100).toFixed(2).replace(/\\.00$/,''):''}" placeholder="5" oninput="priceSet('${k}','amount',this.value)" style="min-height:38px;padding:6px 9px" title="Pounds, exactly what Stripe charges">
       <div style="display:flex;flex-direction:column;gap:5px">
         ${k==='inperson'?'<span class="muted" style="font-size:12px">Paid by link on the site</span>'
@@ -11740,13 +11761,13 @@ function wsLoad(){
   fetch(API+'/workshops',{headers:hdr()}).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ wshops=d.workshops||[]; wsPair=Number(d.pair)||0; wsPage=d.classPage||'site'; draw(); } }).catch(()=>{});
 }
-function wsNew(){ const d=new Date(); d.setDate(d.getDate()+14); d.setHours(12,30,0,0);
-  wsf={slug:'',title:'',when:d.toISOString(),place:'OverGravity, Shadwell',desc:'',who:'',price:2500,places:16,reviewUrl:'',live:false}; wsOpen='new'; wsMsg=''; draw(); }
+function wsNew(){ const d=londonParts(Date.now()+14*864e5).d;
+  wsf={slug:'',title:'',when:londonISO(d,'12:30'),place:'OverGravity, Shadwell',desc:'',who:'',price:2500,places:16,reviewUrl:'',live:false}; wsOpen='new'; wsMsg=''; draw(); }
 function wsEdit(slug){ const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return; wsf=JSON.parse(JSON.stringify(w)); wsf.was=slug; wsOpen=slug; wsMsg=''; draw(); }
 function wsClose(){ wsOpen=null; wsf=null; draw(); }
 function wsSet(k,v){ if(k==='price') v=Math.round((Number(String(v).replace(/[^0-9.]/g,''))||0)*100); if(k==='places'||k==='appDays') v=Number(v)||0; if(k==='live') v=!!v; wsf[k]=v; }
 function wsSetWhen(){ const d=(document.getElementById('wsDate')||{}).value, t=(document.getElementById('wsTime')||{}).value||'12:30';
-  if(d) wsf.when=new Date(d+'T'+t+':00').toISOString(); }
+  if(d) wsf.when=londonISO(d,t); }
 /* ── attendance: one place at a time ──────────────────────────────────
    Arrived and no show on the day, move to another date, cancel with or
    without the refund, or refund one already cancelled. The customer is
@@ -12025,8 +12046,9 @@ function bookingsPageHTML(){
 }
 function workshopsHTML(){
   wsLoad();
-  if(wsOpen&&wsf){ const w=wsf; const d=w.when?new Date(w.when):new Date(); const pad=n=>String(n).padStart(2,'0');
-    const dateV=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()), timeV=pad(d.getHours())+':'+pad(d.getMinutes());
+  if(wsOpen&&wsf){ const w=wsf; const lp=londonParts(w.when||new Date());
+    /* London time, as it is read back (13 Oct 2026) */
+    const dateV=lp.d, timeV=lp.t;
     return `<div class="card">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <button class="ghostlink" onclick="wsClose()">← Workshops</button><span style="flex:1"></span>
@@ -12473,7 +12495,7 @@ function toastHTML(){
   if(!toastMsg) return '';
   return `<div style="position:fixed;left:50%;bottom:var(--space-6);transform:translateX(-50%);
     background:var(--forest-d);color:#fff;padding:var(--space-2) var(--space-4);
-    border-radius:var(--r-md);font:400 14px/1.4 var(--sans);box-shadow:var(--shadow-lg);z-index:80">${
+    border-radius:var(--r-md);font:400 14px/1.4 var(--sans);box-shadow:var(--shadow-lg);z-index:1000">${
     esc(toastMsg)}</div>`;
 }
 
