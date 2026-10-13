@@ -8537,144 +8537,161 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!who) return json({ error: 'Sign in first' }, 401);
     const key = `state:${who}`;
     if (request.method === 'POST') {
-      const cur = (await getSetting(key)) || {};
-      if (body.dayMap && typeof body.dayMap === 'object') {
-        const m = {};
-        for (const k of Object.keys(body.dayMap).slice(0, 14)) {
-          const d = Number(body.dayMap[k]);
-          if (Number.isInteger(d) && d >= 0 && d <= 6) m[String(k).slice(0, 8)] = d;
+      /* one compare-and-set: the server writes ob itself when a call is
+         booked here (callStateOb), and a save from a phone that read before
+         it wrote it back without the call (13 Oct 2026) */
+      await changeSetting(key, cur0 => {
+        const cur = JSON.parse(JSON.stringify(cur0 || {}));
+        if (body.dayMap && typeof body.dayMap === 'object') {
+          const m = {};
+          for (const k of Object.keys(body.dayMap).slice(0, 14)) {
+            const d = Number(body.dayMap[k]);
+            if (Number.isInteger(d) && d >= 0 && d <= 6) m[String(k).slice(0, 8)] = d;
+          }
+          cur.dayMap = m;
         }
-        cur.dayMap = m;
-      }
-      if (body.secs && typeof body.secs === 'object') {
-        const m = {};
-        for (const k of Object.keys(body.secs).slice(0, 200)) {
-          const n = Number(body.secs[k]);
-          if (Number.isFinite(n) && n >= 10 && n <= 300) m[String(k).slice(0, 64)] = Math.round(n);
+        if (body.secs && typeof body.secs === 'object') {
+          const m = {};
+          for (const k of Object.keys(body.secs).slice(0, 200)) {
+            const n = Number(body.secs[k]);
+            if (Number.isFinite(n) && n >= 10 && n <= 300) m[String(k).slice(0, 64)] = Math.round(n);
+          }
+          cur.secs = m;
         }
-        cur.secs = m;
-      }
-      if (body.ladderDone && typeof body.ladderDone === 'object') {
-        const m = {};
-        for (const k of Object.keys(body.ladderDone).slice(0, 400)) {
-          if (body.ladderDone[k]) m[String(k).slice(0, 64)] = true;
+        if (body.ladderDone && typeof body.ladderDone === 'object') {
+          const m = {};
+          for (const k of Object.keys(body.ladderDone).slice(0, 400)) {
+            if (body.ladderDone[k]) m[String(k).slice(0, 64)] = true;
+          }
+          cur.ladderDone = m;
         }
-        cur.ladderDone = m;
-      }
-      /* sessions done per fix: a slug to a small count */
-      if (body.fixDone && typeof body.fixDone === 'object') {
-        const m = {};
-        for (const k of Object.keys(body.fixDone).slice(0, 60)) {
-          const n = Number(body.fixDone[k]);
-          const slug = String(k).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
-          if (slug && Number.isFinite(n) && n > 0) m[slug] = Math.min(999, Math.round(n));
+        /* sessions done per fix: a slug to a small count */
+        if (body.fixDone && typeof body.fixDone === 'object') {
+          const m = {};
+          for (const k of Object.keys(body.fixDone).slice(0, 60)) {
+            const n = Number(body.fixDone[k]);
+            const slug = String(k).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20);
+            if (slug && Number.isFinite(n) && n > 0) m[slug] = Math.min(999, Math.round(n));
+          }
+          cur.fixDone = m;
         }
-        cur.fixDone = m;
-      }
-      /* the press test: eight answers 0 to 3, the limiter it named, when,
-         the plan's session count when it was taken (its block starts there),
-         and the last twelve results as three corner scores, for the retest */
-      if (body.pressTest && typeof body.pressTest === 'object') {
-        const pt = body.pressTest, sc = {}, K = ['strength', 'mobility', 'patterning'];
-        for (const [k, v] of Object.entries(pt.scores || {}).slice(0, 12)) {
-          const n = Number(v); if (/^[a-z-]{2,20}$/.test(k) && Number.isInteger(n) && n >= 0 && n <= 3) sc[k] = n;
+        /* the press test: eight answers 0 to 3, the limiter it named, when,
+           the plan's session count when it was taken (its block starts there),
+           and the last twelve results as three corner scores, for the retest */
+        if (body.pressTest && typeof body.pressTest === 'object') {
+          const pt = body.pressTest, sc = {}, K = ['strength', 'mobility', 'patterning'];
+          for (const [k, v] of Object.entries(pt.scores || {}).slice(0, 12)) {
+            const n = Number(v); if (/^[a-z-]{2,20}$/.test(k) && Number.isInteger(n) && n >= 0 && n <= 3) sc[k] = n;
+          }
+          const lim = K.includes(pt.limiter) ? pt.limiter : '';
+          const corner = v => (v === null || v === undefined || v === '') ? null
+            : (Number.isFinite(Number(v)) ? Math.max(0, Math.min(3, Math.round(Number(v) * 100) / 100)) : null);
+          const hist = (Array.isArray(pt.hist) ? pt.hist : []).slice(-12)
+            .filter(h => h && typeof h === 'object' && Number.isFinite(Number(h.at)))
+            .map(h => ({ at: Number(h.at), s: Object.fromEntries(K.map(k => [k, corner((h.s || {})[k])])) }));
+          const base = Number.isInteger(Number(pt.base)) ? Math.max(0, Math.min(9999, Number(pt.base))) : 0;
+          cur.pressTest = { scores: sc, limiter: lim, at: Number(pt.at) || Date.now(), base, hist };
         }
-        const lim = K.includes(pt.limiter) ? pt.limiter : '';
-        const corner = v => (v === null || v === undefined || v === '') ? null
-          : (Number.isFinite(Number(v)) ? Math.max(0, Math.min(3, Math.round(Number(v) * 100) / 100)) : null);
-        const hist = (Array.isArray(pt.hist) ? pt.hist : []).slice(-12)
-          .filter(h => h && typeof h === 'object' && Number.isFinite(Number(h.at)))
-          .map(h => ({ at: Number(h.at), s: Object.fromEntries(K.map(k => [k, corner((h.s || {})[k])])) }));
-        const base = Number.isInteger(Number(pt.base)) ? Math.max(0, Math.min(9999, Number(pt.base))) : 0;
-        cur.pressTest = { scores: sc, limiter: lim, at: Number(pt.at) || Date.now(), base, hist };
-      }
-      /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */
-      if (body.pressRung && typeof body.pressRung === 'object') {
-        const r = Number(body.pressRung.r);
-        /* and, after each plan session, which of the rung's sets were clean:
-           two sessions clean in every set is what moves them up */
-        const log = (Array.isArray(body.pressRung.log) ? body.pressRung.log : []).slice(-20)
-          .filter(x => x && Number.isFinite(Number(x.at)) && Number.isInteger(Number(x.r)) && Number(x.r) >= 1 && Number(x.r) <= 10)
-          .map(x => ({ at: Number(x.at), r: Number(x.r), c: (Array.isArray(x.c) ? x.c : []).slice(0, 8).map(Boolean) }));
-        if (Number.isInteger(r) && r >= 1 && r <= 10) cur.pressRung = { r, at: Number(body.pressRung.at) || Date.now(), log };
-      }
-      /* the welcome seen and the call booked. An iPhone's Home Screen app
-         keeps its own storage, so without these the welcome played again
-         there and a booked call read as not booked. Both stay once said,
-         unless the call is deliberately taken back. */
-      if (body.ob && typeof body.ob === 'object') {
-        const was = cur.ob || {};
-        /* a call booked here is the server's record (callStateOb): a phone
-           with an old copy must not book it again, or take it back, by
-           saying so. It is moved or cancelled from its link. */
-        const app = was.callBy === 'app' || body.ob.callBy === 'app';
-        const off = !app && body.ob.callNo === true, call = app ? !!was.call : off ? false : !!(was.call || body.ob.call);
-        /* Who says it is booked: Calendly, which reported the booking, or
-           them, when its calendar could not open in the app and they said
-           so. Tapping Pick a time used to count, so a call nobody booked read
-           as booked here and in the dashboard. Calendly's word is kept over
-           theirs; a call taken back loses both. */
-        const by = app ? (was.call ? 'app' : '') : off ? '' : was.callBy === 'calendly' || body.ob.callBy === 'calendly' ? 'calendly'
-          : body.ob.callBy === 'them' || was.callBy === 'them' ? 'them' : (call ? was.callBy || '' : '');
-        /* callDone is the coach's to set, so it is carried, never taken */
-        cur.ob = Object.assign({}, was, { youIn: !!(was.youIn || body.ob.youIn), call, callBy: by,
-          callAt: off ? 0 : (Number(was.callAt) || (call && by ? Math.min(Date.now(), Number(body.ob.callAt) || Date.now()) : 0)) });
-      }
-      /* the quiz answers, so a new phone does not ask them all again */
-      if (body.intake && typeof body.intake === 'object') {
-        const i = body.intake, out = {};
-        for (const k of ['goal', 'level', 'mins', 'days', 'baseline']) {
-          if (i[k] !== undefined && i[k] !== null) {
-            out[k] = typeof i[k] === 'string' ? String(i[k]).slice(0, 80) : i[k];
+        /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */
+        if (body.pressRung && typeof body.pressRung === 'object') {
+          const r = Number(body.pressRung.r);
+          /* and, after each plan session, which of the rung's sets were clean:
+             two sessions clean in every set is what moves them up */
+          const log = (Array.isArray(body.pressRung.log) ? body.pressRung.log : []).slice(-20)
+            .filter(x => x && Number.isFinite(Number(x.at)) && Number.isInteger(Number(x.r)) && Number(x.r) >= 1 && Number(x.r) <= 10)
+            .map(x => ({ at: Number(x.at), r: Number(x.r), c: (Array.isArray(x.c) ? x.c : []).slice(0, 8).map(Boolean) }));
+          if (Number.isInteger(r) && r >= 1 && r <= 10) cur.pressRung = { r, at: Number(body.pressRung.at) || Date.now(), log };
+        }
+        /* the welcome seen and the call booked. An iPhone's Home Screen app
+           keeps its own storage, so without these the welcome played again
+           there and a booked call read as not booked. Both stay once said,
+           unless the call is deliberately taken back. */
+        if (body.ob && typeof body.ob === 'object') {
+          const was = cur.ob || {};
+          /* a call booked here is the server's record (callStateOb): a phone
+             with an old copy must not book it again, or take it back, by
+             saying so. It is moved or cancelled from its link. */
+          const app = was.callBy === 'app' || body.ob.callBy === 'app';
+          const off = !app && body.ob.callNo === true, call = app ? !!was.call : off ? false : !!(was.call || body.ob.call);
+          /* Who says it is booked: Calendly, which reported the booking, or
+             them, when its calendar could not open in the app and they said
+             so. Tapping Pick a time used to count, so a call nobody booked read
+             as booked here and in the dashboard. Calendly's word is kept over
+             theirs; a call taken back loses both. */
+          const by = app ? (was.call ? 'app' : '') : off ? '' : was.callBy === 'calendly' || body.ob.callBy === 'calendly' ? 'calendly'
+            : body.ob.callBy === 'them' || was.callBy === 'them' ? 'them' : (call ? was.callBy || '' : '');
+          /* callDone is the coach's to set, so it is carried, never taken */
+          cur.ob = Object.assign({}, was, { youIn: !!(was.youIn || body.ob.youIn), call, callBy: by,
+            callAt: off ? 0 : (Number(was.callAt) || (call && by ? Math.min(Date.now(), Number(body.ob.callAt) || Date.now()) : 0)) });
+        }
+        /* the quiz answers, so a new phone does not ask them all again */
+        if (body.intake && typeof body.intake === 'object') {
+          const i = body.intake, out = {};
+          for (const k of ['goal', 'level', 'mins', 'days', 'baseline']) {
+            if (i[k] !== undefined && i[k] !== null) {
+              out[k] = typeof i[k] === 'string' ? String(i[k]).slice(0, 80) : i[k];
+            }
+          }
+          if (Array.isArray(i.niggles)) out.niggles = i.niggles.slice(0, 20).map(x => String(x).slice(0, 40));
+          /* the weekdays picked in the quiz, which a new phone lost */
+          if (Array.isArray(i.when)) out.when = i.when.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6).slice(0, 7);
+          const sf = cleanSafe(i.safe);
+          if (sf) out.safe = sf;
+          const sk = cleanSkills(i.skills);
+          if (sk) out.skills = sk;
+          cur.intake = out;
+        }
+        if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
+        /* the difficulty dial per stage: Easier 1, As written 2, Harder 3. It
+           was saved on the phone only, so it reset on every new one (13 Oct 2026) */
+        if (body.lvl && typeof body.lvl === 'object') {
+          const m = {};
+          for (const k of Object.keys(body.lvl).slice(0, 12)) {
+            const n = Number(body.lvl[k]);
+            if (/^\d{1,2}$/.test(k) && Number.isInteger(n) && n >= 1 && n <= 3) m[k] = n;
+          }
+          cur.lvl = m;
+        }
+        /* the free sessions above the free stage, counted down */
+        if (body.taste !== undefined) {
+          const t = Number(body.taste);
+          /* only ever downwards: the client says how many it has used and a
+             client that says fewer than last time is not to be believed */
+          /* An app that counted past nought sent minus one, minus two, and
+             this refused them and kept whatever it had. Below nought is
+             nought: none left, stored, so a new phone does not start at one. */
+          if (Number.isInteger(t) && t <= 5) {
+            const t0 = Math.max(0, t);
+            cur.taste = Number.isInteger(cur.taste) ? Math.min(cur.taste, t0) : t0;
           }
         }
-        if (Array.isArray(i.niggles)) out.niggles = i.niggles.slice(0, 20).map(x => String(x).slice(0, 40));
-        const sf = cleanSafe(i.safe);
-        if (sf) out.safe = sf;
-        const sk = cleanSkills(i.skills);
-        if (sk) out.skills = sk;
-        cur.intake = out;
-      }
-      if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
-      /* the free sessions above the free stage, counted down */
-      if (body.taste !== undefined) {
-        const t = Number(body.taste);
-        /* only ever downwards: the client says how many it has used and a
-           client that says fewer than last time is not to be believed */
-        /* An app that counted past nought sent minus one, minus two, and
-           this refused them and kept whatever it had. Below nought is
-           nought: none left, stored, so a new phone does not start at one. */
-        if (Number.isInteger(t) && t <= 5) {
-          const t0 = Math.max(0, t);
-          cur.taste = Number.isInteger(cur.taste) ? Math.min(cur.taste, t0) : t0;
+        if (body.time !== undefined) {
+          const t = Number(body.time);
+          /* 60 is offered to anyone who can already balance, and it was not on
+             this list, so those two levels picked an hour and got it back as
+             whatever the last valid answer was. */
+          if ([15, 30, 45, 60].includes(t)) cur.time = t;
         }
-      }
-      if (body.time !== undefined) {
-        const t = Number(body.time);
-        /* 60 is offered to anyone who can already balance, and it was not on
-           this list, so those two levels picked an hour and got it back as
-           whatever the last valid answer was. */
-        if ([15, 30, 45, 60].includes(t)) cur.time = t;
-      }
-      if (body.perWeek !== undefined) {
-        const n = Number(body.perWeek);
-        if (Number.isInteger(n) && n >= 1 && n <= 7) cur.perWeek = n;
-      }
-      /* Which ladder stage they are on. It was written to the account row for
-         the coach to read and never handed back to the app, so signing in on
-         a second device put a paying subscriber back on Foundations. */
-      if (body.stage !== undefined) {
-        const n = Number(body.stage);
-        /* Only ever upwards, unless the client says it means it. The app
-           sends this on every save, and a save that happens before the
-           stored state has loaded back sends 0, which wiped a subscriber's
-           place on the ladder on every device. Taking a stage back is a
-           deliberate act, so it says so. */
-        const back = body.stageDown === true;
-        if (Number.isInteger(n) && n >= 0 && n <= 20
-            && (back || !Number.isInteger(cur.stage) || n >= cur.stage)) cur.stage = n;
-      }
-      await setSetting(key, cur);
+        if (body.perWeek !== undefined) {
+          const n = Number(body.perWeek);
+          if (Number.isInteger(n) && n >= 1 && n <= 7) cur.perWeek = n;
+        }
+        /* Which ladder stage they are on. It was written to the account row for
+           the coach to read and never handed back to the app, so signing in on
+           a second device put a paying subscriber back on Foundations. */
+        if (body.stage !== undefined) {
+          const n = Number(body.stage);
+          /* Only ever upwards, unless the client says it means it. The app
+             sends this on every save, and a save that happens before the
+             stored state has loaded back sends 0, which wiped a subscriber's
+             place on the ladder on every device. Taking a stage back is a
+             deliberate act, so it says so. */
+          const back = body.stageDown === true;
+          if (Number.isInteger(n) && n >= 0 && n <= 20
+              && (back || !Number.isInteger(cur.stage) || n >= cur.stage)) cur.stage = n;
+        }
+        return cur;
+      });
     }
     const out = (await getSetting(key)) || {};
     /* intake and quizDone were stored by the POST above and left out of this
@@ -8682,7 +8699,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        again described something that had never worked. */
     return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
       time: out.time || 0, perWeek: out.perWeek || 0,
-      intake: out.intake || {}, quizDone: !!out.quizDone,
+      intake: out.intake || {}, quizDone: !!out.quizDone, lvl: out.lvl || {},
       stage: Number.isInteger(out.stage) ? out.stage : null,
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},

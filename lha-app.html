@@ -5689,8 +5689,10 @@ function stageCleared(i){
   openOv('cleared');
 }
 function clearedStay(){
+  /* always a move down, so it goes as one: plain saveState left the server
+     on the higher stage, and the next open put them back up (13 Oct 2026) */
   if(st.clearedFrom!=null){ st.stage=st.clearedFrom; save();
-    try{ sendIntake(); }catch(e){} try{ saveState(); }catch(e){} }
+    try{ sendIntake(); }catch(e){} try{ saveStateDown(); }catch(e){} }
   st.clearedFrom=null; closeOv();
 }
 function cpDef(k){
@@ -7459,9 +7461,11 @@ function appUseCard(){
   if(!Object.keys(v).length) return '';
   const trained=volumeBetween(wk,null).sessions;
   const days=[0,1,2,3,4,5,6].map(i=>{
-    const t=wk+i*864e5, k=new Date(t).toISOString().slice(0,10);
+    /* each day keyed from its noon: midnight here is 23:00 UTC the day
+       before all summer, so every bar sat one day early (13 Oct 2026) */
+    const t=wk+i*864e5, k=new Date(t+12*36e5).toISOString().slice(0,10);
     const d=v[k]||{}; return {k, ms:Number(d.ms)||0, n:Number(d.n)||0,
-      fut:t>Date.now(), today:k===new Date().toISOString().slice(0,10)};
+      fut:t>Date.now(), today:k===new Date(new Date().setHours(12,0,0,0)).toISOString().slice(0,10)};
   });
   const peak=Math.max(1,...days.map(d=>d.ms));
   return `<div class="card" style="padding:20px">
@@ -8711,12 +8715,17 @@ function sendAssessment(file, question){
    The week layout and any drill lengths they have changed. Written on
    change and read on sign-in, so a new phone picks up where they left off. */
 let stateQueued=null;
+/* everything loadState writes, so a reply that changed any of it is drawn:
+   the list held twelve of them, and a call moved or a press test logged on
+   another phone was stored and not shown until something else redrew */
+const stateSnap=()=>JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,
+  st.ladderDone,st.callBooked,st.callDone,st.callBy,st.callAt,st.callHere,st.wcall,st.welcomeCall,st.youInSeen,st.pressTest,st.pressRung,st.lvl]);
 function loadState(){
   if(!st.token) return Promise.resolve();
   return fetch(AUTH.state,{headers:authed()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
-      const before=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked,st.callDone]);
+      const before=stateSnap();
       if(d.dayMap && Object.keys(d.dayMap).length) st.dayMap=d.dayMap;
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
@@ -8730,6 +8739,8 @@ function loadState(){
         if(st.intake.level!=null){ st.quizDone=true; st.oriented=true; }
       }
       if(d.quizDone) st.quizDone=true;
+      /* the difficulty dial per stage follows the person, not the phone */
+      if(d.lvl && typeof d.lvl==='object' && Object.keys(d.lvl).length) st.lvl=Object.assign({}, st.lvl||{}, d.lvl);
       if(Number.isInteger(d.taste)) st.taste=d.taste;
       /* sessions done on each fix, so a new phone does not start a fix again */
       if(d.fixDone && typeof d.fixDone==='object') st.fixDone=Object.assign({}, d.fixDone, st.fixDone||{});
@@ -8761,7 +8772,7 @@ function loadState(){
       if(ob.goal && (st.intake||{}).goal!==ob.goal) st.intake=Object.assign({}, st.intake||{}, {goal:ob.goal});
       save();
       /* same as loadTrack: a redraw for a reply that changed nothing is a blink */
-      const after=JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,st.ladderDone,st.callBooked,st.callDone]);
+      const after=stateSnap();
       if(after!==before) render();
     })
     .catch(()=>{}).then(()=>{ stateIn=true; });
@@ -8777,15 +8788,18 @@ function saveState(now){
   if(st.preview) return;   /* read only: the server would refuse it anyway */
   if(!st.token) return;
   clearTimeout(stateQueued);
-  const down=stageDown; stageDown=false;
+  /* the flag is read when the save goes, not when it is asked for: a second
+     save inside the 800 ms cancels the first, and took its "this move down
+     is meant" with it, so the server kept the higher stage (13 Oct 2026) */
   const send=()=>{
     stateQueued=null;
+    const down=stageDown; stageDown=false;
     /* a quiz answer not yet on the account goes as a deliberate move */
     const placing = st.placeSent===false;
     /* keepalive, so a save made as the page is leaving still arrives */
     fetch(AUTH.state,{method:'POST',headers:authed(),keepalive:true,body:JSON.stringify({
       dayMap:st.dayMap||{}, secs:st.secs||{}, time:st.time||0, perWeek:st.perWeek||0,
-      intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(),
+      intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(), lvl:st.lvl||{},
       ...((down||placing)?{stageDown:true}:{}),
       ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
       ladderDone:st.ladderDone||{},
@@ -9936,7 +9950,9 @@ function lazyThumbs(){
       }
     });
   },{rootMargin:'300px'});
-  document.querySelectorAll('.scroll video').forEach(v=>lazyObs.observe(v));
+  /* the menu drawer too: since More became a drawer its drill library sits
+     outside any .scroll, so its cards never loaded a picture (13 Oct 2026) */
+  document.querySelectorAll('.scroll video, #menu video[data-lazy]').forEach(v=>lazyObs.observe(v));
 }
 
 function openLib(i){
@@ -9986,14 +10002,6 @@ function repOf(it){
   return {n:d||'',u:'',small:true};
 }
 
-function startPlayer(){
-  Q=queue(); if(!Q.length) return;
-  qi=0; phase='work'; paused=false; sessionStart=Date.now();
-  $('#player').classList.add('on');
-  $('#player').innerHTML=playerShell();
-  bindPlayer();
-  showStep();
-}
 function playerShell(){
   return `<div class="p-bar">
       <span class="p-idx" id="p-idx"></span>
@@ -10444,6 +10452,8 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
   if(done) track('finish');
+  /* a list session switched to the follow along part way moves on here */
+  if(done) applyRotNext();
   fixSessionDone(done);
   if(done && !st.in) advanceDay();
   save();
@@ -10810,6 +10820,10 @@ function fbOpen(){
 }
 function fbKind(k){ st.fb=Object.assign({}, st.fb||{}, {kind:k}); save(); drawOv(); }
 function fbSet(f,val){ st.fb=st.fb||{}; st.fb[f]=val; save(); }
+/* Typed answers are kept as they are typed, with no redraw. They lived in
+   the field alone, so the Yes or No tap at the end of the block review
+   redrew the sheet and blanked all three answers before Send (13 Oct 2026). */
+function fbType(k,val){ st.fb=st.fb||{}; st.fb.extra=Object.assign({}, st.fb.extra||{}); st.fb.extra[k]=val; save(); }
 function fbExtra(k,val){ st.fb=st.fb||{}; st.fb.extra=Object.assign({}, st.fb.extra||{}); 
   st.fb.extra[k]=val; save(); if(FB_MORE.concat(FB_BLOCK).some(r=>r[0]===k && r[2])) drawOv(); }
 function fbMore(){ st.fb=Object.assign({}, st.fb||{}, {more:!(st.fb||{}).more}); save(); drawOv(); }
@@ -10888,7 +10902,7 @@ function fbBody(){
                 ${opts.map(o=>`<button onclick="fbExtra('${k}',${jsq(o)})"
                   style="${pill(((fb.extra||{})[k])===o)}">${esc(o)}</button>`).join('')}
                </div>`
-            : `<input id="fbx-${k}" value="${esc((fb.extra||{})[k]||'')}"
+            : `<input id="fbx-${k}" value="${esc((fb.extra||{})[k]||'')}" oninput="fbType('${k}',this.value)"
                 style="width:100%;margin-top:9px;border:1px solid rgba(0,64,61,.16);
                 border-radius:13px;padding:12px;font:400 15px/1.4 var(--sans);background:#fff">`}
         </div>`).join('')}
@@ -11121,7 +11135,7 @@ function drawOv(){
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:7px 0 16px">
         How did it feel? It changes what you get next week.</div>
       <div style="display:flex;gap:8px">${chip('easy','Too easy')}${chip('right','About right')}${chip('hard','Too hard')}</div>
-      <textarea id="fbNote" rows="3" placeholder="Anything worth telling me, or leave it blank"
+      <textarea id="fbNote" rows="3" oninput="st.fbNote=this.value" placeholder="Anything worth telling me, or leave it blank"
         style="width:100%;margin-top:12px;border:1px solid rgba(17,17,17,.13);border-radius:14px;
         padding:13px 14px;font:400 14.5px/1.4 var(--sans);resize:none">${esc(st.fbNote||'')}</textarea>
       <button onclick="sendDayFeedback(false)" style="margin-top:12px;width:100%;border:0;border-radius:14px;
@@ -11612,7 +11626,7 @@ function drawOv(){
       <div class="kick2">${esc(d0.label)}${d0.sub?' &middot; '+esc(d0.sub):''}</div>
       <div style="font:400 30px/1.04 var(--serif);margin-top:9px">How do you want
         <em style="color:var(--forest);font-style:normal">it?</em></div>
-      ${row('startPlayer()','Follow along',
+      ${row('followDay()','Follow along',
         'Timed, one drill at a time, with the film for every set.',true)}
       ${row("go('plan')",'See the drills',
         'The whole list, tick them off in your own time.',false)}
@@ -12454,7 +12468,8 @@ function doLogin(ev){
       /* a code typed on the wall before signing in was parked and only ever
          picked up on a cold start, so signing in landed them back on the
          wall with nothing said */
-      loadLadder(); loadState(); loadTrack(); codeResume(); })
+      loadLadder(); loadState(); loadTrack(); codeResume();
+      if(!st.in && st.wantPlan) resumePlan(); })
     .catch(code=>{ const m=$('#authMsg');
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
                                        : 'That email and password did not match.'; });
@@ -12738,7 +12753,7 @@ function callPick(){
    booked in one tap; the link to join and a calendar file come by email
    and sit on Start. A time that cannot be offered (booking here switched
    off, or Elliott's calendars unreadable) falls back to Calendly. */
-const WC={slots:null, day:'', sel:'', msg:'', busy:false};
+const WC={slots:null, day:'', sel:'', msg:'', busy:false, note:''};
 const wcTZ=(()=>{ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone||'Europe/London'; }catch(e){ return 'Europe/London'; } })();
 const wcDay=t=>new Date(t).toLocaleDateString('en-CA',{timeZone:wcTZ});
 const wcClock=(t,z)=>new Date(t).toLocaleTimeString('en-GB',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:z||wcTZ}).replace(':00','').replace(/\s/g,'').toLowerCase();
@@ -12767,13 +12782,13 @@ function callHereHTML(){
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;margin-top:8px">${times.map(t=>{ const on=t===WC.sel;
       return `<button onclick="WC.sel=${jsq(t)};drawOv()" style="${b};min-height:44px;border-radius:12px;font:600 15px/1 var(--sans);${on?'background:var(--forest);border-color:var(--forest);color:#fff':''}">${esc(wcClock(t))}</button>`; }).join('')}</div>
     <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">Times in your time zone${wcTZ==='Europe/London'?' (London)':', '+esc(wcTZ.replace(/_/g,' ').split('/').pop())+'. Elliott is in London'}.</div>
-    <textarea id="chNote" placeholder="Anything you want to cover, if you like" style="width:100%;min-height:70px;margin-top:12px;padding:11px 13px;border:1px solid rgba(0,64,61,.16);border-radius:14px;font:400 15px/1.4 var(--sans);box-sizing:border-box"></textarea>
+    <textarea id="chNote" oninput="WC.note=this.value" placeholder="Anything you want to cover, if you like" style="width:100%;min-height:70px;margin-top:12px;padding:11px 13px;border:1px solid rgba(0,64,61,.16);border-radius:14px;font:400 15px/1.4 var(--sans);box-sizing:border-box">${esc(WC.note||'')}</textarea>
     <button class="btn" style="width:100%;margin-top:12px" ${WC.sel&&!WC.busy?'':'disabled'} onclick="callHereBook()">${WC.busy?'Booking…':WC.sel?'Book '+esc(new Date(WC.sel).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:wcTZ}))+', '+esc(wcClock(WC.sel)):'Pick a time'}</button>
     ${WC.msg?`<div style="font:500 13.5px/1.5 var(--sans);color:var(--terra);margin-top:10px">${esc(WC.msg)}</div>`:''}`;
 }
 function callHereBook(){
   if(!WC.sel||WC.busy) return;
-  const note=((document.getElementById('chNote')||{}).value||'').trim();
+  const note=((document.getElementById('chNote')||{}).value||WC.note||'').trim();
   WC.busy=true; WC.msg=''; drawOv();
   fetch('/api/app/call/book',{method:'POST',headers:authed(),body:JSON.stringify({kind:'welcome',slot:WC.sel,note,tz:wcTZ,src:IOS_APP?'iphone':'app'})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
@@ -13528,9 +13543,9 @@ function screenWhyBody(){
           display:grid;place-items:center;font-size:11px">${whyPicked.includes(r)?'✓':''}</span>
         ${esc(r)}</button>`).join('')}
     </div>
-    <textarea id="whyText" rows="3" placeholder="Anything else? (optional)"
+    <textarea id="whyText" rows="3" oninput="whyNote=this.value" placeholder="Anything else? (optional)"
       style="width:100%;margin-top:12px;border:1px solid rgba(28,32,25,.16);border-radius:14px;
-      padding:13px;font:400 14px/1.5 var(--sans);resize:vertical;box-sizing:border-box;outline:none"></textarea>
+      padding:13px;font:400 14px/1.5 var(--sans);resize:vertical;box-sizing:border-box;outline:none">${esc(whyNote)}</textarea>
     <div style="display:flex;gap:9px;margin-top:14px">
       <button class="btn2" style="flex:1" onclick="closeWhy(false)">Skip</button>
       <button class="btn" style="flex:1.4" onclick="closeWhy(true)">Send</button>
@@ -13548,9 +13563,11 @@ function closeWhy(send){
         context:whyStopContext}}), 'Told Elliott why you stopped.');
     }
   }
-  whyPicked=[]; closeOv();
+  whyPicked=[]; whyNote=''; closeOv();
 }
 let whyStopContext='';
+/* what was typed, kept so a reason tapped after typing does not blank it */
+let whyNote='';
 
 /* the account, gone for good: asked once more, then signed out */
 function deleteMine(){
@@ -13566,6 +13583,9 @@ function deleteMine(){
 }
 function signOut(){
   closeMenu();
+  /* the last person's unsent messages and half typed reply stay on the page
+     otherwise, and the next account's chat showed them as its own */
+  pendingMsgs=[]; askDraft=''; chatReplyTo=''; chatTypingAt=0;
   /* This phone's notifications belonged to the account signing out, and
      stayed with it: its coach's replies went on arriving on a phone
      somebody else might now hold, and the next person to sign in was
@@ -13832,6 +13852,10 @@ function finishChecklist(){
   }
   logReps();
   if(done) track('finish');
+  /* a finished list moves the rotation and the written week on, as the
+     follow along does (13 Oct 2026) */
+  if(done) applyRotNext();
+  if(done && !st.in) advanceDay();
   fixSessionDone(done);
   st.qTick={}; st.reps={}; st.listHeld=null; save(); closeOv(); openOv('summary');
 }
@@ -15479,7 +15503,8 @@ function dropStage(){
   if(curStage()<=0) return;
   const to=curStage()-1;
   sure('Drop back to '+STAGES[to].n+'?\n\nYour training history stays.', 'Drop back', ()=>{
-    st.stage=to; save(); sendIntake(); render(); });
+    /* the server keeps the highest stage unless told the move down is meant */
+    st.stage=to; save(); try{ sendIntake(); }catch(e){} try{ saveStateDown(); }catch(e){} render(); });
 }
 /* dropping back from a stage sheet, which can go further than one rung */
 function dropToStage(i){
@@ -15671,7 +15696,9 @@ function askElliottRow(){
 }
 function askFromSearch(){
   const typed=((document.getElementById('askq')||{}).value||'').trim();
-  if(!st.token){ st.askDraft=typed; goJoin(); return; }
+  /* kept in the chat's own draft, which sign up leaves alone: st.askDraft
+     was read only by a card that is no longer drawn, so the question was lost */
+  if(!st.token){ if(typed) askDraft=typed; goJoin(); return; }
   if(!typed){ toast('Type the question first.'); return; }
   /* it sends. It used to open the chat with the words typed in, which on a
      phone meant the keyboard, a scroll, and the button hiding under it. */
@@ -16082,8 +16109,10 @@ function buildFixSession(slug, listOnly){
   sessionSpent=false;
   /* a fix done from its list counts as one too: it used to count only
      when the player was started from the fix's own page */
-  if(listOnly){ st.fixActive=slug; st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true; save(); openOv('list'); return; }
-  st.fixRot=Object.assign({}, st.fixRot||{}); st.fixRot[slug]=(rot+1)%997;
+  if(listOnly){ st.fixActive=slug; st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true;
+    /* moves on when the list is finished, as the ladder's does */
+    st.rotNext={fix:slug, to:(rot+1)%997}; save(); openOv('list'); return; }
+  st.fixRot=Object.assign({}, st.fixRot||{}); st.fixRot[slug]=(rot+1)%997; delete st.rotNext;
   st.fixActive=slug; save(); track('fixstart', null, slug);
   startQueue(0);
 }
@@ -17109,7 +17138,9 @@ function wsAboutGo(){
 function workshopStrip(){
   if(!workshopOn()) return '';
   const w=WS;
-  const short = w.when ? w.when.replace(/(\d{2}):(\d{2}).*$/,'').trim().replace(/,$/,'') : '';
+  /* the date alone: the browser writes "Saturday 24 October at 13:00", and
+     cutting at the time left "Saturday 24 October at" (13 Oct 2026) */
+  const short = w.when ? w.when.replace(/(\d{2}):(\d{2}).*$/,'').trim().replace(/,$/,'').replace(/\s+at$/i,'') : '';
   return `<button onclick="openWorkshop()" style="width:100%;display:flex;align-items:center;gap:10px;
     border:1px solid rgba(168,107,22,.3);background:rgba(168,107,22,.07);border-radius:14px;
     padding:11px 13px;cursor:pointer;text-align:left">
@@ -18344,7 +18375,7 @@ function loadEntitlement(){
          Day 1 and no drills. That is why the preview never showed
          anybody's programme. It is also why a real client on a new phone
          saw an empty day until they reloaded. */
-      if((st.in && !wasIn) || (st.coached && !wasCoached)){ loadProgramme(); loadProgress(); loadThread(); loadTrack(); }
+      if((st.in && !wasIn) || (st.coached && !wasCoached)){ loadProgramme(); loadProgress(); loadThread(); loadTrack(); loadState(); }
       /* still waiting for block one: ask whether it has been written */
       else if(st.coached && !st.in) loadProgramme();
       if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck){ render(); loadSign(); }
@@ -18644,6 +18675,12 @@ function isRestCell(c){
 function nextDayIdx(){
   const plan=weekPlan(); if(!plan) return 0;
   return ((st.planDay|0) % plan.length + plan.length) % plan.length;
+}
+/* the rotation a list session holds until it is finished */
+function applyRotNext(){
+  const r=st.rotNext; if(!r) return; delete st.rotNext;
+  if(r.fix){ st.fixRot=Object.assign({}, st.fixRot||{}); st.fixRot[r.fix]=r.to; }
+  else { st.rot=Object.assign({}, st.rot||{}); st.rot[r.stage]=r.to; }
 }
 function advanceDay(){
   const plan=weekPlan(); if(!plan) return;
@@ -19005,11 +19042,14 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
       let k=0; while(k<setsWanted(it) && add(it)) k++;
     }
   }
-  /* the rotation only moves on when a session is actually built, so opening
-     the list twice shows the same session both times */
-  if(!listOnly){
-    st.rot=Object.assign({}, st.rot||{});
-    st.rot[stage]=(rot+1)%997;
+  /* The rotation moves on when a session is done from the list, or as the
+     follow along starts, so opening the list twice still shows the same
+     session both times. It used to move for the follow along alone, so
+     anybody who trains Drill by drill got the same session every time
+     (13 Oct 2026). A tour's practice workout moves nothing. */
+  if(!tourBuild){
+    if(!listOnly){ st.rot=Object.assign({}, st.rot||{}); st.rot[stage]=(rot+1)%997; delete st.rotNext; }
+    else st.rotNext={stage, to:(rot+1)%997};
     save();
   }
   /* A written list is already in the coach's order and the whole point of
@@ -19050,7 +19090,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     st.ovList=!!wristDay; st.ovRow=null;
     st.listMode='work';   /* one workout, one shape */
     st.ovFull=true;
-    track('start'); spendTaste(!!wristDay);
+    /* a tour's practice workout is not a session started */
+    if(!tourBuild){ track('start'); spendTaste(!!wristDay); }
     openOv('list'); return;
   }
   startQueue(0);
@@ -19093,14 +19134,16 @@ function cacheSession(list){
 }
 function startQueue(from){
   qi=from||0; phase='work'; paused=false; sessionStart=Date.now();
-  if(!from) cacheSession(Q);
+  /* a tour's practice workout fetches no films, counts no start and does
+     not hold the screen on (13 Oct 2026) */
+  if(!from && !tourBuild) cacheSession(Q);
   /* spendTaste is once per built workout, so pressing Start follow along
      from the list it was already counted on does not count it twice */
-  if(!from){ track('start'); spendTaste(!!st.ovList); }
+  if(!from && !tourBuild){ track('start'); spendTaste(!!st.ovList); }
   $('#player').classList.add('on');
   $('#player').innerHTML=playerShell();
   bindPlayer();
-  keepAwake();
+  if(!tourBuild) keepAwake();
   showStep();
 }
 
@@ -19304,7 +19347,10 @@ const PRICE_NOTE = () => ((st.prices||{}).plus||{}).note || 'The price goes up a
 const PRICE_FOUNDING = () => ((st.prices||{}).plus||{}).founding !== false;
 function buyPlan(k){
   if(!sells()){ openOv(k==='plus'&&iapProduct?'iap':'members'); return; }
-  if(!st.token){ goJoin(); return; }
+  /* the plan is kept, and checkout opens once the account exists: it was
+     dropped, so coaching bought while signed out landed on the Ladder with
+     no checkout at all (13 Oct 2026) */
+  if(!st.token){ st.wantPlan=k; save(); goJoin('plan'); return; }
   /* the ladder has its own page: monthly, quarterly or yearly, and the
      card form on the same screen */
   if(k==='plus'){ openPaywall(); return; }
@@ -20087,6 +20133,13 @@ let joinErr='';
    been promised two free Wall Work sessions landed on "Stage 1, Foundations"
    whose first word was "Optional"; and a code typed at the paywall was
    stashed silently with nothing on screen to say it had survived. */
+/* the coaching plan picked before there was an account, bought now */
+function resumePlan(){
+  const k=st.wantPlan; st.wantPlan=null; if(st.joinFor==='plan') st.joinFor=''; save();
+  if(!k) return;
+  st.tab='coaching'; save(); render();
+  setTimeout(()=>buyPlan(k), 350);
+}
 function goJoin(why){
   joinErr='';
   st.joinFor = why || '';
@@ -20188,6 +20241,8 @@ function screenJoin(){
      its own errand and gets its own words, and the same words whether it
      was the form check card or a locked stage that asked. */
   const trial = PRICE_TRIAL()>0 && (st.joinFor==='check' || !!want);
+  /* buying coaching while signed out: the account first, then checkout */
+  const plan = !want && !!st.wantPlan && st.joinFor==='plan';
   const saving = !want && !trial && st.joinFor==='save';
   const trialDays = PRICE_TRIAL()===7 ? 'week' : PRICE_TRIAL()+' days';
   const s = want || PSJ || STAGES[curStage()] || {n:''};
@@ -20199,11 +20254,13 @@ function screenJoin(){
     padding:calc(env(safe-area-inset-top) + 40px) 24px 30px;display:flex;flex-direction:column">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
       color:var(--forest)">${saving?'Saving for no signal'
+        :plan?'Coaching'
         :trial?'Your free '+esc(trialDays)
         :want?'To open '+esc(want.n)
         :taste?'Your free session at '+esc(PSJ.n):'Your starting point'}</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
       saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
+      : plan ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
       : trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
        : want ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
        : taste ? `${esc(PSJ.n)}, <em style="color:var(--forest);font-style:normal">free.</em>`
@@ -20212,6 +20269,7 @@ function screenJoin(){
          the payment page, so two unrelated statements ran together -->
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
       saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
+      : plan ? 'Your coaching lives on an account, so this takes a moment and then the payment page opens.'
       : trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
                +(IOS_APP && !sells()
                /* in the iPhone app Apple takes the payment, not Stripe, and
@@ -20357,6 +20415,8 @@ function doJoin(ev){
         /* not the stage sheet again: they pressed its button already, and
            the sign up page said what the week opens. Straight to paying. */
         if(w!=null && STAGES[w]) st.ovStage=w; startUpgrade(); }
+      /* they were buying coaching: straight on to its checkout */
+      if(st.token && st.wantPlan) resumePlan();
       /* they were saving a workout for no signal: back to it, and it saves */
       if(st.token && st.joinFor==='save'){
         const k=st.saveKey, back=st.saveFrom;
@@ -21287,6 +21347,7 @@ async function appleSignInOnce(P){
      email does, rather than leaving them on the ladder to find it again */
   if(!st.in && st.wantUpgrade!=null && from==='joinFree'){ const w=st.wantUpgrade; st.wantUpgrade=null; save();
     if(STAGES[w]) st.ovStage=w; startUpgrade(); }
+  if(!st.in && st.wantPlan) resumePlan();
 }
 
 /* ── the Ladder through Apple ────────────────────────────────────────
@@ -22184,7 +22245,11 @@ document.addEventListener('DOMContentLoaded',function(){
      from the second open onwards the app showed whatever was in local
      storage from the last time somebody happened to sign in. A verdict
      written yesterday did not exist until they signed out and back in. */
-  if(st.token){ loadTrack(); loadThread(); }
+  /* and the saved state, for the same reason (13 Oct 2026): read only at
+     sign in, a phone that stayed signed in wrote its old week and fix
+     counts over newer ones from another device, never heard that the
+     welcome call can be booked here, and never opened "You're in" */
+  if(st.token){ loadTrack(); loadThread(); loadState(); }
   if(st.in && st.token) loadProgramme();
   /* every account, not only coached ones: the ladder's own sessions were
      sent up and never read back, so a follow along never reached its
