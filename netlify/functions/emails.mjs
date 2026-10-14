@@ -24,11 +24,11 @@ export const EMAILS = {
     "vars": [
       "name"
     ],
-    "subject": "Push the floor away",
-    "title": "One cue, for everything.",
+    "subject": "Chair, wall walks, then the wall",
+    "title": "Get used to upside down first.",
     "paras": [
-      "Chest to wall, chair assisted, crow, the press: the cue underneath all of them is the same. Push the floor away. Shoulders up by the ears, arms straight, the whole body reaching upwards rather than sitting in the joints.",
-      "Every film in the app has captions, so you can put the phone on the floor with the sound off and still catch the cue as it is said."
+      "Before chest to wall, get used to being upside down. The chair assisted handstand first, then wall walks, then learning to fall out safely, and only then all the way in to the chest to wall handstand.",
+      "Underneath every one of them is the same cue: push the floor away. Shoulders up by the ears, arms straight, the whole body reaching upwards rather than sitting in the joints. Every film in the app has captions, so the phone can sit on the floor with the sound off."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -69,8 +69,8 @@ export const EMAILS = {
     "subject": "Falling is a skill",
     "title": "Learn to come down before you try to stay up.",
     "paras": [
-      "The fear of falling is what keeps people leaning on the wall for a year. A cartwheel out is the answer: practise it on purpose, low and slow, until it is boring. Then kicking up freestanding stops being a leap.",
-      "Your Progress tab keeps a calendar of every session, what was in it and how long it took. Ten days in is a good moment to look at it."
+      "The fear of falling is what keeps people leaning on the wall for a year. So before you work on staying up, learn to come down, three ways:",
+      "Practise them until falling out is automatic and you stop thinking about it, so your head and your body both know it is safe. That is when you can really start learning to balance."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -820,16 +820,19 @@ const BAILOUT = '362da5a70cede1b49229a635829656ca';
 const TIP_LOOK = {
   1: { kicker: 'Day 1 · Wrists first', img: filmStill('a7cd457020f580093be946524a84c3af', 3), alt: 'Wrist circles on the mat',
        points: [['2', 'Two minutes,<br>every session'], ['&#10003;&#65038;', 'At the top of<br>every session'], ['&#8635;&#65038;', 'A mobility day<br>for the off days'], ['&pound;0', 'Free in<br>Foundations']] },
-  2: { kicker: 'Day 2 · One cue', img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5), alt: 'Chest to wall handstand, pushing the floor away',
-       points: [['&#8593;&#65038;', 'Shoulders up<br>by the ears'], ['|', 'Arms<br>straight'], ['&#8679;&#65038;', 'The whole body<br>reaching up'], ['CC', 'Captions on<br>every film']] },
+  2: { kicker: 'Day 2 · The way up', img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5), alt: 'Chest to wall handstand, pushing the floor away',
+       steps: [{ img: filmStill('ae64c76e183bb5191aaf6856240a3eab', 4, 300), title: 'The chair assisted handstand', text: 'Feet on a box or chair, hips over shoulders, shoulders over hands. Get used to being upside down.' },
+               { img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6, 300), title: 'Wall walks', text: 'Walk the feet up and the hands in, then back down with control.' },
+               { img: filmStill(BAILOUT, 7, 300), title: 'Learn to fall', text: 'Chest to wall bailouts, until coming down is something you do on purpose.' },
+               { img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5, 300), title: 'Chest to wall handstand', text: 'All the way in. Push the floor away and hold.' }] },
   4: { kicker: 'Day 4 · How often', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall',
        points: [['2&times;', 'Twice<br>a week'], ['15', 'Fifteen minutes<br>is enough'], ['6', 'Six drills,<br>one set each'], ['&#8635;&#65038;', 'A different<br>session each time']] },
   7: { kicker: 'Day 7 · Film it', img: filmStill('51a36a15330dd845d7099de1712cf8d2', 3), alt: 'A kick up to the wall, filmed side on',
        points: [['&#9654;&#65038;', 'Side on, phone<br>on the floor'], ['&#9634;&#65038;', 'Your whole body<br>in frame'], ['30s', 'Thirty seconds<br>of film'], ['&#10003;&#65038;', 'Log it as<br>a check point']] },
   10: { kicker: 'Day 10 · Falling', img: filmStill(BAILOUT, 2), alt: 'Walking up the wall for a bailout',
-       steps: [{ img: filmStill(BAILOUT, 2, 300), title: 'Walk up, hands far out', text: 'Further from the wall than 45 degrees to begin with.' },
-               { img: filmStill(BAILOUT, 7, 300), title: 'One leg out to the side', text: 'Use it to bring that hip down towards the floor.' },
-               { img: filmStill(BAILOUT, 13, 300), title: 'Step a hand out and turn', text: 'Twist out to the side and you are back on your feet.' }] },
+       steps: [{ title: 'Jump and turn', text: 'Kick up a little, turn your hips and land on your feet beside your hands.' },
+               { title: 'The cartwheel out', text: 'Get your hips over your hands, then fall out to the side, never over the top.' },
+               { img: filmStill(BAILOUT, 7, 300), title: 'The chest to wall bailout', text: 'Walk up the wall, take one leg out to the side, step a hand and turn down.' }] },
 };
 export function tipEmail(day, T, first, site) {
   const L = TIP_LOOK[day] || {}, href = `${site || SITE}/lha-app.html?ref=tip${day}`;
