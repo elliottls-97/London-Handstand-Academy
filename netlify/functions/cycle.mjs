@@ -951,10 +951,17 @@ async function intentMail(done) {
         const T2 = await emailCopy('wsIntent2', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
           price: price2, link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop` });
         if (T2.off) { done.held = (done.held || 0) + 1; continue; }
-        const went2 = await email(e, T2.subject, mail({ title: T2.title, greeting: String(p.name || '').split(' ')[0], paras: T2.paras,
-          kicker: 'Handstand, this week',
-          cta: { href: `${SITE}/lha-app.html?ref=workshop`, label: 'Try the free app' },
-          signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T2.footnote || undefined }));
+        const left2 = Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0;
+        const [day2, ...time2] = whenTxt.split(', ');
+        const went2 = await email(e, T2.subject, richEmail({ title: T2.title, preheader: `${day2}: places are still open. Or start at home, free.`,
+          blocks: [
+            { t: 'hero', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall, in the free app', href: `${SITE}/lha-app.html?ref=workshop`,
+              kicker: 'Handstand, this week', head: T2.title, btn: { label: 'Try the free app', sub: 'Foundations · no account needed', href: `${SITE}/lha-app.html?ref=workshop` } },
+            { t: 'card', greeting: String(p.name || '').split(' ')[0], paras: T2.paras },
+            { t: 'dark', kicker: 'Or come on Saturday', head: '', hi: w.title,
+              card: { kicker: left2 ? `${left2} place${left2 === 1 ? '' : 's'} left` : 'Places open', title: day2, line: [time2.join(', '), w.place || 'OverGravity, Shadwell', price2].filter(Boolean).join(' · ') },
+              btn: { label: 'Book your place', sub: price2, href: `${SITE}/handstand-class?src=email#book` } },
+          ], sign: 'Elliott, London Handstand Academy', why: T2.footnote || '' }));
         if (!went2) { done.held = (done.held || 0) + 1; continue; }
         done.intents.again = (done.intents.again || 0) + 1; toldNow.add(e);
         await supa.upsert('nudges', { key: key2, sent_at: new Date().toISOString() }, 'key');
@@ -971,15 +978,18 @@ async function intentMail(done) {
         place: w.place ? ', at ' + esc(w.place) : '', price, pair_line: pairPence ? `Both Saturdays together are £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
         link: `${SITE}/handstand-class#book` });
       if (T.off) { done.held = (done.held || 0) + 1; continue; }
-      const went = await email(e, T.subject, mail({ title: T.title, greeting: String(p.name || '').split(' ')[0], paras: T.paras,
-        kicker: 'In person, London', image: { src: 'https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/latest-workshop-group-handstand-picture.jpg', alt: 'The last class at OverGravity, everyone upside down' },
-        box: { title: 'What you get', items: [
-          'Ninety minutes with two coaches, Elliott and Suryava, in a small group.',
-          'Grouped by level: never been upside down, learning freestanding, or working on press, one arm or handstand push ups.',
-          `${w.place || 'OverGravity, Shadwell'}: a proper gymnastics space, with wall and soft mats.`,
-          `${price} a place.${pairPence ? ' Both Saturdays together, £' + (pairPence / 100).toFixed(2).replace(/\.00$/, '') + '.' : ''}`] },
-        cta: { href: `${SITE}/handstand-class#book`, label: 'Book your place, ' + price },
-        signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }));
+      const left1 = Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0;
+      const book1 = { label: 'Book your place, ' + price, sub: whenTxt.split(', ')[0] + (left1 ? ` · ${left1} left` : ''), href: `${SITE}/handstand-class?src=email#book` };
+      const went = await email(e, T.subject, richEmail({ title: T.title, preheader: `No payment was taken, and the place is still open: ${whenTxt}.`,
+        blocks: [
+          { t: 'hero', img: 'https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/latest-workshop-group-handstand-picture.jpg', alt: 'The last class at OverGravity, everyone upside down',
+            href: book1.href, kicker: 'In person, London', head: T.title, btn: book1 },
+          { t: 'card', greeting: String(p.name || '').split(' ')[0], paras: T.paras,
+            points: [['2', 'Two coaches,<br>a small group'], ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
+              [price === 'Free' ? '&pound;0' : esc(price), pairPence ? 'Both Saturdays,<br>£' + (pairPence / 100).toFixed(2).replace(/\.00$/, '') : 'A place,<br>no account']] },
+          { t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
+          { t: 'card', btn: book1 },
+        ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' }));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
       done.intents.reminded++; toldNow.add(e);
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
