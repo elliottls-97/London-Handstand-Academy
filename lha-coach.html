@@ -11056,6 +11056,13 @@ function emCanvasOpen(k){
 }
 function emCanvasClose(){ clearInterval(emCanvasTimer); emCanvasTimer=null; emCanvasKey=''; const w=document.getElementById('fxPrevWrap'); if(w && !fxPrev) w.remove(); }
 function emPlain(k){ if(!confirm('Go back to plain paragraphs for this email? The page layout is dropped when you save.')) return; emDraft[k]=emDraft[k]||{}; emDraft[k].blocks=[]; emDraft[k].dropBlocks=true; emMsg='Not saved yet'; emCanvasClose(); draw(); }
+/* the email as it arrives, from the server's own builder (14 Oct 2026) */
+let emPrev={};
+function emPreview(k){ emPrev[k]='…'; draw();
+  const draft={}; for(const f of ['subject','title','paras','footnote']) draft[f]=emVal(k,f);
+  fetch(API+'/emails/render',{method:'POST',headers:hdr(),body:JSON.stringify({key:k,draft})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ emPrev[k]=d; draw(); }).catch(e=>{ emPrev[k]=null; emMsg=String(e); draw(); }); }
 function emailsHTML(){
   emLoad();
   const keys=Object.keys(emDefs||{});
@@ -11086,8 +11093,12 @@ function emailsHTML(){
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" ${emBusy?'disabled':''} onclick="emSave('${k}')">Save this email</button>
           <button class="btn btn-secondary" onclick="emCanvasOpen('${k}')">Edit as a page, with photos and films</button>
+          <button class="btn btn-secondary" onclick="emPreview('${k}')">${emPrev[k]==='…'?'Loading…':emPrev[k]?'Refresh the preview':'See it as it arrives'}</button>
           ${changed?`<button class="btn btn-secondary" ${emBusy?'disabled':''} onclick="emReset('${k}')">Back to the shipped words</button>`:''}
-        </div></div>`:''}
+        </div>
+        ${emPrev[k]&&emPrev[k]!=='…'?`<div class="muted" style="font-size:11.5px;margin:12px 0 6px">As it arrives, with your unsaved words, the next class and your name filled in. Subject: <b>${esc(emPrev[k].subject)}</b></div>
+          <iframe title="Preview" srcdoc="${esc(emPrev[k].html)}" style="width:100%;height:760px;border:1px solid var(--line);border-radius:12px;background:#f4f4f5"></iframe>`:''}
+        </div>`:''}
     </div>`; }).join('');
   return `<div class="card">
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">

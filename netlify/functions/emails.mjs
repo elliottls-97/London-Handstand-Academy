@@ -812,3 +812,63 @@ export function richEmail({ title, preheader, blocks = [], sign = 'See you soon,
   </td></tr>
 </table></td></tr></table></body></html>`;
 }
+
+/* What each of the first ten days looks like (14 Oct 2026): a still from
+   the film it is about, and a few points or steps. The words above them
+   stay the ones written in the dashboard; these only frame them. */
+const BAILOUT = '362da5a70cede1b49229a635829656ca';
+const TIP_LOOK = {
+  1: { kicker: 'Day 1 · Wrists first', img: filmStill('a7cd457020f580093be946524a84c3af', 3), alt: 'Wrist circles on the mat',
+       points: [['2', 'Two minutes,<br>every session'], ['&#10003;&#65038;', 'At the top of<br>every session'], ['&#8635;&#65038;', 'A mobility day<br>for the off days'], ['&pound;0', 'Free in<br>Foundations']] },
+  2: { kicker: 'Day 2 · One cue', img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5), alt: 'Chest to wall handstand, pushing the floor away',
+       points: [['&#8593;&#65038;', 'Shoulders up<br>by the ears'], ['|', 'Arms<br>straight'], ['&#8679;&#65038;', 'The whole body<br>reaching up'], ['CC', 'Captions on<br>every film']] },
+  4: { kicker: 'Day 4 · How often', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall',
+       points: [['2&times;', 'Twice<br>a week'], ['15', 'Fifteen minutes<br>is enough'], ['6', 'Six drills,<br>one set each'], ['&#8635;&#65038;', 'A different<br>session each time']] },
+  7: { kicker: 'Day 7 · Film it', img: filmStill('51a36a15330dd845d7099de1712cf8d2', 3), alt: 'A kick up to the wall, filmed side on',
+       points: [['&#9654;&#65038;', 'Side on, phone<br>on the floor'], ['&#9634;&#65038;', 'Your whole body<br>in frame'], ['30s', 'Thirty seconds<br>of film'], ['&#10003;&#65038;', 'Log it as<br>a check point']] },
+  10: { kicker: 'Day 10 · Falling', img: filmStill(BAILOUT, 2), alt: 'Walking up the wall for a bailout',
+       steps: [{ img: filmStill(BAILOUT, 2, 300), title: 'Walk up, hands far out', text: 'Further from the wall than 45 degrees to begin with.' },
+               { img: filmStill(BAILOUT, 7, 300), title: 'One leg out to the side', text: 'Use it to bring that hip down towards the floor.' },
+               { img: filmStill(BAILOUT, 13, 300), title: 'Step a hand out and turn', text: 'Twist out to the side and you are back on your feet.' }] },
+};
+export function tipEmail(day, T, first, site) {
+  const L = TIP_LOOK[day] || {}, href = `${site || SITE}/lha-app.html?ref=tip${day}`;
+  return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
+    blocks: [
+      { t: 'hero', img: L.img, alt: L.alt, href, kicker: L.kicker, head: T.title, btn: { label: "Open today's session", sub: 'Free in the app', href } },
+      { t: 'card', greeting: first, paras: T.paras, points: L.points, steps: L.steps, stepsAfter: L.steps ? 1 : undefined,
+        btn: L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
+    ],
+    sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
+
+/* ── started booking and stopped: the morning after, and three days on ──
+   Built here so the dashboard's preview and the daily job are the same
+   email. ctx: first, title, when (wsWhenTxt), place, price ('£25' or
+   'Free'), left (places, 0 when uncapped), pair (pence, 0 when none). */
+const CLASS_PHOTO = 'https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/latest-workshop-group-handstand-picture.jpg';
+export function intentEmail(T, x, site) {
+  const S = site || SITE, pair = x.pair ? '£' + (x.pair / 100).toFixed(2).replace(/\.00$/, '') : '';
+  const book = { label: 'Book your place, ' + x.price, sub: String(x.when || '').split(', ')[0] + (x.left ? ` · ${x.left} left` : ''), href: `${S}/handstand-class?src=email#book` };
+  return richEmail({ title: T.title, preheader: `No payment was taken, and the place is still open: ${x.when}.`,
+    blocks: [
+      { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href, kicker: 'In person, London', head: T.title, btn: book },
+      { t: 'card', greeting: x.first, paras: T.paras,
+        points: [['2', 'Two coaches,<br>a small group'], ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
+          [x.price === 'Free' ? '&pound;0' : escH(x.price), pair ? 'Both Saturdays,<br>' + pair : 'A place,<br>no account']] },
+      { t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
+      { t: 'card', btn: book },
+    ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
+export function intent2Email(T, x, site) {
+  const S = site || SITE, [day, ...time] = String(x.when || '').split(', '), app = `${S}/lha-app.html?ref=workshop`;
+  return richEmail({ title: T.title, preheader: `${day}: places are still open. Or start at home, free.`,
+    blocks: [
+      { t: 'hero', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall, in the free app', href: app,
+        kicker: 'Handstand, this week', head: T.title, btn: { label: 'Try the free app', sub: 'Foundations · no account needed', href: app } },
+      { t: 'card', greeting: x.first, paras: T.paras },
+      { t: 'dark', kicker: 'Or come on Saturday', head: '', hi: x.title,
+        card: { kicker: x.left ? `${x.left} place${x.left === 1 ? '' : 's'} left` : 'Places open', title: day, line: [time.join(', '), x.place || 'OverGravity, Shadwell', x.price].filter(Boolean).join(' · ') },
+        btn: { label: 'Book your place', sub: x.price, href: `${S}/handstand-class?src=email#book` } },
+    ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}

@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail, richEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, afterClassEmail, nextStepEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -7631,6 +7631,43 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      drills are exempt from that because they are the work. They are the
      coach's numbers, not the app's, so they are editable. */
   /* ── the automated emails, editable ── */
+  /* An automated email as it would arrive (14 Oct 2026): the words being
+     edited, laid out by the same builder the daily job uses, filled in
+     with the next class and the coach's own name. The editor's own preview
+     drew only the words. */
+  if (path === '/coach/emails/render' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const key = String(body.key || '');
+    if (!EMAILS[key]) return json({ error: 'No such email' }, 400);
+    const saved = (await getSetting('emails')) || {}, d = body.draft || {}, o = Object.assign({}, saved[key] || {});
+    for (const f of ['subject', 'title', 'footnote']) if (typeof d[f] === 'string') o[f] = d[f].slice(0, 1500);
+    if (typeof d.paras === 'string') o.paras = d.paras.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean).slice(0, 12);
+    const all = Object.values((await getSetting('workshops')) || {});
+    const w = all.filter(x => x && x.live && x.when && ms(x.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when))[0]
+      || { slug: 'sample', title: 'All Levels Handstand Class', when: new Date(Date.now() + 9 * 864e5).toISOString(), place: 'OverGravity, Shadwell', price: 2500, places: 14 };
+    const left = Number(w.places) ? Math.max(0, Number(w.places) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length) : 0;
+    const me1 = String(clients()[await me()] || coaches()[await me()] || 'Elliott').split(' ')[0];
+    const whenTxt = wsWhenTxt(w), price = Number(w.price) ? wsPounds(w.price) : 'Free';
+    const T = renderEmail(key, { name: esc(me1), title: esc(w.title), when: esc(whenTxt), day: esc(whenTxt.split(', ')[0]), place: w.place ? ', at ' + esc(w.place) : '',
+      price, pair_line: '', link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop`, session_line: '', review_line: '', app_line: '' }, Object.assign({}, saved, { [key]: o }));
+    const tip = /^tip(\d+)$/.exec(key);
+    let html;
+    if (tip) html = tipEmail(Number(tip[1]), T, me1, SITE);
+    else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
+    else if (key === 'wsIntent2') html = intent2Email(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
+    else if (key === 'wsThanks' || key === 'wsOffer') {
+      const P = { s60: '£80', s90: '£100' };
+      const [d0, ...t0] = whenTxt.split(', ');
+      const M = key === 'wsThanks'
+        ? afterClassEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, review: `${SITE}/review`,
+            photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' }, headshot: '/assets/site/coach-elliott-headshot.jpg',
+            preheader: 'Thank you for coming.', dates: [{ day: d0, time: t0.join(', '), place: w.place || '', price, left, href: `${SITE}/handstand-class#book` }] })
+        : nextStepEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/call.html`,
+            photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand' }, headshot: '/assets/site/coach-elliott-headshot.jpg', preheader: '' });
+      html = M.html.replace(/(src|href)="\//g, `$1="${SITE}/`);
+    } else html = mail({ title: T.title, greeting: me1, paras: T.paras, footnote: T.footnote || undefined, signoff: { name: 'Elliott, London Handstand Academy' } });
+    return json({ subject: T.subject, html: html.replace('<!--UNSUB-->', ' &nbsp;&middot;&nbsp; <a href="#" style="color:#8a8d80">Unsubscribe</a>') });
+  }
   if (path === '/coach/emails') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const over = (await getSetting('emails')) || {};
