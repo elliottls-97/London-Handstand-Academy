@@ -11942,7 +11942,74 @@ function bkRowHTML(w,b,others){
    is about. Sending goes through Resend a few addresses at a time, so the
    page asks again until the whole list is in, then hands it over once. */
 let news=null, newsBusy='', newsMsg='', newsQ='', newsPrev='', newsImp=null, newsFrom=null;
-let nw={subject:'',body:'',slug:'',auto:''};
+let nw={subject:'',body:'',slug:'',auto:'',blocks:[]};
+/* ── the section editor (14 Oct 2026) ──────────────────────────────
+   A newsletter is a list of sections the server draws with the same
+   builder as the app's other emails: a photo with a headline and button,
+   words, four points, steps from a drill film, a class, a review, a
+   button. Photos are a still from a filmed drill or a site photo. */
+const NB_KIND={hero:'Photo and headline',text:'Words',points:'Four points',steps:'Steps from a film',class:'A class',quote:'A review',button:'A button'};
+const NB_LINKS=[['app','The free app'],['class','The class page'],['coaching','Coaching'],['session','A 1-2-1'],['call','The free call']];
+const NB_PHOTOS=[['class-group-overgravity.jpg','The group at OverGravity'],['hero-image.jpg','A class at the wall'],['workshop-big-group-handstand-pic.jpg','A full room'],
+  ['coach-elliott-handstand-image.jpg','You, one arm'],['latest-workshop-group-handstand-picture.jpg','The last class, upside down'],['suryava-training-photo.jpg','Suryava training'],['class-2025-hall.jpg','A class in the hall']];
+const NB_REVIEWS=['Kate: "Really enjoyed the handstand workshop..."','Diana: "Elliott and Sav were great instructors..."','Anna: "Both great teachers... felt very safe in class."'];
+let NB_DRILLS=null;
+function nbDrills(){ if(NB_DRILLS) return NB_DRILLS; const seen={}, out=[];
+  try{ Object.values(STAGE_SECTIONS||{}).forEach(secs=>(secs||[]).forEach(sec=>(sec.items||[]).forEach(it=>{
+    const m=/cloudflarestream\.com\/([a-f0-9]{32})\//.exec(it.url||''); if(m&&!seen[m[1]]){ seen[m[1]]=1; out.push([m[1],it.n||it.v]); } }))); }catch(e){}
+  NB_DRILLS=out.sort((a,b)=>String(a[1]).localeCompare(String(b[1]))); return NB_DRILLS; }
+const nbStill=(uid,sec)=>`https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/thumbnails/thumbnail.jpg?time=${Number(sec)||2}s&height=300`;
+function nbNew(t){ const b={t};
+  if(t==='hero') Object.assign(b,{photo:'class-group-overgravity.jpg',uid:'',sec:2,kicker:'',head:'',link:'class',label:'',sub:''});
+  if(t==='text') Object.assign(b,{kicker:'',head:'',body:'',link:'',label:''});
+  if(t==='points') Object.assign(b,{head:'',body:'',points:[{icon:'',text:''},{icon:'',text:''},{icon:'',text:''},{icon:'',text:''}]});
+  if(t==='steps') Object.assign(b,{head:'',body:'',uid:(nbDrills()[0]||[''])[0],items:[{sec:2,title:'',text:''},{sec:6,title:'',text:''},{sec:10,title:'',text:''}],link:'app',label:''});
+  if(t==='class') b.slug=((news&&news.classes)||[])[0]?.slug||'';
+  if(t==='quote') b.i=2;
+  if(t==='button') Object.assign(b,{link:'class',label:''});
+  return b; }
+function nbAdd(t){ nw.blocks.push(nbNew(t)); newsPrev=''; draw(); }
+function nbMove(i,d){ const j=i+d; if(j<0||j>=nw.blocks.length) return; const x=nw.blocks.splice(i,1)[0]; nw.blocks.splice(j,0,x); newsPrev=''; draw(); }
+function nbDel(i){ nw.blocks.splice(i,1); newsPrev=''; draw(); }
+function nbSet(i,k,v){ nw.blocks[i][k]=v; }
+function nbSet2(i,arr,j,k,v){ nw.blocks[i][arr][j][k]=v; }
+function nbSetDraw(i,k,v){ nw.blocks[i][k]=v; newsPrev=''; draw(); }
+function nbSectionHTML(b,i){
+  const inp='class="input" style="margin-top:6px"';
+  const sel=(k,opts,cur)=>`<select class="input" style="margin-top:6px" onchange="nbSetDraw(${i},'${k}',this.value)">${opts.map(([v,l])=>`<option value="${esc(v)}" ${String(cur)===String(v)?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const txt=(k,ph)=>`<input ${inp} placeholder="${esc(ph)}" value="${esc(b[k]||'')}" oninput="nbSet(${i},'${k}',this.value)">`;
+  const area=(k,ph)=>`<textarea class="input" style="margin-top:6px;min-height:110px;resize:vertical" placeholder="${esc(ph)}" oninput="nbSet(${i},'${k}',this.value)">${esc(b[k]||'')}</textarea>`;
+  const btnRow=(opt)=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px">${sel('link',(opt?[['','No button']]:[]).concat(NB_LINKS),b.link)}${txt('label','Button words (optional)')}</div>`;
+  let body='';
+  if(b.t==='hero'){ const src=b.uid?nbStill(b.uid,b.sec):'/assets/site/'+b.photo;
+    body=`<div style="display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;align-items:start;margin-top:8px">
+      <img src="${esc(src)}" alt="" style="width:120px;height:80px;object-fit:cover;border-radius:10px;background:#eee">
+      <div>${sel('uid',[['','A site photo']].concat(nbDrills()),b.uid)}
+        ${b.uid?`<input class="input" style="margin-top:6px" type="number" min="0" max="600" value="${esc(b.sec)}" onchange="nbSetDraw(${i},'sec',this.value)" title="Second of the film">`:sel('photo',NB_PHOTOS,b.photo)}</div></div>
+      ${txt('kicker','Small line above, e.g. Day 3 or New dates')}${txt('head','Headline. Two sentences show in two tones.')}${btnRow(true)}`; }
+  if(b.t==='text') body=`${txt('head','Heading (optional). Two sentences show in two tones.')}${area('body','Your words. A blank line starts a new paragraph.')}${btnRow(true)}`;
+  if(b.t==='points') body=`${txt('head','Heading (optional)')}<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:6px">${b.points.map((p,j)=>`<div style="display:grid;grid-template-columns:52px minmax(0,1fr);gap:6px">
+      <input class="input" maxlength="3" placeholder="✓" value="${esc(p.icon)}" oninput="nbSet2(${i},'points',${j},'icon',this.value)" title="Up to 3 characters: a number, £0, 2×">
+      <input class="input" placeholder="Point ${j+1}" value="${esc(p.text)}" oninput="nbSet2(${i},'points',${j},'text',this.value)"></div>`).join('')}</div>${area('body','Words under the points (optional)')}`;
+  if(b.t==='steps') body=`${txt('head','Heading, e.g. Three steps. Same wall.')}${sel('uid',nbDrills(),b.uid)}
+      ${b.items.map((x,j)=>`<div style="display:grid;grid-template-columns:96px 70px minmax(0,1fr);gap:8px;align-items:center;margin-top:8px">
+        <img src="${esc(nbStill(b.uid,x.sec))}" alt="" style="width:96px;height:54px;object-fit:cover;border-radius:8px;background:#eee">
+        <input class="input" type="number" min="0" max="600" value="${esc(x.sec)}" onchange="nbSet2(${i},'items',${j},'sec',this.value);newsPrev='';draw()" title="Second of the film">
+        <div><input class="input" placeholder="Step ${j+1} title" value="${esc(x.title)}" oninput="nbSet2(${i},'items',${j},'title',this.value)">
+          <input class="input" style="margin-top:4px" placeholder="One line" value="${esc(x.text)}" oninput="nbSet2(${i},'items',${j},'text',this.value)"></div></div>`).join('')}
+      ${area('body','Words above the steps (optional)')}${btnRow(true)}`;
+  if(b.t==='class') body=sel('slug',((news&&news.classes)||[]).map(c=>[c.slug,c.whenTxt+(/all levels/i.test(c.title||'')?'':' · '+c.title)]),b.slug)+`<p class="muted" style="font-size:12px;margin:6px 0 0">Its date, price and places left, with Book. Anyone already booked on it is left out of the send.</p>`;
+  if(b.t==='quote') body=sel('i',NB_REVIEWS.map((l,j)=>[j,l]),b.i)+`<p class="muted" style="font-size:12px;margin:6px 0 0">Google reviews, word for word.</p>`;
+  if(b.t==='button') body=btnRow(false);
+  return `<div data-k="nb${i}-${b.t}" style="border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:10px;background:#fff">
+    <div style="display:flex;gap:6px;align-items:center"><b style="font:600 13px/1.2 var(--sans);flex:1">${i+1}. ${esc(NB_KIND[b.t])}</b>
+      <button class="btn btn-secondary btn-sm" onclick="nbMove(${i},-1)" ${i?'':'disabled'} aria-label="Move up">↑</button>
+      <button class="btn btn-secondary btn-sm" onclick="nbMove(${i},1)" ${i<nw.blocks.length-1?'':'disabled'} aria-label="Move down">↓</button>
+      <button class="btn btn-secondary btn-sm" onclick="nbDel(${i})">Remove</button></div>${body}</div>`; }
+/* a starting point that looks like the sample, for a class date */
+function nbStarter(){ const c=((news&&news.classes)||[])[0];
+  nw.blocks=[Object.assign(nbNew('hero'),{kicker:'New dates',head:c?'The next class is in.':'',link:'class',label:'Book a place'}),
+    Object.assign(nbNew('text'),{body:''}), c?nbNew('class'):null, nbNew('quote')].filter(Boolean); newsPrev=''; draw(); }
 const NEWS_SRC={beehiiv:'beehiiv',app:'The app',booking:'Booking a class','newsletter-footer':'Website footer','leaving-class':'Class page, leaving',
   'leaving-home':'Home page, leaving','workshop-waitlist':'No dates yet',site:'Website',links:'Links page'};
 function newsLoad(sync){ if(newsBusy==='load') return; newsBusy='load';
@@ -11962,26 +12029,26 @@ function newsPick(slug){
   if(!nw.body||nw.body===was.body) nw.body=auto.body;
   nw.slug=slug; nw.auto=JSON.stringify(auto); newsPrev=''; draw(); }
 function newsPreview(){ newsBusy='prev'; newsMsg=''; draw();
-  newsPost('preview',{subject:nw.subject,body:nw.body,slug:nw.slug}).then(d=>{ newsPrev=d.html||''; })
+  newsPost('preview',{subject:nw.subject,body:nw.body,slug:nw.blocks.length?'':nw.slug,blocks:nw.blocks.length?nw.blocks:undefined}).then(d=>{ newsPrev=d.html||''; })
     .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
 function newsTest(){ if(!nw.subject.trim()){ newsMsg='A subject first.'; draw(); return; } newsBusy='test'; newsMsg=''; draw();
-  newsPost('test',{subject:nw.subject,body:nw.body,slug:nw.slug}).then(d=>{ newsMsg='Test sent to '+d.to+'.'; })
+  newsPost('test',{subject:nw.subject,body:nw.body,slug:nw.blocks.length?'':nw.slug,blocks:nw.blocks.length?nw.blocks:undefined}).then(d=>{ newsMsg='Test sent to '+d.to+'.'; })
     .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
 /* start it, then keep asking until it has gone */
 async function newsSend(retryId){
   if(!retryId){
-    if(!nw.subject.trim()||!nw.body.trim()){ newsMsg='A subject and some words first.'; draw(); return; }
+    if(!nw.subject.trim()||!(nw.body.trim()||nw.blocks.length)){ newsMsg='A subject and some words first.'; draw(); return; }
     const c=(news.classes||[]).find(x=>x.slug===nw.slug);
     if(!confirm(`Send "${nw.subject}" to everyone on the list who can be emailed${c?', except anyone already booked on '+c.whenTxt.split(',')[0]:''}?`)) return;
   }
   newsBusy='send'; newsMsg='Getting the list ready…'; draw();
   try{
-    let d=retryId?await newsPost('send',{id:retryId,retry:true}):await newsPost('send',{subject:nw.subject,body:nw.body,slug:nw.slug});
+    let d=retryId?await newsPost('send',{id:retryId,retry:true}):await newsPost('send',{subject:nw.subject,body:nw.body,slug:nw.blocks.length?'':nw.slug,blocks:nw.blocks.length?nw.blocks:undefined});
     for(let i=0;i<200 && (d.status==='adding'||d.status==='ready');i++){
       newsMsg=`Adding ${d.done} of ${d.total} to the send…`; draw();
       d=await newsPost('send',{id:d.id});
     }
-    if(d.status==='sent'){ newsMsg=`Sent to ${d.total-(d.fails||0)} people.${d.fails?' '+d.fails+' could not be added; the list below says who.':''}`; nw={subject:'',body:'',slug:'',auto:''}; newsPrev=''; }
+    if(d.status==='sent'){ newsMsg=`Sent to ${d.total-(d.fails||0)} people.${d.fails?' '+d.fails+' could not be added; the list below says who.':''}`; nw={subject:'',body:'',slug:'',auto:'',blocks:[]}; newsPrev=''; }
     else if(d.status==='sending') newsMsg='It is already on its way.';
     else newsMsg=d.error||'It did not go. Try again from the list of sends.';
   }catch(e){ newsMsg=e.message; }
@@ -12039,8 +12106,11 @@ function newsHTML(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:13px">About</span>
       ${chip('','Nothing in particular')}${cls.map(c=>chip(c.slug,c.whenTxt.split(',')[0]+(/all levels/i.test(c.title||'')?'':' · '+c.title))).join('')}</div>
     <input class="input" style="margin-top:12px" placeholder="Subject" value="${esc(nw.subject)}" oninput="nw.subject=this.value">
-    <textarea class="input" style="margin-top:10px;min-height:200px;resize:vertical" placeholder="What you want to say. A blank line starts a new paragraph."
-      oninput="nw.body=this.value">${esc(nw.body)}</textarea>
+    ${nw.blocks.length?nw.blocks.map(nbSectionHTML).join(''):`<textarea class="input" style="margin-top:10px;min-height:200px;resize:vertical" placeholder="What you want to say. A blank line starts a new paragraph."
+      oninput="nw.body=this.value">${esc(nw.body)}</textarea>`}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:12px"><span class="muted" style="font-size:12.5px">${nw.blocks.length?'Add a section':'Or build it from sections'}</span>
+      ${Object.keys(NB_KIND).map(t=>`<button class="btn btn-secondary btn-sm" onclick="nbAdd('${t}')">+ ${esc(NB_KIND[t])}</button>`).join('')}
+      ${nw.blocks.length?'':`<button class="btn btn-secondary btn-sm" onclick="nbStarter()">Start from the sample layout</button>`}</div>
     <p class="muted" style="font-size:12.5px;margin:8px 0 0">Each email opens "Hi" and their first name, and ends with an unsubscribe link.${nw.slug?' The class, its time, price and places left go in a box with a Book button, and anyone already booked on it is left out.':''}</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
       <button class="btn btn-secondary btn-sm" onclick="newsPreview()" ${newsBusy?'disabled':''}>${newsBusy==='prev'?'Loading…':'Preview'}</button>

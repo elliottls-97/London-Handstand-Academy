@@ -978,22 +978,67 @@ function newsParas(body) {
   return String(body || '').replace(/\r/g, '').split(/\n\s*\n/).map(t => t.trim()).filter(Boolean).slice(0, 40)
     .map(t => esc(t).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" style="color:#006663;font-weight:600">$1</a>').replace(/\n/g, '<br>'));
 }
-async function newsRender({ subject, body, slug }, test) {
-  let w = null;
-  if (slug) w = ((await getSetting('workshops')) || {})[slug] || null;
-  const left = w ? Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${slug}`)) || []).length) : 0;
-  /* the editorial template (14 Oct 2026): the words in a white panel under
-     the subject in two tones, and a class, when there is one, in the dark
-     panel with its date, places and a Book button */
-  return richEmail({ title: String(subject || '').slice(0, 150), preheader: String(body || '').replace(/\s+/g, ' ').slice(0, 110),
-    blocks: [
-      { t: 'card', head: String(subject || '').slice(0, 150), greeting: test ? test.first : '{{{contact.first_name|there}}}', paras: newsParas(body) },
-      w ? { t: 'dark', kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
-        card: { kicker: (Number(w.places) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
-          line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
-        btn: { label: 'Book your place', sub: /all levels/i.test(w.title || '') ? 'All levels · 90 minutes' : '', href: newsClassHref(w, slug) } } : null,
-    ],
-    sign: 'See you soon, Elliott',
+/* ── a newsletter built from sections (14 Oct 2026) ──────────────────
+   The dashboard's editor sends a list of sections; each is checked here
+   and drawn by the same builder as every other editorial email. Photos
+   are a still from one of the drill films or a photo already on the site,
+   never an address typed in. Reviews are the Google ones, word for word. */
+const NEWS_PHOTOS = ['class-group-overgravity.jpg', 'hero-image.jpg', 'workshop-big-group-handstand-pic.jpg', 'coach-elliott-handstand-image.jpg',
+  'latest-workshop-group-handstand-picture.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg'];
+const NEWS_REVIEWS = [
+  { text: 'Really enjoyed the handstand workshop with Elliott and Suryava. The group was small, only 6 or 7 people so had plenty of attention from the two coaches. Learned some new useful techniques to improve my handstands and am looking forward to the next workshop.', by: 'Kate, Google review' },
+  { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
+  { text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
+];
+const NEWS_LINKS = { app: ['/lha-app.html?ref=newsletter', 'Open the app'], class: ['/handstand-class?src=newsletter#book', 'Book a class'],
+  coaching: ['/?src=newsletter#coaching', 'See coaching'], session: ['/session?src=newsletter', 'Book a 1-2-1'], call: ['/call', 'Book a free call'] };
+const STREAM_UID = /^[a-f0-9]{32}$/;
+function newsPhoto(x) {
+  if (x && STREAM_UID.test(String(x.uid || ''))) return filmStillOf(x.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)));
+  if (x && NEWS_PHOTOS.includes(String(x.photo || ''))) return `${SITE}/assets/site/${x.photo}`;
+  return '';
+}
+const filmStillOf = (uid, sec, h = 600) => `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/thumbnails/thumbnail.jpg?time=${sec}s&height=${h}`;
+const newsBtn = x => { const L = NEWS_LINKS[x && x.link]; if (!L) return undefined;
+  return { label: String((x.label || L[1])).slice(0, 40), sub: String(x.sub || '').slice(0, 50), href: SITE + L[0] }; };
+const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+async function newsBlocks(list, first, classOf) {
+  const out = []; let greeted = false;
+  for (const b of (Array.isArray(list) ? list : []).slice(0, 14)) {
+    if (!b || typeof b !== 'object') continue;
+    if (b.t === 'hero') out.push({ t: 'hero', img: newsPhoto(b), alt: str(b.alt || b.head, 120), kicker: str(b.kicker, 60), head: str(b.head, 120), btn: newsBtn(b) });
+    else if (b.t === 'text' || b.t === 'points' || b.t === 'steps') {
+      const c = { t: 'card', kicker: str(b.kicker, 60), head: str(b.head, 120), paras: newsParas(b.body) };
+      if (!greeted) { c.greeting = first; greeted = true; }
+      if (b.t === 'points') c.points = (Array.isArray(b.points) ? b.points : []).slice(0, 4).filter(p => p && p.text)
+        .map(p => [esc(str(p.icon, 3)) || '&#10003;&#65038;', esc(str(p.text, 50))]);
+      if (b.t === 'steps' && STREAM_UID.test(String(b.uid || ''))) c.steps = (Array.isArray(b.items) ? b.items : []).slice(0, 5).filter(x => x && x.title)
+        .map(x => ({ img: filmStillOf(b.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)), 300), title: str(x.title, 60), text: str(x.text, 160) }));
+      c.btn = newsBtn(b);
+      out.push(c);
+    } else if (b.t === 'class') { const k = await classOf(b.slug); if (k) out.push(k); }
+    else if (b.t === 'quote' && NEWS_REVIEWS[Number(b.i) || 0]) out.push(Object.assign({ t: 'quote' }, NEWS_REVIEWS[Number(b.i) || 0]));
+    else if (b.t === 'button' && newsBtn(b)) out.push({ t: 'card', btn: newsBtn(b) });
+  }
+  return out;
+}
+async function newsRender({ subject, body, slug, blocks }, test) {
+  const all = (await getSetting('workshops')) || {};
+  /* a class, from the dashboard's list: its date, places and price */
+  const classOf = async sl => {
+    const w = sl ? all[String(sl).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24)] : null; if (!w) return null;
+    const left = Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length);
+    return { t: 'dark', kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
+      card: { kicker: (Number(w.places) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
+        line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
+      btn: { label: 'Book your place', sub: /all levels/i.test(w.title || '') ? 'All levels · 90 minutes' : '', href: newsClassHref(w, w.slug) } };
+  };
+  const first = test ? test.first : '{{{contact.first_name|there}}}';
+  /* the sections the editor sends, or the one box of words it used to */
+  const list = Array.isArray(blocks) && blocks.length ? await newsBlocks(blocks, first, classOf)
+    : [{ t: 'card', head: String(subject || '').slice(0, 150), greeting: first, paras: newsParas(body) }, slug ? await classOf(slug) : null];
+  return richEmail({ title: String(subject || '').slice(0, 150), preheader: String((blocks && blocks.find && (blocks.find(b => b && b.body) || {}).body) || body || '').replace(/\s+/g, ' ').slice(0, 110),
+    blocks: list, sign: 'See you soon, Elliott',
     why: 'You are getting this because you asked for London Handstand Academy class dates and training notes.',
     unsub: test ? SITE + '/#unsubscribe-preview' : '{{{RESEND_UNSUBSCRIBE_URL}}}' });
 }
@@ -6121,15 +6166,18 @@ const handle = async (request) => {
       let rec;
       if (!body.id) {
         const subject = String(body.subject || '').trim().slice(0, 150), text = String(body.body || '').slice(0, 8000);
-        const slug = body.slug ? wsSlug(body.slug) : '';
-        if (!subject || !text.trim()) return json({ error: 'A subject and some words first.' }, 400);
+        if (Array.isArray(body.blocks) && JSON.stringify(body.blocks).length > 40000) return json({ error: 'That newsletter is too long. Take out a section or two.' }, 400);
+        const blocks = Array.isArray(body.blocks) ? body.blocks.slice(0, 14) : null;
+        const cls = blocks ? (blocks.find(b => b && b.t === 'class' && b.slug) || {}).slug : '';
+        const slug = body.slug ? wsSlug(body.slug) : cls ? wsSlug(cls) : '';
+        if (!subject || !(text.trim() || (blocks && blocks.length))) return json({ error: 'A subject and some words first.' }, 400);
         const sy = await newsSync();
         if (!sy.ok) return json({ error: sy.why }, 502);
         const { who } = await newsWho(slug);
         if (!who.length) return json({ error: 'Nobody to send it to.' }, 400);
         const seg = await rsApi('/segments', 'POST', { name: `LHA ${new Date().toISOString().slice(0, 10)} ${subject}`.slice(0, 90) });
         if (!seg.ok || !seg.data.id) return json({ error: rsWhy(seg) }, 502);
-        rec = { id: 'n' + newId(), at: Date.now(), by: await me(), subject, body: text, slug, seg: seg.data.id,
+        rec = { id: 'n' + newId(), at: Date.now(), by: await me(), subject, body: text, blocks: blocks || undefined, slug, seg: seg.data.id,
           todo: who.map(x => [x.e, x.n, sy.have.has(x.e) ? 1 : 0]), total: who.length, i: 0, fails: [], status: 'adding' };
         await changeSetting('newssends', cur => [rec].concat(Array.isArray(cur) ? cur : []).slice(0, 30));
         return json({ id: rec.id, status: rec.status, done: 0, total: rec.total });
