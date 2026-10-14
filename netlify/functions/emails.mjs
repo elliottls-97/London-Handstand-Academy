@@ -821,7 +821,7 @@ const TIP_LOOK = {
   1: { kicker: 'Day 1 · Wrists first', img: filmStill('a7cd457020f580093be946524a84c3af', 3), alt: 'Wrist circles on the mat',
        points: [['2', 'Two minutes,<br>every session'], ['&#10003;&#65038;', 'At the top of<br>every session'], ['&#8635;&#65038;', 'A mobility day<br>for the off days'], ['&pound;0', 'Free in<br>Foundations']] },
   2: { kicker: 'Day 2 · The way up', img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5), alt: 'Chest to wall handstand, pushing the floor away',
-       steps: [{ img: filmStill('ae64c76e183bb5191aaf6856240a3eab', 4, 300), title: 'The chair assisted handstand', text: 'Feet on a box or chair, hips over shoulders, shoulders over hands. Get used to being upside down.' },
+       steps: [{ img: `${SITE}/assets/email/l-handstand-stack.jpg`, alt: 'L shaped handstand on a box, a green line through hands, shoulders and hips', title: 'The chair assisted handstand', text: 'Feet on a box or chair, hips over shoulders, shoulders over hands. Get used to being upside down.' },
                { img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6, 300), title: 'Wall walks', text: 'Walk the feet up and the hands in, then back down with control.' },
                { img: filmStill(BAILOUT, 7, 300), title: 'Learn to fall', text: 'Chest to wall bailouts, until coming down is something you do on purpose.' },
                { img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5, 300), title: 'Chest to wall handstand', text: 'All the way in. Push the floor away and hold.' }] },
