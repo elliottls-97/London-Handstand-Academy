@@ -81,7 +81,7 @@ create table if not exists cycles (
 create table if not exists submissions (
   id          uuid primary key default gen_random_uuid(),
   email       text not null references accounts(email) on delete cascade,
-  kind        text not null check (kind in ('assessment','test')),
+  kind        text not null check (kind in ('assessment','test','checkpoint')),
   cycle       int not null default 1,
   numbers     jsonb not null default '{}'::jsonb,
   clips       jsonb not null default '[]'::jsonb,
@@ -166,3 +166,8 @@ alter table settings     enable row level security;
 -- of its own kind, and a database made before it refuses to store one.
 -- alter table codes drop constraint codes_kind_check;
 -- alter table codes add constraint codes_kind_check check (kind in ('login','reset','welcome'));
+
+-- 14 Oct 2026: check point films are submissions of kind 'checkpoint', and
+-- the live table still refused them. Run once on a database made before:
+-- alter table submissions drop constraint submissions_kind_check;
+-- alter table submissions add constraint submissions_kind_check check (kind in ('assessment','test','checkpoint'));
