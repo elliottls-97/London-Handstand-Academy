@@ -482,7 +482,7 @@
     <div class="panel stage-panel">
       <div class="stage-wrap" id="stageWrap">
         <canvas id="stage" width="1280" height="720"></canvas>
-        <div class="empty-msg" id="emptyMsg">Add one or more client clips to begin</div>
+        <div class="empty-msg" id="emptyMsg">Add client clips or photos to begin</div>
       </div>
 
       <div class="row nowrap" style="margin-top:8px;">
@@ -535,10 +535,10 @@
     <div class="panel">
       <h2>Clips</h2>
       <div class="row">
-        <input type="file" id="fileInput" accept="video/*" multiple>
+        <input type="file" id="fileInput" accept="video/*,image/*" multiple>
       </div>
       <div class="clip-list" id="clipList">
-        <div class="clip-empty" id="clipEmpty">No clips yet. Add one or more videos above.</div>
+        <div class="clip-empty" id="clipEmpty">No clips yet. Add videos or photos above.</div>
       </div>
       <div class="row" style="margin-top:6px;">
         <label><input type="checkbox" id="showTitleToggle" checked> Show clip title on video</label>
@@ -684,6 +684,10 @@
   srcVideo.muted = true;
   srcVideo.playsInline = true;
 
+  // A photo in the clip list is drawn from here instead of the video
+  const srcImg = new Image();
+  let showingImage = false;
+
   // Hidden webcam video
   const camVideo = document.createElement('video');
   camVideo.muted = true;
@@ -760,7 +764,8 @@
       clips.push({
         id: 'c' + Date.now() + Math.random().toString(36).slice(2, 7),
         url: URL.createObjectURL(file),
-        title: file.name.replace(/\.[^.]+$/, '')
+        title: file.name.replace(/\.[^.]+$/, ''),
+        kind: /^image\//.test(file.type) || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(file.name) ? 'image' : 'video'
       });
     });
     renderClipList();
@@ -816,6 +821,21 @@
     if (idx < 0 || idx >= clips.length) return;
     activeClipIndex = idx;
     srcVideo.pause();
+    if (clips[idx].kind === 'image') {
+      showingImage = true;
+      srcImg.onload = () => {
+        if (clips[activeClipIndex] && clips[activeClipIndex].url === srcImg.src) mediaReady(srcImg.naturalWidth, srcImg.naturalHeight, true);
+      };
+      srcImg.onerror = () => {
+        videoLoaded = false;
+        emptyMsg.textContent = 'That photo would not open. An iPhone HEIC photo opens in Safari only: in Chrome, export it as a JPEG first.';
+        emptyMsg.style.display = 'block';
+      };
+      srcImg.src = clips[idx].url;
+      renderClipList();
+      return;
+    }
+    showingImage = false;
     /* A clip sent in by a client comes from Cloudflare, not from a file on
        this Mac. Drawing a cross-origin frame onto the canvas taints it and
        every one of getImageData, captureStream and the whole recorder then
@@ -839,6 +859,7 @@
     if (clips.length === 0) {
       activeClipIndex = -1;
       videoLoaded = false;
+      showingImage = false;
       srcVideo.removeAttribute('src');
       srcVideo.load();
       emptyMsg.style.display = 'block';
@@ -863,8 +884,13 @@
 
   // ---------- Video load ----------
   srcVideo.addEventListener('loadedmetadata', () => {
-    srcW = srcVideo.videoWidth || 1280;
-    srcH = srcVideo.videoHeight || 720;
+    if (showingImage) return;
+    mediaReady(srcVideo.videoWidth || 1280, srcVideo.videoHeight || 720, false);
+  });
+
+  function mediaReady(w, h, isImage) {
+    srcW = w;
+    srcH = h;
 
     // Resizing the annotation canvas also clears last clip's marks, which is what we want
     annotationCanvas.width = srcW;
@@ -882,14 +908,18 @@
     zoomSlider.value = 100;
     zoomVal.textContent = '100%';
 
-    seek.max = srcVideo.duration;
+    // a photo has no time: the transport greys out rather than pretending
+    [seek, playPauseBtn, stepBackBtn, stepFwdBtn].forEach(el => { el.disabled = isImage; });
+    seek.max = isImage ? 0 : srcVideo.duration;
     seek.value = 0;
-    durTimeEl.textContent = fmtTime(srcVideo.duration);
-    curTimeEl.textContent = '0:00';
+    durTimeEl.textContent = isImage ? 'Photo' : fmtTime(srcVideo.duration);
+    curTimeEl.textContent = isImage ? '' : '0:00';
+    playPauseBtn.textContent = '▶';
     videoLoaded = true;
+    emptyMsg.textContent = 'Add client clips or photos to begin';
     emptyMsg.style.display = 'none';
-    srcVideo.currentTime = 0;
-  });
+    if (!isImage) srcVideo.currentTime = 0;
+  }
 
   // ---------- Output framing (orientation) ----------
   function computeOutputSize() {
@@ -973,29 +1003,29 @@
   srcVideo.addEventListener('ended', () => { playPauseBtn.textContent = '▶'; });
 
   playPauseBtn.addEventListener('click', () => {
-    if (!videoLoaded) return;
+    if (!videoLoaded || showingImage) return;
     if (srcVideo.paused) srcVideo.play(); else srcVideo.pause();
   });
 
   const FRAME_STEP = 1 / 30;
   stepBackBtn.addEventListener('click', () => {
-    if (!videoLoaded) return;
+    if (!videoLoaded || showingImage) return;
     srcVideo.pause();
     srcVideo.currentTime = Math.max(0, srcVideo.currentTime - FRAME_STEP);
   });
   stepFwdBtn.addEventListener('click', () => {
-    if (!videoLoaded) return;
+    if (!videoLoaded || showingImage) return;
     srcVideo.pause();
     srcVideo.currentTime = Math.min(srcVideo.duration, srcVideo.currentTime + FRAME_STEP);
   });
 
   seek.addEventListener('input', () => {
-    if (!videoLoaded) return;
+    if (!videoLoaded || showingImage) return;
     srcVideo.currentTime = parseFloat(seek.value);
   });
 
   document.addEventListener('keydown', (e) => {
-    if (!videoLoaded) return;
+    if (!videoLoaded || showingImage) return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
     if (e.code === 'Space') {
       e.preventDefault();
@@ -1702,7 +1732,7 @@
       ctx.fillRect(0, 0, stage.width, stage.height);
 
       const vp = getViewport();
-      ctx.drawImage(srcVideo, panX, panY, vp.viewW, vp.viewH, vp.dx, vp.dy, vp.dw, vp.dh);
+      ctx.drawImage(showingImage ? srcImg : srcVideo, panX, panY, vp.viewW, vp.viewH, vp.dx, vp.dy, vp.dw, vp.dh);
       ctx.drawImage(annotationCanvas, panX, panY, vp.viewW, vp.viewH, vp.dx, vp.dy, vp.dw, vp.dh);
       drawTitleCaption();
       drawCamBubble();
