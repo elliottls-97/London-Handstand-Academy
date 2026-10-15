@@ -305,13 +305,31 @@ function wireVideo(key,orig){
   const r=$('#resetV'); if(r) r.addEventListener('click',()=>{ if(E.v){ delete E.v[key]; if(!Object.keys(E.v).length) delete E.v; }
     site&&site.apply(E); queueSave(); drawPicked(); drawChanges(); });
 }
+/* the film in 50MB pieces, each tried again after a pause from where
+   Cloudflare says it got to (15 Oct 2026), as the dashboard sends films */
+function sendPieces(file,d,onPct){
+  const PIECE=50*1024*1024;
+  const tus=(method,headers,body)=>fetch(d.tusURL,{method,headers:Object.assign({'Tus-Resumable':'1.0.0'},headers||{}),body});
+  const where=()=>tus('HEAD').then(r=>Number(r.headers.get('Upload-Offset'))||0);
+  const send=(at,tries)=>{
+    if(at>=file.size){ onPct(100); return Promise.resolve(d.uid); }
+    const piece=file.slice(at,Math.min(file.size,at+PIECE));
+    return tus('PATCH',{'Upload-Offset':String(at),'Content-Type':'application/offset+octet-stream'},piece)
+      .then(r=>{ if(!r.ok) throw new Error('The upload stopped ('+r.status+')'); return Number(r.headers.get('Upload-Offset'))||(at+piece.size); })
+      .then(next=>{ onPct(Math.round(next/file.size*100)); return send(next,0); },
+        e=>{ const m=String(e&&e.message||e);
+        if(tries>=3) return Promise.reject(/Failed to fetch|Load failed|NetworkError/i.test(m) ? 'The upload stopped at '+Math.round(at/file.size*100)+'%. Check the connection and try again.' : m);
+        return new Promise(r=>setTimeout(r,1500*(tries+1))).then(()=>where().catch(()=>at)).then(a=>send(a,tries+1)); });
+  };
+  return send(0,0);
+}
 function uploadVideo(file,key,was){
   const out=t=>{ const p=$('#vprog'); if(p) p.textContent=t; };
   if(file.size>190*1024*1024){ toast('Under 190 MB, please. Trim it or export it smaller.'); return; }
   out('Opening the upload…');
-  fetch('/api/app/upload',{method:'POST',headers:hdr(),body:JSON.stringify({size:file.size,kind:'website'})})
+  fetch('/api/app/upload',{method:'POST',headers:hdr(),body:JSON.stringify({size:file.size,kind:'website',tus:true})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not start the upload')))
-    .then(d=>new Promise((ok,no)=>{
+    .then(d=>d.tusURL ? sendPieces(file,d,p=>out('Uploading… '+p+'%')) : new Promise((ok,no)=>{
       if(!d.uploadURL) return no('Stream did not give an upload address');
       const x=new XMLHttpRequest(), fd=new FormData(); fd.append('file',file);
       x.upload.onprogress=e=>{ if(e.lengthComputable) out('Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };

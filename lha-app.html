@@ -5371,19 +5371,7 @@ function cpSendClip(k,file){
   if(cpUpBusy) return;
   if(file.size > VID_MAX){ vidOffer(file, t=>cpSay(k,t)).then(f=>{ if(f) cpSendClip(k,f); }).catch(e=>cpSay(k,String(e))); return; }
   cpUpBusy=k; cpSay(k,'Getting ready…');
-  fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
-    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
-    .then(d=>new Promise((resolve,reject)=>{
-      const fd=new FormData(); fd.append('file',file);
-      const xhr=new XMLHttpRequest();
-      xhr.open('POST',d.uploadURL);
-      xhr.upload.onprogress=e=>{ if(e.lengthComputable)
-        cpSay(k,'Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };
-      xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid)
-                    : reject('Upload failed ('+xhr.status+')');
-      xhr.onerror=()=>reject('Upload failed, check your signal');
-      xhr.send(fd);
-    }))
+  streamSend(file, p=>cpSay(k,'Uploading… '+p+'%'))
     .then(uid=>{
       /* the number to attach is whatever the slider is holding, then whatever
          was last logged — the old input id this read from no longer exists, so
@@ -8551,25 +8539,53 @@ function vidOffer(file, say){
   });
 }
 
+/* ── one way up to Cloudflare for every clip the app sends ─────────
+   15 Oct 2026. Each sender had its own single long upload, which failed
+   with "check your signal" at the first wobble, and on mobile data that is
+   often. Now it goes in 10MB pieces when the server opens one, each tried
+   again after a pause from where Cloudflare says it got to, so a dropped
+   connection costs seconds, not the clip. A server that only gives one
+   upload address still works the old way. Resolves the Stream uid. */
+const STREAM_PIECE=10*1024*1024;
+function streamGone(m){ return /Failed to fetch|Load failed|NetworkError|network/i.test(String(m||'')); }
+function streamSend(file, onPct){
+  return fetch(AUTH.upload,{method:'POST',headers:authed(),body:JSON.stringify({size:file.size, tus:true})})
+    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
+    .then(d=>d.tusURL ? streamPieces(file, d, onPct) : new Promise((resolve,reject)=>{
+      const fd=new FormData(); fd.append('file',file);
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST',d.uploadURL);
+      xhr.upload.onprogress=e=>{ if(e.lengthComputable && onPct) onPct(Math.round(e.loaded/e.total*100)); };
+      xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid) : reject('Upload failed ('+xhr.status+')');
+      xhr.onerror=()=>reject('The upload did not go. Check you are online, then send it again.');
+      xhr.send(fd);
+    }));
+}
+function streamPieces(file, d, onPct){
+  const tus=(method,headers,body)=>fetch(d.tusURL,{method,headers:Object.assign({'Tus-Resumable':'1.0.0'},headers||{}),body});
+  const where=()=>tus('HEAD').then(r=>Number(r.headers.get('Upload-Offset'))||0);
+  const send=(at,tries)=>{
+    if(at>=file.size){ if(onPct) onPct(100); return Promise.resolve(d.uid); }
+    const piece=file.slice(at,Math.min(file.size,at+STREAM_PIECE));
+    /* the retry answers this piece only: the next piece is sent from the
+       success branch, so its failures are its own and not counted here */
+    return tus('PATCH',{'Upload-Offset':String(at),'Content-Type':'application/offset+octet-stream'},piece)
+      .then(r=>{ if(!r.ok) throw new Error('Upload failed ('+r.status+')'); return Number(r.headers.get('Upload-Offset'))||(at+piece.size); })
+      .then(next=>{ if(onPct) onPct(Math.round(next/file.size*100)); return send(next,0); },
+        e=>{ const m=String(e&&e.message||e);
+          if(tries>=4) return Promise.reject(streamGone(m) ? 'The upload stopped at '+Math.round(at/file.size*100)+'%. Check you are online, then send it again.' : m);
+          return new Promise(r=>setTimeout(r,1500*(tries+1))).then(()=>where().catch(()=>at)).then(a=>send(a,tries+1)); });
+  };
+  return send(0,0);
+}
+
 /* one uploader, three callers: the chat, the free assessment, and the
    two-week test. The file goes phone → Cloudflare directly either way. */
 function uploadClip(file, say){
   say=say||upSay;
   if(file.size > VID_MAX) return vidOffer(file, say).then(f=>f ? uploadClip(f, say) : Promise.reject(''));
   say('Getting ready…');
-  return fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
-    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
-    .then(d=>new Promise((resolve,reject)=>{
-      const fd=new FormData(); fd.append('file',file);
-      const xhr=new XMLHttpRequest();
-      xhr.open('POST',d.uploadURL);
-      xhr.upload.onprogress=e=>{ if(e.lengthComputable)
-        say('Uploading… '+Math.round(e.loaded/e.total*100)+'%'); };
-      xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid)
-                    : reject('Upload failed ('+xhr.status+')');
-      xhr.onerror=()=>reject('Upload failed, check your signal');
-      xhr.send(fd);
-    }));
+  return streamSend(file, p=>say('Uploading… '+p+'%'));
 }
 
 /* ── the free assessment ───────────────────────────────────────────
@@ -9111,19 +9127,7 @@ function sendClip(file){
   if(file.size > VID_MAX){ vidOffer(file, upSay).then(f=>{ if(f) sendClip(f); }).catch(e=>upSay(String(e))); return; }
   upBusy=true; upPct=0; upSay('Getting ready…');
 
-  fetch(AUTH.upload,{method:'POST',headers:authed(),body:'{}'})
-    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
-    .then(d=>new Promise((resolve,reject)=>{
-      const fd=new FormData(); fd.append('file',file);
-      const xhr=new XMLHttpRequest();
-      xhr.open('POST',d.uploadURL);
-      xhr.upload.onprogress=e=>{ if(e.lengthComputable){
-        upPct=Math.round(e.loaded/e.total*100); upSay('Uploading… '+upPct+'%'); } };
-      xhr.onload=()=> (xhr.status>=200&&xhr.status<300) ? resolve(d.uid)
-                    : reject('Upload failed ('+xhr.status+')');
-      xhr.onerror=()=>reject('Upload failed, check your signal');
-      xhr.send(fd);
-    }))
+  streamSend(file, p=>{ upPct=p; upSay('Uploading… '+p+'%'); })
     .then(uid=>{
       upSay('Sending…');
       const text=(($('#askIn')||{}).value||'').trim();

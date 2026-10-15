@@ -8887,10 +8887,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        more. Anything bigger goes up in pieces (tus), from the browser
        straight to Cloudflare as before; this only opens the upload. */
     const size = Math.floor(Number(body.size) || 0);
-    /* every coach film goes up in pieces (15 Oct 2026): one long POST
-       failed on good wifi with nothing to say why, and a piece can be
-       retried where one POST cannot */
-    if (coachU && size > 0) {
+    /* In pieces whenever the page asks for it (15 Oct 2026): one long POST
+       failed on good wifi with nothing to say why, and a piece can be tried
+       again where one POST cannot. Only on request, so a page that does not
+       know how (an old copy of the app on a phone) keeps the single upload
+       address it understands. Big coach films always went this way. */
+    if (size > 0 && (body.tus === true || (coachU && size > 190 * 1024 * 1024))) {
       const b64 = v => Buffer.from(String(v)).toString('base64');
       try {
         const res = await fetch(

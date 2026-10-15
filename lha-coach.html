@@ -10533,21 +10533,22 @@ function fxCoverImg(){
 }
 /* the same direct upload every clip uses */
 function fxUpload(file, onPct, kind){
-  return fetch(APP+'/upload',{method:'POST',headers:hdr(),body:JSON.stringify({kind:kind||'library', size:file.size})})
+  return fetch(APP+'/upload',{method:'POST',headers:hdr(),body:JSON.stringify({kind:kind||'library', size:file.size, tus:true})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
     .then(d=>d.tusURL ? fxUploadTus(file, d, onPct) : new Promise((res,rej)=>{
       const fd=new FormData(); fd.append('file',file);
       const x=new XMLHttpRequest(); x.open('POST',d.uploadURL);
       x.upload.onprogress=e=>{ if(e.lengthComputable&&onPct) onPct(Math.round(e.loaded/e.total*100)); };
       x.onload=()=> (x.status>=200&&x.status<300)?res(d.uid):rej('Upload failed ('+x.status+')');
-      x.onerror=()=>rej('Upload failed, check your signal');
+      x.onerror=()=>rej('The upload did not go. Try again.');
       x.send(fd);
     }));
 }
 /* Over 200MB Cloudflare will not take a film in one POST, so it goes up
    in 50MB pieces (the tus protocol), each one saying where it starts.
-   A piece that fails is tried twice more from where Cloudflare says it
-   got to, so a wobble on the wifi does not start the whole film again. */
+   A piece that fails is tried three more times, after a pause, from where
+   Cloudflare says it got to, so a wobble on the wifi does not start the
+   whole film again. Every coach upload goes this way now (15 Oct 2026). */
 function fxUploadTus(file, d, onPct){
   const PIECE=50*1024*1024;
   const tus=(method, extra)=>fetch(d.tusURL, Object.assign({method,
@@ -10556,13 +10557,17 @@ function fxUploadTus(file, d, onPct){
   const send=(at, tries)=>{
     if(at>=file.size){ if(onPct) onPct(100); return Promise.resolve(d.uid); }
     const piece=file.slice(at, Math.min(file.size, at+PIECE));
+    /* the retry answers this piece only: the next piece is sent from the
+       success branch, so its failures are its own and not counted here */
     return tus('PATCH',{headers:{'Upload-Offset':String(at),'Content-Type':'application/offset+octet-stream'}, body:piece})
-      .then(r=>{ if(!r.ok) throw new Error('Upload failed ('+r.status+')');
-        const next=Number(r.headers.get('Upload-Offset'))||(at+piece.size);
-        if(onPct) onPct(Math.round(next/file.size*100));
-        return send(next, 0); })
-      .catch(e=> tries<2 ? where().then(at2=>send(at2, tries+1))
-        : Promise.reject(String(e&&e.message||e)==='Failed to fetch' ? 'The upload stopped at '+Math.round(at/file.size*100)+'%. Try again.' : String(e&&e.message||e)));
+      .then(r=>{ if(!r.ok) throw new Error('Upload failed ('+r.status+')'); return Number(r.headers.get('Upload-Offset'))||(at+piece.size); })
+      .then(next=>{ if(onPct) onPct(Math.round(next/file.size*100)); return send(next, 0); },
+        e=>{
+        const m=String(e&&e.message||e);
+        if(tries>=3) return Promise.reject(/Failed to fetch|Load failed|NetworkError/i.test(m) ? 'The upload stopped at '+Math.round(at/file.size*100)+'%. Try again.' : m);
+        /* a pause, then ask Cloudflare where it got to; if even that fails, carry on from here */
+        return new Promise(r=>setTimeout(r,1500*(tries+1))).then(()=>where().catch(()=>at)).then(at2=>send(at2, tries+1));
+      });
   };
   return send(0, 0);
 }
