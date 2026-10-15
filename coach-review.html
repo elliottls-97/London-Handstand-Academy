@@ -206,6 +206,8 @@
   button:hover { border-color: var(--forest); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
   button.icon-btn { padding: 6px 9px; }
+  /* the clip's sound is on: the button says so */
+  #soundBtn.on { background: rgba(0,102,99,.12); border-color: rgba(0,102,99,.35); }
   button.active {
     background: var(--forest);
     border-color: var(--forest);
@@ -491,6 +493,7 @@
         <button id="playPause" class="primary icon-btn" title="Play / pause (space)">▶</button>
         <button id="stepFwd" class="icon-btn" title="Step forward one frame">⏭</button>
         <button id="nextClipBtn" class="icon-btn" title="Next clip">›</button>
+        <button id="soundBtn" class="icon-btn" title="You can't hear the clip. Click to hear it." aria-pressed="false" aria-label="Hear the clip">🔇</button>
         <span class="timecode" id="curTime">0:00</span>
         <input type="range" id="seek" min="0" max="100" value="0" step="0.01">
         <span class="timecode" id="durTime">0:00</span>
@@ -601,9 +604,9 @@
       </div>
       <div class="hint" id="captionsHint">Burned into the video as you talk. These share your microphone with the recorder, so if a take loses its sound, turn this off and try again.</div>
       <div class="row" style="margin-top:8px;">
-        <label><input type="checkbox" id="includeOrigAudio"> Include the clip's own audio</label>
+        <label><input type="checkbox" id="includeOrigAudio"> Put the clip's sound in the recording</label>
       </div>
-      <div class="hint">Leave off for silent phone clips. If on, wear headphones so your mic doesn't pick up echo.</div>
+      <div class="hint">Whether you hear it is the speaker button under the clip, off to start with. With it off you can still put the clip's sound in the recording without hearing it over yourself.</div>
       <div class="row" style="margin-top:10px;">
         <button id="recordBtn" class="record">● Record</button>
       </div>
@@ -714,6 +717,11 @@
   let audioCtx = null;
   let mixedDestNode = null;
   let srcAudioNode = null;
+  /* the clip's sound has two ways out: to your speakers (hearGain) and into
+     the recording (recGain), set apart so either can be off */
+  let hearGain = null, recGain = null;
+  let hearClip = false;
+  try { hearClip = localStorage.getItem('lhaReviewHear') === '1'; } catch (e) {}
   let isRecording = false;
   let pendingOrientation = false;
   let recordProblems = [];
@@ -1027,6 +1035,7 @@
   document.addEventListener('keydown', (e) => {
     if (!videoLoaded || showingImage) return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.code === 'KeyM') { e.preventDefault(); soundBtn.click(); return; }
     if (e.code === 'Space') {
       e.preventDefault();
       if (srcVideo.paused) srcVideo.play(); else srcVideo.pause();
@@ -1874,28 +1883,44 @@
       ac.createMediaStreamSource(new MediaStream([micTrack])).connect(mixedDestNode);
     }
 
-    if (includeOrigAudio.checked) {
-      // A muted element feeds silence into the graph, so it has to be unmuted
-      srcVideo.muted = false;
-      if (!srcAudioNode) {
-        try {
-          srcAudioNode = ac.createMediaElementSource(srcVideo);
-          srcAudioNode.connect(ac.destination); // so you can still hear the clip
-        } catch (e) {
-          // already wired up on a previous run, safe to ignore
-        }
-      }
-      if (srcAudioNode) srcAudioNode.connect(mixedDestNode);
-    } else {
-      srcVideo.muted = true;
-    }
+    clipSound();
+    if (recGain && !recGain.__toMix) { recGain.connect(mixedDestNode); recGain.__toMix = true; }
 
     return mixedDestNode.stream.getAudioTracks()[0] || null;
   }
 
-  includeOrigAudio.addEventListener('change', () => {
-    if (!includeOrigAudio.checked) srcVideo.muted = true;
+  /* Wire the clip's sound once, then just open and close the two gains.
+     Once an element feeds a MediaElementSource it no longer plays on its own,
+     so the speakers hear only what hearGain lets through. A muted element
+     feeds silence, so it is unmuted whenever either way out is open. */
+  function clipSound() {
+    const want = hearClip || includeOrigAudio.checked;
+    if (want && !srcAudioNode) {
+      try {
+        const ac = getAudioCtx();
+        srcAudioNode = ac.createMediaElementSource(srcVideo);
+        hearGain = ac.createGain(); recGain = ac.createGain();
+        srcAudioNode.connect(hearGain); hearGain.connect(ac.destination);
+        srcAudioNode.connect(recGain);
+        if (mixedDestNode) { recGain.connect(mixedDestNode); recGain.__toMix = true; }
+      } catch (e) { /* no Web Audio: the element plays as it is */ }
+    }
+    if (hearGain) hearGain.gain.value = hearClip ? 1 : 0;
+    if (recGain) recGain.gain.value = includeOrigAudio.checked ? 1 : 0;
+    srcVideo.muted = !want;
+    soundBtn.textContent = hearClip ? '🔊' : '🔇';
+    soundBtn.setAttribute('aria-pressed', hearClip ? 'true' : 'false');
+    soundBtn.title = hearClip ? 'You can hear the clip. Click to mute it.' : "You can't hear the clip. Click to hear it.";
+    soundBtn.classList.toggle('on', hearClip);
+  }
+  const soundBtn = document.getElementById('soundBtn');
+  soundBtn.addEventListener('click', () => {
+    hearClip = !hearClip;
+    try { localStorage.setItem('lhaReviewHear', hearClip ? '1' : '0'); } catch (e) {}
+    clipSound();
   });
+  includeOrigAudio.addEventListener('change', clipSound);
+  clipSound();
 
   recordBtn.addEventListener('click', async () => {
     if (!videoLoaded) {
