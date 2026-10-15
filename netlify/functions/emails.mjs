@@ -382,14 +382,16 @@ export const EMAILS = {
       "place",
       "price",
       "pair_line",
+      "early_line",
+      "coach_line",
       "link"
     ],
     "subject": "Still want a place? {title}, {when}",
     "title": "Your place is not held yet.",
     "paras": [
       "You started booking <b>{title}</b>, {when}{place}, and did not get to the end. No payment was taken and nothing is held for you, so if you want to come, the place is still open.",
-      "People leave the class with a handstand that has moved on in ninety minutes: a first hold against the wall, the first seconds of balance off it, or the next piece of the press. Two coaches and a small group, so you get seen. 5.0 on Google.",
-      "It takes a minute to book, card or Apple Pay, no account. {pair_line} If you have changed your mind, ignore this: there is one more short note in a few days, and that is all.",
+      "People leave the class with a handstand that has moved on in ninety minutes: a first hold against the wall, the first seconds of balance off it, or the next piece of the press. {coach_line} 5.0 on Google.",
+      "{early_line} It takes a minute to book, card or Apple Pay, no account. {pair_line} If you have changed your mind, ignore this: there is one more short note in a few days, and that is all.",
       "Any question, just reply."
     ],
     "footnote": "You are getting this because you began a booking on our site. There is no list to come off."
@@ -402,17 +404,39 @@ export const EMAILS = {
       "title",
       "when",
       "price",
+      "early_line",
       "link",
       "app_link"
     ],
     "subject": "Start upside down this week, with or without Saturday",
     "title": "Two ways to start.",
     "paras": [
-      "A few days ago you looked at <b>{title}</b>, {when}. Places are still open, and it is still the quickest way to a handstand that works: <a href=\"{link}\" style=\"color:#006663\">book your place, {price}</a>.",
+      "A few days ago you looked at <b>{title}</b>, {when}. Places are still open, and it is still the quickest way to a handstand that works: <a href=\"{link}\" style=\"color:#006663\">book your place, {price}</a>. {early_line}",
       "If Saturday is not going to happen, start at home instead. The Handstand Ladder is the path I take my clients down, in an app: six stages from your first wall hold to a freestanding press, with a film for every drill and a session built for the time you have. The first stage is free, no account needed.",
       "Either way, this is the last email about it. Any question, just reply."
     ],
     "footnote": "You are getting this because you began a booking on our site. Nothing more comes after this one."
+  },
+  "wsEarly": {
+    "name": "Workshop, the early price ends today",
+    "when": "On the last day of an early bird price, the morning run, to anyone who started booking and has no place",
+    "vars": [
+      "name",
+      "title",
+      "when",
+      "price",
+      "then",
+      "until",
+      "link"
+    ],
+    "subject": "{price} ends tonight: {title}, {when}",
+    "title": "The early price ends tonight.",
+    "paras": [
+      "You started booking <b>{title}</b>, {when}, and did not get to the end. The place is still open, and it is <b>{price}</b> until the end of today. From tomorrow it is {then}.",
+      "It takes a minute to book, card or Apple Pay, no account. If you have changed your mind, ignore this.",
+      "Any question, just reply."
+    ],
+    "footnote": "You are getting this because you began a booking on our site. There is no list to come off."
   },
   "wsThanks": {
     "name": "Workshop, the day after",
@@ -857,10 +881,22 @@ export function intentEmail(T, x, site) {
     blocks: [
       { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href, kicker: 'In person, London', head: T.title, btn: book },
       { t: 'card', greeting: x.first, paras: T.paras,
-        points: [['2', 'Two coaches,<br>a small group'], ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
-          [x.price === 'Free' ? '&pound;0' : escH(x.price), pair ? 'Both Saturdays,<br>' + pair : 'A place,<br>no account']] },
+        points: [x.coach && !/\band\b|&/.test(x.coach) ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group'],
+          ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
+          [x.price === 'Free' ? '&pound;0' : escH(x.price), x.early ? 'Until ' + escH(x.early.day) + ',<br>then ' + escH(x.early.then) : pair ? 'Both Saturdays,<br>' + pair : 'A place,<br>no account']] },
       { t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
       { t: 'card', btn: book },
+    ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
+/* the last day of an early bird price, to somebody who started booking:
+   the price, the hour it ends, the button. ctx as intentEmail, plus then */
+export function earlyEmail(T, x, site) {
+  const S = site || SITE;
+  const book = { label: 'Book your place, ' + x.price, sub: 'Until midnight tonight, then ' + x.then, href: `${S}/handstand-class?src=email#book` };
+  return richEmail({ title: T.title, preheader: `${x.price} until the end of today, then ${x.then}. ${x.when}.`,
+    blocks: [
+      { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href, kicker: 'Ends tonight', head: T.title, btn: book },
+      { t: 'card', greeting: x.first, paras: T.paras, btn: book },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 export function intent2Email(T, x, site) {

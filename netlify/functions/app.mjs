@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, afterClassEmail, nextStepEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -129,6 +129,27 @@ const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.st
    they paid (one date of a pair: the pair price less the kept date's own
    price). The coach can do either at any time, and choose the refund. */
 const WS_CUTOFF_H = 24;
+/* An early bird (15 Oct 2026). price is what a class costs now; early.then
+   is what it goes up to at early.until. The first request after that moment
+   writes the new price in, and the daily run reads it the same way, so every
+   reader of price (checkout, the pair price, the emails) is right without
+   knowing early birds exist. */
+const wsEarlyOn = w => !!(w && w.early && ms(w.early.until) > Date.now() && Number(w.early.then) > (Number(w.price) || 0));
+async function wsRoll() {
+  const due = x => x && x.early && x.early.until && ms(x.early.until) <= Date.now();
+  const all = (await getSetting('workshops').catch(() => null)) || {};
+  if (!Object.values(all).some(due)) return;
+  await changeSetting('workshops', cur => {
+    const c = cur || {}; let n = 0;
+    for (const w of Object.values(c)) if (due(w)) { if (Number(w.early.then) > 0) w.price = Math.round(Number(w.early.then)); delete w.early; n++; }
+    return n ? c : undefined;
+  });
+}
+/* the early bird, in words: "Sunday 18 October" */
+const wsEarlyDay = w => new Date(ms(w.early.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' });
+/* who coaches a date: empty is the usual two */
+const wsCoachLine = w => !w || !w.coach ? 'Two coaches and a small group, so you get seen.'
+  : /\band\b|&/.test(w.coach) ? `${w.coach}, and a small group, so you get seen.` : `A small group with ${w.coach}, so you get seen.`;
 const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/, '');
 /* "Saturday 10 October, 1:00 to 2:30pm", the way the class page says it.
    It said "at 13:00" with no end, in every email (8 Oct 2026). */
@@ -2856,6 +2877,8 @@ const handle = async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
   const db = store();
+  /* an early bird that has ended goes up before anything reads the price */
+  if (/^\/(workshop|coach\/workshops|coach\/emails)/.test(path)) await wsRoll().catch(() => {});
   /* ── the website's edits, as published ───────────────────────────
      Asked for by every page view, so it runs before anything else here and
      the CDN keeps the answer for a minute: a publish shows within that,
@@ -5906,7 +5929,9 @@ const handle = async (request) => {
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
     places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
-    desc: w.desc, who: w.who || '', film: w.film || '' });
+    desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '',
+    early: wsEarlyOn(w) ? { until: w.early.until, then: Number(w.early.then),
+      thenLabel: '£' + (Number(w.early.then) / 100).toFixed(2).replace(/\.00$/, ''), day: wsEarlyDay(w) } : null });
   if (path === '/workshops' && request.method === 'GET') {
     const all = (await getSetting('workshops')) || {};
     /* One booking list at a time, then the pair price: about two seconds,
@@ -6762,7 +6787,7 @@ const handle = async (request) => {
       const w = {
         slug, title: str(f.title, 80) || slug,
         when: whenMs ? new Date(whenMs).toISOString() : '',
-        place: str(f.place, 120), desc: str(f.desc, 600), who: str(f.who, 80),
+        place: str(f.place, 120), desc: str(f.desc, 600), who: str(f.who, 80), coach: str(f.coach, 60).trim(),
         /* on a rename the stored record is under the old slug, and reading
            the new one would quietly make the workshop free */
         price: owner ? Math.max(0, Math.round(Number(f.price) || 0))
@@ -6778,6 +6803,14 @@ const handle = async (request) => {
         live: owner ? !!f.live : !!(all[slug] || all[wsSlug(body.was || '')] || {}).live,
         createdAt: (all[slug] || {}).createdAt || Date.now(),
       };
+      /* the early bird is money, so the owner's; anyone else keeps what is stored.
+         It only stands while it is still to come and goes up, not down. */
+      {
+        const prevW = all[slug] || all[wsSlug(body.was || '')] || {};
+        const ef = owner ? f.early : prevW.early;
+        if (ef && ms(ef.until) > Date.now() && Math.round(Number(ef.then) || 0) > w.price)
+          w.early = { until: new Date(ms(ef.until)).toISOString(), then: Math.round(Number(ef.then)) };
+      }
       const was = wsSlug(body.was || '');
       if (was && was !== slug) {
         delete all[was];
@@ -7696,13 +7729,21 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const left = Number(w.places) ? Math.max(0, Number(w.places) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length) : 0;
     const me1 = String(clients()[await me()] || coaches()[await me()] || 'Elliott').split(' ')[0];
     const whenTxt = wsWhenTxt(w), price = Number(w.price) ? wsPounds(w.price) : 'Free';
+    /* an early bird shows as it will be sent; without one, the preview makes
+       one up a few days out so the early bird email can be read at all */
+    const eb = wsEarlyOn(w) ? { day: wsEarlyDay(w), then: wsPounds(w.early.then) }
+      : { day: new Date(Date.now() + 3 * 864e5).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }), then: wsPounds((Number(w.price) || 2500) + 500) };
+    const ebOn = wsEarlyOn(w) || key === 'wsEarly';
     const T = renderEmail(key, { name: esc(me1), title: esc(w.title), when: esc(whenTxt), day: esc(whenTxt.split(', ')[0]), place: w.place ? ', at ' + esc(w.place) : '',
-      price, pair_line: '', link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop`, session_line: '', review_line: '', app_line: '' }, Object.assign({}, saved, { [key]: o }));
+      price, pair_line: '', link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop`, session_line: '', review_line: '', app_line: '',
+      then: eb.then, until: eb.day, coach_line: wsCoachLine(w),
+      early_line: ebOn ? `It is ${price} until the end of ${eb.day}, then ${eb.then}.` : '' }, Object.assign({}, saved, { [key]: o }));
     const tip = /^tip(\d+)$/.exec(key);
     let html;
     if (tip) html = tipEmail(Number(tip[1]), T, me1, SITE);
-    else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
+    else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left, coach: w.coach || '', early: ebOn && wsEarlyOn(w) ? eb : null }, SITE);
     else if (key === 'wsIntent2') html = intent2Email(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
+    else if (key === 'wsEarly') html = earlyEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, then: eb.then, left }, SITE);
     else if (key === 'wsThanks' || key === 'wsOffer') {
       const P = { s60: '£80', s90: '£100' };
       const [d0, ...t0] = whenTxt.split(', ');

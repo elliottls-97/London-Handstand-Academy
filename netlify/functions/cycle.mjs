@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email } from './emails.mjs';
+import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -26,6 +26,20 @@ async function emailCopy(key, vars) {
 }
 
 const DAY = 24 * 60 * 60 * 1000;
+/* an early bird that has ended reads as the price it went up to, whether or
+   not the site has written it in yet (app.mjs wsRoll does that) */
+function wsSettle(all) {
+  for (const w of Object.values(all || {})) if (w && w.early && w.early.until && ms(w.early.until) <= Date.now()) {
+    if (Number(w.early.then) > 0) w.price = Math.round(Number(w.early.then)); delete w.early;
+  }
+  return all;
+}
+const wsPoundsC = p => '£' + (Number(p) / 100).toFixed(2).replace(/\.00$/, '');
+const wsEarlyDayC = w => new Date(ms(w.early.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' });
+const wsEarlyLine = w => w && w.early && Number(w.early.then) > (Number(w.price) || 0)
+  ? `It is ${wsPoundsC(w.price)} until the end of ${wsEarlyDayC(w)}, then ${wsPoundsC(w.early.then)}.` : '';
+const wsCoachLineC = w => !w || !w.coach ? 'Two coaches and a small group, so you get seen.'
+  : /\band\b|&/.test(w.coach) ? `${w.coach}, and a small group, so you get seen.` : `A small group with ${w.coach}, so you get seen.`;
 /* the business's own Google review box (place id from its listing, 9 Oct
    2026): any workshop without its own review link uses this one */
 const GOOGLE_REVIEW = 'https://search.google.com/local/writereview?placeid=ChIJo6P50TJyjGQRZIUQzoUnXLo';
@@ -685,7 +699,7 @@ async function firstTenDays(done) {
 async function workshopMail(done) {
   done.workshops = { reminded: 0, asked: 0 };
   const row = await supa.row('settings', 'key=eq.workshops&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */
-  const all = (row && row.value) || {};
+  const all = wsSettle((row && row.value) || {});
   const past = await pastClients();
   const now = Date.now();
   /* the review link is per workshop and easy to leave blank on a new date;
@@ -876,7 +890,7 @@ async function workshopMail(done) {
 async function intentMail(done) {
   done.intents = { reminded: 0 };
   const row = await supa.row('settings', 'key=eq.workshops&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */
-  const all = (row && row.value) || {};
+  const all = wsSettle((row && row.value) || {});
   const now = Date.now();
   /* everyone with a row on any date of a class: somebody who typed their
      email while one Saturday was picked and paid for the other has booked */
@@ -910,6 +924,26 @@ async function intentMail(done) {
       const e = norm(p.email);
       if (held.has(e) || (heldBy[kind(w)] && heldBy[kind(w)].has(e)) || toldNow.has(e)) continue;
       const key = `wsintent:${w.slug}:${e}`;
+      /* the last day of an early bird: this morning's run is the last before
+         it goes up, so they hear it ends tonight, once. It stands in for the
+         morning-after reminder, so that one is marked sent too. */
+      if (w.early && Number(w.early.then) > (Number(w.price) || 0) && ms(w.early.until) - now < DAY) {
+        const keyE = `wsearly:${w.slug}:${e}`;
+        if (!(await supa.row('nudges', `key=eq.${enc(keyE)}&select=key`).catch(() => null))) {
+          const priceE = wsPoundsC(w.price), thenE = wsPoundsC(w.early.then);
+          const TE = await emailCopy('wsEarly', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
+            price: priceE, then: thenE, until: esc(wsEarlyDayC(w)), link: `${SITE}/handstand-class#book` });
+          if (TE.off) { done.held = (done.held || 0) + 1; continue; }
+          const wentE = await email(e, TE.subject, earlyEmail(TE, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
+            price: priceE, then: thenE, left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
+          if (!wentE) { done.held = (done.held || 0) + 1; continue; }
+          done.intents.early = (done.intents.early || 0) + 1; toldNow.add(e);
+          await supa.upsert('nudges', { key: keyE, sent_at: new Date().toISOString() }, 'key');
+          if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)))
+            await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key').catch(() => {});
+          continue;
+        }
+      }
       const first = await supa.row('nudges', `key=eq.${enc(key)}&select=key,sent_at`).catch(() => null);
       if (first) {
         /* three days after the first, if they still have no place and the
@@ -921,7 +955,7 @@ async function intentMail(done) {
         if (await supa.row('nudges', `key=eq.${enc(key2)}&select=key`).catch(() => null)) continue;
         const price2 = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'free';
         const T2 = await emailCopy('wsIntent2', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-          price: price2, link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop` });
+          price: price2, early_line: wsEarlyLine(w), link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop` });
         if (T2.off) { done.held = (done.held || 0) + 1; continue; }
         const went2 = await email(e, T2.subject, intent2Email(T2, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
           price: price2, left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
@@ -938,11 +972,12 @@ async function intentMail(done) {
         && !(Number(x.places) > 0 && x.__live >= Number(x.places))).length;
       const pairPence = openSame > 1 ? Number(((pairRow && pairRow.value) || {}).pence) || 0 : 0;
       const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-        place: w.place ? ', at ' + esc(w.place) : '', price, pair_line: pairPence ? `Both Saturdays together are £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
+        place: w.place ? ', at ' + esc(w.place) : '', price, early_line: wsEarlyLine(w), coach_line: wsCoachLineC(w), pair_line: pairPence ? `Both Saturdays together are £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
         link: `${SITE}/handstand-class#book` });
       if (T.off) { done.held = (done.held || 0) + 1; continue; }
       const went = await email(e, T.subject, intentEmail(T, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-        price, left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0, pair: pairPence }, SITE));
+        price, left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0, pair: pairPence, coach: w.coach || '',
+        early: wsEarlyLine(w) ? { day: wsEarlyDayC(w), then: wsPoundsC(w.early.then) } : null }, SITE));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
       done.intents.reminded++; toldNow.add(e);
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');

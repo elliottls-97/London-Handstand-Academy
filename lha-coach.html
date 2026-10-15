@@ -11737,6 +11737,9 @@ function wsNew(){ const d=londonParts(Date.now()+14*864e5).d;
 function wsEdit(slug){ const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return; wsf=JSON.parse(JSON.stringify(w)); wsf.was=slug; wsOpen=slug; wsMsg=''; draw(); }
 function wsClose(){ wsOpen=null; wsf=null; draw(); }
 function wsSet(k,v){ if(k==='price') v=Math.round((Number(String(v).replace(/[^0-9.]/g,''))||0)*100); if(k==='places'||k==='appDays') v=Number(v)||0; if(k==='live') v=!!v; wsf[k]=v; }
+/* the early bird ends at the very end of the day picked, London time */
+function wsSetEarly(){ const d=(document.getElementById('wsEbDate')||{}).value, t=Math.round((Number(String((document.getElementById('wsEbThen')||{}).value||'').replace(/[^0-9.]/g,''))||0)*100);
+  wsf.early = d && t ? { until: londonISO(d,'23:59'), then: t } : null; }
 function wsSetWhen(){ const d=(document.getElementById('wsDate')||{}).value, t=(document.getElementById('wsTime')||{}).value||'12:30';
   if(d) wsf.when=londonISO(d,t); }
 /* ── attendance: one place at a time ──────────────────────────────────
@@ -12264,6 +12267,16 @@ function workshopsHTML(){
           :`<input class="input" value="${w.price?(w.price/100).toFixed(2).replace(/\.00$/,''):'not set'}" disabled>
             <span class="muted" style="font-size:11.5px">Elliott sets what it costs.</span>`}</div>
         <div class="field"><label>Places</label><input class="input" type="number" min="0" value="${w.places||0}" oninput="wsSet('places',this.value)"></div>
+        <div class="field"><label>Coached by</label><input class="input" value="${esc(w.coach||'')}" placeholder="Elliott and Suryava" oninput="wsSet('coach',this.value)">
+          <span class="muted" style="font-size:11.5px">Leave empty for the two of you. Just <b>Elliott</b> says so on the page and in the emails.</span></div>
+        ${owner?`<div class="field" style="grid-column:1/-1"><label>Early bird, optional</label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <span class="muted" style="font-size:13px">The price above until the end of</span>
+            <input id="wsEbDate" class="input" type="date" style="width:auto" value="${w.early&&w.early.until?londonParts(w.early.until).d:''}" onchange="wsSetEarly()">
+            <span class="muted" style="font-size:13px">then £</span>
+            <input id="wsEbThen" class="input" style="width:80px" value="${w.early&&w.early.then?(w.early.then/100).toFixed(2).replace(/\.00$/,''):''}" placeholder="30" oninput="wsSetEarly()">
+            ${w.early?`<button class="ghostlink" onclick="wsf.early=null;draw()">Remove</button>`:''}</div>
+          <span class="muted" style="font-size:11.5px">It goes up by itself at midnight. The page shows when, and anyone who started booking and stopped is told in their reminder, then again on the last morning.</span></div>`:''}
         <div class="field"><label>Who it is for, one line</label><input class="input" value="${esc(w.who||'')}" placeholder="Everyone welcome, beginners to freestanding" oninput="wsSet('who',this.value)"></div>
         <div class="field" style="grid-column:1/-1"><label>Description</label><textarea class="input" rows="3" oninput="wsSet('desc',this.value)">${esc(w.desc||'')}</textarea></div>
         <div class="field" style="grid-column:1/-1"><label>The film, optional</label>
