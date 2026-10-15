@@ -8887,7 +8887,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        more. Anything bigger goes up in pieces (tus), from the browser
        straight to Cloudflare as before; this only opens the upload. */
     const size = Math.floor(Number(body.size) || 0);
-    if (coachU && size > 190 * 1024 * 1024) {
+    /* every coach film goes up in pieces (15 Oct 2026): one long POST
+       failed on good wifi with nothing to say why, and a piece can be
+       retried where one POST cannot */
+    if (coachU && size > 0) {
       const b64 = v => Buffer.from(String(v)).toString('base64');
       try {
         const res = await fetch(

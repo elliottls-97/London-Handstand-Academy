@@ -6670,28 +6670,12 @@ function clipSay(v, t){ clipMsg[v]=t;
   if(el) el.textContent=t; else draw();
 }
 function clipUpload(v, file, after){
-  /* over Cloudflare's 200MB: shrink it here first, on this computer */
-  if(file.size > VID_MAX){
-    if(typeof vidShrinkOk!=='function' || !vidShrinkOk()){ clipSay(v,'Over 200MB, and this browser cannot shrink it. Export it at 1080p and try again.'); return; }
-    if(!confirm('That clip is '+vidMB(file.size)+'MB, over the 200MB Cloudflare takes.\n\nShrink it here first? It takes about as long as the clip, keep this tab open, and it costs nothing.')) return;
-    clipBusy=v; clipSay(v,'Shrinking…'); draw();
-    vidShrink(file, p=>clipSay(v,'Shrinking '+Math.round(p*100)+'%'))
-      .then(f=>{ clipBusy=''; if(f.size>VID_MAX){ clipSay(v,'Still over 200MB. Trim it and try again.'); draw(); return; } clipUpload(v, f, after); })
-      .catch(e=>{ clipBusy=''; clipSay(v,String(e)); draw(); });
-    return;
-  }
+  /* the same upload every coach film uses (15 Oct 2026): in pieces, each
+     retried from where Cloudflare says it got to, so a drop in the wifi
+     does not fail the clip. One long POST failed with "check your signal"
+     on good wifi, and anything over 200MB had to be shrunk first. */
   clipBusy=v; clipSay(v,'Starting…'); draw();
-  fetch(APP+'/upload',{method:'POST',headers:hdr(),body:'{}'})
-    .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
-    .then(d=>new Promise((res,rej)=>{
-      const fd=new FormData(); fd.append('file',file);
-      const x=new XMLHttpRequest(); x.open('POST',d.uploadURL);
-      x.upload.onprogress=e=>{ if(e.lengthComputable)
-        clipSay(v,'Uploading '+Math.round(e.loaded/e.total*100)+'%'); };
-      x.onload=()=> (x.status>=200&&x.status<300)?res(d.uid):rej('Upload failed ('+x.status+')');
-      x.onerror=()=>rej('Upload failed, check your signal');
-      x.send(fd);
-    }))
+  fxUpload(file, pct=>clipSay(v,'Uploading '+pct+'%'), 'library')
     .then(uid=>{ clipSay(v,'Attaching…');
       return fetch(API+'/drill',{method:'POST',headers:hdr(),
         body:JSON.stringify({v, uid, clipOnly:true})})
@@ -10578,7 +10562,7 @@ function fxUploadTus(file, d, onPct){
         if(onPct) onPct(Math.round(next/file.size*100));
         return send(next, 0); })
       .catch(e=> tries<2 ? where().then(at2=>send(at2, tries+1))
-        : Promise.reject(String(e&&e.message||e)==='Failed to fetch' ? 'Upload failed, check your signal' : String(e&&e.message||e)));
+        : Promise.reject(String(e&&e.message||e)==='Failed to fetch' ? 'The upload stopped at '+Math.round(at/file.size*100)+'%. Try again.' : String(e&&e.message||e)));
   };
   return send(0, 0);
 }
