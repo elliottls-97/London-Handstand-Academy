@@ -219,6 +219,18 @@ h1,h2,h3{font-family:var(--disp);text-transform:uppercase;font-weight:900;line-h
 .hero .loc-line{display:inline-flex;align-items:center;gap:8px;font-family:var(--disp);font-weight:800;text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);padding:8px 16px;border-radius:999px;margin-bottom:24px;}
 .hero-cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
 .hero-cta .price-note{font-size:14px;color:rgba(255,255,255,.85);}
+/* the early bird countdown: a glass pill on the photo, the numbers in amber */
+.eb{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:16px;padding:10px 16px;border-radius:999px;
+  background:rgba(10,20,19,.46);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.18);
+  color:#fff;font:500 14.5px/1.25 var(--sans,Figtree,system-ui,sans-serif);text-decoration:none}
+.eb[hidden]{display:none}
+.eb i{width:8px;height:8px;border-radius:50%;background:#f3a949;flex:none;box-shadow:0 0 0 4px rgba(243,169,73,.25);animation:ebPulse 2s ease-in-out infinite}
+@keyframes ebPulse{50%{box-shadow:0 0 0 7px rgba(243,169,73,.08)}}
+@media (prefers-reduced-motion:reduce){.eb i{animation:none}}
+.eb b{font-weight:600}
+.eb .t{font-weight:600;font-variant-numeric:tabular-nums;color:#f3a949;letter-spacing:.01em}
+.eb .then{color:rgba(255,255,255,.75)}
+.bookbar .eb-s{color:#a8680f;font-weight:600;font-variant-numeric:tabular-nums}
 .bk-date-note{margin:8px 2px 0;font:400 13.5px/1.45 var(--sans,Figtree,system-ui,sans-serif);color:#5a5a5a}
 .bk-date-note b{color:#8a5a12;font-weight:600}
 .facts{display:flex;gap:22px;flex-wrap:wrap;margin-top:30px;padding-top:24px;border-top:1px solid rgba(255,255,255,.2);}
@@ -1114,6 +1126,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     <div class="hero-cta">
       <a class="btn solid" href="#book" onclick="return pickDate(event);">Book your place, <span data-price>&pound;25</span> &rarr;</a>
     </div>
+    <!-- the early bird, counting down; filled from the next date and hidden without one -->
+    <a class="eb" id="ebPill" href="#book" onclick="return pickDate(event);" hidden aria-live="off"></a>
   </div></div>
 </section>
 
@@ -1561,6 +1575,34 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
           m.textContent=err&&err.name==='TypeError'?'Could not send just now. Reply to your confirmation email instead.':String(err); });
     };
   };
+  /* the early bird clock: one timer for the page, repainting the pill and
+     the bar each second until the moment the price goes up */
+  var ebTimer=null, ebOf=null;
+  function ebLeft(ms){
+    var s=Math.max(0,Math.floor(ms/1000)), d=Math.floor(s/86400), h=Math.floor(s%86400/3600), m=Math.floor(s%3600/60), x=s%60;
+    var p=function(n){ return (n<10?'0':'')+n; };
+    return d>0 ? d+'d '+p(h)+'h '+p(m)+'m '+p(x)+'s' : h>0 ? h+'h '+p(m)+'m '+p(x)+'s' : m+'m '+p(x)+'s';
+  }
+  function ebTick(){
+    var pill=$('ebPill'), sh=$('ebShort'), d=ebOf;
+    var left=d&&d.early ? Date.parse(d.early.until)-Date.now() : 0;
+    if(!(left>0)){
+      if(pill) pill.hidden=true; if(sh) sh.textContent='';
+      if(ebTimer){ clearInterval(ebTimer); ebTimer=null; }
+      return;
+    }
+    if(pill){
+      pill.innerHTML='<i aria-hidden="true"></i><b>Early bird '+esc(d.priceLabel)+'</b><span>ends in <span class="t">'+ebLeft(left)+'</span></span><span class="then">then '+esc(d.early.thenLabel)+'</span>';
+      pill.hidden=false;
+      pill.setAttribute('aria-label','Early bird '+d.priceLabel+' until the end of '+d.early.day+', then '+d.early.thenLabel);
+    }
+    if(sh) sh.textContent='· early bird ends in '+ebLeft(left).split(' ').slice(0,2).join(' ');
+  }
+  function ebStart(first){
+    ebOf=first&&first.early ? first : null;
+    ebTick();
+    if(ebOf && !ebTimer) ebTimer=setInterval(ebTick,1000);
+  }
   function render(){
     var now=Date.now();
     var E=window.LHA_SITE_EDITS||{};
@@ -1639,7 +1681,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var ph=$('pickH'); if(ph&&first) ph.textContent=sameDay?'Which '+parts(first).dow+'?':'Which date?';
     var bar=$('clsBar');
     if(bar) bar.innerHTML = !first ? '<b>OverGravity, Shadwell</b> &middot; Saturdays'
-      : '<b>'+esc(soon(first)||short(first))+'</b>'+(second?' &amp; '+esc(parts(second).dd+' '+parts(second).m.slice(0,3)):'')+' &middot; '+esc(t12(first.from))+(price?' &middot; <span data-price>'+esc(price)+'</span>':'');
+      : '<b>'+esc(soon(first)||short(first))+'</b>'+(second?' &amp; '+esc(parts(second).dd+' '+parts(second).m.slice(0,3)):'')+' &middot; '+esc(t12(first.from))+(price?' &middot; <span data-price>'+esc(price)+'</span>':'')
+        +(first.early?' <span class="eb-s" id="ebShort"></span>':'');
+    ebStart(first);
     var also=$('clsAlso');
     if(also){ also.style.display=second?'':'none'; if(second) also.innerHTML='There is another class on <a href="#book" style="color:inherit;font-weight:700;">'+esc(long(second))+'</a>.'; }
     /* what Google lists: one event per date */
