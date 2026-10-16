@@ -41,6 +41,12 @@
     };
     var src = tagged || fromRef();
     window.LHA_SRC = src;
+    /* Back from Stripe, paid or by its back link: the same visit, not a new
+       one from "Other websites" (16 Oct 2026, review). */
+    var fromStripe = /(^|\.)stripe\.com$/.test((function () { try { return document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) { return ''; } })())
+      || q.get('from') === 'stripe' || q.has('booked');
+    if (q.get('from') === 'stripe') { q.delete('from'); var r0 = q.toString();
+      try { history.replaceState(history.state, '', location.pathname + (r0 ? '?' + r0 : '') + location.hash); } catch (e) {} }
 
     /* off the address bar, the rest of the query kept */
     if (q.has('src') || q.has('utm_source')) {
@@ -56,10 +62,12 @@
         else fetch('/api/app/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
       } catch (e) {}
     };
-    send('pv' + page);
+    if (!fromStripe) send('pv' + page);
 
     /* the links to our own pages carry the first source along */
-    var carry = src !== 'site' && src !== 'direct';
+    /* "typed in or saved" is carried too: the next page saw our own site as
+       the referrer and counted it as from your own pages (16 Oct 2026) */
+    var carry = src !== 'site';
     var mine = function (a) {
       try { var u = new URL(a.getAttribute('href') || '', location.href); return u.origin === location.origin ? u : null; } catch (e) { return null; }
     };

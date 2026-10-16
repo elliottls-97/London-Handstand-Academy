@@ -1148,7 +1148,7 @@ function journeyHTML(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       ${['pv','pvhome','pvclass','pvlearn','pvlinks'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-      ${['tobook','workshopbook','workshoppaid','sitefit','sitefitdone','sitefitsend','sessionbook'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
+      ${['tobook','workshopbook','workshoppaid','siteapply','sessionbook'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
     <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}</div>
     ${errs.length?errs.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
         <div style="display:flex;gap:10px;align-items:baseline"><b style="font:600 13px/1.4 var(--sans);flex:1;min-width:0">${esc(e.m)}</b>
@@ -1237,14 +1237,11 @@ function funnelHTML(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:stretch">
         ${step('HOMEPAGE VISITS', n('site'), 0, 'views')}${arrow}
         ${step('PICKED A WAY IN', doors, n('site'), 'visits')}${arrow}
-        ${step('THREE QUESTIONS', n('sitefit'), n('site'), 'visits')}${arrow}
-        ${step('GOT A SUGGESTION', n('sitefitdone'), n('sitefit'), 'started')}
+        ${step('APPLIED FOR COACHING', n('siteapply'), n('site'), 'visits')}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:stretch">
         ${step('CHECKOUT CLICKS', n('sitecheckout'), 0, 'to Stripe from the homepage')}
         ${step('CALLS BOOKED', n('sitecallbooked'), n('sitecall'), 'call clicks')}
-        ${step('ANSWERS SENT', n('sitefitsend')+n('siteleavesend'), 0, 'to your applications')}
-        ${step('ON THE WAY OUT', n('siteleave'), 0, n('siteleavesend')+' did something with it')}
       </div>
       ${doors?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">
         Ways in picked: on their own ${n('sitedoorapp')} · a class ${n('sitedoorclass')} · with a coach ${n('sitedoorcoach')}</div>`:''}
@@ -8301,7 +8298,7 @@ function makeClient(){
    and a row of panels, the ladder and the explainers moved under Library
    and everything you touch twice a year is under Settings. */
 
-function go(v){ userMoved=true; if(v==='bookings' && view!=='bookings'){ wshops=null; bkRow=''; } view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
+function go(v){ userMoved=true; if(v==='bookings' && view!=='bookings'){ wshops=null; wsErr=''; bkRow=''; } view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
 function openClient(email, tab){
   userMoved=true;
   if(view!=='client') cameFrom=(view==='today'?'today':view==='chats'?'chats':'clients');
@@ -11844,10 +11841,15 @@ function calGet(fresh){
     .then(d=>{ calBusy=false; calFeed=d; draw(); if(fresh) flash('New link made. The old one is off.'); })
     .catch(e=>{ calBusy=false; draw(); flash(String(e)); });
 }
+/* "No workshops yet. New date makes one." showed while the list loaded, and
+   stayed if it failed (16 Oct 2026, review). Loading says so, and a failure
+   says why until Refresh. */
+let wsInFlight=false, wsErr='';
 function wsLoad(){
-  if(wshops) return; wshops=[];
-  fetch(API+'/workshops',{headers:hdr()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ wshops=d.workshops||[]; wsPair=Number(d.pair)||0; wsPage=d.classPage||'site'; draw(); } }).catch(()=>{});
+  if(wshops || wsInFlight || wsErr) return; wsInFlight=true;
+  fetch(API+'/workshops',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ wsInFlight=false; wshops=(d&&d.workshops)||[]; wsPair=Number(d&&d.pair)||0; wsPage=(d&&d.classPage)||'site'; draw(); })
+    .catch(e=>{ wsInFlight=false; wsErr = e===401 ? 'Your sign in has run out. Sign in again to see the workshops.' : 'The workshops did not load. Refresh to try again.'; draw(); });
 }
 function wsNew(){ const d=londonParts(Date.now()+14*864e5).d;
   wsf={slug:'',title:'',when:londonISO(d,'12:30'),place:'OverGravity, Shadwell',desc:'',who:'',price:2500,places:16,reviewUrl:'',live:false}; wsOpen='new'; wsMsg=''; draw(); }
@@ -12308,10 +12310,10 @@ function bookingsPageHTML(){
         <h1 style="margin:8px 0 0">Who is <em style="color:var(--forest);font-style:normal">coming.</em></h1></div>
       <span style="flex:1"></span>
       <input class="input" placeholder="Find someone, any date" value="${esc(bkQ)}" oninput="bkQ=this.value;draw()" style="max-width:240px">
-      <button class="btn btn-secondary btn-sm" onclick="wshops=null;draw()">Refresh</button>
+      <button class="btn btn-secondary btn-sm" onclick="wshops=null;wsErr='';draw()">Refresh</button>
       <button class="btn btn-secondary btn-sm" onclick="setTab='workshops';go('settings');wsNew()">New date</button>
     </div>`;
-  if(!wshops || (!wshops.length && !all.length)) return head+`<p class="muted" style="margin-top:18px">${wshops?'No workshops yet. New date makes one.':'Loading…'}</p></section>`;
+  if(!wshops || (!wshops.length && !all.length)) return head+`<p class="muted" style="margin-top:18px">${wshops?'No workshops yet. New date makes one.':wsErr?esc(wsErr):'Loading…'}</p></section>`;
   if(q) return head+`<h5 style="margin-top:22px">${found.length} found</h5>
     <div class="bk-list">${found.map(({w:x,b})=>`<div class="bk-row"><div class="bk-line" onclick="bkPast=new Date(${jsq(x.when)}).getTime()<=Date.now()-8*3600e3;bkSel=${jsq(x.slug)};bkQ='';bkRow=${jsq(bkKey(x.slug,b))};draw()">
       <div style="min-width:0"><b style="font:600 14.5px/1.3 var(--sans)">${esc(b.name||b.email)}</b><div class="muted" style="font-size:12.5px">${esc(b.email)}</div></div>

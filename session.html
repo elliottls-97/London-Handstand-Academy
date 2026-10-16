@@ -231,7 +231,10 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
   /* Benjamin's Google review of his 1-2-1, word for word, typos and all. Never edit it.
      The second half leads, as an extract; the whole review opens below it. */
   const REVIEW='<figure class="rev"><div class="rev-s" aria-label="5 stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div><p>&hellip; Elliot coached with patience &amp; clarity, taking note of our different abilities. He also followed up with a summary of recommendations, in writing.</p><p>As a credit to his coaching, the next day, we were able to repeat (we think!) everything he taught us, and we intend to return, as getting coaching with him has given us both hope that we might learn to handstand - frankly, we&#39;d both more or less given up, despite still practicing.</p><details class="rev-all"><summary>Read the whole review</summary><p>I visited for a handstand class, 1 on 1 with coach Elliot.</p><p>Right away though, I asked if I could bring a fellow hand-standing friend, and the cost. I was very pleasantly surprised with the &quot;no problem&quot; and &quot;same cost&quot; response.</p><p>On arriving, there was another very interesting movement class on in the same area, but we still had plenty of space to ourselves &amp; found it very interesting to watch others whilst recovering.</p><p>Elliot coached with patience &amp; clarity, taking note of our different abilities. He also followed up with a summary of recommendations, in writing.</p><p>As a credit to his coaching, the next day, we were able to repeat (we think!) everything he taught us, and we intend to return, as getting coaching with him has given us both hope that we might learn to handstand - frankly, we&#39;d both more or less given up, despite still practicing.</p></details><figcaption>Benjamin, Google review of a 1-2-1, October 2026</figcaption></figure>';
-  beacon('sitesessionpage');
+  /* after stats.js has read where the visit came from: it is deferred, so
+     this went first with no source at all (16 Oct 2026, review) */
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>beacon('sitesessionpage'), {once:true});
+  else beacon('sitesessionpage');
   let labels={session60:'£80',session90:'£100'};
   /* the times on offer, when the dashboard has them switched on; none,
      and the page takes a booking the old way, paid first */
@@ -306,7 +309,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
       if(picking&&!slot){ msg.textContent='Pick a time first.'; return; }
       const label=go.textContent;
-      go.disabled=true; go.textContent='One moment…'; msg.textContent=''; beacon('sessionbook');
+      go.disabled=true; go.dataset.was=label; go.textContent='One moment…'; msg.textContent=''; beacon('sessionbook');
       fetch('/api/app/session/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({kind,name,email,prefs,src:window.LHA_SRC||''},picking?{slot}:{}))})
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
         .then(d=>{ if(d.url){ location.href=d.url; return; } throw {error:'Something went wrong'}; })
@@ -317,6 +320,12 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
           go.disabled=false; go.textContent=label; msg.textContent=String((e&&e.error)||e||'Could not start the payment'); });
     };
   };
+  /* Back from Stripe by the back button: the page as it was left, Pay
+     disabled on "One moment" (16 Oct 2026, review). The times again too,
+     as the one picked may have been held. */
+  window.addEventListener('pageshow', e=>{ if(!e.persisted) return;
+    const go=document.getElementById('go'); if(go && go.disabled && go.dataset.was){ go.disabled=false; go.textContent=go.dataset.was; }
+    slots={}; slot=''; loadSlots(kind).then(draw); });
   draw();
   loadSlots(kind).then(draw);
   fetch('/api/app/plans').then(r=>r.json()).then(d=>{ const p=(d&&d.prices)||{};

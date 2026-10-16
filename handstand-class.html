@@ -937,6 +937,7 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
 .bookbar.show{transform:none}
 @media (max-width:760px){.bookbar{display:flex}}
 html.embed .bookbar{display:none!important}
+body.is-booked .bookbar{display:none!important}
 /* on the dark green of the booking panel the label and the button were teal */
 .final .bopt-k{color:var(--light)!important}
 .final .bopt-b{background:#fff!important;color:#00403d!important;box-shadow:0 10px 26px -12px rgba(0,0,0,.5)!important}
@@ -1451,6 +1452,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
    so the dashboard's numbers can say whether Instagram sends anyone */
 (function(){ try{
   var q=new URLSearchParams(location.search), r=(q.get('ref')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
+  /* back from Stripe, paid or not: the same visit (16 Oct 2026, review) */
+  var rh=''; try{ rh=document.referrer ? new URL(document.referrer).hostname : ''; }catch(e){}
+  if(/(^|\.)stripe\.com$/.test(rh) || q.get('from')==='stripe' || q.has('booked')) return;
   if(r){ window.LHA_TAG=r; localStorage.setItem('lha_ref',r); history.replaceState(null,'',location.pathname+location.hash); }
   var ref=r||localStorage.getItem('lha_ref')||'';
   var body=JSON.stringify(Object.assign({n:'siteworkshoppage'}, ref?{r:ref}:{}));
@@ -1517,7 +1521,16 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var BS='';
   var booked=(function(){ var q=new URLSearchParams(location.search), b=(q.get('booked')||'').toLowerCase().split(',').map(function(x){ return x.replace(/[^a-z0-9-]/g,'').slice(0,24); }).filter(Boolean);
     BS=(q.get('bs')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,200); q.delete('bs');
-    if(b.length){ q.delete('booked'); var qs=q.toString(); history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#book'); } return b; })();
+    if(b.length){ try{ sessionStorage.setItem('lha_booked', JSON.stringify({b:b, bs:BS, at:Date.now()})); }catch(e){}
+      q.delete('booked'); var qs=q.toString(); history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#book'); }
+    /* The address is tidied as soon as it is read, so a reload, or a phone
+       reopening the tab, showed the booking form again with no confirmation
+       (16 Oct 2026, review). The booked screen is kept for this tab, an hour. */
+    else { try{ var k=JSON.parse(sessionStorage.getItem('lha_booked')||'null');
+      if(k && Array.isArray(k.b) && k.b.length && Date.now()-(Number(k.at)||0)<3600e3){ b=k.b; BS=String(k.bs||''); } }catch(e){} }
+    return b; })();
+  window.clsBookAgain=function(ev){ if(ev) ev.preventDefault(); try{ sessionStorage.removeItem('lha_booked'); }catch(e){}
+    booked=[]; BS=''; render(); var bk=document.getElementById('book'); if(bk) bk.scrollIntoView({block:'start'}); return false; };
   var beacon=function(n){ try{ navigator.sendBeacon('/api/app/event', new Blob([JSON.stringify({n:n,r:window.LHA_SRC||''})],{type:'application/json'})); }catch(e){} };
   var post=function(path,body){ return fetch('/api/app/workshop/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){ return r.json().catch(function(){ throw new TypeError('no answer'); })
@@ -1601,10 +1614,15 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   function ebTick(){
     var pill=$('ebPill'), sh=$('ebShort'), d=ebOf;
     var left=d&&d.early ? Date.parse(d.early.until)-Date.now() : 0;
+    /* booked: the strip has nothing left to sell them (16 Oct 2026, review) */
+    if(booked.length) left=0;
     if(!(left>0)){
       if(pill) pill.hidden=true; if(sh) sh.textContent='';
       var tp=$('ebTop'); if(tp) tp.hidden=true; document.body.classList.remove('has-eb');
-      if(ebTimer){ clearInterval(ebTimer); ebTimer=null; }
+      /* It ran out with the page open: the strip went and the prices stayed,
+         so Book said £25 and Stripe charged £30 (16 Oct 2026, review). The
+         dates again, with the price they are now. */
+      if(ebTimer){ clearInterval(ebTimer); ebTimer=null; if(!booked.length) refreshWs(); }
       return;
     }
     /* the strip at the top does the work now; the pill on the photo stays hidden */
@@ -1616,6 +1634,19 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     }
     if(sh) sh.textContent='· early bird ends in '+ebLeft(left).split(' ').slice(0,2).join(' ');
   }
+  function refreshWs(){
+    fetch('/api/app/workshops',{cache:'no-store'}).then(function(r){ return r.json(); })
+      .then(function(d){ PAIR=Number(d&&d.pair)||0; keepFields(function(){ clsWorkshops((d&&d.workshops)||[]); }); }).catch(function(){});
+  }
+  /* Back from Stripe by the back button, the page comes out of the
+     browser's cache as it was left: Book still disabled and reading "One
+     moment", and nothing happened on a tap until a reload (16 Oct 2026,
+     review). The button is given back, and the prices fetched again. */
+  window.addEventListener('pageshow', function(e){
+    if(!e.persisted) return;
+    var go=$('bkGo'); if(go && go.disabled && go.dataset.was){ go.disabled=false; go.textContent=go.dataset.was; }
+    if(!booked.length) refreshWs();
+  });
   function ebStart(first){
     ebOf=first&&first.early ? first : null;
     ebTick();
@@ -1636,7 +1667,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(intro) intro.textContent = !first ? 'The dates and times are on the booking page.'
       : up.length===1 ? long(first)+', '+span(first)+', at '+PLACE+'.'
       : (NUM[up.length]||up.length)+(sameDay?' '+parts(first).dow+'s':' dates')+', '+span(first)+', at '+PLACE+'.';
-    if(intro && first && first.early) intro.textContent += ' '+first.priceLabel+' until the end of '+first.early.day+', then '+first.early.thenLabel+'.';
+    /* with two dates it named neither, and read as both going up (16 Oct 2026, review) */
+    if(intro && first && first.early) intro.textContent += ' '+(up.length>1 ? parts(first).dd+' '+parts(first).m+' is ' : '')
+      +first.priceLabel+' until the end of '+first.early.day+', then '+first.early.thenLabel+'.';
     var cards=$('clsCards');
     if(cards){
       cards.classList.toggle('solo', up.length<=1);
@@ -1657,6 +1690,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
             +done.map(function(d){ return '<a class="bk-btn" href="/api/app/workshop/ics?slug='+esc(d.slug)+'">Add '+(done.length>1?esc(parts(d).dd+' '+parts(d).m.slice(0,3)):'it')+' to your calendar</a>'; }).join('')
             +'<a class="bk-btn ghost" href="'+MAP+'" target="_blank" rel="noopener">Directions</a></div>'
           +'<p class="bk-done-note">Your confirmation is on its way by email, with a link to move or cancel up to 24 hours before. A reminder comes the day before'+(done.length>1?' each one':'')+'.</p>'
+          +'<p class="bk-done-note"><a href="#book" onclick="return clsBookAgain(event)" style="color:inherit;font-weight:700">Book another date</a></p>'
           +'</div>'
           +aboutHTML()
           +'<div class="bk-next"><div><b>What to bring</b>Clothes you can move in, and water. Arrive ten minutes early so we start on time.</div>'
@@ -1677,6 +1711,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       }
     }
     if(booked.length) aboutWire();
+    /* and the bar at the foot, which still said Book (16 Oct 2026, review) */
+    document.body.classList.toggle('is-booked', !!booked.length);
     var bh=document.querySelector('#book .bk-intro'); if(bh) bh.hidden=!!booked.length;
     var bi=$('clsIntro'); if(bi) bi.hidden=!!booked.length;
     var bf=$('clsFind'); if(bf) bf.hidden=!!booked.length;
@@ -1915,10 +1951,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(!okEmail(email)){ msg.textContent='A real email address, please: the confirmation goes there.'; $('bkEmail').focus(); return; }
     var cons=consentOf(name);
     if(!cons[0]){ msg.style.color='var(--terra)'; msg.textContent=cons[1]; if(cons[2]) $(cons[2]).focus(); else $('bkCons').scrollIntoView({block:'center'}); return; }
-    go.disabled=true; var was=go.textContent; go.textContent='One moment…'; msg.textContent='';
+    go.disabled=true; var was=go.textContent; go.dataset.was=was; go.textContent='One moment…'; msg.textContent='';
     /* kept for this visit, so backing out of the card page does not mean typing it all again */
     try{ sessionStorage.setItem('lha_bk', JSON.stringify({n:name,e:email})); }catch(e){}
-    beacon('workshopbook');
     var also=($('bkPair').checked && picked.other) ? picked.other.slug : '';
     var friend=null;
     if($('bkFr').checked){
@@ -1927,6 +1962,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(!okEmail(friend.email)){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='Their email, please: their confirmation and reminder go there.'; $('bkFrEmail').focus(); return; }
       if(friend.email.toLowerCase()===email.toLowerCase()){ go.disabled=false; go.textContent=was; msg.style.color='var(--terra)'; msg.textContent='They need their own email address.'; return; }
     }
+    /* counted once the details are right, once a visit: it went before
+       they were checked, so every retry counted again (16 Oct 2026, review) */
+    if(!window.__bkCounted){ window.__bkCounted=true; beacon('workshopbook'); }
     post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),consent:cons[0],news:!!($('bkNews')||{}).checked,back:'class',src:window.LHA_SRC||''}).then(function(d){
       if(d.url){ location.href=d.url; return; }
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:''))+(d.bs?'&bs='+encodeURIComponent(d.bs):''); return; }

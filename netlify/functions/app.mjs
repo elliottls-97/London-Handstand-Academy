@@ -246,9 +246,15 @@ async function wsRefundFor(b, slug) {
     const pair = b.pairP != null ? Number(b.pairP) || 0 : Number(((await getSetting('wspair')) || {}).pence) || 0;
     const total = rows.reduce((t, r) => t + (Number(r.x.paid) || 0), 0);
     const left = rows.length - 1;
-    const cost = Math.min(total, wsGroupCost(left, single, pair));
-    back = Math.max(0, total - cost);
     const rest = rows.filter(r => !(r.slug === slug && r.x.email === b.email));
+    /* What the kept places cost on their own, each at its own date's price
+       on the day it was booked. It used the cancelled date's, so once the
+       two dates cost different amounts the refund came up short of the
+       FAQ's "£20 back and keep the other at £25" (16 Oct 2026, review). */
+    const unitOf = r => Math.max(0, Number(r.x.unit != null ? r.x.unit : (all[r.slug] || {}).price) || 0);
+    const keptSingle = rest.length ? Math.max(...rest.map(unitOf)) : single;
+    const cost = Math.min(total, left === 1 && rest.length === 1 ? unitOf(rest[0]) : wsGroupCost(left, keptSingle, pair));
+    back = Math.max(0, total - cost);
     const each = Math.floor(cost / left);
     keeps = rest.map((r, i) => ({ slug: r.slug, email: r.x.email, paid: i === 0 ? cost - each * (left - 1) : each }));
   }
@@ -356,8 +362,10 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (!coach && !w2.live) return { error: 'That date is not open for booking', status: 400 };
   /* the dates shown are the same class, but the request can name any slug:
      a £25 place moved onto a £60 workshop for nothing */
-  if (!coach && (wsKindOf(w2) !== wsKindOf(w) || (Number(w2.price) || 0) > (Number(w.price) || 0)))
+  if (!coach && wsKindOf(w2) !== wsKindOf(w))
     return { error: 'That one is a different workshop. Cancel this place and book it instead.', status: 400 };
+  if (!coach && (Number(w2.price) || 0) > (Number(w.price) || 0))
+    return { error: 'That date costs more now, so this place cannot move onto it. Cancel this one and book that date instead.', status: 400 };
   if (w2.when && ms(w2.when) < Date.now()) return { error: 'That date has already happened', status: 400 };
   if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be moved online. Reply to your confirmation email and Elliott will sort it.`, status: 400, late: true };
   const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === who && (!session || x.session === session));
@@ -6681,7 +6689,7 @@ const handle = async (request) => {
         success_url: body.back === 'class' ? `${url.origin}/handstand-class.html?booked=${targets.map(t => t[0]).join(',')}&bs={CHECKOUT_SESSION_ID}`
                    : body.back === 'app' ? `${url.origin}/lha-app.html?booked=${targets.map(t => t[0]).join(',')}&bs={CHECKOUT_SESSION_ID}`
                    : `${url.origin}/workshop.html?slug=${slug}&booked=1`,
-        cancel_url: body.back === 'class' ? `${url.origin}/handstand-class.html#book`
+        cancel_url: body.back === 'class' ? `${url.origin}/handstand-class.html?from=stripe#book`
                   : body.back === 'app' ? `${url.origin}/lha-app.html?booked=0`
                   : `${url.origin}/workshop.html?slug=${slug}`,
       });
@@ -7159,7 +7167,7 @@ const handle = async (request) => {
                                            : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
         success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}&cs={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${url.origin}/session.html?kind=${kind}`,
+        cancel_url: `${url.origin}/session.html?kind=${kind}&from=stripe`,
       });
       return json({ url: sess.url });
     } catch (err) { await slotUnhold(hold); return json({ error: String(err.message || err) }, 502); }
@@ -7605,6 +7613,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         moveTo: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3)
           ? Object.values(all).filter(o => o && o.live && o.slug !== slug && o.when && ms(o.when) > Date.now()
               && wsKindOf(o) === wsKindOf(w)
+              /* not a date that costs more now: the move refuses it, and the
+                 list offered it (16 Oct 2026, review) */
+              && !((Number(o.price) || 0) > (Number(w.price) || 0))
               && !mine.includes(o.slug)).map(o => ({ slug: o.slug, when: o.when })) : [] });
     }
     /* one to one sessions sit beside the workshops, with a way into the
@@ -9652,6 +9663,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'sitedoorapp', 'sitedoorclass', 'sitedoorcoach',
                   'sitefit', 'sitefitdone', 'sitefitsend',
                   'sitecheckout', 'sitecall', 'sitecallbooked', 'sitecallasked',
+                  /* an application sent from the Apply quiz */
+                  'siteapply',
                   'siteleave', 'siteleavesend',
                   /* the journey (16 Oct 2026): the screen the app was put down
                      on with the screens seen that visit, a quiz question

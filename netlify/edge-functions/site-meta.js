@@ -77,9 +77,12 @@ export default async (request, context) => {
   try {
     /* The Setmore switch went with Setmore (11 Oct 2026): the class page is
        always the site's own booking now. */
+    /* shorter waits: the page asks for both itself when these run out, and
+       up to a second and a half before the first byte was the slow part of
+       the class page (16 Oct 2026, review) */
     const [s, w] = await Promise.all([
-      get('/api/app/site?page=' + page, 1200),
-      page === 'handstand-class' ? get('/api/app/workshops', 1500) : null]);
+      get('/api/app/site?page=' + page, 900),
+      page === 'handstand-class' ? get('/api/app/workshops', 1100) : null]);
     E = (s && s.e) || null;
     W = (w && w.workshops) || []; P = Number(w && w.pair) || 0; got = !!(w && w.workshops);
   } catch { /* the page as it is */ }
