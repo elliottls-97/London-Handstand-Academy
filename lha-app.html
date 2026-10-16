@@ -1661,9 +1661,72 @@ function track(n, s, f){
    inside a render would count each repaint. Once per open, per name. */
 const tracked=new Set();
 function trackOnce(n, s, f){ const k=n+':'+(s==null?'':s)+':'+(f||''); if(tracked.has(k)) return; tracked.add(k); track(n, s, f); }
+/* ── where people get to, and where they put it down (16 Oct 2026) ──
+   Still counts, never who. Every screen a visit shows is noted here; when
+   the app goes into the background the screen it was on, and the screens
+   seen since it last did, go in one beacon. The dashboard's Journey page
+   adds them up by day, and that is what says where people stop. */
+const jvSeen=new Set(); let jvLast='', jvSent=false;
+function jvKey(){
+  try{
+    const pl=document.getElementById('player');
+    if(pl && pl.classList.contains('on')) return 'player';
+    if(st.ov) return 'ov-'+String(st.ov).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,16);
+    /* the front door is decided by state, not the tab, so the same rules
+       render() uses: the welcome, the quiz, where they landed, and the ask
+       for an address before a second session */
+    if(!['welcomepw','joinedout','reset','signin'].includes(st.tab)){
+      if(!st.mode && !st.in) return 'welcome';
+      if(!st.in && !st.quizDone && (st.mode==='free' || st.tab==='quiz')) return 'quiz-'+(st.quizStep|0);
+      if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !(typeof awaitingBlock==='function' && awaitingBlock())) return 'landed';
+      if(st.tab==='joinFree' && !st.in) return 'join';
+      if(!st.in && st.quizDone && !st.email && !st.joinSkipped && typeof freeSessionsUsed==='function' && freeSessionsUsed()>=FREE_NO_ACCOUNT) return 'join-wall';
+    }
+    let t=String(st.tab||'home').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12)||'home';
+    if(t==='ladder' && st.ladderTab) t+='-'+String(st.ladderTab).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,10);
+    return t;
+  }catch(e){ return 'unknown'; }
+}
+function jvNote(){ try{ const k=jvKey(); jvLast=k; if(jvSeen.size<40) jvSeen.add(k); }catch(e){} }
+function jvSend(){
+  if(st.preview || jvSent || !jvLast) return;
+  jvSent=true;
+  try{
+    const body=JSON.stringify(Object.assign({n:'leave', f:jvLast, sv:[...jvSeen]}, st.ref?{r:st.ref}:{}));
+    jvSeen.clear();
+    if(navigator.sendBeacon) navigator.sendBeacon('/api/app/event', new Blob([body],{type:'application/json'}));
+    else fetch('/api/app/event',{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}).catch(()=>{});
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){ jvNote(); jvSend(); }
+  else { jvSent=false; jvNote(); }
+});
+window.addEventListener('pagehide', ()=>{ jvNote(); jvSend(); });
+/* the moments themselves: a screen drawn, a sheet opened, the player started */
+{ const _render=render;      render=function(){ const r=_render.apply(this,arguments); jvNote(); return r; }; }
+{ const _openOv=openOv;      openOv=function(kind){ const r=_openOv.apply(this,arguments);
+    if(['paywall','locked','iap'].includes(kind)) trackOnce('paywall', null, kind);
+    jvNote(); return r; }; }
+{ const _startQueue=startQueue; startQueue=function(){ const r=_startQueue.apply(this,arguments); jvNote(); return r; }; }
+/* a finished session: the first one ever, and a second on another day,
+   which is when somebody has started rather than tried it */
+function noteFinish(){
+  try{
+    const today=new Date().toISOString().slice(0,10);
+    st.nDone=(st.nDone|0)+1;
+    if(st.nDone===1){ st.done1=today; track('first1'); }
+    else if(!st.act2 && st.done1 && st.done1!==today){ st.act2=true; track('first2'); }
+    save();
+  }catch(e){}
+}
 /* once per open, and once per person for the seven day return */
 function trackOpen(){
   track('open');
+  if(st.nDone==null){
+    const prev=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.done).length;
+    st.nDone=prev; if(prev>0) st.act2=true; save();
+  }
   const now=Date.now();
   if(!st.firstOpen){ st.firstOpen=now; save(); }
   else if(!st.ret7 && now-st.firstOpen > 7*86400000){ st.ret7=true; save(); track('ret7'); }
@@ -10399,6 +10462,12 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
   const d=day();
   const partWay = !done && qi>0 && qi<Q.length-1;
   if(partWay) whyStopContext=(Q[qi]&&Q[qi].it&&Q[qi].it.n)||'';
+  /* the journey: closed before the end, how far through in tenths, and on which drill */
+  if(!done && Q.length && !tourBuild){
+    const it=(Q[Math.min(qi,Q.length-1)]||{}).it||{};
+    track('quit', Math.max(0,Math.min(10,Math.round(qi/Q.length*10))),
+      String(it.v||it.n||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').slice(0,30));
+  }
   /* The player has known the drill-by-drill all along — every set in Q
      carries its drill, its block and its position — and threw it away at
      the end, reporting only a count. Without it a coach can see that a
@@ -10455,7 +10524,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
-  if(done) track('finish');
+  if(done){ track('finish'); noteFinish(); }
   /* a list session switched to the follow along part way moves on here */
   if(done) applyRotNext();
   fixSessionDone(done);
@@ -13560,6 +13629,12 @@ function toggleWhy(r){
   drawOv();
 }
 function closeWhy(send){
+  /* counted for the journey whatever happens to the words: without an
+     account reportProgress keeps them on the phone, so nobody saw them */
+  try{
+    if(send && whyPicked.length) whyPicked.forEach(r=>track('why', null, String(r).toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,30)));
+    else track('why', null, send ? 'wrote-only' : 'skipped');
+  }catch(e){}
   if(send){
     const t=($('#whyText')||{}).value||'';
     if(whyPicked.length||t.trim()){
@@ -13855,7 +13930,7 @@ function finishChecklist(){
     st.prog.sessions.push({at:Date.now(), done, mins, actual:Math.max(1,took), mode:'list', got:ticked, of:Q.length});
   }
   logReps();
-  if(done) track('finish');
+  if(done){ track('finish'); noteFinish(); }
   /* a finished list moves the rotation and the written week on, as the
      follow along does (13 Oct 2026) */
   if(done) applyRotNext();
@@ -14421,6 +14496,7 @@ function quizCount(){
 }
 function screenQuiz(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i], a=intake();
+  trackOnce('quizq', i);
   const key=quizKey(), fresh=key!==quizShown; quizShown=key;
   const QC=quizCount();
   const rails=Array.from({length:QC.of},(_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
@@ -15373,7 +15449,7 @@ function screenOriented(){
            the other route is a link under it. Neither asks for money. -->
       <!-- this used to send somebody who had just answered three questions
            to a sign-up form. They get the session first now. -->
-      <button onclick="${!gated ? "st.oriented=true;save();go('home')"
+      <button onclick="${!gated ? "st.oriented=true;save();go('home');startDay(-1,'full')"
           : !st.token ? (IOS_APP ? "st.oriented=true;save();go('home');beginTrial("+placed+")" : "st.oriented=true;st.joinFor='';st.wantUpgrade="+placed+";save();go('joinFree')")
           : "st.oriented=true;save();go('home');st.ovStage="+placed+";openOv('stage')"}" style="width:100%;border:0;
         border-radius:18px;padding:19px;background:linear-gradient(180deg,#0a7a76,#006663);

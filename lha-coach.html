@@ -1060,6 +1060,132 @@ function questionsHTML(){
   </div>`;
 }
 
+/* ── the journey ─────────────────────────────────────────────────────
+   16 Oct 2026, from "track user logs to determine where users get stuck".
+   Counts from the app and the website (never who), read as a path, then
+   what broke and the accounts that have stalled. The same numbers, without
+   names, are what Claude reads each morning with the key at the bottom. */
+let jr=null, jrDays=7, jrAsked=false, jrKey=null;
+function loadJourney(force){
+  if(jrAsked && !force) return; jrAsked=true;
+  fetch(API+'/journey?days='+jrDays,{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ jr=d; draw(); } }).catch(()=>{});
+  fetch(API+'/reportkey',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ jrKey=d; draw(); } }).catch(()=>{});
+}
+/* the screens, in words */
+const JR_SCREEN={welcome:'The welcome screen',landed:'Where the quiz put them','join-wall':'Asked for an email after the first session',
+  join:'Making an account',signin:'Signing in',reset:'Resetting a password',welcomepw:'Setting a password',joinedout:'Signed out',
+  home:'Home',today:'Today',ladder:'The ladder','ladder-climb':'The ladder','ladder-checks':'Check points',plan:'The plan',progress:'Progress',
+  ask:'The chat',coaching:'The coaching tab',more:'More',fix:'A fix',press:'The press',start:'Before block one',player:'In a session',
+  'ov-mode':'Choosing a session','ov-summary':'A session just finished','ov-why':'Why are you stopping?','ov-stage':'A stage and its trial',
+  'ov-paywall':'The upgrade','ov-locked':'Something locked','ov-iap':'The Apple purchase','ov-drill':'A drill film','ov-explainer':'An explainer film',
+  'ov-list':'The drill list','ov-intro':'The film about the app','ov-apply':'Applying for coaching','ov-account':'Their account',
+  'ov-cleared':'A stage cleared','ov-checkin':'A check in','ov-feedback':'Sending feedback','ov-install':'Installing the app'};
+const jrName=k=>{ if(!k) return '?'; if(JR_SCREEN[k]) return JR_SCREEN[k];
+  const q=/^quiz-(\d+)$/.exec(k); if(q) return 'Quiz, question '+(Number(q[1])+1);
+  if(k.startsWith('ladder-')) return 'The ladder, '+k.slice(7); if(k.startsWith('ov-')) return 'The '+k.slice(3)+' sheet'; return k; };
+function journeyHTML(){
+  loadJourney();
+  if(!jr) return `<div class="card"><div class="kick">THE JOURNEY</div><div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">Adding it up…</div></div>`;
+  const pct=(x,y)=>y?Math.round(100*x/y)+'%':'';
+  const chg=(v,p)=>{ if(!p&&!v) return ''; if(!p) return `<span style="color:var(--forest)">new</span>`;
+    const d=Math.round(100*(v-p)/p); return d===0?'<span style="color:var(--grey2)">same</span>'
+      :`<span style="color:${d>0?'var(--forest)':'var(--red,#a4503c)'}">${d>0?'▲':'▼'} ${Math.abs(d)}%</span>`; };
+  const tile=(x,of,ofLabel)=>`<div style="flex:1;min-width:132px;padding:12px 13px;border-radius:13px;background:#fff;border:1px solid var(--line)">
+    <div style="display:flex;align-items:baseline;gap:8px"><span style="font:600 24px/1 var(--sans);font-variant-numeric:tabular-nums">${x.n}</span>
+      <span style="font:600 11px/1 var(--sans)">${chg(x.n,x.prev)}</span></div>
+    <div style="font:500 12px/1.35 var(--sans);color:var(--ink);margin-top:6px">${esc(x.label)}</div>
+    ${of?`<div style="font:500 11px/1.4 var(--sans);color:var(--forest);margin-top:3px">${pct(x.n,of)} of ${esc(ofLabel)}</div>`:''}</div>`;
+  const A=Object.fromEntries((jr.app||[]).map(x=>[x.k,x])), S=Object.fromEntries((jr.site||[]).map(x=>[x.k,x]));
+  const g=k=>A[k]||{n:0,prev:0,label:k};
+  /* the biggest fall between one step of the app's path and the next */
+  const path=['open','quizq0','quiz','start','finish','first1','first2'];
+  let worst=null; for(let i=1;i<path.length;i++){ const a=g(path[i-1]).n, b=g(path[i]).n; if(a>=5){ const lost=1-b/a; if(!worst||lost>worst.lost) worst={from:g(path[i-1]).label,to:g(path[i]).label,lost}; } }
+  const bar=(label,v,max,sub)=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) 54px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">
+    <div style="min-width:0"><div style="font:500 13px/1.35 var(--sans)">${esc(label)}</div>
+      <div style="height:6px;border-radius:3px;background:rgba(0,64,61,.08);margin-top:5px;overflow:hidden"><div style="height:100%;width:${max?Math.round(100*v/max):0}%;background:var(--forest);border-radius:3px"></div></div>
+      ${sub?`<div style="font:400 11.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${sub}</div>`:''}</div>
+    <div style="text-align:right;font:600 15px/1 var(--sans);font-variant-numeric:tabular-nums">${v}</div></div>`;
+  const leaves=jr.leaves||[], lmax=Math.max(1,...leaves.map(x=>x.n));
+  const quiz=jr.quiz||[], q0=(quiz[0]&&quiz[0].n)||0;
+  const Qt=jr.quit||{}, tenth=Qt.byTenth||[], tmax=Math.max(1,...tenth.map(x=>x.n));
+  const st_=jr.stalled||{};
+  const ppl=(list,why)=>Array.isArray(list)&&list.length?list.map(p=>`<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line);font:400 13px/1.4 var(--sans)">
+      <b style="min-width:110px;font-weight:600">${esc(p.name||p.email.split('@')[0])}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(p.email)}</span>
+      <span class="muted" style="flex:none;font-size:12px">joined ${esc(String(p.joined||'').slice(0,10))} · ${p.finished}/${p.sessions} finished${p.coached?' · coached':''}${p.paid?' · paid':''}</span></div>`).join('')
+    :`<div class="muted" style="font-size:13px;padding:6px 0">Nobody. ${why}</div>`;
+  const errs=jr.errs||[];
+  return `<div class="card">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div class="kick">THE JOURNEY · ${jrDays===1?'TODAY':'LAST '+jrDays+' DAYS'}</div>
+      <span class="muted" style="font-size:11.5px">against the ${jrDays===1?'day':jrDays+' days'} before · screens, quiz and session counts from 16 Oct</span>
+      <span style="flex:1"></span>
+      ${[1,7,30].map(d=>`<button onclick="jrDays=${d};loadJourney(true)" style="cursor:pointer;border-radius:999px;padding:6px 11px;font:600 11px/1 var(--sans);
+        border:1.5px solid ${jrDays===d?'var(--forest)':'var(--line)'};background:${jrDays===d?'var(--forest)':'#fff'};color:${jrDays===d?'#fff':'var(--ink)'}">${d===1?'Today':d+' days'}</button>`).join('')}
+    </div>
+    ${worst&&worst.lost>0.2?`<div style="margin-top:14px;padding:12px 14px;border-radius:14px;background:#fdebc8;font:500 13.5px/1.5 var(--sans);color:#6b4710">
+      The biggest drop: <b>${Math.round(worst.lost*100)}%</b> of people who ${esc(worst.from.toLowerCase())} did not go on to ${esc(worst.to.toLowerCase().replace(/^finished/,'finish').replace(/^started/,'start'))}.</div>`:''}
+    <div class="kick" style="margin-top:18px">THE APP</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      ${tile(g('open'))}${tile(g('quizq0'),g('open').n,'opens')}${tile(g('quiz'),g('quizq0').n,'quiz starts')}${tile(g('start'),g('open').n,'opens')}
+      ${tile(g('finish'),g('start').n,'starts')}${tile(g('first1'))}${tile(g('first2'),g('first1').n,'first sessions')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      ${tile(g('signup'))}${tile(g('wall'))}${tile(g('paywall'))}${tile(g('checkout'))}${tile(g('subscribed'),g('checkout').n,'checkouts')}${tile(g('ret7'))}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:22px;margin-top:20px">
+      <div><div class="kick">WHERE THEY PUT IT DOWN</div>
+        ${leaves.length?leaves.map(x=>bar(jrName(x.key),x.n,lmax,x.seen?pct(x.n,x.seen)+' of the times it was seen':'')).join('')
+          :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing yet. This starts counting once the new app is live.</div>'}</div>
+      <div><div class="kick">THE QUIZ, QUESTION BY QUESTION</div>
+        ${quiz.length?quiz.map(x=>bar('Question '+(x.q+1),x.n,q0,x.q?pct(x.n,q0)+' of those who started':'')).join('')
+          :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing yet.</div>'}
+        <div class="kick" style="margin-top:18px">SESSIONS CLOSED PART WAY</div>
+        ${tenth.length?tenth.map(x=>bar(x.tenth===0?'In the first tenth':x.tenth*10+'% of the way through',x.n,tmax,'')).join('')
+          :'<div class="muted" style="font-size:13px;margin-top:8px">None closed early yet.</div>'}
+        ${(Qt.drills||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">On: ${(Qt.drills||[]).map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n).join(' · ')}</div>`:''}
+        ${(Qt.why||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:6px">Why: ${(Qt.why||[]).map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n).join(' · ')}</div>`:''}
+      </div>
+    </div>
+    <div class="kick" style="margin-top:20px">THE WEBSITE</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      ${['pv','pvhome','pvclass','pvlearn','pvlinks'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      ${['tobook','workshopbook','workshoppaid','sitefit','sitefitdone','sitefitsend','sessionbook'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
+    <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}</div>
+    ${errs.length?errs.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+        <div style="display:flex;gap:10px;align-items:baseline"><b style="font:600 13px/1.4 var(--sans);flex:1;min-width:0">${esc(e.m)}</b>
+          <span style="flex:none;font:600 13px/1 var(--sans);font-variant-numeric:tabular-nums">${e.n}×</span></div>
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div></div>`).join('')
+      :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing broke in this time.</div>'}
+    ${(jr.films||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">Films that would not play: ${(jr.films||[]).map(x=>esc(x.key)+' '+x.n).join(' · ')}</div>`:''}
+    <div class="kick" style="margin-top:20px">ACCOUNTS THAT HAVE STALLED${st_.accounts!=null?` · ${st_.accounts} REAL ACCOUNTS, ${st_.newThisPeriod} NEW, ${st_.activeThisPeriod} ACTIVE`:''}</div>
+    ${st_.error?`<div class="muted" style="font-size:13px">${esc(st_.error)}</div>`:`
+      <h5 style="margin:12px 0 2px">Signed up, never trained</h5>${ppl(st_.never,'Everyone who signed up has trained.')}
+      <h5 style="margin:14px 0 2px">Started, never finished a session</h5>${ppl(st_.unfinished,'')}
+      <h5 style="margin:14px 0 2px">Trained once, not back for a week</h5>${ppl(st_.once,'')}
+      <h5 style="margin:14px 0 2px">Paying for the app, quiet for ten days</h5>${ppl(st_.paidQuiet,'')}`}
+    <div class="kick" style="margin-top:22px">CLAUDE'S DAILY KEY</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:66ch;margin-top:6px">
+      The same numbers without any names or addresses, for Claude to read each morning and work out what to fix. Make the key once: it saves as a file in your Downloads, and Claude picks it up from there.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      ${jrKey&&jrKey.on?`<span class="tag tag-accent">On since ${esc(new Date(jrKey.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</span>
+        <button class="btn btn-secondary btn-sm" onclick="jrMakeKey()">Make a new key</button>
+        <button class="btn btn-ghost btn-sm" onclick="jrKeyOff()">Turn it off</button>`
+      :`<button class="btn btn-primary btn-sm" onclick="jrMakeKey()">Make the key</button>`}</div>
+  </div>`;
+}
+/* made on the server, shown once: saved straight to a file, never on screen */
+function jrMakeKey(){
+  if(jrKey&&jrKey.on&&!confirm('Make a new key? The old one stops working, so Claude needs the new file.')) return;
+  fetch(API+'/reportkey',{method:'POST',headers:hdr(),body:JSON.stringify({make:true})}).then(r=>r.ok?r.json():Promise.reject('could not make it'))
+    .then(d=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([d.key+'\n'],{type:'text/plain'}));
+      a.download='lha-report-key.txt'; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500);
+      jrKey={on:true,at:Date.now()}; draw(); flash('Saved as lha-report-key.txt in your Downloads'); })
+    .catch(e=>alert(String(e)));
+}
+function jrKeyOff(){
+  if(!confirm('Turn the key off? Claude stops being able to read the report until you make a new one.')) return;
+  fetch(API+'/reportkey',{method:'POST',headers:hdr(),body:JSON.stringify({off:true})}).then(r=>r.ok?r.json():null)
+    .then(()=>{ jrKey={on:false}; draw(); }).catch(()=>{});
+}
 /* ── the funnel ────────────────────────────────────────────────────
    Counts, not people: how many opens, how many finished the quiz, how many
    met the paywall, started a checkout, subscribed, started and finished a
@@ -12384,6 +12510,7 @@ function wsCodesHTML(){
 let setTab='people';
 const SET_GROUPS=[
   ['alerts','Notifications','What reaches this phone or computer the moment a client sends it.'],
+  ['journey','Journey','Where people get to in the app and on the site, where they stop, and what broke.'],
   ['people','Who is here','The funnel, everyone who has signed up, and the people who run this.'],
   ['money','Money','What things cost, the discount codes and the Stripe connection.'],
   ['app','The app','What the ladder gives people, what is locked, and the words it sends.'],
@@ -12555,7 +12682,8 @@ function settingsHTML(){
     background:${setTab===k?'var(--forest)':'#fff'};
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
-    setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${leadsHTML()}</div>
+    setTab==='journey' ? (owner ? journeyHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
+  : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${leadsHTML()}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
   : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
       ${owner?stripeHTML():''}

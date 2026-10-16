@@ -431,6 +431,128 @@ const coachOf = e => {
    catches the reserved example domains and the prefixes used for testing
    this app, and nothing else. Anything more clever would eventually hide
    a real client whose address happens to contain the word test. */
+/* ── the journey report (16 Oct 2026) ─────────────────────────────────
+   The day rows the app and the website already fill (ev:YYYY-MM-DD), added
+   up over the last `days` and the `days` before, read as a path: how many
+   got to each step, where the app was put down, how far the quiz went,
+   where sessions were closed. Then what broke (the errs list, films that
+   would not play) and the accounts that have stalled. `full` is the
+   owner's copy, with names; without it, counts only. */
+async function journeyReport(days, full) {
+  const DAY = 864e5, now = Date.now();
+  const dayKey = i => new Date(now - i * DAY).toISOString().slice(0, 10);
+  const add = (into, r) => {
+    for (const [k, v] of Object.entries(r || {})) {
+      if (typeof v === 'number') into[k] = (into[k] || 0) + v;
+      else if (v && typeof v === 'object' && !['by', 'fix'].includes(k)) {
+        into[k] = into[k] || {};
+        for (const [k2, v2] of Object.entries(v)) if (typeof v2 === 'number') into[k][k2] = (into[k][k2] || 0) + v2;
+      }
+    }
+    return into;
+  };
+  const rows = [];
+  for (let i = 0; i < days * 2; i++) rows.push({ day: dayKey(i), r: (await getSetting(`ev:${dayKey(i)}`).catch(() => null)) || {} });
+  const cur = rows.slice(0, days).reduce((t, x) => add(t, x.r), {});
+  const prev = rows.slice(days).reduce((t, x) => add(t, x.r), {});
+  const n = (t, k) => Number(t[k]) || 0;
+  const step = (k, label, val, pv) => ({ k, label, n: val, prev: pv });
+  const qz = t => (t.quizqBy && Number(t.quizqBy['0'])) || 0;
+  const app = [
+    step('open', 'Opened the app', n(cur, 'open'), n(prev, 'open')),
+    step('quizq0', 'Started the quiz', qz(cur), qz(prev)),
+    step('quiz', 'Finished the quiz', n(cur, 'quiz'), n(prev, 'quiz')),
+    step('start', 'Started a session', n(cur, 'start'), n(prev, 'start')),
+    step('finish', 'Finished a session', n(cur, 'finish'), n(prev, 'finish')),
+    step('first1', 'Finished their first ever session', n(cur, 'first1'), n(prev, 'first1')),
+    step('first2', 'Came back and trained a second day', n(cur, 'first2'), n(prev, 'first2')),
+    step('signup', 'Made an account', n(cur, 'signup'), n(prev, 'signup')),
+    step('wall', 'Shown the free trial', n(cur, 'wall'), n(prev, 'wall')),
+    step('paywall', 'Met a lock or the upgrade', n(cur, 'paywall'), n(prev, 'paywall')),
+    step('checkout', 'Opened checkout', n(cur, 'checkout'), n(prev, 'checkout')),
+    step('subscribed', 'Paid for the app', n(cur, 'subscribed'), n(prev, 'subscribed')),
+    step('ret7', 'Back a week after first opening', n(cur, 'ret7'), n(prev, 'ret7')),
+  ];
+  const pv = t => ['pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks'].reduce((a, k) => a + n(t, k), 0);
+  const site = [
+    step('pv', 'Website page views', pv(cur), pv(prev)),
+    step('pvhome', 'Home page', n(cur, 'pvhome'), n(prev, 'pvhome')),
+    step('pvclass', 'Class page', n(cur, 'pvclass'), n(prev, 'pvclass')),
+    step('pvlearn', 'Learn pages', n(cur, 'pvlearn'), n(prev, 'pvlearn')),
+    step('pvlinks', 'Instagram links page', n(cur, 'pvlinks'), n(prev, 'pvlinks')),
+    step('tobook', 'Tapped towards booking', n(cur, 'tobook'), n(prev, 'tobook')),
+    step('workshopbook', 'Started booking a class', n(cur, 'workshopbook'), n(prev, 'workshopbook')),
+    step('workshoppaid', 'Paid for a class', n(cur, 'workshoppaid'), n(prev, 'workshoppaid')),
+    step('sitefit', 'Started the coaching questions', n(cur, 'sitefit'), n(prev, 'sitefit')),
+    step('sitefitdone', 'Finished the coaching questions', n(cur, 'sitefitdone'), n(prev, 'sitefitdone')),
+    step('sitefitsend', 'Sent a coaching application', n(cur, 'sitefitsend'), n(prev, 'sitefitsend')),
+    step('sessionbook', 'Started booking a 1-2-1', n(cur, 'sessionbook'), n(prev, 'sessionbook')),
+  ];
+  const top = (m, k) => Object.entries(m || {}).sort((a, b) => b[1] - a[1]).slice(0, k).map(([key, c]) => ({ key, n: c }));
+  /* where it was put down, against how often each screen was seen */
+  const leaves = top(cur.leaveAt, 15).map(x => ({ ...x, seen: (cur.scrAt && cur.scrAt[x.key]) || 0 }));
+  const quiz = Object.entries(cur.quizqBy || {}).map(([q, c]) => ({ q: Number(q), n: c })).sort((a, b) => a.q - b.q);
+  const quit = {
+    started: n(cur, 'start'), finished: n(cur, 'finish'),
+    byTenth: Object.entries(cur.quitBy || {}).map(([d, c]) => ({ tenth: Number(d), n: c })).sort((a, b) => a.tenth - b.tenth),
+    drills: top(cur.quitDrill, 12),
+    /* the reasons given on the way out, and how many skipped the question */
+    why: top(cur.whyBy, 12),
+  };
+  /* what broke, most recent first, the people left out of the counts-only copy */
+  const since = now - days * DAY;
+  const errsAll = (await getSetting('errs').catch(() => null)) || {};
+  const errs = Object.entries(errsAll).map(([id, e]) => ({ id, ...e })).filter(e => (e.last || 0) >= since)
+    .sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 20)
+    .map(e => ({ k: e.k, m: e.m, w: e.w, n: e.n, first: e.first, last: e.last, screens: e.sc || {}, devices: e.dv || {},
+      stack: e.stack || '', ...(full ? { who: e.who || [] } : { people: (e.who || []).length }) }));
+  const films = top(cur.film, 12);
+  /* ── accounts that have stalled ── test accounts left out, as the funnel does */
+  let stalled = null;
+  try {
+    const accts = (await supa.rows('accounts', 'select=email,name,plus,first_seen,last_seen')) || [];
+    const prog = (await supa.rows('progress', 'select=email,sessions')) || [];
+    const marked = (await getSetting('testers')) || {};
+    const coached = clients();
+    const untils = await plusUntilAll();
+    const real = accts.filter(a => !marked[norm(a.email)] && !TEST_EMAIL.test(a.email || '') && !Object.keys(coaches()).includes(a.email));
+    const sess = Object.fromEntries(prog.map(p => [p.email, Array.isArray(p.sessions) ? p.sessions : []]));
+    const when = x => ms(x && (x.at || x.t || x.when)) || 0;
+    const groups = { never: [], unfinished: [], once: [], paidQuiet: [] };
+    for (const a of real) {
+      if (untils[a.email]) a.plus_until = untils[a.email];
+      const list = sess[a.email] || [], done = list.filter(x => x && x.done);
+      const lastAt = Math.max(0, ...list.map(when));
+      const age = now - ms(a.first_seen);
+      const p = { email: a.email, name: a.name || '', joined: a.first_seen, lastSeen: a.last_seen, sessions: list.length, finished: done.length,
+        coached: !!coached[a.email], paid: plusNow(a) };
+      if (!list.length && age > 2 * DAY) groups.never.push(p);
+      else if (list.length && !done.length && now - lastAt > 3 * DAY) groups.unfinished.push(p);
+      else if (done.length === 1 && now - lastAt > 7 * DAY) groups.once.push(p);
+      if (p.paid && !p.coached && (!lastAt || now - lastAt > 10 * DAY)) groups.paidQuiet.push(p);
+    }
+    const tidy = l => l.sort((x, y) => ms(y.joined) - ms(x.joined));
+    stalled = {
+      accounts: real.length,
+      newThisPeriod: real.filter(a => now - ms(a.first_seen) < days * DAY).length,
+      activeThisPeriod: real.filter(a => a.last_seen && now - ms(a.last_seen) < days * DAY).length,
+      never: full ? tidy(groups.never).slice(0, 40) : groups.never.length,
+      unfinished: full ? tidy(groups.unfinished).slice(0, 40) : groups.unfinished.length,
+      once: full ? tidy(groups.once).slice(0, 40) : groups.once.length,
+      paidQuiet: full ? tidy(groups.paidQuiet).slice(0, 40) : groups.paidQuiet.length,
+    };
+  } catch (e) { stalled = { error: String(e.message || e).slice(0, 120) }; }
+  /* the day by day, for a trend */
+  const daily = rows.slice(0, Math.min(days * 2, 28)).map(x => ({ day: x.day,
+    open: n(x.r, 'open'), quiz: n(x.r, 'quiz'), start: n(x.r, 'start'), finish: n(x.r, 'finish'),
+    signup: n(x.r, 'signup'), paywall: n(x.r, 'paywall'), subscribed: n(x.r, 'subscribed'), leave: n(x.r, 'leave'),
+    site: pv(x.r), workshoppaid: n(x.r, 'workshoppaid'), sitefitsend: n(x.r, 'sitefitsend') }));
+  return { at: new Date(now).toISOString(), days, app, site, leaves, quiz, quit,
+    paywall: top(cur.paywallAt, 10), errs, films, stalled, daily,
+    /* the screen, step and drill counts start on the day these went live */
+    since: '2026-10-16' };
+}
+
 const TEST_EMAIL = /@example\.(com|org|net)$|@test\.|^claude-paytest|^lha-test|^livecheck|^paytest/i;
 
 const coachName = e => coaches()[norm(e)]
@@ -9492,7 +9614,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'sitedoorapp', 'sitedoorclass', 'sitedoorcoach',
                   'sitefit', 'sitefitdone', 'sitefitsend',
                   'sitecheckout', 'sitecall', 'sitecallbooked', 'sitecallasked',
-                  'siteleave', 'siteleavesend'];
+                  'siteleave', 'siteleavesend',
+                  /* the journey (16 Oct 2026): the screen the app was put down
+                     on with the screens seen that visit, a quiz question
+                     reached, a session closed part way (how far, which
+                     drill), a lock or upgrade sheet seen, and a first
+                     finished session and a second on another day */
+                  'leave', 'quizq', 'quit', 'paywall', 'first1', 'first2',
+                  /* why a session was stopped, by the reason picked */
+                  'why'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
@@ -9524,6 +9654,23 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          a manifest that would not play, and the film's first eight */
       if (fx && n === 'filmfail') { row.film = row.film || {};
         if (row.film[fx] || Object.keys(row.film).length < 80) row.film[fx] = (row.film[fx] || 0) + 1; }
+      /* ── the journey ── each map is capped, as anybody can send these */
+      const bump = (m, k, cap) => { if (!k) return; row[m] = row[m] || {};
+        if (row[m][k] || Object.keys(row[m]).length < cap) row[m][k] = (row[m][k] || 0) + 1; };
+      const scrOf = x => String(x || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
+      if (n === 'leave') {
+        bump('leaveAt', scrOf(body.f), 120);
+        /* the screens seen in that visit, once each */
+        const seen = [...new Set((Array.isArray(body.sv) ? body.sv : []).slice(0, 40).map(scrOf).filter(Boolean))];
+        for (const k of seen) bump('scrAt', k, 160);
+      }
+      if (n === 'paywall') bump('paywallAt', scrOf(body.f), 30);
+      if (n === 'why') bump('whyBy', scrOf(body.f), 20);
+      if (n === 'quizq') { const q = Number(body.s); if (Number.isInteger(q) && q >= 0 && q <= 30) bump('quizqBy', String(q), 31); }
+      if (n === 'quit') {
+        const d = Number(body.s); if (Number.isInteger(d) && d >= 0 && d <= 10) bump('quitBy', String(d), 11);
+        bump('quitDrill', scrOf(body.f), 100);
+      }
       /* where the quiz put them, which is the one breakdown that matters */
       if (n === 'quiz' || n === 'wall') {
         const st = Number(body.s);
@@ -9535,6 +9682,20 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       return row;
     }).catch(() => {});
     return json({ ok: true });
+  }
+
+  /* ── the journey report, counts only, for Claude's daily pass ───────
+     Opened by the key the owner made in the dashboard (Settings, Journey),
+     sent as a header so it is never in a URL or a log. No names, no
+     addresses: the dashboard's own copy has those. */
+  if (path === '/report' && request.method === 'GET') {
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`rep:${ip}`, 3600000)) > 30) return json({ error: 'Too many' }, 429);
+    const given = String(request.headers.get('x-report-key') || '');
+    const saved = await getSetting('reportkey').catch(() => null);
+    if (!given || !saved || !saved.hash || (await sha256hex('lha-report:' + given)) !== saved.hash) return json({ error: 'Nope' }, 401);
+    const days = Math.max(1, Math.min(30, Number(url.searchParams.get('days')) || 7));
+    return json(await journeyReport(days, false));
   }
 
   /* ── what is going wrong on people's phones ─────────────────────────
@@ -10900,6 +11061,26 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        an overlay on the shipped one, keyed by k, so anything untouched stays
        as it shipped and a future change to the file still lands. */
     /* the last N days of counts, and the ratios between them */
+    /* ── the journey: where people get to and where they stop ───────
+       16 Oct 2026. The owner's copy names the accounts that have stalled;
+       the copy /report hands Claude's daily pass is counts only. */
+    if (path === '/coach/journey') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      const days = Math.max(1, Math.min(30, Number(url.searchParams.get('days')) || 7));
+      return json(await journeyReport(days, true));
+    }
+    /* the key for that daily pass: made here, shown once, kept as a hash */
+    if (path === '/coach/reportkey') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      if (request.method === 'POST' && body.off) { await setSetting('reportkey', null); return json({ ok: true, on: false }); }
+      if (request.method === 'POST' && body.make) {
+        const key = 'lhar_' + Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('hex');
+        await setSetting('reportkey', { hash: await sha256hex('lha-report:' + key), at: Date.now() });
+        return json({ ok: true, on: true, key });
+      }
+      const k = await getSetting('reportkey');
+      return json({ on: !!(k && k.hash), at: (k && k.at) || 0 });
+    }
     if (path === '/coach/funnel') {
       const days = Math.max(7, Math.min(90, Number(url.searchParams.get('days')) || 30));
       const rows = [];
