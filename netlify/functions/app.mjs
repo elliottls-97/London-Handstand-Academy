@@ -5451,6 +5451,11 @@ const handle = async (request) => {
     const plan = PLANS[planKey];
     /* already paying Apple, or Stripe, for the Ladder: a second Ladder, and
        a second free week with it, is not sold on top */
+    /* already coached: online coaching is not sold twice. A move up to the
+       Inner Circle still goes through (16 Oct 2026, review). */
+    if (['online', 'inperson', 'inperson2', 'inperson4'].includes(planKey) && (await isCoached(who))) {
+      return json({ error: 'You already have coaching.', already: true }, 409);
+    }
     if (LADDER_PLANS.includes(planKey)) {
       const iapNow = await getSetting(`iap:${who}`);
       const acctNow = (await getAcct(who)) || {};
@@ -9020,8 +9025,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!coachList().includes(who)) {
       const coachedU = await isCoached(who);
       const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
-      if ((await rateHit(`upl:${who}`, 24 * 3600000)) > (coachedU ? 40 : 8)
-          || (!coachedU && (await rateHit(`uplip:${ip}`, 24 * 3600000)) > 20)) {
+      /* 14 free: the form check of a whole stage is seven clips, and a
+         retake or a failed try counts, so 8 ran out on the last one
+         (16 Oct 2026, review) */
+      if ((await rateHit(`upl:${who}`, 24 * 3600000)) > (coachedU ? 40 : 14)
+          || (!coachedU && (await rateHit(`uplip:${ip}`, 24 * 3600000)) > 24)) {
         return json({ error: 'That is a lot of films for one day. Try again tomorrow.' }, 429);
       }
     }

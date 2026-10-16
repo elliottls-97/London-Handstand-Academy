@@ -3076,8 +3076,9 @@ function todaySlotHTML(dl){
         align-items:center;gap:14px;cursor:pointer" onclick="goAsk()">
         <div style="min-width:0"><div class="kick2">${esc(coachLabel().toUpperCase())}${
           m.time?' &middot; '+esc(String(m.time).toUpperCase()):''}</div>
-        <div style="font:400 14px/1.45 var(--sans);margin-top:7px">${esc(String(m.text||'').slice(0,90)
-          +(String(m.text||'').length>90?'…':''))}</div></div>
+        <div style="font:400 14px/1.45 var(--sans);margin-top:7px">${esc(String(m.text||'').trim()
+          ? String(m.text).slice(0,90)+(String(m.text).length>90?'…':'')
+          : m.video ? 'Sent you a video reply.' : m.image ? 'Sent you a photo.' : m.voice ? 'Sent you a voice note.' : '')}</div></div>
         <span style="flex:none;font:400 22px/1 var(--serif);color:var(--forest)">&rarr;</span>
       </div></div>`;
   }
@@ -3231,10 +3232,12 @@ function explainersHTML(){
             scroll-snap-align:center;cursor:pointer">
             <div style="position:relative;aspect-ratio:16/10;border-radius:18px;overflow:hidden;
               background:linear-gradient(150deg,${grad})">
-              <video class="thumb" data-lazy="${EXPLAINERS}${encodeURIComponent(a.v)}#t=0.8"
+              ${a.uid ? `<img src="${esc(streamThumb(a.uid))}" alt="" loading="lazy" onload="this.style.opacity=1"
+                style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+                opacity:0;transition:opacity .35s">` : `<video class="thumb" data-lazy="${EXPLAINERS}${encodeURIComponent(a.v)}#t=0.8"
                 muted playsinline preload="none" onloadeddata="this.style.opacity=1"
                 style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-                opacity:0;transition:opacity .35s"></video>
+                opacity:0;transition:opacity .35s"></video>`}
               <span style="position:absolute;top:11px;left:13px;font:600 10px/1 var(--sans);
                 letter-spacing:.14em;color:rgba(255,255,255,.85);
                 text-shadow:0 1px 3px rgba(0,0,0,.4)">${String(i+1).padStart(2,'0')}</span>
@@ -5436,6 +5439,7 @@ function saveCheckpoint(k,v,video){
 let cpUpBusy=null;
 function cpFilm(k){
   if(!st.token){ goJoin(); return; }
+  if(cpUpBusy){ cpSay(k, cpUpBusy===k ? 'Still sending this one.' : 'One at a time: another clip is still sending.'); return; }
   const inp=document.createElement('input');
   inp.type='file'; inp.accept='video/*';
   inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(f) cpSendClip(k,f); };
@@ -5445,9 +5449,9 @@ function cpSay(k,t){
   const el=document.getElementById('cpup-'+k);
   if(el) el.textContent=t||'';
 }
-function cpSendClip(k,file){
-  if(cpUpBusy) return;
-  if(file.size > VID_MAX){ vidOffer(file, t=>cpSay(k,t)).then(f=>{ if(f) cpSendClip(k,f); }).catch(e=>cpSay(k,String(e))); return; }
+function cpSendClip(k,file,shrunk){
+  if(cpUpBusy){ cpSay(k, cpUpBusy===k ? 'Still sending this one.' : 'One at a time: another clip is still sending.'); return; }
+  if(file.size > VID_MAX && !shrunk){ vidOffer(file, t=>cpSay(k,t)).then(f=>{ if(f) cpSendClip(k,f,true); }).catch(e=>cpSay(k,String(e))); return; }
   cpUpBusy=k; cpSay(k,'Getting ready…');
   streamSend(file, p=>cpSay(k,'Uploading… '+p+'%'))
     .then(uid=>{
@@ -6175,7 +6179,7 @@ function myClips(){
   /* a test or a form check is answered as a whole, so the answer hangs off
      every clip in it */
   ((st.subs)||[]).forEach(sb=>{
-    const what = sb.kind==='assessment' ? 'Form check'
+    const what = sb.kind==='assessment' ? (coachedView() ? 'Clip' : 'Form check')
       : sb.kind==='checkpoint' ? 'Check point' : 'Two-week test';
     (sb.clips||[]).forEach(c=>{
       const uid = typeof c==='string' ? c : (c&&(c.uid||c.video));
@@ -6412,10 +6416,16 @@ function cpStep(k,by,max){
   { const inp=document.getElementById('cpnum-'+k); if(inp && inp!==document.activeElement) inp.value=next; }
   /* hold off until the tapping stops, so five taps are one reading and one
      trip to the server rather than five */
-  clearTimeout(cpStepT_);
-  cpStepT_=setTimeout(()=>saveCheckpoint(k,(st.cpDraft||{})[k]), 700);
+  cpSaveSoon(k, 700);
 }
-let cpStepT_=null;
+/* One timer a check point. It was one for all of them, so typing into test
+   A and starting on B inside a second cancelled A's save while A's card
+   still showed the number (16 Oct 2026, review). */
+const cpStepT_={};
+function cpSaveSoon(k, ms){
+  clearTimeout(cpStepT_[k]);
+  cpStepT_[k]=setTimeout(()=>{ delete cpStepT_[k]; saveCheckpoint(k,(st.cpDraft||{})[k]); }, ms);
+}
 /* a number typed straight in, saved once the typing stops */
 function cpType(k, raw){
   const n=Number(raw);
@@ -6424,8 +6434,7 @@ function cpType(k, raw){
   st.cpDraft=Object.assign({},st.cpDraft,{[k]:v}); save();
   const lab=document.getElementById('cpval-'+k); if(lab) lab.textContent=v+(lab.dataset.u||'');
   climbRingLive(k, v);
-  clearTimeout(cpStepT_);
-  cpStepT_=setTimeout(()=>saveCheckpoint(k,(st.cpDraft||{})[k]), 900);
+  cpSaveSoon(k, 900);
 }
 /* dragging the track, pointer events so it works with a thumb and a mouse */
 function cpDrag(e,k,max,res){
@@ -8324,12 +8333,14 @@ function screenProgress(){
       ${/* flat, as on the ladder: a card round the cards was three layers deep */''}
       <div data-tour="checkpoints">${coachedView() ? coachClimbHTML() : checkpointsCard(true)}</div>
 
-      ${coachedView() ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
+      ${coachedView() ? `${/* only a programme with a test to film: one built in the dashboard
+            has none, and this said "the first test opens in a few days" for
+            good (16 Oct 2026, review) */''}${testItems.length ? `<div class="card"><div class="kick2">TWO-WEEK TEST</div>
         <!-- it sat under the check points with some of the same holds in it
              and nothing to say how the two differ (usability review) -->
         <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:6px">Filmed for ${esc(coachLabel())} every two weeks, to measure the block. Separate from your check points, which move you on.</div>
         <div style="display:flex;flex-direction:column;gap:15px;margin-top:16px">${rows}</div>
-        ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet, the first test opens in a few days.</div>`}</div>
+        ${t.length?'':`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:14px">Nothing logged yet, the first test opens in a few days.</div>`}</div>` : ''}
       ${st.awaitingReview
         ? `<div class="card" style="border:1.5px solid var(--amber);padding:18px">
             <div class="kick2" style="color:var(--forest)">IN REVIEW</div>
@@ -8401,7 +8412,7 @@ function msgStatus(m){
   if(m.failed && m.why==='signin') return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
     Not sent: you have been signed out.${link("st.tab='signin';save();render()",'Sign in again')}</div>`;
   if(m.failed) return `<div style="font:600 11px/1.4 var(--sans);color:var(--terra);margin:2px 2px 0">
-    Not sent.${m.video?link(`retrySend(${jsq(m.video)},'',${esc(JSON.stringify(m.text||''))})`,'Send it again')
+    Not sent.${m.why?' '+esc(m.why):''}${m.video?link(`retrySend(${jsq(m.video)},'',${esc(JSON.stringify(m.text||''))})`,'Send it again')
       : m.voice ? link(`retryVoice(${jsq(m.voice)},${Number(m.secs)||0})`,'Send it again')
       : (!m.image && m.text) ? link(`sendAsk(${esc(JSON.stringify(m.text))})`,'Send it again') : ''}</div>`;
   /* sending, sent and read are the ticks inside the bubble now */
@@ -8464,7 +8475,13 @@ function loadThread(){
     /* A message that failed, or went by email instead, stays on screen for
        as long as the app is open: it used to be dropped after ten minutes,
        so a question that never went simply disappeared from the chat. */
-    pendingMsgs=pendingMsgs.filter(p=>!seen.has(msgKey(p))
+    /* The client's own, sent since this one was: on the words alone a
+       failed "Thanks" vanished, with its Send it again, whenever the thread
+       held any "Thanks" from either side (16 Oct 2026, review). Two minutes
+       either way for the phone's clock. */
+    const arrived = p => d.messages.some(m=>m.from!=='coach' && msgKey(m)===msgKey(p)
+      && (!m.at || !p.sentAt || Number(m.at) >= p.sentAt-120000));
+    pendingMsgs=pendingMsgs.filter(p=>!(seen.has(msgKey(p)) && arrived(p))
       && (p.failed || p.emailed || Date.now()-p.sentAt<600000));
     const merged=next.concat(pendingMsgs.map(p=>({from:'me',text:p.text,...(p.re?{re:p.re}:{}),
       ...(p.video?{video:p.video}:{}),...(p.image?{image:p.image}:{}),
@@ -8602,16 +8619,16 @@ async function shrinkPhoto(file, max=1600, quality=0.82){
    file to send, or null when they would rather not. */
 function vidOffer(file, say){
   const mb=vidMB(file.size);
-  if(typeof vidShrinkOk!=='function' || !vidShrinkOk())
-    return Promise.reject('That clip is '+mb+'MB and the most that can be sent is 200MB. Film at 1080p or trim it, then send it again.');
+  /* It goes up in pieces now, which takes any size, so a phone that cannot
+     shrink it sends it as it is rather than not at all (16 Oct 2026). */
+  if(typeof vidShrinkOk!=='function' || !vidShrinkOk()) return Promise.resolve(file);
   return new Promise((resolve,reject)=>{
     sure('That clip is '+mb+'MB.\n\nThe most that can be sent is 200MB. This phone can shrink it first. '
       +'It takes about as long as the clip, the screen needs to stay open while it does, nothing is sent until it is done, and it costs nothing.',
       'Shrink it and send', ()=>{
         say('Shrinking it. Keep this screen open.');
         vidShrink(file, p=>say('Shrinking it, '+Math.round(p*100)+'%. Keep this screen open.'))
-          .then(f=>{ if(f.size>VID_MAX) return reject('Still over 200MB after shrinking. Trim it, then send it again.');
-            say('Shrunk to '+vidMB(f.size)+'MB. Sending…'); resolve(f); })
+          .then(f=>{ say('Shrunk to '+vidMB(f.size)+'MB. Sending…'); resolve(f); })
           .catch(e=>reject(String(e)));
       }, false, ()=>{ say(''); resolve(null); });
   });
@@ -8626,7 +8643,30 @@ function vidOffer(file, say){
    upload address still works the old way. Resolves the Stream uid. */
 const STREAM_PIECE=10*1024*1024;
 function streamGone(m){ return /Failed to fetch|Load failed|NetworkError|network/i.test(String(m||'')); }
+/* Over three minutes, Stream takes the whole upload and then refuses it,
+   so a clip showed "Sent" and never played (16 Oct 2026, review). The phone
+   reads the length first; one that cannot read it sends it anyway. */
+function clipSecs(file){
+  return new Promise(resolve=>{
+    if(!/^video\//.test(file.type||'') && !/\.(mov|mp4|m4v|webm|3gp)$/i.test(file.name||'')) return resolve(0);
+    let done=false; const url=URL.createObjectURL(file), v=document.createElement('video');
+    const fin=s=>{ if(done) return; done=true; try{ v.removeAttribute('src'); v.load(); }catch(e){} try{ URL.revokeObjectURL(url); }catch(e){} resolve(s); };
+    v.preload='metadata'; v.muted=true; v.playsInline=true; v.setAttribute('playsinline','');
+    v.onloadedmetadata=()=>fin(Number.isFinite(v.duration)?v.duration:0);
+    v.onerror=()=>fin(0);
+    setTimeout(()=>fin(0), 5000);
+    v.src=url;
+  });
+}
+const clipLong = secs => 'That clip runs '+Math.floor(secs/60)+':'+String(Math.round(secs%60)).padStart(2,'0')
+  +'. Three minutes is the most a clip can be, so trim it and send it again.';
 function streamSend(file, onPct){
+  return clipSecs(file).then(secs=>{
+    if(secs > VID_SECS+1) return Promise.reject(clipLong(secs));
+    return streamOpen(file, onPct);
+  });
+}
+function streamOpen(file, onPct){
   return fetch(AUTH.upload,{method:'POST',headers:authed(),body:JSON.stringify({size:file.size, tus:true})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not start the upload')))
     .then(d=>d.tusURL ? streamPieces(file, d, onPct) : new Promise((resolve,reject)=>{
@@ -8642,13 +8682,29 @@ function streamSend(file, onPct){
 function streamPieces(file, d, onPct){
   const tus=(method,headers,body)=>fetch(d.tusURL,{method,headers:Object.assign({'Tus-Resumable':'1.0.0'},headers||{}),body});
   const where=()=>tus('HEAD').then(r=>Number(r.headers.get('Upload-Offset'))||0);
+  /* A piece goes by XHR for its progress: by fetch nothing moved until a
+     whole 10MB was up, so "Getting ready" sat through the first minute on a
+     gym signal and a small clip never showed a number (16 Oct 2026). */
+  const patch=(at,piece)=>new Promise((resolve,reject)=>{
+    const x=new XMLHttpRequest();
+    x.open('PATCH', d.tusURL);
+    x.setRequestHeader('Tus-Resumable','1.0.0');
+    x.setRequestHeader('Upload-Offset', String(at));
+    x.setRequestHeader('Content-Type','application/offset+octet-stream');
+    x.upload.onprogress=e=>{ if(e.lengthComputable && onPct) onPct(Math.min(99, Math.round((at+e.loaded)/file.size*100))); };
+    x.onload=()=> (x.status>=200 && x.status<300)
+      ? resolve(Number(x.getResponseHeader('Upload-Offset'))||(at+piece.size))
+      : reject(new Error('Upload failed ('+x.status+')'));
+    x.onerror=()=>reject(new Error('Failed to fetch'));
+    x.ontimeout=()=>reject(new Error('Failed to fetch'));
+    x.send(piece);
+  });
   const send=(at,tries)=>{
     if(at>=file.size){ if(onPct) onPct(100); return Promise.resolve(d.uid); }
     const piece=file.slice(at,Math.min(file.size,at+STREAM_PIECE));
     /* the retry answers this piece only: the next piece is sent from the
        success branch, so its failures are its own and not counted here */
-    return tus('PATCH',{'Upload-Offset':String(at),'Content-Type':'application/offset+octet-stream'},piece)
-      .then(r=>{ if(!r.ok) throw new Error('Upload failed ('+r.status+')'); return Number(r.headers.get('Upload-Offset'))||(at+piece.size); })
+    return patch(at, piece)
       .then(next=>{ if(onPct) onPct(Math.round(next/file.size*100)); return send(next,0); },
         e=>{ const m=String(e&&e.message||e);
           if(tries>=4) return Promise.reject(streamGone(m) ? 'The upload stopped at '+Math.round(at/file.size*100)+'%. Check you are online, then send it again.' : m);
@@ -8659,11 +8715,12 @@ function streamPieces(file, d, onPct){
 
 /* one uploader, three callers: the chat, the free assessment, and the
    two-week test. The file goes phone → Cloudflare directly either way. */
-function uploadClip(file, say){
+function uploadClip(file, say, shrunk){
   say=say||upSay;
-  if(file.size > VID_MAX) return vidOffer(file, say).then(f=>f ? uploadClip(f, say) : Promise.reject(''));
+  if(file.size > VID_MAX && !shrunk) return vidOffer(file, say).then(f=>f ? uploadClip(f, say, true) : Promise.reject(''));
   say('Getting ready…');
   return streamSend(file, p=>say('Uploading… '+p+'%'));
+  /* (streamSend checks the length first, then opens the upload) */
 }
 
 /* ── the free assessment ───────────────────────────────────────────
@@ -9159,14 +9216,17 @@ function sendApplication(){
 }
 
 /* the server is what rations the free form check; the app only reports it */
-function gateCheck(r){
+function gateCheck(r, key){
   if(r.ok) return r;
   return r.json().catch(()=>({})).then(d=>{
     if(d && d.gated){
       st.canCheck=false;
       st.intake=st.intake||{}; st.intake.baseline=st.intake.baseline||Date.now();
-      /* only roll back an optimistic chat bubble if one was actually added */
-      if(pendingMsgs.length){ pendingMsgs.pop(); st.msgs=(st.msgs||[]).slice(0,-1); }
+      /* The bubble this send added, found by its clip or photo. It popped
+         the last one whatever it was, so a form check refused from its own
+         sheet took a question with it (16 Oct 2026, review). */
+      if(key){ pendingMsgs=pendingMsgs.filter(p=>p.video!==key && p.image!==key && p.voice!==key);
+        st.msgs=(st.msgs||[]).filter(m=>!(m.pending && (m.video===key || m.image===key || m.voice===key))); }
       save(); render();
     }
     return Promise.reject((d&&d.error)||'Could not send that');
@@ -9174,7 +9234,8 @@ function gateCheck(r){
 }
 
 function sendPhoto(file){
-  if(upBusy) return;
+  if(upBusy){ upSay('Still sending the last one. One moment.'); return; }
+  const cap=(((($('#askIn')||{}).value)||askDraft||'')+'').trim();   /* read now, as sendClip does */
   upBusy=true; upSay('Preparing the photo…');
   shrinkPhoto(file)
     .then(data=>fetch(AUTH.image,{method:'POST',headers:authed(),
@@ -9182,14 +9243,14 @@ function sendPhoto(file){
       .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that photo'))))
     .then(d=>{
       upSay('Sending…');
-      const text=(($('#askIn')||{}).value||'').trim();
+      const text=((($('#askIn')||{}).value||'').trim()) || cap;
       askDraft=''; const el=$('#askIn'); if(el) el.value='';
       const re=chatReplyTo; chatReply('');
       pendingMsgs.push({text,image:d.id,sentAt:Date.now(),...(re?{re}:{})});
       st.msgs=(st.msgs||[]).concat([{from:'me',text,image:d.id,time:'Just now',pending:true,at:Date.now(),...(re?{re}:{})}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,image:d.id,...(re?{re}:{})})}).then(gateCheck)
+        body:JSON.stringify({text,image:d.id,...(re?{re}:{})})}).then(r=>gateCheck(r, d.id))
         .catch(e=>{ markFailed(d.id); throw e; });
     })
     .then(()=>{ upBusy=false; upSay('Sent. Elliott has it.');
@@ -9198,24 +9259,27 @@ function sendPhoto(file){
     .catch(e=>{ upBusy=false; upSay(String(e)); });
 }
 
-function sendClip(file){
-  if(upBusy) return;
-  /* 180s is the cap the server sets on the upload link, so say so before
-     they wait through an upload that will be rejected */
-  if(file.size > VID_MAX){ vidOffer(file, upSay).then(f=>{ if(f) sendClip(f); }).catch(e=>upSay(String(e))); return; }
+function sendClip(file, shrunk){
+  if(upBusy){ upSay('Still sending the last one. One moment.'); return; }
+  /* 180s is the cap the server sets on the upload link: streamSend reads
+     the length before anything goes up */
+  if(file.size > VID_MAX && !shrunk){ vidOffer(file, upSay).then(f=>{ if(f) sendClip(f, true); }).catch(e=>upSay(String(e))); return; }
+  /* The caption is read now: it was read after the upload, so leaving the
+     chat while it went lost what was typed (16 Oct 2026, review). */
+  const cap=(((($('#askIn')||{}).value)||askDraft||'')+'').trim();
   upBusy=true; upPct=0; upSay('Getting ready…');
 
   streamSend(file, p=>{ upPct=p; upSay('Uploading… '+p+'%'); })
     .then(uid=>{
       upSay('Sending…');
-      const text=(($('#askIn')||{}).value||'').trim();
+      const text=((($('#askIn')||{}).value||'').trim()) || cap;
       askDraft=''; const el=$('#askIn'); if(el) el.value='';
       const re=chatReplyTo; chatReply('');
       pendingMsgs.push({text,video:uid,sentAt:Date.now(),...(re?{re}:{})});
       st.msgs=(st.msgs||[]).concat([{from:'me',text,video:uid,time:'Just now',pending:true,at:Date.now(),...(re?{re}:{})}]);
       save(); render();
       return fetch(AUTH.messages,{method:'POST',headers:authed(),
-        body:JSON.stringify({text,video:uid,...(re?{re}:{})})}).then(gateCheck)
+        body:JSON.stringify({text,video:uid,...(re?{re}:{})})}).then(r=>gateCheck(r, uid))
         .catch(e=>{ markFailed(uid); throw e; });
     })
     .then(()=>{ upBusy=false; upSay('Sent. Elliott has it.');
@@ -9476,6 +9540,7 @@ function chatVoice(){
   }, document.querySelector('.composer .cbox'));
 }
 function chatAttach(){
+  if(upBusy){ upSay('Still sending the last one. One moment.'); return; }
   chatSheet([{label:'Video', fn:()=>pickClip()}, {label:'Photo', fn:()=>pickPhoto()}]);
 }
 /* a photo opens over the chat, not in a browser outside the app */
@@ -9586,9 +9651,15 @@ function sendAsk(retryText){
     .then(r=>{
       if(r.ok){ setTimeout(loadThread,400); return 'ok'; }
       if(r.status===401) return 'signin';
+      /* Refused, for a reason the server gives (twenty an hour, say): said
+         on the bubble. Everything but 401 went to Formspree as "the chat
+         was not reachable", whose allowance is nearly spent (16 Oct 2026,
+         review). */
+      if(r.status>=400 && r.status<500) return r.json().catch(()=>({})).then(d=>({why:String(d.error||'')}));
       return Promise.reject(r.status);
     })
-    .then(res=>{ if(res==='signin') msgSetState(id,{failed:true, why:'signin'}); })
+    .then(res=>{ if(res==='signin') msgSetState(id,{failed:true, why:'signin'});
+      else if(res && typeof res==='object') msgSetState(id,{failed:true, why:res.why}); })
     .catch(()=>{
       /* the thread would not take it, so it goes by email, and says so */
       post({type:'Question',text}).then(ok=>{
@@ -14766,7 +14837,9 @@ function finishIntake(){
      mobility days in the gaps between them. */
   st.dayMap=weekOn(when);
   track('quiz', PL);
-  st.tab = st.email ? 'home' : 'joinFree';
+  /* answered from the coaching Start page: back to it, where their tests
+     now show (16 Oct 2026, review) */
+  st.tab = st.email ? (awaitingBlock() ? 'start' : 'home') : 'joinFree';
   /* Placed above the free stage, the next thing is the wall for that
      stage, with the free week on it. It used to land on Foundations and
      say nothing, which read as the quiz having been ignored. */
@@ -19574,11 +19647,19 @@ function buyPlan(k){
     if(!leaveTo(u.toString()) && b){ b.disabled=false; b.textContent='Your browser blocked it. Open the app in its own tab.'; }
     return;
   }
+  /* The server's reason is said now, and said even where the button has
+     no place for it: a 503 or 502 was a tap that did nothing (16 Oct 2026,
+     review). */
   fetch(AUTH.checkout,{method:'POST',headers:authed(),
     body:JSON.stringify({plan:k})})
-    .then(r=>r.json())
+    .then(r=>r.json().catch(()=>({})))
     .then(d=>{ if(d.url){ if(!leaveTo(d.url)) throw new Error('frame'); } else throw new Error(d.error||''); })
-    .catch(()=>{ if(b){ b.disabled=false; b.textContent='Something went wrong, try again'; } });
+    .catch(e=>{ const m=String((e&&e.message)||'');
+      const say = m==='frame' ? 'Your browser blocked it. Open the app in its own tab.'
+        : (m && !/Failed to fetch|Load failed|NetworkError|JSON/i.test(m)) ? m
+        : 'Could not open checkout. Check you are online, then try again.';
+      if(b){ b.disabled=false; b.textContent='Try again'; }
+      toast(say); });
 }
 function pricingCard(){
   if(plansOn===null) loadPlans();
@@ -19808,11 +19889,11 @@ function coPanelHTML(pick){
             : loading ? 'One moment&hellip;'
             : buyable(pick) ? 'Start now, '+PRICE(coPriceKey(pick))+'/mo &rarr;'
             : 'Apply for coaching &rarr;';
-          return `<button onclick="${go}" ${loading?'disabled':''}
+          return `<button onclick="${go}" ${loading?'disabled':''} ${(!inner && buyable(pick))?`id="buy-${coBuyKey(pick)}"`:''}
           style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
           background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${label}</button>`; })()}
         ${(!buyable(pick) && pick.k!=='inner' && sess && (plansOn||[]).indexOf('online')>-1)?`
-        <button onclick="buyPlan('online')" style="width:100%;margin-top:8px;min-height:44px;
+        <button id="buy-online" onclick="buyPlan('online')" style="width:100%;margin-top:8px;min-height:44px;
           border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;
           background:transparent;color:var(--on-primary);font:600 13.5px/1 var(--sans)">
           Or start online now, ${PRICE(pick.price)}/mo</button>
@@ -19835,7 +19916,9 @@ function coPanelHTML(pick){
       </div>`;
 }
 function coachingPicker(){
-  if(!sells()) return '';
+  /* a paying client in the ladder view was offered "Start now, £120/mo"
+     on top of the coaching they have (16 Oct 2026, review) */
+  if(!sells() || st.in) return '';
   if(plansOn===null) loadPlans();
   const PLANSC = coPlans();
   const pick = PLANSC.find(p=>p.k==='online') || PLANSC[0];
@@ -19847,6 +19930,15 @@ function coachingPicker(){
       cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Ask about Inner Circle</button></div>`;
 }
 function screenCoaching(){
+  if(st.in) return `<div class="scroll s" style="background:transparent">
+    <div class="rise" style="padding:26px 20px 0">
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Coaching</div>
+      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:9px">You are
+        <em style="color:var(--forest);font-style:normal">coached.</em></div>
+      <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">
+        Your plan, the chat and your check points are in your coaching.</div>
+      <button class="btn" style="width:100%;margin-top:22px" onclick="switchView(false)">Back to my coaching</button>
+    </div><div style="height:28px"></div></div>`;
   /* the free form check, for real this time. It used to fire an email and
      relabel its own button — no upload, no account, no limit, under copy
      that promised one free check. */
