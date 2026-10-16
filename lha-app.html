@@ -2161,9 +2161,11 @@ function logDay(kind){
     day:st.day, name:d.label+(d.sub?', '+d.sub:''), done:kind==='all',
     mode:'checkin', kind, approx, drills:of, mins, actual:mins, got, of, items:[]
   }});
+  if(kind!=='none') coachDayDone();
   closeOv();
   /* finishing the whole thing is the moment worth asking about */
   if(kind==='all'){ st.fbRate=''; st.fbNote=''; save(); openOv('dayfeedback'); return; }
+  coachDayMove();
   render();
 }
 function setFbRate(r){ st.fbRate = st.fbRate===r ? '' : r; save(); drawOv(); }
@@ -5155,6 +5157,17 @@ function postTrack(body){
         /* a key the merge did not name was dropped on every reply */
         tours:       Object.assign({}, d.tours||{},       cur.tours||{}),
       };
+      /* A check point clip the server would not take (a form check used, or
+         an upload that broke): the number is saved, the clip is not. The app
+         went on showing it as sent, so it vanished without a word (16 Oct
+         2026, review). It comes off the row here and the reason is said. */
+      const ref=d.clipRefused;
+      if(ref && ref.k && body && body.checkpoint && body.checkpoint.video){
+        ((st.track.checkpoints||{})[ref.k]||[]).forEach(r=>{ if(r && r.video===body.checkpoint.video) delete r.video; });
+        try{ cpSay(ref.k, ref.error||'The clip did not go through.'); }catch(e){}
+        try{ toast(ref.error||'The clip did not go through. Your number is saved.'); }catch(e){}
+        try{ if(document.getElementById('cptop-'+ref.k)) repaintCp(ref.k); }catch(e){}
+      }
       save();
     })
     .catch(()=>{});
@@ -10524,7 +10537,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
-  if(done){ track('finish'); noteFinish(); }
+  if(done){ track('finish'); noteFinish(); coachDayDone(); }
   /* a list session switched to the follow along part way moves on here */
   if(done) applyRotNext();
   fixSessionDone(done);
@@ -10773,7 +10786,10 @@ function closeOv(){
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
   let ghost=null; try{ ghost=ovGhost(); }catch(e){ ghost=null; }
+  const wasOv=st.ov;
   st.ov=null; st.ovFull=false; save();
+  /* the day just trained has been named; Today moves on to the next one */
+  if(wasOv==='summary' || wasOv==='dayfeedback') coachDayMove();
   $('#ov').classList.remove('on'); $('#ov').classList.remove('full');
   $('#ov').innerHTML=''; render();
   ovGhostPlay(ghost); }
@@ -13455,8 +13471,10 @@ function savePassword(ev){
   fetch(AUTH.password,{method:'POST',headers:authed(),
     body:JSON.stringify({current:cur,next:next})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
-    .then(()=>{ const m=$('#pwMsg');
-      if(m){ m.style.color='var(--forest)'; m.textContent='Saved. Use the new one next time.'; }
+    .then(d=>{ const m=$('#pwMsg');
+      /* other phones and laptops are signed out by the change; this one carries on with the new token */
+      if(d && d.token){ st.token=d.token; save(); }
+      if(m){ m.style.color='var(--forest)'; m.textContent='Saved. Anywhere else you were signed in will ask for it now.'; }
       const a=$('#pwCur'), b=$('#pwNew'); if(a) a.value=''; if(b) b.value='';
     })
     .catch(e=>{ const m=$('#pwMsg'); if(m) m.textContent=String(e); });
@@ -18771,6 +18789,21 @@ function applyRotNext(){
 function advanceDay(){
   const plan=weekPlan(); if(!plan) return;
   st.planDay=((st.planDay|0)+1)%plan.length; save();
+}
+/* A coached day trained moves Today on to the next day of the plan, as the
+   free ladder's rotation does. It stayed on whatever day the Plan tabs last
+   picked, so a three day plan offered Day 1 again on Wednesday (16 Oct 2026,
+   review). The move waits for the sheet that names the day just done to
+   close, or that sheet would call the next day done. */
+function coachDayDone(){
+  if(coachedView() && typeof DATA!=='undefined' && DATA && Array.isArray(DATA.days) && DATA.days.length>1){ st.coachNext=st.day|0; save(); }
+}
+function coachDayMove(){
+  if(st.coachNext==null) return;
+  const n=(typeof DATA!=='undefined' && DATA && Array.isArray(DATA.days)) ? DATA.days.length : 0;
+  if(!n) return;                       /* the programme has not loaded yet: keep it for when it has */
+  if(n>1 && (st.day|0)===st.coachNext) st.day=(st.coachNext+1)%n;
+  delete st.coachNext; save();
 }
 
 /* ── how a session is ordered ──────────────────────────────────────

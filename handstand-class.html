@@ -1691,7 +1691,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       inPanel=true; bookWs(j); inPanel=false; }
     var fine=$('clsFine'); if(fine){ fine.style.display='none';
       var open=up.filter(function(d){ return !d.full; });
-      fine.textContent=(open.length>1&&PAIR>0 ? 'Both '+(sameDay?parts(first).dow+'s':'dates')+' together: '+pounds(PAIR)+'. ' : '')
+      fine.textContent=(open.length>1&&PAIR>0 ? 'Both '+(sameDay?parts(first).dow+'s':'dates')+' together: '+pounds(groupCost(2,(open[0]||first).price))+'. ' : '')
         +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
     var pick=$('clsPick'); if(pick) pick.innerHTML=up.map(function(d,i){
       return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('');
@@ -1757,7 +1757,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'"'+(d.full?' data-full="1"':'')+'>'+esc(short(d))
         +'<small>'+(d.full?'Full, waiting list':d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
       +(open.length>1&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'">Both'
-        +'<small>'+(PAIR>0?esc(pounds(groupCost(2,picked.price)))+(picked.price*2>PAIR?', save '+esc(pounds(picked.price*2-PAIR)):''):'')+'</small></button>':'');
+        +'<small>'+(PAIR>0?(function(){ /* the saving against the two dates bought one at a time, at their own prices */
+          var od=picked.other||up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0];
+          var full=picked.price+(od?od.price:picked.price), cost=groupCost(2,picked.price);
+          return esc(pounds(cost))+(full>cost?', save '+esc(pounds(full-cost)):''); })():'')+'</small></button>':'');
     [].forEach.call($('segWhen').querySelectorAll('button'),function(b){ b.onclick=function(){
       if(b.getAttribute('data-both')){ if(!picked.other){ var o=up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0]; picked.other=o||null; } $('bkPair').checked=!!picked.other; priceNow(); return; }
       var i=+b.getAttribute('data-i'); $('bkPair').checked=false;
@@ -1812,7 +1815,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var other=up.filter(function(x,j){ return j!==i && !x.full && kind(x.title)===kind(d.title); })[0];
     picked.other=(!d.full && other) ? other : null;
     $('bkFr').checked=false; $('bkFrBox').hidden=true; $('bkFrName').value=''; $('bkFrEmail').value=''; $('bkFrRow').hidden=!!d.full||(d.places>0&&d.left<2);
-    $('bkFrT').innerHTML='Bring someone with you'+(PAIR>0&&d.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(PAIR))+'.</small>':'');
+    $('bkFrT').innerHTML='Bring someone with you'+(PAIR>0&&d.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(groupCost(2,d.price)))+'.</small>':'');
     var row=$('bkPairRow'), tick=$('bkPair');
     if(row){ row.hidden=!picked.other; tick.checked=false;
       if(picked.other){ var both=PAIR>0?PAIR:(d.price+other.price), full=d.price+other.price;
@@ -1828,7 +1831,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   /* Every two places cost the pair price, an odd one its own price: both
      dates, two people, or both (four places, two pairs). The deal already
      applies, so a code steps aside whenever there is more than one place. */
-  var groupCost=function(units,single){ return PAIR>0 ? Math.floor(units/2)*PAIR+(units%2)*single : units*single; };
+  /* the server's sum: two places for the pair price, never more than two single places */
+  var groupCost=function(units,single){ return PAIR>0 ? Math.floor(units/2)*Math.min(PAIR,2*single)+(units%2)*single : units*single; };
   /* what is charged: the server's own sum, and a checked code on a single place */
   var costOf=function(both, people){
     if(!both && people===1 && codeOk && codeOk.slug===picked.slug) return codeOk.price;
@@ -1842,7 +1846,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var cost=costOf(!!bothOn, people);
     $('bkFrBox').hidden=people<2; $('bkFrCons').hidden=people<2;
     drawChoices();
-    $('bkFrT').innerHTML=people<2?'Bring someone with you'+(PAIR>0&&picked.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(PAIR))+'.</small>':'')
+    $('bkFrT').innerHTML=people<2?'Bring someone with you'+(PAIR>0&&picked.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(groupCost(2,picked.price)))+'.</small>':'')
       :'Bringing someone<small>'+units+' places, '+esc(pounds(cost))+'.</small>';
     if(units>1){ go.textContent=(cost>0?'Book '+units+' places, '+pounds(cost):'Book '+units+' places');
       $('bkCode').value=''; $('bkCodeMsg').textContent=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=true; codeOk=null; }

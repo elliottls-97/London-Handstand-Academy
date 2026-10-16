@@ -223,7 +223,11 @@ async function wsManageRead(t) {
    dropped before two titles are compared. */
 const WS_DATE_WORDS = /\b(\d+(st|nd|rd|th)?|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|mon(day)?|tues?(day)?|wed(nesday)?|thu(rs)?(day)?|fri(day)?|sat(urday)?|sun(day)?)\b/g;
 const wsKindOf = w => String((w && w.title) || '').toLowerCase().replace(WS_DATE_WORDS, ' ').replace(/[^a-z]+/g, '');
-const wsGroupCost = (units, single, pair) => pair > 0 ? Math.floor(units / 2) * pair + (units % 2) * single : units * single;
+/* two places for the pair price, never more than two single places cost:
+   an early bird lowers the single price and the pair price stayed where it
+   was, so two places could cost more than buying them one at a time
+   (16 Oct 2026, review) */
+const wsGroupCost = (units, single, pair) => pair > 0 ? Math.floor(units / 2) * Math.min(pair, 2 * single) + (units % 2) * single : units * single;
 /* what one place is worth back if it is cancelled now: what the places
    booked with it paid, less what the ones left cost on their own, which
    is what they then carry (£45 for two, one cancelled: £20 back, £25 kept) */
@@ -2038,6 +2042,13 @@ async function rateHit(key, windowMs) {
    changing the password, the email address or deleting the account asked
    for the current one with none (13 Oct 2026). */
 const pwGate = async e => (await rateHit(`pw:${e}`, 900000)) <= 10;
+/* The same for a six digit code (16 Oct 2026, review). The code's own try
+   count was read, compared and then written, so guesses sent together all
+   read nought and the limit of five held for none of them: enough parallel
+   guesses at a reset code took the account, the owner's included. Each
+   guess now counts here first, in one atomic step; a right one clears it. */
+const codeGate = async (e, kind) => (await rateHit(`cg:${kind}:${e}`, 900000)) <= 5;
+const codeClear = (e, kind) => supa.remove('rate_limits', `key=eq.${enc('cg:' + kind + ':' + e)}`).catch(() => {});
 const pwClear = e => supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`).catch(() => {});
 const nudgeSent = k => supa.row('nudges', `key=eq.${enc(k)}&select=*`);
 const nudgeMark = (k, stage = 0) =>
@@ -4724,7 +4735,9 @@ const handle = async (request) => {
     if (acct || name) {
       const hits = await rateHit(`code:${e}`, 3600000);
       if (hits <= 5) {
-        const code = String(Math.floor(100000 + Math.random() * 900000));
+        /* from the crypto source, as the reset code is; Math.random is not one */
+        const rnd = new Uint32Array(1); crypto.getRandomValues(rnd);
+        const code = String(100000 + (rnd[0] % 900000));
         await setCode(e, 'login',
           { code, tries: 0, expires_at: iso(Date.now() + CODE_TTL) });
         await email(e, `${code} is your London Handstand Academy code`,
@@ -4798,6 +4811,7 @@ const handle = async (request) => {
        account, so a code that had been sent could not be typed back in */
     if (!e || !(acct || name)) return bad();
 
+    if (!(await codeGate(e, 'login'))) return json({ error: 'Too many tries. Ask for a new code in a few minutes.' }, 429);
     const rec = await getCode(e, 'login');
     if (!rec || Date.now() > ms(rec.expires_at) || rec.tries >= 5) {
       await clearCode(e, 'login'); return bad();
@@ -4807,7 +4821,7 @@ const handle = async (request) => {
         expires_at: rec.expires_at });
       return bad();
     }
-    await clearCode(e, 'login');
+    await clearCode(e, 'login'); await codeClear(e, 'login');
     return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
                   client: name || e.split('@')[0],
                   /* /login has always said this and /verify never did, so the
@@ -5021,8 +5035,9 @@ const handle = async (request) => {
     const pw = String(body.password || '');
     if (pw.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
 
-    const rec = await getCode(e, 'reset');
     const bad = () => json({ error: 'That code is wrong or has expired' }, 400);
+    if (!e || !(await codeGate(e, 'reset'))) return json({ error: 'Too many tries. Ask for a new code in a few minutes.' }, 429);
+    const rec = await getCode(e, 'reset');
     if (!rec || Date.now() > ms(rec.expires_at)) return bad();
     if (rec.tries >= 5) return bad();
     if (code !== rec.code) {
@@ -5030,19 +5045,22 @@ const handle = async (request) => {
         expires_at: rec.expires_at });
       return bad();
     }
-    await clearCode(e, 'reset');
+    await clearCode(e, 'reset'); await codeClear(e, 'reset');
 
     /* one hash, on the account row. There is no separate override store
        any more — a coached client and a self-serve one are the same row. */
     await ensureAcct(e);
     await saveAcct({ email: e, hash: await pwHash(pw) });
     await supa.remove('rate_limits', `key=eq.${enc('pw:' + e)}`);
+    /* a reset is the moment somebody else may have had the account: every
+       older sign in stops here, and the person resetting gets a new one */
+    await setSetting(`gone:${e}`, { at: Date.now() }).catch(() => {});
 
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${e} reset their password`,
       '<p style="font:16px/1.6 system-ui">Via the forgotten-password flow.</p>');
     return json({ ok: true,
-      token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }) });
+      token: await sign({ scope: 'app', email: e, iat: Date.now() + 1, exp: Date.now() + TOKEN_TTL }) });
   }
 
   /* ── who am I, and what have I paid for ── */
@@ -6932,6 +6950,12 @@ const handle = async (request) => {
         const ef = owner ? f.early : prevW.early;
         if (ef && ms(ef.until) > Date.now() && Math.round(Number(ef.then) || 0) > w.price)
           w.early = { until: new Date(ms(ef.until)).toISOString(), then: Math.round(Number(ef.then)) };
+        /* An early bird that has ended, sent back by a dashboard opened before
+           it did: the copy on screen still said £25, and saving it (an edit,
+           or taking it off the site) put the price back down for good
+           (16 Oct 2026, review). The rise stands. */
+        else if (owner && ef && ef.until && ms(ef.until) <= Date.now() && Math.round(Number(ef.then) || 0) > w.price)
+          w.price = Math.round(Number(ef.then));
       }
       const was = wsSlug(body.was || '');
       if (was && was !== slug) {
@@ -7272,6 +7296,12 @@ const handle = async (request) => {
       /* A session paid for outside the booking page, a payment link or cash,
          never reached this list: the coach books it in by hand, and setting
          the time below sends the same confirmation as any other. */
+      /* Money is the owner's, as it is for workshops: a refund, full or part,
+         and what a client is asked to pay. Any coach could do both for any
+         session that was not another coach's client (16 Oct 2026, review).
+         The rest (times, notes, cancelling with no refund) stays theirs. */
+      const moneyMove = (body.refund !== undefined && body.refund !== 'none') || body.ask !== undefined;
+      if (moneyMove && !(await isOwner())) return json(ownerOnly, 403);
       const askIn = Math.round(Number(body.ask) || 0);
       if (askIn > 0 && askIn < SESS_MIN_ASK) return json({ error: 'Stripe cannot take less than 30p. Ask for at least £0.30.' }, 400);
       /* a part refund, checked before anything is changed */
@@ -9452,7 +9482,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           if (vid && !(last && last.video === vid)) {
             let why = '', gated = false;
             if (!/^[a-f0-9]{32}$/.test(vid)) why = 'That clip did not upload properly. Send it again.';
-            else if (!clients()[who]) {
+            else if (!(await isCoached(who))) {
               try { const g = await fcGate(who); if (!g.ok) { why = g.error; gated = true; } }
               catch { why = 'Your number is saved, but the clip did not go through. Send it again.'; }
             }
@@ -10079,7 +10109,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* A free account has one assessment in it. The gate lives here as well
        as on /messages — footage can reach a coach by either road, and a
        limit enforced on only one of them is not a limit. */
-    const coached = !!clients()[who];
+    const coached = await isCoached(who);
     const kind = coached && body.kind !== 'assessment' ? 'test' : 'assessment';
     /* A form check is part of the paid tier now, and the free week of it is
        the way in. It used to be one free check per account for ever, which
@@ -10510,6 +10540,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     await pwClear(who);
     await saveAcct({ email: who, hash: await pwHash(next) });
+    /* Every other signed in phone or laptop is signed out: a new password
+       left a stolen sign in working for its ninety days (16 Oct 2026,
+       review). This device carries on with the fresh token below. */
+    await setSetting(`gone:${who}`, { at: Date.now() }).catch(() => {});
 
     /* tell Elliott, so a password changing is never a silent event */
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
@@ -10517,7 +10551,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       `<p style="font:16px/1.6 system-ui">${esc(clients()[who] || who)} (${esc(who)}) just changed
        their app password. No action needed unless this is a surprise.</p>`);
 
-    return json({ ok: true });
+    return json({ ok: true, token: await sign({ scope: 'app', email: who, iat: Date.now() + 1, exp: Date.now() + TOKEN_TTL }) });
   }
 
   /* ── changing the address the account is keyed on ────────────────
@@ -10592,13 +10626,19 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* the roster keys on the address too, so it follows or the client
        quietly stops being anybody's client */
     const roster = (await getSetting('roster')) || {};
-    const wasStored = !!roster[from];
     const seeded = parseClients().some(c => c.email === from);
-    roster[to] = roster[from] || { name: (old.name || to), coach: norm(old.coach || '') };
-    /* a seeded address cannot simply be deleted, the CLIENTS variable puts it
-       straight back, so mark it gone the way the roster route does */
-    if (seeded) roster[from] = null; else delete roster[from];
-    await setSetting('roster', roster);
+    /* Only a client's entry moves. This wrote one for every account, so
+       anybody who changed their address became a coaching client: the paid
+       films, the coaching screens, and an onboarding programme on the next
+       load (16 Oct 2026, found in review). A free account has no entry, or
+       one marked gone (null), and keeps having none. */
+    if (roster[from] || (seeded && roster[from] !== null)) {
+      roster[to] = roster[from] || { name: (old.name || to), coach: norm(old.coach || '') };
+      /* a seeded address cannot simply be deleted, the CLIENTS variable puts it
+         straight back, so mark it gone the way the roster route does */
+      if (seeded) roster[from] = null; else delete roster[from];
+      await setSetting('roster', roster);
+    }
 
     /* Apple finds the account by the token on the purchase and by the
        purchase's first id: both pointed at the old address, so a renewal
@@ -10827,7 +10867,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${old.name || who} changed their email`,
       `<p style="font:16px/1.6 system-ui">${esc(old.name || '')} moved from ${esc(who)}
-       to ${esc(next)}. The roster still lists the old address, so update it.</p>`);
+       to ${esc(next)}. ${((await getSetting('roster')) || {})[next] ? 'Their place on your client list moved with them.' : 'They are not a coaching client, so nothing else changed.'}</p>`);
 
     /* a fresh token, because the old one is signed for the old address */
     return json({ ok: true, email: next,
@@ -10872,7 +10912,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       /* Anyone signed in may ask a question — that is the way in to
          coaching. Footage is the thing that costs time to review, so a
          free account gets exactly one, and coaching gets the rest. */
-      const coached = !!clients()[who];
+      /* coached as /me says it: on the client list, or holding a programme.
+         The list alone sent a client with a programme and no list entry
+         into the free form check and its £20 offer (16 Oct 2026, review). */
+      const coached = coachedNow;
       let subId = '';
       if (video || image) {
         /* ── a clip is a clip, whoever sent it ────────────────────────
