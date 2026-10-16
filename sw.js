@@ -14,6 +14,10 @@ const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
 const FILM_CACHE    = 'lha-films';
+/* how long a page waits for the network before the kept copy */
+const PAGE_WAIT = 5000;
+/* when a kept page was last handed out, so its scripts can match it */
+let staleAt = 0;
 
 /* Files that make up the app shell. Kept small and all same-origin. */
 const SHELL = [
@@ -139,23 +143,49 @@ self.addEventListener('fetch', event => {
      updated app is picked up straight away, falling back to cache
      when the network is unavailable. */
   if (url.origin === self.location.origin) {
-    event.respondWith(
-      fetch(req)
-        .then(res => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            caches.open(SHELL_CACHE).then(c => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => caches.match(req).then(hit =>
-          /* the app's page only for a page; anything else answered with
-             that page read as success to whatever asked */
-          hit || ((req.mode === 'navigate' && !/\/lha-coach\.html$/.test(url.pathname)) ? caches.match('/lha-app.html') : Response.error())
-        ))
-    );
+    const isPage = req.mode === 'navigate';
+    /* A kept page was just served, so its scripts come from the same keep:
+       an old page with a new ladder-data.js can be a page that dies. */
+    if (!isPage && SHELL.includes(url.pathname) && Date.now() - staleAt < 20000) {
+      event.respondWith(caches.match(req).then(hit => hit || fetchKeep(req)));
+      return;
+    }
+    const net = fetchKeep(req);
+    /* the app's page only for a page; anything else answered with that
+       page read as success to whatever asked */
+    const kept = () => caches.match(req).then(hit =>
+      hit || ((isPage && !/\/lha-coach\.html$/.test(url.pathname)) ? caches.match('/lha-app.html') : null));
+    if (!isPage) {
+      event.respondWith(net.catch(() => kept().then(hit => hit || Response.error())));
+      return;
+    }
+    /* A page waits PAGE_WAIT for the network, then takes the copy kept
+       here if there is one, while the network carries on and keeps the new
+       copy for next time. It waited for as long as the browser would, so
+       weak gym wifi was a blank page where the kept app was ready to go
+       (16 Oct 2026, review). Only this exact page on a wait; the app's
+       page stands in for others only when the network has actually failed. */
+    event.waitUntil(net.catch(() => null));
+    event.respondWith(new Promise(resolve => {
+      let done = false;
+      const give = (res, stale) => { if (done || !res) return; done = true; if (stale) staleAt = Date.now(); resolve(res); };
+      const wait = setTimeout(() => caches.match(req).then(hit => give(hit, true)), PAGE_WAIT);
+      net.then(res => { clearTimeout(wait); give(res, false); })
+        .catch(() => { clearTimeout(wait); kept().then(hit => { if (hit) give(hit, true); else give(Response.error(), false); }); });
+    }));
   }
 });
+
+/* the network, keeping a good answer for no signal */
+function fetchKeep(req) {
+  return fetch(req).then(res => {
+    if (res && res.status === 200) {
+      const copy = res.clone();
+      caches.open(SHELL_CACHE).then(c => c.put(req, copy));
+    }
+    return res;
+  });
+}
 
 /* ── notifications ─────────────────────────────────────────────────
    The server sends a title, a line and where it should open. A reply

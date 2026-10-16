@@ -1679,8 +1679,7 @@ function jvKey(){
       if(!st.mode && !st.in) return 'welcome';
       if(!st.in && !st.quizDone && (st.mode==='free' || st.tab==='quiz')) return 'quiz-'+(st.quizStep|0);
       if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !(typeof awaitingBlock==='function' && awaitingBlock())) return 'landed';
-      if(st.tab==='joinFree' && !st.in) return 'join';
-      if(!st.in && st.quizDone && !st.email && !st.joinSkipped && typeof freeSessionsUsed==='function' && freeSessionsUsed()>=FREE_NO_ACCOUNT) return 'join-wall';
+      if(st.tab==='joinFree' && !st.in) return st.joinFor==='next' ? 'join-wall' : 'join';
     }
     let t=String(st.tab||'home').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12)||'home';
     if(t==='ladder' && st.ladderTab) t+='-'+String(st.ladderTab).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,10);
@@ -1875,6 +1874,9 @@ let iapProduct=null;
 const sellsLadder = () => !IOS_APP || !!iapProduct;
 /* one line for anything that would have been a price or an offer */
 const MEMBERS = 'for members';
+/* the word on something locked, the same everywhere: a story chapter said
+   MEMBERS under an offer of a free week (16 Oct 2026, review) */
+const lockWord = () => !sellsLadder() ? 'MEMBERS' : PRICE_TRIAL()>0 ? 'WITH THE TRIAL' : esc(PRICE())+' A MONTH';
 let st={};
 try{ st=JSON.parse(localStorage.getItem(K)||'{}')||{}; }catch(e){ st={}; }
 /* no sheet is open when the page loads, whatever was open when it was
@@ -9840,7 +9842,7 @@ function closeMenu(){ menuOpen=false; const m=$('#menu'); if(!m) return; m.class
    apps, a preview pane. It answers Cancel without asking, so the button
    did nothing at all: Retake the questions, Drop back a stage, Move up,
    and the rest. The same question, drawn by the app, so it always asks. */
-function sure(msg, ok, fn, danger, onCancel){
+function sure(msg, ok, fn, danger, onCancel, no){
   const old=document.getElementById('sure'); if(old) old.remove();
   const parts=String(msg).split('\n\n'), head=parts.shift();
   const box=document.createElement('div'); box.id='sure';
@@ -9857,7 +9859,7 @@ function sure(msg, ok, fn, danger, onCancel){
         background:${danger?'#b3412f':'linear-gradient(180deg,#0a7a76,#006663)'};color:#fff;
         font:600 16px/1 var(--sans)">${esc(ok||'Yes')}</button>
       <button data-x style="width:100%;height:46px;margin-top:4px;border:0;background:none;cursor:pointer;
-        font:600 15px/1 var(--sans);color:var(--grey)">Cancel</button>
+        font:600 15px/1 var(--sans);color:var(--grey)">${esc(no||'Cancel')}</button>
     </div>`;
   const key=e=>{ if(e.key==='Escape') cancel(); };
   const close=()=>{ box.remove(); document.removeEventListener('keydown', key); };
@@ -10148,7 +10150,14 @@ function bindPlayer(){
     sh.addEventListener('touchstart',e=>{ shy=e.touches[0].clientY; },{passive:true});
     sh.addEventListener('touchend',e=>{ if(e.changedTouches[0].clientY-shy>50 && sh.scrollTop<=0) cueSheet(false); },{passive:true});
   }
-  $('#p-exit').onclick=()=>endPlayer(false);
+  /* One tap ended it, with nothing like the list's Carry on (16 Oct 2026,
+     review). Before the first set is through there is nothing to lose. */
+  $('#p-exit').onclick=()=>{
+    if(qi<1){ endPlayer(false); return; }
+    const was=paused; if(!paused) togglePause();
+    sure('End this session?\n\nWhat you have done so far is kept.', 'End it', ()=>endPlayer(false), false,
+      ()=>{ if(!was && paused) togglePause(); }, 'Carry on');
+  };
   $('#p-next').onclick=()=>{ clearInterval(tick_); tick_=null; advance(); };
   $('#p-prev').onclick=stepBack;
   $('#p-skip').onclick=()=>{ clearInterval(tick_); tick_=null; phase='work'; qi++; showStep(); };
@@ -10158,6 +10167,11 @@ function bindPlayer(){
 }
 function togglePause(){
   paused=!paused; lastT=Date.now();
+  /* A set reached while paused (Next, Back, a swipe, or the phone locked)
+     never had its clock started, and play did not start one: the button
+     said II and the clock sat still for good (16 Oct 2026, review). */
+  if(!paused && !tick_ && tTotal>0) tick_=setInterval(step,250);
+  if(!paused) beepWake();
   const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II';
   const B=$('#p-bigpause'); if(B){ B.textContent=paused?'▶':'II'; B.classList.toggle('play',paused); B.setAttribute('aria-label',paused?'Resume the set':'Pause the set'); }
   document.querySelectorAll('#player video').forEach(v=>{ try{ paused?v.pause():v.play(); }catch(e){} });
@@ -10543,6 +10557,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
   fixSessionDone(done);
   if(done && !st.in) advanceDay();
   save();
+  lastSum=null;
   if(done){ st.ovSummary=true; openOv('summary'); }
   else if(partWay){ render(); openOv('why'); }
   else render(); }
@@ -10667,7 +10682,18 @@ function cue(){
   try{ if(navigator.vibrate) navigator.vibrate([45,60,45]); }catch(e){}
   beep();
 }
-function beep(){ if(!cueOn()) return; try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
+/* One context for the visit, woken by a tap. A new one every set was never
+   closed, 25 open after a session, and on an iPhone one made outside a tap
+   stays silent (16 Oct 2026, review). */
+let beepCtx=null;
+function beepWake(){
+  try{
+    if(!beepCtx){ const C=window.AudioContext||window.webkitAudioContext; if(!C) return; beepCtx=new C();
+      const b=beepCtx.createBuffer(1,1,22050), s=beepCtx.createBufferSource(); s.buffer=b; s.connect(beepCtx.destination); s.start(0); }
+    if(beepCtx.state==='suspended') beepCtx.resume().catch(()=>{});
+  }catch(e){}
+}
+function beep(){ if(!cueOn()) return; try{ beepWake(); const a=beepCtx; if(!a) return; const o=a.createOscillator(),g=a.createGain();
   o.frequency.value=660;o.connect(g);g.connect(a.destination);g.gain.setValueAtTime(.0001,a.currentTime);
   g.gain.exponentialRampToValueAtTime(.2,a.currentTime+.01);g.gain.exponentialRampToValueAtTime(.0001,a.currentTime+.3);
   o.start();o.stop(a.currentTime+.31);}catch(e){} }
@@ -11088,7 +11114,7 @@ function drawOv(){
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
            password:'Change password', account:'Your account', emailchange:'Change email', deleteacct:'Delete your account', members:'For members', iap:'The whole Ladder',
            why:'Why are you stopping?',apply:'Apply for coaching',
-           summary:'Session complete',stage:S?S.n:'Stage',
+           summary:(lastSum && !lastSum.done)?'Session logged':'Session complete',stage:S?S.n:'Stage',
            cleared:'Stage cleared',
            /* the chooser writes its own heading, and two titles one above
               the other is one title too many */
@@ -11283,7 +11309,7 @@ function drawOv(){
         <ol style="margin:9px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;
           font:400 13.5px/1.45 var(--sans);color:var(--grey)">
           <li>Press Go. The player runs it: each drill, its film, the rest between.</li>
-          <li>Tick a check point when you hit it. Reach them all and the next stage opens.</li>
+          <li>Tick a check point when you hit it. Reach them all and you are ready for the next stage.</li>
           <li>Send one clip whenever you want eyes on it.</li>
         </ol>
       </div>` : ''}
@@ -11390,7 +11416,7 @@ function drawOv(){
           <span style="display:block;font:600 15px/1.2 var(--sans)">${
             _wrist?'Mobility day it is':'Mobility day instead'}</span>
           <span style="display:block;margin-top:3px;font:400 13px/1.4 var(--sans);color:var(--grey)">
-            Wrists and shoulders, no stage work. 10 min.</span>
+            Wrists and shoulders, no stage work. ${st.wristMins?'About '+st.wristMins+' min.':'Short.'}</span>
         </span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a"
           stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
@@ -12265,8 +12291,8 @@ function drawOv(){
         onclick="st.clearedFrom=null;closeOv()">Keep training ${esc(from.n)}</button>`
      :`<button class="btn" style="width:100%;margin-top:20px"
         onclick="st.clearedFrom=null;closeOv()">Close</button>`}
-    <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-      You can move back up whenever you like, from the foot of the ladder.</div>`;
+    ${moved?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
+      You can move back up whenever you like, from the foot of the ladder.</div>`:''}`;
   }
   if(st.ov==='summary'){
     /* the session that just ran, not the coached plan's idea of today — on
@@ -12279,7 +12305,9 @@ function drawOv(){
     const dayName = onLadder
       ? ((Q.map(x=>x.grp).find(g=>g && !WARM_GRP.test(g))) || 'that session') : '';
     const d = onLadder ? {label:dayName} : day();
-    const drills = onLadder ? new Set(Q.map(x=>x.it&&x.it.v)).size : allItems(d).length;
+    const ls = onLadder ? lastSum : null;
+    const drills = ls ? ls.drills : onLadder ? new Set(Q.map(x=>x.it&&x.it.v)).size : allItems(d).length;
+    const setsN = ls ? ls.sets : q.length;
     const mins=st.lastSessionMins||0;
     const stat=(v,l)=>`<div style="flex:1;text-align:center">
       <div class="h-sm" style="font-size:26px">${v}</div>
@@ -12290,10 +12318,10 @@ function drawOv(){
       <div class="burst">${Array.from({length:18},(_,i)=>
         `<i style="--a:${(i*20)}deg;--d:${60+(i%5)*22}px;--t:${(i%6)*90}ms;
           background:${['var(--amber)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
-      <div class="h-xl" style="font-size:58px;color:var(--forest);position:relative">${q.length}</div>
-      <div class="kick2" style="margin-top:8px">SETS DONE</div>
+      <div class="h-xl" style="font-size:58px;color:var(--forest);position:relative">${setsN}</div>
+      <div class="kick2" style="margin-top:8px">${ls && !ls.done ? 'OF '+ls.of+' SETS DONE' : 'SETS DONE'}</div>
       <div class="h-lg" style="margin-top:20px">${onLadder
-        ? esc(qLabel||'That session')+', done.' : "That's "+esc(d.label)+' done.'}</div>
+        ? (ls && !ls.done ? 'Part of it, logged.' : esc(qLabel||'That session')+', done.') : "That's "+esc(d.label)+' done.'}</div>
       ${weekMoment ? weekMomentHTML() + (st.in ? `<div style="font:400 14px/1.55 var(--sans);
         color:var(--grey);margin-top:12px">Elliott can see it.</div>` : '')
       : `<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
@@ -12301,7 +12329,7 @@ function drawOv(){
     </div>
     <div style="display:flex;gap:8px;margin-top:20px;padding:16px 0;
       border-top:1px solid rgba(28,32,25,.09);border-bottom:1px solid rgba(28,32,25,.09)">
-      ${stat(drills,'DRILLS')}${stat(mins?mins+'m':'0m','TIME')}${stat(q.length,'SETS')}
+      ${stat(drills,'DRILLS')}${stat(mins?mins+'m':'0m','TIME')}${stat(setsN,'SETS')}
     </div>
       ${(!isStandalone() && !st.installNudged && !st.in) ? (function(){
         /* not on first open. After they have done something and it went well. */
@@ -12554,8 +12582,12 @@ function doLogin(ev){
       st.email=email; st.token=d.token; st.client=d.client;
       st.in=!!d.coached; st.coached=!!d.coached; st.tier=String(d.tier||'');            /* coached tier only for actual coaching clients */
       st.plus=!!d.plus;
-      if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
+      let nextUp=null;
+      if(!st.in){ st.mode='free'; st.quizDone=true;
+        if(st.signinFrom==='joinFree' && st.joinFor==='next'){ st.signinFrom=null; nextUp=joinLand(); }
+        else if(!st.tab||st.tab==='signin') st.tab='ladder'; }
       save(); render(); loadEntitlement();
+      if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
       /* a quiz just taken on this phone, not yet on the account */
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
       if(st.in){ loadProgramme(); loadThread(); }
@@ -12565,9 +12597,14 @@ function doLogin(ev){
          wall with nothing said */
       loadLadder(); loadState(); loadTrack(); codeResume();
       if(!st.in && st.wantPlan) resumePlan(); })
+    /* No signal and a server fault both said the password was wrong, so a
+       person with the right one went off to reset it (16 Oct 2026, review). */
     .catch(code=>{ const m=$('#authMsg');
+      if(st.token && st.email===email) return;   /* signed in; something after it threw */
       if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
-                                       : 'That email and password did not match.'; });
+        : (code===400||code===401||code===403||code===404) ? 'That email and password did not match.'
+        : typeof code==='number' ? 'The server did not answer properly. Try again in a moment.'
+        : 'Could not reach the server. Check you are online, then try again.'; });
 }
 function requestCode(){
   const v=($('#emailIn')||{}).value||'';
@@ -13662,7 +13699,11 @@ function closeWhy(send){
   if(send){
     const t=($('#whyText')||{}).value||'';
     if(whyPicked.length||t.trim()){
-      sendAndSay(reportProgress({feedback:{kind:'Stopped early',reasons:whyPicked,text:t,
+      /* Without an account nothing carries the words, and it still said
+         "Told Elliott why you stopped" (16 Oct 2026, review). The reasons
+         are counted either way. */
+      if(!st.token) toast(t.trim() ? 'Thanks. Elliott reads the words once you have an account.' : 'Thanks, noted.');
+      else sendAndSay(reportProgress({feedback:{kind:'Stopped early',reasons:whyPicked,text:t,
         context:whyStopContext}}), 'Told Elliott why you stopped.');
     }
   }
@@ -13960,8 +14001,14 @@ function finishChecklist(){
   if(done) applyRotNext();
   if(done && !st.in) advanceDay();
   fixSessionDone(done);
+  /* what the summary says: the sets ticked, not the sets built. Two of
+     twenty five read "25 SETS DONE, session done" with the time of the last
+     follow along (16 Oct 2026, review). */
+  st.lastSessionMins=Math.max(1,took);
+  lastSum={sets:ticked, of:(Q||[]).length, drills:[...rows.values()].filter(r=>r.got>0).length, done};
   st.qTick={}; st.reps={}; st.listHeld=null; save(); closeOv(); openOv('summary');
 }
+let lastSum=null;
 
 /* the list's own flag toggle: state, then the two buttons and the note box
    that belong to this row */
@@ -14681,9 +14728,15 @@ function skipFinish(){
   st.quizSkip=false;
   const L=levelDef();
   st.stage=0; st.placed=0; st.time=st.time||30; st.perWeek=st.perWeek||(L&&L.def)||3;
-  st.quizDone=true; st.oriented=false;
-  st.tab = st.email ? 'home' : 'joinFree';
-  save(); saveStateDown(); render();
+  /* Train, and the session sheet. It went to the sign up form: the
+     screen that says where the quiz put them needs answers a skip does not
+     give, so the form was next (16 Oct 2026, review). */
+  st.quizDone=true; st.oriented=true;
+  st.tab = 'home';
+  save(); saveStateDown();
+  if(inFrame()){ leaveTo(location.pathname + location.search); return; }
+  render();
+  setTimeout(()=>startDay(-1,'full'), 60);
 }
 function finishIntake(){
   st.quizSkip=false;
@@ -15164,7 +15217,7 @@ function storyReelHTML(si, ch){
       tabindex="0" role="group" aria-roledescription="story"
       aria-label="${esc((STAGES[si]||{}).n||'')} in chapters. Swipe to move through them.">
     ${all.map(({x,i,k})=>`<div class="styr-card${x.shut?' nofilm':''}" data-n="${i}" data-uid="${esc(x.uid||'')}"${x.locked?' data-lock="1"':''}${k!==1?' aria-hidden="true"':''}>
-      ${x.shut ? `<span class="lk">${STORY_LOCK}MEMBERS</span>${storyStill(x.uid)}` : `<video muted playsinline loop disableremoteplayback preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
+      ${x.shut ? `<span class="lk">${STORY_LOCK}${lockWord()}</span>${storyStill(x.uid)}` : `<video muted playsinline loop disableremoteplayback preload="${i===0?'auto':'none'}" ${x.uid?`poster="${esc(streamThumb(x.uid))}"`:''}
         style="object-position:${x.x}% 50%" data-src="${esc(x.src)}"></video>`}
       <div class="sty-cap"><small>${i+1} OF ${ch.length}</small><b>${esc(x.t)}</b>${x.sub?`<span>${esc(x.sub)}</span>`:''}</div>
     </div>`).join('')}
@@ -15214,7 +15267,7 @@ function storyProbe(el){
     el.querySelectorAll('.styr-card').forEach(c=>{ if(!c.dataset.lock || !bad.has(c.dataset.uid)) return;
       c.classList.add('nofilm');
       const v=c.querySelector('video'); if(v) v.remove();
-      c.insertAdjacentHTML('afterbegin', `<span class="lk">${STORY_LOCK}MEMBERS</span>${storyStill(c.dataset.uid)}`); });
+      c.insertAdjacentHTML('afterbegin', `<span class="lk">${STORY_LOCK}${lockWord()}</span>${storyStill(c.dataset.uid)}`); });
     return true;
   });
 }
@@ -15769,8 +15822,11 @@ function weekTarget(){
   return Math.max(1, Math.min(7, n));
 }
 function sessionsThisWeek(){
-  const wk=Date.now()-7*864e5;
-  return sessionsDone().filter(x=>x.at>wk).length;
+  /* Monday on, as the circles under it and Home's streak count. It was
+     the last seven days, so two sessions last weekend read "2 / 3" over a
+     week of empty circles (16 Oct 2026, review). */
+  const now=wkNo(Date.now());
+  return sessionsDone().filter(x=>x.at && wkNo(x.at)===now).length;
 }
 function trainedToday(){
   const k=new Date().toISOString().slice(0,10);
@@ -16216,7 +16272,8 @@ function buildFixSession(slug, listOnly){
   if(listOnly){ st.fixActive=slug; st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true;
     /* moves on when the list is finished, as the ladder's does */
     st.rotNext={fix:slug, to:(rot+1)%997}; save(); openOv('list'); return; }
-  st.fixRot=Object.assign({}, st.fixRot||{}); st.fixRot[slug]=(rot+1)%997; delete st.rotNext;
+  /* held until it is finished, as the ladder's session is (16 Oct 2026) */
+  st.rotNext={fix:slug, to:(rot+1)%997};
   st.fixActive=slug; save(); track('fixstart', null, slug);
   startQueue(0);
 }
@@ -16746,7 +16803,14 @@ function ladderMins(){
    work in the stage is not an easier session, it is a long one, and the
    people who press Easier are the ones who need the shorter day. */
 const EASY_CAP_DEFAULT=30;
-Object.defineProperty(window,'EASY_CAP',{get(){ return shortRules().easyCap||EASY_CAP_DEFAULT; }});
+/* The cap is the longest of the lengths offered that fits under the number
+   set. Set at 29, it made every Easier session 29 minutes: under the 30 that
+   gets full sets, so it built about 17, said 29, and lit none of the length
+   buttons (16 Oct 2026, review). */
+Object.defineProperty(window,'EASY_CAP',{get(){
+  const c=Number(shortRules().easyCap)||EASY_CAP_DEFAULT;
+  const fit=LADDER_MINS.filter(m=>m<=c);
+  return fit.length ? Math.max(...fit) : Math.min(...LADDER_MINS); }});
 /* Easier was capped at half an hour, because forty five minutes of the
    gentlest drills in a stage is a longer session rather than an easier one.
    Above Foundations, Easier now means a third of the session is the stage
@@ -17325,11 +17389,15 @@ function sessionChooser(day){
 /* what the start button does depends on which kind is chosen */
 function setKind(k){
   if(k==='wrist') st.sessionKind='wrist';
+  /* off again: only the kind. It passed null on as a level, which reads as
+     Easier, so a second tap on Mobility made the session easier and saved
+     it (16 Oct 2026, review). */
+  else if(k==null) st.sessionKind=null;
   else { st.sessionKind=null; setStageLevel(curStage(), k); }
   save(); if(!st.ov) render();
 }
 function startChosen(day){
-  if(st.sessionKind==='wrist'){ buildFreeSession(true,false); return; }
+  if(st.sessionKind==='wrist'){ if(joinFirst(day,'wrist')) return; buildFreeSession(true,false); return; }
   /* The chooser has already asked which kind of day this is, so the sheet
      that follows must not second-guess it from the calendar. Pressing Start
      with a difficulty selected offered a mobility day whenever today's cell
@@ -18418,7 +18486,10 @@ function payHosted(){
       if(e && e.badCode){ st.promo=null; save(); if(b){ b.disabled=false; b.textContent='Code removed. Go on without it'; } toast(e.error||'That code did not work.'); return; }
       fetch(AUTH.feedback,{method:'POST',headers:authed(),body:JSON.stringify({kind:'bug',
         text:'Checkout for the full ladder did not open: '+String(e), extra:{email:st.email||''}})}).catch(()=>{});
-      if(b){ b.disabled=false; b.textContent='Thanks, I will be in touch'; }
+      /* it said "Thanks, I will be in touch", resting on that report, which
+         does not go either with no signal (16 Oct 2026, review) */
+      if(b){ b.disabled=false; b.textContent='Checkout did not open. Try again'; }
+      toast(typeof e==='string' && e ? e : 'Could not reach the checkout. Check you are online, then try again.');
     });
 }
 /* the server is the authority on what has been paid for; local storage
@@ -18765,9 +18836,15 @@ function trainAnyway(){
 }
 /* -1 means "nothing is scheduled, give me whatever is next" */
 function startDay(i, kind){
+  if(joinFirst(i, kind)) return;
   endTaste();
   st.pickDay = (i == null ? -1 : i);
   st.pickKind = kind || null;
+  /* Mobility is a choice for one session. It was saved and never undone,
+     so the next day's Start opened on "Go, mobility day" (16 Oct 2026,
+     review). A mobility day picked from the week strip still opens as one. */
+  const cell = (i!=null && i>=0) ? weekCells()[i] : null;
+  st.sessionKind = (kind==='wrist' || (kind!=='full' && isRestCell(cell))) ? 'wrist' : null;
   save();
   openOv('mode');
 }
@@ -19166,9 +19243,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      session both times. It used to move for the follow along alone, so
      anybody who trains Drill by drill got the same session every time
      (13 Oct 2026). A tour's practice workout moves nothing. */
+  /* Held until it is finished either way now: moved as the follow along
+     started, so closing it part way and pressing Start built a different
+     session (16 Oct 2026, review). endPlayer moves it on when done. */
   if(!tourBuild){
-    if(!listOnly){ st.rot=Object.assign({}, st.rot||{}); st.rot[stage]=(rot+1)%997; delete st.rotNext; }
-    else st.rotNext={stage, to:(rot+1)%997};
+    st.rotNext={stage, to:(rot+1)%997};
     save();
   }
   /* A written list is already in the coach's order and the whole point of
@@ -19194,6 +19273,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   out.forEach(q=>{ q.sets=tally[q.it.v]; });
   Q=out;
   qSaved=null;
+  /* what a mobility day comes to, for the line that offers one: it said
+     10 min and built about four (16 Oct 2026, review) */
+  if(wristDay && !tourBuild) st.wristMins=qMins();
   /* a new workout, so no ticks: they were kept by position and landed on
      whatever the next session happened to have in that place. A session
      kept from earlier stays kept until it is finished or thrown away. */
@@ -19253,6 +19335,7 @@ function cacheSession(list){
 }
 function startQueue(from){
   qi=from||0; phase='work'; paused=false; sessionStart=Date.now();
+  beepWake();   /* the tap that started it is what lets an iPhone make the end of set sound */
   /* a tour's practice workout fetches no films, counts no start and does
      not hold the screen on (13 Oct 2026) */
   if(!from && !tourBuild) cacheSession(Q);
@@ -20199,7 +20282,7 @@ function screenWelcome(){
               <em style="color:#8fe3d6;font-style:normal">down.</em></div>
             <div style="font:400 18px/1.45 var(--sans);color:rgba(255,255,255,.84);max-width:34ch;margin-top:16px">
               ${STAGES.length} stages, from your first wall hold to a freestanding press.
-              ${esc((STAGES[0]||{}).n||'The first')} is free, and it all works offline.</div>
+              ${esc((STAGES[0]||{}).n||'The first')} is free.</div>
           </div>
           <div>
             ${strip}${cta}${foot}
@@ -20233,7 +20316,7 @@ function screenWelcome(){
         <em style="color:#8fe3d6;font-style:normal">down.</em></div>
       <div style="font:400 17px/1.45 var(--sans);color:rgba(255,255,255,.86);max-width:330px">
         ${STAGES.length} stages, from your first wall hold to a freestanding press.
-        ${esc((STAGES[0]||{}).n||'The first')} is free, and it all works offline.</div>
+        ${esc((STAGES[0]||{}).n||'The first')} is free.</div>
     </div>
     ${strip}
     ${cta}
@@ -20262,6 +20345,14 @@ function resumePlan(){
 function goJoin(why){
   joinErr='';
   st.joinFor = why || '';
+  /* A stage or a plan somebody went to buy and then backed away from was
+     still waiting when they later signed up for something free (saving a
+     workout, the chat), and the new account went straight to a checkout
+     (16 Oct 2026, review). This is the free way in, so it starts clean. */
+  st.wantUpgrade = null;
+  if(why!=='plan') st.wantPlan = null;
+  /* where to go back to once the account exists */
+  if(JOIN_BACK.includes(st.tab)) st.joinBack = st.tab;
   st.tab='joinFree';
   save(); render(); window.scrollTo(0,0);
 }
@@ -20333,6 +20424,9 @@ function doResetConfirm(ev){
     body:JSON.stringify({email:resetEmail,code:code,password:pw})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'That did not work')))
     .then(d=>{ st.email=resetEmail; st.token=d.token||null; resetStep=0; resetMsg='';
+      /* as a sign in does, or a new phone sat on the welcome screen until
+         /me answered, and for good if it did not (16 Oct 2026, review) */
+      if(!st.in){ st.mode=st.mode||'free'; st.quizDone=true; }
       st.tab='ladder'; save(); render(); loadEntitlement();
       /* Finish as a sign in does. This read nothing back, so a new phone
          showed Foundations with nothing done, and its next save wrote that
@@ -20340,7 +20434,15 @@ function doResetConfirm(ev){
       if(!st.token) return;
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
       loadLadder(); loadState(); loadTrack(); loadProgress(); codeResume(); })
-    .catch(e=>rsSay(String(e)));
+    .catch(e=>rsSay(errText(e)));
+}
+/* What a failed request says. The server's own words when it sent some;
+   "TypeError: Load failed" and a JSON parse of a 502 page were going on
+   screen as they were (16 Oct 2026, review). */
+function errText(e){
+  if(typeof e==='string') return e;
+  if(e && typeof e.message==='string' && e.message && !(e instanceof TypeError) && !(e instanceof SyntaxError)) return e.message;
+  return 'Could not reach the server. Check you are online, then try again.';
 }
 
 function screenJoin(){
@@ -20363,6 +20465,8 @@ function screenJoin(){
   /* buying coaching while signed out: the account first, then checkout */
   const plan = !want && !!st.wantPlan && st.joinFor==='plan';
   const saving = !want && !trial && st.joinFor==='save';
+  /* the second session asked for it: the first one is done and worth keeping */
+  const second = !want && !trial && !plan && !saving && st.joinFor==='next';
   const trialDays = PRICE_TRIAL()===7 ? 'week' : PRICE_TRIAL()+' days';
   const s = want || PSJ || STAGES[curStage()] || {n:''};
   /* This and screenOriented sit between the quiz and Today, so they are the
@@ -20373,12 +20477,14 @@ function screenJoin(){
     padding:calc(env(safe-area-inset-top) + 40px) 24px 30px;display:flex;flex-direction:column">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
       color:var(--forest)">${saving?'Saving for no signal'
+        :second?'Session two'
         :plan?'Coaching'
         :trial?'Your free '+esc(trialDays)
         :want?'To open '+esc(want.n)
         :taste?'Your free session at '+esc(PSJ.n):'Your starting point'}</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
       saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
+      : second ? `Your first one is <em style="color:var(--forest);font-style:normal">done.</em>`
       : plan ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
       : trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
        : want ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
@@ -20388,6 +20494,7 @@ function screenJoin(){
          the payment page, so two unrelated statements ran together -->
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
       saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
+      : second ? ''
       : plan ? 'Your coaching lives on an account, so this takes a moment and then the payment page opens.'
       : trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
                +(IOS_APP && !sells()
@@ -20518,9 +20625,11 @@ function doJoin(ev){
         try{ saveState(true); }catch(e){} try{ loadEntitlement(); }catch(e){}
         /* the sessions done before the account go up to it now, not never */
         try{ loadProgress(); }catch(e){} }
-      /* they came for the free session at their stage: straight to it */
-      if(st.joinFor==='taste'){ st.joinFor=''; st.tab='home'; } else st.tab='ladder';
+      /* back where they were, or Train, and on into the session if that is
+         what asked (joinLand) */
+      const nextUp=joinLand();
       save(); render();
+      if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
       /* they came here to buy a stage, so finish the errand rather than
          landing them on the ladder and making them find the button again.
          The form check card asks for the same free week without naming a
@@ -20543,7 +20652,7 @@ function doJoin(ev){
         setTimeout(()=>{ if(k && dlLists[k]){ toast('Saving it for no signal now.'); dlStart(k); }
           else toast('You are in. Tap Save again to keep it on this phone.'); }, 400);
       } })
-    .catch(e=>{ joinSay(String(e)); });
+    .catch(e=>{ joinSay(errText(e)); });
 }
 /* letting them skip costs one address and keeps the app usable —
    they get asked again when they hit the paid stages */
@@ -20554,7 +20663,39 @@ function doJoin(ev){
    buys you something — every clip in the stage — but it is never the price of
    getting in. */
 const emailOptional = () => true;
-function skipJoin(){ st.joinSkipped=true; st.tab='home'; save(); render(); }
+/* Skipping went Home whatever was asked for (16 Oct 2026, review): it goes
+   back where they were now, and on into the session if starting one is
+   what brought the form up. Skipping a stage they meant to buy ends that
+   errand too, or a later free sign up finished it with a card form. */
+function skipJoin(){
+  st.joinSkipped=true;
+  if(st.joinFor==='buy' || st.joinFor==='check' || st.wantUpgrade!=null){ st.wantUpgrade=null; if(st.joinFor!=='next') st.joinFor=''; }
+  const nextUp=joinLand(); save(); render();
+  if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
+}
+/* Where a new account, or a skip, lands: back where it came from, or Train,
+   and on into the session if starting one is what asked. "Save and start"
+   landed everybody on the Ladder (16 Oct 2026, review). */
+const JOIN_BACK=['home','ladder','coaching','more','fix','press'];
+function joinLand(){
+  const next = st.joinFor==='next' ? st.joinNext : null;
+  const back = st.joinBack;
+  st.joinBack=''; st.joinNext=null;
+  if(st.joinFor==='taste' || st.joinFor==='next'){ st.joinFor=''; st.tab='home'; }
+  else st.tab = JOIN_BACK.includes(back) ? back : 'home';
+  return next;
+}
+/* The ask for an address comes when somebody goes back for a second
+   session, which is the first moment there is something worth keeping. It
+   was in render(), so it came up the moment the first session's summary
+   closed, whatever button closed it (16 Oct 2026, review). */
+function joinFirst(i, kind){
+  if(st.in || st.token || st.email || st.joinSkipped || !st.quizDone || st.preview) return false;
+  if(freeSessionsUsed() < FREE_NO_ACCOUNT) return false;
+  st.joinNext={i:(i==null?-1:i), kind:kind||null};
+  goJoin('next');
+  return true;
+}
 /* to sign in, carrying whatever address was typed, and back here after */
 function joinToSignIn(){
   const em=(($('#joinEm')||{}).value||'').trim().toLowerCase();
@@ -21329,8 +21470,13 @@ function canInstall(){ return !isStandalone(); }
 function installCopy(){
   if(installPrompt) return 'Chrome can do it in one tap. Next puts it on your '+
     'home screen, where it opens full screen and keeps workouts you save for no signal.';
+  /* The Home Screen app keeps its own storage, so without an account it
+     opens as a stranger: welcome, quiz, first session gone. The sheet said
+     so and the other places that give these steps did not (16 Oct 2026,
+     review). */
   if(isIOS()) return 'Tap the share button in Safari (in its bottom bar, or inside the ••• menu), then Add to '+
-    'Home Screen. It opens full screen from there, and workouts you save play with no signal.';
+    'Home Screen. It opens full screen from there, and workouts you save play with no signal.'+
+    (st.token ? '' : ' Add your email first, or the Home Screen app starts from scratch.');
   return 'Open your browser menu and choose Install, or Add to Home Screen. It opens '+
     'full screen from there, and workouts you save play with no signal.';
 }
@@ -21447,9 +21593,12 @@ async function appleSignInOnce(P){
   const from=st.tab;
   st.email=d.email; st.token=d.token; st.client=d.client; st.viaApple=true;
   st.in=!!d.coached; st.coached=!!d.coached; st.plus=!!d.plus;
+  let nextUp=null;
   if(!st.in){ st.mode='free'; st.quizDone=true;
-    st.tab = (st.joinFor==='taste') ? 'home' : 'ladder'; st.joinFor = st.joinFor==='taste' ? '' : st.joinFor; }
+    if(from==='joinFree' && st.joinFor==='next') nextUp=joinLand();
+    else { st.tab = (st.joinFor==='taste') ? 'home' : 'ladder'; st.joinFor = st.joinFor==='taste' ? '' : st.joinFor; } }
   save(); render(); loadEntitlement();
+  if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
   if(d.fresh){
     /* a new account has nothing to overwrite: what this phone has goes up */
     track('signup');
@@ -22240,8 +22389,7 @@ function render(){
      before the app had done a single thing for them. They get a whole
      session first now. The ask comes when they go back for a second one,
      which is the first moment there is anything worth keeping. */
-  if(!st.in && st.quizDone && !st.email && !st.joinSkipped && freeSessionsUsed()>=FREE_NO_ACCOUNT){
-    swap(screenJoin()); return; }
+  /* (the address is asked for when a second session starts: joinFirst) */
   const coached=coachedView();
   /* a fix asked for in the link opens once the list has arrived */
   if(st.fixPending && fixGet(st.fixPending)){
