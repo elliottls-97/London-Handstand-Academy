@@ -1707,9 +1707,15 @@ function jvKey(){
   }catch(e){ return 'unknown'; }
 }
 function jvNote(){ try{ const k=jvKey(); jvLast=k; if(jvSeen.size<40) jvSeen.add(k); }catch(e){} }
+/* The same screen put down again within half an hour is the same stop:
+   switching to the camera to film and back sent one every time (16 Oct
+   2026), which would make the player look like where people quit. */
+let jvSentAt={};
 function jvSend(){
   if(st.preview || jvSent || !jvLast) return;
   jvSent=true;
+  if(Date.now()-(jvSentAt[jvLast]||0) < 30*60000) return;
+  jvSentAt[jvLast]=Date.now();
   try{
     const body=JSON.stringify(Object.assign({n:'leave', f:jvLast, sv:[...jvSeen]}, st.ref?{r:st.ref}:{}));
     jvSeen.clear();
@@ -10341,7 +10347,9 @@ function togglePause(){
   if(!paused) beepWake();
   const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II';
   const B=$('#p-bigpause'); if(B){ B.textContent=paused?'▶':'II'; B.classList.toggle('play',paused); B.setAttribute('aria-label',paused?'Resume the set':'Pause the set'); }
-  document.querySelectorAll('#player video').forEach(v=>{ try{ paused?v.pause():v.play(); }catch(e){} });
+  /* play() answers with a promise, and one cut short by a pause rejected
+     with nobody listening */
+  document.querySelectorAll('#player video').forEach(v=>{ try{ if(paused) v.pause(); else { const p=v.play(); if(p && p.catch) p.catch(()=>{}); } }catch(e){} });
 }
 function paintPause(){ const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II';
   const B=$('#p-bigpause'); if(B){ B.textContent=paused?'▶':'II'; B.classList.toggle('play',paused); } }
