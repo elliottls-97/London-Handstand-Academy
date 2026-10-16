@@ -5601,7 +5601,7 @@ const handle = async (request) => {
       const before = JSON.stringify([acct.subscription, acct.cancel_at, acct.plus]);
       acct.subscription = sub.id;
       acct.cancel_at = sub.cancel_at_period_end ? iso((sub.current_period_end || 0) * 1000) : null;
-      acct.plus = ['active', 'trialing', 'past_due'].includes(sub.status);
+      acct.plus = ['active', 'trialing', 'past_due'].includes(sub.status) || !!(await getSetting(`grant:${who}`));
       if (JSON.stringify([acct.subscription, acct.cancel_at, acct.plus]) !== before) {
         await saveAcct({ email: who, subscription: acct.subscription,
           cancel_at: acct.cancel_at, plus: acct.plus });
@@ -10596,7 +10596,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                         /* an unsubscribe is consent and has to follow them, or
                            a new address is emailed what they turned off; and
                            what the coach marked as needing no reply */
-                        'unsub', 'msgdone'];
+                        'unsub', 'msgdone',
+                        /* the whole ladder given from the dashboard */
+                        'grant'];
 
   /* The only order that works, given the foreign keys cascade on delete and
      not on update: the new row first so there is something to point at, then
@@ -10668,6 +10670,26 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const off = (await getSetting('mailoff')) || {};
     if (off[from] !== undefined) { off[to] = off[from]; delete off[from]; await setSetting('mailoff', off); }
 
+    /* What they booked, and the newsletter, hold the address inside a list
+       rather than in a key. They stayed behind, so after a move Your
+       bookings went empty, with its cancel buttons, while the reminders kept
+       going to the old inbox (16 Oct 2026, review). */
+    try {
+      const swap = list => { let n = 0; for (const x of (list || [])) if (x && norm(x.email) === from) { x.email = to; n++; } return n; };
+      const ws = (await getSetting('workshops')) || {};
+      for (const w of Object.values(ws)) {
+        if (!w || !w.slug) continue;
+        for (const k of [`wsbook:${w.slug}`, `wsintent:${w.slug}`])
+          await changeSetting(k, cur => { const v = Array.isArray(cur) ? cur.map(x => Object.assign({}, x)) : null; return v && swap(v) ? v : undefined; }).catch(() => {});
+      }
+      for (const k of ['sessions', 'calls'])
+        await changeSetting(k, cur => { const v = Array.isArray(cur) ? cur.map(x => Object.assign({}, x)) : null; return v && swap(v) ? v : undefined; }).catch(() => {});
+      await changeSetting('news', cur => {
+        if (!cur || !cur[from] || cur[to]) return undefined;
+        const l = Object.assign({}, cur); l[to] = l[from]; delete l[from]; return l;
+      }).catch(() => {});
+    } catch {}
+
     await supa.remove('codes', `email=eq.${enc(from)}`).catch(() => {});
     await supa.remove('accounts', `email=eq.${enc(from)}`);
     await setSetting(`gone:${from}`, { at: Date.now(), to });
@@ -10730,8 +10752,21 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (ap && ap.refresh) await appleRevoke(ap.refresh);
       if (ap && ap.sub && (await getSetting(`applesub:${ap.sub}`)) === e) await dropSetting(`applesub:${ap.sub}`);
     } catch {}
-    for (const k of SETTING_KEYS) await dropSetting(`${k}:${e}`).catch(() => {});
+    /* The unsubscribe stays: it is the record of a no, and without it a
+       class booked later on the same address is mailed what they turned
+       off (16 Oct 2026, review). */
+    for (const k of SETTING_KEYS) if (k !== 'unsub') await dropSetting(`${k}:${e}`).catch(() => {});
     await dropSetting(`emailchange:${e}`).catch(() => {});
+    /* "Everything on it goes": the newsletter list and Resend's copy did not */
+    await changeSetting('news', cur => cur && cur[e] ? (({ [e]: _, ...rest }) => rest)(cur) : undefined).catch(() => {});
+    if (newsKey()) await rsApi(`/contacts/${enc(e)}`, 'DELETE').catch(() => {});
+    /* and nobody is told they started booking, by an account they deleted */
+    try {
+      const ws = (await getSetting('workshops')) || {};
+      for (const w of Object.values(ws)) if (w && w.slug)
+        await changeSetting(`wsintent:${w.slug}`, cur => Array.isArray(cur) && cur.some(x => x && norm(x.email) === e)
+          ? cur.filter(x => !(x && norm(x.email) === e)) : undefined).catch(() => {});
+    } catch {}
     await changeSetting('mailoff', cur => cur && cur[e] !== undefined ? (({ [e]: _, ...rest }) => rest)(cur) : undefined).catch(() => {});
 
     /* the delete sheet says their clips go with the account, and the rows
@@ -12226,6 +12261,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (!acct) return json({ error: 'No account with that address' }, 404);
       const plus = body.plus !== false;
       await saveAcct({ email: e, plus, plus_at: nowISO() });
+      /* Kept apart from the column, which /subscription rewrites from an old
+         Stripe subscription: a past subscriber given the ladder lost it the
+         first time they opened Account (16 Oct 2026, review). */
+      if (plus) await setSetting(`grant:${e}`, { at: Date.now() }); else await dropSetting(`grant:${e}`).catch(() => {});
       return json({ ok: true, email: e, plus });
     }
 

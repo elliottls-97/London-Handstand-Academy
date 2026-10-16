@@ -505,13 +505,23 @@ export default async () => {
   try { await workshopMail(done); } catch (e) { done.workshopError = String(e && e.message || e); }
   try { await sessionMail(done); } catch (e) { done.sessionError = String(e && e.message || e); }
   try { await callRemind(done); } catch (e) { done.callError = String(e && e.message || e); }
-  try { await coachingLoop(done, now); } catch (e) { done.coachingError = String(e && e.message || e); }
-
-  try { await quietFreeAccounts(done); } catch (e) { done.quietError = String(e && e.message || e); }
-  try { await intentMail(done); } catch (e) { done.intentError = String(e && e.message || e); }
-  try { await firstTenDays(done); } catch (e) { done.tipsError = String(e && e.message || e); }
-  try { await trainingPush(done); } catch (e) { done.pushError = String(e && e.message || e); }
-  try { await voiceSweep(done); } catch (e) { done.voiceError = String(e && e.message || e); }
+  /* A scheduled run is stopped at 30 seconds. The started booking emails,
+     the early bird's last day among them, ran after the walk over every
+     free account and could be the ones that never happened. They go next
+     now, the long walks last, and a job that would start past 22 seconds is
+     named in the log instead of being cut off half way (16 Oct 2026). */
+  const T0 = Date.now(), LATE = 22000;
+  const run = async (name, fn) => {
+    if (Date.now() - T0 > LATE) { (done.notRun = done.notRun || []).push(name); return; }
+    try { await fn(); } catch (e) { done[name + 'Error'] = String(e && e.message || e); }
+  };
+  await run('intent', () => intentMail(done));
+  await run('coaching', () => coachingLoop(done, now));
+  await run('tips', () => firstTenDays(done));
+  await run('push', () => trainingPush(done));
+  await run('quiet', () => quietFreeAccounts(done));
+  await run('voice', () => voiceSweep(done));
+  done.secs = Math.round((Date.now() - T0) / 100) / 10;
   /* the response body of a scheduled run is thrown away, so the run says
      what it did in the function log, where a bad day can be found */
   console.log('cycle', JSON.stringify(done));
@@ -891,6 +901,12 @@ async function workshopMail(done) {
    and never paid. One email, the next morning at the earliest (two hours
    after they stopped), while the date is still more than three hours
    away, and never to anyone who holds a place on that date. */
+/* The page that sells this workshop: the all levels class has its own,
+   anything else is workshop.html. Every started booking email sent people
+   to the all levels page, which does not offer the others (16 Oct 2026,
+   review), as the after-class email already knew. */
+const wsBookHref = w => /all levels/i.test((w && w.title) || '')
+  ? `${SITE}/handstand-class?src=email#book` : `${SITE}/workshop.html?slug=${enc(w.slug)}&src=email`;
 async function intentMail(done) {
   done.intents = { reminded: 0 };
   const row = await supa.row('settings', 'key=eq.workshops&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */
@@ -933,19 +949,25 @@ async function intentMail(done) {
          morning-after reminder, so that one is marked sent too. */
       if (w.early && Number(w.early.then) > (Number(w.price) || 0) && ms(w.early.until) - now < DAY) {
         const keyE = `wsearly:${w.slug}:${e}`;
-        if (!(await supa.row('nudges', `key=eq.${enc(keyE)}&select=key`).catch(() => null))) {
+        /* the second reminder says "this is the last email about it", so
+           whoever had it does not get a third (16 Oct 2026, review) */
+        const saidLast = await supa.row('nudges', `key=eq.${enc(`wsintent2:${w.slug}:${e}`)}&select=key`).catch(() => null);
+        if (!saidLast && !(await supa.row('nudges', `key=eq.${enc(keyE)}&select=key`).catch(() => null))) {
           const priceE = wsPoundsC(w.price), thenE = wsPoundsC(w.early.then);
           const TE = await emailCopy('wsEarly', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-            price: priceE, then: thenE, until: esc(wsEarlyDayC(w)), link: `${SITE}/handstand-class#book` });
-          if (TE.off) { done.held = (done.held || 0) + 1; continue; }
-          const wentE = await email(e, TE.subject, earlyEmail(TE, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-            price: priceE, then: thenE, left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
-          if (!wentE) { done.held = (done.held || 0) + 1; continue; }
-          done.intents.early = (done.intents.early || 0) + 1; toldNow.add(e);
-          await supa.upsert('nudges', { key: keyE, sent_at: new Date().toISOString() }, 'key');
-          if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)))
-            await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key').catch(() => {});
-          continue;
+            price: priceE, then: thenE, until: esc(wsEarlyDayC(w)), link: wsBookHref(w) });
+          /* switched off in the dashboard: the usual reminders carry on as if
+             it were not there. A continue here skipped them for the day. */
+          if (!TE.off) {
+            const wentE = await email(e, TE.subject, earlyEmail(TE, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
+              price: priceE, then: thenE, href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
+            if (!wentE) { done.held = (done.held || 0) + 1; continue; }
+            done.intents.early = (done.intents.early || 0) + 1; toldNow.add(e);
+            await supa.upsert('nudges', { key: keyE, sent_at: new Date().toISOString() }, 'key');
+            if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)))
+              await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key').catch(() => {});
+            continue;
+          }
         }
       }
       const first = await supa.row('nudges', `key=eq.${enc(key)}&select=key,sent_at`).catch(() => null);
@@ -959,10 +981,10 @@ async function intentMail(done) {
         if (await supa.row('nudges', `key=eq.${enc(key2)}&select=key`).catch(() => null)) continue;
         const price2 = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'free';
         const T2 = await emailCopy('wsIntent2', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-          price: price2, early_line: wsEarlyLine(w), link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop` });
+          price: price2, early_line: wsEarlyLine(w), link: wsBookHref(w), app_link: `${SITE}/lha-app.html?ref=workshop` });
         if (T2.off) { done.held = (done.held || 0) + 1; continue; }
         const went2 = await email(e, T2.subject, intent2Email(T2, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-          price: price2, left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
+          price: price2, href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
         if (!went2) { done.held = (done.held || 0) + 1; continue; }
         done.intents.again = (done.intents.again || 0) + 1; toldNow.add(e);
         await supa.upsert('nudges', { key: key2, sent_at: new Date().toISOString() }, 'key');
@@ -977,10 +999,10 @@ async function intentMail(done) {
       const pairPence = openSame > 1 ? Number(((pairRow && pairRow.value) || {}).pence) || 0 : 0;
       const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
         place: w.place ? ', at ' + esc(w.place) : '', price, early_line: wsEarlyLine(w), coach_line: wsCoachLineC(w), pair_line: pairPence ? `Both Saturdays together are £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
-        link: `${SITE}/handstand-class#book` });
+        link: wsBookHref(w) });
       if (T.off) { done.held = (done.held || 0) + 1; continue; }
       const went = await email(e, T.subject, intentEmail(T, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-        price, left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0, pair: pairPence, coach: w.coach || '',
+        price, href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0, pair: pairPence, coach: w.coach || '',
         early: wsEarlyLine(w) ? { day: wsEarlyDayC(w), then: wsPoundsC(w.early.then) } : null }, SITE));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
       done.intents.reminded++; toldNow.add(e);

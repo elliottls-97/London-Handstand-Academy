@@ -876,7 +876,7 @@ export function tipEmail(day, T, first, site) {
 const CLASS_PHOTO = 'https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/latest-workshop-group-handstand-picture.jpg';
 export function intentEmail(T, x, site) {
   const S = site || SITE, pair = x.pair ? '£' + (x.pair / 100).toFixed(2).replace(/\.00$/, '') : '';
-  const book = { label: 'Book your place, ' + x.price, sub: String(x.when || '').split(', ')[0] + (x.left ? ` · ${x.left} left` : ''), href: `${S}/handstand-class?src=email#book` };
+  const book = { label: 'Book your place, ' + x.price, sub: String(x.when || '').split(', ')[0] + (x.left ? ` · ${x.left} left` : ''), href: x.href || `${S}/handstand-class?src=email#book` };
   return richEmail({ title: T.title, preheader: `No payment was taken, and the place is still open: ${x.when}.`,
     blocks: [
       { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href, kicker: 'In person, London', head: T.title, btn: book },
@@ -892,7 +892,7 @@ export function intentEmail(T, x, site) {
    the price, the hour it ends, the button. ctx as intentEmail, plus then */
 export function earlyEmail(T, x, site) {
   const S = site || SITE;
-  const book = { label: 'Book your place, ' + x.price, sub: 'Until midnight tonight, then ' + x.then, href: `${S}/handstand-class?src=email#book` };
+  const book = { label: 'Book your place, ' + x.price, sub: 'Until midnight tonight, then ' + x.then, href: x.href || `${S}/handstand-class?src=email#book` };
   return richEmail({ title: T.title, preheader: `${x.price} until the end of today, then ${x.then}. ${x.when}.`,
     blocks: [
       { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href, kicker: 'Ends tonight', head: T.title, btn: book },
@@ -908,6 +908,6 @@ export function intent2Email(T, x, site) {
       { t: 'card', greeting: x.first, paras: T.paras },
       { t: 'dark', kicker: 'Or come on Saturday', head: '', hi: x.title,
         card: { kicker: x.left ? `${x.left} place${x.left === 1 ? '' : 's'} left` : 'Places open', title: day, line: [time.join(', '), x.place || 'OverGravity, Shadwell', x.price].filter(Boolean).join(' · ') },
-        btn: { label: 'Book your place', sub: x.price, href: `${S}/handstand-class?src=email#book` } },
+        btn: { label: 'Book your place', sub: x.price, href: x.href || `${S}/handstand-class?src=email#book` } },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
