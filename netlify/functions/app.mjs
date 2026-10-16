@@ -6007,6 +6007,47 @@ const handle = async (request) => {
     return Object.fromEntries(Object.entries(fixes).map(([k, f]) => [k, one(f)]));
   };
 
+  /* ── fixes the site ships with ───────────────────────────────────
+     Learn to Fall is the app half of the Learn article on falling
+     (Elliott, 16 Oct 2026: "add the learn to fall fix to the app"), in
+     his words from that article. It is here so it is in the app without a
+     dashboard entry. Saving it from the dashboard writes it to the
+     settings, which then win; removing it there leaves a marker, so it
+     does not come back on its own. */
+  const FIX_SEED = {
+    'learn-to-fall': {
+      slug: 'learn-to-fall', name: 'Learn to Fall',
+      tag: 'Scared of falling, so you never commit to the kick up',
+      goal: 'Coming down out of a handstand without thinking about it',
+      weeks: 4, perWeek: 2, mins: 20, stage: 0, access: 'free', live: true, set: true,
+      cover: { uid: '692ed8ab7e701e52ea14fe5e88103585', img: '' },
+      article: [
+        { t: 'h', text: 'Fear stops the balance.' },
+        { t: 'p', text: "Most of what stops people balancing isn't strength. It's fear. You build the kick up into a huge deal, and the fear stays, so you never actually learn to balance, because you're constantly scared about when you're going to tip over." },
+        { t: 'p', text: 'So the first job is to get used to falling out safely and gracefully enough that it stops feeling like a big deal. The thing that makes it work is making it light. The lighter the fall, the easier every one of these drills gets, because it builds in the brain: this is a light exercise, it doesn\'t take tonnes of effort.' },
+        { t: 'h', text: 'The order.' },
+        { t: 'p', text: "Basic bail outs first: shoulders over the hands, hips high, jump up a little, turn to the side, land. Then cartwheels of varying degrees. It doesn't have to be pretty; the point is the hips getting over the shoulders. Then kick up bounces: look between the hands, and don't think about getting up to the wall at first, just make the jumps bigger. Then crawl out to the side at each step on the way to chest to wall." },
+        { t: 'p', text: "Do it over weeks, until there isn't any fear when it comes to falling off the wall. Then you stop thinking about falling and start thinking about holding." },
+      ],
+      drills: [
+        { v: 'basic-bail-outs', L: 1, g: 'Falling', d: '3 x 5 each side', sets: 3 },
+        { v: 'fear-of-falling-cartwheel', L: 1, g: 'Falling', d: '3 x 5 each side', sets: 3 },
+        { v: 'kick-up-bounces', L: 2, g: 'Falling', d: '3 x 10', sets: 3 },
+        { v: 'chest-to-wall-bailouts', L: 2, g: 'Falling', d: '3 x 3 each way', sets: 3 },
+      ],
+      warm: [],
+      start: { n: 'Film yourself kicking up and coming down', note: 'Side on, whole body in frame' },
+      finish: { n: 'The same, same angle', note: '' },
+      createdAt: Date.parse('2026-10-16T12:00:00Z'), updatedAt: Date.parse('2026-10-16T12:00:00Z'),
+    },
+  };
+  /* every fix: the saved ones over the shipped ones, without the removed */
+  const fixesAll = async () => {
+    const out = Object.assign({}, FIX_SEED, (await getSetting('fixes')) || {});
+    for (const [k, f] of Object.entries(out)) if (!f || f.gone) delete out[k];
+    return out;
+  };
+
   /* ── a paid fix is paid ───────────────────────────────────────────
      This handed every live fix to anybody who asked, with no account at
      all: the whole article, every drill, the doses, the cues and the film
@@ -6024,7 +6065,7 @@ const handle = async (request) => {
     drillsN: (f.drills || []).length, locked: true,
   });
   if (path === '/fixes' && request.method === 'GET') {
-    const all = (await getSetting('fixes')) || {};
+    const all = await fixesAll();
     const live = Object.fromEntries(Object.entries(all).filter(([, f]) => f && f.live));
     const full = await fixHydrate(live);
     const who = await me();
@@ -6041,14 +6082,15 @@ const handle = async (request) => {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('fixes')) || {};
     if (request.method === 'GET') {
-      return json({ fixes: all, library: await libraryNow() });
+      return json({ fixes: await fixesAll(), library: await libraryNow() });
     }
     if (request.method === 'POST') {
       if (body.remove) {
         const slug = fixSlug(body.remove);
-        delete all[slug];
+        /* a shipped one is marked gone, or it would come straight back */
+        if (FIX_SEED[slug]) all[slug] = { slug, gone: true, live: false }; else delete all[slug];
         await setSetting('fixes', all);
-        return json({ ok: true, removed: slug, fixes: all });
+        return json({ ok: true, removed: slug, fixes: await fixesAll() });
       }
       const f = fixClean(body.fix);
       if (!f) return json({ error: 'A fix needs a name' }, 400);
@@ -6060,9 +6102,11 @@ const handle = async (request) => {
       /* a slug change is a rename, not a copy */
       const was = fixSlug(body.was || '');
       if (was && was !== f.slug) delete all[was];
-      all[f.slug] = Object.assign({}, all[f.slug] || {}, f, { createdAt: (all[f.slug] || {}).createdAt || Date.now() });
+      const base = (all[f.slug] && !all[f.slug].gone) ? all[f.slug] : (FIX_SEED[f.slug] || {});
+      all[f.slug] = Object.assign({}, base, f, { createdAt: base.createdAt || Date.now() });
+      delete all[f.slug].gone;
       await setSetting('fixes', all);
-      return json({ ok: true, fix: all[f.slug], fixes: all });
+      return json({ ok: true, fix: all[f.slug], fixes: await fixesAll() });
     }
     return json({ error: 'Nope' }, 405);
   }
@@ -8752,7 +8796,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     /* and every Foundations drill, as the server works it out, whatever the dashboard sent */
     for (const v of await foundationsDrills()) { const u = uidOf((lib.video || {})[v]); if (u) free.add(u); }
-    const fixes = (await getSetting('fixes')) || {};
+    const fixes = await fixesAll();
     for (const f of Object.values(fixes)) {
       if (!f || f.access !== 'free') continue;
       for (const d of (f.drills || [])) { const u = uidOf((lib.video || {})[d.v]); if (u) free.add(u); }
@@ -9568,7 +9612,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             /* fix:<slug>:start or :finish, named after the fix and the end */
             if (!cpName && k.startsWith('fix:')) {
               const [, slug, end] = k.split(':');
-              const fx = ((await getSetting('fixes')) || {})[slug] || {};
+              const fx = (await fixesAll())[slug] || {};
               cpName = (fx.name || slug) + (end === 'finish' ? ', after' : ', before');
             }
             if (!cpName) cpName = k;
