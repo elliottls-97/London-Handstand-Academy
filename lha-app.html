@@ -443,6 +443,26 @@ button.lc-ring:active{transform:scale(.88)}
 .lc.a .lc-ring .arc{animation:lcArc .4s cubic-bezier(.3,.7,.2,1) .1s both}
 #app[data-still="1"] .lc *{animation:none!important}
 #app[data-still="1"] .lc .lc-r.nx:not(.open) .lc-p::after{animation:lcNextR 2.4s ease-out infinite!important}
+/* ── the check points as a checklist (16 Oct 2026, the Ladder reorder
+   canvas): any order, every circle a 44px tick, the done ones quiet, the
+   next stage a soft row at the foot ── */
+.lc.cl .lc-body{gap:8px;padding:0}
+.lc.cl .lc-r{padding:0}
+.lc.cl .lc-p{border-radius:14px;background:#fff;border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.04)}
+.lc.cl .lc-r.on .lc-p{background:#fff}
+.lc.cl .lc-row{height:58px;padding:0 3px 0 9px}
+.lc.cl .lc-th{width:40px;height:40px;border-radius:9px}
+.lc.cl .lc-r.on .lc-th{opacity:.6}
+.lc.cl .lc-r.on .lc-t b{color:var(--grey);font-weight:500}
+.lc.cl .lc-r.on .lc-t small{color:var(--forest)}
+.lc.cl .lc-ring .ok{inset:8px}
+.cl-next{display:flex;align-items:center;gap:11px;margin-top:12px;padding:12px 14px;border-radius:14px;
+  background:#dfeeec;color:var(--forest)}
+.cl-next small{display:block;font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)}
+.cl-next b{display:block;font:400 17px/1.15 var(--serif);color:var(--ink);margin-top:4px}
+.cl-next .cl-nn{margin-left:auto;flex:none;max-width:45%;font:500 12px/1.3 var(--sans);color:var(--grey);text-align:right}
+.cl-next.go{cursor:pointer;background:#cfe6e3}
+.cl-next.go .cl-nn{color:var(--forest);font-weight:600}
 /* ── the whole ladder (Claude Design, 10 Oct 2026) ───────────────────
    Entrances play once, on arrival; a redraw of the same screen holds
    still. The loops that say where you are keep going. */
@@ -6777,6 +6797,75 @@ function climbHTML(si, mode, use){
     <div class="lc-base"><i></i>START<i></i></div>
   </div>`;
 }
+/* ── the check points, as a checklist ──────────────────────────────
+   16 Oct 2026, from the "LHA Ladder reorder" canvas. The climb counted
+   rungs from the foot, so two reached out of order read as none climbed,
+   and only the next rung looked like something to press. Any order now:
+   every circle ticks its own, the done ones go quiet with the day they
+   were reached, and the next stage is a soft row at the foot saying how
+   many are left. A row still opens onto its film and the logging, as a
+   rung did, through the same climbTap and climbTick. */
+function cpListOrder(S){ const rev=S.rows.slice().reverse(); return rev.filter(r=>r.done).concat(rev.filter(r=>!r.done)); }
+function cpDoneDay(c){
+  const h=cpLog()[c.k]||[];
+  const hit=h.find(e=>e && cpHit(c, e.v)) || h[h.length-1];
+  return hit && hit.at ? new Date(hit.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '';
+}
+function cpListSub(r){
+  if(r.done){ const d=cpDoneDay(r.c); return 'Done'+(d?' &middot; '+esc(d):''); }
+  return climbSub(r, false);
+}
+function cpListRing(r){
+  if(r.done) return climbRing(r, 'log');
+  const C=91.1;
+  return `<svg class="pg" width="28" height="28" viewBox="0 0 34 34" aria-hidden="true">
+    <circle cx="17" cy="17" r="14.5" fill="none" stroke="#006663" stroke-opacity=".55" stroke-width="1.9"/>${r.p>0?`
+    <circle class="arc" cx="17" cy="17" r="14.5" fill="none" stroke="${rungColour(r.c, (cpLast(r.c.k)||{}).v)}" stroke-width="3"
+      stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${(C*(1-r.p)).toFixed(1)}"/>`:''}</svg>`;
+}
+function cpNextRow(si, S){
+  const nxt=STAGES[si+1], met=S.rows.filter(r=>r.done).length, left=Math.max(0, S.n-met), all=S.n>0 && !left;
+  const flag='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>';
+  if(!nxt) return `<div class="cl-next">${flag}<span><small>THE TOP</small><b>The whole ladder</b></span>
+    <span class="cl-nn">${all?'All of it':left+' more'}</span></div>`;
+  const locked=!coachedView() && stageLocked(si+1);
+  if(all && curStage()===si) return `<div class="cl-next go" role="button" tabindex="0"
+      onclick="${locked?'openStage('+(si+1)+')':'goToStage('+(si+1)+')'}">${flag}
+    <span><small>NEXT STAGE</small><b>${esc(nxt.n)}</b></span><span class="cl-nn">${locked?'Open it':'Go up'} &rarr;</span></div>`;
+  /* a stage that is paid for is not opened by the check points, so it
+     does not say they open it (see the first session's notes, 16 Oct) */
+  return `<div class="cl-next">${flag}<span><small>NEXT STAGE</small><b>${esc(nxt.n)}</b></span>
+    <span class="cl-nn">${locked?left+' more to go':left+' more to open it'}</span></div>`;
+}
+function cpListHTML(si){
+  const S=climbState(si);
+  if(!S.n) return '';
+  const use='log';
+  const rows=cpListOrder(S).map(r=>{
+    const th=climbThumb(r.c, false);
+    const kind=r.c.kind==='secs'?'secs':r.c.kind==='face'?'face':'count';
+    const open=lcOpen[use]===r.c.k;
+    return `<div class="lc-r${r.done?' on':''}${open?' open':''}" data-ck="${esc(r.c.k)}">
+      <div class="lc-p">
+        <div class="lc-row">
+        <button class="lc-open" onclick="climbTap(this)" aria-expanded="${open}"
+          aria-label="${esc(r.c.n)}. ${r.done?'Done.':esc(rungGoal(r.c))+'.'} Open it">
+        <span class="lc-th"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${LC_ICON[kind]}</svg>${th?`
+          <img src="${esc(th.still)}" alt="" loading="lazy" decoding="async"
+            onerror="var p=this.parentNode.querySelector('.pl');if(p)p.remove();this.remove()">
+          <span class="pl"><svg width="7" height="8" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
+        <span class="lc-t"><b>${esc(r.c.n)}</b><small>${cpListSub(r)}</small></span>
+        </button>
+        <button class="lc-ring" onclick="climbTick(this)" aria-pressed="${r.done}" aria-label="${esc(climbTickLabel(r))}">${cpListRing(r)}</button>
+        </div>${open?`
+        <div class="lc-x">${rungBody(r.c, r.j, S.n, use)}</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="lc cl" data-si="${si}" data-use="${use}"><div class="lc-body">${rows}</div>${cpNextRow(si, S)}</div>`;
+}
 /* The build waits until most of the ladder is on screen, because it
    starts at the foot: watching for any of it set it off with only the top
    showing, below a film, and it was over before anyone scrolled down to
@@ -6822,16 +6911,23 @@ function climbWatch(){
    the fill slides up to the new rung instead of the ladder rebuilding */
 function climbRepaint(){
   document.querySelectorAll('.lc[data-si]').forEach(el=>{
-    const si=lcSi(el.dataset.si), S=climbState(si);
+    const si=lcSi(el.dataset.si), S=climbState(si), cl=el.classList.contains('cl');
     S.rows.forEach(r=>{
       const b=el.querySelector('.lc-r[data-ck="'+r.c.k+'"]'); if(!b) return;
-      b.classList.toggle('on', r.done); b.classList.toggle('nx', r.j===S.next);
-      const ring=b.querySelector('.lc-ring'), ringH=climbRing(r, el.dataset.use);
+      /* the checklist has no next rung, and a ticked row stays where it is
+         under the finger until the next full draw groups it with the done */
+      b.classList.toggle('on', r.done); if(!cl) b.classList.toggle('nx', r.j===S.next);
+      const ring=b.querySelector('.lc-ring'), ringH=cl ? cpListRing(r) : climbRing(r, el.dataset.use);
       if(ring && ring.innerHTML.replace(/\s+/g,'')!==ringH.replace(/\s+/g,'')) ring.innerHTML=ringH;
-      if(ring && ring.tagName==='BUTTON') ring.setAttribute('aria-label', climbTickLabel(r));
-      const sm=b.querySelector('.lc-t small'); if(sm) sm.innerHTML=climbSub(r, r.j===S.next);
+      if(ring && ring.tagName==='BUTTON'){ ring.setAttribute('aria-label', climbTickLabel(r)); if(cl) ring.setAttribute('aria-pressed', String(r.done)); }
+      const sm=b.querySelector('.lc-t small'); if(sm) sm.innerHTML=cl ? cpListSub(r) : climbSub(r, r.j===S.next);
     });
     climbFit(el);
+    if(cl){
+      const nr=el.querySelector('.cl-next'), t=document.createElement('div'); t.innerHTML=cpNextRow(si, S);
+      if(nr && t.firstElementChild && t.firstElementChild.outerHTML!==nr.outerHTML) nr.replaceWith(t.firstElementChild);
+      return;
+    }
     const sum=el.querySelector('.lc-sum'), sumH=climbSummit(si,S);
     if(sum){ const t=document.createElement('div'); t.innerHTML=sumH;
       if(t.firstElementChild && t.firstElementChild.className!==sum.className) sum.replaceWith(t.firstElementChild); }
@@ -17488,7 +17584,8 @@ function screenLadder(){
   /* a first look at a stage nothing has been logged on yet: the heading
      says what the page is, and the numbers and the button wait for the
      ladder to finish building */
-  const lcFresh = climbMode(cur)==='b' && !P.done;
+  /* the checklist is drawn, not built (16 Oct 2026) */
+  const lcFresh = false;
   const lcDn = climbTimes(climbState(cur)).dn.toFixed(2)+'s';
 
   /* the six stages are ladderWholeHTML(), below */
@@ -17660,6 +17757,10 @@ function screenLadder(){
           id="heroMet">${P.met}</span><span
           style="font-size:22px;color:var(--grey)"> / ${P.of}</span></div>
       </div>
+      <div style="margin-top:12px;height:6px;border-radius:3px;background:rgba(0,64,61,.10);overflow:hidden">
+        <div id="heroBar" style="height:100%;width:${pct}%;border-radius:3px;background:var(--forest);
+          transition:width .45s cubic-bezier(.2,.8,.2,1)"></div></div>
+      <div style="margin-top:9px;font:400 13.5px/1.45 var(--sans);color:var(--grey)">Tick each one off when you can do it. Any order.</div>
       <!-- The bar, "Reach all 7 check points and Wall Work opens" and the
            goal sentence were
            the whole picture of what a stage teaches, and the check points
@@ -17670,7 +17771,7 @@ function screenLadder(){
            goal is on the stage's own sheet and on the ladder tab. -->
       ${cpDue() && (cpFor(cur)||[]).some(c=>cpLast(c.k)) ? `<div style="margin-top:8px;font:500 13.5px/1.45 var(--sans);
         color:var(--forest)">It has been a fortnight. Worth running through these again.</div>` : ''}
-      <div data-tour="checkpoints" style="margin-top:18px">${climbHTML(cur, climbMode(cur), 'log')}</div>
+      <div data-tour="checkpoints" style="margin-top:16px">${cpListHTML(cur)}</div>
       ${(function(){
         /* ── they have finished the free stage ────────────────────────
            Somebody who reaches every check point on Foundations and has
@@ -21258,9 +21359,9 @@ function topBar(){
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H8l-5
         3 1.5-4.5A8 8 0 1 1 21 12z"/></svg>
-      ${waiting?`<span style="position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;padding:0 5px;
-        border-radius:999px;background:var(--amber);color:var(--ink);border:2px solid #fff;
-        display:grid;place-items:center;font:700 10.5px/1 var(--sans)">${msgsNew()}</span>`:''}
+      ${/* One badge for unread messages, on the Coaching or Ask tab. This
+            one said the same number again at the top (16 Oct 2026, the
+            Ladder reorder canvas). */''}
     </button>
     ${st.token?`<button onclick="openOv('account')" aria-label="Your account"
       style="${chip};border-radius:999px;padding:4px 12px 4px 4px;display:flex;align-items:center;gap:8px">
