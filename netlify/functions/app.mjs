@@ -7127,6 +7127,23 @@ const handle = async (request) => {
     return new Response(JSON.stringify({ on: !!S.on && S.slots.length > 0, kind, slots: S.on ? S.slots.map(x => new Date(x.start).toISOString()) : [] }),
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   }
+  /* Backed out of the card page: the time they were holding goes back on
+     offer. It stayed held for 35 minutes, so the page came back without it,
+     and an overlapping time said "Somebody is paying for that time right
+     now", which was them (16 Oct 2026, review). The checkout is closed first,
+     so the time cannot then be paid for behind someone else's back; one
+     already paid is never let go. */
+  if (path === '/session/unhold' && request.method === 'POST') {
+    const h = String(body.h || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
+    const cur = h ? ((await getSetting('sessholds')) || {})[h] : null;
+    if (!cur) return json({ ok: true });
+    if (cur.cs) {
+      try { const x = await stripe(`/checkout/sessions/${enc(cur.cs)}/expire`, {}); if (x && x.status && x.status !== 'expired') return json({ ok: false }); }
+      catch { return json({ ok: false }); }
+    }
+    await slotUnhold(h);
+    return json({ ok: true });
+  }
   if (path === '/session/book' && request.method === 'POST') {
     const kind = String(body.kind) === '90' ? '90' : '60';
     const e = norm(body.email);
@@ -7167,8 +7184,11 @@ const handle = async (request) => {
                                            : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
         success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}&cs={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${url.origin}/session.html?kind=${kind}&from=stripe`,
+        cancel_url: `${url.origin}/session.html?kind=${kind}&from=stripe${hold ? '&h=' + hold : ''}`,
       });
+      /* the checkout this hold is for, so backing out of it can let the time go */
+      if (hold && sess && sess.id) await changeSetting('sessholds', cur => cur && cur[hold]
+        ? Object.assign({}, cur, { [hold]: Object.assign({}, cur[hold], { cs: sess.id }) }) : undefined).catch(() => {});
       return json({ url: sess.url });
     } catch (err) { await slotUnhold(hold); return json({ error: String(err.message || err) }, 502); }
   }

@@ -240,11 +240,14 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
      and the page takes a booking the old way, paid first */
   let slots={}, day='', slot='', asking=false;
   const loadSlots=k=>fetch('/api/app/session/slots?kind='+k).then(r=>r.json()).then(d=>{ slots[k]=(d&&d.on&&Array.isArray(d.slots))?d.slots:[]; }).catch(()=>{ slots[k]=[]; });
+  /* What was typed, kept across every redraw: it was read off the page each
+     time, so a redraw while the fields were not there (the times loading
+     after 60 became 90) lost it (16 Oct 2026, review). */
+  const typed={};
   const draw=()=>{
-    /* a redraw (60 or 90, or the prices arriving) kept nothing that was typed */
-    const kept=['nm','em','pf'].map(id=>{ const el=document.getElementById(id); return [id, el?el.value:'']; });
+    ['nm','em','pf'].forEach(id=>{ const el=document.getElementById(id); if(el) typed[id]=el.value; });
     draw0();
-    kept.forEach(([id,v])=>{ const el=document.getElementById(id); if(el&&v&&!el.value) el.value=v; });
+    Object.keys(typed).forEach(id=>{ const el=document.getElementById(id), v=typed[id]; if(el&&v&&!el.value) el.value=v; });
   };
   const price=()=>kind==='90'?labels.session90:labels.session60;
   const draw0=()=>{
@@ -276,7 +279,12 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       +(S===undefined?'<div class="card"><p class="muted" style="margin:0">Finding the free times…</p></div>':'')
       +(picking?'<div class="card"><label>Pick a time</label>'+pickerHTML(S,day,slot,'Times on '+day)
         +'<button class="linkb" id="none">None of these work? Ask for another time</button></div>':'')
-      +(S===undefined?'':'<div class="card">'
+      /* the name and email while the times load: there was no form at all for
+         the two seconds the times take (16 Oct 2026, review) */
+      +(S===undefined?'<div class="card">'
+      +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
+      +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
+      +'<button class="btn" id="go" disabled>One moment…</button><div class="msg" id="msg"></div></div>':'<div class="card">'
       +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
       +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
       +(picking?'':'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings. The more you give, the faster it lands."></textarea>')
@@ -325,9 +333,17 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
      as the one picked may have been held. */
   window.addEventListener('pageshow', e=>{ if(!e.persisted) return;
     const go=document.getElementById('go'); if(go && go.disabled && go.dataset.was){ go.disabled=false; go.textContent=go.dataset.was; }
-    slots={}; slot=''; loadSlots(kind).then(draw); });
+    slots={}; slot='';
+    const h2=(new URLSearchParams(location.search).get('h')||'').replace(/[^A-Za-z0-9_-]/g,'');
+    (h2 ? fetch('/api/app/session/unhold',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({h:h2})}).catch(()=>{}) : Promise.resolve())
+      .then(()=>loadSlots(kind)).then(draw); });
   draw();
-  loadSlots(kind).then(draw);
+  /* back from the card page without paying: the time they held goes back on offer first */
+  const held=(q.get('h')||'').replace(/[^A-Za-z0-9_-]/g,'');
+  (q.get('from')==='stripe' && held
+    ? fetch('/api/app/session/unhold',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({h:held})}).catch(()=>{})
+    : Promise.resolve()).then(()=>loadSlots(kind)).then(draw);
+  if(held){ q.delete('h'); try{ history.replaceState(null,'',location.pathname+'?'+q.toString()); }catch(e){} }
   fetch('/api/app/plans').then(r=>r.json()).then(d=>{ const p=(d&&d.prices)||{};
     if(p.session60&&p.session60.label) labels.session60=p.session60.label;
     if(p.session90&&p.session90.label) labels.session90=p.session90.label; draw(); }).catch(()=>{});
