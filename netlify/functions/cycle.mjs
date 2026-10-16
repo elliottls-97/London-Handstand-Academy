@@ -411,7 +411,7 @@ async function coachingLoop(done, now) {
       const mine = c.lead ? subs : subs.filter(s => s.cycle === cycle.n);
       const coach = c.coach || primaryCoach();
 
-      /* 1 — footage is due and has not arrived. Only for a programme with
+      /* 1: footage is due and has not arrived. Only for a programme with
          a test in it: one built in the dashboard, or the onboarding one, has
          none, and the app has nowhere to film it, so "Time to film your
          test" went to people who could not (16 Oct 2026, review). */
