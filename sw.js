@@ -226,8 +226,8 @@ self.addEventListener('push', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || '/lha-app.html';
-  let go = '';
-  try { go = new URL(url, self.location.origin).searchParams.get('go') || ''; } catch (e) {}
+  let go = '', m = '';
+  try { const sp = new URL(url, self.location.origin).searchParams; go = sp.get('go') || ''; m = sp.get('m') || ''; } catch (e) {}
   event.waitUntil((async () => {
     const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     /* one for the coach opens the dashboard, at the client it is about */
@@ -248,7 +248,7 @@ self.addEventListener('notificationclick', event => {
     const app = open.find(isApp);
     if (app) {
       try { await app.focus(); } catch (e) {}
-      app.postMessage({ type: 'lha-go', go });
+      app.postMessage({ type: 'lha-go', go, m });
       return;
     }
     await self.clients.openWindow(url);

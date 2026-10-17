@@ -3132,12 +3132,12 @@ function todaySlotHTML(dl){
     const m=coachMsgs().slice(-1)[0];
     return `<div class="pad" style="padding-top:16px">
       <div class="card" style="padding:16px 18px;display:flex;justify-content:space-between;
-        align-items:center;gap:14px;cursor:pointer" onclick="goAsk()">
+        align-items:center;gap:14px;cursor:pointer" onclick="${m.video?`openReply(${jsq(m.id||'')},${jsq(m.video)})`:'goAsk()'}">
         <div style="min-width:0"><div class="kick2">${esc(coachLabel().toUpperCase())}${
           m.time?' &middot; '+esc(String(m.time).toUpperCase()):''}</div>
         <div style="font:400 14px/1.45 var(--sans);margin-top:7px">${esc(String(m.text||'').trim()
           ? String(m.text).slice(0,90)+(String(m.text).length>90?'…':'')
-          : m.video ? 'Sent you a video reply.' : m.image ? 'Sent you a photo.' : m.voice ? 'Sent you a voice note.' : '')}</div></div>
+          : m.video ? 'Your video reply is here.' : m.image ? 'Sent you a photo.' : m.voice ? 'Sent you a voice note.' : '')}</div></div>
         <span style="flex:none;font:400 22px/1 var(--serif);color:var(--forest)">&rarr;</span>
       </div></div>`;
   }
@@ -3427,6 +3427,7 @@ function screenToday(){
     </button>
     ${d.when?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>`:''}
+    ${keptCueHTML()}
     ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
   </div>
   ${todaySlotHTML(dl)}
@@ -6329,7 +6330,7 @@ function clipsBody(){
       : c.waiting ? ['With Elliott', 'var(--grey2)', '']
       : ['', '', ''];
     return `<div class="card" style="padding:12px;display:flex;gap:12px;align-items:flex-start">
-      <button onclick="playClip(${jsq(c.uid)})" style="flex:none;width:104px;aspect-ratio:4/3;
+      <button onclick="${c.fromCoach?`openReply('',${jsq(c.uid)})`:`playClip(${jsq(c.uid)})`}" style="flex:none;width:104px;aspect-ratio:4/3;
         border:0;padding:0;border-radius:12px;overflow:hidden;background:#101413;cursor:pointer;
         position:relative">
         <img src="${streamThumb(c.uid)}" alt="" loading="lazy"
@@ -6349,7 +6350,7 @@ function clipsBody(){
           margin-top:7px;text-transform:uppercase">${esc(said[0])}</div>`:''}
         ${said[2]?`<div style="font:400 13px/1.5 var(--sans);color:var(--ink);margin-top:5px;
           white-space:pre-wrap">${esc(String(said[2]).slice(0,400))}</div>`:''}
-        ${c.reply?`<button onclick="playClip(${jsq(c.reply)})" style="margin-top:9px;display:inline-flex;align-items:center;gap:8px;
+        ${c.reply?`<button onclick="openReply('',${jsq(c.reply)})" style="margin-top:9px;display:inline-flex;align-items:center;gap:8px;
           border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:999px;padding:7px 12px 7px 8px;cursor:pointer;
           font:600 12.5px/1 var(--sans);color:var(--deep)"><span style="width:22px;height:22px;border-radius:50%;background:var(--forest);
           display:grid;place-items:center"><svg width="8" height="9" viewBox="0 0 17 19" fill="#fff"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>
@@ -6387,6 +6388,137 @@ function playClip(uid){
 }
 function closeClip(e){ if(e) e.stopPropagation();
   const el=document.getElementById('player'); if(el) el.innerHTML=''; }
+
+/* ── the reply, as its own moment ───────────────────────────────────
+   A video back from Elliott on their own footage is the thing coaching is
+   for, and the one moment people come back to on their own. It arrived as
+   a bubble in the chat, between "thanks" and a photo. It opens on a screen
+   of its own now: his face, the one thing he said to change, set large, the
+   video, and the next step right there while it matters: keep the cue,
+   train with it, film it again. A free form check carries the coaching
+   offer in the same place (17 Oct 2026, after Tim Gabe's "second visit"). */
+let replyOn=null;
+/* the one thing to change: the first sentence of what he wrote */
+const replyCue = m => { const t=String((m&&m.text)||'').trim().replace(/\s+/g,' ');
+  if(!t) return '';
+  const first=(t.match(/^.+?[.!?](?=\s|$)/)||[t])[0];
+  return first.length>140 ? first.slice(0,137).replace(/\s+\S*$/,'')+'\u2026' : first; };
+const cueKept = id => (st.cues||[]).some(c=>c.id===id);
+function openReply(id, uid){
+  const find=()=>(st.msgs||[]).find(m=>m.from==='e' && ((id && m.id===id) || (!id && uid && m.video===uid)));
+  let m=find();
+  if(!m && st.token){
+    /* opened from a notification before the thread has loaded */
+    loadThread(); let n=0;
+    const again=()=>{ m=find(); if(m) return openReply(m.id||'', m.video);
+      if(++n<12) setTimeout(again, 500); else goAsk(); };
+    return setTimeout(again, 500);
+  }
+  if(!m || !m.video){ goAsk(); return; }
+  if(st.ov) closeOv();
+  replyOn=m;
+  /* looking at it is reading it, here and for the coach */
+  if((m.at||0)>(st.seenMsgAt||0)){ st.seenMsgAt=m.at; save(); }
+  if(st.token && !st.preview) fetch(AUTH.messages,{headers:authed()}).catch(()=>{});
+  let el=document.getElementById('reveal');
+  if(!el){ el=document.createElement('div'); el.id='reveal'; document.body.appendChild(el); }
+  el.innerHTML=replyHTML(m);
+  document.addEventListener('keydown', replyKey);
+  try{ track('replyopen'); }catch(e){}
+}
+function replyKey(e){ if(e.key==='Escape') replyClose(); }
+function replyClose(){
+  replyOn=null; document.removeEventListener('keydown', replyKey);
+  const el=document.getElementById('reveal'); if(el) el.innerHTML='';
+  render();
+}
+function replyHTML(m){
+  const who=coachLabel(), cue=replyCue(m), rest=String(m.text||'').trim().replace(/\s+/g,' ').slice(cue.length).trim();
+  const kept=cueKept(m.id||m.video);
+  /* the last word in teal, as every heading in the app */
+  const head = cue ? (()=>{ const i=cue.lastIndexOf(' ');
+      return i>0 ? esc(cue.slice(0,i))+' <em style="color:var(--forest);font-style:normal">'+esc(cue.slice(i+1))+'</em>'
+                 : '<em style="color:var(--forest);font-style:normal">'+esc(cue)+'</em>'; })()
+    : 'Your video from <em style="color:var(--forest);font-style:normal">'+esc(who)+'.</em>';
+  const size = !cue ? 34 : cue.length<=40 ? 34 : cue.length<=80 ? 27 : 22;
+  const coached=coachedView();
+  const offer = !coached && sells() && (plansOn||[]).includes('online');
+  const btn2=`border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:16px;min-height:52px;cursor:pointer;
+    font:600 15px/1.2 var(--sans);color:var(--ink);padding:0 16px`;
+  const link=`border:0;background:none;cursor:pointer;padding:10px 6px;font:600 14px/1 var(--sans);color:var(--forest)`;
+  return `<div role="dialog" aria-modal="true" aria-label="Your video from ${esc(who)}" style="position:fixed;inset:0;z-index:985;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;background:radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),
+    radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%),#f4f4f5">
+    <div class="rise" style="max-width:520px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 18px) 20px calc(env(safe-area-inset-bottom) + 28px)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <img src="${COACH_PHOTO}" alt="" width="40" height="40" style="flex:none;width:40px;height:40px;border-radius:50%;object-fit:cover">
+        <div style="flex:1;min-width:0;font:600 11px/1.3 var(--sans);letter-spacing:.14em;color:var(--forest)">FROM ${esc(who.toUpperCase())}${
+          m.time?' &middot; '+esc(String(m.time).toUpperCase()):''}</div>
+        <button onclick="replyClose()" aria-label="Close" style="flex:none;width:42px;height:42px;border-radius:50%;border:1px solid rgba(0,64,61,.14);
+          background:#fff;cursor:pointer;font:400 20px/1 var(--sans);color:var(--ink)">&times;</button>
+      </div>
+      <div style="font:400 ${size}px/1.08 var(--serif);letter-spacing:-.01em;margin-top:18px;text-wrap:balance">${head}</div>
+      <div id="replyVid" style="position:relative;margin-top:18px;border-radius:22px;overflow:hidden;background:#11150f;
+        aspect-ratio:4/5;max-height:58vh;width:100%;box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+        ${isUid(m.video) ? `<img src="${esc(streamThumb(m.video))}" alt="" style="display:block;width:100%;height:100%;object-fit:cover">` : ''}
+        <button onclick="replyPlay()" aria-label="Play the video" style="position:absolute;inset:0;width:100%;border:0;cursor:pointer;padding:0;
+          background:rgba(10,14,12,.18);display:grid;place-items:center">
+          <span style="width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.95);display:grid;place-items:center;
+            box-shadow:0 10px 26px -12px rgba(0,0,0,.7)">
+            <svg width="22" height="24" viewBox="0 0 17 19" fill="#006663" style="margin-left:4px" aria-hidden="true">
+              <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
+      </div>
+      ${rest?`<div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:16px">${esc(rest)}</div>`:''}
+      <button onclick="replyTrain()" style="width:100%;margin-top:22px;min-height:60px;border:0;border-radius:18px;cursor:pointer;
+        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 17px/1.2 var(--sans);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)">${cue?'Train with this cue':'Start today\u2019s session'}</button>
+      ${cue?`<button id="replyKeepBtn" onclick="replyKeep()" style="width:100%;margin-top:10px;${btn2}">${kept?'Cue saved &#10003;':'Save this cue'}</button>`:''}
+      <div style="display:flex;justify-content:center;gap:18px;margin-top:8px">
+        <button onclick="replyFilm()" style="${link}">Film it again</button>
+        <button onclick="replyClose();goAsk()" style="${link}">Reply</button>
+      </div>
+      ${offer?`<div class="card" style="margin-top:20px;padding:20px">
+        <div class="kick2" style="color:var(--forest)">COACHING</div>
+        <div style="font:400 21px/1.2 var(--serif);margin-top:8px">Want this on every clip?</div>
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:7px">A plan written for you, and a video like this on
+          everything you send. ${esc(PRICE('online'))} a month.</div>
+        <button onclick="replyClose();st.coTab='check';save();go('coaching')" style="width:100%;margin-top:14px;${btn2}">See coaching</button>
+      </div>`:''}
+    </div></div>`;
+}
+function replyPlay(){
+  const m=replyOn, box=document.getElementById('replyVid'); if(!m||!box) return;
+  box.innerHTML = isUid(m.video)
+    ? `<iframe src="${streamEmbed(esc(m.video))}&autoplay=true" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
+        allowfullscreen style="display:block;width:100%;height:100%;border:0"></iframe>`
+    : `<video src="${esc(m.video)}" controls autoplay playsinline style="display:block;width:100%;height:100%;object-fit:contain;background:#000"></video>`;
+  try{ track('replyplay'); }catch(e){}
+}
+/* kept on Home, in the player's cues, and on the account so another phone has it */
+function replyKeep(force){
+  const m=replyOn; if(!m) return;
+  const id=m.id||m.video, cue=replyCue(m); if(!cue) return;
+  const had=cueKept(id);
+  if(had && force!==true) st.cues=(st.cues||[]).filter(c=>c.id!==id);
+  else if(!had) st.cues=[{t:cue, id, uid:m.video||'', at:m.at||Date.now()}].concat(st.cues||[]).slice(0,5);
+  save(); saveState();
+  const b=document.getElementById('replyKeepBtn'); if(b) b.innerHTML=cueKept(id)?'Cue saved &#10003;':'Save this cue';
+}
+function replyTrain(){
+  if(replyCue(replyOn)) replyKeep(true);
+  const c=coachedView(); replyClose();
+  if(c){ go('today'); setTimeout(()=>openOv('daystart'), 200); }
+  else { go('home'); setTimeout(()=>startDay(-1,'full'), 200); }
+}
+function replyFilm(){ replyClose(); goAsk(); setTimeout(()=>{ try{ pickClip(); }catch(e){} }, 350); }
+/* the cue kept from a reply, on the way into training */
+function keptCueHTML(){
+  const c=(st.cues||[])[0]; if(!c) return '';
+  return `<div onclick="openReply(${jsq(c.id||'')},${jsq(c.uid||'')})" role="button" tabindex="0" style="margin-top:12px;display:flex;gap:12px;
+    align-items:center;cursor:pointer;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:16px;padding:12px 14px">
+    <span style="flex:none;font:600 10.5px/1.3 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR CUE</span>
+    <span style="flex:1;min-width:0;font:400 16px/1.3 var(--serif)">${esc(c.t)}</span></div>`;
+}
 
 function cpHistoryHTML(c){
   const hist=(cpLog()[c.k]||[]).slice().reverse().slice(0,6);
@@ -9091,6 +9223,8 @@ function loadState(){
       if(d.fixDone && typeof d.fixDone==='object') st.fixDone=Object.assign({}, d.fixDone, st.fixDone||{});
       if(d.pressTest && d.pressTest.at && (!st.pressTest || d.pressTest.at>st.pressTest.at)) st.pressTest=d.pressTest;
       if(d.pressRung && d.pressRung.at && (!st.pressRung || d.pressRung.at>st.pressRung.at)) st.pressRung=d.pressRung;
+      /* the cues kept from Elliott's replies, from whichever phone kept them */
+      if(Array.isArray(d.cues)) st.cues=d.cues;
       /* Where they are on the ladder followed the phone, not the person. It
          was written to the account row by sendIntake and read back by the
          coach's dashboard and by nothing else, so a paying subscriber who
@@ -9151,6 +9285,7 @@ function saveState(now){
       fixDone:st.fixDone||{},
       ...(st.pressTest?{pressTest:st.pressTest}:{}),
       ...(st.pressRung?{pressRung:st.pressRung}:{}),
+      cues:st.cues||[],
       ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callBooked&&st.callBy?{callBy:st.callBy, callAt:st.callAt||0}:{}), ...(st.callNo?{callNo:true}:{})}
     })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
   };
@@ -10625,7 +10760,8 @@ function showStep(){
         ${cues.map(c=>`<span class="cl">${esc(c)}</span>`).join('')}
         ${it.nt?`<span class="cl">${esc(it.nt)}</span>`:''}
         ${!nCues&&!it.desc?`<span class="cl">No cues written for this one yet.</span>`:''}
-      </div>`;
+      </div>${(st.cues||[])[0]?`<div class="kick2" style="margin-top:20px">YOUR CUE FROM ${esc(coachLabel().toUpperCase())}</div>
+      <div style="font:400 18px/1.3 var(--serif);margin-top:8px">${esc(st.cues[0].t)}</div>`:''}`;
     const cbtn=$('#p-cuesbtn');
     /* they are on the screen on a wide one, so the button would open a
        sheet over the thing it is offering */
@@ -17008,6 +17144,7 @@ function screenHome(){
            ones they chose last time. -->
       ${wide()?`<div style="font:400 13px/1.45 var(--sans);color:var(--grey);text-align:center">${
           esc(sessTitle)+(sessCount?', '+sessCount+' drill'+(sessCount===1?'':'s'):'')}</div>`:''}
+      ${keptCueHTML()}
     </div>
     ${wide()?howCardHTML(true):''}
     </div>
@@ -21927,7 +22064,7 @@ function nativeListen(){
   /* a notification tapped opens where its news is */
   P.addListener('pushNotificationActionPerformed', a=>{
     try{ const d=(a&&a.notification&&a.notification.data)||{}; const u=new URL(d.url||'/lha-app.html', location.origin);
-      const w=u.searchParams.get('go'); if(w) openFromNotice(w); }catch(e){}
+      const w=u.searchParams.get('go'); if(w) openFromNotice(w, u.searchParams.get('m')); }catch(e){}
   });
 }
 async function nativeTurnOn(ask){
@@ -22352,10 +22489,11 @@ function pushNudge(){
     </div></div></div>`;
 }
 /* a notification opens where its news is */
-function openFromNotice(where){
+function openFromNotice(where, mid){
   if(!where) return;
   if(st.ov) closeOv();
   const c=coachedView();
+  if(where==='reply'){ openReply(String(mid||''), ''); return; }
   if(where==='chat'){ if(c) go('ask'); else { st.coTab='chat'; save(); go('coaching'); } return; }
   if(where==='cps'){ if(c){ st.progTab='marks'; save(); go('progress'); } else go('ladder'); return; }
   if(where==='answer'){ if(c) go('today'); else { st.coTab='check'; save(); go('coaching'); } return; }
@@ -22901,10 +23039,10 @@ document.addEventListener('DOMContentLoaded',function(){
   pushCheck();
   /* the Home Screen, then notifications, asked for a few seconds in */
   setTimeout(()=>{ if(!appPrompts()) setTimeout(appPrompts, 20000); }, 4000);
-  try{ const where=new URLSearchParams(location.search).get('go');
-    if(where){ history.replaceState(null,'',location.pathname); setTimeout(()=>openFromNotice(where), 350); } }catch(e){}
+  try{ const qs=new URLSearchParams(location.search), where=qs.get('go'), mid=qs.get('m');
+    if(where){ history.replaceState(null,'',location.pathname); setTimeout(()=>openFromNotice(where, mid), 350); } }catch(e){}
   try{ if('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e=>{
-    if(e.data && e.data.type==='lha-go') openFromNotice(e.data.go||'');
+    if(e.data && e.data.type==='lha-go') openFromNotice(e.data.go||'', e.data.m||'');
     /* one arrived while the app is open: the phone may not show it, so the
        app does, and fetches what it was about */
     if(e.data && e.data.type==='lha-push'){

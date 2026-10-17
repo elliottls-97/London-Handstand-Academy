@@ -9536,6 +9536,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             .map(x => ({ at: Number(x.at), r: Number(x.r), c: (Array.isArray(x.c) ? x.c : []).slice(0, 8).map(Boolean) }));
           if (Number.isInteger(r) && r >= 1 && r <= 10) cur.pressRung = { r, at: Number(body.pressRung.at) || Date.now(), log };
         }
+        /* the cues kept from the coach's video replies (17 Oct 2026), newest
+           first: a line each, and the reply it came from */
+        if (Array.isArray(body.cues)) cur.cues = body.cues.slice(0, 5)
+          .filter(c => c && typeof c.t === 'string' && c.t.trim())
+          .map(c => ({ t: String(c.t).trim().slice(0, 160), id: String(c.id || '').slice(0, 64),
+            uid: String(c.uid || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 64), at: Number(c.at) || 0 }));
         /* the welcome seen and the call booked. An iPhone's Home Screen app
            keeps its own storage, so without these the welcome played again
            there and a booked call read as not booked. Both stay once said,
@@ -9638,6 +9644,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
       fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
+      cues: Array.isArray(out.cues) ? out.cues : [],
       /* the coach's own call link for a new client, where one is set */
       ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || ''),
         ...(await (async () => { const c = await callConf().catch(() => CALL_DEFAULTS);
@@ -13532,11 +13539,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             title: T.title,
             greeting: (clients()[e] || '').split(' ')[0] || '',
             paras: T.paras,
-            cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+            /* a video reply opens on its own screen, the moment coaching is for */
+            cta: video && added && added.id ? { href: `${SITE}/lha-app.html?go=reply&m=${enc(added.id)}`, label: 'Watch it' }
+              : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: who2 }, footnote: T.footnote || undefined,
           }), 'replies');
         await notify(e, { title: who2 + (video ? ' sent you a video' : image ? ' sent you a photo' : voice ? ' sent you a voice note' : ' replied'),
-          body: text ? text.slice(0, 140) : sent, url: '/lha-app.html?go=chat', tag: 'reply' }, 'replies');
+          body: text ? text.slice(0, 140) : sent,
+          url: video && added && added.id ? `/lha-app.html?go=reply&m=${enc(added.id)}` : '/lha-app.html?go=chat', tag: 'reply' }, 'replies');
         try { const t = (await getSetting(typingKey(e))) || {}; if (t.coach) { t.coach = 0; await setSetting(typingKey(e), t); } } catch {}
         return json({ ok: true, id: (added && added.id) || '', ...(cpsOut ? { checkpoints: cpsOut } : {}) });
       }
