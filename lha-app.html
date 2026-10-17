@@ -3411,7 +3411,9 @@ function screenToday(){
     ${weekCardHTML()}
   </div>
   ${todaySlotHTML(dl)}
-  ${(DATA && Array.isArray(DATA.days) && DATA.days.length) ? planBodyHTML() : ''}
+  ${/* what they have done, by day, on Home (Elliott, 17 Oct 2026): it was a
+        tab inside Progress */''}
+  <div class="pad" style="padding-top:16px">${trainingCalendar()}</div>
   <div style="height:26px"></div></div>`;
 }
 
@@ -8446,9 +8448,10 @@ function screenProgress(){
      turning up, and am I ready to move up. They get a tab each. */
   /* Check points are what a coached client comes here to move, so they
      are the tab it opens on rather than the third one along. */
-  const tab = ['track','clips'].includes(st.progTab) ? st.progTab : 'marks';
+  const tab = coachedView() ? (st.progTab==='clips' ? 'clips' : 'marks')
+    : (['track','clips'].includes(st.progTab) ? st.progTab : 'marks');
   const seg = (coachedView()
-      ? [['marks','Check points'],['track','Training'],['clips','Your clips']]
+      ? [['marks','Check points'],['clips','Clips']]
       : [['track','Training'],['marks','Check points']]).map(([k,l])=>
     `<button onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;position:relative;
       border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
@@ -8538,12 +8541,13 @@ function screenProgress(){
       <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">Where you
         <em style="color:var(--forest);font-style:normal">are.</em></div>
     </div>
-    <!-- one page, no tabs inside it (Elliott, 17 Oct 2026): the check
-         points, every clip and every answer, then the training -->
-    <div class="rise rise-2" style="padding:22px 16px 26px;display:flex;flex-direction:column;gap:11px">
-      ${marksBody}
-      <div style="margin-top:14px">${clipsBody()}</div>
-      <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">${trackBody}</div>
+    <!-- two tabs (Elliott, 17 Oct 2026): the check points, and every clip
+         with every answer -->
+    <div class="rise rise-1" style="padding:22px 16px 0">
+      <div style="display:flex;gap:4px;padding:4px;border-radius:14px;
+        background:rgba(0,64,61,.08)">${seg}</div></div>
+    <div class="rise rise-2" style="padding:14px 16px 26px;display:flex;flex-direction:column;gap:11px">
+      ${tab==='clips' ? clipsBody() : marksBody}
     </div></div>`;
 }
 /* the free tier's progress, without the screen wrapper */
@@ -21061,9 +21065,9 @@ function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizS
 
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
-  /* three, as the free side has (Elliott, 17 Oct 2026): Plan's days and
-     drills are on Train, and Progress is one page */
-  coached:[['today','Train'],['progress','Progress'],['ask','Chat']],
+  /* Plan stays its own tab; Progress is check points and clips (Elliott,
+     17 Oct 2026) */
+  coached:[['today','Home'],['plan','Plan'],['progress','Progress'],['ask','Chat']],
   /* Progress used to be its own tab and the ladder is where a free client
      actually lives, so the two were competing for the same trip. Progress is
      the second half of the ladder screen now. Four tabs, not five. */
@@ -21399,7 +21403,6 @@ function switchView(toFree, ok){
 
 function go(t){
   fxReadClose();
-  if(t==='plan' && coachedView()) t='today';
   if(t==='more'){ openMenu(); return; }
   if(menuOpen) closeMenu();
   st.tab=t; save();
@@ -21465,7 +21468,7 @@ function topBar(){
      kept their green heroes after the free side lost its. They are on the
      light ground now, so there is nothing left for it to invert over and the
      bar is the same dark teal on white everywhere. */
-  const label = ({home:'TRAIN',today:'TRAIN',ladder:'LADDER',progress:'PROGRESS',
+  const label = ({home:'TRAIN',today:'HOME',ladder:'LADDER',progress:'PROGRESS',
     coaching:'COACHING',ask:'CHAT',plan:'PLAN',more:'MORE',fix:'FIX',press:'PRESS'})[st.tab] || '';
   /* the chat button, so the chat's own count: a form check coming back
      used to light this up as though Elliott had written */
@@ -22753,8 +22756,6 @@ function render(){
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
-  /* the Plan tab went into Train (17 Oct 2026) */
-  if(coached && st.tab==='plan'){ st.tab='today'; save(); }
   const tabs=onboarding ? [['start','Start'],['home','Train'],['ladder','Ladder'],['coaching','Chat']]
     : TABS[coached?'coached':'free'].map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l])
@@ -22768,9 +22769,9 @@ function render(){
   /* being on the screen a number is about is reading it, so it is cleared
      before the tab bar is drawn rather than on the next redraw */
   if(coached && st.tab==='progress' && !st.preview && !document.hidden){
-    /* one page now: its check points and its clips are both on show */
-    cpOpenNews();
-    if(clipsNew()){ st.seenClips=Date.now();
+    const pt=st.progTab==='clips' ? 'clips' : 'marks';
+    if(pt==='marks') cpOpenNews(); else cpHold=null;
+    if(pt==='clips' && clipsNew()){ st.seenClips=Date.now();
       st.seenReview=Math.max(st.seenReview||0, st.lastReview||0); save(); }
   } else if(st.tab!=='progress') cpHold=null;
   const nMsg=msgsNew(), nChk=checksNew(), nAns=answerNew();
