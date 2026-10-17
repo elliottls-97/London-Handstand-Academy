@@ -9618,6 +9618,17 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           const n = Number(body.perWeek);
           if (Number.isInteger(n) && n >= 1 && n <= 7) cur.perWeek = n;
         }
+        /* the week's goal as it changed, [week, sessions], and the weeks they
+           paused (17 Oct 2026): the run of full weeks is worked out from
+           these and the sessions, here for the Saturday reminder as in the app */
+        if (body.wk && typeof body.wk === 'object') {
+          const goals = (Array.isArray(body.wk.goals) ? body.wk.goals : []).slice(-24)
+            .filter(g => Array.isArray(g) && Number.isInteger(Number(g[0])) && Number.isInteger(Number(g[1])))
+            .map(g => [Math.max(0, Math.min(99999, Number(g[0]))), Math.max(1, Math.min(7, Number(g[1])))]);
+          const paused = [...new Set((Array.isArray(body.wk.paused) ? body.wk.paused : []).slice(-60)
+            .map(Number).filter(w => Number.isInteger(w) && w > 0 && w < 99999))];
+          cur.wk = { goals, paused };
+        }
         /* Which ladder stage they are on. It was written to the account row for
            the coach to read and never handed back to the app, so signing in on
            a second device put a paying subscriber back on Foundations. */
@@ -9640,7 +9651,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        answer, so the comment above about a new phone not asking the quiz
        again described something that had never worked. */
     return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
-      time: out.time || 0, perWeek: out.perWeek || 0,
+      time: out.time || 0, perWeek: out.perWeek || 0, wk: out.wk || null,
       intake: out.intake || {}, quizDone: !!out.quizDone, lvl: out.lvl || {},
       stage: Number.isInteger(out.stage) ? out.stage : null,
       taste: Number.isInteger(out.taste) ? out.taste : null,
