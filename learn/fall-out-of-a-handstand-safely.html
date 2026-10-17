@@ -127,6 +127,42 @@ section[id]{scroll-margin-top:96px}
   section[id]{scroll-margin-top:90px}
 }
 </style>
+<style>
+/* The five tiles were each taller than half a phone, with the step's name
+   on a dark green shade. Smaller, and the name on a white plate, as the
+   films' own words are (Elliott, 17 Oct 2026). */
+.g-tile{aspect-ratio:3/4;background:#e8eeee}
+.g-tile::after{display:none}
+.g-txt{left:8px;right:8px;bottom:8px;gap:3px;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.88);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+.g-k{color:#006663}
+.g-tile b{font-size:17px;color:#111}
+.g-s{display:none}
+.g-empty .g-txt{background:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+/* the row of tiles scrolls sideways under 900, and a fixed page ground
+   showed through it as a grey band; iPhones never fix it anyway */
+@media (max-width:900px){.gallery{grid-auto-columns:min(42%,180px)} body{background-attachment:scroll}}
+/* A step film and its steps on one screen (Elliott, 17 Oct 2026: "how do
+   we get it in one mobile view"). The film was 520 tall and its four steps
+   430 under it. From a small tablet up they sit side by side; on a phone
+   the film takes what height is left, the step it is on is said on the
+   film, and the steps are their numbers under it. */
+@media (min-width:561px){.stepcard{grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr)!important}}
+@media (min-width:561px) and (max-width:760px){.stepcard .stp img{width:72px;height:41px}}
+@media (max-width:560px){
+  .stepcard{display:block!important;padding:12px!important}
+  .stepcard>div:first-child{height:min(56vh,480px);width:auto!important;max-width:100%!important;margin:0 auto}
+  .stepcard ol{flex-direction:row!important;gap:6px!important;margin-top:10px!important}
+  .stepcard .stp{flex:1;justify-content:center;padding:9px 0!important;transition:none}
+  .stepcard .stp img,.stepcard .stp .n+div{display:none!important}
+  .stepcard .stp .n{background:rgba(0,64,61,.12);color:#00403D}
+  .stepcard .stp.on .n{background:#006663;color:#fff}
+  .stepcard .plate{left:10px;right:10px;bottom:10px;font-size:16px}
+  .plate small{display:block;margin-top:3px;font:400 12.5px/1.35 Figtree,system-ui,sans-serif;color:#5A5A5A}
+  .plate .pn{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:7px;border-radius:50%;
+    background:#006663;color:#fff;font:600 11px/1 Figtree,system-ui,sans-serif;vertical-align:2px}
+}
+</style>
 <!-- opened inside the app (?inapp=1): the article alone, without the
      website's header, menu, sidebar, app buttons and footer (17 Oct 2026) -->
 <script>if(/[?&]inapp=1/.test(location.search)) document.documentElement.classList.add('inapp');</script>
@@ -398,20 +434,54 @@ html.inapp .hdr, html.inapp #siteMenu, html.inapp aside, html.inapp footer, html
 </div>
 <script>
 /* the step that lights up follows the film, as on the design canvas; a film
-   with data-from and data-to loops just that stretch of a longer take */
+   with data-from and data-to loops just that stretch of a longer take.
+   Each step holds for a moment on its own frame, the one its picture was
+   taken from, so the position can be seen: the whole film slowed down
+   looked like it was lagging (Elliott, 17 Oct 2026). On a phone the step it
+   is on is said on the film, and a step tapped is shown and held. */
+(function(){
+var HOLD=1100, phone=window.matchMedia ? matchMedia('(max-width:560px)') : {matches:false};
+var esc=function(x){ return String(x).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
 document.querySelectorAll('video[data-steps],video[data-from]').forEach(function(v){
   var from=parseFloat(v.dataset.from)||0, to=parseFloat(v.dataset.to)||0;
   var at=(v.dataset.steps||'').split(',').map(parseFloat).filter(function(n){return n>0});
-  var card=v.closest('.card')||v.parentElement.parentElement, steps=card.querySelectorAll('.stp');
+  var card=v.closest('.card')||v.parentElement.parentElement, steps=[].slice.call(card.querySelectorAll('.stp'));
+  var stepped=at.length>0 && steps.length>0;
+  if(stepped) card.classList.add('stepcard');
+  /* where each step is held: its picture's frame, kept inside the step */
+  var hold=steps.map(function(el,i){
+    var m=/time=([\d.]+)s/.exec((el.querySelector('img')||{}).src||''), lo=i?at[i-1]:from, hi=i<at.length?at[i]:(to||lo+1);
+    var t=m?parseFloat(m[1]):(lo+hi)/2; return Math.min(Math.max(t,lo+0.05),hi-0.05); });
+  var plate=card.querySelector('.plate'), said=plate?plate.innerHTML:'', cur=-1, held={}, holding=0, last=0;
+  var say=function(n){
+    if(!plate) return;
+    if(!phone.matches || n<0 || n>=steps.length){ plate.innerHTML=said; return; }
+    var b=steps[n].querySelector('b'), sub=steps[n].querySelector('b+span');
+    plate.innerHTML='<span class="pn">'+(n+1)+'</span>'+esc(b?b.textContent:'')+(sub?'<small>'+esc(sub.textContent)+'</small>':'');
+  };
+  var light=function(n){ if(n===cur) return; cur=n; steps.forEach(function(el,i){ el.classList.toggle('on', i===n); }); say(n); };
+  var resume=function(){ holding=0; var p=v.play(); if(p&&p.catch) p.catch(function(){}); };
+  var holdAt=function(n, ms){ clearTimeout(holding); v.pause(); v.currentTime=hold[n]; last=hold[n]; light(n); holding=setTimeout(resume, ms); };
   v.addEventListener('timeupdate',function(){
+    if(holding) return;
     var t=v.currentTime;
-    if(to && (t>=to || t<from-0.5)){ v.currentTime=from; return; }
-    if(!at.length) return;
+    if(t<last-0.5) held={};
+    last=t;
+    if(to && (t>=to || t<from-0.5)){ v.currentTime=from; last=from; held={}; if(stepped) light(0); return; }
+    if(!stepped) return;
     var n=0; while(n<at.length && t>=at[n]) n++;
-    steps.forEach(function(el,i){ el.classList.toggle('on', i===n); });
+    light(n);
+    if(!held[n] && hold[n]!=null && t>=hold[n]){ held[n]=1; holdAt(n, HOLD); }
   });
-  if(to) v.addEventListener('ended',function(){ v.currentTime=from; v.play().catch(function(){}); });
+  if(to) v.addEventListener('ended',function(){ v.currentTime=from; last=from; held={}; if(stepped) light(0); v.play().catch(function(){}); });
+  if(stepped) steps.forEach(function(el,i){ el.style.cursor='pointer';
+    el.addEventListener('click',function(){ held={}; for(var j=0;j<=i;j++) held[j]=1; holdAt(i, HOLD*2); }); });
+  if(stepped && phone.addEventListener) phone.addEventListener('change',function(){ var n=cur; cur=-1; light(n); });
+  /* a hold that ended while the page was hidden can leave the film stopped */
+  if(stepped) document.addEventListener('visibilitychange',function(){
+    if(!document.hidden && !holding && v.paused) resume(); });
 });
+})();
 </script>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "How to fall out of a handstand safely", "description": "How to fall out of a handstand safely, in the order I coach it: basic bail outs, cartwheels, kick up bounces, crawling out on the way to the wall, and a partner spot. Make it light, then automatic, then balance can start.", "image": "https://customer-pns1oongdltmkjwa.cloudflarestream.com/362da5a70cede1b49229a635829656ca/thumbnails/thumbnail.jpg?time=2s&height=600", "datePublished": "2026-10-14", "dateModified": "2026-10-14", "author": {"@type": "Person", "name": "Elliott Staley"}, "publisher": {"@type": "Organization", "name": "London Handstand Academy", "logo": {"@type": "ImageObject", "url": "https://londonhandstandacademy.com/icons/icon-512.png"}}, "mainEntityOfPage": "https://londonhandstandacademy.com/learn/fall-out-of-a-handstand-safely"}</script>
 <script>
