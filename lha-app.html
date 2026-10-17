@@ -552,6 +552,27 @@ button.lc-ring:active{transform:scale(.88)}
 .lw-minin{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;margin-top:6px}
 .lw-minin span{text-align:center;font:600 10px/12px var(--sans);color:var(--grey);hyphens:manual;-webkit-hyphens:manual}
 @media (prefers-reduced-motion: reduce){.lw-mini-in .lw-minif>span{animation:none}}
+/* the six stages along the top of Check points (17 Oct 2026): a figure and
+   its name are one button, and the floor runs unbroken under all six */
+.ls{display:grid;grid-template-columns:repeat(6,minmax(0,1fr))}
+.ls-step{display:flex;flex-direction:column;align-items:stretch;min-width:0;border:0;background:none;padding:0;
+ cursor:pointer;font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
+.ls-fig{display:flex;justify-content:center;align-items:flex-end;border-bottom:2px solid rgba(0,64,61,.14)}
+.ls-g{display:flex;transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+.ls-fig .lw-fig{width:49px;height:64px;animation:none}
+.ls-step:active .ls-g{transform:scale(.92)}
+.ls-n{display:block;text-align:center;margin-top:6px;font:600 10px/12px var(--sans);color:var(--grey);
+ hyphens:manual;-webkit-hyphens:manual}
+.ls-next{animation:lwGlowF 2.4s ease-in-out 1.4s infinite}
+.ls-step[aria-expanded="true"] .ls-n{color:var(--ink)!important;font-weight:700}
+.ls-in .ls-fig .lw-fig{animation:lwRise 500ms cubic-bezier(.2,.8,.2,1) calc(var(--i)*90ms + 250ms) both}
+#app[data-still="1"] .ls-in .ls-fig .lw-fig{animation:none}
+.ls-free{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;margin-top:10px}
+.ls-free>*{height:26px;border-radius:13px;border:1px solid rgba(0,64,61,.16);background:transparent;padding:0;
+ display:flex;align-items:center;justify-content:center;gap:6px;font:700 11px/1 var(--sans);letter-spacing:.04em;
+ color:var(--deep);white-space:nowrap;min-width:0}
+.ls-free>button{background:#e3eff2;border:0;cursor:pointer}
+@media (prefers-reduced-motion: reduce){.ls-in .ls-fig .lw-fig,.ls-next{animation:none}}
 /* the stage names, under their steps (Elliott, 10 Oct 2026) */
 .lw-names{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}
 .lw-names span{text-align:center;font:600 10px/12px var(--sans);letter-spacing:-.01em;cursor:pointer;
@@ -5941,7 +5962,7 @@ function cpInput(c){
 /* ── clearing a stage ──────────────────────────────────────────────
    It moves you, rather than congratulating you and leaving you where you
    were. Moving is the thing that was asked for and it is reversible from
-   the foot of the ladder, so it happens first and the sheet says where you
+   its stage at the top of the Ladder tab, so it happens first and the sheet says where you
    have landed. If the next one is behind the paywall nothing moves and the
    sheet offers it instead, because pretending otherwise would be worse. */
 function stageOfCp(k){
@@ -12929,7 +12950,7 @@ function drawOv(){
                background:transparent;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
                font:600 13px/1 var(--sans);cursor:pointer"
                onclick="closeOv();goToStage(${si})">${
-               isDone?'Come back up to this':'Move down to this'}</button>`}
+               isDone?'Go back to this stage':'Move up to this stage'}</button>`}
         <button style="flex:1;text-align:center;padding:15px 14px;min-height:48px;border-radius:16px;
           border:0;background:transparent;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
           font:600 13px/1 var(--sans);cursor:pointer"
@@ -13026,7 +13047,7 @@ function drawOv(){
      :`<button class="btn" style="width:100%;margin-top:20px"
         onclick="st.clearedFrom=null;closeOv()">Close</button>`}
     ${moved?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-      You can move back up whenever you like, from the foot of the ladder.</div>`:''}`;
+      Tap ${esc(from.n)} at the top of the Ladder tab to go back whenever you like.</div>`:''}`;
   }
   if(st.ov==='summary'){
     /* the session that just ran, not the coached plan's idea of today — on
@@ -16396,8 +16417,9 @@ function climbCardHTML(cs, S, P, x){
       <span class="kick2" style="color:var(--forest)">THE LADDER</span>
       <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">STAGE ${cs+1} OF ${n}</span></div>
     ${x.above||''}
-    <!-- the six handstands, theirs in amber, as on the Ladder tab -->
-    <div style="margin-top:12px" aria-hidden="true">${lwRowHTML(cs,{h:x.h||64,done:true,names:!!x.names})}</div>
+    <!-- the six handstands, theirs in amber, rising in one after another
+         as on the Ladder tab (Elliott, 17 Oct 2026) -->
+    <div style="margin-top:12px" aria-hidden="true">${lwRowHTML(cs,{h:x.h||64,done:true,names:!!x.names,anim:true})}</div>
     <!-- on Home the greeting above already says the stage -->
     ${x.noName?'':`<div style="font:400 24px/1.15 var(--serif);margin-top:10px">${esc(S.n)}<em style="color:var(--forest);font-style:normal">.</em></div>`}
     <button onclick="event.stopPropagation();climbGo()" style="width:100%;margin-top:${x.noName?14:12}px;min-height:52px;
@@ -16500,7 +16522,7 @@ function goToStage(i){
   render();
   /* No confirm. The screen promises you can move either way whenever you
      like, and stopping to ask every time is the opposite of that. */
-  toast((goingDown?'Moved down to ':'Back up to ')+STAGES[i].n+'. Move again whenever you like.');
+  toast((goingDown?'Back to ':'Moved up to ')+STAGES[i].n+'. Move again whenever you like.');
 }
 function advanceStage(){
   const next=curStage()+1;
@@ -18408,7 +18430,7 @@ function screenLadder(){
   const lcFresh = false;
   const lcDn = climbTimes(climbState(cur)).dn.toFixed(2)+'s';
 
-  /* the six stages are ladderWholeHTML(), below */
+  /* the six stages are ladderStripHTML(), along the top */
 
   const nxt=STAGES[cur+1];
   return `<div class="scroll s">
@@ -18482,7 +18504,7 @@ function screenLadder(){
          under its own week; under the month is how each drill has moved.
          How well I know you is still in the menu. -->
     ${progressBody()}` : `
-    ${ltab!=='checks' ? '' : trialPending() ? `${trialCardHTML('ladder')}${trialPreviewHTML()}<div style="height:24px"></div>` : `${plateauHTML()}
+    ${ltab!=='checks' ? '' : trialPending() ? `${trialCardHTML('ladder')}${trialPreviewHTML()}<div style="height:24px"></div>` : `${ladderStripHTML()}${plateauHTML()}
     <div class="rise lcw${lcFresh?' b':''}" data-tour="stagegoal" style="padding:20px 20px 0;--dn:${lcDn}">
       <div class="lcw-swap" style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">${lcFresh?`<span class="lcw-first">What you&rsquo;ll learn</span>`:''}<span
@@ -18558,9 +18580,7 @@ function screenLadder(){
     <!-- The list of cards that was here is the ladder above now: each rung
          opens where it is, onto its film and its slider, so a second copy
          of all seven a screen further down had nothing left to do. -->
-    <div style="height:28px"></div>`}
-
-    ${(ltab==='checks' && !trialPending()) ? ladderWholeHTML({merged:true}) : ''}`}
+    <div style="height:28px"></div>`}`}
   </div>`;
 }
 /* ══ the whole ladder ══════════════════════════════════════════════════
@@ -18664,7 +18684,9 @@ function lwChecks(){ st.ladderTab='checks'; save(); render(); }
    line, and the one thing to do there. It scrolled the page down to the
    stage's card instead (Elliott, 10 Oct 2026: "the stage animates out of
    it rather than scrolling down"). The same figure closes it. */
-let lwPopI=null;
+/* var, not let: render() closes it off the Ladder tab, and may run before
+   this line has */
+var lwPopI=null;
 /* a stage's picture plays its film where it is: the play button swaps the
    picture for Stream's player, the way the dashboard's stage films play.
    A stage with no film keeps its picture and opens its sheet. */
@@ -18705,7 +18727,7 @@ function lwPopHTML(i){
 function lwPick(i){
   const box=document.getElementById('lwPop'); if(!box){ openStage(i); return; }
   let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
-  const mark=k=>document.querySelectorAll('.lw-step').forEach((b,j)=>b.setAttribute('aria-expanded', String(j===k)));
+  const mark=k=>document.querySelectorAll('.ls-step,.lw-step').forEach((b,j)=>b.setAttribute('aria-expanded', String(j===k)));
   const anim=typeof box.animate==='function' && !still;
   if(lwPopI===i){                                   // the same figure: back in
     lwPopI=null; mark(-1);
@@ -19010,6 +19032,41 @@ function ladderSeg(){
   return `<div style="padding:${wide()?'0':'16px'} 16px 0"><div class="segrow" style="display:flex;gap:5px;padding:4px;
     border-radius:15px;background:rgba(17,17,17,.055)">${b('checks',trialPending()?'Your stage':'Check points '+count)}${
     b('progress','Progress')}</div></div>`;
+}
+/* ── the six stages, along the top ─────────────────────────────────
+   They were a list under the check points: done, the next one, then the
+   rest, a second long scroll on a page that already felt crowded (Elliott,
+   17 Oct 2026: "not sure about the ladder being below the checkpoints").
+   Along the top they say where you are at a glance, the way Train shows
+   them. A figure opens its stage on the screen, under the row (Elliott,
+   17 Oct 2026: "can they be collapsed"): its picture and film, its line,
+   its check points and the way on to its sheet. The same figure, or the
+   cross, folds it away. */
+function ladderStripHTML(){
+  const cur=curStage(), last=STAGES.length-1, P=cpProgress(cur);
+  const earned = P.of>0 && P.met>=P.of && cur<last && stageLocked(cur+1);
+  const steps = STAGES.map((S,i)=>{
+    const done = i<cur || (i===cur && earned), now = i===cur && !earned, next = earned && i===cur+1;
+    const col = done||next ? 'var(--forest)' : now ? '#e8962f' : '#bcd5db';
+    return `<button class="ls-step" onclick="lwPick(${i})" style="--i:${i}" aria-expanded="${lwPopI===i}"
+      aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':next?', earned':''}">
+      <span class="ls-fig"><span class="ls-g${next?' ls-next':''}" style="color:${col}">${lwFigSVG(i)}</span></span>
+      <span class="ls-n" style="${now||next?'color:var(--ink);font-weight:700':done?'color:var(--forest)':''}">${LW_BREAK[S.n]||esc(S.n)}</span>
+    </button>`; }).join('');
+  /* where the free part ends, and the way into the rest */
+  const free = isPlus() ? '' : `<div class="ls-free">
+      <span style="grid-column:1 / ${FREE_STAGES+1}">Free</span>
+      <button style="grid-column:${FREE_STAGES+1} / ${STAGES.length+1}" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#006663" stroke-width="2.4" stroke-linecap="round"
+          stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>${sellsLadder()?'With the full Ladder':'For members'}</button>
+    </div>`;
+  const open = lwPopI!=null && STAGES[lwPopI] ? lwPopI : null;
+  return `<div data-ladderall data-tour="stagelist" class="lw ls-in" style="padding:18px 20px 0">
+    <div class="ls">${steps}</div>
+    <div class="lw-pop" id="lwPop"${open==null?' hidden':''} style="--cx:${open==null?50:((open+.5)/STAGES.length*100)}%">${
+      open==null?'':lwPopHTML(open)}</div>
+    ${free}
+  </div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
    back loses your spot, which is the thing the programme pages get right */
@@ -22388,31 +22445,26 @@ const TOURS = {
          progress), so each step opens the one its target is on. They
          opened and closed a fold-out that no longer exists, so the step
          about all six stages found nothing and the tour stopped short. */
+      /* the six stages are along the top since 17 Oct 2026, so they come
+         first. always, because buildTourList drops any step whose target
+         is not in the DOM at the moment the list is built. */
+      {t:'stagelist', h:'Your six stages', always:true,
+       pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } },
+       /* This said "Nothing is locked" over a list showing four padlocks.
+          It is true for a subscriber and plainly false for everybody else,
+          so it asks the tier rather than stating one answer for both. */
+       b:()=>'Yours is in amber. '+tapWord(true)+' any of them to see what it asks for and watch its film. '
+         +(isPlus() ? 'Nothing is locked, so you can move on early or come back.'
+                    : esc(STAGES[0].n)+' is free; the rest come with the full Ladder'+(sellsLadder()?', '+PRICE()+' a month':'')+'.')},
       {t:'stagegoal', h:'How you leave this stage', always:true,
        pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } },
-       b:'Every stage is a short ladder of its own. Each rung is a check point with its film on it, the first at the bottom, and the one to work on next glows. Reach them all and the stage at the top opens.'},
+       b:'Each check point has its film on it, and the one to work on next glows. Reach them all and the next stage opens.'},
       /* the check points are the page now, so the tour walks you onto them
          rather than past them */
       {t:'checkpoints', h:'This is the bit that moves you', always:true,
        b:()=>'Press a rung and it opens where it is: the film of the movement, and a slider that logs what you managed as you drag it. '
          +'Nothing here is a guess: it is what decides when the next stage opens.',
        pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } }},
-      /* and the ladder gets explained here, once, because it is folded away
-         the rest of the time: the daily job is your own progress, not the
-         six stages you might be on in a year */
-      /* always, because the list it points at is folded away until its own
-         pre() opens it, and buildTourList drops any step whose target is not
-         in the DOM at the moment the list is built. Without this the one
-         place the ladder ever gets explained was silently skipped. */
-      {t:'stagelist', h:'The stages above', always:true,
-       pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } },
-       /* This said "Nothing is locked" over a list showing four padlocks.
-          It is true for a subscriber and plainly false for everybody else,
-          so it asks the tier rather than stating one answer for both. */
-       /* under the check points since the ladder's own tab went (17 Oct 2026) */
-       b:()=>'Under your check points, the stages above yours. '+tapWord(true)+' one to see what it asks for and watch its film. '
-         +(isPlus() ? 'Nothing is locked, so you can move on early or come back.'
-                    : esc(STAGES[0].n)+' is free; the rest come with the full Ladder'+(sellsLadder()?', '+PRICE()+' a month':'')+'.')},
       {t:'buildsession', h:'Train off the ladder',
        b:'Drag for how long you have got and press start. It builds a session for your stage that fits, warm-up included.'}
     ]
@@ -23344,6 +23396,8 @@ function render(){
   renderPending=false;
   if(st.tab!=='fix') fxReadClose();
   if(st.tab!=='coaching' && typeof coOffer!=='undefined') coOffer=false;
+  /* a stage opened on the strip is shut again by leaving the tab */
+  if(st.tab!=='ladder') lwPopI=null;
   const app=$('#app');
   /* swapping innerHTML throws the scroll container back to the top, which
      reads as the page jumping to the top mid-tap. Put it back whenever we
