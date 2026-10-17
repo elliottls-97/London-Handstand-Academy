@@ -4721,6 +4721,31 @@ const handle = async (request) => {
   };
   const ownerOnly = { error: 'That one is Elliott\'s. Prices, discount codes and what a workshop costs are set by the account that owns the business. Ask him and he can change it in a moment.' };
 
+  /* ── a second coach: their own clients, and nothing else ───────────
+     17 Oct 2026, Elliott: Suryava "has access to things that he
+     shouldn't, should just be his clients or ones I assign to him". A
+     coach who is not the owner reaches the routes below, each of which
+     answers only for their own clients (owns), and can read the training
+     content programmes are written from. Everything else in the dashboard,
+     leads, applications, website questions, workshops and their bookings,
+     the newsletter, the website, the numbers, money and settings, is the
+     owner's. A list of what is allowed, so a route added later is closed
+     to them until it is put here. */
+  const COACH_OWN = new Set(['thread', 'thread/unsend', 'programme', 'progress', 'submissions', 'submission/reviewed',
+    'checkpoint/verdict', 'starting', 'seen', 'saidseen', 'cpseen', 'flagseen', 'typing', 'onboarding', 'notes',
+    'clips', 'clients', 'blocks', 'week', 'queue', 'questions', 'question/answer', 'formcheck', 'formcheck/reset',
+    'preview', 'email', 'setpw', 'past', 'sessions', 'roster', 'coaches', 'push', 'push/test', 'clip']);
+  const COACH_READ = new Set(['drill', 'transcripts', 'explain', 'bands', 'timing', 'checkpoints', 'story',
+    'ladder-media', 'drillmeta', 'fixes', 'stream/videos']);
+  if (path.startsWith('/coach/')) {
+    const who0 = await me();
+    if (who0 && coachList().includes(who0) && !isPrimary(who0)) {
+      const sub = path.slice('/coach/'.length);
+      if (!(COACH_OWN.has(sub) || (request.method === 'GET' && COACH_READ.has(sub))))
+        return json({ error: 'That part of the dashboard is Elliott\'s. You have your own clients here.', notYours: true }, 403);
+    }
+  }
+
   /* ── email a code ── */
   if (path === '/code' && request.method === 'POST') {
     const e = norm(body.email);
@@ -7364,9 +7389,14 @@ const handle = async (request) => {
     /* a second coach never acts on the owner or on another coach, whoever
        is or is not on the roster: owns() was true for anybody who was not
        somebody else's client, the owner included (8 Oct 2026) */
+    /* A second coach has their own clients, the ones Elliott gives them
+       on the roster, and nobody else. Anybody who was not another coach's
+       client counted as theirs, so every free account, lead and question
+       was open to them (Elliott, 17 Oct 2026: "should just be his clients
+       or ones I assign to him"). */
     const owns = e => { const t = norm(e);
-      if (asking && !isPrimary(asking) && t !== asking && (isPrimary(t) || coachList().includes(t))) return false;
-      return !asking || !clients()[t] || coachOf(t) === asking; };
+      if (asking && !isPrimary(asking)) return t === asking || (!!clients()[t] && coachOf(t) === asking);
+      return true; };
     const list = (await getSetting('sessions')) || [];
     if (request.method === 'GET') return json({ sessions: list.filter(x => owns(x.email)) });
     if (request.method === 'POST') {
@@ -11128,9 +11158,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* a second coach never acts on the owner or on another coach, whoever
        is or is not on the roster: owns() was true for anybody who was not
        somebody else's client, the owner included (8 Oct 2026) */
+    /* A second coach has their own clients, the ones Elliott gives them
+       on the roster, and nobody else. Anybody who was not another coach's
+       client counted as theirs, so every free account, lead and question
+       was open to them (Elliott, 17 Oct 2026: "should just be his clients
+       or ones I assign to him"). */
     const owns = e => { const t = norm(e);
-      if (asking && !isPrimary(asking) && t !== asking && (isPrimary(t) || coachList().includes(t))) return false;
-      return !asking || !clients()[t] || coachOf(t) === asking; };
+      if (asking && !isPrimary(asking)) return t === asking || (!!clients()[t] && coachOf(t) === asking);
+      return true; };
 
     /* wipe a client's activity record — needed for a deletion request,
        and for clearing test data out of a real client's history */
@@ -11680,6 +11715,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     /* move a client from one coach to another */
     if (path === '/coach/assign' && request.method === 'POST') {
+      /* who coaches whom is Elliott's to say: a coach could put any free
+         account on the roster as their own client (17 Oct 2026) */
+      if (!(await isOwner())) return json(ownerOnly, 403);
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
@@ -11740,8 +11778,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     if (path === '/coach/roster') {
       if (request.method === 'GET') {
-        return json({ roster: rosterList(),
-                      stored: Object.keys((await getSetting('roster')) || {}) });
+        /* only their own, for a second coach: this was every client's name and address */
+        return json({ roster: rosterList().filter(x => owns(x.email)),
+                      stored: Object.keys((await getSetting('roster')) || {}).filter(e => owns(e)) });
       }
       if (request.method === 'POST') {
         const e = norm(body.email);
