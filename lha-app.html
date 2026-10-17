@@ -3173,6 +3173,30 @@ function dlAskHTML(dl){
    the seven days coloured the way the Progress calendar colours them, how
    many sessions against the days in the plan, and Log today as a real
    button until today is logged, then what was logged. */
+/* Log today, or what today was logged as: under the calendar on Home now
+   (Elliott, 17 Oct 2026), and still in the week card where that is shown */
+function logFootHTML(){
+  const logs=loggedToday(), last=logs[logs.length-1];
+  let foot;
+  if(!last){
+    foot=`<button onclick="openLog()" style="width:100%;margin-top:16px;height:52px;cursor:pointer;
+      border-radius:16px;border:1px solid rgba(0,64,61,.18);background:rgba(0,102,99,.06);
+      color:var(--deep);font:600 16px/1 var(--sans)">Log today</button>`;
+  } else {
+    const whole=logs.some(x=>x.done || x.kind==='all');
+    const none=!whole && logs.every(x=>x.kind==='none');
+    const label=whole?'Whole session done'
+      :none?'Logged as not trained'
+      :'Some of it done'+(last.of&&!last.approx?', '+last.got+' of '+last.of:'');
+    foot=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
+      margin-top:14px;padding:12px 4px 0;border-top:1px solid rgba(0,64,61,.08)">
+      <span style="font:500 14px/1.4 var(--sans);color:var(--ink)">Today: ${label}.</span>
+      <button onclick="openLog()" style="flex:none;border:0;background:none;padding:6px 2px;cursor:pointer;
+        font:600 13px/1 var(--sans);color:var(--forest);text-decoration:underline;
+        text-underline-offset:2px">Change</button></div>`;
+  }
+  return foot;
+}
 function weekCardHTML(){
   const now=new Date(), mon=new Date(now.getFullYear(), now.getMonth(), now.getDate()-((now.getDay()+6)%7));
   const todayK=dayKey(Date.now());
@@ -3200,25 +3224,7 @@ function weekCardHTML(){
     </div>`);
   }
   const target=(DATA && DATA.days && DATA.days.length) || 3;
-  const logs=loggedToday(), last=logs[logs.length-1];
-  let foot;
-  if(!last){
-    foot=`<button onclick="openLog()" style="width:100%;margin-top:16px;height:52px;cursor:pointer;
-      border-radius:16px;border:1px solid rgba(0,64,61,.18);background:rgba(0,102,99,.06);
-      color:var(--deep);font:600 16px/1 var(--sans)">Log today</button>`;
-  } else {
-    const whole=logs.some(x=>x.done || x.kind==='all');
-    const none=!whole && logs.every(x=>x.kind==='none');
-    const label=whole?'Whole session done'
-      :none?'Logged as not trained'
-      :'Some of it done'+(last.of&&!last.approx?', '+last.got+' of '+last.of:'');
-    foot=`<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;
-      margin-top:14px;padding:12px 4px 0;border-top:1px solid rgba(0,64,61,.08)">
-      <span style="font:500 14px/1.4 var(--sans);color:var(--ink)">Today: ${label}.</span>
-      <button onclick="openLog()" style="flex:none;border:0;background:none;padding:6px 2px;cursor:pointer;
-        font:600 13px/1 var(--sans);color:var(--forest);text-decoration:underline;
-        text-underline-offset:2px">Change</button></div>`;
-  }
+  const foot=logFootHTML();
   return `<div class="card" data-tour="checkin" style="margin-top:18px;padding:16px 16px 14px">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:0 4px">
       <span class="kick2">THIS WEEK</span>
@@ -3408,12 +3414,11 @@ function screenToday(){
     ${d.when?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>`:''}
     ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
-    ${weekCardHTML()}
   </div>
   ${todaySlotHTML(dl)}
   ${/* what they have done, by day, on Home (Elliott, 17 Oct 2026): it was a
         tab inside Progress */''}
-  <div class="pad" style="padding-top:16px">${trainingCalendar()}</div>
+  <div class="pad" style="padding-top:16px">${trainingCalendar(true)}</div>
   <div style="height:26px"></div></div>`;
 }
 
@@ -7933,7 +7938,7 @@ function calDone(list){
   /* sessions logged before the per-drill detail existed carry only a flag */
   return (list||[]).some(x=>x.done || x.kind==='all') ? 1 : 0;
 }
-function trainingCalendar(){
+function trainingCalendar(withLog){
   const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
   const opens=new Set(((st.prog&&st.prog.opens)||[]));
   const byDay={};
@@ -8069,6 +8074,7 @@ function trainingCalendar(){
     ${(sinceLine && !ss.every(x=>dayKey(x.at).slice(0,7)===ym))?`<div style="font:500 12px/1.5 var(--sans);color:var(--deep);margin-top:8px;padding-top:10px;
       border-top:1px solid rgba(0,64,61,.1)">${sinceLine}</div>`:''}
     ${st.calDay?calDayDetail(byDay[st.calDay]||[], st.calDay, opens):''}
+    ${withLog?logFootHTML():''}
   </div>`;
 }
 
