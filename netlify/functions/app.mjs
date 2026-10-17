@@ -1480,6 +1480,47 @@ async function subWithCodes(sub) {
   return sub;
 }
 
+/* ── a payment that did not file, said at once ───────────────────────
+   17 Oct 2026: the key the app uses could not read payment links, so every
+   purchase through one answered 503 for three weeks, Stripe gave up on each
+   after three days, and nobody knew until Elliott bought his own. A failure
+   now reaches the coach the first time, then once every six hours while it
+   lasts. */
+async function payAlarm(kind, title, paras) {
+  const slot = Math.floor(Date.now() / (6 * 3600e3));
+  if (!(await supa.insertIfAbsent('nudges', { key: `payalarm:${kind}:${slot}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true))) return;
+  try { await coachAlert(null, 'business', { title, body: String(paras[0] || '').replace(/<[^>]+>/g, '').slice(0, 140), tag: 'payalarm:' + kind }); } catch {}
+  try { await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, title,
+    mail({ title: esc(title) + '.', paras, cta: { href: 'https://dashboard.stripe.com/workbench/webhooks', label: 'Open Stripe' } })); } catch {}
+}
+/* the buyer's address as the page after paying shows it: enough to know
+   which inbox, not enough to read off somebody else's screen */
+const maskEmail = e => { const [u, d] = String(e || '').split('@'); return u && d ? u.slice(0, Math.min(2, u.length)) + '\u2022\u2022\u2022@' + d : ''; };
+/* Has the webhook done its part for this checkout? Each kind of purchase
+   leaves its own once-only claim. True, false, or null when it cannot be
+   told. cycle.mjs asks the same thing every morning: keep the two in step. */
+const CS_FILED = ['welcomed', 'credit', 'sessnew', 'wsbooked', 'wsorphan', 'filed'];
+async function csFiled(s) {
+  const id = String((s && s.id) || '');
+  if (!id) return false;
+  const rows = await supa.rows('nudges', `key=in.(${enc(CS_FILED.map(k => `"${k}:${id}"`).join(','))})&select=key`).catch(() => null);
+  if (rows === null) return null;
+  if ((rows || []).length) return true;
+  /* a second free week refused: filed, with nothing switched on */
+  if (s.subscription && await getSetting(`trialrefused:${s.subscription}`).catch(() => null)) return true;
+  /* a 1-2-1 the coach asked them to pay for is marked on the session itself */
+  if (s.metadata && s.metadata.sessPay) return ((await getSetting('sessions').catch(() => null)) || []).some(r => sessPays(r).some(x => x.ref === id));
+  return false;
+}
+/* a delivery signed the way Stripe signs one, for filing a checkout from
+   here when Stripe's own has not arrived */
+async function stripeSignFor(raw) {
+  const t = Math.floor(Date.now() / 1000);
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.STRIPE_WEBHOOK_SECRET || ''),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(t + '.' + raw));
+  return `t=${t},v1=${[...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, '0')).join('')}`;
+}
 /* Stripe signs the raw body; verify it ourselves rather than trusting
    a webhook that anyone could POST to. */
 async function stripeSigOK(raw, header, secret) {
@@ -3012,6 +3053,14 @@ async function rosterRows() {
 export default (request, context) => ALERTS.run({ q: [], ctx: context }, async () => {
   const box = ALERTS.getStore();
   try { return await handle(request); }
+  catch (err) {
+    /* a webhook that throws is a payment Stripe will keep sending and the
+       app keeps failing to file: said, then thrown on so Stripe retries */
+    try { if (/\/stripe\/webhook$/.test(new URL(request.url).pathname)) await payAlarm('hook', 'The Stripe webhook failed', [
+      `Filing a payment threw: <b>${esc(String((err && err.message) || err).slice(0, 300))}</b>.`,
+      'Stripe sends it again for up to three days, so it files itself once this is fixed. The buyer may be waiting for their email.']); } catch {}
+    throw err;
+  }
   finally { try { await flushAlerts(box); } catch {} }
 });
 const handle = async (request) => {
@@ -3406,6 +3455,9 @@ const handle = async (request) => {
         /* guessing from the amount welcomed £250 of coaching as the Inner
            Circle; failing lets Stripe send it again when Stripe answers */
         console.warn('payment link lookup', err && err.message);
+        await payAlarm('plink', 'A payment could not be filed', [
+          `${esc(e || 'Somebody')} paid ${esc(Number(obj.amount_total) > 0 ? penceTxt(Number(obj.amount_total)) : 'nothing, on a code')} through a payment link, and Stripe would not tell the app which link: <b>${esc(String((err && err.message) || err).slice(0, 300))}</b>.`,
+          'Stripe sends it again for up to three days, so it files itself once this is fixed. If it mentions permissions, the key the app uses needs Payment Links: Read.']);
         return json({ error: 'payment link lookup failed' }, 503);
       }
     }
@@ -4558,6 +4610,65 @@ const handle = async (request) => {
     return json({ ok: true });
   }
 
+  /* ── back from paying: has it been filed? ──────────────────────────
+     Stripe sends a buyer back with the checkout in the address (a payment
+     link's redirect carries {CHECKOUT_SESSION_ID}), and the page asks here
+     so it can say which inbox the email went to. If the webhook has still
+     not filed it twenty seconds after they landed, the page asks with
+     pull=1 and it is filed from here, through the webhook's own code, as a
+     delivery from Stripe would be. Every step of that is claimed once, so
+     Stripe's delivery arriving later changes nothing. If even that fails,
+     the coach is told there and then, and the buyer that their money is
+     safe and he knows. The morning check in cycle.mjs asks the same for
+     anything left over (a session over half an hour old needs no wait). */
+  if (path === '/paid' && request.method === 'GET') {
+    const cs = String(url.searchParams.get('cs') || '');
+    if (!/^cs_(live|test)_[A-Za-z0-9]{8,240}$/.test(cs)) return json({ error: 'Which payment?' }, 400);
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`paid:${ip}`, 3600000)) > 120) return json({ error: 'Too many checks. Try again later.' }, 429);
+    if (!stripeKey()) return json({ state: 'unknown' });
+    let s = null;
+    try { s = await stripe(`/checkout/sessions/${enc(cs)}`, null, 'GET'); }
+    catch (err) { return json({ state: 'unknown' }); }
+    const who = norm((s && s.customer_details && s.customer_details.email) || (s && s.customer_email) || '');
+    const masked = maskEmail(who);
+    if (!s || s.status !== 'complete' || !csPaid(s)) return json({ state: s && s.status === 'open' ? 'open' : 'none' });
+    const was = await csFiled(s);
+    if (was === null) return json({ state: 'unknown', email: masked });
+    if (was) return json({ state: 'filed', email: masked });
+    /* when the page first asked, so a pull gives Stripe's delivery its chance */
+    const seenKey = `paidseen:${cs}`;
+    let seenAt = Date.now();
+    const seenRow = await supa.row('nudges', `key=eq.${enc(seenKey)}&select=sent_at`).catch(() => null);
+    if (seenRow) seenAt = ms(seenRow.sent_at) || seenAt;
+    else await supa.insertIfAbsent('nudges', { key: seenKey, stage: 0, sent_at: nowISO() }, 'key').catch(() => {});
+    const oldEnough = Date.now() - (Number(s.created) || 0) * 1000 > 30 * 60e3;
+    if (url.searchParams.get('pull') !== '1' || (!oldEnough && Date.now() - seenAt < 20000)) return json({ state: 'waiting', email: masked });
+    /* one pull a minute for any one payment, however many pages ask */
+    if (!(await supa.insertIfAbsent('nudges', { key: `paidpull:${cs}:${Math.floor(Date.now() / 60000)}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)))
+      return json({ state: 'waiting', email: masked });
+    let why = '';
+    try {
+      const raw = JSON.stringify({ id: 'evt_pull_' + cs.slice(-20), object: 'event', type: 'checkout.session.completed', data: { object: s } });
+      const r = await handle(new Request(url.origin + '/api/app/stripe/webhook', { method: 'POST', body: raw,
+        headers: { 'stripe-signature': await stripeSignFor(raw), 'content-type': 'application/json' } }));
+      if (r.status >= 400) why = (await r.text().catch(() => '')).slice(0, 200) || ('the webhook answered ' + r.status);
+    } catch (err) { why = String((err && err.message) || err).slice(0, 200); }
+    if (await csFiled(s)) { console.warn('paid: filed from the page after paying', cs); return json({ state: 'filed', email: masked, pulled: true }); }
+    /* it cannot be filed from here either: the coach hears now, once */
+    if (await supa.insertIfAbsent('nudges', { key: `paidstuck:${cs}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)) {
+      const paidTxt = Number(s.amount_total) > 0 ? penceTxt(Number(s.amount_total)) : 'nothing, on a code';
+      await coachAlert(null, 'business', { title: 'A payment did not file: ' + (who || 'unknown'), body: paidTxt + (why ? '. ' + why : ''), tag: 'paidstuck:' + cs });
+      await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `A payment did not file: ${who || 'unknown'}, ${paidTxt}`,
+        mail({ title: 'A buyer is waiting.', paras: [
+          `<b>${esc(who || 'Somebody')}</b> paid ${esc(paidTxt)}, and the app could not file it${why ? ': ' + esc(why) : ''}.`,
+          'They have been told their payment is safe and that you will email them today. Stripe also sends it again for up to three days, so it files itself once the problem is fixed.',
+          `Checkout ${esc(cs)}.`],
+          cta: { href: 'https://dashboard.stripe.com/workbench/webhooks', label: 'Open Stripe' } }));
+    }
+    return json({ state: 'late', email: masked });
+  }
+
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
   /* ── your own visits are not visitors ─────────────────────────────
      Elliott testing the quiz and the pages went into the numbers as if he
@@ -5583,7 +5694,7 @@ const handle = async (request) => {
         'line_items[0][quantity]': '1',
         'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
         'metadata[period]': period,
-        ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?${back}` } : {}),
+        ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?${back}&cs={CHECKOUT_SESSION_ID}` } : {}),
         /* seven days before the first charge. Card up front, so the people
            who start it mean it, and it converts unless they cancel. */
         ...(freeDays > 0 ? { 'subscription_data[trial_period_days]': String(freeDays) } : {}),
@@ -5597,7 +5708,7 @@ const handle = async (request) => {
            reason: a code typed there skips the check above */
         ...(promo ? { 'discounts[0][promotion_code]': promo }
                   : LADDER_PLANS.includes(planKey) ? { allow_promotion_codes: 'true' } : {}),
-        ...(embedded ? {} : { success_url: `${origin}/lha-app.html?${back}`,
+        ...(embedded ? {} : { success_url: `${origin}/lha-app.html?${back}&cs={CHECKOUT_SESSION_ID}`,
                               cancel_url: `${origin}/lha-app.html?paid=0` }),
       });
       /* the days this checkout actually gives, so the app does not promise

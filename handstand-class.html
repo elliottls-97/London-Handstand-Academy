@@ -1519,6 +1519,19 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var pounds=function(v){ return '\u00a3'+(v/100).toFixed(2).replace(/\.00$/,''); };
   /* back from paying: one slug, or two joined with a comma */
   var BS='';
+  /* Has it been filed? Asked with the checkout Stripe sent them back with,
+     as the app and the 1-2-1 page do. After twenty seconds the server files
+     it itself, and if even that fails Elliott is told at once, and so are
+     they. Kept here, not written into the page, because the booked panel is
+     drawn again whenever the dates refresh. */
+  var PAID=null;
+  var watchPaid=function(cs){ var t0=Date.now();
+    var step=function(){ var el=Date.now()-t0;
+      fetch('/api/app/paid?cs='+encodeURIComponent(cs)+(el>21000?'&pull=1':'')).then(function(r){ return r.ok?r.json():null; }).then(function(d){
+        if(d && ['filed','late','none','unknown'].indexOf(d.state)>-1){ PAID=d; if(d.state==='late'||d.email) render(); return; }
+        if(el>90000){ PAID={state:'late', email:(d&&d.email)||''}; render(); return; }
+        setTimeout(step, el<12000?2500:5000); }).catch(function(){ if(el<90000) setTimeout(step, 5000); }); };
+    step(); };
   var booked=(function(){ var q=new URLSearchParams(location.search), b=(q.get('booked')||'').toLowerCase().split(',').map(function(x){ return x.replace(/[^a-z0-9-]/g,'').slice(0,24); }).filter(Boolean);
     BS=(q.get('bs')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,200); q.delete('bs');
     if(b.length){ try{ sessionStorage.setItem('lha_booked', JSON.stringify({b:b, bs:BS, at:Date.now()})); }catch(e){}
@@ -1529,6 +1542,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     else { try{ var k=JSON.parse(sessionStorage.getItem('lha_booked')||'null');
       if(k && Array.isArray(k.b) && k.b.length && Date.now()-(Number(k.at)||0)<3600e3){ b=k.b; BS=String(k.bs||''); } }catch(e){} }
     return b; })();
+  if(booked.length && /^cs_(live|test)_/.test(BS)) setTimeout(function(){ watchPaid(BS); }, 600);
   window.clsBookAgain=function(ev){ if(ev) ev.preventDefault(); try{ sessionStorage.removeItem('lha_booked'); }catch(e){}
     booked=[]; BS=''; render(); var bk=document.getElementById('book'); if(bk) bk.scrollIntoView({block:'start'}); return false; };
   var beacon=function(n){ try{ navigator.sendBeacon('/api/app/event', new Blob([JSON.stringify({n:n,r:window.LHA_SRC||''})],{type:'application/json'})); }catch(e){} };
@@ -1689,7 +1703,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
           +'<div class="bk-done-acts">'
             +done.map(function(d){ return '<a class="bk-btn" href="/api/app/workshop/ics?slug='+esc(d.slug)+'">Add '+(done.length>1?esc(parts(d).dd+' '+parts(d).m.slice(0,3)):'it')+' to your calendar</a>'; }).join('')
             +'<a class="bk-btn ghost" href="'+MAP+'" target="_blank" rel="noopener">Directions</a></div>'
-          +'<p class="bk-done-note">Your confirmation is on its way by email, with a link to move or cancel up to 24 hours before. A reminder comes the day before'+(done.length>1?' each one':'')+'.</p>'
+          +'<p class="bk-done-note">'+(PAID&&PAID.state==='late'
+            ? '<b>Your payment is safe.</b> Something on our side is slow, and Elliott has been told. He will email you'+(PAID.email?' at '+esc(PAID.email):'')+' today.'
+            : 'Your confirmation is on its way'+(PAID&&PAID.state==='filed'&&PAID.email?' to '+esc(PAID.email):'')+' by email, with a link to move or cancel up to 24 hours before. A reminder comes the day before'+(done.length>1?' each one':'')+'.')+'</p>'
           +'<p class="bk-done-note"><a href="#book" onclick="return clsBookAgain(event)" style="color:inherit;font-weight:700">Book another date</a></p>'
           +'</div>'
           +aboutHTML()

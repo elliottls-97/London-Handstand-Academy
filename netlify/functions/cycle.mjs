@@ -494,6 +494,62 @@ async function coachingLoop(done, now) {
   }
 }
 
+/* ── every payment filed ─────────────────────────────────────────────
+   17 Oct 2026: every purchase through a payment link failed for three
+   weeks before anybody knew. Each morning the last three days of Stripe
+   checkouts are read back, and any of ours the webhook has not filed after
+   half an hour is filed through the page-after-paying route (/paid with
+   pull=1, which files it as Stripe's own delivery would). The coach is told
+   what was found, each payment once. Keep the claims in step with CS_FILED
+   and csFiled() in app.mjs. */
+const CS_FILED = ['welcomed', 'credit', 'sessnew', 'wsbooked', 'wsorphan', 'filed'];
+async function paymentsCheck(done) {
+  const key = process.env.STRIPE_SECRET_KEY || '';
+  if (!key) return;
+  const since = Math.floor((Date.now() - 3 * DAY) / 1000);
+  const r = await fetch(`https://api.stripe.com/v1/checkout/sessions?status=complete&limit=100&created%5Bgte%5D=${since}`,
+    { headers: { Authorization: 'Bearer ' + key } });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error('Stripe would not list the checkouts: ' + ((d.error && d.error.message) || r.status));
+  }
+  const list = ((await r.json().catch(() => null)) || {}).data || [];
+  const paid = x => !x.payment_status || x.payment_status === 'paid' || x.payment_status === 'no_payment_required';
+  /* ours: through a payment link, or a checkout this site made */
+  const ours = x => !!(x.payment_link || (x.metadata && (x.metadata.plan || x.metadata.workshop || x.metadata.session || x.metadata.sessPay)));
+  const look = list.filter(x => ours(x) && paid(x) && Date.now() - (Number(x.created) || 0) * 1000 > 30 * 60e3);
+  const late = [], stuck = [];
+  for (const x of look) {
+    const rows = await supa.rows('nudges', `key=in.(${enc(CS_FILED.map(k => `"${k}:${x.id}"`).join(','))})&select=key`).catch(() => null);
+    if (rows === null || rows.length) continue;
+    if (x.subscription && await supa.row('settings', `key=eq.${enc('trialrefused:' + x.subscription)}&select=key`).catch(() => null)) continue;
+    if (x.metadata && x.metadata.sessPay) {
+      const ss = await supa.row('settings', 'key=eq.sessions&select=value').catch(() => null);
+      if (((ss && ss.value) || []).some(r0 => (Array.isArray(r0.pays) ? r0.pays.some(p => p.ref === x.id) : (r0.paidRef === x.id || r0.session === x.id)))) continue;
+    }
+    let state = '';
+    try { const pr = await fetch(`${SITE}/api/app/paid?cs=${enc(x.id)}&pull=1`); state = ((await pr.json().catch(() => null)) || {}).state || ''; } catch {}
+    const who = norm((x.customer_details && x.customer_details.email) || x.customer_email || '');
+    (state === 'filed' ? late : stuck).push({ cs: x.id, who, amount: Number(x.amount_total) || 0 });
+  }
+  done.payments = { checked: look.length, late: late.length, stuck: stuck.length };
+  const news = [];
+  for (const x of late.concat(stuck)) {
+    if (await supa.insertIfAbsent('nudges', { key: `unfiled:${x.cs}`, stage: 0, sent_at: new Date().toISOString() }, 'key').catch(() => false)) news.push(x);
+  }
+  if (!news.length) return;
+  const pounds = p => p > 0 ? '\u00a3' + (p / 100).toFixed(2).replace(/\.00$/, '') : 'nothing, on a code';
+  const line = x => `<b>${esc(x.who || 'Somebody')}</b>, ${esc(pounds(x.amount))}: ${late.includes(x)
+    ? 'filed this morning, so they have had their email now.' : 'still not filed. Find it in Stripe, Workbench, Webhooks, Event deliveries, and press Resend once the problem is fixed.'}`;
+  await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL || '',
+    `${news.length} payment${news.length > 1 ? 's' : ''} the webhook missed`,
+    mail({ title: 'Payments the webhook missed.', paras: [
+      'Stripe\u2019s webhook did not file these within half an hour, so the morning check looked for them.',
+      news.map(line).join('<br>'),
+      'More than one usually means the webhook is failing for everybody: look at the latest errors on its Event deliveries page.'],
+      cta: { href: 'https://dashboard.stripe.com/workbench/webhooks', label: 'Open Stripe' } }));
+}
+
 export default async () => {
   /* the guard is read fresh for every run: a switch changed a moment ago counts */
   GUARD = null;
@@ -515,6 +571,8 @@ export default async () => {
     if (Date.now() - T0 > LATE) { (done.notRun = done.notRun || []).push(name); return; }
     try { await fn(); } catch (e) { done[name + 'Error'] = String(e && e.message || e); }
   };
+  /* payments first of the rest: a buyer left with nothing outranks a nudge */
+  await run('payments', () => paymentsCheck(done));
   await run('intent', () => intentMail(done));
   await run('coaching', () => coachingLoop(done, now));
   await run('tips', () => firstTenDays(done));

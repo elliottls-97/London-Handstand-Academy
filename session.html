@@ -258,7 +258,21 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
   const afterPaid=()=>{ const cs=q.get('cs')||'';
     if(!/^cs_/.test(cs)) return;
     box.querySelector('.done').insertAdjacentHTML('afterend',aboutHTML(null,'Before your session'));
-    wireAbout({cs}); };
+    wireAbout({cs}); watchPaid(cs); };
+  /* Has it been filed? Asked with the checkout Stripe sent them back with,
+     as the app and the class page do. After twenty seconds the server files
+     it itself, and if even that fails Elliott is told at once, and so are
+     they: their money is safe and he knows. */
+  const watchPaid=cs=>{ const t0=Date.now();
+    const say=d=>{ const dn=box.querySelector('.done'); if(!dn) return;
+      if(d.state==='late'){ dn.insertAdjacentHTML('beforeend','<p style="margin:14px auto 0;max-width:42ch;text-align:center"><b>Your payment is safe.</b> Something on our side is slow, and Elliott has been told. He will email you'+(d.email?' at '+esc(d.email):'')+' today.</p>'); return; }
+      if(d.state==='filed' && d.email) dn.querySelectorAll('p').forEach(p=>{ p.innerHTML=p.innerHTML.replace('An email is on its way now','An email is on its way to <b>'+esc(d.email)+'</b> now'); }); };
+    const step=()=>{ const el=Date.now()-t0;
+      fetch('/api/app/paid?cs='+encodeURIComponent(cs)+(el>21000?'&pull=1':'')).then(r=>r.ok?r.json():null).then(d=>{
+        if(d && ['filed','late','none','unknown'].includes(d.state)) return say(d);
+        if(el>90000) return say({state:'late', email:(d&&d.email)||''});
+        setTimeout(step, el<12000?2500:5000); }).catch(()=>{ if(el<90000) setTimeout(step, 5000); }); };
+    step(); };
   const paidDone=()=>{
       if(bookedAt) return done('Paid. Now I book the room.',['Your '+esc(kind)+' minute session on <b>'+esc(whenTxt(bookedAt))+'</b> is held for you while Elliott books the room at OverGravity. He confirms it within 48 hours, by email and in the app.',
         'If that time cannot be secured, he offers you another, and if none suits you it is refunded in full. An email is on its way now; if you are new, it has a button to choose your password for the Handstand Ladder app.'],['/lha-app.html','Open the app']);

@@ -1792,6 +1792,10 @@ function trackOpen(){
     const wt=(q.get('welcome')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,64);
     if(wt){ st.welcomeTok=wt; st.tab='welcomepw'; st.mode='free'; st.quizDone=true; st.joinSkipped=true; save();
       history.replaceState(null,'',location.pathname); }
+    /* the checkout Stripe sends them back with: asked about below, so the
+       page can say whether it has been filed and where the email went */
+    const pcs=(q.get('cs')||'').replace(/[^A-Za-z0-9_]/g,'').slice(0,250);
+    if(/^cs_(live|test)_/.test(pcs)){ st.paidCs=pcs; st.paidCsAt=Date.now(); save(); setTimeout(paidWatch, 300); }
     /* back from paying for coaching: the Stripe link sends them here */
     if(q.get('joined')==='coaching'||q.get('paid')==='1'||q.get('bought')==='check'){ st.promo=null; save(); }
     if(q.get('joined')==='coaching'){ st.joinedAt=Date.now(); save(); history.replaceState(null,'',location.pathname);
@@ -11436,6 +11440,7 @@ function drawOv(){
       <div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">${paidTries<20
         ? 'Stripe is telling us now. This usually takes a few seconds.'
         : 'Stripe has not told us yet. It can take a minute. If you paid with a different email address, sign in with that one: the ladder is on that account.'}</div>
+      ${paidChk && paidChk.state==='late' ? `<div style="font:500 14.5px/1.55 var(--sans);color:var(--ink);margin-top:12px;max-width:34ch;margin-inline:auto">${esc(paidLine())}</div>` : ''}
       ${paidTries<20?'':`<button class="btn" style="margin-top:22px" onclick="paidAsked=false;drawOv()">Check again</button>
       <button class="btn2" style="margin-top:10px;width:100%" onclick="closeOv()">Close</button>`}
     </div>`;
@@ -13495,14 +13500,20 @@ function welcomePwGo(e){
 }
 /* back from paying on the website, not signed in: the email is the way in */
 function screenJoinedOut(){
+  /* not filed even after asking Stripe again: there is no account yet, so
+     a code would never come, and "you're in" is not true until Elliott has
+     sorted it */
+  const late=!!(paidChk && paidChk.state==='late');
   return `<div class="scroll s"><div style="padding:calc(env(safe-area-inset-top) + 64px) 24px 48px;max-width:440px;margin:0 auto">
     <img src="${COACH_PHOTO}" alt="" width="72" height="72" style="width:72px;height:72px;border-radius:50%;object-fit:cover;display:block">
     <div class="kick2" style="color:var(--forest);margin-top:22px">PAYMENT DONE</div>
-    <div style="font:400 32px/1.1 var(--serif);margin-top:8px">You&rsquo;re in<em style="color:var(--forest);font-style:normal">.</em></div>
-    <p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">Check your email. Your username and a button to choose your password are on their way, from London Handstand Academy.</p>
+    <div style="font:400 32px/1.1 var(--serif);margin-top:8px">${late?'Paid':'You&rsquo;re in'}<em style="color:var(--forest);font-style:normal">.</em></div>
+    <p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${esc(paidLine() || (paidChkOn
+      ? 'Setting up your account. Your username and a button to choose your password are on their way, from London Handstand Academy.'
+      : 'Check your email. Your username and a button to choose your password are on their way, from London Handstand Academy.'))}</p>
     <button class="btn2" style="width:100%;margin-top:18px" onclick="st.tab='signin';save();render()">I already have a password</button>
-    <button onclick="resetFirst=true;st.tab='reset';resetStep=0;resetMsg='';save();render()" style="display:block;margin:14px auto 0;border:0;background:none;
-      cursor:pointer;font:600 13px/1 var(--sans);color:var(--grey);text-decoration:underline">No email? Set a password with a code</button>
+    ${late?'':`<button onclick="resetFirst=true;st.tab='reset';resetStep=0;resetMsg='';save();render()" style="display:block;margin:14px auto 0;border:0;background:none;
+      cursor:pointer;font:600 13px/1 var(--sans);color:var(--grey);text-decoration:underline">No email? Set a password with a code</button>`}
   </div></div>`;
 }
 /* ── You're in ──────────────────────────────────────────────────────
@@ -13563,6 +13574,43 @@ function youInMaybe(){
    Stripe tells it, a second or two after they are back. Until it lands the
    card still read "That is your free one used. Buy a form check". */
 let checkTries=0;
+/* ── back from paying: has it been filed? ───────────────────────────
+   The server says whether the webhook has filed it and which inbox the
+   email went to. After twenty seconds it files it itself, and if even that
+   fails Elliott is told at once, and so are they: their money is safe and
+   he knows. A checkout kept from more than an hour ago is not asked about. */
+let paidChk=null, paidChkOn=false;
+function paidWatch(){
+  const cs=st.paidCs;
+  if(!cs || paidChkOn) return;
+  if(Date.now()-(st.paidCsAt||0)>3600e3){ st.paidCs=''; save(); return; }
+  paidChkOn=true;
+  const t0=Date.now();
+  const fin=d=>{ paidChk=d; paidChkOn=false; st.paidCs=''; save(); paidRepaint(true); };
+  const step=()=>{
+    const el=Date.now()-t0;
+    fetch('/api/app/paid?cs='+encodeURIComponent(cs)+(el>21000?'&pull=1':''))
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{
+        if(d && ['filed','late','none','unknown'].includes(d.state)) return fin(d);
+        if(d && d.state){ paidChk=d; paidRepaint(false); }
+        if(el>90000) return fin({state:'late', email:(paidChk&&paidChk.email)||''});
+        setTimeout(step, el<12000?2500:5000);
+      })
+      .catch(()=>{ if(el>90000) return fin({state:'late', email:(paidChk&&paidChk.email)||''}); setTimeout(step, 5000); });
+  };
+  step();
+}
+/* the one line each place says about it */
+const paidLine=()=>{ const pc=paidChk||{};
+  if(pc.state==='late') return 'Your payment is safe. Something on our side is slow, and Elliott has been told. He will email you'+(pc.email?' at '+pc.email:'')+' today.';
+  if(pc.state==='filed' && pc.email) return 'Check '+pc.email+'. Your username and a button to choose your password are in an email from London Handstand Academy.';
+  return ''; };
+function paidRepaint(final){
+  if(st.tab==='joinedout' && !st.token) return render();
+  if(st.ov==='paid') return drawOv();
+  if(final && paidChk && paidChk.state==='late') toast('Your payment is safe. Elliott has been told and will email you today.');
+}
 function checkLanding(){
   if(!st.token){ toast('Paid. Sign in with the email you paid with to send your clip.'); return; }
   toast('Payment received. Getting your form check ready…');
