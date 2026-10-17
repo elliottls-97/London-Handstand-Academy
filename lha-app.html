@@ -19421,6 +19421,8 @@ function loadEntitlement(){
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       /* form checks, £35 a month: on, and the day the next one opens */
       st.checks=(d.checks&&d.checks.on)?{on:true, next:Number(d.checks.next)||0}:null;
+      /* on the Ladder already: form checks are £25 on top of it */
+      st.checksAddon=!!d.checksAddon;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
       if(d.hasPw!==undefined) st.hasPw=!!d.hasPw;
@@ -20438,7 +20440,7 @@ let planLinks={};
 /* PRICE('online') and friends read the prices setting the dashboard writes.
    This took no argument and answered £5 to everything, so the coaching
    card priced coaching at the app's own price. */
-const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',checks:'£35',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
+const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',checks:'£35',checksadd:'£25',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1000,plusq:3900,plusy:12900})[k] || 0;
 /* In the iPhone app the only price is Apple's, and only once the App Store
    has answered: before that, offline, or after a StoreKit error this fell
@@ -20903,11 +20905,17 @@ function screenCoaching(){
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECKS</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">${
           st.freeCheckUsed?'That is your free one used.':'Send a clip, get the one thing to change.'}</div>
-        ${sells()?`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight,
+        ${sells()?(st.checksAddon
+          ? `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight, added to
+          your Ladder for ${esc(PRICE('checksadd'))} a month. Elliott watches each one himself and sends you a video back
+          within 48 hours. Cancel any time.</div>
+        <button class="btn" id="buy-checks" style="width:100%;margin-top:16px" onclick="buyPlan('checks')">
+          Add form checks, ${esc(PRICE('checksadd'))} a month</button>`
+          : `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight,
           ${esc(PRICE('checks'))} a month. Elliott watches each one himself and sends you a video back within 48 hours,
           and the whole Ladder is included. Cancel any time.</div>
         <button class="btn" id="buy-checks" style="width:100%;margin-top:16px" onclick="buyPlan('checks')">
-          Start form checks, ${esc(PRICE('checks'))} a month</button>`:''}</div>`
+          Start form checks, ${esc(PRICE('checks'))} a month</button>`):''}</div>`
     : `<div class="card" style="padding:22px">
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">${
@@ -20918,7 +20926,7 @@ function screenCoaching(){
         ${tick(st.coached ? 'As many as you train'
           : st.checkCredits>0 ? (st.checkCredits===1?'One paid for, ready to send':st.checkCredits+' paid for, ready to send')
           : (st.checks && st.checks.on) ? 'One every fortnight on your form checks'
-          : st.freeCheckUsed ? (sells() ? PRICE('checks')+' a month for one every fortnight' : 'Your free one is used')
+          : st.freeCheckUsed ? (sells() ? (st.checksAddon ? PRICE('checksadd')+' a month on your Ladder for one every fortnight' : PRICE('checks')+' a month for one every fortnight') : 'Your free one is used')
           : 'Your first one is free')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
           Send your clip</button>

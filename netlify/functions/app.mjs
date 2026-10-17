@@ -1937,6 +1937,15 @@ function checksNext(cur) {
   return d <= londonDayNo(Date.now()) ? 0 : d * 864e5;
 }
 const checksLabel = () => (PRICES_STORED && PRICES_STORED.checks && PRICES_STORED.checks.label) || '£35';
+/* Already paying for the Ladder, by card or through Apple, and not stopping
+   it: form checks go on top at £25 a month, so the two come to the same £35
+   as form checks with the Ladder in them (Elliott, 17 Oct 2026). */
+async function ladderPaid(who) {
+  const iap = await getSetting(`iap:${who}`);
+  if (iap && !iap.revoked && Number(iap.expiresAt) > Date.now()) return true;
+  const a = (await getAcct(who)) || {}, pl = (await getSetting(`plan:${who}`)) || {};
+  return !!(a.plus && a.subscription && ['plus', 'plusq', 'plusy'].includes(pl.plan) && !a.cancel_at);
+}
 async function fcGate(who) {
   const ck = `fccredits:${who}`;
   const cur = (await getSetting(ck)) || {};
@@ -3194,6 +3203,8 @@ const handle = async (request) => {
     check:    { label: '£20',  amount: 2000,  priceId: '', link: '' },
     /* form checks as a subscription: one every fortnight, with the Ladder */
     checks:   { label: '£35',  amount: 3500,  priceId: '', link: '' },
+    /* the same form checks added to a Ladder already paid for */
+    checksadd: { label: '£25', amount: 2500 },
     online:   { label: '£120', amount: 12000, priceId: '', link: '' },
     inperson: { label: '£190', amount: 19000, priceId: '', link: '' },
     /* online with two or four sessions a month. Labels and amounts are the
@@ -4043,7 +4054,7 @@ const handle = async (request) => {
       const p = ((o.currency || 'gbp') === 'gbp' && byAmount[amountOf(o)]) || '';
       /* coaching and the Inner Circle are subscriptions; a one-off payment
          that happens to match their amount is something else */
-      if ((p === 'online' || p === 'inner') && o.object === 'checkout.session' && o.mode === 'payment') return '';
+      if ((p === 'online' || p === 'inner' || p === 'checks') && o.object === 'checkout.session' && o.mode === 'payment') return '';
       return p; };
     /* the exact plan, kept for what it promises: inperson2 is coaching with
        two London sessions a month, not just coaching */
@@ -4141,6 +4152,50 @@ const handle = async (request) => {
     /* a one-off invoice, made by hand in Stripe, is a bill and not a plan:
        it switched the ladder on for good and filed £100 as coaching */
     if (ev.type === 'invoice.paid' && obj.object === 'invoice' && !obj.subscription) return json({ ok: true, note: 'one-off invoice' });
+    /* ── form checks added to a Ladder, £25 a month ─────────────────────
+       Its own subscription beside the Ladder's. It never touches the
+       account's plus, its subscription id or its plan: the Ladder's own
+       subscription still decides the Ladder, and this one decides the form
+       checks, through checksub. A declined card still goes on below, to
+       the email that says so. */
+    const csA = await getSetting(`checksub:${acct.email}`);
+    const addonEv = (obj.object === 'checkout.session' && obj.metadata && obj.metadata.plan === 'checks' && obj.metadata.variant === 'addon')
+      || (!!csA && csA.variant === 'addon' && !!csA.sub && (obj.id === csA.sub || obj.subscription === csA.sub));
+    if (addonEv && ev.type !== 'invoice.payment_failed') {
+      if (ev.type === 'checkout.session.completed') {
+        if (!csPaid(obj)) return json({ ok: true, note: 'form checks payment still pending' });
+        await changeSetting(`checksub:${acct.email}`, cur => Object.assign({}, cur || {},
+          { sub: String(obj.subscription || ''), status: 'active', variant: 'addon', at: Date.now() }));
+        const wk = `welcomed:${obj.id || ''}`;
+        if (!obj.id || await supa.insertIfAbsent('nudges', { key: wk, stage: 0, sent_at: nowISO() }, 'key').catch(() => true)) {
+          try {
+            const first = String(acct.name || (obj.customer_details && obj.customer_details.name) || '').split(' ')[0];
+            const noPw = !(await hashFor(db, acct.email));
+            const T = await emailCopy('welcomeChecks', { name: esc(first),
+              password_line: noPw ? `Your username is ${esc(acct.email)}. Choose a password with the button below and you are in.` : '' });
+            await emailT(T, acct.email, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+              cta: noPw ? { href: await welcomeLink(acct.email), label: 'Choose your password' } : { href: `${SITE}/lha-app.html?go=answer`, label: 'Send your first clip' },
+              signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true, noQueue: true });
+            if (mailDown) throw new Error('the welcome email did not go: Resend failed');
+            try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
+              text: `Thanks${first ? ' ' + first : ''}, form checks are on, added to your Ladder: one every fortnight. Film from the side, whole body in frame, and send the clip here or from the Form check tab.` }); } catch {}
+            const nmA = acct.name || (obj.customer_details && obj.customer_details.name) || acct.email;
+            const paidA = Number(obj.amount_total) > 0 ? penceTxt(Number(obj.amount_total)) + ' a month, on top of their Ladder' : 'free on a code';
+            await coachAlert(null, 'business', { title: 'Form checks added: ' + nmA, body: paidA + '. One every fortnight; their clips land in the queue.', tag: 'fcsub:' + acct.email });
+            if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
+              `Form checks added: ${nmA}`,
+              `<p style="font:16px/1.6 system-ui">${esc(nmA)} (${esc(acct.email)}) added form checks to their Ladder, ${esc(paidA)}. One every fortnight. Their clips land in the queue.</p>`);
+          } catch (err) { if (obj.id) { try { await supa.remove('nudges', `key=eq.${enc(wk)}`); } catch {} } throw err; }
+        }
+      } else if (ev.type.startsWith('customer.subscription')) {
+        const stA = off.includes(ev.type) ? (ev.type === 'customer.subscription.paused' ? 'paused' : 'canceled') : String(obj.status || '');
+        if (stA) await changeSetting(`checksub:${acct.email}`, cur => Object.assign({}, cur || {}, { status: stA, at: Date.now() }));
+        if (off.includes(ev.type) && await supa.insertIfAbsent('nudges', { key: `fcend:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)) {
+          await coachAlert(null, 'business', { title: 'Form checks cancelled: ' + (acct.name || acct.email), body: 'Their Ladder carries on.', tag: 'fcsub:' + acct.email });
+        }
+      }
+      return json({ ok: true, addon: true });
+    }
     if (on.includes(ev.type)) {
       /* a free week already refused: nothing that arrives after it (an
          update, a late invoice) switches the account on */
@@ -5384,6 +5439,9 @@ const handle = async (request) => {
       checkCredits: credits,
       checkOpen,
       checks: subOn ? { on: true, next: subNext } : null,
+      /* which price form checks are offered at: £25 on top of a Ladder
+         already paid for, £35 with the Ladder in them */
+      checksAddon: !coachedNow && !subOn && await ladderPaid(who),
       canCheck: coachedNow || !usedCheck || credits > 0 || checkOpen || (subOn && !subNext),
     });
   }
@@ -5420,7 +5478,8 @@ const handle = async (request) => {
     plus: { label: PRICES.plus.label, amount: PRICES.plus.amount, founding: !!PRICES.plus.founding, note: PRICES.note },
     plusq: { label: (PRICES.plusq||{}).label || '£39', amount: (PRICES.plusq||{}).amount || 3900 },
     plusy: { label: (PRICES.plusy||{}).label || '£129', amount: (PRICES.plusy||{}).amount || 12900 },
-    check: { label: PRICES.check.label }, checks: { label: (PRICES.checks||{}).label || '£35' }, online: { label: PRICES.online.label },
+    check: { label: PRICES.check.label }, checks: { label: (PRICES.checks||{}).label || '£35' },
+    checksadd: { label: (PRICES.checksadd||{}).label || '£25' }, online: { label: PRICES.online.label },
     inperson: { label: PRICES.inperson.label }, inner: { label: PRICES.inner.label },
     inneronline: { label: (PRICES.inneronline||{}).label || '£250' },
     inperson2: { label: (PRICES.inperson2||{}).label || '' }, inperson4: { label: (PRICES.inperson4||{}).label || '' },
@@ -5479,7 +5538,7 @@ const handle = async (request) => {
         if (t.founding !== undefined) o.founding = !!t.founding;
         return o;
       };
-      for (const k of ['plus', 'plusq', 'plusy', 'check', 'checks', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline', 'session', 'session60', 'session90']) next[k] = tier(k);
+      for (const k of ['plus', 'plusq', 'plusy', 'check', 'checks', 'checksadd', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline', 'session', 'session60', 'session90']) next[k] = tier(k);
       const td = Number(body.prices && body.prices.trialDays);
       next.trialDays = Number.isFinite(td) ? Math.max(0, Math.min(30, Math.round(td))) : 7;
       if (typeof (body.prices || {}).note === 'string') next.note = body.prices.note.trim().slice(0, 160);
@@ -5755,7 +5814,9 @@ const handle = async (request) => {
        cannot ride on a link, so the app sends anybody with a code to this
        checkout instead. The price is then made on the spot from the amount
        the dashboard sets, billed as the plan is. */
-    const pRow = PRICES[planKey] || {};
+    /* form checks on top of a Ladder already paid for: £25, beside it */
+    const addon = planKey === 'checks' && await ladderPaid(who);
+    const pRow = (addon ? PRICES.checksadd : PRICES[planKey]) || {};
     const inline = !(pRow.priceId) && Number(pRow.amount) > 0;
     const INLINE_NAME = { plus: 'The Handstand Ladder', plusq: 'The Handstand Ladder, every three months', plusy: 'The Handstand Ladder, yearly',
       check: 'A form check', checks: 'Form checks, one every fortnight, with the Handstand Ladder',
@@ -5786,12 +5847,13 @@ const handle = async (request) => {
           'line_items[0][price_data][unit_amount]': String(Math.round(Number(pRow.amount))),
           ...(plan.mode === 'subscription' ? { 'line_items[0][price_data][recurring][interval]': every.interval,
             'line_items[0][price_data][recurring][interval_count]': String(every.n) } : {}),
-          'line_items[0][price_data][product_data][name]': INLINE_NAME[planKey] || 'London Handstand Academy',
+          'line_items[0][price_data][product_data][name]': addon ? 'Form checks, one every fortnight, added to your Ladder' : (INLINE_NAME[planKey] || 'London Handstand Academy'),
         } : { 'line_items[0][price]': plan.price() }),
         'line_items[0][quantity]': '1',
         'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
         /* its renewals and changes then name the plan themselves */
         ...(planKey === 'checks' ? { 'subscription_data[metadata][plan]': 'checks' } : {}),
+        ...(addon ? { 'metadata[variant]': 'addon', 'subscription_data[metadata][variant]': 'addon' } : {}),
         'metadata[period]': period,
         ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?${back}&cs={CHECKOUT_SESSION_ID}` } : {}),
         /* seven days before the first charge. Card up front, so the people
