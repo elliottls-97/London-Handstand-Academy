@@ -3411,6 +3411,7 @@ function screenToday(){
     ${weekCardHTML()}
   </div>
   ${todaySlotHTML(dl)}
+  ${(DATA && Array.isArray(DATA.days) && DATA.days.length) ? planBodyHTML() : ''}
   <div style="height:26px"></div></div>`;
 }
 
@@ -4717,6 +4718,8 @@ function screenPlan(){
       box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">${rows}</div>`;
   }).join('');
 
+    const planBody=()=>planDaysHTML(tabs, groups);
+  if(planInline) return planBody();
   return `<div class="scroll s">
     <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
@@ -4742,7 +4745,16 @@ function screenPlan(){
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
       </button>
     </div>
-    <div data-tour="daytabs" style="position:sticky;top:calc(env(safe-area-inset-top) + 67px);z-index:2;
+    ${planBody()}
+    <div style="height:26px"></div></div>`;
+}
+/* The days and their drills, under Train's own start button now that Plan
+   is not a tab of its own (17 Oct 2026). Picking a day moves Train's
+   session to it. */
+let planInline=false;
+function planBodyHTML(){ planInline=true; try{ return screenPlan(); } finally{ planInline=false; } }
+function planDaysHTML(tabs, groups){
+  return `<div data-tour="daytabs" style="position:sticky;top:calc(env(safe-area-inset-top) + 67px);z-index:2;
       margin-top:18px;padding:9px 16px 10px;
       background:rgba(244,244,245,.86);backdrop-filter:blur(22px) saturate(180%);
       -webkit-backdrop-filter:blur(22px) saturate(180%);
@@ -4752,8 +4764,7 @@ function screenPlan(){
     <div data-tour="drillrows">${groups}</div>
     <div style="padding:22px 12px 0;display:flex;flex-direction:column;gap:11px">${planExtras()}</div>
     ${explainersHTML()}
-    ${savedHomeHTML()}
-    <div style="height:26px"></div></div>`;
+    ${savedHomeHTML()}`;
 }
 const PURPOSE={'Warm-up':'Wrists and shoulders','Entries — build to 6':'The position, every time',
  'Shape changes':'Awareness while upside down','Tuck':'This is press training',
@@ -6238,7 +6249,7 @@ function myClips(){
       : sb.kind==='checkpoint' ? 'Check point' : 'Two-week test';
     (sb.clips||[]).forEach(c=>{
       const uid = typeof c==='string' ? c : (c&&(c.uid||c.video));
-      add({uid, at:sb.at||0, what, which:(sb.numbers&&sb.numbers.name)||'',
+      add({uid, sid:sb.id||'', at:sb.at||0, what, which:(sb.numbers&&sb.numbers.name)||'',
            answer:(sb.answer&&sb.answer.text)||'', answeredAt:sb.reviewedAt||0,
            waiting:sb.status==='submitted'});
     });
@@ -6247,6 +6258,17 @@ function myClips(){
   /* and anything they simply sent in the thread */
   (st.msgs||[]).forEach(m=>{ if(m.from!=='e' && m.video)
     add({uid:m.video, at:m.at||0, what:'Sent to Elliott', which:'', text:m.text||''}); });
+
+  /* Elliott's answers on video (17 Oct 2026: every clip and every
+     response). A reply tagged with the clip it answers goes with that clip;
+     any other stands on its own. */
+  const tagsOf=m=>String(m.sub||'').split(',').map(x=>x.trim()).filter(Boolean);
+  const replies=(st.msgs||[]).filter(m=>m.from==='e' && m.video);
+  const used=new Set();
+  out.forEach(o=>{ const r=replies.find(m=>{ const t=tagsOf(m); return t.includes(o.uid) || (o.sid && t.includes(String(o.sid))); });
+    if(r){ o.reply=r.video; o.replyText=r.text||''; o.replyAt=r.at||0; used.add(r.video); } });
+  replies.forEach(m=>{ if(!used.has(m.video))
+    add({uid:m.video, at:m.at||0, what:'From '+coachLabel(), which:'', text:m.text||'', fromCoach:true}); });
 
   return out.sort((a,b)=>(b.at||0)-(a.at||0));
 }
@@ -6272,11 +6294,14 @@ function clipsBody(){
       Elliott said about it.</div>
     <button class="btn2" style="width:100%;margin-top:14px" onclick="goAsk()">Send one now</button>
   </div>`;
-  const answered=list.filter(c=>c.verdict||c.answer);
+  const answered=list.filter(c=>c.verdict||c.answer||c.reply||c.fromCoach);
+  const sentN=list.filter(c=>!c.fromCoach).length;
   const row=c=>{
     const said = c.verdict==='reached' ? ['Verified', 'var(--forest)', c.note]
       : c.verdict==='notyet' ? ['Not there yet', '#8a5a12', c.note]
       : c.answer ? ['Answered', 'var(--forest)', c.answer]
+      : c.reply ? ['Answered on video', 'var(--forest)', c.replyText]
+      : c.fromCoach ? ['', '', c.text]
       : c.waiting ? ['With Elliott', 'var(--grey2)', '']
       : ['', '', ''];
     return `<div class="card" style="padding:12px;display:flex;gap:12px;align-items:flex-start">
@@ -6300,15 +6325,20 @@ function clipsBody(){
           margin-top:7px;text-transform:uppercase">${esc(said[0])}</div>`:''}
         ${said[2]?`<div style="font:400 13px/1.5 var(--sans);color:var(--ink);margin-top:5px;
           white-space:pre-wrap">${esc(String(said[2]).slice(0,400))}</div>`:''}
+        ${c.reply?`<button onclick="playClip(${jsq(c.reply)})" style="margin-top:9px;display:inline-flex;align-items:center;gap:8px;
+          border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:999px;padding:7px 12px 7px 8px;cursor:pointer;
+          font:600 12.5px/1 var(--sans);color:var(--deep)"><span style="width:22px;height:22px;border-radius:50%;background:var(--forest);
+          display:grid;place-items:center"><svg width="8" height="9" viewBox="0 0 17 19" fill="#fff"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>
+          ${esc(coachLabel())}&rsquo;s reply</button>`:''}
       </div></div>`;
   };
   return `<div class="card" style="padding:18px 20px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
         <span class="kick2">YOUR CLIPS</span>
-        <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${list.length} sent</span>
+        <span style="font:400 12.5px/1 var(--sans);color:var(--grey2)">${sentN} sent</span>
       </div>
       <div style="font:400 13.5px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-        Everything you have filmed, newest first, and what Elliott said about it.${
+        Every clip you have sent and every answer, newest first.${
         answered.length?'':' Nothing has been answered yet.'}</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">${
@@ -8508,11 +8538,12 @@ function screenProgress(){
       <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px">Where you
         <em style="color:var(--forest);font-style:normal">are.</em></div>
     </div>
-    <div class="rise rise-1" style="padding:22px 16px 0">
-      <div style="display:flex;gap:4px;padding:4px;border-radius:14px;
-        background:rgba(0,64,61,.08)">${seg}</div></div>
-    <div class="rise rise-2" style="padding:14px 16px 26px;display:flex;flex-direction:column;gap:11px">
-      ${tab==='clips' ? clipsBody() : tab==='marks' ? marksBody : trackBody}
+    <!-- one page, no tabs inside it (Elliott, 17 Oct 2026): the check
+         points, every clip and every answer, then the training -->
+    <div class="rise rise-2" style="padding:22px 16px 26px;display:flex;flex-direction:column;gap:11px">
+      ${marksBody}
+      <div style="margin-top:14px">${clipsBody()}</div>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">${trackBody}</div>
     </div></div>`;
 }
 /* the free tier's progress, without the screen wrapper */
@@ -21030,7 +21061,9 @@ function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizS
 
 /* ── shell ─────────────────────────────────────────────────── */
 const TABS={
-  coached:[['today','Train'],['plan','Plan'],['progress','Progress'],['ask','Chat']],
+  /* three, as the free side has (Elliott, 17 Oct 2026): Plan's days and
+     drills are on Train, and Progress is one page */
+  coached:[['today','Train'],['progress','Progress'],['ask','Chat']],
   /* Progress used to be its own tab and the ladder is where a free client
      actually lives, so the two were competing for the same trip. Progress is
      the second half of the ladder screen now. Four tabs, not five. */
@@ -21366,6 +21399,7 @@ function switchView(toFree, ok){
 
 function go(t){
   fxReadClose();
+  if(t==='plan' && coachedView()) t='today';
   if(t==='more'){ openMenu(); return; }
   if(menuOpen) closeMenu();
   st.tab=t; save();
@@ -22719,6 +22753,8 @@ function render(){
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
+  /* the Plan tab went into Train (17 Oct 2026) */
+  if(coached && st.tab==='plan'){ st.tab='today'; save(); }
   const tabs=onboarding ? [['start','Start'],['home','Train'],['ladder','Ladder'],['coaching','Chat']]
     : TABS[coached?'coached':'free'].map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l])
@@ -22732,9 +22768,9 @@ function render(){
   /* being on the screen a number is about is reading it, so it is cleared
      before the tab bar is drawn rather than on the next redraw */
   if(coached && st.tab==='progress' && !st.preview && !document.hidden){
-    const pt=['track','clips'].includes(st.progTab) ? st.progTab : 'marks';
-    if(pt==='marks') cpOpenNews(); else cpHold=null;
-    if(pt==='clips' && clipsNew()){ st.seenClips=Date.now();
+    /* one page now: its check points and its clips are both on show */
+    cpOpenNews();
+    if(clipsNew()){ st.seenClips=Date.now();
       st.seenReview=Math.max(st.seenReview||0, st.lastReview||0); save(); }
   } else if(st.tab!=='progress') cpHold=null;
   const nMsg=msgsNew(), nChk=checksNew(), nAns=answerNew();
@@ -22746,8 +22782,8 @@ function render(){
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
     ((id==='coaching'||id==='ask') && nMsg)
       ? pill(nMsg,'var(--amber)','var(--ink)', nMsg+' unread message'+(nMsg===1?'':'s'))
-    : (id==='progress' && nChk)
-      ? pill(nChk,'var(--forest)','var(--on-primary)', nChk+' new from '+coachLabel())
+    : (id==='progress' && (nChk || (coached && clipsNew())))
+      ? pill(nChk+(coached?clipsNew():0),'var(--forest)','var(--on-primary)', (nChk+(coached?clipsNew():0))+' new from '+coachLabel())
     : (id==='coaching' && nAns)
       ? pill(nAns,'var(--forest)','var(--on-primary)', 'your form check has been answered')
       : ''}</button>`).join('');
