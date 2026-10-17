@@ -376,6 +376,12 @@ button.cd-row{cursor:pointer}
 .lc-sum.open small{color:#8fe3d6}.lc-sum.open .nt{color:#fff}
 .lc-r{position:relative;padding:0 22px}
 .lc-row{display:flex;align-items:center;height:54px;padding:0 3px 0 6px}
+.lc-cam{flex:none;width:36px;height:36px;margin:0 4px 0 6px;padding:0;border-radius:50%;border:1px solid rgba(0,64,61,.14);
+ background:#fff;color:var(--deep);display:grid;place-items:center;cursor:pointer;-webkit-appearance:none;appearance:none}
+.lc-cam:active{transform:scale(.94)}
+.lc-t small.lc-up{color:var(--forest);font-weight:600}
+.lc-t small.lc-up:empty{display:none}
+.lc-t small.lc-up:not(:empty) + small{display:none}
 .lc-open{flex:1;min-width:0;display:flex;align-items:center;gap:11px;height:100%;margin:0;padding:0;
  border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;
  -webkit-appearance:none;appearance:none;border-radius:12px}
@@ -5643,6 +5649,7 @@ function cpFilm(k){
 function cpSay(k,t){
   const el=document.getElementById('cpup-'+k);
   if(el) el.textContent=t||'';
+  document.querySelectorAll('[data-cpup]').forEach(x=>{ if(x.dataset.cpup===k) x.textContent=t||''; });
 }
 function cpSendClip(k,file,shrunk){
   if(cpUpBusy){ cpSay(k, cpUpBusy===k ? 'Still sending this one.' : 'One at a time: another clip is still sending.'); return; }
@@ -5657,6 +5664,7 @@ function cpSendClip(k,file,shrunk){
       const v = draft!=null ? draft : ((cpLast(k)||{}).v || 0);
       cpUpBusy=null;
       saveCheckpoint(k, v, uid);
+      cpSay(k, 'Sent. '+coachLabel()+' replies within 48 hours.');
     })
     .catch(err=>{ cpUpBusy=null; cpSay(k, String(err&&err.message||err||'Could not send it')); });
 }
@@ -7023,9 +7031,12 @@ function climbSub(r, isNext){
     if(cs==='hit') return (isNext?'<em>NEXT</em>':'')+'Hit, '+esc(coachLabel())+' to sign off';
     if(cs==='notyet') return (isNext?'<em>NEXT</em>':'')+'Not yet, says '+esc(coachLabel());
   }
-  const was = last && !cpAsks(c) && c.kind!=='face' && c.kind!=='yn'
+  const was = last && !cpAsks(c) && c.kind!=='face' && c.kind!=='yn' && !(last.video && !(Number(last.v)>0))
     ? ' &middot; last '+esc(String(last.v)+cpUnit(c)+(c.kind==='breaks'?' goes':'')) : '';
-  return (isNext?'<em>NEXT</em>':'')+esc(goal)+was;
+  /* where the last clip is: sent, watched, answered */
+  const clip = (last && last.video)
+    ? ' &middot; '+(last.replyAt||last.verdict ? 'reply ready' : last.watchedAt ? 'watched' : 'clip sent') : '';
+  return (isNext?'<em>NEXT</em>':'')+esc(goal)+was+clip;
 }
 function climbSummit(si, S){
   const nxt=STAGES[si+1];
@@ -7170,6 +7181,10 @@ function cpListHTML(si){
   const S=climbState(si);
   if(!S.n) return '';
   const use='log';
+  /* Film it from the row, without opening it (Elliott, 17 Oct 2026), for
+     anybody whose clip goes to Elliott: coached, a form check due on the
+     subscription, one open, or the free one still to use. */
+  const film = !!st.token && fcOpen();
   const rows=cpListOrder(S).map(r=>{
     const th=climbThumb(r.c, false);
     const kind=r.c.kind==='secs'?'secs':r.c.kind==='face'?'face':'count';
@@ -7185,8 +7200,12 @@ function cpListHTML(si){
             onerror="var p=this.parentNode.querySelector('.pl');if(p)p.remove();this.remove()">
           <span class="pl"><svg width="7" height="8" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
-        <span class="lc-t"><b>${esc(r.c.n)}</b><small>${cpListSub(r)}</small></span>
+        <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${cpListSub(r)}</small></span>
         </button>
+        ${film?`<button class="lc-cam" onclick="event.stopPropagation();cpFilm(${jsq(r.c.k)})" aria-label="Film ${esc(r.c.n)} for ${esc(coachLabel())}"
+          title="Film it for ${esc(coachLabel())}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/>
+          <path d="M15.5 10.5l5.5-3v9l-5.5-3"/></svg></button>`:''}
         <button class="lc-ring" onclick="climbTick(this)" aria-pressed="${r.done}" aria-label="${esc(climbTickLabel(r))}">${cpListRing(r)}</button>
         </div>${open?`
         <div class="lc-x">${rungBody(r.c, r.j, S.n, use)}</div>`:''}
@@ -7249,7 +7268,7 @@ function climbRepaint(){
       const ring=b.querySelector('.lc-ring'), ringH=cl ? cpListRing(r) : climbRing(r, el.dataset.use);
       if(ring && ring.innerHTML.replace(/\s+/g,'')!==ringH.replace(/\s+/g,'')) ring.innerHTML=ringH;
       if(ring && ring.tagName==='BUTTON'){ ring.setAttribute('aria-label', climbTickLabel(r)); if(cl) ring.setAttribute('aria-pressed', String(r.done)); }
-      const sm=b.querySelector('.lc-t small'); if(sm) sm.innerHTML=cl ? cpListSub(r) : climbSub(r, r.j===S.next);
+      const sm=b.querySelector('.lc-t small:not(.lc-up)'); if(sm) sm.innerHTML=cl ? cpListSub(r) : climbSub(r, r.j===S.next);
     });
     climbFit(el);
     if(cl){
