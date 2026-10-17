@@ -3358,8 +3358,24 @@ function explainersHTML(){
       </div>
     </section>`;})()}`;
 }
+/* The coached screens before the programme has days in it. Signing in as
+   a new coaching client drew Home before the programme had loaded, and
+   Home read a day that was not there, so the first draw threw and the
+   sign in screen simply stayed up; if the programme then failed to load
+   it stayed up for good (17 Oct 2026, break it on purpose). */
+const planEmpty = () => !(DATA && Array.isArray(DATA.days) && DATA.days.length);
+function planWaitHTML(){
+  return `<div class="scroll s"><div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+    <div class="kick2" style="color:var(--forest)">YOUR PROGRAMME</div>
+    <div style="font:400 30px/1.1 var(--serif);margin-top:8px">On its <em style="color:var(--forest);font-style:normal">way.</em></div>
+    <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:10px">It is loading. If it does not appear in a moment, check your signal.</div>
+    <button class="btn" style="width:100%;margin-top:22px" onclick="loadProgramme()">Try again</button>
+    <button class="btn2" style="width:100%;margin-top:10px" onclick="go('ask')">Message ${esc(coachLabel())}</button>
+  </div></div>`;
+}
 function screenToday(){
   todayDlAsk=false;
+  if(planEmpty()) return planWaitHTML();
   const d=day(), q=queue(), done=allItems(d).filter((_,i)=>false).length;
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
@@ -4654,6 +4670,7 @@ function qaVideo(a, full){
 }
 
 function screenPlan(){
+  if(planEmpty()) return planWaitHTML();
   const d=day();
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
@@ -5361,7 +5378,8 @@ function sendCheckin(){
    The ladder ones are the free product's stage gates and mean nothing to
    someone on a written programme. */
 const cpFor = i => {
-  if(i==null && coachedView() && Array.isArray(DATA.checkpoints) && DATA.checkpoints.length){
+  /* DATA is null for a moment after a coached sign in, before the programme arrives */
+  if(i==null && coachedView() && DATA && Array.isArray(DATA.checkpoints) && DATA.checkpoints.length){
     /* a check point can be written now and scheduled for later, so one with
        a start date does not exist until that date */
     const today=new Date().toISOString().slice(0,10);
@@ -8574,6 +8592,8 @@ function sessionCalendar(){
 }
 
 function screenProgress(){
+  /* a coached client's numbers come from the programme, which is not here yet */
+  if(coachedView() && !DATA) return planWaitHTML();
   const t=st.tests||[];
   /* belt as well as braces: one screen reading a key that is not there
      took the whole tab down, and the tab is where a coached client goes to
@@ -9439,6 +9459,19 @@ function subscriptionHTML(){
             </div>
             ${IOS_APP?'':`<button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
               Resume my subscription</button>`}`;
+          /* A declined card read "Status: past_due", Stripe's own word, under a
+             next payment date as though nothing had happened, with Cancel above
+             Update card (17 Oct 2026, break it on purpose). */
+          if(payBad()) return `
+            <div style="background:rgba(164,80,60,.08);border-radius:12px;padding:13px 14px;margin-top:10px">
+              <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--red)">PAYMENT DID NOT GO THROUGH</div>
+              <div style="font:400 14.5px/1.5 var(--sans);margin-top:7px">${subInfo.status==='past_due'
+                ? 'Your bank turned the last payment down, usually an expired or new card. Everything stays open while it is tried again.'
+                : 'The last payment did not go through, so the subscription is on hold until one does.'}</div>
+            </div>
+            ${st.canManage&&!IOS_APP?`<button class="btn" style="width:100%;margin-top:12px" onclick="manageSubscription()">Update card</button>`
+              :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:10px">To change the card, message ${esc(coachLabel())} and it is done the same day.</div>`}
+            <button class="btn2" style="width:100%;margin-top:10px" onclick="cancelSub(false)">Cancel subscription</button>`;
           return `
             <div style="display:flex;justify-content:space-between;gap:12px;margin-top:10px;
               font:400 14px/1.5 var(--sans)">
@@ -9450,8 +9483,8 @@ function subscriptionHTML(){
               <span style="color:var(--grey)">Amount</span>
               <span style="font-weight:600">${esc(amt)}</span>
             </div>`:''}
-            ${subInfo.status&&subInfo.status!=='active'?`<div style="font:400 13px/1.5 var(--sans);
-              color:var(--forest);margin-top:8px">Status: ${esc(subInfo.status)}</div>`:''}
+            ${subInfo.status&&!['active','past_due','unpaid','incomplete'].includes(subInfo.status)?`<div style="font:400 13px/1.5 var(--sans);
+              color:var(--forest);margin-top:8px">${esc(({trialing:'Free week',paused:'Paused',incomplete_expired:'Not started',canceled:'Ended'})[subInfo.status]||subInfo.status)}</div>`:''}
             <button class="btn2" style="width:100%;margin-top:14px" onclick="cancelSub(false)">
               Cancel subscription</button>`;
 }
@@ -12388,8 +12421,7 @@ function drawOv(){
         ${IOS_APP && !(st.appleUntil>Date.now()) && (st.canManage||st.canCancel) ? `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:4px">
           Not billed through Apple.</div>`:''}
         <div id="subblock">${subscriptionHTML()}</div>
-        ${st.canManage&&!IOS_APP?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
-          Update card or see invoices</button>`:''}
+        <div id="subcardbtn">${subCardBtn()}</div>
         ${!st.canCancel&&!st.canManage&&!(st.appleUntil>Date.now())?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:8px">
           To change a card or cancel, message Elliott and it is done the same day.</div>`:''}
       </div>`:''}
@@ -13957,6 +13989,8 @@ function loadProgramme(){
         st.in=false; st.mode='free';
         if(['today','plan','ask'].indexOf(st.tab)>-1) st.tab='home';
         save();
+        /* and drawn: nothing else redrew, so the screen stayed as it was */
+        render();
       }
       render(); return false;
     });
@@ -14140,7 +14174,10 @@ function reportAndSay(id, what){
   sentLine(id, 'Sending…');
   if(!st.token){ sentLine(id, 'Saved on this phone. Add an account and it reaches '+coachLabel()+'.'); return; }
   if(progQueued){ clearTimeout(progQueued); progQueued=null; }
-  reportProgress().then(function(){
+  reportProgress().then(function(ok){
+    /* it said "Elliott has it" with no signal at all: the next report
+       carries every rating, so it goes when there is signal again */
+    if(ok===false){ sentLine(id, 'Not sent yet, no signal. It goes when you are back online.'); return; }
     sentLine(id, (what||'Sent')+'. '+coachLabel()+' has it.');
     clearTimeout(window._sentT);
     window._sentT=setTimeout(function(){ const el=document.getElementById(id);
@@ -19135,6 +19172,8 @@ function loadEntitlement(){
 /* the live picture, fetched when the account screen opens rather than
    trusted from whatever a webhook last wrote */
 let subInfo=null, subLoading=false;
+/* a payment Stripe is still chasing, or has given up on */
+const payBad=()=>!!(subInfo && ['past_due','unpaid','incomplete'].includes(subInfo.status));
 /* Stripe answering 502 used to leave this at null for ever, and null is the
    word "Checking with Stripe..." — so a paying customer looking for their
    renewal date got a sentence that never finished, with no cancel button
@@ -19144,7 +19183,11 @@ function paintSub(){
   if(st.ov!=='account') return;
   const b=document.getElementById('subblock');
   if(b) b.innerHTML=subscriptionHTML(); else drawOv();
+  /* the card button is the declined box's own when a payment bounced */
+  const c=document.getElementById('subcardbtn'); if(c) c.innerHTML=subCardBtn();
 }
+const subCardBtn=()=>st.canManage&&!IOS_APP&&!payBad()?`<button class="btn2" style="width:100%;margin-top:9px" onclick="manageSubscription()">
+          Update card or see invoices</button>`:'';
 function loadSubscription(again){
   if(!st.token || subLoading) return;
   subLoading=true;
