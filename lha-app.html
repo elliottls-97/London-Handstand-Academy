@@ -12359,14 +12359,25 @@ function drawOv(){
         ? (dlOk() ? 'Films you save play from the app on your Home Screen with no signal at all, so that is the place to save them.'
                   : 'This browser cannot keep films, so saving for no signal works from the app on your Home Screen.')
         : 'It opens full screen with one tap, and it is the safe place to save workouts for a gym with no signal.'}${(ios && !inApp)
-        ? (wait ? ' Safari clears what a website saves once you have gone about a week without opening it.'
+        ? (iosBrowser()!=='safari' ? (wait ? '' : ' On an iPhone it is the only way to get notifications from the app.')
+          : wait ? ' Safari clears what a website saves once you have gone about a week without opening it.'
                 : ' Safari clears what a website saves once you have gone about a week without opening it, and on an iPhone it is the only way to get notifications from the app.') : ''}</div>
       ${inApp ? step(1, ios?'Open this page in Safari':'Open this page in Chrome',
                   'Tap &bull;&bull;&bull; at the top right, then Open in '+(ios?'Safari':'browser')+'. You are in this app&rsquo;s own browser, which cannot add anything.')
             + step(2,'Add it to your Home Screen', ios?'Tap the share button, then Add to Home Screen.':'Tap &bull;&bull;&bull;, then Install app or Add to Home Screen.')
             + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
-      : ios ? step(1,'Tap the share button'+SHARE,'In Safari&rsquo;s bottom bar, or inside its &bull;&bull;&bull; menu. On an iPad it is at the top.')
+      : (ios && iosBrowser()==='safari') ? step(1,'Tap the share button'+SHARE,'In Safari&rsquo;s bottom bar, or inside its &bull;&bull;&bull; menu. On an iPad it is at the top.')
             + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it, and leave Open as Web App on.')
+            + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
+      : (ios && iosBrowser()==='chrome' && iosAddHere()) ? step(1,'Tap the share button'+SHARE,'In Chrome it is in the address bar, at the top or the bottom of the screen. If you cannot see it, tap &bull;&bull;&bull; and then Share.')
+            + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it.')
+            + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
+      : (ios && iosAddHere()) ? step(1,'Open the '+esc(IOS_BR[iosBrowser()])+' menu, then Share', iosBrowser()==='firefox'?'The menu is the three lines in the bottom bar.':'The menu is the &bull;&bull;&bull; in the bottom bar.')
+            + step(2,'Choose Add to Home Screen','Scroll down the list if you cannot see it.')
+            + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
+      : ios ? step(1,'Open this page in Safari','This browser cannot add it to your Home Screen. Copy the link, open Safari and paste it in the address bar.')
+            + `<button class="btn2" style="width:100%;margin-top:12px" onclick="copyAppLink(this)">Copy the link</button>`
+            + step(2,'Tap the share button'+SHARE,'In Safari&rsquo;s bottom bar, then Add to Home Screen.')
             + step(3,'Open it from your Home Screen','Look for London Handstand Academy.')
         : installPrompt ? `<button class="btn" style="width:100%;margin-top:16px"
             onclick="installNow()">Add it to my Home Screen</button>`
@@ -12375,8 +12386,8 @@ function drawOv(){
           + step(3,'Open it from your Home Screen','')}
       ${ios?`<div style="margin-top:16px;padding:12px 14px;border-radius:14px;background:rgba(243,169,73,.13);
         font:400 13px/1.5 var(--sans);color:#5e3708">${st.token
-          ? 'The Home Screen app keeps its own storage, apart from Safari, so sign in once when it opens. Your account and progress come with you.'
-          : 'The Home Screen app keeps its own storage, apart from Safari. Add your email first and your progress comes with you; without it, it starts fresh there.'}</div>`:''}
+          ? 'The Home Screen app keeps its own storage, apart from '+esc(IOS_BR[iosBrowser()]||'Safari')+', so sign in once when it opens. Your account and progress come with you.'
+          : 'The Home Screen app keeps its own storage, apart from '+esc(IOS_BR[iosBrowser()]||'Safari')+'. Add your email first and your progress comes with you; without it, it starts fresh there.'}</div>`:''}
       ${(ios && !st.token)?`<button class="btn2" style="width:100%;margin-top:12px" onclick="closeOv();goJoin()">Add my email first</button>`:''}
       <button class="${(wait && installPrompt && !inApp)?'btn2':'btn'}" style="width:100%;margin-top:12px" onclick="${wait?'dlReturn()':'closeOv()'}">${
         back==='q' ? 'Back to the workout' : back==='ex' ? 'Back to the film' : 'Got it'}</button>
@@ -13444,7 +13455,7 @@ function joinSteps(){
   const qDone=!!a.goal && a.level!=null;
   return [
     {k:'in', t:'You\u2019re in', short:'Coaching starts today.', done:true},
-    {k:'app', t:'Hear from me', short:IOS_APP?'Notifications on, so you hear when I reply.':'The app on your Home Screen, notifications on.', done: appDone()},
+    {k:'app', t:'Hear from me', short:(IOS_APP || !isIOS())?'Notifications on, so you hear when I reply.':'The app on your Home Screen, notifications on.', done: appDone()},
     {k:'q', t: qDone?'Your answers':'A few questions', short: qDone?'From the quiz you took. Anything changed?':'About you, and what you want from this.', done: qDone},
     {k:'t', t:'Your baseline', short: cps.length ? 'Film yourself on each test and send it to me.' : !qDone ? 'Chosen for your goals, once they are in.' : 'Send me a clip of your handstand.',
       done: cps.length ? tested>=cps.length : false, n:tested, of:cps.length},
@@ -13461,7 +13472,9 @@ function baselineIn(){ const cps=st.obCps||[]; return !!cps.length && cps.every(
    is per phone, which is right: it is this phone that has to hear. A
    laptop has no Home Screen, so there it is the notifications alone. */
 const appPhone=()=>{ try{ return isIOS() || /android/i.test(navigator.userAgent); }catch(e){ return false; } };
-const appHome=()=>isStandalone() || !appPhone() || !!st.installed;
+/* only an iPhone needs the Home Screen for notifications: Chrome on Android
+   shows them from an ordinary tab, so it was a step nobody there needed */
+const appHome=()=>isStandalone() || !isIOS() || !!st.installed;
 function appDone(){ return !!st.appSkip || (appHome() && !!st.pushOk); }
 function obAppHTML(x, main){
   let ios=false, perm='default';
@@ -13475,10 +13488,10 @@ function obAppHTML(x, main){
   if(x.done) return st.appSkip && !st.pushOk
     ? line('My replies come by email. '+link('Use notifications instead',"st.appSkip=false;save();render()"))
     : line('On. You will hear the moment I reply. '+link('Send a test','pushTestSend()'));
-  if(!appHome()) return line(ios
-      ? 'On an iPhone my replies reach you through the app on your Home Screen. Add it, open it from there and sign in once.'
-      : 'Add it to your Home Screen, then turn notifications on.')
-    + cta(installPrompt&&!ios?'Add it to my Home Screen':'Show me how', installPrompt&&!ios?"if(!doInstall()) openOv('install')":"openOv('install')");
+  /* the email way past was only offered once notifications were refused,
+     so somebody who could not add it was stuck on this step for good */
+  if(!appHome()) return line('On an iPhone my replies reach you through the app on your Home Screen. Add it, open it from there and sign in once.')
+    + cta('Show me how', "openOv('install')") + email;
   if(!pushSupported()) return line('This browser cannot show notifications.')+email;
   if(perm==='denied') return line('Notifications are blocked for this app. Turn them on for it in your phone settings, then come back.')+email;
   return line('One tap, so you hear the moment I reply to you.')+cta('Turn on notifications','pushTurnOn()');
@@ -17066,7 +17079,26 @@ function introRowsHTML(){
    Safari has no button a page is allowed to press, so there it is the two
    steps, and inside Instagram or Facebook the page has to go to the proper
    browser first, because an app's own browser cannot add anything. */
-const inAppBrowser = () => { try{ return /Instagram|FBAN|FBAV|FB_IAB|TikTok|musical_ly|Snapchat|LinkedInApp|Line\//i.test(navigator.userAgent); }catch(e){ return false; } };
+const inAppBrowser = () => { try{ return /Instagram|FBAN|FBAV|FB_IAB|TikTok|musical_ly|Snapchat|LinkedInApp|Line\/|GSA\/|Twitter|Pinterest/i.test(navigator.userAgent); }catch(e){ return false; } };
+/* ── which browser, on an iPhone ─────────────────────────────────────
+   The Home Screen steps said Safari to everybody, and a coaching client in
+   Chrome looked for a share button in a bottom bar Chrome does not have and
+   stopped there (Elliott, 17 Oct 2026). Since iOS 16.4 Chrome, Firefox and
+   Edge can add it themselves, from their own share button; anything older,
+   or a browser that cannot, is sent to Safari with the link to paste. */
+const iosBrowser = () => { const u=navigator.userAgent||'';
+  return /CriOS/.test(u) ? 'chrome' : /FxiOS/.test(u) ? 'firefox' : /EdgiOS/.test(u) ? 'edge'
+    : /OPiOS|OPT\//.test(u) ? 'opera' : /DuckDuckGo/i.test(u) ? 'duckduckgo' : 'safari'; };
+const IOS_BR = {safari:'Safari', chrome:'Chrome', firefox:'Firefox', edge:'Edge', opera:'Opera', duckduckgo:'DuckDuckGo'};
+const iosAddHere = () => { const br=iosBrowser(); if(br==='safari') return true;
+  if(!['chrome','firefox','edge'].includes(br)) return false;
+  const m=/OS (\d+)_(\d+)/.exec(navigator.userAgent||''); return !!m && (Number(m[1])>16 || (Number(m[1])===16 && Number(m[2])>=4)); };
+/* the address to paste into Safari, copied, and shown in case the copy is refused */
+function copyAppLink(b){
+  const u=location.origin+'/lha-app.html';
+  const said=t=>{ if(b) b.textContent=t; };
+  try{ navigator.clipboard.writeText(u).then(()=>said('Copied. Open Safari and paste it'), ()=>said(u)); }catch(e){ said(u); }
+}
 function homeScreenCard(){
   if(st.preview || isStandalone()) return '';
   let ios=false, phone=false; try{ ios=isIOS(); phone=ios || /android/i.test(navigator.userAgent); }catch(e){}
@@ -22120,9 +22152,13 @@ function installCopy(){
      opens as a stranger: welcome, quiz, first session gone. The sheet said
      so and the other places that give these steps did not (16 Oct 2026,
      review). */
-  if(isIOS()) return 'Tap the share button in Safari (in its bottom bar, or inside the ••• menu), then Add to '+
-    'Home Screen. It opens full screen from there, and workouts you save play with no signal.'+
-    (st.token ? '' : ' Add your email first, or the Home Screen app starts from scratch.');
+  if(isIOS()){ const br=iosBrowser();
+    const how = br==='safari' ? 'Tap the share button in Safari (in its bottom bar, or inside the ••• menu), then Add to Home Screen.'
+      : (br==='chrome' && iosAddHere()) ? 'Tap the share button in Chrome\u2019s address bar, then Add to Home Screen.'
+      : iosAddHere() ? 'Open the '+IOS_BR[br]+' menu, tap Share, then Add to Home Screen.'
+      : 'Open this page in Safari, tap the share button, then Add to Home Screen.';
+    return how+' It opens full screen from there, and workouts you save play with no signal.'+
+      (st.token ? '' : ' Add your email first, or the Home Screen app starts from scratch.'); }
   return 'Open your browser menu and choose Install, or Add to Home Screen. It opens '+
     'full screen from there, and workouts you save play with no signal.';
 }
