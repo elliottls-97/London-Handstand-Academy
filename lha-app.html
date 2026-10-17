@@ -3444,6 +3444,7 @@ function screenToday(){
     ${d.when?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>`:''}
     ${keptCueHTML()}
+    ${coachNearHTML()}
     ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
   </div>
   ${todaySlotHTML(dl)}
@@ -10811,7 +10812,23 @@ function showStep(){
   paintSound();
   clearInterval(tick_); tick_=null;
   if(tTotal>0 && !paused){ lastT=Date.now(); tick_=setInterval(step,250); }
-  liveSync();
+  liveSync(); nowPlaying();
+}
+/* ── the drill film on the lock screen ───────────────────────────────
+   A film with sound shows as a player on the lock screen, and it said only
+   "London Handstand Academy" over the film's own loop, beside the session's
+   real countdown (17 Oct 2026, break it on purpose). It names the drill and
+   the set now, or the rest and what comes after it. */
+function nowPlaying(){
+  try{
+    if(!('mediaSession' in navigator) || typeof MediaMetadata==='undefined' || !Q || !Q[qi]) return;
+    const s=Q[qi], it=s.it||{}, resting=phase==='rest', nx=Q[qi+1], uid=uidOfUrl(it.url||'');
+    navigator.mediaSession.metadata=new MediaMetadata({
+      title: resting ? 'Rest' : String(it.n||'Your session'),
+      artist: resting ? (nx ? 'Next: '+nx.it.n : 'Last one done') : 'Set '+(qi+1)+' of '+Q.length,
+      album: 'London Handstand Academy',
+      artwork: uid ? [{src: streamThumb(uid), sizes:'320x320', type:'image/jpeg'}] : [] });
+  }catch(e){}
 }
 
 /* ── the session on the iPhone's lock screen ─────────────────────────
@@ -10966,6 +10983,7 @@ function sessionFeel(f){
 }
 
 function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(done);
+  try{ if('mediaSession' in navigator) navigator.mediaSession.metadata=null; }catch(e){}
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.remove('on'); $('#player').innerHTML='';
   const d=day();
@@ -16112,6 +16130,71 @@ function cpProgress(i){
   return {done, met, of:list.length, ready:list.length>0 && met>=list.length};
 }
 function stageReady(){ return cpProgress().ready; }
+/* ── the nearest win ────────────────────────────────────────────────
+   The check point somebody is closest to, from their last reading. A loop
+   left open pulls you back as long as it looks within reach (Tim Gabe,
+   "How Top 1% Apps Keep You Hooked", 17 Oct 2026): half way or more, not
+   yet reached, and measured by a number. */
+function cpNearest(i){
+  let best=null;
+  for(const c of (cpFor(i)||[])){
+    if(cpAsks(c) || cpMet(c) || c.kind==='face' || c.kind==='yn' || cpTarget(c)==null) continue;
+    const last=cpLast(c.k); if(!last) continue;
+    const f=rungFrac(c);
+    if(f>=.5 && f<1 && (!best || f>best.f)) best={c, f, v:Number(last.v)||0};
+  }
+  return best;
+}
+function cpNearText(n){
+  const c=n.c, t=cpTarget(c), u=cpUnit(c);
+  if(c.kind==='breaks') return n.v+' goes now, '+t+' or fewer to reach it';
+  if(c.kind==='rate' || /out of ten/i.test(c.note||'')) return n.v+' out of 10, aiming for '+t;
+  return n.v+' of '+t+u;
+}
+/* ── the ladder, on Train ───────────────────────────────────────────
+   People came in and never saw that there is a ladder of six stages, each
+   with check points that move you up it: it was one grey line and a bar
+   (Elliott, 17 Oct 2026). The six rungs with theirs lit, how many check
+   points it takes to climb to the next stage, the one they are closest to,
+   and the way to the check points. */
+function climbCardHTML(cs, S, P, x){
+  x=x||{};
+  const n=STAGES.length, next=STAGES[cs+1], left=Math.max(0,(P.of||0)-(P.met||0)), near=cpNearest(cs);
+  const pl=k=>k+' check point'+(k===1?'':'s');
+  return `<div class="card" data-tour="ladder" onclick="climbGo()" style="padding:18px 18px 16px;cursor:pointer">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span class="kick2" style="color:var(--forest)">THE LADDER</span>
+      <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">STAGE ${cs+1} OF ${n}</span></div>
+    ${x.above||''}
+    <!-- the six handstands, theirs in amber, as on the Ladder tab -->
+    <div style="margin-top:12px" aria-hidden="true">${lwRowHTML(cs,{h:x.h||64,done:true})}</div>
+    <div style="font:400 24px/1.15 var(--serif);margin-top:10px">${esc(S.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
+    <div style="font:400 14px/1.45 var(--sans);color:var(--grey);margin-top:4px">${!P.of ? 'Its check points are on their way.'
+      : !next ? (left ? pl(left)+' to the top of the ladder.' : 'You are at the top of the ladder.')
+      : left ? pl(left)+' to climb to '+esc(next.n)+'.'
+      : 'Every check point reached. '+esc(next.n)+' is next.'}</div>
+    ${near?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,64,61,.08)">
+      <div class="kick2" style="color:var(--forest)">NEARLY THERE</div>
+      <div style="font:500 14.5px/1.35 var(--sans);margin-top:6px">${esc(near.c.n)}: ${esc(cpNearText(near))}</div>
+      <div style="height:6px;border-radius:3px;background:rgba(0,64,61,.10);margin-top:8px;overflow:hidden">
+        <div style="height:100%;width:${Math.round(near.f*100)}%;background:var(--forest);border-radius:3px"></div></div></div>`:''}
+    <button class="btn2" style="width:100%;margin-top:14px" onclick="event.stopPropagation();climbGo()">Climb the ladder</button>
+    ${x.foot||''}
+  </div>`;
+}
+function climbGo(){ st.ladderTab='checks'; save(); go('ladder'); setTimeout(()=>{ try{ scrollToCps(); }catch(e){} }, 140); }
+/* the same nearest win for a coached client, from their own check points */
+function coachNearHTML(){
+  const near=cpNearest(); if(!near) return '';
+  return `<div onclick="st.progTab='marks';save();go('progress')" role="button" tabindex="0" style="margin-top:12px;cursor:pointer;
+    background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:16px;padding:12px 14px">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+      <span class="kick2" style="color:var(--forest)">NEARLY THERE</span>
+      <span style="font:500 12.5px/1.2 var(--sans);color:var(--grey);text-align:right">${esc(cpNearText(near))}</span></div>
+    <div style="font:400 16px/1.3 var(--serif);margin-top:6px">${esc(near.c.n)}</div>
+    <div style="height:5px;border-radius:3px;background:rgba(0,64,61,.10);margin-top:8px;overflow:hidden">
+      <div style="height:100%;width:${Math.round(near.f*100)}%;background:var(--forest)"></div></div></div>`;
+}
 /* ── stuck ──────────────────────────────────────────────────────────
    Somebody part way through a stage whose last reached check point was
    weeks ago is the person most likely to quietly stop, and the app was
@@ -16921,27 +17004,16 @@ function firstPlacedHTML(){
      on this screen. It was a margin on the card itself, and a wide screen
      centres every block in its column, so this one sat pinned to the left
      of the column, wider than everything under it. */
-  return `<div class="rise rise-1" style="padding:${wide()?22:14}px 20px 0"><div data-tour="ladder" onclick="seeLadder()"
-    style="padding:16px 18px;border-radius:20px;background:#fff;cursor:pointer;
-    box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">
-    <!-- the figures first and big, the stage's name under them (Elliott,
-         10 Oct 2026): the label and the count share the top line -->
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-      <span style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WHERE YOU ARE</span>
-      <span style="flex:none;font:500 12.5px/1 var(--sans);color:var(--grey)">Stage ${cs+1} of ${STAGES.length}</span></div>
-    <!-- the stage's goal line is on the ladder, where the stages are compared;
-         here the name is enough -->
-    ${above?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">You placed at
+  /* The six figures and the stage's name said where they are, and nothing
+     said that check points are what move you up it (Elliott, 17 Oct 2026),
+     so a first visit has the same ladder card as every visit after it. */
+  return `<div class="rise rise-1" style="padding:${wide()?22:14}px 20px 0">${climbCardHTML(cs, S, cpProgress(cs), { h:76,
+    above: above?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">You placed at
       <b style="color:var(--ink)">${esc(PS.n)}</b>.
       <span onclick="event.stopPropagation();beginTrial(${placed})" role="button" tabindex="0"
         style="font-weight:600;color:var(--forest);text-decoration:underline;cursor:pointer">${
-        days>0?'Try it free for '+days+' days':'Open it'}</span>.</div>`:''}
-    <!-- the six handstands, small, theirs in amber: the ladder every day,
-         and a tap opens it whole -->
-    <div style="margin-top:12px" aria-hidden="true">${lwRowHTML(cs,{h:76,done:true})}</div>
-    <div style="font:400 24px/1.15 var(--serif);margin-top:10px">${esc(S.n)}</div>
-    ${(r=>r?`<div style="margin:12px 0 -8px;border-top:1px solid rgba(0,64,61,.08)">${r}</div>`:'')(introRowsHTML())}
-  </div></div>`;
+        days>0?'Try it free for '+days+' days':'Open it'}</span>.</div>`:'',
+    foot: (r=>r?`<div style="margin:12px 0 -8px;border-top:1px solid rgba(0,64,61,.08)">${r}</div>`:'')(introRowsHTML()) })}</div>`;
 }
 /* ── how the app works, beside Start ─────────────────────────────────
    The film sat under everything else on a first visit and went when the
@@ -17206,21 +17278,8 @@ function screenHome(){
          header said almost nothing; this says which stage and how many check
          points are left, which is the thing that actually moves. -->
     ${obBannerHTML()}
-    ${(firstVisit()||trialPending()) ? firstPlacedHTML() : `<div class="rise rise-1" data-tour="ladder" onclick="go('ladder')"
-      style="padding:${wide()?24:14}px 20px 0;cursor:pointer">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-        <span style="font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-          color:var(--grey)">Stage ${cs+1} &middot; ${esc(S.n)}</span>
-        <span style="font:400 13px/1 var(--sans);color:var(--grey)">${
-          _P.of ? _P.met+' of '+_P.of+' check points' : 'No check points yet'}</span>
-      </div>
-      <div style="height:8px;border-radius:4px;background:rgba(0,64,61,.1);margin-top:8px;overflow:hidden">
-        <div style="height:100%;width:${_P.of?Math.round(_P.met/_P.of*100):0}%;background:var(--deep);
-          border-radius:4px;transition:width .5s cubic-bezier(.2,.8,.2,1)"></div>
-      </div>
-      ${(r=>r?`<div style="margin-top:12px;padding:0 14px;border-radius:16px;background:#fff;
-        box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">${r}</div>`:'')(introRowsHTML())}
-    </div>`}
+    ${(firstVisit()||trialPending()) ? firstPlacedHTML() : (r=>r?`<div class="rise rise-1" style="padding:${wide()?24:14}px 20px 0">
+      <div style="padding:0 14px;border-radius:16px;background:#fff;box-shadow:0 10px 24px -20px rgba(28,32,25,.5)">${r}</div></div>`:'')(introRowsHTML())}
 
     <!-- ── build today's session ──────────────────────────────────
          On a phone this is one green button and the two questions are
@@ -17264,6 +17323,7 @@ function screenHome(){
     ${wide()?howCardHTML(true):''}
     </div>
     </div>`}
+    ${(firstVisit()||trialPending()) ? '' : `<div class="rise rise-2" style="padding:${wide()?20:14}px 20px 0">${climbCardHTML(cs, S, _P)}</div>`}
 
     <!-- the stage's explainers and fixes, where the free week's preview
          showed the placed stage's, so choosing Foundations swaps what is in
@@ -22619,6 +22679,8 @@ function openFromNotice(where, mid){
   if(st.ov) closeOv();
   const c=coachedView();
   if(where==='reply'){ openReply(String(mid||''), ''); return; }
+  /* the card-declined email: Account, where Update card is */
+  if(where==='account'){ if(st.token) openOv('account'); else { st.tab='signin'; save(); render(); toast('Sign in, then Update card is under Account.'); } return; }
   if(where==='chat'){ if(c) go('ask'); else { st.coTab='chat'; save(); go('coaching'); } return; }
   if(where==='cps'){ if(c){ st.progTab='marks'; save(); go('progress'); } else go('ladder'); return; }
   if(where==='answer'){ if(c) go('today'); else { st.coTab='check'; save(); go('coaching'); } return; }

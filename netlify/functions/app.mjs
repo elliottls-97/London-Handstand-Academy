@@ -4530,11 +4530,13 @@ const handle = async (request) => {
         mail({ title: T.title,
           greeting: (clients()[acct.email] || acct.name || '').split(' ')[0] || '',
           paras: T.paras,
-          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          /* the iPhone app cannot show Stripe's card page, so this opens the
+             account on the website, where Update card is */
+          cta: { href: `${SITE}/lha-app.html?go=account`, label: 'Update my card' },
           signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
       /* and in the app, which reaches somebody whose email does not */
       try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
-        text: 'Your last payment did not go through. Update your card from Account in the app and Stripe will try it again.' }); } catch {}
+        text: 'Your last payment did not go through. Update your card on the website, londonhandstandacademy.com, under Account, and Stripe will try it again.' }); } catch {}
       await coachAlert(null, 'business', { title: 'A card was declined', body: clients()[acct.email] || acct.name || acct.email, tag: 'card:' + acct.email });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Card declined: ${clients()[acct.email] || acct.name || acct.email}`,

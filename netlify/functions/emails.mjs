@@ -288,7 +288,7 @@ export const EMAILS = {
     "title": "Your card did not go through.",
     "paras": [
       "Nothing has changed and the app still works. Your bank turned the payment down, which is usually an expired card or a new one.",
-      "Update the card from Account in the app and it goes through on the next try. If it keeps failing the subscription ends on its own, and you can start again whenever."
+      "Update the card on the website: the button below opens your account there, with Update card in it. It goes through on the next try. If it keeps failing the subscription ends on its own, and you can start again whenever."
     ]
   },
   "trialEnds": {
