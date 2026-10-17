@@ -10562,7 +10562,7 @@ function bindPlayer(){
   $('#p-prev').onclick=stepBack;
   $('#p-skip').onclick=()=>{ clearInterval(tick_); tick_=null; phase='work'; qi++; showStep(); };
   document.querySelectorAll('.p-extend button').forEach(b=>{
-    b.onclick=()=>{ left+=+b.dataset.ext; tTotal+=+b.dataset.ext; paintClock(); };
+    b.onclick=()=>{ left+=+b.dataset.ext; tTotal+=+b.dataset.ext; paintClock(); liveSync(); };
   });
 }
 function togglePause(){
@@ -10577,6 +10577,7 @@ function togglePause(){
   /* play() answers with a promise, and one cut short by a pause rejected
      with nobody listening */
   document.querySelectorAll('#player video').forEach(v=>{ try{ if(paused) v.pause(); else { const p=v.play(); if(p && p.catch) p.catch(()=>{}); } }catch(e){} });
+  liveSync();
 }
 function paintPause(){ const b=$('#p-pause'); if(b) b.textContent=paused?'▶':'II';
   const B=$('#p-bigpause'); if(B){ B.textContent=paused?'▶':'II'; B.classList.toggle('play',paused); } }
@@ -10777,7 +10778,52 @@ function showStep(){
   paintSound();
   clearInterval(tick_); tick_=null;
   if(tTotal>0 && !paused){ lastT=Date.now(); tick_=setInterval(step,250); }
+  liveSync();
 }
+
+/* ── the session on the iPhone's lock screen ─────────────────────────
+   The phone is on the floor while they are upside down, and it locks. In
+   the iPhone app the follow along puts the drill, the set and the timer on
+   the lock screen and in the Dynamic Island (a Live Activity, drawn by
+   LiveSession.swift and the SessionWidget extension), where they count
+   down with the app asleep. It is told at each step, on pause, when a set
+   is made longer and on the way out. Nothing at all happens without the
+   plugin, which an iPhone app built before 17 Oct 2026 does not have. */
+let liveOn=false, liveAsk=null;
+const livePlug=()=>{ try{ return IOS_APP && window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.LiveSession || null; }catch(e){ return null; } };
+function liveState(){
+  const s=Q[qi], it=(s&&s.it)||{}, resting=phase==='rest', timed=tTotal>0, nx=Q[qi+1], now=Date.now();
+  const sets = s && s.sets>1 ? 'Set '+s.set+' of '+s.sets : '';
+  return {
+    title: String(qLabel||'Your session'),
+    drill: resting ? 'Rest' : String(it.n||''),
+    detail: resting ? (s && s.set<s.sets ? 'Then set '+(s.set+1)+' of '+s.sets : nx ? '' : 'Last one done')
+      : [sets, timed ? '' : perSet(it.d||'', s&&s.sets)].filter(Boolean).join(' \u00b7 '),
+    phase: paused ? 'paused' : resting ? 'rest' : timed ? 'work' : 'reps',
+    startedAt: timed && !paused ? now-Math.max(0,tTotal-left)*1000 : 0,
+    endsAt: timed && !paused ? now+Math.max(0,left)*1000 : 0,
+    left: timed ? Math.max(0, Math.round(left)) : 0,
+    step: qi+1, of: Q.length,
+    next: resting ? (s && s.set<s.sets ? String(it.n||'') : nx ? String(nx.it.n||'') : '') : (nx && nx.it!==it ? String(nx.it.n||'') : '')
+  };
+}
+function liveSync(){
+  const P=livePlug(); if(!P || !Q || !Q[qi]) return;
+  if(liveOn){ P.update(liveState()).catch(()=>{}); return; }
+  if(liveAsk) return;
+  liveAsk=P.available()
+    .then(r=>{ if(r && r.available) return P.start(liveState()).then(x=>{ liveOn=!!(x && x.started); }); })
+    .catch(()=>{})
+    .then(()=>{ liveAsk=null; if(liveOn && $('#player') && $('#player').classList.contains('on')) P.update(liveState()).catch(()=>{}); });
+}
+function liveEnd(done){
+  const P=livePlug(); if(!P || !liveOn) return;
+  liveOn=false;
+  const mins=sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
+  P.end({done:!!done, detail: done ? (mins>0 ? mins+' minutes, ' : '')+Q.length+' sets' : ''}).catch(()=>{});
+}
+/* the last word before the phone puts the app to sleep */
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden && liveOn) liveSync(); });
 
 /* wall-clock delta, so a backgrounded phone does not lose seconds */
 function step(){
@@ -10886,7 +10932,7 @@ function sessionFeel(f){
   else if(dir<0) toast('Already on the easiest workouts for this stage.');
 }
 
-function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep();
+function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(done);
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.remove('on'); $('#player').innerHTML='';
   const d=day();

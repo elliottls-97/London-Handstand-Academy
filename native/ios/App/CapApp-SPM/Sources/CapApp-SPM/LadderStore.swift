@@ -158,5 +158,6 @@ public class MainViewController: CAPBridgeViewController {
     public override func capacitorDidLoad() {
         bridge?.registerPluginInstance(LadderStorePlugin())
         bridge?.registerPluginInstance(AppleSignInPlugin())
+        bridge?.registerPluginInstance(LiveSessionPlugin())
     }
 }
