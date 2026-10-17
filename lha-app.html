@@ -18541,7 +18541,7 @@ function screenLadder(){
          of all seven a screen further down had nothing left to do. -->
     <div style="height:28px"></div>`}
 
-    ${ltab!=='ladder' ? '' : ladderWholeHTML()}`}
+    ${(ltab==='checks' && !trialPending()) ? ladderWholeHTML({merged:true}) : ''}`}
   </div>`;
 }
 /* ══ the whole ladder ══════════════════════════════════════════════════
@@ -18713,7 +18713,12 @@ function lwPick(i){
     const floor=v.bottom-(document.querySelector('.tabbar') && !wide() ? 96 : 16);
     if(r.bottom>floor) sc.scrollBy({top:Math.min(r.bottom-floor, r.top-v.top-(wide()?16:92)), behavior:'smooth'}); }, 400);
 }
-function ladderWholeHTML(){
+/* merged: under the check points, the stages above and below and nothing
+   the page above already says (Elliott, 17 Oct 2026: the Ladder tab "looks
+   too crowded"). The six figures are on Train, where you are is the head of
+   the check points, and the form check has its own tab. */
+function ladderWholeHTML(o){
+  const merged=!!(o && o.merged);
   const cur=curStage(), last=STAGES.length-1, tp=trialPending();
   const here=tp?placedStage():cur, H=STAGES[here]||STAGES[0];
   const P=cpProgress(here), of=P.of, got=Math.min(P.met,of);
@@ -18835,9 +18840,12 @@ function ladderWholeHTML(){
     </div>` : '';
 
   /* ── the stages ahead ── */
-  const first = earned ? here+2 : here+1;
+  /* merged, a finished stage's offer is the check points' own card */
+  const showFeat = earned && free && !merged;
+  const first = (earned && !merged) ? here+2 : here+1;
   const ahead = STAGES.map((S,i)=>({S,i})).filter(x=>x.i>=first);
-  const openI = (lwOpen==null) ? (ahead[0]?ahead[0].i:-1) : lwOpen;
+  /* under the check points it starts closed: its film opens on a tap */
+  const openI = (lwOpen==null) ? ((ahead[0] && !merged)?ahead[0].i:-1) : lwOpen;
   const card = ({S,i},k) => {
     const on=i===openI, prev=STAGES[i-1]||{};
     const rule = S.soon ? 'Coming soon' : `Opens at ${ofAt(i-1)} of ${ofAt(i-1)} on ${esc(prev.n||'')}`;
@@ -18870,7 +18878,7 @@ function ladderWholeHTML(){
       </div>
     </div>`;
   };
-  const featured = (earned && free) ? (()=>{ const i=here+1, S=STAGES[i]; return `
+  const featured = showFeat ? (()=>{ const i=here+1, S=STAGES[i]; return `
       <button class="lw-feat" data-lw="${i}" onclick="openStage(${i})">
         <span class="lw-img lw-shine" style="display:block;height:190px">
           <span class="lw-kb">${lwImg(i)}</span>
@@ -18896,20 +18904,20 @@ function ladderWholeHTML(){
             S.soon ? 'Coming soon' : 'after '+esc((STAGES[i-1]||{}).n||'')}</span>
         </span>${LW_RIGHT}
       </button>`).join('')}</div>`;
-  const openOne = (earned && free) ? [] : ahead.slice(0,1);
-  const rest = (earned && free) ? ahead : ahead.slice(1);
+  const openOne = showFeat ? [] : ahead.slice(0,1);
+  const rest = showFeat ? ahead : ahead.slice(1);
   const thenK = rest.length && (openOne.length || featured) ? `<div class="lw-k" style="padding:12px 8px 8px">Then</div>` : '';
   const aheadList = `${openOne.length?`<div class="lw-list">${openOne.map(card).join('')}</div>`:''}${thenK}${slim(rest)}`;
   const aheadHTML = !ahead.length && !featured ? '' : free ? `
     <div class="lw-in lw-panel" style="--d:380ms">
-      <div style="padding:0 8px 16px;display:flex;flex-direction:column;gap:6px">
+      ${(merged && earned) ? '' : `<div style="padding:0 8px 16px;display:flex;flex-direction:column;gap:6px">
         <div class="lw-k">${earned?'Next stage earned':`Stages ${FREE_STAGES+1} to ${STAGES.length}`}</div>
         <div style="font:400 30px/1.08 var(--serif);color:var(--ink)">${earned
           ? esc(STAGES[here+1].n)+' is <em style="color:var(--forest);font-style:normal">yours.</em>'
           : 'Climb on with the full <em style="color:var(--forest);font-style:normal">Ladder.</em>'}</div>
         <div style="font:400 15px/1.4 var(--sans);color:#3f4f4d">${priceLine}</div>
         ${tp?'':trialBtn(`openStage(${earned?here+1:Math.max(FREE_STAGES,here+1)})`, trialWord)}
-      </div>
+      </div>`}
       ${featured}${aheadList}
     </div>` : `
     <div style="margin-top:20px">
@@ -18934,6 +18942,8 @@ function ladderWholeHTML(){
         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>Move up a stage</button>`:''}
     </div>`;
 
+  if(merged) return `<div data-ladderall data-tour="stagelist" class="lw" style="padding:2px 20px 40px">
+    ${doneHTML}${aheadHTML}${move}</div>`;
   return `<div data-ladderall class="lw" style="padding:22px 20px 40px">
     <div class="lw-in" style="--d:40ms;display:flex;align-items:flex-end;justify-content:space-between;gap:12px">
       <div style="font:400 36px/1.05 var(--serif);letter-spacing:-.01em;color:var(--ink)">The whole <em style="color:var(--forest);font-style:normal">ladder.</em></div>
@@ -18954,9 +18964,11 @@ function ladderWholeHTML(){
    across once so they land where they left off rather than on a list of
    stages they did not ask for. */
 function ladderTab(){
-  if(st.ladderTab==='ladder' && !st.ladder3){ st.ladderTab='checks'; st.ladder3=1; save(); }
+  /* The ladder was a third tab of its own (17 Oct 2026); its stages are
+     under the check points now, so anybody left on it lands there. */
+  if(st.ladderTab==='ladder'){ st.ladderTab='checks'; save(); }
   if(!st.ladder3){ st.ladder3=1; save(); }
-  return (st.ladderTab==='ladder'||st.ladderTab==='progress') ? st.ladderTab : 'checks';
+  return st.ladderTab==='progress' ? 'progress' : 'checks';
 }
 function ladderSeg(){
   const on=ladderTab();
@@ -18978,7 +18990,7 @@ function ladderSeg(){
     background:${on==='checks'?'rgba(0,102,99,.12)':'rgba(17,17,17,.07)'}">${P.met}/${P.of}</span>`:'';
   return `<div style="padding:${wide()?'0':'16px'} 16px 0"><div class="segrow" style="display:flex;gap:5px;padding:4px;
     border-radius:15px;background:rgba(17,17,17,.055)">${b('checks',trialPending()?'Your stage':'Check points '+count)}${
-    b('ladder','The ladder')}${b('progress','Progress')}</div></div>`;
+    b('progress','Progress')}</div></div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
    back loses your spot, which is the thing the programme pages get right */
@@ -21756,7 +21768,7 @@ function closeSideVid(){ sideVid=null; render(); }
 function seeLadder(){
   /* ladder3 too: without it the one-off move of old accounts onto the check
      points ran on a new account's first visit and sent this there instead */
-  st.ladderTab='ladder'; st.ladder3=1; save();
+  st.ladderTab='checks'; st.ladder3=1; save();
   if(st.tab!=='ladder') go('ladder'); else render();
   setTimeout(()=>{ const el=document.querySelector('[data-ladderall]');
     if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 90);
@@ -22302,13 +22314,13 @@ const TOURS = {
          pre() opens it, and buildTourList drops any step whose target is not
          in the DOM at the moment the list is built. Without this the one
          place the ladder ever gets explained was silently skipped. */
-      {t:'stagelist', h:'All six stages', always:true,
-       pre:()=>{ if(ladderTab()!=='ladder'){ st.ladderTab='ladder'; st.ladder3=1; save(); render(); } },
+      {t:'stagelist', h:'The stages above', always:true,
+       pre:()=>{ if(ladderTab()!=='checks'){ st.ladderTab='checks'; save(); render(); } },
        /* This said "Nothing is locked" over a list showing four padlocks.
           It is true for a subscriber and plainly false for everybody else,
           so it asks the tier rather than stating one answer for both. */
-       /* the climb as Claude Design drew it (10 Oct 2026): amber is you */
-       b:()=>'Six stages, each a step higher. Amber is where you are, teal is done. '+tapWord(true)+' a step, or a card under it, to see what the stage asks for and watch its film. '
+       /* under the check points since the ladder's own tab went (17 Oct 2026) */
+       b:()=>'Under your check points, the stages above yours. '+tapWord(true)+' one to see what it asks for and watch its film. '
          +(isPlus() ? 'Nothing is locked, so you can move on early or come back.'
                     : esc(STAGES[0].n)+' is free; the rest come with the full Ladder'+(sellsLadder()?', '+PRICE()+' a month':'')+'.')},
       {t:'buildsession', h:'Train off the ladder',
