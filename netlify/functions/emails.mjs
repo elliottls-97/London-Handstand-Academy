@@ -218,6 +218,23 @@ export const EMAILS = {
       "The button below opens it in the app. Send the clip: side on, whole body in frame, one clean attempt. Elliott watches it himself and sends you a video back within 48 hours."
     ]
   },
+  "welcomeChecks": {
+    "name": "Welcome to form checks",
+    "when": "When someone starts form checks, £35 a month",
+    "always": true,
+    "alwaysWhy": "It carries the password link for somebody who paid on the website.",
+    "vars": [
+      "name",
+      "password_line"
+    ],
+    "subject": "You are in: form checks",
+    "title": "Your first form check is ready to send.",
+    "paras": [
+      "{password_line}",
+      "You get one form check every fortnight. Film one attempt, side on with your whole body in frame, and send it from the Form check tab. Elliott watches it himself and sends you a video back within 48 hours.",
+      "The whole Handstand Ladder is open too: every stage, every film and every check point."
+    ]
+  },
   "welcomeCoaching": {
     "name": "Welcome to coaching",
     "when": "When someone buys online coaching or Inner Circle",

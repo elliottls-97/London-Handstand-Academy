@@ -6257,7 +6257,7 @@ function cpClipHTML(c, sent){
        and telling a person who has just arrived that their free form check
        is used is the worst of the three things this line can say. */
     const line = can ? 'He watches it himself and says whether it counts.'
-      : st.freeCheckUsed ? (sells() ? 'Your free one is used. '+esc(PRICE('check'))+' a clip after that.' : 'Your free one is used.')
+      : st.freeCheckUsed ? (sells() ? 'Your free one is used. Form checks are '+esc(PRICE('checks'))+' a month after that.' : 'Your free one is used.')
       : !st.token ? 'One free with an account.'
       : 'One free with your account.';
     return `<button onclick="${send}" class="cpsend" style="width:100%;margin-top:12px;display:flex;align-items:center;
@@ -9656,7 +9656,7 @@ function subscriptionHTML(){
             <div style="background:rgba(196,122,86,.1);border-radius:12px;padding:13px 14px;margin-top:10px">
               <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">CANCELLED</div>
               <div style="font:400 14.5px/1.5 var(--sans);margin-top:7px">
-                You will not be charged again. ${coachedSub?'Your coaching runs':'The whole Ladder stays open'} until
+                You will not be charged again. ${coachedSub?'Your coaching runs':(st.checks&&st.checks.on)?'Your form checks and the whole Ladder stay open':'The whole Ladder stays open'} until
                 <b>${esc(niceDate(subInfo.cancelAt||subInfo.renewsAt))}</b>${coachedSub?'.':', then the account goes back to free.'}</div>
             </div>
             ${IOS_APP?'':`<button class="btn" style="width:100%;margin-top:12px" onclick="cancelSub(true)">
@@ -18930,7 +18930,7 @@ function ladderWholeHTML(o){
       <div style="flex:1;min-width:0">
         <div style="font:400 21px/1.1 var(--serif);color:var(--ink)">Want Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it?</em></div>
         <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:3px">Send a clip, get a form check. ${
-          st.freeCheckUsed?(sells()?esc(PRICE('check'))+' a clip':'Your free one is used'):'Free once'}.</div>
+          st.freeCheckUsed?(sells()?esc(PRICE('checks'))+' a month, one every fortnight':'Your free one is used'):'Free once'}.</div>
       </div>
       <button class="lw-ghost" style="flex:none;padding:0 16px" onclick="go('coaching')">Book a review</button>
     </div>`;
@@ -19419,6 +19419,8 @@ function loadEntitlement(){
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
       st.trialUsed=!!d.trialUsed; st.trialRefused=!!d.trialRefused; st.trialRefusedWhy=d.trialRefusedWhy||'';
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
+      /* form checks, £35 a month: on, and the day the next one opens */
+      st.checks=(d.checks&&d.checks.on)?{on:true, next:Number(d.checks.next)||0}:null;
       if(d.coachName) st.coachName=d.coachName;
       st.canCancel=!!d.canCancel; st.cancelAt=d.cancelAt||0;
       if(d.hasPw!==undefined) st.hasPw=!!d.hasPw;
@@ -20399,10 +20401,11 @@ function adjustSecs(v,by,k){
    programming is too far to jump, and what people actually want at that
    point is someone to look at their handstand. */
 const PLANS=[
-  {k:'check', n:'A form check',   price:'£20', per:'a clip',
+  {k:'checks', n:'Form checks',   price:'£35', per:'a month',
    for:'You have the ladder and you want eyes on it.',
-   gets:['One clip, answered within 48 hours',
-         'A video reply on your own footage, showing what to change']},
+   gets:['One form check every fortnight, answered within 48 hours',
+         'A video reply on your own footage, showing what to change',
+         'The whole Ladder included']},
   {k:'online', n:'Coaching',      price:'£120', per:'a month', best:true,
    for:'Your own programme, reviewed every fortnight.',
    gets:['A programme built for your body and your week',
@@ -20435,7 +20438,7 @@ let planLinks={};
 /* PRICE('online') and friends read the prices setting the dashboard writes.
    This took no argument and answered £5 to everything, so the coaching
    card priced coaching at the app's own price. */
-const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
+const PRICE_DEFAULT={plus:'£10',plusq:'£39',plusy:'£129',check:'£20',checks:'£35',online:'£120',inperson:'£190',inperson2:'',inperson4:'',inner:'£320',inneronline:'£250',session:'£70',session60:'£80',session90:'£100'};
 const PRICE_AMT = k => Number((((st.prices||{})[k]||{}).amount)) || ({plus:1000,plusq:3900,plusy:12900})[k] || 0;
 /* In the iPhone app the only price is Apple's, and only once the App Store
    has answered: before that, offline, or after a StoreKit error this fell
@@ -20798,7 +20801,7 @@ function screenCoaching(){
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           One clip. A video reply within 48 hours.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          ${sells() ? 'Free with an account, then '+PRICE('check')+' a clip. Included with coaching.' : 'Free with an account.'}</div>
+          ${sells() ? 'Free with an account. After that, '+PRICE('checks')+' a month for one every fortnight, with the whole Ladder.' : 'Free with an account.'}</div>
         <button class="btn" style="width:100%;margin-top:16px"
           onclick="goJoin()">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -20883,24 +20886,39 @@ function screenCoaching(){
         <div class="h-md" style="font-size:24px;margin-top:8px">Getting it ready.</div>
         <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">Your payment is through. The button to send
           your clip appears here in a moment; if it has not after a minute, pull down to refresh.</div></div>`
+    : (!canCheck && st.checks && st.checks.on)
+    ? `<div class="card" style="padding:22px">
+        <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}YOUR FORM CHECKS</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">${st.checks.next
+          ? 'Your next one opens on '+esc(new Date(st.checks.next).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'}))+'.'
+          : 'Your next one is nearly ready.'}</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">One every fortnight. Until then, ask anything in the chat.</div>
+        <button class="btn2" style="width:100%;margin-top:14px" onclick="setCoTab('chat')">Open the chat</button></div>`
+    /* After the free one, form checks are a subscription, £35 a month for
+       one every fortnight with the whole Ladder (Elliott, 17 Oct 2026). It
+       was £20 a clip with "coaching includes one every fortnight" under it,
+       which made coaching read as two form checks for £120. */
     : !canCheck
     ? `<div class="card" style="padding:22px">
-        <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
+        <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECKS</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">${
           st.freeCheckUsed?'That is your free one used.':'Send a clip, get the one thing to change.'}</div>
-        ${sells()?`<button class="btn" style="width:100%;margin-top:16px" onclick="buyPlan('check')">
-          Buy a form check, ${PRICE('check')}</button>
-        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
-          Coaching includes one every fortnight, ${PRICE('online')} a month.</div>`:''}</div>`
+        ${sells()?`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight,
+          ${esc(PRICE('checks'))} a month. Elliott watches each one himself and sends you a video back within 48 hours,
+          and the whole Ladder is included. Cancel any time.</div>
+        <button class="btn" id="buy-checks" style="width:100%;margin-top:16px" onclick="buyPlan('checks')">
+          Start form checks, ${esc(PRICE('checks'))} a month</button>`:''}</div>`
     : `<div class="card" style="padding:22px">
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">${
-          (st.freeCheckUsed && st.checkCredits>0) ? (st.checkCredits===1?'One form check paid for.':st.checkCredits+' form checks paid for.') : 'Find out what\'s holding you back.'}</div>
+          (st.freeCheckUsed && st.checks && st.checks.on) ? 'This fortnight&rsquo;s form check.'
+          : (st.freeCheckUsed && st.checkCredits>0) ? (st.checkCredits===1?'One form check paid for.':st.checkCredits+' form checks paid for.') : 'Find out what\'s holding you back.'}</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           Side on, phone upright, whole body in frame, hands included.</div>
         ${tick(st.coached ? 'As many as you train'
           : st.checkCredits>0 ? (st.checkCredits===1?'One paid for, ready to send':st.checkCredits+' paid for, ready to send')
-          : st.freeCheckUsed ? (sells() ? PRICE('check')+' a clip, or included with coaching' : 'Your free one is used')
+          : (st.checks && st.checks.on) ? 'One every fortnight on your form checks'
+          : st.freeCheckUsed ? (sells() ? PRICE('checks')+' a month for one every fortnight' : 'Your free one is used')
           : 'Your first one is free')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
           Send your clip</button>
@@ -20971,7 +20989,7 @@ function screenCoaching(){
       ${tab==='chat' ? '' : `
       <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:18px;text-wrap:balance">${
         coOffer ? `A programme written <em style="color:var(--forest);font-style:normal">for you.</em>`
-        : (sold || st.in) ? `Get Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em>`
+        : (sold || st.in || st.freeCheckUsed || (st.checks && st.checks.on)) ? `Get Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em>`
              : `Send one clip. <em style="color:var(--forest);font-style:normal">Free.</em>`}</div>
       `}
     </div>`;
@@ -21052,13 +21070,9 @@ function screenCoaching(){
       </div>`}
       ${clips}
       ${applied}
-      ${(sells() && !st.applied) ? `<div class="card" data-tour="pricing" style="padding:20px">
-        <div class="kick2">ONLINE COACHING</div>
-        <div style="font:400 22px/1.2 var(--serif);margin-top:8px">A programme written <em style="color:var(--forest);font-style:normal">for you.</em></div>
-        <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(PRICE('online'))} a month, a form check
-          every fortnight and the full ladder included. Cancel any time.</div>
-        <button class="btn2" style="width:100%;margin-top:14px" onclick="seeCoaching()">See how it works</button>
-      </div>` : ''}
+      ${/* no advert for coaching here (Elliott, 17 Oct 2026): beside a form
+            check it read as two of them for £120. Coaching has its own page,
+            opened from the places that offer it. */''}
       ${st.token?'':`<button class="btn2" style="width:100%"
         onclick="st.tab='signin';save();render()">Already have an account? Sign in</button>`}
     </div></div>`;
@@ -22373,7 +22387,7 @@ const TOURS = {
          is free, which is neither the offer nor the price any more */
       {t:'formcheck', h:'A form check',
        b:()=>'Film one attempt and I reply on video with the one thing to change. '
-         +(sells() ? 'One is free with an account, then '+PRICE('check')+' a clip, or included with coaching.' : 'One is free with an account.')},
+         +(sells() ? 'One is free with an account. After that, '+PRICE('checks')+' a month for one every fortnight, with the whole Ladder.' : 'One is free with an account.')},
       {t:'pricing', h:'If you want the whole thing',
        b:()=>'Online coaching: your own programme, written and rewritten by me, at '+PRICE('online')+' a month. '
          +'Add a session in London each month if you are nearby. Cancel any time.'},
