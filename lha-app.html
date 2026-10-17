@@ -463,6 +463,35 @@ button.lc-ring:active{transform:scale(.88)}
 .cl-next .cl-nn{margin-left:auto;flex:none;max-width:45%;font:500 12px/1.3 var(--sans);color:var(--grey);text-align:right}
 .cl-next.go{cursor:pointer;background:#cfe6e3}
 .cl-next.go .cl-nn{color:var(--forest);font-weight:600}
+/* ── a fix laid out as its Learn article (17 Oct 2026) ── */
+.fxg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:4px 0 22px}
+.fxg button{position:relative;border:0;padding:0;border-radius:16px;overflow:hidden;aspect-ratio:4/5;background:#0e2a28;cursor:pointer;text-align:left}
+.fxg button:first-child{grid-column:1/-1;aspect-ratio:16/10}
+.fxg video,.fxg .ph{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.fxg .ph{display:grid;place-items:center;background:var(--sand);color:var(--deep);font:400 15px/1.3 var(--serif);padding:14px;text-align:center}
+.fxg .tl{position:absolute;left:10px;right:10px;bottom:10px;display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;
+  background:rgba(255,255,255,.86);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font:600 12.5px/1.25 var(--sans);color:var(--ink)}
+.fxg .tl i{flex:none;width:22px;height:22px;border-radius:50%;background:var(--forest);color:#fff;display:grid;place-items:center;font:700 11px/1 var(--sans);font-style:normal}
+.fxs{margin:30px 0 8px;padding-top:4px;scroll-margin-top:90px}
+.fxs .k{font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)}
+.fxs h2{font:400 30px/1.08 var(--serif);letter-spacing:-.01em;margin:9px 0 12px}
+.fxs p{font:400 16px/1.6 var(--sans);color:var(--ink);margin:0 0 12px}
+.fxs .fl{position:relative;border-radius:20px;overflow:hidden;background:#000;aspect-ratio:16/10;margin:16px 0 0}
+.fxs .fl video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.fxs .fl .pt{position:absolute;left:12px;bottom:12px;padding:8px 13px;border-radius:12px;background:rgba(255,255,255,.82);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);font:400 19px/1.1 var(--serif);color:var(--ink)}
+.fxs .fl .pt em{font-style:normal;color:#3f8f8c}
+.fxs ol{list-style:none;margin:14px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.fxs li{display:flex;gap:12px;align-items:center;padding:8px;border-radius:14px;background:#fff;border:1px solid rgba(0,64,61,.10)}
+.fxs li img{flex:none;width:62px;height:62px;border-radius:10px;object-fit:cover;background:var(--sand)}
+.fxs li .nb{flex:none;width:28px;height:28px;border-radius:50%;background:rgba(0,102,99,.10);color:var(--forest);display:grid;place-items:center;font:700 12px/1 var(--sans)}
+.fxs li b{display:block;font:600 14px/1.3 var(--sans)}
+.fxs li small{display:block;margin-top:2px;font:400 12.5px/1.4 var(--sans);color:var(--grey)}
+.fxs .mo{margin-top:14px;padding:14px;border-radius:16px;background:#fff;border:1px solid rgba(0,64,61,.10)}
+.fxs .mo .fl{margin-top:10px}
+.fxs .bd{margin-top:14px;padding:14px 16px;border-radius:16px;background:#dfeeec}
+.fxs .bd small{display:block;font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)}
+.fxs .bd div{margin-top:6px;font:400 14.5px/1.5 var(--sans);color:var(--ink)}
 /* ── the whole ladder (Claude Design, 10 Oct 2026) ───────────────────
    Entrances play once, on arrival; a redraw of the same screen holds
    still. The loops that say where you are keep going. */
@@ -16268,7 +16297,40 @@ function fixesHomeHTML(){
   </section>`;
 }
 
+/* a stretch of a film, looping without sound, as the Learn articles play them */
+const fxLoopVid = (uid, from, to) => `<video class="fxl" muted playsinline loop preload="metadata" disableremoteplayback
+  data-from="${Number(from)||0}" data-to="${Number(to)||0}" poster="${esc(STREAM_CDN+sigUid(uid)+'/thumbnails/thumbnail.jpg?time='+(Number(from)||0)+'s&height=600')}"
+  src="${esc(streamMp4(uid))}#t=${Number(from)||0}"></video>`;
+function fxLoops(){
+  const vids=[...document.querySelectorAll('video.fxl:not([data-w])')];
+  if(!vids.length) return;
+  const io=('IntersectionObserver' in window) ? new IntersectionObserver(es=>es.forEach(e=>{
+    const v=e.target; if(e.isIntersecting){ const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } else { try{ v.pause(); }catch(x){} } }),{threshold:.35}) : null;
+  vids.forEach(v=>{ v.dataset.w='1';
+    const f=Number(v.dataset.from)||0, t=Number(v.dataset.to)||0;
+    v.addEventListener('timeupdate',()=>{ if(t>f && v.currentTime>=t) v.currentTime=f; });
+    v.addEventListener('loadedmetadata',()=>{ if(f && v.currentTime<f) v.currentTime=f; },{once:true});
+    if(io) io.observe(v); });
+}
+function fxStepGo(n){ const el=document.getElementById('fxstep-'+n); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }
 function fixBlockHTML(b){
+  if(b.t==='gallery') return `<div class="fxg">${(b.tiles||[]).map(x=>`<button onclick="fxStepGo(${Number(x.n)||0})" aria-label="Step ${Number(x.n)||''}: ${esc(x.name||'')}">${
+      x.uid ? fxLoopVid(x.uid, x.from, x.to) : `<span class="ph">${esc(x.name||'')}</span>`}
+      <span class="tl"><i>${Number(x.n)||''}</i>${esc(x.name||'')}</span></button>`).join('')}</div>`;
+  if(b.t==='step') return `<section class="fxs" id="fxstep-${Number(b.n)||0}">
+      <div class="k">Step ${Number(b.n)||''} of ${Number(b.of)||''}${b.kick?' &middot; '+esc(b.kick):''}</div>
+      <h2>${esc(b.title||'')}</h2>
+      ${(b.paras||[]).map(p=>`<p>${esc(p)}</p>`).join('')}
+      ${b.uid?`<div class="fl">${fxLoopVid(b.uid, b.from, b.to)}${b.plate||b.plateEm?`<span class="pt">${esc(b.plate||'')} <em>${esc(b.plateEm||'')}</em></span>`:''}</div>`:''}
+      ${(b.frames||[]).length?`<ol>${b.frames.map((x,i)=>`<li>${(b.uid && x.at!=null)
+        ? `<img src="${esc(STREAM_CDN+sigUid(b.uid)+'/thumbnails/thumbnail.jpg?time='+x.at+'s&height=240')}" alt="" loading="lazy">`
+        : `<span class="nb">${i+1}</span>`}<span><b>${(b.uid && x.at!=null)?(i+1)+'. ':''}${esc(x.h||'')}</b>${x.s?`<small>${esc(x.s)}</small>`:''}</span></li>`).join('')}</ol>`:''}
+      ${b.more?`<div class="mo"><div class="k">${esc(b.more.kick||'')}</div>
+        <div style="font:400 20px/1.15 var(--serif);margin-top:7px">${esc(b.more.title||'')}</div>
+        ${b.more.text?`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:5px">${esc(b.more.text)}</div>`:''}
+        ${b.more.uid?`<div class="fl">${fxLoopVid(b.more.uid, b.more.from, b.more.to)}</div>`:''}</div>`:''}
+      ${b.build?`<div class="bd"><small>BUILD IT</small><div>${esc(b.build)}</div></div>`:''}
+    </section>`;
   if(b.t==='h') return `<h2 style="font:400 26px/1.15 var(--serif);letter-spacing:-.01em;margin:26px 0 8px">${esc(b.text||'')}</h2>`;
   if(b.t==='p') return `<p style="font:400 16px/1.6 var(--sans);color:var(--ink);margin:0 0 14px;white-space:pre-wrap">${esc(b.text||'')}</p>`;
   if(b.t==='quote') return `<blockquote style="margin:18px 0;padding:4px 0 4px 16px;border-left:3px solid var(--forest);
@@ -16374,7 +16436,7 @@ function screenFix(){
       <div style="font:400 13.5px/1.6 var(--sans);color:var(--grey2);margin-top:10px">
         The drills, the order and the films open with the tier.</div>
     </div>`
-    : `<div class="rise rise-2" style="padding:6px 20px 0">${(f.article||[]).map(fixBlockHTML).join('')}</div>`}
+    : `<div class="rise rise-2" style="padding:6px 20px 0">${(f.article||[]).map(fixBlockHTML).join('')}</div>${(setTimeout(fxLoops,0),'')}`}
 
     ${(f.drills||[]).length?`<div class="rise rise-3" style="padding:22px 20px 0">
       <div style="font:400 24px/1.1 var(--serif)">The drills.</div>
@@ -20045,15 +20107,9 @@ function coachingPicker(){
       cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Ask about Inner Circle</button></div>`;
 }
 function screenCoaching(){
-  if(st.in) return `<div class="scroll s" style="background:transparent">
-    <div class="rise" style="padding:26px 20px 0">
-      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Coaching</div>
-      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:9px">You are
-        <em style="color:var(--forest);font-style:normal">coached.</em></div>
-      <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">
-        Your plan, the chat and your check points are in your coaching.</div>
-      <button class="btn" style="width:100%;margin-top:22px" onclick="switchView(false)">Back to my coaching</button>
-    </div><div style="height:28px"></div></div>`;
+  /* A coached client in the ladder view keeps the form check and the chat
+     here: an early return in their place left both buttons doing nothing
+     (17 Oct 2026). Only the selling is gone, in coachingPicker. */
   /* the free form check, for real this time. It used to fire an email and
      relabel its own button — no upload, no account, no limit, under copy
      that promised one free check. */
