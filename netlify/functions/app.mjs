@@ -3308,11 +3308,22 @@ const handle = async (request) => {
      product at a real price, named here so a purchase through one is filed as
      what it is, never guessed from its amount. Read from the live links on
      26 Sept 2026. */
+  /* The rest were still active and unknown here, so a 1-2-1 link sent to
+     somebody by hand was thanked and left for the coach to file: the 1-2-1s
+     paid on 29 Sept and 7 Oct both came through these. Read from the live
+     links on 17 Oct 2026. The £25
+     "Handstand Workshop" link (5kQ3cva11aUA7Lp5ONefC02) is left out on
+     purpose: it names no date, so it stays the coach's to file. */
   const LINKS_OLD = {
     'https://buy.stripe.com/cNibJ1dddd2I0iX3GFefC07': 'inperson',   /* £180 a month, in person and online */
+    'https://buy.stripe.com/bJe28rb556Ekd5J4KJefC06': 'inperson',   /* £180 a month, "In-person & Online Coaching", a second link */
     'https://buy.stripe.com/6oU8wPc991k06Hl0utefC08': 'online',     /* £100 a month, the old online price */
     'https://buy.stripe.com/28E9ATc995Ag8PteljefC03': 'session90',  /* £100 once, a 90 minute session */
+    'https://buy.stripe.com/14AdR97ST0fWd5J4KJefC0g': 'session90',  /* £100 once, "1-2-1 Coaching Session 90 mins", made 29 Sept */
+    'https://buy.stripe.com/6oU8wPgpp8Ms9TxeljefC0a': 'session90',  /* £100 once, "1-2-1 Coaching Session 90 mins", made 19 Aug */
     'https://buy.stripe.com/eVqfZhgpp2o45Dh7WVefC09': 'session60',  /* £80 once, "Handstand Audit", sold as the 60 minute session */
+    'https://buy.stripe.com/6oU4gz7ST6EkghV6SRefC04': 'session60',  /* £80 once, "Handstand Audit", an older link */
+    'https://buy.stripe.com/7sY8wP8WX0fWaXBgtrefC05': 'session60',  /* £80 once, "1-2-1 Session - 60 mins" */
   };
   const linkNorm = u => String(u || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
   /* A link saved in Money replaces the shipped one in LINKS, and the shipped
