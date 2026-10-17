@@ -16313,7 +16313,38 @@ function fxLoops(){
     if(io) io.observe(v); });
 }
 function fxStepGo(n){ const el=document.getElementById('fxstep-'+n); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }
+/* one of the site's Learn pages, as it is on the site, full screen in the
+   app (17 Oct 2026). Same origin, so it is the same page in the iPhone app. */
+function fxReadOpen(path, title){
+  if(!/^\/learn\/[a-z0-9-]+$/.test(String(path||''))) return;
+  fxReadClose();
+  document.querySelectorAll('#app video').forEach(v=>{ try{ v.pause(); }catch(e){} });
+  const el=document.createElement('div'); el.id='artv';
+  el.setAttribute('role','dialog'); el.setAttribute('aria-label', title||'Article');
+  el.style.cssText='position:fixed;inset:0;z-index:985;display:flex;flex-direction:column;background:#f4f4f5';
+  el.innerHTML=`<div style="flex:none;display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
+      background:rgba(244,244,245,.94);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-bottom:1px solid rgba(0,64,61,.10)">
+    <button onclick="fxReadClose()" aria-label="Back to the fix" style="flex:none;width:44px;height:44px;border-radius:999px;border:1px solid rgba(0,64,61,.14);
+      background:#fff;color:var(--deep);display:grid;place-items:center;cursor:pointer;padding:0">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <span style="flex:1;min-width:0;font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(title||'')}</span></div>
+    <iframe src="${esc(path)}?inapp=1" title="${esc(title||'Article')}" style="flex:1;width:100%;border:0;background:#f4f4f5"></iframe>`;
+  document.body.appendChild(el);
+}
+function fxReadClose(){ const el=document.getElementById('artv'); if(el) el.remove(); }
 function fixBlockHTML(b){
+  if(b.t==='page' && b.path) return `<button onclick="fxReadOpen(${jsq(b.path)},${jsq(b.title||'')})" style="display:block;width:100%;margin:6px 0 18px;padding:0;
+      border:1px solid rgba(0,64,61,.10);border-radius:22px;overflow:hidden;background:#fff;cursor:pointer;text-align:left;
+      box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+    ${b.uid?`<span style="display:block;position:relative;aspect-ratio:16/9;background:#0e2a28">
+      <img src="${esc(STREAM_CDN+sigUid(b.uid)+'/thumbnails/thumbnail.jpg?time=3s&height=600')}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></span>`:''}
+    <span style="display:block;padding:16px 18px 18px">
+      <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Read it first</span>
+      <span style="display:block;font:400 24px/1.12 var(--serif);color:var(--ink);margin-top:8px">${esc(b.title||'')}</span>
+      ${b.sub?`<span style="display:block;font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(b.sub)}</span>`:''}
+      <span style="display:inline-flex;align-items:center;gap:8px;margin-top:14px;font:600 14px/1 var(--sans);color:var(--forest)">Open the article &rarr;</span>
+    </span></button>`;
   if(b.t==='gallery') return `<div class="fxg">${(b.tiles||[]).map(x=>`<button onclick="fxStepGo(${Number(x.n)||0})" aria-label="Step ${Number(x.n)||''}: ${esc(x.name||'')}">${
       x.uid ? fxLoopVid(x.uid, x.from, x.to) : `<span class="ph">${esc(x.name||'')}</span>`}
       <span class="tl"><i>${Number(x.n)||''}</i>${esc(x.name||'')}</span></button>`).join('')}</div>`;
@@ -21314,6 +21345,7 @@ function switchView(toFree, ok){
 }
 
 function go(t){
+  fxReadClose();
   if(t==='more'){ openMenu(); return; }
   if(menuOpen) closeMenu();
   st.tab=t; save();
