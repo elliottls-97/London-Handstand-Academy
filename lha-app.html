@@ -12010,7 +12010,9 @@ function drawOv(){
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
            password:'Change password', account:'Your account', emailchange:'Change email', deleteacct:'Delete your account', members:'For members', iap:'The whole Ladder',
            why:'Why are you stopping?',apply:'Apply for coaching',
-           summary:(lastSum && !lastSum.done)?'Session logged':'Session complete',stage:S?S.n:'Stage',
+           summary:(lastSum && !lastSum.done)?'Session logged':'Session complete',
+           /* a locked stage's sheet sells the Ladder and writes its own heading */
+           stage:!S?'Stage':(typeof stageLocked==='function' && stageLocked(st.ovStage||0))?'':S.n,
            cleared:'Stage cleared',
            /* the chooser writes its own heading, and two titles one above
               the other is one title too many */
@@ -13043,7 +13045,7 @@ function drawOv(){
   }
   if(st.ov==='stage'&&S){
     const si=st.ovStage||0;
-    if(stageLocked(si)){ body=stageBannerHTML(si)+screenUpgradeBody(si); }
+    if(stageLocked(si)){ body=screenUpgradeBody(si); }
     else {
     const St=STAGES[si]||STAGES[0];
     const isNow=si===curStage(), isDone=si<curStage();
@@ -19497,24 +19499,34 @@ function screenUpgradeBody(si){
   const ex = introU ? (all.find(x=>x && x.uid===introU) || {uid:introU, q:s.n+', explained'})
     : (typeof pick==='string' ? null : all.find(x=>x && x.uid));
   const days=PRICE_TRIAL(), week=days===7?'week':days+' days';
-  /* Short on purpose. This used to be the price, the trial, what is in the
-     stage, every check point with its target, five bullets on what opens
-     and a code box, on the one screen where somebody has just decided.
-     One film, one sentence, one button. */
-  return `<div style="text-align:center;padding:2px 0 0">
-      <div style="font:600 10px/1 var(--sans);letter-spacing:.16em;color:var(--forest)">STAGE ${si+1} OF ${STAGES.length}</div>
-      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:10px;max-width:34ch;margin-inline:auto">${esc(s.goal||'')}</div>
+  /* It sells the Ladder, not the one stage (Elliott, 18 Oct 2026: "they
+     have to scroll to even see the start the free week and a video just
+     about one stage"). The offer and its button come first, with the six
+     stages they open; the stage that was tapped, its picture and its film,
+     come after for anybody who wants to look. */
+  const more=STAGES.length-FREE_STAGES;
+  const stageBit = `<div style="margin-top:26px;padding-top:20px;border-top:1px solid rgba(0,64,61,.10)">
+      <div class="kick2" style="color:var(--forest);font-size:11px;letter-spacing:.14em">INSIDE ${esc(String(s.n).toUpperCase())}</div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--ink);margin-top:8px">${esc(lwLine(si)||s.goal||'')}</div>
+      ${ex?`<div style="margin:14px -18px 0">${qaVideo(ex,true)}</div>
+        <div style="font:500 12px/1.4 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">${esc(ex.q||'What this phase is about')}</div>`
+        : stageBannerHTML(si)}
+    </div>`;
+  return `<div>
+      <div class="kick2" style="color:var(--forest);font-size:11px;letter-spacing:.14em">${esc(String(s.n).toUpperCase())} &middot; STAGE ${si+1} OF ${STAGES.length}</div>
+      <div style="font:400 32px/1.08 var(--serif);margin-top:8px">The whole <em style="color:var(--forest);font-style:normal">Ladder.</em></div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:8px">${more} more stages after ${esc(STAGES[0].n)}, every drill filmed and cued, and the check points that move you up.</div>
+      <div style="margin-top:16px" aria-hidden="true">${lwRowHTML(curStage(),{h:56,done:true,names:true})}</div>
+      <div class="ls-free" style="pointer-events:none"><span style="grid-column:1 / ${FREE_STAGES+1}">Free</span><span
+        style="grid-column:${FREE_STAGES+1} / ${STAGES.length+1};background:#e3eff2;border:0">With the full Ladder</span></div>
     </div>
-    ${ex?`<div style="margin:16px -18px 0">${qaVideo(ex,true)}</div>
-      <div style="font:500 12px/1.4 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">${esc(ex.q||'What this phase is about')}</div>`:''}
     ${s.soon?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;background:rgba(243,169,73,.14);font:400 13.5px/1.5 var(--sans)">
       ${esc(s.n)} is being filmed and opens for everyone on the ladder the day it is ready.</div>`:''}
     <div class="card" style="margin-top:16px;padding:18px 20px">
       <div style="font:400 26px/1.1 var(--serif)">${!sellsLadder()?'The whole ladder.':days>0?`Free for a ${week}.`:'The whole ladder.'}
         <span style="color:var(--forest)">${sellsLadder()?'Then '+PRICE()+' a month.':'For members.'}</span></div>
       <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${
-        (sells()&&days>0)?`Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps in your account before then. `:''}${
-        (STAGES.length-FREE_STAGES)} stages, every drill filmed and cued, the check points that move you up.${
+        (sells()&&days>0)?`Nothing is charged until ${esc(firstCharge())}, and cancelling is two taps in your account before then.`:''}${
         sellsLadder()?'':' If you are a member, sign in with the email you joined with.'}</div>
       ${/* sellsLadder, not sells: in the iPhone app the price above came from
            Apple while this button still asked the website's switch, so the
@@ -19541,6 +19553,7 @@ function screenUpgradeBody(si){
       onclick="chooseFree(true)">Train ${esc(STAGES[FREE_STAGES-1].n)} for free instead</button>`
     : curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:12px" onclick="closeOv();goToStage(0)">Stay on ${esc(STAGES[0].n)} for now</button>`
       :`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">${esc(STAGES[0].n)} stays free, always.</div>`}
+    ${stageBit}
     <div style="margin-top:10px;text-align:center"${sells()?'':' hidden'}>
       <button onclick="codeToggle()" id="codeBtn" style="border:0;background:none;cursor:pointer;
         font:600 13px/1 var(--sans);color:var(--forest);padding:8px">Have a code?</button>
