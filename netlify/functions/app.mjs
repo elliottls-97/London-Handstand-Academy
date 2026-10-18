@@ -182,6 +182,17 @@ const wsLedger = (pi, amt) => pi ? changeSetting(`wsrefpi:${pi}`, cur => {
 /* emails that go into the dashboard and the emails we send: no quotes or angle brackets */
 const wsMailOk = e => /^[^@\s"<>`\\|]+@[^@\s"<>`\\|]+\.[^@\s"<>`\\|]+$/.test(String(e || ''));
 /* a link that manages one place without signing in: signed, and good until the class */
+/* ── 1-2-1s bought in fives and tens (Elliott, 18 Oct 2026) ─────────
+   Five for 10% off, ten for 15% off, paid at once. The first is booked
+   with the purchase; the rest wait under the address as credits, spent
+   from a signed link in their email, with no second payment. */
+const SESS_PACKS = { 5: 10, 10: 15 };
+const sessPackN = n => (SESS_PACKS[Number(n)] ? Number(n) : 1);
+const sessPackPrice = (unit, n) => n > 1 ? Math.round(unit * n * (100 - SESS_PACKS[n]) / 100) : unit;
+async function sessCreditLink(addr, kind) {
+  const t = await sign({ k: 'sesscred', e: norm(addr), exp: Date.now() + 400 * DAY });
+  return `${SITE}/session.html?kind=${kind === '90' ? '90' : '60'}&c=${t}`;
+}
 async function wsManageLink(slug, addr, session, until) {
   const t = await sign({ k: 'wsm', s: slug, e: norm(addr), x: String(session || ''), exp: (ms(until) || Date.now() + 60 * DAY) + 6 * 3600e3 });
   return `${SITE}/booking.html?t=${t}`;
@@ -3955,6 +3966,22 @@ const handle = async (request) => {
       const sessKey = `sessnew:${obj.id}`;
       if (!(await supa.insertIfAbsent('nudges', { key: sessKey, stage: 0, sent_at: nowISO() }, 'key').catch(() => false)))
         return json({ ok: true, note: 'session already filed' });
+      /* a pack: the first is this one, the rest wait as credits */
+      const packN = sessPackN(md.pack);
+      if (packN > 1) {
+        await changeSetting(`sesscredit:${e}`, cur => { const c = Object.assign({}, cur || {});
+          c[kind] = (Number(c[kind]) || 0) + packN - 1; c.name = c.name || nm;
+          c.log = (Array.isArray(c.log) ? c.log : []).concat([{ at: Date.now(), add: packN - 1, kind, cs: String(obj.id || '') }]).slice(-40); return c; });
+        await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+          const r = l.find(x => x.session === obj.id); if (!r) return undefined; r.pack = packN; return l; }).catch(() => {});
+        try {
+          const link = await sessCreditLink(e, kind);
+          await email(e, `Your ${packN} sessions: ${packN - 1} more to book`, mail({ title: `${packN - 1} more to book.`, greeting: nm.split(' ')[0] || '',
+            paras: [`Your pack of ${packN} ${kind} minute sessions is paid for, ${SESS_PACKS[packN]}% off. The first is being arranged now.`,
+                    `The other ${packN - 1} are yours to book whenever you like, from the button below. Keep this email: the button is your link, and it shows how many you have left.`],
+            cta: { href: link, label: 'Book a session from your pack' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+        } catch {}
+      }
       const amt = sessAmt(obj.amount_total);
       /* a session that cost nothing on a code is booked, not "paid for: £0" */
       const sessFree = !(Number(obj.amount_total) > 0);
@@ -5484,7 +5511,9 @@ const handle = async (request) => {
     inneronline: { label: (PRICES.inneronline||{}).label || '£250' },
     inperson2: { label: (PRICES.inperson2||{}).label || '' }, inperson4: { label: (PRICES.inperson4||{}).label || '' },
     session: { label: (PRICES.session||{}).label || '£70' },
-    session60: { label: PRICES.session60.label }, session90: { label: PRICES.session90.label },
+    session60: { label: PRICES.session60.label, amount: Number(PRICES.session60.amount) || 0 },
+    session90: { label: PRICES.session90.label, amount: Number(PRICES.session90.amount) || 0 },
+    sessPacks: SESS_PACKS,
     trialDays: Number(PRICES.trialDays) || 0,
   });
   if (path === '/plans') {
@@ -7524,11 +7553,58 @@ const handle = async (request) => {
     await slotUnhold(h);
     return json({ ok: true });
   }
+  /* what is left on a pack, for the page the credit link opens */
+  if (path === '/session/credits' && request.method === 'GET') {
+    const p = await verify(String(url.searchParams.get('c') || ''));
+    if (!p || p.k !== 'sesscred') return json({ error: 'That link has expired. Ask Elliott for a new one.' }, 400);
+    const c = (await getSetting(`sesscredit:${norm(p.e)}`)) || {};
+    return json({ left: { 60: Number(c['60']) || 0, 90: Number(c['90']) || 0 }, name: c.name || '', email: norm(p.e) });
+  }
   if (path === '/session/book' && request.method === 'POST') {
     const kind = String(body.kind) === '90' ? '90' : '60';
+    const prefs = String(body.prefs || '').trim().slice(0, 500);
+    /* ── one from a pack: no payment, a credit spent ── */
+    if (body.c) {
+      const p = await verify(String(body.c));
+      if (!p || p.k !== 'sesscred') return json({ error: 'That link has expired. Ask Elliott for a new one.' }, 400);
+      const e = norm(p.e);
+      let at = 0;
+      if (body.slot) {
+        at = ms(body.slot);
+        const S = await slotState(kind).catch(() => ({ on: false }));
+        if (!S.on || !S.slots.some(x => x.start === at)) return json({ error: 'That time has just gone. Pick another.', gone: true }, 409);
+      }
+      let left = -1, nm = '';
+      await changeSetting(`sesscredit:${e}`, cur => {
+        const c = Object.assign({}, cur || {}); nm = c.name || '';
+        if (!(Number(c[kind]) > 0)) { left = -1; return undefined; }
+        c[kind] = Number(c[kind]) - 1; left = c[kind]; return c;
+      });
+      if (left < 0) return json({ error: `There are no ${kind} minute sessions left on your pack.` }, 409);
+      const row = { id: 's' + newId().slice(-12), email: e, name: nm || String(body.name || '').trim().slice(0, 60), kind, prefs, at: Date.now(),
+        session: 'credit-' + newId(), pays: [], paid: 0, credit: true, status: at ? 'arranged' : 'toArrange', when: at ? new Date(at).toISOString() : '',
+        place: 'OverGravity, Shadwell', note: '', ...(at ? { picked: true, room: 'hire' } : {}) };
+      await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; l.unshift(row); return l.slice(0, 400); });
+      const leftTxt = left ? `${left} more ${kind} minute session${left === 1 ? '' : 's'} left on your pack.` : `That is the last ${kind} minute session on your pack.`;
+      try {
+        if (at) await sessHeldMail(db, row, {});
+        else await email(e, `Your ${kind} minute session: sorting the time`, mail({ title: 'Booked from your pack.', greeting: (row.name || '').split(' ')[0] || '',
+          paras: [`One of your ${kind} minute sessions is booked. I check your times against the room at OverGravity and confirm within 48 hours.`,
+                  prefs ? `You said: <b>${esc(prefs)}</b>.` : 'Reply to this with the days and times that suit you.', leftTxt, await sessChangeHTML(row)].filter(Boolean),
+          cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+      } catch {}
+      try { await threadAdd(db, e, { from: 'coach', sub: 'auto', by: primaryCoach(),
+        text: at ? `Booked from your pack: ${sessWhen(row)}, at OverGravity. I book the room now and confirm it within 48 hours. ${leftTxt}`
+                 : `Booked from your pack. ${prefs ? 'You said: "' + prefs + '". ' : ''}I will come back here with a time within 48 hours. ${leftTxt}` }); } catch {}
+      await coachAlert(e, 'business', { title: `${row.name || e} booked from their pack`, body: `${kind} minutes${at ? ', ' + slotTxt(at) : ', time to arrange'}. ${left} left.`, tag: 'sess:' + e });
+      try { await email(coachTo(e), `From a pack: ${row.name || e}, ${kind} min${at ? ', ' + slotTxt(at) : ''}`, mail({ title: `${esc(row.name || e)} booked a session from their pack.`,
+        paras: [`${kind} minutes${at ? ', <b>' + esc(slotTxt(at)) + '</b>, picked from the free times. Book the room, then confirm it on Today.' : ', time to arrange.'} ${left} left on the pack.`,
+                prefs ? `They said: <b>${esc(prefs)}</b>.` : ''].filter(Boolean), cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } })); } catch {}
+      return json({ ok: true, credit: true, left, when: row.when });
+    }
     const e = norm(body.email);
     const nm = String(body.name || '').trim().slice(0, 60);
-    const prefs = String(body.prefs || '').trim().slice(0, 500);
+    const n = sessPackN(body.pack);
     if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || !nm) return json({ error: 'A name and a real email address' }, 400);
     if (!stripeKey()) return json({ error: 'Booking is not switched on yet' }, 503);
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
@@ -7549,11 +7625,12 @@ const handle = async (request) => {
       const sess = await stripe('/checkout/sessions', {
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
-        'line_items[0][price_data][unit_amount]': String(Math.round(Number(price.amount) || 0)),
-        'line_items[0][price_data][product_data][name]': `One to one session, ${kind} minutes, London`,
-        'line_items[0][price_data][product_data][description]': at ? `${slotTxt(at)}, at OverGravity, Shadwell.` : 'Time arranged with you after payment, around the room at OverGravity.',
+        'line_items[0][price_data][unit_amount]': String(sessPackPrice(Math.round(Number(price.amount) || 0), n)),
+        'line_items[0][price_data][product_data][name]': n > 1 ? `${n} one to one sessions, ${kind} minutes, London, ${SESS_PACKS[n]}% off` : `One to one session, ${kind} minutes, London`,
+        'line_items[0][price_data][product_data][description]': (at ? `The first: ${slotTxt(at)}, at OverGravity, Shadwell.` : 'Time arranged with you after payment, around the room at OverGravity.')
+          + (n > 1 ? ` The other ${n - 1} are booked whenever you like, from the link in your email.` : ''),
         'line_items[0][quantity]': '1',
-        'metadata[session]': kind, 'metadata[name]': nm, 'metadata[prefs]': prefs,
+        'metadata[session]': kind, 'metadata[name]': nm, 'metadata[prefs]': prefs, ...(n > 1 ? { 'metadata[pack]': String(n) } : {}),
         'metadata[src]': String(body.src || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20),
         ...(at ? { 'metadata[slot]': new Date(at).toISOString(), 'metadata[hold]': hold,
                    /* the hold outlasts the page by a few minutes */
@@ -7563,7 +7640,7 @@ const handle = async (request) => {
         'custom_text[submit][message]': at ? `Held for ${slotTxt(at)} once you pay, and confirmed within 48 hours once the room is booked. If it cannot be, another time is offered or it is refunded in full.`
                                            : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
-        success_url: `${url.origin}/session.html?booked=1&kind=${kind}${at ? '&at=' + at : ''}&cs={CHECKOUT_SESSION_ID}`,
+        success_url: `${url.origin}/session.html?booked=1&kind=${kind}${n > 1 ? '&n=' + n : ''}${at ? '&at=' + at : ''}&cs={CHECKOUT_SESSION_ID}`,
         cancel_url: `${url.origin}/session.html?kind=${kind}&from=stripe${hold ? '&h=' + hold : ''}`,
       });
       /* the checkout this hold is for, so backing out of it can let the time go */
