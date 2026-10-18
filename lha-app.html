@@ -214,6 +214,9 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .ls-step.now .ls-fig{position:relative}
 .ls-step.now .ls-fig::after{content:'';position:absolute;left:50%;bottom:-6px;width:80px;height:30px;margin-left:-40px;border-radius:50%;
  background:radial-gradient(closest-side,rgba(243,169,73,.26),rgba(243,169,73,0));pointer-events:none}
+.ls-fig{position:relative}
+.ls-lock{position:absolute;top:2px;left:50%;margin-left:6px;width:18px;height:18px;border-radius:50%;background:#e8962f;display:grid;place-items:center;z-index:1}
+.ls-line b{color:var(--ink);font-weight:600}
 .ls-line{display:block;margin-top:12px;padding:6px 0;border:0;background:none;cursor:pointer;text-align:left;font:400 13px/1.4 var(--sans);color:var(--grey)}
 .ls-line span{color:var(--forest);font-weight:600}
 .cpd-card{display:flex;align-items:center;gap:14px;width:100%;padding:16px 18px;border-radius:22px;background:#fff;cursor:pointer;
@@ -19276,16 +19279,29 @@ function ladderStripHTML(o){
   o=o||{};
   const cur=curStage(), last=STAGES.length-1, P=cpProgress(cur);
   const earned = P.of>0 && P.met>=P.of && cur<last && stageLocked(cur+1);
+  /* where their answers put them, when that is above where they can train:
+     said, not left as a pale figure (Elliott, 18 Oct 2026: "it not clear") */
+  const placedAt = (st.freeChoice && !isPlus()) ? Math.max(placedStage(), st.placed|0) : placedStage();
+  /* a finished stage's next one, locked, is said the same way */
+  const yourLvl = (!isPlus() && placedAt>cur && STAGES[placedAt] && stageLocked(placedAt)) ? placedAt
+    : (earned && STAGES[cur+1] && stageLocked(cur+1)) ? cur+1 : -1;
   const steps = STAGES.map((S,i)=>{
-    const done = i<cur || (i===cur && earned), now = i===cur && !earned, next = earned && i===cur+1;
+    /* the stage you train on is amber whatever, finished or not (Elliott, 18
+       Oct 2026); a finished one's next stage glows teal beside it */
+    const done = i<cur, now = i===cur, next = earned && i===cur+1;
     const col = done||next ? 'var(--forest)' : now ? '#e8962f' : LW_AHEAD;
     return `<button class="ls-step${now?' now':''}" onclick="lwPick(${i})" style="--i:${i}" aria-expanded="${lwPopI===i}"
       aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':next?', earned':''}">
-      <span class="ls-fig"><span class="ls-g${next?' ls-next':''}" style="color:${col}">${lwFigSVG(i)}</span></span>
+      <span class="ls-fig">${i===yourLvl?`<span class="ls-lock" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff"
+        stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>`:''}<span
+        class="ls-g${next?' ls-next':''}" style="color:${col}">${lwFigSVG(i)}</span></span>
       <span class="ls-n" style="${now||next?'color:var(--ink);font-weight:700':done?'color:var(--forest)':''}">${LW_BREAK[S.n]||esc(S.n)}</span>
     </button>`; }).join('');
   /* where the free part ends, and the way into the rest */
-  const free = isPlus() ? '' : o.home ? `<button class="ls-line" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">${
+  const free = isPlus() ? '' : (o.home && yourLvl>-1) ? `<button class="ls-line" onclick="openStage(${yourLvl})">${
+      (earned && yourLvl===cur+1) ? `<b>${esc(STAGES[cur].n)}</b> done. ${esc(STAGES[yourLvl].n)} is next, with the full Ladder.`
+        : `Your answers put you at <b>${esc(STAGES[yourLvl].n)}</b>, which opens with the full Ladder.`} <span>Try it free &rarr;</span></button>`
+    : o.home ? `<button class="ls-line" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">${
       esc(STAGES[0].n)} is free. <span>The rest come with the full Ladder &rarr;</span></button>` : `<div class="ls-free">
       <span style="grid-column:1 / ${FREE_STAGES+1}">Free</span>
       <button style="grid-column:${FREE_STAGES+1} / ${STAGES.length+1}" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">
