@@ -6479,7 +6479,11 @@ const handle = async (request) => {
      for half an hour. Their hold is theirs to reuse. */
   const wsHoldKey = async e => e ? 'h' + String(await hmac('wshold:' + norm(e))).replace(/[^A-Za-z0-9]/g, '').slice(0, 16) : '';
   const wsHeld = (d, mine) => Object.entries(d.holds || {}).filter(([k, t]) => Number(t) > Date.now() && k !== mine).length;
-  const wsCodeCheck = async (slug, code, price, who) => {
+  /* price is the whole booking's; units the places in it and also the second
+     date, so a code works on both dates and on a friend's place too (Elliott,
+     18 Oct 2026). A percentage comes off the whole, a fixed amount off each
+     place, and a code made for one date says so when two are booked. */
+  const wsCodeCheck = async (slug, code, price, who, opt = {}) => {
     const c = String(code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
     if (!c) return { off: 0 };
     const codes = (await getSetting('wscodes')) || {};
@@ -6490,8 +6494,10 @@ const handle = async (request) => {
        day is a day the code works. */
     if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That code has expired' };
     if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That code has been used up' };
-    if (d.workshop && d.workshop !== slug) return { error: 'That code is for a different workshop' };
-    const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
+    if (d.workshop && d.workshop !== slug) return { error: d.workshop === opt.also ? 'That code is for one of these dates. Book that date on its own to use it.' : 'That code is for a different workshop' };
+    if (d.workshop && opt.also) return { error: 'That code is for one of these dates. Book that date on its own to use it.' };
+    const units = Math.max(1, Number(opt.units) || 1);
+    const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0) * units);
     return { off, code: c };
   };
   const wsIcs = (w) => {
@@ -6565,10 +6571,16 @@ const handle = async (request) => {
     const slug = wsSlug(body.slug);
     const w = ((await getSetting('workshops')) || {})[slug];
     if (!w) return json({ error: 'No such workshop' }, 404);
-    const r = await wsCodeCheck(slug, body.code, Number(w.price) || 0, wsMailOk(norm(body.email)) ? norm(body.email) : '');
+    const all = (await getSetting('workshops')) || {};
+    const also = wsSlug(body.also), w2 = also && also !== slug ? all[also] : null;
+    const people = Number(body.people) === 2 ? 2 : 1, targets = w2 ? [w, w2] : [w], units = targets.length * people;
+    const pairPence = Number(((await getSetting('wspair')) || {}).pence) || 0;
+    const base = pairPence > 0 ? wsGroupCost(units, Number(w.price) || 0, pairPence)
+      : people * targets.reduce((t, x) => t + (Number(x.price) || 0), 0);
+    const r = await wsCodeCheck(slug, body.code, base, wsMailOk(norm(body.email)) ? norm(body.email) : '', { units, also: w2 ? also : '' });
     if (r.error) return json({ error: r.error }, 400);
-    const price = Math.max(0, (Number(w.price) || 0) - r.off);
-    return json({ ok: true, off: r.off, price, label: price ? '£' + (price / 100).toFixed(2).replace(/\.00$/, '') : 'Free' });
+    let price = Math.max(0, base - r.off); if (price > 0 && price < 30) price = 0;
+    return json({ ok: true, off: r.off, base, price, label: price ? '£' + (price / 100).toFixed(2).replace(/\.00$/, '') : 'Free' });
   }
   /* full: take a name for when a place frees up */
   if (path === '/workshop/wait' && request.method === 'POST') {
@@ -6940,8 +6952,7 @@ const handle = async (request) => {
       : people.length * targets.reduce((t, x) => t + (Number(x[1].price) || 0), 0);
     /* Book pressed is the clearest sign of wanting a place */
     await wsIntentNote(slug, w2 ? also : '', e, nm);
-    if (units > 1 && String(body.code || '').trim()) return json({ error: 'A code is for one place. Two places already have the lower price.' }, 400);
-    const disc = await wsCodeCheck(slug, body.code, base, e);
+    const disc = await wsCodeCheck(slug, body.code, base, e, { units, also: w2 ? also : '' });
     if (disc.error) return json({ error: disc.error }, 400);
     /* a code that leaves a few pence is free: Stripe will not take under 30p */
     let price = Math.max(0, base - disc.off);

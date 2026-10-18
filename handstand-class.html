@@ -1881,13 +1881,17 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePick(); });
   window.bkShowCode=function(){ $('bkCodeRow').hidden=true; $('bkCodeBox').hidden=false; $('bkCode').focus(); };
   /* Every two places cost the pair price, an odd one its own price: both
-     dates, two people, or both (four places, two pairs). The deal already
-     applies, so a code steps aside whenever there is more than one place. */
+     dates, two people, or both (four places, two pairs). A code comes off
+     on top, priced by the server for what is picked. */
   /* the server's sum: two places for the pair price, never more than two single places */
   var groupCost=function(units,single){ return PAIR>0 ? Math.floor(units/2)*Math.min(PAIR,2*single)+(units%2)*single : units*single; };
   /* what is charged: the server's own sum, and a checked code on a single place */
+  /* a code works on both dates and with a friend too (Elliott, 18 Oct
+     2026): the server prices the booking that is picked, and the answer
+     only stands for that booking */
+  var pickKey=function(){ var both=$('bkPair').checked&&picked.other; return picked.slug+'|'+(both?picked.other.slug:'')+'|'+($('bkFr').checked?2:1); };
   var costOf=function(both, people){
-    if(!both && people===1 && codeOk && codeOk.slug===picked.slug) return codeOk.price;
+    if(codeOk && codeOk.key===pickKey()) return codeOk.price;
     return PAIR>0 ? groupCost((both?2:1)*people, picked.price) : people*(picked.price+(both?picked.other.price:0));
   };
   var priceNow=function(){
@@ -1900,9 +1904,12 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     drawChoices();
     $('bkFrT').innerHTML=people<2?'Bring someone with you'+(PAIR>0&&picked.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(groupCost(2,picked.price)))+'.</small>':'')
       :'Bringing someone<small>'+units+' places, '+esc(pounds(cost))+'.</small>';
-    if(units>1){ go.textContent=(cost>0?'Book '+units+' places, '+pounds(cost):'Book '+units+' places');
-      $('bkCode').value=''; $('bkCodeMsg').textContent=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=true; codeOk=null; }
-    else { go.textContent=cost>0?'Book, '+pounds(cost):'Book my place'; $('bkCodeRow').hidden=!(picked.price>0) || !$('bkCodeBox').hidden; }
+    if(units>1) go.textContent=(cost>0?'Book '+units+' places, '+pounds(cost):'Book '+units+' places');
+    else go.textContent=cost>0?'Book, '+pounds(cost):'Book my place';
+    $('bkCodeRow').hidden=!(picked.price>0) || !$('bkCodeBox').hidden;
+    /* a code already typed is priced again for what is picked now */
+    if(typeof checkCode==='function' && code() && (!codeOk || codeOk.key!==pickKey()) && !checking
+       && !(codeBad && codeBad===code()+'|'+pickKey())) checkCode();
   };
   $('bkPair').addEventListener('change', priceNow);
   $('bkFr').addEventListener('change', function(){ priceNow(); if(this.checked) setTimeout(function(){ $('bkFrName').focus(); },40); });
@@ -1922,18 +1929,21 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   $('bkEmail').addEventListener('change', noteIntent);
   $('bkEmail').addEventListener('blur', noteIntent);
   var code=function(){ return (($('bkCode')||{}).value||'').trim().toUpperCase(); };
+  var checking=false, codeBad='';
   var checkCode=function(){
-    var c=code(), cm=$('bkCodeMsg'), slug=picked&&picked.slug; if(!picked) return;
+    var c=code(), cm=$('bkCodeMsg'); if(!picked) return;
+    var key=pickKey(), both=$('bkPair').checked&&picked.other, people=$('bkFr').checked?2:1;
     codeOk=null;
     if(!c){ cm.textContent=''; priceNow(); return; }
-    cm.style.color=''; cm.textContent='Checking…'; priceNow();
-    post('code',{slug:slug,code:c,email:($('bkEmail').value||'').trim()}).then(function(d){
-      if(!picked || picked.slug!==slug || code()!==c) return;
-      if(($('bkPair').checked&&picked.other) || $('bkFr').checked){ cm.textContent=''; return; }
-      codeOk={slug:slug, price:Number(d.price)||0};
-      cm.style.color='var(--forest)'; cm.textContent=c+' applied: '+picked.priceLabel+' becomes '+d.label+'.';
+    cm.style.color=''; cm.textContent='Checking…'; checking=true; priceNow();
+    post('code',{slug:picked.slug,also:both?picked.other.slug:'',people:people,code:c,email:($('bkEmail').value||'').trim()}).then(function(d){
+      checking=false;
+      if(!picked || pickKey()!==key || code()!==c) { priceNow(); return; }
+      codeOk={key:key, price:Number(d.price)||0};
+      cm.style.color='var(--forest)';
+      cm.textContent=c+' applied: '+pounds(Number(d.base)||0)+' becomes '+d.label+'.';
       priceNow();
-    }).catch(function(err){ if(!picked || picked.slug!==slug || code()!==c) return;
+    }).catch(function(err){ checking=false; codeBad=c+'|'+key; if(!picked || pickKey()!==key || code()!==c) { priceNow(); return; }
       cm.style.color='var(--terra)'; cm.textContent=err&&err.name==='TypeError'?'Could not check the code just now.':String(err); priceNow(); });
   };
   $('bkCode').addEventListener('change', checkCode);
@@ -1981,7 +1991,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     /* counted once the details are right, once a visit: it went before
        they were checked, so every retry counted again (16 Oct 2026, review) */
     if(!window.__bkCounted){ window.__bkCounted=true; beacon('workshopbook'); }
-    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:(also||friend)?'':code(),consent:cons[0],news:!!($('bkNews')||{}).checked,back:'class',src:window.LHA_SRC||''}).then(function(d){
+    post('book',{slug:picked.slug,also:also,name:name,email:email,friend:friend,code:code(),consent:cons[0],news:!!($('bkNews')||{}).checked,back:'class',src:window.LHA_SRC||''}).then(function(d){
       if(d.url){ location.href=d.url; return; }
       if(d.free){ location.href='/handstand-class.html?booked='+encodeURIComponent(picked.slug+(also?','+also:''))+(d.bs?'&bs='+encodeURIComponent(d.bs):''); return; }
       throw 'Something went wrong. Try again in a moment.';
