@@ -206,6 +206,7 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .cpd-card.home{margin-top:14px}
 .cpd-card b{font:600 15px/1.25 var(--sans)}
 .cpd-card small{font:400 13px/1.3 var(--sans);color:var(--grey)}
+.cpd-x{width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;color:var(--grey);background:rgba(0,64,61,.06);cursor:pointer}
 .cpd-ic{width:44px;height:44px;flex:none;border-radius:50%;background:linear-gradient(180deg,#0a7a76,#006663);display:grid;place-items:center}
 .cpd-bar{display:flex;align-items:center;gap:8px;margin-top:18px}
 .cpd-bar>span{flex:1;height:6px;border-radius:999px}
@@ -7418,11 +7419,12 @@ function rungBody(c, i, total, use){
          slider and wondered whether it counted (usability review, 10 Oct
          2026). The tick is said here as a button; the slider is the
          optional record under it. */
-      const t=cpTarget(c);
-      if(pick || cpAsks(c) || t==null) return '';
-      if(met) return `<div class="lc-reached">Reached. ${cs==='signed'?'Signed off.':coachedView()?esc(coachLabel())+' signs it off.':''}</div>`;
-      return `<button class="lc-reach" onclick="cpTickOff('${c.k}',this)">Reached ${esc(String(t))}${esc(cpUnit(c)||(c.kind==='secs'?'s':''))}? Tick it off</button>
-        <div class="lc-or">Or log what you did today</div>`;
+      /* The button went (Elliott, 18 Oct 2026: "not sure we need the
+         reached 20 seconds as well"): the ring on the row ticks it, and
+         the row already says Done. Only a coach's sign off is said here. */
+      if(pick || cpAsks(c) || cpTarget(c)==null) return '';
+      if(met && coachedView()) return `<div class="lc-reached">Reached. ${cs==='signed'?'Signed off.':esc(coachLabel())+' signs it off.'}</div>`;
+      return '';
     })()}
     <div style="margin-top:${pick?14:8}px" id="${pick?'cppick':'cpin'}-${c.k}">${cpInput(c)}</div>
     <div style="margin-top:9px;display:flex;justify-content:space-between;gap:10px;
@@ -19293,15 +19295,20 @@ function cpRunLabel(){ const w=cpRunWeek(Date.now()); return !w ? 'Week 1 is you
 function cpDayCardHTML(home){
   const cps=cpFor(curStage())||[]; if(!cps.length || coachedView()) return '';
   const today=new Date().getDay()===CPDAY, done=cpThisWeekDone();
-  if(home && (!today || done)) return '';
+  /* dismissed on Train for this week only (Elliott, 18 Oct 2026); next
+     Sunday asks again, and Over time always has it */
+  if(home && (!today || done || st.cpDayHid===cpRunWeek(Date.now()))) return '';
   const t = done ? cpRunLabel()+' is logged' : today ? 'It is check point day' : 'Check point day is Sunday';
   const sub = done ? 'Next: '+cpDayWord(cpNextDay())+'.' : cpRunLabel()+'. About 15 minutes.';
+  const x = home ? `<span role="button" tabindex="0" class="cpd-x" aria-label="Not this week" title="Not this week"
+      onclick="event.stopPropagation();st.cpDayHid=cpRunWeek(Date.now());save();render()"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : '';
   return `<button class="cpd-card${home?' home':''}" onclick="openCpDay()">
     <span class="cpd-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"
       stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></span>
     <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><b>${t}</b><small>${esc(sub)}</small></span>
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2" stroke-linecap="round"
-      stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>`;
+    ${x || `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2" stroke-linecap="round"
+      stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg>`}</button>`;
 }
 let cpdT=null;
 function openCpDay(){
