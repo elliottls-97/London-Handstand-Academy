@@ -3696,9 +3696,7 @@ function screenToday(){
     ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
   </div>
   ${todaySlotHTML(dl)}
-  ${/* what they have done, by day, on Home (Elliott, 17 Oct 2026): it was a
-        tab inside Progress */''}
-  <div class="pad" style="padding-top:16px">${trainingCalendar(true)}</div>
+  ${/* the calendar is Progress › Log again (Elliott, 18 Oct 2026) */''}
   <div style="height:26px"></div></div>`;
 }
 
@@ -7042,8 +7040,7 @@ function cpDrag(e,k,max,res){
    list on screen. Coached they are the first tab of Progress; on the
    ladder they are the first tab of Ladder. */
 function goCps(){
-  if(coachedView()){ st.progTab='marks'; save(); go('progress'); }
-  else { climbGo(); return; }
+  climbGo(); return;
   setTimeout(scrollToCps, 160);
 }
 /* the card is on the page now, so "log a check point" is a scroll */
@@ -9092,10 +9089,12 @@ function screenProgress(){
      turning up, and am I ready to move up. They get a tab each. */
   /* Check points are what a coached client comes here to move, so they
      are the tab it opens on rather than the third one along. */
-  const tab = coachedView() ? (st.progTab==='clips' ? 'clips' : 'marks')
+  /* coached: Log and Clips (Elliott, 18 Oct 2026); the check points are
+     on Home, out of the capsule */
+  const tab = coachedView() ? (st.progTab==='clips' ? 'clips' : 'log')
     : (['track','clips'].includes(st.progTab) ? st.progTab : 'marks');
   const seg = (coachedView()
-      ? [['marks','Check points'],['clips','Clips']]
+      ? [['log','Log'],['clips','Clips']]
       : [['track','Training'],['marks','Check points']]).map(([k,l])=>
     `<button onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;border:0;position:relative;
       border-radius:12px;padding:11px 8px;min-height:44px;font:600 13.5px/1 var(--sans);
@@ -9109,7 +9108,7 @@ function screenProgress(){
   const marksBody = `
       
       ${/* flat, as on the ladder: a card round the cards was three layers deep */''}
-      <div data-tour="checkpoints">${coachedView() ? coachClimbHTML() : checkpointsCard(true)}</div>
+      ${coachedView() ? `<div data-tour="calendar" style="margin:4px 4px 6px">${trainingCalendar(true)}</div>` : `<div data-tour="checkpoints">${checkpointsCard(true)}</div>`}
 
       ${coachedView() ? `${/* only a programme with a test to film: one built in the dashboard
             has none, and this said "the first test opens in a few days" for
@@ -9135,6 +9134,19 @@ function screenProgress(){
           Open the ladder</button></div>`}`;
 
   /* the free side's Progress is progressBody(), the calendar */
+  if(coachedView()) return `<div class="scroll s">
+    ${wide()?'':'<div style="height:calc(env(safe-area-inset-top) + 72px)"></div>'}
+    <div class="segstick" style="${wide()?'top:0;padding-top:14px;padding-bottom:10px':'top:calc(env(safe-area-inset-top) + 71px);padding-top:12px;padding-bottom:10px'}">
+      <div style="padding:0 20px"><div role="tablist" aria-label="Progress view" data-tour="progseg" style="display:flex;padding:4px;border-radius:999px;background:rgba(0,64,61,.07)">${
+        [['log','Log'],['clips','Clips']].map(([k,l])=>`<button role="tab" aria-selected="${tab===k}" onclick="st.progTab='${k}';save();render()" style="flex:1;cursor:pointer;
+          border:0;border-radius:999px;height:44px;position:relative;font:${tab===k?700:500} 15px/1 var(--sans);color:var(--deep);
+          background:${tab===k?'#fff':'transparent'};box-shadow:${tab===k?'0 1px 2px rgba(0,64,61,.08)':'none'}">${l}${
+          (n=>n?`<span aria-label="${n} new" style="position:absolute;top:4px;right:10px;display:grid;place-items:center;min-width:17px;height:17px;
+            padding:0 5px;border-radius:999px;background:var(--forest);color:var(--on-primary);font:700 10px/1 var(--sans)">${n}</span>`:'')(k==='clips'?clipsNew():0)}</button>`).join('')}</div></div>
+    </div>
+    <div class="rise rise-2" style="padding:${tab==='clips'?'18px':'26px'} 16px 120px;display:flex;flex-direction:column;gap:11px">
+      ${tab==='clips' ? clipsBody() : marksBody}
+    </div></div>`;
   return `<div class="scroll s">
     <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
@@ -22212,7 +22224,7 @@ function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizS
 const TABS={
   /* Plan stays its own tab; Progress is check points and clips (Elliott,
      17 Oct 2026) */
-  coached:[['today','Home'],['plan','Plan'],['progress','Check points'],['ask','Chat']],
+  coached:[['today','Home'],['plan','Plan'],['progress','Progress'],['ask','Chat']],
   /* Progress used to be its own tab and the ladder is where a free client
      actually lives, so the two were competing for the same trip. Progress is
      the second half of the ladder screen now. Four tabs, not five. */
@@ -22613,7 +22625,7 @@ function topBar(){
      kept their green heroes after the free side lost its. They are on the
      light ground now, so there is nothing left for it to invert over and the
      bar is the same dark teal on white everywhere. */
-  const label = ({home:'TRAIN',today:'HOME',ladder:'LADDER',progress:coachedView()?'CHECK POINTS':'PROGRESS',
+  const label = ({home:'TRAIN',today:'HOME',ladder:'PROGRESS',progress:'PROGRESS',
     coaching:'COACHING',ask:'CHAT',plan:'PLAN',more:'MORE',fix:'FIX',press:'PRESS'})[st.tab] || '';
   /* the chat button, so the chat's own count: a form check coming back
      used to light this up as though Elliott had written */
@@ -22869,17 +22881,14 @@ const TOURS = {
     n:'Progress', next:null,
     steps:[
       {t:'calendar', h:'What you actually did',
-       b:'Full colour is a session finished, weaker is one part done, amber is a day you logged as not trained, and an outline is a day you opened the app and logged nothing. Blank means nothing at all, which is not the same as a miss.',
-       pre:()=>{ st.progTab='track'; save(); render(); }},
+       b:'Deep teal is a whole session, sage part of one, an amber ring a day logged as not trained. Tap a day for what you did.',
+       pre:()=>{ st.progTab='log'; save(); render(); }},
       {t:'checkin', h:'The fortnightly check in',
        b:'Three sliders and a sentence. It takes a minute and it is what tells me whether to push you or back off.'},
       {t:'adherence', h:'Sticking to it',
        b:'Sessions done against the number you set yourself, over four weeks. It is the number that predicts progress better than any other on this screen.'},
-      {t:'checkpoints', h:'The other tab', always:true,
-       b:st.in
-         ? 'What Elliott wants you to be able to do. Log whatever you manage, and send a clip with it so he can see the thing rather than take your word for it.'
-         : 'Check points are what each stage wants you to be able to do. Reach all of them and the next stage opens below.',
-       pre:()=>{ st.progTab='marks'; save(); render(); }}
+      {t:'progseg', h:'Your clips', always:true,
+       b:'Every clip you have sent, with what '+coachLabel()+' said about it. Your check points are on Home.'}
     ]
   },
   coaching: {
@@ -23432,7 +23441,7 @@ function openFromNotice(where, mid){
   /* the card-declined email: Account, where Update card is */
   if(where==='account'){ if(st.token) openOv('account'); else { st.tab='signin'; save(); render(); toast('Sign in, then Update card is under Account.'); } return; }
   if(where==='chat'){ if(c) go('ask'); else { st.coTab='chat'; save(); go('coaching'); } return; }
-  if(where==='cps'){ if(c){ st.progTab='marks'; save(); go('progress'); } else go('ladder'); return; }
+  if(where==='cps'){ climbGo(); return; }
   if(where==='answer'){ if(c) go('today'); else { st.coTab='check'; save(); go('coaching'); } return; }
   if(where==='plan'){ go(c?'plan':'home'); return; }
   if(where==='today'){ go(c?'today':'home'); return; }
