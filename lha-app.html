@@ -256,6 +256,9 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .extry small{display:block;font:400 12.5px/1.3 var(--sans);color:var(--grey);margin-top:2px}
 .extry-i{flex:none;width:64px;height:46px;border-radius:10px;overflow:hidden;background:#dcecf0}
 .extry-i img{width:100%;height:100%;object-fit:cover;display:block}
+.tw-buy{display:block;width:100%;margin-top:10px;min-height:44px;border-radius:12px;border:1px solid rgba(0,64,61,.16);background:#fff;
+ cursor:pointer;font:600 14px/1 var(--sans);color:var(--forest)}
+.tw-buy:active{transform:scale(.985)}
 .lrn{display:flex;align-items:center;gap:14px;width:100%;padding:14px 0;border:0;border-top:1px solid rgba(0,64,61,.10);
  background:none;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
 .lrn b{font:600 16px/1.25 var(--sans)}
@@ -19442,7 +19445,7 @@ function overBodyHTML(){
   if(!grid && !ot) return `<div class="rise" style="padding:30px 20px 0;font:400 15px/1.5 var(--sans);color:var(--grey)">
     Log a check point and this fills in, week by week.</div>${cpDayCardHTML(false)?`<div class="rise" style="padding:20px 20px 0">${cpDayCardHTML(false)}</div>`:''}<div style="height:28px"></div>`;
   const card=cpDayCardHTML(false);
-  return `${ot?`<div class="rise" style="padding:30px 20px 0">${ot}</div>`:''}${card?`<div class="rise rise-1" style="padding:26px 20px 0">${card}</div>`:''}<div style="height:120px"></div>`;
+  return `${ot?`<div class="rise" data-tour="overtime" style="padding:30px 20px 0">${ot}</div>`:''}${card?`<div class="rise rise-1" style="padding:26px 20px 0">${card}</div>`:''}<div style="height:120px"></div>`;
 }
 /* the demo opens in place — leaving the list to watch one clip and coming
    back loses your spot, which is the thing the programme pages get right */
@@ -21555,24 +21558,29 @@ function screenCoaching(){
    read as two of them for £120; beside all three ways, the step up buys the
    thing the other two do not, a programme written for you. */
 function threeWaysHTML(){
-  const ladder=!!st.plus, checks=!!(st.checks && st.checks.on);
+  const ladder=!!st.plus, checks=!!(st.checks && st.checks.on), days=PRICE_TRIAL();
   const yours=`<span style="margin-left:6px;padding:3px 7px;border-radius:999px;background:rgba(0,102,99,.10);
     font:700 9px/1 var(--sans);letter-spacing:.12em;color:var(--forest);vertical-align:2px">YOURS</span>`;
-  const row=(n, price, per, line, mine, first)=>`<div style="display:flex;gap:12px;align-items:baseline;padding:12px 0;${
-      first?'':'border-top:1px solid rgba(0,64,61,.08)'}">
+  /* each step of the ladder of what you can buy, with its own button
+     (Elliott, 18 Oct 2026: "a way to buy each step") */
+  const row=(n, price, per, line, mine, first, go, label)=>`<div style="padding:12px 0;${first?'':'border-top:1px solid rgba(0,64,61,.08)'}">
+      <div style="display:flex;gap:12px;align-items:baseline">
       <span style="flex:1;min-width:0"><span style="display:block;font:600 14.5px/1.3 var(--sans)">${n}${mine?yours:''}</span>
         <span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:3px">${line}</span></span>
       <span style="flex:none;text-align:right;font:400 19px/1 var(--serif);color:var(--deep);white-space:nowrap">${esc(price)}<span
-        style="display:block;font:400 11.5px/1.2 var(--sans);color:var(--grey2);margin-top:4px">${per}</span></span></div>`;
-  return `<div class="card" data-tour="pricing" style="padding:18px 20px 20px">
+        style="display:block;font:400 11.5px/1.2 var(--sans);color:var(--grey2);margin-top:4px">${per}</span></span></div>
+      ${(go && !mine)?`<button class="tw-buy" onclick="${go}">${label}</button>`:''}</div>`;
+  return `<div class="card" data-tour="pricing" style="padding:18px 20px 16px">
     <div class="kick2">THREE WAYS TO TRAIN WITH ME</div>
     <div style="margin-top:4px">
-      ${row('The Ladder', PRICE('plus'), 'a month', 'You pick the sessions, on the stage you are on.', ladder && !checks, true)}
+      ${row('The Ladder', PRICE('plus'), 'a month', 'You pick the sessions, on the stage you are on.', ladder && !checks, true,
+        (ladder||checks||!sellsLadder()) ? '' : 'startUpgrade()', days>0 ? 'Start the '+days+' day free trial' : 'Get the full Ladder')}
       ${row('Form checks', st.checksAddon ? PRICE('checksadd') : PRICE('checks'), st.checksAddon ? 'a month on top' : 'a month',
-        st.checksAddon ? 'One thing fixed every fortnight, on video, added to your Ladder.' : 'One thing fixed every fortnight, on video, with the Ladder.', checks)}
-      ${row('Coaching', PRICE('online'), 'a month', 'Your own programme, written for you and rewritten every block. Form checks and messages included.', false)}
+        st.checksAddon ? 'One thing fixed every fortnight, on video, added to your Ladder.' : 'One thing fixed every fortnight, on video, with the Ladder.', checks, false,
+        checks ? '' : "buyPlan('checks')", st.checksAddon ? 'Add form checks' : 'Start form checks')}
+      ${row('Coaching', PRICE('online'), 'a month', 'Your own programme, written for you and rewritten every block. Form checks and messages included.', false, false,
+        'seeCoaching()', 'See how coaching works')}
     </div>
-    <button class="btn2" style="width:100%;margin-top:6px" onclick="seeCoaching()">See how coaching works</button>
   </div>`;
 }
 /* coaching's own page, on the Form check tab; it is gone again when the
@@ -22829,13 +22837,15 @@ const TOURS = {
   ladder: {
     n:'Progress', next:null,
     steps:[
-      /* the check points and the six stages are on Train since 18 Oct 2026;
-         this tab is the record */
-      {t:'calendar', h:'What you actually did', always:true,
+      /* the record: the month, then how you have moved (18 Oct 2026) */
+      {t:'calendar', h:'Every session', always:true,
        pre:()=>{ if(ladderTab()!=='log'){ st.ladderTab='log'; save(); render(); } },
-       b:'Deep teal is a whole session, sage part of one, an amber ring a day logged as not trained. Tap a day for what you did.'},
-      {t:'progseg', h:'Over time', always:true,
-       b:'Each check point week by week from the week you first logged one, and how every drill has moved since.'}
+       b:'Each one is on its day: deep teal a whole session, sage part of one. Tap a day to see what you did.'},
+      {t:'progseg', h:'Log and Over time', always:true,
+       b:'Log is the month. Over time is how far you have come.'},
+      {t:'overtime', h:'How you have moved', always:true,
+       pre:()=>{ if(ladderTab()!=='over'){ st.ladderTab='over'; save(); render(); } },
+       b:'Every drill and check point you have repeated, from your first go to your latest, biggest gain first. On Sundays, check point day asks for one go at each, so the weeks add up.'}
     ]
   },
   progress: {
@@ -23626,12 +23636,15 @@ function paintTour(){
      any of it would sit behind the card or above the screen */
   const cardY = vhh - chh - 14;
   { const r0 = el.getBoundingClientRect();
-    if((r0.bottom > cardY - 12 || r0.top < 70) && r0.height < vhh * .9){
+    const stick0=document.querySelector('#app .segstick'), top0=(stick0 && !stick0.contains(el)) ? stick0.getBoundingClientRect().bottom+4 : 70;
+    if((r0.bottom > cardY - 12 || r0.top < top0) && r0.height < vhh * .9){
       const sc = el.closest('.scroll, .sheet') || document.scrollingElement;
       /* room at the foot while the tour runs, so the last thing on a page
          can still come up clear of the card */
       if(sc && sc.style && !sc.dataset.tourpad){ sc.dataset.tourpad = sc.style.paddingBottom || '-'; sc.style.paddingBottom = '70vh'; }
-      try{ sc.scrollBy({top: r0.top - 96, behavior:'instant'}); }catch(e){ try{ sc.scrollTop += r0.top - 96; }catch(e2){} }
+      /* clear of the top bar, and of a pinned switch under it */
+      const stick=document.querySelector('#app .segstick'), off=(stick && !stick.contains(el)) ? Math.round(stick.getBoundingClientRect().bottom)+10 : 96;
+      try{ sc.scrollBy({top: r0.top - off, behavior:'instant'}); }catch(e){ try{ sc.scrollTop += r0.top - off; }catch(e2){} }
     } }
   const r = el.getBoundingClientRect();
   const pad = 6;
