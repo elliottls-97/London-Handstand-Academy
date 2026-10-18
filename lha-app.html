@@ -1236,6 +1236,7 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
   border-radius:12px;cursor:pointer;padding:11px 16px;font:600 13.5px/1 var(--sans);color:var(--ink)}
 .tour-go{border:0;border-radius:12px;cursor:pointer;padding:11px 20px;
   font:600 13.5px/1 var(--sans);background:var(--forest);color:var(--on-primary)}
+.tour-go{min-width:104px;text-align:center}
 #player{position:fixed;inset:0;z-index:990;background:#f4f1ed;color:var(--ink);
  display:none;flex-direction:column;overflow:hidden}
 #player.on{display:flex}
@@ -23614,6 +23615,15 @@ function paintTour(){
   const box = tourDom();
   const hole = document.getElementById('tourHole');
   const card = document.getElementById('tourCard');
+  /* The card always sits at the foot of the screen, every step of every
+     tour (Elliott, 18 Oct 2026), so Next is always under the same thumb.
+     What it points at is scrolled up clear of it. */
+  const chh = card.offsetHeight || 220, vhh = window.innerHeight;
+  { const r0 = el.getBoundingClientRect(), floor = vhh - chh - 30;
+    if(r0.bottom > floor && r0.height < floor - 90){
+      const sc = el.closest('.scroll, .sheet') || document.scrollingElement;
+      try{ sc.scrollBy({top: r0.top - 96, behavior:'instant'}); }catch(e){ try{ sc.scrollTop += r0.top - 96; }catch(e2){} }
+    } }
   const r = el.getBoundingClientRect();
   const pad = 6;
   const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
@@ -23625,19 +23635,14 @@ function paintTour(){
      "where you are is the white one" sat on top of the white one. Those
      get the card at the foot instead; a full screen one (the player) keeps
      it at the top, where it always was. */
-  const ch = card.offsetHeight || 220, vh = window.innerHeight;
-  const fitsBelow = top + h + ch + 22 < vh, fitsAbove = top - ch - 12 >= 10;
-  const cardTop = fitsBelow ? top + h + 12
-    : fitsAbove ? top - ch - 12
-    : (r.top > 60 ? Math.max(10, vh - ch - 14) : 10);
 
   /* the hole and the card slide; CSS transitions carry them */
   hole.style.top = top + 'px';
   hole.style.left = left + 'px';
   hole.style.width = w + 'px';
   hole.style.height = h + 'px';
-  card.style.top = cardTop + 'px';
-  card.style.bottom = 'auto';
+  card.style.top = 'auto';
+  card.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 14px)';
 
   const n = tourStep + 1, of = steps.length;
   const def = TOURS[tourKey]||{};
