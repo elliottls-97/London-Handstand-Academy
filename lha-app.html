@@ -1205,6 +1205,8 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
    a white ring round the thing it is talking about. It was frosted glass
    on a teal wash, the look the app had before, and it was the one screen
    that still did. */
+.tour-card.tour-ptr::before{content:'';position:absolute;top:-8px;left:var(--px,50%);width:16px;height:16px;margin-left:-8px;
+ transform:rotate(45deg);border-radius:3px;background:#fff;border-left:1px solid rgba(17,17,17,.06);border-top:1px solid rgba(17,17,17,.06)}
 .tour-card{position:absolute;left:12px;right:12px;border-radius:22px;padding:18px 19px 15px;
   background:#fff;border:1px solid rgba(17,17,17,.06);
   box-shadow:0 24px 60px -22px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.06);
@@ -16108,10 +16110,10 @@ function learnHTML(){
     return null;
   }).filter(Boolean);
   if(!rows.length) return howBig() ? howBigHTML() : '';
-  return `<section class="rise rise-3"${libShown()?'':' data-tour="explainers"'} style="padding:22px 20px 0">
+  return `<section class="rise rise-3" style="padding:22px 20px 0">
     <h2 style="margin:0;font:400 26px/1.1 var(--serif)">Learn at <em style="color:var(--forest);font-style:normal">${esc(PS.n)}.</em></h2>
     <p style="margin:8px 0 0;font:400 15px/1.4 var(--sans);color:var(--grey)">Pick the thing that is in your way.</p>
-    <div style="margin-top:16px">${rows.map(r=>`<button class="lrn" onclick="${r.go}">
+    <div style="margin-top:16px">${rows.map((r,j)=>`<button class="lrn"${j?'':' data-tour="explainers"'} onclick="${r.go}">
       <span class="lrn-i">${r.img?`<img src="${esc(r.img)}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="9" height="10" viewBox="0 0 17 19"
         fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
       <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><b>${esc(r.t)}</b><small>${r.sub}</small></span>
@@ -18009,11 +18011,11 @@ function screenHome(){
          of video cards. The accordion this replaces held the same list; the
          lock is unchanged — the first few are open, an account opens the rest. -->
     ${!libShown() ? '' : st.filmsOpen!==true ? `<section class="rise rise-3" style="padding:0 20px">
-      <button data-tour="explainers" onclick="st.filmsOpen=true;save();render()" aria-expanded="false" class="lrn-all">
+      <button onclick="st.filmsOpen=true;save();render()" aria-expanded="false" class="lrn-all">
         <span><b>Every film and read</b> <span style="color:var(--grey)">&middot; ${FAQS_READY().length}</span></span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </button></section>` : `<section class="rise rise-3" data-tour="explainers" style="padding:0 20px">
+      </button></section>` : `<section class="rise rise-3" style="padding:0 20px">
       ${/* every film as Learn rows, the one way of showing them (Elliott,
             18 Oct 2026: "get rid of those ways of viewing it"): the rails
             and the Fix one thing shelf went */''}
@@ -23466,6 +23468,7 @@ function endTour(){
   if(was) markTourSeen(was);
   tourLeaveMode(); tourDropQ();
   const el = document.getElementById('tour'); if(el) el.remove();
+  document.querySelectorAll('[data-tourpad]').forEach(x=>{ x.style.paddingBottom = x.dataset.tourpad==='-' ? '' : x.dataset.tourpad; delete x.dataset.tourpad; });
   document.body.style.overflow = '';  /* the top bar's Show me around goes once the tour has been seen */
   setTimeout(()=>{ try{ render(); }catch(e){} }, 0);
 }
@@ -23619,16 +23622,25 @@ function paintTour(){
      tour (Elliott, 18 Oct 2026), so Next is always under the same thumb.
      What it points at is scrolled up clear of it. */
   const chh = card.offsetHeight || 220, vhh = window.innerHeight;
-  { const r0 = el.getBoundingClientRect(), floor = vhh - chh - 30;
-    if(r0.bottom > floor && r0.height < floor - 90){
+  /* the start of what it points at goes just under the top bar whenever
+     any of it would sit behind the card or above the screen */
+  const cardY = vhh - chh - 14;
+  { const r0 = el.getBoundingClientRect();
+    if((r0.bottom > cardY - 12 || r0.top < 70) && r0.height < vhh * .9){
       const sc = el.closest('.scroll, .sheet') || document.scrollingElement;
+      /* room at the foot while the tour runs, so the last thing on a page
+         can still come up clear of the card */
+      if(sc && sc.style && !sc.dataset.tourpad){ sc.dataset.tourpad = sc.style.paddingBottom || '-'; sc.style.paddingBottom = '70vh'; }
       try{ sc.scrollBy({top: r0.top - 96, behavior:'instant'}); }catch(e){ try{ sc.scrollTop += r0.top - 96; }catch(e2){} }
     } }
   const r = el.getBoundingClientRect();
   const pad = 6;
   const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
   const w = Math.min(window.innerWidth - 8, r.width + pad*2);
-  const h = Math.min(window.innerHeight - 8, r.height + pad*2);
+  /* never under the card: a target taller than the room above it shows
+     its top part, so nothing lit is hidden (Elliott, 18 Oct 2026) */
+  const full = r.height > vhh * .9;
+  const h = full ? Math.min(window.innerHeight - 8, r.height + pad*2) : Math.max(24, Math.min(r.height + pad*2, cardY - 12 - top));
   /* Below the hole if it fits, above if that fits. A target taller than
      the screen (the whole ladder, the check points) fits neither, and the
      card went to the top, over the part of the list it was talking about:
@@ -23643,6 +23655,10 @@ function paintTour(){
   hole.style.height = h + 'px';
   card.style.top = 'auto';
   card.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 14px)';
+  /* a pointer on the card's top edge, under the middle of what is lit, so
+     it is plain which part of the screen the words are about */
+  { const cr = card.getBoundingClientRect(), cx = Math.max(28, Math.min(cr.width - 28, (left + w/2) - cr.left));
+    card.style.setProperty('--px', cx + 'px'); card.classList.toggle('tour-ptr', !full); }
 
   const n = tourStep + 1, of = steps.length;
   const def = TOURS[tourKey]||{};
@@ -23681,6 +23697,7 @@ function abortTour(){
   tourKey = null; tourList = [];
   tourLeaveMode(); tourDropQ();
   const el = document.getElementById('tour'); if(el) el.remove();
+  document.querySelectorAll('[data-tourpad]').forEach(x=>{ x.style.paddingBottom = x.dataset.tourpad==='-' ? '' : x.dataset.tourpad; delete x.dataset.tourpad; });
   document.body.style.overflow = '';
 }
 /* ── one tutorial, once ─────────────────────────────────────────────
