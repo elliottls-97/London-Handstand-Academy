@@ -242,6 +242,12 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .cpd-b{flex:1;height:44px;border-radius:999px;border:1px solid rgba(0,64,61,.14);background:#fff;font:600 14px/1 var(--sans);color:var(--deep);cursor:pointer}
 .cpd-b.on{background:#006663;color:#fff;border-color:#006663}
 .cpd-b.on2{background:rgba(0,64,61,.08)}
+.exart{margin-top:18px;font:400 15.5px/1.65 var(--sans);color:var(--ink);max-width:62ch}
+.exart h3{margin:22px 0 6px;font:400 22px/1.2 var(--serif);color:var(--ink)}
+.exart p{margin:0 0 12px}
+.exart ul{margin:4px 0 14px;padding-left:20px}
+.exart li{margin:0 0 10px}
+.exart b{font-weight:600}
 .lrn{display:flex;align-items:center;gap:14px;width:100%;padding:14px 0;border:0;border-top:1px solid rgba(0,64,61,.10);
  background:none;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
 .lrn b{font:600 16px/1.25 var(--sans)}
@@ -12795,7 +12801,8 @@ function drawOv(){
       <div style="padding:8px 2px 0">
         <div class="kick2">EXPLAINER${stg?' &middot; '+esc(stg.toUpperCase()):''}</div>
         <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px">${esc(q.q)}</div>
-        ${sum?`<div class="kick2" style="margin-top:20px">WHAT IS COVERED</div>
+        ${(q.uid && typeof EXPLAIN_ARTICLE!=='undefined' && EXPLAIN_ARTICLE[q.uid]) ? exArticleHTML(EXPLAIN_ARTICLE[q.uid])
+          : sum?`<div class="kick2" style="margin-top:20px">WHAT IS COVERED</div>
         <div style="font:400 15px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(sum)}</div>`:''}
       </div>`;
   }
@@ -16047,6 +16054,13 @@ function trialPreviewHTML(){
 }
 /* The stage they are on, playing: an explainer opens its film, a fix opens
    the fix. A paid fix says so on its tile, and its own page makes the offer. */
+/* an explainer's article, under its film (18 Oct 2026). The text is ours,
+   from ladder-data.js, so its <b> is kept and nothing else is let through. */
+function exArticleHTML(blocks){
+  const t=x=>esc(String(x||'')).replace(/&lt;b&gt;/g,'<b>').replace(/&lt;\/b&gt;/g,'</b>');
+  return `<div class="exart">${(blocks||[]).map(([k,v])=> k==='h' ? `<h3>${t(v)}</h3>`
+    : k==='li' ? `<ul>${(v||[]).map(x=>`<li>${t(x)}</li>`).join('')}</ul>` : `<p>${t(v)}</p>`).join('')}</div>`;
+}
 /* ── Learn at the stage, led by the problem ───────────────────────────
    Explainers and fixes as one list, each row the thing in your way
    (Elliott's frames, 18 Oct 2026). Foundations links what exists for now;
@@ -16066,7 +16080,10 @@ function learnHTML(){
   const paid = !sellsLadder() ? 'Members' : PRICE_TRIAL()>0 ? 'With the trial' : esc(PRICE())+' a month';
   /* a stage with no rows written: its fixes, then its explainers, each its
      own row (Wall Work had no fixes, so Learn showed nothing at all) */
-  const rows=(LEARN_ROWS[P] || fx.map(f=>({fix:f.slug})).concat(ex.map(o=>({t:o.x.q, sub:esc(o.x.dur||'Film'), ex:o.i})))).map(r=>{
+  /* one row a film: Freestanding listed the tuck film three times */
+  const exOnce=ex.filter((o,j)=>!o.x.uid || ex.findIndex(y=>y.x.uid===o.x.uid)===j);
+  const hasArt=o=>o.x.uid && typeof EXPLAIN_ARTICLE!=='undefined' && EXPLAIN_ARTICLE[o.x.uid];
+  const rows=(LEARN_ROWS[P] || fx.map(f=>({fix:f.slug})).concat(exOnce.map(o=>({t:o.x.q, sub:(hasArt(o)?'Film and read &middot; ':'')+esc(o.x.dur||'Film'), ex:o.i})))).map(r=>{
     if(r.fix){ const f=fx.find(x=>x.slug===r.fix); if(!f) return null;
       const n=(f.steps||f.drills||[]).length, lock=f.access==='plus' && !isPlus();
       return {t:fixSub(f)||f.name, sub:esc(f.name)+(n?' &middot; '+n+' steps':'')+(lock?' &middot; '+paid:''), img:fixCover(f), go:`openFix(${jsq(f.slug)})`}; }

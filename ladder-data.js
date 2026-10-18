@@ -169,6 +169,94 @@ const EXPLAIN_SUM = {
     'Easier because the centre of mass is lower, as with crow pose, so there is less to balance. Harder because tucking the knees shifts your mass forward, and a good tuck handstand opens the shoulders even more than a straight one to compensate; most people close the shoulder and planche instead. It needs more strength and more shoulder mobility, which is why this phase adds active and weighted mobility drills, and why the tuck carries into press and one arm later and makes your straight handstand feel easier.',
 };
 
+/* ── an article under each explainer film ──────────────────────────
+   Written from the film's own captions (18 Oct 2026), in Elliott's words
+   where he said it, for anybody who would rather read it or wants it again
+   after watching. Blocks: ['h', heading], ['p', paragraph], ['li', [items]].
+   Drafts until Elliott has read them. */
+const EXPLAIN_ARTICLE = {
+  '99806cf5a01e65ef29f786bb4e50453b': [
+    ['p', 'Congratulations on making it to stage two. By now you are used to being upside down: holding crow pose, supporting yourself against the wall at 45 degrees, getting your weight onto your hands. Wall Work builds the foundation everything after it stands on.'],
+    ['h', 'Time upside down'],
+    ['p', 'One of the most important things in learning a handstand is spending time upside down, and until you can balance you need help to do it. The wall is the best help there is.'],
+    ['h', 'What this stage asks for'],
+    ['li', [
+      '<b>The chest to wall handstand.</b> Held for a good amount of time, until you are relaxed in it rather than straining.',
+      '<b>Wall scapular shrugs.</b> Pushing through the shoulders in a shrugging motion, against the wall. This is the handstand specific strength, and the wall is the best place to learn it.',
+      '<b>The pike push up, one step on.</b> On your knees before? Do negatives. Doing full reps? Put your feet up on a box. You do not need a strong pike push up to handstand, but it adds foundation.',
+      '<b>The knee tuck entry.</b> From the middle of the room, kicking up and getting most of the way there. Not a freestanding handstand yet.'
+    ]],
+    ['h', 'Your check points'],
+    ['p', 'The check points for this stage are on the ladder: how many shrugs you can do, how long you hold the wall, whether you are comfortable falling out. As always you choose how long each session is and how hard.'],
+    ['p', 'If you want your form looked at, send me a clip. If you want a programme written around you, that is what coaching is for.']
+  ],
+  'e1ff0eb98d4c9721ede040f7db994acf': [
+    ['p', 'The biggest thing I say in a workshop: look between your hands.'],
+    ['h', 'Where exactly'],
+    ['p', 'At the centre point between your hands and fingers. Not with an arched head, and not with your eyes pushed up. The head stays relaxed where it sits and the eyes look between the hands. Suryava puts it as a slight look up through your eyes, nothing more.'],
+    ['h', 'Why'],
+    ['p', 'When you are balancing between your hands, knowing where you are is what lets you understand how you balance, and it builds your coordination in that position. Almost every drill in the programme asks you to look there for that reason.'],
+    ['p', 'Suryava adds a simpler reason. The push in a handstand is directional, and you push where you look. Try pushing something heavy while looking at the floor, and it does not go where you meant.'],
+    ['h', 'The exceptions'],
+    ['p', 'As you get good, there are drills like gaze shifts, and exercises where you are asked to look back on purpose. Those are targeted at repositioning the shoulders or at shoulder mobility, usually when coaching has found that is your limiting factor. The rule stays: look between your hands, with the occasional exception.']
+  ],
+  '7467f41353ab66c13b57543f0a7105d6': [
+    ['p', 'In short, no. In long, it helps, though not the way most people think.'],
+    ['h', 'Gym strength is not handstand strength'],
+    ['p', 'I had been going to the gym for about seven years when I started handstands, and I was reasonably strong for my size. Very little of it carried over beyond the basics. Handstand strength is its own thing, and you get it by training handstands, the way climbers get strong by climbing.'],
+    ['p', 'The ladder is built for someone who has not exercised much and has a small training background. You build the strength you need as you climb, and each stage asks for a little more.'],
+    ['h', 'Strength and mobility'],
+    ['p', 'A handstand needs handstand specific strength and a lot of mobility. Being very strong in the usual ways can even make the mobility side harder. The mobility you build here carries over too: pancakes, overhead flexibility, other ways of moving.'],
+    ['h', 'Everybody has one thing'],
+    ['p', 'Big, strong people and bodybuilders come to my workshops able to push themselves up, but without the shoulder mobility for the shape. Very flexible people, contortionists even, have the shape and cannot hold it. Some have never trained at all. Everyone has a limiting factor, and finding yours and working on it is what coaching does.']
+  ],
+  'a366aa047568153b2db238333eb43e8f': [
+    ['p', 'You will see <b>build to</b> on a lot of sets in the ladder. It is there because handstands get associated with failure.'],
+    ['h', 'What it means'],
+    ['p', 'Say a set asks for 30 seconds, or 8 reps, and you come down at 10 seconds. That is not the end of the set. Rest for 10 seconds, or 30, then go back up and keep going until you have the full 30 seconds or all 8 reps.'],
+    ['h', 'Why'],
+    ['p', 'Handstands are learned by spending enough time upside down. If every set ends the first time you come down, you never get enough of it, and you train a lot without progressing. Build to gets you the time and the repetitions, and it stops every set from feeling like a fail.'],
+    ['h', 'Bad balance days'],
+    ['p', 'Everybody in handstands knows the bad balance day, when you feel like you have got worse. Usually you have not. My bad balance days now are better than my good ones were a year ago.'],
+    ['p', 'Progress is never a straight line up. It is a jagged line that tracks upwards, and the low points a year from now will be higher than your best today. So be kind to yourself on the bad days and build to the number.']
+  ],
+  '681e59df476ca15c136c365cbd2cec72': [
+    ['p', 'You can hold your shape on the wall now, so why not just kick up in the middle of the room? I know it is tempting.'],
+    ['h', 'What each stage teaches'],
+    ['p', 'Wall Work teaches you what a line feels like, with the wall to get you there. Pushing More teaches you to take yourself a little off the wall while keeping that position. The shrug, the scapular elevation, is usually not quite there yet, and this is the stage that gets it there.'],
+    ['h', 'Lying on the wall is not the same'],
+    ['p', 'People come to me saying they have worked on handstands for ages and can get their legs off the wall. Most of the time the chest is sunk in and they are lying on the wall. This stage is about getting off it properly, so that when the balance work comes in stages four and five, the ability is already underneath it.'],
+    ['h', 'You still kick up'],
+    ['p', 'The ladder is a step by step route away from the wall, and the entries level up alongside it, so you keep doing the fun stuff and kicking up into handstands. The difference is getting in and out of the handstand consistently, rather than kicking up and hoping to balance.']
+  ],
+  '7cca146ef4826328688d1c00693b7b4a': [
+    ['p', 'Congratulations, you made it to stage four. This is where the fun starts: you finally get a little off the wall, put the weight on your hands and balance it yourself. All the work before this starts to pay off.'],
+    ['h', 'Creating balance, not catching it'],
+    ['p', 'Kick up from the floor and hope, and you get one or two holds in ten and almost no time upside down. Here you spend that time. You feel yourself going towards your belly or over your back, and you correct it with the shoulders and the scapular elevation you have built. You stop catching a balance and start creating one, every time you go up.'],
+    ['h', 'What is in this stage'],
+    ['li', [
+      '<b>Shifting off the wall.</b> Using the tuck strength and your alignment to move your centre of mass away from the wall with the shoulders and hips. Fall back and you touch the wall. A spotter works too, if you have one. Build to applies: the wall gives you more time balancing.',
+      '<b>Knees on box leg lifts.</b> Alignment and position, building on the last stage.',
+      '<b>Shape changes against the wall.</b> They start fully on the wall. As the weeks go on, rely on it less, until only your toe tips touch it.',
+      '<b>Freestanding attempts.</b> About five minutes, at the start or the end of a session: entries and freestanding balance attempts, to see where you are.'
+    ]],
+    ['h', 'Why the freestanding attempts are in'],
+    ['p', 'They were not, at first. Then some people followed the drills so closely that they were happy staying against the wall, when they were already basically there. I do not want you reaching stage five without ever having kicked up in the middle of the room. So give it a go, see how it feels, and aim for a ten second freestanding hold. You never know, that could be your record.'],
+    ['p', 'Questions come straight to us. If you want your form reviewed, or a programme built around where you are, there are options for that.']
+  ],
+  'ea06b266a4ed68ce5f8ee0c180d01827': [
+    ['p', 'The tuck handstand is easier than a straight one, and harder. Both are true.'],
+    ['h', 'Why it is easier'],
+    ['p', 'You pull your knees in towards your chest, using the hip flexors, which lowers your centre of mass. As with crow pose in stage one, a lower centre of mass means less to balance and smaller adjustments.'],
+    ['h', 'Why it is harder'],
+    ['p', 'In a straight handstand you have one line. Tuck the legs and your centre of mass moves away from you, off the top of the shoulders. A good tuck handstand, the kind the ladder aims for, opens the shoulders to bring it back, so they are even more open than in a straight handstand. That takes more strength and more mobility.'],
+    ['p', 'Most people who can hold a tuck do it by closing the shoulder and leaning forwards, a bit of a planche. That is not what we are after. Open shoulders and scapular elevation are.'],
+    ['h', 'Why we train it'],
+    ['p', 'It forces you to lift through and adjust the shoulders, which are exactly the corrections this stage teaches. It carries into the press and the one arm later. And it builds strength and range beyond what a straight handstand needs, so the straight one starts to feel easier.'],
+    ['p', 'From this stage, active and weighted mobility drills come into the programme as extras you can add to your sessions, if the shoulders are what is holding you back.']
+  ],
+};
+
 const WRIST_DAY = {n:'Mobility day', sub:'Wrists and shoulders, and it is the one that keeps you training',
   drills:['forearm-massage','wrist-circles-mob','dd-wrist-taps','palm-lifts-table-top',
           'shoulder-circles','heart-melting-pose']};
