@@ -172,7 +172,8 @@ const EXPLAIN_SUM = {
 /* ── an article under each explainer film ──────────────────────────
    Written from the film's own captions (18 Oct 2026), in Elliott's words
    where he said it, for anybody who would rather read it or wants it again
-   after watching. Blocks: ['h', heading], ['p', paragraph], ['li', [items]].
+   after watching. Blocks: ['h', heading], ['p', paragraph], ['li', [items]],
+   ['try', [drill ids]] for the programme's own drills, each opening its film.
    Drafts until Elliott has read them. */
 const EXPLAIN_ARTICLE = {
   '99806cf5a01e65ef29f786bb4e50453b': [
@@ -186,6 +187,7 @@ const EXPLAIN_ARTICLE = {
       '<b>The pike push up, one step on.</b> On your knees before? Do negatives. Doing full reps? Put your feet up on a box. You do not need a strong pike push up to handstand, but it adds foundation.',
       '<b>The knee tuck entry.</b> From the middle of the room, kicking up and getting most of the way there. Not a freestanding handstand yet.'
     ]],
+    ['try', ['chest-to-wall-handstand','wall-scapula-shrugs','pike-press-ups','knee-to-nose-bounces']],
     ['h', 'Your check points'],
     ['p', 'The check points for this stage are on the ladder: how many shrugs you can do, how long you hold the wall, whether you are comfortable falling out. As always you choose how long each session is and how hard.'],
     ['p', 'If you want your form looked at, send me a clip. If you want a programme written around you, that is what coaching is for.']
@@ -197,6 +199,8 @@ const EXPLAIN_ARTICLE = {
     ['h', 'Why'],
     ['p', 'When you are balancing between your hands, knowing where you are is what lets you understand how you balance, and it builds your coordination in that position. Almost every drill in the programme asks you to look there for that reason.'],
     ['p', 'Suryava adds a simpler reason. The push in a handstand is directional, and you push where you look. Try pushing something heavy while looking at the floor, and it does not go where you meant.'],
+    ['p', 'Practise it on the wall, where you have the time to notice where your eyes are.'],
+    ['try', ['chest-to-wall-handstand','wall-scapula-shrugs']],
     ['h', 'The exceptions'],
     ['p', 'As you get good, there are drills like gaze shifts, and exercises where you are asked to look back on purpose. Those are targeted at repositioning the shoulders or at shoulder mobility, usually when coaching has found that is your limiting factor. The rule stays: look between your hands, with the occasional exception.']
   ],
@@ -206,6 +210,8 @@ const EXPLAIN_ARTICLE = {
     ['p', 'I had been going to the gym for about seven years when I started handstands, and I was reasonably strong for my size. Very little of it carried over beyond the basics. Handstand strength is its own thing, and you get it by training handstands, the way climbers get strong by climbing.'],
     ['p', 'The ladder is built for someone who has not exercised much and has a small training background. You build the strength you need as you climb, and each stage asks for a little more.'],
     ['h', 'Strength and mobility'],
+    ['p', 'The strength the ladder builds is in drills like these, and they get harder as you climb.'],
+    ['try', ['wall-scapula-shrugs','p-pike-pushups-knees','plank-pose']],
     ['p', 'A handstand needs handstand specific strength and a lot of mobility. Being very strong in the usual ways can even make the mobility side harder. The mobility you build here carries over too: pancakes, overhead flexibility, other ways of moving.'],
     ['h', 'Everybody has one thing'],
     ['p', 'Big, strong people and bodybuilders come to my workshops able to push themselves up, but without the shoulder mobility for the shape. Very flexible people, contortionists even, have the shape and cannot hold it. Some have never trained at all. Everyone has a limiting factor, and finding yours and working on it is what coaching does.']
@@ -216,6 +222,8 @@ const EXPLAIN_ARTICLE = {
     ['p', 'Say a set asks for 30 seconds, or 8 reps, and you come down at 10 seconds. That is not the end of the set. Rest for 10 seconds, or 30, then go back up and keep going until you have the full 30 seconds or all 8 reps.'],
     ['h', 'Why'],
     ['p', 'Handstands are learned by spending enough time upside down. If every set ends the first time you come down, you never get enough of it, and you train a lot without progressing. Build to gets you the time and the repetitions, and it stops every set from feeling like a fail.'],
+    ['p', 'The chest to wall handstand is the one you will meet it on first.'],
+    ['try', ['chest-to-wall-handstand']],
     ['h', 'Bad balance days'],
     ['p', 'Everybody in handstands knows the bad balance day, when you feel like you have got worse. Usually you have not. My bad balance days now are better than my good ones were a year ago.'],
     ['p', 'Progress is never a straight line up. It is a jagged line that tracks upwards, and the low points a year from now will be higher than your best today. So be kind to yourself on the bad days and build to the number.']
@@ -224,6 +232,8 @@ const EXPLAIN_ARTICLE = {
     ['p', 'You can hold your shape on the wall now, so why not just kick up in the middle of the room? I know it is tempting.'],
     ['h', 'What each stage teaches'],
     ['p', 'Wall Work teaches you what a line feels like, with the wall to get you there. Pushing More teaches you to take yourself a little off the wall while keeping that position. The shrug, the scapular elevation, is usually not quite there yet, and this is the stage that gets it there.'],
+    ['p', 'These are the drills that do it:'],
+    ['try', ['wall-scapula-shrugs','slide-away','tuck-slides','single-leg-wall-removals']],
     ['h', 'Lying on the wall is not the same'],
     ['p', 'People come to me saying they have worked on handstands for ages and can get their legs off the wall. Most of the time the chest is sunk in and they are lying on the wall. This stage is about getting off it properly, so that when the balance work comes in stages four and five, the ability is already underneath it.'],
     ['h', 'You still kick up'],
@@ -240,9 +250,45 @@ const EXPLAIN_ARTICLE = {
       '<b>Shape changes against the wall.</b> They start fully on the wall. As the weeks go on, rely on it less, until only your toe tips touch it.',
       '<b>Freestanding attempts.</b> About five minutes, at the start or the end of a session: entries and freestanding balance attempts, to see where you are.'
     ]],
+    ['try', ['knees-on-box-single-leg-lifts','wall-shape-changes','tuck-take-offs','straight-entries']],
     ['h', 'Why the freestanding attempts are in'],
     ['p', 'They were not, at first. Then some people followed the drills so closely that they were happy staying against the wall, when they were already basically there. I do not want you reaching stage five without ever having kicked up in the middle of the room. So give it a go, see how it feels, and aim for a ten second freestanding hold. You never know, that could be your record.'],
     ['p', 'Questions come straight to us. If you want your form reviewed, or a programme built around where you are, there are options for that.']
+  ],
+  'a74fc970945b633f71bc7457893baf25': [
+    ['p', 'Practice is the key part, because a handstand is learned by repeating the movement. How often depends on how much you can commit and what you want out of it.'],
+    ['h', 'As a beginner'],
+    ['p', 'Two to three sessions a week, about half an hour each, is what Suryava and I recommend. Focus on the drills, and make the handstand the main part of the workout rather than an extra at the end.'],
+    ['p', 'Repetition matters, and so does the recovery in between. An hour every day tires you out and the progress stalls.'],
+    ['h', 'Further up the ladder'],
+    ['p', 'Freestanding and shape changes want more: three to four sessions a week of 45 minutes to an hour. More volume helps if you can recover from it, which is why I keep it to four or five sessions a week myself.'],
+    ['p', 'One arm work is a big commitment: four or five sessions a week, an hour at least, plus a lot more mobility work on front splits, middle splits and the pancake.'],
+    ['h', 'It depends what you want'],
+    ['p', 'Suryava does gymnastics, where a handstand is a position you pass through on the way to the next skill. She trains it five times a week, ten to twenty minutes at a time. I am more of a hand balancer, so I train it far more. Neither is wrong. Decide what you want from it, then train as often as that asks.'],
+    ['p', 'The ladder builds each session to the time you have, so you can start at half an hour and go up from there.']
+  ],
+  'd692864081a3d4976dbafaaaff314213': [
+    ['p', 'The annoying answer first: it depends on you. How much work you put in, how much you can commit, your coordination and a little strength.'],
+    ['h', 'The range'],
+    ['p', 'Some people I have taught learned in ten days. Some took six months. I took eighteen months to get five or ten seconds, and I went down some wrong paths on the way. Perfecting it takes years, and getting to a one arm handstand takes years more.'],
+    ['h', 'What counts as learning it'],
+    ['p', 'One lucky ten second hold is not the same as a handstand you can hold anywhere, any day, even after a week off. Several months of consistent training gets most people holding one; being consistent can take several years.'],
+    ['h', 'The time passes anyway'],
+    ['p', 'I was 28 when we filmed this. Start now and you could quite possibly have it in a year and a half. Do not start, and the year and a half passes anyway. Suryava never tracked how long her skills took in gymnastics: she wanted the skill, so she did the work until it was comfortable.'],
+    ['h', 'Not zero or one'],
+    ['p', 'People think of it as zero, cannot handstand, or one, can. That is why I made the ladder. There are dozens of steps between the wall and a freestanding handstand, and each is a win. Celebrate the small ones, because as you get better the wins get further apart.']
+  ],
+  'f84f53ba8026f8bd0348cb6836a46aad': [
+    ['p', 'Stacked, and relaxed.'],
+    ['h', 'What Suryava feels'],
+    ['p', 'Her shoulders engage, and the rest of her body stops feeling like extra weight on the hands. It stacks up. The hands and shoulders relax, she can breathe comfortably and talk. It feels good.'],
+    ['h', 'Why it feels like that'],
+    ['p', 'Think about standing. You stand for hours without thinking about it, because your hips are over your feet and everything sits in a line. Lean to one side, or stand on one foot, and you feel everything work harder.'],
+    ['p', 'A handstand is the same. Your shoulders are not as used to holding you as your hips are, but when the shoulders stack over the hands and the hips over the shoulders, the handstand becomes efficient. When the effort goes down, that is your alignment telling you it is there.'],
+    ['h', 'The banana back'],
+    ['p', 'The arched, banana back is a symptom, not the cause. Without the shoulder mobility to open up, you lean the shoulders forwards, maybe bend the arms, and the body starts to fall. Your brain will not let it, so the back arches to pull your centre of mass back in. Fix the shoulder position and you can hold it with far less effort.'],
+    ['p', 'Engaging does not mean squeezing every muscle. It means just enough to make tiny adjustments, sometimes none at all, and stay still like a stick.'],
+    ['try', ['chest-to-wall-handstand','45-degree-wall-hold','wall-scapula-shrugs']]
   ],
   'ea06b266a4ed68ce5f8ee0c180d01827': [
     ['p', 'The tuck handstand is easier than a straight one, and harder. Both are true.'],
@@ -253,6 +299,7 @@ const EXPLAIN_ARTICLE = {
     ['p', 'Most people who can hold a tuck do it by closing the shoulder and leaning forwards, a bit of a planche. That is not what we are after. Open shoulders and scapular elevation are.'],
     ['h', 'Why we train it'],
     ['p', 'It forces you to lift through and adjust the shoulders, which are exactly the corrections this stage teaches. It carries into the press and the one arm later. And it builds strength and range beyond what a straight handstand needs, so the straight one starts to feel easier.'],
+    ['try', ['p-tuck-handstand','tuck-slides','tuck-take-offs']],
     ['p', 'From this stage, active and weighted mobility drills come into the programme as extras you can add to your sessions, if the shoulders are what is holding you back.']
   ],
 };
