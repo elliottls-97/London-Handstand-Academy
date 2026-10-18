@@ -3687,23 +3687,12 @@ function screenToday(){
     <!-- One button. Log today sat beside it at the same height, so the screen
          opened on a choice between two things; it is a line underneath now,
          and once something is logged that line says what. -->
-    <button onclick="openOv('daystart')" style="width:100%;margin-top:14px;height:68px;border:0;border-radius:18px;
-      background:linear-gradient(180deg,#0a7a76,#006663);
-      box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-      color:var(--on-primary);display:flex;align-items:center;justify-content:space-between;
-      padding:0 12px 0 22px;cursor:pointer;transition:transform .18s cubic-bezier(.2,.8,.2,1)"
-      onpointerdown="this.style.transform='scale(.985)'"
-      onpointerup="this.style.transform=''" onpointercancel="this.style.transform=''">
-      <span style="font:600 19px/1.15 var(--sans)">${ticked>=total&&total?'Go again':'Start the session'}</span>
-      <span style="width:44px;height:44px;border-radius:50%;background:var(--on-primary);
-        display:grid;place-items:center">
-        <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
-          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
-    </button>
+    ${capsuleHTML("openOv('daystart')", ticked>=total&&total?'Go again':'Start session')}
     ${d.when?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;
       margin-top:10px">${esc(d.when)}</div>`:''}
     ${keptCueHTML()}
-    ${coachNearHTML()}
+    ${/* Nearly there went (Elliott, 18 Oct 2026): the check points are one
+          tap away in the capsule */''}
     ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
   </div>
   ${todaySlotHTML(dl)}
@@ -7380,7 +7369,8 @@ function cpListHTML(si){
       </div>
     </div>`;
   }).join('');
-  return `<div class="lc cl" data-si="${si}" data-use="${use}"><div class="lc-body">${rows}</div>${cpNextRow(si, S)}</div>`;
+  /* the ladder's next stage means nothing on a coached block */
+  return `<div class="lc cl" data-si="${si}" data-use="${use}"><div class="lc-body">${rows}</div>${coachedView()?'':cpNextRow(si, S)}</div>`;
 }
 /* The build waits until most of the ladder is on screen, because it
    starts at the foot: watching for any of it set it off with only the top
@@ -13928,7 +13918,9 @@ function joinSteps(){
   const qDone=!!a.goal && a.level!=null;
   return [
     {k:'in', t:'You\u2019re in', short:'Coaching starts today.', done:true},
-    {k:'app', t:'Hear from me', short:(IOS_APP || !isIOS())?'Notifications on, so you hear when I reply.':'The app on your Home Screen, notifications on.', done: appDone()},
+    /* optional (Elliott, 18 Oct 2026): the App Store app is coming, so the
+       Home Screen is never what holds somebody up */
+    {k:'app', t:'Hear from me', opt:true, short:(IOS_APP || !isIOS())?'Optional: notifications on, so you hear when I reply.':'Optional: the app on your Home Screen, so my replies arrive as notifications.', done: appDone()},
     {k:'q', t: qDone?'Your answers':'A few questions', short: qDone?'From the quiz you took. Anything changed?':'About you, and what you want from this.', done: qDone},
     {k:'t', t:'Your baseline', short: cps.length ? 'Film yourself on each test and send it to me.' : !qDone ? 'Chosen for your goals, once they are in.' : 'Send me a clip of your handstand.',
       done: cps.length ? tested>=cps.length : false, n:tested, of:cps.length},
@@ -13963,8 +13955,8 @@ function obAppHTML(x, main){
     : line('On. You will hear the moment I reply. '+link('Send a test','pushTestSend()'));
   /* the email way past was only offered once notifications were refused,
      so somebody who could not add it was stuck on this step for good */
-  if(!appHome()) return line('On an iPhone my replies reach you through the app on your Home Screen. Add it, open it from there and sign in once.')
-    + cta('Show me how', "openOv('install')") + email;
+  if(!appHome()) return line('Optional. On an iPhone, notifications need the app on your Home Screen. Skip it and my replies come by email.')
+    + `<button class="btn2" style="margin:14px 0 0;min-height:46px;width:100%" onclick="openOv('install')">Show me how</button>` + email;
   if(!pushSupported()) return line('This browser cannot show notifications.')+email;
   if(perm==='denied') return line('Notifications are blocked for this app. Turn them on for it in your phone settings, then come back.')+email;
   return line('One tap, so you hear the moment I reply to you.')+cta('Turn on notifications','pushTurnOn()');
@@ -14034,7 +14026,9 @@ function obTimelineHTML(steps, next){
 function screenStart(){
   youInMaybe();
   const first=(st.client||'').split(' ')[0];
-  const steps=joinSteps(), next=steps.findIndex(x=>!x.done), cps=st.obCps||[];
+  /* the next step is the next one that is not optional and not done */
+  const steps=joinSteps(), cps=st.obCps||[];
+  let next=steps.findIndex(x=>!x.done && !x.opt); if(next<0) next=steps.findIndex(x=>!x.done);
   const S=k=>steps.find(x=>x.k===k)||{}, sA=S('app'), s0=S('q'), s1=S('t'), s2=S('call'), s3=S('b');
   const open=obOpenK(steps, next);
   const a=intake();
@@ -16681,22 +16675,45 @@ function climbCardHTML(cs, S, P, x){
     ${x.foot||''}
   </div>`;
 }
+/* the two ways in as one capsule, free and coached alike (Elliott, 18 Oct
+   2026: "combine the checkpoints and start session on the front page,
+   with the same style pill") */
+function capsuleHTML(go, label){
+  const P=coachedView() ? cpProgress() : cpProgress(curStage()), on=!!st.homeCps;
+  return `<div class="hcap">
+      <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}" style="background:${on?'#cfe6ec':'rgba(0,64,61,.06)'}">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#006663" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
+        <span><b>Check points</b><small id="hcapN">${P.of?P.met+' of '+P.of:'On their way'}</small></span></button>
+      <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}">${label}
+        <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
+          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
+    </div>${on?homeCpsHTML():''}`;
+}
 /* everything that sent people to the check points lands on Train with
    them open (18 Oct 2026) */
 function climbGo(k){
   st.homeCps=true; window._hcpsAt=Date.now(); if(k) lcOpen.log=k; save();
-  if(st.tab!=='home') go('home'); else render();
+  const front=coachedView()?'today':'home';
+  if(st.tab!==front) go(front); else render();
   setTimeout(()=>{ const el=k ? document.querySelector('.hcps [data-ck="'+k+'"]') : document.querySelector('.hcap');
     if(el) el.scrollIntoView({behavior:'smooth', block:k?'center':'start'}); }, 160);
 }
 const openCp = k => climbGo(k);
+/* every clip they have sent, from the check points (Elliott, 18 Oct 2026):
+   coached on Check points' Clips, everyone else on the Form check tab */
+function openClips(){
+  if(coachedView()){ st.progTab='clips'; save(); go('progress'); }
+  else { st.coTab='check'; save(); go('coaching');
+    setTimeout(()=>{ const el=[...document.querySelectorAll('#app .kick2')].find(e=>/YOUR CLIPS/.test(e.textContent)); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }, 200); }
+}
 function homeCps(){ st.homeCps=!st.homeCps; if(st.homeCps) window._hcpsAt=Date.now(); save(); render(); }
 /* the check points out of the capsule: the list, the finished stage's
    offer when there is one, and the way to fold it */
 function homeCpsHTML(){
   const cur=curStage(), s=STAGES[cur]||STAGES[0], P=cpProgress(cur), nxt=STAGES[cur+1];
   const done=P.of && P.met>=P.of, gated=nxt && stageLocked(cur+1), days=PRICE_TRIAL(), left=STAGES.length-cur-1;
-  const offer=(done && gated) ? `<div class="card" style="margin:10px 8px 4px;padding:18px 20px;border-color:rgba(243,169,73,.55);background:rgba(243,169,73,.08)">
+  const offer=(done && gated && !coachedView()) ? `<div class="card" style="margin:10px 8px 4px;padding:18px 20px;border-color:rgba(243,169,73,.55);background:rgba(243,169,73,.08)">
       <div class="kick2" style="color:#8a5a12">ALL ${P.of} REACHED</div>
       <div style="font:400 24px/1.1 var(--serif);margin-top:8px">You have finished <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em></div>
       <div style="font:400 14px/1.55 var(--sans);margin-top:8px">${esc(nxt.n)} and the ${left===1?'stage':left+' stages'} after it ${left===1?'is':'are'} ${
@@ -16708,6 +16725,10 @@ function homeCpsHTML(){
     ${cpDue() && (cpFor(cur)||[]).some(c=>cpLast(c.k)) ? `<div style="padding:0 8px 8px;font:500 13.5px/1.45 var(--sans);color:var(--forest)">It has been a fortnight. Worth running through these again.</div>` : ''}
     <div data-tour="checkpoints">${cpListHTML(cur)}</div>
     ${offer}
+    ${(n=>n?`<button class="lrn-all" style="width:calc(100% - 16px);margin:6px 8px 0;border-bottom:0" onclick="openClips()"><span><b>All your clips</b>
+      <span style="color:var(--grey)">&middot; ${n}</span></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)"
+      stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`:'')(
+      (()=>{ try{ return myClips().length; }catch(e){ return 0; } })())}
     <button class="hcps-fold" onclick="homeCps()">Fold away <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg></button>
   </div></div>`;
@@ -17841,15 +17862,7 @@ function screenHome(){
      2026): work on the stage, or train it. Check points open in place out
      of it, so the Ladder tab is Progress now. */
   const _hp=cpProgress(curStage()), _cpsOn=!!st.homeCps;
-  const homeRow = !trialPending() ? `<div class="hcap">
-      <button class="hcap-cp" onclick="homeCps()" aria-expanded="${_cpsOn}" style="background:${_cpsOn?'#cfe6ec':'rgba(0,64,61,.06)'}">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#006663" stroke-width="2" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
-        <span><b>Check points</b><small id="hcapN">${_hp.of?_hp.met+' of '+_hp.of:'On their way'}</small></span></button>
-      <button data-tour="buildsession" class="hcap-go" onclick="startDay(${_cellIdx},'full')">Start session
-        <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
-          1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
-    </div>${_cpsOn?homeCpsHTML():''}${cpDayCardHTML(true)}` : '';
+  const homeRow = !trialPending() ? `${capsuleHTML(`startDay(${_cellIdx},'full')`,'Start session')}${cpDayCardHTML(true)}` : '';
   const _cells=weekCells();
   const _cell=_cellIdx>=0?_cells[_cellIdx]:null;
   const _rest=isRestCell(_cell);
