@@ -158,6 +158,13 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .wk-big .wkdots.big{gap:12px}
 .wk-big .wkdots.big .wkdot{width:22px;height:22px;box-shadow:inset 0 0 0 2.5px rgba(0,102,99,.3)}
 .wk-big .wkdots.big .wkdot.on{box-shadow:none}
+.wk-days{display:flex;gap:4px;margin-top:10px}
+.wk-days button{flex:1;min-width:0;min-height:44px;border:1px solid rgba(0,64,61,.14);border-radius:12px;background:#fff;cursor:pointer;
+ font:600 14px/1 var(--sans);color:var(--deep);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.wk-days button small{font:500 9px/1 var(--sans);color:var(--grey);letter-spacing:.02em}
+.wk-days button.on{background:var(--forest);border-color:var(--forest);color:#fff}
+.wk-days button.on small{color:rgba(255,255,255,.8)}
+.wk-days button:disabled{opacity:.35;cursor:default}
 .wk-goal{display:flex;gap:4px;margin-top:12px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08)}
 .wk-goal button{flex:1;min-height:42px;border:0;border-radius:11px;cursor:pointer;background:transparent;
   font:600 15px/1 var(--sans);color:var(--grey)}
@@ -2491,6 +2498,34 @@ function weekMomentHTML(){
         background:${['var(--amber)','var(--forest)','var(--sand)','#f08a3c'][i%4]}"></i>`).join('')}</div>`:''}
   </div>`;
 }
+/* ── which days ─────────────────────────────────────────────────────
+   The goal is how many; these are which (Elliott, 18 Oct 2026: "allow
+   them to choose which days they want to train based on their goal").
+   As many days as the goal, the sessions put on them and the wrist and
+   mobility days in the gaps, the same as the days the quiz asks for. */
+function wkTrainDays(){
+  if(Array.isArray(st.trainDays) && st.trainDays.length) return st.trainDays.slice();
+  const cells=weekCells(), out=[];
+  cells.forEach((c,i)=>{ if(!isRestCell(c)) out.push(dayFor(i)); });
+  return [...new Set(out)].sort((a,b)=>a-b);
+}
+function wkDaysPickHTML(goal){
+  if(coachedView()) return '';
+  const on=new Set(wkTrainDays().slice(0,goal)), full=on.size>=goal, left=goal-on.size;
+  return `<div class="sk-k" style="margin-top:16px"><span>Your days</span><span>${left>0?'Pick '+left+' more':''}</span></div>
+    <div class="wk-days" role="group" aria-label="Days you train">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((L,d)=>
+      `<button aria-pressed="${on.has(d)}" class="${on.has(d)?'on':''}" ${!on.has(d)&&full?'disabled':''} onclick="wkDayToggle(${d})" aria-label="${L}">${L.slice(0,1)}</button>`).join('')}</div>
+    ${full?`<div class="sk-note" style="margin-top:8px">Tap a day to free it, then pick another.</div>`:''}`;
+}
+function wkDayToggle(d){
+  const goal=weekInfo().goal;
+  let days=wkTrainDays().slice(0,goal);
+  days = days.includes(d) ? days.filter(x=>x!==d) : days.concat([d]);
+  days=[...new Set(days)].sort((a,b)=>a-b).slice(0,goal);
+  st.trainDays=days;
+  if(days.length===goal){ st.dayMap=weekOn(days); }
+  save(); try{ saveState(); }catch(e){} repaintWeek();
+}
 /* the goal, changed from its sheet. The weeks behind keep the goal they
    were held to, so the first change writes down the one before it. */
 function setWeekGoal(k){
@@ -2498,7 +2533,12 @@ function setWeekGoal(k){
   const g=(st.wkGoals||[]).slice();
   if(!g.length) g.push([0, weekTarget()]);
   const i=g.findIndex(x=>x[0]===now); if(i>-1) g[i]=[now,k]; else g.push([now,k]);
-  st.wkGoals=g.slice(-24); st.perWeek=k; save(); try{ saveState(); }catch(e){} repaintWeek();
+  st.wkGoals=g.slice(-24); st.perWeek=k;
+  if(Array.isArray(st.trainDays) && st.trainDays.length){
+    st.trainDays=st.trainDays.slice(0,k);
+    if(st.trainDays.length===k) st.dayMap=weekOn(st.trainDays);
+  }
+  save(); try{ saveState(); }catch(e){} repaintWeek();
 }
 /* this week, or last week if it was short: away or ill, and the run waits */
 function pauseWeek(last){
@@ -3179,7 +3219,6 @@ function streakSheetHTML(){
     <div class="wk-big">${weekDotsHTML(W.got, W.goal, -1, true)}</div>
     <div class="sk-days" aria-label="Days trained this week">${days}</div>
     ${warn?`<div class="sk-warn" style="margin-top:12px">${esc(warn)}</div>`:''}
-    ${(W.today || W.done || W.paused)?'':`<button class="btn" style="width:100%;margin-top:16px" onclick="closeOv();startDay(todayCellIdx(),'full')">Start a session</button>`}
     <div class="sk-box">
       <div class="sk-k"><span>${W.run ? W.run+' week'+(W.run===1?'':'s')+' in a row' : 'Weeks'}</span><span>${W.best>W.run?'Best '+W.best:''}</span></div>
       <div class="sk-weeks" aria-label="Weeks with every circle filled">${W.hist.map((w,i)=>
@@ -3192,6 +3231,7 @@ function streakSheetHTML(){
       <div class="wk-goal" role="radiogroup" aria-label="Sessions a week">${[1,2,3,4,5].map(k=>
         `<button role="radio" aria-checked="${k===W.goal}" class="${k===W.goal?'on':''}" onclick="setWeekGoal(${k})">${k}</button>`).join('')}</div>
       ${W.short2?`<button class="wk-link" onclick="setWeekGoal(${W.goal-1})">Two weeks short of ${W.goal}. Make it ${W.goal-1}?</button>`:''}
+      ${wkDaysPickHTML(W.goal)}
     </div>
     <div class="sk-box">
       ${W.paused
@@ -3204,6 +3244,7 @@ function streakSheetHTML(){
     </div>
     ${remind}
     <p class="sk-note">Fill your circles each week. Weeks in a row are your run, and a paused week keeps it.</p>
+    ${(W.today || W.done || W.paused)?'':`<button class="btn" style="width:100%;margin-top:16px" onclick="closeOv();startDay(todayCellIdx(),'full')">Start a session</button>`}
   </div>`;
 }
 
