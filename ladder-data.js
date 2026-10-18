@@ -187,7 +187,7 @@ const EXPLAIN_ARTICLE = {
       '<b>The pike push up, one step on.</b> On your knees before? Do negatives. Doing full reps? Put your feet up on a box. You do not need a strong pike push up to handstand, but it adds foundation.',
       '<b>The knee tuck entry.</b> From the middle of the room, kicking up and getting most of the way there. Not a freestanding handstand yet.'
     ]],
-    ['try', ['chest-to-wall-handstand','wall-scapula-shrugs','pike-press-ups','knee-to-nose-bounces']],
+    ['try', ['chest-to-wall-handstand','scapula-shrugs','pike-press-ups','knee-to-nose-bounces']],
     ['h', 'Your check points'],
     ['p', 'The check points for this stage are on the ladder: how many shrugs you can do, how long you hold the wall, whether you are comfortable falling out. As always you choose how long each session is and how hard.'],
     ['p', 'If you want your form looked at, send me a clip. If you want a programme written around you, that is what coaching is for.']
@@ -200,7 +200,7 @@ const EXPLAIN_ARTICLE = {
     ['p', 'When you are balancing between your hands, knowing where you are is what lets you understand how you balance, and it builds your coordination in that position. Almost every drill in the programme asks you to look there for that reason.'],
     ['p', 'Suryava adds a simpler reason. The push in a handstand is directional, and you push where you look. Try pushing something heavy while looking at the floor, and it does not go where you meant.'],
     ['p', 'Practise it on the wall, where you have the time to notice where your eyes are.'],
-    ['try', ['chest-to-wall-handstand','wall-scapula-shrugs']],
+    ['try', ['chest-to-wall-handstand','scapula-shrugs']],
     ['h', 'The exceptions'],
     ['p', 'As you get good, there are drills like gaze shifts, and exercises where you are asked to look back on purpose. Those are targeted at repositioning the shoulders or at shoulder mobility, usually when coaching has found that is your limiting factor. The rule stays: look between your hands, with the occasional exception.']
   ],
@@ -233,7 +233,7 @@ const EXPLAIN_ARTICLE = {
     ['h', 'What each stage teaches'],
     ['p', 'Wall Work teaches you what a line feels like, with the wall to get you there. Pushing More teaches you to take yourself a little off the wall while keeping that position. The shrug, the scapular elevation, is usually not quite there yet, and this is the stage that gets it there.'],
     ['p', 'These are the drills that do it:'],
-    ['try', ['wall-scapula-shrugs','slide-away','tuck-slides','single-leg-wall-removals']],
+    ['try', ['scapula-shrugs','slide-away','tuck-slides','single-leg-wall-removals']],
     ['h', 'Lying on the wall is not the same'],
     ['p', 'People come to me saying they have worked on handstands for ages and can get their legs off the wall. Most of the time the chest is sunk in and they are lying on the wall. This stage is about getting off it properly, so that when the balance work comes in stages four and five, the ability is already underneath it.'],
     ['h', 'You still kick up'],
@@ -541,9 +541,16 @@ const POOL = {
 /* drills merged or retired, and the one that took their place: a
    programme, a dashboard extra or a saved session naming the old one reads
    as the new one, so nothing has to be edited by hand */
-const DRILL_ALIAS={'slide-away-2':'slide-away','wrist-circles-prep':'wrist-circles-mob','knees-on-box-pushes':'chair-assisted-handstand-extensions','p-pike-pushups':'pike-press-ups','scapula-shrugs':'wall-scapula-shrugs','p-bench-zombies-lowers':'bench-zombies-lowers','p-tuck-slides':'tuck-slides',
+const DRILL_ALIAS={'slide-away-2':'slide-away','wrist-circles-prep':'wrist-circles-mob','knees-on-box-pushes':'chair-assisted-handstand-extensions','p-pike-pushups':'pike-press-ups','p-bench-zombies-lowers':'bench-zombies-lowers','p-tuck-slides':'tuck-slides',
   'p-single-leg-tuck-slides':'single-leg-tuck-slides','lying-crunch-and-contract':'lying-back-engagements'};
 const drillAlias=v=>DRILL_ALIAS[v]||v;
+/* Scapula Shrugs is its own drill again (Elliott, 18 Oct 2026): it was
+   merged into Wall Scapula Shrugs on 30 Sept, but that one is the beginner
+   Foundations drill and this is the Wall Work one, on its own film. Kept
+   here so it is found whatever library the app has loaded. */
+const DRILL_EXTRA=[{v:'scapula-shrugs', n:'Scapula Shrugs', url:'https://customer-pns1oongdltmkjwa.cloudflarestream.com/9b4fb78a3767e853f1d9834e7ce86485/downloads/default.mp4',
+  nt:'Push the floor away at the top.', cues:['Keep elbows straight.','Move only through the shoulders.','Push tall at the top.','Lower with control.'],
+  desc:'Strengthen upward rotation and elevation through the scapula for a more stable overhead shape.'}];
 function poolFor(stage){
   /* a drill the coach has taken off this stage is not in its pool, so no
      session can pick it up and no workout can hold it */
