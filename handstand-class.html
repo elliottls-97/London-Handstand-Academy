@@ -793,6 +793,11 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
 .pick-link{border:0;background:none;padding:8px 0 0;color:var(--ink60);font:600 13px var(--body);text-decoration:underline;cursor:pointer}
 .pick-go{display:block;width:100%;margin-top:16px;border:0;border-radius:999px;padding:15px 18px;background:var(--terra);color:#fff;font-family:var(--disp);font-weight:900;font-size:15px;letter-spacing:.8px;text-transform:uppercase;cursor:pointer}
 .pick-go:disabled{opacity:.7;cursor:default}
+.code-row{display:flex;gap:8px}
+.code-row input{flex:1;min-width:0}
+.code-go{flex:none;min-height:48px;padding:0 18px;border-radius:12px;border:1px solid rgba(0,64,61,.18);background:#fff;color:var(--forest,#006663);
+ font:600 15px/1 inherit;font-family:inherit;cursor:pointer}
+.amt small{display:block;font-size:12px;font-weight:600;color:var(--forest,#006663);margin-top:4px;text-align:right}
 .pick-msg{min-height:1px;margin-top:8px;font-size:13.5px;line-height:1.45;color:var(--terra)}
 .pick-fine{margin:12px 0 0;font-size:12.5px;line-height:1.5;color:var(--ink60)}
 .seg-l{font:600 12px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--ink60);margin:16px 0 7px}
@@ -1366,7 +1371,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         <div id="bkCodeRow"><button type="button" class="pick-link" onclick="bkShowCode()">Have a code?</button></div>
         <div id="bkCodeBox" hidden>
           <label for="bkCode">Discount code</label>
-          <input id="bkCode" placeholder="CODE" style="text-transform:uppercase" autocapitalize="characters" autocomplete="off">
+          <div class="code-row"><input id="bkCode" placeholder="CODE" style="text-transform:uppercase" autocapitalize="characters" autocomplete="off"><button
+            type="button" id="bkCodeGo" class="code-go">Apply</button></div>
           <div class="pick-msg" id="bkCodeMsg" role="status"></div>
         </div>
         <!-- The waiver, signed with each booking: opened, read and ticked,
@@ -1838,7 +1844,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var when=both ? short(picked)+' and '+short(picked.other) : long(picked);
     $('bkSum').hidden=!!picked.full;
     $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
-      +'<div class="amt">'+(cost>0?esc(pounds(cost)):'Free')+(save>0?'<s>'+esc(pounds(full))+'</s>':'')+'</div>';
+      +'<div class="amt">'+(cost>0?esc(pounds(cost)):'Free')+(save>0?'<s>'+esc(pounds(full))+'</s>':'')
+        +((codeOk && codeOk.key===pickKey())?'<small>with '+esc(code())+'</small>':'')+'</div>';
     $('pickFS').textContent='All Levels Handstand Class, at '+PLACE+'.';
   };
   /* switching date rebuilds the sheet; what has been typed stays */
@@ -1941,12 +1948,20 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(!picked || pickKey()!==key || code()!==c) { priceNow(); return; }
       codeOk={key:key, price:Number(d.price)||0};
       cm.style.color='var(--forest)';
-      cm.textContent=c+' applied: '+pounds(Number(d.base)||0)+' becomes '+d.label+'.';
+      cm.innerHTML='<b>&#10003; '+esc(c)+' applied.</b> '+esc(pounds(Number(d.base)||0))+' becomes '+esc(d.label)+'.';
       priceNow();
     }).catch(function(err){ checking=false; codeBad=c+'|'+key; if(!picked || pickKey()!==key || code()!==c) { priceNow(); return; }
       cm.style.color='var(--terra)'; cm.textContent=err&&err.name==='TypeError'?'Could not check the code just now.':String(err); priceNow(); });
   };
   $('bkCode').addEventListener('change', checkCode);
+  /* checked as it is typed, after a pause, and by its own button: the box
+     only answered once it lost focus, so on a phone nothing said whether a
+     code had worked until Book (Elliott, 18 Oct 2026) */
+  var codeT=null;
+  $('bkCode').addEventListener('input', function(){ clearTimeout(codeT); codeBad='';
+    $('bkCodeMsg').textContent=''; if(code().length>=3) codeT=setTimeout(checkCode, 700); else { codeOk=null; priceNow(); } });
+  $('bkCode').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); clearTimeout(codeT); checkCode(); } });
+  $('bkCodeGo').addEventListener('click', function(){ clearTimeout(codeT); codeBad=''; checkCode(); });
   /* The waiver, read in a panel over the form and accepted there or with
      the tick. The panel hangs off <body>, so the booked view, which hides
      the form, can still open it at the health declaration. */
