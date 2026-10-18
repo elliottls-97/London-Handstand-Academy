@@ -6508,10 +6508,10 @@ const handle = async (request) => {
      for half an hour. Their hold is theirs to reuse. */
   const wsHoldKey = async e => e ? 'h' + String(await hmac('wshold:' + norm(e))).replace(/[^A-Za-z0-9]/g, '').slice(0, 16) : '';
   const wsHeld = (d, mine) => Object.entries(d.holds || {}).filter(([k, t]) => Number(t) > Date.now() && k !== mine).length;
-  /* price is the whole booking's; units the places in it and also the second
-     date, so a code works on both dates and on a friend's place too (Elliott,
-     18 Oct 2026). A percentage comes off the whole, a fixed amount off each
-     place, and a code made for one date says so when two are booked. */
+  /* price is the whole booking's, so a code works on both dates and on a
+     friend's place too (Elliott, 18 Oct 2026). A percentage comes off the
+     whole, a fixed amount off the whole once, and a code made for one date
+     says so when two are booked. */
   const wsCodeCheck = async (slug, code, price, who, opt = {}) => {
     const c = String(code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
     if (!c) return { off: 0 };
@@ -6525,8 +6525,9 @@ const handle = async (request) => {
     if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That code has been used up' };
     if (d.workshop && d.workshop !== slug) return { error: d.workshop === opt.also ? 'That code is for one of these dates. Book that date on its own to use it.' : 'That code is for a different workshop' };
     if (d.workshop && opt.also) return { error: 'That code is for one of these dates. Book that date on its own to use it.' };
-    const units = Math.max(1, Number(opt.units) || 1);
-    const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0) * units);
+    /* a fixed amount comes off the booking once, however many places are in
+       it (Elliott, 18 Oct 2026: £10 off both dates took £20) */
+    const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
     return { off, code: c };
   };
   const wsIcs = (w) => {
