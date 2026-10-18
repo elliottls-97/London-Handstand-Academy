@@ -7090,12 +7090,13 @@ function rungGoal(c){
   if(cpAsks(c)) return 'Log your best';
   const t=cpTarget(c), K=CP_KIND[c.kind]||CP_KIND.count;
   const lower=(c.lower!=null)?c.lower:K.lower;
-  if(c.kind==='face') return (cpFaceLabels(c)||[])[2]||'Yes';
+  if(c.kind==='face') return 'Until it feels '+String((cpFaceLabels(c)||[])[2]||'right').toLowerCase();
   if(c.kind==='yn') return 'Yes';
   if(t==null) return coachLabel()+' signs it off';
   if(c.kind==='secs') return 'Hold '+t+'s';
   if(c.kind==='breaks') return 'In '+t+' goes or fewer';
-  if(c.kind==='rate' || /out of ten/i.test(c.note||'')) return t+' out of 10';
+  if(c.kind==='rate') return t+' out of 10';
+  if(/out of ten/i.test(c.note||'')) return t+' of 10 attempts land';
   if(c.unit) return t+c.unit+(lower?' or less':'');
   return t+' reps';
 }
@@ -7208,7 +7209,8 @@ function climbSub(r, isNext){
     if(cs==='hit') return (isNext?'<em>NEXT</em>':'')+'Hit, '+esc(coachLabel())+' to sign off';
     if(cs==='notyet') return (isNext?'<em>NEXT</em>':'')+'Not yet, says '+esc(coachLabel());
   }
-  const was = last && !cpAsks(c) && c.kind!=='face' && c.kind!=='yn' && !(last.video && !(Number(last.v)>0))
+  /* a last of nought said nothing a beginner needed to read */
+  const was = last && !cpAsks(c) && c.kind!=='face' && c.kind!=='yn' && Number(last.v)>0
     ? ' &middot; last '+esc(String(last.v)+cpUnit(c)+(c.kind==='breaks'?' goes':'')) : '';
   /* where the last clip is: sent, watched, answered */
   const clip = (last && last.video)
@@ -10904,7 +10906,7 @@ function moreBody(all, cards){
         style="width:100%;display:flex;align-items:center;gap:12px;border:0;border-radius:18px;cursor:pointer;
         padding:14px 16px;margin-bottom:12px;background:#fff;text-align:left;color:var(--ink)">
         <span style="flex:1;min-width:0"><span style="display:block;font:400 19px/1.15 var(--serif)">Drill library</span>
-          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${all.length} drills, filmed, by stage.</span></span>
+          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${all.length} drills, filmed, by stage. Sessions rotate through them, a few at a time, so each week has variety.</span></span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.2" stroke-linecap="round"
           stroke-linejoin="round" aria-hidden="true" style="transform:rotate(${st.drillLibOpen?180:0}deg)"><path d="M6 9l6 6 6-6"/></svg>
       </button>
@@ -13173,6 +13175,9 @@ function drawOv(){
         : ''}
       <div style="margin-top:16px;font:400 14.5px/1.5 var(--serif);color:var(--ink)">${
         esc(St.intro||St.goal||'')}</div>
+      ${si===0 ? `<div style="margin-top:14px;padding:14px 16px;border-radius:16px;background:rgba(0,102,99,.06)">
+        <div class="kick2" style="color:var(--forest)">HOW LONG IT TAKES</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:6px">It depends on you. Some people hold a handstand in ten days and some in six months; I took eighteen. Most need several months of steady training, two or three sessions a week, and every check point on the way is a win.</div></div>` : ''}
 
       <button class="btn" style="width:100%;margin-top:18px"
         onclick="closeOv();st.stage=${si};save();startDay(-1)">Start a ${mins} min ${esc(St.n)} session</button>
@@ -16076,7 +16081,8 @@ function exArticleHTML(blocks){
   const tryHTML=ids=>{ const ds=(ids||[]).map(v=>drillById(v)).filter(Boolean); if(!ds.length) return '';
     return `<div class="extry"><div class="kick2" style="color:var(--forest)">TRY IT IN THE PROGRAMME</div>${ds.map(d=>{
       const u=d.url?uidOfUrl(d.url):'', lock=typeof drillLocked==='function' && drillLocked(d.v);
-      return `<button onclick="pgDrill(${jsq(d.v)})"><span class="extry-i">${u?`<img src="${esc(streamThumb(u))}" alt="" loading="lazy" onerror="this.remove()">`:''}</span>
+      const pic=u ? STREAM_CDN+sigUid(u)+'/thumbnails/thumbnail.jpg?time=3s&width=128&height=92&fit=crop' : '';
+      return `<button onclick="pgDrill(${jsq(d.v)})"><span class="extry-i">${pic?`<img src="${esc(pic)}" alt="" loading="lazy" onerror="this.remove()">`:''}</span>
         <span style="flex:1;min-width:0"><b>${esc(d.n)}</b><small>${lock?'With the full Ladder':'Watch the drill'}</small></span>${LW_RIGHT}</button>`; }).join('')}</div>`; };
   return `<div class="exart">${(blocks||[]).map(([k,v])=> k==='h' ? `<h3>${t(v)}</h3>`
     : k==='li' ? `<ul>${(v||[]).map(x=>`<li>${t(x)}</li>`).join('')}</ul>` : k==='try' ? tryHTML(v) : `<p>${t(v)}</p>`).join('')}</div>`;
@@ -16090,7 +16096,10 @@ const LEARN_ROWS={0:[
   {fix:'learn-to-fall'},
   {t:'Wrists hurt when you load them', sub:'Wrists &middot; 2 min', ex:1},
   {t:'Kick up never gets to the wall', sub:'Chair, wall walks, then the wall &middot; 3 min',
-   url:'/learn/chair-wall-walks-then-the-wall.html', uid:'aa4d27ce00fb663bc340ccac433d2d43'}
+   url:'/learn/chair-wall-walks-then-the-wall.html', uid:'aa4d27ce00fb663bc340ccac433d2d43'},
+  {t:'Not sure how often to train', sub:'Film and read &middot; 3 min', ex:2},
+  {t:'Wondering how long it takes', sub:'Film and read &middot; 4 min', ex:4},
+  {t:'Not sure what it should feel like', sub:'Film and read &middot; 3 min', ex:5}
 ]};
 function learnHTML(){
   if(coachedView() || trialPending()) return '';
@@ -19350,7 +19359,7 @@ function cpDayCardHTML(home){
   const today=new Date().getDay()===CPDAY, done=cpThisWeekDone();
   /* dismissed on Train for this week only (Elliott, 18 Oct 2026); next
      Sunday asks again, and Over time always has it */
-  if(home && (!today || done || st.cpDayHid===cpRunWeek(Date.now()))) return '';
+  if(home && (!today || done || st.cpDayHid===cpRunWeek(Date.now()) || sessionsDone().length<2)) return '';
   const t = done ? cpRunLabel()+' is logged' : today ? 'It is check point day' : 'Check point day is Sunday';
   const sub = done ? 'Next: '+cpDayWord(cpNextDay())+'.' : cpRunLabel()+'. About 15 minutes.';
   const x = home ? `<span role="button" tabindex="0" class="cpd-x" aria-label="Not this week" title="Not this week"
@@ -21576,7 +21585,8 @@ function threeWaysHTML(){
       ${row('The Ladder', PRICE('plus'), 'a month', 'You pick the sessions, on the stage you are on.', ladder && !checks, true,
         (ladder||checks||!sellsLadder()) ? '' : 'startUpgrade()', days>0 ? 'Start the '+days+' day free trial' : 'Get the full Ladder')}
       ${row('Form checks', st.checksAddon ? PRICE('checksadd') : PRICE('checks'), st.checksAddon ? 'a month on top' : 'a month',
-        st.checksAddon ? 'One thing fixed every fortnight, on video, added to your Ladder.' : 'One thing fixed every fortnight, on video, with the Ladder.', checks, false,
+        (st.checksAddon ? 'One thing fixed every fortnight, on video, added to your Ladder.' : 'One thing fixed every fortnight, on video, with the Ladder.')
+          +((!st.freeCheckUsed && !checks) ? ' <b style="color:var(--forest);font-weight:600">Your first one is free.</b>' : ''), checks, false,
         checks ? '' : "buyPlan('checks')", st.checksAddon ? 'Add form checks' : 'Start form checks')}
       ${row('Coaching', PRICE('online'), 'a month', 'Your own programme, written for you and rewritten every block. Form checks and messages included.', false, false,
         'seeCoaching()', 'See how coaching works')}
@@ -22774,7 +22784,7 @@ const tourInstall = () => canInstall() && !wide();
 const tapWord = cap => wide() ? (cap ? 'Click' : 'click') : (cap ? 'Tap' : 'tap');
 const TOURS = {
   home: {
-    n:'The ladder app', next:'ladder',
+    n:'The ladder app', next:null,
     steps:[
       /* four things, in the order they happen (Elliott, 18 Oct 2026): climb
          the ladder, by reaching check points, by doing sessions, and Learn
@@ -22797,7 +22807,7 @@ const TOURS = {
     ]
   },
   today: {
-    n:'Your programme', next:'plan',
+    n:'Your programme', next:null,
     steps:[
       {t:'session', h:'Today, in one line',
        b:'The day your programme has for today, and how long it runs. Start, beside your check points, opens it.'},
@@ -22824,7 +22834,7 @@ const TOURS = {
     ]
   },
   plan: {
-    n:'The plan', next:'progress',
+    n:'The plan', next:null,
     steps:[
       {t:'daytabs', h:'Your days',
        b:()=>'Every day in the block, and how much of the one you are on you have ticked off. '+tapWord(true)+' another day to look ahead, or back at one you have done.'},
@@ -23345,9 +23355,9 @@ function appPrompts(){
   if(!phone) return true;
   const now=Date.now(), gap=3*864e5;
   if(!isStandalone()){
-    if((st.installAskN||0)>=6 || now-(st.installAsked||0)<gap) return true;
-    st.installAsked=now; st.installAskN=(st.installAskN||0)+1; save();
-    openOv('install'); return true;
+    /* no longer opened on its own (Elliott, 19 Oct 2026): the App Store app
+       is coming, and the card on Train asks without stopping anybody */
+    return true;
   }
   if(!pushSupported()) return true;
   if(nativePush()){
