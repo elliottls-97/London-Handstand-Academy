@@ -16425,11 +16425,11 @@ function climbCardHTML(cs, S, P, x){
     <div style="margin-top:12px" aria-hidden="true">${lwRowHTML(cs,{h:x.h||64,done:true,names:!!x.names,anim:true})}</div>
     <!-- on Home the greeting above already says the stage -->
     ${x.noName?'':`<div style="font:400 24px/1.15 var(--serif);margin-top:10px">${esc(S.n)}<em style="color:var(--forest);font-style:normal">.</em></div>`}
-    <button onclick="event.stopPropagation();climbGo()" style="margin-top:${x.noName?10:8}px;min-height:44px;
+    ${x.row ? x.row : `<button onclick="event.stopPropagation();climbGo()" style="margin-top:${x.noName?10:8}px;min-height:44px;
       display:inline-flex;align-items:center;gap:4px;padding:0;cursor:pointer;border:0;background:none;text-align:left;
       font:600 14.5px/1.3 var(--sans);color:var(--forest)"><span style="min-width:0;text-wrap:balance">${say}</span>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.4" stroke-linecap="round"
-        stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>
+        stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>`}
     ${x.foot||''}
   </div>`;
 }
@@ -17314,7 +17314,7 @@ function firstPlacedHTML(){
 /* The ladder under the greeting, on every visit (17 Oct 2026): the six
    stages with their names, so it reads as a ladder of six before anything
    else is said. A first visit adds where the answers placed them. */
-function homeLadderHTML(){
+function homeLadderHTML(row){
   const cs=curStage(), S=STAGES[cs]||STAGES[0];
   /* Chose Foundations over the week: st.stage is Foundations now, and
      st.placed still has where their answers put them, which is where the
@@ -17328,7 +17328,7 @@ function homeLadderHTML(){
   /* The six figures and the stage's name said where they are, and nothing
      said that check points are what move you up it (Elliott, 17 Oct 2026),
      so a first visit has the same ladder card as every visit after it. */
-  return `<div class="rise rise-1" style="padding:${wide()?20:14}px 20px 0">${climbCardHTML(cs, S, cpProgress(cs), { h:62, names:true, noName:true,
+  return `<div class="rise rise-1" style="padding:${wide()?20:14}px 20px 0">${climbCardHTML(cs, S, cpProgress(cs), { h:row?74:62, names:true, noName:true, row,
     above: (above && firstVisit())?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">You placed at
       <b style="color:var(--ink)">${esc(PS.n)}</b>.
       <span onclick="event.stopPropagation();beginTrial(${placed})" role="button" tabindex="0"
@@ -17559,6 +17559,25 @@ function screenHome(){
      There is always a session now, today's if the week names one and the
      next one in the rotation if it does not. */
   const _cellIdx=todayCellIdx();
+  /* the two ways in, side by side under the ladder on a phone (Elliott,
+     18 Oct 2026: "checkpoints on left and start session on the right"):
+     work on the stage, or train it */
+  const _hp=cpProgress(curStage());
+  const homeRow = (!wide() && !trialPending()) ? `<div style="display:flex;gap:8px;margin-top:14px">
+      <button onclick="event.stopPropagation();climbGo()" style="flex:1;min-width:0;height:60px;border-radius:18px;cursor:pointer;
+        border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);padding:0 12px;
+        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+        <span style="font:600 15px/1 var(--sans)">Check points</span>
+        <span style="font:500 12px/1 var(--sans);color:var(--grey)">${_hp.of?_hp.met+' of '+_hp.of:'On their way'}</span></button>
+      <button data-tour="buildsession" onclick="event.stopPropagation();startDay(${_cellIdx},'full')" style="flex:1.35;min-width:0;height:60px;
+        border:0;border-radius:18px;cursor:pointer;background:linear-gradient(180deg,#0a7a76,#006663);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);color:var(--on-primary);
+        display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 9px 0 16px">
+        <span style="font:600 16px/1.15 var(--sans);text-align:left">Start session</span>
+        <span style="flex:none;width:40px;height:40px;border-radius:50%;background:var(--on-primary);display:grid;place-items:center">
+          <svg width="14" height="16" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
+            1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
+    </div>` : '';
   const _cells=weekCells();
   const _cell=_cellIdx>=0?_cells[_cellIdx]:null;
   const _rest=isRestCell(_cell);
@@ -17591,13 +17610,13 @@ function screenHome(){
     <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
       <div style="font:400 ${wide()?30:26}px/1.14 var(--serif);letter-spacing:-.01em">${esc(hello)}<em
         style="color:var(--forest);font-style:normal">${name?', '+esc(name):''}.</em></div>
-      ${trialPending()?'':`<div style="font:400 ${wide()?30:26}px/1.14 var(--serif);letter-spacing:-.01em">You&rsquo;re on
-        <em style="color:var(--forest);font-style:normal">${esc(S.n)}.</em></div>`}
+      ${/* "You're on Foundations" went so the figures could grow: the amber
+           one and its bold name say it (Elliott, 18 Oct 2026) */''}
     </div>
 
     ${sessionLineHTML()}
     ${obBannerHTML()}
-    ${trialPending() ? firstPlacedHTML() : homeLadderHTML()}
+    ${trialPending() ? firstPlacedHTML() : homeLadderHTML(homeRow)}
     ${homeStreakHTML()}
 
     <!-- ── build today's session ──────────────────────────────────
@@ -17616,7 +17635,7 @@ function screenHome(){
     ${trialPending()?'':`<div class="rise rise-2" style="padding:${wide()?20:14}px 20px 0">
     <div class="${(howShown()&&!howBig()&&wide())?'startpair':''}">
     <div class="startrow" style="display:flex;flex-direction:column;gap:${wide()?10:7}px">
-      <button data-tour="buildsession" onclick="startDay(${_cellIdx},'full')"
+      ${homeRow?'':`<button data-tour="buildsession" onclick="startDay(${_cellIdx},'full')"
         style="height:${wide()?68:60}px;width:100%;border:0;border-radius:18px;
         background:linear-gradient(180deg,#0a7a76,#006663);
         box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
@@ -17629,7 +17648,7 @@ function screenHome(){
           display:grid;place-items:center">
           <svg width="16" height="18" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
-      </button>
+      </button>`}
       <!-- What it is, and that the two questions come next. They used to
            be two controls on the page, which reads as two things you have
            to set before you are allowed to start, and a session is one
