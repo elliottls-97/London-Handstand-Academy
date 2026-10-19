@@ -16847,10 +16847,16 @@ function climbCardHTML(cs, S, P, x){
 function cpRingMark(P, key){
   const of=Number(P&&P.of)||0, met=Math.min(of, Number(P&&P.met)||0);
   const k=key||(coachedView()?'c':'s'+curStage()), seenAll=st.cpRingSeen||{}, seen=seenAll[k];
-  const from=(seen!=null && met>seen) ? seen : met;
+  let from=(seen!=null && met>seen) ? seen : met, t0=0;
+  /* a sweep in progress survives the screen being drawn again: Train is
+     redrawn just after a tick, and the new ring took the count as already
+     shown, so the close never played (19 Oct 2026) */
+  const now=performance.now(), A=window._ringAnim;
+  if(from<met) window._ringAnim={k, from, to:met, t0:(t0=now)};
+  else if(A && A.k===k && A.to===met && now-A.t0<1600){ from=A.from; t0=A.t0; }
   if(seen!==met){ st.cpRingSeen=Object.assign({}, seenAll, {[k]:met}); setTimeout(()=>{ try{ save(); }catch(e){} }, 0); }
   setTimeout(cpRingRun, 0);
-  return `<svg class="cpr2" aria-hidden="true" data-from="${from}" data-to="${met}" data-of="${of}"></svg>`;
+  return `<svg class="cpr2" aria-hidden="true" data-from="${from}" data-to="${met}" data-of="${of}"${t0?` data-t0="${t0}"`:''}></svg>`;
 }
 function cpRingRun(el){
   /* A line for line port of the canvas's Capsule (paint) and PlayFull
@@ -16910,7 +16916,7 @@ function cpRingRun(el){
     if(num && S.count!=null) num.textContent=S.count+' of '+(S.total||of);
   };
   const run=(update)=>{ if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
-    const t0=performance.now();
+    const t0=+svg.dataset.t0||performance.now();
     const frame=now=>{ if(!svg.isConnected) return; const S=update(now-t0);
       if(S===null) { svg._raf=0; return; } paint(S); svg._raf=requestAnimationFrame(frame); };
     svg._raf=requestAnimationFrame(frame); };
@@ -16959,11 +16965,16 @@ function cpRingRun(el){
    or unticking one in the list below moves the ring at once (Elliott,
    19 Oct 2026: removing one did not untick the pill) */
 function capsuleRepaint(){
-  const el=document.querySelector('#app .hcap'), a=window._capArgs; if(!el || !a) return;
-  const t=document.createElement('div'); t.innerHTML=capsuleHTML(a[0], a[1], true);
-  const n=t.querySelector('.hcap'); if(n) el.replaceWith(n);
   const o=document.getElementById('hcpsOffer');
   if(o){ const u=document.createElement('div'); u.innerHTML=hcpsOfferHTML(); const v=u.firstElementChild; if(v && v.outerHTML!==o.outerHTML) o.replaceWith(v); }
+  const el=document.querySelector('#app .hcap'), a=window._capArgs; if(!el || !a) return;
+  /* only when the count has changed: redrawing the same count replaced a
+     ring mid close, so the sweep and the sparks never showed */
+  const sv=el.querySelector('.cpr2'), cs=clearShowing()!=null ? clearShowing() : curStage();
+  const P=coachedView() ? cpProgress() : cpProgress(cs);
+  if(sv && +sv.dataset.to===(P.met||0) && +sv.dataset.of===(P.of||0)) return;
+  const t=document.createElement('div'); t.innerHTML=capsuleHTML(a[0], a[1], true);
+  const n=t.querySelector('.hcap'); if(n) el.replaceWith(n);
 }
 function capsuleHTML(go, label, pillOnly){
   window._capArgs=[go, label];
