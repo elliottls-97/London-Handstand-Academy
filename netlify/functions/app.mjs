@@ -167,6 +167,18 @@ const wsWhenTxt = w => {
     + ', ' + (s.slice(-2) === e.slice(-2) ? s.slice(0, -2) : s) + ' to ' + e;
 };
 const wsPlaces = l => (Array.isArray(l) ? l : []).filter(b => b && (b.status || 'booked') === 'booked');
+/* A booking counts once against its code however many places it took, so
+   the use comes back only when its last place goes: the guest cancelling
+   left the code free again while the booker still held a place on it, and
+   a full refund of two places took two uses off (the journey review). */
+async function wsCodeGiveBack(code, session) {
+  if (!code) return;
+  if (session) { const allW = (await getSetting('workshops')) || {};
+    for (const sl of Object.keys(allW))
+      if (wsPlaces((await getSetting(`wsbook:${sl}`)) || []).some(x => x.session === session)) return; }
+  await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
+    if (!c[code]) return undefined; c[code] = Object.assign({}, c[code], { used: Math.max(0, Number(c[code].used || 0) - 1) }); return c; }).catch(() => {});
+}
 /* What the app has refunded on one payment itself. Stripe tells the
    webhook about every refund, its own included, and one payment can carry
    four places: without this the webhook took the app's own £20 back on a
@@ -340,8 +352,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
     const r = l.find(x => x.session === b.session && x.email === k.email && (x.status || 'booked') === 'booked'); if (!r) return undefined;
     r.paid = k.paid; r.pairBroken = true; return l; }).catch(() => {});
-  if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
-    if (!c[b.code]) return undefined; c[b.code] = Object.assign({}, c[b.code], { used: Math.max(0, Number(c[b.code].used || 0) - 1) }); return c; }).catch(() => {});
+  if (b.code) await wsCodeGiveBack(b.code, b.session);
   await changeSetting(`wsmine:${who}`, cur => { const l = Array.isArray(cur) ? cur : []; return l.includes(slug) ? l.filter(x => x !== slug) : undefined; }).catch(() => {});
   const status = refunded ? 'refunded' : 'cancelled';
   const whenTxt = wsWhenTxt(w);
@@ -3645,9 +3656,9 @@ const handle = async (request) => {
           });
           tells.push(...myTells); filed.push(...myFiled); for (const x of myTold) toldPayer.add(x);
           /* what the booking gave, given back: the code's use and the app days */
+          const gave = new Set();
           for (const b of back) {
-            if (b.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
-              if (!c[b.code]) return undefined; c[b.code] = Object.assign({}, c[b.code], { used: Math.max(0, Number(c[b.code].used || 0) - 1) }); return c; }).catch(() => {});
+            if (b.code && !gave.has(b.session || b)) { gave.add(b.session || b); await wsCodeGiveBack(b.code, b.session); }
             if (b.plusUntil) { const cur = await getSetting(`plusuntil:${b.email}`).catch(() => null);
               if (cur && cur === b.plusUntil) await setSetting(`plusuntil:${b.email}`, nowISO()).catch(() => {}); }
           }

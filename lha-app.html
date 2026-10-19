@@ -8573,8 +8573,9 @@ function overTimeRows(){
     const pts=dayBest(cpLog()[c.k], r=>Number(r.v)||0);
     if(pts.length<2) return;
     const K=CP_KIND[c.kind]||CP_KIND.count;
+    const here = !coachedView() && i===curStage();
     rows.push({cp:true, n:c.n, pts, unit:cpUnit(c), lower:(c.lower!=null)?c.lower:!!K.lower,
-      at:pts[pts.length-1].at, go:'climbGo()'});
+      stage: here ? '' : (STAGES[i]||{}).n||'', at:pts[pts.length-1].at, go: here ? `climbGo(${jsq(c.k)})` : `openStage(${i})`});
   });
   /* the last day worked on first, and within it what has moved most */
   const gain=r=>{ const a=r.pts[0].n, b=r.pts[r.pts.length-1].n; return (r.lower ? a-b : b-a)/Math.max(1,a); };
@@ -8603,7 +8604,7 @@ function overTimeHTML(flat){
         const a=r.pts[0].n, b=r.pts[r.pts.length-1].n;
         return `<button class="ot-flat" onclick="${r.go}">
           <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font:500 16px/1.25 var(--sans)">${esc(r.n)}</span>
-            <span style="font:400 13px/1.2 var(--sans);color:var(--grey)">${r.cp?'Check point &middot; ':''}${r.pts.length} times</span></span>
+            <span style="font:400 13px/1.2 var(--sans);color:var(--grey)">${r.cp?(r.stage?esc(r.stage)+' &middot; ':'')+'Check point &middot; ':''}${r.pts.length} times</span></span>
           ${sparkSVG(r.pts.map(p=>p.n))}
           <span style="flex:none;min-width:96px;display:flex;align-items:baseline;justify-content:flex-end;gap:6px;font:400 24px/1 var(--serif);font-variant-numeric:tabular-nums">
             <span style="color:var(--grey);font-size:18px">${a}${esc(r.unit)}</span><span style="color:var(--grey);font-size:15px">&rarr;</span><span style="color:var(--forest)">${b}${esc(r.unit)}</span></span>
@@ -8621,7 +8622,7 @@ function overTimeHTML(flat){
         <span style="flex:1;min-width:0">
           <span style="display:block;font:600 14px/1.3 var(--sans)">${esc(r.n)}</span>
           <span style="display:block;font:400 12px/1.3 var(--sans);color:var(--grey2);margin-top:3px">${
-            r.cp?'Check point &middot; ':''}${r.pts.length} times</span></span>
+            r.cp?(r.stage?esc(r.stage)+' &middot; ':'')+'Check point &middot; ':''}${r.pts.length} times</span></span>
         ${sparkSVG(r.pts.map(p=>p.n))}
         <span style="flex:none;min-width:72px;text-align:right;font:400 16px/1.2 var(--serif);font-variant-numeric:tabular-nums;
           color:${better?'var(--forest)':'var(--ink)'}">${a}${esc(r.unit)} &rarr; ${b}${esc(r.unit)}</span>
@@ -11639,7 +11640,8 @@ function toast(msg){
        below, and the first one did not animate because it was shown in the
        same frame it was made. */
     el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
-    el.style.cssText='position:fixed;left:50%;bottom:86px;transform:translate(-50%,8px);z-index:60;'+
+    /* above the tab bar, which sits on the home indicator's inset too */
+    el.style.cssText='position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 86px);transform:translate(-50%,8px);z-index:60;'+
       'background:var(--forest,#003b38);color:#fff;border-radius:999px;padding:11px 19px;'+
       'font:600 13.5px/1.2 var(--sans);box-shadow:0 8px 26px rgba(0,0,0,.22);pointer-events:none;'+
       'max-width:calc(100vw - 40px);text-align:center;opacity:0;'+
@@ -13498,7 +13500,11 @@ function drawOv(){
     const story=moved ? storyHTML(ti) : '';
     const rest=STAGES.length-fi-2;
     const trialDays=(typeof PRICE_TRIAL==='function') ? PRICE_TRIAL() : 0;
-    const head=`That is ${esc(from.n)}<em style="color:var(--forest);font-style:normal"> done.</em>`;
+    /* Press's check points are its readiness tests, not a press, so the
+       top of the ladder says so rather than "Press done" (the review) */
+    const NUMW=['','one','two','three','four','five','six','seven','eight','nine','ten'];
+    const head = nx ? `That is ${esc(from.n)}<em style="color:var(--forest);font-style:normal"> done.</em>`
+      : `All ${NUMW[P.of]||P.of} ${esc(from.n.toLowerCase())} tests<em style="color:var(--forest);font-style:normal"> passed.</em>`;
     body=`<div style="position:relative;text-align:center;padding:12px 0 4px">
       <div class="clr-swap">
         <div class="kick2 a${moved?'':' keep'}">${P.met} OF ${P.of} CHECK POINTS REACHED</div>
@@ -13537,8 +13543,9 @@ function drawOv(){
         ${trialDays>0?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:8px">Then ${PRICE()} a month for the full Ladder. Cancel any time.</div>`:''}`
         :`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:12px">${esc(nx.n)} is ${MEMBERS}.</div>`}
       <button class="btn2" style="width:100%;margin-top:10px" onclick="clearedStay()">Keep training ${esc(from.n)}</button>`
-    : `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">That is the whole ladder. There is nothing above this one.</div>
-      <button class="btn" style="width:100%;margin-top:20px" onclick="clearedEnd('green')">Close</button>`}`;
+    : `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">You are at the top of the ladder. Film a press and send it to Elliott.</div>
+      <button class="btn" style="width:100%;margin-top:20px" onclick="clearedEnd('green');go('coaching')">Send Elliott a clip</button>
+      <button class="btn2" style="width:100%;margin-top:10px" onclick="clearedEnd('green')">Close</button>`}`;
   }
   if(st.ov==='summary'){
     /* the session that just ran, not the coached plan's idea of today — on
@@ -15870,7 +15877,9 @@ function screenQuiz(){
   trackOnce('quizq', i);
   const key=quizKey(), fresh=key!==quizShown; quizShown=key;
   const QC=quizCount();
-  const rails=Array.from({length:QC.of},(_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
+  /* while the skill questions run the total is only a most, and it read
+     1 of 8, 2 of 7, then 3 of 3; until it is known the bar grows instead */
+  const rails=Array.from({length:QC.open?QC.at+1:QC.of},(_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
     background:${n<QC.at-1?'#8fe3d6':n===QC.at-1?'var(--amber)':'rgba(255,255,255,.22)'};${
     n===QC.at-1&&fresh?'transform-origin:left;animation:qRail .7s cubic-bezier(.2,.8,.2,1) both':''}"></i>`).join('');
   /* the tick is drawn, so the pressed state has to be said as well */
@@ -15931,7 +15940,7 @@ function screenQuiz(){
          questions unannounced is where a cold visitor leaves. -->
     <div style="margin-top:22px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
       <span style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:rgba(255,255,255,.7)">${
-        step.kick} &middot; ${QC.at} OF ${QC.of}</span>
+        step.kick} &middot; ${QC.open?'QUESTION '+QC.at:QC.at+' OF '+QC.of}</span>
       <span style="font:400 12.5px/1 var(--sans);color:rgba(255,255,255,.7)">${
         QC.at===1 ? 'About a minute'
         : QC.at>=QC.of ? 'Last one'
@@ -16344,8 +16353,9 @@ function exArticleHTML(blocks){
 const LEARN_ROWS={0:[
   {fix:'learn-to-fall'},
   {t:'Wrists hurt when you load them', sub:'Wrists &middot; 2 min', ex:1},
-  {t:'Kick up never gets to the wall', sub:'Chair, wall walks, then the wall &middot; 3 min',
-   url:'/learn/chair-wall-walks-then-the-wall.html', uid:'aa4d27ce00fb663bc340ccac433d2d43'},
+  /* the article behind this row is not reviewed yet, and its page now
+     sends people to the falling one, so the row opens the film in the app */
+  {t:'Kick up never gets to the wall', sub:'Wall Walks &middot; film', drill:'wall-walks', uid:'aa4d27ce00fb663bc340ccac433d2d43'},
   {t:'Not sure how often to train', sub:'Film and read &middot; 3 min', ex:2},
   {t:'Wondering how long it takes', sub:'Film and read &middot; 4 min', ex:4},
   {t:'Not sure what it should feel like', sub:'Film and read &middot; 3 min', ex:5}
@@ -16367,6 +16377,7 @@ function learnHTML(){
       return {t:fixSub(f)||f.name, sub:esc(f.name)+(n?' &middot; '+n+' steps':'')+(lock?' &middot; '+paid:''), img:fixCover(f), go:`openFix(${jsq(f.slug)})`}; }
     if(r.ex!=null){ const o=ex.find(o=>o.i===r.ex); if(!o) return null;
       return {t:r.t, sub:r.sub, img:o.x.uid?streamThumb(o.x.uid):'', go:explainerOpen(o.i)?`openExplainer(${o.i})`:`lockedExplainer(${o.i})`}; }
+    if(r.drill) return drillById(r.drill) ? {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`pgDrill(${jsq(r.drill)})`} : null;
     if(r.url) return {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`leaveTo(${jsq(r.url)})`};
     return null;
   }).filter(Boolean);
@@ -19400,7 +19411,7 @@ function lwPopHTML(i){
   const tag = behind ? 'Behind you' : done ? 'Done' : now ? 'You are here' : next ? 'Earned' : S.soon ? 'Coming soon' : locked ? 'With the full Ladder' : 'Ahead';
   const btn = now
     ? `<button class="lw-go" onclick="startDay(-1,'full')"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.5v9l7-4.5z" fill="#fff"/></svg><span>Today&rsquo;s session</span></button>`
-    : `<button class="lw-go" onclick="openStage(${i})"><span>${locked?'See what&rsquo;s in '+esc(S.n):'Open '+esc(S.n)}</span></button>`;
+    : `<button class="lw-go" onclick="openStage(${i})"><span>${locked||S.soon?'See what&rsquo;s in '+esc(S.n):'Open '+esc(S.n)}</span></button>`;
   return `<div class="lw-popi">
       ${lwFilmUid(i) ? `<div class="lw-img lw-popimg">${lwImg(i)}${lwPlayBtn(i)}</div>`
         : `<button class="lw-img lw-popimg" onclick="openStage(${i})" aria-label="Open ${esc(S.n)}">${lwImg(i)}</button>`}
@@ -22241,7 +22252,7 @@ function screenWelcome(){
   /* left, like every other line in the column; centred under left aligned
      text it read as out of line */
   const foot=`<div style="margin-top:18px;font:400 13px/1.5 var(--sans);color:rgba(255,255,255,.74)">
-      ${esc(STAGES[FREE_STAGES-1].n)} is free, no account needed. An account keeps your
+      No account needed to start. An account keeps your
       progress on any phone; the other ${STAGES.length-FREE_STAGES} stages are
       ${sellsLadder()?PRICE()+' a month':MEMBERS}.</div>`;
   const credit=`<div style="font:500 11.5px/1.3 var(--sans);color:rgba(255,255,255,.62)">
@@ -22494,12 +22505,12 @@ function screenJoin(){
                   this page was still describing the website's card form */
                ? 'The free '+trialDays+' goes through Apple, on your Apple ID, and nothing is charged until '
                  +firstCharge()+'. Cancel before then in Settings.'
-               : 'The account comes first, because the '+trialDays+' is attached to it and it is what you sign back in with. '
-               +'The card goes in on the next page, through Stripe, and nothing is charged until '
+               /* the line above the form says what the account is for */
+               : 'The card goes in on the next page, through Stripe, and nothing is charged until '
                +firstCharge()+'. Cancelling before then is one tap in the app.')
        : want ? (IOS_APP && !sells()
                ? (PRICE()?'The '+PRICE()+' a month':'The full ladder')+' goes through Apple, on your Apple ID.'
-               : 'The '+PRICE()+' a month rides on an account, so this takes a moment and then the payment page opens.')
+               : 'This takes a moment, then the payment page opens.')
        : taste ? 'Your first session there is free, and no card is asked for. '
                  +esc((PSJ.goal||'').replace(/\.$/,''))+'.'
            : esc(s.goal||'')}</div>
@@ -23312,7 +23323,7 @@ const TOURS = {
        pre:()=>{ const el=document.querySelector('[data-tour="explainers"]'); if(el) try{ el.scrollIntoView({block:'center'}); }catch(e){} },
        b:'Questions about handstands? Pick the thing in your way: a short film and a read for each, from me and Suryava.'},
       {t:'menu', h:'Last thing: your home screen', when:tourInstall,
-       b:()=>'Everything else is in the menu, top left. '+installCopy(),
+       b:()=>'Everything else is in the menu, top left. '+installCopy(true),
        go:()=>{ doInstall(); }}
     ]
   },
@@ -23455,7 +23466,14 @@ const isStandalone = () => {
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
   || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
 function canInstall(){ return !isStandalone(); }
-function installCopy(){
+function installCopy(short){
+  /* the tour's last card: the steps and nothing else, it ran to four sentences */
+  if(short){
+    if(installPrompt) return 'Next puts it on your home screen.';
+    const how = isIOS() ? (iosBrowser()==='safari' || iosAddHere() ? 'Share, then Add to Home Screen, puts it on your home screen.'
+      : 'Open this page in Safari, then Share, then Add to Home Screen.') : 'Your browser menu, then Install, puts it on your home screen.';
+    return how+(isIOS() && !st.token ? ' Add your email first, or it starts from scratch there.' : '');
+  }
   if(installPrompt) return 'Chrome can do it in one tap. Next puts it on your '+
     'home screen, where it opens full screen and keeps workouts you save for no signal.';
   /* The Home Screen app keeps its own storage, so without an account it

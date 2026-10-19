@@ -11896,18 +11896,21 @@ function wsSet(k,v){ if(k==='price') v=Math.round((Number(String(v).replace(/[^0
    it can be pushed back a day or a week, or ended now (19 Oct 2026) */
 function wsSetEarly(){ const d=(document.getElementById('wsEbDate')||{}).value, tm='23:59',
     t=Math.round((Number(String((document.getElementById('wsEbThen')||{}).value||'').replace(/[^0-9.]/g,''))||0)*100);
+  /* what is typed is kept even while only one box is filled */
+  wsf.ebDay=d||''; wsf.ebThen=t||0;
   wsf.early = d && t ? { until: londonISO(d,tm), then: t } : null; }
 function wsEarlyShift(days){ if(!wsf||!wsf.early) return;
   /* by the calendar, not by 24 hours, so the clocks going back keeps it at midnight */
   const [y,m,d]=londonParts(wsf.early.until).d.split('-').map(Number), n=new Date(Date.UTC(y,m-1,d+days));
-  wsf.early.until=londonISO(n.toISOString().slice(0,10),'23:59'); draw(); flash('Moved. Save to put it live.'); }
+  wsf.early.until=londonISO(n.toISOString().slice(0,10),'23:59'); draw();
+  flash('Moved to '+new Date(wsf.early.until).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'})+'. Press Save to keep it.'); }
 /* end it now: the price goes up to the later one on Save */
-function wsEarlyEnd(){ if(!wsf||!wsf.early) return; wsf.price=Number(wsf.early.then)||wsf.price; wsf.early=null; draw(); flash('Ended. Save to put the new price live.'); }
+function wsEarlyEnd(){ if(!wsf||!wsf.early) return; wsf.price=Number(wsf.early.then)||wsf.price; wsf.early=null; draw(); flash('Ended: '+(v=>'£'+(Number(v||0)/100).toFixed(2).replace(/\.00$/,''))(wsf.price)+' once you press Save.'); }
 /* "4 days 3 hours left", or what has to be fixed before it can save */
 function wsEarlyLeft(w){ if(!w.early||!w.early.until) return '';
   const ms=new Date(w.early.until).getTime()-Date.now(), then=Number(w.early.then)||0;
   if(!(then>Number(w.price||0))) return '<span style="color:var(--terra)">The later price has to be more than the price above, or it will not save.</span>';
-  if(ms<=0) return '<span style="color:var(--terra)">That time has passed, so it will not save. Pick a later one.</span>';
+  if(ms<=0) return '<span style="color:var(--terra)">That day has gone. Saving now puts the price up to £'+(then/100).toFixed(2).replace(/\.00$/,'')+' straight away.</span>';
   if(w.when && new Date(w.early.until).getTime()>=new Date(w.when).getTime()) return '<span style="color:var(--terra)">That is after the class, so the early price would last the whole way. Pick an earlier day.</span>';
   const d=Math.floor(ms/864e5), h=Math.floor(ms%864e5/36e5), m=Math.floor(ms%36e5/6e4);
   const left=d?d+(d===1?' day ':' days ')+h+(h===1?' hour':' hours'):h?h+(h===1?' hour ':' hours ')+m+' min':m+' min';
@@ -11956,6 +11959,12 @@ function wsAddAttendees(slug){
 }
 function wsSave(){
   if(wsBusy) return; if(!wsf.title.trim()) return alert('Give it a title.');
+  /* an early bird only saves when it goes up, so say so rather than lose it quietly */
+  const gbp=v=>'£'+(Number(v||0)/100).toFixed(2).replace(/\.00$/,'');
+  if(!wsf.early && (wsf.ebDay||wsf.ebThen)) return alert(wsf.ebDay?'Put the later price in too, or clear the early bird date.':'Pick the day the early bird ends too, or clear the later price.');
+  if(wsf.early && Number(wsf.early.then)<=Number(wsf.price||0)){
+    if(!confirm('The later price, '+gbp(wsf.early.then)+', is not more than '+gbp(wsf.price)+', so there is no early bird. Save it without one?')) return;
+    wsf.early=null; wsf.ebDay=''; wsf.ebThen=0; }
   wsSetWhen(); wsBusy=true; wsMsg='Saving…'; draw();
   fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({workshop:wsf, was:wsf.was||''})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
@@ -12435,7 +12444,7 @@ function workshopsHTML(){
         <div class="field"><label>Time</label><input id="wsTime" class="input" type="time" value="${timeV}" onchange="wsSetWhen()"></div>
         <div class="field"><label>Place</label><input class="input" value="${esc(w.place||'')}" oninput="wsSet('place',this.value)"></div>
         <div class="field"><label>Price, pounds</label>${owner
-          ?`<input class="input" value="${w.price?(w.price/100).toFixed(2).replace(/\.00$/,''):''}" placeholder="25" oninput="wsSet('price',this.value)">`
+          ?`<input class="input" value="${w.price?(w.price/100).toFixed(2).replace(/\.00$/,''):''}" placeholder="25" oninput="wsSet('price',this.value)" onchange="draw()">`
           :`<input class="input" value="${w.price?(w.price/100).toFixed(2).replace(/\.00$/,''):'not set'}" disabled>
             <span class="muted" style="font-size:11.5px">Elliott sets what it costs.</span>`}</div>
         <div class="field"><label>Places</label><input class="input" type="number" min="0" value="${w.places||0}" oninput="wsSet('places',this.value)"></div>
@@ -12444,15 +12453,15 @@ function workshopsHTML(){
         ${owner?`<div class="field" style="grid-column:1/-1"><label>Early bird, optional</label>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
             <span class="muted" style="font-size:13px">The price above until the end of</span>
-            <input id="wsEbDate" class="input" type="date" style="width:auto" value="${w.early&&w.early.until?londonParts(w.early.until).d:''}" onchange="wsSetEarly();draw()">
+            <input id="wsEbDate" class="input" type="date" style="width:auto" min="${londonParts(Date.now()).d}" ${w.when?`max="${londonParts(new Date(w.when).getTime()-864e5).d}"`:''} value="${w.early&&w.early.until?londonParts(w.early.until).d:(w.ebDay||'')}" onchange="wsSetEarly();draw()">
             <span class="muted" style="font-size:13px">then £</span>
-            <input id="wsEbThen" class="input" style="width:80px" value="${w.early&&w.early.then?(w.early.then/100).toFixed(2).replace(/\.00$/,''):''}" placeholder="30" oninput="wsSetEarly()" onchange="draw()">
-            ${w.early?`<button class="ghostlink" onclick="wsf.early=null;draw()">Remove</button>`:''}</div>
+            <input id="wsEbThen" class="input" style="width:80px" value="${w.early&&w.early.then?(w.early.then/100).toFixed(2).replace(/\.00$/,''):(w.ebThen?(w.ebThen/100).toFixed(2).replace(/\.00$/,''):'')}" placeholder="30" oninput="wsSetEarly()" onchange="draw()">
+            ${w.early?`<button class="ghostlink" onclick="wsf.early=null;wsf.ebDay='';wsf.ebThen=0;draw()">No early bird, keep ${(v=>'£'+(Number(v||0)/100).toFixed(2).replace(/\.00$/,''))(w.price)}</button>`:''}</div>
           ${w.early?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;font:400 13px/1.5 var(--sans)">
             <span>${wsEarlyLeft(w)}</span><span style="flex:1"></span>
             <button class="btn btn-ghost btn-sm" onclick="wsEarlyShift(1)">A day later</button>
             <button class="btn btn-ghost btn-sm" onclick="wsEarlyShift(7)">A week later</button>
-            <button class="btn btn-ghost btn-sm" onclick="wsEarlyEnd()">End it now</button></div>`:''}
+            <button class="btn btn-ghost btn-sm" onclick="wsEarlyEnd()">End it now, ${(v=>'£'+(Number(v||0)/100).toFixed(2).replace(/\.00$/,''))(w.early.then)}</button></div>`:''}
           <span class="muted" style="font-size:11.5px">It goes up by itself at midnight. The page shows when, and anyone who started booking and stopped is told in their reminder, then again on the last morning. Nothing changes until you Save.</span></div>`:''}
         <div class="field"><label>Who it is for, one line</label><input class="input" value="${esc(w.who||'')}" placeholder="Everyone welcome, beginners to freestanding" oninput="wsSet('who',this.value)"></div>
         <div class="field" style="grid-column:1/-1"><label>Description</label><textarea class="input" rows="3" oninput="wsSet('desc',this.value)">${esc(w.desc||'')}</textarea></div>
@@ -12480,7 +12489,7 @@ function workshopsHTML(){
             ${owner?btn('cancel','Cancel + refund',"{refund:'full'}")+btn('cancel','Cancel, no refund',"{refund:'none'}"):''}</div>`; };
         const row=b=>`<div style="padding:8px 0;border-bottom:1px solid rgba(17,17,17,.07)">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b style="min-width:140px">${esc(b.name||'')}</b><span>${esc(b.email)}</span>
-            ${b.pair?`<span class="tag tag-neutral" title="Booked with ${esc(b.pair)} in one payment">pair</span>`:''}${b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:''}${b.status&&b.status!=='booked'?`<span class="tag tag-accent-2">${esc(b.status)}</span>`:''}
+            ${b.pair?`<span class="tag tag-neutral" title="Both dates in one booking">both dates</span>`:''}${b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:''}${b.status&&b.status!=='booked'?`<span class="tag tag-accent-2">${esc(b.status)}</span>`:''}
             <span class="muted" style="margin-left:auto">${esc(ago(b.at))}${b.paid?' · £'+(b.paid/100).toFixed(2).replace(/\.00$/,''):' · free'}</span></div>
           ${b.q?`<div class="muted" style="font-size:12.5px;margin-top:3px"><b style="color:var(--ink)">Asked:</b> ${esc(b.q)}</div>`:''}
           ${b.exp?`<div class="muted" style="font-size:12.5px;margin-top:2px"><b style="color:var(--ink)">Experience:</b> ${esc(b.exp)}</div>`:''}
@@ -12519,7 +12528,9 @@ function workshopsHTML(){
       <div onclick="wsEdit(${jsq(w.slug)})" style="cursor:pointer;min-width:0">
         <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><span style="font:600 14.5px/1.3 var(--sans)">${esc(w.title)}</span>
           <span class="tag ${w.live?'tag-accent':'tag-neutral'}">${w.live?'live':'draft'}</span>${w.when&&new Date(w.when)<Date.now()?'<span class="tag tag-neutral">past</span>':''}</div>
-        <div class="muted" style="font-size:12.5px;margin-top:2px">${esc(wsWhen(w))} · ${w.price?'£'+(w.price/100).toFixed(2).replace(/\.00$/,''):'free'} · ${live.length}${w.places?' of '+w.places:''} booked${(w.waitlist||[]).length?' · '+w.waitlist.length+' waiting':''}</div></div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">${esc(wsWhen(w))} · ${w.early&&w.early.until&&new Date(w.early.until).getTime()>Date.now()&&Number(w.early.then)>Number(w.price||0)
+          ? (v=>'£'+(Number(v||0)/100).toFixed(2).replace(/\.00$/,''))(w.price)+' to '+new Date(w.early.until).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'})+', then '+(v=>'£'+(Number(v||0)/100).toFixed(2).replace(/\.00$/,''))(w.early.then)
+          : w.price?'£'+(w.price/100).toFixed(2).replace(/\.00$/,''):'free'} · ${live.length}${w.places?' of '+w.places:''} booked${(w.waitlist||[]).length?' · '+w.waitlist.length+' waiting':''}</div></div>
       ${owner?`<button class="btn btn-ghost btn-sm" onclick="wsLive(${jsq(w.slug)})">${w.live?'Take off':'Go live'}</button>`:'<span></span>'}
       <a class="btn btn-ghost btn-sm" href="/workshop.html?slug=${esc(w.slug)}" target="_blank" rel="noopener">Page</a>
       <button class="btn btn-secondary btn-sm" onclick="wsEdit(${jsq(w.slug)})">Edit</button></div>`; }).join('')
@@ -12538,17 +12549,18 @@ function wsCodeSave(body){
 }
 function wsCodeAdd(){ const c=(wsCodeNew.code||'').toUpperCase().replace(/[^A-Z0-9-]/g,''); if(!c) return alert('Give it a code.');
   const pence=Math.round((Number(wsCodeNew.pence)||0)*100), pct=Number(wsCodeNew.pct)||0; if(!pence&&!pct) return alert('Pounds off or percent off.');
+  if(pence&&pct) return alert('Pounds off or percent off, not both.');
   wsCodeSave({code:c,pence,pct,max:Number(wsCodeNew.max)||0,until:wsCodeNew.until||'',workshop:wsCodeNew.workshop||'',note:wsCodeNew.note||''}); }
 function wsCodesHTML(){
   wsCodesLoad();
   const inp='class="input" style="min-height:36px;padding:6px 9px"';
   return `<div style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--line)">
     <div class="kick">DISCOUNT CODES</div>
-    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the booking page. Pounds off or a percentage, for one workshop or all of them, with a use limit and an end date if you want them.</p>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the booking page. Pounds come off the whole booking once, a percentage off the whole, on top of the £5 savings. For one workshop or all of them, with a use limit and an end date if you want them. A code for one date cannot be used when both dates are booked.</p>
     ${(wsCodes||[]).map(c=>`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid rgba(17,17,17,.07);font:400 13px/1.4 var(--sans)">
       <b style="font:700 13px/1 var(--sans);letter-spacing:.06em;color:var(--forest)">${esc(c.code)}</b>
       <span>${c.pct?c.pct+'% off':'£'+((c.pence||0)/100).toFixed(2).replace(/\.00$/,'')+' off'}</span>
-      <span class="muted">${c.workshop?'for '+esc(c.workshop):'any workshop'}${c.max?' · '+(c.used||0)+' of '+c.max+' used':(c.used?' · used '+c.used:'')}${c.until?' · until '+esc(String(c.until).slice(0,10)):''}${c.note?' · '+esc(c.note):''}</span>
+      <span class="muted">${c.workshop?'for '+esc((()=>{ const w=(wshops||[]).find(x=>x.slug===c.workshop); return w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}):c.workshop; })()):'any workshop'}${c.max?' · '+(c.used||0)+' of '+c.max+' used':(c.used?' · used '+c.used:'')}${c.until?' · until '+esc(new Date(c.until).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})):''}${c.note?' · '+esc(c.note):''}</span>
       <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--terra)" onclick="if(confirm('Remove ${esc(c.code)}?')) wsCodeSave({code:${jsq(c.code)},remove:true})">Remove</button></div>`).join('')}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px;align-items:end">
       <div class="field"><label>Code</label><input ${inp} value="${esc(wsCodeNew.code)}" placeholder="EARLYBIRD" oninput="wsCodeNew.code=this.value"></div>
@@ -12556,7 +12568,7 @@ function wsCodesHTML(){
       <div class="field"><label>or % off</label><input ${inp} value="${esc(wsCodeNew.pct)}" placeholder="20" oninput="wsCodeNew.pct=this.value"></div>
       <div class="field"><label>Max uses</label><input ${inp} value="${esc(wsCodeNew.max)}" placeholder="any" oninput="wsCodeNew.max=this.value"></div>
       <div class="field"><label>Until</label><input ${inp} type="date" value="${esc(wsCodeNew.until)}" oninput="wsCodeNew.until=this.value"></div>
-      <div class="field"><label>Workshop</label><select ${inp} onchange="wsCodeNew.workshop=this.value"><option value="">Any</option>${(wshops||[]).map(w=>`<option value="${esc(w.slug)}" ${wsCodeNew.workshop===w.slug?'selected':''}>${esc(w.title)}</option>`).join('')}</select></div>
+      <div class="field"><label>Workshop</label><select ${inp} onchange="wsCodeNew.workshop=this.value"><option value="">Any</option>${(wshops||[]).filter(w=>!w.when||new Date(w.when).getTime()>Date.now()-6*3600e3).map(w=>`<option value="${esc(w.slug)}" ${wsCodeNew.workshop===w.slug?'selected':''}>${w.when?esc(new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))+' · ':''}${esc(w.title)}</option>`).join('')}</select></div>
       <button class="btn btn-primary btn-sm" onclick="wsCodeAdd()">Add code</button>
     </div></div>`;
 }
