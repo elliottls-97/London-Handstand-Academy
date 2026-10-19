@@ -252,8 +252,6 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .hcap-cp{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:10px;padding:0 6px 0 12px;border:0;border-radius:999px;min-height:56px;
  cursor:pointer;text-align:left;transition:background .25s}
 .hcap-cp>span{display:flex;flex-direction:column;line-height:1.15;min-width:0}
-.hcap-cp b{font:600 14px/1.15 var(--sans);color:var(--deep)}
-.hcap-cp small{font:400 12px/1.2 var(--sans);color:var(--grey)}
 .hcap-go{flex:1.3 1 0;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 6px 0 20px;border:0;
  border-radius:999px;min-height:56px;cursor:pointer;background:linear-gradient(180deg,#0a7a76,#006663);box-shadow:0 8px 20px rgba(0,102,99,.28);
  color:#fff;font:600 16px/1.1 var(--sans);text-align:left}
@@ -6221,7 +6219,8 @@ function stageCleared(i){
      on Train, with nothing over it, and the sheet rises at 1800 ms. Until
      the sheet goes, Train shows the stage just finished (_clearShow), so a
      paying account's capsule does not jump to the next stage's 0. */
-  window._clearShow=i; window._clearAt=Date.now();
+  if(window._clrTimer){ clearTimeout(window._clrTimer); window._clrTimer=0; }
+  window._clearShow=i; window._clearMoved=!blocked;
   const of=(cpProgress(i)||{}).of||0, sk='s'+i, seen=(st.cpRingSeen||{})[sk];
   if(of && !coachedView() && (seen==null || seen>=of)) st.cpRingSeen=Object.assign({}, st.cpRingSeen||{}, {[sk]:of-1});
   let reduce=false; try{ reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
@@ -6229,14 +6228,29 @@ function stageCleared(i){
   const front=coachedView()?'today':'home';
   if(st.tab!==front) go(front); else render();
   setTimeout(()=>{ const c=document.querySelector('.hcap'); if(c) c.scrollIntoView({behavior:reduce?'auto':'smooth', block:'center'}); }, 30);
-  setTimeout(()=>{ if(window._clearShow===i) openOv('cleared'); }, reduce?60:1800);
+  window._clrTimer=setTimeout(()=>{ window._clrTimer=0;
+    if(window._clearShow!==i) return;
+    /* undone in the meantime: no sheet, and a paying account goes back */
+    if(!(cpProgress(i)||{}).ready){ clearedCancel(); return; }
+    /* something else opened meanwhile (Start session, the list): the
+       sheet does not take its place; the moment ends quietly */
+    if(st.ov && st.ov!=='cleared'){ clearedEnd(window._clearMoved?'reel':'green', true); return; }
+    openOv('cleared'); }, reduce?60:1800);
+}
+/* the last check point undone before the sheet rose (Elliott's "Press
+   again to undo"): the moment is called off, and a paying account that
+   was moved up goes back to the stage it had not finished */
+function clearedCancel(){
+  const i=window._clearShow; if(i==null) return;
+  if(window._clrTimer){ clearTimeout(window._clrTimer); window._clrTimer=0; }
+  window._clearShow=null; st.clearedFrom=null;
+  if(window._clearMoved && curStage()===i+1){ st.stage=i; save(); try{ sendIntake(); }catch(e){} try{ saveStateDown(); }catch(e){} }
+  window._clearMoved=false; render();
 }
 /* the stage being cleared while its moment runs: until the sheet is up,
    and while it is; a sheet swiped away ends it like Keep training */
 function clearShowing(){
-  const i=window._clearShow; if(i==null || coachedView()) return null;
-  if(st.ov==='cleared' || Date.now()-(window._clearAt||0)<2600) return i;
-  window._clearShow=null; window._ringGreen=performance.now(); return null;
+  const i=window._clearShow; return (i==null || coachedView()) ? null : i;
 }
 /* the stage film on the Stage cleared sheet plays where its picture was */
 function clrPlay(b, uid){
@@ -6248,12 +6262,14 @@ function clrPlay(b, uid){
 }
 /* leaving the sheet: the moment ends, and the capsule either settles green
    (staying) or reels back for the new stage (moved) */
-function clearedEnd(how){
+function clearedEnd(how, keepOv){
   const fi=window._clearShow, of=fi!=null ? ((cpProgress(fi)||{}).of||0) : 0;
-  window._clearShow=null; st.clearedFrom=null;
-  if(how==='reel') window._ringReel={of, at:performance.now()+550};
-  if(how==='green') window._ringGreen=performance.now();
-  closeOv();
+  window._clearShow=null; st.clearedFrom=null; window._clearMoved=false;
+  if(window._clrTimer){ clearTimeout(window._clrTimer); window._clrTimer=0; }
+  /* each is for one capsule, the new stage's or the finished one's */
+  if(how==='reel' && fi!=null) window._ringReel={key:'s'+(fi+1), of, at:performance.now()+550};
+  if(how==='green' && fi!=null) window._ringGreen={key:'s'+fi, at:performance.now()};
+  if(keepOv) render(); else closeOv();
 }
 function clearedStay(){
   /* always a move down, so it goes as one: plain saveState left the server
@@ -7032,7 +7048,8 @@ function cpRepaintCounts(){
   if(hb) hb.style.width=(p.of?Math.round(p.met/p.of*100):0)+'%';
   /* and the climb above it, which moves in place */
   climbRepaint();
-  capsuleRepaint();
+  if(window._clearShow!=null && st.ov!=='cleared' && !(cpProgress(window._clearShow)||{}).ready) clearedCancel();
+  else capsuleRepaint();
 }
 
 function cpStep(k,by,max){
@@ -11840,6 +11857,13 @@ function openOv(kind){
     return;
   }
   st.ov=kind; save(); drawOv(); $('#ov').classList.add('on');
+  /* a sheet is a dialog, named by its title, and focus goes into it so a
+     screen reader hears it arrive (the Stage cleared review, 19 Oct 2026) */
+  try{ const o=$('#ov'); o.setAttribute('role','dialog'); o.setAttribute('aria-modal','true');
+    const hd=o.querySelector('h1,h2,h3,.ov-title,.ovt'), t=kind==='cleared' ? 'Stage cleared' : (hd ? hd.textContent.trim().slice(0,80) : '');
+    if(t) o.setAttribute('aria-label', t); else o.removeAttribute('aria-label');
+    if(!o.hasAttribute('tabindex')) o.setAttribute('tabindex','-1');
+    setTimeout(()=>{ try{ if(st.ov===kind && !o.contains(document.activeElement)) o.focus({preventScroll:true}); }catch(e){} }, 60); }catch(e){}
   $('#ov').classList.toggle('full', !!st.ovFull);
   /* now, inside the tap that opened it, not on a timer afterwards: an
      iPhone only lets a film start with sound while the finger is still
@@ -11909,6 +11933,11 @@ function closeOv(){
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
   let ghost=null; try{ ghost=ovGhost(); }catch(e){ ghost=null; }
   const wasOv=st.ov;
+  /* the Stage cleared sheet swiped or tapped away ends the moment as its
+     own buttons do: the reel for a stage moved up, green for staying */
+  if(wasOv==='cleared' && window._clearShow!=null){ const fi=window._clearShow, moved=window._clearMoved, of=(cpProgress(fi)||{}).of||0;
+    window._clearShow=null; window._clearMoved=false; st.clearedFrom=null;
+    if(moved) window._ringReel={key:'s'+(fi+1), of, at:performance.now()+550}; else window._ringGreen={key:'s'+fi, at:performance.now()}; }
   st.ov=null; st.ovFull=false; save();
   /* the day just trained has been named; Today moves on to the next one */
   if(wasOv==='summary' || wasOv==='dayfeedback') coachDayMove();
@@ -13388,7 +13417,7 @@ function drawOv(){
         ${film?`<div class="clr-film">
           <button class="clr-pic" onclick="clrPlay(this,${jsq(film)})" aria-label="Play ${esc(nx.n)}, explained">
             <img src="${esc(streamThumb(film))}" alt="" loading="lazy"><i aria-hidden="true"><svg width="11" height="12" viewBox="0 0 10 11"><path d="M1 1v9l8-4.5z" fill="#006663"/></svg></i></button>
-          <span><b>${esc(nx.n)}, explained</b><small>Stage film &middot; 3 min</small></span></div>`:''}
+          <span><b>${stageIntroUid(ti)?esc(nx.n)+', explained':'How the Ladder works'}</b><small>Stage film</small></span></div>`:''}
         <div class="clr-learn"${film?'':' style="border-top:0;padding-top:0"'}><div class="kick2">WHAT YOU&rsquo;LL LEARN</div>${learn}</div>
       </div>
       <button class="btn clr-go" style="width:100%;margin-top:18px" onclick="clearedEnd('reel')"><span>Start ${esc(nx.n)}</span>
@@ -13398,7 +13427,7 @@ function drawOv(){
         <div style="font:700 10px/1 var(--sans);letter-spacing:.14em;color:#8a5a1e">WHAT IS NEXT</div>
         <div style="font:400 15px/1.5 var(--sans);color:var(--ink);margin-top:8px">${esc(nx.n)}${rest>0?' and the '+(rest===1?'stage':(rest===4?'four':rest)+' stages')+' after it':''}. ${esc((nx.goal||'').replace(/\.$/,''))}.</div>
       </div>
-      ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:16px" onclick="clearedEnd();startUpgrade()">${
+      ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:16px" onclick="const f=st.clearedFrom;clearedEnd();st.clearedFrom=f;startUpgrade()">${
           trialDays>0 ? 'Try '+esc(nx.n)+' free for '+(trialDays===7?'a week':trialDays+' days') : 'Open '+esc(nx.n)+' for '+PRICE()+' a month'}</button>
         ${trialDays>0?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:8px">Then ${PRICE()} a month for the full Ladder. Cancel any time.</div>`:''}`
         :`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:12px">${esc(nx.n)} is ${MEMBERS}.</div>`}
@@ -16879,7 +16908,7 @@ function cpRingMark(P, key){
   else if(A && A.k===k && A.to===met && now-A.t0<1600){ from=A.from; t0=A.t0; }
   if(seen!==met){ st.cpRingSeen=Object.assign({}, seenAll, {[k]:met}); setTimeout(()=>{ try{ save(); }catch(e){} }, 0); }
   setTimeout(cpRingRun, 0);
-  return `<svg class="cpr2" aria-hidden="true" data-from="${from}" data-to="${met}" data-of="${of}"${t0?` data-t0="${t0}"`:''}></svg>`;
+  return `<svg class="cpr2" aria-hidden="true" data-k="${k}" data-from="${from}" data-to="${met}" data-of="${of}"${t0?` data-t0="${t0}"`:''}></svg>`;
 }
 function cpRingRun(el){
   /* A line for line port of the canvas's Capsule (paint) and PlayFull
@@ -16964,8 +16993,9 @@ function cpRingRun(el){
   const held=clearShowing()!=null, last=to>=of && of>0;
   const rest=()=>paint({frac:to/of, count:to, tickT:last?1:-1, doneMix:held?0:1});
   /* the reset for a new stage: 550 ms after the sheet drops, over 700 ms */
-  const reel=window._ringReel;
-  if(reel && to===0 && !held){ window._ringReel=null; const oldOf=reel.of||of;
+  const reel=window._ringReel, sk=svg.dataset.k||'';
+  if(reel && performance.now()-reel.at>3000) window._ringReel=null;
+  if(reel && reel.key===sk && !held){ window._ringReel=null; const oldOf=reel.of||of;
     if(reduce){ rest(); return; }
     paint({frac:1, count:oldOf, total:oldOf, tickT:1, doneMix:0});
     run(e=>{ const c=e-550; if(c<0) return {frac:1, count:oldOf, total:oldOf, tickT:1, doneMix:0};
@@ -16974,7 +17004,9 @@ function cpRingRun(el){
       if(u>=1){ paint(S); rest(); return null; } return S; });
     return; }
   /* staying: amber to green over 600 ms, 100 ms after the sheet goes */
-  const toGreen=window._ringGreen;
+  const tg=window._ringGreen;
+  if(tg && performance.now()-tg.at>3000) window._ringGreen=null;
+  const toGreen = (tg && tg.key===sk) ? tg.at : 0;
   if(toGreen && last && !held && !(to>from)){ window._ringGreen=null;
     if(reduce){ rest(); return; }
     run(e=>{ const m=e<100?0:smooth((e-100)/600); const S={frac:1, count:to, tickT:1, doneMix:m};
@@ -17056,6 +17088,7 @@ function homeCps(){ st.homeCps=!st.homeCps; if(st.homeCps) window._hcpsAt=Date.n
    point is reached (Elliott, 19 Oct 2026), drawn again in place when one
    is ticked or unticked so it never says finished at six of seven */
 function hcpsOfferHTML(){
+  if(clearShowing()!=null) return '<div id="hcpsOffer"></div>';
   const cur=curStage(), s=STAGES[cur]||STAGES[0], P=cpProgress(cur), nxt=STAGES[cur+1];
   const done=P.of && P.met>=P.of, gated=nxt && stageLocked(cur+1), days=PRICE_TRIAL(), after=STAGES.length-cur-2;
   return `<div id="hcpsOffer">${(done && gated && !coachedView()) ? `<div class="card" style="margin:0 8px 14px;padding:18px 20px;border-color:rgba(243,169,73,.55);background:rgba(243,169,73,.08)">
@@ -17067,7 +17100,7 @@ function hcpsOfferHTML(){
     </div>` : ''}</div>`;
 }
 function homeCpsHTML(){
-  const cur=curStage();
+  const cur=clearShowing()!=null ? clearShowing() : curStage();
   return `<div class="hcps${Date.now()-(window._hcpsAt||0)<600?' unfold':''}"><div class="hcps-p">
     ${hcpsOfferHTML()}
     <div style="font:400 15px/1.4 var(--sans);color:var(--deep);padding:0 8px 8px">Tick each one off when you can do it. <span style="color:var(--grey)">Any order.</span></div>
@@ -19529,7 +19562,7 @@ function ladderStripHTML(o){
   /* while a stage is being cleared, the ladder still shows it as where you
      are: the sheet carries the move (Elliott's canvas, 19 Oct 2026) */
   const cur=clearShowing()!=null ? clearShowing() : curStage(), last=STAGES.length-1, P=cpProgress(cur);
-  const earned = P.of>0 && P.met>=P.of && cur<last && stageLocked(cur+1);
+  const earned = P.of>0 && P.met>=P.of && cur<last && stageLocked(cur+1) && clearShowing()==null;
   /* where their answers put them, when that is above where they can train:
      said, not left as a pale figure (Elliott, 18 Oct 2026: "it not clear") */
   const placedAt = (st.freeChoice && !isPlus()) ? Math.max(placedStage(), st.placed|0) : placedStage();
@@ -19712,7 +19745,7 @@ function cpDayTimer(k){
 function cpDayPassed(){ return (cpFor(curStage())||[]).filter(c=>(st.cpDayTouched||{})[c.k] ? cpHit(c, Number(st.cpDayDraft[c.k])||0) : cpMet(c)).length; }
 function cpDaySave(){
   if(cpdT){ clearInterval(cpdT.i); cpdT=null; }
-  const cps=cpFor(curStage())||[];
+  const si=curStage(), cps=cpFor(si)||[];
   /* shut first: reaching the last one opens the stage cleared sheet */
   closeOv();
   /* every one gets this week's value: the ones left alone carry last
@@ -19721,7 +19754,7 @@ function cpDaySave(){
   cps.forEach(c=>saveCheckpoint(c.k, Number(st.cpDayDraft[c.k])||0));
   st.cpDaySaved=true; save();
   try{ saveState(); }catch(e){}
-  toast(cpRunLabel()+' saved. Passed '+cpProgress(curStage()).met+' of '+cps.length+'.');
+  toast(cpRunLabel()+' saved. Passed '+cpProgress(si).met+' of '+cps.length+'.');
 }
 function cpDayBody(){
   const cps=(cpFor(curStage())||[]).slice().reverse(), w=Math.max(1,cpRunWeek(Date.now())), from=Math.max(1,w-5);
