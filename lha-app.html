@@ -17,6 +17,44 @@
 .hcap-cp small em{font-style:normal}
 .cpr-tk{flex:none;width:17px;height:17px;border-radius:50%;background:#19b3aa;display:inline-flex;align-items:center;justify-content:center}
 .cpr-tk[hidden]{display:none}
+
+/* the Stage cleared sheet (Elliott's canvas, 19 Oct 2026): resting styles
+   are the end state; the animations run from the start state to it */
+.clr-row{position:relative;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));margin:26px -6px 0}
+.clr-st{display:flex;flex-direction:column;align-items:center;min-width:0}
+.clr-fig{position:relative;width:100%;height:70px;display:flex;align-items:flex-end;justify-content:center;border-bottom:2px solid rgba(0,64,61,.14)}
+.clr-g{display:flex}.clr-g .lw-fig{width:46px;height:60px;animation:none}
+.clr-n{display:block;margin-top:6px;font:600 10.5px/12px var(--sans);color:var(--grey);text-align:center}
+.clr-from .clr-n{color:var(--forest)}.clr-next .clr-n{color:var(--ink);font-weight:700}
+.clr-glow{position:absolute;top:52px;width:calc(100% / var(--n));height:30px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(ellipse at center,rgba(243,169,73,.45),rgba(243,169,73,0) 70%);transform:translateX(100%)}
+.clr-glow.still{transform:none}
+.clr-lock{position:absolute;right:0;top:-12px;height:12px;pointer-events:none}
+.clr-lock i{position:absolute;left:8px;right:8px;top:5px;height:7px;border:1px solid rgba(0,64,61,.28);border-bottom:0;border-radius:3px 3px 0 0}
+.clr-lock span{position:absolute;left:50%;top:-6px;margin-left:-14px;width:28px;height:22px;border-radius:11px;background:#fff;border:1px solid rgba(0,64,61,.18);display:grid;place-items:center}
+.clr-sp{position:absolute;left:50%;top:30px;width:6px;height:6px;margin:-3px;border-radius:50%;background:var(--c);opacity:0;pointer-events:none}
+.clr-swap{display:grid}.clr-swap>*{grid-area:1/1}.clr-swap>.a:not(.keep){opacity:0}
+.clr-go{display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 24px}
+.clr-go i{width:44px;height:44px;border-radius:50%;background:#fff;display:grid;place-items:center}
+@media (prefers-reduced-motion:no-preference){
+  .clr-from .clr-g{animation:clrGreen .4s .6s both}
+  .clr-from .clr-n{animation:clrLblF .4s .6s both}
+  .clr-sp{animation:clrSp .5s .6s ease-out both}
+  .clr-glow:not(.still){animation:clrSlide .7s 1.2s cubic-bezier(.45,0,.55,1) both}
+  .clr-next .clr-g{animation:clrNext .7s 1.2s cubic-bezier(.45,0,.55,1) both}
+  .clr-next .clr-n{animation:clrLblN .7s 1.2s both}
+  .clr-swap>.a:not(.keep){animation:clrOut .2s 1.45s both}
+  .clr-swap>.b{animation:clrIn .25s 1.55s both}
+  .clr-in{animation:clrIn .4s 1.9s both}
+}
+@keyframes clrGreen{from{color:#e8962f}to{color:#006663}}
+@keyframes clrLblF{from{color:var(--ink);font-weight:700}to{color:var(--forest)}}
+@keyframes clrLblN{from{color:var(--grey);font-weight:600}to{color:var(--ink);font-weight:700}}
+@keyframes clrSp{0%{opacity:0;transform:rotate(var(--a)) translateY(-8px)}20%{opacity:1}100%{opacity:0;transform:rotate(var(--a)) translateY(-40px)}}
+@keyframes clrSlide{from{transform:none}to{transform:translateX(100%)}}
+@keyframes clrNext{0%{color:#6b9ca5;transform:none}50%{transform:translateY(-6px)}100%{color:#e8962f;transform:none}}
+@keyframes clrOut{from{opacity:1}to{opacity:0}}
+@keyframes clrIn{from{opacity:0}to{opacity:1}}
 </style>
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -6165,15 +6203,42 @@ function stageCleared(i){
     try{ sendIntake(); }catch(e){}
     try{ saveState(); }catch(e){}
   }
+  /* The order from Elliott's canvas (19 Oct 2026): the ring closes first,
+     on Train, with nothing over it, and the sheet rises at 1800 ms. Until
+     the sheet goes, Train shows the stage just finished (_clearShow), so a
+     paying account's capsule does not jump to the next stage's 0. */
+  window._clearShow=i; window._clearAt=Date.now();
+  const of=(cpProgress(i)||{}).of||0, sk='s'+i, seen=(st.cpRingSeen||{})[sk];
+  if(of && !coachedView() && (seen==null || seen>=of)) st.cpRingSeen=Object.assign({}, st.cpRingSeen||{}, {[sk]:of-1});
+  let reduce=false; try{ reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
   closeOv();
-  openOv('cleared');
+  const front=coachedView()?'today':'home';
+  if(st.tab!==front) go(front); else render();
+  setTimeout(()=>{ const c=document.querySelector('.hcap'); if(c) c.scrollIntoView({behavior:reduce?'auto':'smooth', block:'center'}); }, 30);
+  setTimeout(()=>{ if(window._clearShow===i) openOv('cleared'); }, reduce?60:1800);
+}
+/* the stage being cleared while its moment runs: until the sheet is up,
+   and while it is; a sheet swiped away ends it like Keep training */
+function clearShowing(){
+  const i=window._clearShow; if(i==null || coachedView()) return null;
+  if(st.ov==='cleared' || Date.now()-(window._clearAt||0)<2600) return i;
+  window._clearShow=null; window._ringGreen=performance.now(); return null;
+}
+/* leaving the sheet: the moment ends, and the capsule either settles green
+   (staying) or reels back for the new stage (moved) */
+function clearedEnd(how){
+  const fi=window._clearShow, of=fi!=null ? ((cpProgress(fi)||{}).of||0) : 0;
+  window._clearShow=null; st.clearedFrom=null;
+  if(how==='reel') window._ringReel={of, at:performance.now()+550};
+  if(how==='green') window._ringGreen=performance.now();
+  closeOv();
 }
 function clearedStay(){
   /* always a move down, so it goes as one: plain saveState left the server
      on the higher stage, and the next open put them back up (13 Oct 2026) */
   if(st.clearedFrom!=null){ st.stage=st.clearedFrom; save();
     try{ sendIntake(); }catch(e){} try{ saveStateDown(); }catch(e){} }
-  st.clearedFrom=null; closeOv();
+  st.clearedFrom=null; clearedEnd('green');
 }
 function cpDef(k){
   /* on Start, before block one, a test is the coach's onboarding one */
@@ -13254,77 +13319,67 @@ function drawOv(){
     const next=STAGES[(st.clearedFrom||0)+1];
     const moved=next && curStage()===(st.clearedFrom||0)+1;
     const P=cpProgress(st.clearedFrom||0);
-    /* ── the climb ───────────────────────────────────────────────
-       A number and a sentence did not read as having moved anywhere:
-       people cleared a stage and asked whether they had. The ladder is
-       drawn, the marker climbs a rung, the rung lights, and the film
-       that introduces the new stage is right there to press. */
-    const fi=st.clearedFrom||0, ti=moved?fi+1:fi;
-    const RH=34, n=STAGES.length;
-    const ladder=`<div style="position:relative;margin:14px auto 0;width:min(100%,300px)">
-      ${STAGES.map((S,i)=>{ const on=i<ti, now=i===ti, lit=moved&&i===ti;
-        return `<div style="display:flex;align-items:center;gap:12px;height:${RH}px">
-          <span class="rung" style="flex:none;width:30px;height:24px;border-radius:8px;display:grid;place-items:center;
-            font:700 11px/1 var(--sans);${lit?'animation:rungon 1.6s ease both;':''}
-            background:${on||now?'var(--forest)':'rgba(0,64,61,.14)'};color:${on||now?'#fff':'var(--grey)'}">${i+1}</span>
-          <span class="rungl" style="flex:1;text-align:left;font:${on||now?'700':'500'} 14px/1.2 var(--sans);
-            ${lit?'animation:rungtxt 1.6s ease both;':''}color:${on||now?'var(--forest)':'var(--grey)'}">${esc(S.n)}</span>
-          ${i>ti&&stageLocked(i)?`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--grey2)" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:''}
-        </div>`; }).reverse().join('')}
-      <span class="climber" style="position:absolute;left:-2px;top:${(n-1-fi)*RH+2}px;width:34px;height:30px;border-radius:10px;
-        border:2.5px solid var(--amber);box-shadow:0 0 0 4px rgba(243,169,73,.25);pointer-events:none;
-        --y0:0px;--y1:${moved?-RH:0}px;animation:climb 1.6s cubic-bezier(.3,.9,.3,1) both"></span>
-    </div>`;
+    /* ── the sheet, from Elliott's canvas (19 Oct 2026) ─────────────────
+       It rises once the ring has closed on Train. One ladder: the same six
+       figures as Train. The finished stage goes from amber to forest green
+       with the ring's sparks, then the amber slides on to the next stage,
+       on a free account too (it is next, not open, so its lock stays). The
+       price is said once, under the button; no confetti. Every move is a
+       CSS animation whose resting style is the end state, so reduced
+       motion shows where it ends with nothing moving. */
+    const fi=st.clearedFrom||0, ti=fi+1, nx=STAGES[ti], locked=!moved && !!nx;
+    const figs=STAGES.map((S,k)=>{
+      const isFrom=k===fi, isNext=k===ti && !!nx;
+      const col = k<fi ? 'var(--forest)' : isFrom ? 'var(--forest)' : isNext ? '#e8962f' : LW_AHEAD;
+      return `<div class="clr-st${isFrom?' clr-from':''}${isNext?' clr-next':''}">
+        <span class="clr-fig"><span class="clr-g" style="color:${col}">${lwFigSVG(k)}</span>${isFrom?Array.from({length:8},(_,q)=>
+          `<b class="clr-sp" style="--a:${q*45}deg;--c:${q%2?'#f3a949':'#19b3aa'}"></b>`).join(''):''}</span>
+        <span class="clr-n">${LW_BREAK[S.n]||esc(S.n)}</span></div>`; }).join('');
+    const bracket = locked ? `<div class="clr-lock" style="left:calc(${ti} * 100% / ${STAGES.length})" aria-hidden="true"><i></i><span><svg width="11" height="13" viewBox="0 0 12 14"><rect x="1" y="6" width="10" height="7" rx="2" fill="none" stroke="#00403d" stroke-width="1.4"/><path d="M3.5 6V4a2.5 2.5 0 015 0v2" fill="none" stroke="#00403d" stroke-width="1.4"/></svg></span></div>` : '';
+    const ladder=`<div class="clr-row" style="--n:${STAGES.length}">
+      ${nx?`<span class="clr-glow" style="left:calc(${fi} * 100% / ${STAGES.length})"></span>`:`<span class="clr-glow still" style="left:calc(${fi} * 100% / ${STAGES.length})"></span>`}
+      ${bracket}${figs}</div>`;
     const film=moved ? (stageIntroUid(ti) || LADDER_INTRO_VIDEO) : '';
-    /* arriving on a stage by clearing the last one is the other way in, and
-       the commonest past Foundations: the new stage's story, where it has
-       one, says what it is about instead of a sentence */
     const story=moved ? storyHTML(ti) : '';
-    body=`<div style="position:relative;text-align:center;padding:16px 0 4px;overflow:hidden">
-      <div class="burst">${Array.from({length:22},(_,i)=>
-        `<i style="--a:${(i*16.4)}deg;--d:${70+(i%5)*26}px;--t:${900+(i%6)*90}ms;
-          background:${['var(--amber)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
-      <div class="kick2">${P.met} OF ${P.of} CHECK POINTS REACHED</div>
-      <div class="h-lg" style="margin-top:10px">${moved
-        ? `You are on <em style="color:var(--forest);font-style:normal">${esc(next.n)}.</em>`
-        : `That is ${esc(from.n)} done.`}</div>
+    const rest=STAGES.length-fi-2;
+    const trialDays=(typeof PRICE_TRIAL==='function') ? PRICE_TRIAL() : 0;
+    const head=`That is ${esc(from.n)}<em style="color:var(--forest);font-style:normal"> done.</em>`;
+    body=`<div style="position:relative;text-align:center;padding:12px 0 4px">
+      <div class="clr-swap">
+        <div class="kick2 a${moved?'':' keep'}">${P.met} OF ${P.of} CHECK POINTS REACHED</div>
+        ${moved?`<div class="kick2 b">${esc(nx.n.toUpperCase())}, STAGE ${ti+1} OF ${STAGES.length}</div>`:''}</div>
+      <div class="clr-swap h-lg" style="margin-top:10px">
+        <div class="a${moved?'':' keep'}">${head}</div>
+        ${moved?`<div class="b">You are on<em style="color:var(--forest);font-style:normal"> ${esc(nx.n)}.</em></div>`:''}</div>
       ${ladder}
-      ${story?'':`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px">${
-        moved ? esc((next.goal||'').replace(/\.$/,''))+'.'
-        : next ? esc(next.n)+(sellsLadder()?' is the '+PRICE()+' tier.':' is for members.')+' You stay on '+esc(from.n)+' until you open it.'
-        : 'That is the whole ladder. There is nothing below this one.'}</div>`}
     </div>
-    ${story?`<div style="margin-top:18px;font:400 26px/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)">What you&rsquo;ll learn<em
-      style="color:var(--forest);font-style:normal">.</em></div>
-    <div style="margin-top:12px">${story}</div>`:''}
-    ${film?`<div style="margin-top:14px;border-radius:18px;overflow:hidden;background:#fff;border:1px solid rgba(0,64,61,.10)">
-      ${qaVideo({uid:film},false).replace('margin-top:11px;border-radius:14px;overflow:hidden','')}
-      <div style="padding:11px 14px 13px">
-        <div class="kick2">WATCH FIRST &middot; 3 MIN</div>
-        <div style="font:600 14.5px/1.3 var(--sans);margin-top:5px">${esc(next.n)}, explained</div>
-        <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">What this stage is for and what the check points are asking.</div>
-      </div></div>`:''}
-    ${moved?`<button class="btn" style="width:100%;margin-top:20px"
-        onclick="st.clearedFrom=null;closeOv();startDay(-1)">Train ${esc(next.n)} now</button>
-      <button class="btn2" style="width:100%;margin-top:9px" onclick="clearedStay()">
-        Stay on ${esc(from.n)}</button>`
-     : next?`<div style="margin-top:18px;border-radius:18px;padding:16px 18px;
-        background:rgba(243,169,73,.14)">
-        <div style="font:700 9.5px/1 var(--sans);letter-spacing:.16em;color:#7a4a10">WHAT IS NEXT</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:9px">
-          ${esc(next.n)}${(function(){const rest=STAGES.length-(st.clearedFrom||0)-2;
-            return rest>0 ? ' and the '+(rest===1?'stage':rest+' stages')+' after it' : '';})()
-          } ${STAGES.length-(st.clearedFrom||0)-2>0?'are':'is'} ${sellsLadder()?PRICE()+' a month':MEMBERS}. ${
-          esc((next.goal||'').replace(/\.$/,''))}.</div>
+    ${moved ? `<div class="clr-in">
+      ${story?`<div style="margin-top:18px;font:400 26px/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)">What you&rsquo;ll learn<em
+        style="color:var(--forest);font-style:normal">.</em></div><div style="margin-top:12px">${story}</div>`
+        :`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px;text-align:center">${esc((nx.goal||'').replace(/\.$/,''))}.</div>`}
+      ${film?`<div style="margin-top:14px;border-radius:18px;overflow:hidden;background:#fff;border:1px solid rgba(0,64,61,.10)">
+        ${qaVideo({uid:film},false).replace('margin-top:11px;border-radius:14px;overflow:hidden','')}
+        <div style="padding:11px 14px 13px">
+          <div class="kick2">WATCH FIRST &middot; 3 MIN</div>
+          <div style="font:600 14.5px/1.3 var(--sans);margin-top:5px">${esc(nx.n)}, explained</div>
+        </div></div>`:''}
       </div>
-      ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:14px" onclick="closeOv();startUpgrade()">
-        Open ${esc(next.n)} for ${PRICE()} a month</button>`:''}
-      <button class="btn2" style="width:100%;margin-top:9px"
-        onclick="st.clearedFrom=null;closeOv()">Keep training ${esc(from.n)}</button>`
-     :`<button class="btn" style="width:100%;margin-top:20px"
-        onclick="st.clearedFrom=null;closeOv()">Close</button>`}
-    ${moved?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-      Tap ${esc(from.n)} at the top of the Ladder tab to go back whenever you like.</div>`:''}`;
+      <button class="btn clr-go" style="width:100%;margin-top:20px" onclick="clearedEnd('reel')"><span>Start ${esc(nx.n)}</span>
+        <i aria-hidden="true"><svg width="15" height="17" viewBox="0 0 15 17"><path d="M2 1.5v14l11.5-7z" fill="#006663"/></svg></i></button>
+      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
+        Tap ${esc(from.n)} at the top of the Ladder tab to go back whenever you like.</div>`
+    : nx ? `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">${esc(nx.n)} is next. You keep training ${esc(from.n)} until you open it.</div>
+      <div style="margin-top:16px;border-radius:18px;padding:15px 18px;background:#f2e6d6">
+        <div style="font:700 10px/1 var(--sans);letter-spacing:.14em;color:#8a5a1e">WHAT IS NEXT</div>
+        <div style="font:400 15px/1.5 var(--sans);color:var(--ink);margin-top:8px">${esc(nx.n)}${rest>0?' and the '+(rest===1?'stage':(rest===4?'four':rest)+' stages')+' after it':''}. ${esc((nx.goal||'').replace(/\.$/,''))}.</div>
+      </div>
+      ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:16px" onclick="clearedEnd();startUpgrade()">${
+          trialDays>0 ? 'Try '+esc(nx.n)+' free for '+(trialDays===7?'a week':trialDays+' days') : 'Open '+esc(nx.n)+' for '+PRICE()+' a month'}</button>
+        ${trialDays>0?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:8px">Then ${PRICE()} a month for the full Ladder. Cancel any time.</div>`:''}`
+        :`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:12px">${esc(nx.n)} is ${MEMBERS}.</div>`}
+      <button class="btn2" style="width:100%;margin-top:10px" onclick="clearedStay()">Keep training ${esc(from.n)}</button>`
+    : `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">That is the whole ladder. There is nothing above this one.</div>
+      <button class="btn" style="width:100%;margin-top:20px" onclick="clearedEnd('green')">Close</button>`}`;
   }
   if(st.ov==='summary'){
     /* the session that just ran, not the coached plan's idea of today — on
@@ -16758,7 +16813,7 @@ function climbCardHTML(cs, S, P, x){
   return `<div data-tour="ladder" style="padding:4px 0 0">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
       <span class="kick2" style="color:var(--forest)">THE LADDER</span>
-      <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">STAGE ${cs+1} OF ${n}</span></div>
+      <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">STAGE ${(clearShowing()!=null?clearShowing():cs)+1} OF ${n}</span></div>
     ${x.above||''}
     <!-- the six handstands, theirs in amber, rising in one after another
          as on the Ladder tab (Elliott, 17 Oct 2026) -->
@@ -16787,9 +16842,9 @@ function climbCardHTML(cs, S, P, x){
    ladder's amber, swells 3 percent with a warm halo, throws eight sparks,
    pops the tick in before the count and settles back to teal. Reduced
    motion: the new state, at once. */
-function cpRingMark(P){
+function cpRingMark(P, key){
   const of=Number(P&&P.of)||0, met=Math.min(of, Number(P&&P.met)||0);
-  const k=coachedView()?'c':'s'+curStage(), seenAll=st.cpRingSeen||{}, seen=seenAll[k];
+  const k=key||(coachedView()?'c':'s'+curStage()), seenAll=st.cpRingSeen||{}, seen=seenAll[k];
   const from=(seen!=null && met>seen) ? seen : met;
   if(seen!==met){ st.cpRingSeen=Object.assign({}, seenAll, {[k]:met}); setTimeout(()=>{ try{ save(); }catch(e){} }, 0); }
   setTimeout(cpRingRun, 0);
@@ -16810,17 +16865,25 @@ function cpRingRun(el){
     if(t<=a+2*arc+sl){ const th=(t-a-arc-sl)/r; return [ox+r-r*Math.sin(th), oy+r+r*Math.cos(th)]; }
     return [ox+r+(t-a-2*arc-sl), oy]; };
   const lerp=(A,B,x)=>A.map((v,i)=>v+(B[i]-v)*x), hex=c=>'rgb('+c.map(v=>Math.round(Math.max(0,Math.min(255,v)))).join(',')+')';
-  const DEEP=[0,80,77], BRIGHT=[25,179,170], HOT=[47,211,200], AD=[214,128,32], AB=[243,169,73], AH=[250,200,120];
+  const DEEP=[0,80,77], BRIGHT=[25,179,170], HOT=[47,211,200], AD=[214,128,32], AB=[243,169,73], AH=[250,200,120],
+    GD=[0,64,61], GB=[10,138,132];
+  /* a closed ring holds amber while the moment is open, and settles green
+     once a free account stays (Elliott's canvas, 19 Oct 2026) */
+  const held = clearShowing()!=null;
   const NB=16;
   svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.setAttribute('width',W); svg.setAttribute('height',H);
-  const draw=(frac, moving, sw, sparkT)=>{
-    const deep=lerp(DEEP,AD,sw), bright=lerp(BRIGHT,AB,sw), hot=lerp(HOT,AH,sw), reached=Math.min(1,frac)*P;
+  const draw=(frac, moving, sw, sparkT, gm)=>{
+    /* sw: amber; gm: green; colour is fixed to position on the ring, so new
+       line arrives in its final shade and nothing behind it changes */
+    gm=gm||0;
+    let deep=lerp(DEEP,AD,sw), bright=lerp(BRIGHT,AB,sw); const hot=lerp(HOT,AH,sw), reached=Math.min(1,frac)*P;
+    if(gm>0){ deep=lerp(deep,GD,gm); bright=lerp(bright,GB,gm); }
     let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="rgba(0,102,99,.12)" stroke-width="5"/>`;
     if(reached>0.5) for(let i=0;i<NB;i++){
       const len=reached/NB, t0=Math.max(0,i*len-1.2), t1=Math.min(reached,(i+1)*len+1.2), n=Math.max(2,Math.ceil((t1-t0)/3));
-      let col=lerp(deep,bright,i/(NB-1));
+      let col=lerp(deep,bright,Math.min(1,((i+.5)*len)/P));
       if(moving && i===NB-1) col=hot; else if(moving && i===NB-2) col=lerp(bright,hot,.5);
-      if(sw>0) col=lerp(col, lerp(bright,hot,.35+.65*i/(NB-1)), sw);
+      if(sw>0 && sw<1) col=lerp(col, lerp(bright,hot,.35+.65*i/(NB-1)), sw*.6);
       const pts=[]; for(let q=0;q<=n;q++){ const c=pt(t0+(t1-t0)*q/n); pts.push(c[0].toFixed(1)+' '+c[1].toFixed(1)); }
       out+=`<path d="M ${pts.join(' L ')}" stroke="${hex(col)}" stroke-width="5" stroke-linecap="round" fill="none"/>`;
     }
@@ -16834,14 +16897,45 @@ function cpRingRun(el){
       : moving ? 'drop-shadow(0 0 5px rgba(25,179,170,.55))' : 'none';
     svg.style.filter=glow; svg.style.transform=sw>.02?`scale(${(1+.03*sw).toFixed(3)})`:'';
   };
-  const inside=(done, sw)=>{ let t=open?[207,230,236]:done?[232,246,244]:[242,247,247]; if(sw>0) t=lerp(t,[253,240,218],sw); btn.style.background=hex(t); };
+  /* draw() takes the halo and swell from sw; at rest a held ring is amber
+     with neither, so the colour mix and the effects are kept apart */
+  const drawRest=(frac, am, gm)=>{ draw(frac,false,am,-1,gm); svg.style.filter='none'; svg.style.transform=''; };
+  const inside=(done, sw, gm)=>{ let t=open?[207,230,236]:done?[232,246,244]:[242,247,247];
+    if(sw>0) t=lerp(t,[253,245,232],sw); if(gm>0) t=lerp(t,[232,246,244],gm); btn.style.background=hex(t); };
+  const tickCol=(am)=>{ if(tick) tick.style.background=am?'#f3a949':'#006663'; };
   const tickAt=x=>{ if(!tick) return; if(x<0){ tick.hidden=true; return; } tick.hidden=false;
     tick.style.transform='scale('+(x<.7?1.18*x/.7:1.18-.18*(x-.7)/.3).toFixed(3)+')'; };
   const label=(n)=>{ if(num) num.textContent=n+' of '+of; };
   if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
   let reduce=false; try{ reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
   const last=to>=of && of>0;
-  if(!(to>from) || reduce){ draw(to/of,false,0,-1); inside(last,0); tickAt(last?1:-1); label(to); return; }
+  /* the reel back for a new stage: from a full held ring to its 0 */
+  const reel=window._ringReel;
+  if(reel && to===0 && !held){ window._ringReel=null;
+    const oldOf=reel.of||of, sm=x=>x*x*(3-2*x);
+    if(reduce){ drawRest(0,0,0); inside(false,0,0); tickAt(-1); label(0); return; }
+    drawRest(1,1,0); inside(true,1,0); tickCol(true); tickAt(1); if(num) num.textContent=oldOf+' of '+oldOf;
+    const go=now=>{ if(!svg.isConnected) return;
+      const u=Math.max(0,Math.min(1,(now-reel.at)/700)), f=1-sm(u);
+      drawRest(f, 1-u, 0); inside(f>0.999, 1-u, 0); tickAt(u<1?1-u:-1);
+      if(u>=.5) label(0);
+      if(u<1) svg._raf=requestAnimationFrame(go); else { svg._raf=0; drawRest(0,0,0); inside(false,0,0); tickAt(-1); }
+    };
+    svg._raf=requestAnimationFrame(go); return; }
+  /* staying: the held amber ring turns green over 600 ms */
+  const toGreen=window._ringGreen;
+  if(toGreen && last && !held && !(to>from)){ window._ringGreen=null;
+    if(reduce){ drawRest(1,0,1); inside(true,0,1); tickCol(false); tickAt(1); label(to); return; }
+    const go=now=>{ if(!svg.isConnected) return;
+      const u=Math.max(0,Math.min(1,(now-toGreen)/600));
+      drawRest(1,1-u,u); inside(true,1-u,u); tickCol(u<.5); tickAt(1); label(to);
+      if(u<1) svg._raf=requestAnimationFrame(go); else svg._raf=0;
+    };
+    svg._raf=requestAnimationFrame(go); return; }
+  if(!(to>from) || reduce){
+    if(last){ drawRest(1, held?1:0, held?0:1); inside(true, held?1:0, held?0:1); tickCol(held); }
+    else { drawRest(to/of,0,0); inside(false,0,0); }
+    tickAt(last?1:-1); label(to); return; }
   const D=last?520:420, ease=x=>1-Math.pow(1-x,3), t0=performance.now();
   label(from); tickAt(-1);
   const frame=now=>{
@@ -16851,25 +16945,33 @@ function cpRingRun(el){
     if(e<D){ frac=(from+(to-from)*ease(e/D))/of; moving=true; }
     else { frac=to/of; moving=!last && e<D+280; label(to); }
     if(last){ const c=e-D;
-      sw=c<0?0:c<180?c/180:c<580?1:c<980?1-(c-580)/400:0;
+      sw=c<0?0:c<180?c/180:1;
+      const halo=c<580?1:c<980?1-(c-580)/400:0;
       spark=(c>=80&&c<580)?(c-80)/500:-1;
       tk=c<180?-1:Math.min(1,(c-180)/300);
       if(c>=0 && !buzzed){ buzzed=1; try{ navigator.vibrate && navigator.vibrate([18,50,26]); }catch(_){} }
     } else if(e>=D && !buzzed){ buzzed=1; try{ navigator.vibrate && navigator.vibrate(8); }catch(_){} }
-    draw(frac,moving,sw,spark); inside(last && e>=D, sw); tickAt(tk);
+    draw(frac,moving,sw,spark); if(last && e>=D){ const c=e-D, halo=c<580?1:c<980?1-(c-580)/400:0;
+      if(halo<1){ svg.style.filter=halo>.02?`drop-shadow(0 0 6px rgba(250,200,120,${(.95*halo).toFixed(2)})) drop-shadow(0 0 16px rgba(250,200,120,${(.6*halo).toFixed(2)}))`:'none';
+        svg.style.transform=halo>.02?`scale(${(1+.03*halo).toFixed(3)})`:''; } tickCol(true); }
+    inside(last && e>=D, sw, 0); tickAt(tk);
     if(e < (last ? D+1000 : D+300)) svg._raf=requestAnimationFrame(frame);
-    else { svg._raf=0; buzzed=0; draw(to/of,false,0,-1); inside(last,0); tickAt(last?1:-1); }
+    else { svg._raf=0; buzzed=0;
+      if(last){ drawRest(1, held?1:0, held?0:1); inside(true, held?1:0, held?0:1); tickCol(held); }
+      else { drawRest(to/of,0,0); inside(false,0,0); }
+      tickAt(last?1:-1); }
   };
   let buzzed=0;
   svg._raf=requestAnimationFrame(frame);
 }
 function capsuleHTML(go, label){
-  const P=coachedView() ? cpProgress() : cpProgress(curStage()), on=!!st.homeCps;
+  const cs=clearShowing()!=null ? clearShowing() : curStage();
+  const P=coachedView() ? cpProgress() : cpProgress(cs), on=!!st.homeCps;
   return `<div class="hcap">
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}"
         style="background:${on?'#cfe6ec':(P.of&&P.met>=P.of)?'#e8f6f4':'#f2f7f7'}">
-        ${P.of?cpRingMark(P):''}
+        ${P.of?cpRingMark(P, coachedView()?'c':'s'+cs):''}
         <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of?P.met+' of '+P.of:'On their way'}</em></small></span></button>
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}">${label}
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
@@ -19364,7 +19466,9 @@ function ladderSeg(){
    cross, folds it away. */
 function ladderStripHTML(o){
   o=o||{};
-  const cur=curStage(), last=STAGES.length-1, P=cpProgress(cur);
+  /* while a stage is being cleared, the ladder still shows it as where you
+     are: the sheet carries the move (Elliott's canvas, 19 Oct 2026) */
+  const cur=clearShowing()!=null ? clearShowing() : curStage(), last=STAGES.length-1, P=cpProgress(cur);
   const earned = P.of>0 && P.met>=P.of && cur<last && stageLocked(cur+1);
   /* where their answers put them, when that is above where they can train:
      said, not left as a pale figure (Elliott, 18 Oct 2026: "it not clear") */
@@ -19375,8 +19479,10 @@ function ladderStripHTML(o){
   const steps = STAGES.map((S,i)=>{
     /* the stage you train on is amber whatever, finished or not (Elliott, 18
        Oct 2026); a finished one's next stage glows teal beside it */
-    const done = i<cur, now = i===cur, next = earned && i===cur+1;
-    const col = done||next ? 'var(--forest)' : now ? '#e8962f' : LW_AHEAD;
+    /* green behind you, amber where you are, grey teal ahead; a stage
+       finished and stayed on goes green with the amber still under it */
+    const done = i<cur, now = i===cur, next = false;
+    const col = done || (now && earned && clearShowing()==null) ? 'var(--forest)' : now ? '#e8962f' : LW_AHEAD;
     return `<button class="ls-step${now?' now':''}" onclick="lwPick(${i})" style="--i:${i}" aria-expanded="${lwPopI===i}"
       aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':next?', earned':''}">
       <span class="ls-fig">${i===yourLvl?`<span class="ls-lock" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff"
