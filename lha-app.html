@@ -16920,9 +16920,12 @@ function cpRingRun(el){
     const amberMix=done?1-doneMix:0, greenMix=done?doneMix:0, amber=amberMix>.5;
     let deep=lerp([22,138,131],[214,128,32],amberMix), bright=lerp([84,203,193],[243,169,73],amberMix);
     deep=lerp(deep,[30,122,114],greenMix); bright=lerp(bright,[96,182,170],greenMix);
+    if(open && amberMix<.5){ deep=lerp(deep,[0,72,68],.5); bright=lerp(bright,[0,112,107],.5); }
     const hot=lerp([120,226,217],[250,200,120],amberMix);
     const NB=16, reached=frac*P;
-    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="rgba(0,102,99,0.12)" stroke-width="5"/>`;
+    /* open: the ring says so, not the pill's whole inside (Elliott, 19 Oct
+       2026: change the colour of the circle when check points is open) */
+    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="${open?'rgba(0,102,99,0.34)':'rgba(0,102,99,0.12)'}" stroke-width="5"/>`;
     if(reached>0.5) for(let i=0;i<NB;i++){
       let col=lerp(deep,bright,Math.min(1,((i+0.5)/NB)*(reached/P)));
       const len=reached/NB, t0=Math.max(0,i*len-1.2), t1=Math.min(reached,(i+1)*len+1.2), n=Math.max(2,Math.ceil((t1-t0)/3));
@@ -16937,8 +16940,8 @@ function cpRingRun(el){
       SP.forEach((b,i)=>{ out+=`<circle cx="${f1(b[0]*W+b[2]*travel)}" cy="${f1(b[1]*H+b[3]*travel)}" r="${b[4]/2}"
         fill="${i%2?'#f3a949':'#19b3aa'}" opacity="${(1-sparkT).toFixed(2)}"/>`; }); }
     svg.innerHTML=out;
-    let track=open?[207,230,236]:[242,247,247];
-    if(done && !open) track=lerp([253,245,232],[232,246,244],doneMix);
+    let track=[242,247,247];
+    if(done) track=lerp([253,245,232],[232,246,244],doneMix);
     if(swellT>0) track=lerp(track,[253,240,218],swellT);
     btn.style.background=hex(track);
     const glowRgb=amber?'250,200,120':'47,211,200';
@@ -17021,7 +17024,7 @@ function capsuleHTML(go, label, pillOnly){
   return `<div class="hcap${on?' hcap-stick':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}"
-        style="background:${on?'#cfe6ec':(P.of&&P.met>=P.of)?'#e8f6f4':'#f2f7f7'}">
+        style="background:${(P.of&&P.met>=P.of)?'#e8f6f4':'#f2f7f7'}">
         ${P.of?cpRingMark(P, coachedView()?'c':'s'+cs):''}
         <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of?P.met+' of '+P.of:'On their way'}</em></small></span></button>
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}">${label}
