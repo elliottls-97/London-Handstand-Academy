@@ -16886,6 +16886,17 @@ function cpRingRun(el){
      (the timelines), so the app moves as the Play frame does. */
   const svg=el||document.querySelector('.hcap .hcap-cp .cpr2'); if(!svg) return;
   const btn=svg.parentNode, W=btn.offsetWidth, H=btn.offsetHeight; if(!W||!H) return;
+  /* drawn to the pill's size, so drawn again when the pill changes size: a
+     phone turned, a font arriving late, a resized window left the ring short
+     of the pill's right end (Elliott, 19 Oct 2026). A redraw is at rest;
+     the sweep that was running has played. */
+  if(!svg._ro && typeof ResizeObserver!=='undefined'){
+    svg._ro=new ResizeObserver(()=>{ if(!svg.isConnected){ svg._ro.disconnect(); return; }
+      if(btn.offsetWidth===svg._w && btn.offsetHeight===svg._h) return;
+      if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
+      svg.dataset.from=svg.dataset.to; delete svg.dataset.t0; cpRingRun(svg); });
+    svg._ro.observe(btn); }
+  svg._w=W; svg._h=H;
   const from=+svg.dataset.from||0, to=+svg.dataset.to||0, of=Math.max(1,+svg.dataset.of||0);
   const open=btn.getAttribute('aria-expanded')==='true';
   const tick=btn.querySelector('.cpr-tk'), num=btn.querySelector('small em');
