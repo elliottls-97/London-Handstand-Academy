@@ -4095,13 +4095,13 @@ function dlRow(key, urls, meta){
     const pc=Math.round(dlBusy.done/Math.max(1,dlBusy.of)*100);
     return wrap(`<span style="flex:1;min-width:0">
       <span style="display:block;font:600 13px/1.3 var(--sans)">Saving for no signal&hellip; ${dlBusy.done} of ${dlBusy.of}</span>
-      <span style="display:block;height:5px;border-radius:3px;background:rgba(17,17,17,.08);margin-top:7px;overflow:hidden">
+      <span role="progressbar" aria-label="Films saved" aria-valuemin="0" aria-valuemax="${dlBusy.of}" aria-valuenow="${dlBusy.done}" style="display:block;height:5px;border-radius:3px;background:rgba(17,17,17,.08);margin-top:7px;overflow:hidden">
         <span style="display:block;height:100%;width:${pc}%;background:var(--forest);transition:width .3s"></span></span>
-      <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey);margin-top:5px">${dlBusy.stop?'Stopping&hellip;':'Keep the app open until it finishes.'}</span>
+      <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey);margin-top:5px">${dlBusy.stop?'Stopping&hellip;':'About '+(dlBusy.of*10)+' MB. Keep the app open and the screen on until it finishes.'}</span>
     </span>
     ${/* it could not be stopped once started (Elliott, 19 Oct 2026) */''}
     <button onclick="event.stopPropagation();dlStop()" ${dlBusy.stop?'disabled':''} style="flex:none;border:0;background:none;cursor:pointer;
-      padding:8px 4px;font:600 12px/1 var(--sans);color:var(--grey)">Stop</button>`);
+      min-height:44px;padding:8px 6px;font:600 12px/1 var(--sans);color:var(--grey)">Stop</button>`);
   }
   if(rec && have===uids.length){
     return wrap(`<span style="flex:1;min-width:0">
@@ -4110,16 +4110,16 @@ function dlRow(key, urls, meta){
         (meta&&meta.kind==='ex') ? 'On this phone'+(rec.bytes?', '+dlMB(rec.bytes):'')+'. It plays anywhere.'
         : uids.length+' film'+(uids.length===1?'':'s')+(rec.bytes?', '+dlMB(rec.bytes):'')+' on this phone. It plays anywhere.'}</span>
     </span>
-    <button onclick="event.stopPropagation();dlRemove('${key}')" style="flex:none;border:0;background:none;cursor:pointer;
-      padding:8px 4px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>`);
+    <button onclick="event.stopPropagation();dlRemoveAsk('${key}')" style="flex:none;border:0;background:none;cursor:pointer;
+      min-height:44px;padding:8px 6px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>`);
   }
   return wrap(`<span style="flex:1;min-width:0">
       <span style="display:block;font:600 13px/1.3 var(--sans)">${have&&rec?'Save the rest for no signal':'Save for no signal'}</span>
       <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${
-        have&&rec ? have+' of '+uids.length+' films are on this phone.'+(dlNoFile(rec,uids)?' '+dlNoFileLine(dlNoFile(rec,uids)):'')
+        have&&rec ? have+' of '+uids.length+' films are on this phone.'+(dlNoFile(rec,uids)?' '+dlNoFileLine(dlNoFile(rec,uids)):(rec.why?' '+esc(rec.why):''))
         : (meta&&meta.taste) ? 'Your free session, kept on this phone for a gym with no signal until you have done it.'
         : (meta&&meta.kind==='ex') ? 'Keeps this explainer on your phone, to watch anywhere.'
-        : uids.length+' film'+(uids.length===1?'':'s')+', about '+(uids.length*10)+' MB, kept on this phone.'}</span>
+        : uids.length+' film'+(uids.length===1?'':'s')+', about '+(uids.length*10)+' MB. They play with no signal once saved.'}</span>
     </span>
     ${(meta&&meta.kind==='day')?`<button onclick="event.stopPropagation();st.dlLater=Date.now();save();render()"
       style="flex:none;border:0;background:none;cursor:pointer;padding:8px 2px;font:600 12px/1 var(--sans);color:var(--grey)">Not now</button>`:''}
@@ -4137,9 +4137,9 @@ function keepRow(key, urls, meta){
   const inner = rec
     ? `<span style="flex:1;min-width:0">
         <span style="display:block;font:600 13px/1.3 var(--sans);color:var(--forest)">Kept on your Train screen</span>
-        <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">Open it from Saved workouts on any day you like.</span></span>
-      <button onclick="event.stopPropagation();dlRemove('${key}')" style="flex:none;border:0;background:none;cursor:pointer;
-        padding:8px 4px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>`
+        <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">Open it from Your workouts on any day you like.</span></span>
+      <button onclick="event.stopPropagation();dlRemoveAsk('${key}')" style="flex:none;border:0;background:none;cursor:pointer;
+        min-height:44px;padding:8px 6px;font:600 12px/1 var(--sans);color:var(--grey)">Remove</button>`
     : `<span style="flex:1;min-width:0">
         <span style="display:block;font:600 13px/1.3 var(--sans)">Keep this workout</span>
         <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">Do this exact one another day.</span></span>
@@ -4163,9 +4163,8 @@ function keepWorkout(key){
   const rec=Object.assign({}, prev||{}, L.meta||{}, {key, urls:L.urls, at:(prev&&prev.at)||Date.now()});
   delete rec.label;
   if(rec.taste && tasteFinishedKey===key && !rec.tasteDone) rec.tasteDone=Date.now();
-  st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,DL_MAX);
-  save(); keepPaint(key);
-  toast('Kept. It is on your Train screen under Saved workouts.');
+  dlKeepList(rec); keepPaint(key);
+  toast('Kept. It is on your Train screen under Your workouts.');
 }
 /* ── in a Safari tab, the Home Screen is the safe place ────────────
    Saving works in a tab. But Safari wipes what a website has stored once
@@ -4176,11 +4175,12 @@ function keepWorkout(key){
 function dlTabTip(){
   let tab=false; try{ tab=isIOS() && !isStandalone(); }catch(e){}
   if(!tab) return '';
-  return `<div style="margin-top:7px;padding:10px 12px;border-radius:12px;background:rgba(243,169,73,.13);
-    font:400 12px/1.5 var(--sans);color:#5e3708;text-align:left">
+  return `<div style="margin-top:7px;padding:10px 12px;border-radius:12px;background:rgba(0,102,99,.06);
+    font:400 12px/1.5 var(--sans);color:var(--ink);text-align:left">
     <b style="font-weight:600">Save from the Home Screen app.</b> Safari clears films saved by a website
-    you have not opened for about a week. Tap the share button at the bottom of Safari, then
-    <b style="font-weight:600">Add to Home Screen</b>, and open the app from there before you save.</div>`;
+    you have not opened for about a week. Tap the share button, in Safari's bottom bar or its &bull;&bull;&bull; menu, then
+    <b style="font-weight:600">Add to Home Screen</b>, and open the app from there before you save. It keeps its own
+    storage, so sign in once when it opens: your account comes with you, saved workouts do not.</div>`;
 }
 function dlPaint(key){
   const el=document.getElementById('dl-'+key);
@@ -4191,6 +4191,23 @@ function dlPaint(key){
 /* the films Stream would not give a file for on the last save, still missing */
 function dlNoFile(rec, uids){ const nf=(rec&&rec.nofile)||[]; return nf.filter(u=>(uids||[]).indexOf(u)>-1 && !dlSet.has(u)).length; }
 const dlNoFileLine = n => n===1 ? 'One film cannot be saved yet, so it plays only with signal.' : n+' films cannot be saved yet, so they play only with signal.';
+/* the saved list at its limit: the oldest makes room, kept only ones first,
+   and its films go with it (it used to fall off and leave them behind) */
+function dlKeepList(rec){
+  let list=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==rec.key));
+  let dropped=null;
+  while(list.length>DL_MAX){
+    let i=-1; for(let j=list.length-1;j>0;j--){ if(!(list[j].off||list[j].bytes)){ i=j; break; } }
+    if(i<0) i=list.length-1;
+    dropped=list[i]; list.splice(i,1);
+    const keep=new Set(); list.forEach(r=>dlUids(r.urls).forEach(u=>keep.add(u)));
+    const gone=dlUids(dropped.urls).filter(u=>!keep.has(u));
+    if(gone.length) caches.open(FILM_CACHE).then(c=>Promise.all(gone.flatMap(u=>[c.delete(dlKey(u,'film')),c.delete(dlKey(u,'words')),c.delete(dlKey(u,'still'))])))
+      .then(()=>gone.forEach(u=>dlSet.delete(u))).catch(()=>{});
+  }
+  st.dlSaved=list; save();
+  if(dropped) setTimeout(()=>toast('Your oldest saved workout made room for this one.'), 2800);
+}
 function dlStop(){ if(!dlBusy || dlBusy.stop) return; dlBusy.stop=true; try{ dlBusy.ac && dlBusy.ac.abort(); }catch(e){} dlPaint(dlBusy.key); }
 let dlPending='';
 /* the saved workout open in the list now, if it came from the saved list */
@@ -4199,14 +4216,16 @@ let qSaved=null;
    is marked done rather than opening for another week */
 let tasteFinishedKey='';
 async function dlStart(key, anyway){
-  if(dlBusy) return;
+  if(dlBusy){ toast('One save at a time. The first one is still going.'); return; }
+  /* a coach looking at a client's app cannot save to the client's phone */
+  if(PREVIEW){ toast('Preview only. Nothing you do in here is saved.'); return; }
   if(!dlOk()){ dlPending=key; openOv('install'); return; }
   /* ── an email first ────────────────────────────────────────────────
      Saving for no signal is for people with an account: it is the moment
      somebody has decided to train with this, and what they save belongs to
      them rather than to one browser. The errand carries on once they have
      added it. */
-  if(!st.token && !st.preview){
+  if(!st.token && !st.preview && !(IOS_APP && st.appleJws && isPlus())){
     st.saveKey=key; st.saveFrom=st.tab; save();
     try{ closeOv(); }catch(e){}
     goJoin('save'); return;
@@ -4215,24 +4234,27 @@ async function dlStart(key, anyway){
      save here if they choose to. On an iPhone the app keeps its own
      storage, so what Safari saves never reaches it; on Android they share. */
   let tab=false; try{ tab=(isIOS() || /android/i.test(navigator.userAgent)) && !isStandalone(); }catch(e){}
-  if(tab && !anyway){ dlPending=key; openOv('install'); return; }
+  /* asked once: having chosen to save here in Safari, Save the rest does not ask again */
+  if(tab && !anyway && !st.dlTabOk){ dlPending=key; openOv('install'); return; }
   const L=dlLists[key]; if(!L) return;
   const uids=dlUids(L.urls), want=uids.filter(u=>!dlSet.has(u));
   const meta=L.meta||{};
   dlBusy={key, done:0, of:want.length, failed:0, stop:false, ac:null};
   const noFile=[];
+  /* a long save with the screen locked fails, and was blamed on the signal */
+  try{ keepAwake(); }catch(e){}
   dlPaint(key);
   try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
   let films=[], why='';
   if(want.length){
     try{
       const r=await fetch('/api/app/dlurls',{method:'POST',headers:authed(),
-        body:JSON.stringify({urls:want.map(u=>sig(dlKey(u,'film')))})});
+        body:JSON.stringify({urls:want.map(u=>sig(dlKey(u,'film'))), ...(!st.token && st.appleJws ? {jws:st.appleJws} : {})})});
       const d=await r.json().catch(()=>null);
       films=(r.ok && d && d.films)||[];
       /* said as it is: a sign in that has run out, or saving too much at
          once, is not the signal (Elliott, 19 Oct 2026) */
-      if(!r.ok) why = r.status===401 ? 'Sign in again, then save it.' : (d && d.error) || 'The server did not answer. Try again in a minute.';
+      if(!r.ok) why = r.status===401 ? 'signin' : (d && d.error) || 'The server did not answer. Try again in a minute.';
     }catch(e){ why='No signal just now. Try again when you have some.'; }
   }
   let cache=null;
@@ -4248,37 +4270,52 @@ async function dlStart(key, anyway){
       if(why) throw 0;
       if(!cache || !f.src) throw 0;
       dlBusy.ac = (typeof AbortController!=='undefined') ? new AbortController() : null;
-      const res=await fetch(f.src,{mode:'cors',credentials:'omit', ...(dlBusy.ac?{signal:dlBusy.ac.signal}:{})});
-      if(!res.ok) throw 0;
-      const blob=await res.blob();
-      if(!blob.size) throw 0;
+      /* a film that stalls for two minutes is given up on, so the rest go */
+      const ac=dlBusy.ac, stall=ac ? setTimeout(()=>{ try{ ac.abort(); }catch(e){} }, 120000) : 0;
+      let blob;
+      try{
+        const res=await fetch(f.src,{mode:'cors',credentials:'omit', ...(ac?{signal:ac.signal}:{})});
+        if(!res.ok) throw 0;
+        blob=await res.blob();
+      } finally { clearTimeout(stall); }
+      if(!blob || !blob.size) throw 0;
       try{ await cache.put(dlKey(u,'film'), new Response(blob,{headers:{'Content-Type':'video/mp4','Content-Length':String(blob.size)}})); }
       catch(qe){ if(qe && /quota/i.test(String(qe.name||qe.message||''))) why='This phone is out of room for saved films. Remove a saved workout and try again.'; throw qe; }
+      /* counted as soon as the film is in, so Stop now leaves nothing uncounted */
+      dlSet.add(u); bytes+=blob.size;
       /* the words and the still as well, so the plate and the poster are
          there with no signal too. Either can fail without costing the film. */
-      try{ const c=await fetch(STREAM_CDN+sigUid(u)+'/captions/en');
+      try{ const c=await fetch(f.words || (STREAM_CDN+sigUid(u)+'/captions/en'));
         if(c.ok) await cache.put(dlKey(u,'words'), new Response(await c.text(),{headers:{'Content-Type':'text/vtt'}})); }catch(e){}
-      try{ const t=await fetch(STREAM_CDN+sigUid(u)+'/thumbnails/thumbnail.jpg?time=3s&height=320',{mode:'cors'});
+      try{ const t=await fetch(f.still || (STREAM_CDN+sigUid(u)+'/thumbnails/thumbnail.jpg?time=3s&height=320'),{mode:'cors'});
         if(t.ok) await cache.put(dlKey(u,'still'), new Response(await t.blob(),{headers:{'Content-Type':'image/jpeg'}})); }catch(e){}
       if(dlBusy.stop) break;
-      dlSet.add(u); bytes+=blob.size;
     }catch(e){ if(dlBusy.stop) break; dlBusy.failed++; }
     dlBusy.done++; dlPaint(key);
   }
   const failed=dlBusy.failed, stopped=dlBusy.stop;
   dlBusy=null;
+  try{ if(!$('#player').classList.contains('on')) letSleep(); }catch(e){}
+  /* a sign in that ran out: sign in, and the save carries on after */
+  if(why==='signin'){
+    st.joinFor='save'; st.saveKey=key; st.saveFrom=st.tab; save();
+    toast('Your sign in ran out. Sign in and it carries on saving.');
+    try{ closeOv(); }catch(e){} try{ signInLapsed(); }catch(e){}
+    return;
+  }
   /* the workout itself, so it opens again from the Train screen */
   const got=uids.filter(u=>dlSet.has(u)).length;
   if(got){
     const prev=dlRec(key);
+    /* why the rest did not save stays on the row, not only in a toast */
+    const rest = got<uids.length && failed ? (why || (failed>noFile.length ? 'The rest need better signal.' : '')) : '';
     const rec=Object.assign({}, prev||{}, meta, {key, urls:L.urls, n:uids.length, off:true,
-      bytes:((prev&&prev.bytes)||0)+bytes, at:Date.now(), nofile:noFile});
+      bytes:((prev&&prev.bytes)||0)+bytes, at:Date.now(), nofile:noFile, why:rest});
     delete rec.label;
     if(rec.taste && tasteFinishedKey===key && !rec.tasteDone) rec.tasteDone=Date.now();
-    st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,DL_MAX);
-    save();
+    dlKeepList(rec);
   }
-  dlPaint(key);
+  dlPaint(key); keepPaint(key);
   const signalFails=failed-noFile.length;
   if(failed) try{ lhaErr('save', 'Saving for no signal: '+got+' of '+uids.length+(why?' ('+why+')':'')+(noFile.length?', '+noFile.length+' with no file':''), key); }catch(e){}
   toast(stopped ? (got ? 'Stopped. '+got+' of '+uids.length+' films are on this phone.' : 'Stopped. Nothing was saved.')
@@ -4303,6 +4340,7 @@ function dlReturn(){
   return k;
 }
 function dlAnyway(){
+  st.dlTabOk=true; save();
   const k=dlReturn();
   if(k && dlOk()) setTimeout(()=>dlStart(k, true), 60);
 }
@@ -4317,6 +4355,11 @@ function installNow(){
     if(!ok){ if(st.ov==='install') drawOv(); return; }
     if(dlPending) dlAnyway(); else closeOv();
   }).catch(()=>{}); }catch(e){}
+}
+/* asked first: with no signal there is no saving it again */
+function dlRemoveAsk(key){
+  const r=dlRec(key);
+  sure((r && (r.off||r.bytes)) ? 'Remove this workout from your phone? Saving it again needs signal.' : 'Remove this workout from Your workouts?', 'Remove it', ()=>dlRemove(key), true);
 }
 /* removing one workout keeps any film another saved workout still needs */
 async function dlRemove(key){
@@ -4371,6 +4414,7 @@ function dlOpen(key){
      stage, and the free session or not, whatever today's stage is */
   qSaved={key:rec.key, stage:rec.stage!=null?Number(rec.stage):null, taste:!!rec.taste, fix:rec.fix||null};
   sessionSpent=false; qFix=rec.fix||null; st.fixActive=rec.fix||null;
+  qLabel = String(rec.name||'').replace(/, \d+ min$/,'') || 'Your session';
   st.ovList=!!rec.wrist; st.ovRow=null; st.listMode='work'; st.ovFull=true;
   openOv('list');
 }
@@ -4444,25 +4488,26 @@ function savedHomeHTML(){
           going ? done+' of '+(held.of||held.q.length)+' sets done'
           : locked ? (sellsLadder() ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.' : 'Part of the full ladder, for members.')
           : gone && dlNoFile(r,uids)>=uids.length-have ? have+' of '+uids.length+' films saved. '+(uids.length-have===1?'One needs':(uids.length-have)+' need')+' signal.'
-          : gone ? (uids.length-have)+' of its films are not on this phone. Open it and save again.'
+          : gone ? have+' of '+uids.length+' films on this phone. Open it to save the rest.'
           : (r.taste && !isPlus()) ? 'Your free session, saved for no signal. It opens until you have done it.'
           : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+' &middot; needs signal'
           : 'Saved for no signal &middot; '+esc(cpWhen(r.at))}</span>
       </button>
       <button onclick="dlOpen(${jsq(r.key)})" style="flex:none;border:0;border-radius:11px;cursor:pointer;
         padding:10px 13px;background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">${locked?'&#128274;':going?'Carry on':'Open'}</button>
-      <button onclick="dlRemove(${jsq(r.key)})" aria-label="Remove ${esc(r.name||'this workout')} from this phone" title="Remove"
-        style="flex:none;width:30px;height:30px;border-radius:50%;border:0;cursor:pointer;background:rgba(0,64,61,.07);
+      <button onclick="dlRemoveAsk(${jsq(r.key)})" aria-label="Remove ${esc(r.name||'this workout')} from this phone" title="Remove"
+        style="flex:none;width:44px;height:44px;border-radius:50%;border:0;cursor:pointer;background:rgba(0,64,61,.07);
         color:var(--grey);display:grid;place-items:center;padding:0"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>`; };
   return `<section class="rise rise-3" style="padding:${wide()?26:18}px 20px 0">
     <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 0 4px">
-      <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">${allEx?'Saved for no signal.':'Saved workouts.'}</span>
+      <span style="font:400 ${wide()?26:22}px/1.1 var(--serif)">${allEx?'Saved for no signal.':'Your workouts.'}</span>
       <span style="font:600 13px/1 var(--sans);color:var(--forest)">${list.length}</span>
     </div>
     <div style="height:${wide()?10:8}px"></div>
     ${(anyOff && dlTabTip()) ? `<div style="margin:-2px 0 10px">${dlTabTip()}</div>` : ''}
+    ${navigator.onLine===false ? `<div style="margin:-2px 0 10px;padding:10px 12px;border-radius:12px;background:rgba(0,102,99,.06);font:400 13px/1.45 var(--sans);color:var(--ink)"><b style="font-weight:600">No signal.</b> Your saved workouts play; anything else needs signal.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:9px">${list.map(card).join('')}</div>
   </section>`;
 }
@@ -11050,8 +11095,9 @@ function moreBody(all, cards){
         <div style="flex:1">
           <div class="kick2">SAVED FOR NO SIGNAL</div>
           <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-            ${(n=>n+' workout'+(n===1?'':'s'))((st.dlSaved||[]).filter(r=>r&&r.kind!=='ex').length)}, ${
-              (n=>n+' explainer'+(n===1?'':'s'))((st.dlSaved||[]).filter(r=>r&&r.kind==='ex').length)}, ${dlSet.size} film${dlSet.size===1?'':'s'} on this phone.</div>
+            ${(()=>{ const L=(st.dlSaved||[]).filter(Boolean), w=L.filter(r=>r.kind!=='ex' && (r.off||r.bytes)).length, x=L.filter(r=>r.kind==='ex').length,
+                mb=Math.round(L.reduce((t,r)=>t+(Number(r.bytes)||0),0)/1048576);
+              return [w?w+' workout'+(w===1?'':'s'):'', x?x+' explainer'+(x===1?'':'s'):'', dlSet.size+' film'+(dlSet.size===1?'':'s')].filter(Boolean).join(', ')+' on this phone'+(mb?', '+mb+' MB':'')+'.'; })()}</div>
         </div>
         <button onclick="dlClearAll()" style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:12px;
           cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);color:var(--ink)">Remove all</button>
@@ -11364,7 +11410,8 @@ function showStep(){
     const cbtn=$('#p-cuesbtn'); if(cbtn) cbtn.hidden=true;
   } else {
     tTotal=left=work(it, s.g||s.grp);
-    if(it.url){ vw.classList.remove('novideo'); { const ph=vw.querySelector('.p-nofilm'); if(ph) ph.style.display='none'; }
+    const offFilm = !!it.url && navigator.onLine===false && !dlHas(uidOfUrl(it.url));
+    if(it.url && !offFilm){ vw.classList.remove('novideo'); { const ph=vw.querySelector('.p-nofilm'); if(ph) ph.style.display='none'; }
       /* ── one film element for the whole session ─────────────────
          Every set used to write a fresh <video autoplay> into the page,
          and an iPhone only lets a film start with sound inside the tap
@@ -11410,7 +11457,8 @@ function showStep(){
       let ph=vw.querySelector('.p-nofilm');
       if(!ph){ ph=document.createElement('div'); ph.className='p-nofilm'; vw.appendChild(ph); }
       ph.style.display='';
-      ph.innerHTML=`<div class="p-nofilm-k">Film coming soon</div><p>Elliott is filming this one. Work from the name${(it.cues||[]).length?' and the form cues':''} for now.</p>`; }
+      ph.innerHTML = offFilm ? `<div class="p-nofilm-k">Needs signal</div><p>This film is not on your phone. Work from the name${(it.cues||[]).length?' and the form cues':''} for now.</p>`
+        : `<div class="p-nofilm-k">Film coming soon</div><p>Elliott is filming this one. Work from the name${(it.cues||[]).length?' and the form cues':''} for now.</p>`; }
     const rp=repOf(it), cues=it.cues||[];
     const dose=esc(String(rp.n)+(rp.u?' '+rp.u:''));
     /* The clock is the big number now. It was 21px in the top bar, and the
@@ -11586,6 +11634,7 @@ function toast(msg){
        was under it, so it takes none at all. It rises in from a little
        below, and the first one did not animate because it was shown in the
        same frame it was made. */
+    el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
     el.style.cssText='position:fixed;left:50%;bottom:86px;transform:translate(-50%,8px);z-index:60;'+
       'background:var(--forest,#003b38);color:#fff;border-radius:999px;padding:11px 19px;'+
       'font:600 13.5px/1.2 var(--sans);box-shadow:0 8px 26px rgba(0,0,0,.22);pointer-events:none;'+
@@ -11597,7 +11646,7 @@ function toast(msg){
   el.textContent=msg;
   el.style.opacity='1'; el.style.transform='translate(-50%,0)';
   clearTimeout(toast_);
-  toast_=setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translate(-50%,8px)'; }, 2600);
+  toast_=setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translate(-50%,8px)'; }, Math.min(6000, 1600+String(msg||'').length*45));
 }
 
 /* The only place a follow-along ever gets asked. Rating a single drill
@@ -12745,6 +12794,7 @@ function drawOv(){
                  doesn't fit"). They have the card's width under the
                  description now. The cues only showed once the film was
                  opened, which nothing said: Cues is its own pill. -->
+            ${(qSaved && itUrl(it) && !dlHas(uidOfUrl(itUrl(it))))?`<div style="margin-top:8px;font:600 12px/1.3 var(--sans);color:var(--grey)">Needs signal: this film is not on your phone</div>`:''}
             <div class="rowpills" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px">
               ${(it.cues&&it.cues.length)?`<button class="rt" id="cuesb-${k}" aria-expanded="${cuesOpen.has(k)}"
                 onclick="toggleCues('${k}',this)">Cues</button>`:''}
@@ -13778,7 +13828,7 @@ function doLogin(ev){
       if(!st.in){ st.mode='free'; st.quizDone=true;
         if(st.signinFrom==='joinFree' && st.joinFor==='next'){ st.signinFrom=null; nextUp=joinLand(); }
         else if(!st.tab||st.tab==='signin') st.tab='ladder'; }
-      save(); render(); loadEntitlement();
+      save(); render(); loadEntitlement(); resumeSave();
       if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
       /* a quiz just taken on this phone, not yet on the account */
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
@@ -13824,7 +13874,7 @@ function verifyCode(){
       st.in = (d.coached!==undefined) ? !!d.coached : true; st.coached=st.in;
       st.plus=!!d.plus;
       if(!st.in){ st.mode='free'; st.quizDone=true; if(!st.tab||st.tab==='signin') st.tab='ladder'; }
-      save(); render(); loadEntitlement();
+      save(); render(); loadEntitlement(); resumeSave();
       /* a quiz just taken on this phone, not yet on the account */
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
       if(st.in){ loadProgramme(); loadThread(); }
@@ -21121,9 +21171,11 @@ function followDay(){ st.fixActive=null; Q=queue(); startQueue(0); }
 
    Deliberately quiet: nobody waits for it and a failure costs exactly
    what not trying would have cost. */
+/* signal coming and going redraws Train, so what will play is said */
+try{ ['online','offline'].forEach(ev=>window.addEventListener(ev, ()=>{ if(!st.ov && (st.tab==='home'||st.tab==='today')) render(); })); }catch(e){}
 function cacheSession(list){
   try{
-    const urls=[...new Set((list||[]).map(x=>x && x.it && x.it.url).filter(Boolean))].slice(0,20);
+    const urls=[...new Set((list||[]).map(x=>x && x.it && x.it.url).filter(Boolean))].filter(u=>!dlHas(uidOfUrl(u))).slice(0,20);
     let i=0;
     const next=()=>{
       if(i>=urls.length) return;
@@ -21186,6 +21238,7 @@ function bringBack(v){
    session they are about to do. */
 function asideRow(v){
   setAside(v);
+  if(qSaved){ toast('Put aside for a week from new sessions. This saved one stays as it is, so skip it today.'); return; }
   const wrist = st.sessionKind==='wrist';
   /* the same workout, rebuilt: it stays the free one if it was, and it
      is not a second one */
@@ -22551,12 +22604,7 @@ function doJoin(ev){
       /* they were buying coaching: straight on to its checkout */
       if(st.token && st.wantPlan) resumePlan();
       /* they were saving a workout for no signal: back to it, and it saves */
-      if(st.token && st.joinFor==='save'){
-        const k=st.saveKey, back=st.saveFrom;
-        st.joinFor=''; st.saveKey=''; st.saveFrom=''; if(back) st.tab=back; save(); render();
-        setTimeout(()=>{ if(k && dlLists[k]){ toast('Saving it for no signal now.'); dlStart(k); }
-          else toast('You are in. Tap Save again to keep it on this phone.'); }, 400);
-      } })
+      resumeSave(); })
     .catch(e=>{ joinSay(errText(e)); });
 }
 /* letting them skip costs one address and keeps the app usable —
@@ -22572,8 +22620,21 @@ const emailOptional = () => true;
    back where they were now, and on into the session if starting one is
    what brought the form up. Skipping a stage they meant to buy ends that
    errand too, or a later free sign up finished it with a card form. */
+/* the save that sent them to join or sign in carries on, whichever way
+   they came back in (signing in dropped it, the review found) */
+function resumeSave(){
+  if(!st.token || st.joinFor!=='save') return;
+  const k=st.saveKey, back=st.saveFrom;
+  st.joinFor=''; st.saveKey=''; st.saveFrom=''; if(back) st.tab=back; save(); render();
+  setTimeout(()=>{
+    const L=k && dlLists[k];
+    if(L){ if(L.meta && L.meta.kind==='q'){ st.ovFull=true; openOv('list'); }
+      toast('Saving it for no signal now.'); dlStart(k); }
+    else toast('You are in. Tap Save again to keep it on this phone.'); }, 400);
+}
 function skipJoin(){
   st.joinSkipped=true;
+  if(st.joinFor==='save'){ st.joinFor=''; st.saveKey=''; st.saveFrom=''; }
   if(st.joinFor==='buy' || st.joinFor==='check' || st.wantUpgrade!=null){ st.wantUpgrade=null; if(st.joinFor!=='next') st.joinFor=''; }
   const nextUp=joinLand(); save(); render();
   if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
@@ -23494,7 +23555,7 @@ async function appleSignInOnce(P){
   if(!st.in){ st.mode='free'; st.quizDone=true;
     if(from==='joinFree' && st.joinFor==='next') nextUp=joinLand();
     else { st.tab = (st.joinFor==='taste') ? 'home' : 'ladder'; st.joinFor = st.joinFor==='taste' ? '' : st.joinFor; } }
-  save(); render(); loadEntitlement();
+  save(); render(); loadEntitlement(); resumeSave();
   if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
   if(d.fresh){
     /* a new account has nothing to overwrite: what this phone has goes up */

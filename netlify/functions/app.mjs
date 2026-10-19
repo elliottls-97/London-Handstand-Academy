@@ -9315,8 +9315,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      path: it will not fetch anything else for anybody. A locked film arrives
      already signed, so nobody gets a film here they could not already play. */
   if (path === '/dlurls' && request.method === 'POST') {
-    /* saving for no signal comes with an account */
-    if (!(await me())) return json({ error: 'Add your email to save workouts for no signal.' }, 401);
+    /* saving for no signal comes with an account, or a live subscription
+       Apple has signed (the iPhone app sells the Ladder with no account) */
+    let dlApple = false;
+    if (!(await me()) && body.jws) {
+      try { const tx = appleJWS(body.jws); const r = await iapApply('', tx); dlApple = !!(r && r.active); } catch {}
+    }
+    if (!(await me()) && !dlApple) return json({ error: 'Add your email to save workouts for no signal.' }, 401);
     const ip = request.headers.get('x-nf-client-connection-ip') || request.headers.get('x-forwarded-for') || 'x';
     if ((await rateHit(`dl:${ip}`, 600000)) > 30) {
       return json({ error: 'That is a lot of saving at once. Try again in a few minutes.' }, 429);
@@ -9327,9 +9332,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        cannot download. For an account the paid films are for (as /sign
        decides), each is signed again here as downloadable, for an hour. */
     const dlWho = await me();
-    let dlPaid = null;
-    const mayDl = async () => { if (dlPaid === null) { const a = (await getAcct(dlWho)) || {};
-      dlPaid = plusNow(a) || await isCoached(dlWho) || coachList().includes(dlWho); } return dlPaid; };
+    /* worked out once for the whole list, not once per film all at once */
+    let dlPaidP = null;
+    const mayDl = () => dlPaidP || (dlPaidP = (async () => { if (dlApple) return true; const a = (await getAcct(dlWho)) || {};
+      return plusNow(a) || await isCoached(dlWho) || coachList().includes(dlWho); })());
     const dlKey = await streamKey();
     const films = await Promise.all(list.map(async u => {
       let x = null;
@@ -9358,7 +9364,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const p = new URL(src).searchParams.get('p');
         if (p) bytes = Number(JSON.parse(Buffer.from(p, 'base64').toString('utf8')).totalByteSize) || 0;
       } catch {}
-      return { src, bytes };
+      /* a film signed here: its captions and still need the same token, or
+         the saved film keeps neither (they were fetched with the bare id) */
+      const segNow = x.pathname.split('/')[1];
+      const extra = /^[a-f0-9]{32}$/.test(segNow) ? {} : { words: `https://${HOST}/${segNow}/captions/en`, still: `https://${HOST}/${segNow}/thumbnails/thumbnail.jpg?time=3s&height=320` };
+      return { src, bytes, ...extra };
     }));
     return json({ films });
   }
@@ -10305,7 +10315,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`err:${ip}`, 3600000)) > 60) return json({ ok: true });
     const clip = (x, n) => String(x == null ? '' : x).replace(/[\u0000-\u001f]/g, ' ').slice(0, n);
-    const k = ['js', 'promise', 'api', 'film'].includes(body.k) ? body.k : 'js';
+    const k = ['js', 'promise', 'api', 'film', 'save'].includes(body.k) ? body.k : 'js';
     const m = clip(body.m, 220).trim(); if (!m) return json({ ok: true });
     const w = clip(body.w, 120), sc = clip(body.sc, 40).replace(/[^a-z0-9:_ -]/gi, ''), dv = body.dv === 'ios' ? 'ios' : 'web';
     let who = ''; try { who = (await me()) || ''; } catch {}
