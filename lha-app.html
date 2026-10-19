@@ -4218,14 +4218,17 @@ async function dlStart(key, anyway){
   const noFile=[];
   dlPaint(key);
   try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
-  let films=[];
+  let films=[], why='';
   if(want.length){
     try{
       const r=await fetch('/api/app/dlurls',{method:'POST',headers:authed(),
         body:JSON.stringify({urls:want.map(u=>sig(dlKey(u,'film')))})});
-      const d=r.ok ? await r.json() : null;
-      films=(d&&d.films)||[];
-    }catch(e){}
+      const d=await r.json().catch(()=>null);
+      films=(r.ok && d && d.films)||[];
+      /* said as it is: a sign in that has run out, or saving too much at
+         once, is not the signal (Elliott, 19 Oct 2026) */
+      if(!r.ok) why = r.status===401 ? 'Sign in again, then save it.' : (d && d.error) || 'The server did not answer. Try again in a minute.';
+    }catch(e){ why='No signal just now. Try again when you have some.'; }
   }
   let cache=null;
   try{ cache=await caches.open(FILM_CACHE); }catch(e){}
@@ -4237,13 +4240,15 @@ async function dlStart(key, anyway){
       /* the server answered and Stream has no file to give for this one:
          nothing about the signal will change that (19 Oct 2026) */
       if(films.length && !f.src){ noFile.push(u); throw 0; }
+      if(why) throw 0;
       if(!cache || !f.src) throw 0;
       dlBusy.ac = (typeof AbortController!=='undefined') ? new AbortController() : null;
       const res=await fetch(f.src,{mode:'cors',credentials:'omit', ...(dlBusy.ac?{signal:dlBusy.ac.signal}:{})});
       if(!res.ok) throw 0;
       const blob=await res.blob();
       if(!blob.size) throw 0;
-      await cache.put(dlKey(u,'film'), new Response(blob,{headers:{'Content-Type':'video/mp4','Content-Length':String(blob.size)}}));
+      try{ await cache.put(dlKey(u,'film'), new Response(blob,{headers:{'Content-Type':'video/mp4','Content-Length':String(blob.size)}})); }
+      catch(qe){ if(qe && /quota/i.test(String(qe.name||qe.message||''))) why='This phone is out of room for saved films. Remove a saved workout and try again.'; throw qe; }
       /* the words and the still as well, so the plate and the poster are
          there with no signal too. Either can fail without costing the film. */
       try{ const c=await fetch(STREAM_CDN+sigUid(u)+'/captions/en');
@@ -4270,7 +4275,9 @@ async function dlStart(key, anyway){
   }
   dlPaint(key);
   const signalFails=failed-noFile.length;
+  if(failed) try{ lhaErr('save', 'Saving for no signal: '+got+' of '+uids.length+(why?' ('+why+')':'')+(noFile.length?', '+noFile.length+' with no file':''), key); }catch(e){}
   toast(stopped ? (got ? 'Stopped. '+got+' of '+uids.length+' films are on this phone.' : 'Stopped. Nothing was saved.')
+    : why && failed ? (got ? got+' of '+uids.length+' saved. ' : '')+why
     : (noFile.length && !signalFails) ? (uids.length===1 ? 'This film cannot be saved yet, so it needs signal.'
       : got+' of '+uids.length+' saved. '+dlNoFileLine(noFile.length))
     : failed ? (uids.length===1 ? 'That did not save. Try again on better signal.'

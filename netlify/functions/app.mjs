@@ -8975,9 +8975,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     streamKeyCache = { id: k.id, key };
     return streamKeyCache;
   };
-  const signUid = async (k, uid, exp) => {
+  /* dl: a token that may also fetch the film's MP4. Stream's default is
+     no, so a locked film could be played but never saved for no signal:
+     a session stopped at 12 of 14 for good (19 Oct 2026). */
+  const signUid = async (k, uid, exp, dl) => {
     const header = b64u(JSON.stringify({ alg: 'RS256', kid: k.id }));
-    const payload = b64u(JSON.stringify({ sub: uid, kid: k.id, exp, nbf: Math.floor(Date.now() / 1000) - 60 }));
+    const payload = b64u(JSON.stringify({ sub: uid, kid: k.id, exp, nbf: Math.floor(Date.now() / 1000) - 60, ...(dl ? { downloadable: true } : {}) }));
     const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', k.key, new TextEncoder().encode(header + '.' + payload));
     return header + '.' + payload + '.' + b64u(sig);
   };
@@ -9320,11 +9323,31 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     const HOST = 'customer-pns1oongdltmkjwa.cloudflarestream.com';
     const list = Array.isArray(body.urls) ? body.urls.slice(0, 40) : [];
+    /* A locked film's address carries the app's token, which plays but
+       cannot download. For an account the paid films are for (as /sign
+       decides), each is signed again here as downloadable, for an hour. */
+    const dlWho = await me();
+    let dlPaid = null;
+    const mayDl = async () => { if (dlPaid === null) { const a = (await getAcct(dlWho)) || {};
+      dlPaid = plusNow(a) || await isCoached(dlWho) || coachList().includes(dlWho); } return dlPaid; };
+    const dlKey = await streamKey();
     const films = await Promise.all(list.map(async u => {
       let x = null;
       try { x = new URL(String(u)); } catch { return { src: null }; }
       if (x.hostname !== HOST || !/^\/[A-Za-z0-9._-]+\/downloads\/default\.mp4$/.test(x.pathname)) return { src: null };
-      const r = await fetch(`https://${HOST}${x.pathname}`, { method: 'HEAD', redirect: 'manual' }).catch(() => null);
+      let seg = x.pathname.split('/')[1];
+      if (!/^[a-f0-9]{32}$/.test(seg) && dlKey && await mayDl()) {
+        let sub = '';
+        try { sub = String(JSON.parse(Buffer.from(seg.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')).sub || ''); } catch {}
+        if (/^[a-f0-9]{32}$/.test(sub)) seg = await signUid(dlKey, sub, Math.floor(Date.now() / 1000) + 3600, true);
+      }
+      x.pathname = `/${seg}/downloads/default.mp4`;
+      let r = await fetch(`https://${HOST}${x.pathname}`, { method: 'HEAD', redirect: 'manual' }).catch(() => null);
+      /* a locked film sent as its bare id (the app's tokens had run out) */
+      if (r && r.status === 401 && /^[a-f0-9]{32}$/.test(seg) && dlKey && await mayDl()) {
+        x.pathname = `/${await signUid(dlKey, seg, Math.floor(Date.now() / 1000) + 3600, true)}/downloads/default.mp4`;
+        r = await fetch(`https://${HOST}${x.pathname}`, { method: 'HEAD', redirect: 'manual' }).catch(() => null);
+      }
       if (!r) return { src: null };
       let src = null;
       if (r.status >= 300 && r.status < 400) src = r.headers.get('location');
