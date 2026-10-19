@@ -231,6 +231,7 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
   font:500 11px/1 var(--sans);color:var(--grey2)}
 .sk-note{margin:14px auto 0;max-width:36ch;font:400 12.5px/1.5 var(--sans);color:var(--grey2)}
 /* a day of the calendar opens under its own week, pointing at the day */
+.hcap-stick{position:sticky;z-index:4;box-shadow:0 1px 2px rgba(0,64,61,.05),0 10px 26px rgba(0,64,61,.12)}
 .segstick{position:sticky;z-index:3;background:rgba(244,244,245,.86);backdrop-filter:blur(22px) saturate(180%);
  -webkit-backdrop-filter:blur(22px) saturate(180%)}
 .hcap{display:flex;align-items:stretch;gap:6px;padding:6px;margin-top:22px;border-radius:999px;background:#fff;
@@ -7010,6 +7011,7 @@ function cpRepaintCounts(){
   if(hb) hb.style.width=(p.of?Math.round(p.met/p.of*100):0)+'%';
   /* and the climb above it, which moves in place */
   climbRepaint();
+  capsuleRepaint();
 }
 
 function cpStep(k,by,max){
@@ -16851,123 +16853,125 @@ function cpRingMark(P, key){
   return `<svg class="cpr2" aria-hidden="true" data-from="${from}" data-to="${met}" data-of="${of}"></svg>`;
 }
 function cpRingRun(el){
+  /* A line for line port of the canvas's Capsule (paint) and PlayFull
+     (the timelines), so the app moves as the Play frame does. */
   const svg=el||document.querySelector('.hcap .hcap-cp .cpr2'); if(!svg) return;
   const btn=svg.parentNode, W=btn.offsetWidth, H=btn.offsetHeight; if(!W||!H) return;
   const from=+svg.dataset.from||0, to=+svg.dataset.to||0, of=Math.max(1,+svg.dataset.of||0);
   const open=btn.getAttribute('aria-expanded')==='true';
   const tick=btn.querySelector('.cpr-tk'), num=btn.querySelector('small em');
-  /* the line's centre: a stadium inset 3.5px, perimeter P, from top centre */
   const ox=3.5, oy=3.5, w=W-7, h=H-7, r=h/2, sl=w-2*r, arc=Math.PI*r, P=2*sl+2*arc, a=sl/2;
-  const pt=t=>{ t=Math.max(0,Math.min(P,t));
+  const pt=t=>{
     if(t<=a) return [ox+w/2+t, oy];
     if(t<=a+arc){ const th=(t-a)/r; return [ox+w-r+r*Math.sin(th), oy+r-r*Math.cos(th)]; }
     if(t<=a+arc+sl){ const u=t-a-arc; return [ox+w-r-u, oy+h]; }
     if(t<=a+2*arc+sl){ const th=(t-a-arc-sl)/r; return [ox+r-r*Math.sin(th), oy+r+r*Math.cos(th)]; }
     return [ox+r+(t-a-2*arc-sl), oy]; };
-  const lerp=(A,B,x)=>A.map((v,i)=>v+(B[i]-v)*x), hex=c=>'rgb('+c.map(v=>Math.round(Math.max(0,Math.min(255,v)))).join(',')+')';
-  const DEEP=[0,80,77], BRIGHT=[25,179,170], HOT=[47,211,200], AD=[214,128,32], AB=[243,169,73], AH=[250,200,120],
-    GD=[0,64,61], GB=[10,138,132];
-  /* a closed ring holds amber while the moment is open, and settles green
-     once a free account stays (Elliott's canvas, 19 Oct 2026) */
-  const held = clearShowing()!=null;
-  const NB=16;
+  const f1=n=>Math.round(n*10)/10, lerp=(A,B,x)=>A.map((v,i)=>v+(B[i]-v)*x);
+  const hex=c=>'#'+c.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
   svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.setAttribute('width',W); svg.setAttribute('height',H);
-  const draw=(frac, moving, sw, sparkT, gm)=>{
-    /* sw: amber; gm: green; colour is fixed to position on the ring, so new
-       line arrives in its final shade and nothing behind it changes */
-    gm=gm||0;
-    let deep=lerp(DEEP,AD,sw), bright=lerp(BRIGHT,AB,sw); const hot=lerp(HOT,AH,sw), reached=Math.min(1,frac)*P;
-    if(gm>0){ deep=lerp(deep,GD,gm); bright=lerp(bright,GB,gm); }
-    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="rgba(0,102,99,.12)" stroke-width="5"/>`;
+  const SP=[[.2,0,-.5,-.87,6],[.5,0,0,-1,5],[.8,0,.5,-.87,6],[1,.5,1,0,7],[.8,1,.5,.87,6],[.5,1,0,1,5],[.2,1,-.5,.87,6],[0,.5,-1,0,6]];
+  /* S: frac, moving, swellT, sparkT, tickT, doneMix, count */
+  const paint=S=>{
+    const frac=Math.min(1,S.frac), done=frac>=0.999, swellT=Math.min(1,S.swellT||0), sparkT=S.sparkT==null?-1:S.sparkT;
+    const doneMix=Math.max(0,Math.min(1,S.doneMix==null?1:S.doneMix)), moving=!!S.moving;
+    const amberMix=done?1-doneMix:0, greenMix=done?doneMix:0, amber=amberMix>.5;
+    let deep=lerp([0,80,77],[214,128,32],amberMix), bright=lerp([25,179,170],[243,169,73],amberMix);
+    deep=lerp(deep,[0,64,61],greenMix); bright=lerp(bright,[10,138,132],greenMix);
+    const hot=lerp([47,211,200],[250,200,120],amberMix);
+    const NB=16, reached=frac*P;
+    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="rgba(0,102,99,0.12)" stroke-width="5"/>`;
     if(reached>0.5) for(let i=0;i<NB;i++){
+      let col=lerp(deep,bright,Math.min(1,((i+0.5)/NB)*(reached/P)));
       const len=reached/NB, t0=Math.max(0,i*len-1.2), t1=Math.min(reached,(i+1)*len+1.2), n=Math.max(2,Math.ceil((t1-t0)/3));
-      let col=lerp(deep,bright,Math.min(1,((i+.5)*len)/P));
-      if(moving && i===NB-1) col=hot; else if(moving && i===NB-2) col=lerp(bright,hot,.5);
-      if(sw>0 && sw<1) col=lerp(col, lerp(bright,hot,.35+.65*i/(NB-1)), sw*.6);
-      const pts=[]; for(let q=0;q<=n;q++){ const c=pt(t0+(t1-t0)*q/n); pts.push(c[0].toFixed(1)+' '+c[1].toFixed(1)); }
+      const pts=[]; for(let k=0;k<=n;k++){ const q=pt(t0+(t1-t0)*k/n); pts.push(f1(q[0])+' '+f1(q[1])); }
+      if(moving && i===NB-1) col=hot;
+      if(moving && i===NB-2) col=lerp(bright,hot,0.5);
+      if(swellT>0) col=lerp(col, lerp(bright,hot,0.35+0.65*i/(NB-1)), swellT);
       out+=`<path d="M ${pts.join(' L ')}" stroke="${hex(col)}" stroke-width="5" stroke-linecap="round" fill="none"/>`;
     }
-    if(sparkT>=0 && sparkT<=1){
-      const B=[[.2,0,-.5,-.87],[.5,0,0,-1],[.8,0,.5,-.87],[1,.5,1,0],[.8,1,.5,.87],[.5,1,0,1],[.2,1,-.5,.87],[0,.5,-1,0]], tr=6+36*sparkT;
-      B.forEach((b,i)=>{ out+=`<circle cx="${(b[0]*W+b[2]*tr).toFixed(1)}" cy="${(b[1]*H+b[3]*tr).toFixed(1)}" r="${i%2?2.6:3}"
-        fill="${i%2?'#f3a949':'#19b3aa'}" opacity="${(1-sparkT).toFixed(2)}"/>`; });
-    }
+    const sparksOn=sparkT>=0 && sparkT<=1;
+    if(sparksOn){ const travel=6+36*sparkT;
+      SP.forEach((b,i)=>{ out+=`<circle cx="${f1(b[0]*W+b[2]*travel)}" cy="${f1(b[1]*H+b[3]*travel)}" r="${b[4]/2}"
+        fill="${i%2?'#f3a949':'#19b3aa'}" opacity="${(1-sparkT).toFixed(2)}"/>`; }); }
     svg.innerHTML=out;
-    const glow = sw>.02 ? `drop-shadow(0 0 6px rgba(250,200,120,${(.95*sw).toFixed(2)})) drop-shadow(0 0 16px rgba(250,200,120,${(.6*sw).toFixed(2)}))`
-      : moving ? 'drop-shadow(0 0 5px rgba(25,179,170,.55))' : 'none';
-    svg.style.filter=glow; svg.style.transform=sw>.02?`scale(${(1+.03*sw).toFixed(3)})`:'';
+    let track=open?[207,230,236]:[242,247,247];
+    if(done && !open) track=lerp([253,245,232],[232,246,244],doneMix);
+    if(swellT>0) track=lerp(track,[253,240,218],swellT);
+    btn.style.background=hex(track);
+    const glowRgb=amber?'250,200,120':'47,211,200';
+    svg.style.filter = swellT>0.02 ? `drop-shadow(0 0 6px rgba(${glowRgb},${f1(.95*swellT)})) drop-shadow(0 0 16px rgba(${glowRgb},${f1(.6*swellT)}))`
+      : moving ? 'drop-shadow(0 0 5px rgba(25,179,170,0.55))' : 'none';
+    svg.style.transform = swellT>0.02 ? `scale(${(1+.03*swellT).toFixed(3)})` : '';
+    const tickT=S.tickT==null?-1:S.tickT;
+    if(tick){ if(tickT<0) tick.hidden=true; else { tick.hidden=false;
+      tick.style.transform='scale('+(tickT<.7?1.18*(tickT/.7):1.18-.18*((tickT-.7)/.3)).toFixed(3)+')';
+      tick.style.background=hex(lerp([243,169,73],[0,102,99],doneMix)); } }
+    if(num && S.count!=null) num.textContent=S.count+' of '+(S.total||of);
   };
-  /* draw() takes the halo and swell from sw; at rest a held ring is amber
-     with neither, so the colour mix and the effects are kept apart */
-  const drawRest=(frac, am, gm)=>{ draw(frac,false,am,-1,gm); svg.style.filter='none'; svg.style.transform=''; };
-  const inside=(done, sw, gm)=>{ let t=open?[207,230,236]:done?[232,246,244]:[242,247,247];
-    if(sw>0) t=lerp(t,[253,245,232],sw); if(gm>0) t=lerp(t,[232,246,244],gm); btn.style.background=hex(t); };
-  const tickCol=(am)=>{ if(tick) tick.style.background=am?'#f3a949':'#006663'; };
-  const tickAt=x=>{ if(!tick) return; if(x<0){ tick.hidden=true; return; } tick.hidden=false;
-    tick.style.transform='scale('+(x<.7?1.18*x/.7:1.18-.18*(x-.7)/.3).toFixed(3)+')'; };
-  const label=(n)=>{ if(num) num.textContent=n+' of '+of; };
-  if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
+  const run=(update)=>{ if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
+    const t0=performance.now();
+    const frame=now=>{ if(!svg.isConnected) return; const S=update(now-t0);
+      if(S===null) { svg._raf=0; return; } paint(S); svg._raf=requestAnimationFrame(frame); };
+    svg._raf=requestAnimationFrame(frame); };
+  const easeOut=x=>1-Math.pow(1-x,3), smooth=x=>{ x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); };
   let reduce=false; try{ reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
-  const last=to>=of && of>0;
-  /* the reel back for a new stage: from a full held ring to its 0 */
+  const held=clearShowing()!=null, last=to>=of && of>0;
+  const rest=()=>paint({frac:to/of, count:to, tickT:last?1:-1, doneMix:held?0:1});
+  /* the reset for a new stage: 550 ms after the sheet drops, over 700 ms */
   const reel=window._ringReel;
-  if(reel && to===0 && !held){ window._ringReel=null;
-    const oldOf=reel.of||of, sm=x=>x*x*(3-2*x);
-    if(reduce){ drawRest(0,0,0); inside(false,0,0); tickAt(-1); label(0); return; }
-    drawRest(1,1,0); inside(true,1,0); tickCol(true); tickAt(1); if(num) num.textContent=oldOf+' of '+oldOf;
-    const go=now=>{ if(!svg.isConnected) return;
-      const u=Math.max(0,Math.min(1,(now-reel.at)/700)), f=1-sm(u);
-      drawRest(f, 1-u, 0); inside(f>0.999, 1-u, 0); tickAt(u<1?1-u:-1);
-      if(u>=.5) label(0);
-      if(u<1) svg._raf=requestAnimationFrame(go); else { svg._raf=0; drawRest(0,0,0); inside(false,0,0); tickAt(-1); }
-    };
-    svg._raf=requestAnimationFrame(go); return; }
-  /* staying: the held amber ring turns green over 600 ms */
+  if(reel && to===0 && !held){ window._ringReel=null; const oldOf=reel.of||of;
+    if(reduce){ rest(); return; }
+    paint({frac:1, count:oldOf, total:oldOf, tickT:1, doneMix:0});
+    run(e=>{ const c=e-550; if(c<0) return {frac:1, count:oldOf, total:oldOf, tickT:1, doneMix:0};
+      const u=Math.min(1,c/700), S={frac:1-smooth(u), tickT:u<1?1-u:-1, doneMix:0,
+        count:u>=.5?0:oldOf, total:u>=.5?of:oldOf};
+      if(u>=1){ paint(S); rest(); return null; } return S; });
+    return; }
+  /* staying: amber to green over 600 ms, 100 ms after the sheet goes */
   const toGreen=window._ringGreen;
   if(toGreen && last && !held && !(to>from)){ window._ringGreen=null;
-    if(reduce){ drawRest(1,0,1); inside(true,0,1); tickCol(false); tickAt(1); label(to); return; }
-    const go=now=>{ if(!svg.isConnected) return;
-      const u=Math.max(0,Math.min(1,(now-toGreen)/600));
-      drawRest(1,1-u,u); inside(true,1-u,u); tickCol(u<.5); tickAt(1); label(to);
-      if(u<1) svg._raf=requestAnimationFrame(go); else svg._raf=0;
-    };
-    svg._raf=requestAnimationFrame(go); return; }
-  if(!(to>from) || reduce){
-    if(last){ drawRest(1, held?1:0, held?0:1); inside(true, held?1:0, held?0:1); tickCol(held); }
-    else { drawRest(to/of,0,0); inside(false,0,0); }
-    tickAt(last?1:-1); label(to); return; }
-  const D=last?520:420, ease=x=>1-Math.pow(1-x,3), t0=performance.now();
-  label(from); tickAt(-1);
-  const frame=now=>{
-    if(!svg.isConnected) return;
-    const e=now-t0;
-    let frac, moving, sw=0, spark=-1, tk=-1;
-    if(e<D){ frac=(from+(to-from)*ease(e/D))/of; moving=true; }
-    else { frac=to/of; moving=!last && e<D+280; label(to); }
-    if(last){ const c=e-D;
-      sw=c<0?0:c<180?c/180:1;
-      const halo=c<580?1:c<980?1-(c-580)/400:0;
-      spark=(c>=80&&c<580)?(c-80)/500:-1;
-      tk=c<180?-1:Math.min(1,(c-180)/300);
-      if(c>=0 && !buzzed){ buzzed=1; try{ navigator.vibrate && navigator.vibrate([18,50,26]); }catch(_){} }
-    } else if(e>=D && !buzzed){ buzzed=1; try{ navigator.vibrate && navigator.vibrate(8); }catch(_){} }
-    draw(frac,moving,sw,spark); if(last && e>=D){ const c=e-D, halo=c<580?1:c<980?1-(c-580)/400:0;
-      if(halo<1){ svg.style.filter=halo>.02?`drop-shadow(0 0 6px rgba(250,200,120,${(.95*halo).toFixed(2)})) drop-shadow(0 0 16px rgba(250,200,120,${(.6*halo).toFixed(2)}))`:'none';
-        svg.style.transform=halo>.02?`scale(${(1+.03*halo).toFixed(3)})`:''; } tickCol(true); }
-    inside(last && e>=D, sw, 0); tickAt(tk);
-    if(e < (last ? D+1000 : D+300)) svg._raf=requestAnimationFrame(frame);
-    else { svg._raf=0; buzzed=0;
-      if(last){ drawRest(1, held?1:0, held?0:1); inside(true, held?1:0, held?0:1); tickCol(held); }
-      else { drawRest(to/of,0,0); inside(false,0,0); }
-      tickAt(last?1:-1); }
-  };
-  let buzzed=0;
-  svg._raf=requestAnimationFrame(frame);
+    if(reduce){ rest(); return; }
+    run(e=>{ const m=e<100?0:smooth((e-100)/600); const S={frac:1, count:to, tickT:1, doneMix:m};
+      if(e>720){ paint(Object.assign(S,{doneMix:1})); return null; } return S; });
+    return; }
+  if(!(to>from) || reduce){ rest(); return; }
+  const D=last?520:420;
+  paint({frac:from/of, count:from, tickT:-1});
+  let buzzed=false;
+  run(e=>{
+    const S={};
+    if(e<D){ S.frac=(from+(to-from)*easeOut(e/D))/of; S.moving=true; S.count=from; }
+    else { S.frac=to/of; S.count=to; S.moving=e<D+280;
+      if(!buzzed){ buzzed=true; try{ navigator.vibrate && navigator.vibrate(last?[18,50,26]:8); }catch(_){} } }
+    if(!last){ if(e>D+280){ paint(S); rest(); return null; } return S; }
+    const c=e-D;
+    S.swellT=c<0?0:(c<180?c/180:(c<580?1:(c<980?1-(c-580)/400:0)));
+    S.sparkT=(c>=80 && c<580)?(c-80)/500:-1;
+    S.tickT=c<180?-1:Math.min(1,(c-180)/300);
+    S.doneMix=c<0?1:1-Math.min(1,c/180);
+    S.moving=c<0;
+    if(c>1000){ rest(); return null; }
+    return S;
+  });
 }
-function capsuleHTML(go, label){
+/* the capsule drawn again in place when a check point changes, so ticking
+   or unticking one in the list below moves the ring at once (Elliott,
+   19 Oct 2026: removing one did not untick the pill) */
+function capsuleRepaint(){
+  const el=document.querySelector('#app .hcap'), a=window._capArgs; if(!el || !a) return;
+  const t=document.createElement('div'); t.innerHTML=capsuleHTML(a[0], a[1], true);
+  const n=t.querySelector('.hcap'); if(n) el.replaceWith(n);
+  const o=document.getElementById('hcpsOffer');
+  if(o){ const u=document.createElement('div'); u.innerHTML=hcpsOfferHTML(); const v=u.firstElementChild; if(v && v.outerHTML!==o.outerHTML) o.replaceWith(v); }
+}
+function capsuleHTML(go, label, pillOnly){
+  window._capArgs=[go, label];
   const cs=clearShowing()!=null ? clearShowing() : curStage();
   const P=coachedView() ? cpProgress() : cpProgress(cs), on=!!st.homeCps;
-  return `<div class="hcap">
+  /* held under the top bar while the check points are open below it, so
+     the count stays in sight as you scroll the list (Elliott, 19 Oct 2026) */
+  return `<div class="hcap${on?' hcap-stick':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}"
         style="background:${on?'#cfe6ec':(P.of&&P.met>=P.of)?'#e8f6f4':'#f2f7f7'}">
@@ -16976,7 +16980,7 @@ function capsuleHTML(go, label){
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}">${label}
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
-    </div>${on?homeCpsHTML():''}`;
+    </div>${(on && !pillOnly)?homeCpsHTML():''}`;
 }
 /* everything that sent people to the check points lands on Train with
    them open (18 Oct 2026) */
@@ -16998,21 +17002,27 @@ function openClips(){
 function homeCps(){ st.homeCps=!st.homeCps; if(st.homeCps) window._hcpsAt=Date.now(); save(); render(); }
 /* the check points out of the capsule: the list, the finished stage's
    offer when there is one, and the way to fold it */
-function homeCpsHTML(){
+/* the finished stage's offer, at the top of the list once every check
+   point is reached (Elliott, 19 Oct 2026), drawn again in place when one
+   is ticked or unticked so it never says finished at six of seven */
+function hcpsOfferHTML(){
   const cur=curStage(), s=STAGES[cur]||STAGES[0], P=cpProgress(cur), nxt=STAGES[cur+1];
-  const done=P.of && P.met>=P.of, gated=nxt && stageLocked(cur+1), days=PRICE_TRIAL(), left=STAGES.length-cur-1;
-  const offer=(done && gated && !coachedView()) ? `<div class="card" style="margin:10px 8px 4px;padding:18px 20px;border-color:rgba(243,169,73,.55);background:rgba(243,169,73,.08)">
+  const done=P.of && P.met>=P.of, gated=nxt && stageLocked(cur+1), days=PRICE_TRIAL(), after=STAGES.length-cur-2;
+  return `<div id="hcpsOffer">${(done && gated && !coachedView()) ? `<div class="card" style="margin:0 8px 14px;padding:18px 20px;border-color:rgba(243,169,73,.55);background:rgba(243,169,73,.08)">
       <div class="kick2" style="color:#8a5a12">ALL ${P.of} REACHED</div>
       <div style="font:400 24px/1.1 var(--serif);margin-top:8px">You have finished <em style="color:var(--forest);font-style:normal">${esc(s.n)}.</em></div>
-      <div style="font:400 14px/1.55 var(--sans);margin-top:8px">${esc(nxt.n)} and the ${left===1?'stage':left+' stages'} after it ${left===1?'is':'are'} ${
+      <div style="font:400 14px/1.55 var(--sans);margin-top:8px">${esc(nxt.n)}${after>0?' and the '+(after===1?'stage':after+' stages')+' after it are':' is'} ${
         sellsLadder()?'the '+esc(PRICE())+' a month tier'+(days>0?', and the first '+days+' days are free':''):MEMBERS}.</div>
       <button class="btn" style="width:100%;margin-top:13px" onclick="openStage(${cur+1})">${days>0?'Start the '+days+' day free trial':'Open '+esc(nxt.n)}</button>
-    </div>` : '';
+    </div>` : ''}</div>`;
+}
+function homeCpsHTML(){
+  const cur=curStage();
   return `<div class="hcps${Date.now()-(window._hcpsAt||0)<600?' unfold':''}"><div class="hcps-p">
+    ${hcpsOfferHTML()}
     <div style="font:400 15px/1.4 var(--sans);color:var(--deep);padding:0 8px 8px">Tick each one off when you can do it. <span style="color:var(--grey)">Any order.</span></div>
     ${cpDue() && (cpFor(cur)||[]).some(c=>cpLast(c.k)) ? `<div style="padding:0 8px 8px;font:500 13.5px/1.45 var(--sans);color:var(--forest)">It has been a fortnight. Worth running through these again.</div>` : ''}
     <div data-tour="checkpoints">${cpListHTML(cur)}</div>
-    ${offer}
     ${(n=>n?`<button class="lrn-all" style="width:calc(100% - 16px);margin:6px 8px 0;border-bottom:0" onclick="openClips()"><span><b>All your clips</b>
       <span style="color:var(--grey)">&middot; ${n}</span></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)"
       stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`:'')(
