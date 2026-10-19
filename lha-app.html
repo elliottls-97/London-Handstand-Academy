@@ -4028,8 +4028,11 @@ function dlRow(key, urls, meta){
       <span style="display:block;font:600 13px/1.3 var(--sans)">Saving for no signal&hellip; ${dlBusy.done} of ${dlBusy.of}</span>
       <span style="display:block;height:5px;border-radius:3px;background:rgba(17,17,17,.08);margin-top:7px;overflow:hidden">
         <span style="display:block;height:100%;width:${pc}%;background:var(--forest);transition:width .3s"></span></span>
-      <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey);margin-top:5px">Keep the app open until it finishes.</span>
-    </span>`);
+      <span style="display:block;font:400 11.5px/1.3 var(--sans);color:var(--grey);margin-top:5px">${dlBusy.stop?'Stopping&hellip;':'Keep the app open until it finishes.'}</span>
+    </span>
+    ${/* it could not be stopped once started (Elliott, 19 Oct 2026) */''}
+    <button onclick="event.stopPropagation();dlStop()" ${dlBusy.stop?'disabled':''} style="flex:none;border:0;background:none;cursor:pointer;
+      padding:8px 4px;font:600 12px/1 var(--sans);color:var(--grey)">Stop</button>`);
   }
   if(rec && have===uids.length){
     return wrap(`<span style="flex:1;min-width:0">
@@ -4044,7 +4047,7 @@ function dlRow(key, urls, meta){
   return wrap(`<span style="flex:1;min-width:0">
       <span style="display:block;font:600 13px/1.3 var(--sans)">${have&&rec?'Save the rest for no signal':'Save for no signal'}</span>
       <span style="display:block;font:400 11.5px/1.35 var(--sans);color:var(--grey);margin-top:2px">${
-        have&&rec ? have+' of '+uids.length+' films are on this phone.'
+        have&&rec ? have+' of '+uids.length+' films are on this phone.'+(dlNoFile(rec,uids)?' '+dlNoFileLine(dlNoFile(rec,uids)):'')
         : (meta&&meta.taste) ? 'Your free session, kept on this phone for a gym with no signal until you have done it.'
         : (meta&&meta.kind==='ex') ? 'Keeps this explainer on your phone, to watch anywhere.'
         : uids.length+' film'+(uids.length===1?'':'s')+', about '+(uids.length*10)+' MB, kept on this phone.'}</span>
@@ -4116,6 +4119,10 @@ function dlPaint(key){
   if(el && L) el.outerHTML=dlRow(key, L.urls, L.meta);
 }
 
+/* the films Stream would not give a file for on the last save, still missing */
+function dlNoFile(rec, uids){ const nf=(rec&&rec.nofile)||[]; return nf.filter(u=>(uids||[]).indexOf(u)>-1 && !dlSet.has(u)).length; }
+const dlNoFileLine = n => n===1 ? 'One film cannot be saved yet, so it plays only with signal.' : n+' films cannot be saved yet, so they play only with signal.';
+function dlStop(){ if(!dlBusy || dlBusy.stop) return; dlBusy.stop=true; try{ dlBusy.ac && dlBusy.ac.abort(); }catch(e){} dlPaint(dlBusy.key); }
 let dlPending='';
 /* the saved workout open in the list now, if it came from the saved list */
 let qSaved=null;
@@ -4143,7 +4150,8 @@ async function dlStart(key, anyway){
   const L=dlLists[key]; if(!L) return;
   const uids=dlUids(L.urls), want=uids.filter(u=>!dlSet.has(u));
   const meta=L.meta||{};
-  dlBusy={key, done:0, of:want.length, failed:0};
+  dlBusy={key, done:0, of:want.length, failed:0, stop:false, ac:null};
+  const noFile=[];
   dlPaint(key);
   try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); }catch(e){}
   let films=[];
@@ -4159,10 +4167,15 @@ async function dlStart(key, anyway){
   try{ cache=await caches.open(FILM_CACHE); }catch(e){}
   let bytes=0;
   for(let i=0;i<want.length;i++){
+    if(dlBusy.stop) break;
     const u=want[i], f=films[i]||{};
     try{
+      /* the server answered and Stream has no file to give for this one:
+         nothing about the signal will change that (19 Oct 2026) */
+      if(films.length && !f.src){ noFile.push(u); throw 0; }
       if(!cache || !f.src) throw 0;
-      const res=await fetch(f.src,{mode:'cors',credentials:'omit'});
+      dlBusy.ac = (typeof AbortController!=='undefined') ? new AbortController() : null;
+      const res=await fetch(f.src,{mode:'cors',credentials:'omit', ...(dlBusy.ac?{signal:dlBusy.ac.signal}:{})});
       if(!res.ok) throw 0;
       const blob=await res.blob();
       if(!blob.size) throw 0;
@@ -4173,25 +4186,30 @@ async function dlStart(key, anyway){
         if(c.ok) await cache.put(dlKey(u,'words'), new Response(await c.text(),{headers:{'Content-Type':'text/vtt'}})); }catch(e){}
       try{ const t=await fetch(STREAM_CDN+sigUid(u)+'/thumbnails/thumbnail.jpg?time=3s&height=320',{mode:'cors'});
         if(t.ok) await cache.put(dlKey(u,'still'), new Response(await t.blob(),{headers:{'Content-Type':'image/jpeg'}})); }catch(e){}
+      if(dlBusy.stop) break;
       dlSet.add(u); bytes+=blob.size;
-    }catch(e){ dlBusy.failed++; }
+    }catch(e){ if(dlBusy.stop) break; dlBusy.failed++; }
     dlBusy.done++; dlPaint(key);
   }
-  const failed=dlBusy.failed;
+  const failed=dlBusy.failed, stopped=dlBusy.stop;
   dlBusy=null;
   /* the workout itself, so it opens again from the Train screen */
   const got=uids.filter(u=>dlSet.has(u)).length;
   if(got){
     const prev=dlRec(key);
     const rec=Object.assign({}, prev||{}, meta, {key, urls:L.urls, n:uids.length, off:true,
-      bytes:((prev&&prev.bytes)||0)+bytes, at:Date.now()});
+      bytes:((prev&&prev.bytes)||0)+bytes, at:Date.now(), nofile:noFile});
     delete rec.label;
     if(rec.taste && tasteFinishedKey===key && !rec.tasteDone) rec.tasteDone=Date.now();
     st.dlSaved=[rec].concat((st.dlSaved||[]).filter(r=>r && r.key!==key)).slice(0,DL_MAX);
     save();
   }
   dlPaint(key);
-  toast(failed ? (uids.length===1 ? 'That did not save. Try again on better signal.'
+  const signalFails=failed-noFile.length;
+  toast(stopped ? (got ? 'Stopped. '+got+' of '+uids.length+' films are on this phone.' : 'Stopped. Nothing was saved.')
+    : (noFile.length && !signalFails) ? (uids.length===1 ? 'This film cannot be saved yet, so it needs signal.'
+      : got+' of '+uids.length+' saved. '+dlNoFileLine(noFile.length))
+    : failed ? (uids.length===1 ? 'That did not save. Try again on better signal.'
       : got+' of '+uids.length+' films saved. Try again on better signal for the rest.')
     : meta.kind==='ex' ? 'Saved. This explainer plays with no signal.' : 'Saved. This workout plays with no signal.');
   if(st.tab==='home'||st.tab==='today') render();
@@ -4349,7 +4367,8 @@ function savedHomeHTML(){
         <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':going?'var(--forest)':'var(--grey)'};margin-top:3px;${going?'font-weight:600':''}">${
           going ? done+' of '+(held.of||held.q.length)+' sets done'
           : locked ? (sellsLadder() ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.' : 'Part of the full ladder, for members.')
-          : gone ? (uids.length-have)+' of its films were cleared by the phone. Open it and save again.'
+          : gone && dlNoFile(r,uids)>=uids.length-have ? have+' of '+uids.length+' films saved. '+(uids.length-have===1?'One needs':(uids.length-have)+' need')+' signal.'
+          : gone ? (uids.length-have)+' of its films are not on this phone. Open it and save again.'
           : (r.taste && !isPlus()) ? 'Your free session, saved for no signal. It opens until you have done it.'
           : !offline(r) ? 'Kept '+esc(cpWhen(r.at))+' &middot; needs signal'
           : 'Saved for no signal &middot; '+esc(cpWhen(r.at))}</span>
@@ -12384,6 +12403,11 @@ function drawOv(){
       <!-- said at the moment of starting, every time, as the quiz said it once -->
       <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin:-2px 0 2px">
         It starts with a warm-up. Stop if anything hurts.</div>
+      ${/* saving it before the follow along (Elliott, 19 Oct 2026): it is
+            built as a list, saved, and Start follow along is at its top */''}
+      ${dlOk()?`<button onclick="closeOv();window._dlAuto=1;buildFreeSession(${_wrist},true,${_wrist?'null':_arg})"
+        style="display:block;width:100%;min-height:44px;border:0;background:none;cursor:pointer;
+        font:600 13.5px/1.3 var(--sans);color:var(--forest)">Save it first, for a gym with no signal</button>`:''}
 
       <!-- mobility sits under Go rather than inside the level control: it is a
            different kind of day, not a fourth difficulty -->
@@ -12615,6 +12639,7 @@ function drawOv(){
         /* The free session is saved for no signal and not only kept: the
            films of a paid stage stop being handed out once it is spent, so
            a kept copy would open on another day and play nothing. */
+        if(window._dlAuto){ window._dlAuto=0; setTimeout(()=>{ if(dlLists[key]) dlStart(key); }, 150); }
         return `<div style="margin:-4px 0 14px">${meta.taste?'':keepRow(key, urls, meta)}${dlRow(key, urls, meta)}</div>`; })()}
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
       ${(function(){ const a=asideList(); if(!a.length) return '';
@@ -16741,12 +16766,24 @@ function climbCardHTML(cs, S, P, x){
 /* the two ways in as one capsule, free and coached alike (Elliott, 18 Oct
    2026: "combine the checkpoints and start session on the front page,
    with the same style pill") */
+/* the check points as a ring that fills as they are reached (Elliott,
+   19 Oct 2026), closing into a tick when the stage's are all done */
+function cpRingSVG(P){
+  const of=Number(P&&P.of)||0, met=Math.min(of, Number(P&&P.met)||0);
+  if(of && met>=of) return `<svg class="cpring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="flex:none">
+    <circle cx="15" cy="15" r="14" fill="#006663"/><path d="M9.5 15.4l3.6 3.6 7.4-7.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  /* one segment a check point, so it reads as a count and not as
+     something loading: a single arc at three of seven was a spinner */
+  const n=Math.max(1,of), r=12, C=2*Math.PI*r, gap=n>1?3:0, seg=C/n-gap;
+  const arcs=Array.from({length:n},(_,k)=>`<circle cx="15" cy="15" r="${r}" fill="none" stroke="${k<met?'#006663':'rgba(0,64,61,.15)'}"
+      stroke-width="4" stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-k*C/n).toFixed(2)}"/>`).join('');
+  return `<svg class="cpring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="flex:none;transform:rotate(-90deg)">${arcs}</svg>`;
+}
 function capsuleHTML(go, label){
   const P=coachedView() ? cpProgress() : cpProgress(curStage()), on=!!st.homeCps;
   return `<div class="hcap">
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}" style="background:${on?'#cfe6ec':'rgba(0,64,61,.06)'}">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#006663" stroke-width="2" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
+        ${cpRingSVG(P)}
         <span><b>Check points</b><small id="hcapN">${P.of?P.met+' of '+P.of:'On their way'}</small></span></button>
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}">${label}
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
