@@ -213,7 +213,7 @@ function wsWhereHTML(w) {
 const wsCutoffTxt = w => w && w.when ? new Date(ms(w.when) - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1') : '';
 /* money: true when they paid, false when it was free, or { payer } for a
    place somebody else paid for, whose refund goes back to that card */
-function wsChangeHTML(links, ws, money) {
+function wsChangeHTML(links, ws, money, group) {
   const dated = (ws || []).filter(w => w && w.when);
   const clocks = [...new Set(dated.map(w => wsClock(ms(w.when))))];
   const until = dated.length === 1 ? `Until ${wsCutoffTxt(dated[0])}, ${WS_CUTOFF_H} hours before`
@@ -221,6 +221,7 @@ function wsChangeHTML(links, ws, money) {
     : `Up to ${WS_CUTOFF_H} hours before`;
   const cancel = money && money.payer !== undefined
       ? `, or cancel, and the money goes back to ${money.payer ? esc(money.payer) + ', who paid' : 'whoever paid'}`
+    : money && group ? ', or cancel for a refund to the card you paid with. Cancel one place and the ones you keep go back to their own price; the cancel page shows the amount before you confirm'
     : money ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel';
   return `<b>Need to change it?</b> ${links}. ${until}, you can move to another date at no cost${cancel}. No account or password needed. After that, reply to this email and we will help if we can.`;
 }
@@ -283,9 +284,13 @@ async function wsRefundFor(b, slug) {
        FAQ's "£20 back and keep the other at £25" (16 Oct 2026, review). */
     const unitOf = r => Math.max(0, Number(r.x.unit != null ? r.x.unit : (all[r.slug] || {}).price) || 0);
     const keptSingle = rest.length ? Math.max(...rest.map(unitOf)) : single;
-    const cost = Math.min(total, b.multiOff != null
+    let cost = Math.min(total, b.multiOff != null
       ? wsMultiCost(rest.map(r => ({ slug: r.slug, who: r.x.email, unit: unitOf(r) })), Number(b.multiOff) || 0)
       : left === 1 && rest.length === 1 ? unitOf(rest[0]) : wsGroupCost(left, keptSingle, pair));
+    /* the booking's code still comes off what is kept: cancelling the
+       friend's place took the code's discount back (the journey review) */
+    if (Number(b.codePence) > 0) cost = Math.max(0, cost - Math.min(cost, Number(b.codePence)));
+    else if (Number(b.codePct) > 0) cost = Math.max(0, cost - Math.round(cost * Number(b.codePct) / 100));
     back = Math.max(0, total - cost);
     const each = Math.floor(cost / left);
     keeps = rest.map((r, i) => ({ slug: r.slug, email: r.x.email, paid: i === 0 ? cost - each * (left - 1) : each }));
@@ -3755,7 +3760,11 @@ const handle = async (request) => {
       const people = fr ? [{ e, nm }, fr] : [{ e, nm }];
       const n = slugs.length, units = n * people.length, each = Math.floor(paidNow / units);
       /* each date's share of what was paid; the first carries the odd penny */
-      const shareOf = k => k === 0 ? paidNow - each * (units - 1) : each;
+      const uArr = slugs.map((sl, i) => Number(String(md.units || '').split(',')[i]) || Number((all[sl] || {}).price) || 0);
+      const wSum = people.length * uArr.reduce((t, x) => t + x, 0);
+      const shareRaw = k => wSum > 0 ? Math.floor(paidNow * uArr[Math.floor(k / people.length)] / wSum) : each;
+      const shareExtra = paidNow - Array.from({ length: units }, (_, k) => shareRaw(k)).reduce((t, x) => t + x, 0);
+      const shareOf = k => shareRaw(k) + (k === 0 ? shareExtra : 0);
       const pounds = v => '£' + (v / 100).toFixed(2).replace(/\.00$/, '');
       const whenOf = wsWhenTxt;
       const dayOf = w => w.when ? new Date(w.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : '';
@@ -3785,7 +3794,7 @@ const handle = async (request) => {
           l.push({ email: pp.e, name: pp.nm, at: Date.now(), session: String(obj.id || ''), paid: share, pi: piNow,
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
             ...(pp.e !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}),
-            q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
+            q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24), ...(md.code ? { codePct: Number(md.codepct) || 0, codePence: Number(md.codepence) || 0 } : {}),
             ...wsConsentRow(pp.e === e ? wsConsentWith(wsConsentRead(md.consent), about) : wsConsentRead(md.consent), pp.e === e),
             ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
             ...(md.multioff != null && md.multioff !== '' ? { unit: Number(String(md.units || '').split(',')[i]) || Number(md.unit) || 0, multiOff: Number(md.multioff) || 0 }
@@ -3861,11 +3870,13 @@ const handle = async (request) => {
       const wsNoPw = !(await hashFor(db, e));
       const wsLink = wsNoPw ? await welcomeLink(e) : '';
       const soon = good.some(r => r.w.when && ms(r.w.when) - Date.now() < 36 * 3600e3);
+      const byWhen = (a, b) => ms(a.w.when || 0) - ms(b.w.when || 0);
+      good.sort(byWhen); theirs.sort(byWhen);
       const first = good[0].w;
       const kept = allGood.reduce((t, r) => t + r.share, 0);
       const titleTxt = good.length > 1 ? `${first.title}, both dates` : first.title;
       const dateLine = good.length > 1
-        ? `<b>${esc(first.title)}</b>: ${good.map(r => esc(whenOf(r.w))).join(', and ')}${first.place ? ', at ' + esc(first.place) : ''}. Both dates together, ${pounds(kept)}.`
+        ? `<b>${esc(first.title)}</b>: ${good.map(r => esc(whenOf(r.w))).join(', and ')}${first.place ? ', at ' + esc(first.place) : ''}.${theirs.length ? '' : ' Both dates together, ' + pounds(kept) + '.'}`
         : `<b>${esc(first.title)}</b>${whenOf(first) ? ', ' + esc(whenOf(first)) : ''}${first.place ? ', at ' + esc(first.place) : ''}.`;
       const guestLine = theirs.length ? `${esc(fr.nm)} has a place too, and gets their own confirmation and reminder. ${pounds(kept)} for ${allGood.length} places.` : '';
       const icsLinks = good.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">${
@@ -3878,7 +3889,7 @@ const handle = async (request) => {
           paras: [dateLine, wsWhereHTML(first), guestLine,
                   first.desc ? esc(first.desc) : '',
                   `${soon ? '' : 'A reminder comes the day before. '}${icsLinks ? icsLinks + '.' : ''}`,
-                  wsChangeHTML(manage.join(' &middot; '), good.map(r => r.w), kept > 0),
+                  wsChangeHTML(manage.join(' &middot; '), good.map(r => r.w), kept > 0, allGood.length > 1),
                   wsNoPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
           cta: wsNoPw ? { href: wsLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -3894,6 +3905,7 @@ const handle = async (request) => {
         await email(fr.e, `You are booked: ${theirs[0].w.title}`, mail({ title: 'You are booked.', greeting: fr.nm.split(' ')[0] || '',
           paras: [`${esc(nm || 'A friend')} has booked you a place on <b>${esc(theirs[0].w.title)}</b>: ${theirs.map(r => esc(whenOf(r.w))).join(', and ')}${theirs[0].w.place ? ', at ' + esc(theirs[0].w.place) : ''}.`,
                   wsWhereHTML(theirs[0].w),
+                  `${esc(nm || 'Your friend')} accepted the <a href="${SITE}/waiver" style="color:#006663">participation waiver</a> for you when booking. Have a read before the day, and reply if anything in it applies to you.`,
                   theirs[0].w.desc ? esc(theirs[0].w.desc) : '',
                   `A reminder comes the day before. ${theirs.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">Add ${theirs.length > 1 ? esc(dayOf(r.w)) : 'it'} to your calendar</a>`).join(' ')}`,
                   wsChangeHTML(glinks.join(' &middot; '), theirs.map(r => r.w), { payer: nm || '' })].filter(Boolean),
@@ -6546,12 +6558,16 @@ const handle = async (request) => {
        day is a day the code works. */
     if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That code has expired' };
     if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That code has been used up' };
-    if (d.workshop && d.workshop !== slug) return { error: d.workshop === opt.also ? 'That code is for one of these dates. Book that date on its own to use it.' : 'That code is for a different workshop' };
-    if (d.workshop && opt.also) return { error: 'That code is for one of these dates. Book that date on its own to use it.' };
+    /* which date it is for, by name: "one of these dates" left her guessing */
+    const codeDay = async () => { const w = ((await getSetting('workshops')) || {})[d.workshop];
+      return w && w.when ? new Date(w.when).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : 'one of these dates'; };
+    const oneDate = async () => `That code is for ${await codeDay()} only. Pick that date on its own to use it, or remove the code to book both.`;
+    if (d.workshop && d.workshop !== slug) return { error: d.workshop === opt.also ? await oneDate() : 'That code is for a different workshop' };
+    if (d.workshop && opt.also) return { error: await oneDate() };
     /* a fixed amount comes off the booking once, however many places are in
        it (Elliott, 18 Oct 2026: £10 off both dates took £20) */
     const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
-    return { off, code: c };
+    return { off, code: c, pct: d.pct ? Math.min(100, Number(d.pct)) : 0, pence: d.pct ? 0 : Math.round(Number(d.pence) || 0) };
   };
   const wsIcs = (w) => {
     const dt = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -7021,7 +7037,7 @@ const handle = async (request) => {
           const lv = wsLive(l);
           if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
-          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, ...(src ? { src } : {}),
+          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', ...(disc.code ? { codePct: disc.pct || 0, codePence: disc.pence || 0 } : {}), status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, ...(src ? { src } : {}),
             ...wsConsentRow(consent, pe === e),
             ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}),
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
@@ -7039,7 +7055,8 @@ const handle = async (request) => {
         for (const [tSlug, tw] of targets) links.push(`<a href="${await wsManageLink(tSlug, fr.e, sid, tw.when)}" style="color:#006663">${targets.length > 1 ? 'Change ' + esc(new Date(tw.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })) : 'Move or cancel your booking'}</a>`);
         await email(fr.e, `You are booked: ${w.title}`, mail({ title: 'You are booked.', greeting: fr.nm.split(' ')[0] || '',
           paras: [`${esc(nm)} has booked you a place on <b>${esc(w.title)}</b>: ${targets.map(t => esc(wsWhenTxt(t[1]))).join(', and ')}${w.place ? ', at ' + esc(w.place) : ''}.`,
-                  wsWhereHTML(w), 'A reminder comes the day before.', wsChangeHTML(links.join(' &middot; '), targets.map(t => t[1]), false)],
+                  wsWhereHTML(w), `${esc(nm)} accepted the <a href="${SITE}/waiver" style="color:#006663">participation waiver</a> for you when booking. Have a read before the day, and reply if anything in it applies to you.`,
+                  'A reminder comes the day before.', wsChangeHTML(links.join(' &middot; '), targets.map(t => t[1]), false)],
           cta: { href: `${SITE}/handstand-class`, label: 'About the class' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       }
       if (disc.code) await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {});
@@ -7064,7 +7081,9 @@ const handle = async (request) => {
                   : `<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
                 wsWhereHTML(w),
                 `${soon ? '' : 'A reminder comes the day before. '}${icsF ? icsF + '.' : ''}`,
-                wsChangeHTML(`<a href="${await wsManageLink(slug, e, sid, w.when)}" style="color:#006663">Move or cancel your booking</a>`, targets.map(t => t[1]), false),
+                fr ? `${esc(fr.nm)} has a place too, and gets their own confirmation and reminder.` : '',
+                wsChangeHTML((await Promise.all(targets.map(async ([tSlug, tw]) => `<a href="${await wsManageLink(tSlug, e, sid, tw.when)}" style="color:#006663">${targets.length > 1
+                  ? 'Change ' + esc(new Date(tw.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })) : 'Move or cancel your booking'}</a>`))).join(' &middot; '), targets.map(t => t[1]), false),
                 noPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
         cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
@@ -7112,7 +7131,7 @@ const handle = async (request) => {
         ...(fr ? { 'metadata[friend]': (fr.e + '|' + fr.nm).slice(0, 400) } : {}),
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
-        'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold, 'metadata[consent]': wsConsentMeta(consent),
+        'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[codepct]': String(disc.pct || 0), 'metadata[codepence]': String(disc.pence || 0), 'metadata[hold]': hold, 'metadata[consent]': wsConsentMeta(consent),
         'metadata[unit]': String(Number(w.price) || 0), 'metadata[units]': targets.map(t => Number(t[1].price) || 0).join(','), 'metadata[multioff]': String(multi), 'metadata[src]': src,
         expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
         customer_email: e,

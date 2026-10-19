@@ -84,7 +84,9 @@ export default async (request, context) => {
       get('/api/app/site?page=' + page, 900),
       page === 'handstand-class' ? get('/api/app/workshops', 1100) : null]);
     E = (s && s.e) || null;
-    W = (w && w.workshops) || []; P = Number(w && w.pair) || 0; got = !!(w && w.workshops);
+    /* the saving for more than one place, as the dashboard sets it (the
+       pair price is gone; this still read it, so the page always used £5) */
+    W = (w && w.workshops) || []; P = w && w.multi != null ? Number(w.multi) || 0 : 500; got = !!(w && w.workshops);
   } catch { /* the page as it is */ }
   const m = (E && E.m) || {};
   const title = m.title || (page === 'handstand-class' ? classTitle(W) : '');
@@ -113,7 +115,7 @@ export default async (request, context) => {
       html = html.replace(/<!--events-->[\s\S]*?<!--\/events-->/, () => '<!--events-->' + classEvents(W, url.origin)
         .map(e => '<script type="application/ld+json">' + JSON.stringify(e).replace(/</g, '\\u003c') + '</script>').join('\n') + '<!--/events-->');
     if (page === 'handstand-class' && got)
-      html = html.replace('</head>', '<script>window.__LHA_WS=' + JSON.stringify({ workshops: W, pair: P }).replace(/</g, '\\u003c') + '</script>\n</head>');
+      html = html.replace('</head>', '<script>window.__LHA_WS=' + JSON.stringify({ workshops: W, multi: P }).replace(/</g, '\\u003c') + '</script>\n</head>');
     if (img) {
       html = setMeta(html, /<meta\s+property="og:image"[^>]*>/i, `<meta property="og:image" content="${attr(img)}">`);
       html = setMeta(html, /<meta\s+name="twitter:image"[^>]*>/i, `<meta name="twitter:image" content="${attr(img)}">`);
