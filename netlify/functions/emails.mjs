@@ -444,12 +444,13 @@ export const EMAILS = {
       "price",
       "then",
       "until",
+      "ends",
       "link"
     ],
-    "subject": "{price} ends tonight: {title}, {when}",
-    "title": "The early price ends tonight.",
+    "subject": "{price} ends today: {title}, {when}",
+    "title": "The early price ends today.",
     "paras": [
-      "You started booking <b>{title}</b>, {when}, and did not get to the end. The place is still open, and it is <b>{price}</b> until the end of today. From tomorrow it is {then}.",
+      "You started booking <b>{title}</b>, {when}, and did not get to the end. The place is still open, and it is <b>{price}</b> until {ends}. After that it is {then}.",
       "It takes a minute to book, card or Apple Pay, no account. If you have changed your mind, ignore this.",
       "Any question, just reply."
     ],
@@ -900,7 +901,7 @@ export function intentEmail(T, x, site) {
       { t: 'card', greeting: x.first, paras: T.paras,
         points: [x.coach && !/\band\b|&/.test(x.coach) ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group'],
           ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
-          [x.price === 'Free' ? '&pound;0' : escH(x.price), x.early ? 'Until ' + escH(x.early.day) + ',<br>then ' + escH(x.early.then) : pair ? 'Both Saturdays,<br>' + pair : 'A place,<br>no account']] },
+          [x.price === 'Free' ? '&pound;0' : escH(x.price), x.early ? 'Until ' + escH(x.early.day) + ',<br>then ' + escH(x.early.then) : pair ? 'Save ' + pair + '<br>on both Saturdays' : 'A place,<br>no account']] },
       { t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
       { t: 'card', btn: book },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
@@ -909,10 +910,10 @@ export function intentEmail(T, x, site) {
    the price, the hour it ends, the button. ctx as intentEmail, plus then */
 export function earlyEmail(T, x, site) {
   const S = site || SITE;
-  const book = { label: 'Book your place, ' + x.price, sub: 'Until midnight tonight, then ' + x.then, href: x.href || `${S}/handstand-class?src=email#book` };
-  return richEmail({ title: T.title, preheader: `${x.price} until the end of today, then ${x.then}. ${x.when}.`,
+  const book = { label: 'Book your place, ' + x.price, sub: 'Until ' + (!x.at || x.at === 'midnight' ? 'midnight tonight' : x.at + ' today') + ', then ' + x.then, href: x.href || `${S}/handstand-class?src=email#book` };
+  return richEmail({ title: T.title, preheader: `${x.price} until ${!x.at || x.at === 'midnight' ? 'the end of today' : x.at + ' today'}, then ${x.then}. ${x.when}.`,
     blocks: [
-      { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href, kicker: 'Ends tonight', head: T.title, btn: book },
+      { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href, kicker: 'Ends today', head: T.title, btn: book },
       { t: 'card', greeting: x.first, paras: T.paras, btn: book },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }

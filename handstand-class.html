@@ -1521,7 +1521,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var up=[];           /* the dates still to come, soonest first */
   var inPanel=false;   /* filling the panel quietly, not answering a Book button */
   var picked=null;     /* the one being booked */
-  var PAIR=0;          /* two dates together, in pence, when the owner has set it */
+  var MULTI=500;       /* off for two people, and off again for both dates, in pence; the owner sets it */
   var pounds=function(v){ return '\u00a3'+(v/100).toFixed(2).replace(/\.00$/,''); };
   /* back from paying: one slug, or two joined with a comma */
   var BS='';
@@ -1650,13 +1650,13 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(top){
       top.innerHTML='<i aria-hidden="true"></i><b>Early bird '+esc(d.priceLabel)+'</b><span><span class="lbl">ends in </span><span class="t">'+ebLeft(left)+'</span></span><span class="then">then '+esc(d.early.thenLabel)+'</span><span class="go">Book</span>';
       top.hidden=false; document.body.classList.add('has-eb');
-      top.setAttribute('aria-label','Early bird '+d.priceLabel+' until the end of '+d.early.day+', then '+d.early.thenLabel+'. Book a place.');
+      top.setAttribute('aria-label','Early bird '+d.priceLabel+' until '+(d.early.by||'the end of '+d.early.day)+', then '+d.early.thenLabel+'. Book a place.');
     }
     if(sh) sh.textContent='· early bird ends in '+ebLeft(left).split(' ').slice(0,2).join(' ');
   }
   function refreshWs(){
     fetch('/api/app/workshops',{cache:'no-store'}).then(function(r){ return r.json(); })
-      .then(function(d){ PAIR=Number(d&&d.pair)||0; keepFields(function(){ clsWorkshops((d&&d.workshops)||[]); }); }).catch(function(){});
+      .then(function(d){ MULTI=d&&d.multi!=null?Number(d.multi)||0:500; keepFields(function(){ clsWorkshops((d&&d.workshops)||[]); }); }).catch(function(){});
   }
   /* Back from Stripe by the back button, the page comes out of the
      browser's cache as it was left: Book still disabled and reading "One
@@ -1689,7 +1689,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       : (NUM[up.length]||up.length)+(sameDay?' '+parts(first).dow+'s':' dates')+', '+span(first)+', at '+PLACE+'.';
     /* with two dates it named neither, and read as both going up (16 Oct 2026, review) */
     if(intro && first && first.early) intro.textContent += ' '+(up.length>1 ? parts(first).dd+' '+parts(first).m+' is ' : '')
-      +first.priceLabel+' until the end of '+first.early.day+', then '+first.early.thenLabel+'.';
+      +first.priceLabel+' until '+(first.early.by||'the end of '+first.early.day)+', then '+first.early.thenLabel+'.';
     var cards=$('clsCards');
     if(cards){
       cards.classList.toggle('solo', up.length<=1);
@@ -1749,7 +1749,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       inPanel=true; bookWs(j); inPanel=false; }
     var fine=$('clsFine'); if(fine){ fine.style.display='none';
       var open=up.filter(function(d){ return !d.full; });
-      fine.textContent=(open.length>1&&PAIR>0 ? 'Both '+(sameDay?parts(first).dow+'s':'dates')+' together: '+pounds(groupCost(2,(open[0]||first).price))+'. ' : '')
+      fine.textContent=(MULTI>0 ? (open.length>1 ? 'Book both '+(sameDay?parts(first).dow+'s':'dates')+' and save '+pounds(MULTI)+'. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
         +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
     var pick=$('clsPick'); if(pick) pick.innerHTML=up.map(function(d,i){
       return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('');
@@ -1815,9 +1815,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'"'+(d.full?' data-full="1"':'')+'>'+esc(short(d))
         +'<small>'+(d.full?'Full, waiting list':d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
       +(open.length>1&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'">Both'
-        +'<small>'+(PAIR>0?(function(){ /* the saving against the two dates bought one at a time, at their own prices */
+        +'<small>'+(MULTI>0?(function(){ /* the saving against the two dates bought one at a time, at their own prices */
           var od=picked.other||up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0];
-          var full=picked.price+(od?od.price:picked.price), cost=groupCost(2,picked.price);
+          var full=picked.price+(od?od.price:picked.price), cost=listCost([picked.price,od?od.price:picked.price],1);
           return esc(pounds(cost))+(full>cost?', save '+esc(pounds(full-cost)):''); })():'')+'</small></button>':'');
     [].forEach.call($('segWhen').querySelectorAll('button'),function(b){ b.onclick=function(){
       if(b.getAttribute('data-both')){ if(!picked.other){ var o=up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0]; picked.other=o||null; } $('bkPair').checked=!!picked.other; priceNow(); return; }
@@ -1829,15 +1829,16 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(!note){ note=document.createElement('p'); note.id='bkDateNote'; note.className='bk-date-note'; $('segWhen').insertAdjacentElement('afterend',note); }
     var bits=[];
     if(picked.coach) bits.push('Coached by '+esc(picked.coach)+' on '+esc(short(picked)));
-    if(picked.early) bits.push('<b>'+esc(picked.priceLabel)+' until the end of '+esc(picked.early.day)+'</b>, then '+esc(picked.early.thenLabel));
+    if(picked.early) bits.push('<b>'+esc(picked.priceLabel)+' until '+esc(picked.early.by||'the end of '+picked.early.day)+'</b>, then '+esc(picked.early.thenLabel));
     note.innerHTML=bits.join('. ')+(bits.length?'.':''); note.hidden=!bits.length;
     /* Who: two of us needs two places on every date chosen */
     var canTwo=!picked.full && room(picked) && (!both || room(picked.other));
     $('segWhoWrap').hidden=!!picked.full;
     var wb=$('segWho').querySelectorAll('button');
     wb[0].className=two?'':'on'; wb[1].className=two?'on':''; wb[1].disabled=!canTwo;
-    wb[0].innerHTML='Just me<small>'+(units===(both?2:1)?esc(pounds(groupCost(both?2:1,picked.price))):'')+'</small>';
-    wb[1].innerHTML='Two of us<small>'+(canTwo||two?esc(pounds(groupCost((both?2:1)*2,picked.price))):'Only one place left')+'</small>';
+    var dps=both?[picked.price,picked.other.price]:[picked.price];
+    wb[0].innerHTML='Just me<small>'+esc(pounds(listCost(dps,1)))+'</small>';
+    wb[1].innerHTML='Two of us<small>'+(canTwo||two?esc(pounds(listCost(dps,2)))+(2*(dps[0]+(dps[1]||0))>listCost(dps,2)?', save '+esc(pounds(2*(dps[0]+(dps[1]||0))-listCost(dps,2))):''):'Only one place left')+'</small>';
     wb[0].onclick=function(){ wantTwo=false; $('bkFr').checked=false; priceNow(); };
     wb[1].onclick=function(){ if(wb[1].disabled) return; wantTwo=true; $('bkFr').checked=true; priceNow(); setTimeout(function(){ $('bkFrName').focus(); },40); };
     /* the summary: what they are booking, and what it costs */
@@ -1874,12 +1875,12 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var other=up.filter(function(x,j){ return j!==i && !x.full && kind(x.title)===kind(d.title); })[0];
     picked.other=(!d.full && other) ? other : null;
     $('bkFr').checked=false; $('bkFrBox').hidden=true; $('bkFrName').value=''; $('bkFrEmail').value=''; $('bkFrRow').hidden=!!d.full||(d.places>0&&d.left<2);
-    $('bkFrT').innerHTML='Bring someone with you'+(PAIR>0&&d.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(groupCost(2,d.price)))+'.</small>':'');
+    $('bkFrT').innerHTML='Bring someone with you'+(MULTI>0&&d.price>0?'<small>Two places: '+esc(pounds(listCost([d.price],2)))+', save '+esc(pounds(MULTI))+'.</small>':'');
     var row=$('bkPairRow'), tick=$('bkPair');
     if(row){ row.hidden=!picked.other; tick.checked=false;
-      if(picked.other){ var both=PAIR>0?PAIR:(d.price+other.price), full=d.price+other.price;
+      if(picked.other){ var both=listCost([d.price,other.price],1), full=d.price+other.price;
         $('bkPairT').innerHTML='Add <b>'+esc(long(other))+'</b> as well'+(both>0?': '+esc(pounds(both))+' for both':'')
-          +(PAIR>0&&PAIR<full?'<small>Instead of '+esc(pounds(full))+' booked one at a time.</small>':''); } }
+          +(both<full?'<small>Save '+esc(pounds(full-both))+' on booking them one at a time.</small>':''); } }
     $('wtGo').disabled=false; $('wtGo').textContent='Put me on the list'; $('wtMsg').textContent='';
     priceNow();
     return false;
@@ -1887,11 +1888,12 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   window.closePick=function(){ var pk=$pick(); if(pk) pk.hidden=true; };
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePick(); });
   window.bkShowCode=function(){ $('bkCodeRow').hidden=true; $('bkCodeBox').hidden=false; $('bkCode').focus(); };
-  /* Every two places cost the pair price, an odd one its own price: both
-     dates, two people, or both (four places, two pairs). A code comes off
-     on top, priced by the server for what is picked. */
-  /* the server's sum: two places for the pair price, never more than two single places */
-  var groupCost=function(units,single){ return PAIR>0 ? Math.floor(units/2)*Math.min(PAIR,2*single)+(units%2)*single : units*single; };
+  /* The server's sum (19 Oct 2026): each place at its own date's price,
+     less MULTI for two people and MULTI again for both dates, so two people
+     on both dates save twice. A code comes off on top, priced by the server
+     for what is picked. */
+  var listCost=function(prices,people){ var sum=0; for(var k=0;k<prices.length;k++) sum+=people*(Number(prices[k])||0);
+    return Math.max(0, sum-(people>1?MULTI:0)-(prices.length>1?MULTI:0)); };
   /* what is charged: the server's own sum, and a checked code on a single place */
   /* a code works on both dates and with a friend too (Elliott, 18 Oct
      2026): the server prices the booking that is picked, and the answer
@@ -1899,7 +1901,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var pickKey=function(){ var both=$('bkPair').checked&&picked.other; return picked.slug+'|'+(both?picked.other.slug:'')+'|'+($('bkFr').checked?2:1); };
   var costOf=function(both, people){
     if(codeOk && codeOk.key===pickKey()) return codeOk.price;
-    return PAIR>0 ? groupCost((both?2:1)*people, picked.price) : people*(picked.price+(both?picked.other.price:0));
+    return listCost(both?[picked.price,picked.other.price]:[picked.price], people);
   };
   var priceNow=function(){
     if(!picked) return;
@@ -1909,7 +1911,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var cost=costOf(!!bothOn, people);
     $('bkFrBox').hidden=people<2; $('bkFrCons').hidden=people<2;
     drawChoices();
-    $('bkFrT').innerHTML=people<2?'Bring someone with you'+(PAIR>0&&picked.price*2>PAIR?'<small>Two places on the same day: '+esc(pounds(groupCost(2,picked.price)))+'.</small>':'')
+    $('bkFrT').innerHTML=people<2?'Bring someone with you'+(MULTI>0&&picked.price>0?'<small>Save '+esc(pounds(MULTI))+' on two places.</small>':'')
       :'Bringing someone<small>'+units+' places, '+esc(pounds(cost))+'.</small>';
     if(units>1) go.textContent=(cost>0?'Book '+units+' places, '+pounds(cost):'Book '+units+' places');
     else go.textContent=cost>0?'Book, '+pounds(cost):'Book my place';
@@ -2055,7 +2057,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   /* the dates came with the page when the edge had them; otherwise asked for */
   (window.__LHA_WS && window.__LHA_WS.workshops ? Promise.resolve(window.__LHA_WS)
     : fetch('/api/app/workshops').then(function(r){ return r.json(); }))
-    .then(function(d){ PAIR=Number(d&&d.pair)||0; clsWorkshops((d&&d.workshops)||[]); })
+    .then(function(d){ MULTI=d&&d.multi!=null?Number(d.multi)||0:500; clsWorkshops((d&&d.workshops)||[]); })
     .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c){ c.classList.add('solo'); c.innerHTML=fallbackHTML('error'); } });
   document.addEventListener('lha-site', function(){ if(up.length||booked.length) render(); });
   /* back from the card page without paying: what they typed is still there */

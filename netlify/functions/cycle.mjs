@@ -36,8 +36,12 @@ function wsSettle(all) {
 }
 const wsPoundsC = p => '£' + (Number(p) / 100).toFixed(2).replace(/\.00$/, '');
 const wsEarlyDayC = w => new Date(ms(w.early.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' });
+/* the hour it ends, since the owner can pick one (19 Oct 2026): "midnight" or "6pm" */
+const wsEarlyAtC = w => { const t = new Date(ms(w.early.until)).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s/g, '').toLowerCase();
+  return t === '11:59pm' ? 'midnight' : t.replace(':00', ''); };
+const wsEarlyByC = w => (wsEarlyAtC(w) === 'midnight' ? 'the end of ' : wsEarlyAtC(w) + ' on ') + wsEarlyDayC(w);
 const wsEarlyLine = w => w && w.early && Number(w.early.then) > (Number(w.price) || 0)
-  ? `It is ${wsPoundsC(w.price)} until the end of ${wsEarlyDayC(w)}, then ${wsPoundsC(w.early.then)}.` : '';
+  ? `It is ${wsPoundsC(w.price)} until ${wsEarlyByC(w)}, then ${wsPoundsC(w.early.then)}.` : '';
 const wsCoachLineC = w => !w || !w.coach ? 'Two coaches and a small group, so you get seen.'
   : /\band\b|&/.test(w.coach) ? `${w.coach}, and a small group, so you get seen.` : `A small group with ${w.coach}, so you get seen.`;
 /* the business's own Google review box (place id from its listing, 9 Oct
@@ -1010,7 +1014,7 @@ async function intentMail(done) {
     const intents = ((ir && ir.value) || []).filter(x => x && x.email && now - (x.at || 0) > 2 * 3600e3);
     if (!intents.length) continue;
     const br = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
-    const pairRow = await supa.row('settings', 'key=eq.wspair&select=value').catch(() => null);
+    const multiRow = await supa.row('settings', 'key=eq.wsmulti&select=value').catch(() => null);
     /* anyone with a row at all: somebody who booked and then cancelled or
        moved chose that, and "you started booking" reads as not listening */
     const held = new Set(((br && br.value) || []).filter(b => b && b.email).map(b => norm(b.email)));
@@ -1030,12 +1034,12 @@ async function intentMail(done) {
         if (!saidLast && !(await supa.row('nudges', `key=eq.${enc(keyE)}&select=key`).catch(() => null))) {
           const priceE = wsPoundsC(w.price), thenE = wsPoundsC(w.early.then);
           const TE = await emailCopy('wsEarly', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-            price: priceE, then: thenE, until: esc(wsEarlyDayC(w)), link: wsBookHref(w) });
+            price: priceE, then: thenE, until: esc(wsEarlyDayC(w)), ends: wsEarlyAtC(w) === 'midnight' ? 'the end of today' : wsEarlyAtC(w) + ' today', link: wsBookHref(w) });
           /* switched off in the dashboard: the usual reminders carry on as if
              it were not there. A continue here skipped them for the day. */
           if (!TE.off) {
             const wentE = await email(e, TE.subject, earlyEmail(TE, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-              price: priceE, then: thenE, href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
+              price: priceE, then: thenE, at: wsEarlyAtC(w), href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
             if (!wentE) { done.held = (done.held || 0) + 1; continue; }
             done.intents.early = (done.intents.early || 0) + 1; toldNow.add(e);
             await supa.upsert('nudges', { key: keyE, sent_at: new Date().toISOString() }, 'key');
@@ -1071,14 +1075,16 @@ async function intentMail(done) {
       const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
       const openSame = Object.values(all).filter(x => x && x.live && x.when && ms(x.when) - now > 3 * 3600e3 && kind(x) === kind(w)
         && !(Number(x.places) > 0 && x.__live >= Number(x.places))).length;
-      const pairPence = openSame > 1 ? Number(((pairRow && pairRow.value) || {}).pence) || 0 : 0;
+      /* the multi-booking saving, £5 unless the owner set another */
+      const mv = multiRow && multiRow.value && multiRow.value.pence != null ? Math.max(0, Number(multiRow.value.pence) || 0) : 500;
+      const pairPence = openSame > 1 ? mv : 0;
       const T = await emailCopy('wsIntent', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-        place: w.place ? ', at ' + esc(w.place) : '', price, early_line: wsEarlyLine(w), coach_line: wsCoachLineC(w), pair_line: pairPence ? `Both Saturdays together are £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
+        place: w.place ? ', at ' + esc(w.place) : '', price, early_line: wsEarlyLine(w), coach_line: wsCoachLineC(w), pair_line: pairPence ? `Book both Saturdays together and save £${(pairPence / 100).toFixed(2).replace(/\.00$/, '')}.` : '',
         link: wsBookHref(w) });
       if (T.off) { done.held = (done.held || 0) + 1; continue; }
       const went = await email(e, T.subject, intentEmail(T, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
         price, href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0, pair: pairPence, coach: w.coach || '',
-        early: wsEarlyLine(w) ? { day: wsEarlyDayC(w), then: wsPoundsC(w.early.then) } : null }, SITE));
+        early: wsEarlyLine(w) ? { day: wsEarlyByC(w), then: wsPoundsC(w.early.then) } : null }, SITE));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
       done.intents.reminded++; toldNow.add(e);
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');

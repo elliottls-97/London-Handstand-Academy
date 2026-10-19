@@ -18195,7 +18195,7 @@ function loadWorkshops(){
   fetch('/api/app/workshops').then(r=>r.ok?r.json():null)
     .then(d=>{
       const list=(d&&d.workshops)||[];
-      WS_LIST=list; WS_PAIR=Number(d&&d.pair)||0;
+      WS_LIST=list; WS_MULTI=d&&d.multi!=null?Number(d.multi)||0:500;
       /* back from paying: the sheet that says so, now the dates are known */
       if(st.wsBookedPending){ const got=st.wsBookedPending; delete st.wsBookedPending; save(); wsBookedShow(got); }
       const next=list.filter(w=>w && w.left!==0)[0] || list[0] || null;
@@ -18334,10 +18334,11 @@ function workshopPopHTML(){
    into the app booked. The iPhone app can only show our own domain, so
    there the payment opens in Safari and this sheet waits for the booking
    to appear on the account. */
-let WS_LIST=[], WS_PAIR=0;
+let WS_LIST=[], WS_MULTI=500;
 let wsb={slug:'', pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[], lvl:'', q:''};
-/* every two places cost the pair price, an odd one its own: both dates, two people, or both */
-const wsGroupCost=(units,single)=>WS_PAIR>0?Math.floor(units/2)*WS_PAIR+(units%2)*single:units*single;
+/* the server's sum (19 Oct 2026): each place at its date's price, less
+   WS_MULTI for two people and WS_MULTI again for both dates */
+const wsListCost=(prices,people)=>Math.max(0,people*prices.reduce((t,p)=>t+(Number(p)||0),0)-(people>1?WS_MULTI:0)-(prices.length>1?WS_MULTI:0));
 let wsWaitT=0;
 const wsPounds=p=>'£'+(p/100).toFixed(2).replace(/\.00$/,'');
 const wsDay=w=>w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'}):'Date to be confirmed';
@@ -18362,12 +18363,12 @@ function wsBookBody(){
   if(!w) return `<div style="padding:2px;font:400 15px/1.5 var(--sans);color:var(--grey)">Nothing on sale right now. The next dates go out by email first.</div>`;
   const full=wsFull(w);
   const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
-  const both=WS_PAIR>0?WS_PAIR:(Number(w.price)+(other?Number(other.price):0));
+  const both=wsListCost(other?[w.price,other.price]:[w.price],1);
   /* two of us needs two places on every date being booked */
   const room2=x=>!(Number(x.places)>0 && Number(x.left)<2);
   const roomFor2=room2(w) && !(wsb.pair&&other&&!room2(other));
   if(!roomFor2) wsb.fr=false;
-  const units=(wsb.pair&&other?2:1)*(wsb.fr?2:1), cost=wsGroupCost(units, Number(w.price)||0);
+  const units=(wsb.pair&&other?2:1)*(wsb.fr?2:1), cost=wsListCost(wsb.pair&&other?[w.price,other.price]:[w.price], wsb.fr?2:1);
   const name=wsb.name!=null?wsb.name:(st.client||''), email=wsb.email!=null?wsb.email:(st.email||'');
   const fld='width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:13px 14px;font:400 16px/1.3 var(--sans);background:#fff;color:var(--ink)';
   const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:14px 0 6px';
@@ -18405,12 +18406,12 @@ function wsBookBody(){
     ${other?`<label style="display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:12px 14px;cursor:pointer;border-radius:14px;
         border:1px solid ${wsb.pair?'var(--forest)':'rgba(0,64,61,.14)'};background:${wsb.pair?'rgba(0,102,99,.05)':'#fff'};font:400 14px/1.45 var(--sans);color:var(--ink)">
       <input type="checkbox" ${wsb.pair?'checked':''} onchange="wsb.pair=this.checked;wsb.code='';drawOv()" style="flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)">
-      <span>Add <b>${esc(wsDay(other))}</b> as well: ${esc(wsPounds(both))} for both${WS_PAIR>0&&WS_PAIR<Number(w.price)+Number(other.price)
-        ?`<span style="display:block;font-size:12.5px;color:var(--grey)">Instead of ${esc(wsPounds(Number(w.price)+Number(other.price)))} booked one at a time.</span>`:''}</span></label>`:''}
+      <span>Add <b>${esc(wsDay(other))}</b> as well: ${esc(wsPounds(both))} for both${both<Number(w.price)+Number(other.price)
+        ?`<span style="display:block;font-size:12.5px;color:var(--grey)">Save ${esc(wsPounds(Number(w.price)+Number(other.price)-both))} on booking them one at a time.</span>`:''}</span></label>`:''}
     ${roomFor2?`<label style="display:flex;gap:11px;align-items:flex-start;margin-top:10px;padding:12px 14px;cursor:pointer;border-radius:14px;
         border:1px solid ${wsb.fr?'var(--forest)':'rgba(0,64,61,.14)'};background:${wsb.fr?'rgba(0,102,99,.05)':'#fff'};font:400 14px/1.45 var(--sans);color:var(--ink)">
       <input type="checkbox" ${wsb.fr?'checked':''} onchange="wsb.fr=this.checked;wsb.code='';drawOv()" style="flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--forest)">
-      <span>Bring someone with you${WS_PAIR>0&&Number(w.price)*2>WS_PAIR&&!wsb.fr?`<span style="display:block;font-size:12.5px;color:var(--grey)">Two places on the same day: ${esc(wsPounds(WS_PAIR))}.</span>`:''}</span></label>
+      <span>Bring someone with you${WS_MULTI>0&&Number(w.price)>0&&!wsb.fr?`<span style="display:block;font-size:12.5px;color:var(--grey)">Save ${esc(wsPounds(WS_MULTI))} on two places.</span>`:''}</span></label>
     ${wsb.fr?`<label style="${lab}" for="wsbFrName">Their name</label><input id="wsbFrName" style="${fld}" value="${esc(wsb.frName)}" oninput="wsb.frName=this.value" autocomplete="off" placeholder="First and last">
       <label style="${lab}" for="wsbFrEmail">Their email</label><input id="wsbFrEmail" type="email" inputmode="email" style="${fld}" value="${esc(wsb.frEmail)}" oninput="wsb.frEmail=this.value" autocomplete="off" placeholder="For their own confirmation">`:''}`:''}
     ${(units===1 && Number(w.price)>0)?`<label style="${lab}" for="wsbCode">Discount code, optional</label><input id="wsbCode" style="${fld};text-transform:uppercase" value="${esc(wsb.code)}" oninput="wsb.code=this.value" placeholder="CODE" autocomplete="off">`:''}

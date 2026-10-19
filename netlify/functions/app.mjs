@@ -146,6 +146,10 @@ async function wsRoll() {
   });
 }
 /* the early bird, in words: "Sunday 18 October" */
+/* the hour it ends, since the owner can pick one (19 Oct 2026): "midnight" or "6pm" */
+const wsEarlyAt = w => { const t = new Date(ms(w.early.until)).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s/g, '').toLowerCase();
+  return t === '11:59pm' ? 'midnight' : t.replace(':00', ''); };
+const wsEarlyBy = w => (wsEarlyAt(w) === 'midnight' ? 'the end of ' : wsEarlyAt(w) + ' on ') + wsEarlyDay(w);
 const wsEarlyDay = w => new Date(ms(w.early.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' });
 /* who coaches a date: empty is the usual two */
 const wsCoachLine = w => !w || !w.coach ? 'Two coaches and a small group, so you get seen.'
@@ -238,6 +242,21 @@ const wsKindOf = w => String((w && w.title) || '').toLowerCase().replace(WS_DATE
    an early bird lowers the single price and the pair price stayed where it
    was, so two places could cost more than buying them one at a time
    (16 Oct 2026, review) */
+/* More than one place in a booking (19 Oct 2026, Elliott): a set amount
+   off when two people book, the same again when one booking takes both
+   dates, so two people on both dates get it twice. £5 unless the owner sets
+   another in the dashboard (wsmulti). Each place is at its own date's price:
+   £25 and £30 for one person is £50, two people on both is £100. */
+const WS_MULTI_DEFAULT = 500;
+const wsMultiOff = async () => { const s = await getSetting('wsmulti').catch(() => null);
+  return s && s.pence != null ? Math.max(0, Math.round(Number(s.pence) || 0)) : WS_MULTI_DEFAULT; };
+const wsMultiCost = (places, off) => {
+  const sum = places.reduce((t, p) => t + Math.max(0, Number(p.unit) || 0), 0);
+  const who = new Set(places.map(p => p.who)).size, dates = new Set(places.map(p => p.slug)).size;
+  return Math.max(0, sum - (who > 1 ? off : 0) - (dates > 1 ? off : 0));
+};
+/* bookings made before 19 Oct carry the old pair price (pairP) and are
+   refunded by the rule they were sold under */
 const wsGroupCost = (units, single, pair) => pair > 0 ? Math.floor(units / 2) * Math.min(pair, 2 * single) + (units % 2) * single : units * single;
 /* what one place is worth back if it is cancelled now: what the places
    booked with it paid, less what the ones left cost on their own, which
@@ -264,7 +283,9 @@ async function wsRefundFor(b, slug) {
        FAQ's "£20 back and keep the other at £25" (16 Oct 2026, review). */
     const unitOf = r => Math.max(0, Number(r.x.unit != null ? r.x.unit : (all[r.slug] || {}).price) || 0);
     const keptSingle = rest.length ? Math.max(...rest.map(unitOf)) : single;
-    const cost = Math.min(total, left === 1 && rest.length === 1 ? unitOf(rest[0]) : wsGroupCost(left, keptSingle, pair));
+    const cost = Math.min(total, b.multiOff != null
+      ? wsMultiCost(rest.map(r => ({ slug: r.slug, who: r.x.email, unit: unitOf(r) })), Number(b.multiOff) || 0)
+      : left === 1 && rest.length === 1 ? unitOf(rest[0]) : wsGroupCost(left, keptSingle, pair));
     back = Math.max(0, total - cost);
     const each = Math.floor(cost / left);
     keeps = rest.map((r, i) => ({ slug: r.slug, email: r.x.email, paid: i === 0 ? cost - each * (left - 1) : each }));
@@ -3767,7 +3788,8 @@ const handle = async (request) => {
             q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24),
             ...wsConsentRow(pp.e === e ? wsConsentWith(wsConsentRead(md.consent), about) : wsConsentRead(md.consent), pp.e === e),
             ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
-            ...(md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
+            ...(md.multioff != null && md.multioff !== '' ? { unit: Number(String(md.units || '').split(',')[i]) || Number(md.unit) || 0, multiOff: Number(md.multioff) || 0 }
+              : md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
           count = wsLive(l).length; return l;
         });
@@ -3784,8 +3806,9 @@ const handle = async (request) => {
       /* some places could not stand: the ones that did cost what they cost
          on their own, and the rest of the money comes back */
       if (units > 1 && bad.length && good.length) {
-        const pairNow = Number(((await getSetting('wspair')) || {}).pence) || 0;
-        const keepCost = Math.min(paidNow, wsGroupCost(good.length, Math.max(0, Number(good[0].w.price) || 0), pairNow));
+        const keepCost = Math.min(paidNow, md.multioff != null && md.multioff !== ''
+          ? wsMultiCost(good.map(r => ({ slug: r.slug, who: r.who, unit: Number(String(md.units || '').split(',')[slugs.indexOf(r.slug)]) || Number(r.w.price) || 0 })), Number(md.multioff) || 0)
+          : wsGroupCost(good.length, Math.max(0, Number(good[0].w.price) || 0), Number(((await getSetting('wspair')) || {}).pence) || 0));
         const backAll = paidNow - keepCost, bEach = Math.floor(backAll / bad.length), gEach = Math.floor(keepCost / good.length);
         bad.forEach((r, i) => { r.share = i === 0 ? backAll - bEach * (bad.length - 1) : bEach; });
         good.forEach((r, i) => { r.share = i === 0 ? keepCost - gEach * (good.length - 1) : gEach; });
@@ -6482,7 +6505,7 @@ const handle = async (request) => {
     places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
     desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '',
     early: wsEarlyOn(w) ? { until: w.early.until, then: Number(w.early.then),
-      thenLabel: '£' + (Number(w.early.then) / 100).toFixed(2).replace(/\.00$/, ''), day: wsEarlyDay(w) } : null });
+      thenLabel: '£' + (Number(w.early.then) / 100).toFixed(2).replace(/\.00$/, ''), day: wsEarlyDay(w), by: wsEarlyBy(w), at: wsEarlyAt(w) } : null });
   if (path === '/workshops' && request.method === 'GET') {
     const all = (await getSetting('workshops')) || {};
     /* One booking list at a time, then the pair price: about two seconds,
@@ -6491,11 +6514,11 @@ const handle = async (request) => {
        seconds; /workshop/book checks the places again, so a count a few
        seconds old can never sell a place twice. */
     const open = Object.values(all).filter(w => w && w.live && !(w.when && ms(w.when) < Date.now() - 6 * 3600e3));
-    const [books, pairS] = await Promise.all([Promise.all(open.map(w => getSetting(`wsbook:${w.slug}`).catch(() => null))), getSetting('wspair').catch(() => null)]);
+    const [books, multiOff] = await Promise.all([Promise.all(open.map(w => getSetting(`wsbook:${w.slug}`).catch(() => null))), wsMultiOff()]);
     const out = open.map((w, i) => wsPublic(w, wsLive(books[i] || []).length));
     out.sort((a, b) => ms(a.when) - ms(b.when));
     /* two dates booked together cost this, when the owner has set it */
-    return new Response(JSON.stringify({ workshops: out, pair: Number((pairS || {}).pence) || 0 }), { headers: {
+    return new Response(JSON.stringify({ workshops: out, multi: multiOff }), { headers: {
       'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
       'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=600' } });
   }
@@ -6604,9 +6627,8 @@ const handle = async (request) => {
     const all = (await getSetting('workshops')) || {};
     const also = wsSlug(body.also), w2 = also && also !== slug ? all[also] : null;
     const people = Number(body.people) === 2 ? 2 : 1, targets = w2 ? [w, w2] : [w], units = targets.length * people;
-    const pairPence = Number(((await getSetting('wspair')) || {}).pence) || 0;
-    const base = pairPence > 0 ? wsGroupCost(units, Number(w.price) || 0, pairPence)
-      : people * targets.reduce((t, x) => t + (Number(x.price) || 0), 0);
+    const multi = await wsMultiOff();
+    const base = wsMultiCost(targets.flatMap((x, i) => Array.from({ length: people }, (_, k) => ({ slug: i, who: k, unit: x.price }))), multi);
     const r = await wsCodeCheck(slug, body.code, base, wsMailOk(norm(body.email)) ? norm(body.email) : '', { units, also: w2 ? also : '' });
     if (r.error) return json({ error: r.error }, 400);
     let price = Math.max(0, base - r.off); if (price > 0 && price < 30) price = 0;
@@ -6962,7 +6984,7 @@ const handle = async (request) => {
     const live2 = w2 ? wsLive((await getSetting(`wsbook:${also}`)) || []) : [];
     if (w2 && Number(w2.places) > 0 && live2.length >= Number(w2.places)) return json({ error: 'The second date is full. Book one date, and join its waiting list.', full: true }, 409);
     if (w2 && live2.some(b => b.email === e)) return json({ error: 'You are already booked on the second date. Book the one you have not got.' }, 409);
-    const pairPence = Number(((await getSetting('wspair')) || {}).pence) || 0;
+    const multi = await wsMultiOff();
     const targets = w2 ? [[slug, w], [also, w2]] : [[slug, w]];
     /* ── somebody coming with them ─────────────────────────────────────
        A second place on each date, in the guest's own name and email, so
@@ -6978,8 +7000,7 @@ const handle = async (request) => {
       if (fr && Number(tw.places) > 0 && held.length + 2 > Number(tw.places)) return json({ error: (tSlug === slug ? 'That date' : 'The second date') + ' has only one place left.', full: held.length >= Number(tw.places) }, 409);
     }
     const units = targets.length * people.length;
-    const base = pairPence > 0 ? wsGroupCost(units, Number(w.price) || 0, pairPence)
-      : people.length * targets.reduce((t, x) => t + (Number(x[1].price) || 0), 0);
+    const base = wsMultiCost(targets.flatMap(([tSlug, tw]) => people.map(([pe]) => ({ slug: tSlug, who: pe, unit: tw.price }))), multi);
     /* Book pressed is the clearest sign of wanting a place */
     await wsIntentNote(slug, w2 ? also : '', e, nm);
     const disc = await wsCodeCheck(slug, body.code, base, e, { units, also: w2 ? also : '' });
@@ -7000,7 +7021,7 @@ const handle = async (request) => {
           const lv = wsLive(l);
           if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
-          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked', unit: Number(w.price) || 0, pairP: pairPence, ...(src ? { src } : {}),
+          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, ...(src ? { src } : {}),
             ...wsConsentRow(consent, pe === e),
             ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}),
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
@@ -7092,7 +7113,7 @@ const handle = async (request) => {
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[hold]': hold, 'metadata[consent]': wsConsentMeta(consent),
-        'metadata[unit]': String(Number(w.price) || 0), 'metadata[pairp]': String(pairPence), 'metadata[src]': src,
+        'metadata[unit]': String(Number(w.price) || 0), 'metadata[units]': targets.map(t => Number(t[1].price) || 0).join(','), 'metadata[multioff]': String(multi), 'metadata[src]': src,
         expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
         customer_email: e,
         /* the class page and the app book here too, and come back to themselves */
@@ -7288,9 +7309,9 @@ const handle = async (request) => {
       }
       return out.sort((a, b) => ms(b.when) - ms(a.when));
     };
-    const pairNow = async () => Number(((await getSetting('wspair')) || {}).pence) || 0;
+    const multiNow = wsMultiOff;
     const pageNow = async () => ((await getSetting('classpage').catch(() => null)) === 'setmore' ? 'setmore' : 'site');
-    if (request.method === 'GET') return json({ workshops: await withBook(), pair: await pairNow(), classPage: await pageNow() });
+    if (request.method === 'GET') return json({ workshops: await withBook(), multi: await multiNow(), classPage: await pageNow() });
     if (request.method === 'POST') {
       /* which class page is live: this site's booking, or the Setmore one */
       if (body.classPage !== undefined) {
@@ -7298,11 +7319,11 @@ const handle = async (request) => {
         await setSetting('classpage', body.classPage === 'setmore' ? 'setmore' : 'site');
         return json({ ok: true, classPage: await pageNow() });
       }
-      /* what two dates together cost, in pence; money, so the owner's */
-      if (body.pair !== undefined) {
+      /* what comes off for two people, and again for both dates, in pence; money, so the owner's */
+      if (body.multi !== undefined) {
         if (!(await isOwner())) return json(ownerOnly, 403);
-        await setSetting('wspair', { pence: Math.max(0, Math.round(Number(body.pair) || 0)) });
-        return json({ ok: true, pair: await pairNow() });
+        await setSetting('wsmulti', { pence: Math.max(0, Math.round(Number(body.multi) || 0)) });
+        return json({ ok: true, multi: await multiNow() });
       }
       /* A coach can write the workshop: the title, the date, the room, who
          it is for, the words. What it costs and whether it goes on sale are
@@ -8382,19 +8403,19 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const whenTxt = wsWhenTxt(w), price = Number(w.price) ? wsPounds(w.price) : 'Free';
     /* an early bird shows as it will be sent; without one, the preview makes
        one up a few days out so the early bird email can be read at all */
-    const eb = wsEarlyOn(w) ? { day: wsEarlyDay(w), then: wsPounds(w.early.then) }
+    const eb = wsEarlyOn(w) ? { day: wsEarlyDay(w), by: wsEarlyBy(w), at: wsEarlyAt(w), then: wsPounds(w.early.then) }
       : { day: new Date(Date.now() + 3 * 864e5).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }), then: wsPounds((Number(w.price) || 2500) + 500) };
     const ebOn = wsEarlyOn(w) || key === 'wsEarly';
     const T = renderEmail(key, { name: esc(me1), title: esc(w.title), when: esc(whenTxt), day: esc(whenTxt.split(', ')[0]), place: w.place ? ', at ' + esc(w.place) : '',
       price, pair_line: '', link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop`, session_line: '', review_line: '', app_line: '',
-      then: eb.then, until: eb.day, coach_line: wsCoachLine(w),
-      early_line: ebOn ? `It is ${price} until the end of ${eb.day}, then ${eb.then}.` : '' }, Object.assign({}, saved, { [key]: o }));
+      then: eb.then, until: eb.day, ends: !eb.at || eb.at === 'midnight' ? 'the end of today' : eb.at + ' today', coach_line: wsCoachLine(w),
+      early_line: ebOn ? `It is ${price} until ${eb.by || 'the end of ' + eb.day}, then ${eb.then}.` : '' }, Object.assign({}, saved, { [key]: o }));
     const tip = /^tip(\d+)$/.exec(key);
     let html;
     if (tip) html = tipEmail(Number(tip[1]), T, me1, SITE);
-    else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left, coach: w.coach || '', early: ebOn && wsEarlyOn(w) ? eb : null }, SITE);
+    else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left, coach: w.coach || '', early: ebOn && wsEarlyOn(w) ? { day: eb.by, then: eb.then } : null }, SITE);
     else if (key === 'wsIntent2') html = intent2Email(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
-    else if (key === 'wsEarly') html = earlyEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, then: eb.then, left }, SITE);
+    else if (key === 'wsEarly') html = earlyEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, then: eb.then, at: eb.at || 'midnight', left }, SITE);
     else if (key === 'wsThanks' || key === 'wsOffer') {
       const P = { s60: '£80', s90: '£100' };
       const [d0, ...t0] = whenTxt.split(', ');
