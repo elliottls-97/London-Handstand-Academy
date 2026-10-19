@@ -16766,38 +16766,42 @@ function climbCardHTML(cs, S, P, x){
 /* the two ways in as one capsule, free and coached alike (Elliott, 18 Oct
    2026: "combine the checkpoints and start session on the front page,
    with the same style pill") */
-/* the check points as a ring that fills as they are reached (Elliott,
-   19 Oct 2026), closing into a tick when the stage's are all done. It
-   moves only when the count goes up since it was last shown: a new
-   segment sweeps in, and the last one fills the ring with a ripple and
-   draws the tick. Still the rest of the time, or it reads as loading. */
+/* the check points as a ring that fills as they are reached, the way
+   Apple Fitness closes its rings (Elliott, 19 Oct 2026): one thick round
+   capped stroke on a dim track of the same teal, so it reads as filling
+   rather than loading. It moves only when the count has gone up since it
+   was last shown: the end sweeps on from where it was, and closing it
+   swells the ring with a glow, throws out sparks and draws the tick. */
 function cpRingSVG(P){
   const of=Number(P&&P.of)||0, met=Math.min(of, Number(P&&P.met)||0);
   const k=coachedView()?'c':'s'+curStage(), seenAll=st.cpRingSeen||{}, seen=seenAll[k];
   const from=(seen!=null && met>seen) ? seen : met;
   if(seen!==met){ st.cpRingSeen=Object.assign({}, seenAll, {[k]:met}); setTimeout(()=>{ try{ save(); }catch(e){} }, 0); }
-  if(of && met>=of){
-    const anim=from<of;
-    return `<svg class="cpring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="flex:none;overflow:visible">
-    ${anim?`<circle cx="15" cy="15" r="14" fill="none" stroke="#006663" stroke-width="2" opacity="0">
-      <animate attributeName="r" values="14;24" dur="0.9s" begin="0.35s" fill="freeze"/>
-      <animate attributeName="opacity" values="0.5;0" dur="0.9s" begin="0.35s" fill="freeze"/></circle>`:''}
-    <circle cx="15" cy="15" r="14" fill="#006663">${anim?`<animate attributeName="r" values="9;15;14" dur="0.5s" fill="freeze"/>`:''}</circle>
-    <path d="M9.5 15.4l3.6 3.6 7.4-7.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
-      ${anim?`stroke-dasharray="20" stroke-dashoffset="20"><animate attributeName="stroke-dashoffset" values="20;0" dur="0.4s" begin="0.3s" fill="freeze"/></path>`:'/>'}</svg>`;
-  }
-  /* one segment a check point, so it reads as a count and not as
-     something loading: a single arc at three of seven was a spinner */
-  const n=Math.max(1,of), r=12, C=2*Math.PI*r, gap=n>1?3:0, seg=C/n-gap;
-  const arcs=Array.from({length:n},(_,i)=>{
-    const on=i<met, fresh=on && i>=from, d=(fresh?(i-from)*0.25:0).toFixed(2);
-    return `<circle cx="15" cy="15" r="${r}" fill="none" stroke="rgba(0,64,61,.15)" stroke-width="4"
-      stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-i*C/n).toFixed(2)}"/>`
-      +(on?`<circle cx="15" cy="15" r="${r}" fill="none" stroke="#006663" stroke-width="4"
-      stroke-dasharray="${fresh?'0 '+C.toFixed(2):seg.toFixed(2)+' '+(C-seg).toFixed(2)}" stroke-dashoffset="${(-i*C/n).toFixed(2)}">${fresh
-        ?`<animate attributeName="stroke-dasharray" values="0 ${C.toFixed(2)};${seg.toFixed(2)} ${(C-seg).toFixed(2)}" dur="0.6s" begin="${d}s" fill="freeze"/>`:''}</circle>`:'');
-  }).join('');
-  return `<svg class="cpring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="flex:none;transform:rotate(-90deg)">${arcs}</svg>`;
+  const r=13, C=2*Math.PI*r, len=x=>of?(C*x/of):0, done=of>0 && met>=of, anim=met>from;
+  const defs=`<defs><linearGradient id="cpRingG" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#19a39c"/><stop offset="1" stop-color="#006663"/></linearGradient></defs>`;
+  const track=`<circle cx="17" cy="17" r="${r}" fill="none" stroke="rgba(0,102,99,.16)" stroke-width="5"/>`;
+  const arc = met ? `<circle cx="17" cy="17" r="${r}" fill="none" stroke="url(#cpRingG)" stroke-width="5" stroke-linecap="round"
+      transform="rotate(-90 17 17)" stroke-dasharray="${(done?C:len(met)).toFixed(2)} ${C.toFixed(2)}">${anim
+      ?`<animate attributeName="stroke-dasharray" values="${len(from).toFixed(2)} ${C.toFixed(2)};${(done?C:len(met)).toFixed(2)} ${C.toFixed(2)}"
+        dur="${done?'0.8':'0.7'}s" calcMode="spline" keySplines=".3 0 .2 1" fill="freeze"/>`:''}</circle>` : '';
+  if(!done) return `<svg class="cpring" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true" style="flex:none">${defs}${track}${arc}</svg>`;
+  /* closed: the tick inside, and once, the swell, the glow and the sparks */
+  const sparks = anim ? Array.from({length:8},(_,i)=>{ const a=i*Math.PI/4, x1=17+19*Math.cos(a), y1=17+19*Math.sin(a), x2=17+25*Math.cos(a), y2=17+25*Math.sin(a);
+    return `<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="1.8" fill="${i%2?'#f3a949':'#19a39c'}" opacity="0">
+      <animate attributeName="cx" values="${x1.toFixed(1)};${x2.toFixed(1)}" dur="0.6s" begin="0.8s" fill="freeze"/>
+      <animate attributeName="cy" values="${y1.toFixed(1)};${y2.toFixed(1)}" dur="0.6s" begin="0.8s" fill="freeze"/>
+      <animate attributeName="opacity" values="0;1;0" dur="0.6s" begin="0.8s" fill="freeze"/></circle>`; }).join('') : '';
+  return `<svg class="cpring" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true" style="flex:none;overflow:visible">${defs}
+    ${anim?`<circle cx="17" cy="17" r="${r}" fill="none" stroke="#19a39c" stroke-width="5" opacity="0">
+      <animate attributeName="r" values="${r};${r+7}" dur="0.7s" begin="0.75s" fill="freeze"/>
+      <animate attributeName="opacity" values="0.45;0" dur="0.7s" begin="0.75s" fill="freeze"/></circle>`:''}
+    <g transform="translate(17 17)"><g>${anim?`<animateTransform attributeName="transform" type="scale" values="1;1.14;1" dur="0.45s" begin="0.75s"/>`:''}
+      <g transform="translate(-17 -17)">${track}${arc}</g></g></g>
+    ${sparks}
+    <path d="M11.8 17.3l3.4 3.4 7-7.2" fill="none" stroke="#006663" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
+      ${anim?`stroke-dasharray="18" stroke-dashoffset="18"><animate attributeName="stroke-dashoffset" values="18;0" dur="0.35s" begin="0.95s" fill="freeze"/></path>`:'/>'}
+  </svg>`;
 }
 function capsuleHTML(go, label){
   const P=coachedView() ? cpProgress() : cpProgress(curStage()), on=!!st.homeCps;
