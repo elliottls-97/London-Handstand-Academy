@@ -34,7 +34,7 @@
 .clr-lock span{position:absolute;left:50%;top:-6px;margin-left:-14px;width:28px;height:22px;border-radius:11px;background:#fff;border:1px solid rgba(0,64,61,.18);display:grid;place-items:center}
 .clr-sp{position:absolute;left:50%;top:30px;width:6px;height:6px;margin:-3px;border-radius:50%;background:var(--c);opacity:0;pointer-events:none}
 .clr-swap{display:grid}.clr-swap>*{grid-area:1/1}.clr-swap>.a:not(.keep){opacity:0}
-.clr-go{display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 24px}
+.btn.clr-go{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:10px;height:56px;min-height:56px;padding:0 6px 0 24px;text-align:left}
 .clr-go i{width:44px;height:44px;border-radius:50%;background:#fff;display:grid;place-items:center}
 @media (prefers-reduced-motion:no-preference){
   .clr-from .clr-g{animation:clrGreen .4s .6s both}
@@ -55,6 +55,19 @@
 @keyframes clrNext{0%{color:#6b9ca5;transform:none}50%{transform:translateY(-6px)}100%{color:#e8962f;transform:none}}
 @keyframes clrOut{from{opacity:1}to{opacity:0}}
 @keyframes clrIn{from{opacity:0}to{opacity:1}}
+
+.clr-card{margin-top:18px;padding:12px;border-radius:18px;background:#fff;border:1px solid rgba(0,64,61,.10);
+  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06);text-align:left}
+.clr-film{display:flex;align-items:center;gap:12px}
+.clr-film.on{display:block}
+.clr-pic{position:relative;flex:none;width:104px;height:72px;padding:0;border:0;border-radius:10px;overflow:hidden;background:var(--sand);cursor:pointer}
+.clr-pic img{width:100%;height:100%;object-fit:cover;display:block}
+.clr-pic i{position:absolute;left:50%;top:50%;width:32px;height:32px;margin:-16px 0 0 -16px;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.clr-film b{display:block;font:600 16px/1.25 var(--sans);color:var(--ink)}
+.clr-film small{display:block;margin-top:3px;font:400 13.5px/1.3 var(--sans);color:var(--grey)}
+.clr-learn{margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,64,61,.10);display:flex;flex-direction:column;gap:7px}
+.clr-li{display:flex;align-items:center;gap:9px;font:400 15px/1.3 var(--sans);color:var(--ink)}
+.clr-li i{flex:none;width:8px;height:8px;border-radius:50%;background:#19b3aa}
 </style>
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -6224,6 +6237,14 @@ function clearShowing(){
   const i=window._clearShow; if(i==null || coachedView()) return null;
   if(st.ov==='cleared' || Date.now()-(window._clearAt||0)<2600) return i;
   window._clearShow=null; window._ringGreen=performance.now(); return null;
+}
+/* the stage film on the Stage cleared sheet plays where its picture was */
+function clrPlay(b, uid){
+  const box=b.closest('.clr-film'); if(!box || !isUid(uid)) return;
+  box.classList.add('on');
+  box.innerHTML=ccWrap(`<video src="${hlsOk()?streamHls(uid):streamMp4(uid)}" controls playsinline autoplay
+    poster="${streamThumb(uid)}" data-cc="${esc(uid)}" style="width:100%;background:#11150f;display:block"></video>`, 'border-radius:12px;overflow:hidden');
+  setTimeout(()=>{ try{ mountCaptions(); }catch(e){} const v=box.querySelector('video'); if(v) startFilm(v); }, 0);
 }
 /* leaving the sheet: the moment ends, and the capsule either settles green
    (staying) or reels back for the new stage (moved) */
@@ -13355,21 +13376,23 @@ function drawOv(){
         ${moved?`<div class="b">You are on<em style="color:var(--forest);font-style:normal"> ${esc(nx.n)}.</em></div>`:''}</div>
       ${ladder}
     </div>
-    ${moved ? `<div class="clr-in">
-      ${story?`<div style="margin-top:18px;font:400 26px/1.1 var(--serif);letter-spacing:-.01em;color:var(--ink)">What you&rsquo;ll learn<em
-        style="color:var(--forest);font-style:normal">.</em></div><div style="margin-top:12px">${story}</div>`
-        :`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:14px;text-align:center">${esc((nx.goal||'').replace(/\.$/,''))}.</div>`}
-      ${film?`<div style="margin-top:14px;border-radius:18px;overflow:hidden;background:#fff;border:1px solid rgba(0,64,61,.10)">
-        ${qaVideo({uid:film},false).replace('margin-top:11px;border-radius:14px;overflow:hidden','')}
-        <div style="padding:11px 14px 13px">
-          <div class="kick2">WATCH FIRST &middot; 3 MIN</div>
-          <div style="font:600 14.5px/1.3 var(--sans);margin-top:5px">${esc(nx.n)}, explained</div>
-        </div></div>`:''}
+    ${moved ? (()=>{
+      /* one compact card, as the canvas has it: the stage film as a small
+         picture that plays in place, and three lines of what the stage
+         teaches. The full story reel and a full width film made the sheet
+         far too busy (Elliott, 19 Oct 2026) */
+      const ch=(typeof storyChapters==='function' ? (storyChapters(ti)||[]) : []).slice(0,3);
+      const learn = ch.length ? ch.map(x=>`<div class="clr-li"><i aria-hidden="true"></i><span>${esc(x.t)}</span></div>`).join('')
+        : `<div class="clr-li"><i aria-hidden="true"></i><span>${esc((nx.goal||'').replace(/\.$/,''))}</span></div>`;
+      return `<div class="clr-in clr-card">
+        ${film?`<div class="clr-film">
+          <button class="clr-pic" onclick="clrPlay(this,${jsq(film)})" aria-label="Play ${esc(nx.n)}, explained">
+            <img src="${esc(streamThumb(film))}" alt="" loading="lazy"><i aria-hidden="true"><svg width="11" height="12" viewBox="0 0 10 11"><path d="M1 1v9l8-4.5z" fill="#006663"/></svg></i></button>
+          <span><b>${esc(nx.n)}, explained</b><small>Stage film &middot; 3 min</small></span></div>`:''}
+        <div class="clr-learn"${film?'':' style="border-top:0;padding-top:0"'}><div class="kick2">WHAT YOU&rsquo;LL LEARN</div>${learn}</div>
       </div>
-      <button class="btn clr-go" style="width:100%;margin-top:20px" onclick="clearedEnd('reel')"><span>Start ${esc(nx.n)}</span>
-        <i aria-hidden="true"><svg width="15" height="17" viewBox="0 0 15 17"><path d="M2 1.5v14l11.5-7z" fill="#006663"/></svg></i></button>
-      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-        Tap ${esc(from.n)} at the top of the Ladder tab to go back whenever you like.</div>`
+      <button class="btn clr-go" style="width:100%;margin-top:18px" onclick="clearedEnd('reel')"><span>Start ${esc(nx.n)}</span>
+        <i aria-hidden="true"><svg width="15" height="17" viewBox="0 0 15 17"><path d="M2 1.5v14l11.5-7z" fill="#006663"/></svg></i></button>`; })()
     : nx ? `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">${esc(nx.n)} is next. You keep training ${esc(from.n)} until you open it.</div>
       <div style="margin-top:16px;border-radius:18px;padding:15px 18px;background:#f2e6d6">
         <div style="font:700 10px/1 var(--sans);letter-spacing:.14em;color:#8a5a1e">WHAT IS NEXT</div>
