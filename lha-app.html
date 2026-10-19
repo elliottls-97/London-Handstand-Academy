@@ -67,6 +67,13 @@
 .clr-film small{display:block;margin-top:3px;font:400 13.5px/1.3 var(--sans);color:var(--grey)}
 .clr-learn{margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,64,61,.10);display:flex;flex-direction:column;gap:7px}
 .clr-li{display:flex;align-items:center;gap:9px;font:400 15px/1.3 var(--sans);color:var(--ink)}
+.stg-cps{margin-top:8px}
+.stg-r{display:flex;align-items:center;gap:11px;width:100%;padding:12px 2px;border:0;border-top:1px solid rgba(0,64,61,.08);background:none;text-align:left;font:400 15px/1.3 var(--sans);color:var(--ink)}
+button.stg-r{cursor:pointer}
+.stg-d{flex:none;width:20px;height:20px;border-radius:50%;box-shadow:inset 0 0 0 1.5px rgba(0,64,61,.25);display:grid;place-items:center;color:#fff;font:700 10px/1 var(--sans)}
+.stg-d.on{background:var(--forest);box-shadow:none}
+.stg-n{flex:1;min-width:0}
+.stg-g{flex:none;font:400 13px/1.2 var(--sans);color:var(--grey)}
 .clr-li i{flex:none;width:8px;height:8px;border-radius:50%;background:#19b3aa}
 
 /* Train's ladder carries the sheet's lock: room above the figures for it */
@@ -6434,8 +6441,11 @@ function cpCardTop(c, i, total){
           color:var(--forest);font:700 11.5px/1 var(--sans)">${i+1}</span>
         <span style="font:500 12px/1 var(--sans);color:var(--grey2)">of ${total}</span>${(cpHold||{})[c.k]?`<span style="padding:3px 7px;
           border-radius:999px;background:var(--amber);color:var(--ink);font:700 9px/1 var(--sans);letter-spacing:.12em">NEW</span>`:''}</span>
+      <span style="flex:none;display:inline-flex;align-items:center;gap:4px">${cpCamOn(c)?`<button class="lc-cam" style="margin:0" onclick="cpFilm(${jsq(c.k)})"
+        aria-label="Film ${esc(c.n)} for ${esc(who)}" title="Film it for ${esc(who)}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/><path d="M15.5 10.5l5.5-3v9l-5.5-3"/></svg></button>`:''}
       <span id="cpstat-${c.k}" style="flex:none;white-space:nowrap;font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 9px;border-radius:999px;
-        background:${status[1]};color:${status[2]};${cs==='hit'?'box-shadow:inset 0 0 0 1.5px var(--forest);':''}">${status[0]}</span>
+        background:${status[1]};color:${status[2]};${cs==='hit'?'box-shadow:inset 0 0 0 1.5px var(--forest);':''}">${status[0]}</span></span>
     </div>
     <div style="margin-top:11px;display:flex;align-items:baseline;justify-content:space-between;gap:12px">
       <div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:9px">
@@ -6640,8 +6650,13 @@ function cpClipState(sent){
     answered: !!(sent.verdict || (sub && sub.answer) || reply),
   };
 }
+/* a coaching client films a check point from the top of its card, as from
+   its row on Train; the button at the foot of a long card went unseen
+   (Elliott, 19 Oct 2026) */
+function cpCamOn(c){ return !!c && c.video!==false && !!st.token && (!!st.coached || coachedView()); }
 function cpClipHTML(c, sent){
   const who=coachLabel();
+  if(!sent && cpCamOn(c)) return '';
   const send=(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`;
   if(!sent){
     /* a coaching client's clips are part of what they pay for */
@@ -13395,8 +13410,22 @@ function drawOv(){
               : isNow?['NOW','rgba(0,102,99,.12)','var(--deep)']
                      : ['AHEAD','rgba(17,17,17,.06)','var(--grey)'];
     const mins=ladderMins();
-    /* the sheet already prints the stage name in its own title, so this
-       line carries the things the title cannot */
+    /* What this sheet is for is moving to the stage, up or down (Elliott,
+       19 Oct 2026: it had a picture, a film, the whole description and
+       every check point as a full card with a slider, as if you were
+       training it). The count, one line, the move, and the check points
+       as a list of what it asks; the current stage's open on Train. */
+    const nm=esc(St.n), own=((st.stageIntro||{})[si]) || STAGE_VIDEO[si], film=stageIntroUid(si);
+    const act = isNow
+      ? `<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();startDay(-1)">Start a ${mins} min session</button>`
+      : `<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();goToStage(${si})">${isDone?'Go back to ':'Move up to '}${nm}</button>`;
+    const rows=(cpFor(si)||[]).map(c=>{
+      const met=cpMet(c), inner=`<span class="stg-d${met?' on':''}" aria-hidden="true">${met?'&#10003;':''}</span>
+        <span class="stg-n">${esc(c.n)}</span><span class="stg-g">${esc(rungGoal(c))}</span>`;
+      return isNow
+        ? `<button class="stg-r" onclick="closeOv();climbGo(${jsq(c.k)})" aria-label="${esc(c.n)}, ${met?'reached':esc(rungGoal(c))}. Log it on Train">${inner}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--grey2)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`
+        : `<div class="stg-r">${inner}</div>`; }).join('');
     body=`
       <div style="display:flex;align-items:center;gap:12px;margin-top:-6px">
         <div style="flex:1;min-width:0;font:700 9.5px/1 var(--sans);letter-spacing:.16em;
@@ -13411,63 +13440,17 @@ function drawOv(){
             transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
         <span id="cpnum" style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${p.met}/${p.of}</span>
       </div>
-      ${stageBannerHTML(si)}
-
-      <!-- the film for this stage, where there is one. It was a dark green
-           panel with "filming soon" written across it, which is the old
-           treatment and also the largest thing in the sheet for something
-           that does not exist yet. -->
-      ${stageIntroUid(si) ? (()=>{
-        const uid=stageIntroUid(si);
-        setTimeout(mountCaptions,0);
-        return `<div style="margin-top:16px">
-          <div style="font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--grey)">
-            STAGE WALKTHROUGH</div>
-          <div style="font:400 17px/1.2 var(--serif);margin-top:5px">${esc(St.n)}, explained</div>
-          ${ccWrap(`<video src="${hlsOk()?streamHls(uid):streamMp4(uid)}" controls playsinline preload="none"
-            poster="${streamThumb(uid)}" data-cc="${esc(uid)}"
-            style="width:100%;background:#11150f;display:block"></video>`,
-            'margin-top:10px;border-radius:16px;overflow:hidden')}
-        </div>`;})()
-        : ''}
-      <div style="margin-top:16px;font:400 14.5px/1.5 var(--serif);color:var(--ink)">${
-        esc(St.intro||St.goal||'')}</div>
-      ${si===0 ? `<div style="margin-top:14px;padding:14px 16px;border-radius:16px;background:rgba(0,102,99,.06)">
-        <div class="kick2" style="color:var(--forest)">HOW LONG IT TAKES</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--ink);margin-top:6px">It depends on you. Some people hold a handstand in ten days and some in six months; I took eighteen. Most need several months of steady training, two or three sessions a week, and every check point on the way is a win.</div></div>` : ''}
-
-      <button class="btn" style="width:100%;margin-top:18px"
-        onclick="closeOv();if(${si}!==curStage()) goToStage(${si});startDay(-1)">Start a ${mins} min ${esc(St.n)} session</button>
-      <div style="display:flex;gap:9px;margin-top:9px">
-        ${isNow
-          ? `<div style="flex:1;text-align:center;padding:15px 14px;border-radius:16px;min-height:48px;
-               display:flex;align-items:center;justify-content:center;
-               box-shadow:inset 0 0 0 1.5px rgba(17,17,17,.12);color:var(--grey);
-               font:600 13px/1 var(--sans)">You're training here</div>`
-          : `<button style="flex:1;text-align:center;padding:15px 14px;min-height:48px;
-               border-radius:16px;border:0;
-               background:transparent;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
-               font:600 13px/1 var(--sans);cursor:pointer"
-               onclick="closeOv();goToStage(${si})">${
-               isDone?'Go back to this stage':'Move up to this stage'}</button>`}
-        <button style="flex:1;text-align:center;padding:15px 14px;min-height:48px;border-radius:16px;
-          border:0;background:transparent;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.3);color:var(--forest);
-          font:600 13px/1 var(--sans);cursor:pointer"
-          onclick="closeOv();go('coaching')">Send Elliott a clip</button>
-      </div>
-
-      <div style="height:1px;background:rgba(17,17,17,.09);margin:22px 0 0"></div>
-      <div style="margin-top:16px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
-        <span style="font:700 9.5px/1 var(--sans);letter-spacing:.18em;color:var(--grey)">
-          CHECK POINTS TO PROGRESS</span>
-        <span id="cpcount" style="font:600 11px/1 var(--sans);color:var(--forest)">${p.met} of ${p.of} reached</span>
-      </div>
-      <div style="margin-top:7px;font:400 13px/1.45 var(--sans);color:var(--grey)">
-        Tick each one off when you can do it. Reach all ${p.of} and ${
-          !STAGES[si+1] ? 'the ladder is done.' : stageLocked(si+1) ? esc(STAGES[si].n)+' is done; '+esc(STAGES[si+1].n)+' comes with the full Ladder.' : 'you move up to '+esc(STAGES[si+1].n)+'.'}</div>
-      <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px">
-        ${(cpFor(si)||[]).map((c,i)=>cpCard(c,i,p.of)).join('')}
-      </div>
+      <div style="margin-top:14px;font:400 17px/1.4 var(--serif);color:var(--ink)">${esc(St.goal||St.intro||'')}</div>
+      ${act}
+      ${isNow?`<div style="margin-top:10px;text-align:center;font:500 13px/1.3 var(--sans);color:var(--grey)">You&rsquo;re training here</div>`:''}
+      ${rows?`<div style="margin-top:22px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+        <span class="kick2">WHAT IT ASKS FOR</span>
+        <span id="cpcount" style="font:600 12px/1 var(--sans);color:var(--forest)">${p.met} of ${p.of} reached</span></div>
+      <div class="stg-cps">${rows}</div>`:''}
+      ${film?`<div class="clr-film" style="margin-top:18px">
+        <button class="clr-pic" onclick="clrPlay(this,${jsq(film)})" aria-label="Play ${own?nm+', explained':'How the Ladder works'}">
+          <img src="${esc(streamThumb(film))}" alt="" loading="lazy"><i aria-hidden="true"><svg width="11" height="12" viewBox="0 0 10 11"><path d="M1 1v9l8-4.5z" fill="#006663"/></svg></i></button>
+        <span><b>${own?nm+', explained':'How the Ladder works'}</b><small>Stage film</small></span></div>`:''}
       <div style="height:14px"></div>`;
     }
   }
