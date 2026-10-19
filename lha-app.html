@@ -16767,16 +16767,36 @@ function climbCardHTML(cs, S, P, x){
    2026: "combine the checkpoints and start session on the front page,
    with the same style pill") */
 /* the check points as a ring that fills as they are reached (Elliott,
-   19 Oct 2026), closing into a tick when the stage's are all done */
+   19 Oct 2026), closing into a tick when the stage's are all done. It
+   moves only when the count goes up since it was last shown: a new
+   segment sweeps in, and the last one fills the ring with a ripple and
+   draws the tick. Still the rest of the time, or it reads as loading. */
 function cpRingSVG(P){
   const of=Number(P&&P.of)||0, met=Math.min(of, Number(P&&P.met)||0);
-  if(of && met>=of) return `<svg class="cpring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="flex:none">
-    <circle cx="15" cy="15" r="14" fill="#006663"/><path d="M9.5 15.4l3.6 3.6 7.4-7.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const k=coachedView()?'c':'s'+curStage(), seenAll=st.cpRingSeen||{}, seen=seenAll[k];
+  const from=(seen!=null && met>seen) ? seen : met;
+  if(seen!==met){ st.cpRingSeen=Object.assign({}, seenAll, {[k]:met}); setTimeout(()=>{ try{ save(); }catch(e){} }, 0); }
+  if(of && met>=of){
+    const anim=from<of;
+    return `<svg class="cpring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="flex:none;overflow:visible">
+    ${anim?`<circle cx="15" cy="15" r="14" fill="none" stroke="#006663" stroke-width="2" opacity="0">
+      <animate attributeName="r" values="14;24" dur="0.9s" begin="0.35s" fill="freeze"/>
+      <animate attributeName="opacity" values="0.5;0" dur="0.9s" begin="0.35s" fill="freeze"/></circle>`:''}
+    <circle cx="15" cy="15" r="14" fill="#006663">${anim?`<animate attributeName="r" values="9;15;14" dur="0.5s" fill="freeze"/>`:''}</circle>
+    <path d="M9.5 15.4l3.6 3.6 7.4-7.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
+      ${anim?`stroke-dasharray="20" stroke-dashoffset="20"><animate attributeName="stroke-dashoffset" values="20;0" dur="0.4s" begin="0.3s" fill="freeze"/></path>`:'/>'}</svg>`;
+  }
   /* one segment a check point, so it reads as a count and not as
      something loading: a single arc at three of seven was a spinner */
   const n=Math.max(1,of), r=12, C=2*Math.PI*r, gap=n>1?3:0, seg=C/n-gap;
-  const arcs=Array.from({length:n},(_,k)=>`<circle cx="15" cy="15" r="${r}" fill="none" stroke="${k<met?'#006663':'rgba(0,64,61,.15)'}"
-      stroke-width="4" stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-k*C/n).toFixed(2)}"/>`).join('');
+  const arcs=Array.from({length:n},(_,i)=>{
+    const on=i<met, fresh=on && i>=from, d=(fresh?(i-from)*0.25:0).toFixed(2);
+    return `<circle cx="15" cy="15" r="${r}" fill="none" stroke="rgba(0,64,61,.15)" stroke-width="4"
+      stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-i*C/n).toFixed(2)}"/>`
+      +(on?`<circle cx="15" cy="15" r="${r}" fill="none" stroke="#006663" stroke-width="4"
+      stroke-dasharray="${fresh?'0 '+C.toFixed(2):seg.toFixed(2)+' '+(C-seg).toFixed(2)}" stroke-dashoffset="${(-i*C/n).toFixed(2)}">${fresh
+        ?`<animate attributeName="stroke-dasharray" values="0 ${C.toFixed(2)};${seg.toFixed(2)} ${(C-seg).toFixed(2)}" dur="0.6s" begin="${d}s" fill="freeze"/>`:''}</circle>`:'');
+  }).join('');
   return `<svg class="cpring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true" style="flex:none;transform:rotate(-90deg)">${arcs}</svg>`;
 }
 function capsuleHTML(go, label){
