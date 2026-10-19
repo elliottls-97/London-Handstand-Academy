@@ -7,7 +7,36 @@
      and the film over it fades in, so somebody signed out saw white text on
      near white for half a second while it loaded (10 Oct 2026) -->
 <script>try{var s0=JSON.parse(localStorage.getItem('lha_app')||'null');if(!s0||(!s0.in&&!s0.mode))document.documentElement.className+=' frontdoor';}catch(e){}</script>
-<style>html.frontdoor,html.frontdoor body{background:#062522}</style>
+<style>html.frontdoor,html.frontdoor body{background:#062522}
+/* the check points ring (cpRingSVG): colour along it and a glowing tip */
+@property --p{syntax:'<number>';inherits:true;initial-value:0}
+.cpr{position:relative;flex:none;width:34px;height:34px;--p:var(--to)}
+.cpr.go{animation:cprFill .9s cubic-bezier(.3,0,.2,1) both}
+@keyframes cprFill{from{--p:var(--from)}to{--p:var(--to)}}
+.cpr-ring{position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(from 0deg,#00504d 0%,#19b3aa calc(var(--p) * 1%),rgba(0,102,99,.16) calc(var(--p) * 1%) 100%);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5.5px),#000 calc(100% - 5px));
+          mask:radial-gradient(farthest-side,transparent calc(100% - 5.5px),#000 calc(100% - 5px))}
+/* the round start, and the glowing end that leads the sweep */
+.cpr-ring::before{content:"";position:absolute;left:50%;top:0;width:5.5px;height:5.5px;margin-left:-2.75px;border-radius:50%;background:#00504d}
+.cpr-tip{position:absolute;inset:0;transform:rotate(calc(var(--p) * 3.6deg));pointer-events:none}
+.cpr-tip::after{content:"";position:absolute;left:50%;top:0;width:5.5px;height:5.5px;margin-left:-2.75px;border-radius:50%;
+  background:#2fd3c8;box-shadow:0 0 5px 1px rgba(47,211,200,.55),1px 1px 2px rgba(0,40,38,.35)}
+.cpr.go .cpr-tip::after{animation:cprTip .9s ease-out both}
+@keyframes cprTip{0%,80%{box-shadow:0 0 10px 4px rgba(47,211,200,.85),1px 1px 2px rgba(0,40,38,.35)}100%{box-shadow:0 0 5px 1px rgba(47,211,200,.55),1px 1px 2px rgba(0,40,38,.35)}}
+.cpr.none .cpr-tip,.cpr.none .cpr-ring::before{display:none}
+/* closed: the swell, the sparks, the tick */
+.cpr.full.go{animation:cprFill .9s cubic-bezier(.3,0,.2,1) both,cprSwell .45s .9s ease-out}
+@keyframes cprSwell{50%{transform:scale(1.16);filter:drop-shadow(0 0 6px rgba(47,211,200,.8))}}
+.cpr-spark{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;border-radius:50%;background:var(--c);opacity:0;
+  transform:rotate(var(--a)) translateY(-19px);animation:cprSpark .6s .95s ease-out both}
+@keyframes cprSpark{0%{opacity:0;transform:rotate(var(--a)) translateY(-19px)}30%{opacity:1}100%{opacity:0;transform:rotate(var(--a)) translateY(-27px)}}
+.cpr-tick{position:absolute;left:9px;top:9px}
+.cpr-tick path{stroke-dasharray:18;stroke-dashoffset:0}
+.cpr.full.go .cpr-tick path{animation:cprTick .35s 1s ease-out both}
+@keyframes cprTick{from{stroke-dashoffset:18}to{stroke-dashoffset:0}}
+@media (prefers-reduced-motion:reduce){.cpr,.cpr *,.cpr-tip::after{animation:none!important}}
+</style>
 <meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -16767,41 +16796,23 @@ function climbCardHTML(cs, S, P, x){
    2026: "combine the checkpoints and start session on the front page,
    with the same style pill") */
 /* the check points as a ring that fills as they are reached, the way
-   Apple Fitness closes its rings (Elliott, 19 Oct 2026): one thick round
-   capped stroke on a dim track of the same teal, so it reads as filling
-   rather than loading. It moves only when the count has gone up since it
-   was last shown: the end sweeps on from where it was, and closing it
-   swells the ring with a glow, throws out sparks and draws the tick. */
+   Apple Fitness closes its rings (Elliott, 19 Oct 2026): colour runs
+   along the ring, deep teal at its start to bright at its leading end,
+   and the end carries a glowing tip that leads the sweep. It moves only
+   when the count has gone up since it was last shown; closing it swells
+   the ring, throws out sparks and draws the tick. CSS (.cpr), because a
+   colour along a ring is a conic gradient, which SVG does not have. */
 function cpRingSVG(P){
   const of=Number(P&&P.of)||0, met=Math.min(of, Number(P&&P.met)||0);
   const k=coachedView()?'c':'s'+curStage(), seenAll=st.cpRingSeen||{}, seen=seenAll[k];
   const from=(seen!=null && met>seen) ? seen : met;
   if(seen!==met){ st.cpRingSeen=Object.assign({}, seenAll, {[k]:met}); setTimeout(()=>{ try{ save(); }catch(e){} }, 0); }
-  const r=13, C=2*Math.PI*r, len=x=>of?(C*x/of):0, done=of>0 && met>=of, anim=met>from;
-  const defs=`<defs><linearGradient id="cpRingG" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#19a39c"/><stop offset="1" stop-color="#006663"/></linearGradient></defs>`;
-  const track=`<circle cx="17" cy="17" r="${r}" fill="none" stroke="rgba(0,102,99,.16)" stroke-width="5"/>`;
-  const arc = met ? `<circle cx="17" cy="17" r="${r}" fill="none" stroke="url(#cpRingG)" stroke-width="5" stroke-linecap="round"
-      transform="rotate(-90 17 17)" stroke-dasharray="${(done?C:len(met)).toFixed(2)} ${C.toFixed(2)}">${anim
-      ?`<animate attributeName="stroke-dasharray" values="${len(from).toFixed(2)} ${C.toFixed(2)};${(done?C:len(met)).toFixed(2)} ${C.toFixed(2)}"
-        dur="${done?'0.8':'0.7'}s" calcMode="spline" keySplines=".3 0 .2 1" fill="freeze"/>`:''}</circle>` : '';
-  if(!done) return `<svg class="cpring" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true" style="flex:none">${defs}${track}${arc}</svg>`;
-  /* closed: the tick inside, and once, the swell, the glow and the sparks */
-  const sparks = anim ? Array.from({length:8},(_,i)=>{ const a=i*Math.PI/4, x1=17+19*Math.cos(a), y1=17+19*Math.sin(a), x2=17+25*Math.cos(a), y2=17+25*Math.sin(a);
-    return `<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="1.8" fill="${i%2?'#f3a949':'#19a39c'}" opacity="0">
-      <animate attributeName="cx" values="${x1.toFixed(1)};${x2.toFixed(1)}" dur="0.6s" begin="0.8s" fill="freeze"/>
-      <animate attributeName="cy" values="${y1.toFixed(1)};${y2.toFixed(1)}" dur="0.6s" begin="0.8s" fill="freeze"/>
-      <animate attributeName="opacity" values="0;1;0" dur="0.6s" begin="0.8s" fill="freeze"/></circle>`; }).join('') : '';
-  return `<svg class="cpring" width="34" height="34" viewBox="0 0 34 34" aria-hidden="true" style="flex:none;overflow:visible">${defs}
-    ${anim?`<circle cx="17" cy="17" r="${r}" fill="none" stroke="#19a39c" stroke-width="5" opacity="0">
-      <animate attributeName="r" values="${r};${r+7}" dur="0.7s" begin="0.75s" fill="freeze"/>
-      <animate attributeName="opacity" values="0.45;0" dur="0.7s" begin="0.75s" fill="freeze"/></circle>`:''}
-    <g transform="translate(17 17)"><g>${anim?`<animateTransform attributeName="transform" type="scale" values="1;1.14;1" dur="0.45s" begin="0.75s"/>`:''}
-      <g transform="translate(-17 -17)">${track}${arc}</g></g></g>
-    ${sparks}
-    <path d="M11.8 17.3l3.4 3.4 7-7.2" fill="none" stroke="#006663" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
-      ${anim?`stroke-dasharray="18" stroke-dashoffset="18"><animate attributeName="stroke-dashoffset" values="18;0" dur="0.35s" begin="0.95s" fill="freeze"/></path>`:'/>'}
-  </svg>`;
+  const pc=x=>of?Math.round(1000*x/of)/10:0, done=of>0 && met>=of, anim=met>from;
+  const sparks=(done&&anim) ? Array.from({length:8},(_,i)=>`<b class="cpr-spark" style="--a:${i*45}deg;--c:${i%2?'#f3a949':'#19b3aa'}"></b>`).join('') : '';
+  return `<span class="cpr${anim?' go':''}${done?' full':''}${met?'':' none'}" style="--from:${pc(from)};--to:${pc(met)}" aria-hidden="true">
+    <span class="cpr-ring"></span><span class="cpr-tip"></span>${sparks}
+    ${done?`<svg class="cpr-tick" width="16" height="16" viewBox="0 0 16 16"><path d="M3.2 8.4l3 3 6.4-6.6" fill="none" stroke="#006663"
+      stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`:''}</span>`;
 }
 function capsuleHTML(go, label){
   const P=coachedView() ? cpProgress() : cpProgress(curStage()), on=!!st.homeCps;
