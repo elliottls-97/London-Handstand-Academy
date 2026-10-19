@@ -8409,7 +8409,13 @@ const INBOX_TYPE={
 let inboxRow='';                   /* the row expanded in place, if any */
 /* one to one sessions paid for and waiting for a time */
 let sessions=[], sessBusy='';
-function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; draw(); } }).catch(()=>{}).finally(homeStep);
+let packs={};
+function packDo(body, ok){
+  fetch(API+'/sessions',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'That did not work')))
+    .then(d=>{ packs=d.packs||packs; flash(ok); draw(); }).catch(e=>flash(String(e)));
+}
+function loadSessions(){ fetch(API+'/sessions',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ sessions=d.sessions||[]; packs=d.packs||{}; draw(); } }).catch(()=>{}).finally(homeStep);
   fetch(API+'/calls',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ calls=d.calls||[]; callAsks=d.asks||[]; draw(); } }).catch(()=>{}); }
 /* the calls booked here, for This week; and asks for a call time when none of yours suited */
 let calls=[], callAsks=[], caBusy='';
@@ -8632,7 +8638,7 @@ function inboxBodyHTML(r){
       <span class="muted" style="font-size:12px">London time. They get the time, the link and a calendar file by email.</span></div>`;
   }
   if(r.type==='request'){ const x=r.sess, q=x.req||{};
-    const paid=sessHand(x)?'paid '+gbp(x.paid)+' outside Stripe':sessBack(x)>0?'paid '+gbp(sessBack(x))+' by card':x.fromPlan?'part of their coaching':'nothing paid';
+    const paid=x.credit?'booked it from their pack':sessHand(x)?'paid '+gbp(x.paid)+' outside Stripe':Number(x.pack)>1&&sessBack(x)>0?'paid '+gbp(sessBack(x))+' for a pack of '+x.pack:sessBack(x)>0?'paid '+gbp(sessBack(x))+' by card':x.fromPlan?'are on coaching':'have paid nothing';
     return `
     <p style="font:400 15px/1.6 var(--sans);margin:0 0 var(--space-2)"><b>${q.kind==='cancel'?'They asked to cancel':'They asked to move it'+(q.slot?' to '+esc(sessLondon(q.slot)):'')}</b>, ${esc(ago(q.at))}.
       ${x.when?'Booked for '+esc(sessLondon(x.when))+'. ':''}${q.late?'<b>Less than 24 hours\' notice.</b> ':''}They ${esc(paid)}${x.room==='hired'?', and Arch 2 is hired':''}.
@@ -9385,11 +9391,16 @@ function sessDecideHTML(x, ask){
     <input id="dm-${key}" placeholder="A line for them, optional" style="${inp};width:100%;margin-top:${ask?0:10}px">
     ${money?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
       <span class="kick" style="flex:none;width:84px">${ask?'CANCEL WITH':'REFUND'}</span>
-      <button class="btn btn-primary btn-sm" onclick="decRefund(${id},'full')" ${busy}>${hand?'I give back '+gbp(x.paid):'Refund '+gbp(back)}</button>
+      ${Number(x.pack)>1 && !hand
+        ? `<button class="btn btn-primary btn-sm" onclick="document.getElementById('dp-${key}').value=(${Math.round(back/Number(x.pack))}/100).toFixed(2);decRefund(${id},'part')" ${busy}>Refund this one, ${gbp(Math.round(back/Number(x.pack)))}</button>`
+        : `<button class="btn btn-primary btn-sm" onclick="decRefund(${id},'full')" ${busy}>${hand?'I give back '+gbp(x.paid):'Refund '+gbp(back)}</button>`}
       <span style="display:inline-flex;gap:6px;align-items:center"><span style="font:600 14px/1 var(--sans)">£</span>
         <input id="dp-${key}" type="number" min="0.3" step="0.01" placeholder="40" style="${inp};width:80px">
         <button class="btn btn-secondary btn-sm" onclick="decRefund(${id},'part')" ${busy}>${hand?'I give back part':'Refund part'}</button></span>
       <button class="btn btn-secondary btn-sm" onclick="decRefund(${id},'none')" ${busy}>No refund</button></div>`
+    : x.credit ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-primary btn-sm" onclick="decRefund(${id},'full')" ${busy}>Cancel it, back on their pack</button>
+        <button class="btn btn-secondary btn-sm" onclick="decRefund(${id},'none')" ${busy}>Cancel it, the session is used</button></div>`
     :`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-${ask?'secondary':'primary'} btn-sm" onclick="decRefund(${id},'none')" ${busy}>Cancel it</button></div>`}
     ${ask?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
       <span class="kick" style="flex:none;width:84px">OR MOVE IT</span>
@@ -9416,6 +9427,8 @@ function decRefund(id, how){
     if(refund>most) return alert('That is more than the '+gbp(most)+' '+(hand?'they paid':'left to refund by card')+'.');
   }
   const amt=how==='full'?(hand?Number(x.paid)||0:back):how==='part'?refund:0;
+  if(x.credit){ if(!confirm(how==='none'?'Cancel it? The session counts as used from their pack.':'Cancel it? The session goes back on their pack, and they are told how many they have left.')) return;
+    oneCancelOpen=''; sessSet(id,{status:'cancelled', refund, msg:decMsg(id)}); return; }
   if(!confirm(how==='none'?'Cancel it with no refund? They are told it is not refunded.'
     :hand?'Cancel it? They are told you will give back '+gbp(amt)+'.'
     :'Cancel it and refund '+gbp(amt)+' to their card?')) return;
@@ -9454,7 +9467,7 @@ function oneOnePaneHTML(){
     return `<div style="border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-top:10px;background:#fff">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span style="flex:1;min-width:0;font:600 15px/1.3 var(--sans)">${esc(f(x))}</span>${st}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.cancelledBy==='client'?' · cancelled by them':x.cancelledBy==='coach'?' · cancelled by you':''}${(x.moves||[]).some(m=>m.by==='client')&&x.status!=='cancelled'?' · moved by them':''}${x.room==='hired'?' · Arch 2 hired':''}${x.note?' · '+esc(x.note):''}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.credit?' · from their pack':Number(x.pack)>1?' · first of a pack of '+x.pack+', '+gbp(x.paid)+' paid':x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.cancelledBy==='client'?' · cancelled by them':x.cancelledBy==='coach'?' · cancelled by you':''}${(x.moves||[]).some(m=>m.by==='client')&&x.status!=='cancelled'?' · moved by them':''}${x.room==='hired'?' · Arch 2 hired':''}${x.note?' · '+esc(x.note):''}</div>
       ${x.status!=='cancelled'?aboutBlock(x.about,true):''}
       ${oneDone===x.id?timeForm(Object.assign({},x,{when:x.when||new Date().toISOString()}),'Mark done','oneDoneSave')
           +`<div class="muted" style="font-size:12.5px;margin-top:8px">Nothing is sent to them. ${link('Back','oneDone=\'\';draw()')}</div>`
@@ -9465,13 +9478,20 @@ function oneOnePaneHTML(){
             ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
             ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):link('Had it already','oneDone=\''+esc(x.id)+'\';draw()')}
             ${upcoming&&!x.req?link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()'):''}
-            ${!x.paid && !owes && x.status!=='cancelled'?link('Ask them to pay','oneAsk(\''+esc(x.id)+'\',\''+esc(x.kind||'60')+'\')'):''}
+            ${!x.paid && !x.credit && !owes && x.status!=='cancelled'?link('Ask them to pay','oneAsk(\''+esc(x.id)+'\',\''+esc(x.kind||'60')+'\')'):''}
             ${owes?link('Copy the pay link','onePayLink(\''+esc(x.id)+'\')'):''}</div>`:''}
       ${x.status==='toArrange'&&!x.req&&oneCancelOpen!==x.id&&oneDone!==x.id?`<div style="display:flex;gap:16px;margin-top:10px">${link('Had it already','oneDone=\''+esc(x.id)+'\';draw()')}${link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()')}</div>`:''}
       ${x.req&&upcoming?`<div style="font:500 13px/1.5 var(--sans);margin-top:10px">${x.req.kind==='cancel'?'They asked to cancel':'They asked to move it'+(x.req.slot?' to '+esc(sessLondon(x.req.slot)):'')}${x.req.late?', with less than 24 hours\' notice':''}.${x.req.prefs?' Suits: <i>'+esc(x.req.prefs)+'</i>.':''}${x.req.note?' They said: <i>'+esc(x.req.note)+'</i>':''}</div>${sessDecideHTML(x,true)}`
         :oneCancelOpen===x.id&&['toArrange','arranged'].includes(x.status)?oneCancelHTML(x):''}
     </div>`; };
+  const pk=packs[sel];
+  const packLine = pk ? `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:11px 14px;border-radius:12px;background:var(--mist)">
+      <b style="font:600 14px/1.3 var(--sans)">Pack: ${[pk[60]?pk[60]+' sixty minute':'', pk[90]?pk[90]+' ninety minute':''].filter(Boolean).join(' and ')||'none'} session${(pk[60]||0)+(pk[90]||0)===1?'':'s'} left</b>
+      <span style="flex:1"></span>
+      ${(pk[60]||pk[90])?`<button class="btn btn-ghost btn-sm" onclick="packDo({packLink:${jsq(sel)}},'Their pack link is on its way')">Send their pack link again</button>`:''}
+      ${owner?`<button class="btn btn-ghost btn-sm" onclick="packDo({packAdd:${jsq(sel)},kind:${pk[90]&&!pk[60]?"'90'":"'60'"}},'One added back')">Add one back</button>`:''}</div>` : '';
   return `<div>
+    ${packLine}
     <div class="kick">BOOK A 1-2-1</div>
     <div class="muted" style="font-size:12.5px;margin-top:5px">They get the confirmation by email and in the chat, with a calendar link, and it shows in their app.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -11084,7 +11104,7 @@ const PRICE_TIERS=[['plus','App, full ladder','a month, subscription'],['checks'
   ['inperson2','Online coaching with two sessions a month','a month, blank hides it in the app'],['inperson4','Online coaching with four sessions a month','a month, blank hides it in the app'],
   ['inner','Inner Circle with the session','a month, by application'],['inneronline','Inner Circle, no session','a month, by application'],
   ['session','The London session, as an add on','a month on top of either plan'],
-  ['session60','One-off session, 60 min','paid on the session page'],['session90','One-off session, 90 min','paid on the session page']];
+  ['session60','One-off session, 60 min','paid on the session page. Packs of 5 are 10% off this, packs of 10 are 15% off.'],['session90','One-off session, 90 min','paid on the session page. Packs of 5 are 10% off this, packs of 10 are 15% off.']];
 /* ── the session lengths, and what a short one does ──────────────────
    The app shipped these as constants: which times the chooser offers, the
    length under which every drill gets one set, and how many of the last

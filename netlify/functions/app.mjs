@@ -213,6 +213,8 @@ function wsWhereHTML(w) {
 const wsCutoffTxt = w => w && w.when ? new Date(ms(w.when) - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1') : '';
 /* money: true when they paid, false when it was free, or { payer } for a
    place somebody else paid for, whose refund goes back to that card */
+/* what one session of a row cost: a pack's first row carries the whole pack */
+const sessShare = x => { const net = (Number(x && x.paid) || 0) - (Number(x && x.refunded) || 0); return Number(x && x.pack) > 1 ? Math.round(net / Number(x.pack)) : net; };
 function wsChangeHTML(links, ws, money, group) {
   const dated = (ws || []).filter(w => w && w.when);
   const clocks = [...new Set(dated.map(w => wsClock(ms(w.when))))];
@@ -2285,6 +2287,7 @@ async function sessChangeHTML(row) {
   const link = await sessManageLink(row), a = t => `<a href="${link}" style="color:#006663">${t}</a>`;
   if (!row.when) return row.fromPlan ? '' : `<b>Changed your mind?</b> ${a('Ask to cancel it here')}, no account or password needed, and I will come back to you within 48 hours.`;
   if (row.fromPlan) return `<b>Need to change it?</b> ${a('Ask to move your session')} to another time, no account or password needed.`;
+  if (row.credit) return `<b>Need to change it?</b> ${a('Move or cancel your session')}, no account or password needed. I hire the room for each session, so a cancellation or a late move comes to me, and I come back to you within 48 hours. A cancelled session goes back on your pack.`;
   return `<b>Need to change it?</b> ${a('Move or cancel your session')}, no account or password needed. I hire the room for each session, so a cancellation or a late move comes to me, and I come back to you within 48 hours with a refund or a new date. With less than ${SESS_CUTOFF_H} hours' notice it may be charged in full.`;
 }
 
@@ -2925,11 +2928,11 @@ async function sessHeldMail(db, row, opts = {}) {
   const cLink = cNoPw ? await welcomeLink(row.email) : '';
   const was = opts.moved ? sessWhen({ when: opts.moved }) : '';
   return email(row.email, `${was ? 'Moved' : 'Held for you'}: your session, ${whenTxt}`, mail({
-    title: was ? 'Moved. Now I book the room.' : 'Paid. Now I book the room.', greeting: first,
+    title: was ? 'Moved. Now I book the room.' : row.credit ? 'Held. Now I book the room.' : 'Paid. Now I book the room.', greeting: first,
     cta: cNoPw ? { href: cLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
     paras: [`<b>${esc(whenTxt)}</b>, at OverGravity, Shadwell. ${row.kind} minutes.${was ? ' Instead of ' + esc(was) + '.' : ''}`,
             `It is held for you while I book the room around OverGravity's timetable, and I confirm it within 48 hours, by email and in the app, with the calendar entry.`,
-            `If that time cannot be secured, I will offer you another, and if none suits you it is refunded in full.`,
+            row.credit ? `If that time cannot be secured, I will offer you another, and if none suits you, it goes back on your pack.` : `If that time cannot be secured, I will offer you another, and if none suits you it is refunded in full.`,
             await sessChangeHTML(row),
             opts.fresh && cNoPw ? `It is in the Handstand Ladder app too, under this address. Your username is ${esc(row.email)}: choose a password with the button below and you are in.` : ''].filter(Boolean),
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true, ...(opts.noQueue ? { noQueue: true } : {}) });
@@ -4004,15 +4007,20 @@ const handle = async (request) => {
       /* a pack: the first is this one, the rest wait as credits */
       const packN = sessPackN(md.pack);
       if (packN > 1) {
+        let packAdded = false;
         await changeSetting(`sesscredit:${e}`, cur => { const c = Object.assign({}, cur || {});
+          /* Stripe retries an event that failed later on: the credits for
+             this checkout go on once (the review found them added again) */
+          if ((Array.isArray(c.log) ? c.log : []).some(x => x && x.cs === String(obj.id || ''))) { packAdded = false; return undefined; }
+          packAdded = true;
           c[kind] = (Number(c[kind]) || 0) + packN - 1; c.name = c.name || nm;
           c.log = (Array.isArray(c.log) ? c.log : []).concat([{ at: Date.now(), add: packN - 1, kind, cs: String(obj.id || '') }]).slice(-40); return c; });
         await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
           const r = l.find(x => x.session === obj.id); if (!r) return undefined; r.pack = packN; return l; }).catch(() => {});
-        try {
+        if (packAdded) try {
           const link = await sessCreditLink(e, kind);
           await email(e, `Your ${packN} sessions: ${packN - 1} more to book`, mail({ title: `${packN - 1} more to book.`, greeting: nm.split(' ')[0] || '',
-            paras: [`Your pack of ${packN} ${kind} minute sessions is paid for, ${SESS_PACKS[packN]}% off. The first is being arranged now.`,
+            paras: [`Your ${({ 5: 'five', 10: 'ten' })[packN] || packN} ${kind} minute sessions are paid for, ${SESS_PACKS[packN]}% off. The first is being arranged now.`,
                     `The other ${packN - 1} are yours to book whenever you like, from the button below. Keep this email: the button is your link, and it shows how many you have left.`],
             cta: { href: link, label: 'Book a session from your pack' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
         } catch {}
@@ -4667,7 +4675,7 @@ const handle = async (request) => {
         const credit = ((await getSetting('sessions').catch(() => null)) || []).filter(x => x && x.email === e2 && !x.fromPlan
           && !['cancelled', 'refunded'].includes(x.status) && (Number(x.paid) || 0) - (Number(x.refunded) || 0) > 0
           && (x.when ? ms(x.when) : Number(x.at) || 0) > Date.now() - 14 * 864e5);
-        const creditTxt = credit.length ? `They paid ${credit.map(x => sessAmt((Number(x.paid) || 0) - (Number(x.refunded) || 0)) + ' for a ' + x.kind + ' minute session').join(' and ')} in the last fourteen days, which the site says comes off their first month` : '';
+        const creditTxt = credit.length ? `They paid ${credit.map(x => sessAmt(sessShare(x)) + ' for a ' + x.kind + ' minute session' + (Number(x.pack) > 1 ? ', one of a pack of ' + x.pack : '')).join(' and ')} in the last fourteen days, which the site says comes off their first month` : '';
         if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : '') + (overTxt ? '. ' + overTxt : '') + (creditTxt ? '. Session credit owed' : ''), tag: 'coachnew:' + e2 });
         if (coachNew && (overFull || credit.length || await coachMail(e2, 'business'))) await email(coachOf(e2), `New ${tierName} client: ${acct.name || e2}${overFull ? ' (places were full)' : ''}${credit.length ? ' (session credit owed)' : ''}`,
           mail({ title: `Someone just bought ${tierFull}.`,
@@ -7597,7 +7605,7 @@ const handle = async (request) => {
   /* what is left on a pack, for the page the credit link opens */
   if (path === '/session/credits' && request.method === 'GET') {
     const p = await verify(String(url.searchParams.get('c') || ''));
-    if (!p || p.k !== 'sesscred') return json({ error: 'That link has expired. Ask Elliott for a new one.' }, 400);
+    if (!p || p.k !== 'sesscred') return json({ error: 'That link has run out. Email info@londonhandstandacademy.com and Elliott will send a new one.' }, 400);
     const c = (await getSetting(`sesscredit:${norm(p.e)}`)) || {};
     return json({ left: { 60: Number(c['60']) || 0, 90: Number(c['90']) || 0 }, name: c.name || '', email: norm(p.e) });
   }
@@ -7607,7 +7615,7 @@ const handle = async (request) => {
     /* ── one from a pack: no payment, a credit spent ── */
     if (body.c) {
       const p = await verify(String(body.c));
-      if (!p || p.k !== 'sesscred') return json({ error: 'That link has expired. Ask Elliott for a new one.' }, 400);
+      if (!p || p.k !== 'sesscred') return json({ error: 'That link has run out. Email info@londonhandstandacademy.com and Elliott will send a new one.' }, 400);
       const e = norm(p.e);
       let at = 0;
       if (body.slot) {
@@ -7682,7 +7690,7 @@ const handle = async (request) => {
                                            : 'Your time is confirmed with you within 48 hours. If no time works, it is refunded in full.',
         customer_email: e,
         success_url: `${url.origin}/session.html?booked=1&kind=${kind}${n > 1 ? '&n=' + n : ''}${at ? '&at=' + at : ''}&cs={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${url.origin}/session.html?kind=${kind}&from=stripe${hold ? '&h=' + hold : ''}`,
+        cancel_url: `${url.origin}/session.html?kind=${kind}${n > 1 ? '&n=' + n : ''}&from=stripe${hold ? '&h=' + hold : ''}`,
       });
       /* the checkout this hold is for, so backing out of it can let the time go */
       if (hold && sess && sess.id) await changeSetting('sessholds', cur => cur && cur[hold]
@@ -7827,7 +7835,31 @@ const handle = async (request) => {
       if (asking && !isPrimary(asking)) return t === asking || (!!clients()[t] && coachOf(t) === asking);
       return true; };
     const list = (await getSetting('sessions')) || [];
-    if (request.method === 'GET') return json({ sessions: list.filter(x => owns(x.email)) });
+    /* sessions left on each client's pack, so the dashboard can show them
+       and send the link again: they lived in one email only */
+    const packsOf = async rows => { const out = {};
+      for (const e of [...new Set(rows.map(x => norm(x.email)).filter(Boolean))].slice(0, 80)) {
+        const c = (await getSetting(`sesscredit:${e}`).catch(() => null)) || {};
+        if (c['60'] || c['90'] || (Array.isArray(c.log) && c.log.length)) out[e] = { 60: Number(c['60']) || 0, 90: Number(c['90']) || 0 }; }
+      return out; };
+    if (request.method === 'GET') { const mine = list.filter(x => owns(x.email)); return json({ sessions: mine, packs: await packsOf(mine) }); }
+    if (request.method === 'POST' && (body.packLink || body.packAdd)) {
+      const e = norm(body.packLink || body.packAdd);
+      if (!owns(e)) return json({ error: 'Not your client' }, 403);
+      if (body.packAdd) {
+        if (!(await isOwner())) return json(ownerOnly, 403);
+        const kind = String(body.kind) === '90' ? '90' : '60';
+        await changeSetting(`sesscredit:${e}`, cur => { const c = Object.assign({}, cur || {}); c[kind] = (Number(c[kind]) || 0) + 1;
+          c.log = (Array.isArray(c.log) ? c.log : []).concat([{ at: Date.now(), add: 1, kind, by: 'coach' }]).slice(-40); return c; });
+      } else {
+        const c = (await getSetting(`sesscredit:${e}`)) || {}, kind = Number(c['60']) ? '60' : '90', n = Number(c[kind]) || 0;
+        if (!n) return json({ error: 'Nothing left on their pack' }, 400);
+        await email(e, `Your pack: ${n} to book`, mail({ title: `${n} more to book.`, greeting: String(c.name || '').split(' ')[0] || '',
+          paras: [`Here is your link again. You have ${n} ${kind} minute session${n === 1 ? '' : 's'} left on your pack, to book whenever you like.`],
+          cta: { href: await sessCreditLink(e, kind), label: 'Book a session from your pack' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
+      }
+      return json({ ok: true, packs: await packsOf(list.filter(x => owns(x.email))) });
+    }
     if (request.method === 'POST') {
       /* A session paid for outside the booking page, a payment link or cash,
          never reached this list: the coach books it in by hand, and setting
@@ -7925,7 +7957,15 @@ const handle = async (request) => {
         else if (part) ({ back, failed } = await sessRefundRow(row.id, part));
         await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === row.id);
           if (!r) return undefined; r.cancelledAt = Date.now(); r.cancelledBy = 'coach'; r.cancelledFrom = r.when || ''; return l; }).catch(() => {});
-        const money = body.refund === 'full' || part
+        /* a session from a pack: cancelled, it goes back on the pack; 'none'
+           (a late cancel the terms let him keep) counts it as used */
+        let creditLeft = -1;
+        if (row.credit && body.refund !== 'none') await changeSetting(`sesscredit:${row.email}`, cur => { const c = Object.assign({}, cur || {});
+          c[row.kind] = (Number(c[row.kind]) || 0) + 1; creditLeft = c[row.kind];
+          c.log = (Array.isArray(c.log) ? c.log : []).concat([{ at: Date.now(), add: 1, kind: row.kind, back: row.id }]).slice(-40); return c; }).catch(() => {});
+        const money = row.credit
+          ? (creditLeft >= 0 ? ` It is back on your pack, so you have ${creditLeft} ${row.kind} minute session${creditLeft === 1 ? '' : 's'} left.` : ' It counts as used from your pack.')
+          : body.refund === 'full' || part
           ? (back > 0 ? ` ${sessAmt(back)} is refunded to the card you paid with. It shows in a few days.`
             : failed.length ? ' The refund could not be made automatically, so I will make it by hand.'
             : hand ? ` I will give you back ${part ? sessAmt(part) : 'the ' + sessAmt(row.paid)} you paid.` : '')
@@ -7933,7 +7973,7 @@ const handle = async (request) => {
         const say = String(body.msg || '').trim().slice(0, 600);
         const line = `Your ${row.kind} minute session${was ? ' on ' + was : ''} is cancelled.${money}`
           + (say ? ' ' + say : '')
-          + (body.refund === 'full' || body.refund === 'none' || part ? ' Reply here if you would like another time.'
+          + (row.credit || body.refund === 'full' || body.refund === 'none' || part ? ' Reply here if you would like another time.'
             : paidSome ? ' Reply here and we will either find another time or refund you in full.' : ' Reply here and we will find another time.');
         try { await threadAdd(db, row.email, { from: 'coach', by, text: line }); } catch {}
         told = { what: 'cancelled', refunded: back, refundFailed: failed.length ? failed.map(f => f.why).join('; ') : '', hand: (body.refund === 'full' || !!part) && hand,
@@ -8160,7 +8200,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         asked: R.req ? R.req.kind : '', held: x.room === 'hire' && x.status === 'arranged' });
     }
     out.sort((a, b) => ms(a.when) - ms(b.when));
-    return json({ bookings: out });
+    /* sessions left on a pack, and the link to book one: it lived in one
+       email only, and the app sent pack holders to the pay page */
+    const cr = (await getSetting(`sesscredit:${who}`).catch(() => null)) || {};
+    const n60 = Number(cr['60']) || 0, n90 = Number(cr['90']) || 0;
+    const credits = (n60 || n90) ? { 60: n60, 90: n90, link: await sessCreditLink(who, n60 ? '60' : '90') } : null;
+    return json({ bookings: out, ...(credits ? { credits } : {}) });
   }
   if (path === '/workshop/cancel' && request.method === 'POST') {
     const who = await me(); if (!who) return json({ error: 'Sign in first' }, 401);

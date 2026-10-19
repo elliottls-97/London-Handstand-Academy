@@ -10734,7 +10734,7 @@ let bookingsAsked=false;
 function loadBookings(){
   if(!st.token) return;
   fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.bookings=d.bookings||[]; save(); if(!st.ov) render(); } }).catch(()=>{});
+    .then(d=>{ if(d){ st.bookings=d.bookings||[]; st.sessCredits=d.credits||null; save(); if(!st.ov) render(); } }).catch(()=>{});
 }
 /* One cancel at a time. Two taps sent two requests, both found the same
    booking, and both asked Stripe to refund the same payment. Stripe refuses
@@ -10829,8 +10829,12 @@ function nextSessionHTML(){
       ${(coachedView()||!sells())?'':`<button onclick="seeCoaching()" style="border:0;background:none;padding:0;cursor:pointer;
         text-align:left;font:400 13px/1.5 var(--sans);color:var(--grey)">Want me with you between sessions?
         <span style="color:var(--forest);font-weight:600">See online coaching &rarr;</span></button>`}
-      <a href="/session.html" target="_blank" rel="noopener" style="font:400 13px/1.5 var(--sans);color:var(--grey);text-decoration:none">
-        Another one after this? <span style="color:var(--forest);font-weight:600">Book another session &rarr;</span></a>
+      ${(()=>{ const c=st.sessCredits, n=c?(Number(c[60])||0)+(Number(c[90])||0):0;
+        /* sessions left on a pack book from it, not from the pay page */
+        return n && c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" style="font:400 13px/1.5 var(--sans);color:var(--grey);text-decoration:none">
+          Sessions left on your pack: ${n}. <span style="color:var(--forest);font-weight:600">Book one &rarr;</span></a>`
+        : `<a href="/session.html" target="_blank" rel="noopener" style="font:400 13px/1.5 var(--sans);color:var(--grey);text-decoration:none">
+        Another one after this? <span style="color:var(--forest);font-weight:600">Book another session &rarr;</span></a>`; })()}
     </div>
   </div>`;
 }

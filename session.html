@@ -263,7 +263,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
   const unitP=()=>amounts[kind==='90'?'session90':'session60'];
   const packP=n=>n>1?Math.round(unitP()*n*(100-PACKS[n])/100):unitP();
   const price=()=>pack>1?pounds(packP(pack)):(kind==='90'?labels.session90:labels.session60);
-  const packsHTML=()=>'<div class="packs">'+[1,5,10].map(n=>'<button class="pk '+(pack===n?'on':'')+'" data-n="'+n+'"><b>'+(n===1?'One':n===5?'Five':'Ten')+'</b><span>'
+  const packsHTML=()=>'<label>How many</label><div class="packs" role="group" aria-label="How many">'+[1,5,10].map(n=>'<button class="pk '+(pack===n?'on':'')+'" aria-pressed="'+(pack===n)+'" data-n="'+n+'"><b>'+(n===1?'One':n===5?'Five':'Ten')+'</b><span>'
       +esc(pounds(packP(n)))+'</span><small>'+(n===1?'one session':esc(pounds(Math.round(packP(n)/n)))+' each, '+PACKS[n]+'% off')+'</small></button>').join('')+'</div>';
   const draw0=()=>{
     /* drawn once: the times and prices arriving later would wipe what they are typing */
@@ -289,11 +289,14 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
         if(el>90000) return say({state:'late', email:(d&&d.email)||''});
         setTimeout(step, el<12000?2500:5000); }).catch(()=>{ if(el<90000) setTimeout(step, 5000); }); };
     step(); };
+  const WORD={5:'five',10:'ten'};
   const paidDone=()=>{
+      /* a pack first, with the time inside it: a time picked hid the pack */
+      if(pack>1) return done(bookedAt?'Paid. Now I book the room.':'Paid. Now the time.',['Your '+(WORD[pack]||pack)+' '+esc(kind)+' minute sessions are paid for. '
+          +(bookedAt?'The first, <b>'+esc(whenTxt(bookedAt))+'</b>, is held while Elliott books the room, and he confirms it within 48 hours.':'Elliott arranges the first with you within 48 hours.'),
+        'The other '+(pack-1)+' are yours to book whenever you like, from the link in the email on its way now. It also shows how many you have left.'],['/lha-app.html','Open the app']);
       if(bookedAt) return done('Paid. Now I book the room.',['Your '+esc(kind)+' minute session on <b>'+esc(whenTxt(bookedAt))+'</b> is held for you while Elliott books the room at OverGravity. He confirms it within 48 hours, by email and in the app.',
         'If that time cannot be secured, he offers you another, and if none suits you it is refunded in full. An email is on its way now; if you are new, it has a button to choose your password for the Handstand Ladder app.'],['/lha-app.html','Open the app']);
-      if(pack>1) return done('Paid. Now the time.',['Your pack of '+pack+' '+esc(kind)+' minute sessions is paid for. Elliott arranges the first with you within 48 hours'+(bookedAt?', starting with <b>'+esc(whenTxt(bookedAt))+'</b>':'')+'.',
-        'The other '+(pack-1)+' are yours to book whenever you like: an email is on its way with the link, which also shows how many you have left.'],['/lha-app.html','Open the app']);
       return done('Paid. Now the time.',['Your '+esc(kind)+' minute session is paid for. Elliott checks your times against the room at OverGravity and confirms within 48 hours, by email and in the app.',
         'An email is on its way now. If you are new, it has a button to choose your password for the Handstand Ladder app, where your booking is and where we agree the time.'],['/lha-app.html','Open the app']);
   };
@@ -302,15 +305,17 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
     const picking=!asking&&Array.isArray(S)&&S.length>0;
     if(picking&&!S.some(t=>dayKey(t)===day)) day=dayKey(S[0]);
     if(slot&&!(S||[]).includes(slot)) slot='';
-    const left=credits?(Number(credits[kind])||0):0;
+    const left=credits===null ? null : credits ? (Number(credits[kind])||0) : 0;
     box.innerHTML=(ctok
         ? '<div class="kick">Your pack · London</div><h1>Book a session.</h1>'
-          +(credits===null?'<p>Checking your pack…</p>':'<p>'+(credits.bad?esc(credits.bad):'You have <b>'+(Number(credits['60'])||0)+'</b> sixty minute and <b>'+(Number(credits['90'])||0)+'</b> ninety minute sessions left.')+'</p>')
+          +(credits===null?'<p>Checking your pack…</p>':(!credits.bad && !(Number(credits['60'])||0) && !(Number(credits['90'])||0))
+            ? '<p>Your pack is used up.</p><p><a class="btn" href="/session.html?kind=60&n=5" style="display:inline-block;text-decoration:none">Book another five</a></p>'
+            :'<p>'+(credits.bad?esc(credits.bad):'You have '+[Number(credits['60'])?'<b>'+credits['60']+'</b> sixty minute':'', Number(credits['90'])?'<b>'+credits['90']+'</b> ninety minute':''].filter(Boolean).join(' and ')+' session'+(((Number(credits['60'])||0)+(Number(credits['90'])||0))===1?'':'s')+' left.')+'</p>')
         : '<div class="kick">One to one · London</div><h1>A session with Elliott.</h1>'
           +'<p>Sixty or ninety minutes at OverGravity in Shadwell, on your handstand and nothing else. Film goes in your thread afterwards so you can keep training it.</p>')
       +'<div class="opts">'
-      +'<button class="opt '+(kind==='60'?'on':'')+'" data-k="60"><em>60 minutes</em><b>'+esc(labels.session60)+'</b><span>One thing, fixed properly.</span></button>'
-      +'<button class="opt '+(kind==='90'?'on':'')+'" data-k="90"><em>90 minutes</em><b>'+esc(labels.session90)+'</b><span>Room to film, test and work two things.</span></button>'
+      +((!ctok || !credits || Number(credits['60'])) ? '<button class="opt '+(kind==='60'?'on':'')+'" data-k="60" aria-pressed="'+(kind==='60')+'"><em>60 minutes</em><b>'+(ctok&&credits?esc(String(Number(credits['60'])||0))+' left':esc(labels.session60))+'</b><span>One thing, fixed properly.</span></button>' : '')
+      +((!ctok || !credits || Number(credits['90'])) ? '<button class="opt '+(kind==='90'?'on':'')+'" data-k="90" aria-pressed="'+(kind==='90')+'"><em>90 minutes</em><b>'+(ctok&&credits?esc(String(Number(credits['90'])||0))+' left':esc(labels.session90))+'</b><span>Room to film, test and work two things.</span></button>' : '')
       +'</div>'
       +(ctok?'':packsHTML())
       +(S===undefined?'<div class="card"><p class="muted" style="margin:0">Finding the free times…</p></div>':'')
@@ -319,32 +324,37 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       /* the name and email while the times load: there was no form at all for
          the two seconds the times take (16 Oct 2026, review) */
       +(S===undefined?'<div class="card">'
-      +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
-      +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
+      +(ctok?'':'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
+      +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">')
       +'<button class="btn" id="go" disabled>One moment…</button><div class="msg" id="msg"></div></div>':'<div class="card">'
       +(ctok?'':'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
       +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">')
       +(picking?'':'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings. The more you give, the faster it lands."></textarea>')
       +'<button class="btn" id="go"'+((picking&&!slot)||(ctok&&!left)?' disabled':'')+'>'+(ctok
-        ? (!left?'No '+esc(kind)+' minute sessions left':picking?(slot?'Book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):'Book it and ask for these times')
+        ? (left===null?'One moment…':!left?'No '+esc(kind)+' minute sessions left':picking?(slot?'Book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):'Book it and ask for these times')
         : (picking?(slot?'Pay '+esc(price())+' and book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):(asking?'Pay '+esc(price())+' and ask for these times':'Pay '+esc(price())+' and request a time'))
           +(pack>1&&(!picking||slot)?' (the first of '+pack+')':''))+'</button>'
       +'<div class="msg" id="msg"></div>'
-      +'<div class="fine">Card payment on the next page, through Stripe. '+(picking
+      +'<div class="fine">'+(ctok
+        ? 'Nothing to pay: it comes off your pack. '+(picking?'Until Elliott has hired the room you can move it yourself to another free time. To cancel, ask from the link in your email; a cancelled session goes back on your pack.'
+          :'The room is booked around the gym’s timetable, so the time is confirmed with you afterwards, within 48 hours. If no time works, it goes back on your pack.')
+        : 'Card payment on the next page, through Stripe. '+(picking
         ?'Until Elliott has hired the room you can move it yourself to another free time. To cancel, ask from the link in your email: he hires the room for each session and comes back to you with a refund or a new date.'
-        :'The room is booked around the gym’s timetable, so the time is confirmed with you afterwards, within 48 hours. If no time works, it is refunded in full.')
+        :'The room is booked around the gym’s timetable, so the time is confirmed with you afterwards, within 48 hours. If no time works, it is refunded in full.'))
       +' By booking you agree to the <a href="/terms" target="_blank" rel="noopener">terms</a> and the <a href="/waiver" target="_blank" rel="noopener">waiver</a>. How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>'
       +(asking&&Array.isArray(S)&&S.length?'<button class="linkb" id="back">Back to the free times</button>':'')
       +'</div>')
       +'<div class="steps">'
-      +(picking?'<div class="step"><i>1</i>Pick a time and pay. It is held for you.</div><div class="step"><i>2</i>Elliott books the room and confirms within 48 hours, by email and in the app. If it cannot be secured, you are offered another time, or a full refund.</div>'
+      +(ctok?(picking?'<div class="step"><i>1</i>Pick a time. It is held for you.</div>':'<div class="step"><i>1</i>Say which days suit.</div>')
+        +'<div class="step"><i>2</i>Elliott books the room and confirms within 48 hours, by email and in the app.</div>'
+      :picking?'<div class="step"><i>1</i>Pick a time and pay. It is held for you.</div><div class="step"><i>2</i>Elliott books the room and confirms within 48 hours, by email and in the app. If it cannot be secured, you are offered another time, or a full refund.</div>'
         :'<div class="step"><i>1</i>Pay and say which days suit.</div><div class="step"><i>2</i>Elliott checks the room and confirms a time within 48 hours, by email and in the app.</div>')
-      +'<div class="step"><i>3</i>Train. What you worked on goes into your thread. Join the programme within fourteen days and the session comes off your first month.</div>'
+      +'<div class="step"><i>3</i>Train. What you worked on goes into your thread.'+(ctok?'':' Join the programme within fourteen days and the session comes off your first month.')+'</div>'
       +'</div>'
       +REVIEW
       +'<div class="foot">Questions? '+MAIL+'</div>';
     box.querySelectorAll('.pk').forEach(b=>{ b.onclick=()=>{ pack=Number(b.getAttribute('data-n'))||1; draw(); }; });
-    box.querySelectorAll('.opt').forEach(b=>{ b.onclick=()=>{ kind=b.getAttribute('data-k'); slot=''; history.replaceState(null,'','/session.html?kind='+kind);
+    box.querySelectorAll('.opt').forEach(b=>{ b.onclick=()=>{ kind=b.getAttribute('data-k'); slot=''; history.replaceState(null,'','/session.html?kind='+kind+(ctok?'&c='+encodeURIComponent(ctok):''));
       if(slots[kind]===undefined){ draw(); loadSlots(kind).then(draw); } else draw(); }; });
     wirePicker(box,k=>{ day=k; slot=''; draw(); },t=>{ slot=t; draw(); });
     const none=document.getElementById('none'); if(none) none.onclick=()=>{ asking=true; slot=''; draw(); };

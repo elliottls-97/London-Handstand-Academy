@@ -1201,7 +1201,10 @@ async function sessionMail(done) {
     if (hoursSince > 10 && hoursSince <= 40 && !(Number(x.ask) > 0) && !coachedNow) {
       const key = `sessfollow:${x.id}`;
       if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
-        const paid = x.paid ? '£' + (x.paid / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
+        /* one session's share: a pack's first row carries the whole pack, and
+           the email said all of it came off a month of coaching */
+        const each = Number(x.pack) > 1 ? Math.round(Number(x.paid) / Number(x.pack)) : x.paid;
+        const paid = each ? '£' + (each / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
         const T = await emailCopy('sessThanks', { name: esc(String(x.name || '').split(' ')[0]), paid: esc(paid) });
         if (T.off) { done.held = (done.held || 0) + 1; continue; }
         await email(x.email, T.subject, mail({ title: T.title, greeting: String(x.name || '').split(' ')[0],
