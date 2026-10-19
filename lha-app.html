@@ -6775,7 +6775,7 @@ function clipsBody(){
   const answered=list.filter(c=>c.verdict||c.answer||c.reply||c.fromCoach);
   const sentN=list.filter(c=>!c.fromCoach).length;
   const row=c=>{
-    const said = c.verdict==='reached' ? ['Verified', 'var(--forest)', c.note]
+    const said = c.verdict==='reached' ? ['Signed off', 'var(--forest)', c.note]
       : c.verdict==='notyet' ? ['Not there yet', '#8a5a12', c.note]
       : c.answer ? ['Answered', 'var(--forest)', c.answer]
       : c.reply ? ['Answered on video', 'var(--forest)', c.replyText]
@@ -6985,7 +6985,7 @@ function cpHistoryHTML(c){
       <span style="flex:none;font:700 12.5px/1.4 var(--sans);color:${v==='reached'?'var(--forest)':'var(--ink)'}">${esc(String(val(r)))}</span>
       ${r.video?`<span title="Clip sent" style="flex:none;font:600 10px/1.4 var(--sans);color:var(--grey2)">&#9654; clip</span>`:''}
       <span style="flex:1;min-width:0;font:400 12px/1.4 var(--sans);color:var(--grey)">${
-        v==='reached' ? `<b style="color:var(--forest)">&#10003; Verified by ${esc((r.by||'').split('@')[0]||'your coach')}</b>${r.note?' &middot; '+esc(r.note):''}`
+        v==='reached' ? `<b style="color:var(--forest)">&#10003; Signed off by ${esc(coachLabel())}</b>${r.note?' &middot; '+esc(r.note):''}`
         : v==='notyet' ? `<b style="color:#8a5a12">Not there yet</b>${r.note?' &middot; '+esc(r.note):''}`
         : r.video ? `<span style="color:var(--grey2)">Waiting for a look</span>` : ''}</span>
     </div>`;}).join('');
@@ -7232,10 +7232,7 @@ function cpDrag(e,k,max,res){
 /* Wherever the check points live for this account, open them and put the
    list on screen. Coached they are the first tab of Progress; on the
    ladder they are the first tab of Ladder. */
-function goCps(){
-  climbGo(); return;
-  setTimeout(scrollToCps, 160);
-}
+function goCps(){ try{ cpOpenNews(); }catch(e){} climbGo(); }
 /* the card is on the page now, so "log a check point" is a scroll */
 function scrollToCps(){
   const el=document.querySelector('[data-tour="checkpoints"]');
@@ -7696,8 +7693,11 @@ function cpTickOff(k, b){
   /* the slider under it shows what the tick logged */
   const inp=document.getElementById('cpin-'+k), c=cpDef(k); if(inp && c) inp.innerHTML=cpInput(c);
 }
+/* a coached tick is 'hit' until the coach signs it off: ticked all the
+   same, so pressing again undoes it rather than logging it twice */
+const climbTicked = r => r.done || (coachedView() && cpState(r.c)==='hit');
 function climbTickLabel(r){
-  return r.done ? r.c.n+', reached'+(lcUndo[r.c.k]!==undefined?'. Press to undo':'. Open it')
+  return climbTicked(r) ? r.c.n+(r.done?', reached':', ticked')+(lcUndo[r.c.k]!==undefined?'. Press to undo':'. Open it')
                : 'Tick '+r.c.n+' as reached';
 }
 function climbTick(btn){
@@ -7706,7 +7706,7 @@ function climbTick(btn){
   if(!coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
   const row=climbState(lcSi(lc.dataset.si)).rows.find(x=>x.c.k===k); if(!row) return;
   const c=row.c;
-  if(row.done){
+  if(climbTicked(row)){
     if(lcUndo[k]===undefined) return open();
     const back=lcUndo[k]; delete lcUndo[k];
     saveCheckpoint(k, back);
@@ -7721,7 +7721,7 @@ function climbTick(btn){
   if(!still && typeof btn.animate==='function')
     btn.animate([{transform:'scale(1)'},{transform:'scale(1.22)'},{transform:'scale(1)'}],{duration:380,easing:'cubic-bezier(.2,.9,.3,1.3)'});
   saveCheckpoint(k, c.kind==='face' ? 2 : c.kind==='yn' ? 1 : t);
-  toast('Ticked. Press again to undo.');
+  toast(coachedView() ? 'Ticked. '+coachLabel()+' signs it off. Press again to undo.' : 'Ticked. Press again to undo.');
 }
 /* where the fill reaches, measured, once a rung is open and the ladder no
    longer has the fixed heights climbFillH works from */
@@ -17139,7 +17139,7 @@ function openClips(){
   else { st.coTab='check'; save(); go('coaching');
     setTimeout(()=>{ const el=[...document.querySelectorAll('#app .kick2')].find(e=>/YOUR CLIPS/.test(e.textContent)); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }, 200); }
 }
-function homeCps(){ st.homeCps=!st.homeCps; if(st.homeCps) window._hcpsAt=Date.now(); save(); render(); }
+function homeCps(){ st.homeCps=!st.homeCps; if(st.homeCps){ window._hcpsAt=Date.now(); if(coachedView()) try{ cpOpenNews(); }catch(e){} } save(); render(); }
 /* the check points out of the capsule: the list, the finished stage's
    offer when there is one, and the way to fold it */
 /* the finished stage's offer, at the top of the list once every check
@@ -17161,11 +17161,13 @@ function hcpsOfferHTML(){
     </div>` : ''}</div>`;
 }
 function homeCpsHTML(){
-  const cur=clearShowing()!=null ? clearShowing() : curStage();
+  /* a coaching client's list is the coach's ('c'), as the pill above it
+     is: it showed the ladder's Foundations instead (the journey review) */
+  const co=coachedView(), cur=co ? 'c' : (clearShowing()!=null ? clearShowing() : curStage());
   return `<div class="hcps${Date.now()-(window._hcpsAt||0)<600?' unfold':''}"><div class="hcps-p">
     ${hcpsOfferHTML()}
-    <div style="font:400 15px/1.4 var(--sans);color:var(--deep);padding:0 8px 8px">Tick each one off when you can do it. <span style="color:var(--grey)">Any order.</span></div>
-    ${clearShowing()==null && cpDue() && (cpFor(cur)||[]).some(c=>cpLast(c.k)) ? `<div style="padding:0 8px 8px;font:500 13.5px/1.45 var(--sans);color:var(--forest)">It has been a fortnight. Worth running through these again.</div>` : ''}
+    <div style="font:400 15px/1.4 var(--sans);color:var(--deep);padding:0 8px 8px">Tick each one off when you can do it. <span style="color:var(--grey)">Any order.${co?' '+esc(coachLabel())+' signs it off, then it counts.':''}</span></div>
+    ${clearShowing()==null && cpDue() && ((co?cpFor():cpFor(cur))||[]).some(c=>cpLast(c.k)) ? `<div style="padding:0 8px 8px;font:500 13.5px/1.45 var(--sans);color:var(--forest)">It has been a fortnight. Worth running through these again.</div>` : ''}
     <div data-tour="checkpoints">${cpListHTML(cur)}</div>
     ${(n=>n?`<button class="lrn-all" style="width:calc(100% - 16px);margin:6px 8px 0;border-bottom:0" onclick="openClips()"><span><b>All your clips</b>
       <span style="color:var(--grey)">&middot; ${n}</span></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)"
@@ -23226,7 +23228,7 @@ const TOURS = {
        b:'The day your programme has for today, and how long it runs. Start, beside your check points, opens it.'},
       {t:'checkpoints', h:'Your check points', always:true,
        pre:()=>{ if(!st.homeCps){ st.homeCps=true; save(); render(); } },
-       b:()=>'What '+coachLabel()+' wants you to be able to do. Log what you manage, and film one for '+coachLabel()+' from its row. All your clips are at the bottom.'},
+       b:()=>'What '+coachLabel()+' wants you to be able to do. Tick one off when you can, or film it for '+coachLabel()+' from its row.'},
       {t:'block', h:'Where you are',
        b:'Which block you are on and how far into it you are. It gets rebuilt when Elliott has your test.'},
       {t:'modesheet', h:'Two ways to train it',
@@ -24344,11 +24346,11 @@ function render(){
      before the tab bar is drawn rather than on the next redraw */
   if(coached && st.tab==='progress' && !st.preview && !document.hidden){
     const pt=st.progTab==='clips' ? 'clips' : 'marks';
-    if(pt==='marks') cpOpenNews(); else cpHold=null;
+    if(pt!=='marks') cpHold=null;
     if(pt==='clips' && clipsNew()){ st.seenClips=Date.now();
       st.seenReview=Math.max(st.seenReview||0, st.lastReview||0); save(); }
-  } else if(st.tab!=='progress') cpHold=null;
-  const nMsg=msgsNew(), nChk=checksNew(), nAns=answerNew();
+  } else if(st.tab!=='progress' && !(st.tab==='today' && st.homeCps)) cpHold=null;
+  const nMsg=msgsNew(), nChk=checksNew(), nAns=answerNew(), nCpNews=coached ? Object.keys(cpNewsKeys()).length : 0;
   const pill=(n,bg,fg,aria)=>`<b aria-label="${esc(aria)}"
     style="position:absolute;top:3px;left:50%;margin-left:9px;min-width:17px;height:17px;padding:0 5px;
     border-radius:999px;background:${bg};color:${fg};display:grid;place-items:center;
@@ -24357,8 +24359,10 @@ function render(){
     aria-label="${esc(l)}" aria-current="${st.tab===id?'page':'false'}"><i></i><span>${l}</span>${
     ((id==='coaching'||id==='ask') && nMsg)
       ? pill(nMsg,'var(--amber)','var(--ink)', nMsg+' unread message'+(nMsg===1?'':'s'))
-    : (id==='progress' && (nChk || (coached && clipsNew())))
-      ? pill(nChk+(coached?clipsNew():0),'var(--forest)','var(--on-primary)', (nChk+(coached?clipsNew():0))+' new from '+coachLabel())
+    : (id==='today' && coached && nCpNews)
+      ? pill(nCpNews,'var(--forest)','var(--on-primary)', nCpNews+' check point'+(nCpNews===1?'':'s')+' from '+coachLabel())
+    : (id==='progress' && (coached ? clipsNew() : nChk))
+      ? pill(coached?clipsNew():nChk,'var(--forest)','var(--on-primary)', (coached?clipsNew():nChk)+' new from '+coachLabel())
     : (id==='coaching' && nAns)
       ? pill(nAns,'var(--forest)','var(--on-primary)', 'your form check has been answered')
       : ''}</button>`).join('');
