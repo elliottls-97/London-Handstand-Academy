@@ -500,6 +500,20 @@ export const EMAILS = {
       "If you want to keep going with a written programme, {paid} comes off your first month of the Coaching Programme if you join within fourteen days. Reply to this and I will set it up.",
       "And a sentence about how you found it, good or bad, would help me. Reply and I read it."
     ]
+  },
+  "sessThanksPack": {
+    "name": "Session from a pack, the day after",
+    "when": "10 to 40 hours after a one to one session from a pack. No coaching offer: Elliott offers that himself when it fits",
+    "vars": [
+      "name"
+    ],
+    "subject": "After your session",
+    "title": "Thank you for coming.",
+    "paras": [
+      "What we worked on is in your thread in the app, so it is there when you train this week.",
+      "Book the next one whenever suits, from the link in your pack email.",
+      "And a sentence about how you found it, good or bad, would help me. Reply and I read it."
+    ]
   }
 };
 

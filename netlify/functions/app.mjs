@@ -4683,8 +4683,9 @@ const handle = async (request) => {
            days. A payment link cannot take it off, so it was only kept if
            the coach happened to remember: the month was charged in full and
            nothing said a credit was owed. */
+        /* a pack is not promised it: Elliott decides those himself */
         const credit = ((await getSetting('sessions').catch(() => null)) || []).filter(x => x && x.email === e2 && !x.fromPlan
-          && !['cancelled', 'refunded'].includes(x.status) && (Number(x.paid) || 0) - (Number(x.refunded) || 0) > 0
+          && !(Number(x.pack) > 1) && !x.credit && !['cancelled', 'refunded'].includes(x.status) && (Number(x.paid) || 0) - (Number(x.refunded) || 0) > 0
           && (x.when ? ms(x.when) : Number(x.at) || 0) > Date.now() - 14 * 864e5);
         const creditTxt = credit.length ? `They paid ${credit.map(x => sessAmt(sessShare(x)) + ' for a ' + x.kind + ' minute session' + (Number(x.pack) > 1 ? ', one of a pack of ' + x.pack : '')).join(' and ')} in the last fourteen days, which the site says comes off their first month` : '';
         if (coachNew) await coachAlert(null, 'business', { title: `New ${tierName} client: ${acct.name || e2}`, body: tierFull + (coNote ? '. ' + coNote : '') + (overTxt ? '. ' + overTxt : '') + (creditTxt ? '. Session credit owed' : ''), tag: 'coachnew:' + e2 });

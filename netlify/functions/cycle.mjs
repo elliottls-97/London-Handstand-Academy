@@ -1205,7 +1205,11 @@ async function sessionMail(done) {
            the email said all of it came off a month of coaching */
         const each = Number(x.pack) > 1 ? Math.round(Number(x.paid) / Number(x.pack)) : x.paid;
         const paid = each ? '£' + (each / 100).toFixed(2).replace(/\.00$/, '') : 'the session fee';
-        const T = await emailCopy('sessThanks', { name: esc(String(x.name || '').split(' ')[0]), paid: esc(paid) });
+        /* a session from a pack is not sold coaching: Elliott offers it
+           himself when it fits (19 Oct 2026). It sent the offer after every
+           one of the five, and a credit session's said "the session fee". */
+        const fromPack = Number(x.pack) > 1 || !!x.credit;
+        const T = await emailCopy(fromPack ? 'sessThanksPack' : 'sessThanks', { name: esc(String(x.name || '').split(' ')[0]), paid: esc(paid) });
         if (T.off) { done.held = (done.held || 0) + 1; continue; }
         await email(x.email, T.subject, mail({ title: T.title, greeting: String(x.name || '').split(' ')[0],
           paras: T.paras,
