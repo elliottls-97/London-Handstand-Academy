@@ -4001,11 +4001,18 @@ const handle = async (request) => {
           ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
           pi: String(obj.payment_intent || ''), pays: [{ ref: String(obj.id || ''), pi: String(obj.payment_intent || ''), amount: Number(obj.amount_total) || 0, at: Date.now() }],
           paid: Number(obj.amount_total) || 0, status: picked ? 'arranged' : 'toArrange', when: picked ? new Date(slotAt).toISOString() : '',
+          ...(md.code ? { code: String(md.code).slice(0, 24) } : {}),
           place: 'OverGravity, Shadwell', note: '',
           ...(picked ? { picked: true, room: 'hire' } : slotAt ? { pickedGone: { at: new Date(slotAt).toISOString(), why: gone } } : {}) });
         return l.slice(0, 400);
       });
       await slotUnhold(String(md.hold || ''));
+      /* the code's use, once for this payment whatever Stripe retries */
+      if (md.code && await supa.insertIfAbsent('nudges', { key: `sesscode:${obj.id}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))
+        await changeSetting('wscodes', cur => { const c = Object.assign({}, cur || {}); const k = String(md.code);
+          if (!c[k]) return undefined;
+          const holds = Object.assign({}, c[k].holds || {}); if (md.chold) delete holds[md.chold];
+          c[k] = Object.assign({}, c[k], { used: Number(c[k].used || 0) + 1, holds }); return c; }).catch(() => {});
       /* about them, sent from the page they landed on before this was filed */
       const pendAbout = ((await getSetting('sessabout')) || {})[obj.id];
       if (pendAbout) await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
@@ -4036,7 +4043,7 @@ const handle = async (request) => {
             cta: { href: link, label: 'Book a session from your pack' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
         } catch {}
       }
-      const amt = sessAmt(obj.amount_total);
+      const amt = sessAmt(obj.amount_total) + (md.code ? ' with code ' + String(md.code).slice(0, 24) : '');
       /* a session that cost nothing on a code is booked, not "paid for: £0" */
       const sessFree = !(Number(obj.amount_total) > 0);
       /* Anything that fails before their email has gone lets go of the claim
@@ -6573,6 +6580,7 @@ const handle = async (request) => {
     const codes = (await getSetting('wscodes')) || {};
     const d = codes[c];
     if (!d || d.off === false) return { error: 'That code is not one of ours' };
+    if (d.for === 'session') return { error: 'That code is for a 1-2-1, not a class' };
     /* the dashboard asks for a date, which arrives as midnight, so a code
        set to run until the 30th was dead for the whole of the 30th. The last
        day is a day the code works. */
@@ -6588,6 +6596,23 @@ const handle = async (request) => {
        it (Elliott, 18 Oct 2026: £10 off both dates took £20) */
     const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
     return { off, code: c, pct: d.pct ? Math.min(100, Number(d.pct)) : 0, pence: d.pct ? 0 : Math.round(Number(d.pence) || 0) };
+  };
+  /* 1-2-1 codes (Elliott, 20 Oct 2026): the same list as the classes',
+     marked for a 1-2-1 and set from the dashboard's 1-2-1 settings. A
+     percentage comes off the whole booking, a pack included; pounds come
+     off once. A code never makes one free: Stripe will not take a card
+     payment of nothing, and a free session is booked by hand on Today. */
+  const sessCodeCheck = async (code, price, who) => {
+    const c = String(code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+    if (!c) return { off: 0 };
+    const d = ((await getSetting('wscodes')) || {})[c];
+    if (!d || d.off === false) return { error: 'That code is not one of ours' };
+    if (d.for !== 'session') return { error: 'That code is for the classes, not a 1-2-1' };
+    if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That code has expired' };
+    if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That code has been used up' };
+    const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
+    if (price - off < 100) return { error: 'That code cannot be used on this one. Email info@londonhandstandacademy.com and Elliott will sort it out.' };
+    return { off, code: c };
   };
   const wsIcs = (w) => {
     const dt = t => new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -7621,6 +7646,16 @@ const handle = async (request) => {
     const c = (await getSetting(`sesscredit:${norm(p.e)}`)) || {};
     return json({ left: { 60: Number(c['60']) || 0, 90: Number(c['90']) || 0 }, name: c.name || '', email: norm(p.e) });
   }
+  if (path === '/session/code' && request.method === 'POST') {
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`ssc:${ip}`, 3600000)) > 40) return json({ error: 'Too many tries' }, 429); }
+    const kind = String(body.kind) === '90' ? '90' : '60', n = sessPackN(body.pack);
+    const base = sessPackPrice(Math.round(Number(PRICES[kind === '90' ? 'session90' : 'session60'].amount) || 0), n);
+    const r = await sessCodeCheck(body.code, base, wsMailOk(norm(body.email)) ? norm(body.email) : '');
+    if (r.error) return json({ error: r.error }, 400);
+    const price = base - (r.off || 0);
+    return json({ ok: true, code: r.code || '', off: r.off || 0, base, price, label: '£' + (price / 100).toFixed(2).replace(/\.00$/, '') });
+  }
   if (path === '/session/book' && request.method === 'POST') {
     const kind = String(body.kind) === '90' ? '90' : '60';
     const prefs = String(body.prefs || '').trim().slice(0, 500);
@@ -7671,6 +7706,9 @@ const handle = async (request) => {
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`ssb:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
     const price = PRICES[kind === '90' ? 'session90' : 'session60'];
+    const base = sessPackPrice(Math.round(Number(price.amount) || 0), n);
+    const disc = body.code ? await sessCodeCheck(body.code, base, e) : { off: 0 };
+    if (disc.error) return json({ error: disc.error, badCode: true }, 400);
     /* a time picked from the ones on offer: checked again here, and held
        for as long as the payment page is open */
     let at = 0, hold = '';
@@ -7682,16 +7720,34 @@ const handle = async (request) => {
       hold = await slotHold(at, at + (kind === '90' ? 90 : 60) * 60e3, kind);
       if (!hold) return json({ error: 'Somebody is paying for that time right now. Pick another.', gone: true }, 409);
     }
+    /* a code with a limit is held while the card page is open, as a class
+       code is, so two people paying at once cannot both take the last use */
+    let chold = '';
+    if (disc.code) {
+      const tok = (await wsHoldKey(e)) || 'h' + newId(); let full = false;
+      await changeSetting('wscodes', cur => {
+        full = false; const c = Object.assign({}, cur || {}); const d = c[disc.code];
+        if (!d) return undefined;
+        const holds = Object.fromEntries(Object.entries(d.holds || {}).filter(([k, t]) => Number(t) > Date.now() && k !== tok));
+        if (Number(d.max) > 0 && Number(d.used || 0) + Object.keys(holds).length >= Number(d.max)) { full = true; return undefined; }
+        holds[tok] = Date.now() + 36 * 60000;
+        c[disc.code] = Object.assign({}, d, { holds }); return c;
+      });
+      if (full) { await slotUnhold(hold); return json({ error: 'That code has been used up', badCode: true }, 400); }
+      chold = tok;
+    }
     try {
       const sess = await stripe('/checkout/sessions', {
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
-        'line_items[0][price_data][unit_amount]': String(sessPackPrice(Math.round(Number(price.amount) || 0), n)),
+        'line_items[0][price_data][unit_amount]': String(base - (disc.off || 0)),
         'line_items[0][price_data][product_data][name]': n > 1 ? `${n} one to one sessions, ${kind} minutes, London, ${SESS_PACKS[n]}% off` : `One to one session, ${kind} minutes, London`,
         'line_items[0][price_data][product_data][description]': (at ? `The first: ${slotTxt(at)}, at OverGravity, Shadwell.` : 'Time arranged with you after payment, around the room at OverGravity.')
-          + (n > 1 ? ` The other ${n - 1} are booked whenever you like, from the link in your email.` : ''),
+          + (n > 1 ? ` The other ${n - 1} are booked whenever you like, from the link in your email.` : '')
+          + (disc.code ? ` Code ${disc.code}: ${sessAmt(disc.off)} off.` : ''),
         'line_items[0][quantity]': '1',
         'metadata[session]': kind, 'metadata[name]': nm, 'metadata[prefs]': prefs, ...(n > 1 ? { 'metadata[pack]': String(n) } : {}),
+        ...(disc.code ? { 'metadata[code]': disc.code, 'metadata[chold]': chold } : {}),
         'metadata[src]': String(body.src || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20),
         ...(at ? { 'metadata[slot]': new Date(at).toISOString(), 'metadata[hold]': hold,
                    /* the hold outlasts the page by a few minutes */
@@ -8392,10 +8448,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const c = String(body.code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
       if (!c) return json({ error: 'A code needs letters' }, 400);
       if (body.remove) { delete codes[c]; await setSetting('wscodes', codes); return json({ ok: true, codes: list() }); }
+      /* one list for both, so a word cannot mean one thing in a class and another in a 1-2-1 */
+      const forS = body.for === 'session';
+      if (codes[c] && !!(codes[c].for === 'session') !== forS) return json({ error: `${c} is already a ${forS ? 'class' : '1-2-1'} code. Pick another word.` }, 409);
+      if (forS && Math.round(Number(body.pct) || 0) >= 100) return json({ error: 'A 1-2-1 code cannot make it free. For a free session, book it for them on Today.' }, 400);
       codes[c] = Object.assign({}, codes[c] || {}, {
-        pence: Math.max(0, Math.round(Number(body.pence) || 0)), pct: Math.max(0, Math.min(100, Math.round(Number(body.pct) || 0))),
+        pence: Math.max(0, Math.round(Number(body.pence) || 0)), pct: Math.max(0, Math.min(forS ? 99 : 100, Math.round(Number(body.pct) || 0))),
         max: Math.max(0, Math.round(Number(body.max) || 0)), until: ms(body.until) ? new Date(ms(body.until)).toISOString() : '',
-        workshop: wsSlug(body.workshop || ''), note: String(body.note || '').slice(0, 80), used: Number((codes[c] || {}).used || 0) });
+        workshop: forS ? '' : wsSlug(body.workshop || ''), for: forS ? 'session' : '', note: String(body.note || '').slice(0, 80), used: Number((codes[c] || {}).used || 0) });
       await setSetting('wscodes', codes);
       return json({ ok: true, codes: list() });
     }

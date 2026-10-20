@@ -68,6 +68,9 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
 .time{min-height:46px;border-radius:12px;border:1.5px solid var(--line);background:#fff;cursor:pointer;font:600 15px/1 var(--sans);color:var(--ink)}
 .time.on{border-color:var(--forest);background:var(--forest);color:#fff}
 .time:disabled{opacity:.5;cursor:default}
+.cd-row{display:flex;gap:8px}.cd-row input{flex:1;min-width:0;text-transform:uppercase;letter-spacing:.06em}
+.cd-go{flex:none;min-height:48px;padding:0 18px;border-radius:14px;border:1px solid rgba(0,102,99,.3);background:#fff;color:var(--forest);font:600 15px/1 var(--sans);cursor:pointer}
+.cd-ok{margin:14px 0 0;font:500 14px/1.5 var(--sans);color:var(--forest)}
 .linkb{display:inline;border:0;background:none;padding:0;margin-top:14px;cursor:pointer;font:600 13.5px/1.5 var(--sans);color:var(--forest);text-decoration:underline;text-underline-offset:3px;text-align:left}
 .ghost{display:block;width:100%;margin-top:14px;border:1px solid var(--line);background:#fff;border-radius:16px;min-height:52px;cursor:pointer;font:600 15px/1 var(--sans);color:var(--terra)}
 .ghost:disabled{opacity:.6;cursor:default}
@@ -255,14 +258,35 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
      time, so a redraw while the fields were not there (the times loading
      after 60 became 90) lost it (16 Oct 2026, review). */
   const typed={};
+  /* a code, checked against what is picked: a different length or pack
+     is checked again, since a percentage depends on it (20 Oct 2026) */
+  let codeOpen=false, codeRes=null, codeMsg='';
+  const codeKey=()=>kind+'|'+pack;
+  const codeOn=()=>!!(codeRes&&codeRes.key===codeKey());
   const draw=()=>{
-    ['nm','em','pf'].forEach(id=>{ const el=document.getElementById(id); if(el) typed[id]=el.value; });
+    ['nm','em','pf','cd'].forEach(id=>{ const el=document.getElementById(id); if(el) typed[id]=el.value; });
     draw0();
     Object.keys(typed).forEach(id=>{ const el=document.getElementById(id), v=typed[id]; if(el&&v&&!el.value) el.value=v; });
   };
   const unitP=()=>amounts[kind==='90'?'session90':'session60'];
   const packP=n=>n>1?Math.round(unitP()*n*(100-PACKS[n])/100):unitP();
-  const price=()=>pack>1?pounds(packP(pack)):(kind==='90'?labels.session90:labels.session60);
+  const price=()=>codeOn()?codeRes.label:pack>1?pounds(packP(pack)):(kind==='90'?labels.session90:labels.session60);
+  const codeHTML=()=>codeOn()
+    ? '<p class="cd-ok"><b>'+esc(codeRes.code)+'</b>: '+esc(pounds(codeRes.off))+' off, so '+esc(codeRes.label)+'. <button class="linkb" id="cdX" style="margin:0">Remove</button></p>'
+    : !codeOpen ? '<button class="linkb" id="cdOpen">Have a code?</button>'
+    : '<label for="cd">Code</label><div class="cd-row"><input id="cd" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE"><button class="cd-go" id="cdGo">Apply</button></div>'
+      +'<div class="msg" id="cdMsg" role="status">'+esc(codeMsg)+'</div>';
+  const checkCode=c=>{
+    const el=document.getElementById('cd'), v=String(c!=null?c:(el?el.value:'')).trim();
+    if(!v){ codeMsg='Type the code first.'; draw(); return; }
+    const emEl=document.getElementById('em'), em=(emEl&&emEl.value)||typed.em||'', key=codeKey();
+    const b=document.getElementById('cdGo'); if(b){ b.disabled=true; b.textContent='Checking'; }
+    fetch('/api/app/session/code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:v,kind,pack,email:em})})
+      .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
+      .then(d=>{ codeRes={code:d.code||v.toUpperCase(),off:d.off,price:d.price,label:d.label,key}; codeMsg=''; draw(); })
+      .catch(e=>{ codeRes=null; codeOpen=true; typed.cd=v; codeMsg=String((e&&e.error)||'That code could not be checked just now.'); draw(); });
+  };
+  const recheck=()=>{ if(!codeRes) return; const c=codeRes.code; codeRes=null; codeOpen=true; typed.cd=c; draw(); checkCode(c); };
   const packsHTML=()=>'<label>How many</label><div class="packs" role="group" aria-label="How many">'+[1,5,10].map(n=>'<button class="pk '+(pack===n?'on':'')+'" aria-pressed="'+(pack===n)+'" data-n="'+n+'"><b>'+(n===1?'One':n===5?'Five':'Ten')+'</b><span>'
       +esc(pounds(packP(n)))+'</span><small>'+(n===1?'one session':esc(pounds(Math.round(packP(n)/n)))+' each, '+PACKS[n]+'% off')+'</small></button>').join('')+'</div>';
   const draw0=()=>{
@@ -330,6 +354,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       +(ctok?'':'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
       +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">')
       +(picking?'':'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings. The more you give, the faster it lands."></textarea>')
+      +(ctok?'':codeHTML())
       +'<button class="btn" id="go"'+((picking&&!slot)||(ctok&&!left)?' disabled':'')+'>'+(ctok
         ? (left===null?'One moment…':!left?'No '+esc(kind)+' minute sessions left':picking?(slot?'Book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):'Book it and ask for these times')
         : (picking?(slot?'Pay '+esc(price())+' and book '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above'):(asking?'Pay '+esc(price())+' and ask for these times':'Pay '+esc(price())+' and request a time'))
@@ -347,17 +372,21 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       +'<div class="steps">'
       +(ctok?(picking?'<div class="step"><i>1</i>Pick a time. It is held for you.</div>':'<div class="step"><i>1</i>Say which days suit.</div>')
         +'<div class="step"><i>2</i>Elliott books the room and confirms within 48 hours, by email and in the app.</div>'
-      :picking?'<div class="step"><i>1</i>'+(pack>1?'Pay for all '+(WORD[pack]||pack)+' at '+esc(pounds(Math.round(packP(pack)/pack)))+' a session, '+PACKS[pack]+'% off, and pick a time for the first. It is held for you.':'Pick a time and pay. It is held for you.')+'</div><div class="step"><i>2</i>Elliott books the room and confirms within 48 hours, by email and in the app. If it cannot be secured, you are offered another time, or a full refund.</div>'
-        :'<div class="step"><i>1</i>'+(pack>1?'Pay for all '+(WORD[pack]||pack)+' at '+esc(pounds(Math.round(packP(pack)/pack)))+' a session, '+PACKS[pack]+'% off, and say which days suit for the first.':'Pay and say which days suit.')+'</div><div class="step"><i>2</i>Elliott checks the room and confirms a time within 48 hours, by email and in the app.</div>')
+      :picking?'<div class="step"><i>1</i>'+(pack>1?'Pay for all '+(WORD[pack]||pack)+' at '+esc(pounds(Math.round((codeOn()?codeRes.price:packP(pack))/pack)))+' a session'+(codeOn()?' with your code':', '+PACKS[pack]+'% off')+', and pick a time for the first. It is held for you.':'Pick a time and pay. It is held for you.')+'</div><div class="step"><i>2</i>Elliott books the room and confirms within 48 hours, by email and in the app. If it cannot be secured, you are offered another time, or a full refund.</div>'
+        :'<div class="step"><i>1</i>'+(pack>1?'Pay for all '+(WORD[pack]||pack)+' at '+esc(pounds(Math.round((codeOn()?codeRes.price:packP(pack))/pack)))+' a session'+(codeOn()?' with your code':', '+PACKS[pack]+'% off')+', and say which days suit for the first.':'Pay and say which days suit.')+'</div><div class="step"><i>2</i>Elliott checks the room and confirms a time within 48 hours, by email and in the app.</div>')
       /* a pack is credits: only the first is booked now (Elliott, 19 Oct 2026) */
       +(!ctok&&pack>1?'<div class="step"><i>3</i>The other '+(WORD[pack-1]||(pack-1))+' wait on your pack. Book each one whenever you like, from the link in your email.</div>':'')
       +'<div class="step"><i>'+(!ctok&&pack>1?4:3)+'</i>Train. What you worked on goes into your thread.'+(ctok||pack>1?'':' Join the programme within fourteen days and the session comes off your first month.')+'</div>'
       +'</div>'
       +REVIEW
       +'<div class="foot">Questions? '+MAIL+'</div>';
-    box.querySelectorAll('.pk').forEach(b=>{ b.onclick=()=>{ pack=Number(b.getAttribute('data-n'))||1; draw(); }; });
+    box.querySelectorAll('.pk').forEach(b=>{ b.onclick=()=>{ pack=Number(b.getAttribute('data-n'))||1; draw(); recheck(); }; });
+    const cdO=document.getElementById('cdOpen'); if(cdO) cdO.onclick=()=>{ codeOpen=true; draw(); const i=document.getElementById('cd'); if(i) i.focus(); };
+    const cdX=document.getElementById('cdX'); if(cdX) cdX.onclick=()=>{ codeRes=null; codeOpen=false; codeMsg=''; typed.cd=''; draw(); };
+    const cdG=document.getElementById('cdGo'); if(cdG) cdG.onclick=()=>checkCode();
+    const cdI=document.getElementById('cd'); if(cdI){ cdI.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); checkCode(); } }; if(codeMsg) cdI.focus(); }
     box.querySelectorAll('.opt').forEach(b=>{ b.onclick=()=>{ kind=b.getAttribute('data-k'); slot=''; history.replaceState(null,'','/session.html?kind='+kind+(ctok?'&c='+encodeURIComponent(ctok):''));
-      if(slots[kind]===undefined){ draw(); loadSlots(kind).then(draw); } else draw(); }; });
+      if(slots[kind]===undefined){ draw(); loadSlots(kind).then(draw); } else draw(); recheck(); }; });
     wirePicker(box,k=>{ day=k; slot=''; draw(); },t=>{ slot=t; draw(); });
     const none=document.getElementById('none'); if(none) none.onclick=()=>{ asking=true; slot=''; draw(); };
     const bk=document.getElementById('back'); if(bk) bk.onclick=()=>{ asking=false; draw(); };
@@ -372,7 +401,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       if(picking&&!slot){ msg.textContent='Pick a time first.'; return; }
       const label=go.textContent;
       go.disabled=true; go.dataset.was=label; go.textContent='One moment…'; msg.textContent=''; beacon('sessionbook');
-      fetch('/api/app/session/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({kind,name,email,prefs,src:window.LHA_SRC||''},picking?{slot}:{},ctok?{c:ctok}:{pack}))})
+      fetch('/api/app/session/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({kind,name,email,prefs,src:window.LHA_SRC||''},picking?{slot}:{},ctok?{c:ctok}:{pack},!ctok&&codeOn()?{code:codeRes.code}:{}))})
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
         .then(d=>{ if(d.url){ location.href=d.url; return; }
           if(d.credit){ creditDone=d; const more=d.left?d.left+' more '+esc(kind)+' minute session'+(d.left===1?'':'s')+' left on your pack.':'That was the last '+esc(kind)+' minute session on your pack.';
@@ -383,6 +412,8 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
           /* the time went while they were choosing: the times again, fresh */
           if(e&&e.gone){ slot=''; loadSlots(kind).then(()=>{ draw(); const m=document.getElementById('msg'); if(m) m.textContent=String(e.error); }); return; }
           if(e&&e.noSlots){ slots[kind]=[]; slot=''; draw(); const m=document.getElementById('msg'); if(m) m.textContent=String(e.error); return; }
+          /* the code went while they were typing: say so by the code, the rest as typed */
+          if(e&&e.badCode){ const c=codeRes?codeRes.code:''; codeRes=null; codeOpen=true; typed.cd=c; codeMsg=String(e.error); draw(); return; }
           go.disabled=false; go.textContent=label; msg.textContent=String((e&&e.error)||e||'Could not start the payment'); });
     };
   };

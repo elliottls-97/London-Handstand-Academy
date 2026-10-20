@@ -12547,21 +12547,38 @@ function wsCodeSave(body){
     .then(d=>{ wsCodes=d.codes||wsCodes; wsCodeNew={code:'',pence:'',pct:'',max:'',until:'',workshop:'',note:''}; draw(); })
     .catch(e=>alert(String(e)));
 }
-function wsCodeAdd(){ const c=(wsCodeNew.code||'').toUpperCase().replace(/[^A-Z0-9-]/g,''); if(!c) return alert('Give it a code.');
+function wsCodeAdd(forS){ const c=(wsCodeNew.code||'').toUpperCase().replace(/[^A-Z0-9-]/g,''); if(!c) return alert('Give it a code.');
   const pence=Math.round((Number(wsCodeNew.pence)||0)*100), pct=Number(wsCodeNew.pct)||0; if(!pence&&!pct) return alert('Pounds off or percent off.');
   if(pence&&pct) return alert('Pounds off or percent off, not both.');
-  wsCodeSave({code:c,pence,pct,max:Number(wsCodeNew.max)||0,until:wsCodeNew.until||'',workshop:wsCodeNew.workshop||'',note:wsCodeNew.note||''}); }
-function wsCodesHTML(){
+  if(forS&&pct>=100) return alert('A 1-2-1 code cannot make it free. For a free session, book it for them on Today.');
+  wsCodeSave({code:c,pence,pct,max:Number(wsCodeNew.max)||0,until:wsCodeNew.until||'',workshop:forS?'':(wsCodeNew.workshop||''),for:forS?'session':'',note:wsCodeNew.note||''}); }
+function wsCodeRow(c,forS){ return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid rgba(17,17,17,.07);font:400 13px/1.4 var(--sans)">
+      <b style="font:700 13px/1 var(--sans);letter-spacing:.06em;color:var(--forest)">${esc(c.code)}</b>
+      <span>${c.pct?c.pct+'% off':'£'+((c.pence||0)/100).toFixed(2).replace(/\.00$/,'')+' off'}</span>
+      <span class="muted">${forS?'any 1-2-1':c.workshop?'for '+esc((()=>{ const w=(wshops||[]).find(x=>x.slug===c.workshop); return w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}):c.workshop; })()):'any workshop'}${c.max?' · '+(c.used||0)+' of '+c.max+' used':(c.used?' · used '+c.used:'')}${c.until?' · until '+esc(new Date(c.until).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})):''}${c.note?' · '+esc(c.note):''}</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--terra)" onclick="if(confirm('Remove ${esc(c.code)}?')) wsCodeSave({code:${jsq(c.code)},remove:true})">Remove</button></div>`; }
+/* forS: the 1-2-1 codes, in the 1-2-1 settings; otherwise the class codes,
+   under the workshops. One list on the server, so a word means one thing. */
+function wsCodesHTML(forS){
   wsCodesLoad();
   const inp='class="input" style="min-height:36px;padding:6px 9px"';
+  const mine=(wsCodes||[]).filter(c=>forS ? c.for==='session' : c.for!=='session');
+  if(forS) return `<div class="card" style="margin-top:14px">
+    <div class="kick">1-2-1 DISCOUNT CODES</div>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the 1-2-1 booking page. A percentage comes off the whole booking, a pack of five or ten included; pounds come off once. A code cannot make a session free: for a free one, book it for them on Today.</p>
+    ${mine.map(c=>wsCodeRow(c,true)).join('')}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px;align-items:end">
+      <div class="field"><label>Code</label><input ${inp} value="${esc(wsCodeNew.code)}" placeholder="FIRST10" oninput="wsCodeNew.code=this.value"></div>
+      <div class="field"><label>£ off</label><input ${inp} value="${esc(wsCodeNew.pence)}" placeholder="10" oninput="wsCodeNew.pence=this.value"></div>
+      <div class="field"><label>or % off</label><input ${inp} value="${esc(wsCodeNew.pct)}" placeholder="20" oninput="wsCodeNew.pct=this.value"></div>
+      <div class="field"><label>Max uses</label><input ${inp} value="${esc(wsCodeNew.max)}" placeholder="any" oninput="wsCodeNew.max=this.value"></div>
+      <div class="field"><label>Until</label><input ${inp} type="date" value="${esc(wsCodeNew.until)}" oninput="wsCodeNew.until=this.value"></div>
+      <button class="btn btn-primary btn-sm" onclick="wsCodeAdd(true)">Add code</button>
+    </div></div>`;
   return `<div style="margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--line)">
     <div class="kick">DISCOUNT CODES</div>
     <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the booking page. Pounds come off the whole booking once, a percentage off the whole, on top of the £5 savings. For one workshop or all of them, with a use limit and an end date if you want them. A code for one date cannot be used when both dates are booked.</p>
-    ${(wsCodes||[]).map(c=>`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid rgba(17,17,17,.07);font:400 13px/1.4 var(--sans)">
-      <b style="font:700 13px/1 var(--sans);letter-spacing:.06em;color:var(--forest)">${esc(c.code)}</b>
-      <span>${c.pct?c.pct+'% off':'£'+((c.pence||0)/100).toFixed(2).replace(/\.00$/,'')+' off'}</span>
-      <span class="muted">${c.workshop?'for '+esc((()=>{ const w=(wshops||[]).find(x=>x.slug===c.workshop); return w&&w.when?new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}):c.workshop; })()):'any workshop'}${c.max?' · '+(c.used||0)+' of '+c.max+' used':(c.used?' · used '+c.used:'')}${c.until?' · until '+esc(new Date(c.until).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})):''}${c.note?' · '+esc(c.note):''}</span>
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--terra)" onclick="if(confirm('Remove ${esc(c.code)}?')) wsCodeSave({code:${jsq(c.code)},remove:true})">Remove</button></div>`).join('')}
+    ${mine.map(c=>wsCodeRow(c,false)).join('')}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px;align-items:end">
       <div class="field"><label>Code</label><input ${inp} value="${esc(wsCodeNew.code)}" placeholder="EARLYBIRD" oninput="wsCodeNew.code=this.value"></div>
       <div class="field"><label>£ off</label><input ${inp} value="${esc(wsCodeNew.pence)}" placeholder="5" oninput="wsCodeNew.pence=this.value"></div>
@@ -12569,7 +12586,7 @@ function wsCodesHTML(){
       <div class="field"><label>Max uses</label><input ${inp} value="${esc(wsCodeNew.max)}" placeholder="any" oninput="wsCodeNew.max=this.value"></div>
       <div class="field"><label>Until</label><input ${inp} type="date" value="${esc(wsCodeNew.until)}" oninput="wsCodeNew.until=this.value"></div>
       <div class="field"><label>Workshop</label><select ${inp} onchange="wsCodeNew.workshop=this.value"><option value="">Any</option>${(wshops||[]).filter(w=>!w.when||new Date(w.when).getTime()>Date.now()-6*3600e3).map(w=>`<option value="${esc(w.slug)}" ${wsCodeNew.workshop===w.slug?'selected':''}>${w.when?esc(new Date(w.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))+' · ':''}${esc(w.title)}</option>`).join('')}</select></div>
-      <button class="btn btn-primary btn-sm" onclick="wsCodeAdd()">Add code</button>
+      <button class="btn btn-primary btn-sm" onclick="wsCodeAdd(false)">Add code</button>
     </div></div>`;
 }
 
@@ -12771,7 +12788,7 @@ function settingsHTML(){
       ${owner?errsHTML():''}${owner?emailsHTML():''}`
   : setTab==='workshops' ? workshopsHTML()
   : setTab==='calls' ? (owner ? callsSettingsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">Calls are set by Elliott.</div>`)
-  : setTab==='sessions' ? (owner ? sessSlotsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)
+  : setTab==='sessions' ? (owner ? sessSlotsHTML()+wsCodesHTML(true) : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)
   : setTab==='alerts' ? cpushHTML()
   : `${owner?mailguardHTML():''}${owner?maillogHTML():''}${owner?dbHTML():''}
       <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);max-width:62ch">
