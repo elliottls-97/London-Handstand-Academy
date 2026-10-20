@@ -6611,7 +6611,9 @@ const handle = async (request) => {
     if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That code has expired' };
     if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That code has been used up' };
     const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
-    if (price - off < 100) return { error: 'That code cannot be used on this one. Email info@londonhandstandacademy.com and Elliott will sort it out.' };
+    /* Stripe's least for a card payment in pounds is 30p; down to that is
+       allowed, so a 50p booking can test the whole path (Elliott, 20 Oct 2026) */
+    if (price - off < 30) return { error: 'That code cannot be used on this one. Email info@londonhandstandacademy.com and Elliott will sort it out.' };
     return { off, code: c };
   };
   const wsIcs = (w) => {
