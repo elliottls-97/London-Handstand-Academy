@@ -146,7 +146,7 @@ const wsNewRule = b => Number(b && b.at) >= WS_POLICY_FROM;
    the old; and a place moved while inside the 7 days keeps its money with
    us wherever it lands, or a move then a cancel would be a refund */
 const wsRefundH = b => wsNewRule(b) ? WS_REFUND_H : WS_CUTOFF_H;
-const wsRefundableAt = (b, w) => !(b && b.creditOnly) && wsHoursTo(w) > wsRefundH(b);
+const wsRefundableAt = (b, w) => !(b && b.creditOnly) && wsHoursTo(w) > (b && b.dateMoved ? WS_CUTOFF_H : wsRefundH(b));
 /* a credit: a code for one place at any class of the same kind, once,
    good for three months. It lives with the other codes, so the booking page
    and the dashboard already know how to take it. */
@@ -7568,6 +7568,12 @@ const handle = async (request) => {
         }
       }
       const hadDate = !!((all[slug] || {}).when);
+      /* the date changed under people already booked: they did not choose
+         it, so they keep a refund up to 24 hours before whatever the rule */
+      if (hadDate && w.when && ms((all[slug] || {}).when) !== ms(w.when))
+        await changeSetting(`wsbook:${slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; let n = 0;
+          for (const x of l) if ((x.status || 'booked') === 'booked' && !x.dateMoved) { x.dateMoved = true; n++; }
+          return n ? l : undefined; }).catch(() => {});
       all[slug] = w;
       await setSetting('workshops', all);
       /* a workshop that went up without a date took names; now it has one,
