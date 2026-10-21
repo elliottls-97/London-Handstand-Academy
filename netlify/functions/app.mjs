@@ -8366,13 +8366,37 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const w = all[slug] || {};
     if (request.method === 'POST') {
       if (rateHit && (await rateHit(`wsman:${t.e}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
-      const r = body.action === 'move' ? await wsMovePlace(slug, t.e, b.session, wsSlug(body.to), { by: 'client' })
-              : body.action === 'cancel' ? await wsCancelPlace(slug, t.e, b.session, { by: 'client' })
-              : { error: 'Nothing asked', status: 400 };
+      /* for all of them: the same change, place by place, theirs first so
+         the refund maths runs the way a single cancel does */
+      const who = body.scope === 'all' ? [t.e, ...wsPlaces(book).filter(x => x.session === b.session && x.email !== t.e).map(x => x.email)] : [t.e];
+      let r = { error: 'Nothing asked', status: 400 }, refunded = 0, credits = [];
+      for (const e of who) {
+        r = body.action === 'move' ? await wsMovePlace(slug, e, b.session, wsSlug(body.to), { by: 'client' })
+          : body.action === 'cancel' ? await wsCancelPlace(slug, e, b.session, { by: 'client' })
+          : r;
+        if (r.error) break;
+        refunded += Number(r.refunded) || 0; if (r.credit) credits.push(r.credit);
+      }
+      if (!r.error && who.length > 1) r = Object.assign({}, r, { refunded, credits, all: who.length });
       return json(r, r.error ? r.status : 200);
     }
     const hoursTo = wsHoursTo(w);
     const { back } = (b.status || 'booked') === 'booked' && hoursTo > WS_REFUND_H ? await wsRefundFor(b, slug) : { back: 0 };
+    /* the others booked with them on this date (a friend's place, paid in
+       the same payment): a change can be for one or for all (Elliott, 21
+       Oct 2026). What all of them get back is what was paid for this date's
+       places, less what any other date's places then cost on their own. */
+    const mates = (b.status || 'booked') === 'booked' ? wsPlaces(book).filter(x => x.session === b.session && x.email !== t.e).map(x => ({ email: x.email, name: x.name || '' })) : [];
+    let backAll = 0;
+    if (mates.length && hoursTo > WS_REFUND_H) {
+      const mine = wsPlaces(book).filter(x => x.session === b.session);
+      const rows = [];
+      for (const sl of Object.keys(all)) if (sl !== slug) for (const x of wsPlaces((await getSetting(`wsbook:${sl}`)) || [])) if (x.session === b.session) rows.push({ slug: sl, x });
+      const total = mine.reduce((t2, x) => t2 + (Number(x.paid) || 0), 0) + rows.reduce((t2, r) => t2 + (Number(r.x.paid) || 0), 0);
+      const unitOf = r => Math.max(0, Number(r.x.unit != null ? r.x.unit : (all[r.slug] || {}).price) || 0);
+      const cost = rows.length ? Math.min(total, wsMultiCost(rows.map(r => ({ slug: r.slug, who: r.x.email, unit: unitOf(r) })), Number(b.multiOff) || 0)) : 0;
+      backAll = Math.max(0, total - cost);
+    }
     const others = [];
     for (const o of Object.values(all)) {
       if (!o || !o.live || o.slug === slug || !o.when || ms(o.when) < Date.now()) continue;
@@ -8387,7 +8411,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       paid: Number(b.paid) || 0, back, pair: b.pair || '', guest: !!b.payer, group: !!b.with || !!b.pair, canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H,
       credit: (b.status || 'booked') === 'booked' && (Number(b.paid) || 0) > 0 && hoursTo > WS_CUTOFF_H && hoursTo <= WS_REFUND_H,
       canMove: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !b.movedFrom, moved: !!b.movedFrom,
-      cutoff: WS_CUTOFF_H, refundDays: WS_REFUND_H / 24, others });
+      mates, backAll, cutoff: WS_CUTOFF_H, refundDays: WS_REFUND_H / 24, others });
   }
   /* ── the website editor ──────────────────────────────────────────
      A draft, what is live, and the last fifteen publishes. The edits are
