@@ -8393,7 +8393,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (rateHit && (await rateHit(`wsman:${t.e}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
       /* for all of them: the same change, place by place, theirs first so
          the refund maths runs the way a single cancel does */
-      const who = body.scope === 'all' ? [t.e, ...wsPlaces(book).filter(x => x.session === b.session && x.email !== t.e).map(x => x.email)] : [t.e];
+      const who = body.scope === 'all' && !b.payer ? [t.e, ...wsPlaces(book).filter(x => x.session === b.session && x.email !== t.e).map(x => x.email)] : [t.e];
       let r = { error: 'Nothing asked', status: 400 }, refunded = 0, credits = [];
       for (const e of who) {
         r = body.action === 'move' ? await wsMovePlace(slug, e, b.session, wsSlug(body.to), { by: 'client' })
@@ -8411,7 +8411,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        the same payment): a change can be for one or for all (Elliott, 21
        Oct 2026). What all of them get back is what was paid for this date's
        places, less what any other date's places then cost on their own. */
-    const mates = (b.status || 'booked') === 'booked' ? wsPlaces(book).filter(x => x.session === b.session && x.email !== t.e).map(x => ({ email: x.email, name: x.name || '' })) : [];
+    /* only the person who paid changes the other places; a guest changes their own */
+    const mates = (b.status || 'booked') === 'booked' && !b.payer ? wsPlaces(book).filter(x => x.session === b.session && x.email !== t.e).map(x => ({ email: x.email, name: x.name || '' })) : [];
     let backAll = 0;
     if (mates.length && wsRefundableAt(b, w)) {
       const mine = wsPlaces(book).filter(x => x.session === b.session);
