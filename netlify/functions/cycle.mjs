@@ -70,6 +70,8 @@ const norm = e => String(e || '').trim().toLowerCase();
 /* the same signed link app.mjs makes: one place, managed without signing
    in, until the class. The format must match app.mjs sign()/verify(). */
 const WS_CUTOFF_H = 24;
+/* bookings from this moment are on the 7 days refund, then credit, rule (app.mjs WS_POLICY_FROM) */
+const WS_POLICY_FROM = Date.parse('2026-10-21T20:00:00Z');
 const b64u = buf => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function manageLink(slug, email, session, until) {
   const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'wsm', s: slug, e: norm(email), x: String(session || ''), exp: (Date.parse(until) || Date.now()) + 6 * 3600e3 })));
@@ -864,7 +866,7 @@ async function workshopMail(done) {
             ? [`Two quick questions before the class, about your health and photos: <a href="${SITE}/handstand-class.html?booked=${encodeURIComponent(w.slug)}&bs=${encodeURIComponent(p.session)}#book" style="color:#006663">answer them here</a>.`] : [];
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
-              paras: T.paras.concat(ask, link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date, or cancel for a credit towards another class</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
+              paras: T.paras.concat(ask, link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date${Number(p.at) >= WS_POLICY_FROM ? ', or cancel for a credit towards another class' : ' or cancel'}</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
                 : [`Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }
