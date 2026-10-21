@@ -190,7 +190,12 @@ const wsCoachLine = w => !w || !w.coach ? 'Two coaches and a small group, so you
 const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/, '');
 /* "Saturday 10 October, 1:00 to 2:30pm", the way the class page says it.
    It said "at 13:00" with no end, in every email (8 Oct 2026). */
-const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : 120;
+const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : /skills/i.test((w && w.title) || '') ? 60 : 120;
+/* where a class is booked: the All Levels and Skills classes share the
+   class page; anything else has its own page */
+const wsPageHref = (w, src) => /all levels/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#book`
+  : /skills/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#skills`
+  : `${SITE}/workshop.html?slug=${enc(w && w.slug)}${src ? '&src=' + src : ''}`;
 const wsClock = t => new Date(t).toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s+/g, '').toLowerCase();
 const wsWhenTxt = w => {
   if (!w || !w.when) return '';
@@ -522,7 +527,7 @@ async function wsOfferFreed(slug, w) {
     if (!wait.length) return;
     const free = Number(w.places) - wsLive(book).length;
     const whenTxt = wsWhenTxt(w);
-    const href = /all levels/i.test(w.title || '') ? `${SITE}/handstand-class#book` : `${SITE}/workshop.html?slug=${slug}`;
+    const href = wsPageHref(w);
     const day = new Date().toISOString().slice(0, 10);
     for (const x of wait) {
       const key = `wsfreed:${slug}:${norm(x.email)}:${day}`;
@@ -542,7 +547,7 @@ async function wsTellDated(slug, w) {
   try {
     const wait = ((await getSetting(`wswait:${slug}`)) || []).filter(x => x && x.email).slice(0, 300);
     const whenTxt = wsWhenTxt(w);
-    const href = /all levels/i.test(w.title || '') ? `${SITE}/handstand-class#book` : `${SITE}/workshop.html?slug=${slug}`;
+    const href = wsPageHref(w);
     for (const x of wait) {
       const key = `wsdated:${slug}:${norm(x.email)}`;
       if (!(await supa.insertIfAbsent('nudges', { key, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
@@ -1250,7 +1255,7 @@ async function newsWho(slug) {
 }
 /* A class to point at, from the dashboard's list: the next All Levels
    date unless one is named, with the booking link the class page uses. */
-const newsClassHref = (w, slug) => /all levels/i.test((w && w.title) || '') ? `${SITE}/handstand-class?src=newsletter#book` : `${SITE}/workshop.html?slug=${enc(slug)}&src=newsletter`;
+const newsClassHref = (w, slug) => wsPageHref(Object.assign({ slug }, w || {}), 'newsletter');
 /* Paragraphs from what the coach typed: a blank line between, links made
    links, nothing else read as HTML. First names and the unsubscribe link
    are Resend's to fill in, per person. */
