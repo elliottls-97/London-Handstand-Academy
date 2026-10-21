@@ -1889,11 +1889,15 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       return '<div class="sl-day">'+(g.d.tbc?'Date to be confirmed':esc(long(g.d)))+'</div>'+g.rows.map(function(i){ var d=up[i];
         var isP=d.slug===picked.slug, isO=both&&picked.other&&d.slug===picked.other.slug, on=isP||isO;
         var blocked=!on && !d.tbc && !d.full && picked && !picked.tbc && !picked.full && !canPair(picked,d) && !both;
-        var right=d.tbc?'<small>Put my name down</small>':d.full?'<small>Full, waiting list</small>':esc(d.priceLabel)+(d.places>0&&d.left<=5?'<small>'+d.left+' left</small>':'');
+        /* once one is ticked, the ones that can join it show their price with the £5 off */
+        var pairP=!on && !both && picked && canPair(picked,d) && MULTI>0 && d.price>0;
+        var right=d.tbc?'<small>Put my name down</small>':d.full?'<small>Full, waiting list</small>'
+          :pairP?'<s style="font-weight:500;color:var(--ink60)">'+esc(d.priceLabel)+'</s> '+esc(pounds(Math.max(0,d.price-MULTI)))+'<small>with the one ticked</small>'
+          :esc(d.priceLabel)+(d.places>0&&d.left<=5?'<small>'+d.left+' left</small>':'');
         return '<button type="button" class="sl-row'+(on?' on':'')+(blocked?' off':'')+'" data-i="'+i+'" aria-pressed="'+on+'">'
           +'<span class="tk">'+(on?'&#10003;':'')+'</span><span class="nm"><b>'+esc(rowName(d))+'</b><small>'+(d.tbc?'A Saturday soon, 11am to 12':esc(span(d)))+(blocked?' · book this one separately':'')+'</small></span>'
           +'<span class="pr">'+right+'</span></button>'; }).join(''); }).join('')
-      +(function(){ var o=up.filter(function(x){ return canPair(picked,x); })[0]; return (!both && o && MULTI>0) ? '<p class="sl-note">Tick a second one and save '+esc(pounds(MULTI))+'.</p>' : both ? '<p class="sl-note">Two in one booking, '+esc(pounds(MULTI))+' off.</p>' : ''; })();
+      +(both ? '<p class="sl-note">Two in one booking, '+esc(pounds(MULTI))+' off.</p>' : '');
     [].forEach.call($('segWhen').querySelectorAll('button.sl-row'),function(b){ b.onclick=function(){
       var i=+b.getAttribute('data-i'), d=up[i];
       if(d.slug===picked.slug){ if(both&&picked.other){ var o=picked.other, oi=up.indexOf(o); $('bkPair').checked=false; keepFields(function(){ inPanel=true; bookWs(oi); inPanel=false; }); } return; }
