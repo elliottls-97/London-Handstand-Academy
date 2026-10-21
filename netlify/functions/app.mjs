@@ -140,7 +140,7 @@ const wsHoursTo = w => w && w.when ? (ms(w.when) - Date.now()) / 3600e3 : 9999;
 /* Only bookings made from this moment are under the new rule: the people
    already booked for 24 October and 7 November booked on "24 hours, refunded",
    and keep it. Set to when this went live. */
-const WS_POLICY_FROM = Date.parse('2026-10-21T20:00:00Z');
+const WS_POLICY_FROM = Date.parse('2026-10-21T21:00:00Z');
 const wsNewRule = b => Number(b && b.at) >= WS_POLICY_FROM;
 /* the refund line for one place: 7 days under the new rule, 24 hours under
    the old; and a place moved while inside the 7 days keeps its money with
