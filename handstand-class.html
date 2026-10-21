@@ -1173,19 +1173,19 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
 <!-- ================= THE TWO SATURDAY CLASSES ================= -->
 <section id="sec-classes" style="padding-top:40px;padding-bottom:8px"><div class="wrap">
   <div class="eyebrow">Saturdays at OverGravity</div>
-  <h2>Two classes, one morning.</h2>
+  <h2>Two classes, one Saturday.</h2>
   <div class="cls2">
-    <a href="#book" onclick="return pickDate(event);">
-      <div class="k">1:00 to 2:30pm · 90 minutes</div>
-      <h3>All Levels Handstand Class</h3>
-      <p>Grouped by level, from your first kick up to a press or one arm. Two coaches.</p>
-      <div class="pr" id="clsPriceA">£25</div>
-    </a>
-    <a href="#skills">
-      <div class="k">11am to 12 · 60 minutes</div>
+    <a href="#book" onclick="return setClass('skills',event);">
+      <div class="k">Morning · 11am to 12</div>
       <h3>Skills Class</h3>
-      <p>One skill a month in the calisthenics area: muscle up, handstand push-up or front lever. Small group.</p>
+      <p>One skill a month in the calisthenics area: muscle up, handstand push-up or front lever. An hour, a small group.</p>
       <div class="pr" id="clsPriceS">From £20</div>
+    </a>
+    <a href="#book" onclick="return setClass('all',event);">
+      <div class="k">Afternoon · 1:00 to 2:30pm</div>
+      <h3>All Levels Handstand Class</h3>
+      <p>Grouped by level, from your first kick up to a press or one arm. Ninety minutes, two coaches.</p>
+      <div class="pr" id="clsPriceA">£25</div>
     </a>
   </div>
 </div></section>
@@ -1352,14 +1352,6 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
 </div></section>
 
 <!-- ================= WHERE ================= -->
-<!-- ================= SKILLS CLASS ================= -->
-<section id="skills" style="scroll-margin-top:80px"><div class="wrap">
-  <div class="eyebrow">Saturdays, 11am to 12</div>
-  <h2>Skills Class.</h2>
-  <p style="max-width:62ch;color:#5a5a5a">An hour on one skill in OverGravity's calisthenics area, a different one each month. Bars, rings and parallettes, a small group, and the drills to take home.</p>
-  <div id="skillsBox"><p style="color:#8a8a8a">Loading the dates…</p></div>
-</div></section>
-
 <section id="sec-venue" class="alt"><div class="wrap">
   <div class="venue">
     <img src="https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/overgravity-photo-1.jpg" alt="Inside OverGravity Gymnastics, Shadwell" loading="lazy"/>
@@ -1393,6 +1385,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       <button type="button" class="pick-back" id="pickBack" onclick="pickStep('dates')" hidden>&larr; Other dates</button>
       <h3 class="pick-h">Book your place</h3>
       <p class="pick-s" id="pickFS"></p>
+      <div id="segClassWrap" hidden><div class="seg-l">Class</div><div class="seg" id="segClass"></div></div>
       <div class="seg-l">When</div>
       <div class="seg" id="segWhen"></div>
       <div id="segWhoWrap"><div class="seg-l">Who&rsquo;s coming</div>
@@ -1442,7 +1435,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         <div class="wv-foot"><button type="button" class="pick-go" id="wvOk">I accept the waiver</button></div>
       </dialog>
       <form class="pick-f" id="waitForm" hidden novalidate>
-        <p class="pick-s">This one is full. Leave your name and you are emailed first if a place comes free.</p>
+        <p class="pick-s" id="wtIntro">This one is full. Leave your name and you are emailed first if a place comes free.</p>
         <label for="wtName">Your name</label>
         <input id="wtName" autocomplete="name" placeholder="First and last">
         <label for="wtEmail">Email</label>
@@ -1559,12 +1552,13 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     .reduce(function(g,x){ g[x.type]=x.value; return g; },{}); };
   var hm=function(ts){ var g=tz(ts,{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}); return (g.hour==='24'?'00':g.hour)+':'+g.minute; };
   var fromWs=function(w){
-    var start=Date.parse(w.when), end=start+90*60000, g=tz(start,{year:'numeric',month:'2-digit',day:'2-digit'});
+    var start=Date.parse(w.when), end=start+(/skills/i.test(w.title||'')?60:90)*60000, g=tz(start,{year:'numeric',month:'2-digit',day:'2-digit'});
     return {d:g.year+'-'+g.month+'-'+g.day, from:hm(start), to:hm(end), start:start, end:end,
       slug:w.slug, price:Number(w.price)||0, priceLabel:w.priceLabel||'', places:Number(w.places)||0, left:Number(w.left)||0,
       full:Number(w.places)>0&&Number(w.left)<=0, title:w.title, coach:w.coach||'', early:w.early||null};
   };
   var up=[];           /* the dates still to come, soonest first */
+  var upA=[], upS=[], skTbc=[], kindSel=(new URLSearchParams(location.search).get('class')==='skills')?'skills':'all';
   var inPanel=false;   /* filling the panel quietly, not answering a Book button */
   var picked=null;     /* the one being booked */
   var MULTI=500;       /* off for two people, and off again for both dates, in pence; the owner sets it */
@@ -1721,20 +1715,28 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   function render(){
     var now=Date.now();
     var E=window.LHA_SITE_EDITS||{};
-    up=up.filter(function(d){ return d.start>now; }).sort(function(a,b){ return a.start-b.start; });
-    var first=up[0], second=up[1];
+    upA=upA.filter(function(d){ return d.start>now; }).sort(function(a,b){ return a.start-b.start; });
+    upS=upS.filter(function(d){ return d.start>now; }).sort(function(a,b){ return a.start-b.start; });
+    up=cur();
+    var first=upA[0], second=upA[1];
+    /* the class picker, when there is a skills class to pick */
+    var scw=$('segClassWrap'); if(scw){ var hasS=upS.length||skTbc.length; scw.hidden=!hasS;
+      if(hasS) $('segClass').innerHTML=[['all','All Levels','1 to 2:30pm'+(upA[0]?' · '+esc(upA[0].priceLabel):'')],['skills','Skills','11am to 12'+(upS[0]?' · '+esc(upS[0].priceLabel):skTbc[0]&&skTbc[0].priceLabel?' · '+esc(skTbc[0].priceLabel):'')]]
+        .map(function(o){ return '<button type="button" class="'+(kindSel===o[0]?'on':'')+'" aria-pressed="'+(kindSel===o[0])+'" onclick="setClass(\''+o[0]+'\')">'+o[1]+'<small>'+o[2]+'</small></button>'; }).join(''); }
     var price=first?first.priceLabel:'';
     if(price) document.querySelectorAll('[data-price]').forEach(function(el){ el.textContent=price; });
-    var sameDay=up.every(function(d){ return parts(d).dow===parts(first||d).dow; });
+    var sameDay=upA.every(function(d){ return parts(d).dow===parts(first||d).dow; });
     var hero=$('clsWhen');
     if(hero) hero.textContent = !first ? 'In person at OverGravity, Shadwell'
       : (soon(first)||short(first)) + (second ? ' & '+(parts(second).m===parts(first).m ? parts(second).dd+' '+parts(second).m.slice(0,3) : short(second).slice(4)) : '') + ' · ' + span(first);
     var intro=$('clsIntro');
     if(intro) intro.textContent = !first ? 'The dates and times are on the booking page.'
-      : up.length===1 ? long(first)+', '+span(first)+', at '+PLACE+'.'
-      : (NUM[up.length]||up.length)+(sameDay?' '+parts(first).dow+'s':' dates')+', '+span(first)+', at '+PLACE+'.';
+      : upA.length===1 ? long(first)+', '+span(first)+', at '+PLACE+'.'
+      : (NUM[upA.length]||upA.length)+(sameDay?' '+parts(first).dow+'s':' dates')+', '+span(first)+', at '+PLACE+'.';
     /* with two dates it named neither, and read as both going up (16 Oct 2026, review) */
-    if(intro && first && first.early) intro.textContent += ' '+(up.length>1 ? parts(first).dd+' '+parts(first).m+' is ' : '')
+    /* two classes on the page: the line above the box says both */
+    if(intro && (upS.length||skTbc.length)) intro.textContent='Saturdays at '+PLACE+'. Skills at 11am, All Levels at 1pm.';
+    if(intro && first && first.early) intro.textContent += ' '+(upA.length>1||upS.length||skTbc.length ? 'All Levels on '+parts(first).dd+' '+parts(first).m+' is ' : '')
       +first.priceLabel+' until '+(first.early.by||'the end of '+first.early.day)+', then '+first.early.thenLabel+'.';
     var cards=$('clsCards');
     if(cards){
@@ -1770,9 +1772,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       } else {
         cards.innerHTML = up.slice(0,4).map(function(d,i){
           return '<div class="bopt-c'+(i===0?' pick':'')+'">'
-            +'<div class="bopt-k">'+esc(i===0&&soon(d)?soon(d)+', '+parts(d).dd+' '+parts(d).m:long(d))+'</div>'
+            +'<div class="bopt-k">'+esc(d.tbc?skillName(d)+', date to be confirmed':i===0&&soon(d)?soon(d)+', '+parts(d).dd+' '+parts(d).m:long(d))+'</div>'
             +'<div class="bopt-p" data-price>'+esc(d.priceLabel)+'</div>'
-            +'<div class="bopt-s">'+esc(span(d))+'</div>'
+            +'<div class="bopt-s">'+esc(d.tbc?'Put your name down':span(d))+'</div>'
             +'<div class="bopt-s bopt-left">'+(d.full?'Full':d.places>0&&d.left<=5?'<b>'+d.left+(d.left===1?' place':' places')+' left</b>':'Places available')+'</div>'
             +(d.full ? '<a class="bopt-b terrab" href="#book" onclick="return bookWs('+i+',event)">Full, join the waiting list</a>'
                      : '<a class="bopt-b terrab" href="#book" onclick="return bookWs('+i+',event)">'+(i===0?'Book your place':'Book '+esc(parts(d).dd+' '+parts(d).m))+' &rarr;</a>')
@@ -1801,10 +1803,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       inPanel=true; bookWs(j); inPanel=false; }
     var fine=$('clsFine'); if(fine){ fine.style.display='none';
       var open=up.filter(function(d){ return !d.full; });
-      fine.textContent=(MULTI>0 ? (open.length>1 ? 'Book both '+(sameDay?parts(first).dow+'s':'dates')+' and save '+pounds(MULTI)+'. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
+      fine.textContent=(MULTI>0 ? (open.length>1 && kindSel==='all' ? 'Book both '+(sameDay?parts(first).dow+'s':'dates')+' and save '+pounds(MULTI)+'. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
         +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
     var pick=$('clsPick'); if(pick) pick.innerHTML=up.map(function(d,i){
-      return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('');
+      return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(d.tbc?skillName(d)+', date to be confirmed':long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('');
     var ps=$('clsPickS'); if(ps&&first) ps.textContent=span(first)+' at '+PLACE+'.'+(price?' '+price+'.':'');
     var ph=$('pickH'); if(ph&&first) ph.textContent=sameDay?'Which '+parts(first).dow+'?':'Which date?';
     var bar=$('clsBar');
@@ -1817,7 +1819,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     /* what Google lists: one event per date */
     Array.prototype.forEach.call(document.querySelectorAll('script[type="application/ld+json"]'),function(x){
       try{ if(JSON.parse(x.textContent)['@type']==='Event') x.remove(); }catch(e){} });
-    up.slice(0,6).forEach(function(d){
+    upA.slice(0,6).forEach(function(d){
       var ld=document.createElement('script'); ld.type='application/ld+json';
       ld.textContent=JSON.stringify({'@context':'https://schema.org','@type':'Event',name:'All Levels Handstand Class',image:['https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/latest-workshop-group-handstand-picture.jpg'],
         startDate:iso(d.d,d.from,d.start),endDate:iso(d.d,d.to,d.end),eventStatus:'https://schema.org/EventScheduled',
@@ -1864,9 +1866,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     /* When: each date, and both when two have room */
     $('segWhen').innerHTML=up.map(function(d,i){
       var on=!both && d.slug===picked.slug;
-      return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'" aria-pressed="'+on+'"'+(d.full?' data-full="1"':'')+'>'+esc(short(d))
-        +'<small>'+(d.full?'Full, waiting list':d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
-      +(open.length>1&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'" aria-pressed="'+(!!both)+'">Both'
+      return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'" aria-pressed="'+on+'"'+(d.full||d.tbc?' data-full="1"':'')+'>'+esc(d.tbc?'Date TBC':short(d))
+        +'<small>'+(d.tbc?esc(skillName(d)):d.full?'Full, waiting list':kindSel==='skills'?esc(skillName(d))+(d.places>0&&d.left<=5?', '+d.left+' left':''):d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
+      +(picked.other&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'" aria-pressed="'+(!!both)+'">Both'
         +'<small>'+(MULTI>0?(function(){ /* the saving against the two dates bought one at a time, at their own prices */
           var od=picked.other||up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0];
           var full=picked.price+(od?od.price:picked.price), cost=listCost([picked.price,od?od.price:picked.price],1);
@@ -1884,8 +1886,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(picked.early) bits.push('<b>'+esc(picked.priceLabel)+' until '+esc(picked.early.by||'the end of '+picked.early.day)+'</b>, then '+esc(picked.early.thenLabel));
     note.innerHTML=bits.join('. ')+(bits.length?'.':''); note.hidden=!bits.length;
     /* Who: two of us needs two places on every date chosen */
-    var canTwo=!picked.full && room(picked) && (!both || room(picked.other));
-    $('segWhoWrap').hidden=!!picked.full;
+    var canTwo=!picked.full && !picked.tbc && room(picked) && (!both || room(picked.other));
+    $('segWhoWrap').hidden=!!picked.full||!!picked.tbc;
     var wb=$('segWho').querySelectorAll('button');
     wb[0].className=two?'':'on'; wb[1].className=two?'on':''; wb[1].disabled=!canTwo;
     wb[0].setAttribute('aria-pressed', String(!two)); wb[1].setAttribute('aria-pressed', String(!!two));
@@ -1896,11 +1898,11 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     wb[1].onclick=function(){ if(wb[1].disabled) return; wantTwo=true; $('bkFr').checked=true; priceNow(); setTimeout(function(){ $('bkFrName').focus(); },40); };
     /* the summary: what they are booking, and what it costs */
     var when=both ? [picked, picked.other].sort(function(a,b){ return new Date(a.when)-new Date(b.when); }).map(short).join(' and ') : long(picked);
-    $('bkSum').hidden=!!picked.full;
-    $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
+    $('bkSum').hidden=!!picked.full||!!picked.tbc;
+    if(!picked.tbc) $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
       +'<div class="amt">'+(cost>0?esc(pounds(cost)):'Free')+(save>0?'<s>'+esc(pounds(full))+'</s>':'')
         +((codeOk && codeOk.key===pickKey())?'<small>with '+esc(code())+'</small>':'')+'</div>';
-    $('pickFS').textContent='All Levels Handstand Class, at '+PLACE+'.';
+    $('pickFS').textContent=(kindSel==='skills'?'Skills Class, 11am to 12':'All Levels Handstand Class')+', at '+PLACE+'.';
   };
   /* switching date rebuilds the sheet; what has been typed stays */
   var keepFields=function(fn){
@@ -1918,16 +1920,18 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     picked=d;
     if(!inPanel){ var bk=$('bookPanel'); if(bk && !bk.hidden){ var t0=$('book'); if(t0) t0.scrollIntoView({behavior:'smooth',block:'start'}); } else { $pick().hidden=false; pickStep('form'); } }
     var back=$('pickBack'); if(back) back.hidden=true;   /* the dates are the When choice now */
-    $('pickFH').textContent=long(d); $('pickFH').hidden=!d.full;
-    $('bookForm').hidden=!!d.full; $('waitForm').hidden=!d.full;
+    $('pickFH').textContent=d.tbc?skillName(d)+': date to be confirmed':long(d); $('pickFH').hidden=!(d.full||d.tbc);
+    $('bookForm').hidden=!!d.full||!!d.tbc; $('waitForm').hidden=!(d.full||d.tbc);
+    $('bkSum').hidden=!!d.full||!!d.tbc;
+    var wi=$('wtIntro'); if(wi) wi.textContent=d.tbc?'The date is being set now. Put your name down and you hear first, before it goes anywhere else.':'This one is full. Leave your name and you are emailed first if a place comes free.';
     $('bkGo').disabled=false; $('bkGo').textContent=d.price>0?'Book, '+d.priceLabel:'Book my place';
     $('bkMsg').textContent=''; $('bkCodeMsg').textContent=''; $('bkCode').value=''; $('bkCodeBox').hidden=true; $('bkCodeRow').hidden=!(d.price>0); codeOk=null;
     /* the other date, offered alongside: one payment, the pair price */
     /* only another date of the same class: the server turns any other pair away */
     var kind=function(t){ return String(t||'').replace(/\b(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?)\.?(?:,?\s+\d{4})?\b/gi,' ').replace(/\(\s*\)/g,' ').replace(/[\s,.\u00b7(-]+$/,'').replace(/\s{2,}/g,' ').trim().toLowerCase(); };
     var other=up.filter(function(x,j){ return j!==i && !x.full && kind(x.title)===kind(d.title); })[0];
-    picked.other=(!d.full && other) ? other : null;
-    $('bkFr').checked=false; $('bkFrBox').hidden=true; $('bkFrName').value=''; $('bkFrEmail').value=''; $('bkFrRow').hidden=!!d.full||(d.places>0&&d.left<2);
+    picked.other=(!d.full && !d.tbc && other) ? other : null;
+    $('bkFr').checked=false; $('bkFrBox').hidden=true; $('bkFrName').value=''; $('bkFrEmail').value=''; $('bkFrRow').hidden=!!d.full||!!d.tbc||(d.places>0&&d.left<2);
     $('bkFrT').innerHTML='Bring someone with you'+(MULTI>0&&d.price>0?'<small>Two places: '+esc(pounds(listCost([d.price],2)))+', save '+esc(pounds(MULTI))+'.</small>':'');
     var row=$('bkPairRow'), tick=$('bkPair');
     if(row){ row.hidden=!picked.other; tick.checked=false;
@@ -2089,7 +2093,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(!name||!okEmail(email)){ msg.textContent='Your name and a real email address, please.'; return; }
     go.disabled=true;
     post('wait',{slug:picked.slug,name:name,email:email}).then(function(d){
-      go.textContent='You are number '+d.position+' on the list'; msg.style.color='var(--forest)'; msg.textContent='If a place comes free, you are emailed first.';
+      go.textContent='You are number '+d.position+' on the list'; msg.style.color='var(--forest)'; msg.textContent=picked.tbc?'When the date is set, you are emailed first.':'If a place comes free, you are emailed first.';
     }).catch(function(err){ go.disabled=false; msg.style.color='var(--terra)'; msg.textContent=String(err); });
   });
 
@@ -2111,38 +2115,24 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     return false;
   };
   /* the workshops, and a way to hand the page a list for a preview */
+  /* two classes in one box (Elliott, 21 Oct 2026): All Levels and Skills.
+     A skills class with no date yet is still offered, as "Date to be
+     confirmed", and takes names on the waiting list. */
+  var isSk=function(w){ return /skills/i.test((w&&w.title)||''); };
+  var skillName=function(d){ return String(d.title||'').replace(/^skills( class)?[:\s-]*/i,'').trim()||'Skills Class'; };
+  var tbcOf=function(w){ return {tbc:true, start:Infinity, end:Infinity, d:'', from:'00:00', to:'00:00', slug:w.slug, price:Number(w.price)||0, priceLabel:w.priceLabel||'',
+      places:Number(w.places)||0, left:Number(w.left)||0, full:false, title:w.title, coach:w.coach||'', early:null}; };
+  var cur=function(){ return kindSel==='skills' ? upS.concat(skTbc) : upA; };
+  window.setClass=function(k,e){ if(e) e.preventDefault(); kindSel=k==='skills'?'skills':'all'; picked=null; $('bkPair').checked=false; $('bkFr').checked=false; wantTwo=false; codeOk=null; render();
+    var t0=$('book'); if(t0&&e) t0.scrollIntoView({behavior:'smooth',block:'start'}); return false; };
   window.clsWorkshops=function(list){
-    up=(list||[]).filter(function(w){ return w && w.when && /all levels/i.test(w.title||''); }).map(fromWs);
+    var L=(list||[]).filter(function(w){ return w && w.title; });
+    upA=L.filter(function(w){ return w.when && /all levels/i.test(w.title); }).map(fromWs);
+    upS=L.filter(function(w){ return w.when && isSk(w); }).map(fromWs);
+    skTbc=L.filter(function(w){ return !w.when && isSk(w); }).map(tbcOf);
+    var ps=$('clsPriceS'), p0=upS.concat(skTbc).filter(function(d){ return d.price>0; })[0]; if(ps&&p0) ps.textContent=p0.priceLabel;
+    if(kindSel==='skills' && !upS.length && !skTbc.length) kindSel='all';
     render();
-    skillsRender(list||[]);
-  };
-  /* the skills class: dated ones book on their own page; one without a
-     date takes names, and the list hears when the date is set */
-  var skillsRender=function(list){
-    var box=document.getElementById('skillsBox'); if(!box) return;
-    var sk=list.filter(function(w){ return w && /skills/i.test(w.title||''); })
-      .sort(function(a,b){ return (a.when?Date.parse(a.when):9e15)-(b.when?Date.parse(b.when):9e15); });
-    if(!sk.length){ box.innerHTML='<p style="color:#5a5a5a">The first one is being planned now. Vote for the skill on Instagram, and the date goes out by email first: <a href="/#newsletter" style="color:var(--forest)">join the list</a>.</p>'; return; }
-    var pr=sk.filter(function(w){ return Number(w.price)>0; })[0]; var ps=document.getElementById('clsPriceS'); if(ps&&pr) ps.textContent=pr.priceLabel||ps.textContent;
-    var when=function(w){ return w.when?new Date(w.when).toLocaleString('en-GB',{weekday:'long',day:'numeric',month:'long',hour:'numeric',minute:'2-digit',hour12:true,timeZone:'Europe/London'}).replace(':00','').replace(/\s?([ap]m)/i,'$1').replace(' at ',', '):''; };
-    box.innerHTML=sk.map(function(w){
-      var full=Number(w.places)>0&&Number(w.left)<=0;
-      var skill=String(w.title).replace(/^skills( class)?[:\s-]*/i,'').trim()||'Skills Class';
-      if(!w.when) return '<div class="sk-form" data-slug="'+esc(w.slug)+'"><b style="font-size:18px">'+esc(skill)+'</b><div style="color:#5a5a5a;margin-top:4px">Date to be confirmed. Put your name down and you hear first.</div>'
-        +'<label for="skn-'+esc(w.slug)+'">Your name</label><input id="skn-'+esc(w.slug)+'" autocomplete="name" placeholder="First and last">'
-        +'<label for="ske-'+esc(w.slug)+'">Email</label><input id="ske-'+esc(w.slug)+'" type="email" autocomplete="email" placeholder="you@example.com">'
-        +'<button type="button" class="go">Put my name down</button><div class="msg"></div></div>';
-      return '<div class="sk-row"><div><b>'+esc(skill)+'</b><small>'+esc(when(w))+(w.place?' · '+esc(w.place):'')+(Number(w.places)>0?' · '+(full?'Full':w.left+' of '+w.places+' places left'):'')+'</small></div>'
-        +'<a class="go'+(full?' off':'')+'" href="/workshop.html?slug='+esc(w.slug)+'">'+(full?'Full':'Book, '+esc(w.priceLabel||''))+'</a></div>';
-    }).join('');
-    [].forEach.call(box.querySelectorAll('.sk-form'),function(f){ var b=f.querySelector('.go'), m=f.querySelector('.msg'), slug=f.getAttribute('data-slug');
-      b.onclick=function(){ var name=(f.querySelector('input[id^=skn]').value||'').trim(), email=(f.querySelector('input[id^=ske]').value||'').trim();
-        if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ m.textContent='Your name and a real email address, please.'; return; }
-        b.disabled=true;
-        fetch('/api/app/workshop/wait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug,name:name,email:email})})
-          .then(function(r){ return r.json().then(function(d){ return r.ok?d:Promise.reject(d.error||'Could not add you'); }); })
-          .then(function(d){ b.textContent='You are number '+d.position+' on the list'; m.style.color='var(--forest)'; m.textContent='When the date is set, you are emailed first.'; })
-          .catch(function(e){ b.disabled=false; m.textContent=String(e); }); }; });
   };
   /* the dates came with the page when the edge had them; otherwise asked for */
   (window.__LHA_WS && window.__LHA_WS.workshops ? Promise.resolve(window.__LHA_WS)

@@ -987,7 +987,7 @@ async function workshopMail(done) {
    to the all levels page, which does not offer the others (16 Oct 2026,
    review), as the after-class email already knew. */
 const wsBookHref = w => /all levels/i.test((w && w.title) || '')
-  ? `${SITE}/handstand-class?src=email#book` : /skills/i.test((w && w.title) || '') ? `${SITE}/handstand-class?src=email#skills` : `${SITE}/workshop.html?slug=${enc(w.slug)}&src=email`;
+  ? `${SITE}/handstand-class?src=email#book` : /skills/i.test((w && w.title) || '') ? `${SITE}/handstand-class?class=skills&src=email#book` : `${SITE}/workshop.html?slug=${enc(w.slug)}&src=email`;
 async function intentMail(done) {
   done.intents = { reminded: 0 };
   const row = await supa.row('settings', 'key=eq.workshops&select=value');  /* a failed read stops this job and is reported, rather than reading as nothing booked */

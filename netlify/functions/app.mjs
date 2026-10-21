@@ -194,7 +194,7 @@ const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : /skills/i.te
 /* where a class is booked: the All Levels and Skills classes share the
    class page; anything else has its own page */
 const wsPageHref = (w, src) => /all levels/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#book`
-  : /skills/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#skills`
+  : /skills/i.test((w && w.title) || '') ? `${SITE}/handstand-class?class=skills${src ? '&src=' + src : ''}#book`
   : `${SITE}/workshop.html?slug=${enc(w && w.slug)}${src ? '&src=' + src : ''}`;
 const wsClock = t => new Date(t).toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s+/g, '').toLowerCase();
 const wsWhenTxt = w => {
