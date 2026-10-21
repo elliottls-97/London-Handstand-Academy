@@ -129,6 +129,29 @@ const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.st
    they paid (one date of a pair: the pair price less the kept date's own
    price). The coach can do either at any time, and choose the refund. */
 const WS_CUTOFF_H = 24;
+/* The money line (Elliott, 21 Oct 2026, after three moves and a cancel in
+   one day): more than WS_REFUND_H before, a cancel is refunded and a move
+   is free; from then to WS_CUTOFF_H, a cancel becomes a credit for one
+   place at a later class and a move is still free; inside WS_CUTOFF_H,
+   nothing. One move per booking. */
+const WS_REFUND_H = 7 * 24;
+const WS_CREDIT_MONTHS = 6;
+const wsHoursTo = w => w && w.when ? (ms(w.when) - Date.now()) / 3600e3 : 9999;
+/* a credit: a code for one place at any class of the same kind, once,
+   good for six months. It lives with the other codes, so the booking page
+   and the dashboard already know how to take it. */
+async function wsCreditIssue(b, w) {
+  const until = new Date(); until.setMonth(until.getMonth() + WS_CREDIT_MONTHS);
+  let code = '';
+  for (let i = 0; i < 6 && !code; i++) {
+    const c = 'CREDIT-' + newId().replace(/[^A-Za-z0-9]/g, '').slice(-5).toUpperCase();
+    await changeSetting('wscodes', cur => { const all = Object.assign({}, cur || {}); if (all[c]) return undefined;
+      all[c] = { place: true, pct: 0, pence: 0, max: 1, until: until.toISOString(), workshop: '', kind: wsKindOf(w) || '', for: '',
+        note: `Credit: ${String(b.name || b.email || '').slice(0, 30)} cancelled ${wsWhenTxt(w) || w.title}`.slice(0, 80), used: 0 };
+      code = c; return all; }).catch(() => {});
+  }
+  return { code, until: until.toISOString() };
+}
 /* An early bird (15 Oct 2026). price is what a class costs now; early.then
    is what it goes up to at early.until. The first request after that moment
    writes the new price in, and the daily run reads it the same way, so every
@@ -237,7 +260,7 @@ function wsChangeHTML(links, ws, money, group) {
       ? `, or cancel, and the money goes back to ${money.payer ? esc(money.payer) + ', who paid' : 'whoever paid'}`
     : money && group ? ', or cancel for a refund to the card you paid with. Cancel one place and the ones you keep go back to their own price; the cancel page shows the amount before you confirm'
     : money ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel';
-  return `<b>Need to change it?</b> ${links}. ${until}, you can move to another date at no cost${cancel}. No account or password needed. After that, reply to this email and we will help if we can.`;
+  return `<b>Need to change it?</b> ${links}. More than ${WS_REFUND_H / 24} days before, you can move to another date at no cost${cancel}. From then ${until.charAt(0).toLowerCase() + until.slice(1)}, a cancel becomes a credit for another class and a move is still free. One move per booking. No account or password needed. After that, reply to this email and we will help if we can.`;
 }
 async function wsManageRead(t) {
   const p = await verify(String(t || ''));
@@ -321,11 +344,13 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   if (!b) return { error: 'No booking to cancel', status: 404 };
   const coach = opts.by === 'coach';
   if (!coach && w.when && ms(w.when) < Date.now()) return { error: 'That one has already happened', status: 400 };
-  const early = !w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3;
+  const hours = wsHoursTo(w), early = hours > WS_CUTOFF_H, refundable = hours > WS_REFUND_H;
   if (!coach && !early) return { error: `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be cancelled online. Reply to your confirmation email and Elliott will sort it.`, status: 400, late: true };
   const want = coach ? (opts.refund || 'auto') : 'auto';
   const { back, keeps } = await wsRefundFor(b, slug);
-  const doRefund = want === 'full' || (want === 'auto' && early);
+  const doRefund = want === 'full' || (want === 'auto' && refundable);
+  /* inside the refund line but not the last day: the place becomes a credit */
+  const giveCredit = want === 'auto' && early && !refundable && (Number(b.paid) || 0) > 0;
   /* Two taps at once each refunded, and the second, told by Stripe it was
      already refunded, told the client the refund had failed. The cancel
      is claimed first, the refund carries a key Stripe will only act on
@@ -347,6 +372,9 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
     if (refunded) { r.autoRefund = !coach; r.refunded = back; if (keeps.length) r.settled = true; }
     return l;
   });
+  const credit = giveCredit ? await wsCreditIssue(b, w) : { code: '' };
+  if (credit.code) await changeSetting(`wsbook:${slug}`, cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.session === b.session && x.email === who && x.cancelledAt && !x.credit); if (!r) return undefined; r.credit = credit.code; return l; }).catch(() => {});
   /* the places left now carry their own price, so a later cancel gives back the rest */
   if (refunded) for (const k of keeps) await changeSetting(`wsbook:${k.slug}`, cur => {
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
@@ -363,7 +391,8 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
             refunded ? (keeps.length ? `${wsPounds(back)} is refunded to the card that paid; it shows in a few days. The ${keeps.length === 1 ? 'other place booked with it stands' : keeps.length + ' other places booked with it stand'}.`
                              : `${wsPounds(back)} is refunded to the card that paid; it shows in a few days.`)
               : failed ? 'The refund could not be made automatically, so Elliott will do it by hand.'
-              : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : early ? 'The places kept cost what was paid on their own, so there is nothing to refund.' : `Inside ${WS_CUTOFF_H} hours the place cannot be refilled, so it is not refunded.`) : '',
+              : credit.code ? `Inside ${WS_REFUND_H / 24} days a place is not refunded, so it becomes a credit: use code <b>${esc(credit.code)}</b> for one place at any ${esc(w.title)}, until ${esc(new Date(credit.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }))}. Type it on the booking page.`
+              : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : refundable ? 'The places kept cost what was paid on their own, so there is nothing to refund.' : `Inside ${WS_CUTOFF_H} hours the place cannot be refilled, so it is not refunded.`) : '',
             `<a href="${SITE}/handstand-class#book" style="color:#006663">Book another date</a> whenever suits.`].filter(Boolean),
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
   if (b.payer && b.payer !== who && refunded) await email(b.payer, `${b.name || 'Your guest'} cancelled: ${w.title}`, mail({ title: 'A place you paid for is cancelled.',
@@ -373,9 +402,9 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   if (!coach && (failed || await coachMail(null, 'business'))) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Cancelled: ${b.name || who}, ${w.title}`,
     mail({ title: `${esc(b.name || who)} has cancelled.`, paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${refunded ? wsPounds(back) + ' refunded automatically.' : (failed ? 'Refund it in Stripe: ' + esc(refundErr || 'the refund did not go through') + '.' : 'No refund.')}`],
       cta: { href: `${SITE}/lha-coach.html#bookings`, label: 'See it in Bookings' } }));
-  if (!coach) await coachAlert(null, 'business', { title: 'Cancelled: ' + (b.name || who), body: w.title + (refunded ? ', refunded ' + wsPounds(back) : ''), tag: 'wscancel:' + who });
+  if (!coach) await coachAlert(null, 'business', { title: 'Cancelled: ' + (b.name || who), body: w.title + (refunded ? ', refunded ' + wsPounds(back) : credit.code ? ', a credit' : ''), tag: 'wscancel:' + who });
   await wsOfferFreed(slug, w);
-  return { ok: true, status, refunded: refunded ? back : 0, failed };
+  return { ok: true, status, refunded: refunded ? back : 0, failed, credit: credit.code || '' };
 }
 /* the coach gives money back on a place already cancelled without it */
 async function wsRefundPlace(slug, addr, session, amount) {
@@ -420,6 +449,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours away, so it can no longer be moved online. Reply to your confirmation email and Elliott will sort it.`, status: 400, late: true };
   const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === who && (!session || x.session === session));
   if (!b) return { error: 'No booking to move', status: 404 };
+  if (!coach && b.movedFrom) return { error: 'This place has moved once already. To change it again, cancel it and book the date you want.', status: 400 };
   let problem = '';
   await changeSetting(`wsbook:${to}`, cur => {
     problem = '';
@@ -6601,6 +6631,13 @@ const handle = async (request) => {
     const d = codes[c];
     if (!d || d.off === false) return { error: 'That code is not one of ours' };
     if (d.for === 'session') return { error: 'That code is for a 1-2-1, not a class' };
+    /* a credit from a cancelled place: one place at a class of the same kind */
+    if (d.place) { const w = ((await getSetting('workshops')) || {})[slug];
+      if (!w || (d.kind && wsKindOf(w) !== d.kind)) return { error: 'That credit is for a different class' };
+      if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That credit has been used' };
+      if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That credit has run out' };
+      const off = Math.min(price, Number(w.price) || 0);
+      return { off, code: c, pct: 0, pence: off, place: true }; }
     /* the dashboard asks for a date, which arrives as midnight, so a code
        set to run until the 30th was dead for the whole of the 30th. The last
        day is a day the code works. */
@@ -7193,7 +7230,7 @@ const handle = async (request) => {
         'line_items[0][quantity]': '1',
         /* the button says Book, and under it what happens if plans change */
         submit_type: 'book',
-        'custom_text[submit][message]': `Move or cancel online up to ${WS_CUTOFF_H} hours before.`,
+        'custom_text[submit][message]': `Cancel up to ${WS_REFUND_H / 24} days before for a refund. After that your place becomes a credit for another class, up to ${WS_CUTOFF_H} hours before.`,
         'metadata[workshop]': targets.map(t => t[0]).join(','),
         ...(fr ? { 'metadata[friend]': (fr.e + '|' + fr.nm).slice(0, 400) } : {}),
         'metadata[name]': nm,
@@ -8263,12 +8300,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         ics: w.when ? `/api/app/workshop/ics?slug=${enc(slug)}` : '',
         /* a workshop with no date yet reads as 1970, so it counted as already
            over: it could be booked and paid for and never cancelled */
-        canCancel: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3),
-        refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0
-          && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3),
-        back: (b.status || 'booked') === 'booked' ? (await wsRefundFor(b, slug)).back : 0,
-        cutoff: WS_CUTOFF_H, guest: !!b.payer,
-        moveTo: (b.status || 'booked') === 'booked' && (!w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3)
+        canCancel: (b.status || 'booked') === 'booked' && wsHoursTo(w) > WS_CUTOFF_H,
+        refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsHoursTo(w) > WS_REFUND_H,
+        back: (b.status || 'booked') === 'booked' && wsHoursTo(w) > WS_REFUND_H ? (await wsRefundFor(b, slug)).back : 0,
+        credit: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsHoursTo(w) > WS_CUTOFF_H && wsHoursTo(w) <= WS_REFUND_H,
+        moved: !!b.movedFrom, cutoff: WS_CUTOFF_H, refundDays: WS_REFUND_H / 24, guest: !!b.payer,
+        moveTo: (b.status || 'booked') === 'booked' && !b.movedFrom && wsHoursTo(w) > WS_CUTOFF_H
           ? Object.values(all).filter(o => o && o.live && o.slug !== slug && o.when && ms(o.when) > Date.now()
               && wsKindOf(o) === wsKindOf(w)
               /* not a date that costs more now: the move refuses it, and the
@@ -8334,8 +8371,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
               : { error: 'Nothing asked', status: 400 };
       return json(r, r.error ? r.status : 200);
     }
-    const hoursTo = w.when ? (ms(w.when) - Date.now()) / 3600e3 : 999;
-    const { back } = (b.status || 'booked') === 'booked' ? await wsRefundFor(b, slug) : { back: 0 };
+    const hoursTo = wsHoursTo(w);
+    const { back } = (b.status || 'booked') === 'booked' && hoursTo > WS_REFUND_H ? await wsRefundFor(b, slug) : { back: 0 };
     const others = [];
     for (const o of Object.values(all)) {
       if (!o || !o.live || o.slug === slug || !o.when || ms(o.when) < Date.now()) continue;
@@ -8346,9 +8383,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       others.push({ slug: o.slug, when: o.when, left, mine });
     }
     others.sort((x, y) => ms(x.when) - ms(y.when));
-    return json({ slug, title: w.title, when: w.when, place: w.place, name: b.name || '', status: b.status || 'booked',
+    return json({ slug, title: w.title, when: w.when, place: w.place, name: b.name || '', status: b.status || 'booked', creditCode: b.credit || '',
       paid: Number(b.paid) || 0, back, pair: b.pair || '', guest: !!b.payer, group: !!b.with || !!b.pair, canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H,
-      cutoff: WS_CUTOFF_H, others });
+      credit: (b.status || 'booked') === 'booked' && (Number(b.paid) || 0) > 0 && hoursTo > WS_CUTOFF_H && hoursTo <= WS_REFUND_H,
+      canMove: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !b.movedFrom, moved: !!b.movedFrom,
+      cutoff: WS_CUTOFF_H, refundDays: WS_REFUND_H / 24, others });
   }
   /* ── the website editor ──────────────────────────────────────────
      A draft, what is live, and the last fifteen publishes. The edits are

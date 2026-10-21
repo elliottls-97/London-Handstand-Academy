@@ -71,22 +71,24 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
     +'<p style="margin:14px auto 0;text-align:center"><a href="/handstand-class" style="color:var(--forest)">The class page</a></p></div>'; };
   function draw(d){
     var head='<div class="kick">Your booking</div><h1>'+esc(d.title)+'</h1><div class="when">'+esc(day(d.when))+'</div>'+(d.place?'<div class="meta">'+esc(d.place)+'</div>':'');
-    if(d.status==='cancelled'||d.status==='refunded'){ box.innerHTML=head+'<div class="card"><b>This place is cancelled.</b>'+(d.status==='refunded'?' It was refunded.':'')+' <a href="/handstand-class#book" style="color:var(--forest)">Book another date</a>.</div>'; return; }
+    if(d.status==='cancelled'||d.status==='refunded'){ box.innerHTML=head+'<div class="card"><b>This place is cancelled.</b>'+(d.status==='refunded'?' It was refunded.':d.creditCode?' Your credit code is <b>'+esc(d.creditCode)+'</b>.':'')+' <a href="/handstand-class#book" style="color:var(--forest)">Book another date</a>.</div>'; return; }
     if(!d.canChange){ box.innerHTML=head+'<div class="card"><b>It is less than '+d.cutoff+' hours away,</b> so it can no longer be moved or cancelled online. Can’t make it? Email <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a> and Elliott will do what he can.</div>'; return; }
     var others=(d.others||[]);
     box.innerHTML=head
-      +'<div class="card"><div class="price"><b>Move to another date</b><span>Free</span></div>'
-      +(others.length?others.map(function(o){ var off=o.mine||o.left<=0;
+      +'<div class="card"><div class="price"><b>Move to another date</b><span>'+(d.canMove===false?'Moved once already':'Free, once')+'</span></div>'
+      +(d.canMove===false?'<p style="color:var(--grey)">This place has moved once already. To change it again, cancel it and book the date you want.</p>':others.length?others.map(function(o){ var off=o.mine||o.left<=0;
           return '<button class="opt" data-to="'+esc(o.slug)+'"'+(off?' disabled':'')+'><span><span class="n">'+esc(day(o.when))+'</span><span class="m" style="display:block">'
             +(o.mine?'You already have this date':o.left<=0?'Full':o.left<=5?o.left+' places left':'Places available')+'</span></span><i>'+(off?'':'Move here &rarr;')+'</i></button>'; }).join('')
         :'<p style="color:var(--grey)">No other date is open yet. The next ones go out by email.</p>')
       +'<div class="msg" id="mmsg"></div></div>'
-      +'<div class="card"><div class="price"><b>Cancel</b><span>'+(d.back>0?pounds(d.back)+' back':(d.paid>0?'':'Nothing to refund'))+'</span></div>'
+      +'<div class="card"><div class="price"><b>Cancel</b><span>'+(d.back>0?pounds(d.back)+' back':d.credit?'A credit':(d.paid>0?'':'Nothing to refund'))+'</span></div>'
       +'<p style="color:var(--grey);font-size:14.5px">'+(d.back>0?(d.guest?'Your place is given up, and '+pounds(d.back)+' goes back to the card that paid for it, in a few days.'
   :d.group?'The places booked with it are charged at their own price now, so '+pounds(d.back)+' comes back to your card.'
-  :'The '+pounds(d.back)+' you paid goes back to your card, in a few days.'):'Your place is given up and freed for somebody else.')+'</p>'
+  :'The '+pounds(d.back)+' you paid goes back to your card, in a few days.')
+  :d.credit?'Inside '+(d.refundDays||7)+' days a place is not refunded. Cancel and it becomes a credit: a code for one place at any '+esc(d.title)+', good for six months, emailed to you now.'
+  :'Your place is given up and freed for somebody else.')+'</p>'
       +'<button class="ghost" id="cx">Cancel my place</button><div class="msg" id="cmsg"></div></div>'
-      +'<div class="fine">You can move or cancel up to '+d.cutoff+' hours before the start. Questions? <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a></div>';
+      +'<div class="fine">More than '+(d.refundDays||7)+' days before, a cancel is refunded and a move is free. From then until '+d.cutoff+' hours before, a cancel becomes a credit for another class. One move per booking. Questions? <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a></div>';
     /* one thing at a time: a move and a cancel at once each acted on the same place */
     var working=false, lockAll=function(on){ working=on; [].forEach.call(box.querySelectorAll('.opt[data-to],#cx'),function(x){ if(on) x.dataset.was=x.disabled?'1':''; x.disabled=on||x.dataset.was==='1'; }); };
     [].forEach.call(box.querySelectorAll('.opt[data-to]'),function(b){ b.onclick=function(){
@@ -95,10 +97,10 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
       post({action:'move',to:to}).then(function(){ var o=others.filter(function(x){ return x.slug===to; })[0]; done('You have moved.','Your place is now on '+esc(day(o&&o.when))+'.'); })
         .catch(function(e){ lockAll(false); m.textContent=String(e); }); }; });
     var cx=document.getElementById('cx'); cx.onclick=function(){
-      if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, cancel it'+(d.back>0?' and refund '+pounds(d.back):''); return; }
+      if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, cancel it'+(d.back>0?' and refund '+pounds(d.back):d.credit?' for a credit':''); return; }
       if(working) return;
       var m=document.getElementById('cmsg'); lockAll(true); m.textContent='Cancelling…';
-      post({action:'cancel'}).then(function(r){ done('Your place is cancelled.', r.refunded?pounds(r.refunded)+' is on its way back to your card.':'Your place has been freed.'); })
+      post({action:'cancel'}).then(function(r){ done('Your place is cancelled.', r.refunded?pounds(r.refunded)+' is on its way back to your card.':r.credit?'Your credit code is <b>'+esc(r.credit)+'</b>, for one place at another class. It is in the email too.':'Your place has been freed.'); })
         .catch(function(e){ lockAll(false); m.textContent=String(e); }); };
   }
   if(!t){ box.innerHTML='<p>This page opens from the link in your booking email.</p>'; return; }
