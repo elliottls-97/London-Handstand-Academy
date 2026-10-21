@@ -11916,7 +11916,8 @@ function wsEarlyLeft(w){ if(!w.early||!w.early.until) return '';
   const left=d?d+(d===1?' day ':' days ')+h+(h===1?' hour':' hours'):h?h+(h===1?' hour ':' hours ')+m+' min':m+' min';
   return '<b>'+left+' left</b> at £'+(Number(w.price||0)/100).toFixed(2).replace(/\.00$/,'')+', then £'+(then/100).toFixed(2).replace(/\.00$/,'')+'.'; }
 function wsSetWhen(){ const d=(document.getElementById('wsDate')||{}).value, t=(document.getElementById('wsTime')||{}).value||'12:30';
-  if(d) wsf.when=londonISO(d,t); }
+  /* clearing the date puts it back to taking names */
+  wsf.when=d?londonISO(d,t):''; }
 /* ── attendance: one place at a time ──────────────────────────────────
    Arrived and no show on the day, move to another date, cancel with or
    without the refund, or refund one already cancelled. The customer is
@@ -11969,7 +11970,7 @@ function wsSave(){
   fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({workshop:wsf, was:wsf.was||''})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ wshops=d.workshops||wshops; wsBusy=false; wsf=JSON.parse(JSON.stringify(d.workshop)); wsf.was=d.workshop.slug; wsOpen=d.workshop.slug;
-      wsMsg='Saved. '+(wsf.live?'It is on the site and taking bookings.':'A draft, not on the site yet.'); draw(); })
+      wsMsg='Saved. '+(wsf.live?(wsf.when?'It is on the site and taking bookings.':'It is on the site, taking names until you set a date.'):'A draft, not on the site yet.')+(d.told?' '+d.told+' on the list emailed the date.':''); draw(); })
     .catch(e=>{ wsBusy=false; wsMsg=String(e); draw(); });
 }
 function wsDelete(slug){ const w=(wshops||[]).find(x=>x.slug===slug)||{};
@@ -12440,7 +12441,8 @@ function workshopsHTML(){
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:14px">
         <div class="field" style="grid-column:1/-1"><label>Title</label><input class="input" value="${esc(w.title)}" placeholder="All Levels Handstand Class" oninput="wsSet('title',this.value)">
           <span class="muted" style="font-size:11.5px">A title with <b>All Levels</b> in it is booked from the class page (/handstand-class) as well as its own page.</span></div>
-        <div class="field"><label>Date</label><input id="wsDate" class="input" type="date" value="${dateV}" onchange="wsSetWhen()"></div>
+        <div class="field"><label>Date</label><input id="wsDate" class="input" type="date" value="${dateV}" onchange="wsSetWhen()">
+          ${!w.when?`<span class="muted" style="font-size:11.5px">No date yet: the page takes names instead of bookings. Set the date and everyone on the list is emailed.</span>`:''}</div>
         <div class="field"><label>Time</label><input id="wsTime" class="input" type="time" value="${timeV}" onchange="wsSetWhen()"></div>
         <div class="field"><label>Place</label><input class="input" value="${esc(w.place||'')}" oninput="wsSet('place',this.value)"></div>
         <div class="field"><label>Price, pounds</label>${owner

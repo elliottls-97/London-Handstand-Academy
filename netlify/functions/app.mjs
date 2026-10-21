@@ -480,6 +480,26 @@ async function wsOfferFreed(slug, w) {
   } catch (err) { console.error('waiting list', slug, String(err && err.message || err)); }
 }
 
+/* the date is set on a workshop that took names first: the list hears, and
+   each gets the booking page. One email per person per workshop. */
+async function wsTellDated(slug, w) {
+  let n = 0;
+  try {
+    const wait = ((await getSetting(`wswait:${slug}`)) || []).filter(x => x && x.email).slice(0, 300);
+    const whenTxt = wsWhenTxt(w);
+    const href = /all levels/i.test(w.title || '') ? `${SITE}/handstand-class#book` : `${SITE}/workshop.html?slug=${slug}`;
+    for (const x of wait) {
+      const key = `wsdated:${slug}:${norm(x.email)}`;
+      if (!(await supa.insertIfAbsent('nudges', { key, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
+      const went = await email(x.email, `The date is set: ${w.title}`, mail({ title: 'The date is set.', greeting: String(x.name || '').split(' ')[0],
+        paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
+          `You put your name down, so you are hearing first.${Number(w.places) > 0 ? ' There are ' + w.places + ' places, and they go to whoever books first.' : ''}`],
+        cta: { href, label: 'Book a place' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => false);
+      if (went) n++;
+    }
+  } catch (err) { console.error('dated list', slug, String(err && err.message || err)); }
+  return n;
+}
 const plusNow = a => !!a && (!!a.plus || (!!a.plus_until && ms(a.plus_until) > Date.now()));
 const coachOf = e => {
   const c = rosterList().find(x => x.email === norm(e));
@@ -7485,9 +7505,14 @@ const handle = async (request) => {
           await setSetting(`wsmine:${b.email}`, [...new Set(next)]);
         }
       }
+      const hadDate = !!((all[slug] || {}).when);
       all[slug] = w;
       await setSetting('workshops', all);
-      return json({ ok: true, workshop: w, workshops: await withBook() });
+      /* a workshop that went up without a date took names; now it has one,
+         everyone on that list is told, once (21 Oct 2026) */
+      let told = 0;
+      if (w.live && w.when && !hadDate) told = await wsTellDated(slug, w);
+      return json({ ok: true, workshop: w, workshops: await withBook(), told });
     }
     return json({ error: 'Nope' }, 405);
   }

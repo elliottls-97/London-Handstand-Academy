@@ -83,6 +83,31 @@ textarea{width:100%;min-height:72px;padding:12px 14px;font:400 16px/1.4 var(--sa
       return;
     }
     const full=w.places>0&&w.left<=0;
+    /* no date yet: the page takes names, and everyone on it is emailed the
+       moment the date is set (Elliott, 21 Oct 2026: a Saturday calisthenics
+       class, polled on Instagram first) */
+    if(!w.when){
+      box.innerHTML='<div class="kick">Coming soon'+(w.who?' · '+esc(w.who):'')+'</div><h1>'+esc(w.title)+'</h1>'
+        +'<div class="when">Date to be confirmed</div>'
+        +(w.place?'<div class="meta">'+esc(w.place)+'</div>':'')
+        +(w.desc?'<p>'+esc(w.desc)+'</p>':'')
+        +'<div class="card"><div class="price"><b>'+esc(w.priceLabel)+'</b><span>'+(w.places>0?w.places+' places':'')+'</span></div>'
+        +'<p style="color:var(--grey)">The date is being set now. Put your name down and you hear first, before it goes anywhere else.</p>'
+        +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
+        +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
+        +'<button class="btn" id="wait">Put my name down</button><div class="msg" id="msg"></div></div>'
+        +'<div class="foot">Questions? <a href="mailto:info@londonhandstandacademy.com">info@londonhandstandacademy.com</a></div>';
+      const wait=document.getElementById('wait');
+      wait.onclick=()=>{
+        const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim(); const msg=document.getElementById('msg');
+        if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
+        wait.disabled=true; beacon('siteworkshopwait');
+        fetch('/api/app/workshop/wait',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug,name,email})})
+          .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not add you')))
+          .then(d=>{ wait.textContent='You are number '+d.position+' on the list'; msg.style.color='var(--forest)'; msg.textContent='When the date is set, you are emailed first.'; })
+          .catch(e=>{ wait.disabled=false; msg.textContent=String(e); }); };
+      return;
+    }
     let price=w.price, priceLabel=w.priceLabel, code='';
     box.innerHTML='<div class="kick">Workshop'+(w.who?' · '+esc(w.who):'')+'</div><h1>'+esc(w.title)+'</h1>'
       +'<div class="when">'+esc(when(w))+'</div>'
