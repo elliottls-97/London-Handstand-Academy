@@ -134,19 +134,26 @@ const WS_CUTOFF_H = 24;
    is free; from then to WS_CUTOFF_H, a cancel becomes a credit for one
    place at a later class and a move is still free; inside WS_CUTOFF_H,
    nothing. One move per booking. */
-const WS_REFUND_H = 7 * 24;
+/* the change of mind: a full refund within WS_MIND_H of booking, while
+   the class is still more than a day away (Elliott, 21 Oct 2026) */
+const WS_MIND_H = 48;
+const WS_REFUND_H = 7 * 24;   /* no longer the line; kept for the wording helpers below */
 const WS_CREDIT_MONTHS = 3;
 const wsHoursTo = w => w && w.when ? (ms(w.when) - Date.now()) / 3600e3 : 9999;
 /* Only bookings made from this moment are under the new rule: the people
    already booked for 24 October and 7 November booked on "24 hours, refunded",
    and keep it. Set to when this went live. */
-const WS_POLICY_FROM = Date.parse('2026-10-21T21:00:00Z');
+const WS_POLICY_FROM = Date.parse(process.env.WS_POLICY_FROM || '2026-10-21T21:00:00Z');
 const wsNewRule = b => Number(b && b.at) >= WS_POLICY_FROM;
 /* the refund line for one place: 7 days under the new rule, 24 hours under
    the old; and a place moved while inside the 7 days keeps its money with
    us wherever it lands, or a move then a cancel would be a refund */
-const wsRefundH = b => wsNewRule(b) ? WS_REFUND_H : WS_CUTOFF_H;
-const wsRefundableAt = (b, w) => !(b && b.creditOnly) && wsHoursTo(w) > (b && b.dateMoved ? WS_CUTOFF_H : wsRefundH(b));
+const wsRefundH = b => WS_CUTOFF_H;
+/* refundable: an old booking, or one whose date we moved, up to 24 hours
+   before; a new one only within 48 hours of booking, and still more than
+   24 hours out. Moving keeps the booking's time, so a move changes nothing. */
+const wsMindOpen = b => Date.now() - (Number(b && b.at) || 0) <= WS_MIND_H * 3600e3;
+const wsRefundableAt = (b, w) => wsHoursTo(w) > WS_CUTOFF_H && (!wsNewRule(b) || !!(b && b.dateMoved) || wsMindOpen(b));
 /* a credit: a code for one place at any class of the same kind, once,
    good for three months. It lives with the other codes, so the booking page
    and the dashboard already know how to take it. */
@@ -289,7 +296,7 @@ function wsChangeHTML(links, ws, money, group, b) {
       ? `, or cancel, and the money goes back to ${money.payer ? esc(money.payer) + ', who paid' : 'whoever paid'}`
     : money && group ? ', or cancel for a refund to the card you paid with. Cancel one place and the ones you keep go back to their own price; the cancel page shows the amount before you confirm'
     : money ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel';
-  return `<b>Need to change it?</b> ${links}. More than ${WS_REFUND_H / 24} days before, you can move to another date at no cost${cancel}. From then ${until.charAt(0).toLowerCase() + until.slice(1)}, a cancel becomes a credit for another class and a move is still free. One move per booking. No account or password needed. After that, reply to this email and we will help if we can.`;
+  return `<b>Need to change it?</b> ${links}. Within ${WS_MIND_H} hours of booking, cancel for a full refund. After that, ${until.charAt(0).toLowerCase() + until.slice(1)}, a cancel becomes a credit for another class, and you can move to another date for free, once. Inside ${WS_CUTOFF_H} hours there is no refund or credit. No account or password needed.`;
 }
 async function wsManageRead(t) {
   const p = await verify(String(t || ''));
@@ -412,7 +419,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   /* a place booked on a credit and cancelled inside the 7 days: the credit
      is spent, or a seat could be held and dropped inside the week over and
      over on one credit (Elliott, 21 Oct 2026) */
-  const creditSpent = !!b.code && wsNewRule(b) && !refundable && !!(((await getSetting('wscodes').catch(() => null)) || {})[b.code] || {}).place;
+  const creditSpent = !!b.code && wsNewRule(b) && !refundable && early && !!(((await getSetting('wscodes').catch(() => null)) || {})[b.code] || {}).place;
   if (b.code && !creditSpent) await wsCodeGiveBack(b.code, b.session);
   await changeSetting(`wsmine:${who}`, cur => { const l = Array.isArray(cur) ? cur : []; return l.includes(slug) ? l.filter(x => x !== slug) : undefined; }).catch(() => {});
   const status = refunded ? 'refunded' : 'cancelled';
@@ -424,9 +431,9 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
             refunded ? (keeps.length ? `${wsPounds(back)} is refunded to the card that paid; it shows in a few days. The ${keeps.length === 1 ? 'other place booked with it stands' : keeps.length + ' other places booked with it stand'}.`
                              : `${wsPounds(back)} is refunded to the card that paid; it shows in a few days.`)
               : failed ? 'The refund could not be made automatically, so Elliott will do it by hand.'
-              : creditSpent ? `This place was booked on a credit, and inside ${WS_REFUND_H / 24} days the credit is used.`
-              : credit.code ? `Inside ${WS_REFUND_H / 24} days a place is not refunded, so it becomes a credit: use code <b>${esc(credit.code)}</b> for one place at any ${esc(w.title)}, until ${esc(new Date(credit.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }))}. Type it on the booking page.`
-              : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : refundable ? 'The places kept cost what was paid on their own, so there is nothing to refund.' : `Inside ${wsRefundH(b) / 24 >= 1 ? wsRefundH(b) / 24 + ' days' : WS_CUTOFF_H + ' hours'} the place cannot be refilled, so it is not refunded.`) : '',
+              : creditSpent ? `This place was booked on a credit, and a credit place cancelled after the first ${WS_MIND_H} hours is used.`
+              : credit.code ? `It is more than ${WS_MIND_H} hours since you booked, so the place is not refunded; it becomes a credit: use code <b>${esc(credit.code)}</b> for one place at any ${esc(w.title)}, until ${esc(new Date(credit.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }))}. Type it on the booking page.`
+              : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : refundable ? 'The places kept cost what was paid on their own, so there is nothing to refund.' : `Inside ${WS_CUTOFF_H} hours the place cannot be refilled, so it is not refunded.`) : '',
             `<a href="${SITE}/handstand-class#book" style="color:#006663">Book another date</a> whenever suits.`].filter(Boolean),
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
   if (b.payer && b.payer !== who && refunded) await email(b.payer, `${b.name || 'Your guest'} cancelled: ${w.title}`, mail({ title: 'A place you paid for is cancelled.',
@@ -485,7 +492,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (!b) return { error: 'No booking to move', status: 404 };
   if (!coach && b.movedFrom && wsNewRule(b)) return { error: 'This place has moved once already. To change it again, cancel it and book the date you want.', status: 400 };
   /* moved inside the refund line: the money stays, wherever it lands */
-  const creditOnly = !!b.creditOnly || (!coach && wsNewRule(b) && wsHoursTo(w) <= WS_REFUND_H && (Number(b.paid) || 0) > 0);
+  const creditOnly = false;   /* the refund follows the booking's own time now, so a move changes nothing */
   let problem = '';
   await changeSetting(`wsbook:${to}`, cur => {
     problem = '';
@@ -7267,7 +7274,7 @@ const handle = async (request) => {
         'line_items[0][quantity]': '1',
         /* the button says Book, and under it what happens if plans change */
         submit_type: 'book',
-        'custom_text[submit][message]': `Cancel up to ${WS_REFUND_H / 24} days before for a refund. After that your place becomes a credit for another class, up to ${WS_CUTOFF_H} hours before.`,
+        'custom_text[submit][message]': `Change your mind within ${WS_MIND_H} hours for a full refund. After that your place becomes a credit for another class, up to ${WS_CUTOFF_H} hours before.`,
         'metadata[workshop]': targets.map(t => t[0]).join(','),
         ...(fr ? { 'metadata[friend]': (fr.e + '|' + fr.nm).slice(0, 400) } : {}),
         'metadata[name]': nm,
@@ -8357,7 +8364,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsRefundableAt(b, w),
         back: (b.status || 'booked') === 'booked' && wsRefundableAt(b, w) ? (await wsRefundFor(b, slug)).back : 0,
         credit: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsNewRule(b) && wsHoursTo(w) > WS_CUTOFF_H && !wsRefundableAt(b, w),
-        moved: !!b.movedFrom && wsNewRule(b), newRule: wsNewRule(b), cutoff: WS_CUTOFF_H, refundDays: wsRefundH(b) / 24, guest: !!b.payer,
+        moved: !!b.movedFrom && wsNewRule(b), newRule: wsNewRule(b), cutoff: WS_CUTOFF_H, mindH: WS_MIND_H, guest: !!b.payer,
         moveTo: (b.status || 'booked') === 'booked' && !(b.movedFrom && wsNewRule(b)) && wsHoursTo(w) > WS_CUTOFF_H
           ? Object.values(all).filter(o => o && o.live && o.slug !== slug && o.when && ms(o.when) > Date.now()
               && wsKindOf(o) === wsKindOf(w)
@@ -8466,7 +8473,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       credit: (b.status || 'booked') === 'booked' && (Number(b.paid) || 0) > 0 && wsNewRule(b) && hoursTo > WS_CUTOFF_H && !wsRefundableAt(b, w),
       canMove: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !(b.movedFrom && wsNewRule(b)), moved: !!b.movedFrom && wsNewRule(b),
       creditOnly: !!b.creditOnly, newRule: wsNewRule(b),
-      mates, backAll, cutoff: WS_CUTOFF_H, refundDays: wsRefundH(b) / 24, others });
+      mates, backAll, cutoff: WS_CUTOFF_H, mindH: WS_MIND_H, others });
   }
   /* ── the website editor ──────────────────────────────────────────
      A draft, what is live, and the last fifteen publishes. The edits are
