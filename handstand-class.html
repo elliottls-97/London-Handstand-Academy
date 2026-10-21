@@ -1405,8 +1405,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       <h3 class="pick-h">Book your place</h3>
       <p class="pick-s" id="pickFS"></p>
       <div id="segClassWrap" hidden><div class="seg-l">Which class</div><div class="seg seg-cls" id="segClass"></div></div>
-      <div class="seg-l">Pick your class</div>
-      <div class="slist" id="segWhen"></div>
+      <div class="seg-l" id="segWhenL">When</div>
+      <div class="seg" id="segWhen"></div>
       <div id="segWhoWrap"><div class="seg-l">Who&rsquo;s coming</div>
       <div class="seg" id="segWho"><button type="button" data-who="1">Just me</button><button type="button" data-who="2">Two of us</button></div></div>
       <div class="bk-sum" id="bkSum" role="status" aria-live="polite"></div>
@@ -1822,6 +1822,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(up.length && !booked.length && (!picked || !up.some(function(d){ return d.slug===picked.slug; }))){
       var j=0; for(var q=0;q<up.length;q++){ if(!up[q].full){ j=q; break; } }
       inPanel=true; bookWs(j); inPanel=false; }
+    /* the list arrived after the pick (the edge gave the page the dates, the
+       fetch brought more): redraw what is picked against the new list */
+    else if(picked && up.length && !booked.length) priceNow();
     var fine=$('clsFine'); if(fine){ fine.style.display='none';
       var open=up.filter(function(d){ return !d.full; });
       fine.textContent=(MULTI>0 ? (open.length>1 && kindSel==='all' ? 'Book both '+(sameDay?parts(first).dow+'s':'dates')+' and save '+pounds(MULTI)+'. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
@@ -1884,7 +1887,26 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var os=others(), both=os.length>0, two=$('bkFr').checked;
     var units=(1+os.length)*(two?2:1), cost=costOf(both, two?2:1), full=(two?2:1)*(picked.price+os.reduce(function(t,o){ return t+o.price; },0));
     var save=full-cost;
-    /* the sessions: tick one, and a second when it can go in the same booking */
+    /* only handstand classes: the dates as pills, with Both (the way it was).
+       Once a calisthenics class is listed, every session as a list to tick
+       (Elliott, 21 Oct 2026). */
+    var listMode=!!(upS.length||skTbc.length);
+    $('segWhen').className=listMode?'slist':'seg'; $('segWhenL').textContent=listMode?'Pick your class':'When';
+    if(!listMode){
+      var open0=up.filter(function(x){ return !x.full; }), otherOpen=open0.filter(function(x){ return x.slug!==picked.slug; })[0];
+      $('segWhen').innerHTML=up.map(function(d,i){
+        var on=!both && d.slug===picked.slug;
+        return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'" aria-pressed="'+on+'"'+(d.full?' data-full="1"':'')+'>'+esc(short(d))
+          +'<small>'+(d.full?'Full, waiting list':d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
+        +(otherOpen&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'" aria-pressed="'+(!!both)+'">Both<small>'+(function(){
+            var full=picked.price+otherOpen.price, cost=listCost([picked.price,otherOpen.price],1);
+            return esc(pounds(cost))+(full>cost?', save '+esc(pounds(full-cost)):''); })()+'</small></button>':'');
+      [].forEach.call($('segWhen').querySelectorAll('button'),function(b){ b.onclick=function(){
+        if(b.getAttribute('data-both')){ picked.others=both?[]:(otherOpen?[otherOpen]:[]); syncPair(); priceNow(); return; }
+        var i=+b.getAttribute('data-i');
+        if(up[i].slug!==picked.slug || b.getAttribute('data-full')) keepFields(function(){ inPanel=true; bookWs(i); inPanel=false; });
+        else { picked.others=[]; syncPair(); priceNow(); } }; });
+    } else {
     var byDay=[]; up.forEach(function(d,i){ var k=d.tbc?'tbc':d.d; var g=byDay.filter(function(x){ return x.k===k; })[0]; if(!g){ g={k:k,d:d,rows:[]}; byDay.push(g); } g.rows.push(i); });
     $('segWhen').innerHTML=byDay.map(function(g){
       return '<div class="sl-day">'+(g.d.tbc?'Date to be confirmed':esc(long(g.d)))+'</div>'+g.rows.map(function(i){ var d=up[i];
@@ -1908,6 +1930,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       if(cur0.some(function(o){ return o.slug===d.slug; })){ picked.others=cur0.filter(function(o){ return o.slug!==d.slug; }); syncPair(); priceNow(); return; }
       if(canPair(picked,d)){ picked.others=cur0.concat([d]); syncPair(); priceNow(); return; }
       keepFields(function(){ inPanel=true; bookWs(i); inPanel=false; }); }; });
+    }
     /* under When: who coaches this date when it is not the usual two, and
        when an early bird price goes up */
     var note=$('bkDateNote');
@@ -1930,7 +1953,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     /* the summary: what they are booking, and what it costs */
     var all2=both ? [picked].concat(os).sort(function(a,b){ return a.start-b.start; }) : null;
     var oneDay=both && all2.every(function(x){ return x.d===all2[0].d; });
-    var when=both ? (oneDay ? long(all2[0])+', '+all2.map(span).join(' and ') : all2.map(function(x){ return short(x)+' '+t12(x.from); }).join(', ')) : long(picked);
+    var when=both ? (oneDay ? long(all2[0])+', '+all2.map(span).join(' and ') : !(upS.length||skTbc.length) ? all2.map(short).join(' and ') : all2.map(function(x){ return short(x)+' '+t12(x.from); }).join(', ')) : long(picked);
     $('bkSum').hidden=!!picked.full||!!picked.tbc;
     if(!picked.tbc) $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(both?(1+os.length)+' sessions':span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
       +'<div class="amt">'+(cost>0?esc(pounds(cost)):'Free')+(save>0?'<s>'+esc(pounds(full))+'</s>':'')
