@@ -190,6 +190,12 @@ const wsCoachLine = w => !w || !w.coach ? 'Two coaches and a small group, so you
 const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/, '');
 /* "Saturday 10 October, 1:00 to 2:30pm", the way the class page says it.
    It said "at 13:00" with no end, in every email (8 Oct 2026). */
+/* two in one booking: two dates of the same class, or the morning
+   Calisthenics and the afternoon All Levels on the same Saturday (Elliott,
+   21 Oct 2026), in time order */
+const wsDayOf = w => w && w.when ? new Date(ms(w.when)).toLocaleDateString('en-GB', { timeZone: 'Europe/London' }) : '';
+const wsPairOk = (w, w2) => !!w && !!w2 && (wsKindOf(w) === wsKindOf(w2)
+  || (!!wsDayOf(w) && wsDayOf(w) === wsDayOf(w2) && /all levels|calisthenics/i.test(w.title || '') && /all levels|calisthenics/i.test(w2.title || '') && wsKindOf(w) !== wsKindOf(w2)));
 const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : /calisthenics/i.test((w && w.title) || '') ? 60 : 120;
 /* where a class is booked: the All Levels and Calisthenics classes share the
    class page; anything else has its own page */
@@ -7130,7 +7136,7 @@ const handle = async (request) => {
     const w2 = also && also !== slug ? all[also] : null;
     if (also && also !== slug && (!w2 || !w2.live)) return json({ error: 'That second date is not open for booking' }, 404);
     /* the second date is another date of the same class, not another workshop at this one's price */
-    if (w2 && wsKindOf(w2) !== wsKindOf(w)) return json({ error: 'Those two are different workshops. Book them one at a time.' }, 400);
+    if (w2 && !wsPairOk(w, w2)) return json({ error: 'Those two are different workshops. Book them one at a time.' }, 400);
     if (w2 && w2.when && ms(w2.when) < Date.now()) return json({ error: 'The second date has already happened' }, 409);
     const live2 = w2 ? wsLive((await getSetting(`wsbook:${also}`)) || []) : [];
     if (w2 && Number(w2.places) > 0 && live2.length >= Number(w2.places)) return json({ error: 'The second date is full. Book one date, and join its waiting list.', full: true }, 409);

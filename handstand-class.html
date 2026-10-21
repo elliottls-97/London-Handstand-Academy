@@ -1876,7 +1876,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       var on=!both && d.slug===picked.slug;
       return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'" aria-pressed="'+on+'"'+(d.full||d.tbc?' data-full="1"':'')+'>'+esc(d.tbc?'Date TBC':short(d))
         +'<small>'+(d.tbc?esc(skillName(d)):d.full?'Full, waiting list':kindSel==='cali'?esc(skillName(d))+(d.places>0&&d.left<=5?', '+d.left+' left':''):d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
-      +(picked.other&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'" aria-pressed="'+(!!both)+'">Both'
+      +(picked.other&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'" aria-pressed="'+(!!both)+'">'+(picked.otherClass?'Both classes':'Both')
         +'<small>'+(MULTI>0?(function(){ /* the saving against the two dates bought one at a time, at their own prices */
           var od=picked.other||up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0];
           var full=picked.price+(od?od.price:picked.price), cost=listCost([picked.price,od?od.price:picked.price],1);
@@ -1905,9 +1905,10 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     wb[0].onclick=function(){ wantTwo=false; $('bkFr').checked=false; priceNow(); };
     wb[1].onclick=function(){ if(wb[1].disabled) return; wantTwo=true; $('bkFr').checked=true; priceNow(); setTimeout(function(){ $('bkFrName').focus(); },40); };
     /* the summary: what they are booking, and what it costs */
-    var when=both ? [picked, picked.other].sort(function(a,b){ return new Date(a.when)-new Date(b.when); }).map(short).join(' and ') : long(picked);
+    var pair2=both ? [picked, picked.other].sort(function(a,b){ return a.start-b.start; }) : null;
+    var when=both ? (picked.otherClass ? long(pair2[0])+', '+span(pair2[0])+' and '+span(pair2[1]) : pair2.map(short).join(' and ')) : long(picked);
     $('bkSum').hidden=!!picked.full||!!picked.tbc;
-    if(!picked.tbc) $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
+    if(!picked.tbc) $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(both&&picked.otherClass?'Both classes':span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
       +'<div class="amt">'+(cost>0?esc(pounds(cost)):'Free')+(save>0?'<s>'+esc(pounds(full))+'</s>':'')
         +((codeOk && codeOk.key===pickKey())?'<small>with '+esc(code())+'</small>':'')+'</div>';
     $('pickFS').textContent=(kindSel==='cali'?'Calisthenics Class, 11am to 12':'All Levels Handstand Class')+', at '+PLACE+'.';
@@ -1938,13 +1939,17 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     /* only another date of the same class: the server turns any other pair away */
     var kind=function(t){ return String(t||'').replace(/\b(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?)\.?(?:,?\s+\d{4})?\b/gi,' ').replace(/\(\s*\)/g,' ').replace(/[\s,.\u00b7(-]+$/,'').replace(/\s{2,}/g,' ').trim().toLowerCase(); };
     var other=up.filter(function(x,j){ return j!==i && !x.full && kind(x.title)===kind(d.title); })[0];
+    /* or the other class on the same Saturday: Calisthenics in the morning,
+       All Levels in the afternoon, one payment (Elliott, 21 Oct 2026) */
+    if(!other && !d.tbc){ var pool=(kindSel==='cali'?upA:upS); other=pool.filter(function(x){ return !x.full && x.d===d.d; })[0]||null; }
     picked.other=(!d.full && !d.tbc && other) ? other : null;
+    picked.otherClass=!!(picked.other && kind(picked.other.title)!==kind(d.title));
     $('bkFr').checked=false; $('bkFrBox').hidden=true; $('bkFrName').value=''; $('bkFrEmail').value=''; $('bkFrRow').hidden=!!d.full||!!d.tbc||(d.places>0&&d.left<2);
     $('bkFrT').innerHTML='Bring someone with you'+(MULTI>0&&d.price>0?'<small>Two places: '+esc(pounds(listCost([d.price],2)))+', save '+esc(pounds(MULTI))+'.</small>':'');
     var row=$('bkPairRow'), tick=$('bkPair');
     if(row){ row.hidden=!picked.other; tick.checked=false;
       if(picked.other){ var both=listCost([d.price,other.price],1), full=d.price+other.price;
-        $('bkPairT').innerHTML='Add <b>'+esc(long(other))+'</b> as well'+(both>0?': '+esc(pounds(both))+' for both':'')
+        $('bkPairT').innerHTML='Add <b>'+esc(picked.otherClass?(kind(other.title).indexOf('cal')>-1?'the Calisthenics Class':'the All Levels class')+' at '+span(other):long(other))+'</b> as well'+(both>0?': '+esc(pounds(both))+' for both':'')
           +(both<full?'<small>Save '+esc(pounds(full-both))+' on booking them one at a time.</small>':''); } }
     $('wtGo').disabled=false; $('wtGo').textContent='Put me on the list'; $('wtMsg').textContent='';
     priceNow();
