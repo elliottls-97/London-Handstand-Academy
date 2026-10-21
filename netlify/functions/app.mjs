@@ -6690,7 +6690,7 @@ const handle = async (request) => {
     const codeDay = async () => { const w = ((await getSetting('workshops')) || {})[d.workshop];
       return w && w.when ? new Date(w.when).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : 'one of these dates'; };
     const oneDate = async () => `That code is for ${await codeDay()} only. Pick that date on its own to use it, or remove the code to book both.`;
-    if (d.workshop && d.workshop !== slug) return { error: d.workshop === opt.also ? await oneDate() : 'That code is for a different workshop' };
+    if (d.workshop && d.workshop !== slug) return { error: String(opt.also || '').split(',').includes(d.workshop) ? await oneDate() : 'That code is for a different workshop' };
     if (d.workshop && opt.also) return { error: await oneDate() };
     /* a fixed amount comes off the booking once, however many places are in
        it (Elliott, 18 Oct 2026: £10 off both dates took £20) */
@@ -6788,11 +6788,11 @@ const handle = async (request) => {
     const w = ((await getSetting('workshops')) || {})[slug];
     if (!w) return json({ error: 'No such workshop' }, 404);
     const all = (await getSetting('workshops')) || {};
-    const also = wsSlug(body.also), w2 = also && also !== slug ? all[also] : null;
-    const people = Number(body.people) === 2 ? 2 : 1, targets = w2 ? [w, w2] : [w], units = targets.length * people;
+    const extras = [...new Set(String(body.also || '').split(',').map(wsSlug).filter(x => x && x !== slug))].slice(0, 6).map(sl => all[sl]).filter(Boolean);
+    const people = Number(body.people) === 2 ? 2 : 1, targets = [w].concat(extras), units = targets.length * people;
     const multi = await wsMultiOff();
     const base = wsMultiCost(targets.flatMap((x, i) => Array.from({ length: people }, (_, k) => ({ slug: i, who: k, unit: x.price }))), multi);
-    const r = await wsCodeCheck(slug, body.code, base, wsMailOk(norm(body.email)) ? norm(body.email) : '', { units, also: w2 ? also : '' });
+    const r = await wsCodeCheck(slug, body.code, base, wsMailOk(norm(body.email)) ? norm(body.email) : '', { units, also: extras.length ? extras.map(x => x.slug).join(',') : '' });
     if (r.error) return json({ error: r.error }, 400);
     let price = Math.max(0, base - r.off); if (price > 0 && price < 30) price = 0;
     return json({ ok: true, off: r.off, base, price, label: price ? '£' + (price / 100).toFixed(2).replace(/\.00$/, '') : 'Free' });
@@ -7139,17 +7139,22 @@ const handle = async (request) => {
        A second date in the same booking: one payment at the pair price the
        owner set (or the two prices added), one place on each, and the
        webhook files both from the comma joined metadata. */
-    const also = wsSlug(body.also);
-    const w2 = also && also !== slug ? all[also] : null;
-    if (also && also !== slug && (!w2 || !w2.live)) return json({ error: 'That second date is not open for booking' }, 404);
-    /* the second date is another date of the same class, not another workshop at this one's price */
-    if (w2 && !wsPairOk(w, w2)) return json({ error: 'Those two are different workshops. Book them one at a time.' }, 400);
-    if (w2 && w2.when && ms(w2.when) < Date.now()) return json({ error: 'The second date has already happened' }, 409);
-    const live2 = w2 ? wsLive((await getSetting(`wsbook:${also}`)) || []) : [];
-    if (w2 && Number(w2.places) > 0 && live2.length >= Number(w2.places)) return json({ error: 'The second date is full. Book one date, and join its waiting list.', full: true }, 409);
-    if (w2 && live2.some(b => b.email === e)) return json({ error: 'You are already booked on the second date. Book the one you have not got.' }, 409);
+    /* any sessions together, one payment (Elliott, 21 Oct 2026): "also" is
+       a comma list; each one is checked as the first is. The saving comes
+       off once however many there are. */
+    const extras = [];
+    for (const sl of [...new Set(String(body.also || '').split(',').map(wsSlug).filter(x => x && x !== slug))].slice(0, 6)) {
+      const x = all[sl];
+      if (!x || !x.live) return json({ error: 'One of those dates is not open for booking' }, 404);
+      if (x.when && ms(x.when) < Date.now()) return json({ error: `${wsWhenTxt(x)} has already happened` }, 409);
+      const lv = wsLive((await getSetting(`wsbook:${sl}`)) || []);
+      if (Number(x.places) > 0 && lv.length >= Number(x.places)) return json({ error: `${wsWhenTxt(x)} is full. Book the others, and join its waiting list.`, full: true, fullSlug: sl }, 409);
+      if (lv.some(b => b.email === e)) return json({ error: `You are already booked on ${wsWhenTxt(x)}. Pick the ones you have not got.` }, 409);
+      extras.push([sl, x]);
+    }
+    const w2 = extras.length ? extras[0][1] : null, also = extras.length ? extras[0][0] : '';
     const multi = await wsMultiOff();
-    const targets = w2 ? [[slug, w], [also, w2]] : [[slug, w]];
+    const targets = [[slug, w]].concat(extras);
     /* ── somebody coming with them ─────────────────────────────────────
        A second place on each date, in the guest's own name and email, so
        they get their own confirmation, reminder and link to change it. */
@@ -7167,7 +7172,7 @@ const handle = async (request) => {
     const base = wsMultiCost(targets.flatMap(([tSlug, tw]) => people.map(([pe]) => ({ slug: tSlug, who: pe, unit: tw.price }))), multi);
     /* Book pressed is the clearest sign of wanting a place */
     await wsIntentNote(slug, w2 ? also : '', e, nm);
-    const disc = await wsCodeCheck(slug, body.code, base, e, { units, also: w2 ? also : '' });
+    const disc = await wsCodeCheck(slug, body.code, base, e, { units, also: extras.length ? extras.map(t => t[0]).join(',') : '' });
     if (disc.error) return json({ error: disc.error }, 400);
     /* a code that leaves a few pence is free: Stripe will not take under 30p */
     let price = Math.max(0, base - disc.off);
@@ -7267,7 +7272,9 @@ const handle = async (request) => {
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
         'line_items[0][price_data][unit_amount]': String(Math.round(price)),
-        'line_items[0][price_data][product_data][name]': String((w2 ? wsBare(w.title) + ', both dates' : w.title) + (fr ? ', 2 people' : '')).slice(0, 120),
+        'line_items[0][price_data][product_data][name]': String((targets.length > 1
+          ? (new Set(targets.map(t => wsKindOf(t[1]))).size === 1 ? wsBare(w.title) + (targets.length === 2 ? ', both dates' : ', ' + targets.length + ' dates') : targets.length + ' Saturday classes')
+          : w.title) + (fr ? ', 2 people' : '')).slice(0, 120),
         /* the dates in date order, whichever was picked first */
         ...(w.when ? { 'line_items[0][price_data][product_data][description]': String(targets.filter(t => t[1].when).sort((a, b) => ms(a[1].when) - ms(b[1].when)).map(t => new Date(t[1].when).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })).join(' and ') + (w.place ? ', ' + w.place : '')).slice(0, 200) } : {}),
         'line_items[0][price_data][product_data][images][0]': `${SITE}/assets/site/latest-workshop-group-handstand-picture.jpg`,
