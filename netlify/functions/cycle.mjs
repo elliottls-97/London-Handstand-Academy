@@ -1032,8 +1032,7 @@ async function intentMail(done) {
         const keyE = `wsearly:${w.slug}:${e}`;
         /* the second reminder says "this is the last email about it", so
            whoever had it does not get a third (16 Oct 2026, review) */
-        const saidLast = await supa.row('nudges', `key=eq.${enc(`wsintent2:${w.slug}:${e}`)}&select=key`).catch(() => null);
-        if (!saidLast && !(await supa.row('nudges', `key=eq.${enc(keyE)}&select=key`).catch(() => null))) {
+        if (!(await supa.row('nudges', `key=eq.${enc(keyE)}&select=key`).catch(() => null))) {
           const priceE = wsPoundsC(w.price), thenE = wsPoundsC(w.early.then);
           const TE = await emailCopy('wsEarly', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
             price: priceE, then: thenE, until: esc(wsEarlyDayC(w)), ends: wsEarlyAtC(w) === 'midnight' ? 'the end of today' : wsEarlyAtC(w) + ' today', link: wsBookHref(w) });
@@ -1051,26 +1050,11 @@ async function intentMail(done) {
           }
         }
       }
-      const first = await supa.row('nudges', `key=eq.${enc(key)}&select=key,sent_at`).catch(() => null);
-      if (first) {
-        /* three days after the first, if they still have no place and the
-           date is still more than a day away: the date once more, and the
-           free app as the way to start at home. The last word on it. */
-        const sentAt = ms(first.sent_at);
-        if (!sentAt || now - sentAt < 3 * DAY || at - now < DAY) continue;
-        const key2 = `wsintent2:${w.slug}:${e}`;
-        if (await supa.row('nudges', `key=eq.${enc(key2)}&select=key`).catch(() => null)) continue;
-        const price2 = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'free';
-        const T2 = await emailCopy('wsIntent2', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt),
-          price: price2, early_line: wsEarlyLine(w), link: wsBookHref(w), app_link: `${SITE}/lha-app.html?ref=workshop` });
-        if (T2.off) { done.held = (done.held || 0) + 1; continue; }
-        const went2 = await email(e, T2.subject, intent2Email(T2, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-          price: price2, href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
-        if (!went2) { done.held = (done.held || 0) + 1; continue; }
-        done.intents.again = (done.intents.again || 0) + 1; toldNow.add(e);
-        await supa.upsert('nudges', { key: key2, sent_at: new Date().toISOString() }, 'key');
-        continue;
-      }
+      const first = await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null);
+      /* one reminder, the morning after; the three-days-on one is gone (Elliott, 21 Oct 2026) */
+      if (first) continue;
+      /* taken off the list in the dashboard: not again, even if they start again */
+      if (await supa.row('nudges', `key=eq.${enc(`wsintentoff:${w.slug}:${e}`)}&select=key`).catch(() => null)) continue;
       const anyKey = `wsintentany:${e}`;
       const hadAny = await supa.row('nudges', `key=eq.${enc(anyKey)}&select=sent_at`).catch(() => null);
       if (hadAny && now - ms(hadAny.sent_at) < 14 * DAY) continue;

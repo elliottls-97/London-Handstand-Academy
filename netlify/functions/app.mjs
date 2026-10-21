@@ -7022,6 +7022,7 @@ const handle = async (request) => {
      and the dashboard can show them. Nothing is sent from here. */
   const wsIntentNote = async (slug, also, e, nm) => {
     for (const sl of [slug, also].filter(Boolean)) {
+      if (await supa.row('nudges', `key=eq.${enc(`wsintentoff:${sl}:${e}`)}&select=key`).catch(() => null)) continue;
       await changeSetting(`wsintent:${sl}`, cur => {
         const l = (Array.isArray(cur) ? cur : []).filter(x => x && x.email && Date.now() - (x.at || 0) < 30 * DAY);
         const i = l.findIndex(x => x.email === e);
@@ -7357,6 +7358,16 @@ const handle = async (request) => {
     else r = { error: 'Nothing asked', status: 400 };
     if (r.error) return json(r, r.status || 400);
     return json(Object.assign({ bookings: (await getSetting(`wsbook:${slug}`)) || [] }, r));
+  }
+  /* take somebody off the "started booking" list, so the reminders stop
+     (Elliott, 21 Oct 2026). Starting again does not put them back on. */
+  if (path === '/coach/workshop/intent' && request.method === 'POST') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const slug = wsSlug(body.slug), e = norm(body.email);
+    if (!slug || !e) return json({ error: 'Which workshop, and who' }, 400);
+    await changeSetting(`wsintent:${slug}`, cur => Array.isArray(cur) && cur.some(x => x && norm(x.email) === e) ? cur.filter(x => !(x && norm(x.email) === e)) : undefined).catch(() => {});
+    await supa.insertIfAbsent('nudges', { key: `wsintentoff:${slug}:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => {});
+    return json({ ok: true });
   }
   if (path === '/coach/workshop/attendees' && request.method === 'POST') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);

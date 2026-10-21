@@ -12019,6 +12019,13 @@ function bkResend(slug,email,session){
   if(!confirm('Email '+email+' their booking again, with the link to cancel or move it?')) return;
   wsAct(slug,email,session,'resend');
 }
+function bkIntentDrop(slug,email){
+  if(!confirm('Take '+email+' off the reminders for this class?')) return;
+  fetch(API+'/workshop/intent',{method:'POST',headers:hdr(),body:JSON.stringify({slug,email})})
+    .then(r=>r.ok?r.json():Promise.reject('Could not remove them'))
+    .then(()=>{ (wshops||[]).forEach(w=>{ if(w.slug===slug) w.intents=(w.intents||[]).filter(x=>x.email!==email); }); flash('Removed'); draw(); })
+    .catch(e=>alert(String(e)));
+}
 function bkAdd(slug){
   const box=document.getElementById('bkAttend'); const list=(box&&box.value||'').trim();
   if(!list) return alert('Type or paste them first: one per line, email then name.');
@@ -12416,8 +12423,8 @@ function bookingsPageHTML(){
         <div style="font:400 13px/1.7 var(--sans)">${w.waitlist.map((x,i)=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><span class="muted" style="width:18px">${i+1}</span><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
         <p class="muted" style="font-size:12px;margin-top:6px">When a place frees up, the first here is emailed a link to it.</p>`:''}
       ${(w.intents||[]).length?`<h5 style="margin-top:22px">Started booking, did not pay · ${w.intents.length}</h5>
-        <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
-        <p class="muted" style="font-size:12px;margin-top:6px">Each gets one reminder the next morning, and another three days later.</p>`:''}
+        <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span><button class="ghostlink" style="color:var(--terra)" onclick="bkIntentDrop(${jsq(w.slug)},${jsq(x.email)})">Remove</button></div>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin-top:6px">Each gets one reminder the next morning. Remove takes them off it.</p>`:''}
       <h5 style="margin-top:22px">Add someone by hand</h5>
       <textarea class="input" id="bkAttend" rows="2" placeholder="kate@example.com, Kate&#10;one per line: a booking taken in person, or from Setmore"></textarea>
       <div style="display:flex;gap:10px;align-items:center;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="bkAdd(${jsq(w.slug)})">Add them</button>
@@ -12502,7 +12509,7 @@ function workshopsHTML(){
           <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(live.map(b=>b.email).join(', '))});flash('Emails copied')">Copy all emails</button>`
           :(w.was?'<p class="muted" style="font-size:13px;margin-top:14px">Nobody booked yet.</p>':''))
         +((w.intents||[]).length?`<h5 style="margin-top:var(--space-4)">Started booking, did not finish · ${w.intents.length}</h5>
-          <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:5px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
+          <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:5px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span><button class="ghostlink" style="color:var(--terra)" onclick="bkIntentDrop(${jsq(w.slug)},${jsq(x.email)})">Remove</button></div>`).join('')}</div>
           <p class="muted" style="font-size:12px;margin-top:6px">Typed an email on the booking page, or pressed Book, and did not pay. Each gets one reminder the next morning, from the automated emails ("Workshop, started booking and stopped").</p>`:'')
         +(gone.length?`<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:13px">${gone.length} cancelled or moved</summary><div style="font:400 13px/1.6 var(--sans)">${gone.map(row).join('')}</div></details>`:'')
         +((w.waitlist||[]).length?`<h5 style="margin-top:var(--space-4)">Waiting for a place · ${w.waitlist.length}</h5>
