@@ -190,11 +190,11 @@ const wsCoachLine = w => !w || !w.coach ? 'Two coaches and a small group, so you
 const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/, '');
 /* "Saturday 10 October, 1:00 to 2:30pm", the way the class page says it.
    It said "at 13:00" with no end, in every email (8 Oct 2026). */
-const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : /skills/i.test((w && w.title) || '') ? 60 : 120;
-/* where a class is booked: the All Levels and Skills classes share the
+const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : /calisthenics/i.test((w && w.title) || '') ? 60 : 120;
+/* where a class is booked: the All Levels and Calisthenics classes share the
    class page; anything else has its own page */
 const wsPageHref = (w, src) => /all levels/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#book`
-  : /skills/i.test((w && w.title) || '') ? `${SITE}/handstand-class?class=skills${src ? '&src=' + src : ''}#book`
+  : /calisthenics/i.test((w && w.title) || '') ? `${SITE}/handstand-class?class=calisthenics${src ? '&src=' + src : ''}#book`
   : `${SITE}/workshop.html?slug=${enc(w && w.slug)}${src ? '&src=' + src : ''}`;
 const wsClock = t => new Date(t).toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s+/g, '').toLowerCase();
 const wsWhenTxt = w => {

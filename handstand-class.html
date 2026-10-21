@@ -251,7 +251,7 @@ body.has-eb .mob-menu{padding-top:40px}
 .fact .l{font-size:11px;color:rgba(255,255,255,.72);text-transform:uppercase;letter-spacing:1px;margin-top:3px;}
 
 section{padding:56px 0;}
-/* the two Saturday classes, and the skills section (21 Oct 2026) */
+/* the two Saturday classes (21 Oct 2026) */
 .cls2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
 @media (max-width:640px){.cls2{grid-template-columns:1fr}}
 .cls2 a{display:block;text-decoration:none;color:inherit;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:22px;padding:20px 22px;box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
@@ -824,6 +824,11 @@ h1 strong,h2 strong,h3 strong{font-weight:500!important;}
  font:600 14px/1.2 var(--body);color:var(--ink60);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
 .seg button small{font:500 11.5px/1 var(--body);color:inherit;opacity:.8}
 .seg button.on{background:#fff;color:var(--deep);box-shadow:0 1px 3px rgba(17,17,17,.12)}
+.seg-cls button{min-height:84px;align-items:flex-start;text-align:left;padding:12px 14px;gap:3px}
+.seg-cls button b{display:block;font:700 15px/1.2 var(--body);color:inherit}
+.seg-cls button small{display:block;opacity:.8}
+.seg-cls button em{display:block;font:600 13px/1.2 var(--body);font-style:normal;color:var(--forest,#006663);margin-top:4px}
+.seg-cls button:not(.on) em{opacity:.75}
 .seg button.on small{color:var(--terra);opacity:1}
 .seg button:disabled{opacity:.4;cursor:default}
 /* The Book section on the page's own ground (8 Oct 2026): the dark green
@@ -1176,9 +1181,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   <div class="eyebrow">Saturdays at OverGravity</div>
   <h2>Two classes, one Saturday.</h2>
   <div class="cls2">
-    <a href="#book" onclick="return setClass('skills',event);">
+    <a href="#book" onclick="return setClass('calisthenics',event);">
       <div class="k">Morning · 11am to 12</div>
-      <h3>Skills Class</h3>
+      <h3>Calisthenics Class</h3>
       <p>One skill a month in the calisthenics area: muscle up, handstand push-up or front lever. An hour, a small group.</p>
       <div class="pr" id="clsPriceS">From £20</div>
     </a>
@@ -1386,7 +1391,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       <button type="button" class="pick-back" id="pickBack" onclick="pickStep('dates')" hidden>&larr; Other dates</button>
       <h3 class="pick-h">Book your place</h3>
       <p class="pick-s" id="pickFS"></p>
-      <div id="segClassWrap" hidden><div class="seg-l">Class</div><div class="seg" id="segClass"></div></div>
+      <div id="segClassWrap" hidden><div class="seg-l">Which class</div><div class="seg seg-cls" id="segClass"></div></div>
       <div class="seg-l">When</div>
       <div class="seg" id="segWhen"></div>
       <div id="segWhoWrap"><div class="seg-l">Who&rsquo;s coming</div>
@@ -1553,13 +1558,13 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     .reduce(function(g,x){ g[x.type]=x.value; return g; },{}); };
   var hm=function(ts){ var g=tz(ts,{hour:'2-digit',minute:'2-digit',hourCycle:'h23'}); return (g.hour==='24'?'00':g.hour)+':'+g.minute; };
   var fromWs=function(w){
-    var start=Date.parse(w.when), end=start+(/skills/i.test(w.title||'')?60:90)*60000, g=tz(start,{year:'numeric',month:'2-digit',day:'2-digit'});
+    var start=Date.parse(w.when), end=start+(/calisthenics/i.test(w.title||'')?60:90)*60000, g=tz(start,{year:'numeric',month:'2-digit',day:'2-digit'});
     return {d:g.year+'-'+g.month+'-'+g.day, from:hm(start), to:hm(end), start:start, end:end,
       slug:w.slug, price:Number(w.price)||0, priceLabel:w.priceLabel||'', places:Number(w.places)||0, left:Number(w.left)||0,
       full:Number(w.places)>0&&Number(w.left)<=0, title:w.title, coach:w.coach||'', early:w.early||null};
   };
   var up=[];           /* the dates still to come, soonest first */
-  var upA=[], upS=[], skTbc=[], kindSel=(new URLSearchParams(location.search).get('class')==='skills')?'skills':'all';
+  var upA=[], upS=[], skTbc=[], kindSel=/^(calisthenics|cali|skills)$/.test(new URLSearchParams(location.search).get('class')||'')?'cali':'all';
   var inPanel=false;   /* filling the panel quietly, not answering a Book button */
   var picked=null;     /* the one being booked */
   var MULTI=500;       /* off for two people, and off again for both dates, in pence; the owner sets it */
@@ -1720,10 +1725,12 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     upS=upS.filter(function(d){ return d.start>now; }).sort(function(a,b){ return a.start-b.start; });
     up=cur();
     var first=upA[0], second=upA[1];
-    /* the class picker, when there is a skills class to pick */
+    /* the class picker, when there is a calisthenics class to pick */
     var scw=$('segClassWrap'); if(scw){ var hasS=upS.length||skTbc.length; scw.hidden=!hasS;
-      if(hasS) $('segClass').innerHTML=[['all','All Levels','1 to 2:30pm'+(upA[0]?' · '+esc(upA[0].priceLabel):'')],['skills','Skills','11am to 12'+(upS[0]?' · '+esc(upS[0].priceLabel):skTbc[0]&&skTbc[0].priceLabel?' · '+esc(skTbc[0].priceLabel):'')]]
-        .map(function(o){ return '<button type="button" class="'+(kindSel===o[0]?'on':'')+'" aria-pressed="'+(kindSel===o[0])+'" onclick="setClass(\''+o[0]+'\')">'+o[1]+'<small>'+o[2]+'</small></button>'; }).join(''); }
+      var pS=(upS[0]&&upS[0].priceLabel)||(skTbc[0]&&skTbc[0].priceLabel)||'', nS=upS.length?(upS.length===1?short(upS[0]):upS.length+' dates'):skTbc.length?'Date to be confirmed':'';
+      if(hasS) $('segClass').innerHTML=[['all','All Levels Handstands','Afternoon · 1 to 2:30pm',upA[0]?esc(upA[0].priceLabel):'', upA.length?(upA.length===1?short(upA[0]):upA.length+' dates'):''],
+                                        ['cali','Calisthenics','Morning · 11am to 12',esc(pS), nS]]
+        .map(function(o){ return '<button type="button" class="'+(kindSel===o[0]?'on':'')+'" aria-pressed="'+(kindSel===o[0])+'" onclick="setClass(\''+o[0]+'\')"><b>'+o[1]+'</b><small>'+o[2]+'</small><em>'+o[3]+(o[4]?' · '+o[4]:'')+'</em></button>'; }).join(''); }
     var price=first?first.priceLabel:'';
     if(price) document.querySelectorAll('[data-price]').forEach(function(el){ el.textContent=price; });
     var sameDay=upA.every(function(d){ return parts(d).dow===parts(first||d).dow; });
@@ -1736,7 +1743,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       : (NUM[upA.length]||upA.length)+(sameDay?' '+parts(first).dow+'s':' dates')+', '+span(first)+', at '+PLACE+'.';
     /* with two dates it named neither, and read as both going up (16 Oct 2026, review) */
     /* two classes on the page: the line above the box says both */
-    if(intro && (upS.length||skTbc.length)) intro.textContent='Saturdays at '+PLACE+'. Skills at 11am, All Levels at 1pm.';
+    if(intro && (upS.length||skTbc.length)) intro.textContent='Saturdays at '+PLACE+'. Calisthenics at 11am, All Levels Handstands at 1pm.';
     if(intro && first && first.early) intro.textContent += ' '+(upA.length>1||upS.length||skTbc.length ? 'All Levels on '+parts(first).dd+' '+parts(first).m+' is ' : '')
       +first.priceLabel+' until '+(first.early.by||'the end of '+first.early.day)+', then '+first.early.thenLabel+'.';
     var cards=$('clsCards');
@@ -1868,7 +1875,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     $('segWhen').innerHTML=up.map(function(d,i){
       var on=!both && d.slug===picked.slug;
       return '<button type="button" data-i="'+i+'" class="'+(on?'on':'')+'" aria-pressed="'+on+'"'+(d.full||d.tbc?' data-full="1"':'')+'>'+esc(d.tbc?'Date TBC':short(d))
-        +'<small>'+(d.tbc?esc(skillName(d)):d.full?'Full, waiting list':kindSel==='skills'?esc(skillName(d))+(d.places>0&&d.left<=5?', '+d.left+' left':''):d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
+        +'<small>'+(d.tbc?esc(skillName(d)):d.full?'Full, waiting list':kindSel==='cali'?esc(skillName(d))+(d.places>0&&d.left<=5?', '+d.left+' left':''):d.places>0&&d.left<=5?d.left+' left':esc(d.priceLabel))+'</small></button>'; }).join('')
       +(picked.other&&!picked.full?'<button type="button" data-both="1" class="'+(both?'on':'')+'" aria-pressed="'+(!!both)+'">Both'
         +'<small>'+(MULTI>0?(function(){ /* the saving against the two dates bought one at a time, at their own prices */
           var od=picked.other||up.filter(function(x){ return !x.full && x.slug!==picked.slug; })[0];
@@ -1903,7 +1910,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(!picked.tbc) $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
       +'<div class="amt">'+(cost>0?esc(pounds(cost)):'Free')+(save>0?'<s>'+esc(pounds(full))+'</s>':'')
         +((codeOk && codeOk.key===pickKey())?'<small>with '+esc(code())+'</small>':'')+'</div>';
-    $('pickFS').textContent=(kindSel==='skills'?'Skills Class, 11am to 12':'All Levels Handstand Class')+', at '+PLACE+'.';
+    $('pickFS').textContent=(kindSel==='cali'?'Calisthenics Class, 11am to 12':'All Levels Handstand Class')+', at '+PLACE+'.';
   };
   /* switching date rebuilds the sheet; what has been typed stays */
   var keepFields=function(fn){
@@ -2116,15 +2123,15 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     return false;
   };
   /* the workshops, and a way to hand the page a list for a preview */
-  /* two classes in one box (Elliott, 21 Oct 2026): All Levels and Skills.
-     A skills class with no date yet is still offered, as "Date to be
+  /* two classes in one box (Elliott, 21 Oct 2026): All Levels and Calisthenics.
+     A calisthenics class with no date yet is still offered, as "Date to be
      confirmed", and takes names on the waiting list. */
-  var isSk=function(w){ return /skills/i.test((w&&w.title)||''); };
-  var skillName=function(d){ return String(d.title||'').replace(/^skills( class)?[:\s-]*/i,'').trim()||'Skills Class'; };
+  var isSk=function(w){ return /calisthenics/i.test((w&&w.title)||''); };
+  var skillName=function(d){ return String(d.title||'').replace(/^calisthenics( class)?[:\s-]*/i,'').trim()||'Calisthenics Class'; };
   var tbcOf=function(w){ return {tbc:true, start:Infinity, end:Infinity, d:'', from:'00:00', to:'00:00', slug:w.slug, price:Number(w.price)||0, priceLabel:w.priceLabel||'',
       places:Number(w.places)||0, left:Number(w.left)||0, full:false, title:w.title, coach:w.coach||'', early:null}; };
-  var cur=function(){ return kindSel==='skills' ? upS.concat(skTbc) : upA; };
-  window.setClass=function(k,e){ if(e) e.preventDefault(); kindSel=k==='skills'?'skills':'all'; picked=null; $('bkPair').checked=false; $('bkFr').checked=false; wantTwo=false; codeOk=null; render();
+  var cur=function(){ return kindSel==='cali' ? upS.concat(skTbc) : upA; };
+  window.setClass=function(k,e){ if(e) e.preventDefault(); kindSel=(k==='cali'||k==='calisthenics'||k==='skills')?'cali':'all'; picked=null; $('bkPair').checked=false; $('bkFr').checked=false; wantTwo=false; codeOk=null; render();
     var t0=$('book'); if(t0&&e) t0.scrollIntoView({behavior:'smooth',block:'start'}); return false; };
   window.clsWorkshops=function(list){
     var L=(list||[]).filter(function(w){ return w && w.title; });
@@ -2132,7 +2139,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     upS=L.filter(function(w){ return w.when && isSk(w); }).map(fromWs);
     skTbc=L.filter(function(w){ return !w.when && isSk(w); }).map(tbcOf);
     var ps=$('clsPriceS'), p0=upS.concat(skTbc).filter(function(d){ return d.price>0; })[0]; if(ps&&p0) ps.textContent=p0.priceLabel;
-    if(kindSel==='skills' && !upS.length && !skTbc.length) kindSel='all';
+    if(kindSel==='cali' && !upS.length && !skTbc.length) kindSel='all';
     render();
   };
   /* the dates came with the page when the edge had them; otherwise asked for */
