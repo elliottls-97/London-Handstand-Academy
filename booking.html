@@ -108,7 +108,15 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
         ? (all?'All your places are given up, and '+pounds(backNow())+' goes back to the card that paid, in a few days.':d.guest?'Your place is given up, and '+pounds(backNow())+' goes back to the card that paid for it, in a few days.':d.group?'The places booked with it are charged at their own price now, so '+pounds(backNow())+' comes back to your card.':'The '+pounds(backNow())+' you paid goes back to your card, in a few days.')
         : d.credit?'It is more than '+(d.mindH||48)+' hours since you booked, so the place is not refunded. Cancel and '+(all?'each of you gets':'it becomes')+' a credit: a code for one place at any '+d.title+', good for three months, emailed now.'
         : 'Your place is given up and freed for somebody else.';
-      var cx0=document.getElementById('cx'); if(cx0&&cx0.dataset.sure!=='1') cx0.textContent=all?'Cancel all our places':'Cancel my place';
+      /* a change of who it is for starts the confirm again: the button kept
+         "refund £20" for one, and a tap cancelled both for £45 (review, 22 Oct 2026) */
+      var cx0=document.getElementById('cx'); if(cx0){ cx0.dataset.sure=''; cx0.textContent=all?'Cancel all our places':'Cancel my place'; }
+      /* a move for everyone needs a place for everyone */
+      [].forEach.call(box.querySelectorAll('.opt[data-to]'),function(b){ var o=others.filter(function(x){ return x.slug===b.getAttribute('data-to'); })[0]; if(!o) return;
+        var short=all && !o.mine && o.left>0 && o.left<1+mates.length, m=b.querySelector('.m'), i=b.querySelector('i');
+        if(!working) b.disabled=o.mine||o.left<=0||short;
+        if(m) m.textContent=o.mine?'You already have this date':o.left<=0?'Full':short?'Only '+o.left+(o.left===1?' place':' places')+' left, not enough for all of you':o.left<=5?o.left+' places left':'Places available';
+        if(i) i.innerHTML=(o.mine||o.left<=0||short)?'':'Move here &rarr;'; });
     };
     var sm=document.getElementById('sc-me'), sa=document.getElementById('sc-all');
     if(sm){ sm.onclick=function(){ all=false; paintScope(); }; sa.onclick=function(){ all=true; paintScope(); }; paintScope(); }
@@ -117,13 +125,17 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
     [].forEach.call(box.querySelectorAll('.opt[data-to]'),function(b){ b.onclick=function(){
       if(working) return;
       var to=b.getAttribute('data-to'), m=document.getElementById('mmsg'); lockAll(true); m.textContent='Moving…';
-      post({action:'move',to:to,scope:all?'all':''}).then(function(){ var o=others.filter(function(x){ return x.slug===to; })[0]; done('You have moved.',(all?'Your places are':'Your place is')+' now on '+esc(day(o&&o.when))+'.'); })
+      post({action:'move',to:to,scope:all?'all':''}).then(function(r){ var o=others.filter(function(x){ return x.slug===to; })[0];
+        if(r&&r.partial){ done('Your place has moved.','Yours is now on '+esc(day(o&&o.when))+'. The others could not move: '+esc(r.partial)); return; }
+        done('You have moved.',(all?'Your places are':'Your place is')+' now on '+esc(day(o&&o.when))+'.'); })
         .catch(function(e){ lockAll(false); m.textContent=String(e); }); }; });
     var cx=document.getElementById('cx'); cx.onclick=function(){
       if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, cancel '+(all?'them':'it')+(backNow()>0?' and refund '+pounds(backNow()):d.credit?' for a credit':''); return; }
       if(working) return;
       var m=document.getElementById('cmsg'); lockAll(true); m.textContent='Cancelling…';
-      post({action:'cancel',scope:all?'all':''}).then(function(r){ done(all?'Your places are cancelled.':'Your place is cancelled.', r.refunded?pounds(r.refunded)+' is on its way back to your card.':(r.credits&&r.credits.length>1)?'Each of you has a credit code by email, for one place at another class.':r.credit?'Your credit code is <b>'+esc(r.credit)+'</b>, for one place at another class. It is in the email too.':'Your place has been freed.'); })
+      post({action:'cancel',scope:all?'all':''}).then(function(r){
+        if(r&&r.partial){ done('Your place is cancelled.',(r.refunded?pounds(r.refunded)+' is on its way back to your card. ':'')+'The others could not be cancelled: '+esc(r.partial)); return; }
+        done(all?'Your places are cancelled.':'Your place is cancelled.', r.refunded?pounds(r.refunded)+' is on its way back to your card.':(r.credits&&r.credits.length>1)?'Each of you has a credit code by email, for one place at another class.':r.credit?'Your credit code is <b>'+esc(r.credit)+'</b>, for one place at another class. It is in the email too.':'Your place has been freed.'); })
         .catch(function(e){ lockAll(false); m.textContent=String(e); }); };
   }
   if(!t){ box.innerHTML='<p>This page opens from the link in your booking email.</p>'; return; }

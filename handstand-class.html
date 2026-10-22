@@ -1192,7 +1192,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
 </section>
 
 <!-- ================= THE TWO SATURDAY CLASSES ================= -->
-<section id="sec-classes" style="padding-top:40px;padding-bottom:8px"><div class="wrap">
+<!-- shown only once a calisthenics class is listed: with All Levels alone it
+     offered a Calisthenics card that booked nothing (review, 22 Oct 2026) -->
+<section id="sec-classes" hidden style="padding-top:40px;padding-bottom:8px"><div class="wrap">
   <div class="eyebrow">Saturdays at OverGravity</div>
   <h2>Two classes, one Saturday.</h2>
   <div class="cls2">
@@ -1391,7 +1393,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   <h2 style="text-align:center;margin-bottom:20px;">Good to know</h2>
   <div class="faq-i"><button class="faq-q" onclick="toggleFaq(this)">What should I wear and bring?<span class="ic"></span></button><div class="faq-a"><p>Normal training kit you can move in, and a water bottle. Bare feet or socks, no shoes on the mats. Bring your phone if you want your before and after clips.</p></div></div>
   <div class="faq-i"><button class="faq-q" onclick="toggleFaq(this)">How do I pay?<span class="ic"></span></button><div class="faq-a"><p>Card or Apple Pay through Stripe when you book, on this site. No account and no login. You get a confirmation straight away and a reminder the day before, by email.</p></div></div>
-  <div class="faq-i"><button class="faq-q" onclick="toggleFaq(this)">What if I need to cancel?<span class="ic"></span></button><div class="faq-a"><p>Booked the wrong day or changed your mind? Cancel within 48 hours of booking for a full refund, as long as the class is still more than 24 hours away. After that, cancel up to 24 hours before and your place becomes a credit: a code for one place at another class, good for three months. You can move to another date for free, once. Inside 24 hours there is no refund or credit, whatever the reason: we need that day to fill your place. A credit is a code, so you can pass it to a friend. Ill, or something serious has come up? Email info@londonhandstandacademy.com and we will sort it together. The link is in your confirmation email and your reminder, and in the app under Your bookings. Lost the email? Press <a href="#clsFind" onclick="var t=document.querySelector('.bk-find-t');var f=document.getElementById('clsFindF');if(t&&f&&f.hidden)toggleFind(t);">Find my booking</a> by the booking form and it is sent again. Inside 24 hours the place cannot be refilled, so it is not refunded, but message me and I will do what I can. Booked both Saturdays and cancelling one? The places you keep go back to their own price, and the rest comes back to your card. The cancel page shows the amount before you confirm.</p></div></div>
+  <div class="faq-i"><button class="faq-q" onclick="toggleFaq(this)">What if I need to cancel?<span class="ic"></span></button><div class="faq-a"><p>Booked the wrong day or changed your mind? Cancel within 48 hours of booking for a full refund, as long as the class is still more than 24 hours away. After that, cancel up to 24 hours before and your place becomes a credit: a code for one place at another class, good for three months. You can move to another date for free, once. Inside 24 hours there is no refund or credit, whatever the reason: we need that day to fill your place. A credit is a code, so you can pass it to a friend. Ill, or something serious has come up? Email info@londonhandstandacademy.com and we will sort it together. The link is in your confirmation email and your reminder, and in the app under Your bookings. Lost the email? Press <a href="#clsFind" onclick="var t=document.querySelector('.bk-find-t');var f=document.getElementById('clsFindF');if(t&&f&&f.hidden)toggleFind(t);">Find my booking</a> by the booking form and it is sent again. Booked more than one and cancelling one within the 48 hours? The places you keep go back to their own price, and the rest comes back to your card. After that, the place you cancel becomes a credit. The cancel page shows what you get before you confirm.</p></div></div>
 </div></section>
 
 
@@ -1617,7 +1619,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     .then(function(r){ return r.json().catch(function(){ throw new TypeError('no answer'); })
       .then(function(d){ if(r.ok) return d;
         /* the reason, as text, with whether the date has just filled */
-        var e=new String(d.error||'Something went wrong'); e.full=!!d.full; return Promise.reject(e); }); }); };
+        var e=new String(d.error||'Something went wrong'); e.full=!!d.full; e.fullSlug=d.fullSlug||''; return Promise.reject(e); }); }); };
   var PLACE='OverGravity, Shadwell';
   /* The way out when the dates cannot be shown. It was the old Setmore
      page, taken down on 11 Oct 2026 (its old prices were what Google
@@ -1732,6 +1734,23 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     ebOf=first&&first.early ? first : null;
     ebTick();
     if(ebOf && !ebTimer) ebTimer=setInterval(ebTick,1000);
+    ebWatch();
+  }
+  /* Every session's early bird, not only the first All Levels date's: one
+     on a calisthenics class or the second date ended with the page open, and
+     the rows, the summary and Book kept the old price while Stripe charged
+     the new one (review, 22 Oct 2026). The prices are fetched again when the
+     soonest of them ends. */
+  var ebWatchT=null, ebWatchAt=0;
+  function ebWatch(){
+    var next=up.filter(function(d){ return d.early && Date.parse(d.early.until)>Date.now(); })
+      .map(function(d){ return Date.parse(d.early.until); }).sort(function(a,b){ return a-b; })[0]||0;
+    if(next===ebWatchAt) return;
+    ebWatchAt=next; clearTimeout(ebWatchT); ebWatchT=null;
+    if(!next || booked.length) return;
+    var wait=next-Date.now()+1500;
+    if(wait>2147483000) return;   /* longer than a timer can wait; a later draw sets it */
+    ebWatchT=setTimeout(function(){ ebWatchAt=0; if(!booked.length) refreshWs(); }, wait);
   }
   function render(){
     var now=Date.now();
@@ -1751,6 +1770,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var sameDay=upA.every(function(d){ return parts(d).dow===parts(first||d).dow; });
     /* two kinds of class on the page: the hero is about the Saturday, not one class */
     var twoKinds=!!(upS.length||skTbc.length);
+    var secC=$('sec-classes'); if(secC) secC.hidden=!twoKinds;
+    var pA=$('clsPriceA'); if(pA&&first) pA.textContent=first.priceLabel;
     var h1=$('clsH1'), sub=$('clsSub'), hb=$('clsHeroBtn');
     if(h1&&twoKinds){ h1.innerHTML='Saturday Handstand<br/>and Cali classes.'; h1.classList.add('h1-two'); if(sub) sub.textContent='At OverGravity, Shadwell. Handstands at 1pm, every level in one room, ninety minutes. Calisthenics at 11am, one skill a month, an hour in a small group.'; if(hb) hb.innerHTML='Book a class &rarr;'; }
     var hero=$('clsWhen');
@@ -1773,17 +1794,29 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       var done=up.filter(function(d){ return booked.indexOf(d.slug)>-1; });
       cards.classList.toggle('is-booked', !!booked.length);
       if(booked.length){
-        /* the dates as one line: "Saturday 10 October", or "Saturday 10 and Saturday 24 October" */
-        var hd=done.length>1 && parts(done[0]).m===parts(done[1]).m
-          ? esc(parts(done[0]).dow+' '+parts(done[0]).dd)+' and <em>'+esc(parts(done[1]).dow+' '+parts(done[1]).dd+' '+parts(done[1]).m)+'.</em>'
-          : done.length ? done.map(function(d,i){ return i===done.length-1 ? '<em>'+esc(long(d))+'.</em>' : esc(long(d))+' and '; }).join('') : 'Your place is <em>booked.</em>';
+        /* the days as one line, each named once: "Saturday 10 and Saturday 24
+           October". Two sessions on one Saturday read "Saturday 24 and Saturday
+           24 October", and a third date went missing (review, 22 Oct 2026) */
+        var days=[]; done.forEach(function(d){ if(days.indexOf(d.d)<0) days.push(d.d); });
+        var day0=days.map(function(k){ return done.filter(function(d){ return d.d===k; })[0]; });
+        var dayLab=day0.map(function(d,i){ var x=parts(d), nx=day0[i+1]?parts(day0[i+1]):null; return x.dow+' '+x.dd+(nx&&nx.m===x.m?'':' '+x.m); });
+        var hd=!done.length ? 'Your place is <em>booked.</em>'
+          : dayLab.length===1 ? '<em>'+esc(long(day0[0]))+'.</em>'
+          : esc(dayLab.slice(0,-1).join(', '))+' and <em>'+esc(dayLab[dayLab.length-1])+'.</em>';
+        /* the times: one if they are all the same, or each session's own */
+        var spans=[]; done.forEach(function(d){ var s=span(d); if(spans.indexOf(s)<0) spans.push(s); });
+        var kindOf=function(d){ return isSk(d)?'Calisthenics':'All Levels'; };
+        var whenTxt=spans.length<=1 ? (done[0]?span(done[0]):'')
+          : done.map(function(d){ return kindOf(d)+' '+span(d)+(days.length>1?', '+parts(d).dd+' '+parts(d).m.slice(0,3):''); }).join('; ');
+        var calLab=function(d){ var same=done.filter(function(x){ return x.d===d.d; }).length>1, dm=parts(d).dd+' '+parts(d).m.slice(0,3);
+          return same ? kindOf(d)+(days.length>1?' '+dm:'') : dm; };
         var MAP='https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB';
         cards.innerHTML='<div class="bk-done"><div class="bk-done-tick">&#10003;</div>'
           +'<div class="bk-done-kick">You are booked</div>'
           +'<h3 class="bk-done-h">'+hd+'</h3>'
-          +(done.length?'<p class="bk-done-when">'+esc(span(done[0]))+' at OverGravity, Shadwell<span>Arches 160 to 163, Sutton Street, London E1&nbsp;0DB</span></p>':'')
+          +(done.length?'<p class="bk-done-when">'+esc(whenTxt)+' at OverGravity, Shadwell<span>Arches 160 to 163, Sutton Street, London E1&nbsp;0DB</span></p>':'')
           +'<div class="bk-done-acts">'
-            +done.map(function(d){ return '<a class="bk-btn" href="/api/app/workshop/ics?slug='+esc(d.slug)+'">Add '+(done.length>1?esc(parts(d).dd+' '+parts(d).m.slice(0,3)):'it')+' to your calendar</a>'; }).join('')
+            +done.map(function(d){ return '<a class="bk-btn" href="/api/app/workshop/ics?slug='+esc(d.slug)+'">Add '+(done.length>1?esc(calLab(d)):'it')+' to your calendar</a>'; }).join('')
             +'<a class="bk-btn ghost" href="'+MAP+'" target="_blank" rel="noopener">Directions</a></div>'
           +'<p class="bk-done-note">'+(PAID&&PAID.state==='late'
             ? '<b>Your payment is safe.</b> Something on our side is slow, and Elliott has been told. He will email you'+(PAID.email?' at '+esc(PAID.email):'')+' today.'
@@ -1827,14 +1860,22 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(picked){ var fr0=up.filter(function(d){ return d.slug===picked.slug; })[0];
       if(fr0 && fr0!==picked){ var po=others(); picked=fr0; picked.others=po.map(function(o){ return up.filter(function(d){ return d.slug===o.slug; })[0]; }).filter(Boolean); syncPair(); } }
     if(up.length && !booked.length && (!picked || !up.some(function(d){ return d.slug===picked.slug; }))){
-      var j=0; for(var q=0;q<up.length;q++){ if(!up[q].full){ j=q; break; } }
+      /* the class asked for first (?class=calisthenics, from the home page and
+         the emails), then any with room: it opened on the first by time, so a
+         visitor who came for calisthenics got the All Levels form (review,
+         22 Oct 2026) */
+      var want=function(d){ return isSk(d)===(kindSel==='cali'); }, j=-1, q;
+      for(q=0;q<up.length&&j<0;q++) if(!up[q].full && want(up[q])) j=q;
+      for(q=0;q<up.length&&j<0;q++) if(want(up[q])) j=q;
+      for(q=0;q<up.length&&j<0;q++) if(!up[q].full) j=q;
+      if(j<0) j=0;
       inPanel=true; bookWs(j); inPanel=false; }
     /* the list arrived after the pick (the edge gave the page the dates, the
        fetch brought more): redraw what is picked against the new list */
     else if(picked && up.length && !booked.length) priceNow();
     var fine=$('clsFine'); if(fine){ fine.style.display='none';
       var open=up.filter(function(d){ return !d.full; });
-      fine.textContent=(MULTI>0 ? (open.length>1 && kindSel==='all' ? 'Book both '+(sameDay?parts(first).dow+'s':'dates')+' and save '+pounds(MULTI)+'. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
+      fine.textContent=(MULTI>0 ? (open.length>1 ? 'Book more than one and save '+pounds(MULTI)+'. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
         +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
     var pick=$('clsPick'); if(pick) pick.innerHTML=up.map(function(d,i){
       return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(d.tbc?skillName(d)+', date to be confirmed':long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('');
@@ -1935,6 +1976,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       var cur0=others();
       if(d.slug===picked.slug){ if(cur0.length){ var o=cur0[0], rest=cur0.slice(1), oi=up.indexOf(o); keepFields(function(){ inPanel=true; bookWs(oi); inPanel=false; picked.others=rest; syncPair(); priceNow(); }); } return; }
       if(cur0.some(function(o){ return o.slug===d.slug; })){ picked.others=cur0.filter(function(o){ return o.slug!==d.slug; }); syncPair(); priceNow(); return; }
+      /* one booking takes seven, as the server does: an eighth was charged for and dropped */
+      if(canPair(picked,d) && cur0.length>=6){ var mx=$('bkMsg'); if(mx){ mx.style.color='var(--terra)'; mx.textContent='Up to seven sessions in one booking. Book the rest in a second one.'; } return; }
       if(canPair(picked,d)){ picked.others=cur0.concat([d]); syncPair(); priceNow(); return; }
       keepFields(function(){ inPanel=true; bookWs(i); inPanel=false; }); }; });
     }
@@ -1943,7 +1986,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var note=$('bkDateNote');
     if(!note){ note=document.createElement('p'); note.id='bkDateNote'; note.className='bk-date-note'; $('segWhen').insertAdjacentElement('afterend',note); }
     var bits=[];
-    if(picked.coach) bits.push('Coached by '+esc(picked.coach)+' on '+esc(short(picked)));
+    if(picked.coach && !picked.tbc) bits.push('Coached by '+esc(picked.coach)+' on '+esc(short(picked)));
     if(picked.early) bits.push('<b>'+esc(picked.priceLabel)+' until '+esc(picked.early.by||'the end of '+picked.early.day)+'</b>, then '+esc(picked.early.thenLabel));
     note.innerHTML=bits.join('. ')+(bits.length?'.':''); note.hidden=!bits.length;
     /* Who: two of us needs two places on every date chosen */
@@ -1953,8 +1996,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     wb[0].className=two?'':'on'; wb[1].className=two?'on':''; wb[1].disabled=!canTwo;
     wb[0].setAttribute('aria-pressed', String(!two)); wb[1].setAttribute('aria-pressed', String(!!two));
     var dps=[picked.price].concat(os.map(function(o){ return o.price; }));
-    wb[0].innerHTML='Just me<small>'+esc(pounds(listCost(dps,1)))+'</small>';
-    wb[1].innerHTML='Two of us<small>'+(canTwo||two?esc(pounds(listCost(dps,2))):'Only one place left')+'</small>';
+    /* the one picked shows the price with any code on it, as the summary does */
+    wb[0].innerHTML='Just me<small>'+esc(pounds(two?listCost(dps,1):cost))+'</small>';
+    wb[1].innerHTML='Two of us<small>'+(canTwo||two?esc(pounds(two?cost:listCost(dps,2))):'Only one place left')+'</small>';
     wb[0].onclick=function(){ wantTwo=false; $('bkFr').checked=false; priceNow(); };
     wb[1].onclick=function(){ if(wb[1].disabled) return; wantTwo=true; $('bkFr').checked=true; priceNow(); setTimeout(function(){ $('bkFrName').focus(); },40); };
     /* the summary: what they are booking, and what it costs */
@@ -1965,7 +2009,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     if(!picked.tbc) $('bkSum').innerHTML='<div><b>'+esc(when)+'</b><span>'+esc(both?(1+os.length)+' sessions':span(picked))+' &middot; '+units+(units===1?' place':' places')+(two?', for you and one more':'')+'</span></div>'
       +'<div class="amt">'+(cost>0?esc(pounds(cost)):'Free')+(save>0?'<s>'+esc(pounds(full))+'</s>':'')
         +((codeOk && codeOk.key===pickKey())?'<small>with '+esc(code())+'</small>':'')+'</div>';
-    $('pickFS').textContent=(kindSel==='cali'?'Calisthenics Class, 11am to 12':'All Levels Handstand Class')+', at '+PLACE+'.';
+    /* what is picked, not the last class button pressed */
+    var kinds=[picked].concat(os).map(isSk), allS=kinds.every(Boolean), noS=!kinds.some(Boolean);
+    $('pickFS').textContent=(allS?'Calisthenics Class, 11am to 12':noS?'All Levels Handstand Class':'Saturday classes')+', at '+PLACE+'.';
   };
   /* switching date rebuilds the sheet; what has been typed stays */
   var keepFields=function(fn){
@@ -2191,7 +2237,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var others=function(){ return (picked&&picked.others)||[]; };
   var syncPair=function(){ $('bkPair').checked=others().length>0; };
   window.setClass=function(k,e){ if(e) e.preventDefault(); var sk=(k==='cali'||k==='calisthenics'||k==='skills'); kindSel=sk?'cali':'all';
-    var list=cur(), j=-1; for(var q=0;q<list.length;q++){ if(isSk(list[q])===sk){ j=q; break; } }
+    /* one of that class with room first, then any of it */
+    var list=cur(), j=-1, q; for(q=0;q<list.length&&j<0;q++) if(isSk(list[q])===sk && !list[q].full) j=q;
+    for(q=0;q<list.length&&j<0;q++) if(isSk(list[q])===sk) j=q;
     $('bkPair').checked=false; $('bkFr').checked=false; wantTwo=false; codeOk=null;
     if(j>-1){ up=list; keepFields(function(){ inPanel=true; bookWs(j); inPanel=false; }); } else render();
     var t0=$('book'); if(t0&&e) t0.scrollIntoView({behavior:'smooth',block:'start'}); return false; };

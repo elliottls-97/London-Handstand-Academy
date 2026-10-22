@@ -11974,7 +11974,7 @@ function wsAct(slug, email, session, action, extra){
         if(action==='edit'||action==='cancel'||action==='move') bkRow='';
         flash(action==='arrived'?'Marked arrived':action==='noshow'?'Marked no show':action==='unmark'?'Cleared':action==='move'?'Moved, and emailed'
           :action==='edit'?'Saved':action==='resend'?'Sent them their booking again'
-          :action==='refund'?'Refunded £'+((d.refunded||0)/100).toFixed(2).replace(/\.00$/,'')+', and emailed'
+          :action==='refund'?'Refunded £'+((d.refunded||0)/100).toFixed(2).replace(/\.00$/,'')+(d.creditVoided?', their credit '+d.creditVoided+' cancelled':'')+', and emailed'
           :d.refunded?'Cancelled, £'+(d.refunded/100).toFixed(2).replace(/\.00$/,'')+' refunded, and emailed':'Cancelled, and emailed');
         draw(); })
       .catch(e=>{ wsBusyRow=''; draw(); alert(String(e)); }); };
@@ -12061,7 +12061,9 @@ function bkIntentDrop(slug,email){
   if(!confirm('Take '+email+' off the reminders for this class?')) return;
   fetch(API+'/workshop/intent',{method:'POST',headers:hdr(),body:JSON.stringify({slug,email})})
     .then(r=>r.ok?r.json():Promise.reject('Could not remove them'))
-    .then(()=>{ (wshops||[]).forEach(w=>{ if(w.slug===slug) w.intents=(w.intents||[]).filter(x=>x.email!==email); }); flash('Removed'); draw(); })
+    .then(()=>{ const off=w=>{ if(w&&(w.slug===slug||w.was===slug)) w.intents=(w.intents||[]).filter(x=>x.email!==email); };
+      /* the open editor holds its own copy, so the row goes there too */
+      (wshops||[]).forEach(off); off(wsf); flash('Removed'); draw(); })
     .catch(e=>alert(String(e)));
 }
 function bkAdd(slug){
@@ -12471,8 +12473,11 @@ function bookingsPageHTML(){
 }
 function workshopsHTML(){
   wsLoad();
-  if(wsOpen&&wsf){ const w=wsf; const lp=londonParts(w.when||new Date());
-    /* London time, as it is read back (13 Oct 2026) */
+  if(wsOpen&&wsf){ const w=wsf;
+    /* London time, as it is read back (13 Oct 2026). No date stays no date:
+       filling the boxes with today meant any Save dated it today, and the
+       waiting list was emailed that date (22 Oct 2026) */
+    const lp=w.when?londonParts(w.when):{d:'',t:''};
     const dateV=lp.d, timeV=lp.t;
     return `<div class="card">
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
