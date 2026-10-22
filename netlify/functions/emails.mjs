@@ -785,9 +785,9 @@ const gap = '<tr><td style="height:16px;line-height:16px">&nbsp;</td></tr>';
 const P = t => `<p style="margin:0 0 16px;font:400 17px/1.65 ${FS};color:#2b2f2e">${t}</p>`;
 const blockHTML = {
   hero: b => `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
-    <tr><td class="pad" style="background:#00403d;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:28px 36px 34px">
+    <tr><td class="pad" style="background:#00403d;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:${b.compact ? '18px 30px 22px' : '28px 36px 34px'}">
       ${kick(b.kicker, '#8fbeca')}
-      <div class="h1" style="font:400 40px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
+      <div class="h1" style="font:400 ${b.compact ? 32 : 40}px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
       ${pill(b.btn, true)}</td></tr>`,
   card: b => `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:34px 36px 20px">
       ${kick(b.kicker, '#006663')}
@@ -909,7 +909,8 @@ export function offerEmail(T, x, site) {
   const book = { label: 'Book for ' + x.now + ' with ' + x.code, sub: String(x.when || '').split(', ')[0] + (x.left ? ` · ${x.left} left` : ''), href: x.href || `${S}/handstand-class?src=offer#book` };
   return richEmail({ title: T.title, preheader: `Code ${x.code} takes ${x.off} off: ${x.now} instead of ${x.price}, until ${x.until}.`,
     blocks: [
-      { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href,
+      /* the photo trimmed top and bottom, and a smaller green panel (Elliott, 22 Oct 2026) */
+      { t: 'hero', img: `${S}/assets/site/class-photo-email.jpg`, alt: 'The last class at OverGravity, everyone upside down', href: book.href, compact: true,
         kicker: x.left ? `${x.left} place${x.left === 1 ? '' : 's'} left` : 'In person, London', head: T.title, btn: book },
       { t: 'card', greeting: x.first, paras: T.paras,
         points: [[escH(x.now), 'With code<br>' + escH(x.code)], ['&#8597;&#65038;', 'Grouped<br>by level'],
