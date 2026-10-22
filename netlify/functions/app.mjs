@@ -13776,6 +13776,25 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        One call for anything Today counts since a moment: messages you
        do not need to answer, what they told you, check points logged,
        sessions finished, flags. */
+    /* Today's items dealt with somewhere else (a reply on WhatsApp, a clip
+       looked at in person): Clear on Today keeps them off until something
+       newer comes in. Per coach, by item id, the time it was cleared; kept
+       120 days (Elliott, 22 Oct 2026). */
+    if (path === '/coach/todaydone') {
+      const who = (await me()) || 'coach', k = `todaydone:${who}`;
+      if (request.method === 'GET') return json({ done: (await getSetting(k)) || {} });
+      if (request.method === 'POST') {
+        const ids = (Array.isArray(body.ids) ? body.ids : []).map(x => String(x || '').slice(0, 160)).filter(Boolean).slice(0, 400);
+        if (!ids.length) return json({ error: 'Nothing to clear' }, 400);
+        const now = Date.now(); let done = {};
+        await changeSetting(k, cur => { const d = Object.assign({}, cur || {});
+          for (const id of ids) d[id] = now;
+          for (const id of Object.keys(d)) if (now - Number(d[id]) > 120 * 864e5) delete d[id];
+          done = d; return d; });
+        return json({ ok: true, done });
+      }
+      return json({ error: 'Nope' }, 405);
+    }
     if (path === '/coach/seen' && request.method === 'POST') {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);

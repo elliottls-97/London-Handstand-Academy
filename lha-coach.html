@@ -567,7 +567,7 @@ function load(){
     .then(d=>{ clients=d.clients||[]; clientsLoaded=true;
       owner = d.youAreOwner !== false;
       notMe();
-      loadQueue(); loadApps(); loadQuestions(); loadFeedback(); loadSessions(); loadStarting();
+      loadQueue(); loadApps(); loadQuestions(); loadFeedback(); loadSessions(); loadStarting(); loadTodayDone();
       if(mailguard===null) loadMailguard();
       COACHES.clear(); clients.forEach(c=>{ if(c.coach) COACHES.add(c.coach); });
       if(!sel&&clients.length) sel=clients[0].email; draw();
@@ -968,6 +968,32 @@ function homeStep(){
    refresh that set off before the server had it must not put it back */
 const clearedLocal={};
 function markCleared(email, kinds){ const t=Date.now(); kinds.forEach(k=>{ clearedLocal[email+'|'+k]=t; }); }
+/* Today items cleared by hand, by id, with when: anything newer comes back */
+let todayClr={};
+function loadTodayDone(){ fetch(API+'/todaydone',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d&&d.done){ todayClr=d.done; draw(); } }).catch(()=>{}); }
+/* clear a set of Today items the right way for each: a message as answered,
+   training news as seen, everything else on the done list */
+function todayClear(items, say){
+  const seenKind={said:'said', logged:'cp', trained:'trained', flag:'flags'};
+  const byEmail={}, ids=[];
+  items.forEach(r=>{
+    if(r.type==='message' && r.email){ (byEmail[r.email]=byEmail[r.email]||new Set()).add('msg'); markCleared(r.email,['msg']); }
+    else if(seenKind[r.type] && r.email){ (byEmail[r.email]=byEmail[r.email]||new Set()).add(seenKind[r.type]);
+      markCleared(r.email,[{said:'said',logged:'cplog',trained:'trained',flag:'flag'}[r.type]]); if(r.type==='flag'&&prog[r.email]) prog[r.email].flagSeen=Date.now(); }
+    else ids.push(r.id);
+  });
+  const now=Date.now(); ids.forEach(id=>{ todayClr[id]=now; });
+  const gone=new Set(items.map(r=>r.email+'|'+r.type));
+  queue=queue.filter(q=>{ const t={msg:'message',said:'said',cplog:'logged',trained:'trained'}[q.kind]; return !(t && gone.has(q.email+'|'+t)); });
+  inboxRow=''; draw();
+  const calls=Object.keys(byEmail).map(e=>fetch(API+'/seen',{method:'POST',headers:hdr(),body:JSON.stringify({email:e,what:[...byEmail[e]]})}).then(sendOK));
+  if(ids.length) calls.push(fetch(API+'/todaydone',{method:'POST',headers:hdr(),body:JSON.stringify({ids})}).then(sendOK));
+  Promise.all(calls).then(()=>flash(say||'Cleared')).catch(()=>{ flash('Some of that did not save. Try again.'); loadQueue(); loadTodayDone(); });
+}
+function todayClearPerson(key){ const p=todayPeople().find(x=>'p:'+(x.email||x.items[0].id)===key); if(p) todayClear(p.items, 'Cleared '+esc(firstName(p.email)||p.name)); }
+function todayClearOld(){ const old=inboxItems().filter(r=>Date.now()-(r.at||0)>14*864e5);
+  if(!old.length) return; if(!confirm('Clear '+old.length+' item'+(old.length===1?'':'s')+' older than two weeks from Today? Anything new from those people comes back.')) return;
+  todayClear(old, 'Cleared '+old.length+' old item'+(old.length===1?'':'s')); }
 function loadQueue(){
   queueAt=Date.now();
   fetch(API+'/queue',{headers:hdr()})
@@ -1308,7 +1334,7 @@ function funnelHTML(){
    The dashboard showed coaching clients and enquiries, which is a handful
    of people. Everybody who did the quiz, used the free ladder and drifted
    off was invisible, and that is the whole top of the funnel. */
-let leads=null, leadQ='', leadSort='last', grantBusy='', leadErr='', leadsAsked=false;
+let leads=null, leadQ='', leadSort='last', grantBusy='', leadErr='', leadsAsked=false, leadsOpen=false;
 function loadLeads(force){
   if(leadsAsked && !force) return;
   leadsAsked=true;
@@ -1380,8 +1406,10 @@ function leadsHTML(){
         padding:9px 11px;font:400 13.5px/1 var(--sans);background:#fff">
       ${sortBtn('last','Last seen')}${sortBtn('first','Newest')}
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
-      ${rows.map(a=>{
+    ${!q && !leadsOpen ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="leadsOpen=true;draw()">Show all ${leads.length} accounts</button>`
+    : `<div style="display:flex;justify-content:flex-end;margin-top:10px">${!q?`<button class="ghostlink" onclick="leadsOpen=false;draw()">Fold the list away</button>`:''}</div>`}
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px"${!q && !leadsOpen?' hidden':''}>
+      ${(!q && !leadsOpen ? [] : rows).map(a=>{
         const isC=coachedSet.has(a.email), busy=grantBusy===a.email;
         const tag=(t,c)=>`<span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
           border-radius:999px;padding:4px 8px;background:${c}1a;color:${c}">${t}</span>`;
@@ -8332,19 +8360,26 @@ function headerHTML(){
   /* a second coach has their clients, the review tool and the library to
      write from; bookings, the website and the newsletter are Elliott's
      (17 Oct 2026) */
-  const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],['bookings','Bookings',0],
-               ['review','Review',reviewQueue.length],
-               ['library','Library',0],['site','Website',0],['news','Newsletter',0],['settings','Settings',0]]
+  /* the daily ones, then the rest after a divider, then Settings on its own
+     with a gear, so it is always at the end of the bar and easy to find
+     (Elliott, 22 Oct 2026: "I can't find settings sometimes") */
+  const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
+               ['review','Review',reviewQueue.length],['bookings','Bookings',0],
+               ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0]]
     .filter(([id])=>owner || !['bookings','site','news'].includes(id));
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
       cursor:pointer;font:400 30px/1 var(--serif);color:var(--ink);margin-right:auto">Coach<span
       style="color:var(--forest)">.</span></button>
     <nav style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-      ${items.map(([id,label,c])=>`<button class="navbtn" onclick="go('${id}')"
+      ${items.map(([id,label,c])=>id==='|'?'<span aria-hidden="true" style="width:1px;height:22px;background:var(--line);margin:0 6px"></span>':`<button class="navbtn" onclick="go('${id}')"
         style="background:${active===id?'var(--forest)':'transparent'};
         color:${active===id?'#fff':'var(--ink)'}">${label}${
         c?`<span class="n">${c}</span>`:''}</button>`).join('')}
+      <span aria-hidden="true" style="width:1px;height:22px;background:var(--line);margin:0 6px"></span>
+      <button class="navbtn" onclick="go('settings')" style="display:inline-flex;align-items:center;gap:7px;border:1.5px solid ${active==='settings'&&setTab!=='alerts'?'var(--forest)':'var(--line)'};
+        background:${active==='settings'&&setTab!=='alerts'?'var(--forest)':'#fff'};color:${active==='settings'&&setTab!=='alerts'?'#fff':'var(--ink)'}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
       <!-- your own notifications, one tap from anywhere rather than a tab
            inside Settings -->
       <button class="navbtn" onclick="go('settings');setGo('alerts')" title="Your notifications" aria-label="Your notifications"
@@ -8557,7 +8592,8 @@ function inboxItems(){
       detail:'Applied for 1:1 coaching'+(A.level?' · '+A.level:'')
         +(A.days||A.commitment?' · '+(A.days||A.commitment):'')+(A.injuries?' · '+clip(A.injuries,40):'')});
   });
-  return out.map(x=>({...x, hrs:Math.round((Date.now()-(x.at||0))/3600000)}))
+  return out.filter(x=>!(todayClr[x.id] && (x.at||0)<=todayClr[x.id]))
+            .map(x=>({...x, hrs:Math.round((Date.now()-(x.at||0))/3600000)}))
             .sort((a,b)=>b.hrs-a.hrs);
 }
 
@@ -8917,7 +8953,8 @@ function personCardHTML(p, cat){
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
       ${chev}
     </header>
-    <div class="tcard-sum" onclick="cardToggle(${jsq(key)})" style="cursor:pointer">${sum}</div>
+    <div class="tcard-sum" style="display:flex;gap:10px;align-items:center"><span onclick="cardToggle(${jsq(key)})" style="cursor:pointer;flex:1;min-width:0">${sum}</span>
+      <button class="ghostlink" style="flex:none;color:var(--grey)" onclick="todayClearPerson(${jsq(key)})" title="Dealt with already: off Today until something new comes in">Clear</button></div>
   </article>`;
   return `<article class="tcard open" data-k="${esc(key)}">
     <header class="tcard-h fold" role="button" aria-expanded="true" onclick="cardToggle(${jsq(key)})">
@@ -8929,10 +8966,10 @@ function personCardHTML(p, cat){
       ${chev}
     </header>
     <div class="tlines">${lines.map(lineHTML).join('')}</div>
-    ${c?`<footer class="tcard-f">
-      <button class="btn btn-secondary btn-sm" onclick="openClient(${jsq(p.email)},'thread')">Open ${esc(firstName(p.email))}</button>
-      ${seenable?`<button class="btn btn-ghost btn-sm" onclick="seenAll(${jsq(p.email)})">Mark everything here as seen</button>`:''}
-    </footer>`:''}
+    <footer class="tcard-f">
+      ${c?`<button class="btn btn-secondary btn-sm" onclick="openClient(${jsq(p.email)},'thread')">Open ${esc(firstName(p.email))}</button>`:''}
+      <button class="btn btn-ghost btn-sm" onclick="todayClearPerson(${jsq(key)})" title="Dealt with already: off Today until something new comes in">Clear, dealt with</button>
+    </footer>
   </article>`;
 }
 /* the dashboard can tell you as it happens: said once, where it is useful */
@@ -9044,7 +9081,8 @@ function todayHTML(){
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
     <p class="muted" style="font-size:13px;margin:0 0 var(--space-1)">${esc(date)}</p>
-    <h1 style="margin:0 0 var(--space-4)">${calm}</h1>
+    <h1 style="margin:0 0 var(--space-2)">${calm}</h1>
+    ${(n=>n?`<p style="margin:0 0 var(--space-4)"><button class="ghostlink" onclick="todayClearOld()">Clear ${n} item${n===1?'':'s'} older than two weeks</button></p>`:'<div style="height:var(--space-2)"></div>')(all.filter(r=>Date.now()-(r.at||0)>14*864e5).length)}
     ${sessionsStripHTML()}
     ${pushNudgeHTML()}
     ${startingHTML()}
