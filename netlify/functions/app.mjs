@@ -3442,6 +3442,8 @@ const handle = async (request) => {
     session60: { label: '£80',  amount: 8000 },     /* one-off, paid on the session page */
     session90: { label: '£100', amount: 10000 },
     trialDays: 7,
+    /* coaching paid three months at a time: this much off the coaching part */
+    coachQPct: 10,
     note: 'The price goes up as the ladder fills out. Join now and yours does not.',
   };
   const PRICES = (() => {
@@ -3654,6 +3656,23 @@ const handle = async (request) => {
     inperson: 'online', inperson2: 'online', inperson4: 'online', inner: 'inner', inneronline: 'inner' };
   /* London sessions a month that come with a plan */
   const LONDON = { inperson: 1, inperson2: 2, inperson4: 4, inner: 1 };
+  /* ── coaching paid three months at a time (Elliott, 22 Oct 2026) ─────
+     10% off the coaching for three months up front, renewing every three
+     months. The London sessions stay at their full price, as the coaching
+     plan says they always do. A price set in the dashboard (onlineq and so
+     on) wins; otherwise it is worked out from the monthly one. */
+  const COACH_Q = ['online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline'];
+  const coachQ = k => {
+    const set = PRICES_STORED && PRICES_STORED[k + 'q'];
+    if (set && Number(set.amount) > 0) return { amount: Math.round(Number(set.amount)), label: set.label || '£' + (Number(set.amount) / 100).toFixed(2).replace(/\.00$/, '') };
+    const month = Number(PRICES[k] && PRICES[k].amount) || 0;
+    if (!(month > 0)) return { amount: 0, label: '' };
+    const pct = Math.max(0, Math.min(50, Number(PRICES.coachQPct != null ? PRICES.coachQPct : 10) || 0));
+    const sessions = (LONDON[k] || 0) * (Number(PRICES.session && PRICES.session.amount) || 7000);
+    const coachPart = Math.max(0, month - sessions);
+    const amount = Math.round((3 * month - 3 * coachPart * pct / 100) / 100) * 100;
+    return { amount, label: '£' + (amount / 100).toFixed(2).replace(/\.00$/, ''), save: 3 * month - amount };
+  };
   /* what somebody is paying for, in words: the coach was told every
      cancellation was "their £5 subscription", coaching included */
   const planName = async who => {
@@ -4298,6 +4317,7 @@ const handle = async (request) => {
       const amt = Number(PRICES[k] && PRICES[k].amount);
       if (amt > 0) byAmount[amt] = ({ inperson: 'online', inperson2: 'online', inperson4: 'online', inneronline: 'inner', plusq: 'plus', plusy: 'plus' })[k] || k;
     }
+    for (const k of COACH_Q) { const q = coachQ(k).amount; if (q > 0 && !byAmount[q]) byAmount[q] = TIER[k]; }
     const amountOf = o => {
       if (o.amount_total != null) return Number(o.amount_total);
       /* the price on the invoice's line, not what a code left of it: a £0
@@ -4525,6 +4545,8 @@ const handle = async (request) => {
          amount: the £250 two-sessions plan renewed as the Inner Circle */
       const boughtPlan = (!isCheckout && storedPlan && TIER[storedPlan.plan]) ? TIER[storedPlan.plan] : planOf(obj);
       const variant = (!isCheckout && storedPlan && storedPlan.variant) ? storedPlan.variant : variantOf(obj);
+      /* paid three months at a time: three months of London sessions each time */
+      const quarterly = isCheckout ? !!(obj.metadata && obj.metadata.period === 'quarter') : !!(storedPlan && storedPlan.period === 'quarter');
       /* ── form checks, £35 a month: what state the subscription is in,
          for the gate. Its own setting: the account's plus flag is also
          set by codes and by Apple, so it cannot say this. */
@@ -4595,15 +4617,16 @@ const handle = async (request) => {
         return json({ ok: true, credit: true });
       }
       if (boughtPlan && (isCheckout || !storedPlan || !storedPlan.plan)) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, variant, at: Date.now(),
+        ...(quarterly ? { period: 'quarter' } : {}),
         ...(isCheckout ? { paid: Number(obj.amount_total) || 0, ...(codeNote(obj) ? { code: codeNote(obj) } : {}) } : {}) });
       /* each month a plan with London sessions renews, that month's go on
          Today, once per invoice */
       if (ev.type === 'invoice.paid' && obj.billing_reason === 'subscription_cycle' && (LONDON[variant] || 0) > 0
           && ['online', 'inner'].includes(boughtPlan)) {
-        const nL = LONDON[variant];
+        const nL = LONDON[variant] * (quarterly ? 3 : 1);
         if (await addLondon(acct.email, acct.name || clients()[acct.email] || '', nL, obj.id || ('inv' + Date.now()), variant)) {
           await coachAlert(acct.email, 'business', { title: `London session${nL > 1 ? 's' : ''} to arrange: ${acct.name || acct.email}`,
-            body: `Their ${variant === 'inner' ? 'Inner Circle' : 'coaching'} renewed. ${nL} on Today, waiting for a time.`, tag: 'london:' + acct.email });
+            body: `Their ${variant === 'inner' ? 'Inner Circle' : 'coaching'} renewed${quarterly ? ' for three months' : ''}. ${nL} on Today, waiting for a time.`, tag: 'london:' + acct.email });
         }
       }
       /* the free week turning into a paid month told the coach nothing */
@@ -4815,7 +4838,7 @@ const handle = async (request) => {
         /* the name Stripe has, for an account a subscription event made first */
         const nmStripe = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
         if (!acct.name && nmStripe) { acct.name = nmStripe; try { await saveAcct({ email: e2, name: nmStripe }); } catch {} }
-        const london = LONDON[variant] || 0;
+        const london = (LONDON[variant] || 0) * (quarterly ? 3 : 1);
         /* a past client paying for coaching again is a client again, and is
            welcomed as one rather than skipped for being on the roster */
         const pastNow = (await getSetting('pastclients')) || {};
@@ -5759,6 +5782,8 @@ const handle = async (request) => {
     inneronline: { label: (PRICES.inneronline||{}).label || '£250' },
     inperson2: { label: (PRICES.inperson2||{}).label || '' }, inperson4: { label: (PRICES.inperson4||{}).label || '' },
     session: { label: (PRICES.session||{}).label || '£70' },
+    /* each coaching plan paid three months at a time, with what it saves */
+    quarter: Object.fromEntries(COACH_Q.map(k => [k, coachQ(k)]).filter(([, q]) => q.amount > 0)),
     session60: { label: PRICES.session60.label, amount: Number(PRICES.session60.amount) || 0 },
     session90: { label: PRICES.session90.label, amount: Number(PRICES.session90.amount) || 0 },
     sessPacks: SESS_PACKS,
@@ -5818,6 +5843,8 @@ const handle = async (request) => {
       for (const k of ['plus', 'plusq', 'plusy', 'check', 'checks', 'checksadd', 'online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline', 'session', 'session60', 'session90']) next[k] = tier(k);
       const td = Number(body.prices && body.prices.trialDays);
       next.trialDays = Number.isFinite(td) ? Math.max(0, Math.min(30, Math.round(td))) : 7;
+      const qp = Number(body.prices && body.prices.coachQPct);
+      next.coachQPct = Number.isFinite(qp) ? Math.max(0, Math.min(50, Math.round(qp))) : (PRICES_STORED && PRICES_STORED.coachQPct != null ? PRICES_STORED.coachQPct : 10);
       if (typeof (body.prices || {}).note === 'string') next.note = body.prices.note.trim().slice(0, 160);
       await setSetting('prices', next);
       PRICES_STORED = next;
@@ -6012,6 +6039,37 @@ const handle = async (request) => {
     return json({ ok: true, found: !!who, active: r.active });
   }
 
+  /* ── three months of coaching from the website ─────────────────────
+     The monthly plans are Stripe payment links. Three months is a checkout
+     made here instead, so no new link has to be made in Stripe; like a
+     link it needs no sign-in, and the webhook makes the account as it does
+     for a link. */
+  if (path === '/coaching/checkout' && request.method === 'POST') {
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`coq:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
+    const k = String(body.plan || '');
+    const q = COACH_Q.includes(k) ? coachQ(k) : { amount: 0 };
+    if (!(q.amount > 0) || !stripeKey()) return json({ error: 'That one is not switched on yet' }, 503);
+    const nameQ = { online: 'Online coaching', inperson: 'Coaching with a London session', inperson2: 'Coaching with two London sessions',
+      inperson4: 'Coaching with four London sessions', inner: 'The Inner Circle', inneronline: 'The Inner Circle, online' }[k];
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'subscription',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(q.amount),
+        'line_items[0][price_data][recurring][interval]': 'month',
+        'line_items[0][price_data][recurring][interval_count]': '3',
+        'line_items[0][price_data][product_data][name]': nameQ + ', three months at a time',
+        'line_items[0][quantity]': '1',
+        'metadata[plan]': k, 'metadata[period]': 'quarter', 'metadata[src]': 'site',
+        'subscription_data[metadata][plan]': k, 'subscription_data[metadata][period]': 'quarter',
+        'custom_text[submit][message]': 'Renews every three months at this price. Cancel any time before the next payment; a three months already paid is not refunded part way.',
+        success_url: `${url.origin}/lha-app.html?joined=coaching&cs={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${url.origin}/#coaching`,
+      });
+      return json({ url: sess.url });
+    } catch (err) { return json({ error: String(err.message || err) }, 502); }
+  }
   if (path === '/checkout' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -6025,8 +6083,9 @@ const handle = async (request) => {
        entitlement. The app sends the period; the plan stays 'plus'. */
     /* only a period that is on sale: quarterly and yearly were still taken
        here, and every message after called them £10 a month */
-    if (body.period && !LADDER_PERIODS.includes(body.period)) return json({ error: 'That one is not switched on yet' }, 503);
-    const period = LADDER_PERIODS.includes(body.period) ? body.period : 'month';
+    const coachQuarter = body.period === 'quarter' && COACH_Q.includes(planKey) && coachQ(planKey).amount > 0;
+    if (body.period && !coachQuarter && !LADDER_PERIODS.includes(body.period)) return json({ error: 'That one is not switched on yet' }, 503);
+    const period = coachQuarter ? 'quarter' : LADDER_PERIODS.includes(body.period) ? body.period : 'month';
     if (planKey === 'plus' && period === 'quarter') planKey = 'plusq';
     if (planKey === 'plus' && period === 'year') planKey = 'plusy';
     const plan = PLANS[planKey];
@@ -6093,14 +6152,15 @@ const handle = async (request) => {
        the dashboard sets, billed as the plan is. */
     /* form checks on top of a Ladder already paid for: £25, beside it */
     const addon = planKey === 'checks' && await ladderPaid(who);
-    const pRow = (addon ? PRICES.checksadd : PRICES[planKey]) || {};
+    /* three months of coaching is always priced here, never the monthly price id */
+    const pRow = coachQuarter ? { amount: coachQ(planKey).amount } : (addon ? PRICES.checksadd : PRICES[planKey]) || {};
     const inline = !(pRow.priceId) && Number(pRow.amount) > 0;
     const INLINE_NAME = { plus: 'The Handstand Ladder', plusq: 'The Handstand Ladder, every three months', plusy: 'The Handstand Ladder, yearly',
       check: 'A form check', checks: 'Form checks, one every fortnight, with the Handstand Ladder',
       online: 'Online coaching', inperson: 'Coaching with a London session',
       inperson2: 'Coaching with two London sessions', inperson4: 'Coaching with four London sessions',
       inner: 'The Inner Circle', inneronline: 'The Inner Circle, online' };
-    const every = planKey === 'plusy' ? { interval: 'year', n: 1 } : planKey === 'plusq' ? { interval: 'month', n: 3 } : { interval: 'month', n: 1 };
+    const every = planKey === 'plusy' ? { interval: 'year', n: 1 } : (planKey === 'plusq' || coachQuarter) ? { interval: 'month', n: 3 } : { interval: 'month', n: 1 };
     if (!stripeKey() || (!plan.price() && !inline)) {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
@@ -6124,12 +6184,14 @@ const handle = async (request) => {
           'line_items[0][price_data][unit_amount]': String(Math.round(Number(pRow.amount))),
           ...(plan.mode === 'subscription' ? { 'line_items[0][price_data][recurring][interval]': every.interval,
             'line_items[0][price_data][recurring][interval_count]': String(every.n) } : {}),
-          'line_items[0][price_data][product_data][name]': addon ? 'Form checks, one every fortnight, added to your Ladder' : (INLINE_NAME[planKey] || 'London Handstand Academy'),
+          'line_items[0][price_data][product_data][name]': addon ? 'Form checks, one every fortnight, added to your Ladder'
+            : (INLINE_NAME[planKey] || 'London Handstand Academy') + (coachQuarter ? ', three months at a time' : ''),
         } : { 'line_items[0][price]': plan.price() }),
         'line_items[0][quantity]': '1',
         'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
         /* its renewals and changes then name the plan themselves */
         ...(planKey === 'checks' ? { 'subscription_data[metadata][plan]': 'checks' } : {}),
+        ...(coachQuarter ? { 'subscription_data[metadata][plan]': planKey, 'subscription_data[metadata][period]': 'quarter' } : {}),
         ...(addon ? { 'metadata[variant]': 'addon', 'subscription_data[metadata][variant]': 'addon' } : {}),
         'metadata[period]': period,
         ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?${back}&cs={CHECKOUT_SESSION_ID}` } : {}),

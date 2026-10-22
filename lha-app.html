@@ -21500,6 +21500,25 @@ function buyPlan(k){
       if(b){ b.disabled=false; b.textContent='Try again'; }
       toast(say); });
 }
+/* coaching paid three months at a time, 10% off the coaching (22 Oct
+   2026): signed in, the app's own checkout; signed out, the website's,
+   which needs no account, as the monthly payment links need none */
+const quarterOf = k => (((st.prices||{}).quarter||{})[k]) || null;
+function buyPlanQ(k){
+  if(!sells()){ openOv('members'); return; }
+  const q=quarterOf(k); if(!q) return;
+  const b=document.getElementById('buyq-'+k);
+  if(b){ b.disabled=true; b.textContent='Opening checkout…'; }
+  track('checkout');
+  fetch(st.token?AUTH.checkout:'/api/app/coaching/checkout',{method:'POST',headers:st.token?authed():{'Content-Type':'application/json'},
+    body:JSON.stringify({plan:k, period:'quarter'})})
+    .then(r=>r.json().catch(()=>({})))
+    .then(d=>{ if(d.url){ if(!leaveTo(d.url)) throw new Error('frame'); } else throw new Error(d.error||''); })
+    .catch(e=>{ const m=String((e&&e.message)||'');
+      if(b){ b.disabled=false; b.textContent='Try again'; }
+      toast(m==='frame'?'Your browser blocked it. Open the app in its own tab.'
+        :(m && !/Failed to fetch|Load failed|NetworkError|JSON/i.test(m))?m:'Could not open checkout. Check you are online, then try again.'); });
+}
 function pricingCard(){
   if(plansOn===null) loadPlans();
   const on=plansOn||[];
@@ -21730,7 +21749,11 @@ function coPanelHTML(pick){
             : 'Apply for coaching &rarr;';
           return `<button onclick="${go}" ${loading?'disabled':''} ${(!inner && buyable(pick))?`id="buy-${coBuyKey(pick)}"`:''}
           style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
-          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${label}</button>`; })()}
+          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${label}</button>`
+          + ((!inner && !loading && buyable(pick) && quarterOf(coBuyKey(pick))) ? (function(){ const q=quarterOf(coBuyKey(pick));
+              return `<button id="buyq-${coBuyKey(pick)}" onclick="buyPlanQ('${coBuyKey(pick)}')" style="width:100%;margin-top:8px;min-height:44px;
+                border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;background:transparent;
+                color:var(--on-primary);font:600 13.5px/1 var(--sans)">Or ${esc(q.label)} every three months${q.save>0?', save £'+(q.save/100).toFixed(2).replace(/\.00$/,''):''}</button>`; })() : ''); })()}
         ${(!buyable(pick) && pick.k!=='inner' && sess && (plansOn||[]).indexOf('online')>-1)?`
         <button id="buy-online" onclick="buyPlan('online')" style="width:100%;margin-top:8px;min-height:44px;
           border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;

@@ -3069,6 +3069,8 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
         <a href="#" id="coApply" class="co-btn-primary" onclick="openQuiz(event,'programme')">Apply for coaching →</a>
         <p class="co-apply-note">Two minutes. I read every one and reply within 48 hours.</p>
         <a href="https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00" id="coBuy" class="co-btn-ghost" target="_blank" rel="noopener" style="display:block;width:100%;text-align:center;box-sizing:border-box">Start now, £120/mo →</a>
+        <!-- three months up front, 10% off the coaching (22 Oct 2026); shown once the price arrives -->
+        <a href="#" id="coBuyQ" class="co-call-link" onclick="buyQuarter(event)" hidden></a>
         <a href="#coCall" class="co-call-link" onclick="goToCall(event)">Or ask first: a free 15 minute call</a>
       </div>
     </div>
@@ -5134,6 +5136,25 @@ var CO_PLANS = {
   }
 };
 var coKey = 'self', coSessOn = false;
+/* three months up front: the same coaching, 10% off it, renewing every
+   three months, through a checkout the server makes (the monthly plans are
+   payment links) */
+function paintQuarter() {
+  var a = document.getElementById('coBuyQ'); if (!a) return;
+  var q = ((window.LHA_PRICES || {}).quarter || {})[coSessOn ? 'inperson' : 'online'];
+  if (!q || !q.amount || coKey !== 'self') { a.hidden = true; return; }
+  a.hidden = false;
+  a.textContent = 'Or ' + q.label + ' every three months' + (q.save > 0 ? ', save \u00a3' + (q.save / 100).toFixed(2).replace(/\.00$/, '') : '');
+}
+function buyQuarter(e) {
+  if (e) e.preventDefault();
+  var a = document.getElementById('coBuyQ'); if (!a || a.dataset.busy) return;
+  var was = a.textContent; a.dataset.busy = '1'; a.textContent = 'Opening the payment page\u2026';
+  fetch('/api/app/coaching/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: coSessOn ? 'inperson' : 'online' }) })
+    .then(function (r) { return r.json().then(function (d) { return r.ok && d.url ? d : Promise.reject(d.error); }); })
+    .then(function (d) { try { if (window.LHA && LHA.track) LHA.track('sitecheckout', { period: 'quarter' }); } catch (x) {} location.href = d.url; })
+    .catch(function () { delete a.dataset.busy; a.textContent = 'Could not open the payment page. Tap to try again.'; setTimeout(function(){ a.textContent = was; }, 4000); });
+}
 function toggleSess() {
   coSessOn = !coSessOn;
   var sw = document.getElementById('coSess');
@@ -5178,6 +5199,7 @@ function pickPlan(key) {
   var per = document.getElementById('coPer');
   if (per) per.textContent = coSessOn ? '/ month, session included' : '/ month';
   document.getElementById('coNote').textContent = coSessOn ? p.noteSess : p.note;
+  paintQuarter();
   var buy = document.getElementById('coBuy');
   buy.href = (coSessOn && p.buySess) ? p.buySess : p.buy;
   buy.textContent = (coSessOn && p.buyLabelSess) ? p.buyLabelSess : p.buyLabel;
@@ -5271,7 +5293,7 @@ window.addEventListener('resize', function () {
 /* the prices come from the dashboard, so the page reads them rather than
    carrying its own copy; what is written in the HTML is the fallback */
 (function(){ try{ fetch('/api/app/plans').then(function(r){return r.json();}).then(function(d){
-  var p=(d&&d.prices)||{}; window.LHA_PRICES=p; if(window.fitPrices) window.fitPrices();
+  var p=(d&&d.prices)||{}; window.LHA_PRICES=p; if(window.fitPrices) window.fitPrices(); if(window.paintQuarter) window.paintQuarter();
   /* the free call books on our own page (call.html) once that is switched on */
   window.LHA_CALL_HERE=!!(d&&d.calls&&d.calls.intro); document.querySelectorAll('[data-price]').forEach(function(el){
     var t=p[el.getAttribute('data-price')]; if(t&&t.label) el.textContent=t.label; });
