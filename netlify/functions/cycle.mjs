@@ -71,7 +71,7 @@ const norm = e => String(e || '').trim().toLowerCase();
    in, until the class. The format must match app.mjs sign()/verify(). */
 const WS_CUTOFF_H = 24;
 /* bookings from this moment are on the 48 hours to change your mind, then credit, rule (app.mjs WS_POLICY_FROM) */
-const WS_POLICY_FROM = Date.parse(process.env.WS_POLICY_FROM || '2026-10-21T21:00:00Z');
+const WS_POLICY_FROM = Date.parse(process.env.WS_POLICY_FROM || '2026-10-22T15:38:00Z');
 const b64u = buf => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function manageLink(slug, email, session, until) {
   const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'wsm', s: slug, e: norm(email), x: String(session || ''), exp: (Date.parse(until) || Date.now()) + 6 * 3600e3 })));
