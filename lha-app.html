@@ -3731,6 +3731,28 @@ function planWaitHTML(){
     <button class="btn2" style="width:100%;margin-top:10px" onclick="go('ask')">Message ${esc(coachLabel())}</button>
   </div></div>`;
 }
+/* ── coaching paused ────────────────────────────────────────────────
+   The coach paused it until a payment goes through. Everything is kept,
+   and it comes back by itself once they have paid. */
+function screenPaused(){
+  const p=st.paused||{}, coach=(typeof coachLabel==='function'?coachLabel():'')||'Elliott';
+  const link=/^https:\/\/[a-z0-9.-]*stripe\.com\//i.test(p.link||'')?p.link:'';
+  return `<div class="scroll s"><div style="padding:max(28px, env(safe-area-inset-top)) 20px 130px;max-width:520px;margin:0 auto">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Your coaching</div>
+    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">On <em style="color:var(--forest);font-style:normal">pause.</em></div>
+    <div class="card" style="margin-top:22px;background:#fff;border-radius:26px;padding:22px 20px;border:1px solid rgba(0,64,61,.10);
+      box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+      <div style="font:400 15.5px/1.55 var(--sans);color:var(--ink)">${p.note?esc(p.note)
+        :'The last payment did not go through, so your programme is paused. Update your card and it comes straight back, as you left it.'}</div>
+      ${link?`<a href="${esc(link)}" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;
+        min-height:60px;margin-top:18px;border-radius:18px;text-decoration:none;font:600 17px/1 var(--sans);
+        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+        box-shadow:0 12px 30px rgba(0,102,99,.3), inset 0 1px 0 rgba(255,255,255,.35)">Update your card</a>`:''}
+      <button onclick="go('ask')" style="width:100%;min-height:52px;margin-top:10px;border-radius:16px;cursor:pointer;
+        background:#fff;border:1px solid rgba(0,64,61,.14);font:600 15px/1 var(--sans);color:var(--deep)">Message ${esc(coach.split(' ')[0])}</button>
+    </div>
+  </div></div>`;
+}
 function screenToday(){
   todayDlAsk=false;
   if(planEmpty()) return planWaitHTML();
@@ -14724,6 +14746,8 @@ function loadProgramme(){
   return fetch(AUTH.programme,{headers:authed()})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ applyProgramme(d); cacheProgramme(d);
+               /* paused by the coach until a payment goes through */
+               st.paused=(d&&d.paused)||null;
                /* no days yet, only the tests the coach set: they stay on
                   Start, with those tests to do */
                const pl=(d&&d.plan)||{};
@@ -24428,6 +24452,9 @@ function render(){
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix,press:screenPress}
     : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress}
     : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress};
+  /* coaching paused until they pay (22 Oct 2026): the programme waits
+     behind one screen; the chat and More still work */
+  if(coached && st.paused) ['today','plan','progress','fix','press'].forEach(k=>{ screens[k]=screenPaused; });
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }

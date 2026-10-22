@@ -4462,6 +4462,15 @@ const handle = async (request) => {
       return json({ ok: true, addon: true });
     }
     if (on.includes(ev.type)) {
+      /* paused for not paying, and now paid: back on, and the coach hears */
+      if (ev.type === 'invoice.paid' && Number(obj.amount_paid) > 0 && acct && acct.email) {
+        const pk = `clientpause:${norm(acct.email)}`;
+        if (await getSetting(pk).catch(() => null)) {
+          await supa.remove('settings', `key=eq.${enc(pk)}`).catch(() => {});
+          await coachAlert(null, 'business', { title: 'Paid, coaching back on: ' + (acct.name || clients()[acct.email] || acct.email),
+            body: `£${((Number(obj.amount_paid) || 0) / 100).toFixed(2).replace(/\.00$/, '')} paid, so the pause has come off by itself.`, tag: 'unpause:' + acct.email });
+        }
+      }
       /* a free week already refused: nothing that arrives after it (an
          update, a late invoice) switches the account on */
       const sidEarly = obj.subscription || (ev.type.startsWith('customer.subscription') ? obj.id : '');
@@ -9273,6 +9282,25 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
   }
 
+  /* ── coaching paused until they pay (Elliott, 22 Oct 2026) ──────────
+     Their programme waits behind one screen in the app, with a button to
+     the payment page the coach pastes in; the chat stays open. A payment
+     that goes through lifts it by itself and the coach is told. Nothing is
+     sent to them from here: what they are told is the coach's to say. */
+  if (path === '/coach/pause' && request.method === 'POST') {
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const e = norm(body.email);
+    if (!e || !(await isCoached(e))) return json({ error: 'That is not a coaching client' }, 400);
+    const k = `clientpause:${e}`;
+    if (body.on === false) { await supa.remove('settings', `key=eq.${enc(k)}`).catch(() => {}); return json({ ok: true, paused: null }); }
+    const link = String(body.link || '').trim();
+    if (link) { let u = null; try { u = new URL(link); } catch {}
+      if (!u || u.protocol !== 'https:' || !/(^|\.)stripe\.com$/.test(u.hostname)) return json({ error: 'The payment link has to be a Stripe one, starting https://' }, 400); }
+    const prev = (await getSetting(k).catch(() => null)) || {};
+    const row = { at: prev.at || Date.now(), by: (await me()) || '', link: link.slice(0, 600), note: String(body.note || '').trim().slice(0, 300) };
+    await setSetting(k, row);
+    return json({ ok: true, paused: row });
+  }
   if (path === '/programme' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -9283,7 +9311,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!plan) return json({ error: 'No programme yet' }, 404);
     try { ownClips(plan, (await getSetting(`clips:${who}`)) || {}); } catch {}
     const cycle = await cycleGet(db, who, plan);
+    /* paused by the coach until they pay: the plan still comes, so a phone
+       with it cached cannot keep training from the cache, and the app puts
+       one screen in front of it with the button to pay */
+    const pz = await getSetting(`clientpause:${norm(who)}`).catch(() => null);
     return json({ client: clients()[who] || plan.client, plan, cycle,
+                  ...(pz && pz.at ? { paused: { since: pz.at, link: pz.link || '', note: pz.note || '' } } : {}),
                   week: (await getSetting(`week:${who}`)) || null,
                   library: await libraryNow(),
                   /* drills the coach has added to a ladder stage since the
@@ -14148,9 +14181,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          check and ask about coaching, and one that never appeared here
          would be a question nobody answered. */
       const roster = await rosterRows();
+      const pauses = {};
+      for (const x of ((await supa.rows('settings', `key=like.${enc('clientpause:')}*&select=key,value`).catch(() => [])) || []))
+        if (x && x.value && x.value.at) pauses[x.key.slice('clientpause:'.length)] = x.value;
       const rows = Object.values(roster)
         .filter(r => owns(r.email))
         .map(r => ({ ...r, coached: !!clients()[r.email] || PLANNED.has(r.email),
+          ...(pauses[r.email] ? { paused: pauses[r.email] } : {}),
           ...(PAST[r.email] ? { archived: PAST[r.email].at || 1 } : {}),
           /* coached in the app by their programme, not on the list here */
           ...(!clients()[r.email] && PLANNED.has(r.email) ? { planOnly: true } : {}),

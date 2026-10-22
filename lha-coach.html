@@ -1930,6 +1930,19 @@ function acctDetails(email){
       .catch(()=>say('Could not set that.'));
   };
 
+  /* ── paused until they pay (22 Oct 2026) ─────────────────────────── */
+  window.adPause=function(on){
+    const v=id=>((document.getElementById(id)||{}).value||'').trim();
+    const link=v('adPauseLink'), note=v('adPauseNote');
+    if(on && !confirm('Pause '+(nm||email)+'\'s coaching?\n\nTheir programme goes behind a paused screen'+(link?' with your payment link on it':'')
+      +'. The chat still works, and nothing is sent to them. It comes off by itself when a payment goes through.')) return;
+    say(on?'Pausing…':'Unpausing…');
+    fetch(API+'/pause',{method:'POST',headers:hdr(),body:JSON.stringify({email,on,link,note})})
+      .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not do that')))
+      .then(()=>{ say(on?'Paused. Their app shows it the next time it opens.':'Unpaused. Their programme is back.'); load(); })
+      .catch(e=>say(String(e)));
+  };
+
   /* ── off coaching, and back ────────────────────────────────────── */
   window.adPast=function(restore){
     if(!restore && !confirm('Take '+(nm||email)+' off coaching?\n\nThey keep their app account, their chat, '
@@ -2020,6 +2033,17 @@ function acctDetails(email){
           ${coached?' 1-2-1s and app keeps their account, chat, history and sessions, with nothing automatic sent. It does not touch Stripe.':''}</div>
         ${mine.length?`<div style="font:600 12.5px/1.5 var(--sans);color:var(--forest);margin-top:8px">1-2-1 booked: ${mine.map(x=>
           x.when?new Date(x.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+', '+x.kind+' min':'time to arrange, '+x.kind+' min').join(' · ')}</div>`:''}`; })()}
+
+      ${(()=>{ if(c.archived || c.coached===false) return '';
+        const p=c.paused, inp='width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:400 14px/1 var(--sans);background:#fff';
+        return `<div class="kick" style="margin-top:18px;${p?'color:var(--terra)':''}">${p?'COACHING PAUSED':'PAUSE COACHING'}</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${p
+          ? 'Since '+esc(new Date(p.at).toLocaleDateString('en-GB',{day:'numeric',month:'long'}))+'. Their programme is behind a paused screen'+(p.link?' with the payment link':'')+', and the chat still works. It comes off by itself when a payment goes through.'
+          : 'For someone who has not paid. Their programme goes behind a paused screen with a button to pay, and the chat still works. Nothing is sent to them, so tell them yourself. It comes off by itself when a payment goes through.'}</div>
+        ${p?`<button onclick="adPause(false)" style="${bGhost};margin-top:9px;width:100%">Unpause</button>`
+          :`<input id="adPauseLink" placeholder="Their Stripe payment link (optional)" style="${inp}">
+            <input id="adPauseNote" placeholder="What their app says (optional)" style="${inp}">
+            <button onclick="adPause(true)" style="${bGhost};margin-top:9px;width:100%;border-color:rgba(164,80,60,.5);color:var(--terra)">Pause coaching</button>`}`; })()}
 
       <div class="kick" style="margin-top:18px">ADD A 1-2-1</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
@@ -9599,6 +9623,9 @@ function clientScreenHTML(msgs){
         padding:9px 15px;cursor:pointer;font:600 13px/1 var(--sans);
         color:${ctab===id?'#fff':'var(--ink)'}">${label}</button>`).join('')}
       <span style="flex:1"></span>
+      ${(clients.find(x=>x.email===sel)||{}).paused?`<button onclick="openAcct(${jsq(sel)})" title="Paused until they pay. Unpause in Account."
+        style="background:transparent;border:1px solid rgba(164,80,60,.45);border-radius:999px;padding:9px 13px;cursor:pointer;
+        font:600 12px/1 var(--sans);color:var(--terra)">Paused</button>`:''}
       <!-- their app, as they see it. Read only, and it says so. -->
       <button onclick="openPreview(${jsq(sel)})"
         style="background:transparent;border:1px solid var(--line);border-radius:999px;
