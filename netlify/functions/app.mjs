@@ -6759,8 +6759,13 @@ const handle = async (request) => {
     if (!d || d.off === false) return { error: 'That code is not one of ours' };
     if (d.for === 'session') return { error: 'That code is for a 1-2-1, not a class' };
     /* a credit from a cancelled place: one place at a class of the same kind */
-    if (d.place) { const w = ((await getSetting('workshops')) || {})[slug];
-      if (!w || (d.kind && wsKindOf(w) !== d.kind)) return { error: 'That credit is for a different class' };
+    if (d.place) { const allW = (await getSetting('workshops')) || {};
+      /* any session in the booking of the credit's kind: it looked at the
+         first alone, so an All Levels credit was refused on a booking of the
+         morning Calisthenics and the All Levels after it (review, 22 Oct 2026) */
+      const ids = [slug, ...String(opt.also || '').split(',').map(x => x.trim()).filter(Boolean)];
+      const w = ids.map(x => allW[x]).filter(Boolean).find(x => !d.kind || wsKindOf(x) === d.kind);
+      if (!w) return { error: 'That credit is for a different class' };
       if (Number(d.max) > 0 && Number(d.used || 0) + wsHeld(d, await wsHoldKey(who)) >= Number(d.max)) return { error: 'That credit has been used' };
       if (d.until && ms(d.until) + DAY < Date.now()) return { error: 'That credit has run out' };
       const off = Math.min(price, Number(w.price) || 0);
