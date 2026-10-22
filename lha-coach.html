@@ -12089,7 +12089,19 @@ function bkResend(slug,email,session){
 /* ── an offer to the people who started booking (22 Oct 2026) ──────────
    A code made under Settings, then Preview shows the email and exactly who
    it goes to, and only Send sends it, once to each. */
-let ofr={slug:'',code:'',busy:false,msg:'',to:null,html:'',subject:''};
+let ofr={slug:'',code:'',busy:false,msg:'',to:null,html:'',subject:'',sent:{}};
+/* one person, from their row: the code in the box, a yes, then it goes */
+function ofrOne(slug, email, name){
+  const code=((ofr.slug===slug&&ofr.code)||((document.getElementById('ofrCode')||{}).value||'')).trim().toUpperCase();
+  if(!code) return alert('Type the code in the "Email them an offer" box first, and press Preview to see the email.');
+  if(!confirm('Send the offer to '+name+' now, with code '+code+'?')) return;
+  ofr.busy=true; draw();
+  fetch(API+'/workshop/offer',{method:'POST',headers:hdr(),body:JSON.stringify({slug,code,only:email})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not send it')))
+    .then(d=>{ ofr.busy=false; if(d.sent){ ofr.sent[slug+'|'+email]=1; if(ofr.to) ofr.to=ofr.to.filter(t=>t.email!==email); flash('Offer sent to '+name); }
+      else flash('Held back by the email settings'); draw(); })
+    .catch(e=>{ ofr.busy=false; draw(); alert(String(e)); });
+}
 function ofrHTML(w){
   const mine=ofr.slug===w.slug;
   return `<div style="margin-top:14px;padding:16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
@@ -12110,13 +12122,13 @@ function ofrGo(slug, preview){
   const code=(ofr.slug===slug?ofr.code:'')||((document.getElementById('ofrCode')||{}).value||'').trim().toUpperCase();
   if(!code) return alert('Type the code first.');
   if(!preview && !confirm('Send the offer to '+((ofr.to||[]).length)+' people now?\n\nEach gets it once, with code '+code+'.')) return;
-  if(ofr.slug!==slug) ofr={slug,code,busy:false,msg:'',to:null,html:'',subject:''};
+  if(ofr.slug!==slug) ofr={slug,code,busy:false,msg:'',to:null,html:'',subject:'',sent:ofr.sent||{}};
   ofr.code=code; ofr.busy=true; ofr.msg=preview?'Making the preview…':'Sending…'; draw();
   fetch(API+'/workshop/offer',{method:'POST',headers:hdr(),body:JSON.stringify({slug,code,preview})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not do that')))
     .then(d=>{ ofr.busy=false;
-      if(preview){ ofr.to=d.to||[]; ofr.html=d.html||''; ofr.subject=d.subject||''; ofr.msg=ofr.to.length?'This is the email as they get it, with their own name. Nothing has been sent.':''; }
-      else { ofr.to=[]; ofr.html=''; ofr.msg='Sent to '+d.sent+(d.held?', '+d.held+' held back by the email settings':'')+'.'; flash('Offer sent to '+d.sent); }
+      if(preview){ ofr.to=d.to||[]; ofr.html=d.html||''; ofr.subject=d.subject||''; (d.already||[]).forEach(e=>{ ofr.sent[slug+'|'+e]=1; }); ofr.msg=ofr.to.length?'This is the email as they get it, with their own name. Nothing has been sent.':''; }
+      else { (d.to||[]).forEach(e=>{ ofr.sent[slug+'|'+e]=1; }); ofr.to=[]; ofr.html=''; ofr.msg='Sent to '+d.sent+(d.held?', '+d.held+' held back by the email settings':'')+'.'; flash('Offer sent to '+d.sent); }
       draw(); })
     .catch(e=>{ ofr.busy=false; ofr.msg=String(e); draw(); });
 }
@@ -12526,8 +12538,10 @@ function bookingsPageHTML(){
         <div style="font:400 13px/1.7 var(--sans)">${w.waitlist.map((x,i)=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><span class="muted" style="width:18px">${i+1}</span><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span></div>`).join('')}</div>
         <p class="muted" style="font-size:12px;margin-top:6px">When a place frees up, the first here is emailed a link to it.</p>`:''}
       ${(w.intents||[]).length?`<h5 style="margin-top:22px">Started booking, did not pay · ${w.intents.length}</h5>
-        <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span><button class="ghostlink" style="color:var(--terra)" onclick="bkIntentDrop(${jsq(w.slug)},${jsq(x.email)})">Remove</button></div>`).join('')}</div>
-        <p class="muted" style="font-size:12px;margin-top:6px">Each gets one reminder the next morning. Remove takes them off it.</p>
+        <div style="font:400 13px/1.7 var(--sans)">${w.intents.map(x=>`<div style="display:flex;gap:10px;border-bottom:1px solid rgba(17,17,17,.07);padding:6px 0"><b style="min-width:140px">${esc(x.name||'')}</b><span>${esc(x.email)}</span><span class="muted" style="margin-left:auto">${esc(ago(x.at))}</span>${owner&&!isPast?(ofr.sent[w.slug+'|'+x.email]
+            ?`<span class="muted" style="font-weight:600;color:var(--forest)">Offer sent</span>`
+            :`<button class="ghostlink" onclick="ofrOne(${jsq(w.slug)},${jsq(x.email)},${jsq(x.name||x.email)})" ${ofr.busy?'disabled':''}>Send offer</button>`):''}<button class="ghostlink" style="color:var(--terra)" onclick="bkIntentDrop(${jsq(w.slug)},${jsq(x.email)})">Remove</button></div>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin-top:6px">Each gets one reminder the next morning. Remove takes them off it. Send offer emails one person the code in the box below.</p>
         ${owner&&!isPast?ofrHTML(w):''}`:''}
       <h5 style="margin-top:22px">Add someone by hand</h5>
       <textarea class="input" id="bkAttend" rows="2" placeholder="kate@example.com, Kate&#10;one per line: a booking taken in person, or from Setmore"></textarea>

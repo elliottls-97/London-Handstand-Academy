@@ -7587,13 +7587,17 @@ const handle = async (request) => {
     const held = new Set();
     for (const o of Object.values(all)) if (o && o.slug && wsKindOf(o) === wsKindOf(w))
       for (const b of wsLive((await getSetting(`wsbook:${o.slug}`)) || [])) held.add(norm(b.email));
-    const to = [];
+    /* only: one person, sent from their own row in the list */
+    const only = body.only ? norm(body.only) : '';
+    const to = [], already = [];
     for (const x of ((await getSetting(`wsintent:${slug}`)) || [])) {
       const e = norm(x && x.email); if (!e || !wsMailOk(e) || held.has(e) || to.some(t => t.email === e)) continue;
+      if (only && e !== only) continue;
       if (await supa.row('nudges', `key=eq.${enc(`wsintentoff:${slug}:${e}`)}&select=key`).catch(() => null)) continue;
-      if (await supa.row('nudges', `key=eq.${enc(`wsoffer:${slug}:${e}`)}&select=key`).catch(() => null)) continue;
+      if (await supa.row('nudges', `key=eq.${enc(`wsoffer:${slug}:${e}`)}&select=key`).catch(() => null)) { already.push(e); continue; }
       to.push({ email: e, name: String(x.name || '').slice(0, 60) });
     }
+    if (only && !to.length) return json({ error: already.length ? 'They have had this offer already' : 'They have booked since, or were taken off the reminders' }, 400);
     const pounds = v => '£' + (v / 100).toFixed(2).replace(/\.00$/, '');
     const whenTxt = wsWhenTxt(w), day = whenTxt.split(', ')[0];
     const until = d.until ? 'the end of ' + new Date(ms(d.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : 'the class';
@@ -7604,14 +7608,14 @@ const handle = async (request) => {
       footnote: 'You are getting this because you started booking this class. It is the only offer you will get about it.' },
       { first, title: w.title, when: whenTxt, place: w.place, price: pounds(price), now: pounds(price - off), off: pounds(off), code, until, left, coach: w.coach || '', href }, SITE);
     const subject = `A place on ${day}, ${pounds(price - off)} with your code`;
-    if (body.preview) return json({ ok: true, to, subject, html: make((to[0] && to[0].name.split(' ')[0]) || 'there'), left, now: pounds(price - off) });
+    if (body.preview) return json({ ok: true, to, already, subject, html: make((to[0] && to[0].name.split(' ')[0]) || 'there'), left, now: pounds(price - off) });
     let sent = 0, held2 = 0;
     for (const t of to.slice(0, 200)) {
       if (!(await supa.insertIfAbsent('nudges', { key: `wsoffer:${slug}:${t.email}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
       const went = await email(t.email, subject, make(t.name.split(' ')[0] || '')).catch(() => false);
       if (went) sent++; else { held2++; await supa.remove('nudges', `key=eq.${enc(`wsoffer:${slug}:${t.email}`)}`).catch(() => {}); }
     }
-    return json({ ok: true, sent, held: held2 });
+    return json({ ok: true, sent, held: held2, to: to.map(t => t.email) });
   }
   if (path === '/coach/workshop/intent' && request.method === 'POST') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);

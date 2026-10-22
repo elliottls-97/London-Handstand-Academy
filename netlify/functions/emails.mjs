@@ -914,7 +914,8 @@ export function offerEmail(T, x, site) {
       { t: 'card', greeting: x.first, paras: T.paras,
         points: [[escH(x.now), 'With code<br>' + escH(x.code)], ['&#8597;&#65038;', 'Grouped<br>by level'],
           x.coach && !/\band\b|&/.test(x.coach) ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group']] },
-      { t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
+      /* the review is about two coaches, so it is left out when one coaches */
+      ...(x.coach && !/\band\b|&/.test(x.coach) ? [] : [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }]),
       { t: 'card', btn: book },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
