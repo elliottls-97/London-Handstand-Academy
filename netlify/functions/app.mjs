@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -7560,6 +7560,59 @@ const handle = async (request) => {
   }
   /* take somebody off the "started booking" list, so the reminders stop
      (Elliott, 21 Oct 2026). Starting again does not put them back on. */
+  /* ── an offer to the people who started booking and did not pay ─────
+     Elliott, 22 Oct 2026: a code he makes, sent once to each of them, in
+     the reminder's design. preview: true answers with who it would go to
+     and the email itself, and sends nothing; the dashboard shows that, and
+     only the Send press sends. Anyone booked on a class of the same kind,
+     taken off the reminders, or already sent this one, is left out. */
+  if (path === '/coach/workshop/offer' && request.method === 'POST') {
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const slug = wsSlug(body.slug), all = (await getSetting('workshops')) || {}, w = all[slug];
+    if (!w || !w.when) return json({ error: 'No such class' }, 404);
+    if (ms(w.when) < Date.now()) return json({ error: 'That class has already happened' }, 400);
+    const code = String(body.code || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24);
+    const d = code ? ((await getSetting('wscodes')) || {})[code] : null;
+    if (!d) return json({ error: code ? 'There is no code ' + code + '. Make it under Settings first.' : 'Which code?' }, 400);
+    if (d.for === 'session' || d.place) return json({ error: 'That is not a class discount code' }, 400);
+    if (d.workshop && d.workshop !== slug) return json({ error: code + ' is for a different date' }, 400);
+    if (d.until && ms(d.until) + DAY < Date.now()) return json({ error: code + ' has expired' }, 400);
+    const price = Number(w.price) || 0;
+    const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
+    if (!(off > 0)) return json({ error: code + ' takes nothing off this class' }, 400);
+    const book = wsLive((await getSetting(`wsbook:${slug}`)) || []);
+    const left = Number(w.places) > 0 ? Math.max(0, Number(w.places) - book.length) : 0;
+    if (Number(w.places) > 0 && !left) return json({ error: 'That class is full' }, 400);
+    /* booked on any date of the same class counts as booked */
+    const held = new Set();
+    for (const o of Object.values(all)) if (o && o.slug && wsKindOf(o) === wsKindOf(w))
+      for (const b of wsLive((await getSetting(`wsbook:${o.slug}`)) || [])) held.add(norm(b.email));
+    const to = [];
+    for (const x of ((await getSetting(`wsintent:${slug}`)) || [])) {
+      const e = norm(x && x.email); if (!e || !wsMailOk(e) || held.has(e) || to.some(t => t.email === e)) continue;
+      if (await supa.row('nudges', `key=eq.${enc(`wsintentoff:${slug}:${e}`)}&select=key`).catch(() => null)) continue;
+      if (await supa.row('nudges', `key=eq.${enc(`wsoffer:${slug}:${e}`)}&select=key`).catch(() => null)) continue;
+      to.push({ email: e, name: String(x.name || '').slice(0, 60) });
+    }
+    const pounds = v => '£' + (v / 100).toFixed(2).replace(/\.00$/, '');
+    const whenTxt = wsWhenTxt(w), day = whenTxt.split(', ')[0];
+    const until = d.until ? 'the end of ' + new Date(ms(d.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : 'the class';
+    const base = wsPageHref(w, 'offer'), href = base.includes('#') ? base.replace('#', `&code=${enc(code)}#`) : base + `&code=${enc(code)}`;
+    const make = first => offerEmail({ title: `A place for ${day.split(' ')[0]}, ${pounds(price - off)}.`,
+      paras: [`You started booking <b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}, and did not quite finish. No payment was taken.`,
+        `${left ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button below puts it in for you.`],
+      footnote: 'You are getting this because you started booking this class. It is the only offer you will get about it.' },
+      { first, title: w.title, when: whenTxt, place: w.place, price: pounds(price), now: pounds(price - off), off: pounds(off), code, until, left, coach: w.coach || '', href }, SITE);
+    const subject = `A place on ${day}, ${pounds(price - off)} with your code`;
+    if (body.preview) return json({ ok: true, to, subject, html: make((to[0] && to[0].name.split(' ')[0]) || 'there'), left, now: pounds(price - off) });
+    let sent = 0, held2 = 0;
+    for (const t of to.slice(0, 200)) {
+      if (!(await supa.insertIfAbsent('nudges', { key: `wsoffer:${slug}:${t.email}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
+      const went = await email(t.email, subject, make(t.name.split(' ')[0] || '')).catch(() => false);
+      if (went) sent++; else { held2++; await supa.remove('nudges', `key=eq.${enc(`wsoffer:${slug}:${t.email}`)}`).catch(() => {}); }
+    }
+    return json({ ok: true, sent, held: held2 });
+  }
   if (path === '/coach/workshop/intent' && request.method === 'POST') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const slug = wsSlug(body.slug), e = norm(body.email);

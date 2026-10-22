@@ -899,6 +899,25 @@ export function intentEmail(T, x, site) {
       { t: 'card', btn: book },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
+/* an offer to somebody who started booking a class and did not finish:
+   a code the coach made, the price it brings it to, and the button, which
+   carries the code to the booking page (22 Oct 2026). ctx: first, title,
+   when, place, price, now (the price with the code), off, code, until,
+   left, coach, href */
+export function offerEmail(T, x, site) {
+  const S = site || SITE;
+  const book = { label: 'Book for ' + x.now + ' with ' + x.code, sub: String(x.when || '').split(', ')[0] + (x.left ? ` · ${x.left} left` : ''), href: x.href || `${S}/handstand-class?src=offer#book` };
+  return richEmail({ title: T.title, preheader: `Code ${x.code} takes ${x.off} off: ${x.now} instead of ${x.price}, until ${x.until}.`,
+    blocks: [
+      { t: 'hero', img: CLASS_PHOTO, alt: 'The last class at OverGravity, everyone upside down', href: book.href,
+        kicker: x.left ? `${x.left} place${x.left === 1 ? '' : 's'} left` : 'In person, London', head: T.title, btn: book },
+      { t: 'card', greeting: x.first, paras: T.paras,
+        points: [[escH(x.now), 'With code<br>' + escH(x.code)], ['&#8597;&#65038;', 'Grouped<br>by level'],
+          x.coach && !/\band\b|&/.test(x.coach) ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group']] },
+      { t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
+      { t: 'card', btn: book },
+    ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
 /* the last day of an early bird price, to somebody who started booking:
    the price, the hour it ends, the button. ctx as intentEmail, plus then */
 export function earlyEmail(T, x, site) {
