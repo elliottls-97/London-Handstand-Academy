@@ -798,7 +798,9 @@ const blockHTML = {
       ${pill(b.btn, true)}</td></tr>`,
   card: b => `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:34px 36px 20px">
       ${kick(b.kicker, '#006663')}
-      ${b.head || b.hi ? `<div class="h2" style="font:400 32px/1.1 ${FD};letter-spacing:-.012em;color:#8a8d8c;margin:${b.kicker ? 10 : 0}px 0 0">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#111111">${escH(t.b)}</span>`; })()}</div>` : ''}
+      ${b.head || b.hi ? `<div class="h2" style="font:400 32px/1.1 ${FD};letter-spacing:-.012em;color:${b.appTone ? '#111111' : '#8a8d8c'};margin:${b.kicker ? 10 : 0}px 0 0">${(() => { const t = twoTone(b.head, b.hi);
+        /* appTone: the app's headline, ink with the last words in teal, on one line */
+        return b.appTone ? (t.a ? escH(t.a) + ' ' : '') + `<span style="color:#006663">${escH(t.b)}</span>` : (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#111111">${escH(t.b)}</span>`; })()}</div>` : ''}
       ${b.points && b.points.length ? `${b.head || b.hi || b.kicker ? '<div style="height:1px;background:#e3e8e8;margin:24px 0 20px"></div>' : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${
         b.points.reduce((rows, p, i) => { if (i % 2 === 0) rows.push([]); rows[rows.length - 1].push(p); return rows; }, []).map(row => `<tr>${row.map((p, j) =>
           `<td class="col" width="50%" style="padding:0 ${j ? 0 : 10}px 16px ${j ? 10 : 0}px;vertical-align:top"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
@@ -922,7 +924,10 @@ export function offerEmail(T, x, site) {
       { t: 'card', greeting: x.first, paras: T.paras },
       /* the review is about two coaches, so it is left out when one coaches */
       ...(x.coach && !/\band\b|&/.test(x.coach) ? [] : [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }]),
-      { t: 'card', btn: book },
+      /* the free app, where the second button was (Elliott, 23 Oct 2026) */
+      { t: 'card', kicker: 'Between classes', head: 'Train at home,', hi: 'free.', appTone: true,
+        paras: ['The Handstand Ladder app: six stages from your first wall hold to a press, a session built for you in two taps, and every drill filmed. Foundations is free, no account needed.'],
+        btn: { label: 'Open the free app', sub: 'Foundations · free', href: `${S}/lha-app.html?ref=offer` } },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 /* the last day of an early bird price, to somebody who started booking:

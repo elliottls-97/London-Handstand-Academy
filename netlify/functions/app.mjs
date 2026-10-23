@@ -7614,7 +7614,7 @@ const handle = async (request) => {
       return `Can't make it? The next one is <b>${esc(wsWhenTxt(nextW))}</b>, ${np ? pounds(np) : 'free'}${np === price - off ? ', the same price, with no code needed' : ''}. <a href="${nh}" style="color:#006663;font-weight:600">Book that date instead</a>.`; })() : '';
     const make = first => offerEmail({ title: `A place for ${day.split(' ')[0]}, ${pounds(price - off)}.`,
       paras: [`You started booking <b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}, and did not quite finish. No payment was taken.`,
-        `${left ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button below puts it in for you.`, ...(nextLine ? [nextLine] : [])],
+        `${left ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
       footnote: 'You are getting this because you started booking this class. It is the only offer you will get about it.' },
       { first, title: w.title, when: whenTxt, place: w.place, price: pounds(price), now: pounds(price - off), off: pounds(off), code, until, left, coach: w.coach || '', href }, SITE);
     const subject = `A place on ${day}, ${pounds(price - off)} with your code`;
