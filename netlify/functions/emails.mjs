@@ -924,10 +924,11 @@ export function offerEmail(T, x, site) {
       { t: 'card', greeting: x.first, paras: T.paras },
       /* the review is about two coaches, so it is left out when one coaches */
       ...(x.coach && !/\band\b|&/.test(x.coach) ? [] : [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }]),
-      /* the free app, where the second button was (Elliott, 23 Oct 2026) */
-      { t: 'card', kicker: 'Between classes', head: 'Train at home,', hi: 'free.', appTone: true,
-        paras: ['The Handstand Ladder app: six stages from your first wall hold to a press, a session built for you in two taps, and every drill filmed. Foundations is free, no account needed.'],
-        btn: { label: 'Open the free app', sub: 'Foundations · free', href: `${S}/lha-app.html?ref=offer` } },
+      /* the free app, where the second button was, under the cover of the
+         Instagram carousel (Elliott, 23 Oct 2026) */
+      { t: 'hero', light: true, img: `${S}/assets/site/app-cover-email.jpg`, alt: 'The Handstand Ladder app: your handstand, step by step',
+        href: `${S}/lha-app.html?ref=offer`, kicker: 'Between classes', head: 'Train at home, free.',
+        btn: { label: 'Open the free app', sub: 'Foundations · no account needed', href: `${S}/lha-app.html?ref=offer` } },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 /* the last day of an early bird price, to somebody who started booking:
