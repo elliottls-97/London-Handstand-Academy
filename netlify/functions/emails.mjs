@@ -784,7 +784,14 @@ function pill(b, dark) {
 const gap = '<tr><td style="height:16px;line-height:16px">&nbsp;</td></tr>';
 const P = t => `<p style="margin:0 0 16px;font:400 17px/1.65 ${FS};color:#2b2f2e">${t}</p>`;
 const blockHTML = {
-  hero: b => `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
+  /* light: the app's look (Elliott, 22 Oct 2026), a white panel under the
+     photo, the headline in ink with its last word in teal, the teal button */
+  hero: b => b.light ? `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#ffffff">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
+    <tr><td class="pad" style="background:#ffffff;border:1px solid #e3e8e8;border-top:0;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:22px 30px 26px">
+      ${kick(b.kicker, '#006663')}
+      <div class="h1" style="font:400 34px/1.05 ${FD};letter-spacing:-.015em;color:#111111;margin-top:10px">${(() => { const h = String(b.head || ''), k = h.trim().lastIndexOf(' ');
+        return k > 0 ? escH(h.slice(0, k)) + ' <span style="color:#006663">' + escH(h.slice(k + 1)) + '</span>' : escH(h); })()}</div>
+      ${pill(b.btn, false)}</td></tr>` : `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
     <tr><td class="pad" style="background:#00403d;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:${b.compact ? '18px 30px 22px' : '28px 36px 34px'}">
       ${kick(b.kicker, '#8fbeca')}
       <div class="h1" style="font:400 ${b.compact ? 32 : 40}px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
@@ -795,7 +802,7 @@ const blockHTML = {
       ${b.points && b.points.length ? `${b.head || b.hi || b.kicker ? '<div style="height:1px;background:#e3e8e8;margin:24px 0 20px"></div>' : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${
         b.points.reduce((rows, p, i) => { if (i % 2 === 0) rows.push([]); rows[rows.length - 1].push(p); return rows; }, []).map(row => `<tr>${row.map((p, j) =>
           `<td class="col" width="50%" style="padding:0 ${j ? 0 : 10}px 16px ${j ? 10 : 0}px;vertical-align:top"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
-            <td style="width:44px;height:44px;border-radius:12px;background:#00403d;color:#ffffff;font:600 16px/44px Helvetica,Arial,sans-serif;text-align:center">${p[0]}</td>
+            <td style="width:44px;height:44px;border-radius:12px;background:${b.soft ? '#cfe6ec' : '#00403d'};color:${b.soft ? '#00403d' : '#ffffff'};font:600 16px/44px Helvetica,Arial,sans-serif;text-align:center">${p[0]}</td>
             <td style="padding-left:14px;font:600 15px/1.35 ${FS};color:#111111">${p[1]}</td></tr></table></td>`).join('')}${row.length < 2 ? '<td class="col" width="50%"></td>' : ''}</tr>`).join('')
       }</table><div style="height:1px;background:#e3e8e8;margin:4px 0 22px"></div>` : (b.head || b.hi ? '<div style="height:22px"></div>' : '')}
       ${b.greeting ? P(`Hi ${escH(b.greeting)},`) : ''}
@@ -910,9 +917,9 @@ export function offerEmail(T, x, site) {
   return richEmail({ title: T.title, preheader: `Code ${x.code} takes ${x.off} off: ${x.now} instead of ${x.price}, until ${x.until}.`,
     blocks: [
       /* the photo trimmed top and bottom, and a smaller green panel (Elliott, 22 Oct 2026) */
-      { t: 'hero', img: `${S}/assets/site/class-photo-email.jpg`, alt: 'The last class at OverGravity, everyone upside down', href: book.href, compact: true,
+      { t: 'hero', img: `${S}/assets/site/class-photo-email.jpg`, alt: 'The last class at OverGravity, everyone upside down', href: book.href, compact: true, light: true,
         kicker: x.left ? `${x.left} place${x.left === 1 ? '' : 's'} left` : 'In person, London', head: T.title, btn: book },
-      { t: 'card', greeting: x.first, paras: T.paras,
+      { t: 'card', greeting: x.first, paras: T.paras, soft: true,
         points: [[escH(x.now), 'With code<br>' + escH(x.code)], ['&#8597;&#65038;', 'Grouped<br>by level'],
           x.coach && !/\band\b|&/.test(x.coach) ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group']] },
       /* the review is about two coaches, so it is left out when one coaches */
