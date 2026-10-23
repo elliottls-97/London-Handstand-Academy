@@ -919,9 +919,7 @@ export function offerEmail(T, x, site) {
       /* the photo trimmed top and bottom, and a smaller green panel (Elliott, 22 Oct 2026) */
       { t: 'hero', img: `${S}/assets/site/class-photo-email.jpg`, alt: 'The last class at OverGravity, everyone upside down', href: book.href, compact: true, light: true,
         kicker: x.left ? `${x.left} place${x.left === 1 ? '' : 's'} left` : 'In person, London', head: T.title, btn: book },
-      { t: 'card', greeting: x.first, paras: T.paras, soft: true,
-        points: [[escH(x.now), 'With code<br>' + escH(x.code)], ['&#8597;&#65038;', 'Grouped<br>by level'],
-          x.coach && !/\band\b|&/.test(x.coach) ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group']] },
+      { t: 'card', greeting: x.first, paras: T.paras },
       /* the review is about two coaches, so it is left out when one coaches */
       ...(x.coach && !/\band\b|&/.test(x.coach) ? [] : [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }]),
       { t: 'card', btn: book },
