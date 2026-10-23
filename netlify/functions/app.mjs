@@ -7602,9 +7602,19 @@ const handle = async (request) => {
     const whenTxt = wsWhenTxt(w), day = whenTxt.split(', ')[0];
     const until = d.until ? 'the end of ' + new Date(ms(d.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }) : 'the class';
     const base = wsPageHref(w, 'offer'), href = base.includes('#') ? base.replace('#', `&code=${enc(code)}#`) : base + `&code=${enc(code)}`;
+    /* can't make it: the next date of the same class with room, as it is
+       priced now (a code made for one date does not carry over) */
+    let nextW = null;
+    for (const o of Object.values(all).filter(o => o && o.live && o.when && ms(o.when) > ms(w.when) && wsKindOf(o) === wsKindOf(w)).sort((a, b) => ms(a.when) - ms(b.when))) {
+      const n = wsLive((await getSetting(`wsbook:${o.slug}`)) || []).length;
+      if (!(Number(o.places) > 0) || n < Number(o.places)) { nextW = o; break; }
+    }
+    const nextLine = nextW ? (() => { const np = Number(nextW.price) || 0, nb = wsPageHref(nextW, 'offer');
+      const nh = nb.includes('?') ? nb.replace('?', `?date=${enc(nextW.slug)}&`) : nb.replace('#', `?date=${enc(nextW.slug)}#`);
+      return `Can't make it? The next one is <b>${esc(wsWhenTxt(nextW))}</b>, ${np ? pounds(np) : 'free'}${np === price - off ? ', the same price, with no code needed' : ''}. <a href="${nh}" style="color:#006663;font-weight:600">Book that date instead</a>.`; })() : '';
     const make = first => offerEmail({ title: `A place for ${day.split(' ')[0]}, ${pounds(price - off)}.`,
       paras: [`You started booking <b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}, and did not quite finish. No payment was taken.`,
-        `${left ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button below puts it in for you.`],
+        `${left ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button below puts it in for you.`, ...(nextLine ? [nextLine] : [])],
       footnote: 'You are getting this because you started booking this class. It is the only offer you will get about it.' },
       { first, title: w.title, when: whenTxt, place: w.place, price: pounds(price), now: pounds(price - off), off: pounds(off), code, until, left, coach: w.coach || '', href }, SITE);
     const subject = `A place on ${day}, ${pounds(price - off)} with your code`;
