@@ -24,6 +24,8 @@ const SHELL = [
   '/lha-app.html',
   /* the ladder itself lives here now, so the app is not an app without it */
   '/ladder-data.js',
+  /* and the Muscle Up Ladder, laid over it (23 Oct 2026) */
+  '/muscle-up-data.js',
   /* and the clock, which the app loads as a script and so cannot open without */
   '/timing.js',
   /* voice notes in the chat, recorded and played by the same file both ends */

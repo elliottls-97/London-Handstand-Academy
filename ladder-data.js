@@ -551,15 +551,22 @@ const drillAlias=v=>DRILL_ALIAS[v]||v;
 const DRILL_EXTRA=[{v:'scapula-shrugs', n:'Scapula Shrugs', url:'https://customer-pns1oongdltmkjwa.cloudflarestream.com/9b4fb78a3767e853f1d9834e7ce86485/downloads/default.mp4',
   nt:'Push the floor away at the top.', cues:['Keep elbows straight.','Move only through the shoulders.','Push tall at the top.','Lower with control.'],
   desc:'Strengthen upward rotation and elevation through the scapula for a more stable overhead shape.'}];
+/* Which ladder is showing: 'hs', the Handstand Ladder, or 'mu', the Muscle
+   Up Ladder (23 Oct 2026). The app swaps the data below in place when it
+   changes; the coach's overlays are keyed by stage, so a Muscle Up stage
+   reads its own key ('mu0' to 'mu5') and never the handstand stage that
+   shares its number. The dashboard never changes it. */
+let LADDER_ON='hs';
+const ladKey=stage=>LADDER_ON==='mu' ? 'mu'+stage : stage;
 function poolFor(stage){
   /* a drill the coach has taken off this stage is not in its pool, so no
      session can pick it up and no workout can hold it */
-  const off=new Set((((typeof st!=='undefined' && st.ladderOff)||{})[stage])
-    || (((typeof st!=='undefined' && st.ladderOff)||{})[String(stage)]) || []);
+  const off=new Set((((typeof st!=='undefined' && st.ladderOff)||{})[ladKey(stage)])
+    || (((typeof st!=='undefined' && st.ladderOff)||{})[String(ladKey(stage))]) || []);
   /* and one deleted from the dashboard is off every stage */
   ((typeof st!=='undefined' && st.drillsOff) || []).forEach(v=>off.add(v));
   const base=(POOL[stage]||[]).filter(x=>!off.has(x.v));
-  const extra=((st.ladderExtra||{})[stage]||[])
+  const extra=((st.ladderExtra||{})[ladKey(stage)]||[])
     .filter(x=>x&&x.v&&drillById(drillAlias(x.v)))
     .map(x=>({v:drillAlias(x.v), g:x.g||'Strength', L:Math.max(1,Math.min(4,x.L||1))}));
   if(!extra.length) return base;
@@ -574,7 +581,7 @@ function poolFor(stage){
    kept as an overlay keyed by the same k so a shipped one that has not been
    touched stays exactly as it shipped. */
 function cpsFor(stage){
-  const over=((typeof st!=='undefined' && st.ladderCps)||{})[stage];
+  const over=((typeof st!=='undefined' && st.ladderCps)||{})[ladKey(stage)];
   const base=(CHECKPOINTS[stage]||[]);
   if(!over) return base;
   const edits=over.edit||{}, gone=over.off||[], extra=over.add||[];
@@ -594,7 +601,7 @@ function cpsFor(stage){
 /* the level shares for a stage and a band: the coach's where they have set
    them, otherwise the shipped mix every stage used to share */
 function mixFor(stage, band){
-  const own=(((typeof st!=='undefined' && st.ladderMix)||{})[stage]||{})[band];
+  const own=(((typeof st!=='undefined' && st.ladderMix)||{})[ladKey(stage)]||{})[band];
   if(own && Object.keys(own).length) return own;
   return BAND_MIX[band] || BAND_MIX[2];
 }
@@ -604,7 +611,7 @@ function mixFor(stage, band){
    falls back to the drill's own numbers and then to the dose. */
 function bandTimingFor(stage, band, v){
   const bt=(typeof st!=='undefined' && st.bandTiming) || {};
-  const forStage=bt[stage] || bt[String(stage)] || {};
+  const forStage=bt[ladKey(stage)] || bt[String(ladKey(stage))] || {};
   const b=forStage[band] || forStage[String(band)] || {};
   /* the dashboard loads this file too, where there is no st for poolFor
      to read, so asking for the row must never take the page down */
@@ -787,7 +794,7 @@ const PRESS_KIT=[["A wall", "Clear, floor to about 2.5m. Used in most of the pre
    takes from the top. Ids that no longer name a drill are dropped rather
    than handed on as holes. */
 function bandFor(stage, band){
-  const list=(((typeof st!=='undefined' && st.ladderBands)||{})[stage]||{})[band];
+  const list=(((typeof st!=='undefined' && st.ladderBands)||{})[ladKey(stage)]||{})[band];
   if(!Array.isArray(list) || !list.length) return null;
   const pool=poolFor(stage);
   const out=[];

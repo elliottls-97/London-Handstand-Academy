@@ -2301,6 +2301,17 @@ function cleanSkills(x) {
   if (Array.isArray(x.path)) out.path = x.path.map(v => String(v).slice(0, 8)).filter(v => /^(l|kick|ctw|tuck|free|adv)$/.test(v)).slice(0, 6);
   return Object.keys(out).length ? out : null;
 }
+/* the Muscle Up quiz: pull ups as a band (0 none, 1 one to four, 2 five to
+   nine, 3 ten or more), then a false grip hang and a banded muscle up, each
+   1 for yes and 0 for not yet */
+function cleanMuAnswers(x) {
+  if (!x || typeof x !== 'object') return null;
+  const out = {};
+  if (Number.isInteger(x.pulls) && x.pulls >= 0 && x.pulls <= 3) out.pulls = x.pulls;
+  if (x.fg === 0 || x.fg === 1) out.fg = x.fg;
+  if (x.banded === 0 || x.banded === 1) out.banded = x.banded;
+  return Object.keys(out).length ? out : null;
+}
 async function sendSetCode(e) {
   const n = new Uint32Array(1); crypto.getRandomValues(n);
   const code = String(100000 + (n[0] % 900000));
@@ -10468,6 +10479,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           if (sf) out.safe = sf;
           const sk = cleanSkills(i.skills);
           if (sk) out.skills = sk;
+          const mu = cleanMuAnswers(i.mu);
+          if (mu) out.mu = mu;
           cur.intake = out;
         }
         if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
@@ -10530,6 +10543,28 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           if (Number.isInteger(n) && n >= 0 && n <= 20
               && (back || !Number.isInteger(cur.stage) || n >= cur.stage)) cur.stage = n;
         }
+        /* The Muscle Up Ladder (23 Oct 2026) keeps its own place, placing and
+           dial, so moving on one ladder never moves the other. Same rule as
+           the stage above: only upwards unless the app says it means it. */
+        if (body.mu && typeof body.mu === 'object') {
+          const was = (cur.mu && typeof cur.mu === 'object') ? cur.mu : {};
+          const m = Object.assign({}, was);
+          const n = Number(body.mu.stage);
+          if (Number.isInteger(n) && n >= 0 && n <= 5
+              && (body.mu.down === true || !Number.isInteger(was.stage) || n >= was.stage)) m.stage = n;
+          const pl = Number(body.mu.placed);
+          if (Number.isInteger(pl) && pl >= 0 && pl <= 5) m.placed = pl;
+          if (body.mu.lvl && typeof body.mu.lvl === 'object') {
+            const l = {};
+            for (const k of Object.keys(body.mu.lvl).slice(0, 6)) {
+              const v = Number(body.mu.lvl[k]);
+              if (/^[0-5]$/.test(k) && Number.isInteger(v) && v >= 1 && v <= 3) l[k] = v;
+            }
+            m.lvl = l;
+          }
+          cur.mu = m;
+        }
+        if (body.ladder === 'mu' || body.ladder === 'hs') cur.ladder = body.ladder;
         return cur;
       });
     }
@@ -10541,6 +10576,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       time: out.time || 0, perWeek: out.perWeek || 0, wk: out.wk || null,
       intake: out.intake || {}, quizDone: !!out.quizDone, lvl: out.lvl || {},
       stage: Number.isInteger(out.stage) ? out.stage : null,
+      mu: (out.mu && typeof out.mu === 'object') ? out.mu : null, ladder: out.ladder || '',
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
       fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
@@ -10752,6 +10788,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       niggles: Array.isArray(a.niggles) ? a.niggles.slice(0, 8).map(x => String(x).slice(0, 40)) : [],
       mins: Number(a.mins) || null, days: Number(a.days) || null,
       skills: cleanSkills(a.skills),
+      mu: cleanMuAnswers(a.mu),
       /* pain or injury said, and when they agreed to train at their own risk */
       safe: cleanSafe(a.safe),
       at: Date.now(),

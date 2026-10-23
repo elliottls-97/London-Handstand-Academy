@@ -757,6 +757,14 @@ button.lc-ring:active{transform:scale(.88)}
 /* the six stages along the top of Check points (17 Oct 2026): a figure and
    its name are one button, and the floor runs unbroken under all six */
 .ls{display:grid;grid-template-columns:repeat(6,minmax(0,1fr))}
+.lsw{display:inline-flex;gap:2px;padding:3px;border-radius:13px;background:rgba(0,64,61,.08)}
+.lsw-b{border:0;background:transparent;color:var(--grey);font:600 11px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;
+ padding:9px 11px;border-radius:10px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.lsw-b.on{background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)}
+.ls-from-r{animation:lsFromR .4s cubic-bezier(.2,.8,.2,1) both}
+.ls-from-l{animation:lsFromL .4s cubic-bezier(.2,.8,.2,1) both}
+@keyframes lsFromR{from{transform:translateX(32px);opacity:0}}
+@keyframes lsFromL{from{transform:translateX(-32px);opacity:0}}
 .ls-step{display:flex;flex-direction:column;align-items:stretch;min-width:0;border:0;background:none;padding:0;
  cursor:pointer;font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 .ls-fig{display:flex;justify-content:center;align-items:flex-end;border-bottom:2px solid rgba(0,64,61,.14)}
@@ -1348,6 +1356,9 @@ input,textarea{font-family:var(--sans);font-size:16px;color:var(--ink)}
 .p-vwrap{width:100%;max-width:640px;margin:0 auto;aspect-ratio:16/10;background:#11150f}
 .p-vwrap video{width:100%;height:100%;display:block;object-fit:contain;background:#11150f}
 .p-vwrap.novideo{aspect-ratio:auto;background:transparent}
+/* a film shot upright, as the Muscle Up clips are (23 Oct 2026): a 16:10
+   box made it a thin strip down the middle */
+.p-vwrap.tall:not(.novideo){aspect-ratio:4/5;max-height:56svh}
 .p-nofilm{margin:10px 16px 0;padding:14px 16px;border-radius:20px;background:#fff;border:1px solid rgba(0,64,61,.10);
   box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
 .p-vwrap:not(.novideo) .p-nofilm{display:none}
@@ -1770,6 +1781,7 @@ button.px-step{cursor:pointer}
   .tabbar::before{content:"Handstand Ladder.";display:block;
     padding:0 14px 22px;font:400 24px/1.05 var(--serif);color:var(--ink)}
   /* a coached client is in the coaching, not in the ladder */
+  html.mu .tabbar::before{content:"Muscle Up Ladder."}
   body[data-tier=coached] .tabbar::before{content:"Coaching."}
   .tab{flex:none;flex-direction:row;justify-content:flex-start;align-items:center;gap:12px;
     min-height:0;padding:12px 14px;border-radius:14px;text-align:left}
@@ -1865,6 +1877,7 @@ button.px-step{cursor:pointer}
      anything. Relative works from a server at the site root, from a
      subfolder, and from file:// alike. -->
 <script src="ladder-data.js"></script>
+<script src="muscle-up-data.js"></script>
 <script src="timing.js"></script>
 <script src="voice.js"></script>
 <script src="vidshrink.js"></script>
@@ -2185,6 +2198,52 @@ try{ st=JSON.parse(localStorage.getItem(K)||'{}')||{}; }catch(e){ st={}; }
 /* no sheet is open when the page loads, whatever was open when it was
    last saved: a stale one kept setMins and setKind from redrawing Train */
 st.ov=null; st.ovFull=false;
+/* ── two ladders (23 Oct 2026) ─────────────────────────────────────────
+   The Muscle Up Ladder is laid over the Handstand Ladder rather than
+   taught to every screen. STAGES, POOL, WEEK and CHECKPOINTS are filled
+   with whichever ladder is showing, and the few things kept on st per
+   stage are swapped with them, so everything that reads either serves the
+   ladder on screen. The other ladder's own copy waits in st.hsKeep or
+   st.muKeep. The account keeps its handstand stage as it always has, and
+   the Muscle Up place apart from it, so neither can move the other.
+   The whole Muscle Up Ladder is in the subscription: no free stage. */
+let FREE_STAGES = 1;
+const HS_DATA={STAGES:STAGES.slice(), POOL:Object.assign({},POOL), WEEK:Object.assign({},WEEK), CHECKPOINTS:Object.assign({},CHECKPOINTS)};
+const MU_DATA={STAGES:MU_STAGES, POOL:MU_POOL, WEEK:MU_WEEK, CHECKPOINTS:MU_CHECKPOINTS};
+const LADDER_ST=['stage','placed','freeChoice','lvl','rot','clearedFrom','cpRingSeen','climbSeen','planDay','ovStage','wantUpgrade'];
+const isMU=()=>LADDER_ON==='mu';
+function fillLadder(D){
+  STAGES.length=0; D.STAGES.forEach(x=>STAGES.push(x));
+  [[POOL,D.POOL],[WEEK,D.WEEK],[CHECKPOINTS,D.CHECKPOINTS]].forEach(([to,from])=>{
+    Object.keys(to).forEach(k=>{ delete to[k]; }); Object.assign(to, from); });
+}
+function useLadder(which){
+  LADDER_ON = which==='mu' ? 'mu' : 'hs';
+  fillLadder(isMU() ? MU_DATA : HS_DATA);
+  FREE_STAGES = isMU() ? 0 : 1;
+  try{ document.documentElement.classList.toggle('mu', isMU()); }catch(e){}
+}
+/* the handstand ladder's own value and the Muscle Up one, whichever shows */
+const hsVal=k=>isMU() ? (st.hsKeep||{})[k] : st[k];
+const muVal=k=>isMU() ? st[k] : (st.muKeep||{})[k];
+function switchLadder(which, quiet){
+  which = which==='mu' ? 'mu' : 'hs';
+  if((st.ladder||'hs')===which && LADDER_ON===which) return false;
+  const keep={}; LADDER_ST.forEach(k=>{ keep[k]=st[k]; delete st[k]; });
+  const back = which==='mu' ? (st.muKeep||{}) : (st.hsKeep||{});
+  if(which==='mu'){ st.hsKeep=keep; delete st.muKeep; } else { st.muKeep=keep; delete st.hsKeep; }
+  LADDER_ST.forEach(k=>{ if(back[k]!==undefined) st[k]=back[k]; });
+  st.ladder=which; useLadder(which);
+  /* nothing half shown from the other ladder: the pop out, a stage being
+     cleared, a built session */
+  try{ lwPopI=null; }catch(e){}
+  window._clearShow=null; window._clearPending=null; window._clearAfter=null; window._clearMoved=false;
+  try{ if(typeof rebuildFaqs==='function') rebuildFaqs(); }catch(e){}
+  save();
+  if(!quiet){ try{ saveState(); }catch(e){} }
+  return true;
+}
+if(st.ladder==='mu') useLadder('mu');
 if(PREVIEW){
   /* start from nothing every time, or the last client previewed bleeds
      into the next one */
@@ -3282,7 +3341,7 @@ function pressPrepFix(){
 
 /* at the Press stage the session chooser offers the plan first */
 function pressChooserHTML(){
-  if(curStage()!==5 || typeof PRESS_TEST==='undefined') return '';
+  if(isMU() || curStage()!==5 || typeof PRESS_TEST==='undefined') return '';
   const p=st.pressTest && ptDone(st.pressTest.scores), f=p ? pressPlanFix() : null;
   if(!f) return `<button onclick="closeOv();openLimiter()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;
       padding:14px 16px;border-radius:16px;cursor:pointer;background:rgba(0,102,99,.06);border:1px solid rgba(0,102,99,.16)">
@@ -9940,7 +9999,7 @@ let stateQueued=null;
 /* everything loadState writes, so a reply that changed any of it is drawn:
    the list held twelve of them, and a call moved or a press test logged on
    another phone was stored and not shown until something else redrew */
-const stateSnap=()=>JSON.stringify([st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,
+const stateSnap=()=>JSON.stringify([st.ladder,st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,
   st.ladderDone,st.callBooked,st.callDone,st.callBy,st.callAt,st.callHere,st.wcall,st.welcomeCall,st.youInSeen,st.pressTest,st.pressRung,st.lvl]);
 function loadState(){
   if(!st.token) return Promise.resolve();
@@ -9948,6 +10007,7 @@ function loadState(){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
       const before=stateSnap();
+      if((d.ladder==='mu' || d.ladder==='hs') && !ladderMovedHere && !coachedView()) switchLadder(d.ladder, true);
       if(d.dayMap && Object.keys(d.dayMap).length) st.dayMap=d.dayMap;
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
@@ -9964,7 +10024,10 @@ function loadState(){
       }
       if(d.quizDone) st.quizDone=true;
       /* the difficulty dial per stage follows the person, not the phone */
-      if(d.lvl && typeof d.lvl==='object' && Object.keys(d.lvl).length) st.lvl=Object.assign({}, st.lvl||{}, d.lvl);
+      if(d.lvl && typeof d.lvl==='object' && Object.keys(d.lvl).length){
+        if(isMU()) st.hsKeep=Object.assign({}, st.hsKeep||{}, {lvl:Object.assign({}, (st.hsKeep||{}).lvl||{}, d.lvl)});
+        else st.lvl=Object.assign({}, st.lvl||{}, d.lvl);
+      }
       if(Number.isInteger(d.taste)) st.taste=d.taste;
       /* sessions done on each fix, so a new phone does not start a fix again */
       if(d.fixDone && typeof d.fixDone==='object') st.fixDone=Object.assign({}, d.fixDone, st.fixDone||{});
@@ -9980,7 +10043,16 @@ function loadState(){
       /* unless the quiz has just said otherwise and the account has not
          heard yet: then this is the old answer, and the new one is sent */
       if(d.stage!=null && Number.isFinite(Number(d.stage))){
-        if(st.placeSent===false) saveState(true); else st.stage=Number(d.stage);
+        if(st.placeSent===false) saveState(true);
+        else if(isMU()) st.hsKeep=Object.assign({}, st.hsKeep||{}, {stage:Number(d.stage)});
+        else st.stage=Number(d.stage);
+      }
+      /* the Muscle Up place, kept beside it */
+      if(d.mu && typeof d.mu==='object' && st.placeSent!==false){
+        const m=d.mu, put=(k,v)=>{ if(isMU()) st[k]=v; else st.muKeep=Object.assign({}, st.muKeep||{}, {[k]:v}); };
+        if(Number.isInteger(m.stage)) put('stage', m.stage);
+        if(Number.isInteger(m.placed)) put('placed', m.placed);
+        if(m.lvl && typeof m.lvl==='object' && Object.keys(m.lvl).length) put('lvl', Object.assign({}, muVal('lvl')||{}, m.lvl));
       }
     if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
       /* the welcome seen and the call booked, from whichever phone did them */
@@ -10004,6 +10076,7 @@ function loadState(){
     .catch(()=>{}).then(()=>{ stateIn=true; });
 }
 let stateIn=false;     /* the account's state has been asked for, answered or not */
+let ladderMovedHere=false;   /* a ladder picked on this phone beats the account's older choice */
 /* The server keeps the highest stage it has been told unless this says
    otherwise, because an ordinary save runs before the stored state has come
    back and would send 0. Only the two places that deliberately move somebody
@@ -10030,8 +10103,13 @@ function saveState(now){
          Not until the account's copy has been asked for: a new phone's
          first save would send empty lists over the account's own. */
       ...(stateIn?{wk:{goals:st.wkGoals||[], paused:st.wkPaused||[]}}:{}),
-      intake:st.intake||{}, quizDone:!!st.quizDone, stage:placedStage(), lvl:st.lvl||{},
-      ...((down||placing)?{stageDown:true}:{}),
+      intake:st.intake||{}, quizDone:!!st.quizDone,
+      stage: isMU() ? Math.max(0, Math.min(HS_DATA.STAGES.length-1, (st.hsKeep||{}).stage|0)) : placedStage(),
+      lvl: (isMU() ? (st.hsKeep||{}).lvl : st.lvl) || {},
+      ...((down||placing) && !isMU() ? {stageDown:true} : {}),
+      ladder: st.ladder||'hs',
+      ...(muVal('stage')!=null ? {mu:{stage:muVal('stage')|0, ...(muVal('placed')!=null?{placed:muVal('placed')|0}:{}),
+        lvl:muVal('lvl')||{}, ...((down||placing) && isMU() ? {down:true} : {})}} : {}),
       ...(Number.isInteger(st.taste)?{taste:st.taste}:{}),
       ladderDone:st.ladderDone||{},
       fixDone:st.fixDone||{},
@@ -11247,7 +11325,10 @@ function repOf(it){
     return {n:String(Math.round(Number(st0.amt))), u:st0.unit==='s'?'seconds':'reps'};
   }
   const d=String(it.d||'');
-  let m=d.match(/^\s*\d+\s*[×x]\s*(\d+)\s*(?:each|per)?/i);   if(m) return {n:m[1],u:'reps'};
+  /* "3 × 30s" is thirty seconds a set: the reps pattern below took it first
+     and the card said 30 reps for every timed hold (23 Oct 2026) */
+  let m=d.match(/^\s*\d+\s*[×x]\s*(\d+)\s*s\b/i);                if(m) return {n:m[1],u:'seconds'};
+  m=d.match(/^\s*\d+\s*[×x]\s*(\d+)\s*(?:each|per)?/i);        if(m) return {n:m[1],u:'reps'};
   m=d.match(/(\d+)\s*reps/i);                                  if(m) return {n:m[1],u:'reps'};
   m=d.match(/(\d+)\s*s\b/);                                    if(m) return {n:m[1],u:'seconds'};
   m=d.match(/build to\s*(\d+)/i);                              if(m) return {n:m[1],u:'build to'};
@@ -11470,11 +11551,14 @@ function showStep(){
         vw.innerHTML=`<video playsinline loop preload="auto"></video>`;
         vEl=vw.querySelector('video');
         vpBuild(vEl);
+        vEl.addEventListener('loadedmetadata', ()=>{ vw.classList.toggle('tall', vEl.videoHeight > vEl.videoWidth); });
       }
       vEl.style.display=''; const bar=vw.querySelector('.vp-bar'); if(bar) bar.style.display='';
       vEl.muted=!soundOn();
       const src=filmSrc(it.url);
       if(vEl.getAttribute('data-src')!==src){
+        /* the shape is known before the film is: every Muscle Up clip is upright */
+        vw.classList.toggle('tall', /^mu-/.test(String(it.v||'')));
         vEl.setAttribute('data-src',src); delete vEl.dataset.filmTried; vEl.src=src;
         /* a film that has not shown a frame in eight seconds is stuck, which
            on a phone looks the same as one that failed */
@@ -11501,7 +11585,7 @@ function showStep(){
       if(!ph){ ph=document.createElement('div'); ph.className='p-nofilm'; vw.appendChild(ph); }
       ph.style.display='';
       ph.innerHTML = offFilm ? `<div class="p-nofilm-k">Needs signal</div><p>This film is not on your phone. Work from the name${(it.cues||[]).length?' and the form cues':''} for now.</p>`
-        : `<div class="p-nofilm-k">Film coming soon</div><p>Elliott is filming this one. Work from the name${(it.cues||[]).length?' and the form cues':''} for now.</p>`; }
+        : `<div class="p-nofilm-k">Film coming soon</div><p>${/^mu-/.test(String(it.v||'')) ? 'This one is filmed and being edited.' : 'Elliott is filming this one.'} Work from the name${(it.cues||[]).length?' and the form cues':''} for now.</p>`; }
     const rp=repOf(it), cues=it.cues||[];
     const dose=esc(String(rp.n)+(rp.u?' '+rp.u:''));
     /* The clock is the big number now. It was 21px in the top bar, and the
@@ -15449,6 +15533,8 @@ const GOALS=[
   {v:'hold',     t:'Hold a freestanding handstand', d:"I can get upside down, but can't balance consistently."},
   {v:'improve',  t:'Improve my handstand',      d:'I want a better line, control and technique.'},
   {v:'advanced', t:'Learn advanced skills',     d:'Presses, shapes, one-arm and beyond.'},
+  /* its own ladder (23 Oct 2026): picking it moves the app onto it */
+  {v:'muscleup', t:'Learn a muscle up',         d:'Pull ups, the false grip, and getting over the bar.'},
 ];
 
 /* Four rungs. Wrist tissue adapts slower than everything else, which is
@@ -15533,7 +15619,7 @@ function goalSheetHTML(){
 }
 function setGoal(v){
   if(!GOALS.some(g=>g.v===v)) return;
-  const a=intake(); a.goal=v; save();
+  const a=intake(); a.goal=v; quizLadder(v); save();
   try{ saveState(); }catch(e){}
   closeOv(); toast('Saved.'); render();
 }
@@ -15567,9 +15653,33 @@ const SKILLS=[
    multi:true,
    o:[['press','Press to handstand'],['onearm','One-arm handstand'],['shapes','Shapes: straddle, tuck, diamond'],['none','Not yet']]},
 ];
+/* The Muscle Up goal asks its own three, every time, and keeps them in
+   intake.mu, so changing goal loses neither set of answers. */
+const MU_SKILLS=[
+  {k:'pulls', q:'How many strict pull ups can you do?', d:'From a still hang to your chin over the bar, in one go, no swinging.',
+   demo:'mu-chest-to-bar-pull-ups', t:'2s', o:[[0,'None yet'],[1,'1 to 4'],[2,'5 to 9'],[3,'10 or more']]},
+  {k:'fg', q:'Can you hang in a false grip?', d:'Wrists over the bar rather than under it, for ten seconds or more.',
+   demo:'mu-false-grip-on-bar', t:'3s', o:[[1,'Yes, I can'],[0,'Not yet','Or I am not sure what it is']]},
+  {k:'banded', q:'Can you do a banded muscle up?', d:'Over the bar with a band helping you, at least once.',
+   demo:'mu-banded-muscle-ups', t:'20s', o:[[1,'Yes, I can'],[0,'Not yet']]},
+];
+const MU_SAFE='Muscle ups put a lot through your elbows, shoulders and wrists, and a false grip takes getting used to. Build up gradually, and stop if anything hurts. The app is general guidance, not medical advice.';
+const muGoal = a => ((a||st.intake||{}).goal)==='muscleup';
+const skillList = () => muGoal() ? MU_SKILLS : SKILLS;
+const skillsOf = a => (a=a||{}, muGoal(a) ? (a.mu||{}) : (a.skills||{}));
+const putSkills = (a, v) => { if(muGoal(a)) a.mu=v; else a.skills=v; return v; };
+const stepKick = x => (x && muGoal()) ? (x.id==='niggles' ? 'BEFORE YOU START' : x.kick) : ((x||{}).kick||'');
+/* the goal picked is the ladder shown: the Muscle Up one for a muscle up,
+   the Handstand one for anything else */
+function quizLadder(v){
+  if(coachedView()) return;
+  const to = v==='muscleup' ? 'mu' : (st.ladder==='mu' ? 'hs' : null);
+  if(to){ ladderMovedHere=true; switchLadder(to); }
+}
 /* the next skill worth asking, or -1 once the answers have said enough */
 function skillNext(s){
   s=s||{};
+  if(muGoal()) return MU_SKILLS.findIndex(q=>s[q.k]==null);
   if(s.l==null) return 0;
   if(!s.l) return -1;
   if(s.kick==null) return 1;
@@ -15588,6 +15698,7 @@ function skillNext(s){
    sets the rest */
 function skillStage(s){
   s=s||{};
+  if(muGoal()) return muPlace(s.pulls, s.fg, s.banded);
   /* Elliott's route: the wall decides Foundations or Wall Work, tuck slides
      with the shoulders stacked decide Pushing More or Take-Off, and more
      than ten seconds freestanding, most times, is Freestanding. Never a
@@ -15604,6 +15715,7 @@ function skillStage(s){
 }
 function skillLevel(s){
   s=s||{};
+  if(muGoal()) return Math.min(3, Math.round(muPlace(s.pulls, s.fg, s.banded)*3/5));
   if(!s.l || !s.kick) return 0;
   if(s.free>=2) return 3;
   if(s.tuck>=2) return 2;
@@ -15611,6 +15723,12 @@ function skillLevel(s){
 }
 /* one line of what they said, for the screen that places them */
 function skillLine(a){
+  if(muGoal(a)){
+    const m=(a&&a.mu)||null;
+    if(!m || skillNext(m)>=0) return '';
+    return (m.pulls ? MU_PULLS[m.pulls]+' pull ups' : 'No pull ups yet')+', '+(m.fg ? 'a false grip hang' : 'no false grip yet')
+      +', and '+(m.banded ? 'a banded muscle up.' : 'no banded muscle up yet.');
+  }
   const s=(a&&a.skills)||null;
   if(!s || skillNext(s)>=0) return '';
   if(!s.l) return 'Not upside down yet. Foundations starts from zero.';
@@ -15629,11 +15747,11 @@ function skillLine(a){
    pointing at coaching is the honest answer to someone working on them */
 const wantsCoaching = a => !!(a && a.skills && (a.skills.adv||[]).some(x=>x==='press'||x==='onearm'));
 function skillSettle(a){
-  const s=a.skills||{};
+  const s=skillsOf(a);
   if(skillNext(s)<0){ a.level=skillLevel(s); a.placedBy='skills'; } else { delete a.level; }
 }
 function pickSkill(k,v){
-  const a=intake(), s=a.skills=Object.assign({}, a.skills||{});
+  const a=intake(), s=putSkills(a, Object.assign({}, skillsOf(a)));
   s[k]=v; s.path=(s.path||[]).filter(x=>x!==k).concat([k]);
   skillSettle(a); save();
   if(skillNext(s)<0){ nextIntake(); return; }
@@ -15671,20 +15789,20 @@ function quizBack(){
   /* came here by skipping: back is the first question, not the skills */
   if(st.quizSkip){ st.quizSkip=false; st.quizStep=0; save(); render(); return; }
   if(step.id==='level'){
-    const a=intake(), s=Object.assign({}, a.skills||{}), path=(s.path||[]).slice();
-    if(path.length){ skillTakeBack(s, [path[path.length-1]]); a.skills=s; delete a.level; save(); render(); return; }
+    const a=intake(), s=Object.assign({}, skillsOf(a)), path=(s.path||[]).slice();
+    if(path.length){ skillTakeBack(s, [path[path.length-1]]); putSkills(a, s); delete a.level; save(); render(); return; }
   }
   st.quizStep=Math.max(0,i-1); save(); render();
 }
 /* one answer changed from the summary: that question again, and the ones
    after it, since what comes next depends on it */
 function skillChange(k){
-  const a=intake(), s=Object.assign({}, a.skills||{});
-  const at=SKILLS.findIndex(q=>q.k===k); if(at<0) return;
-  skillTakeBack(s, SKILLS.slice(at).map(q=>q.k));
-  a.skills=s; delete a.level; save(); render();
+  const a=intake(), s=Object.assign({}, skillsOf(a)), L=skillList();
+  const at=L.findIndex(q=>q.k===k); if(at<0) return;
+  skillTakeBack(s, L.slice(at).map(q=>q.k));
+  putSkills(a, s); delete a.level; save(); render();
 }
-function skillRestart(){ const a=intake(); a.skills={}; delete a.level; advDraft=null; skillWas={}; save(); render(); }
+function skillRestart(){ const a=intake(); putSkills(a, {}); delete a.level; advDraft=null; skillWas={}; save(); render(); }
 /* the drill it means: its first frame, whole, and the film on a tap. The
    balance question is not a drill, so it is a picture of the thing itself:
    Elliott, freestanding, upright as it was filmed. */
@@ -15725,7 +15843,7 @@ function skillFilm(el,v){
 /* the level question's own screen: one skill at a time, or once they have
    all been answered, what was said and where it lands */
 function skillStepView(a){
-  const s=a.skills||{}, n=skillNext(s), P=skillStage(s);
+  const s=skillsOf(a), n=skillNext(s), P=skillStage(s);
   const card=(on,body,click,k)=>`<button class="qup" onclick="${click}" aria-pressed="${on?'true':'false'}"
     style="animation-delay:${140+k*60}ms;background:#fff;
     border:1.5px solid ${on?'var(--forest)':'rgba(255,255,255,.6)'};border-radius:16px;padding:14px 16px;
@@ -15745,7 +15863,7 @@ function skillStepView(a){
   if(n<0){
     /* each answer is a way back to its question: coming back from the
        next step lands here, and there was nothing here to change */
-    const said=SKILLS.filter(q=>s[q.k]!=null).map((q,k)=>{
+    const said=skillList().filter(q=>s[q.k]!=null).map((q,k)=>{
       const v=s[q.k];
       const t=q.multi ? (v||[]).map(x=>(q.o.find(o=>o[0]===x)||[])[1]).filter(Boolean).join(', ')
                       : ((q.o.find(o=>o[0]===v)||[])[1]||'');
@@ -15767,7 +15885,7 @@ function skillStepView(a){
         <button onclick="quizMove(-1,()=>skillRestart())" style="align-self:flex-start;background:none;border:none;cursor:pointer;
           padding:10px 0 0;font:600 13px/1 var(--sans);color:#8fe3d6">Answer these again</button>`};
   }
-  const q=SKILLS[n];
+  const q=skillList()[n];
   let opts;
   if(q.multi){
     const sel=advDraft||s.adv||[];
@@ -15810,7 +15928,7 @@ const INTAKE_STEPS=[
 function stepAnswered(i){
   const a=intake(), id=(INTAKE_STEPS[i]||{}).id;
   if(id==='goal')    return !!a.goal;
-  if(id==='level')   return skillNext(a.skills)<0 && a.level!=null;
+  if(id==='level')   return skillNext(skillsOf(a))<0 && a.level!=null;
   /* answered, and the own-risk box ticked */
   if(id==='niggles'){ const sf=a.safe||{}; return (sf.pain===true || sf.pain===false) && !!sf.ack; }
   return true;
@@ -15825,8 +15943,8 @@ let quizShown='', quizDir=1;
 function quizKey(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i]||{};
   if(step.id!=='level') return step.id||'';
-  const n=skillNext((st.intake||{}).skills);
-  return 'level:'+(n<0?'done':SKILLS[n].k);
+  const n=skillNext(skillsOf(st.intake||{}));
+  return 'level:'+(n<0?'done':skillList()[n].k);
 }
 /* A second tap while the question is on its way out used to be a second
    answer: it skipped the question after, and could leave a page faded out.
@@ -15864,16 +15982,16 @@ function quizBg(){
    finish early rather than growing. open: that total is still a maximum. */
 function quizCount(){
   const i=Math.min(st.quizStep|0, INTAKE_STEPS.length-1), step=INTAKE_STEPS[i]||{};
-  const a=st.intake||{}, s=a.skills||{};
+  const a=st.intake||{}, s=skillsOf(a), SK=skillList();
   const skip = q => q.k==='adv' && a.goal==='learn';          /* never asked of a learner */
-  const asked = SKILLS.filter(q=>s[q.k]!=null).length;
+  const asked = SK.filter(q=>s[q.k]!=null).length;
   const n = skillNext(s);
   const others = INTAKE_STEPS.length-1;
   let skills, at, open=false;
-  if(step.id==='goal'){ skills=SKILLS.filter(q=>!skip(q)).length; at=1; open=true; }
+  if(step.id==='goal'){ skills=SK.filter(q=>!skip(q)).length; at=1; open=true; }
   else if(step.id==='level'){
     if(n<0){ skills=asked; at=1+asked; }
-    else { skills=asked+SKILLS.slice(n).filter(q=>!skip(q)).length; at=1+asked+1; open=true; }
+    else { skills=asked+SK.slice(n).filter(q=>!skip(q)).length; at=1+asked+1; open=true; }
   } else {
     skills=Math.max(1, asked);
     at=1+skills+INTAKE_STEPS.slice(0,i).filter(x=>x.id!=='goal'&&x.id!=='level').length+1;
@@ -15909,7 +16027,7 @@ function screenQuiz(){
   if(step.id==='goal') body=GOALS.map((g,k)=>
     card(a.goal===g.v, two(g.t,g.d), `quizMove(1,()=>pickIntake('goal','${g.v}'),this)`, k)).join('');
 
-  let head={q:step.q, sub:step.sub};
+  let head={q:step.q, sub:(step.id==='niggles' && muGoal(a)) ? MU_SAFE : step.sub};
   if(step.id==='level'){ const v=skillStepView(a); head={q:v.q, sub:v.sub}; body=v.body; }
 
   if(step.id==='niggles'){
@@ -15948,7 +16066,7 @@ function screenQuiz(){
          questions unannounced is where a cold visitor leaves. -->
     <div style="margin-top:22px;display:flex;align-items:baseline;justify-content:space-between;gap:10px">
       <span style="font:600 10.5px/1 var(--sans);letter-spacing:.16em;color:rgba(255,255,255,.7)">${
-        step.kick} &middot; ${QC.open?'QUESTION '+QC.at:QC.at+' OF '+QC.of}</span>
+        stepKick(step)} &middot; ${QC.open?'QUESTION '+QC.at:QC.at+' OF '+QC.of}</span>
       <span style="font:400 12.5px/1 var(--sans);color:rgba(255,255,255,.7)">${
         QC.at===1 ? 'About a minute'
         : QC.at>=QC.of ? 'Last one'
@@ -15974,8 +16092,8 @@ function screenQuiz(){
            (a.safe&&(a.safe.pain===true||a.safe.pain===false)) ? 'Tick the box to go on.' : 'Answer, then tick the box to go on.'}</div>`) : ''}
     ${(INTAKE_STEPS[i+1] && stepAnswered(i))?`<button class="qup" onclick="quizMove(1,()=>nextIntake())"
       style="${white};animation-delay:300ms">${
-        i===INTAKE_STEPS.length-2 ? 'Last one: '+esc(INTAKE_STEPS[i+1].kick.toLowerCase())
-                                  : 'Next: '+esc(INTAKE_STEPS[i+1].kick.toLowerCase())} &rarr;</button>`:''}
+        i===INTAKE_STEPS.length-2 ? 'Last one: '+esc(stepKick(INTAKE_STEPS[i+1]).toLowerCase())
+                                  : 'Next: '+esc(stepKick(INTAKE_STEPS[i+1]).toLowerCase())} &rarr;</button>`:''}
     ${i>0?`<button onclick="quizMove(-1,()=>quizBack())" style="background:none;border:none;
       color:rgba(255,255,255,.75);font:500 13px/1 var(--sans);cursor:pointer;margin-top:14px;padding:10px">← Back</button>`
       :`<button onclick="skipIntake()" style="background:none;border:none;color:rgba(255,255,255,.75);
@@ -16006,7 +16124,9 @@ function toggleWhen(i){
   a.when=next.sort((x,y)=>x-y); a.days=a.when.length; save(); render();
 }
 function pickIntake(k,v){
-  intake()[k]=v; save();
+  intake()[k]=v;
+  if(k==='goal') quizLadder(v);
+  save();
   if(k==='goal'||k==='level'){ nextIntake(); return; }
   render();
 }
@@ -16064,7 +16184,7 @@ function finishIntake(){
   const when=intakeWhen();
   /* the skills place them; the four level words only for an answer given
      before the skills existed */
-  const PL = (a.skills && skillNext(a.skills)<0) ? skillStage(a.skills) : L.v;
+  const sk=skillsOf(a), PL = (Object.keys(sk).length && skillNext(sk)<0) ? skillStage(sk) : (isMU() ? 0 : L.v);
   st.stage=PL; st.placed=PL; st.time=a.mins||30; st.perWeek=when.length||L.def;
   /* a new placement is a new question: whatever they chose about the free
      week last time was about the stage they were on then */
@@ -16082,7 +16202,8 @@ function finishIntake(){
      every read: the sessions on the days they chose, the wrist and
      mobility days in the gaps between them. */
   st.dayMap=weekOn(when);
-  track('quiz', PL);
+  /* the stage counts are the handstand ladder's */
+  if(!isMU()) track('quiz', PL);
   /* answered from the coaching Start page: back to it, where their tests
      now show (16 Oct 2026, review) */
   st.tab = st.email ? (awaitingBlock() ? 'start' : 'home') : 'joinFree';
@@ -16115,7 +16236,7 @@ function inFrame(){
 function sendIntake(){
   if(!st.token) return;
   fetch(AUTH.intake,{method:'POST',headers:authed(),
-    body:JSON.stringify({intake:st.intake||{},stage:st.stage})})
+    body:JSON.stringify({intake:st.intake||{},stage:hsVal('stage')})})
     .then(r=>{ if(r.ok && awaitingBlock()) loadProgramme(); }).catch(()=>{});
 }
 
@@ -16140,7 +16261,7 @@ const drillById=v0=>{ const v=drillAlias(v0);
    drifted: Foundations claimed 14 and had 8, Freestanding claimed 18 and had
    6. Someone paying for the Press stage was told 17 and given 5. It is
    derived now, so the claim and the content cannot disagree. */
-STAGES.forEach(x=>{ x.drills=(x.drillIds||[]).length; });
+HS_DATA.STAGES.concat(MU_STAGES).forEach(x=>{ x.drills=(x.drillIds||[]).length; });
 /* straight out of localStorage, so it has to be clamped: a stale or edited
    value put the whole app on a stage that does not exist */
 /* ── which stage they are actually on ──────────────────────────────
@@ -16192,7 +16313,7 @@ function tourSession(wrist, listOnly, dayIdx){
   tourQ=Q;
 }
 const tasting = () => false;
-const stageCap=()=>isPlus() ? STAGES.length-1 : FREE_STAGES-1;
+const stageCap=()=>isPlus() ? STAGES.length-1 : Math.max(0, FREE_STAGES-1);
 /* ── placed above the free stage, and the week not yet answered ───────
    Somebody whose answers put them on Wall Work was shown "Where you are:
    Foundations" the moment their one free session was used, with a line
@@ -16200,7 +16321,10 @@ const stageCap=()=>isPlus() ? STAGES.length-1 : FREE_STAGES-1;
    asked of them. Until they say no to the free week they are where their
    answers put them, with the week on offer; Foundations is where they go
    when they choose it (st.freeChoice), not where they are put. */
-const trialPending = () => sellsLadder() && !coachedView() && !isPlus() && !st.freeChoice
+/* never on the Muscle Up Ladder: it has no free stage to offer instead,
+   and the card hid the switch back (23 Oct 2026). Its own way in is the
+   line under the figures. */
+const trialPending = () => sellsLadder() && !coachedView() && !isPlus() && !st.freeChoice && !isMU()
   && placedStage() > FREE_STAGES-1 && !!STAGES[placedStage()];
 function openTrial(at){ st.ovStage = (at!=null && STAGES[at]) ? at : placedStage(); openOv('stage'); }
 /* A button that already says "Start the free trial" starts it. It opened the
@@ -16325,7 +16449,7 @@ function askBoxHTML(hint){
 /* each filmed explainer with its place in FAQS, which is what the player opens */
 const stageExplainers = P => (explainersFor(P)||[]).filter(filmed)
   .map(x=>({x, i:FAQS.findIndex(f=>(x.uid && f.uid===x.uid) || f.id===x.id)}));
-const stageFixes = P => fixList().filter(f=>f && f.live!==false && Number(f.stage)===P);
+const stageFixes = P => isMU() ? [] : fixList().filter(f=>f && f.live!==false && Number(f.stage)===P);
 const fixSub = f => f.tag || ((f.weeks||4)+' weeks, '+(f.perWeek||3)+' sessions a week');
 function trialPreviewHTML(){
   const P=placedStage(), PS=STAGES[P];
@@ -16369,9 +16493,11 @@ const LEARN_ROWS={0:[
   {t:'Not sure what it should feel like', sub:'Film and read &middot; 3 min', ex:5}
 ]};
 function learnHTML(){
-  if(coachedView() || trialPending()) return '';
+  /* the Muscle Up Ladder has no fixes or explainers yet, and the handstand
+     ones were showing under it */
+  if(coachedView() || trialPending() || isMU()) return '';
   const P=curStage(), PS=STAGES[P]; if(!PS) return '';
-  if(P===5) return stageFilmsHTML();
+  if(P===5 && !isMU()) return stageFilmsHTML();
   const fx=stageFixes(P), ex=stageExplainers(P).filter(o=>o && o.i>=0 && o.x);
   const paid = !sellsLadder() ? 'Members' : PRICE_TRIAL()>0 ? 'With the trial' : esc(PRICE())+' a month';
   /* a stage with no rows written: its fixes, then its explainers, each its
@@ -16513,6 +16639,7 @@ const STAGE_VIDEO = [0,1,2,3,4,5].map(i => i===0 ? '' : (PHASE_INTRO[i]||''));  
 /* the phase's intro as the coach has set it on the dashboard, else as shipped.
    An empty one set there means that phase has no intro film at all. */
 function stageIntroUid(si){
+  if(isMU()) return '';
   const o=((st&&st.stageIntro)||{})[si];
   if(typeof o==='string') return isUid(o) ? o : '';
   return STAGE_VIDEO[si] || (si===0 ? LADDER_INTRO_VIDEO : '');
@@ -16524,6 +16651,7 @@ const stageFilm = () => curStage()===0 ? '' : stageIntroUid(curStage());
    play button until pressed, then Stream's own player, the way the fixes
    play theirs, so it needs no MP4 switched on for it. */
 function stageMedia(i){
+  if(isMU()) return null;
   const m=(st.ladderMedia||{})[i];
   return (m && ((m.kind==='img' && m.id) || (m.kind==='vid' && m.uid))) ? m : null;
 }
@@ -16561,7 +16689,7 @@ function playStageFilm(el, uid){
    sheet says what you are about to watch the way the explainers do */
 /* the stage's chapters: Elliott's from the dashboard where he has written
    them (pv marks a preview), the shipped ones otherwise (teaser) */
-const storySource = si => { const own=(st.ladderStory||{})[si]; return Array.isArray(own) ? own : (STAGE_STORY[si]||[]); };
+const storySource = si => { if(isMU()) return []; const own=(st.ladderStory||{})[si]; return Array.isArray(own) ? own : (STAGE_STORY[si]||[]); };
 function storyChapters(si, preview){
   const list=cpFor(si)||[];
   const gone=new Set(st.drillsOff||[]);
@@ -16851,7 +16979,9 @@ function screenOriented(){
             <div style="font:400 20px/1.25 var(--serif)">
               ${tDays>0 ? `${esc(PS.n)} opens with the ${tDays}-day free trial.` : `${esc(PS.n)} opens with the ladder.`}</div>
             <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">
-              ${!sellsLadder() ? `${esc(STAGES[stageCap()].n)} is free either way.`
+              ${isMU() ? (!sellsLadder() ? '' : tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then ${PRICE()} a month opens every stage of both ladders, and ${CANCEL_LINE()}.`
+                  : `${PRICE()} a month opens every stage of both ladders.`)
+                : !sellsLadder() ? `${esc(STAGES[stageCap()].n)} is free either way.`
                 : tDays>0 ? `Nothing is charged until ${esc(firstCharge())}, then ${PRICE()} a month unlocks every stage, and ${CANCEL_LINE()}. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`
                          : `${PRICE()} a month unlocks every stage. ${esc(STAGES[stageCap()].n)} is free either way, with no card.`}</div>
             <!-- the button for this lives in the sticky bar, which is the
@@ -16875,7 +17005,7 @@ function screenOriented(){
               1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
         </span>
         <span style="flex:1;min-width:0">
-          <span style="display:block;font:600 14.5px/1.25 var(--sans)">How the handstand ladder works</span>
+          <span style="display:block;font:600 14.5px/1.25 var(--sans)">${isMU()?'How the app works':'How the handstand ladder works'}</span>
           <span style="display:block;margin-top:4px;font:500 12px/1 var(--sans);color:var(--grey)">Watch first &middot; 2 min</span>
         </span>
       </button>`:''}
@@ -16916,7 +17046,7 @@ function screenOriented(){
       <!-- the free stage is a real choice, so it is a real button: it was a
            small link under the offer and people took the offer for the only
            way in (usability review, 10 Oct 2026) -->
-      ${gated?`<button onclick="st.oriented=true;save();chooseFree();go('home')"
+      ${(gated && !isMU())?`<button onclick="st.oriented=true;save();chooseFree();go('home')"
         style="width:100%;min-height:54px;margin-top:10px;border-radius:18px;cursor:pointer;
         background:#fff;border:1.5px solid rgba(0,102,99,.35);color:var(--forest);font:600 16px/1.2 var(--sans)">
         Start free on ${esc(S.n)}</button>`:''}
@@ -16990,15 +17120,15 @@ function climbCardHTML(cs, S, P, x){
      the Ladder tab's strip, and Start stays the one strong button */
   return `<div data-tour="ladder" style="padding:4px 0 0">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <span class="kick2" style="color:var(--forest)">THE LADDER</span>
+      ${coachedView() ? `<span class="kick2" style="color:var(--forest)">THE LADDER</span>` : ladderSwitchHTML()}
       <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">STAGE ${(clearShowing()!=null?clearShowing():cs)+1} OF ${n}</span></div>
     ${x.above||''}
     <!-- the six handstands, theirs in amber, rising in one after another
          as on the Ladder tab (Elliott, 17 Oct 2026) -->
-    <div style="margin-top:12px">${ladderStripHTML({home:true})}</div>
+    <div style="margin-top:12px"${coachedView()?'':' ontouchstart="lsTouch(event)" ontouchend="lsSwipe(event)"'}>${ladderStripHTML({home:true})}</div>
     ${/* the way to buy, made plain while the App Store looks at it (Elliott,
          23 Oct 2026): it opens the same purchase screen as a locked stage */''}
-    ${(!isPlus() && !coachedView() && sellsLadder()) ? `<button onclick="openStage(Math.min(STAGES.length-1, Math.max(FREE_STAGES, curStage()+1)))"
+    ${(!isPlus() && !coachedView() && sellsLadder()) ? `<button onclick="openStage(isMU() ? placedStage() : Math.min(STAGES.length-1, Math.max(FREE_STAGES, curStage()+1)))"
       style="display:flex;align-items:center;gap:12px;width:100%;margin-top:14px;padding:14px 16px;border-radius:18px;cursor:pointer;text-align:left;
       border:0;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);box-shadow:0 12px 30px rgba(0,102,99,.25), inset 0 1px 0 rgba(255,255,255,.3)">
       <span style="flex:1;min-width:0"><b style="display:block;font:600 16px/1.25 var(--sans)">Unlock the full Ladder</b>
@@ -17013,6 +17143,34 @@ function climbCardHTML(cs, S, P, x){
         stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>`}
     ${x.foot||''}
   </div>`;
+}
+/* ── the two ladders, side by side ────────────────────────────────────
+   A tap on either name, or a swipe across the figures (Elliott, 23 Oct
+   2026: "its own ladder which can be swiped on the ladder silhouettes").
+   Left goes on to the Muscle Up Ladder, right comes back. */
+function ladderSwitchHTML(){
+  const on=isMU();
+  const b=(mu,t)=>`<button onclick="pickLadder('${mu?'mu':'hs'}')" aria-pressed="${on===mu?'true':'false'}" class="lsw-b${on===mu?' on':''}">${t}</button>`;
+  return `<div class="lsw" role="group" aria-label="Which ladder">${b(false,'Handstand')}${b(true,'Muscle up')}</div>`;
+}
+function pickLadder(to){
+  if(coachedView()) return;
+  ladderMovedHere=true;
+  if(!switchLadder(to)) return;
+  render();
+  const el=document.querySelector('#app .ls');
+  if(el){ el.classList.add(to==='mu' ? 'ls-from-r' : 'ls-from-l'); }
+}
+let lsX0=null, lsY0=0;
+function lsTouch(e){ const t=e.touches && e.touches[0]; lsX0=t ? t.clientX : null; lsY0=t ? t.clientY : 0; }
+function lsSwipe(e){
+  if(lsX0==null) return;
+  const t=e.changedTouches && e.changedTouches[0], x0=lsX0; lsX0=null;
+  if(!t) return;
+  const dx=t.clientX-x0, dy=t.clientY-lsY0;
+  /* across, and clearly across: a scroll down the page is not a swipe */
+  if(Math.abs(dx)<50 || Math.abs(dx)<Math.abs(dy)*1.5) return;
+  pickLadder(dx<0 ? 'mu' : 'hs');
 }
 /* the two ways in as one capsule, free and coached alike (Elliott, 18 Oct
    2026: "combine the checkpoints and start session on the front page,
@@ -17472,6 +17630,7 @@ function placementLinks(){
    the end of Wall Work's list. It used to lead it, because the lists are
    walked in phase order and Foundations is phase one. */
 function explainersFor(si){
+  if(isMU()) return [];
   const ed=(st&&st.explainEdit)||{}, own=[], lent=[];
   Object.keys(EXPLAIN).forEach(k=>(EXPLAIN[k]||[]).forEach(x=>{
     const o=ed[x.id];
@@ -18180,7 +18339,7 @@ function homeLadderHTML(row){
 const HOW_URL = () => stageIntroUid(0)||LADDER_INTRO_VIDEO;
 const howShown = () => !coachedView() && !st.howGone && !!HOW_URL();
 /* the stage has a fixes rail: its own fixes, or the Press stage's test */
-const stageFixRail = P => stageFixes(P).length>0 || (P===5 && typeof PRESS_TEST!=='undefined');
+const stageFixRail = P => stageFixes(P).length>0 || (P===5 && !isMU() && typeof PRESS_TEST!=='undefined');
 /* first time in, and nothing in the fixes rail: the film is shown open */
 const howBig = () => howShown() && firstVisit() && !trialPending() && !stageFixRail(curStage());
 function howBigHTML(){
@@ -19335,8 +19494,12 @@ function lwRowHTML(here, o){
     ${o.names?`<div class="lw-minin">${STAGES.map((S,i)=>`<span${i===here?' style="color:var(--ink);font-weight:700"':''}>${LW_BREAK[S.n]||esc(S.n)}</span>`).join('')}</div>`:''}
   </div>`;
 }
+/* the Muscle Up six, traced from Suryava's own clips of 23 Oct 2026 as
+   placeholders, the bar behind each at a third */
+const MU_FIG = [{"d":"M59.6 6.0 58.8 6.0 58.0 6.8 56.7 7.2 55.7 8.3 54.7 17.6 52.4 28.3 52.4 33.5 51.6 38.2 50.9 39.7 48.5 41.8 47.2 44.4 46.2 44.2 45.4 43.4 44.5 39.3 44.5 37.2 45.8 35.1 45.4 30.8 43.7 24.0 43.7 21.9 45.3 20.0 44.5 16.5 42.9 16.3 42.3 16.7 41.6 18.2 41.0 21.1 40.6 30.2 41.2 37.4 38.7 50.8 40.6 53.1 41.4 56.2 42.9 59.9 43.5 64.1 44.7 67.8 45.1 73.0 44.5 75.8 42.9 78.7 42.5 81.2 42.7 88.3 42.2 96.3 42.5 97.8 43.9 99.8 43.5 103.1 39.6 111.4 38.9 118.0 38.9 123.8 46.8 122.3 50.1 122.3 51.6 121.1 54.0 113.9 58.4 106.8 59.0 105.0 59.2 102.1 60.4 99.0 61.1 92.0 60.6 83.1 59.4 79.2 57.1 76.9 55.5 76.3 55.5 75.8 56.1 75.4 58.6 75.0 59.4 75.6 59.6 77.3 60.6 77.3 61.1 76.5 59.6 63.2 56.1 49.0 56.5 44.0 57.8 39.1 58.0 32.4 59.2 26.9 59.2 22.1 58.4 17.8 58.4 13.6 59.4 11.6Z","p":[["M2 4.3h96v3.4h-96z",0.32]]},{"d":"M38.4 6.2 36.9 6.9 35.5 8.6 35.3 12.3 35.8 15.6 31.9 21.0 30.3 27.5 30.3 28.8 31.0 32.5 33.2 36.6 37.7 48.6 37.7 53.1 38.4 53.8 41.8 53.1 44.7 55.8 49.5 62.3 53.8 66.6 53.4 67.3 52.1 67.5 49.4 68.8 46.4 73.2 45.8 79.0 46.9 80.1 47.9 82.1 48.1 84.9 45.8 88.6 45.6 92.1 46.0 93.8 47.7 97.3 47.7 99.0 47.1 102.1 45.3 107.0 45.1 109.4 46.0 112.5 48.4 115.5 49.5 119.2 53.4 123.8 54.5 123.8 56.2 123.3 56.2 122.5 54.5 121.2 54.2 120.1 54.4 119.0 58.2 116.8 60.3 114.4 61.4 112.1 62.5 108.1 63.2 108.6 64.2 110.8 66.4 114.0 67.9 115.1 68.6 115.1 68.8 99.2 69.4 97.7 69.5 81.4 67.3 75.3 64.4 69.4 65.3 68.8 67.9 69.5 68.8 69.5 69.0 59.5 68.2 56.4 61.4 47.1 60.8 45.8 61.2 44.2 58.4 43.8 56.0 42.5 52.1 37.7 49.5 32.5 46.9 30.1 44.5 28.8 44.7 28.2 46.0 28.2 48.1 29.0 49.7 28.6 50.5 25.6 50.5 24.0 48.2 21.0 47.5 19.0 46.2 17.1 46.2 16.2 46.9 15.1 47.5 12.9 47.5 10.6 46.8 8.4 45.5 6.9 42.7 6.0Z","p":[["M2 17.3h96v3.4h-96z",0.32]]},{"d":"M57.4 6.0 52.7 7.4 51.6 8.5 51.1 12.8 41.4 21.5 37.2 26.3 30.4 36.4 26.4 44.3 23.0 52.8 22.8 57.1 23.7 60.7 24.8 63.0 28.8 67.7 37.2 81.2 38.5 81.2 39.4 80.5 40.8 80.5 42.8 82.1 45.7 82.6 48.2 83.7 51.1 86.2 52.9 89.5 54.5 95.9 57.4 101.9 67.3 113.9 69.6 117.2 71.2 121.1 73.4 123.3 75.9 123.8 76.8 123.1 77.0 122.2 76.8 115.2 75.4 109.4 74.3 98.1 72.5 89.1 72.5 80.8 70.9 77.2 66.7 72.4 61.7 65.2 56.3 59.4 56.3 58.5 58.3 56.0 58.6 52.6 55.9 48.8 55.9 47.0 56.5 46.8 58.1 47.7 61.3 47.9 63.1 47.7 64.9 46.3 66.4 46.5 66.7 44.5 66.0 42.9 64.0 41.1 61.7 40.0 60.8 38.9 61.5 34.8 61.5 26.5 62.6 25.1 65.1 24.7 67.8 22.4 70.0 16.8 70.3 13.7 68.9 10.1 66.0 7.6 61.9 6.0Z","p":[["M2 30.2h96v3.4h-96z",0.32]]},{"d":"M29.0 6.0 29.0 7.5 35.5 12.5 37.1 14.2 37.5 15.8 38.4 17.1 38.4 27.5 42.8 43.0 44.9 46.4 43.6 56.8 44.3 78.4 39.4 80.5 36.9 83.2 32.5 78.6 30.2 78.4 29.2 79.2 29.2 93.9 30.4 94.5 29.0 96.2 29.2 111.4 30.2 111.4 31.1 110.4 33.0 105.8 33.6 108.5 35.2 112.1 36.9 114.2 39.9 116.3 43.0 119.4 41.5 121.1 39.2 120.9 38.8 121.3 38.8 123.6 40.1 123.8 41.7 123.2 46.5 118.6 50.5 115.8 51.6 115.4 53.0 116.3 53.7 116.3 55.5 115.6 60.2 110.0 62.9 108.3 63.5 108.3 64.1 109.4 65.6 116.5 66.4 117.1 67.5 117.1 68.5 116.5 70.0 114.6 70.8 112.5 70.4 101.0 69.6 99.1 68.1 98.3 65.2 98.3 64.1 99.1 62.9 99.1 55.7 95.5 51.1 95.5 51.4 94.7 57.0 91.2 61.2 89.9 63.5 88.2 65.2 85.7 65.8 82.8 65.4 78.8 62.2 71.7 60.1 68.4 59.1 55.6 59.3 53.5 59.9 52.2 59.9 50.1 59.1 47.0 57.8 44.5 55.5 37.8 55.1 30.7 53.9 26.3 53.7 18.3 51.6 17.9 48.9 18.1 49.5 19.8 49.5 22.3 50.9 24.0 51.2 25.3 50.3 31.7 50.7 41.2 49.9 41.6 48.0 39.1 46.3 34.0 45.9 30.3 41.9 17.9 40.3 10.2 39.2 9.3 34.0 8.5 30.4 6.2Z","p":[["M2 4.3h96v3.4h-96z",0.32]]},{"d":"M61.7 45.2 58.6 45.2 56.4 45.9 54.3 53.6 49.8 51.7 44.1 51.4 44.1 52.4 46.7 53.3 47.6 55.2 45.5 57.6 45.0 59.7 40.5 63.3 37.6 66.2 35.2 69.7 30.2 74.3 30.7 77.4 26.4 84.7 25.7 89.0 24.1 92.1 24.1 98.3 25.0 101.6 26.4 104.0 32.2 109.7 39.1 118.1 41.2 119.0 46.2 123.8 49.5 123.0 54.0 120.2 59.0 118.1 62.4 115.7 64.8 112.6 64.8 110.2 61.4 105.2 58.3 101.6 57.4 98.8 56.4 97.8 52.1 95.9 50.5 93.1 51.9 89.7 52.9 88.8 54.8 88.3 55.5 87.1 58.3 87.4 59.0 84.7 63.3 85.4 65.9 84.0 69.0 84.0 70.2 83.3 70.2 82.1 68.1 80.9 65.5 77.8 65.0 75.0 67.1 72.8 72.8 70.9 75.0 68.8 75.7 67.1 75.7 61.7 74.0 57.1 70.2 53.8 68.3 49.5 66.2 47.1Z","p":[["M2 78.5h96v3.4h-96z",0.32]]},{"d":"M66.7 6.0 64.2 6.0 61.6 6.5 59.8 8.0 58.1 9.9 57.3 12.4 57.6 15.7 58.1 17.2 58.0 18.3 57.0 19.9 53.2 23.9 49.4 29.5 46.5 37.7 45.2 44.9 42.2 49.3 40.2 51.1 38.1 55.9 37.1 72.0 37.4 72.5 38.6 72.6 39.7 73.5 39.3 74.3 39.7 79.4 38.4 82.5 37.6 83.5 36.1 89.4 36.1 96.3 36.6 101.7 36.5 105.1 34.8 107.1 32.5 108.9 32.4 110.4 34.7 113.2 36.5 116.8 38.9 122.9 39.6 123.3 42.5 122.9 44.5 123.8 46.0 123.8 47.0 123.0 47.5 122.0 47.5 120.9 45.5 116.9 44.7 109.2 44.8 104.8 47.1 96.4 48.1 90.7 49.1 87.9 50.9 84.6 52.4 79.9 54.0 76.9 54.5 75.3 55.5 65.9 55.0 62.1 56.0 61.0 60.6 60.5 60.6 59.8 59.3 57.9 59.3 54.4 62.6 45.6 63.7 38.3 65.2 34.4 65.7 31.1 67.5 27.5 67.2 7.1Z","p":[["M2 60.9h96v3.4h-96z",0.32]]}];
+const MU_STILL = [0,1,2,3,4,5].map(i=>'assets/ladder/mu-stage-'+i+'.jpg');
 function lwFigSVG(i){
-  const f=LW_FIG[i]; if(!f) return '';
+  const f=(isMU() ? MU_FIG : LW_FIG)[i]; if(!f) return '';
   return `<svg class="lw-fig" viewBox="0 0 100 130" aria-hidden="true">${
     f.p.map(([d,o])=>`<path d="${d}" fill="currentColor" opacity="${o}"/>`).join('')}<path d="${f.d}" fill="currentColor"/></svg>`;
 }
@@ -19344,8 +19507,9 @@ function lwFigSVG(i){
 const LW_LINE=['Kick up, feel at home upside down, fall safely.','Hold chest-to-wall for 30 seconds, then move on it.',
   'Own the assisted balance: slides, box work, clean entries.','Leave the wall for brief moments of balance.',
   'Kick up and balance on your own, every time.','Compress, unroll and press to handstand.'];
-const lwLine = i => LW_LINE[i] || (STAGES[i]||{}).goal || '';
+const lwLine = i => (isMU() ? '' : LW_LINE[i]) || (STAGES[i]||{}).goal || '';
 function lwStill(i){
+  if(isMU()) return MU_STILL[i] || '';
   const m=stageMedia(i);
   if(m) return m.kind==='img' ? '/api/app/image/'+encodeURIComponent(m.id) : streamThumb(m.uid);
   return STAGE_STILL[i] || '';
@@ -19355,7 +19519,7 @@ function lwStill(i){
    than a broken image. */
 function lwImg(i){
   const S=STAGES[i]||{};
-  if(i===5 && !stageMedia(5)){
+  if(i===5 && !isMU() && !stageMedia(5)){
     const p=PRESS_STUDIO;
     return `<img src="${esc(p[1])}" alt="Elliott pressing to handstand" loading="lazy" onerror="this.remove()">`
       + p.map((src,j)=>`<img class="lw-cyc" style="animation-delay:${j*2.5}s" src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()">`).join('');
@@ -19775,7 +19939,10 @@ function ladderStripHTML(o){
       <span class="ls-n" style="${now||next?'color:var(--ink);font-weight:700':done?'color:var(--forest)':''}">${LW_BREAK[S.n]||esc(S.n)}</span>
     </button>`; }).join('');
   /* where the free part ends, and the way into the rest */
-  const free = isPlus() ? '' : (o.home && yourLvl>-1) ? `<button class="ls-line" onclick="openStage(${yourLvl})">${
+  const free = isPlus() ? '' : (isMU() && o.home) ? `<button class="ls-line" onclick="openStage(${yourLvl>-1?yourLvl:cur})">${
+      yourLvl>-1 ? `Your answers put you at <b>${esc(STAGES[yourLvl].n)}</b>. ` : ''}The Muscle Up Ladder comes with the full Ladder. <span>${
+      PRICE_TRIAL()>0?'Try it free':sellsLadder()?'See the full Ladder':'See what is in it'} &rarr;</span></button>`
+    : (o.home && yourLvl>-1) ? `<button class="ls-line" onclick="openStage(${yourLvl})">${
       (earned && yourLvl===cur+1) ? `<b>${esc(STAGES[cur].n)}</b> done. ${esc(STAGES[yourLvl].n)} is next, with the full Ladder.`
         : `Your answers put you at <b>${esc(STAGES[yourLvl].n)}</b>, which opens with the full Ladder.`} <span>${PRICE_TRIAL()>0?'Try it free':sellsLadder()?'See the full Ladder':'See what is in it'} &rarr;</span></button>`
     : o.home ? `<button class="ls-line" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">${
@@ -19789,7 +19956,7 @@ function ladderStripHTML(o){
   /* the lock as the Stage cleared sheet draws it (Elliott, 19 Oct 2026: the
      old amber dot was still on Train): one white lock on a bracket over the
      stages still to open, in place of a dot on one of them */
-  const lockFrom = yourLvl>-1 ? Math.max(cur+1, FREE_STAGES) : -1;
+  const lockFrom = (isMU() && !isPlus()) ? 0 : yourLvl>-1 ? Math.max(cur+1, FREE_STAGES) : -1;
   const bracket = lockFrom>-1 && lockFrom<=last ? `<div class="clr-lock ls-bracket" style="left:calc(${lockFrom} * 100% / ${STAGES.length})" aria-hidden="true"><i></i><span><svg width="11" height="13" viewBox="0 0 12 14"><rect x="1" y="6" width="10" height="7" rx="2" fill="none" stroke="#00403d" stroke-width="1.4"/><path d="M3.5 6V4a2.5 2.5 0 015 0v2" fill="none" stroke="#00403d" stroke-width="1.4"/></svg></span></div>` : '';
   return `<div data-ladderall data-tour="stagelist" class="lw ls-in${o.home?' ls-home':''}" style="padding:${o.home?'0':'18px 20px 0'}">
     <div class="ls${(bracket || (!isPlus() && !coachedView() && o.home))?' ls-locked':''}">${bracket}${steps}</div>
@@ -20028,7 +20195,8 @@ function ladderTick(v,el){
 /* Foundations is what free gets. Everything above it is the £5 ladder.
    Three stages were free, which meant most of the coached material was
    sitting there for nothing. */
-const FREE_STAGES = 1;
+/* FREE_STAGES is declared with the two ladders, near the top: 0 on the
+   Muscle Up Ladder, which is all in the subscription */
 /* Where the free tier ends, said once. A first-time user counted seven
    different versions of this across seven screens, two of them one tap
    apart, and nobody hands over a card to an app that cannot keep its own
@@ -20103,10 +20271,10 @@ function screenUpgradeBody(si){
     </div>`;
   return `<div>
       <div class="kick2" style="color:var(--forest);font-size:11px;letter-spacing:.14em">${esc(String(s.n).toUpperCase())} &middot; STAGE ${si+1} OF ${STAGES.length}</div>
-      <div style="font:400 32px/1.08 var(--serif);margin-top:8px">The whole <em style="color:var(--forest);font-style:normal">Ladder.</em></div>
-      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:8px">${more} more stages after ${esc(STAGES[0].n)}, every drill filmed and cued, and the check points that move you up.</div>
+      <div style="font:400 32px/1.08 var(--serif);margin-top:8px">${isMU()?'The Muscle Up':'The whole'} <em style="color:var(--forest);font-style:normal">Ladder.</em></div>
+      <div style="font:400 15px/1.5 var(--sans);color:var(--grey);margin-top:8px">${isMU() ? 'Six stages, from a steady hang to your first muscle up' : more+' more stages after '+esc(STAGES[0].n)}, every drill filmed and cued, and the check points that move you up.</div>
       <div style="margin-top:16px" aria-hidden="true">${lwRowHTML(curStage(),{h:56,done:true,names:true})}</div>
-      <div class="ls-free" style="pointer-events:none"><span style="grid-column:1 / ${FREE_STAGES+1}">Free</span><span
+      <div class="ls-free" style="pointer-events:none">${FREE_STAGES>0?`<span style="grid-column:1 / ${FREE_STAGES+1}">Free</span>`:''}<span
         style="grid-column:${FREE_STAGES+1} / ${STAGES.length+1};background:#e3eff2;border:0">With the full Ladder</span></div>
     </div>
     ${s.soon?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;background:rgba(243,169,73,.14);font:400 13.5px/1.5 var(--sans)">
@@ -20140,6 +20308,7 @@ function screenUpgradeBody(si){
     </div>
     ${(trialPending() && (st.ovStage|0)===placedStage())?`<button class="btn2" style="width:100%;margin-top:12px"
       onclick="chooseFree(true)">Train ${esc(STAGES[FREE_STAGES-1].n)} for free instead</button>`
+    : isMU() ? `<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">Foundations, on the Handstand Ladder, stays free, always.</div>`
     : curStage()>=FREE_STAGES?`<button class="btn2" style="width:100%;margin-top:12px" onclick="closeOv();goToStage(0)">Stay on ${esc(STAGES[0].n)} for now</button>`
       :`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">${esc(STAGES[0].n)} stays free, always.</div>`}
     ${stageBit}
@@ -20753,6 +20922,7 @@ function trainAnyway(){
 /* -1 means "nothing is scheduled, give me whatever is next" */
 function startDay(i, kind){
   if(joinFirst(i, kind)) return;
+  if(isMU() && kind!=='wrist' && stageLocked(curStage())){ openStage(placedStage()); return; }
   endTaste();
   st.pickDay = (i == null ? -1 : i);
   st.pickKind = kind || null;
@@ -20869,6 +21039,7 @@ function warmupFor(budgetSecs, stage, written){
 
 /* a session built from the current stage's drills, to fit the time chosen */
 function buildFreeSession(wristDay,listOnly,dayIdx,keep){
+  if(!wristDay && !listOnly && isMU() && stageLocked(curStage())){ openStage(placedStage()); return; }
   /* A new workout ends the one the free session was spent on, before the
      stage is read, so it is built where the account can train. Putting a
      drill aside rebuilds the same workout, so that one keeps it. */
