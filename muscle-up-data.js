@@ -12,21 +12,13 @@
    them without a hand written list. */
 
 const MU_STAGES=[
- {n:'Hang and Pull', sum:'A steady hang, strict pulling, and holding yourself up above the bar.',
-  rec:'We recommend two to three sessions a week.', goal:'Hang steady, pull to the chest, and hold yourself above the bar.', hold:'20s',
-  intro:'Every muscle up is a pull and a push. This stage builds both halves separately: a hang that stays active, pull ups that reach the chest, and the support and dips that finish on top.',
-  ch:'Chest to bar', chSub:'Three chest to bar pull ups, a full hang between each. Do it with me.'},
- {n:'False Grip', sum:'Wrists over the bar, so the hands are already on top when you get there.',
-  rec:'We recommend two to three sessions a week.', goal:'Hang and pull in a false grip, on the bar and on the rings.', hold:'15s',
-  intro:'The false grip puts the wrist over the bar before you pull, so there is far less to turn over at the top. It feels strange on the wrists at first. Little and often wins here.',
-  ch:'False grip hang', chSub:'Hang in a false grip for 15 seconds, wrists over the bar.'},
- {n:'Dips', sum:'The push half: strong, deep dips and a support that does not shake.',
-  rec:'We recommend two to three sessions a week.', goal:'Dip deep and lock out, on the bar and on the rings.', hold:'20s',
-  intro:'Once you are over the bar you are at the bottom of a dip. If that position is weak, the muscle up stalls there. This stage makes the bottom of the dip somewhere you are strong.',
-  ch:'Ring dips', chSub:'Five ring dips, all the way down and all the way locked out.'},
- {n:'High Pull', sum:'A controlled swing and a pull that reaches your waist, not your chin.',
-  rec:'We recommend two to three sessions a week.', goal:'Swing with control and pull the bar to your waist.', hold:'',
-  intro:'A muscle up needs the bar much lower on the body than a pull up does. The swing gives you the speed and the high pull takes the bar to your waist, which is where the turnover can happen.',
+ {n:'First Pull Up and Dip', sum:'Your first strict pull up and dip, a steady hang, and holding yourself above the bar.',
+  rec:'We recommend two to three sessions a week.', goal:'A strict pull up, a dip, and a steady support above the bar.', hold:'20s',
+  intro:'Every muscle up is a pull and a push. This stage builds both halves separately: a hang that stays active, pull ups that reach the bar, and the support and dips that finish on top. The false grip starts here too, little and often.',
+  ch:'Pull up and dip', chSub:'Three strict pull ups, then five dips on the bar. Do it with me.'},
+ {n:'High Pull and Strength', sum:'A controlled swing, a pull that reaches your waist, and dips that are strong at the bottom.',
+  rec:'We recommend two to three sessions a week.', goal:'Pull the bar to your waist and dip deep with control.', hold:'',
+  intro:'A muscle up needs the bar much lower on the body than a pull up does. The swing gives you the speed and the high pull takes the bar to your waist, while deep dips make the bottom of the muscle up somewhere you are strong.',
   ch:'High pull', chSub:'Swing and pull the bar to your waist, three in a row.'},
  {n:'Transition', sum:'Getting from under the bar to over it, with help until you need none.',
   rec:'We recommend two to three sessions a week.', goal:'Turn over the bar with a box, a band and a jump.', hold:'',
@@ -165,38 +157,29 @@ const MU_TEACH=['zoomed-in-on-how-to-false-grip.mp4','front-on-how-to-false-grip
 /* Stream uids, once uploaded: drill id to uid. Empty until then. */
 const MU_UIDS={};
 
+/* Four stages (Elliott, 24 Oct 2026: "first pull up and dip, high pull and
+   strengthening, transition, muscle up"). The false grip is not a stage:
+   it is a Learn article, and its drills run through the first three. */
 const MU_POOL={
  0:[
   {v:'wrist-circles-mob', g:'Warm-up', L:1}, {v:'shoulder-circles', g:'Warm-up', L:1},
   {v:'mu-active-hang', g:'Hang', L:1},
-  {v:'mu-ring-pull-ups', g:'Pull', L:2}, {v:'mu-chest-to-bar-pull-ups', g:'Pull', L:3}, {v:'mu-high-pull-ups', g:'Pull', L:4},
+  {v:'mu-ring-pull-ups', g:'Pull', L:2}, {v:'mu-chest-to-bar-pull-ups', g:'Pull', L:3},
   {v:'mu-straight-bar-hold', g:'Support', L:1}, {v:'mu-ring-support-hold', g:'Support', L:2},
-  {v:'mu-straight-bar-dips', g:'Dips', L:2}, {v:'mu-straight-bar-dips-hold-at-bottom', g:'Dips', L:3},
+  {v:'mu-straight-bar-dips', g:'Dips', L:2}, {v:'mu-straight-bar-dips-hold-at-bottom', g:'Dips', L:3}, {v:'mu-ring-dips', g:'Dips', L:4},
+  {v:'mu-supported-active-hang-false-grip', g:'False grip', L:1}, {v:'mu-false-grip-on-bar', g:'False grip', L:2},
+  {v:'mu-rings-false-grip', g:'False grip', L:3},
  ],
  1:[
   {v:'wrist-circles-mob', g:'Warm-up', L:1}, {v:'shoulder-circles', g:'Warm-up', L:1},
-  {v:'mu-active-hang', g:'Hang', L:1},
-  {v:'mu-supported-active-hang-false-grip', g:'False grip', L:1}, {v:'mu-false-grip-on-bar', g:'False grip', L:2},
-  {v:'mu-rings-false-grip', g:'False grip', L:2}, {v:'mu-false-gripped-chest-to-bar-pulls', g:'False grip', L:4},
-  {v:'mu-ring-pull-ups', g:'Pull', L:1}, {v:'mu-chest-to-bar-pull-ups', g:'Pull', L:2}, {v:'mu-high-pull-ups', g:'Pull', L:3},
-  {v:'mu-straight-bar-hold', g:'Support', L:1}, {v:'mu-ring-support-hold', g:'Support', L:1}, {v:'mu-ring-full-support-hold', g:'Support', L:3},
+  {v:'mu-intro-swings', g:'Swing', L:1}, {v:'mu-swings-to-high-pull', g:'Swing', L:3},
+  {v:'mu-chest-to-bar-pull-ups', g:'Pull', L:1}, {v:'mu-high-pull-ups', g:'Pull', L:2}, {v:'mu-high-pulls', g:'Pull', L:3},
+  {v:'mu-straight-bar-dips-hold-at-bottom', g:'Dips', L:1}, {v:'mu-ring-dips', g:'Dips', L:2}, {v:'mu-ring-dips-with-hold-at-bottom', g:'Dips', L:3},
+  {v:'mu-ring-support-hold', g:'Support', L:1}, {v:'mu-ring-full-support-hold', g:'Support', L:2},
+  {v:'mu-false-grip-on-bar', g:'False grip', L:1}, {v:'mu-rings-false-grip', g:'False grip', L:2},
+  {v:'mu-false-gripped-chest-to-bar-pulls', g:'False grip', L:4},
  ],
  2:[
-  {v:'wrist-circles-mob', g:'Warm-up', L:1}, {v:'shoulder-circles', g:'Warm-up', L:1},
-  {v:'mu-straight-bar-hold', g:'Support', L:1}, {v:'mu-ring-support-hold', g:'Support', L:1}, {v:'mu-ring-full-support-hold', g:'Support', L:2},
-  {v:'mu-straight-bar-dips', g:'Dips', L:1}, {v:'mu-straight-bar-dips-hold-at-bottom', g:'Dips', L:2},
-  {v:'mu-ring-dips', g:'Dips', L:3}, {v:'mu-ring-dips-with-hold-at-bottom', g:'Dips', L:4},
-  {v:'mu-chest-to-bar-pull-ups', g:'Pull', L:2}, {v:'mu-false-gripped-chest-to-bar-pulls', g:'Pull', L:3},
- ],
- 3:[
-  {v:'wrist-circles-mob', g:'Warm-up', L:1}, {v:'shoulder-circles', g:'Warm-up', L:1},
-  {v:'mu-intro-swings', g:'Swing', L:1}, {v:'mu-swings-to-high-pull', g:'Swing', L:3},
-  {v:'mu-chest-to-bar-pull-ups', g:'Pull', L:1}, {v:'mu-high-pull-ups', g:'Pull', L:2},
-  {v:'mu-false-gripped-chest-to-bar-pulls', g:'Pull', L:2}, {v:'mu-high-pulls', g:'Pull', L:3},
-  {v:'mu-false-grip-on-bar', g:'False grip', L:1}, {v:'mu-rings-false-grip', g:'False grip', L:1},
-  {v:'mu-straight-bar-dips', g:'Dips', L:1}, {v:'mu-ring-dips', g:'Dips', L:2},
- ],
- 4:[
   {v:'wrist-circles-mob', g:'Warm-up', L:1}, {v:'shoulder-circles', g:'Warm-up', L:1},
   {v:'mu-intro-swings', g:'Swing', L:1}, {v:'mu-swings-to-high-pull', g:'Swing', L:2},
   {v:'mu-supported-muscle-up-transition-on-bar-with-box', g:'Transition', L:1}, {v:'mu-box-supported-ring-muscle-ups', g:'Transition', L:1},
@@ -204,8 +187,9 @@ const MU_POOL={
   {v:'mu-jumping-muscle-ups', g:'Transition', L:3}, {v:'mu-swing-to-muscle-up', g:'Transition', L:4},
   {v:'mu-high-pull-ups', g:'Pull', L:1}, {v:'mu-high-pulls', g:'Pull', L:2},
   {v:'mu-straight-bar-dips-hold-at-bottom', g:'Dips', L:1}, {v:'mu-ring-dips', g:'Dips', L:2},
+  {v:'mu-rings-false-grip', g:'False grip', L:1}, {v:'mu-false-gripped-chest-to-bar-pulls', g:'False grip', L:2},
  ],
- 5:[
+ 3:[
   {v:'wrist-circles-mob', g:'Warm-up', L:1}, {v:'shoulder-circles', g:'Warm-up', L:1},
   {v:'mu-intro-swings', g:'Swing', L:1},
   {v:'mu-negative-muscle-up-on-bar', g:'Transition', L:1}, {v:'mu-banded-muscle-ups', g:'Transition', L:1}, {v:'mu-jumping-muscle-ups', g:'Transition', L:2},
@@ -217,68 +201,49 @@ const MU_POOL={
 };
 
 const MU_WEEK={
- 0:[{n:'Pull',           sub:'Hang steady, then pull',          focus:['Hang','Pull']},
-    {n:'Push',           sub:'Above the bar, holding and dipping', focus:['Support','Dips']},
-    {n:'Both halves',    sub:'Pull and push in one session',     focus:['Pull','Support','Dips']}],
- 1:[{n:'The grip',       sub:'Wrists over the bar',              focus:['False grip','Hang']},
-    {n:'Pull in the grip', sub:'Chest to the bar without losing it', focus:['False grip','Pull']},
-    {n:'Rings',          sub:'Grip and support on the rings',    focus:['False grip','Support']}],
- 2:[{n:'Bar dips',       sub:'Deep, and locked out at the top',  focus:['Dips','Support']},
-    {n:'Rings',          sub:'Still rings, then dips on them',   focus:['Support','Dips']},
-    {n:'Pull and push',  sub:'Keep the pulling while you dip',   focus:['Pull','Dips']}],
- 3:[{n:'The swing',      sub:'Hollow, arch, and control',        focus:['Swing','False grip']},
-    {n:'Pull high',      sub:'The bar to your waist',            focus:['Pull','Swing']},
-    {n:'All of it',      sub:'Pull, grip and dip',               focus:['Pull','Dips','False grip']}],
- 4:[{n:'The turnover',   sub:'Over the bar with help',           focus:['Transition']},
-    {n:'Assisted',       sub:'Box, band, and a high pull',       focus:['Transition','Pull']},
-    {n:'Power',          sub:'Swing into the turnover',          focus:['Swing','Transition','Dips']}],
- 5:[{n:'Muscle ups',     sub:'On the bar',                       focus:['Muscle up','Transition']},
-    {n:'Rings',          sub:'False grip, then over',            focus:['Muscle up','Swing']},
-    {n:'Strength',       sub:'The pull and the dip behind it',   focus:['Pull','Dips','Transition']}],
+ 0:[{n:'Pull',           sub:'Hang steady, then pull',             focus:['Hang','Pull','False grip']},
+    {n:'Dip',            sub:'Above the bar, holding and dipping', focus:['Support','Dips']},
+    {n:'Both halves',    sub:'Pull and push in one session',        focus:['Pull','Dips','False grip']}],
+ 1:[{n:'Pull high',      sub:'The swing, and the bar to your waist', focus:['Swing','Pull']},
+    {n:'Strength',       sub:'Deep dips and a still support',      focus:['Dips','Support','False grip']},
+    {n:'All of it',      sub:'Pull, grip and dip',                 focus:['Pull','Dips','False grip']}],
+ 2:[{n:'The turnover',   sub:'Over the bar with help',             focus:['Transition']},
+    {n:'Assisted',       sub:'Box, band, and the grip',            focus:['Transition','False grip']},
+    {n:'Power',          sub:'Swing into the turnover',            focus:['Swing','Transition','Pull','Dips']}],
+ 3:[{n:'Muscle ups',     sub:'On the bar',                         focus:['Muscle up','Transition']},
+    {n:'Rings',          sub:'False grip, then over',              focus:['Muscle up','Swing']},
+    {n:'Strength',       sub:'The pull and the dip behind it',     focus:['Pull','Dips','Transition']}],
 };
 
 const MU_CHECKPOINTS={
  0:[
   {k:'mu-hang',        n:'Active hang',                  kind:'secs',  target:30, demo:'mu-active-hang', note:'Shoulders down the whole time.'},
-  {k:'mu-pullups',     n:'Strict pull ups',              kind:'count', target:8,  demo:'mu-ring-pull-ups', note:'Chin over, full hang between each.'},
-  {k:'mu-c2b',         n:'Chest to bar pull ups',        kind:'count', target:3,  demo:'mu-chest-to-bar-pull-ups'},
+  {k:'mu-first-pull',  n:'First strict pull up',         kind:'yn',    demo:'mu-ring-pull-ups'},
+  {k:'mu-pullups',     n:'Strict pull ups',              kind:'count', target:5,  demo:'mu-ring-pull-ups', note:'Chin over, full hang between each.'},
   {k:'mu-bar-support', n:'Straight bar support hold',    kind:'secs',  target:20, demo:'mu-straight-bar-hold'},
   {k:'mu-bar-dips',    n:'Straight bar dips',            kind:'count', target:5,  demo:'mu-straight-bar-dips'},
   {k:'mu-ring-support',n:'Ring support hold',            kind:'secs',  target:15, demo:'mu-ring-support-hold'},
+  {k:'mu-fg-supported',n:'Supported false grip hang',    kind:'secs',  target:20, demo:'mu-supported-active-hang-false-grip'},
  ],
  1:[
-  {k:'mu-fg-supported',n:'Supported false grip hang',    kind:'secs',  target:20, demo:'mu-supported-active-hang-false-grip'},
-  {k:'mu-fg-bar',      n:'False grip hang on the bar',   kind:'secs',  target:15, demo:'mu-false-grip-on-bar'},
-  {k:'mu-fg-rings',    n:'False grip on the rings',      kind:'secs',  target:15, demo:'mu-rings-false-grip'},
-  {k:'mu-fg-c2b',      n:'False grip chest to bar pulls',kind:'count', target:3,  demo:'mu-false-gripped-chest-to-bar-pulls'},
-  {k:'mu-c2b-5',       n:'Chest to bar pull ups',        kind:'count', target:5,  demo:'mu-chest-to-bar-pull-ups'},
-  {k:'mu-fg-wrists',   n:'Wrists in the false grip',     kind:'face',  note:'How do the wrists feel holding it?', faces:['Sore','Getting used to it','Comfortable']},
- ],
- 2:[
-  {k:'mu-ring-support-2', n:'Ring support hold, level 2', kind:'secs', target:20, demo:'mu-ring-full-support-hold'},
-  {k:'mu-bar-dips-10', n:'Straight bar dips',            kind:'count', target:10, demo:'mu-straight-bar-dips'},
-  {k:'mu-bar-dip-pause', n:'Bar dips, pause at the bottom', kind:'count', target:5, demo:'mu-straight-bar-dips-hold-at-bottom'},
-  {k:'mu-ring-dips',   n:'Ring dips',                    kind:'count', target:5,  demo:'mu-ring-dips'},
-  {k:'mu-ring-dip-pause', n:'Ring dips, pause at the bottom', kind:'count', target:3, demo:'mu-ring-dips-with-hold-at-bottom'},
-  {k:'mu-dip-bottom',  n:'The bottom of the dip',        kind:'face',  note:'How strong does the deepest point feel?', faces:['Weak','Getting there','Strong']},
- ],
- 3:[
   {k:'mu-swings',      n:'Swings, ten clean',            kind:'breaks',target:2,  demo:'mu-intro-swings', note:'Goes needed to get ten controlled swings.'},
+  {k:'mu-c2b',         n:'Chest to bar pull ups',        kind:'count', target:3,  demo:'mu-chest-to-bar-pull-ups'},
   {k:'mu-high-pull',   n:'High pull ups',                kind:'count', target:5,  demo:'mu-high-pull-ups', note:'Bar to the bottom of the ribs.'},
   {k:'mu-swing-high',  n:'Swing to high pull',           kind:'count', target:5,  demo:'mu-swings-to-high-pull'},
-  {k:'mu-high-pulls',  n:'High pulls to the waist',      kind:'count', target:3,  demo:'mu-high-pulls'},
-  {k:'mu-c2b-6',       n:'Chest to bar pull ups',        kind:'count', target:6,  demo:'mu-chest-to-bar-pull-ups'},
-  {k:'mu-pullups-10',  n:'Strict pull ups',              kind:'count', target:10, demo:'mu-ring-pull-ups'},
+  {k:'mu-ring-dips',   n:'Ring dips',                    kind:'count', target:5,  demo:'mu-ring-dips'},
+  {k:'mu-ring-dip-pause', n:'Ring dips, pause at the bottom', kind:'count', target:3, demo:'mu-ring-dips-with-hold-at-bottom'},
+  {k:'mu-fg-bar',      n:'False grip hang on the bar',   kind:'secs',  target:15, demo:'mu-false-grip-on-bar'},
  ],
- 4:[
+ 2:[
   {k:'mu-negatives',   n:'Bar muscle up negatives',      kind:'count', target:3,  demo:'mu-negative-muscle-up-on-bar', note:'Slow through the turnover.'},
   {k:'mu-box-bar',     n:'Box supported transition',     kind:'count', target:5,  demo:'mu-supported-muscle-up-transition-on-bar-with-box'},
   {k:'mu-box-rings',   n:'Box supported ring muscle ups',kind:'count', target:5,  demo:'mu-box-supported-ring-muscle-ups'},
   {k:'mu-banded',      n:'Banded muscle ups',            kind:'count', target:3,  demo:'mu-banded-muscle-ups'},
   {k:'mu-jumping',     n:'Jumping muscle ups',           kind:'count', target:5,  demo:'mu-jumping-muscle-ups'},
+  {k:'mu-fg-c2b',      n:'False grip chest to bar pulls',kind:'count', target:3,  demo:'mu-false-gripped-chest-to-bar-pulls'},
   {k:'mu-turnover',    n:'The turnover',                 kind:'face',  note:'How does getting over the bar feel?', faces:['Stuck under it','Sometimes','Smooth']},
  ],
- 5:[
+ 3:[
   {k:'mu-first-bar',   n:'First bar muscle up',          kind:'yn',    demo:'mu-bar-muscle-up'},
   {k:'mu-bar-3',       n:'Bar muscle ups',               kind:'count', target:3,  demo:'mu-bar-muscle-up', note:'In one set.'},
   {k:'mu-swing-mu',    n:'Swing to muscle up',           kind:'count', target:3,  demo:'mu-swing-to-muscle-up'},
@@ -290,15 +255,14 @@ const MU_CHECKPOINTS={
 MU_STAGES.forEach((s,i)=>{ s.drillIds=[...new Set((MU_POOL[i]||[]).map(x=>x.v).filter(v=>v.indexOf('mu-')===0))]; });
 
 /* Where the quiz starts someone: pull ups, a false grip hang, and a banded
-   muscle up. A banded muscle up means the turnover is there; the false
-   grip decides whether the grip stage can be skipped. */
+   muscle up. A banded muscle up means the turnover is there, and with ten
+   pull ups and the grip, the muscle up itself is next. Five pull ups is
+   past the first stage. */
 const MU_PULLS=['None yet','1 to 4','5 to 9','10 or more'];
 function muPlace(pulls, falseGrip, banded){
   const p=Number(pulls)||0;
-  if(banded) return (p>=3 && falseGrip) ? 5 : 4;
-  if(p>=3) return falseGrip ? 3 : 1;
-  if(p>=2) return falseGrip ? 2 : 1;
-  return 0;
+  if(banded) return (p>=3 && falseGrip) ? 3 : 2;
+  return p>=2 ? 1 : 0;
 }
 
 /* the doses join the handstand ones, which is where the session builder
