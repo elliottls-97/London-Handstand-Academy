@@ -7653,10 +7653,15 @@ const handle = async (request) => {
     if (since > 40) return json({ error: 'That was more than 40 hours ago, so the thank you has gone or is past sending' }, 400);
     const book = wsLive((await getSetting(`wsbook:${slug}`)) || []);
     const to = [], had = [];
+    /* only: one person, sent even though they had a thank you for another
+       class in the last 45 days (Elliott, 24 Oct 2026, for Chelsea). Never
+       twice for the same class. */
+    const only = body.only ? norm(body.only) : '';
     for (const b of book) {
       const e = norm(b && b.email);
       if (!e || !wsMailOk(e) || b.attended === 'no' || to.some(t => t.email === e)) continue;
-      const once = await supa.row('nudges', `key=eq.${enc(`wsreviewed:${e}`)}&select=sent_at`).catch(() => null);
+      if (only && e !== only) continue;
+      const once = only ? null : await supa.row('nudges', `key=eq.${enc(`wsreviewed:${e}`)}&select=sent_at`).catch(() => null);
       if ((once && Date.now() - ms(once.sent_at) < 45 * DAY) || await supa.row('nudges', `key=eq.${enc(`wsreview:${slug}:${e}`)}&select=key`).catch(() => null)) { had.push(e); continue; }
       to.push({ email: e, first: String(b.name || '').split(' ')[0].slice(0, 40) });
     }
@@ -7691,6 +7696,7 @@ const handle = async (request) => {
         more: `${SITE}/handstand-class`, offers: pitch ? prices : null });
       return { T, M };
     };
+    if (only && !to.length) return json({ error: had.length ? 'They have had the thank you for this class already' : 'They are not booked on this class, or are marked No show' }, 400);
     if (body.preview) {
       const first = to[0] || { email: '', first: 'there' };
       const { T, M } = await make(first);
