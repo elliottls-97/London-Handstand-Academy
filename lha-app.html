@@ -2209,6 +2209,11 @@ st.ov=null; st.ovFull=false;
    the Muscle Up place apart from it, so neither can move the other.
    The whole Muscle Up Ladder is in the subscription: no free stage. */
 let FREE_STAGES = 1;
+/* Not shown to anybody yet (Elliott, 24 Oct 2026: "when we push don't show
+   the muscle up bits yet"). ?mu=1 turns it on for this browser, ?mu=0 off. */
+const MU_ON=(()=>{ try{ const q=new URLSearchParams(location.search).get('mu');
+  if(q==='1') localStorage.setItem('lha_mu','1'); if(q==='0') localStorage.removeItem('lha_mu');
+  return localStorage.getItem('lha_mu')==='1'; }catch(e){ return false; } })();
 const HS_DATA={STAGES:STAGES.slice(), POOL:Object.assign({},POOL), WEEK:Object.assign({},WEEK), CHECKPOINTS:Object.assign({},CHECKPOINTS)};
 const MU_DATA={STAGES:MU_STAGES, POOL:MU_POOL, WEEK:MU_WEEK, CHECKPOINTS:MU_CHECKPOINTS};
 const LADDER_ST=['stage','placed','freeChoice','lvl','rot','clearedFrom','cpRingSeen','climbSeen','planDay','ovStage','wantUpgrade'];
@@ -2244,7 +2249,7 @@ function switchLadder(which, quiet){
   if(!quiet){ try{ saveState(); }catch(e){} }
   return true;
 }
-if(st.ladder==='mu') useLadder('mu');
+if(st.ladder==='mu'){ if(MU_ON) useLadder('mu'); else { useLadder('mu'); switchLadder('hs', true); } }
 if(PREVIEW){
   /* start from nothing every time, or the last client previewed bleeds
      into the next one */
@@ -10008,7 +10013,7 @@ function loadState(){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(!d) return;
       const before=stateSnap();
-      if((d.ladder==='mu' || d.ladder==='hs') && !ladderMovedHere && !coachedView()) switchLadder(d.ladder, true);
+      if((d.ladder==='mu' || d.ladder==='hs') && !ladderMovedHere && !coachedView() && (MU_ON || d.ladder==='hs')) switchLadder(d.ladder, true);
       if(d.dayMap && Object.keys(d.dayMap).length) st.dayMap=d.dayMap;
       if(d.secs && Object.keys(d.secs).length) st.secs=d.secs;
       if(d.time) st.time=d.time;
@@ -15537,6 +15542,7 @@ const GOALS=[
   /* its own ladder (23 Oct 2026): picking it moves the app onto it */
   {v:'muscleup', t:'Learn a muscle up',         d:'Pull ups, the false grip, and getting over the bar.'},
 ];
+if(!MU_ON) GOALS.splice(GOALS.findIndex(g=>g.v==='muscleup'), 1);
 
 /* Four rungs. Wrist tissue adapts slower than everything else, which is
    why the cap is physiology rather than a judgement about them — and why
@@ -15673,7 +15679,7 @@ const stepKick = x => (x && muGoal()) ? (x.id==='niggles' ? 'BEFORE YOU START' :
 /* the goal picked is the ladder shown: the Muscle Up one for a muscle up,
    the Handstand one for anything else */
 function quizLadder(v){
-  if(coachedView()) return;
+  if(coachedView() || (v==='muscleup' && !MU_ON)) return;
   const to = v==='muscleup' ? 'mu' : (st.ladder==='mu' ? 'hs' : null);
   if(to){ ladderMovedHere=true; switchLadder(to); }
 }
@@ -17121,12 +17127,12 @@ function climbCardHTML(cs, S, P, x){
      the Ladder tab's strip, and Start stays the one strong button */
   return `<div data-tour="ladder" style="padding:4px 0 0">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      ${coachedView() ? `<span class="kick2" style="color:var(--forest)">THE LADDER</span>` : ladderSwitchHTML()}
+      ${(coachedView() || !MU_ON) ? `<span class="kick2" style="color:var(--forest)">THE LADDER</span>` : ladderSwitchHTML()}
       <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">STAGE ${(clearShowing()!=null?clearShowing():cs)+1} OF ${n}</span></div>
     ${x.above||''}
     <!-- the six handstands, theirs in amber, rising in one after another
          as on the Ladder tab (Elliott, 17 Oct 2026) -->
-    <div style="margin-top:12px"${coachedView()?'':' ontouchstart="lsTouch(event)" ontouchend="lsSwipe(event)"'}>${ladderStripHTML({home:true})}</div>
+    <div style="margin-top:12px"${(coachedView() || !MU_ON)?'':' ontouchstart="lsTouch(event)" ontouchend="lsSwipe(event)"'}>${ladderStripHTML({home:true})}</div>
     ${/* the way to buy, made plain while the App Store looks at it (Elliott,
          23 Oct 2026): it opens the same purchase screen as a locked stage */''}
     ${(!isPlus() && !coachedView() && sellsLadder()) ? `<button onclick="openStage(isMU() ? placedStage() : Math.min(STAGES.length-1, Math.max(FREE_STAGES, curStage()+1)))"
@@ -17155,7 +17161,7 @@ function ladderSwitchHTML(){
   return `<div class="lsw" role="group" aria-label="Which ladder">${b(false,'Handstand')}${b(true,'Muscle up')}</div>`;
 }
 function pickLadder(to){
-  if(coachedView()) return;
+  if(coachedView() || (to==='mu' && !MU_ON)) return;
   ladderMovedHere=true;
   if(!switchLadder(to)) return;
   render();
