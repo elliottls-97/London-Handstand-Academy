@@ -698,10 +698,15 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
       ['A plan written around you, and a video form check every two weeks.',
         `${escH(o.online)} a month online. ${escH(o.inperson)} with a session in London each month.`, placesLine],
       [{ href: `${site}/#coaching`, label: 'See coaching' }])
+    /* with the app itself on top (Elliott, 24 Oct 2026: "include pictures of
+       the app in there"), and the muscle up plan that is on its way */
     + mOffer('On your own', 'The Handstand Ladder app',
       [`First stage free. The other five, ${escH(o.app)} a month, ${trialTxt} free.`,
+        'A muscle up plan joins it soon.',
         o.store ? `On iPhone, ${escH(o.iphone || '£9.99')} a month. <a href="${escH(o.store)}" style="color:${MC.teal};font-weight:600">Get it on the App Store</a>` : ''],
       [{ href: `${site}/lha-app.html?ref=classmail`, label: 'Open the app' }])
+      .replace('<tr><td class="px" style="padding:', `<tr><td style="padding:0;line-height:0;font-size:0"><a href="${escH(site)}/lha-app.html?ref=classmail"><img src="${escH((d.assets || site) + '/assets/site/app-screens-email.jpg')}" width="598" alt="The Handstand Ladder app: the ladder, a session playing, and a form check" style="display:block;width:100%;max-width:598px;height:auto;border:0;border-radius:23px 23px 0 0;${mf(M_SANS, 14, 20, 400)};color:${MC.grey}"></a></td></tr>
+<tr><td class="px" style="padding:`)
     : '';
   const html = mShell(d, mHero(d) + review + mH2('Next dates.') + datesCard + offers);
 
@@ -721,7 +726,7 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
       `${site}/session.html`, '',
       `Coaching, your own programme. A plan written around you, and a video form check every two weeks. ${o.online} a month online. ${o.inperson} with a session in London each month.${placesLine ? ' ' + mPlain(placesLine) : ''}`,
       `${site}/#coaching`, '',
-      `The Handstand Ladder app. First stage free. The other five, ${o.app} a month, ${trialTxt} free.`,
+      `The Handstand Ladder app. First stage free. The other five, ${o.app} a month, ${trialTxt} free. A muscle up plan joins it soon.`,
       `${site}/lha-app.html?ref=classmail`);
     if (o.store) T.push(`On iPhone, ${o.iphone || '£9.99'} a month: ${o.store}`);
     T.push('');

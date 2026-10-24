@@ -7638,6 +7638,77 @@ const handle = async (request) => {
     }
     return json({ ok: true, sent, held: held2, to: to.map(t => t.email) });
   }
+  /* The day-after email, now (Elliott, 24 Oct 2026: "can we send it this
+     afternoon just after class?"). The daily job sends it 10 to 40 hours
+     after a class, at nine in the morning; this sends the same email to the
+     same people any time from the start of the class to 40 hours after,
+     and takes the same keys, so the morning run does not send it again.
+     preview: who it would go to and the email for the first of them. */
+  if (path === '/coach/workshop/thanks' && request.method === 'POST') {
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const slug = wsSlug(body.slug), all = (await getSetting('workshops')) || {}, w = all[slug];
+    if (!w || !w.when) return json({ error: 'No such class' }, 404);
+    const since = (Date.now() - ms(w.when)) / 3600e3;
+    if (since < 0) return json({ error: 'That class has not started yet' }, 400);
+    if (since > 40) return json({ error: 'That was more than 40 hours ago, so the thank you has gone or is past sending' }, 400);
+    const book = wsLive((await getSetting(`wsbook:${slug}`)) || []);
+    const to = [], had = [];
+    for (const b of book) {
+      const e = norm(b && b.email);
+      if (!e || !wsMailOk(e) || b.attended === 'no' || to.some(t => t.email === e)) continue;
+      const once = await supa.row('nudges', `key=eq.${enc(`wsreviewed:${e}`)}&select=sent_at`).catch(() => null);
+      if ((once && Date.now() - ms(once.sent_at) < 45 * DAY) || await supa.row('nudges', `key=eq.${enc(`wsreview:${slug}:${e}`)}&select=key`).catch(() => null)) { had.push(e); continue; }
+      to.push({ email: e, first: String(b.name || '').split(' ')[0].slice(0, 40) });
+    }
+    /* the review link: this class's, else the latest one set, else the listing's */
+    const reviewUrl = /^https:\/\//.test(w.reviewUrl || '') ? w.reviewUrl
+      : (Object.values(all).filter(x => x && /^https:\/\//.test(x.reviewUrl || '')).sort((a, b) => ms(b.when) - ms(a.when))[0] || {}).reviewUrl
+      || 'https://search.google.com/local/writereview?placeid=ChIJo6P50TJyjGQRZIUQzoUnXLo';
+    const coming = [];
+    for (const o of Object.values(all).filter(o => o && o.live && o.when && ms(o.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when)).slice(0, 3)) {
+      const held = wsLive((await getSetting(`wsbook:${o.slug}`)) || []);
+      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : null });
+    }
+    const pr = (await getSetting('prices')) || {}, L = (k, d) => (pr[k] && pr[k].label) || d;
+    const trial = Number(pr.trialDays);
+    const prices = { s60: L('session60', '£80'), s90: L('session90', '£100'), online: L('online', '£120'), inperson: L('inperson', '£190'),
+      app: L('plus', '£10'), trialDays: trial > 0 ? trial : 7, places: null, store: '', iphone: '£9.99' };
+    const roster = new Set(rosterList().map(c => norm(c.email)));
+    const day = new Date(ms(w.when)).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Europe/London' });
+    const saved = (await getSetting('emails')) || {};
+    const make = async (t) => {
+      const T = renderEmail('wsThanks', { name: esc(t.first), title: esc(w.title), day: esc(day), review_line: '', app_line: '' }, saved);
+      const pitch = !roster.has(t.email) && (await wantsEmail(t.email, 'offers'));
+      const M = afterClassEmail({ site: SITE, first: t.first, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, review: reviewUrl,
+        photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' },
+        headshot: '/assets/site/coach-elliott-headshot.jpg',
+        preheader: coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',
+        dates: coming.map(c => {
+          const [d0, ...tt] = wsWhenTxt(c.w).split(', ');
+          return { day: d0, time: tt.join(', '), place: c.w.place || '', what: wsKindOf(c.w) === wsKindOf(w) ? '' : c.w.title,
+            price: c.w.price ? wsPounds(c.w.price) : 'Free', left: c.left, full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
+        }),
+        more: `${SITE}/handstand-class`, offers: pitch ? prices : null });
+      return { T, M };
+    };
+    if (body.preview) {
+      const first = to[0] || { email: '', first: 'there' };
+      const { T, M } = await make(first);
+      return json({ ok: true, to: to.map(t => t.email), had, subject: T.subject, off: !!T.off,
+        html: M.html.replace(/(src|href)="\//g, `$1="${SITE}/`) });
+    }
+    let sent = 0, held = 0;
+    for (const t of to.slice(0, 100)) {
+      const key = `wsreview:${slug}:${t.email}`;
+      if (!(await supa.insertIfAbsent('nudges', { key, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
+      const { T, M } = await make(t);
+      if (T.off) { await supa.remove('nudges', `key=eq.${enc(key)}`).catch(() => {}); return json({ error: 'The day-after email is switched off under Emails' }, 400); }
+      const went = await email(t.email, T.subject, M.html, undefined, { text: M.text }).catch(() => false);
+      if (went) { sent++; await supa.upsert('nudges', { key: `wsreviewed:${t.email}`, sent_at: nowISO() }, 'key').catch(() => {}); }
+      else { held++; await supa.remove('nudges', `key=eq.${enc(key)}`).catch(() => {}); }
+    }
+    return json({ ok: true, sent, held, had });
+  }
   if (path === '/coach/workshop/intent' && request.method === 'POST') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const slug = wsSlug(body.slug), e = norm(body.email);

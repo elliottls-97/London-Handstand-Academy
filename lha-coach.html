@@ -12118,6 +12118,38 @@ function ofrHTML(w){
       <iframe title="The offer email" srcdoc="${esc(ofr.html)}" style="width:100%;height:620px;border:1px solid var(--line);border-radius:12px;margin-top:6px;background:#fff"></iframe>`:''}`:''}
   </div>`;
 }
+/* The day-after email, sent now rather than at nine tomorrow (Elliott,
+   24 Oct 2026). Same email, same people, the same once-only keys, so the
+   morning run does not send it again. */
+let thx={slug:'',busy:false,msg:'',to:null,had:[],html:'',subject:'',done:{}};
+function thxHTML(w){
+  const mine=thx.slug===w.slug, sent=thx.done[w.slug];
+  return `<div style="margin-top:16px;padding:16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
+    <div style="font:600 14px/1.3 var(--sans)">The thank you email</div>
+    <div class="muted" style="font-size:12px;margin-top:4px">The review ask, the next dates and the app. It goes by itself at nine tomorrow morning; this sends it now instead. Mark anyone who did not come as No show first: they are left out.</div>
+    ${sent?`<div style="font:600 12.5px/1.5 var(--sans);color:var(--forest);margin-top:10px">${esc(sent)}</div>`:`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-secondary btn-sm" onclick="thxGo(${jsq(w.slug)},true)" ${thx.busy?'disabled':''}>Preview</button>
+      ${mine&&thx.to&&thx.to.length?`<button class="btn btn-primary btn-sm" onclick="thxGo(${jsq(w.slug)},false)" ${thx.busy?'disabled':''}>Send to ${thx.to.length} now</button>`:''}
+    </div>`}
+    ${mine&&thx.msg?`<div style="font:500 12.5px/1.5 var(--sans);color:var(--forest);margin-top:8px">${esc(thx.msg)}</div>`:''}
+    ${mine&&thx.to&&!sent?`<div style="font:400 12.5px/1.6 var(--sans);margin-top:8px"><b>${thx.to.length?'Goes to: ':'Nobody left to send it to.'}</b>${thx.to.map(esc).join(', ')}${thx.had.length?`<div class="muted">Already had it: ${thx.had.map(esc).join(', ')}</div>`:''}</div>
+      ${thx.html?`<div class="muted" style="font-size:12px;margin-top:8px">Subject: ${esc(thx.subject)}</div>
+      <iframe title="The thank you email" srcdoc="${esc(thx.html)}" style="width:100%;height:680px;border:1px solid var(--line);border-radius:12px;margin-top:6px;background:#fff"></iframe>`:''}`:''}
+  </div>`;
+}
+function thxGo(slug, preview){
+  if(!preview && !confirm('Send the thank you email to '+((thx.to||[]).length)+' people now?\n\nEach gets it once. Tomorrow morning\'s run will not send it again.')) return;
+  if(thx.slug!==slug) thx=Object.assign(thx,{slug,msg:'',to:null,had:[],html:'',subject:''});
+  thx.busy=true; thx.msg=preview?'Making the preview…':'Sending…'; draw();
+  fetch(API+'/workshop/thanks',{method:'POST',headers:hdr(),body:JSON.stringify({slug,preview})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not do that')))
+    .then(d=>{ thx.busy=false;
+      if(preview){ thx.to=d.to||[]; thx.had=d.had||[]; thx.html=d.html||''; thx.subject=d.subject||'';
+        thx.msg=d.off?'This email is switched off under Emails, so nothing would go.':thx.to.length?'This is the email as the first of them gets it, with their own name. Nothing has been sent.':''; }
+      else { thx.done[slug]='Sent to '+d.sent+(d.held?', '+d.held+' held back by the email settings':'')+'.'; thx.to=null; thx.html=''; thx.msg=''; flash('Thank you sent to '+d.sent); }
+      draw(); })
+    .catch(e=>{ thx.busy=false; thx.msg=String(e); draw(); });
+}
 function ofrGo(slug, preview){
   const code=(ofr.slug===slug?ofr.code:'')||((document.getElementById('ofrCode')||{}).value||'').trim().toUpperCase();
   if(!code) return alert('Type the code first.');
@@ -12532,6 +12564,7 @@ function bookingsPageHTML(){
       <div class="bk-head"><span>Person</span><span>Level and notes</span><span>Paid</span><span>Status</span><span style="text-align:right">On the day</span></div>
       <div class="bk-list">${live.map(b=>bkRowHTML(w,b,others)).join('')||'<p class="muted" style="padding:14px 4px">Nobody booked yet.</p>'}</div>
       <p class="muted" style="font-size:12px;margin-top:8px">Tap someone for everything else: move, cancel, refund, fix their details, or send them their booking again. They are emailed for a move, a cancel and a refund.</p>
+      ${owner&&isPast&&now-new Date(w.when).getTime()<40*3600e3?thxHTML(w):''}
       ${gone.length?`<button class="ghostlink" style="margin-top:14px" onclick="bkGone=!bkGone;draw()">${bkGone?'Hide':'Show'} ${gone.length} cancelled or moved</button>
         ${bkGone?`<div class="bk-list" style="margin-top:8px">${gone.map(b=>bkRowHTML(w,b,others)).join('')}</div>`:''}`:''}
       ${(w.waitlist||[]).length?`<h5 style="margin-top:22px">Waiting for a place · ${w.waitlist.length}</h5>
