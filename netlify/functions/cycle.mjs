@@ -92,7 +92,9 @@ const ms = v => (v ? new Date(v).getTime() : 0);
 const wsClock = t => new Date(t).toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s+/g, '').toLowerCase();
 const wsWhenTxt = w => {
   if (!w || !w.when) return '';
-  const a = new Date(w.when).getTime(), b = a + (/all levels/i.test(w.title || '') ? 90 : 120) * 60e3;
+  /* as app.mjs wsMins: the calisthenics class is an hour, and read as two
+     hours here, 11am to 1pm, in its reminder and the day after (24 Oct 2026) */
+  const a = new Date(w.when).getTime(), b = a + (/all levels/i.test(w.title || '') ? 90 : /calisthenics/i.test(w.title || '') ? 60 : 120) * 60e3;
   const s = wsClock(a), e = wsClock(b);
   return new Date(a).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' })
     + ', ' + (s.slice(-2) === e.slice(-2) ? s.slice(0, -2) : s) + ' to ' + e;
@@ -962,7 +964,8 @@ async function workshopMail(done) {
                 what: wsKind(c.w) === wsKind(w) ? '' : c.w.title,
                 price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
                 left: c.left, full: c.left === 0, booked: c.who.has(e),
-                href: /all levels/i.test(c.w.title || '') ? `${SITE}/handstand-class#book` : `${SITE}/workshop.html?slug=${enc(c.w.slug)}` };
+                /* the calisthenics class is booked on the class page too (24 Oct 2026) */
+                href: wsBookHref(c.w) };
             }),
             more: `${SITE}/handstand-class`,
             offers: pitch ? A.prices : null });
