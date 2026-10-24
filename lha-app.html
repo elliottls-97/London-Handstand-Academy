@@ -347,6 +347,10 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .lrn-all b{font-weight:600}
 .ot-flat{display:flex;align-items:center;gap:12px;width:100%;padding:14px 0;border:0;border-top:1px solid rgba(0,64,61,.10);
  background:none;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
+.ot-chev{flex:none;color:var(--grey2);transition:transform .25s}
+.ot-flat.open .ot-chev{transform:rotate(180deg);color:var(--forest)}
+.ot-open{padding:4px 0 16px;animation:rise .35s cubic-bezier(.2,.8,.2,1) both}
+.ot-go{margin-top:10px;border:0;background:none;padding:6px 0;cursor:pointer;font:600 13.5px/1 var(--sans);color:var(--forest)}
 .sw-head{display:flex;align-items:center;margin-top:22px;padding-bottom:8px;font:600 11px/1 var(--sans);letter-spacing:.08em;color:var(--grey)}
 .sw-head>span:first-child{flex:1}
 .sw-c{display:flex;width:150px;flex:none;align-items:center}
@@ -8729,7 +8733,7 @@ function overTimeRows(){
     const h=(log[v]||[]).filter(Boolean), pts=dayBest(h, x=>Number(x.reps)||0);
     if(pts.length<2) return;
     const unit=(h.find(x=>x.unit!=null)||{}).unit==='s' ? 's' : '';
-    rows.push({n:drillNameOf(v), pts, unit, at:pts[pts.length-1].at, go:`openDrillHist(${jsq(v)})`});
+    rows.push({key:'d:'+v, n:drillNameOf(v), pts, unit, at:pts[pts.length-1].at, go:`openDrillHist(${jsq(v)})`, goWord:'Every time you did it'});
   });
   for(let i=0;i<STAGES.length;i++) (cpFor(i)||[]).forEach(c=>{
     if(!c || cpAsks(c) || c.kind==='face' || c.kind==='yn') return;
@@ -8737,8 +8741,9 @@ function overTimeRows(){
     if(pts.length<2) return;
     const K=CP_KIND[c.kind]||CP_KIND.count;
     const here = !coachedView() && i===curStage();
-    rows.push({cp:true, n:c.n, pts, unit:cpUnit(c), lower:(c.lower!=null)?c.lower:!!K.lower,
-      stage: here ? '' : (STAGES[i]||{}).n||'', at:pts[pts.length-1].at, go: here ? `climbGo(${jsq(c.k)})` : `openStage(${i})`});
+    rows.push({key:'c:'+c.k, cp:true, n:c.n, pts, unit:cpUnit(c), lower:(c.lower!=null)?c.lower:!!K.lower, target:Number(c.target)||0,
+      stage: here ? '' : (STAGES[i]||{}).n||'', at:pts[pts.length-1].at, go: here ? `climbGo(${jsq(c.k)})` : `openStage(${i})`,
+      goWord: here ? 'Log it' : 'Open '+((STAGES[i]||{}).n||'the stage')});
   });
   /* the last day worked on first, and within it what has moved most */
   const gain=r=>{ const a=r.pts[0].n, b=r.pts[r.pts.length-1].n; return (r.lower ? a-b : b-a)/Math.max(1,a); };
@@ -8765,13 +8770,16 @@ function overTimeHTML(flat){
       <div style="font:400 15px/1.3 var(--sans);margin-top:12px">Biggest gain first.</div>
       <div style="margin-top:6px">${rows.map(r=>{
         const a=r.pts[0].n, b=r.pts[r.pts.length-1].n;
-        return `<button class="ot-flat" onclick="${r.go}">
+        const open=otOpenKey===r.key;
+        return `<button class="ot-flat${open?' open':''}" onclick="otToggle(${jsq(r.key)})" aria-expanded="${open?'true':'false'}">
           <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font:500 16px/1.25 var(--sans)">${esc(r.n)}</span>
             <span style="font:400 13px/1.2 var(--sans);color:var(--grey)">${r.cp?(r.stage?esc(r.stage)+' &middot; ':'')+'Check point &middot; ':''}${r.pts.length} times</span></span>
           ${sparkSVG(r.pts.map(p=>p.n))}
           <span style="flex:none;min-width:96px;display:flex;align-items:baseline;justify-content:flex-end;gap:6px;font:400 24px/1 var(--serif);font-variant-numeric:tabular-nums">
             <span style="color:var(--grey);font-size:18px">${a}${esc(r.unit)}</span><span style="color:var(--grey);font-size:15px">&rarr;</span><span style="color:var(--forest)">${b}${esc(r.unit)}</span></span>
-        </button>`;}).join('')}</div>`;
+          <svg class="ot-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>${open?`<div class="ot-open">${otChartHTML(r)}
+          <button class="ot-go" onclick="${r.go}">${esc(r.goWord||'Open it')} &rarr;</button></div>`:''}`;}).join('')}</div>`;
   }
   const open=!!st.otOpen, shown=open ? rows : rows.slice(0,5);
   const since=new Date(Math.min(...rows.map(r=>r.pts[0].at))).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
@@ -8793,6 +8801,52 @@ function overTimeHTML(flat){
     ${rows.length>5?`<button class="back" style="font-weight:700;font-size:12.5px;margin:4px 0 10px;padding:0"
       onclick="st.otOpen=!st.otOpen;save();render()">${open?'Show fewer':'All '+rows.length}</button>`:''}
   </div>`;
+}
+/* ── one line, opened up (Elliott, 24 Oct 2026: "the lines will want to
+   expand to have axis to see all data points, and dates") ──────────────
+   A value axis with round numbers and the unit, the dates under it spaced
+   by when they were, every day as a dot with its number, and the target
+   as a dashed line for a check point. Only one open at a time. */
+let otOpenKey=null;
+function otToggle(k){ otOpenKey = otOpenKey===k ? null : k; render(); }
+function otTicks(lo, hi){
+  const span=Math.max(1, hi-lo), raw=span/3, mag=Math.pow(10, Math.floor(Math.log10(raw)));
+  const step=[1,2,5,10].map(m=>m*mag).find(st0=>st0>=raw) || 10*mag;
+  const a=Math.floor(lo/step)*step, b=Math.ceil(hi/step)*step, out=[];
+  for(let v=a; v<=b+1e-9; v+=step) out.push(Math.round(v*100)/100);
+  return out;
+}
+function otChartHTML(r){
+  const pts=r.pts, unit=r.unit||'';
+  const W=340, H=190, L=38, R=14, T=16, B=34;
+  const vals=pts.map(p=>p.n).concat(r.target?[r.target]:[]);
+  const ticks=otTicks(Math.max(0, Math.min(...vals)), Math.max(...vals));
+  const lo=ticks[0], hi=ticks[ticks.length-1]===lo ? lo+1 : ticks[ticks.length-1];
+  const t0=pts[0].at, t1=pts[pts.length-1].at, span=(t1-t0)||1;
+  const x=t=>L+(t-t0)*(W-L-R)/span, y=v=>T+(hi-v)*(H-T-B)/(hi-lo);
+  const dd=t=>new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'Europe/London'});
+  const lab='font:500 10px var(--sans);fill:#686868';
+  /* dates: the first, the last, and the ones between that have room */
+  const dates=[]; let lastX=-99;
+  /* a date is about 40 wide, and the first one hangs to the right of its
+     point, so each needs 58 clear of the one before */
+  pts.forEach((p,i)=>{ const px=x(p.at); const end=i===pts.length-1;
+    if(end){ while(dates.length>1 && px-x(dates[dates.length-1].at)<58) dates.pop(); dates.push(p); }
+    else if(px-lastX>=58){ dates.push(p); lastX=px; } });
+  const many=pts.length>9, best=r.lower?Math.min(...pts.map(p=>p.n)):Math.max(...pts.map(p=>p.n));
+  const say=(p,i)=>!many || i===0 || i===pts.length-1 || p.n===best;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(r.n)}: ${pts.map(p=>p.n+unit+' on '+dd(p.at)).join(', ')}"
+    style="display:block;width:100%;height:auto">
+    ${ticks.map(v=>`<line x1="${L}" x2="${W-R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="rgba(0,64,61,${v===lo?.22:.09})"/>
+      <text x="${L-8}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" style="${lab}">${v}${unit}</text>`).join('')}
+    ${r.target?`<line x1="${L}" x2="${W-R}" y1="${y(r.target).toFixed(1)}" y2="${y(r.target).toFixed(1)}" stroke="#e8962f" stroke-width="1.4" stroke-dasharray="4 4"/>
+      <text x="${L+4}" y="${(y(r.target)-5).toFixed(1)}" text-anchor="start" style="font:600 10px var(--sans);fill:#b5701c">target ${r.target}${unit}</text>`:''}
+    <polyline points="${pts.map(p=>x(p.at).toFixed(1)+','+y(p.n).toFixed(1)).join(' ')}" fill="none" stroke="#006663"
+      stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${pts.map((p,i)=>`<circle cx="${x(p.at).toFixed(1)}" cy="${y(p.n).toFixed(1)}" r="${i===pts.length-1?4.5:3.5}" fill="${i===pts.length-1?'#006663':'#fff'}" stroke="#006663" stroke-width="2"/>
+      ${say(p,i)?`<text x="${x(p.at).toFixed(1)}" y="${(y(p.n)-9).toFixed(1)}" text-anchor="${i===0&&pts.length>1?'start':i===pts.length-1?'end':'middle'}" style="font:600 10.5px var(--sans);fill:#00403d">${p.n}${unit}</text>`:''}`).join('')}
+    ${dates.map((p,i)=>`<text x="${x(p.at).toFixed(1)}" y="${H-12}" text-anchor="${p===pts[0]?'start':p===pts[pts.length-1]?'end':'middle'}" style="${lab}">${dd(p.at)}</text>`).join('')}
+  </svg>${r.lower?`<div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:4px">Fewer is better here.</div>`:''}`;
 }
 /* the same, large, at the top of a drill's every time */
 function histChartHTML(pts, unit){
