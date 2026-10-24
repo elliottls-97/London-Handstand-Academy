@@ -11588,6 +11588,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           drills: Number(body.session.drills) || 0,
           mins: Number(body.session.mins) || 0,          // as planned
           actual: Number(body.session.actual) || 0,      // as actually taken
+          /* when it was opened, and how long until it was closed, in seconds:
+             the coach could see minutes and no time of day (24 Oct 2026) */
+          ...(Number(body.session.start) > Date.now() - 8 * 86400000 && Number(body.session.start) <= Date.now() + 60000
+            ? { start: Math.round(Number(body.session.start)) } : {}),
+          ...(Number(body.session.secs) > 0 ? { secs: Math.min(6 * 3600, Math.round(Number(body.session.secs))) } : {}),
           got: Number(body.session.got) || 0,            // steps completed
           of: Number(body.session.of) || 0,              // steps in the session
           stoppedAt: String(body.session.stoppedAt || '').slice(0, 60),

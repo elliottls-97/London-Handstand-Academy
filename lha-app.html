@@ -11992,6 +11992,8 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
     drills:rows.length,
     mins:Math.round(Q.reduce((a,x,_i)=>a+work(x.it,x.g||x.grp)+rest(x,_i,Q),0)/60),
     actual: sessionStart?Math.round((Date.now()-sessionStart)/60000):0,
+    /* from pressing Go to closing it, to the second, and when that was */
+    ...(sessionStart ? {start:sessionStart, secs:Math.round((Date.now()-sessionStart)/1000)} : {}),
     got: done?Q.length:qi, of: Q.length,
     /* where they stopped is the useful half of an abandoned session */
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
@@ -12176,6 +12178,9 @@ document.addEventListener('visibilitychange',()=>{
 
 /* ── overlays ── */
 function openOv(kind){
+  /* the drill list's clock starts when it is opened, so the coach sees how
+     long it really took rather than what the ticked drills should take */
+  if(kind==='list' && !((st.listStartAt||0) > Date.now()-6*3600e3)){ st.listStartAt=Date.now(); try{ save(); }catch(e){} }
   /* a fix's article sits above every sheet: it steps aside, and is back
      when the sheet closes and the fix redraws */
   fxArtHide();
@@ -15500,9 +15505,12 @@ function finishChecklist(){
     r.want+=a.n||recommendedReps(q.it)||0;
   });
   captureWeekMoment();
+  const lsA=(st.listStartAt||0) > Date.now()-6*3600e3 ? st.listStartAt : 0, lsSecs=lsA ? Math.round((Date.now()-lsA)/1000) : 0;
+  delete st.listStartAt;
   reportProgress({session:{
     day:st.day, name:qLabel||((Q[0]&&Q[0].grp)||''), done, mode:'list',
-    drills:rows.size, mins, actual:Math.max(1,took), got:ticked, of:Q.length,
+    drills:rows.size, mins, actual:lsA ? Math.max(1,Math.round(lsSecs/60)) : Math.max(1,took), got:ticked, of:Q.length,
+    ...(lsA ? {start:lsA, secs:lsSecs} : {}),
     items:[...rows.values()].slice(0,40)
   }});
   /* Shown straight away with an account, until the server's copy lands.

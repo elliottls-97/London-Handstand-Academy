@@ -3316,8 +3316,7 @@ function dayDetail(email,list,k,p){
           background:rgba(28,32,25,.08);color:var(--grey)">${esc(HOW(x))}</span>
       </div>
       <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:5px">
-        ${x.got||0} of ${x.of||0} sets${x.actual?' · '+x.actual+' min'
-          +(x.mins&&x.mins!==x.actual?' (planned '+x.mins+')':''):''}
+        ${x.got||0} of ${x.of||0} sets${sessTimeTxt(x)?' · '+esc(sessTimeTxt(x)):''}
         ${x.done?'':`<br><b>Stopped at:</b> ${esc(x.stoppedAt||'unknown')}${x.block?', in '+esc(x.block):''}`}
       </div>
       ${(x.items||[]).length?`<div style="display:flex;flex-direction:column;gap:4px;margin-top:9px">
@@ -8009,6 +8008,23 @@ let openSess=null;   /* which session row is expanded */
    opens the drill-by-drill. An abandoned session is the interesting
    case — it names the drill it died on, marks what was never reached,
    and says whether that drill has been flagged before. */
+/* How long a session really was, and when (Elliott, 24 Oct 2026: "I can't
+   see how long a client trained from opening the training to closing it").
+   A session from 24 Oct on carries when it was opened and its seconds; an
+   older follow-along carries its real minutes; an older drill list only
+   ever sent its planned minutes, so that is all it can say. */
+function sessReal(x){
+  if(x && x.secs>0) return Math.max(1, Math.round(x.secs/60));
+  if(x && x.mode==='player' && x.actual>0) return x.actual;
+  return 0;
+}
+function sessTimeTxt(x){
+  const clock=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
+  const real=sessReal(x), plan=x&&x.mins?' (planned '+x.mins+' min)':'';
+  if(x && x.start && x.secs) return clock(x.start)+' to '+clock(x.start+x.secs*1000)+' · '+real+' min'+plan;
+  if(real) return real+' min'+plan;
+  return x&&x.mins ? 'planned '+x.mins+' min, real time not recorded' : '';
+}
 function sessionsHTML(email){
   const p=prog[email]||{};
   const list=(p.sessions||[]).filter(x=>x&&x.at).slice().sort((a,b)=>b.at-a.at).slice(0,12);
@@ -8031,7 +8047,7 @@ function sessionsHTML(email){
       const summary = x.done
         ? `${esc(x.name||'Session')} · ${x.items&&x.items.length?x.items.length+' drills, ':''}${
             x.got===x.of?'all sets completed':x.got+' of '+x.of+' sets'}`
-        : `Stopped in ${esc(x.block||'the session')} — ${esc(x.stoppedAt||'unknown drill')}`;
+        : `Stopped in ${esc(x.block||'the session')}, at ${esc(x.stoppedAt||'an unknown drill')}`;
       return `<div>
         <button onclick="openSess=${open?'null':i};draw()" style="width:100%;text-align:left;
           cursor:pointer;display:flex;align-items:center;gap:14px;padding:13px 15px;border-radius:16px;
@@ -8043,8 +8059,9 @@ function sessionsHTML(email){
           <span style="flex:none;width:74px;height:6px;border-radius:3px;background:rgba(28,32,25,.1);
             overflow:hidden"><i style="display:block;height:100%;width:${pct}%;
             background:${x.done?'var(--forest)':'var(--terra)'}"></i></span>
-          <b style="flex:none;font:700 12.5px/1 var(--sans);width:78px;text-align:right;
-            font-variant-numeric:tabular-nums">${x.actual||0}m / ${x.mins||0}m</b>
+          <span style="flex:none;width:78px;text-align:right;font-variant-numeric:tabular-nums">${sessReal(x)
+            ? `<b style="display:block;font:700 12.5px/1.1 var(--sans)">${sessReal(x)} min</b>${x.mins?`<span style="display:block;font:400 10.5px/1.3 var(--sans);color:var(--grey2)">planned ${x.mins}</span>`:''}`
+            : `<span style="display:block;font:400 11px/1.3 var(--sans);color:var(--grey2)">${x.mins?'planned '+x.mins+' min':''}</span>`}</span>
         </button>
         ${open?sessionDetail(x,flags):''}
       </div>`;}).join('')}
