@@ -852,6 +852,7 @@ async function workshopMail(done) {
         const key = `wsremind:${w.slug}:${p.email}`;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '',
+            arch: /calisthenics/i.test(w.title || '') ? 'Arch 2' : 'Arch 1 (the purple room)',
             directions: '<a href="https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Directions</a>.' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           /* a reminder the booking promised is theirs, like a receipt; and it

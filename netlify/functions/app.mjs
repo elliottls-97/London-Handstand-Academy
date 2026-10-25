@@ -318,9 +318,12 @@ async function wsManageLink(slug, addr, session, until) {
    every confirmation (8 Oct 2026: the emails gave "OverGravity, Shadwell"
    and nothing else, and "Can't make it?" with a link and no rules). */
 const WS_MAP = 'https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB';
+/* the handstand class is in Arch 1, the purple room; calisthenics in Arch 2
+   with the bars and rings (Elliott, 25 Oct 2026) */
+const wsArch = w => /calisthenics/i.test((w && w.title) || '') ? 'Arch 2' : 'Arch 1 (the purple room)';
 function wsWhereHTML(w) {
   if (w && w.place && !/overgravity/i.test(w.place)) return `<b>Where:</b> ${esc(w.place)}.`;
-  return `<b>Where:</b> OverGravity, Arch 1, Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. <a href="${WS_MAP}" style="color:#006663">Directions</a>.`;
+  return `<b>Where:</b> OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. <a href="${WS_MAP}" style="color:#006663">Directions</a>.`;
 }
 /* "Friday 1pm": the last moment it can be changed online */
 const wsCutoffTxt = w => w && w.when ? new Date(ms(w.when) - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1') : '';
