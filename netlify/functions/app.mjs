@@ -370,14 +370,17 @@ const wsKindOf = w => String((w && w.title) || '').toLowerCase().replace(WS_DATE
    off when two people book, the same again when one booking takes both
    dates, so two people on both dates get it twice. £5 unless the owner sets
    another in the dashboard (wsmulti). Each place is at its own date's price:
-   £25 and £30 for one person is £50, two people on both is £100. */
+   £25 and £30 for one person is £50, two people on both is £100.
+   Three classes (25 Oct 2026, Elliott): the date saving is per class after
+   the first, so three classes save it twice. Bookings made before carry no
+   multiPer and keep the one-off date saving they were sold under. */
 const WS_MULTI_DEFAULT = 500;
 const wsMultiOff = async () => { const s = await getSetting('wsmulti').catch(() => null);
   return s && s.pence != null ? Math.max(0, Math.round(Number(s.pence) || 0)) : WS_MULTI_DEFAULT; };
-const wsMultiCost = (places, off) => {
+const wsMultiCost = (places, off, perDate = true) => {
   const sum = places.reduce((t, p) => t + Math.max(0, Number(p.unit) || 0), 0);
   const who = new Set(places.map(p => p.who)).size, dates = new Set(places.map(p => p.slug)).size;
-  return Math.max(0, sum - (who > 1 ? off : 0) - (dates > 1 ? off : 0));
+  return Math.max(0, sum - (who > 1 ? off : 0) - (dates > 1 ? off * (perDate ? dates - 1 : 1) : 0));
 };
 /* bookings made before 19 Oct carry the old pair price (pairP) and are
    refunded by the rule they were sold under */
@@ -391,7 +394,7 @@ function wsKeptCost(b, rest, all, pair, total) {
   if (!rest.length) return 0;
   const unitOf = r => Math.max(0, Number(r.x.unit != null ? r.x.unit : (all[r.slug] || {}).price) || 0);
   let cost = Math.min(total, b.multiOff != null
-    ? wsMultiCost(rest.map(r => ({ slug: r.slug, who: r.x.email, unit: unitOf(r) })), Number(b.multiOff) || 0)
+    ? wsMultiCost(rest.map(r => ({ slug: r.slug, who: r.x.email, unit: unitOf(r) })), Number(b.multiOff) || 0, !!b.multiPer)
     : rest.length === 1 ? unitOf(rest[0]) : wsGroupCost(rest.length, Math.max(...rest.map(unitOf)), pair));
   /* the booking's code still comes off what is kept: cancelling the
      friend's place took the code's discount back (the journey review) */
@@ -4017,7 +4020,7 @@ const handle = async (request) => {
             q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24), ...(md.code ? { codePct: Number(md.codepct) || 0, codePence: Number(md.codepence) || 0 } : {}),
             ...wsConsentRow(pp.e === e ? wsConsentWith(wsConsentRead(md.consent), about) : wsConsentRead(md.consent), pp.e === e),
             ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
-            ...(md.multioff != null && md.multioff !== '' ? { unit: Number(String(md.units || '').split(',')[i]) || Number(md.unit) || 0, multiOff: Number(md.multioff) || 0 }
+            ...(md.multioff != null && md.multioff !== '' ? { unit: Number(String(md.units || '').split(',')[i]) || Number(md.unit) || 0, multiOff: Number(md.multioff) || 0, ...(md.multiper === '1' ? { multiPer: 1 } : {}) }
               : md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
           count = wsLive(l).length; return l;
@@ -7368,7 +7371,7 @@ const handle = async (request) => {
           const lv = wsLive(l);
           if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
-          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', ...(disc.code ? { codePct: disc.pct || 0, codePence: disc.pence || 0 } : {}), status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, ...(src ? { src } : {}),
+          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', ...(disc.code ? { codePct: disc.pct || 0, codePence: disc.pence || 0 } : {}), status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, multiPer: 1, ...(src ? { src } : {}),
             ...wsConsentRow(consent, pe === e),
             ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}),
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
@@ -7471,7 +7474,7 @@ const handle = async (request) => {
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[codepct]': String(disc.pct || 0), 'metadata[codepence]': String(disc.pence || 0), 'metadata[hold]': hold, 'metadata[consent]': wsConsentMeta(consent),
-        'metadata[unit]': String(Number(w.price) || 0), 'metadata[units]': targets.map(t => Number(t[1].price) || 0).join(','), 'metadata[multioff]': String(multi), 'metadata[src]': src,
+        'metadata[unit]': String(Number(w.price) || 0), 'metadata[units]': targets.map(t => Number(t[1].price) || 0).join(','), 'metadata[multioff]': String(multi), 'metadata[multiper]': '1', 'metadata[src]': src,
         expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
         customer_email: e,
         /* the class page and the app book here too, and come back to themselves */
