@@ -4342,6 +4342,7 @@ function dlTabTip(){
     storage, so sign in once when it opens: your account comes with you, saved workouts do not.</div>`;
 }
 function dlPaint(key){
+  if(String(key||'').indexOf('art')===0) artPaint();
   const el=document.getElementById('dl-'+key);
   const L=dlLists[key];
   if(el && L) el.outerHTML=dlRow(key, L.urls, L.meta);
@@ -4483,8 +4484,10 @@ async function dlStart(key, anyway){
       : got+' of '+uids.length+' saved. '+dlNoFileLine(noFile.length))
     : failed ? (uids.length===1 ? 'That did not save. Try again on better signal.'
       : got+' of '+uids.length+' films saved. Try again on better signal for the rest.')
-    : meta.kind==='ex' ? 'Saved. This explainer plays with no signal.' : 'Saved. This workout plays with no signal.');
+    : meta.kind==='ex' ? 'Saved. This explainer plays with no signal.'
+    : meta.kind==='art' ? 'Saved. This article and its films work with no signal.' : 'Saved. This workout plays with no signal.');
   if(st.tab==='home'||st.tab==='today') render();
+  if(meta.kind==='art'){ artPaint(); const ifr=document.querySelector('#artv iframe'); if(ifr) artUseSaved(ifr); }
 }
 
 /* "Save here in Safari anyway": back to what they were saving, and save it */
@@ -4531,6 +4534,7 @@ async function dlRemove(key){
     for(const u of mine){ if(keep.has(u)) continue;
       await cache.delete(dlKey(u,'film')); await cache.delete(dlKey(u,'words')); await cache.delete(dlKey(u,'still'));
       dlSet.delete(u); }
+    if(rec && rec.kind==='art' && rec.page) await cache.delete(artPageUrl(rec.page));
   }catch(e){}
   dlPaint(key); keepPaint(key); toast('Removed from this phone.');
   if(st.tab==='home'||st.tab==='today') render();
@@ -4545,6 +4549,11 @@ function dlClearAll(){
 /* opening one again, from the Train screen */
 function dlOpen(key){
   const rec=dlRec(key); if(!rec) return;
+  if(rec.kind==='art'){
+    if(dlLocked(rec)!=null){ openStage(FREE_STAGES); return; }
+    if(!fixGet(rec.slug)){ toast('That article is not in the app any more.'); return; }
+    st.fixSlug=rec.slug; save(); go('fix'); return;
+  }
   if(rec.kind==='ex'){
     const i=FAQS.findIndex(f=>f && f.uid===rec.uid);
     if(i<0){ toast('That explainer is not in the app any more.'); return; }
@@ -4585,6 +4594,7 @@ function dlOpen(key){
    stage it came from, where the way back in is. Older saves carry no
    stage, so their drills answer for them. Null when it may open. */
 function dlLocked(rec){
+  if(rec && rec.kind==='art') return paidPlan() ? null : FREE_STAGES;
   if(!rec || rec.kind!=='q' || isPlus()) return null;
   /* the one free session at their stage, saved to do in a gym with no
      signal: it opens until it has been done, for up to a week */
@@ -4606,20 +4616,21 @@ function dlLocked(rec){
 }
 /* ── the saved ones, on the first screen ── */
 function savedHomeHTML(){
-  const list=(st.dlSaved||[]).filter(r=>r && (r.kind==='ex' || (coachedView() ? r.kind==='day' : r.kind!=='day')))
-    /* workouts first, then explainers, newest first within each */
-    .sort((a,b)=>((a.kind==='ex')-(b.kind==='ex')) || (b.at||0)-(a.at||0));
+  const watch = r => r.kind==='ex' || r.kind==='art';
+  const list=(st.dlSaved||[]).filter(r=>r && (watch(r) || (coachedView() ? r.kind==='day' : r.kind!=='day')))
+    /* workouts first, then explainers and articles, newest first within each */
+    .sort((a,b)=>(watch(a)-watch(b)) || (b.at||0)-(a.at||0));
   if(!list.length) return '';
   /* saved for no signal, or only kept to do another day, which streams */
   const offline = r => r.kind!=='q' || !!r.off || !!r.bytes;
-  const anyOff = list.some(offline), allEx = list.every(r=>r.kind==='ex');
+  const anyOff = list.some(offline), allEx = list.every(watch);
   const held=listHeldNow(), hk=held?heldKey(held):'';
   /* A still of where the workout is: the first set not yet ticked when it
      is in progress, the first drill when it is not, the film itself for
      an explainer. A saved one uses the still it downloaded, so it shows
      with no signal too. */
   const still=r=>{
-    if(r.kind==='ex') return r.uid ? streamThumb(r.uid) : '';
+    if(r.kind==='ex' || r.kind==='art') return r.uid ? streamThumb(r.uid) : '';
     let q=Array.isArray(r.q)?r.q:[], at=0;
     if(held && r.key===hk){ q=held.q; const i=q.findIndex((_,k)=>!(held.tick||{})['q'+k]); at=i<0?q.length-1:i; }
     const u=uidOfUrl(itUrl((q[at]||{}).it)) || dlUids(r.urls)[0] || '';
@@ -4641,10 +4652,11 @@ function savedHomeHTML(){
           background:var(--amber);box-shadow:0 0 0 2px #fff"></span>`:''}</button>`:''}
       <button onclick="dlOpen(${jsq(r.key)})" style="flex:1;min-width:0;border:0;background:none;padding:0;
         text-align:left;cursor:pointer;color:var(--ink)">
-        ${r.kind==='ex'?`<span style="display:block;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-bottom:5px">EXPLAINER</span>`:''}
+        ${watch(r)?`<span style="display:block;font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2);margin-bottom:5px">${r.kind==='art'?'ARTICLE':'EXPLAINER'}</span>`:''}
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
         <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':going?'var(--forest)':'var(--grey)'};margin-top:3px;${going?'font-weight:600':''}">${
           going ? done+' of '+(held.of||held.q.length)+' sets done'
+          : locked && r.kind==='art' ? 'Saved articles come with a paid plan. It opens again with one.'
           : locked ? (sellsLadder() ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.' : 'Part of the full ladder, for members.')
           : gone && dlNoFile(r,uids)>=uids.length-have ? have+' of '+uids.length+' films saved. '+(uids.length-have===1?'One needs':(uids.length-have)+' need')+' signal.'
           : gone ? have+' of '+uids.length+' films on this phone. Open it to save the rest.'
@@ -18194,13 +18206,94 @@ function fxReadOpen(path, title, f){
       background:#fff;color:var(--deep);display:grid;place-items:center;cursor:pointer;padding:0">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
     <span style="flex:1;min-width:0;font:600 11px/1.2 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest);
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(title||'')}</span></div>
-    <iframe src="${esc(path)}?inapp=1" title="${esc(title||'Article')}" style="flex:1;min-height:0;width:100%;border:0;background:#f4f4f5"></iframe>
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(title||'')}</span>
+    ${f?`<span id="artSave" data-slug="${esc(f.slug)}" style="flex:none">${artSaveHTML(f)}</span>`:''}</div>
+    <iframe src="${esc(path)}?inapp=1" onload="artUseSaved(this)" title="${esc(title||'Article')}" style="flex:1;min-height:0;width:100%;border:0;background:#f4f4f5"></iframe>
     ${f?`<div id="fxbar" style="flex:none;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:rgba(244,244,245,.94);
       backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-top:1px solid rgba(0,64,61,.10)">${fxBarHTML(f)}</div>`:''}`;
   document.body.appendChild(el);
 }
 function fxReadClose(){ const el=document.getElementById('artv'); if(el) el.remove(); }
+
+/* ── an article, saved for no signal, on a paid plan (Elliott, 26 Oct
+   2026) ──────────────────────────────────────────────────────────────
+   The page goes in the films cache beside its films and a still of each,
+   so it outlives an app update. With no signal the page comes from there
+   (the worker looks in every cache), and once it has loaded its films are
+   pointed at the saved copies, the same ?lha=saved the player uses. */
+const paidPlan = () => !!st.in || isPlus();
+const artKey = slug => 'art'+slug;
+const artPageUrl = path => location.origin+path+'?inapp=1';
+function artUids(html){
+  const re=/cloudflarestream\.com\/([a-f0-9]{32})\/downloads\/default\.mp4/g, out=[]; let m;
+  while((m=re.exec(String(html||'')))) if(out.indexOf(m[1])<0) out.push(m[1]);
+  return out;
+}
+function artSaveHTML(f){
+  if(!f) return '';
+  const key=artKey(f.slug), rec=dlRec(key), uids=dlUids((rec&&rec.urls)||[]);
+  const busy=dlBusy && dlBusy.key===key, paid=paidPlan();
+  const saved=paid && !!rec && uids.length>0 && uids.every(u=>dlSet.has(u));
+  const ic = !paid ? '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
+    : saved ? '<path d="M5 12.5l4.5 4.5L19 7.5"/>' : '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>';
+  const lab = busy ? dlBusy.done+' of '+dlBusy.of : saved ? 'Saved' : 'Save';
+  return `<button onclick="artSave(${jsq(f.slug)})" aria-label="${saved?'Saved for no signal. Remove it from this phone':busy?'Saving for no signal':'Save this article for no signal'}"
+    style="height:44px;padding:0 14px;border-radius:999px;border:1px solid rgba(0,64,61,.14);background:#fff;cursor:pointer;
+    color:${saved?'var(--forest)':'var(--deep)'};display:inline-flex;align-items:center;gap:7px;font:600 13px/1 var(--sans)">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+      stroke-linejoin="round" aria-hidden="true">${ic}</svg>${lab}</button>`;
+}
+function artPaint(){
+  const el=document.getElementById('artSave'); if(!el) return;
+  const f=fixGet(el.dataset.slug); if(f) el.innerHTML=artSaveHTML(f);
+}
+async function artSave(slug){
+  const f=fixGet(slug), page=fxPage(f); if(!f || !page) return;
+  const key=artKey(slug);
+  if(!paidPlan()){
+    toast('Saving articles for no signal comes with the full Ladder.');
+    fxArtHide(); openStage(FREE_STAGES); return;
+  }
+  if(dlBusy && dlBusy.key===key){ dlStop(); return; }
+  const rec=dlRec(key), have=dlUids((rec&&rec.urls)||[]);
+  if(rec && have.length && have.every(u=>dlSet.has(u))){ dlRemoveAsk(key); return; }
+  if(!dlOk()){ toast('Saving works from the app on your Home Screen.'); return; }
+  let html='';
+  try{
+    const res=await fetch(artPageUrl(page.path),{credentials:'same-origin'});
+    if(!res.ok) throw 0;
+    html=await res.text();
+    const c=await caches.open(FILM_CACHE);
+    await c.put(artPageUrl(page.path), new Response(html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+  }catch(e){ toast('No signal just now. Save it when you have some.'); return; }
+  const uids=artUids(html);
+  dlLists[key]={urls:uids.map(u=>dlKey(u,'film')), meta:{kind:'art', slug, name:f.name, page:page.path, uid:uids[0]||''}};
+  if(!uids.length){
+    dlKeepList({key, kind:'art', slug, name:f.name, page:page.path, urls:[], n:0, off:true, bytes:html.length, at:Date.now()});
+    artPaint(); toast('Saved. This article reads with no signal.'); return;
+  }
+  /* in a phone's browser the Home Screen sheet comes first, and it sits
+     under the article: the article steps aside for it, and comes back when
+     it closes */
+  let tab=false; try{ tab=(isIOS() || /android/i.test(navigator.userAgent)) && !isStandalone(); }catch(e){}
+  if(tab && !st.dlTabOk) fxArtHide();
+  await dlStart(key);
+}
+/* the article's films and stills, from this phone, once it has loaded */
+function artUseSaved(ifr){
+  let d=null; try{ d=ifr.contentDocument; }catch(e){}
+  if(!d) return;
+  d.querySelectorAll('video[src]').forEach(v=>{
+    const u=uidOfUrl(v.getAttribute('src')); if(!u || !dlHas(u) || /lha=saved/.test(v.src)) return;
+    v.src=dlKey(u,'film')+'?lha=saved';
+    if(v.getAttribute('poster')) v.poster=dlKey(u,'still')+'?lha=saved';
+    try{ v.load(); if(v.autoplay) { const p=v.play(); if(p&&p.catch) p.catch(()=>{}); } }catch(e){}
+  });
+  /* the stills only with no signal: the saved one is a single frame of the film */
+  if(navigator.onLine===false) d.querySelectorAll('img[src*="cloudflarestream.com"]').forEach(im=>{
+    const u=uidOfUrl(im.getAttribute('src')); if(u && dlHas(u)) im.src=dlKey(u,'still')+'?lha=saved';
+  });
+}
 
 /* ── a fix that is a Learn article ──────────────────────────────────
    The fix is the article (Elliott, 17 Oct 2026: "can the fix just be the
