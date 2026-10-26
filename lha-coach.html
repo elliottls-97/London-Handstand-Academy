@@ -437,6 +437,8 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 .mf-at{border:0;background:none;padding:0;cursor:pointer;font:600 12px var(--sans);color:var(--forest);text-decoration:underline}
 .mf-x{border:0;background:none;cursor:pointer;color:var(--grey);font-size:15px;padding:0 2px}
 .mf-seg{display:flex;gap:6px;flex-wrap:wrap}
+.mf-upbar{height:6px;border-radius:3px;background:rgba(0,64,61,.1);overflow:hidden}
+.mf-upbar div{height:100%;background:var(--forest);transition:width .3s}
 @media (max-width:880px){ .mf-one{grid-template-columns:1fr} .mf-vidcol{position:static} .mf-v.big{max-height:70vh} .mf-nav .muted{display:none} }
 </style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
 <!-- Relative, not root relative. "/ladder-data.js" resolves to the disk
@@ -12487,7 +12489,7 @@ function newsImport(){ if(!newsImp||!newsImp.rows) return; newsBusy='imp'; draw(
    own (so it adds nothing to this page's library), and what is said is one
    record on the server, /coach/mufilms. It was called Films, which the
    Library already has: this is its own tab, Muscle Up. */
-let mf=null, mfErr='', mfFilter='all', mfAbout={}, mfBusy={}, mfMode='one', mfIdx=0, mfTab='films';
+let mf=null, mfErr='', mfFilter='all', mfAbout={}, mfBusy={}, mfMode='one', mfIdx=0, mfTab='films', mfUp={};
 let MUF=null, MUX=null, MUD=null;
 function mfLoad(){
   if(mf && mf.loading) return;
@@ -12500,10 +12502,19 @@ function mfLoad(){
     MUF=(films&&films.films)||[]; MUX=(films&&films.missing)||[];
     try{ MUD=new Function('FREE_DOSE','DRILL_EXTRA', src+';return {MU_STAGES, MU_DRILLS, MU_DOSE};')(undefined, undefined); }
     catch(e){ MUD={MU_STAGES:[], MU_DRILLS:[], MU_DOSE:{}}; }
-    mf={review:(rv&&rv.review)||{}}; mfErr=''; draw();
+    mf={review:(rv&&rv.review)||{}, added:(rv&&rv.added)||[]}; mfErr=''; draw();
   }).catch(e=>{ mf={review:{}}; mfErr='Could not load the films ('+e+'). Refresh to try again.'; draw(); });
 }
 const mfRec = uid => ((mf&&mf.review)||{})[uid] || {};
+/* the films as they stand: the 26 Oct uploads less any replaced since, and
+   every film uploaded from this tab, newest last */
+function mfFilms(){
+  const add=((mf&&mf.added)||[]), gone=new Set(add.map(a=>a.replaces).filter(Boolean));
+  return (MUF||[]).filter(f=>!gone.has(f.uid)).concat(add.map(a=>({film:a.film, file:a.file||a.film+'.mp4', uid:a.uid,
+    drill:a.drill||'', up:{by:a.by, at:a.at, ready:!!a.dl, replaces:a.replaces||''}})));
+}
+/* a drill that has had a film uploaded for it here, since the list was made */
+const mfUploadedFor = v => ((mf&&mf.added)||[]).filter(a=>a.drill===v).slice(-1)[0] || null;
 const mfDrillOf = f => { const r=mfRec(f.uid); return r.drill!=null ? r.drill : (f.drill||''); };
 const mfDrill = v => ((MUD&&MUD.MU_DRILLS)||[]).find(d=>d.v===v) || null;
 const mfStageOf = v => { const P=((MUD&&MUD.MU_STAGES)||[]); for(let i=0;i<P.length;i++){ if((P[i].drillIds||[]).indexOf(v)>-1) return i; } return -1; };
@@ -12512,10 +12523,10 @@ const mfLabel = f => { const r=mfRec(f.uid), d=mfDrill(mfDrillOf(f)); return r.n
 const mfNamed = f => { const r=mfRec(f.uid); return !!(r.by && (r.name || r.drill)); };
 /* matched to no drill when it went up, and nobody has named it yet */
 const mfUrgent = f => !f.drill && !mfNamed(f);
-function mfNeedN(){ return (MUF||[]).filter(f=>!mfNamed(f)).length; }
+function mfNeedN(){ return mfFilms().filter(f=>!mfNamed(f)).length; }
 /* the order they are gone through in: the urgent ones first */
 function mfList(){
-  const all=(MUF||[]).slice().sort((a,b)=>(mfUrgent(b)-mfUrgent(a)));
+  const all=mfFilms().slice().sort((a,b)=>(mfUrgent(b)-mfUrgent(a)));
   return mfFilter==='urgent' ? all.filter(mfUrgent)
     : mfFilter==='need' ? all.filter(f=>!mfNamed(f))
     : mfFilter==='talk' ? all.filter(f=>(mfRec(f.uid).comments||[]).length) : all;
@@ -12525,7 +12536,7 @@ function mfPost(uid, patch){
   return fetch(APP+'/coach/mufilms',{method:'POST',headers:hdr(),body:JSON.stringify(Object.assign({uid}, patch))})
     .then(r=>r.json().then(d=>({ok:r.ok, d})))
     .then(({ok,d})=>{ mfBusy[uid]=false; if(!ok){ flash((d&&d.error)||'That did not save.'); draw(); return false; }
-      mf.review=d.review||mf.review; draw(); return true; })
+      mf.review=d.review||mf.review; if(d.added) mf.added=d.added; draw(); return true; })
     .catch(()=>{ mfBusy[uid]=false; flash('No signal. That did not save.'); draw(); return false; });
 }
 function mfSetDrill(uid, v){ mfPost(uid, {drill:v}); }
@@ -12540,6 +12551,49 @@ function mfComment(uid){
   mfPost(uid, {comment:{about, t, text}}).then(ok=>{ if(ok && box) box.value=''; });
 }
 function mfDel(uid, id){ mfPost(uid, {del:id}); }
+/* ── uploading a film from here ─────────────────────────────────────
+   Straight from the browser to Stream through the same /upload every
+   upload uses, as a Muscle Up film (locked like the rest), then recorded
+   here with the drill it is for. Under 190MB in one go: these run 4 to 23
+   seconds and are a few tens of MB. */
+async function mfUpload(key, input, meta){
+  const file=input && input.files && input.files[0]; if(input) input.value=''; if(!file) return;
+  if(!/^video\//.test(file.type||'') && !/\.(mp4|mov|m4v)$/i.test(file.name)){ flash('That is not a video file.'); return; }
+  if(file.size > 190*1024*1024){ flash('That film is over 190 MB. Export it smaller and try again.'); return; }
+  mfUp[key]={pct:0}; draw();
+  try{
+    const r=await fetch(APP+'/upload',{method:'POST',headers:hdr(),body:JSON.stringify({kind:'mu-film', size:file.size})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok || !d.uploadURL) throw new Error(d.error||('the server said '+r.status));
+    await new Promise((res, rej)=>{
+      const x=new XMLHttpRequest(); x.open('POST', d.uploadURL);
+      let last=0;
+      x.upload.onprogress=e=>{ if(!e.lengthComputable) return; const p=Math.round(e.loaded/e.total*100); if(p-last>=4 || p===100){ last=p; mfUp[key]={pct:p}; draw(); } };
+      x.onload=()=> x.status<300 ? res() : rej(new Error('Stream refused it ('+x.status+')'));
+      x.onerror=()=>rej(new Error('the connection dropped'));
+      const fd=new FormData(); fd.append('file', file); x.send(fd);
+    });
+    const ok=await mfPost(d.uid, {add:Object.assign({file:file.name}, meta||{})});
+    mfUp[key]=null; draw();
+    if(ok) flash('Uploaded. Stream takes a minute or two to have it ready to play.');
+  }catch(e){ mfUp[key]={err:'Did not upload: '+String((e&&e.message)||e)}; draw(); }
+}
+function mfUpBtn(key, label, meta){
+  const u=mfUp[key];
+  if(u && u.pct!=null) return `<div class="mf-upbar"><div style="width:${u.pct}%"></div></div><div class="muted" style="font-size:12.5px;margin-top:4px">Uploading&hellip; ${u.pct}%</div>`;
+  return `<label class="btn btn-secondary btn-sm" style="cursor:pointer">${label}
+      <input type="file" accept="video/*,.mp4,.mov,.m4v" style="display:none" onchange='mfUpload(${JSON.stringify(key)}, this, ${esc(JSON.stringify(meta||{}))})'></label>
+    ${u && u.err?`<div style="color:var(--terra);font-size:12.5px;margin-top:6px">${esc(u.err)}</div>`:''}`;
+}
+/* the app with every stage and film open, in a tab of its own, read only:
+   the window opens first so the browser does not block it as a pop-up */
+function previewAll(){
+  const w=window.open('about:blank', '_blank');
+  fetch(API+'/preview?all=1',{headers:hdr()})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ const u='/lha-app.html?preview='+encodeURIComponent(d.token)+'&all=1&mu=1'; if(w) w.location.href=u; else location.href=u; })
+    .catch(e=>{ if(w) w.close(); flash('Could not open the preview: '+e); });
+}
 function mfStep(d){
   const L=mfList(); if(!L.length) return;
   mfIdx=Math.max(0, Math.min(L.length-1, mfIdx+d));
@@ -12599,17 +12653,20 @@ function mfDetailHTML(f){
       <div style="font:400 26px/1.1 var(--serif);min-width:0">${esc(mfLabel(f))}</div>${mfFlag(f)}</div>
     <div class="muted" style="font-size:12.5px">File: ${esc(f.file)}${r.by?` &middot; named by ${esc(r.by)}${r.at?', '+esc(new Date(r.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})):''}`:''}</div>
     ${mfUrgent(f)?`<div class="mf-urgent">I could not match this film to a drill in the ladder, so it is called by its file name. Pick the drill it is, or type what it should be called.</div>`:''}
+    ${f.up?`<div class="mf-shot">Uploaded here by ${esc(f.up.by||'')}, ${esc(new Date(f.up.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}${f.up.replaces?', in place of an earlier film':''}.
+      ${f.up.ready?'':' Stream may still be getting it ready: if it does not play, come back in a minute.'}</div>`:''}
     <label style="display:block"><span class="kick">WHICH DRILL IT IS</span>
       <select class="input" style="margin-top:6px" onchange="mfSetDrill('${f.uid}', this.value)" ${busy?'disabled':''}>${mfOpts(cur)}</select></label>
     <label style="display:block"><span class="kick">OR NAME IT</span>
       <input class="input" style="margin-top:6px" value="${esc(r.name||'')}" placeholder="${esc(d?d.n:f.film)}" maxlength="80"
         onchange="mfSetName('${f.uid}', this)" onkeydown="if(event.key==='Enter'){ this.blur(); }"></label>
     ${mfDrillBox(cur)}
-    ${mfCommentsHTML(f.uid, true)}`;
+    ${mfCommentsHTML(f.uid, true)}
+    <div style="border-top:1px solid var(--line);padding-top:12px">${mfUpBtn('r-'+f.uid, 'Replace this film', {drill:cur, film:mfLabel(f), replaces:f.uid})}</div>`;
 }
 function muHTML(){
   if(!mf || (!MUF && !mfErr)) { mfLoad(); return `<p class="muted" style="margin-top:18px">Loading the films…</p>`; }
-  const films=MUF||[], miss=MUX||[];
+  const films=mfFilms(), miss=MUX||[];
   const urgent=films.filter(mfUrgent).length, need=films.filter(f=>!mfNamed(f)).length, talked=films.filter(f=>(mfRec(f.uid).comments||[]).length).length;
   csNeed(films.map(f=>f.uid));
   const chip=(k,l,on,act)=>`<button class="btn btn-sm ${on?'btn-primary':'btn-secondary'}" onclick="${act}">${l}</button>`;
@@ -12617,9 +12674,10 @@ function muHTML(){
     <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
       <div><div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Muscle Up Ladder</div>
         <h1 style="margin:8px 0 0">${mfTab==='films'?films.length+' films to <em style="color:var(--forest);font-style:normal">check.</em>'
-          : miss.length+' films <em style="color:var(--forest);font-style:normal">to make.</em>'}</h1></div>
+          : miss.filter(m=>!mfUploadedFor(m.drill)).length+' films <em style="color:var(--forest);font-style:normal">to make.</em>'}</h1></div>
       <span style="flex:1"></span>
-      <div class="mf-seg">${chip('','Films '+films.length, mfTab==='films', "mfTab='films';draw()")}${chip('','Missing films '+miss.length, mfTab==='missing', "mfTab='missing';draw()")}</div>
+      <button class="btn btn-secondary btn-sm" onclick="previewAll()" title="Opens the app in a new tab with every stage and film open. Nothing in it is saved.">Preview the app, all unlocked</button>
+      <div class="mf-seg">${chip('','Films '+films.length, mfTab==='films', "mfTab='films';draw()")}${chip('','Missing films '+miss.filter(m=>!mfUploadedFor(m.drill)).length, mfTab==='missing', "mfTab='missing';draw()")}</div>
     </div>
     ${mfTab==='films'?`<p class="muted" style="margin:10px 0 0;max-width:680px">Pick the drill each one is, or type the right name. Comments are for the film (the cut, the title,
       the cues on it) or the exercise (the dose, the cues, where it sits). A comment on the film is kept at the moment it is paused on.
@@ -12639,9 +12697,13 @@ function muHTML(){
   if(mfTab==='missing') return head + `<div class="mf-grid">${miss.map(m=>{ const si=mfStageOf(m.drill);
     return `<article class="card" data-k="mfm-${esc(m.drill)}" style="padding:18px;display:flex;flex-direction:column;gap:12px">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
-        <div style="font:400 24px/1.1 var(--serif)">${esc(m.name)}</div><span class="mf-flag">NO FILM YET</span></div>
+        <div style="font:400 24px/1.1 var(--serif)">${esc(m.name)}</div>${mfUploadedFor(m.drill)?'<span class="mf-flag ok">UPLOADED</span>':'<span class="mf-flag">NO FILM YET</span>'}</div>
       <div class="mf-shot"><span class="kick">FILM IT</span><div style="margin-top:5px">${esc(m.show||'A few clean reps')}${m.angle?` &middot; <b>${esc(m.angle)}</b>`:''}</div>
         <div class="muted" style="margin-top:4px;font-size:12.5px">Name the file ${esc(m.name.charAt(0)+m.name.slice(1).toLowerCase())}.mp4${si>-1?' &middot; stage '+(si+1):''}</div></div>
+      ${(u=>u?`<div class="mf-shot" style="background:rgba(0,102,99,.1)"><b>Uploaded</b> by ${esc(u.by||'')}, ${esc(new Date(u.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}.
+          ${u.dl?'It is in Films.':'Stream is getting it ready; it will be in Films.'} <button class="mf-at" onclick="mfTab='films';mfFilter='all';mfIdx=Math.max(0,mfList().findIndex(f=>f.uid===${jsq(u.uid)}));draw()">See it</button>
+          <div style="margin-top:8px">${mfUpBtn('m-'+m.drill, 'Upload a different one', {drill:m.drill, film:m.name})}</div></div>`
+        : `<div>${mfUpBtn('m-'+m.drill, 'Upload the film', {drill:m.drill, film:m.name})}</div>`)(mfUploadedFor(m.drill))}
       ${mfDrillBox(m.drill)}
       ${mfCommentsHTML(m.drill, false)}
     </article>`; }).join('')}</div>`;

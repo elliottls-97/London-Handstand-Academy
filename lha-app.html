@@ -2195,6 +2195,10 @@ const PREVIEW = (function(){
   }catch(e){ return ''; }
 })();
 const K = PREVIEW ? 'lha_preview' : 'lha_app';
+/* The whole app with everything open, from the dashboard's Preview the
+   app (Elliott, 26 Oct 2026): every stage of both ladders, every film. Only
+   ever inside a preview, which the server will not let write anything. */
+const PREVIEW_ALL = !!PREVIEW && (function(){ try{ return new URLSearchParams(location.search).get('all')==='1'; }catch(e){ return false; } })();
 /* In a preview, anything that goes wrong is the point of looking, so it
    is sent out to the panel rather than dying quietly in a console nobody
    has open. Same origin, and only ever upward to the dashboard. */
@@ -2341,6 +2345,8 @@ if(PREVIEW){
   /* start from nothing every time, or the last client previewed bleeds
      into the next one */
   st={ token:PREVIEW, preview:true };
+  /* straight to Train, the quiz answered, rather than a stranger's first visit */
+  if(PREVIEW_ALL) Object.assign(st, {quizDone:true, oriented:true, mode:'free', tab:'home', intake:{level:0, goal:'learn', placedBy:'preview'}});
 }
 function save(){ try{ localStorage.setItem(K,JSON.stringify(st)); }catch(e){} }
 st.tab=st.tab||'today'; st.day=st.day|0; st.tick=st.tick||{}; st.rate=st.rate||{};
@@ -20583,7 +20589,7 @@ const PAID_LINK = 'https://buy.stripe.com/fZu8wP2yz4wc8Pt6SRefC0b';
    with Apple. A sign in that ran out kept st.plus and st.coached, so the
    phone went on opening every stage while the server, rightly, signed no
    paid film for it: the stages open, the films black, nothing to pay. */
-const isPlus = () => !!(st.plus || st.in || st.coached)
+const isPlus = () => PREVIEW_ALL || !!(st.plus || st.in || st.coached)
   && (!!st.token || !!st.preview || (typeof IOS_APP!=='undefined' && IOS_APP && (st.appleUntil||0) > Date.now()));
 /* This had no taste term while stageCap and tasting did, so somebody with
    two free sessions at Take-Off was told on the wall that they had them and
@@ -25069,7 +25075,7 @@ function render(){
   swap((st.preview?`<div style="position:fixed;top:0;left:0;right:0;z-index:2000;
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
-      pointer-events:none">Preview &middot; ${esc(st.client||st.email||'client')} &middot; read only</div>`:'')
+      pointer-events:none">Preview &middot; ${PREVIEW_ALL?'everything unlocked':esc(st.client||st.email||'client')} &middot; read only</div>`:'')
     +topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${railSwitch()}${bar}${railFoot()}</nav>`);
   /* nothing was redrawn, so there is nothing to wire up again: watchScroll
      and watchPull add listeners, and would add a second set to the same box */

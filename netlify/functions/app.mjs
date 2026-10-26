@@ -10288,7 +10288,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}`,
                        'Tus-Resumable': '1.0.0', 'Upload-Length': String(size),
                        'Upload-Creator': who,
-                       'Upload-Metadata': `maxDurationSeconds ${b64(maxDur)},name ${b64(name)}` } });
+                       'Upload-Metadata': `maxDurationSeconds ${b64(maxDur)},name ${b64(name)}${kind === 'mu-film' ? ',requiresignedurls' : ''}` } });
         const loc = res.headers.get('location'), uid = res.headers.get('stream-media-id');
         if (!res.ok || !loc || !uid) return json({ error: `Stream would not open the upload (${res.status})` }, 502);
         return json({ tusURL: loc, uid });
@@ -10307,6 +10307,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             expiry: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
             creator: who,                     // so it can be found and deleted later
             meta: { name, uploadedBy: who, kind },
+            /* a Muscle Up film is the paid library's, locked like its films */
+            ...(kind === 'mu-film' ? { requireSignedURLs: true } : {}),
           }) });
       const d = await res.json();
       if (!d.success) return json({ error: (d.errors && d.errors[0] && d.errors[0].message) || 'Stream said no' }, 502);
@@ -12506,6 +12508,16 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        their page is visible rather than described. Half an hour, because
        it is for looking at something now. */
     if (path === '/coach/preview' && request.method === 'GET') {
+      /* the whole app with everything open, to look over before anything
+         is shown to anybody (Elliott, 26 Oct 2026): a preview of the coach's
+         own account, read only like every preview, for a working day. The
+         app opens every stage itself when it is told all=1; the server's part
+         is the films, which /sign gives a preview token in full. */
+      if (url.searchParams.get('all') === '1') {
+        if (!asking) return json({ error: 'Sign in as yourself to preview the app' }, 400);
+        return json({ email: asking, all: true,
+          token: await sign({ scope: 'preview', email: asking, all: true, exp: Date.now() + 8 * 3600000 }) });
+      }
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
@@ -14215,9 +14227,27 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        uploaded film is, a name typed over it, and comments on the film or
        on the exercise, some at a moment in it. One record, everybody's. */
     if (path === '/coach/mufilms') {
-      const KEY = 'mufilms:review';
+      const KEY = 'mufilms:review', ADDED = 'mufilms:added';
       const all = (await getSetting(KEY)) || {};
-      if (request.method === 'GET') return json({ review: all });
+      let added = (await getSetting(ADDED)) || [];
+      /* A film uploaded from the tab (Elliott, 26 Oct 2026: "allow him to
+         upload the videos on the muscle up tab, or me"). Stream names it,
+         and its MP4 can only be switched on once Stream has finished with
+         it, so every look at the tab finishes any that are ready. */
+      const CFA = process.env.CF_ACCOUNT, CFT = process.env.CF_STREAM_TOKEN;
+      const cf = (p, init = {}) => fetch(`https://api.cloudflare.com/client/v4/accounts/${CFA}/stream${p}`,
+        { ...init, headers: { Authorization: `Bearer ${CFT}`, 'Content-Type': 'application/json', ...(init.headers || {}) } })
+        .then(r => r.json()).catch(() => ({ success: false }));
+      const finish = async a => {
+        if (!CFA || !CFT || a.dl) return false;
+        if (!a.named) { const m = await cf(`/${a.uid}`, { method: 'POST', body: JSON.stringify({ meta: { name: a.drill || a.film }, requireSignedURLs: true }) }); if (m.success) a.named = true; }
+        const d = await cf(`/${a.uid}/downloads`, { method: 'POST' });
+        if (d.success) a.dl = true;
+        return true;
+      };
+      const pending = added.filter(a => !a.dl).slice(0, 4);
+      if (pending.length) { let changed = false; for (const a of pending) changed = (await finish(a)) || changed; if (changed) await setSetting(ADDED, added); }
+      if (request.method === 'GET') return json({ review: all, added });
       if (request.method !== 'POST') return json({ error: 'GET or POST' }, 405);
       /* a film by its Stream id, or a drill still waiting for its film by
          the drill's id, for the comments on the Missing films list */
@@ -14240,9 +14270,20 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       }
       /* a comment is taken back by whoever wrote it, or by Elliott */
       if (body.del) rec.comments = (rec.comments || []).filter(c => !(c.id === String(body.del) && (c.by === by || (asking && isPrimary(asking)))));
+      /* a film just uploaded for a drill, or in place of one already here */
+      if (body.add && /^[a-f0-9]{32}$/.test(uid)) {
+        const a = body.add;
+        added = added.filter(x => x.uid !== uid).concat([{ uid, by, at: now,
+          film: String(a.film || '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'New film',
+          file: String(a.file || '').slice(0, 120),
+          drill: String(a.drill || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 80),
+          replaces: /^[a-f0-9]{32}$/.test(String(a.replaces || '')) ? String(a.replaces) : '' }]).slice(-200);
+        const mine = added.find(x => x.uid === uid); await finish(mine);
+        await setSetting(ADDED, added);
+      }
       all[uid] = rec;
       await setSetting(KEY, all);
-      return json({ review: all });
+      return json({ review: all, added });
     }
 
     if (path === '/coach/seen' && request.method === 'POST') {
