@@ -267,10 +267,12 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .hcap-cp{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:10px;padding:0 6px 0 12px;border:0;border-radius:999px;min-height:56px;
  cursor:pointer;text-align:left}
 .hcap-cp>span{display:flex;flex-direction:column;line-height:1.15;min-width:0}
-/* Start session is as wide as its words and the play disc, on one line,
-   and the check points take the rest (Elliott, 26 Oct 2026: check points
-   a little bigger, Start a little smaller). It was 1.3 to 1. */
-.hcap-go{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 6px 0 16px;border:0;
+/* 45 to 55, check points to Start, on every phone (Elliott, 26 Oct 2026).
+   It was 1.3 to 1; sizing Start to its words alone made the check points
+   the bigger half on anything wider than 375. Start never goes narrower
+   than its words and the play disc, so it stays on one line. */
+.hcap-cp{flex:45 1 0}
+.hcap-go{flex:55 1 0;min-width:max-content;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 6px 0 16px;border:0;
  border-radius:999px;min-height:56px;cursor:pointer;background:linear-gradient(180deg,#0a7a76,#006663);box-shadow:0 8px 20px rgba(0,102,99,.28);
  color:#fff;font:600 15px/1.1 var(--sans);text-align:left;white-space:nowrap}
 .hcap-go>span{flex:none;width:40px;height:40px;border-radius:50%;background:#fff;display:grid;place-items:center}
@@ -635,6 +637,18 @@ button.lc-ring:active{transform:scale(.88)}
 .lc-t small{display:block;margin-top:3px;font:500 12px/1.2 var(--sans);color:var(--grey);
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lc-t small em{font-style:normal;font-weight:700;font-size:9.5px;letter-spacing:.14em;color:#8a5a12;margin-right:6px}
+/* what the coach sent back, on the row (26 Oct 2026); amber while it is new */
+.lc-fb{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:4px 9px 4px 8px;border-radius:999px;
+ background:rgba(0,102,99,.08);color:var(--forest);font:600 11.5px/1.15 var(--sans);white-space:nowrap;max-width:100%;overflow:hidden}
+.lc-fb.new{background:rgba(243,169,73,.2);color:#6b4209}
+.lc-fb i{font-style:normal;font:700 8.5px/1 var(--sans);letter-spacing:.12em;padding:3px 6px;border-radius:999px;background:var(--amber);color:var(--ink);margin-left:2px}
+/* news from the coach, a third line under the count: the capsule grows a
+   little to hold it, and Start stretches with it (Elliott, 26 Oct 2026) */
+.hcap-fb{display:flex;align-items:center;gap:5px;margin-top:4px;font:600 12px/1.15 var(--sans);color:#8a5a12;white-space:nowrap}
+.hcap-fb b{flex:none;width:7px;height:7px;border-radius:50%;background:var(--amber)}
+.hcap-fb i{font-style:normal}
+.hcap-cp:has(.hcap-fb){padding-top:8px;padding-bottom:8px}
+@media (max-width:359px){ .hcap-fb i{display:none} }
 .lc-ring{flex:none;position:relative;width:44px;height:44px;display:grid;place-items:center;
  font:700 11.5px/1 var(--sans);color:var(--forest)}
 .lc-ring .pg{position:absolute;inset:0;margin:auto;transform:rotate(-90deg)}
@@ -681,6 +695,8 @@ button.lc-ring:active{transform:scale(.88)}
 .lc.cl .lc-p{border-radius:14px;background:#fff;border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.04)}
 .lc.cl .lc-r.on .lc-p{background:#fff}
 .lc.cl .lc-row{height:58px;padding:0 3px 0 9px}
+/* a row carrying the coach's answer grows to hold its chip */
+.lc.cl .lc-row:has(.lc-fb){height:auto;min-height:58px;padding-top:10px;padding-bottom:10px}
 .lc.cl .lc-th{width:40px;height:40px;border-radius:9px}
 .lc.cl .lc-r.on .lc-th{opacity:.6}
 .lc.cl .lc-r.on .lc-t b{color:var(--grey);font-weight:500}
@@ -6820,6 +6836,43 @@ function cpClipState(sent){
     answered: !!(sent.verdict || (sub && sub.answer) || reply),
   };
 }
+/* ── what the coach sent back on a check point, on its row ──────────
+   A coaching client had to open each check point to find out whether
+   Elliott had answered it (Elliott, 26 Oct 2026). The row and the pill say
+   so now: a clip, a photo or words, marked new until the row is opened. */
+function cpFeedback(c){
+  if(!coachedView() || !c || !c.k) return null;
+  const sent=(cpLog()[c.k]||[]).filter(x=>x && x.video).slice(-1)[0] || null;
+  const S=sent ? cpClipState(sent) : null;
+  let kind='', at=0;
+  if(S && S.reply){ kind=S.reply.video ? 'video' : S.reply.image ? 'photo' : 'words'; at=S.reply.at||S.watchedAt||0; }
+  else if(S && S.note){ kind='words'; at=sent.verdictAt||S.watchedAt||sent.at||0; }
+  if(!kind){ const v=cpSigned(c.k); if(v && v.note){ kind='words'; at=v.verdictAt||v.at||0; } }
+  if(!kind) return null;
+  return {kind, at, fresh: at > Number((st.cpFbSeen||{})[c.k]||0)};
+}
+const cpFbNew = () => coachedView() ? (cpFor()||[]).filter(c=>{ const f=cpFeedback(c); return f && f.fresh; }) : [];
+function cpFbChip(c){
+  const f=cpFeedback(c); if(!f) return '';
+  const what = f.kind==='video' ? 'Video' : f.kind==='photo' ? 'Photo' : 'Note';
+  const ic = f.kind==='words'
+    ? '<path d="M4 5h16v11H8l-4 4z"/>'
+    : f.kind==='photo' ? '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 8"/>'
+    : '<rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/><path d="M15.5 10.5l5.5-3v9l-5.5-3"/>';
+  return `<span class="lc-fb${f.fresh?' new':''}" data-fb="${esc(c.k)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>${what} from ${esc(coachLabel())}${
+    f.fresh?'<i>NEW</i>':''}</span>`;
+}
+/* opening the row is reading it: the row and the pill lose their mark */
+function cpFbRead(k){
+  const f=cpFeedback({k}); if(!f || !f.fresh) return;
+  st.cpFbSeen=Object.assign({}, st.cpFbSeen||{}, {[k]:Date.now()}); save();
+  document.querySelectorAll('.lc-fb[data-fb="'+(window.CSS&&CSS.escape?CSS.escape(k):k)+'"]').forEach(el=>{
+    const t=document.createElement('div'); t.innerHTML=cpFbChip({k}); const n=t.firstElementChild; if(n) el.replaceWith(n); });
+  const el=document.querySelector('#app .hcap'), a=window._capArgs;
+  if(el && a){ const t=document.createElement('div'); t.innerHTML=capsuleHTML(a[0], a[1], true);
+    const n=t.querySelector('.hcap'); if(n) el.replaceWith(n); }
+}
 /* a coaching client films a check point from the top of its card, as from
    its row on Train; the button at the foot of a long card went unseen
    (Elliott, 19 Oct 2026) */
@@ -7778,7 +7831,7 @@ function cpListHTML(si){
             onerror="var p=this.parentNode.querySelector('.pl');if(p)p.remove();this.remove()">
           <span class="pl"><svg width="7" height="8" viewBox="0 0 17 19" fill="#006663"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
-        <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${cpListSub(r)}</small></span>
+        <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${cpListSub(r)}</small>${coachedView()?cpFbChip(r.c):''}</span>
         </button>
         ${film?`<button class="lc-cam" onclick="event.stopPropagation();cpFilm(${jsq(r.c.k)})" aria-label="Film ${esc(r.c.n)} for ${esc(coachLabel())}"
           title="Film it for ${esc(coachLabel())}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -7999,6 +8052,7 @@ function climbTap(btn){
   });
   if(was===k){ lcOpen[use]=null; return; }
   lcOpen[use]=k;
+  if(coachedView()) cpFbRead(k);
   const S=climbState(lcSi(lc.dataset.si)), row=S.rows.find(x=>x.c.k===k); if(!row) return;
   const x=document.createElement('div'); x.className='lc-x';
   x.innerHTML=rungBody(row.c, row.j, S.n, use);
@@ -17566,14 +17620,15 @@ function capsuleHTML(go, label, pillOnly){
   window._capArgs=[go, label];
   const cs=clearShowing()!=null ? clearShowing() : curStage();
   const P=coachedView() ? cpProgress() : cpProgress(cs), on=!!st.homeCps;
+  const fbN=coachedView() ? cpFbNew().length : 0;
   /* held under the top bar while the check points are open below it, so
      the count stays in sight as you scroll the list (Elliott, 19 Oct 2026) */
   return `<div class="hcap${on?' hcap-stick':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
-        aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}"
+        aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}${fbN?', '+fbN+' new from '+esc(coachLabel()):''}"
         style="background:${(P.of&&P.met>=P.of)?'#e8f6f4':'#f2f7f7'}">
         ${P.of?cpRingMark(P, coachedView()?'c':'s'+cs):''}
-        <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of?P.met+' of '+P.of:'On their way'}</em></small></span></button>
+        <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of?P.met+' of '+P.of:'On their way'}</em></small>${fbN?`<span class="hcap-fb"><b aria-hidden="true"></b><span>${fbN} new<i> from ${esc(coachLabel())}</i></span></span>`:''}</span></button>
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}">${label}
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
