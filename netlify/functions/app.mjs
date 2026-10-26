@@ -9780,6 +9780,31 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ tokens, exp: exp * 1000 });
   }
 
+  /* ── the films a Learn article plays ────────────────────────────────
+     A Learn page is public and the Muscle Up films are members' films,
+     locked at Stream. Like the story's trailers, an article is given these
+     films and only these, for two hours, by the page it is on: never a film
+     asked for by id (26 Oct 2026, the muscle up article). */
+  const LEARN_FILMS = {
+    'why-you-cant-muscle-up-yet': [
+      '8429630aafccc041da56b477ba01b29a',   /* high pulls: pull faster */
+      'ee9fe62cbdf1934d867628b09c2e98a8',   /* chest to bar pull ups: pull higher */
+      '59c77778dba35e2e6b2a11b628f2c042',   /* high C pull ups: pull back a little */
+      'b54aa8d0c9d304e7a8a56ead0ac252ee'],  /* low dip hold: dip deeper */
+  };
+  if (path === '/learn/films' && request.method === 'GET') {
+    const list = LEARN_FILMS[String(url.searchParams.get('page') || '')] || [];
+    if (!list.length) return json({ tokens: {} });
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`learnf:${ip}`, 3600000)) > 60) return json({ tokens: {}, slow: true });
+    const k = await streamKey();
+    if (!k) return json({ tokens: {} });
+    const exp = Math.floor(Date.now() / 1000) + 2 * 3600;
+    const tokens = {};
+    for (const uid of list) tokens[uid] = await signUid(k, uid, exp);
+    return json({ tokens, exp: exp * 1000 });
+  }
+
   /* ── a still of a drill, for the story's locked cards ────────────────
      A chapter that is not a preview shows a picture of its drill rather than
      a blank card. The still of a members' film is locked at Stream as the
