@@ -14219,8 +14219,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const all = (await getSetting(KEY)) || {};
       if (request.method === 'GET') return json({ review: all });
       if (request.method !== 'POST') return json({ error: 'GET or POST' }, 405);
-      const uid = String(body.uid || '').toLowerCase();
-      if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'Which film?' }, 400);
+      /* a film by its Stream id, or a drill still waiting for its film by
+         the drill's id, for the comments on the Missing films list */
+      const uid0 = String(body.uid || '').toLowerCase();
+      const uid = /^[a-f0-9]{32}$/.test(uid0) || /^mu-[a-z0-9-]{1,80}$/.test(uid0) ? uid0 : '';
+      if (!uid) return json({ error: 'Which film?' }, 400);
       const by = (asking && isPrimary(asking)) ? 'Elliott' : (asking ? (coaches()[asking] || asking.split('@')[0]) : 'Coach');
       const rec = Object.assign({ comments: [] }, all[uid] || {});
       const now = Date.now();

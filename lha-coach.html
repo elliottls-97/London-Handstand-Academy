@@ -412,6 +412,32 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
   .bk-line>:nth-child(3){grid-column:1;grid-row:3}
   .bk-line>:nth-child(5){grid-column:2;grid-row:3}
 }
+.mf-v{width:100%;aspect-ratio:9/16;max-height:440px;object-fit:contain;background:#0f1412;border-radius:14px;display:block}
+.mf-v.big{max-height:min(78vh,760px)}
+.mf-one{display:grid;grid-template-columns:minmax(260px,420px) minmax(0,1fr);gap:22px;align-items:start;margin-top:14px}
+.mf-vidcol{position:sticky;top:96px}
+.mf-side{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.mf-nav{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
+.mf-strip{display:flex;gap:6px;overflow-x:auto;padding:14px 2px 4px;margin-top:10px;scrollbar-width:thin}
+.mf-pip{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:220px;border:1px solid var(--line);background:#fff;border-radius:999px;
+ padding:6px 11px 6px 6px;font:500 12.5px/1.2 var(--sans);color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mf-pip span{flex:none;display:grid;place-items:center;min-width:22px;height:22px;border-radius:999px;background:rgba(0,64,61,.08);font:700 10.5px/1 var(--sans)}
+.mf-pip.ok span{background:var(--forest);color:#fff}
+.mf-pip.urgent{border-color:var(--terra)} .mf-pip.urgent span{background:var(--terra);color:#fff}
+.mf-pip.on{box-shadow:0 0 0 2px var(--forest);border-color:var(--forest)}
+.mf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:16px}
+.mf-flag{flex:none;font:700 9px/1 var(--sans);letter-spacing:.14em;padding:6px 9px;border-radius:999px;background:rgba(243,169,73,.22);color:#6b4209;white-space:nowrap}
+.mf-flag.ok{background:rgba(0,102,99,.1);color:var(--forest)}
+.mf-flag.urgent{background:var(--terra);color:#fff}
+.mf-urgent{border-left:3px solid var(--terra);background:rgba(164,80,60,.07);padding:10px 12px;font-size:13.5px;line-height:1.45;border-radius:0}
+.mf-drill,.mf-shot{background:rgba(0,102,99,.05);border-radius:12px;padding:11px 13px;font-size:13px;line-height:1.5}
+.mf-cm{border:1px solid var(--line);border-radius:12px;padding:9px 11px}
+.mf-tag{font:700 8.5px/1 var(--sans);letter-spacing:.12em;padding:4px 7px;border-radius:999px;background:rgba(0,102,99,.1);color:var(--forest)}
+.mf-tag.ex{background:rgba(143,190,202,.35);color:var(--deep)}
+.mf-at{border:0;background:none;padding:0;cursor:pointer;font:600 12px var(--sans);color:var(--forest);text-decoration:underline}
+.mf-x{border:0;background:none;cursor:pointer;color:var(--grey);font-size:15px;padding:0 2px}
+.mf-seg{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:880px){ .mf-one{grid-template-columns:1fr} .mf-vidcol{position:static} .mf-v.big{max-height:70vh} .mf-nav .muted{display:none} }
 </style></head><body><div class="amb"><i></i><i></i><i></i></div><div id="v" class="wrap"></div>
 <!-- Relative, not root relative. "/ladder-data.js" resolves to the disk
      root when the file is opened straight from Finder, so the app loaded
@@ -8405,7 +8431,7 @@ function headerHTML(){
      with a gear, so it is always at the end of the bar and easy to find
      (Elliott, 22 Oct 2026: "I can't find settings sometimes") */
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
-               ['review','Review',reviewQueue.length],['films','Films',mfNeedN()],['bookings','Bookings',0],
+               ['review','Review',reviewQueue.length],['mu','Muscle Up',mfNeedN()],['bookings','Bookings',0],
                ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0]]
     .filter(([id])=>owner || !['bookings','site','news'].includes(id));
   return `<header class="bar glass">
@@ -12448,17 +12474,21 @@ function newsFile(inp){ const f=inp.files&&inp.files[0]; if(!f) return;
 function newsImport(){ if(!newsImp||!newsImp.rows) return; newsBusy='imp'; draw();
   newsPost('import',{rows:newsImp.rows,src:'beehiiv'}).then(d=>{ newsMsg=`${d.added} added${d.already?', '+d.already+' already on the list':''}${d.off?', '+d.off+' who had unsubscribed left off':''}${d.bad?', '+d.bad+' not email addresses':''}.`; newsImp=null; news=null; newsLoad(); })
     .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
-/* ── Films: the Muscle Up films, named and talked over ─────────────────
+/* ── Muscle Up: the films, named and talked over ───────────────────────
    Elliott, 26 Oct 2026: every film Suryava filmed is on Stream, matched to
    a drill where it could be and named by its file where not. Here he (and
-   Elliott) watch each one, say which drill it is from a list of his, or
-   type the right name over it, and leave comments on the film or on the
-   exercise, a comment on the film at the moment it is about. The films are
-   in mu-films.json, the drills come from muscle-up-data.js read in a box
-   of its own (so it adds nothing to this page's library), and what is said
-   is one record on the server, /coach/mufilms. */
-let mf=null, mfErr='', mfFilter='all', mfAbout={}, mfBusy={};
-let MUF=null, MUD=null;
+   Elliott) go through them one at a time, the film beside its name, say
+   which drill it is from a list of his or type the right name over it, and
+   leave comments on the film or on the exercise, a comment on the film at
+   the moment it is paused on. The eight that matched no drill come first,
+   flagged, until somebody names them. Missing films is the drills that have
+   no film yet, with what to film from his sheet. The films and the missing
+   list are mu-films.json, the drills muscle-up-data.js read in a box of its
+   own (so it adds nothing to this page's library), and what is said is one
+   record on the server, /coach/mufilms. It was called Films, which the
+   Library already has: this is its own tab, Muscle Up. */
+let mf=null, mfErr='', mfFilter='all', mfAbout={}, mfBusy={}, mfMode='one', mfIdx=0, mfTab='films';
+let MUF=null, MUX=null, MUD=null;
 function mfLoad(){
   if(mf && mf.loading) return;
   mf=Object.assign({}, mf||{}, {loading:true});
@@ -12467,7 +12497,7 @@ function mfLoad(){
     fetch('/muscle-up-data.js?v='+Date.now()).then(r=>r.ok?r.text():Promise.reject('drills')),
     fetch(APP+'/coach/mufilms',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('review'))
   ]).then(([films, src, rv])=>{
-    MUF=(films&&films.films)||[];
+    MUF=(films&&films.films)||[]; MUX=(films&&films.missing)||[];
     try{ MUD=new Function('FREE_DOSE','DRILL_EXTRA', src+';return {MU_STAGES, MU_DRILLS, MU_DOSE};')(undefined, undefined); }
     catch(e){ MUD={MU_STAGES:[], MU_DRILLS:[], MU_DOSE:{}}; }
     mf={review:(rv&&rv.review)||{}}; mfErr=''; draw();
@@ -12480,7 +12510,16 @@ const mfStageOf = v => { const P=((MUD&&MUD.MU_STAGES)||[]); for(let i=0;i<P.len
 const mfLabel = f => { const r=mfRec(f.uid), d=mfDrill(mfDrillOf(f)); return r.name || (d&&d.n) || f.film; };
 /* named means somebody has said: a drill chosen here or a name typed */
 const mfNamed = f => { const r=mfRec(f.uid); return !!(r.by && (r.name || r.drill)); };
+/* matched to no drill when it went up, and nobody has named it yet */
+const mfUrgent = f => !f.drill && !mfNamed(f);
 function mfNeedN(){ return (MUF||[]).filter(f=>!mfNamed(f)).length; }
+/* the order they are gone through in: the urgent ones first */
+function mfList(){
+  const all=(MUF||[]).slice().sort((a,b)=>(mfUrgent(b)-mfUrgent(a)));
+  return mfFilter==='urgent' ? all.filter(mfUrgent)
+    : mfFilter==='need' ? all.filter(f=>!mfNamed(f))
+    : mfFilter==='talk' ? all.filter(f=>(mfRec(f.uid).comments||[]).length) : all;
+}
 function mfPost(uid, patch){
   mfBusy[uid]=true; draw();
   return fetch(APP+'/coach/mufilms',{method:'POST',headers:hdr(),body:JSON.stringify(Object.assign({uid}, patch))})
@@ -12496,74 +12535,135 @@ function mfSeek(uid, t){ const v=document.getElementById('mfv-'+uid); if(!v) ret
 function mfComment(uid){
   const box=document.getElementById('mfc-'+uid), text=String((box&&box.value)||'').trim();
   if(!text){ flash('Write the comment first.'); return; }
-  const about=mfAbout[uid]||'film', v=document.getElementById('mfv-'+uid);
+  const about=mfAbout[uid]||(/^mu-/.test(uid)?'exercise':'film'), v=document.getElementById('mfv-'+uid);
   const t = (about==='film' && v && v.currentTime>0.2) ? v.currentTime : null;
   mfPost(uid, {comment:{about, t, text}}).then(ok=>{ if(ok && box) box.value=''; });
 }
 function mfDel(uid, id){ mfPost(uid, {del:id}); }
-function filmsHTML(){
-  if(!mf || (!MUF && !mfErr)) { mfLoad(); return `<p class="muted" style="margin-top:18px">Loading the films…</p>`; }
-  const films=MUF||[], need=films.filter(f=>!mfNamed(f)).length, talked=films.filter(f=>(mfRec(f.uid).comments||[]).length).length;
-  csNeed(films.map(f=>f.uid));
-  const list = mfFilter==='need' ? films.filter(f=>!mfNamed(f)) : mfFilter==='talk' ? films.filter(f=>(mfRec(f.uid).comments||[]).length) : films;
-  const chip=(k,l)=>`<button class="btn btn-sm ${mfFilter===k?'btn-primary':'btn-secondary'}" onclick="mfFilter='${k}';draw()">${l}</button>`;
-  const head=`<section class="glass" style="padding:26px 28px;border-radius:24px">
-    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Muscle Up Ladder</div>
-    <h1 style="margin:8px 0 0">${films.length} films to <em style="color:var(--forest);font-style:normal">check.</em></h1>
-    <p class="muted" style="margin:10px 0 0;max-width:640px">Watch each one and pick the drill it is, or type the right name.
-      Comments are for the film (the cut, the title, the cues on it) or the exercise (the dose, the cues, where it sits). A comment on the film
-      is kept at the moment the film is paused on.</p>
-    ${mfErr?`<p style="margin:12px 0 0;color:var(--terra);font-size:14px">${esc(mfErr)}</p>`:''}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${chip('all','All '+films.length)}${chip('need','Still to name '+need)}${chip('talk','With comments '+talked)}</div>
-  </section>`;
+function mfStep(d){
+  const L=mfList(); if(!L.length) return;
+  mfIdx=Math.max(0, Math.min(L.length-1, mfIdx+d));
+  document.querySelectorAll('video[id^="mfv-"]').forEach(v=>{ try{ v.pause(); }catch(e){} });
+  draw(); const top=document.getElementById('mfTop'); if(top) top.scrollIntoView({block:'start'});
+}
+function mfJump(i){ mfIdx=i; mfStep(0); }
+/* the arrow keys go through them, unless the cursor is in a field */
+document.addEventListener('keydown', e=>{
+  if(view!=='mu' || mfTab!=='films' || mfMode!=='one') return;
+  const t=e.target; if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  if(e.key==='ArrowRight'){ e.preventDefault(); mfStep(1); }
+  if(e.key==='ArrowLeft'){ e.preventDefault(); mfStep(-1); }
+});
+const mfFlag = f => mfUrgent(f) ? `<span class="mf-flag urgent">URGENT &middot; NOT MATCHED</span>`
+  : mfNamed(f) ? `<span class="mf-flag ok">NAMED</span>` : `<span class="mf-flag">TO NAME</span>`;
+function mfOpts(cur){
   const stages=(MUD&&MUD.MU_STAGES)||[], drills=(MUD&&MUD.MU_DRILLS)||[];
-  const opts = cur => `<option value=""${!cur?' selected':''}>Not a drill in the ladder</option>`
+  return `<option value=""${!cur?' selected':''}>Not a drill in the ladder</option>`
     + stages.map((S,i)=>`<optgroup label="${esc('Stage '+(i+1)+': '+S.n)}">${(S.drillIds||[]).map(v=>{ const d=drills.find(x=>x.v===v); return d?`<option value="${esc(v)}"${cur===v?' selected':''}>${esc(d.n)}</option>`:''; }).join('')}</optgroup>`).join('');
-  const card = f => {
-    const r=mfRec(f.uid), cur=mfDrillOf(f), d=mfDrill(cur), si=mfStageOf(cur), cm=r.comments||[];
-    const about=mfAbout[f.uid]||'film', busy=!!mfBusy[f.uid];
-    const dose=d && MUD.MU_DOSE ? MUD.MU_DOSE[cur] : '';
-    return `<article class="card" data-k="mf-${f.uid}" style="padding:16px;display:flex;flex-direction:column;gap:12px">
-      <video id="mfv-${f.uid}" src="https://${STREAM_SUB}/${csUid(f.uid)}/downloads/default.mp4" controls playsinline preload="metadata"
-        poster="https://${STREAM_SUB}/${csUid(f.uid)}/thumbnails/thumbnail.jpg?time=2s&amp;height=600"
-        style="width:100%;aspect-ratio:9/16;max-height:440px;object-fit:contain;background:#0f1412;border-radius:14px"></video>
-      <div>
-        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
-          <div style="font:400 21px/1.15 var(--serif);min-width:0">${esc(mfLabel(f))}</div>
-          <span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 8px;border-radius:999px;${mfNamed(f)
-            ?'background:rgba(0,102,99,.1);color:var(--forest)">NAMED':'background:rgba(243,169,73,.22);color:#6b4209">TO NAME'}</span></div>
-        <div class="muted" style="font-size:12.5px;margin-top:4px">File: ${esc(f.file)}${r.by?` &middot; named by ${esc(r.by)}${r.at?', '+esc(new Date(r.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})):''}`:''}</div>
-      </div>
-      <label style="display:block"><span class="kick">WHICH DRILL IT IS</span>
-        <select class="input" style="margin-top:6px" onchange="mfSetDrill('${f.uid}', this.value)" ${busy?'disabled':''}>${opts(cur)}</select></label>
-      <label style="display:block"><span class="kick">OR NAME IT</span>
-        <input class="input" style="margin-top:6px" value="${esc(r.name||'')}" placeholder="${esc(d?d.n:f.film)}" maxlength="80"
-          onchange="mfSetName('${f.uid}', this)" onkeydown="if(event.key==='Enter'){ this.blur(); }"></label>
-      ${d?`<div style="background:rgba(0,102,99,.05);border-radius:12px;padding:11px 13px;font-size:13px;line-height:1.5">
-        <div><b>${esc(d.n)}</b>${si>-1?` <span class="muted">&middot; stage ${si+1}</span>`:''}${dose?` <span class="muted">&middot; ${esc(dose)}</span>`:''}</div>
-        ${d.desc?`<div class="muted" style="margin-top:3px">${esc(d.desc)}</div>`:''}
-        ${(d.cues||[]).length?`<ul style="margin:6px 0 0;padding-left:18px">${d.cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
-        ${d.kit?`<div class="muted" style="margin-top:4px">You need: ${esc(d.kit)}</div>`:''}</div>`:''}
-      <div>
-        <span class="kick">COMMENTS${cm.length?' &middot; '+cm.length:''}</span>
-        ${cm.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${cm.map(c=>`<div data-k="mfc-${esc(c.id)}" style="border:1px solid var(--line);border-radius:12px;padding:9px 11px">
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px">
-            <b>${esc(c.by||'')}</b>
-            <span style="font:700 8.5px/1 var(--sans);letter-spacing:.12em;padding:4px 7px;border-radius:999px;background:${c.about==='exercise'?'rgba(143,190,202,.35);color:var(--deep)':'rgba(0,102,99,.1);color:var(--forest)'}">${c.about==='exercise'?'EXERCISE':'FILM'}</span>
-            ${c.t!=null?`<button onclick="mfSeek('${f.uid}', ${Number(c.t)})" style="border:0;background:none;padding:0;cursor:pointer;font:600 12px var(--sans);color:var(--forest);text-decoration:underline">at ${mfClock(c.t)}</button>`:''}
-            <span class="muted">${esc(new Date(c.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}))}</span>
-            <span style="flex:1"></span>
-            <button onclick="mfDel('${f.uid}', ${jsq(c.id)})" aria-label="Delete this comment" title="Delete" style="border:0;background:none;cursor:pointer;color:var(--grey);font-size:13px;padding:0 2px">&times;</button></div>
-          <div style="margin-top:5px;font-size:13.5px;line-height:1.45;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('')}</div>`:''}
-        <div style="display:flex;gap:6px;margin-top:10px">
-          ${['film','exercise'].map(a=>`<button class="btn btn-sm ${about===a?'btn-primary':'btn-secondary'}" onclick="mfAbout['${f.uid}']='${a}';draw()">${a==='film'?'About the film':'About the exercise'}</button>`).join('')}</div>
-        <textarea id="mfc-${f.uid}" class="input" style="margin-top:8px;min-height:70px" placeholder="${about==='film'?'Pause where you mean, then write it':'What should change about the exercise?'}"></textarea>
-        <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="mfComment('${f.uid}')" ${busy?'disabled':''}>${busy?'Saving…':'Add comment'}</button>
-      </div>
-    </article>`;
-  };
-  return head + (list.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:16px">${list.map(card).join('')}</div>`
-    : `<p class="muted" style="margin-top:18px">${mfFilter==='need'?'Every film has a name.':'No comments yet.'}</p>`);
+}
+/* the drill as the app has it, so the exercise can be talked about */
+function mfDrillBox(v){
+  const d=mfDrill(v); if(!d) return '';
+  const si=mfStageOf(v), dose=(MUD&&MUD.MU_DOSE||{})[v]||'';
+  return `<div class="mf-drill"><div><b>${esc(d.n)}</b>${si>-1?` <span class="muted">&middot; stage ${si+1}</span>`:''}${dose?` <span class="muted">&middot; ${esc(dose)}</span>`:''}</div>
+    ${d.desc?`<div class="muted" style="margin-top:3px">${esc(d.desc)}</div>`:''}
+    ${(d.cues||[]).length?`<ul style="margin:6px 0 0;padding-left:18px">${d.cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
+    ${d.kit?`<div class="muted" style="margin-top:4px">You need: ${esc(d.kit)}</div>`:''}</div>`;
+}
+/* the comments on one film (a Stream id) or one missing drill (its id) */
+function mfCommentsHTML(uid, canTime){
+  const cm=mfRec(uid).comments||[], busy=!!mfBusy[uid], about=mfAbout[uid]||(canTime?'film':'exercise');
+  return `<div><span class="kick">COMMENTS${cm.length?' &middot; '+cm.length:''}</span>
+    ${cm.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${cm.map(c=>`<div data-k="mfc-${esc(c.id)}" class="mf-cm">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px">
+        <b>${esc(c.by||'')}</b>
+        <span class="mf-tag${c.about==='exercise'?' ex':''}">${c.about==='exercise'?'EXERCISE':'FILM'}</span>
+        ${c.t!=null && canTime?`<button onclick="mfSeek('${uid}', ${Number(c.t)})" class="mf-at">at ${mfClock(c.t)}</button>`:''}
+        <span class="muted">${esc(new Date(c.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}))}</span>
+        <span style="flex:1"></span>
+        <button onclick="mfDel('${uid}', ${jsq(c.id)})" aria-label="Delete this comment" title="Delete" class="mf-x">&times;</button></div>
+      <div style="margin-top:5px;font-size:13.5px;line-height:1.45;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('')}</div>`:''}
+    ${canTime?`<div style="display:flex;gap:6px;margin-top:10px">
+      ${['film','exercise'].map(a=>`<button class="btn btn-sm ${about===a?'btn-primary':'btn-secondary'}" onclick="mfAbout['${uid}']='${a}';draw()">${a==='film'?'About the film':'About the exercise'}</button>`).join('')}</div>`:''}
+    <textarea id="mfc-${uid}" class="input" style="margin-top:8px;min-height:74px" placeholder="${about==='film'?'Pause where you mean, then write it':'What should change about the exercise?'}"></textarea>
+    <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="mfComment('${uid}')" ${busy?'disabled':''}>${busy?'Saving…':'Add comment'}</button></div>`;
+}
+function mfVideo(f, big){
+  return `<video id="mfv-${f.uid}" src="https://${STREAM_SUB}/${csUid(f.uid)}/downloads/default.mp4" controls playsinline preload="${big?'auto':'metadata'}"
+    poster="https://${STREAM_SUB}/${csUid(f.uid)}/thumbnails/thumbnail.jpg?time=2s&amp;height=${big?900:600}" class="mf-v${big?' big':''}"></video>`;
+}
+/* what is said about one film: its name, the drill it is, the comments */
+function mfDetailHTML(f){
+  const r=mfRec(f.uid), cur=mfDrillOf(f), busy=!!mfBusy[f.uid], d=mfDrill(cur);
+  return `<div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap">
+      <div style="font:400 26px/1.1 var(--serif);min-width:0">${esc(mfLabel(f))}</div>${mfFlag(f)}</div>
+    <div class="muted" style="font-size:12.5px">File: ${esc(f.file)}${r.by?` &middot; named by ${esc(r.by)}${r.at?', '+esc(new Date(r.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})):''}`:''}</div>
+    ${mfUrgent(f)?`<div class="mf-urgent">I could not match this film to a drill in the ladder, so it is called by its file name. Pick the drill it is, or type what it should be called.</div>`:''}
+    <label style="display:block"><span class="kick">WHICH DRILL IT IS</span>
+      <select class="input" style="margin-top:6px" onchange="mfSetDrill('${f.uid}', this.value)" ${busy?'disabled':''}>${mfOpts(cur)}</select></label>
+    <label style="display:block"><span class="kick">OR NAME IT</span>
+      <input class="input" style="margin-top:6px" value="${esc(r.name||'')}" placeholder="${esc(d?d.n:f.film)}" maxlength="80"
+        onchange="mfSetName('${f.uid}', this)" onkeydown="if(event.key==='Enter'){ this.blur(); }"></label>
+    ${mfDrillBox(cur)}
+    ${mfCommentsHTML(f.uid, true)}`;
+}
+function muHTML(){
+  if(!mf || (!MUF && !mfErr)) { mfLoad(); return `<p class="muted" style="margin-top:18px">Loading the films…</p>`; }
+  const films=MUF||[], miss=MUX||[];
+  const urgent=films.filter(mfUrgent).length, need=films.filter(f=>!mfNamed(f)).length, talked=films.filter(f=>(mfRec(f.uid).comments||[]).length).length;
+  csNeed(films.map(f=>f.uid));
+  const chip=(k,l,on,act)=>`<button class="btn btn-sm ${on?'btn-primary':'btn-secondary'}" onclick="${act}">${l}</button>`;
+  const head=`<section class="glass" id="mfTop" style="padding:24px 28px;border-radius:24px;scroll-margin-top:90px">
+    <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+      <div><div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Muscle Up Ladder</div>
+        <h1 style="margin:8px 0 0">${mfTab==='films'?films.length+' films to <em style="color:var(--forest);font-style:normal">check.</em>'
+          : miss.length+' films <em style="color:var(--forest);font-style:normal">to make.</em>'}</h1></div>
+      <span style="flex:1"></span>
+      <div class="mf-seg">${chip('','Films '+films.length, mfTab==='films', "mfTab='films';draw()")}${chip('','Missing films '+miss.length, mfTab==='missing', "mfTab='missing';draw()")}</div>
+    </div>
+    ${mfTab==='films'?`<p class="muted" style="margin:10px 0 0;max-width:680px">Pick the drill each one is, or type the right name. Comments are for the film (the cut, the title,
+      the cues on it) or the exercise (the dose, the cues, where it sits). A comment on the film is kept at the moment it is paused on.
+      ${urgent?` <b style="color:var(--terra)">The ${urgent} flagged urgent matched no drill: start with those.</b>`:''}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px">
+      ${chip('','All '+films.length, mfFilter==='all', "mfFilter='all';mfIdx=0;draw()")}
+      ${chip('','Urgent '+urgent, mfFilter==='urgent', "mfFilter='urgent';mfIdx=0;draw()")}
+      ${chip('','Still to name '+need, mfFilter==='need', "mfFilter='need';mfIdx=0;draw()")}
+      ${chip('','With comments '+talked, mfFilter==='talk', "mfFilter='talk';mfIdx=0;draw()")}
+      <span style="flex:1"></span>
+      <div class="mf-seg">${chip('','One by one', mfMode==='one', "mfMode='one';draw()")}${chip('','All at once', mfMode==='all', "mfMode='all';draw()")}</div>
+    </div>`
+    :`<p class="muted" style="margin:10px 0 0;max-width:680px">Drills in the ladder with no film yet, and what to film for each, from the Films sheet.
+      Leave a note on any of them.</p>`}
+    ${mfErr?`<p style="margin:12px 0 0;color:var(--terra);font-size:14px">${esc(mfErr)}</p>`:''}
+  </section>`;
+  if(mfTab==='missing') return head + `<div class="mf-grid">${miss.map(m=>{ const si=mfStageOf(m.drill);
+    return `<article class="card" data-k="mfm-${esc(m.drill)}" style="padding:18px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+        <div style="font:400 24px/1.1 var(--serif)">${esc(m.name)}</div><span class="mf-flag">NO FILM YET</span></div>
+      <div class="mf-shot"><span class="kick">FILM IT</span><div style="margin-top:5px">${esc(m.show||'A few clean reps')}${m.angle?` &middot; <b>${esc(m.angle)}</b>`:''}</div>
+        <div class="muted" style="margin-top:4px;font-size:12.5px">Name the file ${esc(m.name.charAt(0)+m.name.slice(1).toLowerCase())}.mp4${si>-1?' &middot; stage '+(si+1):''}</div></div>
+      ${mfDrillBox(m.drill)}
+      ${mfCommentsHTML(m.drill, false)}
+    </article>`; }).join('')}</div>`;
+  const L=mfList();
+  if(!L.length) return head+`<p class="muted" style="margin-top:18px">${mfFilter==='urgent'?'Nothing urgent: every film that matched no drill has been named.':mfFilter==='need'?'Every film has a name.':'No comments yet.'}</p>`;
+  if(mfMode==='all') return head + `<div class="mf-grid">${L.map(f=>`<article class="card" data-k="mf-${f.uid}" style="padding:16px;display:flex;flex-direction:column;gap:12px${mfUrgent(f)?';box-shadow:0 0 0 2px var(--terra)':''}">
+      ${mfVideo(f,false)}${mfDetailHTML(f)}</article>`).join('')}</div>`;
+  mfIdx=Math.max(0, Math.min(L.length-1, mfIdx));
+  const f=L[mfIdx];
+  const strip=`<div class="mf-strip" role="list">${L.map((x,i)=>`<button role="listitem" onclick="mfJump(${i})" class="mf-pip${i===mfIdx?' on':''}${mfUrgent(x)?' urgent':mfNamed(x)?' ok':''}"
+      title="${esc(mfLabel(x))}"><span>${i+1}</span>${esc(mfLabel(x))}</button>`).join('')}</div>`;
+  const nav=`<div class="mf-nav">
+      <button class="btn btn-secondary" onclick="mfStep(-1)" ${mfIdx===0?'disabled':''}>&larr; Previous</button>
+      <div style="text-align:center"><b>Film ${mfIdx+1} of ${L.length}</b><div class="muted" style="font-size:12px">The arrow keys move between them</div></div>
+      <button class="btn btn-primary" onclick="mfStep(1)" ${mfIdx>=L.length-1?'disabled':''}>Next film &rarr;</button></div>`;
+  return head + nav + `<div class="mf-one" data-k="mf1-${f.uid}">
+      <div class="mf-vidcol">${mfVideo(f,true)}</div>
+      <div class="mf-side card">${mfDetailHTML(f)}
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:4px">
+          <button class="btn btn-secondary btn-sm" onclick="mfStep(-1)" ${mfIdx===0?'disabled':''}>&larr; Previous</button>
+          <button class="btn btn-primary btn-sm" onclick="mfStep(1)" ${mfIdx>=L.length-1?'disabled':''}>Next film &rarr;</button></div></div>
+    </div>` + strip;
 }
 function newsHTML(){
   if(!news) newsLoad();
@@ -13434,7 +13534,7 @@ function drawNow(){
     : view==='review'   ? reviewHTML()
     : view==='bookings' ? bookingsPageHTML()
     : view==='news'     ? newsHTML()
-    : view==='films'    ? filmsHTML()
+    : view==='mu'       ? muHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`
     + bulkHTML() + copyHTML() + newBlkHTML() + toastHTML()
