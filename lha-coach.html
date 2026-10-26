@@ -8405,7 +8405,7 @@ function headerHTML(){
      with a gear, so it is always at the end of the bar and easy to find
      (Elliott, 22 Oct 2026: "I can't find settings sometimes") */
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
-               ['review','Review',reviewQueue.length],['bookings','Bookings',0],
+               ['review','Review',reviewQueue.length],['films','Films',mfNeedN()],['bookings','Bookings',0],
                ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0]]
     .filter(([id])=>owner || !['bookings','site','news'].includes(id));
   return `<header class="bar glass">
@@ -12448,6 +12448,123 @@ function newsFile(inp){ const f=inp.files&&inp.files[0]; if(!f) return;
 function newsImport(){ if(!newsImp||!newsImp.rows) return; newsBusy='imp'; draw();
   newsPost('import',{rows:newsImp.rows,src:'beehiiv'}).then(d=>{ newsMsg=`${d.added} added${d.already?', '+d.already+' already on the list':''}${d.off?', '+d.off+' who had unsubscribed left off':''}${d.bad?', '+d.bad+' not email addresses':''}.`; newsImp=null; news=null; newsLoad(); })
     .catch(e=>{ newsMsg=e.message; }).finally(()=>{ newsBusy=''; draw(); }); }
+/* ── Films: the Muscle Up films, named and talked over ─────────────────
+   Elliott, 26 Oct 2026: every film Suryava filmed is on Stream, matched to
+   a drill where it could be and named by its file where not. Here he (and
+   Elliott) watch each one, say which drill it is from a list of his, or
+   type the right name over it, and leave comments on the film or on the
+   exercise, a comment on the film at the moment it is about. The films are
+   in mu-films.json, the drills come from muscle-up-data.js read in a box
+   of its own (so it adds nothing to this page's library), and what is said
+   is one record on the server, /coach/mufilms. */
+let mf=null, mfErr='', mfFilter='all', mfAbout={}, mfBusy={};
+let MUF=null, MUD=null;
+function mfLoad(){
+  if(mf && mf.loading) return;
+  mf=Object.assign({}, mf||{}, {loading:true});
+  Promise.all([
+    fetch('/mu-films.json?v='+Date.now()).then(r=>r.ok?r.json():Promise.reject('films')),
+    fetch('/muscle-up-data.js?v='+Date.now()).then(r=>r.ok?r.text():Promise.reject('drills')),
+    fetch(APP+'/coach/mufilms',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('review'))
+  ]).then(([films, src, rv])=>{
+    MUF=(films&&films.films)||[];
+    try{ MUD=new Function('FREE_DOSE','DRILL_EXTRA', src+';return {MU_STAGES, MU_DRILLS, MU_DOSE};')(undefined, undefined); }
+    catch(e){ MUD={MU_STAGES:[], MU_DRILLS:[], MU_DOSE:{}}; }
+    mf={review:(rv&&rv.review)||{}}; mfErr=''; draw();
+  }).catch(e=>{ mf={review:{}}; mfErr='Could not load the films ('+e+'). Refresh to try again.'; draw(); });
+}
+const mfRec = uid => ((mf&&mf.review)||{})[uid] || {};
+const mfDrillOf = f => { const r=mfRec(f.uid); return r.drill!=null ? r.drill : (f.drill||''); };
+const mfDrill = v => ((MUD&&MUD.MU_DRILLS)||[]).find(d=>d.v===v) || null;
+const mfStageOf = v => { const P=((MUD&&MUD.MU_STAGES)||[]); for(let i=0;i<P.length;i++){ if((P[i].drillIds||[]).indexOf(v)>-1) return i; } return -1; };
+const mfLabel = f => { const r=mfRec(f.uid), d=mfDrill(mfDrillOf(f)); return r.name || (d&&d.n) || f.film; };
+/* named means somebody has said: a drill chosen here or a name typed */
+const mfNamed = f => { const r=mfRec(f.uid); return !!(r.by && (r.name || r.drill)); };
+function mfNeedN(){ return (MUF||[]).filter(f=>!mfNamed(f)).length; }
+function mfPost(uid, patch){
+  mfBusy[uid]=true; draw();
+  return fetch(APP+'/coach/mufilms',{method:'POST',headers:hdr(),body:JSON.stringify(Object.assign({uid}, patch))})
+    .then(r=>r.json().then(d=>({ok:r.ok, d})))
+    .then(({ok,d})=>{ mfBusy[uid]=false; if(!ok){ flash((d&&d.error)||'That did not save.'); draw(); return false; }
+      mf.review=d.review||mf.review; draw(); return true; })
+    .catch(()=>{ mfBusy[uid]=false; flash('No signal. That did not save.'); draw(); return false; });
+}
+function mfSetDrill(uid, v){ mfPost(uid, {drill:v}); }
+function mfSetName(uid, el){ const v=String(el.value||'').trim(); if(v===(mfRec(uid).name||'')) return; mfPost(uid, {name:v}); }
+const mfClock = t => { t=Math.max(0, Number(t)||0); const m=Math.floor(t/60), s0=Math.floor(t%60); return m+':'+String(s0).padStart(2,'0'); };
+function mfSeek(uid, t){ const v=document.getElementById('mfv-'+uid); if(!v) return; try{ v.currentTime=Number(t)||0; v.play().catch(()=>{}); }catch(e){} }
+function mfComment(uid){
+  const box=document.getElementById('mfc-'+uid), text=String((box&&box.value)||'').trim();
+  if(!text){ flash('Write the comment first.'); return; }
+  const about=mfAbout[uid]||'film', v=document.getElementById('mfv-'+uid);
+  const t = (about==='film' && v && v.currentTime>0.2) ? v.currentTime : null;
+  mfPost(uid, {comment:{about, t, text}}).then(ok=>{ if(ok && box) box.value=''; });
+}
+function mfDel(uid, id){ mfPost(uid, {del:id}); }
+function filmsHTML(){
+  if(!mf || (!MUF && !mfErr)) { mfLoad(); return `<p class="muted" style="margin-top:18px">Loading the films…</p>`; }
+  const films=MUF||[], need=films.filter(f=>!mfNamed(f)).length, talked=films.filter(f=>(mfRec(f.uid).comments||[]).length).length;
+  csNeed(films.map(f=>f.uid));
+  const list = mfFilter==='need' ? films.filter(f=>!mfNamed(f)) : mfFilter==='talk' ? films.filter(f=>(mfRec(f.uid).comments||[]).length) : films;
+  const chip=(k,l)=>`<button class="btn btn-sm ${mfFilter===k?'btn-primary':'btn-secondary'}" onclick="mfFilter='${k}';draw()">${l}</button>`;
+  const head=`<section class="glass" style="padding:26px 28px;border-radius:24px">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Muscle Up Ladder</div>
+    <h1 style="margin:8px 0 0">${films.length} films to <em style="color:var(--forest);font-style:normal">check.</em></h1>
+    <p class="muted" style="margin:10px 0 0;max-width:640px">Watch each one and pick the drill it is, or type the right name.
+      Comments are for the film (the cut, the title, the cues on it) or the exercise (the dose, the cues, where it sits). A comment on the film
+      is kept at the moment the film is paused on.</p>
+    ${mfErr?`<p style="margin:12px 0 0;color:var(--terra);font-size:14px">${esc(mfErr)}</p>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">${chip('all','All '+films.length)}${chip('need','Still to name '+need)}${chip('talk','With comments '+talked)}</div>
+  </section>`;
+  const stages=(MUD&&MUD.MU_STAGES)||[], drills=(MUD&&MUD.MU_DRILLS)||[];
+  const opts = cur => `<option value=""${!cur?' selected':''}>Not a drill in the ladder</option>`
+    + stages.map((S,i)=>`<optgroup label="${esc('Stage '+(i+1)+': '+S.n)}">${(S.drillIds||[]).map(v=>{ const d=drills.find(x=>x.v===v); return d?`<option value="${esc(v)}"${cur===v?' selected':''}>${esc(d.n)}</option>`:''; }).join('')}</optgroup>`).join('');
+  const card = f => {
+    const r=mfRec(f.uid), cur=mfDrillOf(f), d=mfDrill(cur), si=mfStageOf(cur), cm=r.comments||[];
+    const about=mfAbout[f.uid]||'film', busy=!!mfBusy[f.uid];
+    const dose=d && MUD.MU_DOSE ? MUD.MU_DOSE[cur] : '';
+    return `<article class="card" data-k="mf-${f.uid}" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      <video id="mfv-${f.uid}" src="https://${STREAM_SUB}/${csUid(f.uid)}/downloads/default.mp4" controls playsinline preload="metadata"
+        poster="https://${STREAM_SUB}/${csUid(f.uid)}/thumbnails/thumbnail.jpg?time=2s&amp;height=600"
+        style="width:100%;aspect-ratio:9/16;max-height:440px;object-fit:contain;background:#0f1412;border-radius:14px"></video>
+      <div>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+          <div style="font:400 21px/1.15 var(--serif);min-width:0">${esc(mfLabel(f))}</div>
+          <span style="flex:none;font:700 9px/1 var(--sans);letter-spacing:.14em;padding:5px 8px;border-radius:999px;${mfNamed(f)
+            ?'background:rgba(0,102,99,.1);color:var(--forest)">NAMED':'background:rgba(243,169,73,.22);color:#6b4209">TO NAME'}</span></div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">File: ${esc(f.file)}${r.by?` &middot; named by ${esc(r.by)}${r.at?', '+esc(new Date(r.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})):''}`:''}</div>
+      </div>
+      <label style="display:block"><span class="kick">WHICH DRILL IT IS</span>
+        <select class="input" style="margin-top:6px" onchange="mfSetDrill('${f.uid}', this.value)" ${busy?'disabled':''}>${opts(cur)}</select></label>
+      <label style="display:block"><span class="kick">OR NAME IT</span>
+        <input class="input" style="margin-top:6px" value="${esc(r.name||'')}" placeholder="${esc(d?d.n:f.film)}" maxlength="80"
+          onchange="mfSetName('${f.uid}', this)" onkeydown="if(event.key==='Enter'){ this.blur(); }"></label>
+      ${d?`<div style="background:rgba(0,102,99,.05);border-radius:12px;padding:11px 13px;font-size:13px;line-height:1.5">
+        <div><b>${esc(d.n)}</b>${si>-1?` <span class="muted">&middot; stage ${si+1}</span>`:''}${dose?` <span class="muted">&middot; ${esc(dose)}</span>`:''}</div>
+        ${d.desc?`<div class="muted" style="margin-top:3px">${esc(d.desc)}</div>`:''}
+        ${(d.cues||[]).length?`<ul style="margin:6px 0 0;padding-left:18px">${d.cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
+        ${d.kit?`<div class="muted" style="margin-top:4px">You need: ${esc(d.kit)}</div>`:''}</div>`:''}
+      <div>
+        <span class="kick">COMMENTS${cm.length?' &middot; '+cm.length:''}</span>
+        ${cm.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${cm.map(c=>`<div data-k="mfc-${esc(c.id)}" style="border:1px solid var(--line);border-radius:12px;padding:9px 11px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px">
+            <b>${esc(c.by||'')}</b>
+            <span style="font:700 8.5px/1 var(--sans);letter-spacing:.12em;padding:4px 7px;border-radius:999px;background:${c.about==='exercise'?'rgba(143,190,202,.35);color:var(--deep)':'rgba(0,102,99,.1);color:var(--forest)'}">${c.about==='exercise'?'EXERCISE':'FILM'}</span>
+            ${c.t!=null?`<button onclick="mfSeek('${f.uid}', ${Number(c.t)})" style="border:0;background:none;padding:0;cursor:pointer;font:600 12px var(--sans);color:var(--forest);text-decoration:underline">at ${mfClock(c.t)}</button>`:''}
+            <span class="muted">${esc(new Date(c.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}))}</span>
+            <span style="flex:1"></span>
+            <button onclick="mfDel('${f.uid}', ${jsq(c.id)})" aria-label="Delete this comment" title="Delete" style="border:0;background:none;cursor:pointer;color:var(--grey);font-size:13px;padding:0 2px">&times;</button></div>
+          <div style="margin-top:5px;font-size:13.5px;line-height:1.45;white-space:pre-wrap">${esc(c.text)}</div></div>`).join('')}</div>`:''}
+        <div style="display:flex;gap:6px;margin-top:10px">
+          ${['film','exercise'].map(a=>`<button class="btn btn-sm ${about===a?'btn-primary':'btn-secondary'}" onclick="mfAbout['${f.uid}']='${a}';draw()">${a==='film'?'About the film':'About the exercise'}</button>`).join('')}</div>
+        <textarea id="mfc-${f.uid}" class="input" style="margin-top:8px;min-height:70px" placeholder="${about==='film'?'Pause where you mean, then write it':'What should change about the exercise?'}"></textarea>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="mfComment('${f.uid}')" ${busy?'disabled':''}>${busy?'Saving…':'Add comment'}</button>
+      </div>
+    </article>`;
+  };
+  return head + (list.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:16px">${list.map(card).join('')}</div>`
+    : `<p class="muted" style="margin-top:18px">${mfFilter==='need'?'Every film has a name.':'No comments yet.'}</p>`);
+}
 function newsHTML(){
   if(!news) newsLoad();
   const L=(news&&news.list)||[], on=L.filter(x=>x.on), owner=!!(news&&news.owner);
@@ -13317,6 +13434,7 @@ function drawNow(){
     : view==='review'   ? reviewHTML()
     : view==='bookings' ? bookingsPageHTML()
     : view==='news'     ? newsHTML()
+    : view==='films'    ? filmsHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`
     + bulkHTML() + copyHTML() + newBlkHTML() + toastHTML()

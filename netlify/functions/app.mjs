@@ -5309,7 +5309,7 @@ const handle = async (request) => {
   const COACH_OWN = new Set(['thread', 'thread/unsend', 'programme', 'progress', 'submissions', 'submission/reviewed',
     'checkpoint/verdict', 'starting', 'seen', 'saidseen', 'cpseen', 'flagseen', 'typing', 'onboarding', 'notes',
     'clips', 'clients', 'blocks', 'week', 'queue', 'questions', 'question/answer', 'formcheck', 'formcheck/reset',
-    'preview', 'email', 'setpw', 'past', 'sessions', 'roster', 'coaches', 'push', 'push/test', 'clip']);
+    'preview', 'email', 'setpw', 'past', 'sessions', 'roster', 'coaches', 'push', 'push/test', 'clip', 'mufilms']);
   const COACH_READ = new Set(['drill', 'transcripts', 'explain', 'bands', 'timing', 'checkpoints', 'story',
     'ladder-media', 'drillmeta', 'fixes', 'stream/videos']);
   if (path.startsWith('/coach/')) {
@@ -14210,6 +14210,38 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       }
       return json({ error: 'Nope' }, 405);
     }
+    /* ── the Muscle Up films, named and talked over ─────────────────────
+       Suryava and Elliott both (Elliott, 26 Oct 2026): which drill each
+       uploaded film is, a name typed over it, and comments on the film or
+       on the exercise, some at a moment in it. One record, everybody's. */
+    if (path === '/coach/mufilms') {
+      const KEY = 'mufilms:review';
+      const all = (await getSetting(KEY)) || {};
+      if (request.method === 'GET') return json({ review: all });
+      if (request.method !== 'POST') return json({ error: 'GET or POST' }, 405);
+      const uid = String(body.uid || '').toLowerCase();
+      if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'Which film?' }, 400);
+      const by = (asking && isPrimary(asking)) ? 'Elliott' : (asking ? (coaches()[asking] || asking.split('@')[0]) : 'Coach');
+      const rec = Object.assign({ comments: [] }, all[uid] || {});
+      const now = Date.now();
+      if ('drill' in body) { rec.drill = String(body.drill || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 80); rec.by = by; rec.at = now; }
+      if ('name' in body) { rec.name = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 80); rec.by = by; rec.at = now; }
+      if (body.comment && String(body.comment.text || '').trim()) {
+        if ((await rateHit(`mufilms:${asking || 'key'}`, 600000)) > 120) return json({ error: 'That is a lot of comments at once. Try again in a few minutes.' }, 429);
+        const c = body.comment, t = Number(c.t);
+        rec.comments = (rec.comments || []).concat([{
+          id: now.toString(36) + Math.random().toString(36).slice(2, 6), by, at: now,
+          about: c.about === 'exercise' ? 'exercise' : 'film',
+          t: (c.t != null && c.t !== '' && Number.isFinite(t) && t >= 0) ? Math.round(t * 10) / 10 : null,
+          text: String(c.text).trim().slice(0, 2000) }]).slice(-200);
+      }
+      /* a comment is taken back by whoever wrote it, or by Elliott */
+      if (body.del) rec.comments = (rec.comments || []).filter(c => !(c.id === String(body.del) && (c.by === by || (asking && isPrimary(asking)))));
+      all[uid] = rec;
+      await setSetting(KEY, all);
+      return json({ review: all });
+    }
+
     if (path === '/coach/seen' && request.method === 'POST') {
       const e = norm(body.email);
       if (!e) return json({ error: 'Which client?' }, 400);

@@ -182,16 +182,31 @@ const MU_DOSE={
 /* Stream uids, uploaded from the edits: drill id to uid. Locked to the
    subscription (requireSignedURLs) and MP4 downloads on. The false grip
    five went up on 24 Oct 2026; the rest follow as they are exported. */
-/* The three in the ladder still carry the old draft's title and cues on the
-   film: re-export them with Suryava's and upload again. The two rings films
-   are no longer drills (his False grip setup and hangs cover bar and rings)
-   and wait for the false grip Learn article. */
+/* All twenty matched films went up on 26 Oct 2026 (mu-films.json has the
+   other eight, named by their file). They still carry the old draft's
+   titles and cues: Suryava names them in the dashboard's Films tab, and
+   they are exported again with his words once he has. */
 const MU_UIDS={
  'mu-false-grip-on-bar':'f4239cba98e33d1cf7a3ce6e66ae8aa3',
  'mu-supported-active-hang-false-grip':'954a564b1807055e16ff7b58ca7128f1',
- 'mu-false-grip-on-rings':'4f47608890bc591afe04757c867ed65d',
- 'mu-rings-false-grip':'40eb6695b30de839d6ae2186ec6d1a65',
+ 'mu-straight-bar-hold':'bdb716aaef719eb4b2cba5e75c11ff7d',
+ 'mu-ring-support-hold':'cae81b90dafea9340c28d05fea703f09',
+ 'mu-straight-bar-dips':'ecf744fdb995a46357156ed2391bf4fe',
+ 'mu-ring-dips':'6f3aaa208e1201d4bc666b9cc40059f7',
+ 'mu-high-pull-ups':'59c77778dba35e2e6b2a11b628f2c042',
+ 'mu-intro-swings':'fab5ccf69ba928d5fb6908a1a5cffbd1',
+ 'mu-swings-to-high-pull':'3df1ca69eaa029e52ea4096fa2c10fb2',
  'mu-false-gripped-chest-to-bar-pulls':'493b8f355015ccd9495ee6d4908b8372',
+ 'mu-ring-pull-ups':'d5546efa6caf5739581b87294eeb5561',
+ 'mu-straight-bar-dips-hold-at-bottom':'b54aa8d0c9d304e7a8a56ead0ac252ee',
+ 'mu-ring-dips-with-hold-at-bottom':'9db7997dfd79619fa6854d46c57f2d3c',
+ 'mu-supported-muscle-up-transition-on-bar-with-box':'5395c237fea23a632b0696acb8b6bf9b',
+ 'mu-box-supported-ring-muscle-ups':'903a23a974c2bf2e754fadaaa28cb974',
+ 'mu-jumping-muscle-ups':'42f88d3bd0aede9d086832f0260e81cc',
+ 'mu-banded-muscle-ups':'39328a491e7980c55360fea2a49d7baa',
+ 'mu-negative-muscle-up-on-bar':'85edf57173f2b230dcf598125b839fbb',
+ 'mu-swing-to-muscle-up':'fff6d7e0d06837c50e05725e08875637',
+ 'mu-full-ring-muscle-up':'71c55a6edd1ae28626789b779b8c1450',
 };
 
 /* Four stages, as Suryava wrote them (26 Oct 2026). The two warm-up drills
