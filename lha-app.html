@@ -4594,7 +4594,7 @@ function dlOpen(key){
    stage it came from, where the way back in is. Older saves carry no
    stage, so their drills answer for them. Null when it may open. */
 function dlLocked(rec){
-  if(rec && rec.kind==='art') return paidPlan() ? null : FREE_STAGES;
+  if(rec && rec.kind==='art'){ const f=fixGet(rec.slug); return !f || artOpen(f) ? null : FREE_STAGES; }
   if(!rec || rec.kind!=='q' || isPlus()) return null;
   /* the one free session at their stage, saved to do in a gym with no
      signal: it opens until it has been done, for up to a week */
@@ -4656,7 +4656,7 @@ function savedHomeHTML(){
         <span style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(r.name||'Saved workout')}</span>
         <span style="display:block;font:400 12px/1.4 var(--sans);color:${gone||locked?'#8a5a12':going?'var(--forest)':'var(--grey)'};margin-top:3px;${going?'font-weight:600':''}">${
           going ? done+' of '+(held.of||held.q.length)+' sets done'
-          : locked && r.kind==='art' ? 'Saved articles come with a paid plan. It opens again with one.'
+          : locked && r.kind==='art' ? 'Part of the full Ladder. It opens again with it.'
           : locked ? (sellsLadder() ? 'Part of the '+esc(PRICE())+' ladder. It opens again with it.' : 'Part of the full ladder, for members.')
           : gone && dlNoFile(r,uids)>=uids.length-have ? have+' of '+uids.length+' films saved. '+(uids.length-have===1?'One needs':(uids.length-have)+' need')+' signal.'
           : gone ? have+' of '+uids.length+' films on this phone. Open it to save the rest.'
@@ -18215,13 +18215,18 @@ function fxReadOpen(path, title, f){
 }
 function fxReadClose(){ const el=document.getElementById('artv'); if(el) el.remove(); }
 
-/* ── an article, saved for no signal, on a paid plan (Elliott, 26 Oct
-   2026) ──────────────────────────────────────────────────────────────
+/* ── an article, saved for no signal ───────────────────────────────
+   Free to save, like a workout, for anyone who can open the article: one
+   that comes with the Ladder needs the Ladder (Elliott, 26 Oct 2026: the
+   worry was Cloudflare, and a saved film is fetched once rather than every
+   session, so saving costs less, not more). 
    The page goes in the films cache beside its films and a still of each,
    so it outlives an app update. With no signal the page comes from there
    (the worker looks in every cache), and once it has loaded its films are
    pointed at the saved copies, the same ?lha=saved the player uses. */
 const paidPlan = () => !!st.in || isPlus();
+/* what decides a workout from a fix (dlLocked) decides the article too */
+const artOpen = f => !!f && (paidPlan() || !(f.access==='plus' || f.locked));
 const artKey = slug => 'art'+slug;
 const artPageUrl = path => location.origin+path+'?inapp=1';
 function artUids(html){
@@ -18232,7 +18237,7 @@ function artUids(html){
 function artSaveHTML(f){
   if(!f) return '';
   const key=artKey(f.slug), rec=dlRec(key), uids=dlUids((rec&&rec.urls)||[]);
-  const busy=dlBusy && dlBusy.key===key, paid=paidPlan();
+  const busy=dlBusy && dlBusy.key===key, paid=artOpen(f);
   const saved=paid && !!rec && uids.length>0 && uids.every(u=>dlSet.has(u));
   const ic = !paid ? '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
     : saved ? '<path d="M5 12.5l4.5 4.5L19 7.5"/>' : '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>';
@@ -18250,10 +18255,13 @@ function artPaint(){
 async function artSave(slug){
   const f=fixGet(slug), page=fxPage(f); if(!f || !page) return;
   const key=artKey(slug);
-  if(!paidPlan()){
-    toast('Saving articles for no signal comes with the full Ladder.');
+  if(!artOpen(f)){
+    toast('This one comes with the full Ladder.');
     fxArtHide(); openStage(FREE_STAGES); return;
   }
+  /* no account yet: the email first, as for a workout, and the article
+     steps aside for that screen; the save carries on after */
+  if(!st.token && !(IOS_APP && st.appleJws && isPlus())) fxArtHide();
   if(dlBusy && dlBusy.key===key){ dlStop(); return; }
   const rec=dlRec(key), have=dlUids((rec&&rec.urls)||[]);
   if(rec && have.length && have.every(u=>dlSet.has(u))){ dlRemoveAsk(key); return; }

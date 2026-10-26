@@ -67,7 +67,7 @@ export const EMAILS = {
       "name"
     ],
     "subject": "Falling is a skill",
-    "title": "Learn to come down before you try to stay up.",
+    "title": "Conquer your fear of falling.",
     "paras": [
       "The fear of falling is what keeps people leaning on the wall for a year. So before you work on staying up, learn to come down, three ways:",
       "Practise them until falling out is automatic and you stop thinking about it, so your head and your body both know it is safe. That is when you can really start learning to balance."
