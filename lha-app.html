@@ -11147,7 +11147,8 @@ function moreLibrary(){
   });
   if(typeof WRIST_DAY!=='undefined') take('Mobility day', '', 'Wrists and shoulders, for the days in between.', WRIST_DAY.drills||[]);
 
-  const card=x=>{ const lock=drillLocked(x.it.v); return `<div style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer"
+  const card=(x,gi)=>{ const lock=drillLocked(x.it.v), q=libQ[gi]||'', hay=libHay(x.it);
+    return `<div class="lib-c" data-q="${esc(hay)}"${q&&hay.indexOf(q)<0?' hidden':''} style="background:#fff;border-radius:20px;overflow:hidden;cursor:pointer"
       onclick="openLib(${x.i})">
     ${lock?`<div style="aspect-ratio:4/3;display:grid;place-items:center;background:var(--mist);color:var(--grey2)">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>`
@@ -11176,7 +11177,15 @@ function moreLibrary(){
       </div>
       ${open?`<div style="padding:0 12px 14px">
         ${g.sub?`<div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);padding:0 4px 11px">${esc(g.sub)}</div>`:''}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${g.items.map(card).join('')}</div>
+        ${g.items.length>4?`<label style="display:flex;align-items:center;gap:9px;margin:0 0 11px;padding:0 14px;height:44px;
+          background:#fff;border:1px solid rgba(0,64,61,.14);border-radius:14px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey2)" stroke-width="2.2" stroke-linecap="round"
+            aria-hidden="true" style="flex:none"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input type="search" value="${esc(libQ[gi]||'')}" placeholder="Search ${esc(g.title)}" aria-label="Search the drills in ${esc(g.title)}"
+            oninput="libFilter(this,${gi})" onclick="event.stopPropagation()"
+            style="flex:1;min-width:0;border:0;outline:0;background:none;font:500 15px/1 var(--sans);color:var(--ink)"></label>`:''}
+        <div class="lib-g" style="display:grid;grid-template-columns:1fr 1fr;gap:11px">${g.items.map(x=>card(x,gi)).join('')}</div>
+        <div class="lib-none"${libQ[gi]&&!g.items.some(x=>libHay(x.it).indexOf(libQ[gi])>-1)?'':' hidden'} style="font:400 13.5px/1.5 var(--sans);color:var(--grey);padding:6px 4px 2px">No drill in ${esc(g.title)} matches that.</div>
       </div>`:''}
     </div>`;}).join('') + (lockedN ? `<div onclick="closeMenu();openStage(FREE_STAGES)" style="margin-bottom:11px;border-radius:20px;
       border:1px dashed rgba(17,17,17,.16);padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px">
@@ -11186,6 +11195,18 @@ function moreLibrary(){
         <div style="font:500 10.5px/1 var(--sans);letter-spacing:.11em;color:var(--grey2);margin-top:6px">${lockedN} MORE STAGES WITH THE LADDER</div></div>
     </div>` : '');
   return {all, cards};
+}
+/* searching one stage's drills (Elliott, 26 Oct 2026). Filtered in place,
+   not by a render, so the field and the phone keyboard stay put; the words
+   are kept here so a redraw of the drawer puts them back. */
+const libQ={};
+function libHay(it){ return String((it&&it.n)||'').toLowerCase()+' '+String((it&&it.d)||'').toLowerCase()+' '+String((it&&it.v)||'').replace(/-/g,' '); }
+function libFilter(inp, gi){
+  const q=String(inp.value||'').trim().toLowerCase(); libQ[gi]=q;
+  const box=inp.closest('label').parentNode; let n=0;
+  box.querySelectorAll('.lib-c').forEach(c=>{ const on=!q || (c.dataset.q||'').indexOf(q)>-1; c.hidden=!on; if(on) n++; });
+  const none=box.querySelector('.lib-none'); if(none) none.hidden=!(q && !n);
+  try{ lazyThumbs(); }catch(e){}
 }
 function screenMoreWrap(all, cards){
   return `<div class="scroll s">
