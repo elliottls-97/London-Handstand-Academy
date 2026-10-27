@@ -67,6 +67,8 @@ h1.sc-h{font-size:40px}
 .sc-end .btn,.sc-end .btn2{width:100%;box-sizing:border-box;justify-content:center;height:56px;text-decoration:none}
 .sc-end .btn{margin-top:10px}
 .sc-again{background:none;border:0;padding:10px;font:600 14px/1 Figtree,system-ui,sans-serif;color:#006663;cursor:pointer}
+/* opened in the app: the end card leaves nobody on a website */
+html.inapp .sc-site,html:not(.inapp) .sc-app{display:none!important}
 .sc-safe{margin:0;font-size:13.5px;line-height:1.4;color:#5A5A5A;max-width:30ch}
 .st-nav{position:absolute;top:50%;margin-top:-23px;border:0;cursor:pointer;z-index:2;display:none}
 .st-nav svg{stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
@@ -125,11 +127,13 @@ secs = [card(i + 1, N, *c) for i, c in enumerate(CARDS)]
 CLASS = 'https://londonhandstandacademy.com/handstand-class?class=calisthenics&amp;src=learn'
 secs.append(f'''    <section class="sc sc-end" id="s{N}" aria-label="{N} of {N}">
       <div class="sc-m"><div class="ph">
-        <div class="sc-k">Train it</div>
-        <h2 class="sc-h">In the room on <em>Saturdays.</em></h2>
-        <p class="sc-p">Calisthenics at OverGravity, Shadwell, in Arch 2 with the bars.</p>
-        <a href="{CLASS}" class="btn">See the class dates</a>
-        <a href="https://londonhandstandacademy.com/learn/" class="btn2">More from Learn</a>
+        <div class="sc-k sc-site">Train it</div><div class="sc-k sc-app">That&rsquo;s all</div>
+        <h2 class="sc-h sc-site">In the room on <em>Saturdays.</em></h2>
+        <p class="sc-p sc-site">Calisthenics at OverGravity, Shadwell, in Arch 2 with the bars.</p>
+        <a href="{CLASS}" class="btn sc-site">See the class dates</a>
+        <a href="https://londonhandstandacademy.com/learn/" class="btn2 sc-site">More from Learn</a>
+        <h2 class="sc-h sc-app">Now go and <em>train it.</em></h2>
+        <p class="sc-p sc-app">High pull ups and swings to a high pull are in your sessions at this stage.</p>
         <p class="sc-safe">Build up slowly, and stop if anything hurts.</p>
         <button type="button" class="sc-again" data-go="0">Start again</button>
       </div></div>
@@ -187,6 +191,8 @@ SCRIPT = """<script>
   var x0=0, y0=0, t0=0, held=0, pressed=false;
   deck.addEventListener('pointerdown',function(e){
     if(e.target.closest('a,button')) return;
+    /* a tap that shuts the site menu is only that, not the next card */
+    var mn=document.getElementById('siteMenu'); if(mn && !mn.hidden) return;
     pressed=true; x0=e.clientX; y0=e.clientY; t0=Date.now(); held=0;
     held=setTimeout(function(){ held=-1; var v=vid(cur); if(v) v.pause(); }, 260);
   });

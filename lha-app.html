@@ -16725,20 +16725,26 @@ const LEARN_ROWS={0:[
   {t:'Wondering how long it takes', sub:'Film and read &middot; 4 min', ex:4},
   {t:'Not sure what it should feel like', sub:'Film and read &middot; 3 min', ex:5}
 ]};
+/* The Muscle Up Ladder's own: none of the handstand ladder's fixes or
+   explainers, which were showing under it, and its articles at the stage
+   they belong to (Elliott, 27 Oct 2026: the muscle up story "in the muscle
+   up app, on 2nd level"). An art row opens the Learn page in the app. */
+const MU_LEARN_ROWS={1:[
+  {t:'Ten pull ups and still no muscle up', sub:'Why you can&rsquo;t muscle up yet &middot; 8 cards',
+    art:'/learn/why-you-cant-muscle-up-yet', title:'Why you can\'t muscle up yet', uid:'59c77778dba35e2e6b2a11b628f2c042'}
+]};
 function learnHTML(){
-  /* the Muscle Up Ladder has no fixes or explainers yet, and the handstand
-     ones were showing under it */
-  if(coachedView() || trialPending() || isMU()) return '';
+  if(coachedView() || trialPending()) return '';
   const P=curStage(), PS=STAGES[P]; if(!PS) return '';
   if(P===5 && !isMU()) return stageFilmsHTML();
-  const fx=stageFixes(P), ex=stageExplainers(P).filter(o=>o && o.i>=0 && o.x);
+  const fx=stageFixes(P), ex=isMU() ? [] : stageExplainers(P).filter(o=>o && o.i>=0 && o.x);
   const paid = !sellsLadder() ? 'Members' : PRICE_TRIAL()>0 ? 'With the trial' : esc(PRICE())+' a month';
   /* a stage with no rows written: its fixes, then its explainers, each its
      own row (Wall Work had no fixes, so Learn showed nothing at all) */
   /* one row a film: Freestanding listed the tuck film three times */
   const exOnce=ex.filter((o,j)=>!o.x.uid || ex.findIndex(y=>y.x.uid===o.x.uid)===j);
   const hasArt=o=>o.x.uid && typeof EXPLAIN_ARTICLE!=='undefined' && EXPLAIN_ARTICLE[o.x.uid];
-  const rows=(LEARN_ROWS[P] || fx.map(f=>({fix:f.slug})).concat(exOnce.map(o=>({t:o.x.q, sub:(hasArt(o)?'Film and read &middot; ':'')+esc(o.x.dur||'Film'), ex:o.i})))).map(r=>{
+  const rows=(isMU() ? (MU_LEARN_ROWS[P] || []) : LEARN_ROWS[P] || fx.map(f=>({fix:f.slug})).concat(exOnce.map(o=>({t:o.x.q, sub:(hasArt(o)?'Film and read &middot; ':'')+esc(o.x.dur||'Film'), ex:o.i})))).map(r=>{
     if(r.fix){ const f=fx.find(x=>x.slug===r.fix); if(!f) return null;
       const n=(f.steps||f.drills||[]).length, lock=f.access==='plus' && !isPlus();
       return {t:fixSub(f)||f.name, sub:esc(f.name)+(n?' &middot; '+n+' steps':'')+(lock?' &middot; '+paid:''), img:fixCover(f), go:`openFix(${jsq(f.slug)})`}; }
@@ -16746,9 +16752,10 @@ function learnHTML(){
       return {t:r.t, sub:r.sub, img:o.x.uid?streamThumb(o.x.uid):'', go:explainerOpen(o.i)?`openExplainer(${o.i})`:`lockedExplainer(${o.i})`}; }
     if(r.drill) return drillById(r.drill) ? {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`pgDrill(${jsq(r.drill)})`} : null;
     if(r.url) return {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`leaveTo(${jsq(r.url)})`};
+    if(r.art) return {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`fxReadOpen(${jsq(r.art)},${jsq(r.title||r.t)})`};
     return null;
   }).filter(Boolean);
-  if(!rows.length) return howBig() ? howBigHTML() : '';
+  if(!rows.length) return (howBig() && !isMU()) ? howBigHTML() : '';
   return `<section class="rise rise-3" style="padding:22px 20px 0">
     <h2 style="margin:0;font:400 26px/1.1 var(--serif)">Learn at <em style="color:var(--forest);font-style:normal">${esc(PS.n)}.</em></h2>
     <p style="margin:8px 0 0;font:400 15px/1.4 var(--sans);color:var(--grey)">Pick the thing that is in your way.</p>
