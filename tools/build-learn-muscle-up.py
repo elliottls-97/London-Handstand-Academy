@@ -7,8 +7,8 @@ lines = src.split('\n')
 # the base styles and the header's; the gallery and step film styles are not used here
 head = '\n'.join(lines[:129] + lines[177:184])
 slug = 'why-you-cant-muscle-up-yet'
-DESC = ("Why you can't muscle up on the bar yet: ten strict pull ups first, then high pull ups, speed, "
-        "pulling diagonally, weighted pull ups and the transition.")
+DESC = ("Why you can't muscle up on the bar yet: ten strict pull ups first, then high pull ups, high pulls for speed, "
+        "pulling diagonally behind you, weighted pull ups and the transition.")
 head = head.replace('<title>How to fall out of a handstand safely · London Handstand Academy</title>',
                     "<title>Why you can't muscle up yet · London Handstand Academy</title>")
 head = re.sub(r'<meta name="description" content="[^"]*">', f'<meta name="description" content="{DESC}">', head)
@@ -25,7 +25,7 @@ head = head.replace("""<!-- Built from the Claude Design canvas "LHA Learn artic
      going through a story, one video per page and much less text"). Bar
      only. The films are members' films, locked at Stream: the page asks
      /api/app/learn/films for its own, two hours at a time. Built by
-     build_story.py; change the words there, then rebuild. -->""")
+     tools/build-learn-muscle-up.py; change the words there, then rebuild. -->""")
 assert 'fall-out-of-a-handstand-safely' not in head, 'old slug left in head'
 
 STYLE = """<style>
@@ -58,6 +58,9 @@ html.inapp .st{height:100svh;max-height:none;padding-top:14px}
 h1.sc-h{font-size:40px}
 .sc-h em{font-style:normal;color:#006663}
 .sc-p{margin:0;font-size:16px;line-height:1.45;color:#111;max-width:36ch;text-wrap:pretty}
+.sc-d{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:2px}
+.sc-d span{height:30px;padding:0 12px;border-radius:999px;background:rgba(0,64,61,.08);color:#00403D;
+  font:600 13px/30px Figtree,system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
 .sc-go{display:inline-flex;align-items:center;gap:6px;font:600 13px/1 Figtree,system-ui,sans-serif;color:#5A5A5A;margin-top:2px}
 .sc-end .ph{border:1px solid rgba(0,64,61,.10);border-style:solid;background:#fff;gap:12px;padding:28px 22px;
   box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06);cursor:default}
@@ -90,12 +93,13 @@ def film(key, label):
 def ph(glyph, k):
     return f'<div class="ph" aria-hidden="true"><span class="ph-g">{glyph}</span><span class="ph-k">{k}</span></div>'
 
-def card(n, N, media, k, h, em, p, tag='h2', go=''):
+def card(n, N, media, k, h, em, p, tag='h2', go='', dose=()):
+    d = ('\n        <div class="sc-d">' + ''.join(f'<span>{x}</span>' for x in dose) + '</div>') if dose else ''
     return (f'    <section class="sc{" on" if n == 1 else ""}" id="s{n}" aria-label="{n} of {N}">\n'
             f'      <div class="sc-m">{media}</div>\n'
             f'      <div class="sc-t"><div class="sc-k">{k}</div>\n'
             f'        <{tag} class="sc-h">{h} <em>{em}</em></{tag}>\n'
-            f'        <p class="sc-p">{p}</p>{go}</div>\n    </section>')
+            f'        <p class="sc-p">{p}</p>{d}{go}</div>\n    </section>')
 
 CARDS = [
     (film('mu', 'A muscle up on the bar: swing, pull to the hips, chest over the bar, press to straight arms'),
@@ -108,11 +112,11 @@ CARDS = [
     (film('high', 'High pull ups: the bar pulled to the lower chest'), '1 of 5', 'Learn high', 'pull ups.',
      'Pull the bar to your lower chest, not your chin. That is the height a muscle up needs.'),
     (ph('Fast', 'Film to come'), '2 of 5', 'Be', 'fast.',
-     'A heavy band lets you pull faster than you can on your own. Speed is what gets you over.'),
-    (film('diag', 'Swings to a high pull: the pull goes up and back as the legs come forward'), '3 of 5', 'Pull diagonally', 'up.',
-     'Up and slightly back, so you go round the bar, not into it.'),
+     'High pulls with a thick green band. This is for speed, not strength.', 'h2', '', ('3 to 4 reps', '3½ min rest')),
+    (film('diag', 'Swings to a high pull: the pull goes back behind as the legs come forward'), '3 of 5', 'Pull diagonally', 'behind you.',
+     'Not straight up. Back behind you, so you go round the bar, not into it.'),
     (ph('+kg', 'Film to come'), '4 of 5', 'Build weighted', 'pull ups.',
-     'Add weight to strict pull ups. A stronger pull leaves height to spare.'),
+     'Hands fairly wide, chin over the bar, every rep.', 'h2', '', ('5 reps', '4 min rest')),
     (film('dip', 'Straight bar dips with a pause at the bottom'), '5 of 5', 'Work on the', 'transition.',
      'Dip deep and pause at the bottom, chest over the bar. That is where you land.'),
 ]
