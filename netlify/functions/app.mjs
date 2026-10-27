@@ -9787,10 +9787,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      asked for by id (26 Oct 2026, the muscle up article). */
   const LEARN_FILMS = {
     'why-you-cant-muscle-up-yet': [
-      '8429630aafccc041da56b477ba01b29a',   /* high pulls: pull faster */
-      'ee9fe62cbdf1934d867628b09c2e98a8',   /* chest to bar pull ups: pull higher */
-      '59c77778dba35e2e6b2a11b628f2c042',   /* high C pull ups: pull back a little */
-      'b54aa8d0c9d304e7a8a56ead0ac252ee'],  /* low dip hold: dip deeper */
+      '5d8fccb8303d45ab4f181e34c0452156',   /* bar muscle up: the cover */
+      '59c77778dba35e2e6b2a11b628f2c042',   /* high pull ups */
+      '3df1ca69eaa029e52ea4096fa2c10fb2',   /* swings to a high pull: pull diagonally up */
+      'b54aa8d0c9d304e7a8a56ead0ac252ee'],  /* bar dips with a pause: the transition */
   };
   if (path === '/learn/films' && request.method === 'GET') {
     const list = LEARN_FILMS[String(url.searchParams.get('page') || '')] || [];
