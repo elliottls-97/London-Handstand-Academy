@@ -4016,6 +4016,7 @@ function screenToday(){
   </div>
   ${todaySlotHTML(dl)}
   ${/* the calendar is Progress › Log again (Elliott, 18 Oct 2026) */''}
+  ${(()=>{ const c=classesCardHTML(2,'coached'); return c?`<div class="pad" style="padding-top:18px">${c}</div>`:''; })()}
   <div style="height:26px"></div></div>`;
 }
 
@@ -11533,6 +11534,7 @@ function moreBody(all, cards){
       ${coachedView()?fbCardHTML():''}
       ${st.token?knowCard():''}
       ${bookingsHTML()}
+      ${(()=>{ const c=classesCardHTML(8,'menu'); return c?`<div style="margin-bottom:16px">${c}</div>`:''; })()}
 
       ${coachedView()?'':`<!-- moved here from the foot of the Train screen, and the pencil
            from the top bar: neither is for somebody's first minute -->
@@ -19259,7 +19261,8 @@ function screenHome(){
 
     <!-- the workshop after the explainers, where the design puts it: it is an
          offer, and an offer belongs after the thing they came for -->
-    ${(workshopOn() && !firstVisit())?`<div class="rise rise-4" style="padding:18px 20px 0">${workshopStrip()}</div>`:''}
+    ${/* first visit too: a class is a way in, not a distraction (28 Oct 2026) */''}
+    ${(()=>{ const c=classesCardHTML(3); return c?`<div class="rise rise-4" style="padding:18px 20px 0">${c}</div>`:''; })()}
 
     <!-- keep your progress. Replaces the create-an-account button that used to
          sit inside the explainer card. -->
@@ -19838,6 +19841,45 @@ function wsAboutGo(){
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not send it')))
     .then(()=>{ wsb.about='saved'; drawOv(); })
     .catch(e=>{ wsb.about=''; wsb.aboutMsg=String(e&&e.message||e); drawOv(); });
+}
+/* ── classes, in the app ──────────────────────────────────────────
+   Booking a class worked in the app all along, but the only ways in were
+   a popup after three minutes and a single line on Train (Elliott, 28 Oct
+   2026: "I am tempted to have class booking included on the app"). The
+   next dates now sit on Train and in the menu, each with what is left and
+   a Book button into the same sheet the website uses. Paid for through
+   Stripe: an in person class is a service, so Apple allows it in the app.
+   A coached client gets it once, quietly, at the foot of Today. */
+function classesCardHTML(max, where){
+  loadWorkshops();
+  const list=wsOpenList().slice(0, max||3);
+  if(!list.length) return '';
+  const quiet = where==='coached';
+  const row=w=>{
+    const d=w.when?new Date(w.when):null, left=Number(w.left), full=wsFull(w);
+    const fmt=o=>d?d.toLocaleDateString('en-GB',Object.assign({timeZone:'Europe/London'},o)):'';
+    const leftLine = full ? 'Full, join the waiting list' : (Number(w.places)>0 && left>0) ? (left===1?'1 place left':left+' places left') : '';
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(0,64,61,.08)">
+      <div style="flex:none;width:46px;text-align:center;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:12px;padding:6px 0">
+        <div style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--forest)">${esc(fmt({weekday:'short'}).toUpperCase())}</div>
+        <div style="font:400 22px/1.05 var(--serif);color:var(--ink);margin-top:2px">${esc(fmt({day:'numeric'}))}</div>
+        <div style="font:600 9px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)">${esc(fmt({month:'short'}).toUpperCase())}</div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font:600 14px/1.3 var(--sans);color:var(--ink)">${esc(w.title||'Class')}</div>
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${esc([wsTime(w), w.priceLabel].filter(Boolean).join(' · '))}</div>
+        ${leftLine?`<div style="font:600 12px/1.3 var(--sans);margin-top:3px;color:${full||left<=3?'var(--red,#a4503c)':'var(--forest)'}">${esc(leftLine)}</div>`:''}
+      </div>
+      <button onclick="wsBookOpen(${jsq(w.slug||'')})" style="flex:none;min-height:40px;padding:0 16px;border-radius:12px;cursor:pointer;
+        ${full?'border:1px solid rgba(0,64,61,.18);background:#fff;color:var(--deep)':'border:0;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);box-shadow:0 6px 16px rgba(0,102,99,.22)'};
+        font:600 13.5px/1 var(--sans)">${full?'Wait list':'Book'}</button>
+    </div>`;
+  };
+  return `<div class="card" style="padding:16px 18px 8px">
+    <div class="kick2">${quiet?'IN PERSON':'CLASSES'} &middot; ${esc((list[0].place||'OverGravity, Shadwell').toUpperCase())}</div>
+    <div style="font:400 ${quiet?22:26}px/1.1 var(--serif);margin:8px 0 10px">${quiet?'Train with us in <em style="color:var(--forest);font-style:normal">person.</em>':'Come to a <em style="color:var(--forest);font-style:normal">class.</em>'}</div>
+    ${list.map(row).join('')}
+  </div>`;
 }
 /* one line on Today, so a dismissed advert is not a lost one */
 function workshopStrip(){
