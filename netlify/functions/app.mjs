@@ -12273,9 +12273,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   if (path === '/widget' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const [rows, tr] = await Promise.all([
+    const [rows, tr, mine] = await Promise.all([
       supa.rows('messages', `email=eq.${enc(who)}&sender=eq.coach&select=body,video,image,submission,created_at,read_at&order=created_at.desc&limit=30`).catch(() => []),
-      getSetting(`track:${who}`).catch(() => null)]);
+      getSetting(`track:${who}`).catch(() => null),
+      supa.rows('messages', `email=eq.${enc(who)}&sender=eq.client&select=video,submission,created_at&order=created_at.desc&limit=10`).catch(() => [])]);
     const said = m => m.body ? String(m.body).replace(/\s+/g, ' ').trim().slice(0, 160)
       : m.video ? 'Sent you a video' : voiceOf(m.submission) ? 'Sent you a voice note' : m.image ? 'Sent you a picture' : '';
     const last = (rows || [])[0];
@@ -12283,8 +12284,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     Object.entries((tr && tr.checkpoints) || {}).forEach(([k, h]) => (Array.isArray(h) ? h : []).forEach(r => {
       if (r && r.verdict && !r.undone && (!cp || (r.verdictAt || 0) > cp.at))
         cp = { k, verdict: r.verdict, note: String(r.note || '').slice(0, 140), at: r.verdictAt || 0 }; }));
+    /* a clip sent since the coach last wrote: with him, and when the
+       48 hours the reply is promised in run out */
+    const lastCoach = last ? ms(last.created_at) : 0;
+    const clip = (mine || []).find(m => (m.video || clipTags(m.submission).length) && ms(m.created_at) > lastCoach);
     return json({ msg: last ? { text: said(last), at: ms(last.created_at), seen: !!last.read_at } : null,
-      unread: (rows || []).filter(m => !m.read_at).length, cp, at: Date.now() });
+      unread: (rows || []).filter(m => !m.read_at).length, cp,
+      waiting: clip ? { at: ms(clip.created_at), due: ms(clip.created_at) + 48 * 3600000 } : null, at: Date.now() });
   }
   if (path === '/messages') {
     const who = await me();

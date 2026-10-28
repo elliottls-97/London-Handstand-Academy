@@ -24368,26 +24368,50 @@ function widgetPlugin(){
   return WDGP;
 }
 function widgetSnap(){
-  const c=coachedView(), out={v:1, signed:!!st.token, coached:c, coach:'Elliott', week:{}};
+  const c=coachedView(), out={v:2, signed:!!st.token, coached:c, coach:'Elliott', week:{}};
   try{ out.coach=coachLabel()||'Elliott'; }catch(e){}
+  const si=c?undefined:curStage();
   try{
     if(c){
       const d=day(); out.stage='Your programme';
-      out.today={title:(d&&d.label)||'Your session', line:(d&&d.sub)||'Set by '+out.coach};
+      const groups=((d&&d.groups)||[]).filter(g=>!g.warm).map(g=>g.name).filter(Boolean);
+      out.today={title:(d&&d.label)||'Your session', sub:(d&&d.sub)||'Set by '+out.coach, focus:groups.slice(0,4),
+        drills:((d&&d.groups)||[]).filter(g=>!g.warm).reduce((n,g)=>n+((g.items||[]).length),0)};
     } else {
-      const si=curStage(), S=STAGES[si]||{}, cells=weekCells(), mins=st.time||30;
+      const S=STAGES[si]||{}, cells=weekCells(), mins=st.time||30;
       out.stage=S.n||'';
       for(let wd=0; wd<7; wd++){
         let i=-1; for(let k=0;k<cells.length;k++) if(dayFor(k)===wd){ i=k; break; }
         const cell=i>=0?cells[i]:null;
-        out.week[wd] = !cell ? {title:S.n||'Rest day', line:'Rest day', rest:true}
-          : isRestCell(cell) ? {title:'Mobility', line:'Wrists and shoulders, 15 min'}
-          : {title:S.n||'Session', line:(cell.n||'Session')+' \u00b7 '+mins+' min'};
+        out.week[wd] = !cell ? {title:'Rest day', sub:'Nothing planned. Rest is part of it.', rest:true}
+          : isRestCell(cell) ? {title:'Mobility', sub:'Wrists and shoulders', mins:15, mob:true}
+          : {title:cell.n||'Session', sub:cell.sub||'', focus:(cell.focus||[]).slice(0,4), mins};
       }
     }
-    const list=(cpFor(c?undefined:curStage())||[]).filter(x=>!cpAsks(x)), p=cpProgress(c?undefined:curStage())||{};
+  }catch(e){}
+  /* the week: which days were trained, the target and the run of weeks */
+  try{
+    const wi=weekInfo(); out.goal=wi.goal; out.got=wi.got; out.run=wi.run;
+    const mon=new Date(); mon.setHours(12,0,0,0); mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+    const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    out.weekStart=ymd(mon); out.days={};
+    const wk=wkNo(Date.now());
+    ((st.prog&&st.prog.sessions)||[]).forEach(x=>{
+      if(!x || !x.at || wkNo(x.at)!==wk) return;
+      const wd=(new Date(x.at).getDay()+6)%7, was=out.days[wd];
+      const k = (x.done || x.kind==='all') ? 'done' : x.kind==='none' ? 'miss' : 'part';
+      if(was!=='done' && !(was==='part' && k==='miss')) out.days[wd]=k;
+    });
+  }catch(e){}
+  /* the check points, and the nearest one still to reach */
+  try{
+    const list=(cpFor(si)||[]).filter(x=>!cpAsks(x)), p=cpProgress(si)||{};
     out.met=p.met||0; out.of=p.of||0;
     out.names={}; list.forEach(x=>{ out.names[x.k]=x.n; });
+    out.cps=list.slice(0,8).map(x=>({n:x.n, met:!!cpMet(x)}));
+    const nb=cpNearest(si);
+    if(nb && nb.c){ const u=cpUnit(nb.c)||(nb.c.kind==='secs'?'s':'');
+      out.near={n:nb.c.n, v:nb.v, target:cpTarget(nb.c), unit:u, f:Math.max(0,Math.min(1,nb.f||0)), down:nb.c.kind==='breaks'}; }
   }catch(e){}
   return out;
 }
@@ -24816,6 +24840,9 @@ function openFromNotice(where, mid){
   if(where==='answer'){ if(c) go('today'); else { st.coTab='check'; save(); go('coaching'); } return; }
   if(where==='plan'){ go(c?'plan':'home'); return; }
   if(where==='today'){ go(c?'today':'home'); return; }
+  /* the Next class widget: that class's booking, once the list is in */
+  if(where==='class'){ go(c?'today':'home'); const open=()=>wsBookOpen(String(mid||''));
+    if(WS_LIST.length) open(); else setTimeout(open, 1500); return; }
 }
 
 /* ── the Home Screen, asked for on the first screen ─────────────────
