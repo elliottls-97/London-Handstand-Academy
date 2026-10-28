@@ -11983,23 +11983,30 @@ function showStep(){
    (Elliott, 28 Oct 2026). Same record as the list: st.reps by set, which
    the session report reads as what a set of that drill was counted at. */
 const repSvg = d => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true">${d}</svg>`;
+/* reps go up and down by one, a hold by five seconds (Elliott, 28 Oct
+   2026: "30 seconds do in increments of 5") */
+const repStep = it => repOf(it).u==='seconds' ? 5 : 1;
+const repWant = it => Number(repOf(it).n) || recommendedReps(it);
 function repStepHTML(it){
-  if(repOf(it).u!=='reps') return '';
-  const k='q'+qi, v=(st.reps||{})[k];
-  const n = v==null ? (Number(repOf(it).n)||recommendedReps(it)) : v;
-  return `<div class="p-reps" role="group" aria-label="Reps done">
-    <button type="button" onclick="pRep(-1)" aria-label="One fewer">${repSvg('<path d="M6 12h12"/>')}</button>
-    <span id="p-repgot" aria-live="polite">${n}</span>
-    <button type="button" onclick="pRep(1)" aria-label="One more">${repSvg('<path d="M12 6v12M6 12h12"/>')}</button>
-  </div><div class="p-repunit" id="p-repsaid">${v==null?'reps done':'counted'}</div>`;
+  const u=repOf(it).u; if(u!=='reps' && u!=='seconds') return '';
+  /* not on the warm-up: nobody tracks wrist circles */
+  const cur=Q[qi]||{}; if(/warm/i.test(String(cur.grp||cur.g||''))) return '';
+  const k='q'+qi, v=(st.reps||{})[k], n = v==null ? repWant(it) : v, sec=u==='seconds';
+  return `<div class="p-reps" role="group" aria-label="${sec?'Seconds held':'Reps done'}">
+    <button type="button" onclick="pRep(-1)" aria-label="${sec?'Five seconds less':'One fewer'}">${repSvg('<path d="M6 12h12"/>')}</button>
+    <span id="p-repgot" aria-live="polite">${n}${sec?'s':''}</span>
+    <button type="button" onclick="pRep(1)" aria-label="${sec?'Five seconds more':'One more'}">${repSvg('<path d="M12 6v12M6 12h12"/>')}</button>
+  </div><div class="p-repunit" id="p-repsaid">${v!=null?'counted':sec?'seconds held':'reps done'}</div>`;
 }
 function pRep(by){
   const s=Q[qi]; if(!s || phase==='rest') return;
   st.reps=st.reps||{};
-  const k='q'+qi, base = st.reps[k]==null ? (Number(repOf(s.it).n)||recommendedReps(s.it)) : st.reps[k];
-  st.reps[k]=Math.max(0, base+by); save();
+  const k='q'+qi, step=repStep(s.it), base = st.reps[k]==null ? repWant(s.it) : st.reps[k];
+  /* a hold lands on the nearest five, so 32 then minus reads 30, not 27 */
+  const next = step>1 ? (by<0 ? Math.ceil(base/step)*step-step : Math.floor(base/step)*step+step) : base+by;
+  st.reps[k]=Math.max(0, next); save();
   const a=$('#p-repgot'), b=$('#p-repsaid');
-  if(a) a.textContent=String(st.reps[k]);
+  if(a) a.textContent=String(st.reps[k])+(step>1?'s':'');
   if(b) b.textContent='counted';
 }
 /* ── the drill film on the lock screen ───────────────────────────────
@@ -12229,7 +12236,8 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
         rate:(st.rate||{})[r.v]||'',
         reps:each*r.got,
         want:r.per*r.of,
-        secs:r.secsPer*r.got});
+        /* a hold counted in the player is the seconds it was held */
+        secs:(r.unit==='s' && typedOf[r.v]!=null ? typedOf[r.v] : r.secsPer)*r.got});
     });
   })();
   if(done) captureWeekMoment();
