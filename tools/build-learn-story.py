@@ -242,7 +242,7 @@ STORIES = {
             (film(*FG['pulls'], 'Chest to bar pull ups in a false grip, wrists staying over the bar'), 'Then', 'Hang and pull', 'in it.',
              'Keep building until you can hang and do pull ups in a false grip, feet off the floor.'),
         ],
-        app_line='False grip setups and false grip hangs are in your Foundations sessions.',
+        app_line='The false grip is in your sessions at every stage of the ladder.',
         safe='Build up slowly, and stop if your wrists hurt.'),
 }
 
