@@ -12266,6 +12266,26 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   token: await sign({ scope: 'app', email: next, iat: Date.now(), exp: Date.now() + TOKEN_TTL }) });
   }
 
+  /* ── the iPhone widgets ─────────────────────────────────────────────
+     The From Elliott widget asks this every half hour, with the app shut:
+     his last message, how many are unread, and his latest answer on a
+     check point. Read only; it marks nothing read (28 Oct 2026, 1.0.1). */
+  if (path === '/widget' && request.method === 'GET') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const [rows, tr] = await Promise.all([
+      supa.rows('messages', `email=eq.${enc(who)}&sender=eq.coach&select=body,video,image,submission,created_at,read_at&order=created_at.desc&limit=30`).catch(() => []),
+      getSetting(`track:${who}`).catch(() => null)]);
+    const said = m => m.body ? String(m.body).replace(/\s+/g, ' ').trim().slice(0, 160)
+      : m.video ? 'Sent you a video' : voiceOf(m.submission) ? 'Sent you a voice note' : m.image ? 'Sent you a picture' : '';
+    const last = (rows || [])[0];
+    let cp = null;
+    Object.entries((tr && tr.checkpoints) || {}).forEach(([k, h]) => (Array.isArray(h) ? h : []).forEach(r => {
+      if (r && r.verdict && !r.undone && (!cp || (r.verdictAt || 0) > cp.at))
+        cp = { k, verdict: r.verdict, note: String(r.note || '').slice(0, 140), at: r.verdictAt || 0 }; }));
+    return json({ msg: last ? { text: said(last), at: ms(last.created_at), seen: !!last.read_at } : null,
+      unread: (rows || []).filter(m => !m.read_at).length, cp, at: Date.now() });
+  }
   if (path === '/messages') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);

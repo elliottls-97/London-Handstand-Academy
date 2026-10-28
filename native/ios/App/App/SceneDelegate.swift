@@ -13,10 +13,14 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+        /* opened by tapping a widget: kept until the page asks for it */
+        connectionOptions.urlContexts.forEach { _ = WidgetDataPlugin.open($0.url, webView: nil) }
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-        SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+        let web = (window?.rootViewController as? CAPBridgeViewController)?.bridge?.webView
+        let rest = URLContexts.filter { !WidgetDataPlugin.open($0.url, webView: web) }
+        if !rest.isEmpty { SceneDelegateProxy.shared.scene(scene, openURLContexts: rest) }
     }
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {

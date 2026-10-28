@@ -12033,6 +12033,9 @@ function liveEnd(done){
 }
 /* the last word before the phone puts the app to sleep */
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden && liveOn) liveSync(); });
+/* the widgets: told what to show as the app goes to the background, and
+   asked whether one was tapped as it comes back */
+document.addEventListener('visibilitychange', ()=>{ try{ if(document.hidden) widgetPush(); else lhaWidgetOpen(); }catch(e){} });
 
 /* wall-clock delta, so a backgrounded phone does not lose seconds */
 function step(){
@@ -12148,6 +12151,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.remove('on'); $('#player').innerHTML='';
   filmSlowLater();
+  setTimeout(()=>{ try{ widgetPush(); }catch(e){} }, 2000);
   const d=day();
   const partWay = !done && qi>0 && qi<Q.length-1;
   if(partWay) whyStopContext=(Q[qi]&&Q[qi].it&&Q[qi].it.n)||'';
@@ -15475,6 +15479,7 @@ function deleteMine(){
 }
 function signOut(){
   closeMenu();
+  try{ const P=widgetPlugin(); if(P) P.clear().catch(()=>{}); wdgLast=''; }catch(e){}
   /* the last person's unsent messages and half typed reply stay on the page
      otherwise, and the next account's chat showed them as its own */
   pendingMsgs=[]; askDraft=''; chatReplyTo=''; chatTypingAt=0;
@@ -24348,6 +24353,56 @@ function askReview(why){
     }, 900);
   }).catch(()=>{});
 }
+/* ── the iPhone widgets (1.0.1) ──────────────────────────────────
+   Today's session, the check points, and From Elliott (Elliott, 28 Oct
+   2026). The page hands the widgets what they show whenever the app goes
+   to the background, and once after it opens: the week by weekday, so
+   Today is right tomorrow without the app being opened, the check points
+   and their names, and the sign in, so From Elliott can ask /widget for
+   his latest message and check point answer every half hour by itself.
+   A build without the plugin (1.0) never answers, so nothing is sent. */
+let WDGP=null, wdgLast='';
+function widgetPlugin(){
+  if(!IOS_APP || !window.Capacitor) return null;
+  try{ if(!WDGP) WDGP = Capacitor.registerPlugin ? Capacitor.registerPlugin('WidgetData') : ((Capacitor.Plugins||{}).WidgetData||null); }catch(e){ WDGP=null; }
+  return WDGP;
+}
+function widgetSnap(){
+  const c=coachedView(), out={v:1, signed:!!st.token, coached:c, coach:'Elliott', week:{}};
+  try{ out.coach=coachLabel()||'Elliott'; }catch(e){}
+  try{
+    if(c){
+      const d=day(); out.stage='Your programme';
+      out.today={title:(d&&d.label)||'Your session', line:(d&&d.sub)||'Set by '+out.coach};
+    } else {
+      const si=curStage(), S=STAGES[si]||{}, cells=weekCells(), mins=st.time||30;
+      out.stage=S.n||'';
+      for(let wd=0; wd<7; wd++){
+        let i=-1; for(let k=0;k<cells.length;k++) if(dayFor(k)===wd){ i=k; break; }
+        const cell=i>=0?cells[i]:null;
+        out.week[wd] = !cell ? {title:S.n||'Rest day', line:'Rest day', rest:true}
+          : isRestCell(cell) ? {title:'Mobility', line:'Wrists and shoulders, 15 min'}
+          : {title:S.n||'Session', line:(cell.n||'Session')+' \u00b7 '+mins+' min'};
+      }
+    }
+    const list=(cpFor(c?undefined:curStage())||[]).filter(x=>!cpAsks(x)), p=cpProgress(c?undefined:curStage())||{};
+    out.met=p.met||0; out.of=p.of||0;
+    out.names={}; list.forEach(x=>{ out.names[x.k]=x.n; });
+  }catch(e){}
+  return out;
+}
+function widgetPush(force){
+  const P=widgetPlugin(); if(!P || st.preview) return;
+  const snap=widgetSnap(), data=JSON.stringify(snap);
+  if(!force && data===wdgLast) return;
+  wdgLast=data;
+  P.set({data, token:st.token||'', base:location.origin}).catch(()=>{});
+}
+/* a widget tapped: the app is told where to go by the shell */
+function lhaWidgetOpen(){
+  const P=widgetPlugin(); if(!P) return;
+  P.pending().then(r=>{ if(r && r.go) setTimeout(()=>openFromNotice(String(r.go), String(r.m||'')), 150); }).catch(()=>{});
+}
 let APLP=null, appleOK=false, appleBusy=false;
 function applePlugin(){
   if(!IOS_APP || !window.Capacitor) return null;
@@ -25327,6 +25382,7 @@ document.addEventListener('DOMContentLoaded',function(){
   rollTicks();
   render();
   trackOpen();
+  if(IOS_APP){ setTimeout(()=>{ try{ lhaWidgetOpen(); }catch(e){} }, 1200); setTimeout(()=>{ try{ widgetPush(true); }catch(e){} }, 6000); }
   if(st.token){ loadEntitlement(); loadSubmissions(); loadQuestions(); codeResume(); setTimeout(loadSign, 800); }
   /* notifications: is this phone on, and did one open the app */
   pushCheck();

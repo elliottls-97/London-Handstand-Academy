@@ -153,7 +153,7 @@ public class LadderStorePlugin: CAPPlugin, CAPBridgedPlugin {
 }
 
 /* The app's one screen, with the store, Sign in with Apple, the lock
-   screen session and the App Store stars added to the plugins Capacitor
+   screen session, the App Store stars and the widgets' data added to the plugins Capacitor
    already knows about. */
 public class MainViewController: CAPBridgeViewController {
     public override func capacitorDidLoad() {
@@ -161,5 +161,6 @@ public class MainViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(AppleSignInPlugin())
         bridge?.registerPluginInstance(LiveSessionPlugin())
         bridge?.registerPluginInstance(AppReviewPlugin())
+        bridge?.registerPluginInstance(WidgetDataPlugin())
     }
 }

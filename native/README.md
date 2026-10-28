@@ -72,6 +72,18 @@ build without it never shows a dead button.
   info@londonhandstandacademy.com are registered under Services, Sign in
   with Apple for Email Communication.
 
+## Widgets (from build 6, 1.0.1)
+
+Today (small, medium, Lock Screen), Check points (small, Lock Screen ring)
+and From Elliott (small, medium, Lock Screen), all in the SessionWidget
+extension beside the Live Activity. The page writes what they show into
+the app group `group.com.londonhandstandacademy.app` as it goes to the
+background (`WidgetData.swift`, `widgetPush()` in the page); From Elliott
+also asks `/api/app/widget` every half hour with the stored sign in. A tap
+opens `lhaapp://go?to=today|cps|chat|answer`, which the scene delegate
+hands to the plugin and the page reads with `pending()`. Both targets
+carry the app group entitlement; signing out clears it all.
+
 ## Rating the app (from build 6, 1.0.1)
 
 Apple's own stars sheet, asked after the sheet for a stage cleared or a
