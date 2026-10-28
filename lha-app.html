@@ -24194,7 +24194,7 @@ const TOURS = {
     ]
   }
 };
-let tourStep = 0, tourKey = null, tourBound = false;
+let tourStep = 0, tourKey = null, tourBound = false, tourFollowT = 0;
 
 /* ── what they have already been shown ────────────────────────────
    Two things used to start the whole tour again for somebody who had
@@ -24869,7 +24869,11 @@ function startTour(key){
   if(!tourBound){
     tourBound = true;
     window.addEventListener('resize', ()=>{ if(tourKey) paintTour(); });
+    /* a scroll anywhere, the page or a list inside it */
+    document.addEventListener('scroll', ()=>{ if(tourKey) tourPlace(); }, {capture:true, passive:true});
   }
+  clearInterval(tourFollowT);
+  tourFollowT = setInterval(()=>{ if(!tourKey){ clearInterval(tourFollowT); return; } try{ tourPlace(); }catch(e){} }, 300);
   drawTour();
 }
 function endTour(){
@@ -24954,6 +24958,49 @@ function drawTour(){
   setTimeout(paintTour, 140);
   setTimeout(paintTour, 380);
 }
+/* where the card's top edge really is: on an iPhone it sits above the
+   home bar, and the sum without it lit a strip of the page behind the card */
+function tourCardY(card){
+  const r = card ? card.getBoundingClientRect() : null;
+  return (r && r.height) ? r.top : window.innerHeight - 234;
+}
+/* the lit hole and the card's pointer, from where the target is now */
+function tourPlaceAt(el){
+  const hole = document.getElementById('tourHole'), card = document.getElementById('tourCard');
+  if(!hole || !card || !el) return;
+  const vhh = window.innerHeight, cardY = tourCardY(card);
+  const r = el.getBoundingClientRect();
+  const pad = 6;
+  const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
+  const w = Math.min(window.innerWidth - 8, r.width + pad*2);
+  /* never under the card: a target taller than the room above it shows
+     its top part, so nothing lit is hidden (Elliott, 18 Oct 2026). A full
+     screen one (the player) is lit whole, with the card over its foot. */
+  const full = r.height > vhh * .9;
+  const h = full ? Math.min(vhh - 8, r.height + pad*2) : Math.max(24, Math.min(r.height + pad*2, cardY - 12 - top));
+  const px = v => Math.round(v) + 'px';
+  /* the hole slides; CSS transitions carry it */
+  if(hole.style.top !== px(top)) hole.style.top = px(top);
+  if(hole.style.left !== px(left)) hole.style.left = px(left);
+  if(hole.style.width !== px(w)) hole.style.width = px(w);
+  if(hole.style.height !== px(h)) hole.style.height = px(h);
+  /* a pointer on the card's top edge, under the middle of what is lit, so
+     it is plain which part of the screen the words are about */
+  const cr = card.getBoundingClientRect(), cx = Math.max(28, Math.min(cr.width - 28, (left + w/2) - cr.left));
+  card.style.setProperty('--px', cx + 'px'); card.classList.toggle('tour-ptr', !full);
+}
+/* The lit part follows what it points at for as long as the step is up.
+   It was measured once, as the step opened, and on a phone the page is
+   still settling then: pictures arrive, the Learn rows come in over the
+   network, a scroll finishes. The hole stayed where the thing had been
+   (Elliott, 28 Oct 2026: "the show me around doesn't seem to be in right
+   places on the app train page"). This only moves the hole: it never
+   changes step or scrolls, so it cannot fight anything. */
+function tourPlace(){
+  if(!tourKey) return;
+  const step = tourSteps()[tourStep], el = step ? tourTarget(step) : null;
+  if(el && el.isConnected) tourPlaceAt(el);
+}
 /* the mode sheet is not part of a screen, so it is found by its own hook */
 function tourTarget(step){
   if(step.t==='modesheet' || step.t==='drilllist')
@@ -25026,15 +25073,16 @@ function paintTour(){
   if(!el){ endTour(); return; }
 
   const box = tourDom();
-  const hole = document.getElementById('tourHole');
   const card = document.getElementById('tourCard');
   /* The card always sits at the foot of the screen, every step of every
      tour (Elliott, 18 Oct 2026), so Next is always under the same thumb.
      What it points at is scrolled up clear of it. */
-  const chh = card.offsetHeight || 220, vhh = window.innerHeight;
+  card.style.top = 'auto';
+  card.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 14px)';
+  const vhh = window.innerHeight;
   /* the start of what it points at goes just under the top bar whenever
      any of it would sit behind the card or above the screen */
-  const cardY = vhh - chh - 14;
+  const cardY = tourCardY(card);
   { const r0 = el.getBoundingClientRect();
     const stick0=document.querySelector('#app .segstick'), top0=(stick0 && !stick0.contains(el)) ? stick0.getBoundingClientRect().bottom+4 : 70;
     if((r0.bottom > cardY - 12 || r0.top < top0) && r0.height < vhh * .9){
@@ -25046,32 +25094,7 @@ function paintTour(){
       const stick=document.querySelector('#app .segstick'), off=(stick && !stick.contains(el)) ? Math.round(stick.getBoundingClientRect().bottom)+10 : 96;
       try{ sc.scrollBy({top: r0.top - off, behavior:'instant'}); }catch(e){ try{ sc.scrollTop += r0.top - off; }catch(e2){} }
     } }
-  const r = el.getBoundingClientRect();
-  const pad = 6;
-  const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
-  const w = Math.min(window.innerWidth - 8, r.width + pad*2);
-  /* never under the card: a target taller than the room above it shows
-     its top part, so nothing lit is hidden (Elliott, 18 Oct 2026) */
-  const full = r.height > vhh * .9;
-  const h = full ? Math.min(window.innerHeight - 8, r.height + pad*2) : Math.max(24, Math.min(r.height + pad*2, cardY - 12 - top));
-  /* Below the hole if it fits, above if that fits. A target taller than
-     the screen (the whole ladder, the check points) fits neither, and the
-     card went to the top, over the part of the list it was talking about:
-     "where you are is the white one" sat on top of the white one. Those
-     get the card at the foot instead; a full screen one (the player) keeps
-     it at the top, where it always was. */
-
-  /* the hole and the card slide; CSS transitions carry them */
-  hole.style.top = top + 'px';
-  hole.style.left = left + 'px';
-  hole.style.width = w + 'px';
-  hole.style.height = h + 'px';
-  card.style.top = 'auto';
-  card.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 14px)';
-  /* a pointer on the card's top edge, under the middle of what is lit, so
-     it is plain which part of the screen the words are about */
-  { const cr = card.getBoundingClientRect(), cx = Math.max(28, Math.min(cr.width - 28, (left + w/2) - cr.left));
-    card.style.setProperty('--px', cx + 'px'); card.classList.toggle('tour-ptr', !full); }
+  tourPlaceAt(el);
 
   const n = tourStep + 1, of = steps.length;
   const def = TOURS[tourKey]||{};
