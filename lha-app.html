@@ -2388,7 +2388,12 @@ if(PREVIEW){
   /* straight to Train, the quiz answered, rather than a stranger's first visit */
   if(PREVIEW_ALL) Object.assign(st, {quizDone:true, oriented:true, mode:'free', tab:'home', intake:{level:0, goal:'learn', placedBy:'preview'}});
 }
-function save(){ try{ localStorage.setItem(K,JSON.stringify(st)); }catch(e){} }
+function save(){ try{ localStorage.setItem(K,JSON.stringify(st)); }catch(e){}
+  /* a sign in just arrived: notifications turned on before there was an
+     account (after the quiz) are handed to the server now (28 Oct 2026) */
+  if(st.token && st.token!==save._tok){ const first=save._tok===undefined; save._tok=st.token;
+    if(!first && st.pushEarly) setTimeout(()=>{ try{ pushCheck(); }catch(e){} }, 400); }
+  else if(!st.token) save._tok=null; }
 st.tab=st.tab||'today'; st.day=st.day|0; st.tick=st.tick||{}; st.rate=st.rate||{};
 st.note=st.note||{}; st.open=st.open||{}; st.why=st.why||{};
 /* which calendar day the ticks on screen belong to, and which day of the
@@ -11133,7 +11138,14 @@ let bookingsAsked=false;
 function loadBookings(){
   if(!st.token) return;
   fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ st.bookings=d.bookings||[]; st.sessCredits=d.credits||null; save(); if(!st.ov) render(); } }).catch(()=>{});
+    .then(d=>{ if(d){ st.bookings=d.bookings||[]; st.sessCredits=d.credits||null;
+      /* somebody whose only history here is a booking (a class or a 1-2-1
+         booked on the website) opens In person, once; their choice after
+         that is theirs */
+      if(st.viewChosen==null && !st.in && !quizzed() && !((st.prog&&st.prog.sessions)||[]).length && st.bookings.length){
+        st.viewChosen='auto'; st.inPerson=true; st.quizDone=true; st.oriented=true; if(!st.mode) st.mode='free';
+        if(['home','ladder','coaching','quiz','start'].indexOf(st.tab)>-1) st.tab='classes'; }
+      save(); if(!st.ov) render(); } }).catch(()=>{});
 }
 /* One cancel at a time. Two taps sent two requests, both found the same
    booking, and both asked Stripe to refund the same payment. Stripe refuses
@@ -11566,20 +11578,22 @@ function moreBody(all, cards){
       ${filmQCard()}
 
       ${st.in?`<div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
-        color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>
-      <div class="card" style="padding:16px 18px;margin-bottom:16px">
-        <div class="kick2">WHICH APP</div>
-        <div style="display:flex;gap:8px;margin-top:11px">
-          ${[[false,'My coaching'],[true,'The ladder']].map(([f,l])=>
-            `<button onclick="switchView(${f})" style="flex:1;cursor:pointer;border-radius:14px;
-              padding:12px 8px;font:500 13.5px/1 var(--sans);
-              border:1.5px solid ${(!!st.asFree)===f?'var(--forest)':'rgba(28,32,25,.16)'};
-              background:${(!!st.asFree)===f?'var(--forest)':'#fff'};
-              color:${(!!st.asFree)===f?'var(--bg)':'var(--ink)'}">${l}</button>`).join('')}
+        color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>`:''}
+      ${/* the ways to use the app, for everybody: the Ladder, In person
+            (28 Oct 2026), and a coached client's own programme */''}
+      ${(()=>{ const cur = inPersonView() ? 'inperson' : coachedView() ? 'coaching' : 'ladder';
+        const opts=[...(st.in?[['coaching','My coaching']]:[]),['ladder','The Ladder'],['inperson','In person']];
+        return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
+        <div class="kick2">HOW YOU USE IT</div>
+        <div role="radiogroup" aria-label="How you use the app" style="display:flex;gap:4px;margin-top:11px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px">
+          ${opts.map(([k,l])=>`<button role="radio" aria-checked="${cur===k}" onclick="setView('${k}')" style="flex:1;min-height:40px;border:0;border-radius:11px;cursor:pointer;
+            font:600 13px/1.1 var(--sans);background:${cur===k?'#fff':'transparent'};color:${cur===k?'var(--deep)':'var(--grey)'};
+            box-shadow:${cur===k?'0 1px 2px rgba(17,17,17,.08)':'none'}">${l}</button>`).join('')}
         </div>
-        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">
-          Your programme is always here. The ladder is the six-stage version,
-          and some people like having both.</div></div>`:''}
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">${
+          cur==='inperson' ? 'Classes, your bookings and 1-2-1s. The Ladder is still here whenever you want it.'
+          : cur==='coaching' ? 'Your programme. The Ladder and In person are here too.'
+          : 'Training on your own. In person is classes and 1-2-1s at OverGravity.'}</div></div>`; })()}
       <!-- the drill library: for somebody who has trained and has an account
            (a coaching client always), and folded until they open it -->
       ${(st.in || libShown()) ? `<button onclick="st.drillLibOpen=!st.drillLibOpen;save();paintMenu()" aria-expanded="${!!st.drillLibOpen}"
@@ -16297,6 +16311,11 @@ function skillStepView(a){
 }
 
 const INTAKE_STEPS=[
+  /* first, how they want to train (Elliott, 28 Oct 2026: "the classes and
+     1-2-1s will come before that step"): in person goes straight to its own
+     view with nothing more to answer; the app carries on to the goal */
+  {id:'how',   kick:'HOW YOU TRAIN',  q:'How do you want to train?',
+   sub:'You can switch any time in the menu.'},
   {id:'goal',  kick:'WHAT YOU WANT',  q:'What are you here to achieve?',
    sub:'This shapes how I explain things, not where you start.'},
   {id:'level', kick:'WHERE YOU ARE',  q:'Tell us about your handstand.',
@@ -16319,6 +16338,7 @@ const INTAKE_STEPS=[
    there doing nothing */
 function stepAnswered(i){
   const a=intake(), id=(INTAKE_STEPS[i]||{}).id;
+  if(id==='how')     return !!a.how;
   if(id==='goal')    return !!a.goal;
   if(id==='level')   return skillNext(skillsOf(a))<0 && a.level!=null;
   /* answered, and the own-risk box ticked */
@@ -16380,10 +16400,12 @@ function quizCount(){
   const n = skillNext(s);
   const others = INTAKE_STEPS.length-1;
   let skills, at, open=false;
-  if(step.id==='goal'){ skills=SK.filter(q=>!skip(q)).length; at=1; open=true; }
+  /* how they train comes first (28 Oct 2026), so the goal is the second */
+  if(step.id==='how'){ skills=SK.filter(q=>!skip(q)).length; at=1; open=true; }
+  else if(step.id==='goal'){ skills=SK.filter(q=>!skip(q)).length; at=2; open=true; }
   else if(step.id==='level'){
-    if(n<0){ skills=asked; at=1+asked; }
-    else { skills=asked+SK.slice(n).filter(q=>!skip(q)).length; at=1+asked+1; open=true; }
+    if(n<0){ skills=asked; at=2+asked; }
+    else { skills=asked+SK.slice(n).filter(q=>!skip(q)).length; at=2+asked+1; open=true; }
   } else {
     skills=Math.max(1, asked);
     at=1+skills+INTAKE_STEPS.slice(0,i).filter(x=>x.id!=='goal'&&x.id!=='level').length+1;
@@ -16397,9 +16419,14 @@ function screenQuiz(){
   const QC=quizCount();
   /* while the skill questions run the total is only a most, and it read
      1 of 8, 2 of 7, then 3 of 3; until it is known the bar grows instead */
-  const rails=Array.from({length:QC.open?QC.at+1:QC.of},(_,n)=>`<i style="flex:1;height:4px;border-radius:99px;
-    background:${n<QC.at-1?'#8fe3d6':n===QC.at-1?'var(--amber)':'rgba(255,255,255,.22)'};${
-    n===QC.at-1&&fresh?'transform-origin:left;animation:qRail .7s cubic-bezier(.2,.8,.2,1) both':''}"></i>`).join('');
+  /* one bar that fills, against the most questions there could be. It was
+     a segment per question with one added as each arrived while the total
+     was unknown, so every answer grew the bar and the quiz looked longer
+     the further in you got (Elliott, 28 Oct 2026). */
+  const frac=Math.max(0, Math.min(1, (QC.at-1)/Math.max(1,QC.of))), was=Math.max(0, Math.min(1, (QC.at-2)/Math.max(1,QC.of)));
+  const rails=`<i style="flex:1;height:4px;border-radius:99px;background:rgba(255,255,255,.22);position:relative;overflow:hidden">
+    <b style="position:absolute;left:0;top:0;bottom:0;width:${(Math.max(frac,.04)*100).toFixed(1)}%;border-radius:99px;background:#8fe3d6;
+      ${fresh?`transition:width .6s cubic-bezier(.2,.8,.2,1)`:''}" data-was="${(was*100).toFixed(1)}"></b></i>`;
   /* the tick is drawn, so the pressed state has to be said as well */
   const card=(on,body,click,k)=>`<button class="qup" onclick="${click}" aria-pressed="${on?'true':'false'}"
     style="animation-delay:${90+k*60}ms;background:#fff;
@@ -16416,6 +16443,9 @@ function screenQuiz(){
     <div style="font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">${esc(d)}</div>`;
 
   let body='';
+  if(step.id==='how') body=
+    card(a.how==='app', two('On my own, with the app','The Handstand Ladder, a session for every day. Foundations is free.'), `quizMove(1,()=>pickIntake('how','app'),this)`, 0)
+    + card(a.how==='inperson', two('In person, classes and 1-2-1s','At OverGravity in Shadwell. Book and manage them here.'), `enterInPerson()`, 1);
   if(step.id==='goal') body=GOALS.map((g,k)=>
     card(a.goal===g.v, two(g.t,g.d), `quizMove(1,()=>pickIntake('goal','${g.v}'),this)`, k)).join('');
 
@@ -16519,7 +16549,7 @@ function pickIntake(k,v){
   intake()[k]=v;
   if(k==='goal') quizLadder(v);
   save();
-  if(k==='goal'||k==='level'){ nextIntake(); return; }
+  if(k==='how'||k==='goal'||k==='level'){ nextIntake(); return; }
   render();
 }
 function safePain(v){
@@ -16540,7 +16570,7 @@ function toggleNiggle(x){
 }
 function nextIntake(){
   const a=intake();
-  if(!a.niggles && (st.quizStep|0)===2) a.niggles=[];
+  if(!a.niggles && (INTAKE_STEPS[st.quizStep|0]||{}).id==='niggles') a.niggles=[];
   st.quizStep=Math.min((st.quizStep|0)+1, INTAKE_STEPS.length-1); save(); render();
 }
 /* Some people will not answer three questions and should not be made to. The
@@ -17433,6 +17463,7 @@ function screenOriented(){
           border-radius:14px;cursor:pointer;background:#fff;color:var(--deep);font:600 15px/1 var(--sans)">See coaching</button>
       </div>`:''}
 
+    ${pushQuizHTML()}
     </div></div>
 
     <!-- The film went to the top, which is right, and it pushed the way out
@@ -19068,7 +19099,32 @@ function copyAppLink(b){
   const said=t=>{ if(b) b.textContent=t; };
   try{ navigator.clipboard.writeText(u).then(()=>said('Copied. Open Safari and paste it'), ()=>said(u)); }catch(e){ said(u); }
 }
+/* ── the iPhone app, for an iPhone browser ───────────────────────────
+   In the App Store since 28 Oct 2026: on an iPhone the web app points at
+   it, where it used to ask for Add to Home Screen (Elliott: "put on the
+   web app a button to download the apple app store version"). Not in the
+   iPhone app itself, and put away for a week on Not now. */
+function appStoreBanner(){
+  if(IOS_APP || st.preview) return '';
+  let ios=false; try{ ios=isIOS(); }catch(e){} if(!ios) return '';
+  if(st.storeLater && Date.now()-st.storeLater < 7*864e5) return '';
+  return `<div class="pad" style="padding-top:16px"><div class="card" style="padding:15px 16px;display:flex;gap:13px;align-items:center">
+    <img src="/icons/icon-180.png" alt="" width="52" height="52" style="flex:none;border-radius:12px;display:block">
+    <div style="flex:1;min-width:0">
+      <div style="font:600 14.5px/1.3 var(--sans)">Get the iPhone app</div>
+      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:3px">Free on the App Store. ${st.token?'Sign in with the same email and it all comes with you.':'Your progress comes with you once it is saved.'}</div>
+      <div style="display:flex;gap:14px;margin-top:10px;align-items:center">
+        <a href="${APP_STORE_URL}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+          background:#000;color:#fff;border:1.5px solid #a6a6a6;border-radius:10px;padding:6px 12px 6px 7px">
+          <img src="/icons/icon-180.png" alt="" width="24" height="24" style="border-radius:6px;display:block">
+          <span style="display:flex;flex-direction:column;font-family:-apple-system,'Helvetica Neue',sans-serif;line-height:1">
+            <small style="font-size:9.5px;font-weight:500">Now on the</small><b style="font-size:15px;font-weight:600;margin-top:1px">App Store</b></span></a>
+        <button onclick="st.storeLater=Date.now();save();render()" style="border:0;background:none;cursor:pointer;
+          padding:6px 0;font:600 12.5px/1 var(--sans);color:var(--grey)">Not now</button>
+      </div></div></div></div>`;
+}
 function homeScreenCard(){
+  { let ios=false; try{ ios=isIOS(); }catch(e){} if(ios && !IOS_APP) return appStoreBanner(); }
   if(st.preview || isStandalone()) return '';
   let ios=false, phone=false; try{ ios=isIOS(); phone=ios || /android/i.test(navigator.userAgent); }catch(e){}
   if(!phone && !installPrompt) return '';
@@ -19875,11 +19931,90 @@ function classesCardHTML(max, where){
         font:600 13.5px/1 var(--sans)">${full?'Wait list':'Book'}</button>
     </div>`;
   };
-  return `<div class="card" style="padding:16px 18px 8px">
-    <div class="kick2">${quiet?'IN PERSON':'CLASSES'} &middot; ${esc((list[0].place||'OverGravity, Shadwell').toUpperCase())}</div>
-    <div style="font:400 ${quiet?22:26}px/1.1 var(--serif);margin:8px 0 10px">${quiet?'Train with us in <em style="color:var(--forest);font-style:normal">person.</em>':'Come to a <em style="color:var(--forest);font-style:normal">class.</em>'}</div>
-    ${list.map(row).join('')}
+  return `<div class="card" style="padding:${where==='page'?'6px':'16px'} 18px 8px">
+    ${where==='page'?'':`<div class="kick2">${quiet?'IN PERSON':'CLASSES'} &middot; ${esc((list[0].place||'OverGravity, Shadwell').toUpperCase())}</div>
+    <div style="font:400 ${quiet?22:26}px/1.1 var(--serif);margin:8px 0 10px">${quiet?'Train with us in <em style="color:var(--forest);font-style:normal">person.</em>':'Come to a <em style="color:var(--forest);font-style:normal">class.</em>'}</div>`}
+    ${list.map(row).join('').replace(where==='page'?'border-top:1px solid rgba(0,64,61,.08)':'\u0000','')}
   </div>`;
+}
+/* ── In person: classes, bookings and 1-2-1s ────────────────────────
+   A third way to use the app, beside the Ladder and coaching (Elliott,
+   28 Oct 2026: "some people will just want to go on to manage 1-2-1s and
+   classes"). Three tabs: the classes on sale, their own bookings, and a
+   1-2-1, which is paid for and then the time agreed in the chat, as on the
+   website. Chosen at the quiz's first question or from the menu; an
+   account whose only history is a booking opens here. All in person, so
+   Apple allows paying for it in the app. */
+const inPersonView = () => !!st.inPerson && !coachedView() && !(typeof awaitingBlock==='function' && awaitingBlock());
+/* the price of something done in person: shown in the iPhone app too,
+   where PRICE() stays empty for anything Apple would bill */
+const ipPrice = k => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
+function setView(v){
+  st.viewChosen = v;
+  st.inPerson = v==='inperson';
+  if(st.in) st.asFree = v!=='coaching';
+  if(v==='inperson'){ st.quizDone=true; st.oriented=true; if(!st.mode) st.mode='free'; }
+  save(); try{ closeOv(); }catch(e){} closeMenu();
+  go(v==='inperson' ? 'classes' : v==='coaching' ? 'today' : 'home');
+}
+/* from the quiz's first question: no stage to place, nothing more to ask */
+function enterInPerson(){
+  const a=intake(); a.how='inperson'; save();
+  try{ sendIntake(); }catch(e){}
+  setView('inperson');
+}
+function ipHead(kick, h){
+  return `<div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">${kick}</div>
+    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:8px">${h}</div></div>`;
+}
+const ipEm = w => `<em style="color:var(--forest);font-style:normal">${w}</em>`;
+function ipEmpty(h, line, btn){
+  return `<div class="card" style="padding:20px 20px 18px">
+    <div style="font:400 22px/1.2 var(--serif)">${h}</div>
+    ${line?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${line}</div>`:''}
+    ${btn||''}</div>`;
+}
+/* the way on to the Ladder, once per screen */
+function ipLadderLine(){
+  return `<button onclick="setView('ladder')" style="width:100%;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;
+    background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:20px;padding:15px 16px;box-shadow:0 1px 2px rgba(0,64,61,.05)">
+    <span style="flex:1;min-width:0"><span style="display:block;font:600 14.5px/1.3 var(--sans);color:var(--ink)">Train between sessions</span>
+      <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">The Handstand Ladder, Foundations free.</span></span>
+    <span style="flex:none;font:400 18px/1 var(--sans);color:var(--grey2)">&rsaquo;</span></button>`;
+}
+function screenClasses(){
+  const card=classesCardHTML(12,'page');
+  return `<div class="scroll s">${ipHead('In person &middot; OverGravity, Shadwell','Come to a '+ipEm('class.'))}
+    ${(()=>{ const q=pushQuizHTML(); return q?`<div class="pad">${q}</div>`:''; })()}
+    <div class="pad" style="padding-top:18px">${card || ipEmpty('No dates on sale right now.','New ones show here first.')}</div>
+    <div class="pad" style="padding-top:14px">${ipLadderLine()}</div>
+    <div style="height:120px"></div></div>`;
+}
+function screenBookings(){
+  const signIn=`<button class="btn" style="width:100%;margin-top:14px" onclick="st.signinFrom='bookings';st.tab='signin';save();render()">Sign in</button>`;
+  const list = st.token ? bookingsHTML() : '';
+  return `<div class="scroll s">${ipHead('In person','Your '+ipEm('bookings.'))}
+    <div class="pad" style="padding-top:18px">${!st.token ? ipEmpty('Sign in to see them.','Use the email you booked with.', signIn)
+      : list || ipEmpty('Nothing booked yet.','Your classes and 1-2-1s show here, with the date, the place and a way to change them.',
+        `<button class="btn" style="width:100%;margin-top:14px" onclick="go('classes')">See the classes</button>`)}</div>
+    <div style="height:120px"></div></div>`;
+}
+function screenSessions(){
+  const next=nextSessionHTML();
+  const opt=(k,l)=>`<button onclick="leaveTo('/session.html?kind=${k}')" style="flex:1;min-height:56px;border-radius:16px;cursor:pointer;
+    border:0;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);box-shadow:0 10px 24px rgba(0,102,99,.25);
+    font:600 15px/1.2 var(--sans)">${l}${ipPrice('session'+k)?'<span style="display:block;font:500 12.5px/1 var(--sans);opacity:.85;margin-top:5px">'+esc(ipPrice('session'+k))+'</span>':''}</button>`;
+  return `<div class="scroll s">${ipHead('1-2-1 &middot; OverGravity, Shadwell','One to '+ipEm('one.'))}
+    ${next?`<div class="pad" style="padding-top:18px">${next}</div>`:''}
+    <div class="pad" style="padding-top:18px"><div class="card" style="padding:18px 20px">
+      <div style="font:400 15px/1.5 var(--sans);color:var(--ink)">An hour or ninety minutes with ${esc(coachLabel())}, on whatever is in your way.
+        Pay, and we agree the time in the chat within 48 hours.</div>
+      <div style="display:flex;gap:10px;margin-top:16px">${opt(60,'60 min')}${opt(90,'90 min')}</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:12px">Credited if you start coaching within 14 days.</div>
+    </div></div>
+    <div class="pad" style="padding-top:14px">${ipLadderLine()}</div>
+    <div style="height:120px"></div></div>`;
 }
 /* one line on Today, so a dismissed advert is not a lost one */
 function workshopStrip(){
@@ -23571,7 +23706,9 @@ const TABS={
   /* Progress used to be its own tab and the ladder is where a free client
      actually lives, so the two were competing for the same trip. Progress is
      the second half of the ladder screen now. Four tabs, not five. */
-  free:[['home','Train'],['ladder','Progress'],['coaching','Coaching']]
+  free:[['home','Train'],['ladder','Progress'],['coaching','Coaching']],
+  /* In person (28 Oct 2026) */
+  inperson:[['classes','Classes'],['bookings','Bookings'],['sessions','1-2-1']]
 };
 /* Has Elliott ever written back about a clip of theirs? Until he has, the
    coaching tab is an advert, and a tab that is an advert gets ignored.
@@ -24026,8 +24163,8 @@ function topBar(){
         stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>`}
     ${/* the two ladders, on every tab (Elliott, 24 Oct 2026: "at the very
           top menu bar, so they are persistent") */''}
-    ${(MU_ON && !coachedView() && st.tab!=='press')?`<span style="flex:1;min-width:0;display:flex">${ladderSwitchHTML(true)}</span>`
-    :(tourOffer() && !coachedView() && !wkI)?`<span style="flex:1;min-width:0"><button onclick="showTour()" style="${chip};height:36px;
+    ${(MU_ON && !coachedView() && !inPersonView() && st.tab!=='press')?`<span style="flex:1;min-width:0;display:flex">${ladderSwitchHTML(true)}</span>`
+    :(tourOffer() && !coachedView() && !inPersonView() && !wkI)?`<span style="flex:1;min-width:0"><button onclick="showTour()" style="${chip};height:36px;
       border-radius:999px;padding:0 14px;display:inline-flex;align-items:center;gap:7px;font:600 12.5px/1 var(--sans)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/>
@@ -24380,7 +24517,18 @@ function nativeListen(){
   });
 }
 async function nativeTurnOn(ask){
-  if(!st.token){ if(ask) goJoin(); return; }
+  /* asked before there is an account (straight after the quiz): the phone
+     says yes or no now, and the phone is handed to the server the moment
+     an account exists (save() sees the sign in arrive) */
+  if(!st.token){
+    if(!ask) return;
+    try{ const P=Capacitor.Plugins.PushNotifications;
+      let p=await P.checkPermissions(); if(/prompt/.test(p.receive)) p=await P.requestPermissions();
+      st.nativePerm=p.receive; st.pushEarly = p.receive==='granted'; save();
+      toast(p.receive==='granted' ? 'Turned on.' : p.receive==='denied' ? 'Notifications are off for this app. Turn them on in Settings, then Handstand.' : 'Not turned on.');
+    }catch(e){}
+    pushPaint(); if(!st.ov) render(); return;
+  }
   /* turned off in the app: opening it again must not quietly turn it back on */
   if(!ask && st.pushOff){ pushOn=false; pushKept(false); pushPaint(); return; }
   if(ask && st.pushOff){ st.pushOff=false; save(); }
@@ -24878,6 +25026,32 @@ function chatPushBar(){
 function pushPaint(){ const el=document.getElementById('pushbox'); if(el) el.outerHTML=pushBoxHTML();
   /* whether a notification choice can reach this phone just changed */
   ['replies','reminders'].forEach(paintVia); }
+/* ── straight after the quiz ────────────────────────────────────────
+   Elliott, 28 Oct 2026: ask for notifications after the quiz. Shown on the
+   screen that says where they landed (and on Classes for somebody who
+   chose In person), once. In the iPhone app the phone can say yes before
+   there is an account; in a browser a notification needs one, so there it
+   waits for the account like everywhere else. */
+function pushQuizHTML(){
+  if(st.preview || st.pushQuizDone) return '';
+  let can=false;
+  if(nativePush()) can = !(st.pushOk || st.pushOff || (st.nativePerm && !/prompt/.test(st.nativePerm)));
+  else { try{ can = !!st.token && pushSupported() && Notification.permission==='default'; }catch(e){ can=false; } }
+  if(!can) return '';
+  const ip=inPersonView();
+  return `<div id="pushquiz" class="card" style="margin-top:20px;padding:16px 18px;display:flex;gap:13px;align-items:center;border:1.5px solid rgba(0,102,99,.22)">
+    <span style="flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:rgba(0,102,99,.1);color:var(--forest)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span>
+    <div style="flex:1;min-width:0">
+      <div style="font:600 14.5px/1.3 var(--sans)">${ip?'Hear when new class dates go up':'A nudge on your training days'}</div>
+      <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${ip?'And a reminder the day before you come.':'And the moment '+esc(coachLabel())+' replies to a clip.'}</div>
+      <div style="display:flex;gap:16px;margin-top:10px;align-items:center">
+        <button onclick="st.pushQuizDone=1;save();pushTurnOn()" style="border:0;border-radius:11px;cursor:pointer;padding:9px 14px;
+          background:var(--forest);color:var(--on-primary);font:600 12.5px/1 var(--sans)">Turn on</button>
+        <button onclick="st.pushQuizDone=1;save();const c=document.getElementById('pushquiz');if(c)c.remove()" style="border:0;background:none;cursor:pointer;
+          padding:6px 0;font:600 12.5px/1 var(--sans);color:var(--grey)">Not now</button>
+      </div></div></div>`;
+}
 /* the question, asked once where it is worth asking, and put away for a fortnight on Not now */
 function pushNudge(){
   if(!st.token || st.preview || !pushSupported()) return '';
@@ -24923,6 +25097,7 @@ function openFromNotice(where, mid){
    A phone in a browser tab gets this near the top until the app is on
    the Home Screen. Not now puts it away for a week, not for ever. */
 function installNudge(){
+  { let ios=false; try{ ios=isIOS(); }catch(e){} if(ios && !IOS_APP) return appStoreBanner(); }
   if(st.preview || isStandalone() || wide()) return '';
   let phone=false; try{ phone=isIOS() || /android/i.test(navigator.userAgent); }catch(e){}
   if(!phone) return '';
@@ -25422,7 +25597,10 @@ function render(){
   /* Paid for coaching, no programme yet: one page of what to do before
      block one, and the chat. The ladder and everything else wait. */
   const onboarding = !coached && awaitingBlock();
-  const screens=coached
+  const inPerson = inPersonView();
+  const screens=inPerson
+    ? {classes:screenClasses,bookings:screenBookings,sessions:screenSessions,more:screenMore,fix:screenFix}
+    : coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix,press:screenPress}
     : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress}
     : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress};
@@ -25432,7 +25610,8 @@ function render(){
   /* Progress moved inside the ladder. Anyone whose last tab was Progress
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
-  const tabs=onboarding ? [['start','Start'],['home','Train'],['ladder','Progress'],['coaching','Chat']]
+  const tabs=inPerson ? TABS.inperson
+    : onboarding ? [['start','Start'],['home','Train'],['ladder','Progress'],['coaching','Chat']]
     : TABS[coached?'coached':'free'].map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l])
     /* a session buyer who has not taken the quiz has no stage yet, so no
