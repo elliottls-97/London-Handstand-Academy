@@ -9804,6 +9804,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       '2563624790ac1efb8db57988e8594d01',   /* knee to chest kick ups */
       '51a36a15330dd845d7099de1712cf8d2',   /* wall kick ups */
       '41ee75425ffdb75af7c5122ad7823770'],  /* wall kick ups with a foam block */
+    'falling-the-quick-version': [
+      'dd9bd98c29500b6500d646be9dd6ee6f',   /* a full cartwheel: the cover */
+      '692ed8ab7e701e52ea14fe5e88103585',   /* basic bail outs */
+      '045869a0384df496680feb0922bf0acb',   /* cartwheels */
+      '843bc9940391615a0da8bc40fc061572',   /* kick up bounces */
+      '362da5a70cede1b49229a635829656ca'],  /* chest to wall bail outs */
   };
   if (path === '/learn/films' && request.method === 'GET') {
     const list = LEARN_FILMS[String(url.searchParams.get('page') || '')] || [];

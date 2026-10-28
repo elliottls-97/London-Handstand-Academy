@@ -151,7 +151,9 @@ SCRIPT = """<script>
   /* in the app the last card closes the story, rather than only starting it
      again (Elliott, 28 Oct 2026: "there is no way to get back once im done") */
   root.querySelectorAll('[data-done]').forEach(function(b){ b.addEventListener('click',function(){
-    try{ if(window.parent && window.parent!==window && window.parent.fxReadClose){ window.parent.fxReadClose(); return; } }catch(e){}
+    try{ var P=window.parent; if(P && P!==window){
+      if(P.fxQuickBack && P.fxQuickBack()) return;
+      if(P.fxReadClose){ P.fxReadClose(); return; } } }catch(e){}
     history.back(); }); });
   document.addEventListener('keydown',function(e){
     if(e.target.closest && e.target.closest('input,textarea,select')) return;
@@ -326,6 +328,35 @@ STORIES = {
         ],
         app_line='Kick up bounces, bunny hops, knee to chest and wall kick ups are all in your Foundations sessions.',
         safe='Warm up first, and try both sides.'),
+
+    'falling-the-quick-version': dict(
+        title='Falling, the quick version', published='2026-10-28', modified='2026-10-28', wide=True, site=HAND,
+        desc=("How to fall out of a handstand safely, the quick version: basic bail outs, cartwheels, kick up bounces, "
+              "bailing out on the way to the wall and a partner spot, until falling is light and automatic."),
+        note='(Elliott, 28 Oct 2026: the falling article "as option to view",\n     a summary of it in his words). Mostly landscape films.',
+        cards=[
+            (film('dd9bd98c29500b6500d646be9dd6ee6f', 23.6, 'A cartwheel out of a handstand', frm=19.5, wide=True),
+             'Learn · Falling', 'Make the fall light, then', 'automatic.',
+             'Five steps, over a few weeks, until coming down is nothing. Then balance can start.', 'h1', GO),
+            (film('692ed8ab7e701e52ea14fe5e88103585', 13.6, 'A basic bail out: jump, turn to the side, land', frm=10.3),
+             '1 of 5', 'Basic bail', 'outs.',
+             'Shoulders over the hands, hips high. Jump up a little, turn to the side, land on your feet.'),
+            (film('045869a0384df496680feb0922bf0acb', 39.3, 'A low cartwheel out to the side', frm=33, wide=True),
+             '2 of 5', 'Cartwheels, any', 'kind.',
+             "It doesn't have to be pretty. Hips over the shoulders, out to the side, never over the top."),
+            (film('843bc9940391615a0da8bc40fc061572', 11.6, 'Kick up bounces: up, down light, again', frm=0, wide=True),
+             '3 of 5', 'Kick up', 'bounces.',
+             'Kick up, come down light, straight back up, a bit bigger each time. Biceps forward, arms straight.'),
+            (film('362da5a70cede1b49229a635829656ca', 29.3, 'Bailing out of a chest to wall handstand, one leg out', wide=True),
+             '4 of 5', 'Bail out on the way to the', 'wall.',
+             'Walk in closer step by step, and crawl out to the side at each one. Then you always know the way down.'),
+            (ph('Spot', 'Film to come', wide=True), '5 of 5', 'Kick up with a', 'partner.',
+             "They guide your legs down, then just say the word, then step back, until it's just you."),
+            (ph('Light', 'Then automatic', solid=True, wide=True), 'The point of all five', 'Then balance can', 'start.',
+             'Once falling out takes no thought, you stop thinking about falling and start thinking about holding.'),
+        ],
+        app_line='Bail outs, cartwheels, bounces and chest to wall bail outs are all in Learn to Fall.',
+        safe='Make it light. If it feels like effort, make it smaller.'),
 }
 
 
