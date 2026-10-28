@@ -525,6 +525,8 @@ private func runLine(_ s: WSnap?) -> String {
     let r = s?.run ?? 0
     return r >= 2 ? "\(r) weeks running" : r == 1 ? "1 week done" : "Start your run"
 }
+/* before any reading there is no nearest one: the first still to do */
+private func firstOpen(_ s: WSnap?) -> String? { s?.cps?.first(where: { $0.met != true })?.n }
 private func nearValue(_ n: WNear) -> String {
     let v = n.v.map { $0 == $0.rounded() ? String(Int($0)) : String($0) } ?? ""
     let t = n.target.map { $0 == $0.rounded() ? String(Int($0)) : String($0) } ?? ""
@@ -537,11 +539,12 @@ private func nearValue(_ n: WNear) -> String {
 struct TodayBlock: View {
     let e: LHAEntry
     var big = false
+    var short = false
     var body: some View {
         let d = dayFor(e.snap, e.date), rest = d?.rest == true
         let focus = (d?.focus ?? []).joined(separator: " \u{00B7} ")
         VStack(alignment: .leading, spacing: 3) {
-            Kicker(text: rest ? "Rest day" : (e.snap?.stage.map { "Today \u{00B7} " + $0 } ?? "Today"))
+            Kicker(text: rest ? "Rest day" : short ? "Today" : (e.snap?.stage.map { "Today \u{00B7} " + $0 } ?? "Today"))
             Text(d?.title ?? "Your session").font(.system(size: big ? 26 : 22, weight: .regular, design: .serif))
                 .foregroundColor(ink).lineLimit(2).minimumScaleFactor(0.75)
             if let sub = d?.sub ?? d?.line, !sub.isEmpty {
@@ -602,7 +605,7 @@ struct TodayView: View {
             if e.snap == nil { OpenOnce(what: "Open the app once and today's session shows here.").lhaGround(ground) }
             else {
                 VStack(alignment: .leading, spacing: 0) {
-                    TodayBlock(e: e)
+                    TodayBlock(e: e, short: true)
                     Spacer(minLength: 4)
                     HStack {
                         if !mins.isEmpty && !rest { Text(mins).font(.system(size: 12, weight: .semibold)).foregroundColor(deep) }
@@ -636,6 +639,7 @@ struct Dashboard: View {
                     }
                 }
             }
+            Spacer(minLength: 2)
             Divider().overlay(faint)
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -646,6 +650,7 @@ struct Dashboard: View {
                 .frame(width: 112, alignment: .leading)
                 WeekStrip(snap: e.snap, date: e.date, dot: 12)
             }
+            Spacer(minLength: 2)
             Divider().overlay(faint)
             Link(destination: URL(string: "lhaapp://go?to=cps")!) {
                 HStack(spacing: 12) {
@@ -661,18 +666,21 @@ struct Dashboard: View {
                             LineBar(f: n.f ?? 0)
                         } else {
                             Kicker(text: "Check points", color: grey)
-                            Text((e.snap?.met ?? 0) >= (e.snap?.of ?? 1) && (e.snap?.of ?? 0) > 0 ? "All reached. Stage cleared." : "Log one when you can do it.")
+                            Text((e.snap?.met ?? 0) >= (e.snap?.of ?? 1) && (e.snap?.of ?? 0) > 0 ? "All reached. Stage cleared."
+                                 : (firstOpen(e.snap).map { "Next up: " + $0 } ?? "Log one when you can do it."))
                                 .font(.system(size: 13, weight: .semibold)).foregroundColor(ink).lineLimit(1)
                         }
                     }
                 }
             }
+            Spacer(minLength: 2)
             Divider().overlay(faint)
             Link(destination: URL(string: "lhaapp://go?to=chat")!) {
                 CoachLine(e: e)
             }
             if let c = cls, let when = classDate(c) {
-                Divider().overlay(faint)
+                Spacer(minLength: 2)
+            Divider().overlay(faint)
                 Link(destination: URL(string: "lhaapp://go?to=class&m=" + (c.slug?.s ?? ""))!) {
                     HStack(spacing: 8) {
                         Kicker(text: "Next class", color: grey)
@@ -682,7 +690,6 @@ struct Dashboard: View {
                     }
                 }
             }
-            Spacer(minLength: 0)
         }
     }
 }
@@ -818,6 +825,9 @@ struct CheckpointsView: View {
                             LineBar(f: n.f ?? 0)
                             Text(nearValue(n)).font(.system(size: 10.5, weight: .semibold)).foregroundColor(teal).lineLimit(1).fixedSize()
                         }
+                    } else if !cleared, let f = firstOpen(e.snap) {
+                        Kicker(text: "Next up", color: grey)
+                        Text(f).font(.system(size: 12.5, weight: .semibold)).foregroundColor(ink).lineLimit(2)
                     } else {
                         Text(cleared ? "Stage cleared" : (e.snap?.stage ?? "Check points"))
                             .font(.system(size: 13, weight: .semibold)).foregroundColor(cleared ? teal : ink).lineLimit(1)
