@@ -351,6 +351,17 @@ html.inapp .sc-site,html:not(.inapp) .sc-app{display:none!important}
   var deck=root.querySelector('.st-deck'), cards=[].slice.call(root.querySelectorAll('.sc')),
       bars=[].slice.call(root.querySelectorAll('.st-bars i')), prev=root.querySelector('.prev'), next=root.querySelector('.next');
   var S='https://customer-pns1oongdltmkjwa.cloudflarestream.com/', tk={}, cur=0;
+  /* how far people get: one anonymous count a visit, the furthest card
+     reached, sent when they reach the end or leave. No cookie, nothing
+     about the person, the same route as the site's other counts. */
+  var far=0, sent=false;
+  var count=function(){ if(sent || !far) return; sent=true;
+    try{ var b=JSON.stringify({n:'story', f:'the-kick-up', s:far, e:far>=cards.length?1:0});
+      if(navigator.sendBeacon) navigator.sendBeacon('/api/app/event', new Blob([b],{type:'application/json'}));
+      else fetch('/api/app/event',{method:'POST',headers:{'Content-Type':'application/json'},body:b,keepalive:true}).catch(function(){});
+    }catch(e){} };
+  addEventListener('pagehide', count);
+  document.addEventListener('visibilitychange', function(){ if(document.hidden) count(); });
   var vid=function(i){ return cards[i] ? cards[i].querySelector('video[data-uid]') : null; };
   var load=function(i){ var v=vid(i), t=v&&tk[v.dataset.uid]; if(!t || v.dataset.on) return;
     v.dataset.on='1'; v.poster=S+t+'/thumbnails/thumbnail.jpg?time='+(v.dataset.poster||'3')+'s&height=900';
@@ -367,7 +378,7 @@ html.inapp .sc-site,html:not(.inapp) .sc-app{display:none!important}
     cards.forEach(function(c,i){ c.classList.toggle('on', i===n); c.setAttribute('aria-hidden', i===n?'false':'true');
       var v=vid(i); if(v && i!==n){ v.pause(); } });
     bars.forEach(function(b,i){ b.classList.toggle('done', i<n); b.firstChild.style.transform=i<n?'scaleX(1)':'scaleX(0)'; });
-    cur=n; load(n); load(n+1); load(n-1);
+    cur=n; far=Math.max(far, n+1); if(far>=cards.length) count(); load(n); load(n+1); load(n-1);
     var v=vid(n); if(v){ try{ v.currentTime=from(v); }catch(e){} play(v); }
     prev.disabled=n===0; next.disabled=n===cards.length-1;
     if(!keep && history.replaceState) history.replaceState(null,'', n? '#s'+(n+1) : location.pathname+location.search);

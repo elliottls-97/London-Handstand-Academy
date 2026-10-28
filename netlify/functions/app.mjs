@@ -746,6 +746,15 @@ async function journeyReport(days, full) {
     .map(e => ({ k: e.k, m: e.m, w: e.w, n: e.n, first: e.first, last: e.last, screens: e.sc || {}, devices: e.dv || {},
       stack: e.stack || '', ...(full ? { who: e.who || [] } : { people: (e.who || []).length }) }));
   const films = top(cur.film, 12);
+  /* the Learn stories: visits by the furthest card, and how many reached the end */
+  const storyBy = {};
+  for (const [k, c] of Object.entries(cur.storyAt || {})) {
+    const i = k.lastIndexOf(':'), sl = k.slice(0, i), at = k.slice(i + 1);
+    const x = storyBy[sl] = storyBy[sl] || { slug: sl, visits: 0, done: 0, at: {} };
+    x.visits += c;
+    if (at === 'end') x.done += c; else x.at[at] = (x.at[at] || 0) + c;
+  }
+  const stories = Object.values(storyBy).sort((a, b) => b.visits - a.visits);
   /* ── accounts that have stalled ── test accounts left out, as the funnel does */
   let stalled = null;
   try {
@@ -786,7 +795,7 @@ async function journeyReport(days, full) {
     open: n(x.r, 'open'), quiz: n(x.r, 'quiz'), start: n(x.r, 'start'), finish: n(x.r, 'finish'),
     signup: n(x.r, 'signup'), paywall: n(x.r, 'paywall'), subscribed: n(x.r, 'subscribed'), leave: n(x.r, 'leave'),
     site: pv(x.r), workshoppaid: n(x.r, 'workshoppaid'), sitefitsend: n(x.r, 'sitefitsend') }));
-  return { at: new Date(now).toISOString(), days, app, site, leaves, quiz, quit,
+  return { at: new Date(now).toISOString(), days, app, site, leaves, quiz, quit, stories,
     paywall: top(cur.paywallAt, 10), errs, films, stalled, daily,
     /* the screen, step and drill counts start on the day these went live */
     since: '2026-10-16' };
@@ -10950,6 +10959,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'finish', 'ret7', 'install', 'taste', 'signup', 'code',
                   /* a fix opened, started and finished, and its public page */
                   'fixopen', 'fixstart', 'fixdone', 'sitefix',
+                  /* a Learn story: the furthest card a visit reached */
+                  'story',
                   /* the press test taken, by the limiter it named */
                   'presstest',
                   /* a film that would not play, by film and where (no person) */
@@ -11022,6 +11033,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         for (const k of seen) bump('scrAt', k, 160);
       }
       if (n === 'paywall') bump('paywallAt', scrOf(body.f), 30);
+      /* a story: one count a visit, at the card it stopped on, or at :end
+         for a visit that reached the last card. Kept flat, story:card, as
+         the report adds the days up one level deep. */
+      if (n === 'story') {
+        const c = Number(body.s), sl = scrOf(body.f);
+        if (sl && Number.isInteger(c) && c >= 1 && c <= 30) bump('storyAt', sl + ':' + (body.e ? 'end' : c), 200);
+      }
       if (n === 'why') bump('whyBy', scrOf(body.f), 20);
       if (n === 'quizq') { const q = Number(body.s); if (Number.isInteger(q) && q >= 0 && q <= 30) bump('quizqBy', String(q), 31); }
       if (n === 'quit') {
