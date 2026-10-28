@@ -12222,7 +12222,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
   if(done && !st.in) advanceDay();
   save();
   lastSum=null;
-  if(done){ st.ovSummary=true; openOv('summary'); }
+  if(done){ st.finN=(Number(st.finN)||0)+1; save(); st.ovSummary=true; openOv('summary'); }
   else if(partWay){ render(); openOv('why'); }
   else { render(); if(window._clearPending!=null || window._clearAfter!=null) setTimeout(clearPendingTry, 320); } }
 /* One switch for the lot: the rest chime, the follow-along clip and every
@@ -12489,6 +12489,9 @@ function closeOv(){
   /* the summary is the end of the workout, and of the free one with it */
   if(st.ov==='summary') endTaste();
   filmSlowLater();
+  /* a win just seen and put down: a stage cleared, or the fifth workout finished */
+  if(st.ov==='cleared') askReview('stage');
+  else if(st.ov==='summary' && Number(st.finN)>=5) askReview('fin'+st.finN);
   rowClockStop(false);
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
@@ -24320,6 +24323,31 @@ async function nativeTurnOn(ask){
    plugin has answered, so an older build without it never shows one. A
    first sign in makes the account, so it does both jobs: it sits on Sign
    in and on Create an account. */
+/* ── Apple's stars, at a win ─────────────────────────────────────
+   In the iPhone app only, once the sheet for a stage cleared or a fifth
+   finished workout has been put down (Elliott, 28 Oct 2026). Apple shows
+   its sheet at most three times a year and says nothing about whether it
+   did, so this asks at most once in four months by its own count. A build
+   without the plugin (1.0) never answers available(), so nothing is asked. */
+let REVP=null;
+function reviewPlugin(){
+  if(!IOS_APP || !window.Capacitor) return null;
+  try{ if(!REVP) REVP = Capacitor.registerPlugin ? Capacitor.registerPlugin('AppReview') : ((Capacitor.Plugins||{}).AppReview||null); }catch(e){ REVP=null; }
+  return REVP;
+}
+function askReview(why){
+  if(!IOS_APP || st.preview || PREVIEW) return;
+  if(Date.now()-(Number(st.revAt)||0) < 120*864e5) return;
+  const P=reviewPlugin(); if(!P) return;
+  P.available().then(r=>{
+    if(!r || !(Number(r.v)>=1)) return;
+    /* after the sheet has gone, and never over another one or a workout */
+    setTimeout(()=>{
+      try{ if(st.ov || $('#player').classList.contains('on')) return; }catch(e){ return; }
+      P.ask().then(a=>{ if(a && a.asked){ st.revAt=Date.now(); st.revWhy=String(why||''); save(); } }).catch(()=>{});
+    }, 900);
+  }).catch(()=>{});
+}
 let APLP=null, appleOK=false, appleBusy=false;
 function applePlugin(){
   if(!IOS_APP || !window.Capacitor) return null;

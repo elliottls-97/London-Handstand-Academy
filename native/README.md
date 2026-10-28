@@ -72,6 +72,16 @@ build without it never shows a dead button.
   info@londonhandstandacademy.com are registered under Services, Sign in
   with Apple for Email Communication.
 
+## Rating the app (from build 6, 1.0.1)
+
+Apple's own stars sheet, asked after the sheet for a stage cleared or a
+fifth finished workout has been put down. The shell:
+`CapApp-SPM/Sources/CapApp-SPM/AppReview.swift`; the page: `askReview()`.
+Apple shows it at most three times a year, never in TestFlight, and says
+nothing back, so the page asks at most once in four months by its own
+count. A build without the plugin never answers `available()`, so 1.0
+asks nothing.
+
 ## The Ladder through Apple (in-app purchase)
 
 The iPhone app sells one thing, the Ladder, through Apple. Coaching, sessions
