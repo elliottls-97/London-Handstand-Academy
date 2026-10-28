@@ -11581,8 +11581,8 @@ function moreBody(all, cards){
         color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>`:''}
       ${/* the ways to use the app, for everybody: the Ladder, In person
             (28 Oct 2026), and a coached client's own programme */''}
-      ${(()=>{ const cur = inPersonView() ? 'inperson' : coachedView() ? 'coaching' : 'ladder';
-        const opts=[...(st.in?[['coaching','My coaching']]:[]),['ladder','The Ladder'],['inperson','In person']];
+      ${(()=>{ const cur = inPersonView() ? 'inperson' : coachedView() ? 'coaching' : bothView() ? 'both' : 'ladder';
+        const opts=[...(st.in?[['coaching','Coaching']]:[]),['ladder','Ladder'],['inperson','In person'],['both','Both']];
         return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
         <div class="kick2">HOW YOU USE IT</div>
         <div role="radiogroup" aria-label="How you use the app" style="display:flex;gap:4px;margin-top:11px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px">
@@ -11592,6 +11592,7 @@ function moreBody(all, cards){
         </div>
         <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">${
           cur==='inperson' ? 'Classes, your bookings and 1-2-1s. The Ladder is still here whenever you want it.'
+          : cur==='both' ? 'The Ladder, with the classes as a tab of their own.'
           : cur==='coaching' ? 'Your programme. The Ladder and In person are here too.'
           : 'Training on your own. In person is classes and 1-2-1s at OverGravity.'}</div></div>`; })()}
       <!-- the drill library: for somebody who has trained and has an account
@@ -16445,7 +16446,10 @@ function screenQuiz(){
   let body='';
   if(step.id==='how') body=
     card(a.how==='app', two('On my own, with the app','The Handstand Ladder, a session for every day. Foundations is free.'), `quizMove(1,()=>pickIntake('how','app'),this)`, 0)
-    + card(a.how==='inperson', two('In person, classes and 1-2-1s','At OverGravity in Shadwell. Book and manage them here.'), `enterInPerson()`, 1);
+    + card(a.how==='inperson', two('In person, classes and 1-2-1s','At OverGravity in Shadwell. Book and manage them here.'), `enterInPerson()`, 1)
+    /* both (Elliott, 28 Oct 2026: "allow both classes and ladder"): the
+       Ladder, with Classes as a tab of its own */
+    + card(a.how==='both', two('Both','The Ladder between sessions, and classes in person.'), `quizMove(1,()=>pickIntake('how','both'),this)`, 2);
   if(step.id==='goal') body=GOALS.map((g,k)=>
     card(a.goal===g.v, two(g.t,g.d), `quizMove(1,()=>pickIntake('goal','${g.v}'),this)`, k)).join('');
 
@@ -16549,6 +16553,7 @@ function pickIntake(k,v){
   intake()[k]=v;
   if(k==='goal') quizLadder(v);
   save();
+  if(k==='how'){ st.inPerson=false; st.viewChosen=v; }
   if(k==='how'||k==='goal'||k==='level'){ nextIntake(); return; }
   render();
 }
@@ -19946,12 +19951,16 @@ function classesCardHTML(max, where){
    account whose only history is a booking opens here. All in person, so
    Apple allows paying for it in the app. */
 const inPersonView = () => !!st.inPerson && !coachedView() && !(typeof awaitingBlock==='function' && awaitingBlock());
+/* the Ladder with Classes beside it */
+const bothView = () => !st.inPerson && !coachedView() && ((st.intake||{}).how==='both');
 /* the price of something done in person: shown in the iPhone app too,
    where PRICE() stays empty for anything Apple would bill */
 const ipPrice = k => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
 function setView(v){
   st.viewChosen = v;
   st.inPerson = v==='inperson';
+  /* Both is the Ladder with a Classes tab; choosing the Ladder on its own takes the tab away */
+  if(v==='both' || v==='ladder'){ const a=intake(); a.how = v==='both' ? 'both' : 'app'; }
   if(st.in) st.asFree = v!=='coaching';
   if(v==='inperson'){ st.quizDone=true; st.oriented=true; if(!st.mode) st.mode='free'; }
   save(); try{ closeOv(); }catch(e){} closeMenu();
@@ -19988,7 +19997,7 @@ function screenClasses(){
   return `<div class="scroll s">${ipHead('In person &middot; OverGravity, Shadwell','Come to a '+ipEm('class.'))}
     ${(()=>{ const q=pushQuizHTML(); return q?`<div class="pad">${q}</div>`:''; })()}
     <div class="pad" style="padding-top:18px">${card || ipEmpty('No dates on sale right now.','New ones show here first.')}</div>
-    <div class="pad" style="padding-top:14px">${ipLadderLine()}</div>
+    ${inPersonView()?`<div class="pad" style="padding-top:14px">${ipLadderLine()}</div>`:''}
     <div style="height:120px"></div></div>`;
 }
 function screenBookings(){
@@ -25603,7 +25612,7 @@ function render(){
     : coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix,press:screenPress}
     : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress}
-    : {home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress};
+    : {home:screenHome,ladder:screenLadder,classes:screenClasses,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress};
   /* coaching paused until they pay (22 Oct 2026): the programme waits
      behind one screen; the chat and More still work */
   if(coached && st.paused) ['today','plan','progress','fix','press'].forEach(k=>{ screens[k]=screenPaused; });
@@ -25612,7 +25621,7 @@ function render(){
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
   const tabs=inPerson ? TABS.inperson
     : onboarding ? [['start','Start'],['home','Train'],['ladder','Progress'],['coaching','Chat']]
-    : TABS[coached?'coached':'free'].map(([id,l])=>
+    : (coached ? TABS.coached : bothView() ? [['home','Train'],['ladder','Progress'],['classes','Classes'],['coaching','Coaching']] : TABS.free).map(([id,l])=>
     (id==='coaching') ? [id, coachTabLabel()] : [id,l])
     /* a session buyer who has not taken the quiz has no stage yet, so no
        Ladder: their booking, the quiz and coaching are the whole app */
