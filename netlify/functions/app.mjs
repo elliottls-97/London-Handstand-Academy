@@ -9797,6 +9797,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       'f4239cba98e33d1cf7a3ce6e66ae8aa3',   /* false grip on the bar: learn the hold */
       '954a564b1807055e16ff7b58ca7128f1',   /* false grip hang on the bar, feet down: supported holds */
       '493b8f355015ccd9495ee6d4908b8372'],  /* chest to bar pulls in a false grip: hang and pull in it */
+    'the-kick-up': [
+      '843bc9940391615a0da8bc40fc061572',   /* kick up bounces */
+      '8bca83124064e21a1abe84d1a21ac587',   /* knee to nose bounces */
+      '8575e4f2e14f33dc0f7708932d5a6dc4',   /* bunny hops */
+      '2563624790ac1efb8db57988e8594d01',   /* knee to chest kick ups */
+      '51a36a15330dd845d7099de1712cf8d2',   /* wall kick ups */
+      '41ee75425ffdb75af7c5122ad7823770'],  /* wall kick ups with a foam block */
   };
   if (path === '/learn/films' && request.method === 'GET') {
     const list = LEARN_FILMS[String(url.searchParams.get('page') || '')] || [];

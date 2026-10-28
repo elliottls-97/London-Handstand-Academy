@@ -36,6 +36,17 @@ html.inapp .st{height:100svh;max-height:none;padding-top:14px}
   background:rgba(255,255,255,.6);border:1.5px dashed rgba(0,64,61,.3)}
 /* a card that is words on purpose, not a film still to come */
 .sc-m .ph.solid{background:#fff;border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+/* a landscape film is shown whole, the words straight under it: the kick
+   up films are side on, with the body across the frame, and a tall crop
+   cut off the hands or the feet (28 Oct 2026) */
+.sc.wide{justify-content:center}
+.sc-m.wide{flex:none;width:100%;aspect-ratio:16/9}
+.sc-m.wide video,.sc-m.wide .ph{left:0;right:0;width:100%;height:100%;transform:none;aspect-ratio:auto}
+.sc-m.wide .ph-g{font-size:clamp(56px,10vh,110px)}
+/* a still, at its own shape */
+.sc-m img{position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);height:100%;width:auto;max-width:100%;
+  aspect-ratio:3/4;object-fit:cover;border-radius:24px;background:#0d2b29;box-shadow:0 1px 2px rgba(0,64,61,.08),0 14px 30px rgba(0,64,61,.16)}
+@media (min-width:900px){.st.wst{max-width:820px}}
 .ph-g{font:400 clamp(84px,17vh,168px)/.9 Newsreader,Georgia,serif;color:#006663;letter-spacing:-.03em}
 .ph-k{font:600 11px/1 Figtree,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#006663}
 .sc-t{flex:none;display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 4px;text-align:center}
@@ -84,26 +95,36 @@ SCRIPT = """<script>
     v.dataset.on='1'; v.poster=S+t+'/thumbnails/thumbnail.jpg?time='+(v.dataset.poster||'3')+'s&height=900';
     v.preload='auto'; v.src=S+t+'/downloads/default.mp4'; };
   var play=function(v){ if(!v || !v.src) return; var p=v.play(); if(p&&p.catch) p.catch(function(){}); };
+  /* a film with data-to loops just its stretch, from data-from, of a longer take */
+  var from=function(v){ return v ? +(v.dataset.from||0) : 0; };
+  cards.forEach(function(c,i){ var v=vid(i); if(!v || !v.dataset.to) return;
+    var z=+v.dataset.to;
+    v.addEventListener('loadedmetadata',function(){ if(v.currentTime<from(v)) v.currentTime=from(v); });
+    v.addEventListener('timeupdate',function(){ if(v.currentTime>=z || v.currentTime<from(v)-0.5) v.currentTime=from(v); }); });
   var go=function(n, keep){
     n=Math.max(0, Math.min(cards.length-1, n));
     cards.forEach(function(c,i){ c.classList.toggle('on', i===n); c.setAttribute('aria-hidden', i===n?'false':'true');
       var v=vid(i); if(v && i!==n){ v.pause(); } });
     bars.forEach(function(b,i){ b.classList.toggle('done', i<n); b.firstChild.style.transform=i<n?'scaleX(1)':'scaleX(0)'; });
     cur=n; load(n); load(n+1); load(n-1);
-    var v=vid(n); if(v){ try{ v.currentTime=0; }catch(e){} play(v); }
+    var v=vid(n); if(v){ try{ v.currentTime=from(v); }catch(e){} play(v); }
     prev.disabled=n===0; next.disabled=n===cards.length-1;
     if(!keep && history.replaceState) history.replaceState(null,'', n? '#s'+(n+1) : location.pathname+location.search);
   };
   /* the bar for the card on screen runs with its film, round again each loop */
   /* every card's words take the room of the longest, so the film is the
      same size on every card and the frame does not jump as you tap */
-  var fit=function(){ var ts=[].slice.call(root.querySelectorAll('.sc-t')), h=0;
+  /* landscape cards are matched among themselves, so a long cover line does
+     not leave the film cards with a gap under them */
+  var fit=function(){ ['.sc:not(.wide) .sc-t','.sc.wide .sc-t'].forEach(function(q){
+    var ts=[].slice.call(root.querySelectorAll(q)), h=0;
     ts.forEach(function(t){ t.style.minHeight=''; }); ts.forEach(function(t){ h=Math.max(h, t.offsetHeight); });
-    ts.forEach(function(t){ t.style.minHeight=h+'px'; }); };
+    ts.forEach(function(t){ t.style.minHeight=h+'px'; }); }); };
   fit(); if(document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
   addEventListener('resize', fit);
   (function tick(){ var b=bars[cur] && bars[cur].firstChild, v=vid(cur);
-    if(b) b.style.transform='scaleX('+(v ? (v.duration ? v.currentTime/v.duration : 0) : 1)+')';
+    var a=from(v), z=v ? (+(v.dataset.to||0) || v.duration || 0) : 0;
+    if(b) b.style.transform='scaleX('+(v ? (z>a ? Math.max(0, Math.min(1, (v.currentTime-a)/(z-a))) : 0) : 1)+')';
     requestAnimationFrame(tick); })();
   var x0=0, y0=0, t0=0, held=0, pressed=false;
   deck.addEventListener('pointerdown',function(e){
@@ -149,32 +170,46 @@ GO = ('\n        <span class="sc-go">Tap to start <svg width="14" height="14" vi
 CLASS = 'https://londonhandstandacademy.com/handstand-class?class=calisthenics&amp;src=learn'
 
 
-def film(uid, dur, label):
-    return (f'<video data-uid="{uid}" data-poster="{round(dur * .3, 1)}" muted="muted" playsinline="playsinline" loop="loop" '
+def film(uid, dur, label, frm=None, wide=False):
+    """dur is the film's length, or with frm the end of the stretch that loops"""
+    span = f' data-from="{frm}" data-to="{dur}"' if frm is not None else ''
+    at = round((frm or 0) + (dur - (frm or 0)) * .3, 1)
+    return (f'<video data-uid="{uid}" data-poster="{at}"{span}{" data-wide" if wide else ""} muted="muted" playsinline="playsinline" loop="loop" '
             f'preload="none" aria-label="{html.escape(label)}"></video>')
 
 
-def ph(glyph, k, solid=False):
+def img(src, alt):
+    return f'<img src="{src}" alt="{html.escape(alt)}" decoding="async">'
+
+
+def ph(glyph, k, solid=False, wide=False):
     """a card with no film: 'Film to come' until there is one, or words on purpose (solid)"""
-    return f'<div class="ph{" solid" if solid else ""}" aria-hidden="true"><span class="ph-g">{glyph}</span><span class="ph-k">{k}</span></div>'
+    return (f'<div class="ph{" solid" if solid else ""}"{" data-wide" if wide else ""} aria-hidden="true">'
+            f'<span class="ph-g">{glyph}</span><span class="ph-k">{k}</span></div>')
 
 
 def card(n, N, media, k, h, em, p, tag='h2', go='', dose=()):
     d = ('\n        <div class="sc-d">' + ''.join(f'<span>{x}</span>' for x in dose) + '</div>') if dose else ''
-    return (f'    <section class="sc{" on" if n == 1 else ""}" id="s{n}" aria-label="{n} of {N}">\n'
-            f'      <div class="sc-m">{media}</div>\n'
+    w = ' wide' if 'data-wide' in media else ''
+    return (f'    <section class="sc{w}{" on" if n == 1 else ""}" id="s{n}" aria-label="{n} of {N}">\n'
+            f'      <div class="sc-m{w}">{media}</div>\n'
             f'      <div class="sc-t"><div class="sc-k">{k}</div>\n'
             f'        <{tag} class="sc-h">{h} <em>{em}</em></{tag}>\n'
             f'        <p class="sc-p">{p}</p>{d}{go}</div>\n    </section>')
 
 
-def end_card(N, app_line, safe):
+CALI = ('Calisthenics at OverGravity, Shadwell, in Arch 2 with the bars.', CLASS)
+HAND = ('The All Levels class at OverGravity, Shadwell, in Arch 1, the purple room.',
+        'https://londonhandstandacademy.com/handstand-class?src=learn')
+
+
+def end_card(N, app_line, safe, site=CALI):
     return f'''    <section class="sc sc-end" id="s{N}" aria-label="{N} of {N}">
       <div class="sc-m"><div class="ph">
         <div class="sc-k sc-site">Train it</div><div class="sc-k sc-app">That&rsquo;s all</div>
         <h2 class="sc-h sc-site">In the room on <em>Saturdays.</em></h2>
-        <p class="sc-p sc-site">Calisthenics at OverGravity, Shadwell, in Arch 2 with the bars.</p>
-        <a href="{CLASS}" class="btn sc-site">See the class dates</a>
+        <p class="sc-p sc-site">{site[0]}</p>
+        <a href="{site[1]}" class="btn sc-site">See the class dates</a>
         <a href="https://londonhandstandacademy.com/learn/" class="btn2 sc-site">More from Learn</a>
         <h2 class="sc-h sc-app">Now go and <em>train it.</em></h2>
         <p class="sc-p sc-app">{app_line}</p>
@@ -192,6 +227,17 @@ MU = {'mu': ('5d8fccb8303d45ab4f181e34c0452156', 14.4), 'high': ('59c77778dba35e
 FG = {'rings': ('40eb6695b30de839d6ae2186ec6d1a65', 14.0), 'look': ('4f47608890bc591afe04757c867ed65d', 22.0),
       'setup': ('f4239cba98e33d1cf7a3ce6e66ae8aa3', 22.9), 'hang': ('954a564b1807055e16ff7b58ca7128f1', 5.1),
       'pulls': ('493b8f355015ccd9495ee6d4908b8372', 10.8)}
+
+KU = {'bounce': ('843bc9940391615a0da8bc40fc061572', 0, 15.5), 'nose': ('8bca83124064e21a1abe84d1a21ac587', 6, 33.3),
+      'bunny': ('8575e4f2e14f33dc0f7708932d5a6dc4', 0, 19), 'chest': ('2563624790ac1efb8db57988e8594d01', 0, 13),
+      'wall': ('51a36a15330dd845d7099de1712cf8d2', 3.6, 7.6), 'block': ('41ee75425ffdb75af7c5122ad7823770', 0, 18)}
+
+
+def kf(k, label):
+    """a kick up film: the stretch of it the article loops, shown whole, landscape"""
+    uid, frm, to = KU[k]
+    return film(uid, to, label, frm=frm, wide=True)
+
 
 STORIES = {
     'why-you-cant-muscle-up-yet': dict(
@@ -244,6 +290,36 @@ STORIES = {
         ],
         app_line='The false grip is in your sessions at every stage of the ladder.',
         safe='Build up slowly, and stop if your wrists hurt.'),
+
+    'the-kick-up': dict(
+        title='The kick up', published='2026-10-28', modified='2026-10-28', wide=True, site=HAND,
+        desc=("How to kick up into a handstand: start stacked, then six steps from kick up bounces and bunny hops "
+              "to knee to chest kick ups, the wall and a foam block, then leave the wall."),
+        note='(Elliott, 28 Oct 2026, from the kick up article\n     on the learn-kick-up branch, in his words). Landscape films.',
+        cards=[
+            (img('/assets/learn/kick-up-stacked.jpg', 'A kick up stacked: hands, shoulders and hips in one line, the knee in; the arched line is wrong'),
+             'Learn · Kick up', 'Start stacked, and the kick up gets', 'easy.',
+             'Shoulders over the hands, hips over the shoulders, like standing. Six steps, and you move on when each one gets you there.', 'h1', GO),
+            (kf('bounce', 'Kick up bounces: quick, light, a little higher each time'), '1 of 6', 'Kick up', 'bounces.',
+             "Quick, light and lots of them. Ten, a little higher each time. Don't worry about the wall yet."),
+            (kf('nose', 'Knee to nose bounces from table top, the back rounding'), '2 of 6', 'Knee to nose', 'bounces.',
+             'From table top, knee to the nose with the back rounded. On the last one, jump: hips up, shoulders down.'),
+            (kf('bunny', 'Bunny hops: the hips going up and over the shoulders'), '3 of 6', 'Bunny', 'hops.',
+             'Hips as far over the shoulders as you can. Harder: push up through the palms and the shoulders.'),
+            (kf('chest', 'Knee to chest kick ups: the kicking knee pulled into the chest'), '4 of 6', 'Knee to chest', 'kick ups.',
+             "If your back arches, the hips haven't got over the shoulders. Pull the knee into your chest as you jump."),
+            (kf('wall', 'Kicking up to the wall, hands a few inches from it'), '5 of 6', 'Kick up to the', 'wall.',
+             'Hands 6 to 9 inches from the wall. Look between your hands, never back.'),
+            (kf('block', 'Kicking up with a foam block held between hip and thigh'), '6 of 6', 'With a foam', 'block.',
+             "Block between your hip and the thigh of your kicking leg. It won't let the tuck go."),
+            (ph('3', 'Faults to watch', solid=True, wide=True), 'What gets in the way', 'Three', 'faults.',
+             'Turn the biceps forward before the hands go down, look between your hands, and learn to fall first.', 'h2', '',
+             ('Bent arms', 'Looking at your feet', 'Fear of falling')),
+            (ph('Away', 'From the wall', solid=True, wide=True), 'Then', 'Leave the', 'wall.',
+             'The wall teaches you to overshoot. Once the fear has gone, move away from it.'),
+        ],
+        app_line='Kick up bounces, bunny hops, knee to chest and wall kick ups are all in your Foundations sessions.',
+        safe='Warm up first, and try both sides.'),
 }
 
 
@@ -271,10 +347,10 @@ def build(slug, S):
 
     cards = S['cards']
     N = len(cards) + 1
-    secs = [card(i + 1, N, *c) for i, c in enumerate(cards)] + [end_card(N, S['app_line'], S['safe'])]
+    secs = [card(i + 1, N, *c) for i, c in enumerate(cards)] + [end_card(N, S['app_line'], S['safe'], S.get('site', CALI))]
     arrow = '<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="{}"/></svg>'
     story = (f'''<!-- The story -->
-<main class="st" id="story" aria-roledescription="carousel" aria-label="{title}">
+<main class="st{' wst' if S.get('wide') else ''}" id="story" aria-roledescription="carousel" aria-label="{title}">
   <div class="st-bars" aria-hidden="true">{"".join("<i><b></b></i>" for _ in range(N))}</div>
   <div class="st-deck">
 ''' + '\n'.join(secs) + f'''
