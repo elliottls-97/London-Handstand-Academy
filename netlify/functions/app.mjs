@@ -9791,6 +9791,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       '59c77778dba35e2e6b2a11b628f2c042',   /* high pull ups */
       '3df1ca69eaa029e52ea4096fa2c10fb2',   /* swings to a high pull: pull diagonally up */
       'b54aa8d0c9d304e7a8a56ead0ac252ee'],  /* bar dips with a pause: the transition */
+    'the-false-grip': [
+      '40eb6695b30de839d6ae2186ec6d1a65',   /* supported false grip hang on the rings: the cover */
+      '4f47608890bc591afe04757c867ed65d',   /* false grip on the rings: what it looks like */
+      'f4239cba98e33d1cf7a3ce6e66ae8aa3',   /* false grip on the bar: learn the hold */
+      '954a564b1807055e16ff7b58ca7128f1',   /* false grip hang on the bar, feet down: supported holds */
+      '493b8f355015ccd9495ee6d4908b8372'],  /* chest to bar pulls in a false grip: hang and pull in it */
   };
   if (path === '/learn/films' && request.method === 'GET') {
     const list = LEARN_FILMS[String(url.searchParams.get('page') || '')] || [];
