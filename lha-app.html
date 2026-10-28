@@ -4169,7 +4169,7 @@ const streamMp4   = uid => STREAM_CDN+sigUid(uid)+'/downloads/default.mp4';
    test is iOS, where every browser is WebKit, or a browser that both
    claims it and is not Chromium. Everywhere else keeps the MP4, and a
    manifest that fails anyway drops back to it. */
-const streamHls   = uid => STREAM_CDN+sigUid(uid)+'/manifest/video.m3u8';
+const streamHls   = uid => STREAM_CDN+sigUid(uid)+'/manifest/video.m3u8'+(filmQ()==='saver' ? '?clientBandwidthHint=1.5' : '');
 /* Whether this browser plays the ladder is a question about the browser,
    and sniffing the user agent answers it wrongly in both directions:
    canPlayType says "maybe" in Chrome and then plays nothing, and some
@@ -4180,6 +4180,49 @@ const HLS_PROBE='a7cd457020f580093be946524a84c3af';
 let _hlsOk=null;
 try{ const v=localStorage.getItem('lha_hls'); if(v==='1'||v==='0') _hlsOk=(v==='1'); }catch(e){}
 function hlsOk(){ return _hlsOk===true; }
+/* ── Film quality ──────────────────────────────────────────────────
+   Data saver, Auto or Best, from the menu (Elliott, 28 Oct 2026). Kept on
+   this phone rather than the account, because it is about this phone's
+   signal and data, and the Learn pages (learn/films.js) read the same key.
+   Data saver asks Stream for its 480p copy alone, about a third of the
+   full file; Auto is the ladder, which grows with the signal; Best is the
+   full file every time. Where the ladder does not play, Chrome on a
+   laptop, every choice is the full file. */
+function filmQ(){ try{ const q=localStorage.getItem('lha_q'); return q==='saver' || q==='high' ? q : 'auto'; }catch(e){ return 'auto'; } }
+function hlsUse(){ return hlsOk() && filmQ()!=='high'; }
+function setFilmQ(q){
+  try{ localStorage.setItem('lha_q', q); localStorage.setItem('lha_q_asked', String(Date.now())); }catch(e){}
+  /* an article open in the reader picks its films again */
+  try{ const f=document.querySelector('#artv iframe'); if(f && f.contentWindow.LHAF) f.contentWindow.LHAF.refresh(); }catch(e){}
+  if(menuOpen) paintMenu();
+  toast(q==='saver' ? 'Data saver on. Smaller films, nothing loaded ahead.' : q==='high' ? 'Best quality. Full size films, for good signal.' : 'Films follow your signal.');
+}
+/* ── slow to start: Data saver offered once ────────────────────────
+   Two films that took over four seconds to start, or one and then two
+   stalls, ask whether to switch. Never in the middle of a workout: then it
+   waits for the session to end and the sheet after it to close. A Learn
+   page counts its own films and asks through here (learn/films.js). */
+let filmSlowN=0, filmStalls=0, filmSlowWait=false;
+function filmTime(v){
+  if(!v || v.dataset.timed) return; v.dataset.timed='1';
+  const asked=Date.now(); let began=false;
+  v.addEventListener('playing', ()=>{
+    if(!began && !/lha=saved/.test(v.currentSrc||'') && Date.now()-asked>4000){ filmSlowN++; filmSlowCheck(); }
+    began=true; });
+  v.addEventListener('waiting', ()=>{ if(began && !v.paused){ filmStalls++; filmSlowCheck(); } });
+}
+function filmSlowCheck(){ if(filmSlowN>=2 || (filmSlowN && filmStalls>=2)) lhaSlowFilms(); }
+function lhaSlowFilms(fromPage){
+  if(filmQ()!=='auto') return;
+  if(!fromPage){ try{ if(localStorage.getItem('lha_q_asked')) return; }catch(e){} }
+  const busy=()=>{ try{ return $('#player').classList.contains('on') || (st.ov && $('#ov') && $('#ov').classList.contains('on')); }catch(e){ return false; } };
+  if(busy()){ filmSlowWait=true; return; }
+  filmSlowWait=false;
+  try{ localStorage.setItem('lha_q_asked', String(Date.now())); }catch(e){}
+  sure('The films are slow on this signal.\n\nData saver plays smaller films and loads nothing ahead. You can change it any time in the menu, under Film quality.',
+    'Use Data saver', ()=>setFilmQ('saver'), false, null, 'Not now');
+}
+function filmSlowLater(){ if(filmSlowWait) setTimeout(()=>{ if(filmSlowWait) lhaSlowFilms(); }, 700); }
 function probeHls(){
   if(_hlsOk!=null) return;
   _hlsOk=false;                       /* until proven otherwise */
@@ -4223,7 +4266,7 @@ function filmRecover(v){
   const go=src=>{ v.src=src; try{ v.load(); }catch(e){}
     if((v.closest && v.closest('#player')) || v.autoplay || v.dataset.wantPlay) startFilm(v); };
   if(cur.indexOf('lha=saved')>-1 && t.saved!==cur){ filmFail(v,'sav'); mark('saved');
-    go(hlsOk() ? streamHls(uid) : streamMp4(uid)); return; }
+    go(hlsUse() ? streamHls(uid) : streamMp4(uid)); return; }
   if(cur.indexOf('/manifest/')>-1 && t.mp4!==cur){ filmFail(v,'hls'); mark('mp4'); go(streamMp4(uid)); return; }
   /* a locked film: the token in the address is the uid itself when there
      is none, so ask for a set and try the film once more when it lands */
@@ -4231,7 +4274,7 @@ function filmRecover(v){
     const need = !(SIGN.exp>Date.now()) || !SIGN.t[uid];
     if(need){ try{ loadSign(); }catch(e){} }
     setTimeout(()=>{ if(!v.isConnected || v.dataset.cc!==uid) return;
-      const next=hlsOk() ? streamHls(uid) : streamMp4(uid);
+      const next=hlsUse() ? streamHls(uid) : streamMp4(uid);
       if(next!==cur || need) go(next); }, need ? 2500 : 600);
     return; }
   filmFail(v,'dead');
@@ -4242,7 +4285,7 @@ function filmSrc(url){
   const uid=uidOfUrl(url);
   /* saved on this phone: it plays from there, signal or not */
   if(uid && dlHas(uid)) return dlKey(uid,'film')+'?lha=saved';
-  return (uid && hlsOk()) ? streamHls(uid) : sig(url);
+  return (uid && hlsUse()) ? streamHls(uid) : sig(url);
 }
 const streamThumb = uid => dlHas(uid) ? dlKey(uid,'still')+'?lha=saved'
   : STREAM_CDN+sigUid(uid)+'/thumbnails/thumbnail.jpg?time=3s&height=320';
@@ -4551,7 +4594,7 @@ async function dlStart(key, anyway){
     : meta.kind==='ex' ? 'Saved. This explainer plays with no signal.'
     : meta.kind==='art' ? 'Saved. This article and its films work with no signal.' : 'Saved. This workout plays with no signal.');
   if(st.tab==='home'||st.tab==='today') render();
-  if(meta.kind==='art'){ artPaint(); const ifr=document.querySelector('#artv iframe'); if(ifr) artUseSaved(ifr); }
+  if(meta.kind==='art'){ artPaint(); const ifr=document.querySelector('#artv iframe'); if(ifr) artUseSaved(ifr, true); }
 }
 
 /* "Save here in Safari anyway": back to what they were saving, and save it */
@@ -5303,7 +5346,7 @@ function mountCaptions(){
 const ccWrap = (inner, extra) =>
   `<div style="position:relative;line-height:0;${extra||''}">${inner}</div>`;
 function qaVideo(a, full){
-  const src = a.uid ? (dlHas(a.uid) ? dlKey(a.uid,'film')+'?lha=saved' : hlsOk()?streamHls(a.uid):streamMp4(a.uid))
+  const src = a.uid ? (dlHas(a.uid) ? dlKey(a.uid,'film')+'?lha=saved' : hlsUse()?streamHls(a.uid):streamMp4(a.uid))
     : (a.v ? EXPLAINERS+encodeURIComponent(a.v) : '');
   if(!src) return '';
   setTimeout(mountCaptions,0);
@@ -11375,6 +11418,41 @@ function sure(msg, ok, fn, danger, onCancel, no){
   setTimeout(()=>{ const b=box.querySelector('[data-ok]'); if(b) b.focus(); }, 30);
 }
 function menuScrim(e){ if(e.target && e.target.id==='menu') closeMenu(); }
+function filmQCard(){
+  const q=filmQ(), opts=[['saver','Data saver'],['auto','Auto'],['high','Best']];
+  const line = !hlsOk() ? 'This browser plays full size films whichever you pick. Data saver still loads nothing ahead in an article.'
+    : q==='saver' ? 'Smaller films, about a third of the data, and nothing loaded ahead.'
+    : q==='high' ? 'Full size every time. Best on wifi.' : 'Starts small and sharpens as your signal allows.';
+  return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
+    <div class="kick2">FILM QUALITY</div>
+    <div role="radiogroup" aria-label="Film quality" style="display:flex;gap:4px;margin-top:11px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px">
+      ${opts.map(([k,l])=>`<button role="radio" aria-checked="${q===k}" onclick="setFilmQ('${k}')" style="flex:1;min-height:40px;border:0;border-radius:11px;
+        cursor:pointer;font:600 13.5px/1 var(--sans);background:${q===k?'#fff':'transparent'};color:${q===k?'var(--deep)':'var(--grey)'};
+        box-shadow:${q===k?'0 1px 2px rgba(17,17,17,.08)':'none'}">${l}</button>`).join('')}
+    </div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:10px">${line}</div>
+  </div>`;
+}
+/* ── the iPhone app, for an iPhone browser ─────────────────────────
+   In the App Store since 28 Oct 2026, UK only. It keeps its own storage,
+   so a Safari visitor is pointed at it rather than at Add to Home Screen,
+   which stays as the second way. */
+const APP_STORE_URL='https://apps.apple.com/gb/app/london-handstand-academy/id6818646346';
+function appStoreCard(){
+  return `<div class="card" style="padding:18px 20px;margin-bottom:16px">
+    <div class="kick2">THE IPHONE APP</div>
+    <div style="font:400 22px/1.2 var(--serif);margin-top:10px">Now on the <em style="color:var(--forest);font-style:normal">App Store.</em></div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">${st.token?'Sign in with the same email and everything comes with you.':'Free to download. Add your email here first and your progress comes with you.'}</div>
+    <a href="${APP_STORE_URL}" target="_blank" rel="noopener"
+      style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;border-radius:16px;padding:16px;text-decoration:none;
+      background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+      box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);font:600 15px/1 var(--sans)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M11 18.5h2"/></svg>
+      Get the iPhone app</a>
+    ${canInstall()?`<button onclick="addToHome()" style="display:block;margin:12px auto 0;border:0;background:none;padding:4px;cursor:pointer;
+      font:600 13px/1.4 var(--sans);color:var(--forest);text-decoration:underline">Or add this page to your Home Screen</button>`:''}
+  </div>`;
+}
 function paintMenu(){
   const m=$('#menu'); if(!m || !menuOpen) return;
   const was=m.querySelector('.panel'); const keep=was?was.scrollTop:0;
@@ -11425,7 +11503,7 @@ function moreBody(all, cards){
 
       <!-- the tour mentions this once. It needs to be somewhere they can
            find it again, because nobody installs an app on the first day. -->
-      ${canInstall()?`<div class="card" style="padding:18px 20px;margin-bottom:16px">
+      ${(!IOS_APP && isIOS())?appStoreCard():canInstall()?`<div class="card" style="padding:18px 20px;margin-bottom:16px">
         <div class="kick2">ON YOUR HOME SCREEN</div>
         <div style="font:400 22px/1.2 var(--serif);margin-top:10px">Open it like an app.</div>
         <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:9px"
@@ -11479,6 +11557,7 @@ function moreBody(all, cards){
         <button onclick="dlClearAll()" style="flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:12px;
           cursor:pointer;padding:0 16px;min-height:44px;font:600 13px/1 var(--sans);color:var(--ink)">Remove all</button>
       </div>` : ''}
+      ${filmQCard()}
 
       ${st.in?`<div style="font:500 11px/1 var(--sans);letter-spacing:.11em;text-transform:uppercase;
         color:var(--grey2);margin:0 2px 12px">Signed in as ${esc(st.email||'')}</div>
@@ -12068,6 +12147,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
   try{ if('mediaSession' in navigator) navigator.mediaSession.metadata=null; }catch(e){}
   document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
   $('#player').classList.remove('on'); $('#player').innerHTML='';
+  filmSlowLater();
   const d=day();
   const partWay = !done && qi>0 && qi<Q.length-1;
   if(partWay) whyStopContext=(Q[qi]&&Q[qi].it&&Q[qi].it.n)||'';
@@ -12165,6 +12245,7 @@ document.addEventListener('play', e=>{
    is always allowed, and the speaker button is there to turn it up. */
 function startFilm(v){
   if(!v) return;
+  try{ filmTime(v); }catch(e){}
   try{
     const p=v.play();
     if(p && p.catch) p.catch(()=>{
@@ -12407,6 +12488,7 @@ function ovGhostPlay(o){
 function closeOv(){
   /* the summary is the end of the workout, and of the free one with it */
   if(st.ov==='summary') endTaste();
+  filmSlowLater();
   rowClockStop(false);
   if(payCo){ try{ payCo.destroy(); }catch(e){} payCo=null; }
   document.querySelectorAll('.ov video').forEach(v=>{try{v.pause()}catch(e){}});
@@ -12755,7 +12837,7 @@ function drawOv(){
     </div>`; }
   else if(st.ov==='pbendy'){ body=pressBendyBody(); }
   else if(st.ov==='pressdone'){ body=pressDoneBody(); }
-  else if(st.ov==='pfilm'){ const u=st.pFilm||''; body=isUid(u) ? ccWrap(`<video src="${hlsOk()?streamHls(u):streamMp4(u)}" controls playsinline autoplay
+  else if(st.ov==='pfilm'){ const u=st.pFilm||''; body=isUid(u) ? ccWrap(`<video src="${hlsUse()?streamHls(u):streamMp4(u)}" controls playsinline autoplay
       data-cc="${u}" style="width:100%;border-radius:18px;background:#000;aspect-ratio:16/9;display:block"></video>`) : ''; }
   else if(st.ov==='paywall'){ body=paywallBody(); }
   else if(st.ov==='fcask'){ body=fcAskBody(); }
@@ -13307,7 +13389,7 @@ function drawOv(){
       <div style="font:400 26px/1.1 var(--serif);margin-top:8px">${esc(o.title)}</div>
       <div style="font:400 12px/1 var(--sans);color:var(--grey2);margin-top:6px">${
         esc(o.len)} &middot; captions on</div>
-      ${o.url ? ccWrap(`<video src="${hlsOk()?streamHls(o.url):streamMp4(o.url)}" controls playsinline autoplay
+      ${o.url ? ccWrap(`<video src="${hlsUse()?streamHls(o.url):streamMp4(o.url)}" controls playsinline autoplay
         poster="${streamThumb(o.url)}" data-cc="${esc(o.url)}" ontimeupdate="introTick(this)" onended="introTick(this,1)"
         style="width:100%;background:#11150f;display:block"></video>`,
         'margin-top:12px;border-radius:16px;overflow:hidden')
@@ -18375,8 +18457,9 @@ const artOpen = f => !!f && (paidPlan() || !(f.access==='plus' || f.locked));
 const artKey = slug => 'art'+slug;
 const artPageUrl = path => location.origin+path+'?inapp=1';
 function artUids(html){
-  const re=/cloudflarestream\.com\/([a-f0-9]{32})\/downloads\/default\.mp4/g, out=[]; let m;
-  while((m=re.exec(String(html||'')))) if(out.indexOf(m[1])<0) out.push(m[1]);
+  /* an article names its films by address, a story by data-uid */
+  const re=/cloudflarestream\.com\/([a-f0-9]{32})\/downloads\/default\.mp4|data-uid="([a-f0-9]{32})"/g, out=[]; let m;
+  while((m=re.exec(String(html||'')))){ const u=m[1]||m[2]; if(out.indexOf(u)<0) out.push(u); }
   return out;
 }
 function artSaveHTML(f){
@@ -18418,6 +18501,15 @@ async function artSave(slug){
     html=await res.text();
     const c=await caches.open(FILM_CACHE);
     await c.put(artPageUrl(page.path), new Response(html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+    /* its quick version comes too, and the script both use to pick the
+       saved films: without them the Quick version button opened a page
+       with no signal and nothing to play, and an app update could drop
+       the script from the app's own keep (28 Oct 2026) */
+    const q=LEARN_QUICK[page.path];
+    if(q){ try{ const r=await fetch(artPageUrl(q),{credentials:'same-origin'});
+      if(r.ok){ const qh=await r.text(); html+=qh;
+        await c.put(artPageUrl(q), new Response(qh,{headers:{'Content-Type':'text/html; charset=utf-8'}})); } }catch(e){} }
+    try{ const r=await fetch('/learn/films.js'); if(r.ok) await c.put(location.origin+'/learn/films.js', new Response(await r.text(),{headers:{'Content-Type':'text/javascript'}})); }catch(e){}
   }catch(e){ toast('No signal just now. Save it when you have some.'); return; }
   const uids=artUids(html);
   dlLists[key]={urls:uids.map(u=>dlKey(u,'film')), meta:{kind:'art', slug, name:f.name, page:page.path, uid:uids[0]||''}};
@@ -18433,10 +18525,14 @@ async function artSave(slug){
   await dlStart(key);
 }
 /* the article's films and stills, from this phone, once it has loaded */
-function artUseSaved(ifr){
-  let d=null; try{ d=ifr.contentDocument; }catch(e){}
+function artUseSaved(ifr, after){
+  let d=null, w=null; try{ d=ifr.contentDocument; w=ifr.contentWindow; }catch(e){}
   if(!d) return;
-  d.querySelectorAll('video[src]').forEach(v=>{
+  /* a page with learn/films.js picks its own saved films as it loads
+     them; once a save has finished it is told to look again */
+  let own=false; try{ own=!!(w && w.LHAF); }catch(e){}
+  if(own){ if(after) try{ w.LHAF.refresh(); }catch(e){} }
+  else d.querySelectorAll('video[src]').forEach(v=>{
     const u=uidOfUrl(v.getAttribute('src')); if(!u || !dlHas(u) || /lha=saved/.test(v.src)) return;
     v.src=dlKey(u,'film')+'?lha=saved';
     if(v.getAttribute('poster')) v.poster=dlKey(u,'still')+'?lha=saved';
@@ -19367,7 +19463,7 @@ function workshopPopHTML(){
   const w=WS||{};
   /* The film is optional: it belongs to the workshop in the dashboard, and
      a workshop written without one still has a card. */
-  const film = w.uid ? ccWrap(`<video src="${hlsOk()?streamHls(w.uid):streamMp4(w.uid)}" autoplay muted playsinline loop
+  const film = w.uid ? ccWrap(`<video src="${hlsUse()?streamHls(w.uid):streamMp4(w.uid)}" autoplay muted playsinline loop
         poster="${streamThumb(w.uid)}" data-cc="${esc(w.uid)}"
         style="width:100%;aspect-ratio:9/16;max-height:52vh;object-fit:cover;display:block;
         background:#0f1a19"></video>`, 'border-radius:22px 22px 0 0;overflow:hidden') : '';

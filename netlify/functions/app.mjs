@@ -9827,10 +9827,17 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if ((await rateHit(`learnf:${ip}`, 3600000)) > 60) return json({ tokens: {}, slow: true });
     const k = await streamKey();
     if (!k) return json({ tokens: {} });
-    const exp = Math.floor(Date.now() / 1000) + 2 * 3600;
+    /* The same passes for everybody, so the edge keeps the answer for half
+       an hour and a page asks the function at most twice an hour. Each
+       answer took one and a half to two and a half seconds, and a story
+       showed dark cards for all of it (28 Oct 2026). Three hours, so an
+       answer kept to the end of its half hour still has two and a half. */
+    const exp = Math.floor(Date.now() / 1000) + 3 * 3600;
     const tokens = {};
     for (const uid of list) tokens[uid] = await signUid(k, uid, exp);
-    return json({ tokens, exp: exp * 1000 });
+    return new Response(JSON.stringify({ tokens, exp: exp * 1000 }), { headers: {
+      'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
+      'Netlify-CDN-Cache-Control': 'public, s-maxage=1800, durable' } });
   }
 
   /* ── a still of a drill, for the story's locked cards ────────────────

@@ -334,6 +334,7 @@ html.inapp .sc-site,html:not(.inapp) .sc-app{display:none!important}
   m.addEventListener('click',function(e){ if(e.target.closest('a')) set(false); });
 })();
 </script>
+<script src="films.js"></script>
 <script>
 /* the story: tap the right of a card for the next, the left to go back,
    swipe either way, hold to pause the film. The arrows do it on a laptop,
@@ -356,9 +357,23 @@ html.inapp .sc-site,html:not(.inapp) .sc-app{display:none!important}
   addEventListener('pagehide', count);
   document.addEventListener('visibilitychange', function(){ if(document.hidden) count(); });
   var vid=function(i){ return cards[i] ? cards[i].querySelector('video[data-uid]') : null; };
-  var load=function(i){ var v=vid(i), t=v&&tk[v.dataset.uid]; if(!t || v.dataset.on) return;
-    v.dataset.on='1'; v.poster=S+t+'/thumbnails/thumbnail.jpg?time='+(v.dataset.poster||'3')+'s&height=900';
-    v.preload='auto'; v.src=S+t+'/downloads/default.mp4'; };
+  /* the card on screen loads in full, the ones either side only their
+     first frame, and with Data saver nothing ahead at all (films.js). A
+     film saved on this phone plays from there and needs no pass, so a
+     saved story works with no signal. */
+  var F=window.LHAF || null;
+  var load=function(i){ var v=vid(i); if(!v || v.dataset.on) return;
+    var u=v.dataset.uid, t=tk[u];
+    (F ? F.saved() : Promise.resolve({})).then(function(has){
+      if(v.dataset.on || (!t && !has[u])) return;
+      v.dataset.on='1'; v.dataset.seg=t||u;
+      v.poster = t ? S+t+'/thumbnails/thumbnail.jpg?time='+(v.dataset.poster||'3')+'s&height=900'
+        : S+u+'/thumbnails/thumbnail.jpg?lha=saved';
+      v.preload = i===cur ? 'auto' : (F && F.mode()==='saver') ? 'none' : 'metadata';
+      if(F) F.time(v);
+      v.src = F ? F.pick(u, t||u, has) : S+(t||u)+'/downloads/default.mp4';
+      if(i===cur) play(v);
+    }); };
   var play=function(v){ if(!v || !v.src) return; var p=v.play(); if(p&&p.catch) p.catch(function(){}); };
   /* a film with data-to loops just its stretch, from data-from, of a longer take */
   var from=function(v){ return v ? +(v.dataset.from||0) : 0; };
@@ -372,7 +387,8 @@ html.inapp .sc-site,html:not(.inapp) .sc-app{display:none!important}
       var v=vid(i); if(v && i!==n){ v.pause(); } });
     bars.forEach(function(b,i){ b.classList.toggle('done', i<n); b.firstChild.style.transform=i<n?'scaleX(1)':'scaleX(0)'; });
     cur=n; far=Math.max(far, n+1); if(far>=cards.length) count(); load(n); load(n+1); load(n-1);
-    var v=vid(n); if(v){ try{ v.currentTime=from(v); }catch(e){} play(v); }
+    var v=vid(n); if(v){ v.preload='auto'; v.dataset.vis='1'; try{ v.currentTime=from(v); }catch(e){} play(v); }
+    cards.forEach(function(c,i){ var w=vid(i); if(w && i!==n) w.dataset.vis='0'; });
     prev.disabled=n===0; next.disabled=n===cards.length-1;
     if(!keep && history.replaceState) history.replaceState(null,'', n? '#s'+(n+1) : location.pathname+location.search);
   };
