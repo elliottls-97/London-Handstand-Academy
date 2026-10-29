@@ -11703,7 +11703,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           /* 'list' is the drill list ticked off. It was not on this list, so
              every one of those reached the dashboard unlabelled and read as
              Follow along. */
-          mode: ['plan', 'ticks', 'checkin', 'manual', 'player', 'list'].includes(body.session.mode) ? body.session.mode : '',
+          /* 'widget': Log today, pressed on the Home Screen without opening the app (1.0.1) */
+          mode: ['plan', 'ticks', 'checkin', 'manual', 'player', 'list', 'widget'].includes(body.session.mode) ? body.session.mode : '',
           /* Sessions done on a phone before the account existed arrive in
              one go when it is made, and can be weeks old: they keep their
              day, up to sixty back, rather than all landing on today. */
@@ -12270,6 +12271,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      The From Elliott widget asks this every half hour, with the app shut:
      his last message, how many are unread, and his latest answer on a
      check point. Read only; it marks nothing read (28 Oct 2026, 1.0.1). */
+  /* Mark read on the From Elliott widget: his messages read, nothing else */
+  if (path === '/widget/read' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if ((await realMe()) !== who) return json({ ok: false });
+    await markCoachRead(who);
+    return json({ ok: true });
+  }
   if (path === '/widget' && request.method === 'GET') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);

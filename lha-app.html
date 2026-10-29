@@ -24649,16 +24649,26 @@ function widgetPlugin(){
   try{ if(!WDGP) WDGP = Capacitor.registerPlugin ? Capacitor.registerPlugin('WidgetData') : ((Capacitor.Plugins||{}).WidgetData||null); }catch(e){ WDGP=null; }
   return WDGP;
 }
+/* the poster tile: a still of a drill the day trains, signed where it is locked */
+const widgetStill = url => { const u=uidOfUrl(url||''); return u ? STREAM_CDN+sigUid(u)+'/thumbnails/thumbnail.jpg?time=3s&height=192&width=192&fit=crop' : ''; };
+function widgetStillFor(si, groups){
+  try{ const pool=poolFor(si)||[];
+    for(const g of (groups||[])){ const x=pool.find(p=>p.g===g && (drillById(p.v)||{}).url); if(x) return widgetStill(drillById(x.v).url); }
+    const any=pool.find(p=>p.g!=='Warm-up' && (drillById(p.v)||{}).url); return any ? widgetStill(drillById(any.v).url) : '';
+  }catch(e){ return ''; }
+}
 function widgetSnap(){
-  const c=coachedView(), out={v:2, signed:!!st.token, coached:c, coach:'Elliott', week:{}};
+  const c=coachedView(), out={v:3, signed:!!st.token, coached:c, coach:'Elliott', week:{}};
   try{ out.coach=coachLabel()||'Elliott'; }catch(e){}
   const si=c?undefined:curStage();
   try{
     if(c){
       const d=day(); out.stage='Your programme';
-      const groups=((d&&d.groups)||[]).filter(g=>!g.warm).map(g=>g.name).filter(Boolean);
+      const main=((d&&d.groups)||[]).filter(g=>!g.warm), groups=main.map(g=>g.name).filter(Boolean);
+      const first=main.flatMap(g=>g.items||[]).find(it=>itUrl(it));
       out.today={title:(d&&d.label)||'Your session', sub:(d&&d.sub)||'Set by '+out.coach, focus:groups.slice(0,4),
-        drills:((d&&d.groups)||[]).filter(g=>!g.warm).reduce((n,g)=>n+((g.items||[]).length),0)};
+        drills:main.reduce((n,g)=>n+((g.items||[]).length),0),
+        line:'Day '+((st.day|0)+1)+' of '+((DATA&&DATA.days||[]).length||1), still:first?widgetStill(itUrl(first)):''};
     } else {
       const S=STAGES[si]||{}, cells=weekCells(), mins=st.time||30;
       out.stage=S.n||'';
@@ -24666,8 +24676,9 @@ function widgetSnap(){
         let i=-1; for(let k=0;k<cells.length;k++) if(dayFor(k)===wd){ i=k; break; }
         const cell=i>=0?cells[i]:null;
         out.week[wd] = !cell ? {title:'Rest day', sub:'Nothing planned. Rest is part of it.', rest:true}
-          : isRestCell(cell) ? {title:'Mobility', sub:'Wrists and shoulders', mins:15, mob:true}
-          : {title:cell.n||'Session', sub:cell.sub||'', focus:(cell.focus||[]).slice(0,4), mins};
+          : isRestCell(cell) ? {title:'Mobility', sub:'Wrists and shoulders', focus:['Wrists','Shoulders'], mins:15, mob:true,
+              still:(()=>{ try{ const v=((WRIST_DAY&&WRIST_DAY.drills)||[]).find(x=>(drillById(x)||{}).url); return v?widgetStill(drillById(v).url):''; }catch(e){ return ''; } })()}
+          : {title:cell.n||'Session', sub:cell.sub||'', focus:(cell.focus||[]).slice(0,4), mins, still:widgetStillFor(si, cell.focus)};
       }
     }
   }catch(e){}
@@ -24690,7 +24701,13 @@ function widgetSnap(){
     const list=(cpFor(si)||[]).filter(x=>!cpAsks(x)), p=cpProgress(si)||{};
     out.met=p.met||0; out.of=p.of||0;
     out.names={}; list.forEach(x=>{ out.names[x.k]=x.n; });
-    out.cps=list.slice(0,8).map(x=>({n:x.n, met:!!cpMet(x)}));
+    /* each one with what it says beside it: the target when reached, the
+       last reading against it when not, or the target before any reading */
+    const nb0=cpNearest(si);
+    out.cps=list.slice(0,8).map(x=>{ const t=cpTarget(x), u=cpUnit(x)||(x.kind==='secs'?'s':''), last=cpLast(x.k), met=!!cpMet(x);
+      const tv=t!=null?(t+u):'', lv=last&&last.v!=null?Number(last.v):null;
+      const val = met ? (tv||'Reached') : (lv!=null && t!=null && !(x.kind==='yn'||x.kind==='face')) ? (lv+' of '+t+u) : tv;
+      return {n:x.n, met, val, next:!!(nb0&&nb0.c&&nb0.c.k===x.k)}; });
     const nb=cpNearest(si);
     if(nb && nb.c){ const u=cpUnit(nb.c)||(nb.c.kind==='secs'?'s':'');
       out.near={n:nb.c.n, v:nb.v, target:cpTarget(nb.c), unit:u, f:Math.max(0,Math.min(1,nb.f||0)), down:nb.c.kind==='breaks'}; }
