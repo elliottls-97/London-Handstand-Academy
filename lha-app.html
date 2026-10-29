@@ -851,6 +851,28 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
  .lglass span{display:inline!important}
  .lglass.mu .lglass-th{transform:translateX(110px)}
 }
+/* the same glass with Classes in it (28 Oct 2026): any number of choices,
+   the one you are on wide and named, the thumb under it by --i */
+.lglass.g3 button:not(.on){width:44px;color:#4f7c82}
+.lglass.g3 button.on{width:44px;color:var(--deep)}
+.lglass.g3 button:not(.on) span{display:none}
+.lglass.g3 .lglass-th{width:44px;transform:translateX(calc(var(--i,0) * 44px))}
+@media (min-width:375px){
+ .lglass.g3 button:not(.on){width:40px}
+ .lglass.g3 button.on{width:112px}
+ .lglass.g3 button.on span{display:inline}
+ .lglass.g3 .lglass-th{width:112px;transform:translateX(calc(var(--i,0) * 40px))}
+}
+@media (min-width:390px){
+ .lglass.g3 button:not(.on){width:42px}
+ .lglass.g3 button.on{width:118px}
+ .lglass.g3 .lglass-th{width:118px;transform:translateX(calc(var(--i,0) * 42px))}
+}
+@media (min-width:700px){
+ .lglass.g3 button:not(.on),.lglass.g3 button.on{width:110px}
+ .lglass.g3 button span{display:inline!important}
+ .lglass.g3 .lglass-th{width:110px;transform:translateX(calc(var(--i,0) * 110px))}
+}
 /* the oldest small phones: the ladder pill keeps its room, the week gives way */
 @media (max-width:340px){ .wk-squeeze{display:none!important} }
 .ls-from-r{animation:lsFromR .4s cubic-bezier(.2,.8,.2,1) both}
@@ -11582,7 +11604,7 @@ function moreBody(all, cards){
       ${/* the ways to use the app, for everybody: the Ladder, In person
             (28 Oct 2026), and a coached client's own programme */''}
       ${(()=>{ const cur = inPersonView() ? 'inperson' : coachedView() ? 'coaching' : bothView() ? 'both' : 'ladder';
-        const opts=[...(st.in?[['coaching','Coaching']]:[]),['ladder','Ladder'],['inperson','In person'],['both','Both']];
+        const opts=[...(st.in?[['coaching','Coaching']]:[]),['ladder','Ladder'],['inperson','In person']];
         return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
         <div class="kick2">HOW YOU USE IT</div>
         <div role="radiogroup" aria-label="How you use the app" style="display:flex;gap:4px;margin-top:11px;background:rgba(0,64,61,.08);border-radius:14px;padding:4px">
@@ -16446,10 +16468,8 @@ function screenQuiz(){
   let body='';
   if(step.id==='how') body=
     card(a.how==='app', two('On my own, with the app','The Handstand Ladder, a session for every day. Foundations is free.'), `quizMove(1,()=>pickIntake('how','app'),this)`, 0)
-    + card(a.how==='inperson', two('In person, classes and 1-2-1s','At OverGravity in Shadwell. Book and manage them here.'), `enterInPerson()`, 1)
-    /* both (Elliott, 28 Oct 2026: "allow both classes and ladder"): the
-       Ladder, with Classes as a tab of its own */
-    + card(a.how==='both', two('Both','The Ladder between sessions, and classes in person.'), `quizMove(1,()=>pickIntake('how','both'),this)`, 2);
+    + card(a.how==='inperson', two('In person, classes and 1-2-1s','At OverGravity in Shadwell. Book and manage them here.'), `enterInPerson()`, 1);
+  /* Both went when Classes joined the pill at the top: either is one tap */
   if(step.id==='goal') body=GOALS.map((g,k)=>
     card(a.goal===g.v, two(g.t,g.d), `quizMove(1,()=>pickIntake('goal','${g.v}'),this)`, k)).join('');
 
@@ -17609,6 +17629,34 @@ function climbCardHTML(cs, S, P, x){
    A tap on either name, or a swipe across the figures (Elliott, 23 Oct
    2026: "its own ladder which can be swiped on the ladder silhouettes").
    Left goes on to the Muscle Up Ladder, right comes back. */
+/* ── the top pill: Handstand, Classes, and Muscle up once it is on ──
+   Elliott, 28 Oct 2026: "would it be better to have classes on the top with
+   handstands/muscle up". It replaces Both and the menu's switch: Classes is
+   the In person view, one tap from either ladder. */
+const CLASS_FIG = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>`;
+function topSwitchHTML(){
+  const fig=(f)=>`<svg viewBox="0 0 100 130" width="22" height="29" aria-hidden="true">${f.p.map(([d,o])=>`<path d="${d}" fill="currentColor" opacity="${o}"/>`).join('')}<path d="${f.d}" fill="currentColor"/></svg>`;
+  const opts=[['hs','Handstand Ladder','Handstand',fig(LW_FIG[4])]]
+    .concat(MU_ON ? [['mu','Muscle Up Ladder','Muscle up',fig(MU_FIG[3])]] : [])
+    .concat([['classes','Classes and 1-2-1s','Classes',CLASS_FIG]]);
+  const cur = inPersonView() ? 'classes' : isMU() ? 'mu' : 'hs';
+  const i = Math.max(0, opts.findIndex(o=>o[0]===cur));
+  return `<div class="lglass g3" style="--i:${i}" role="radiogroup" aria-label="What you are training">
+    <i class="lglass-th" aria-hidden="true"></i>
+    ${opts.map(([k,lab,word,ico],n)=>`<button role="radio" class="${n===i?'on':''}" aria-checked="${n===i}" aria-label="${lab}" title="${lab}" onclick="topGo(this,'${k}',${n})">${ico}<span>${word}</span></button>`).join('')}</div>`;
+}
+/* the glass slides first, then the screen changes under it */
+function topGo(el, to, n){
+  const g=el.closest('.lglass'); if(!g || el.classList.contains('on')) return;
+  g.style.setProperty('--i', n);
+  g.querySelectorAll('button').forEach(b=>{ const on=b===el; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
+  setTimeout(()=>{
+    if(to==='classes'){ setView('inperson'); return; }
+    if(st.inPerson){ st.inPerson=false; st.viewChosen='ladder'; save(); }
+    if((to==='mu')!==isMU()) pickLadder(to);
+    if(['home','ladder','coaching'].indexOf(st.tab)<0) go('home'); else render();
+  }, 280);
+}
 function ladderSwitchHTML(top){
   const on=isMU();
   /* in the top bar: a liquid glass slider, a handstand one side and a muscle
@@ -19954,7 +20002,8 @@ function classesCardHTML(max, where){
    Apple allows paying for it in the app. */
 const inPersonView = () => !!st.inPerson && !coachedView() && !(typeof awaitingBlock==='function' && awaitingBlock());
 /* the Ladder with Classes beside it */
-const bothView = () => !st.inPerson && !coachedView() && ((st.intake||{}).how==='both');
+/* the Ladder with a Classes tab: gone now Classes is in the top pill */
+const bothView = () => false;
 /* the price of something done in person: shown in the iPhone app too,
    where PRICE() stays empty for anything Apple would bill */
 const ipPrice = k => (((st.prices||{})[k]||{}).label) || PRICE_DEFAULT[k] || '';
@@ -24174,7 +24223,7 @@ function topBar(){
         stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>`}
     ${/* the two ladders, on every tab (Elliott, 24 Oct 2026: "at the very
           top menu bar, so they are persistent") */''}
-    ${(MU_ON && !coachedView() && !inPersonView() && st.tab!=='press')?`<span style="flex:1;min-width:0;display:flex">${ladderSwitchHTML(true)}</span>`
+    ${(!coachedView() && st.tab!=='press')?`<span style="flex:1;min-width:0;display:flex">${topSwitchHTML()}</span>`
     :(tourOffer() && !coachedView() && !inPersonView() && !wkI)?`<span style="flex:1;min-width:0"><button onclick="showTour()" style="${chip};height:36px;
       border-radius:999px;padding:0 14px;display:inline-flex;align-items:center;gap:7px;font:600 12.5px/1 var(--sans)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
