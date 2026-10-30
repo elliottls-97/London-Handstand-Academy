@@ -283,7 +283,11 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 /* coached: the check points are the bar and Start is a play button at its
    end; they train from Plan (Elliott, 30 Oct 2026) */
 .hcap.hcap-c .hcap-cp{flex:1 1 auto}
-.hcap.hcap-c .hcap-go{flex:0 0 auto;min-width:0;width:56px;padding:0;justify-content:center}
+.hcap.hcap-c{align-items:center}
+.hcap.hcap-c .hcap-cp{align-self:stretch}
+.hcap.hcap-c .hcap-go{flex:0 0 auto;align-self:center;min-width:0;width:56px;height:56px;min-height:0;padding:0;margin-right:2px;justify-content:center;border-radius:50%}
+.hcap.hcap-c .hcap-go>span{width:auto;height:auto;background:none}
+.hcap.hcap-c .hcap-go>span svg{fill:#fff;width:18px;height:20px;margin-left:3px}
 .hcap.hcap-c .hcap-go .hcap-gl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .hcps{position:relative;margin-top:16px}
 .hcps::before{content:'';position:absolute;top:-8px;left:56px;width:18px;height:18px;transform:rotate(45deg);background:#fff;
@@ -17861,7 +17865,7 @@ function cpRingRun(el){
     if(tick){ if(tickT<0) tick.hidden=true; else { tick.hidden=false;
       tick.style.transform='scale('+(tickT<.7?1.18*(tickT/.7):1.18-.18*((tickT-.7)/.3)).toFixed(3)+')';
       tick.style.background=hex(lerp([243,169,73],[0,102,99],doneMix)); } }
-    if(num && S.count!=null) num.textContent=S.count+' of '+(S.total||of);
+    if(num && S.count!=null) num.textContent=cpCountWords(S.count, S.total||of);
   };
   const run=(update)=>{ if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
     const t0=+svg.dataset.t0||performance.now();
@@ -17934,6 +17938,13 @@ function capsuleRepaint(){
   const t=document.createElement('div'); t.innerHTML=capsuleHTML(a[0], a[1], true);
   const n=t.querySelector('.hcap'); if(n) el.replaceWith(n);
 }
+/* how many to go, not only how many done (Elliott, 30 Oct 2026). The ring
+   counts up through it as it fills, so it is worked out in one place. The
+   free bar is half as wide, so it keeps the shorter words. */
+function cpCountWords(met, of){
+  if(met>=of) return 'All '+of+' done';
+  return coachedView() ? met+' of '+of+' done · '+(of-met)+' to go' : met+' of '+of+' done';
+}
 function capsuleHTML(go, label, pillOnly){
   window._capArgs=[go, label];
   const cs=clearShowing()!=null ? clearShowing() : curStage();
@@ -17946,7 +17957,7 @@ function capsuleHTML(go, label, pillOnly){
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}${fbN?', '+fbN+' new from '+esc(coachLabel()):''}"
         style="background:${(P.of&&P.met>=P.of)?'#e8f6f4':'#f2f7f7'}">
         ${P.of?cpRingMark(P, coachedView()?'c':'s'+cs):''}
-        <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of?P.met+' of '+P.of:'On their way'}</em></small>${fbN?`<span class="hcap-fb"><b aria-hidden="true"></b><span>${fbN} new<i> from ${esc(coachLabel())}</i></span></span>`:''}</span></button>
+        <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of ? cpCountWords(P.met, P.of) : 'On their way'}</em></small>${fbN?`<span class="hcap-fb"><b aria-hidden="true"></b><span>${fbN} new<i> from ${esc(coachLabel())}</i></span></span>`:''}</span></button>
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}"${coachedView()?` aria-label="${esc(String(label).replace(/<[^>]+>/g,''))}" title="${esc(String(label).replace(/<[^>]+>/g,''))}"`:''}><em class="hcap-gl" style="font-style:normal">${label}</em>
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
