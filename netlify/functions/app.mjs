@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -650,18 +650,15 @@ async function caTell(slug, w) {
     const all = (await getSetting('classalerts')) || {};
     const whenTxt = wsWhenTxt(w), href = wsPageHref(w, 'alert');
     const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : '';
+    const cap = Number(w.places) || 0, left = cap ? Math.max(0, cap - wsPlaces((await getSetting(`wsbook:${slug}`)) || []).length) : 0;
+    if (cap && !left) return 0;
     for (const [e, x] of Object.entries(all).slice(0, 400)) {
       if (!x || !(x.kinds || []).includes(kind) || !(Number(x.at) < since)) continue;
       if (!(await supa.insertIfAbsent('nudges', { key: `caalert:${slug}:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
       const off = `${SITE}/api/app/class-alert/off?e=${enc(e)}&t=${await caTok(e)}`;
-      const went = await email(e, `New date: ${w.title}`, mail({ title: 'A new date.', greeting: String(x.n || '').split(' ')[0],
-        paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}${price ? '. ' + esc(price) : ''}.`,
-          `You asked to hear when new dates went up, so you are hearing first.${Number(w.places) > 0 ? ' There are ' + w.places + ' places, and they go to whoever books first.' : ''}`],
-        cta: { href, label: 'Book a place' },
-        /* the other two ways in, under the button (30 Oct 2026) */
-        after: [`Can't make this one either? Book a <a href="${SITE}/session?src=alert" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${SITE}/lha-app.html?ref=alert" style="color:#006663">free app</a> between classes.`,
-          `<span style="font-size:13px;color:#686868">No longer interested? <a href="${off}" style="color:#686868">Stop these emails</a>.</span>`],
-        signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => false);
+      const went = await email(e, `New date: ${w.title}`, classAlertEmail({ first: String(x.n || '').split(' ')[0], title: w.title, when: whenTxt,
+        place: w.place, price, left, places: cap, coach: w.coach, href, off }, SITE),
+        undefined, { receipt: true }).catch(() => false);
       if (went) n++;
     }
   } catch (err) { console.error('class alerts', slug, String(err && err.message || err)); }
@@ -1005,7 +1002,7 @@ const esc = t => String(t == null ? '' : t)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-function mail({ title, greeting, paras = [], box, cta, after = [], signoff, footnote }) {
+function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
   const F = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
   const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#4c5654">${t}</p>`;
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -1044,7 +1041,6 @@ function mail({ title, greeting, paras = [], box, cta, after = [], signoff, foot
         <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
           font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
       </td></tr></table>` : ''}
-      ${after.map(p).join('')}
       ${signoff ? p(`${esc(signoff.line || 'Talk soon,')}<br>${esc(signoff.name)}`) : ''}
     </td></tr>
     <tr><td style="padding:6px 32px 28px">

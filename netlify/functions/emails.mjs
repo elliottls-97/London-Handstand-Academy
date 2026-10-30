@@ -937,6 +937,29 @@ export function offerEmail(T, x, site) {
         btn: { label: 'Open the free app', sub: 'Foundations · no account needed', href: `${S}/lha-app.html?ref=offer` } },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
+/* a new date, to somebody who asked on the class page to hear first
+   (30 Oct 2026): the class, the date and the button, the review, then a
+   1-2-1 or the free app for when this one does not suit either, and the
+   way off the list. ctx: first, title, when, place, price, left, places,
+   coach, href, session, app, off */
+export function classAlertEmail(x, site) {
+  const S = site || SITE, [day] = String(x.when || '').split(', ');
+  const book = { label: 'Book your place' + (x.price ? ', ' + x.price : ''), sub: day + (x.left ? ` · ${x.left} left` : ''), href: x.href || `${S}/handstand-class?src=alert#book` };
+  const one = x.coach && !/\band\b|&/.test(x.coach);
+  return richEmail({ title: `New date: ${x.title}`, preheader: `${x.when}${x.place ? ', ' + x.place : ''}. You asked to hear first.`,
+    blocks: [
+      { t: 'hero', img: `${S}/assets/site/class-photo-email.jpg`, alt: 'The last class at OverGravity, everyone upside down', href: book.href, compact: true, light: true,
+        kicker: 'New date · ' + (x.left ? `${x.left} place${x.left === 1 ? '' : 's'}` : 'In person, London'), head: `${x.title}, ${day}.`, btn: book },
+      { t: 'card', greeting: x.first,
+        paras: [`You asked to hear when new dates went up, so you are hearing first. ${escH(x.when)}${x.place ? ', at ' + escH(x.place) : ''}.${x.places ? ' There are ' + x.places + ' places, and they go to whoever books first.' : ''}`] },
+      { t: 'card', points: [one ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group'],
+          ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
+          [x.price ? escH(x.price) : '&pound;0', 'A place,<br>card or Apple Pay']] },
+      ...(one ? [] : [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }]),
+      { t: 'card', paras: [`Can't make this one either? Book a <a href="${escH(x.session || S + '/session?src=alert')}" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${escH(x.app || S + '/lha-app.html?ref=alert')}" style="color:#006663">free app</a> between classes.`,
+          `<span style="font-size:13px;color:#8a8d80">No longer interested? <a href="${escH(x.off)}" style="color:#8a8d80">Stop these emails</a>.</span>`] },
+    ], sign: 'Elliott, London Handstand Academy', why: 'You asked for new class dates on the class page.' });
+}
 /* the last day of an early bird price, to somebody who started booking:
    the price, the hour it ends, the button. ctx as intentEmail, plus then */
 export function earlyEmail(T, x, site) {
