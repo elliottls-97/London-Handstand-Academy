@@ -12283,7 +12283,8 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
     stoppedAt: done?'':((Q[qi]&&Q[qi].it&&Q[qi].it.n)||''),
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = sessionStart ? Math.round((Date.now()-sessionStart)/60000) : 0;
-  if(done){ track('finish'); noteFinish(); coachDayDone(); }
+  /* a mini never moves the plan on to its next day */
+  if(done){ track('finish'); noteFinish(); if(miniAt==null) coachDayDone(); }
   /* a list session switched to the follow along part way moves on here */
   if(done) applyRotNext();
   fixSessionDone(done);
@@ -15794,8 +15795,10 @@ function finishChecklist(){
   captureWeekMoment();
   const lsA=(st.listStartAt||0) > Date.now()-6*3600e3 ? st.listStartAt : 0, lsSecs=lsA ? Math.round((Date.now()-lsA)/1000) : 0;
   delete st.listStartAt;
+  const miniL = (st.miniOn!=null && planMinis()[st.miniOn]) ? st.miniOn : null;
+  if(miniL!=null){ if(done) st.miniNext=(miniL+1)%planMinis().length; st.miniOn=null; }
   reportProgress({session:{
-    day:st.day, name:qLabel||((Q[0]&&Q[0].grp)||''), done, mode:'list',
+    day:st.day, name:qLabel||((Q[0]&&Q[0].grp)||''), done, mode:'list', ...(miniL!=null ? {mini:true} : {}),
     drills:rows.size, mins, actual:lsA ? Math.max(1,Math.round(lsSecs/60)) : Math.max(1,took), got:ticked, of:Q.length,
     ...(lsA ? {start:lsA, secs:lsSecs} : {}),
     items:[...rows.values()].slice(0,40)
@@ -22278,7 +22281,10 @@ function followMini(i){
     const n=setsFor(it); for(let k=0;k<n;k++) q.push({it, gi:'mini'+i+'-'+gi, ii, set:k+1, sets:n, grp:g.name});
   }));
   Q=q; qLabel=d.label||'Morning mini';
-  startQueue(0);
+  /* drill by drill first, as she prefers it (30 Oct 2026); the follow
+     along is the button at the top of the list */
+  st.qTick={}; st.reps={}; st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true; save();
+  track('start'); openOv('list');
 }
 function minisHTML(){
   const L=planMinis(); if(!L.length) return '';
