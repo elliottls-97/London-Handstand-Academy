@@ -1,3 +1,30 @@
+/* ── what breaks on a website page (30 Oct 2026) ────────────────────
+   A script error on any page that loads this, sent to the same What broke
+   list as the app's, at most five a visit and never from Elliott's own
+   devices. The app has its own reporter, so it is left to that. */
+(function () {
+  try {
+    if (/lha-app|lha-coach/.test(location.pathname)) return;
+    if (/(?:^|;\s*)lha_me=1(?:;|$)/.test(document.cookie || '')) return;
+    var sent = 0;
+    var tell = function (k, m, w, st) {
+      if (sent >= 5 || !m) return; sent++;
+      var body = JSON.stringify({ k: 'site', m: String(m).slice(0, 220), w: String(w || '').slice(0, 120),
+        sc: location.pathname.replace(/[^a-z0-9-]+/gi, ' ').trim().slice(0, 40) || 'home', dv: 'web', st: String(st || '').slice(0, 600) });
+      try {
+        if (navigator.sendBeacon) navigator.sendBeacon('/api/app/err', new Blob([body], { type: 'application/json' }));
+        else fetch('/api/app/err', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
+      } catch (e) {}
+    };
+    window.addEventListener('error', function (e) {
+      if (!e || !e.message || /Script error\.?$/.test(e.message)) return;
+      tell('js', e.message, (String(e.filename || '').split('/').pop() || '') + ':' + (e.lineno || 0), e.error && e.error.stack);
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e && e.reason; tell('promise', (r && r.message) || String(r), '', r && r.stack);
+    });
+  } catch (e) {}
+})();
 /* ── where visitors come from, and what they do ──────────────────────
    On every public page. One count of the page being seen, with where the
    visit came from, and one when somebody heads for a booking page. Totals
@@ -16,7 +43,13 @@
     var PAGES = { '/': 'home', '/index.html': 'home', '/handstand-class': 'class', '/handstand-class.html': 'class',
       '/handstand-classes-london': 'classes', '/handstand-classes-london.html': 'classes',
       '/learn-to-handstand-london': 'learn', '/learn-to-handstand-london.html': 'learn',
-      '/session': 'session', '/session.html': 'session', '/links': 'links', '/links.html': 'links' };
+      '/session': 'session', '/session.html': 'session', '/links': 'links', '/links.html': 'links',
+      '/six-week-handstand-group': 'group', '/six-week-handstand-group.html': 'group', '/call': 'call', '/call.html': 'call',
+      '/workshop': 'workshop', '/workshop.html': 'workshop' };
+    /* the app, which keeps the first source as its own (30 Oct 2026): the
+       link into it dropped it, so an account from Instagram via the
+       homepage was never known as one */
+    var APP = { '/lha-app.html': 1, '/app': 1, '/app.html': 1 };
     var page = PAGES[location.pathname] || (/^\/learn(\/|$)/.test(location.pathname) ? 'learn' : '');
     if (!page) return;
     var clean = function (v) { return String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20); };
@@ -76,7 +109,7 @@
       var links = document.querySelectorAll('a[href]');
       for (var i = 0; i < links.length; i++) {
         var u = mine(links[i]);
-        if (!u || !PAGES[u.pathname] || u.pathname === location.pathname) continue;
+        if (!u || !(PAGES[u.pathname] || APP[u.pathname]) || u.pathname === location.pathname) continue;
         if (u.searchParams.get('src') === src) continue;
         u.searchParams.set('src', src);
         links[i].setAttribute('href', u.pathname + u.search + u.hash);

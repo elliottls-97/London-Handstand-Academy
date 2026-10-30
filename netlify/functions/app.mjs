@@ -712,13 +712,16 @@ async function journeyReport(days, full) {
     step('subscribed', 'Paid for the app', n(cur, 'subscribed'), n(prev, 'subscribed')),
     step('ret7', 'Back a week after first opening', n(cur, 'ret7'), n(prev, 'ret7')),
   ];
-  const pv = t => ['pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks'].reduce((a, k) => a + n(t, k), 0);
+  const pv = t => ['pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks', 'pvgroup', 'pvcall', 'pvworkshop'].reduce((a, k) => a + n(t, k), 0);
   const site = [
     step('pv', 'Website page views', pv(cur), pv(prev)),
     step('pvhome', 'Home page', n(cur, 'pvhome'), n(prev, 'pvhome')),
     step('pvclass', 'Class page', n(cur, 'pvclass'), n(prev, 'pvclass')),
     step('pvlearn', 'Learn pages', n(cur, 'pvlearn'), n(prev, 'pvlearn')),
     step('pvlinks', 'Instagram links page', n(cur, 'pvlinks'), n(prev, 'pvlinks')),
+    step('pvgroup', 'Six week group page', n(cur, 'pvgroup'), n(prev, 'pvgroup')),
+    step('pvcall', 'Free call page', n(cur, 'pvcall'), n(prev, 'pvcall')),
+    step('pvworkshop', 'A workshop page', n(cur, 'pvworkshop'), n(prev, 'pvworkshop')),
     step('tobook', 'Tapped towards booking', n(cur, 'tobook'), n(prev, 'tobook')),
     step('workshopbook', 'Started booking a class', n(cur, 'workshopbook'), n(prev, 'workshopbook')),
     step('workshoppaid', 'Paid for a class', n(cur, 'workshoppaid'), n(prev, 'workshoppaid')),
@@ -3359,6 +3362,12 @@ export default (request, context) => ALERTS.run({ q: [], ctx: context }, async (
   const box = ALERTS.getStore();
   try { return await handle(request); }
   catch (err) {
+    /* the server's own failures, in What broke beside the phones' (30 Oct
+       2026): a route that throws answered 500 and was only ever in
+       Netlify's log unless the app happened to be the one asking */
+    try { const u = new URL(request.url);
+      await errAdd({ k: 'server', m: String((err && err.message) || err).slice(0, 220), w: (request.method + ' ' + u.pathname.replace(/^.*\/api\/app/, '')).slice(0, 120),
+        sc: '', dv: 'server', who: '', st: String((err && err.stack) || '').slice(0, 600) }); } catch {}
     /* a webhook that throws is a payment Stripe will keep sending and the
        app keeps failing to file: said, then thrown on so Stripe retries */
     try { if (/\/stripe\/webhook$/.test(new URL(request.url).pathname)) await payAlarm('hook', 'The Stripe webhook failed', [
@@ -3368,6 +3377,25 @@ export default (request, context) => ALERTS.run({ q: [], ctx: context }, async (
   }
   finally { try { await flushAlerts(box); } catch {} }
 });
+/* one entry in What broke, from a phone, a website page or the server
+   itself, counted against the same message and place */
+async function errAdd({ k, m, w, sc, dv, who, st }) {
+  const id = (k + '|' + m + '|' + (w || '')).slice(0, 300);
+  await changeSetting('errs', cur => {
+    const all = Object.assign({}, cur || {});
+    const e = Object.assign({ k, m, w: w || '', n: 0, first: Date.now(), sc: {}, dv: {}, who: [] }, all[id] || {});
+    e.sc = Object.assign({}, e.sc); e.dv = Object.assign({}, e.dv); e.who = (e.who || []).slice();
+    e.n++; e.last = Date.now();
+    if (sc && (e.sc[sc] || Object.keys(e.sc).length < 12)) e.sc[sc] = (e.sc[sc] || 0) + 1;
+    if (dv) e.dv[dv] = (e.dv[dv] || 0) + 1;
+    if (who && !e.who.includes(who)) { e.who.unshift(who); e.who = e.who.slice(0, 6); }
+    if (st) e.stack = st;
+    all[id] = e;
+    const ids = Object.keys(all);
+    if (ids.length > 150) ids.sort((x, y) => (all[x].last || 0) - (all[y].last || 0)).slice(0, ids.length - 150).forEach(x => { delete all[x]; });
+    return all;
+  });
+}
 const handle = async (request) => {
   const url = new URL(request.url);
   const path = url.pathname.replace(/^.*\/api\/app/, '').replace(/^\/\.netlify\/functions\/app/, '') || '/';
@@ -11001,6 +11029,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* stats.js: a view of each public page, and a click from one
                      of them towards booking (11 Oct 2026), split by source */
                   'pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks', 'tobook',
+                  /* the six week group, the free call and a workshop's page (30 Oct 2026) */
+                  'pvgroup', 'pvcall', 'pvworkshop',
                   /* the homepage's way in: a door picked, the fit check
                      started and finished, what they did about it, and the
                      prompt on the way out */
@@ -11114,22 +11144,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`err:${ip}`, 3600000)) > 60) return json({ ok: true });
     const clip = (x, n) => String(x == null ? '' : x).replace(/[\u0000-\u001f]/g, ' ').slice(0, n);
-    const k = ['js', 'promise', 'api', 'film', 'save'].includes(body.k) ? body.k : 'js';
+    /* site: a website page (stats.js, 30 Oct 2026) */
+    const k = ['js', 'promise', 'api', 'film', 'save', 'site'].includes(body.k) ? body.k : 'js';
     const m = clip(body.m, 220).trim(); if (!m) return json({ ok: true });
-    const w = clip(body.w, 120), sc = clip(body.sc, 40).replace(/[^a-z0-9:_ -]/gi, ''), dv = body.dv === 'ios' ? 'ios' : 'web';
     let who = ''; try { who = (await me()) || ''; } catch {}
-    const id = (k + '|' + m + '|' + w).slice(0, 300);
-    const all = (await getSetting('errs')) || {};
-    const e = all[id] || { k, m, w, n: 0, first: Date.now(), sc: {}, dv: {}, who: [] };
-    e.n++; e.last = Date.now();
-    if (sc && (e.sc[sc] || Object.keys(e.sc).length < 12)) e.sc[sc] = (e.sc[sc] || 0) + 1;
-    e.dv[dv] = (e.dv[dv] || 0) + 1;
-    if (who && !e.who.includes(who)) { e.who.unshift(who); e.who = e.who.slice(0, 6); }
-    if (body.st) e.stack = clip(body.st, 600);
-    all[id] = e;
-    const ids = Object.keys(all);
-    if (ids.length > 150) ids.sort((x, y) => (all[x].last || 0) - (all[y].last || 0)).slice(0, ids.length - 150).forEach(x => { delete all[x]; });
-    await setSetting('errs', all);
+    await errAdd({ k, m, w: clip(body.w, 120), sc: clip(body.sc, 40).replace(/[^a-z0-9:_ -]/gi, ''), dv: body.dv === 'ios' ? 'ios' : 'web', who, st: body.st ? clip(body.st, 600) : '' });
     return json({ ok: true });
   }
   /* the list, for the owner; clear one or the lot once it is dealt with */
