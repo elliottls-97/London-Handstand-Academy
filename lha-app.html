@@ -4057,6 +4057,7 @@ function screenToday(){
     ${dlRec(dl.key) ? dlRow(dl.key, dl.urls, dl.opts) : ''}
   </div>
   ${todaySlotHTML(dl)}
+  ${minisHTML()}
   ${/* the calendar is Progress › Log again (Elliott, 18 Oct 2026) */''}
   ${(()=>{ const c=classesCardHTML(2,'coached'); return c?`<div class="pad" style="padding-top:18px">${c}</div>`:''; })()}
   <div style="height:26px"></div></div>`;
@@ -12263,7 +12264,11 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
     });
   })();
   if(done) captureWeekMoment();
-  reportProgress({session:{day:st.day, name:(coachedView()&&d&&d.label)||qLabel||(d&&d.label)||'', done:!!done, items:rows,
+  /* a morning mini says so, and the next one comes up after it */
+  const miniAt = (st.miniOn!=null && planMinis()[st.miniOn]) ? st.miniOn : null;
+  if(miniAt!=null){ if(done) st.miniNext=(miniAt+1)%planMinis().length; st.miniOn=null; save(); }
+  reportProgress({session:{day:st.day, name:miniAt!=null ? (planMinis()[miniAt].label||'Morning mini') : ((coachedView()&&d&&d.label)||qLabel||(d&&d.label)||''), done:!!done, items:rows,
+    ...(miniAt!=null ? {mini:true} : {}),
     /* how they trained, so the coach's calendar can say whether this was the
        timed follow-along or the drill list ticked off. The player sent
        nothing at all, so every follow-along session was unlabelled. */
@@ -22257,7 +22262,41 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
 /* the same session, started at whichever drill you picked */
 /* Q holds whatever was built last, which on the plan screen was often
    another day entirely. Build this day's queue before running it. */
-function followDay(){ st.fixActive=null; Q=queue(); startQueue(0); }
+function followDay(){ st.fixActive=null; st.miniOn=null; Q=queue(); startQueue(0); }
+/* ── morning minis (Marina, 30 Oct 2026) ─────────────────────────────
+   Short sessions the coach writes beside the plan: three drills, no
+   warm-up, her own order. They have their own list, so they never change
+   the week's target or which day of the plan is next, and their blocks
+   are marked apart so finishing one ticks nothing on the plan's day. */
+const planMinis = () => ((typeof DATA!=='undefined' && DATA && Array.isArray(DATA.minis)) ? DATA.minis : [])
+  .filter(m=>m && (m.groups||[]).some(g=>(g.items||[]).length));
+function followMini(i){
+  const d=planMinis()[i]; if(!d) return;
+  st.fixActive=null; st.miniOn=i; save();
+  const q=[];
+  (d.groups||[]).forEach((g,gi)=>(g.items||[]).forEach((it,ii)=>{
+    const n=setsFor(it); for(let k=0;k<n;k++) q.push({it, gi:'mini'+i+'-'+gi, ii, set:k+1, sets:n, grp:g.name});
+  }));
+  Q=q; qLabel=d.label||'Morning mini';
+  startQueue(0);
+}
+function minisHTML(){
+  const L=planMinis(); if(!L.length) return '';
+  const next=Math.min(L.length-1, Math.max(0, Number(st.miniNext)||0));
+  return `<div class="pad" style="padding-top:18px"><div class="card" style="padding:18px 18px 8px">
+    <div class="kick2">SHORT ON TIME</div>
+    <div style="font:400 24px/1.15 var(--serif);margin-top:8px">Three drills, <em style="color:var(--forest);font-style:normal">ten minutes.</em></div>
+    <div style="margin-top:12px">${L.map((m,i)=>{ const names=(m.groups||[]).flatMap(g=>g.items||[]).map(it=>it.n).join(' · ');
+      return `<button onclick="followMini(${i})" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:0;border-top:1px solid rgba(0,64,61,.10);
+        background:none;padding:12px 0;cursor:pointer;color:var(--ink)">
+        <span style="flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;${i===next
+          ?'background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary)':'background:rgba(0,64,61,.07);color:var(--deep)'}">
+          <svg width="11" height="12" viewBox="0 0 17 19" fill="currentColor" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>
+        <span style="flex:1;min-width:0"><span style="display:block;font:600 15px/1.3 var(--sans)">${esc(m.label)}${i===next?' <span style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;color:var(--forest);margin-left:6px">NEXT</span>':''}</span>
+          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${esc(names)}</span></span>
+        <span style="flex:none;font:500 12px/1 var(--sans);color:var(--grey2)">${esc(String(m.mins||'10'))} min</span></button>`; }).join('')}</div>
+  </div></div>`;
+}
 
 /* ── the films, before you need them ───────────────────────────────
    A session used to fetch each film at the moment it came round, so a

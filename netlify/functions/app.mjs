@@ -6514,7 +6514,19 @@ const handle = async (request) => {
     }
     const w = cleanWarmup(base.warmup);
     const warmup = w ? { n: w.n, items: w.items.map(hydrateItem).filter(Boolean) } : null;
-    return Object.assign({}, base, { days, answers, warmup });
+    /* short extra sessions beside the plan, a list of their own (30 Oct 2026) */
+    const minis = (Array.isArray(base.minis) ? base.minis : []).slice(0, 8).map((d, i) => ({
+      id: String(d.id || ('m' + (i + 1))).slice(0, 8),
+      label: String(d.label || `Mini ${i + 1}`).slice(0, 40),
+      sub: String(d.sub || '').slice(0, 60),
+      mins: String(d.mins || '').slice(0, 8),
+      noWarm: true,
+      groups: (d.groups || []).slice(0, 4).map(g => ({
+        name: String(g.name || '').slice(0, 60),
+        items: (g.items || []).slice(0, 12).map(hydrateItem).filter(Boolean),
+      })),
+    }));
+    return Object.assign({}, base, { days, answers, warmup, minis });
   }
   /* ── clips of the client themselves ────────────────────────────────
      A drill filmed of this client, in a session or sent in, plays for them
@@ -6530,14 +6542,18 @@ const handle = async (request) => {
       it.url = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${c.uid}/downloads/default.mp4`;
       it.own = true;
     };
-    (plan.days || []).forEach(d => (d.groups || []).forEach(g => (g.items || []).forEach(put)));
+    (plan.days || []).concat(plan.minis || []).forEach(d => (d.groups || []).forEach(g => (g.items || []).forEach(put)));
     ((plan.warmup && plan.warmup.items) || []).forEach(put);
     return plan;
   }
   async function planFor(email) {
     await ensureCustom();
     const saved = await getSetting(`programme:${email}`);
-    return hydratePlan(saved || planFile(email) || null);
+    /* the minis are written in the spec; a programme saved from the
+       dashboard does not carry them, so they come from the spec beside it */
+    const file = planFile(email);
+    const base = saved && !(saved.minis || []).length && file && (file.minis || []).length ? Object.assign({}, saved, { minis: file.minis }) : saved;
+    return hydratePlan(base || file || null);
   }
 
   /* ── the client's own programme ──────────────────────────────────
