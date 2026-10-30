@@ -9230,6 +9230,58 @@ function websiteHTML(){
     <div class="muted" style="font-size:12px;margin-top:6px">Your own visits are left out on any browser this dashboard is signed in on. On another phone or browser, open londonhandstandacademy.com/me once.</div>
   </section>`;
 }
+/* ── this week, in a few lines (Elliott, 30 Oct 2026: "build the weekly
+   digest as a dashboard card") ──────────────────────────────────────
+   Everything is already counted somewhere in Settings: the Journey (the
+   last seven days against the seven before), who pays, what people searched
+   for in Learn and asked, and the next class. This reads those and says
+   them as sentences, folded to one line so Today stays calm. Each line
+   opens the page it came from. */
+let dg=null, dgAsked=false, dgOpen=false, dgClass=null;
+function loadDigest(){
+  if(dgAsked) return; dgAsked=true;
+  fetch(API+'/journey?days=7',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ dg=d; draw(); } }).catch(()=>{});
+  fetch('/api/app/workshops').then(r=>r.ok?r.json():null).then(d=>{ if(d){ dgClass=d.workshops||[]; draw(); } }).catch(()=>{});
+  loadPaying(); loadLearnSearch();
+}
+function digestHTML(){
+  if(!owner) return '';
+  loadDigest();
+  if(!dg) return '';
+  const wk=Date.now()-7*864e5, A=Object.fromEntries((dg.app||[]).map(x=>[x.k,x])), g=k=>A[k]||{n:0,prev:0};
+  const chg=(v,p)=>!p?'':(d=>d===0?'':` <span style="color:${d>0?'var(--forest)':'#a4503c'}">${d>0?'▲':'▼'}${Math.abs(d)}%</span>`)(Math.round(100*(v-p)/p));
+  const st_=dg.stalled||{}, rows=(paying&&paying.rows)||[], ls=lsData||{searches:[],asks:[]};
+  const money=n=>'£'+(Math.round(n*100)/100).toLocaleString('en-GB',{maximumFractionDigits:2});
+  const nm=r=>esc(r.name||(r.email||'').split('@')[0]);
+  const paid=rows.filter(r=>r.how!=='comp'), mrr=rows.reduce((t,r)=>t+(Number(r.pm)||0),0);
+  const fresh=paid.filter(r=>r.since>=wk), going=paid.filter(r=>r.cancelling), late=paid.filter(r=>r.status==='past_due'||r.status==='unpaid');
+  const nothing=(ls.searches||[]).filter(x=>!x.hits && x.last>=wk).slice(0,4), asks=(ls.asks||[]).filter(a=>a.at>=wk);
+  const errs=dg.errs||[];
+  const path=['open','quizq0','quiz','start','finish','first1','first2'];
+  let worst=null; for(let i=1;i<path.length;i++){ const a=g(path[i-1]).n, b=g(path[i]).n; if(a>=5){ const lost=1-b/a; if(!worst||lost>worst.lost) worst={from:(A[path[i-1]]||{}).label||path[i-1],to:(A[path[i]]||{}).label||path[i],lost}; } }
+  const cls=(dgClass||[]).filter(w=>w&&w.when&&Date.parse(w.when)>Date.now()).sort((a,b)=>Date.parse(a.when)-Date.parse(b.when))[0];
+  const line=(icon,html,go)=>`<button onclick="${go}" style="display:flex;gap:11px;align-items:flex-start;width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:9px 0;border-top:1px solid var(--line);color:var(--ink)">
+    <span style="flex:none;width:22px;font:600 13px/1.5 var(--sans);color:var(--forest)">${icon}</span>
+    <span style="flex:1;min-width:0;font:400 13.5px/1.5 var(--sans)">${html}</span></button>`;
+  const L=[];
+  L.push(line('↗',`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new accounts, <b>${st_.activeThisPeriod!=null?st_.activeThisPeriod:'?'}</b> people active. The app was opened <b>${g('open').n}</b> times${chg(g('open').n,g('open').prev)}, <b>${g('first1').n}</b> first sessions${chg(g('first1').n,g('first1').prev)} and <b>${g('finish').n}</b> sessions finished${chg(g('finish').n,g('finish').prev)}.`,"setTab='journey';go('settings')"));
+  if(worst&&worst.lost>0.2) L.push(line('↓',`Biggest drop is between <b>${esc(String(worst.from).toLowerCase())}</b> and <b>${esc(String(worst.to).toLowerCase())}</b>: ${Math.round(worst.lost*100)}% go no further.`,"setTab='journey';go('settings')"));
+  if(paying) L.push(line('£',`<b>${paid.length}</b> paying, <b>${money(mrr)}</b> a month.${fresh.length?` New: ${fresh.map(nm).join(', ')}.`:' Nobody new this week.'}${going.length?` Cancelling: ${going.map(nm).join(', ')}.`:''}${late.length?` <b style="color:#a4503c">Payment failed: ${late.map(nm).join(', ')}.</b>`:''}`,"setTab='people';go('settings')"));
+  if(Array.isArray(st_.paidQuiet)&&st_.paidQuiet.length) L.push(line('!',`Paying and quiet for ten days: ${st_.paidQuiet.slice(0,4).map(p=>esc(p.name||p.email.split('@')[0])).join(', ')}. Worth a message.`,"setTab='journey';go('settings')"));
+  if(Array.isArray(st_.never)&&st_.never.length) L.push(line('·',`<b>${st_.never.length}</b> signed up and never trained${Array.isArray(st_.once)&&st_.once.length?`, <b>${st_.once.length}</b> trained once and have not been back`:''}.`,"setTab='journey';go('settings')"));
+  if(asks.length) L.push(line('?',`<b>${asks.length}</b> question${asks.length===1?'':'s'} from the Learn search. Latest: &ldquo;${esc(asks[0].text.slice(0,90))}${asks[0].text.length>90?'…':''}&rdquo;`,"setTab='journey';go('settings')"));
+  if(nothing.length) L.push(line('⌕',`Searched, found nothing: ${nothing.map(x=>'&ldquo;'+esc(x.q)+'&rdquo;').join(', ')}. Something to film or write.`,"setTab='journey';go('settings')"));
+  if(errs.length) L.push(line('⚠',`<b>${errs.length}</b> thing${errs.length===1?'':'s'} broke, the most: &ldquo;${esc(String(errs[0].m).slice(0,70))}&rdquo; ${errs[0].n}×.`,"setTab='journey';go('settings')"));
+  if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"setTab='workshops';go('settings')")); }
+  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first sessions · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c">${errs.length} broke</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
+  return `<div style="margin:0 0 var(--space-4);padding:14px 16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
+    <button onclick="dgOpen=!dgOpen;draw()" style="display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;padding:0;cursor:pointer;text-align:left;color:var(--ink)">
+      <span class="kick" style="flex:none">THIS WEEK</span>
+      <span style="flex:1;min-width:0;font:400 13.5px/1.4 var(--sans)">${head}</span>
+      <span style="flex:none;color:var(--grey2);transform:rotate(${dgOpen?180:0}deg)">⌄</span></button>
+    ${dgOpen?`<div style="margin-top:10px">${L.join('')}</div>`:''}
+  </div>`;
+}
 function todayHTML(){
   if(!TODAY_CATS.some(c=>c[0]===inboxFilter)) inboxFilter='all';
   const people=todayPeople();
@@ -9250,6 +9302,7 @@ function todayHTML(){
     ${mailAlertHTML()}
     <p class="muted" style="font-size:13px;margin:0 0 var(--space-1)">${esc(date)}</p>
     <h1 style="margin:0 0 var(--space-2)">${calm}</h1>
+    ${digestHTML()}
     ${(n=>n?`<p style="margin:0 0 var(--space-4)"><button class="ghostlink" onclick="todayClearOld()">Clear ${n} item${n===1?'':'s'} older than two weeks</button></p>`:'<div style="height:var(--space-2)"></div>')(all.filter(r=>Date.now()-(r.at||0)>14*864e5).length)}
     ${sessionsStripHTML()}
     ${pushNudgeHTML()}
