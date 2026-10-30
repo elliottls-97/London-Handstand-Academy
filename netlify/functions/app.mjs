@@ -642,35 +642,48 @@ async function wsOfferFreed(slug, w) {
 const CA_KINDS = { handstand: 'Handstand classes', calisthenics: 'Calisthenics: pull ups to muscle ups', workshop: 'Workshops and specials' };
 const caKindOf = w => { const t = String((w && w.title) || ''); return /calisthenic|muscle|pull ?up/i.test(t) ? 'calisthenics' : /handstand|all levels/i.test(t) ? 'handstand' : 'workshop'; };
 const caTok = async e => (await sha256hex('lha-classalert:' + norm(e) + ':' + (process.env.SIGNING_SECRET || ''))).slice(0, 24);
-async function caTell(slug, w) {
-  let n = 0;
+/* One email a person, with every class of the kinds they ticked that went
+   on sale since they asked and they have not heard about, run by the 9am
+   job and by Send now in the dashboard. Two dates put up on one evening
+   are one email, not two (30 Oct 2026). */
+const caWhoDue = async () => {
+  const subs = (await getSetting('classalerts')) || {};
+  const now = Date.now();
+  const onSale = [];
+  for (const c of Object.values((await getSetting('workshops')) || {}).filter(c => c && c.live && c.when && ms(c.when) > now).sort((a, b) => ms(a.when) - ms(b.when))) {
+    const cap = Number(c.places) || 0, left = cap ? Math.max(0, cap - wsPlaces((await getSetting(`wsbook:${c.slug}`)) || []).length) : 0;
+    onSale.push({ c, cap, left, full: !!cap && !left });
+  }
+  const due = [];
+  for (const [e, x] of Object.entries(subs)) {
+    const told = x.told || {};
+    const fresh = onSale.filter(o => !o.full && (x.kinds || []).includes(caKindOf(o.c)) && !told[o.c.slug] && Number(o.c.liveAt) > Number(x.at));
+    if (fresh.length) due.push({ e, x, fresh });
+  }
+  return { due, onSale };
+};
+async function caSendDue() {
+  let sent = 0;
   try {
-    const kind = caKindOf(w), since = Number(w.liveAt) || 0;
-    if (!w.live || !w.when || ms(w.when) <= Date.now()) return 0;
-    const all = (await getSetting('classalerts')) || {};
-    const whenTxt = wsWhenTxt(w), href = wsPageHref(w, 'alert');
-    const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : '';
-    const cap = Number(w.places) || 0, left = cap ? Math.max(0, cap - wsPlaces((await getSetting(`wsbook:${slug}`)) || []).length) : 0;
-    if (cap && !left) return 0;
-    /* every class on sale, this one marked new, so one email shows the lot */
+    const { due, onSale } = await caWhoDue();
+    if (!due.length) return 0;
     const pl = c => c.price ? '£' + (c.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
-    const shows = [];
-    for (const c of Object.values((await getSetting('workshops')) || {}).filter(c => c && c.live && c.when && ms(c.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when)).slice(0, 8)) {
-      const cc = Number(c.places) || 0, cl = cc ? Math.max(0, cc - wsPlaces((await getSetting(`wsbook:${c.slug}`)) || []).length) : 0;
-      shows.push({ title: c.title, when: wsWhenTxt(c), room: caKindOf(c) === 'calisthenics' ? 'Arch 2' : caKindOf(c) === 'handstand' ? 'Arch 1' : '',
-        price: pl(c), left: cl, full: !!cc && !cl, href: wsPageHref(c, 'alert'), isNew: c.slug === slug });
-    }
-    for (const [e, x] of Object.entries(all).slice(0, 400)) {
-      if (!x || !(x.kinds || []).includes(kind) || !(Number(x.at) < since)) continue;
-      if (!(await supa.insertIfAbsent('nudges', { key: `caalert:${slug}:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
+    const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'calisthenics' ? 'Arch 2' : caKindOf(o.c) === 'handstand' ? 'Arch 1' : '',
+      price: pl(o.c), left: o.left, full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
+    for (const { e, x, fresh } of due.slice(0, 90)) {
+      const newSet = new Set(fresh.map(o => o.c.slug));
+      const news = fresh.map(o => row(o, newSet)), all = onSale.map(o => row(o, newSet));
       const off = `${SITE}/api/app/class-alert/off?e=${enc(e)}&t=${await caTok(e)}`;
-      const went = await email(e, `New date: ${w.title}`, classAlertEmail({ first: String(x.n || '').split(' ')[0], title: w.title, when: whenTxt,
-        place: w.place, price, left, places: cap, all: shows, coach: w.coach, href, off }, SITE),
-        undefined, { receipt: true }).catch(() => false);
-      if (went) n++;
+      const subj = news.length > 1 ? `${news.length} new class dates` : `New date: ${news[0].title}, ${String(news[0].when).split(', ')[0]}`;
+      const went = await email(e, subj, classAlertEmail({ first: String(x.n || '').split(' ')[0], news, all, off,
+        book: news.length > 1 ? `${SITE}/handstand-class?src=alert#book` : news[0].href }, SITE), undefined, { receipt: true }).catch(() => false);
+      if (!went) continue;
+      sent++;
+      await changeSetting('classalerts', cur => { const l = Object.assign({}, cur || {}); if (!l[e]) return undefined;
+        const t = Object.assign({}, l[e].told || {}); newSet.forEach(sl => { t[sl] = Date.now(); }); l[e] = Object.assign({}, l[e], { told: t }); return l; }).catch(() => {});
     }
-  } catch (err) { console.error('class alerts', slug, String(err && err.message || err)); }
-  return n;
+  } catch (err) { console.error('class alerts', String(err && err.message || err)); }
+  return sent;
 }
 async function wsTellDated(slug, w) {
   let n = 0;
@@ -7102,6 +7115,13 @@ const handle = async (request) => {
       size = Object.keys(l).length; return l; });
     return json({ ok: true, kinds });
   }
+  /* the 9am job's call: the key is a hash of the signing secret, which the
+     job and this function both hold and nobody else does */
+  if (path === '/class-alert/run' && request.method === 'POST') {
+    const want = await sha256hex('lha-cron:' + (process.env.SIGNING_SECRET || ''));
+    if (!process.env.SIGNING_SECRET || String(request.headers.get('x-cron-key') || '') !== want) return json({ error: 'Nope' }, 401);
+    return json({ ok: true, sent: await caSendDue() });
+  }
   /* the link in every alert: off the list, at once, no sign in */
   if (path === '/class-alert/off' && request.method === 'GET') {
     const e = norm(url.searchParams.get('e')), t = String(url.searchParams.get('t') || '');
@@ -7120,9 +7140,12 @@ const handle = async (request) => {
   /* for the dashboard: how many are waiting for each kind of class */
   if (path === '/coach/class-alerts') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    let sent = 0;
+    if (request.method === 'POST' && body.send) { if (!(await isOwner())) return json(ownerOnly, 403); sent = await caSendDue(); }
+    let dueN = 0; try { dueN = (await caWhoDue()).due.length; } catch {}
     const all = (await getSetting('classalerts')) || {};
     const by = {}; Object.values(all).forEach(x => (x.kinds || []).forEach(k => { by[k] = (by[k] || 0) + 1; }));
-    return json({ total: Object.keys(all).length, by, kinds: CA_KINDS,
+    return json({ total: Object.keys(all).length, by, kinds: CA_KINDS, due: dueN, sent,
       people: Object.entries(all).map(([e, x]) => ({ email: e, name: x.n || '', kinds: x.kinds || [], at: x.at })).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 200) });
   }
   if (path === '/workshop/wait' && request.method === 'POST') {
@@ -8106,9 +8129,9 @@ const handle = async (request) => {
          everyone on that list is told, once (21 Oct 2026) */
       let told = 0;
       if (w.live && w.when && !hadDate) told = await wsTellDated(slug, w);
-      /* and everyone who asked for new dates of this kind, once */
-      const alerted = (w.live && w.when) ? await caTell(slug, w) : 0;
-      return json({ ok: true, workshop: w, workshops: await withBook(), told, alerted });
+      /* who asked for new dates of this kind hears at 9am, or on Send now */
+      let alertsDue = 0; try { alertsDue = (await caWhoDue()).due.length; } catch {}
+      return json({ ok: true, workshop: w, workshops: await withBook(), told, alertsDue });
     }
     return json({ error: 'Nope' }, 405);
   }

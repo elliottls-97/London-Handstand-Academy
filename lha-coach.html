@@ -12353,7 +12353,7 @@ function wsSave(){
   fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({workshop:wsf, was:wsf.was||''})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ wshops=d.workshops||wshops; wsBusy=false; wsf=JSON.parse(JSON.stringify(d.workshop)); wsf.was=d.workshop.slug; wsOpen=d.workshop.slug;
-      wsMsg='Saved. '+(wsf.live?(wsf.when?'It is on the site and taking bookings.':'It is on the site, taking names until you set a date.'):'A draft, not on the site yet.')+(d.told?' '+d.told+' on the list emailed the date.':'')+(d.alerted?' '+d.alerted+' waiting for new dates emailed it.':''); if(d.alerted){ caAsked=false; } draw(); })
+      wsMsg='Saved. '+(wsf.live?(wsf.when?'It is on the site and taking bookings.':'It is on the site, taking names until you set a date.'):'A draft, not on the site yet.')+(d.told?' '+d.told+' on the list emailed the date.':'')+(d.alertsDue?' '+d.alertsDue+' waiting for new dates will hear at 9am, or press Send now on the Workshops page.':''); caAsked=false; draw(); })
     .catch(e=>{ wsBusy=false; wsMsg=String(e); draw(); });
 }
 function wsDelete(slug){ const w=(wshops||[]).find(x=>x.slug===slug)||{};
@@ -13161,7 +13161,12 @@ function bookingsPageHTML(){
   </section>`;
 }
 /* who has asked to hear about new dates, from the class page (30 Oct 2026) */
-let caData=null, caAsked=false, caOpen=false;
+let caData=null, caAsked=false, caOpen=false, caSending=false;
+function caSendNow(){
+  if(caSending) return; caSending=true; draw();
+  fetch(API+'/class-alerts',{method:'POST',headers:hdr(),body:JSON.stringify({send:true})}).then(r=>r.ok?r.json():null)
+    .then(d=>{ caSending=false; if(d){ caData=d; } draw(); if(d) alert(d.sent?('Sent to '+d.sent+'.'):'Nobody was due.'); }).catch(()=>{ caSending=false; draw(); });
+}
 function caLoad(){ if(caAsked) return; caAsked=true;
   fetch(API+'/class-alerts',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ caData=d; draw(); } }).catch(()=>{}); }
 function caHTML(){
@@ -13171,7 +13176,9 @@ function caHTML(){
     <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><b>Waiting for new dates · ${d.total||0}</b>
       <span class="muted">${Object.keys(K).map(k=>esc(K[k])+' '+(by[k]||0)).join(' · ')}</span><span style="flex:1"></span>
       ${(d.people||[]).length?`<button class="ghostlink" onclick="caOpen=!caOpen;draw()">${caOpen?'Hide':'Who'}</button>`:''}</div>
-    <div class="muted" style="font-size:12px;margin-top:4px">Signed up on the class page. Each is emailed once, by themselves, when you put a class they ticked on sale.</div>
+    <div class="muted" style="font-size:12px;margin-top:4px">Signed up on the class page. At 9am each gets one email with every class they ticked that has gone on sale since they last heard.</div>
+    ${d.due?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><b style="font-size:13px;color:var(--forest)">${d.due} due at 9am</b>
+      ${owner?`<button class="btn btn-secondary btn-sm" onclick="caSendNow()" ${caSending?'disabled':''}>${caSending?'Sending…':'Send now'}</button>`:''}</div>`:''}
     ${caOpen?(d.people||[]).map(x=>`<div style="display:flex;gap:10px;padding:5px 0;border-top:1px solid var(--line);font-size:12.5px"><b style="min-width:90px">${esc(x.name||x.email.split('@')[0])}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(x.email)}</span><span class="muted">${(x.kinds||[]).map(k=>esc((K[k]||k).split(':')[0])).join(', ')}</span></div>`).join(''):''}
   </div>`;
 }

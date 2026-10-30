@@ -582,6 +582,14 @@ export default async () => {
   /* payments first of the rest: a buyer left with nothing outranks a nudge */
   await run('payments', () => paymentsCheck(done));
   await run('intent', () => intentMail(done));
+  /* new class dates, to the people who asked on the class page: one email
+     each with everything new. The sending lives in app.mjs, beside Send now
+     in the dashboard, so the two cannot drift (30 Oct 2026) */
+  await run('classAlerts', async () => {
+    const key = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('lha-cron:' + (process.env.SIGNING_SECRET || '')))).toString('hex');
+    const r = await fetch(`${SITE}/api/app/class-alert/run`, { method: 'POST', headers: { 'x-cron-key': key, 'Content-Type': 'application/json' }, body: '{}' });
+    done.classAlerts = ((await r.json().catch(() => null)) || {}).sent || 0;
+  });
   await run('coaching', () => coachingLoop(done, now));
   await run('tips', () => firstTenDays(done));
   await run('push', () => trainingPush(done));

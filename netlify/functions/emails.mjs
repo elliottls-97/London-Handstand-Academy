@@ -943,16 +943,22 @@ export function offerEmail(T, x, site) {
    way off the list. ctx: first, title, when, place, price, left, places,
    coach, href, session, app, off */
 export function classAlertEmail(x, site) {
-  const S = site || SITE, [day] = String(x.when || '').split(', ');
-  const book = { label: 'Book your place' + (x.price ? ', ' + x.price : ''), sub: day + (x.left ? ` · ${x.left} left` : ''), href: x.href || `${S}/handstand-class?src=alert#book` };
-  const one = x.coach && !/\band\b|&/.test(x.coach);
-  return richEmail({ title: `New date: ${x.title}`, preheader: `${x.when}${x.place ? ', ' + x.place : ''}. You asked to hear first.`,
+  const S = site || SITE, news = x.news || [], all = x.all || [], n = news.length, one = n === 1 ? news[0] : null;
+  const dayOf = c => String(c.when || '').split(', ')[0];
+  const two = c => c.coach && !/\band\b|&/.test(c.coach) ? false : true;
+  const book = one ? { label: 'Book your place' + (one.price && one.price !== 'Free' ? ', ' + one.price : ''), sub: dayOf(one) + (one.left ? ` · ${one.left} left` : ''), href: x.book || one.href }
+    : { label: 'See the dates and book', sub: news.map(dayOf).filter((d, i, a) => a.indexOf(d) === i).slice(0, 3).join(' · '), href: x.book || `${S}/handstand-class?src=alert#book` };
+  const words = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'];
+  return richEmail({ title: one ? `New date: ${one.title}` : `${n} new class dates`,
+    preheader: news.map(c => `${c.title}, ${dayOf(c)}`).join(' · ') + '. You asked to hear first.',
     blocks: [
       { t: 'hero', img: `${S}/assets/site/class-photo-email.jpg`, alt: 'The last class at OverGravity, everyone upside down', href: book.href, compact: true, light: true,
-        kicker: 'New date · ' + (x.left ? `${x.left} place${x.left === 1 ? '' : 's'}` : 'In person, London'), head: `${x.title}, ${day}.`, btn: book },
+        kicker: one ? 'New date · ' + (one.left ? `${one.left} place${one.left === 1 ? '' : 's'}` : 'In person, London') : 'New dates · OverGravity, Shadwell',
+        head: one ? `${one.title}, ${dayOf(one)}.` : `${words[n] || n} new class dates are up.`, btn: book },
       { t: 'card', greeting: x.first,
-        paras: [`You asked to hear when new dates went up, so you are hearing first. ${escH(x.when)}${x.place ? ', at ' + escH(x.place) : ''}.${x.places ? ' There are ' + x.places + ' places, and they go to whoever books first.' : ''}`] },
-      ...((x.all || []).length > 1 ? [{ t: 'card', kicker: 'Every date on sale', paras: [(x.all || []).map(c => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e3e8e8"><tr>
+        paras: [one ? `You asked to hear when new dates went up, so you are hearing first. ${escH(one.when)}${one.place ? ', at ' + escH(one.place) : ''}.${one.cap ? ' There are ' + one.cap + ' places, and they go to whoever books first.' : ''}`
+          : `You asked to hear when new dates went up, so you are hearing first. They are marked new below, and places go to whoever books first.`] },
+      ...(all.length > 1 || n > 1 ? [{ t: 'card', kicker: 'Every date on sale', paras: [all.map(c => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e3e8e8"><tr>
           <td style="padding:12px 0;vertical-align:top"><div style="font:600 16px/1.3 ${FS};color:#111111">${escH(c.title)}${c.isNew ? ' <span style="font:600 10.5px/1 ' + FS + ';letter-spacing:.12em;color:#006663">NEW</span>' : ''}</div>
             <div style="font:400 14.5px/1.45 ${FS};color:#5a5a5a;margin-top:2px">${escH(c.when)}${c.room ? ' · ' + escH(c.room) : ''}</div></td>
           <td style="padding:12px 0 12px 12px;vertical-align:top;text-align:right;white-space:nowrap"><div style="font:600 16px/1.3 ${FS};color:#00403d">${escH(c.price || '')}</div>
@@ -960,8 +966,8 @@ export function classAlertEmail(x, site) {
       { t: 'card', kicker: 'Where', head: '', hi: 'OverGravity, Shadwell', appTone: true,
         paras: ['Arches 160 to 163, Sutton Street, London E1 0DB. <a href="https://www.google.com/maps/search/?api=1&amp;query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Open in Google Maps</a>.',
           '<b>Handstands are in Arch 1</b>, the purple room, with soft mats and wall. <b>Calisthenics is in Arch 2</b>, with the bars, rings and parallel bars. There are changing rooms, and a caf&eacute; in Arch 1 to wait in.', 'Nearest stations: Shadwell (Overground and DLR) and Wapping.'] },
-      ...(one ? [] : [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }]),
-      { t: 'card', paras: [`Can't make this one either? Book a <a href="${escH(x.session || S + '/session?src=alert')}" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${escH(x.app || S + '/lha-app.html?ref=alert')}" style="color:#006663">free app</a> between classes.`,
+      ...(news.some(two) ? [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }] : []),
+      { t: 'card', paras: [`Can't make ${one ? 'this one' : 'these'} either? Book a <a href="${S}/session?src=alert" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${S}/lha-app.html?ref=alert" style="color:#006663">free app</a> between classes.`,
           `<span style="font-size:13px;color:#8a8d80">No longer interested? <a href="${escH(x.off)}" style="color:#8a8d80">Stop these emails</a>.</span>`] },
     ], sign: 'Elliott, London Handstand Academy', why: 'You asked for new class dates on the class page.' });
 }
