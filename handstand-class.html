@@ -697,6 +697,10 @@ body.embed .hero-inner{padding-top:56px;}
 .pick-d b{font-size:16px;}
 .pick-d span{font-size:13.5px;color:var(--ink60);}
 .pick-d i{font-style:normal;font-weight:800;color:var(--terra);}
+.pick-d.pick-none{border-style:dashed;background:transparent}
+.sl-none{display:block;margin-top:10px;font:500 13.5px/1.4 var(--body);color:#00403d;text-decoration:underline;text-underline-offset:3px;text-align:center}
+.pick-d.pick-none b{font-weight:600}
+.bookbar .ca-bar{color:#fff;font-weight:600;text-decoration:underline;text-underline-offset:3px;background:none;padding:0;border-radius:0;font-size:13.5px}
 .pick-x{display:block;margin:14px auto 0;border:0;background:none;color:var(--ink60);font:600 14px var(--body);cursor:pointer;padding:6px 12px;}
 .film-box{width:min(420px,100%);border-radius:22px;overflow:hidden;background:#0f1a19;
   box-shadow:0 30px 70px -30px rgba(0,0,0,.8);}
@@ -1454,6 +1458,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       <div id="segClassWrap" hidden><div class="seg-l">Which class</div><div class="seg seg-cls" id="segClass"></div></div>
       <div class="seg-l" id="segWhenL">When</div>
       <div class="seg" id="segWhen"></div>
+      <a class="sl-none" href="#caForm" onclick="return caGo(event)">None of these work? Hear about the next dates first</a>
       <div id="segWhoWrap"><div class="seg-l">Who&rsquo;s coming</div>
       <div class="seg" id="segWho"><button type="button" data-who="1">Just me</button><button type="button" data-who="2">Two of us</button></div></div>
       <div class="bk-sum" id="bkSum" role="status" aria-live="polite"></div>
@@ -1952,7 +1957,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
       fine.textContent=(MULTI>0 ? (open.length>1 ? 'Save '+pounds(MULTI)+' on each extra class. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
         +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
     var pick=$('clsPick'); if(pick) pick.innerHTML=up.map(function(d,i){
-      return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(d.tbc?skillName(d)+', date to be confirmed':long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('');
+      return '<button type="button" class="pick-d" onclick="bookWs('+i+',event)"><span><b>'+esc(d.tbc?skillName(d)+', date to be confirmed':long(d))+'</b>'+(d.full?'<br><span>Full, waiting list</span>':'')+'</span><i>'+(d.full?'List':'Book')+' &rarr;</i></button>'; }).join('')
+      /* none of them: straight to the new dates sign up (30 Oct 2026) */
+      +'<button type="button" class="pick-d pick-none" onclick="caGo(event)"><span><b>None of these dates work</b><br><span>Hear about the next ones first</span></span><i>&rsaquo;</i></button>';
     var ps=$('clsPickS'); if(ps&&first) ps.textContent=span(first)+' at '+PLACE+'.'+(price?' '+price+'.':'');
     var ph=$('pickH'); if(ph&&first) ph.textContent=sameDay?'Which '+parts(first).dow+'?':'Which date?';
     var bar=$('clsBar');
@@ -2682,6 +2689,27 @@ function playRev(poster, id){
 </script>
 <script src="stats.js" defer></script>
 <script>
+/* to the sign up, from the date list or the bar, with the email box ready */
+function caGo(e){
+  if(e) e.preventDefault();
+  try{ if(typeof closePick==='function') closePick(); }catch(x){}
+  var f=document.getElementById('caForm'); if(!f) return false;
+  setTimeout(function(){ f.scrollIntoView({behavior:'smooth',block:'center'});
+    setTimeout(function(){ var em=document.getElementById('caEmail'); if(em) em.focus({preventScroll:true}); }, 500); }, 60);
+  return false;
+}
+/* past the dates without booking: the bar's left side becomes the way to
+   the sign up, and goes back to the date and place above them (30 Oct 2026) */
+(function(){
+  var book=document.getElementById('book'), bar=document.getElementById('clsBar');
+  if(!book || !bar || !('IntersectionObserver' in window)) return;
+  var on=false, orig='';
+  new IntersectionObserver(function(es){
+    var e=es[0], past=!e.isIntersecting && e.boundingClientRect.top<0;
+    if(past && !on){ orig=bar.innerHTML; bar.innerHTML='<a class="ca-bar" href="#caForm" onclick="return caGo(event)">Can&rsquo;t make these dates?</a>'; on=true; }
+    else if(!past && on){ if(bar.querySelector('.ca-bar')) bar.innerHTML=orig; on=false; }
+  }).observe(book);
+})();
 /* new dates by email: which classes, then the address (30 Oct 2026) */
 (function(){
   var f=document.getElementById('caForm'); if(!f) return;
