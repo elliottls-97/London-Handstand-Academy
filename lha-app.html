@@ -7063,6 +7063,10 @@ function cpClipHTML(c, sent){
         ${d?`<span style="display:block;margin-top:2px;font:400 11.5px/1.35 var(--sans);
           color:var(--grey)">${esc(d)}</span>`:''}
       </span></div>`).join('')}
+    ${/* what they sent, beside what he sent back (30 Oct 2026) */
+      sent && sent.video ? `<div style="margin-top:10px;padding-top:11px;border-top:1px solid rgba(28,32,25,.08)">
+        <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOU SENT</div>
+        <div style="margin-top:9px;max-width:170px;border-radius:14px;overflow:hidden">${clipPoster(sent.video,'4/5','26vh')}</div></div>` : ''}
     ${(function(){
       /* ── what he sent back, here ─────────────────────────────────
          The card said he had answered and then sent you to the chat to
@@ -8053,8 +8057,20 @@ function climbRepaint(){
    in a list of cards, which was the thing this replaced. One open at a
    time, per screen, and kept across redraws for as long as the app is. */
 let lcOpen={};
-function rungBody(c, i, total, use){
-  const drill=c.demo ? drillById(c.demo) : null;
+/* a coached check point with no demo set: the same drill in their plan,
+   so opening it shows Elliott's film of it (30 Oct 2026) */
+function cpPlanDrill(c){
+  if(!coachedView() || typeof DATA==='undefined' || !DATA || !Array.isArray(DATA.days)) return null;
+  const want=String(c.n||'').trim().toLowerCase(), slug=want.replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  if(!want) return null;
+  for(const d of DATA.days) for(const g of (d.groups||[])) for(const it of (g.items||[])){
+    if(!it || !it.url) continue;
+    if(String(it.n||'').trim().toLowerCase()===want || it.v===slug) return drillById(it.v) || {v:it.v, url:it.url};
+  }
+  return null;
+}
+function rungBody(c, i, total, use, noteFirst){
+  const drill=c.demo ? (drillById(c.demo) || cpPlanDrill(c)) : cpPlanDrill(c);
   const film = drill && drill.url && !drillLocked(drill.v)
     ? `<div class="lc-film">${drillFilm(drill.url,'16/10')}</div>`
     : (drill && drill.url ? `<div class="lc-none">The film opens with the whole ladder.</div>` : '');
@@ -8064,8 +8080,11 @@ function rungBody(c, i, total, use){
      numbers and never the film */
   const last=cpLast(c.k), pick=c.kind==='yn'||c.kind==='face', met=cpMet(c), cs=cpState(c);
   const sent=(cpLog()[c.k]||[]).filter(x=>x&&x.video).slice(-1)[0]||null;
+  /* opened from the note chip: what was sent and what came back come first,
+     the slider and the history under them (Elliott, 30 Oct 2026) */
+  const clip=`<div id="cpclip-${c.k}">${c.video===false?'':cpClipHTML(c,sent)}</div>`;
   return `<div class="lc-xi" id="cpcard-${c.k}" data-i="${i}" data-total="${total}"><div id="cptop-${c.k}">
-    ${film}${note}
+    ${noteFirst?clip:''}${film}${note}
     ${(()=>{
       /* The ring ticks it, the slider logs a number, and inside an open
          rung nothing said which one finished it, so people dragged the
@@ -8088,7 +8107,7 @@ function rungBody(c, i, total, use){
     </div>
     <div id="cphist-${c.k}">${cpHistoryHTML(c)}</div>
     <div id="cpup-${c.k}" style="margin-top:9px;font:500 12px/1.4 var(--sans);color:var(--grey)"></div>
-    <div id="cpclip-${c.k}">${c.video===false?'':cpClipHTML(c,sent)}</div>
+    ${noteFirst?'':clip}
   </div></div>`;
 }
 /* ── ticking a rung without opening it ─────────────────────────────
@@ -8168,7 +8187,8 @@ function rungShut(r, still){
    the steps, rather than at the top of the row with the demo film first
    (Elliott, 30 Oct 2026: "they should not have to scroll to see it") */
 function cpRespShow(r){
-  setTimeout(()=>{ const box=r.querySelector('.cp-resp'); if(!box) return;
+  /* the row's own top: its name, then the reply straight under it */
+  setTimeout(()=>{ const box=r; if(!box) return;
     const sc=r.closest('.scroll');
     /* below the check points bar, which stays stuck to the top while it scrolls */
     const cap=document.querySelector('#app .hcap-stick'), capB=cap ? (parseFloat(getComputedStyle(cap).top)||0) + cap.offsetHeight + 12 : 0;
@@ -8181,7 +8201,10 @@ function climbTap(btn){
   const use=lc.dataset.use||'log', k=r.dataset.ck;
   const ev=window.event, fromNote=!!(ev && ev.target && ev.target.closest && ev.target.closest('.lc-fb'));
   /* already open: the chip goes to the reply, it does not close the row */
-  if(fromNote && lcOpen[use]===k && r.classList.contains('open')){ if(coachedView()) cpFbRead(k); cpRespShow(r); return; }
+  if(fromNote && lcOpen[use]===k && r.classList.contains('open')){ if(coachedView()) cpFbRead(k);
+    const S0=climbState(lcSi(lc.dataset.si)), row0=S0.rows.find(x=>x.c.k===k), x0=r.querySelector('.lc-x');
+    if(row0 && x0 && !x0.querySelector('#cpclip-'+k+':first-child')) x0.innerHTML=rungBody(row0.c, row0.j, S0.n, use, true);
+    cpRespShow(r); return; }
   if(use==='log' && !coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
   let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
   const was=lcOpen[use], sc=r.closest('.scroll');
@@ -8203,7 +8226,7 @@ function climbTap(btn){
   if(coachedView()) cpFbRead(k);
   const S=climbState(lcSi(lc.dataset.si)), row=S.rows.find(x=>x.c.k===k); if(!row) return;
   const x=document.createElement('div'); x.className='lc-x';
-  x.innerHTML=rungBody(row.c, row.j, S.n, use);
+  x.innerHTML=rungBody(row.c, row.j, S.n, use, fromNote);
   r.querySelector('.lc-p').appendChild(x);
   r.classList.add('open');
   const ob=r.querySelector('.lc-open'); if(ob) ob.setAttribute('aria-expanded','true');
