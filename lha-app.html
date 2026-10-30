@@ -7048,7 +7048,7 @@ function cpClipHTML(c, sent){
     [esc(who)+' watched it', watched?cpWhen(S.watchedAt):'Usually within 48 hours', watched],
     [said, done ? (S.reply&&!v ? ((S.reply.video?'He sent a clip back. ':S.reply.image?'He sent a photo back. ':'')+'In the chat.') : '') : 'It lands here and in the chat', done],
   ];
-  return `<div style="margin-top:11px;padding:13px 14px;border-radius:14px;background:${
+  return `<div class="cp-resp" style="margin-top:11px;padding:13px 14px;border-radius:14px;scroll-margin-top:84px;background:${
       done ? (v==='notyet'?'rgba(168,107,22,.09)':'rgba(0,102,99,.07)') : 'rgba(17,17,17,.04)'}">
     ${steps.map(([t,d,on],i)=>`<div style="display:flex;gap:11px">
       <span style="flex:none;display:flex;flex-direction:column;align-items:center;width:18px">
@@ -8164,9 +8164,24 @@ function rungShut(r, still){
     {duration:260,easing:'cubic-bezier(.4,0,.2,1)'});
   a.onfinish=gone;
 }
+/* the note chip opens the row on what Elliott sent back, his clip and
+   the steps, rather than at the top of the row with the demo film first
+   (Elliott, 30 Oct 2026: "they should not have to scroll to see it") */
+function cpRespShow(r){
+  setTimeout(()=>{ const box=r.querySelector('.cp-resp'); if(!box) return;
+    const sc=r.closest('.scroll');
+    /* below the check points bar, which stays stuck to the top while it scrolls */
+    const cap=document.querySelector('#app .hcap-stick'), capB=cap ? (parseFloat(getComputedStyle(cap).top)||0) + cap.offsetHeight + 12 : 0;
+    if(sc){ const top=sc.getBoundingClientRect().top + Math.max(wide() ? 16 : 84, capB);
+      sc.scrollTo({top: sc.scrollTop + box.getBoundingClientRect().top - top, behavior:'smooth'}); }
+    else box.scrollIntoView({behavior:'smooth', block:'start'}); }, 380);
+}
 function climbTap(btn){
   const r=btn.closest('.lc-r'), lc=btn.closest('.lc'); if(!r || !lc) return;
   const use=lc.dataset.use||'log', k=r.dataset.ck;
+  const ev=window.event, fromNote=!!(ev && ev.target && ev.target.closest && ev.target.closest('.lc-fb'));
+  /* already open: the chip goes to the reply, it does not close the row */
+  if(fromNote && lcOpen[use]===k && r.classList.contains('open')){ if(coachedView()) cpFbRead(k); cpRespShow(r); return; }
   if(use==='log' && !coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
   let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
   const was=lcOpen[use], sc=r.closest('.scroll');
@@ -8195,6 +8210,7 @@ function climbTap(btn){
   /* the film waits for its play button rather than starting as the rung
      opens (Elliott, 10 Oct 2026) */
   mountCaptions();
+  if(fromNote){ climbFit(lc); cpRespShow(r); return; }
   /* how far the page has to move to show all of it above the tab bar,
      never further than putting the rung itself at the top. Worked out
      now, at its full height, rather than after it had grown: it grew
@@ -17542,7 +17558,12 @@ function cpProgress(i){
   const list=(cpFor(i)||[]).filter(c=>!cpAsks(c));
   const done=list.filter(c=>cpLast(c.k)).length;
   const met=list.filter(c=>cpMet(c)).length;
-  return {done, met, of:list.length, ready:list.length>0 && met>=list.length};
+  /* The counts on screen are the list's: a check point that only asks is
+     ticked there once it is logged, and the circle above it left those out,
+     so Hannah's list showed three done under "1 of 5" (30 Oct 2026). Being
+     ready to move on still needs every one with a target reached. */
+  const asks=(cpFor(i)||[]).filter(c=>cpAsks(c)), logged=asks.filter(c=>cpLast(c.k)).length;
+  return {done:done+logged, met:met+logged, of:list.length+asks.length, ready:list.length>0 && met>=list.length};
 }
 function stageReady(){ return cpProgress().ready; }
 /* ── the nearest win ────────────────────────────────────────────────
