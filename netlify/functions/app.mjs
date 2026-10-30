@@ -656,9 +656,12 @@ async function caTell(slug, w) {
       const off = `${SITE}/api/app/class-alert/off?e=${enc(e)}&t=${await caTok(e)}`;
       const went = await email(e, `New date: ${w.title}`, mail({ title: 'A new date.', greeting: String(x.n || '').split(' ')[0],
         paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}${price ? '. ' + esc(price) : ''}.`,
-          `You asked to hear when new dates went up, so you are hearing first.${Number(w.places) > 0 ? ' There are ' + w.places + ' places, and they go to whoever books first.' : ''}`,
+          `You asked to hear when new dates went up, so you are hearing first.${Number(w.places) > 0 ? ' There are ' + w.places + ' places, and they go to whoever books first.' : ''}`],
+        cta: { href, label: 'Book a place' },
+        /* the other two ways in, under the button (30 Oct 2026) */
+        after: [`Can't make this one either? Book a <a href="${SITE}/session?src=alert" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${SITE}/lha-app.html?ref=alert" style="color:#006663">free app</a> between classes.`,
           `<span style="font-size:13px;color:#686868">No longer interested? <a href="${off}" style="color:#686868">Stop these emails</a>.</span>`],
-        cta: { href, label: 'Book a place' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => false);
+        signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => false);
       if (went) n++;
     }
   } catch (err) { console.error('class alerts', slug, String(err && err.message || err)); }
@@ -1002,7 +1005,7 @@ const esc = t => String(t == null ? '' : t)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
-function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
+function mail({ title, greeting, paras = [], box, cta, after = [], signoff, footnote }) {
   const F = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
   const p = t => `<p style="margin:0 0 16px;font:400 16px/1.62 ${F};color:#4c5654">${t}</p>`;
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -1041,6 +1044,7 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
         <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
           font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
       </td></tr></table>` : ''}
+      ${after.map(p).join('')}
       ${signoff ? p(`${esc(signoff.line || 'Talk soon,')}<br>${esc(signoff.name)}`) : ''}
     </td></tr>
     <tr><td style="padding:6px 32px 28px">
