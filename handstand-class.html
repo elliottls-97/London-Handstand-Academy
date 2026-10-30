@@ -1151,6 +1151,21 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
 .alt-way.on .alt-way-go{background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1;border-color:transparent}
 .alt-way:focus-visible{outline:2px solid #006663;outline-offset:2px}
 @media (max-width:560px){.alt-ways-g{grid-template-columns:1fr}}
+/* new dates by email (30 Oct 2026): first under "can't make either date?" */
+.ca{margin-top:14px;background:#fff;border:1px solid rgba(0,64,61,.12);border-radius:22px;padding:18px;box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+.ca b.ca-h{display:block;font:400 22px/1.15 var(--disp);letter-spacing:-.01em}
+.ca-d{font:400 14.5px/1.5 var(--body);color:#5a5a5a;margin:6px 0 12px}
+.ca-k{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.ca-k label{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(0,64,61,.18);border-radius:999px;padding:9px 13px;font:500 14px/1 var(--body);color:#00403d;cursor:pointer;background:#fff}
+.ca-k input{accent-color:#006663;width:16px;height:16px;margin:0}
+.ca-k label:has(input:checked){background:rgba(0,102,99,.08);border-color:#006663}
+.ca-f{display:grid;grid-template-columns:1fr 1.4fr auto;gap:8px}
+.ca-f input{min-width:0;font:400 16px/1.3 var(--body);border:1px solid rgba(0,64,61,.18);border-radius:12px;padding:12px 13px;background:#fff;color:#111}
+.ca-f button{font:600 15px/1 var(--body);border:0;border-radius:12px;padding:0 18px;cursor:pointer;color:#f7f4f1;background:linear-gradient(180deg,#0a7a76,#006663)}
+.ca-f button:disabled{opacity:.6}
+.ca-msg{font:500 14px/1.45 var(--body);color:#00403d;margin-top:10px}
+.ca-msg.err{color:#a4503c}
+@media (max-width:560px){.ca-f{grid-template-columns:1fr}.ca-f button{min-height:48px}}
 </style>
 </head><body>
 <script>if((location.search.indexOf('embed=1')!==-1||window.self!==window.top)&&location.search.indexOf('siteedit=1')===-1){document.documentElement.classList.add('embed');document.addEventListener('DOMContentLoaded',function(){document.body.classList.add('embed');});}</script>
@@ -1536,7 +1551,22 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
        app alone. A 1-2-1 is the in-person answer, on a day that suits them. -->
   <div class="alt-ways">
     <div class="alt-ways-k">Can&rsquo;t make either date?</div>
-    <div class="alt-ways-g">
+    <form class="ca" id="caForm" novalidate>
+      <b class="ca-h">Hear about new dates first</b>
+      <div class="ca-d">Tick what you would come to. When a new date goes up, you get one email with it.</div>
+      <div class="ca-k" role="group" aria-label="Which classes">
+        <label><input type="checkbox" name="kind" value="handstand" checked> Handstand classes</label>
+        <label><input type="checkbox" name="kind" value="calisthenics"> Calisthenics: pull ups to muscle ups</label>
+        <label><input type="checkbox" name="kind" value="workshop"> Workshops and specials</label>
+      </div>
+      <div class="ca-f">
+        <input type="text" id="caName" placeholder="First name" autocomplete="given-name">
+        <input type="email" id="caEmail" placeholder="your@email.com" autocomplete="email" required>
+        <button type="submit" id="caSend">Tell me</button>
+      </div>
+      <div class="ca-msg" id="caMsg" role="status" aria-live="polite"></div>
+    </form>
+    <div class="alt-ways-g" style="margin-top:12px">
       <a class="alt-way on" href="/session.html?kind=60"><b>A 1-2-1 with Elliott</b><span class="alt-way-d">At OverGravity, on a day that suits you. 60&nbsp;minutes, <span data-plan="session60">&pound;80</span>.</span><span class="alt-way-go">Book a session</span></a>
       <a class="alt-way" href="lha-app.html?ref=workshop"><b>The free app</b><span class="alt-way-d">The first stage is free, no account needed.</span><span class="alt-way-go">Start Foundations</span></a>
     </div>
@@ -2651,4 +2681,27 @@ function playRev(poster, id){
 })();
 </script>
 <script src="stats.js" defer></script>
+<script>
+/* new dates by email: which classes, then the address (30 Oct 2026) */
+(function(){
+  var f=document.getElementById('caForm'); if(!f) return;
+  /* the calisthenics page ticks calisthenics, not handstands */
+  if(/[?&]class=calisthenics/.test(location.search)){ f.querySelector('[value=handstand]').checked=false; f.querySelector('[value=calisthenics]').checked=true; }
+  f.addEventListener('submit',function(e){
+    e.preventDefault();
+    var out=document.getElementById('caMsg'), btn=document.getElementById('caSend');
+    var kinds=[].map.call(f.querySelectorAll('input[name=kind]:checked'),function(x){ return x.value; });
+    var email=document.getElementById('caEmail').value.trim(), name=document.getElementById('caName').value.trim();
+    var no=function(t){ out.className='ca-msg err'; out.textContent=t; };
+    if(!kinds.length) return no('Tick at least one class.');
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return no('An email address, so I can tell you.');
+    btn.disabled=true; btn.textContent='Sending'; out.textContent='';
+    fetch('/api/app/class-alert',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:email,name:name,kinds:kinds,src:(window.LHA_SRC||'class')})})
+      .then(function(r){ return r.json().then(function(d){ if(!r.ok) throw new Error(d.error||'That did not send.'); return d; }); })
+      .then(function(){ out.className='ca-msg'; out.textContent='Done. You will hear as soon as a new date goes up.'; btn.textContent='Done'; })
+      .catch(function(err){ no(err.message||'That did not send. Try again.'); btn.disabled=false; btn.textContent='Tell me'; });
+  });
+})();
+</script>
 </body></html>

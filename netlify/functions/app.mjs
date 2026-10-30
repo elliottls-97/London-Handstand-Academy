@@ -633,6 +633,37 @@ async function wsOfferFreed(slug, w) {
 
 /* the date is set on a workshop that took names first: the list hears, and
    each gets the booking page. One email per person per workshop. */
+/* ── new dates, to the people who asked (30 Oct 2026) ───────────────
+   Someone who cannot make the dates on the class page leaves their email
+   and ticks the classes they would come to. When a class of that kind goes
+   on sale, they are told once, with the date and a Book button. Only
+   classes put on sale after they asked: a date they have already seen and
+   could not make is not news. Each email carries a way off the list. */
+const CA_KINDS = { handstand: 'Handstand classes', calisthenics: 'Calisthenics: pull ups to muscle ups', workshop: 'Workshops and specials' };
+const caKindOf = w => { const t = String((w && w.title) || ''); return /calisthenic|muscle|pull ?up/i.test(t) ? 'calisthenics' : /handstand|all levels/i.test(t) ? 'handstand' : 'workshop'; };
+const caTok = async e => (await sha256hex('lha-classalert:' + norm(e) + ':' + (process.env.SIGNING_SECRET || ''))).slice(0, 24);
+async function caTell(slug, w) {
+  let n = 0;
+  try {
+    const kind = caKindOf(w), since = Number(w.liveAt) || 0;
+    if (!w.live || !w.when || ms(w.when) <= Date.now()) return 0;
+    const all = (await getSetting('classalerts')) || {};
+    const whenTxt = wsWhenTxt(w), href = wsPageHref(w, 'alert');
+    const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : '';
+    for (const [e, x] of Object.entries(all).slice(0, 400)) {
+      if (!x || !(x.kinds || []).includes(kind) || !(Number(x.at) < since)) continue;
+      if (!(await supa.insertIfAbsent('nudges', { key: `caalert:${slug}:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
+      const off = `${SITE}/api/app/class-alert/off?e=${enc(e)}&t=${await caTok(e)}`;
+      const went = await email(e, `New date: ${w.title}`, mail({ title: 'A new date.', greeting: String(x.n || '').split(' ')[0],
+        paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}${w.place ? ', at ' + esc(w.place) : ''}${price ? '. ' + esc(price) : ''}.`,
+          `You asked to hear when new dates went up, so you are hearing first.${Number(w.places) > 0 ? ' There are ' + w.places + ' places, and they go to whoever books first.' : ''}`,
+          `<span style="font-size:13px;color:#686868">No longer interested? <a href="${off}" style="color:#686868">Stop these emails</a>.</span>`],
+        cta: { href, label: 'Book a place' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => false);
+      if (went) n++;
+    }
+  } catch (err) { console.error('class alerts', slug, String(err && err.message || err)); }
+  return n;
+}
 async function wsTellDated(slug, w) {
   let n = 0;
   try {
@@ -7048,6 +7079,44 @@ const handle = async (request) => {
     return json({ ok: true, off: r.off, base, price, label: price ? '£' + (price / 100).toFixed(2).replace(/\.00$/, '') : 'Free' });
   }
   /* full: take a name for when a place frees up */
+  /* the sign up on the class page: which classes, and an email */
+  if (path === '/class-alert' && request.method === 'POST') {
+    const e = norm(body.email), nm = String(body.name || '').trim().slice(0, 60);
+    const kinds = [...new Set((Array.isArray(body.kinds) ? body.kinds : []).map(String).filter(k => CA_KINDS[k]))];
+    if (!e || !wsMailOk(e)) return json({ error: 'A real email address, please.' }, 400);
+    if (!kinds.length) return json({ error: 'Tick at least one class.' }, 400);
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`ca:${ip}`, 3600000)) > 10) return json({ error: 'Too many tries. Try again later.' }, 429); }
+    let size = 0;
+    await changeSetting('classalerts', cur => { const l = Object.assign({}, cur || {});
+      if (!l[e] && Object.keys(l).length >= 2000) return undefined;
+      l[e] = { n: nm || (l[e] && l[e].n) || '', kinds, at: (l[e] && l[e].at) || Date.now(), src: String(body.src || 'class').slice(0, 24) };
+      size = Object.keys(l).length; return l; });
+    return json({ ok: true, kinds });
+  }
+  /* the link in every alert: off the list, at once, no sign in */
+  if (path === '/class-alert/off' && request.method === 'GET') {
+    const e = norm(url.searchParams.get('e')), t = String(url.searchParams.get('t') || '');
+    let done = false;
+    if (e && t && t === (await caTok(e))) {
+      await changeSetting('classalerts', cur => { const l = Object.assign({}, cur || {}); if (!l[e]) return undefined; delete l[e]; return l; });
+      done = true;
+    }
+    return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>London Handstand Academy</title>
+<body style="margin:0;background:#f4f4f5;font:16px/1.6 system-ui,sans-serif;color:#111;display:grid;place-items:center;min-height:100vh;padding:24px">
+<div style="max-width:420px;background:#fff;border-radius:20px;padding:28px 24px;border:1px solid rgba(0,64,61,.12)">
+<h1 style="font:400 28px/1.15 Georgia,serif;margin:0 0 10px">${done ? 'You are off the list.' : 'That link has not worked.'}</h1>
+<p style="margin:0;color:#5a5a5a">${done ? 'No more emails about new class dates. You can sign up again on the class page any time.' : 'Email info@londonhandstandacademy.com and I will take you off by hand.'}</p>
+<p style="margin:18px 0 0"><a href="${SITE}/handstand-class" style="color:#006663">The class page</a></p></div></body>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+  /* for the dashboard: how many are waiting for each kind of class */
+  if (path === '/coach/class-alerts') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const all = (await getSetting('classalerts')) || {};
+    const by = {}; Object.values(all).forEach(x => (x.kinds || []).forEach(k => { by[k] = (by[k] || 0) + 1; }));
+    return json({ total: Object.keys(all).length, by, kinds: CA_KINDS,
+      people: Object.entries(all).map(([e, x]) => ({ email: e, name: x.n || '', kinds: x.kinds || [], at: x.at })).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 200) });
+  }
   if (path === '/workshop/wait' && request.method === 'POST') {
     const slug = wsSlug(body.slug);
     const e = norm(body.email);
@@ -7979,6 +8048,11 @@ const handle = async (request) => {
         live: owner ? !!f.live : !!(all[slug] || all[wsSlug(body.was || '')] || {}).live,
         createdAt: (all[slug] || {}).createdAt || Date.now(),
       };
+      /* when it first went on sale, for the new dates alerts */
+      /* one already on sale before this existed counts from when it was made,
+         so editing it does not tell anybody about a date that is not new */
+      { const pw = all[slug] || all[wsSlug(body.was || '')] || {};
+        w.liveAt = pw.liveAt || (pw.live ? (Number(pw.createdAt) || 1) : (w.live ? Date.now() : 0)); }
       /* the early bird is money, so the owner's; anyone else keeps what is stored.
          It only stands while it is still to come and goes up, not down. */
       {
@@ -8024,7 +8098,9 @@ const handle = async (request) => {
          everyone on that list is told, once (21 Oct 2026) */
       let told = 0;
       if (w.live && w.when && !hadDate) told = await wsTellDated(slug, w);
-      return json({ ok: true, workshop: w, workshops: await withBook(), told });
+      /* and everyone who asked for new dates of this kind, once */
+      const alerted = (w.live && w.when) ? await caTell(slug, w) : 0;
+      return json({ ok: true, workshop: w, workshops: await withBook(), told, alerted });
     }
     return json({ error: 'Nope' }, 405);
   }
