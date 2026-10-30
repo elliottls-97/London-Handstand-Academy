@@ -1082,6 +1082,9 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
 .howr-s.on .hv3 .a{animation:howpop .4s 1.9s ease-out forwards}
 /* 3: a hold climbing over six weeks, then the form check */
 .hv4{display:flex;gap:8px;align-items:stretch}
+.hv4 .vid{position:relative;flex:1;min-width:0;border-radius:16px;overflow:hidden;background:var(--sand)}
+.hv4 .vid video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%}
+.hv4 .ch{flex:1.3!important}
 .hv4 .ch{flex:1;min-width:0;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:16px;padding:9px 12px 8px;box-shadow:0 1px 2px rgba(0,64,61,.05)}
 .hv4 .ch small{display:block;font:600 12px/1.2 var(--sans);letter-spacing:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hv4 .bars{display:flex;align-items:flex-end;gap:10px;height:60px;padding-top:15px;box-sizing:border-box;margin-top:4px}
@@ -17319,8 +17322,14 @@ function howReelHTML(si, PS){
   /* a real Learn piece: the falling one at Foundations, else the stage's first explainer */
   let ex=null; try{ const o=(stageExplainers(si)||[]).find(o=>o && o.x && o.x.uid); if(o) ex={t:o.x.q, sub:o.x.dur||'Film', img:streamThumb(o.x.uid)}; }catch(e){}
   if(!ex) ex={t:'Your wrists carry the whole thing', sub:'Film and read', img:''};
-  /* a hold from the stage's own check points, climbing over six weeks */
-  const hc=cps.find(c=>c.kind==='secs' && Number(c.target)>0), ht=hc ? Number(hc.target) : 30;
+  /* the chair-assisted handstand, its own film beside its hold climbing over
+     six weeks (Elliott, 30 Oct 2026: "include video of chair assisted" on
+     the Track slide). The film is the check point's demo, so it follows the
+     dashboard; its first frames are a title or him getting into it. */
+  let hc=null; try{ hc=(cpFor(0)||[]).find(c=>c && c.k==='ch-assist'); }catch(e){}
+  const ht=(hc && Number(hc.target)>0) ? Number(hc.target) : 20;
+  const wd=hc && hc.demo ? drillById(hc.demo) : null, wu=wd && wd.url ? uidOfUrl(wd.url) : '';
+  const wFrom=({'a3f7be549122a3e84dd46e1530724349':1.8})[wu] || .5;
   const hv=[.4,.7,1].map(f=>Math.max(1, Math.round(ht*f)));
   const slides=[
     {k:'1 OF 5 · TRAIN', h:'Train in <em>sessions.</em>', p:'Each one is built for your stage. Follow along, or tick the drills off yourself.',
@@ -17336,8 +17345,8 @@ function howReelHTML(si, PS){
        <span class="rv"><i><svg width="9" height="10" viewBox="0 0 17 19" fill="#fff" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i><span>${esc(coachLabel())}&rsquo;s review<small>On video, with what to fix</small></span></span></div>`},
     /* tracking, and the form check as its own slide (Elliott, 30 Oct 2026:
        "maybe include the tracking", then "form check is its own one") */
-    {x:600, k:'5 OF 5 · TRACK', h:'Track your <em>progress.</em>', p:'Log your holds and watch them climb, week by week.',
-     v:`<div class="hv4"><div class="ch"><small>${esc(hc?hc.n:'Chest to wall hold')}</small><div class="bars">${hv.map((x,k)=>`<span style="--h:${Math.round(x/ht*100)}%;animation-delay:${(.3+k*.45).toFixed(2)}s"><em>${x}s</em></span>`).join('')}</div><div class="wk"><i>Week 1</i><i>Week 3</i><i>Week 6</i></div></div></div>`},
+    {x:600, k:'5 OF 5 · TRACK', h:'Track your <em>progress.</em>', p:'Log your holds and watch them climb.',
+     v:`<div class="hv4"><span class="vid">${wu?`<video muted playsinline loop disableremoteplayback preload="none" poster="${esc(streamThumb(wu))}" data-src="${esc(filmSrc(wd.url))}" data-from="${wFrom}"></video>`:''}</span><div class="ch"><small>${esc(hc?hc.n:'Chair-assisted handstand')}</small><div class="bars">${hv.map((x,k)=>`<span style="--h:${Math.round(x/ht*100)}%;animation-delay:${(.3+k*.45).toFixed(2)}s"><em>${x}s</em></span>`).join('')}</div><div class="wk"><i>Week 1</i><i>Week 3</i><i>Week 6</i></div></div></div>`},
   ];
   setTimeout(howReelMount, 0);
   return `<div class="howr" role="group" aria-roledescription="slides" aria-label="How it works. Tap to move on." tabindex="0" onclick="howReelNext(this)">
@@ -17351,7 +17360,14 @@ function howReelShow(el, i){
   i=(i+ss.length)%ss.length; el._i=i;
   ss.forEach((x,k)=>{ x.classList.toggle('on',k===i); x.classList.toggle('gone',k<i); x.setAttribute('aria-hidden', k===i?'false':'true');
     /* the moving picture starts again each time its slide comes round */
-    if(k===i){ x.querySelectorAll('*').forEach(n=>{ n.style.animationName='none'; void n.offsetWidth; n.style.animationName=''; }); } });
+    if(k===i){ x.querySelectorAll('*').forEach(n=>{ n.style.animationName='none'; void n.offsetWidth; n.style.animationName=''; }); }
+    x.querySelectorAll('video').forEach(v=>{
+      if(k!==i){ try{ v.pause(); }catch(e){} return; }
+      if(!v.getAttribute('src') && v.dataset.src){ v.preload='auto'; v.src=v.dataset.src; }
+      v.muted=true;
+      const cue=()=>{ try{ v.currentTime=Number(v.dataset.from)||0; }catch(e){} };
+      if(v.readyState>=1) cue(); else v.addEventListener('loadedmetadata', cue, {once:true});
+      const p=v.play(); if(p&&p.catch) p.catch(()=>{}); }); });
   bs.forEach((b,k)=>{ b.classList.toggle('done',k<i); b.classList.remove('on'); });
   const hold=HOW_HOLD + (Number(ss[i].dataset.x)||0); el.style.setProperty('--hold', hold+'ms');
   void el.offsetWidth; if(bs[i]) bs[i].classList.add('on');
