@@ -952,9 +952,6 @@ export function classAlertEmail(x, site) {
         kicker: 'New date · ' + (x.left ? `${x.left} place${x.left === 1 ? '' : 's'}` : 'In person, London'), head: `${x.title}, ${day}.`, btn: book },
       { t: 'card', greeting: x.first,
         paras: [`You asked to hear when new dates went up, so you are hearing first. ${escH(x.when)}${x.place ? ', at ' + escH(x.place) : ''}.${x.places ? ' There are ' + x.places + ' places, and they go to whoever books first.' : ''}`] },
-      { t: 'card', points: [one ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group'],
-          ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
-          [x.price ? escH(x.price) : '&pound;0', 'A place,<br>card or Apple Pay']] },
       ...((x.all || []).length > 1 ? [{ t: 'card', kicker: 'Every date on sale', paras: [(x.all || []).map(c => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e3e8e8"><tr>
           <td style="padding:12px 0;vertical-align:top"><div style="font:600 16px/1.3 ${FS};color:#111111">${escH(c.title)}${c.isNew ? ' <span style="font:600 10.5px/1 ' + FS + ';letter-spacing:.12em;color:#006663">NEW</span>' : ''}</div>
             <div style="font:400 14.5px/1.45 ${FS};color:#5a5a5a;margin-top:2px">${escH(c.when)}${c.room ? ' · ' + escH(c.room) : ''}</div></td>
