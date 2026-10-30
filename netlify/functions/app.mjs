@@ -11123,6 +11123,99 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ errs: list });
   }
 
+  /* ── what people search for in Learn (29 Oct 2026) ──────────────
+     Elliott: "find out what people want to learn, what doesn't make sense,
+     what they need more help on". Each search, once they stop typing, as a
+     count against its words, and whether anything matched. No account is
+     kept with it: the words are the point, not who typed them. */
+  if (path === '/learn-search' && request.method === 'POST') {
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`lsearch:${ip}`, 3600000)) > 120) return json({ ok: true });
+    const q = String(body.q || '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (q.length < 3) return json({ ok: true });
+    const hits = Math.max(0, Math.min(99, Number(body.hits) || 0));
+    const all = (await getSetting('learnsearch')) || {};
+    const e = all[q] || { n: 0, first: Date.now() };
+    e.n++; e.last = Date.now(); e.hits = hits;
+    all[q] = e;
+    const ks = Object.keys(all);
+    if (ks.length > 300) ks.sort((x, y) => (all[x].last || 0) - (all[y].last || 0)).slice(0, ks.length - 300).forEach(k => { delete all[k]; });
+    await setSetting('learnsearch', all);
+    return json({ ok: true });
+  }
+  /* the searches and the questions sent from them, for the owner */
+  if (path === '/coach/learn-search') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    if (request.method === 'POST' && body.clear) {
+      if (body.clear === 'searches') await setSetting('learnsearch', {});
+      if (body.clear === 'asks') await setSetting('learnasks', []);
+    }
+    const all = (await getSetting('learnsearch')) || {};
+    const searches = Object.entries(all).map(([q, e]) => ({ q, ...e })).sort((x, y) => (y.n - x.n) || ((y.last || 0) - (x.last || 0)));
+    return json({ searches, asks: (await getSetting('learnasks')) || [] });
+  }
+
+  /* ── who pays, and for what (Elliott, 29 Oct 2026: "an understanding
+     on coach dashboard of number and info on paid people") ────────────
+     Stripe's live subscriptions, Apple's (the App Store's, not TestFlight's
+     sandbox), and anyone on a code or comped by hand, each with what it is,
+     what it brings in a month and when it next bills or ends. */
+  if (path === '/coach/paying') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const rows = [], problems = [];
+    const roster = clients();
+    const monthly = (amt, iv, n) => { const a = (Number(amt) || 0) / 100, k = Number(n) || 1;
+      return iv === 'year' ? a / (12 * k) : iv === 'week' ? a * 52 / (12 * k) : iv === 'day' ? a * 365 / (12 * k) : a / k; };
+    try {
+      let after = '';
+      for (let page = 0; page < 5; page++) {
+        const got = await stripe(`/subscriptions?status=all&limit=100&expand[]=data.customer&expand[]=data.items.data.price.product${after ? '&starting_after=' + after : ''}`, null, 'GET');
+        for (const x of (got.data || [])) {
+          if (!['active', 'trialing', 'past_due', 'unpaid'].includes(x.status)) continue;
+          const cu = x.customer || {}, it = ((x.items || {}).data || [])[0] || {}, pr = it.price || {}, rec = pr.recurring || {};
+          const email = String(cu.email || (x.metadata || {}).email || '').toLowerCase();
+          const prod = (pr.product && pr.product.name) || pr.nickname || 'Subscription';
+          const qty = Number(it.quantity) || 1;
+          rows.push({ how: 'stripe', email, name: roster[email] || cu.name || '', what: prod,
+            coaching: !!roster[email] || /coach|inner|programme/i.test(prod),
+            status: x.status, cancelling: !!x.cancel_at_period_end,
+            pm: x.status === 'trialing' ? 0 : Math.round(monthly((pr.unit_amount || 0) * qty, rec.interval, rec.interval_count) * 100) / 100,
+            price: (pr.unit_amount || 0) / 100, every: (rec.interval_count > 1 ? rec.interval_count + ' ' : '') + (rec.interval || ''),
+            since: (Number(x.start_date) || 0) * 1000, next: (Number(x.current_period_end) || 0) * 1000,
+            trialEnd: (Number(x.trial_end) || 0) * 1000 });
+        }
+        if (!got.has_more || !(got.data || []).length) break;
+        after = got.data[got.data.length - 1].id;
+      }
+    } catch (err) { problems.push('Stripe: ' + ((err && err.message) || 'could not list subscriptions')); }
+    const sandbox = new Set();
+    try {
+      const iapRows = (await supa.rows('settings', `select=key,value&key=like.iap%3A*`)) || [];
+      for (const r of iapRows) {
+        const v = r.value || {}, email = r.key.slice(4);
+        if (/sandbox/i.test(v.env || '')) sandbox.add(email);
+        if (v.revoked || !(Number(v.expiresAt) > Date.now()) || /sandbox/i.test(v.env || '')) continue;
+        rows.push({ how: 'apple', email, name: roster[email] || '', what: 'The Handstand Ladder (App Store)', coaching: false,
+          status: 'active', cancelling: v.autoRenew === false, pm: 9.99, price: 9.99, every: 'month',
+          since: Number(v.at) || 0, next: Number(v.expiresAt) || 0, trialEnd: 0 });
+      }
+    } catch (err) { problems.push('Apple: could not read'); }
+    try {
+      const untils = await plusUntilAll();
+      for (const [email, until] of Object.entries(untils || {})) {
+        const t = ms(until);
+        /* a TestFlight purchase writes the same date, and is not a comp */
+        if (!(t > Date.now()) || sandbox.has(email) || rows.some(r => r.email === email)) continue;
+        rows.push({ how: 'comp', email, name: roster[email] || '', what: 'The Handstand Ladder, free on a code or comped', coaching: false,
+          status: 'active', cancelling: false, pm: 0, price: 0, every: '', since: 0, next: t, trialEnd: 0 });
+      }
+    } catch {}
+    rows.sort((a, b) => (b.pm - a.pm) || ((b.since || 0) - (a.since || 0)));
+    return json({ rows, problems, at: Date.now() });
+  }
+
   /* ── a code that unlocks the tier for a while ─────────────────────
      WORKSHOP26 on a screen at the end of a workshop. The comp button in the
      dashboard does this per account by hand; this is the same thing a
@@ -12342,6 +12435,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       /* coached as /me says it: on the client list, or holding a programme.
          The list alone sent a client with a programme and no list entry
          into the free form check and its £20 offer (16 Oct 2026, review). */
+      /* asked from the Learn search: one an hour (Elliott, 29 Oct 2026), and
+         kept for the dashboard's list of what people want to know */
+      if (body.ask && text && !coachedNow && !coachList().includes(who)) {
+        if ((await rateHit(`ask:${who}`, 3600000)) > 1) return json({ error: 'One question an hour. Ask this one again a little later.', ask: true }, 429);
+        try { const asks = (await getSetting('learnasks')) || [];
+          asks.unshift({ at: Date.now(), who, text: text.slice(0, 400), q: String(body.q || '').slice(0, 60) });
+          await setSetting('learnasks', asks.slice(0, 100)); } catch {}
+      }
       const coached = coachedNow;
       let subId = '';
       if (video || image) {

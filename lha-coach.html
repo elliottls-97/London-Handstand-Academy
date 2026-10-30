@@ -1395,6 +1395,97 @@ function grant(email, on){
     .then(()=>{ grantBusy=''; loadLeads(true); })
     .catch(e=>{ grantBusy=''; draw(); alert(String(e)); });
 }
+/* ── who pays, and for what (Elliott, 29 Oct 2026) ─────────────────
+   Stripe's live subscriptions, Apple's, and anyone on a code or comped,
+   with what each brings in a month. Apple's £9.99 is before Apple's cut. */
+let paying=null, payingErr='', payingAsked=false, payingAll=false;
+function loadPaying(force){
+  if(payingAsked && !force) return; payingAsked=true;
+  fetch(API+'/paying',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ paying=d; payingErr=''; draw(); }).catch(e=>{ payingErr=String(e); draw(); });
+}
+function payingHTML(){
+  loadPaying();
+  if(payingErr) return `<div class="card"><div class="kick">PAYING</div>
+    <div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Could not load them. ${esc(payingErr)}.</div>
+    <button class="send" style="width:auto;padding:0 16px;margin-top:12px" onclick="payingErr='';loadPaying(true)">Try again</button></div>`;
+  if(!paying) return `<div class="card"><div class="kick">PAYING</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Loading…</div></div>`;
+  const rows=paying.rows||[];
+  const money=n=>'£'+(Math.round(n*100)/100).toLocaleString('en-GB',{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2});
+  const day=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:new Date(t).getFullYear()===new Date().getFullYear()?undefined:'numeric'}):'';
+  const coach=rows.filter(r=>r.coaching && r.status!=='trialing'), ladS=rows.filter(r=>!r.coaching && r.how==='stripe' && r.status!=='trialing'),
+    ladA=rows.filter(r=>r.how==='apple'), trial=rows.filter(r=>r.status==='trialing'), comp=rows.filter(r=>r.how==='comp'),
+    late=rows.filter(r=>r.status==='past_due'||r.status==='unpaid'), going=rows.filter(r=>r.cancelling);
+  const mrr=rows.reduce((t,r)=>t+(Number(r.pm)||0),0);
+  const stat=(n,label,note)=>`<div style="flex:1;min-width:118px;padding:12px 14px;border-radius:14px;background:#fff;border:1px solid var(--line)">
+    <div style="font:600 26px/1 var(--sans);font-variant-numeric:tabular-nums">${n}</div>
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:7px">${label}</div>
+    ${note?`<div style="font:400 11px/1.4 var(--sans);color:var(--grey2);margin-top:5px">${note}</div>`:''}</div>`;
+  const how={stripe:'Stripe',apple:'Apple',comp:'Code or comp'};
+  const flag=r=>r.status==='trialing'?`Free week to ${day(r.trialEnd)}`:(r.status==='past_due'||r.status==='unpaid')?'<b style="color:#a4503c">Payment failed</b>'
+    :r.cancelling?`Ends ${day(r.next)}`:r.how==='comp'?`Until ${day(r.next)}`:r.next?`Next ${day(r.next)}`:'';
+  const list=payingAll?rows:rows.slice(0,12);
+  return `<div class="card">
+    <div class="kick">PAYING · ${rows.filter(r=>r.how!=='comp').length}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+      ${stat(money(mrr),'A MONTH','before Stripe and Apple fees')}
+      ${stat(coach.length,'COACHING','')}
+      ${stat(ladS.length+ladA.length,'LADDER',ladA.length?ladA.length+' through Apple':'')}
+      ${stat(trial.length,'ON A FREE WEEK','')}
+      ${comp.length?stat(comp.length,'FREE ON A CODE',''):''}
+    </div>
+    ${late.length||going.length?`<div style="margin-top:12px;font:400 13px/1.5 var(--sans);color:var(--grey)">${[late.length?`<b style="color:#a4503c">${late.length} payment${late.length===1?'':'s'} failed</b>`:'', going.length?`${going.length} cancelling at the end of the month`:''].filter(Boolean).join(' · ')}</div>`:''}
+    ${(paying.problems||[]).length?`<div style="margin-top:10px;font:400 12.5px/1.5 var(--sans);color:#a4503c">${paying.problems.map(esc).join('<br>')}</div>`:''}
+    ${rows.length?`<div style="margin-top:14px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font:400 13px/1.4 var(--sans)">
+      <tr style="text-align:left;color:var(--grey2);font:600 9.5px/1 var(--sans);letter-spacing:.1em">
+        <th style="padding:6px 8px 8px 0">WHO</th><th style="padding:6px 8px 8px">WHAT</th><th style="padding:6px 8px 8px">HOW</th>
+        <th style="padding:6px 8px 8px;text-align:right">A MONTH</th><th style="padding:6px 8px 8px">SINCE</th><th style="padding:6px 0 8px 8px"></th></tr>
+      ${list.map(r=>`<tr style="border-top:1px solid var(--line)">
+        <td style="padding:9px 8px 9px 0"><div style="font-weight:600">${esc(r.name||(r.email||'').split('@')[0]||'?')}</div><div style="font-size:11.5px;color:var(--grey2)">${esc(r.email||'no email in Stripe')}</div></td>
+        <td style="padding:9px 8px">${esc(r.what)}${r.price&&r.every?`<div style="font-size:11.5px;color:var(--grey2)">${money(r.price)} a ${esc(r.every)}</div>`:''}</td>
+        <td style="padding:9px 8px">${how[r.how]||r.how}</td>
+        <td style="padding:9px 8px;text-align:right;font-variant-numeric:tabular-nums">${r.pm?money(r.pm):'·'}</td>
+        <td style="padding:9px 8px;white-space:nowrap">${day(r.since)}</td>
+        <td style="padding:9px 0 9px 8px;white-space:nowrap;font-size:12px;color:var(--grey)">${flag(r)}</td></tr>`).join('')}
+    </table></div>
+    ${rows.length>12?`<button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="payingAll=!payingAll;draw()">${payingAll?'Show fewer':'Show all '+rows.length}</button>`:''}`
+    :`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Nobody is paying yet.</div>`}
+  </div>`;
+}
+/* ── what people search for in Learn, and the questions they send ──── */
+let lsData=null, lsAsked=false, lsAll=false;
+function loadLearnSearch(force){
+  if(lsAsked && !force) return; lsAsked=true;
+  fetch(API+'/learn-search',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ lsData=d; draw(); } }).catch(()=>{});
+}
+function learnSearchClear(what){
+  if(!confirm(what==='asks'?'Clear the list of questions? The messages stay in each chat.':'Clear the search counts?')) return;
+  fetch(API+'/learn-search',{method:'POST',headers:hdr(),body:JSON.stringify({clear:what})}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ lsData=d; draw(); } }).catch(()=>{});
+}
+function learnSearchHTML(){
+  loadLearnSearch();
+  const d=lsData||{searches:[],asks:[]}, ss=d.searches||[], asks=d.asks||[];
+  const ago=t=>{ const m=Math.round((Date.now()-t)/60000); return m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'; };
+  const list=lsAll?ss:ss.slice(0,15);
+  return `<div class="card">
+    <div class="kick">WHAT PEOPLE LOOK FOR IN LEARN · ${ss.length}</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">What they typed into the search on Train, most asked first. <b style="color:#a4503c">Nothing found</b> is something to film or write.</div>
+    ${ss.length?`<div style="margin-top:10px">${list.map(x=>`<div style="display:flex;gap:10px;align-items:baseline;padding:7px 0;border-top:1px solid var(--line)">
+        <span style="flex:1;min-width:0;font:500 14px/1.35 var(--sans)">${esc(x.q)}</span>
+        ${x.hits?`<span style="font:400 12px/1 var(--sans);color:var(--grey2)">${x.hits} found</span>`:`<span style="font:600 12px/1 var(--sans);color:#a4503c">Nothing found</span>`}
+        <span style="font:600 13px/1 var(--sans);font-variant-numeric:tabular-nums;min-width:2.5em;text-align:right">${x.n}&times;</span></div>`).join('')}</div>
+      <div style="display:flex;gap:9px;margin-top:10px">${ss.length>15?`<button class="btn btn-secondary btn-sm" onclick="lsAll=!lsAll;draw()">${lsAll?'Show fewer':'Show all '+ss.length}</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="learnSearchClear('searches')">Clear</button></div>`
+      :`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey2);margin-top:10px">Nothing searched yet.</div>`}
+    <div class="kick" style="margin-top:22px">QUESTIONS SENT FROM THE SEARCH · ${asks.length}</div>
+    ${asks.length?`<div style="margin-top:10px">${asks.slice(0,30).map(a=>`<div style="padding:8px 0;border-top:1px solid var(--line)">
+        <div style="font:400 14px/1.45 var(--sans)">${esc(a.text)}</div>
+        <div style="font:400 11.5px/1.4 var(--sans);color:var(--grey2);margin-top:3px">${esc(a.who)} · ${ago(a.at)}${a.q && a.q.toLowerCase()!==String(a.text).toLowerCase()?' · searched &ldquo;'+esc(a.q)+'&rdquo;':''}</div></div>`).join('')}</div>
+      <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:8px">Each one is also in that person&rsquo;s chat, to reply to there.</div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="learnSearchClear('asks')">Clear the list</button>`
+      :`<div style="font:400 13.5px/1.6 var(--sans);color:var(--grey2);margin-top:10px">None yet. Anyone signed in can send one an hour.</div>`}
+  </div>`;
+}
 function leadsHTML(){
   loadLeads();
   if(leadErr) return `<div class="card"><div class="kick">ACCOUNTS</div>
@@ -13248,8 +13339,8 @@ function settingsHTML(){
     background:${setTab===k?'var(--forest)':'#fff'};
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
-    setTab==='journey' ? (owner ? journeyHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
-  : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${leadsHTML()}</div>
+    setTab==='journey' ? (owner ? journeyHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
+  : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${owner?payingHTML():''}${leadsHTML()}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
   : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
       ${owner?stripeHTML():''}

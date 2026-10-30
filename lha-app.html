@@ -16844,8 +16844,8 @@ const FX_SUB = '';
    trained ever had, and folded away there. */
 const askInRail = () => !coachedView() && !trialPending() && !!STAGES[curStage()]
   && stageExplainers(curStage()).some(o=>o.i>=0);
-function askBoxHTML(hint){
-  return `<div style="padding:0 20px ${wide()?12:8}px">
+function askBoxHTML(hint, flat){
+  return `<div style="padding:${flat?'14px 0 0':'0 20px '+(wide()?12:8)+'px'}">
         <div style="position:relative">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"
             stroke-linecap="round" style="position:absolute;left:15px;top:50%;transform:translateY(-50%)">
@@ -16953,6 +16953,9 @@ function learnHTML(){
   return `<section class="rise rise-3" style="padding:22px 20px 0">
     <h2 style="margin:0;font:400 26px/1.1 var(--serif)">Learn at <em style="color:var(--forest);font-style:normal">${esc(PS.n)}.</em></h2>
     <p style="margin:8px 0 0;font:400 15px/1.4 var(--sans);color:var(--grey)">Pick the thing that is in your way.</p>
+    ${/* the search, back (Elliott, 29 Oct 2026): the films and the Learn
+          pages, and when nothing answers it, a question to Elliott */''}
+    ${askBoxHTML('Search, or ask Elliott', true)}
     <div style="margin-top:16px">${rows.map((r,j)=>`<button class="lrn"${j?'':' data-tour="explainers"'} onclick="${r.go}">
       <span class="lrn-i">${r.img?`<img src="${esc(r.img)}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="9" height="10" viewBox="0 0 17 19"
         fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
@@ -18234,7 +18237,7 @@ function askElliottRow(){
       <span style="display:block;font:600 13.5px/1.3 var(--sans);color:var(--forest)">
         ${st.token?'Send this to Elliott':'Create an account to ask Elliott'}</span>
       <span style="display:block;font:400 12px/1.35 var(--sans);color:var(--grey);margin-top:3px">
-        ${st.token?'He answers these himself, usually within 48 hours.'
+        ${st.token?'He answers these himself, usually within 48 hours. One question an hour.'
                   :'An email is all it takes, and the rest of the videos open too.'}</span>
     </span>
   </button>`;
@@ -18245,15 +18248,24 @@ function askFromSearch(){
      was read only by a card that is no longer drawn, so the question was lost */
   if(!st.token){ if(typed) askDraft=typed; goJoin(); return; }
   if(!typed){ toast('Type the question first.'); return; }
+  /* one an hour (Elliott, 29 Oct 2026); the server holds to it too */
+  const wait=(Number(st.askAt)||0)+3600e3-Date.now();
+  if(wait>0 && !coachedView()){ toast('One question an hour. You can ask again in '+Math.ceil(wait/60000)+' min.'); return; }
   /* it sends. It used to open the chat with the words typed in, which on a
      phone meant the keyboard, a scroll, and the button hiding under it. */
   pendingMsgs.push({text:typed,sentAt:Date.now()});
   st.msgs=(st.msgs||[]).concat([{from:'me',text:typed,time:'Just now'}]); save();
   const q=document.getElementById('askq'); if(q){ q.value=''; q.blur(); }
   st.q=''; save(); render();
+  const searched=st.q||typed;
   toast('Sent to Elliott. His reply lands in the chat.');
-  fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text:typed})})
-    .then(r=>{ if(!r.ok) throw 0; setTimeout(loadThread,400); })
+  st.askAt=Date.now(); save();
+  fetch(AUTH.messages,{method:'POST',headers:authed(),body:JSON.stringify({text:typed, ask:true, q:searched.slice(0,60)})})
+    .then(r=>{ if(r.status===429) return r.json().then(d=>{ if(!(d&&d.ask)) throw 0;
+        /* held by the server: it did not go, so it does not sit in the chat as if it had */
+        pendingMsgs=pendingMsgs.filter(m=>m.text!==typed); st.msgs=(st.msgs||[]).filter(m=>!(m.from==='me' && m.text===typed && m.time==='Just now'));
+        save(); toast(d.error||'One question an hour.'); });
+      if(!r.ok) throw 0; setTimeout(loadThread,400); })
     .catch(()=>post({type:'Question',text:typed}));
 }
 
@@ -18281,19 +18293,51 @@ function exScore(f, q, words){
   if(n && f.uid) n+=1;
   return n;
 }
+/* the Learn pages, found by the search too (29 Oct 2026): the words each
+   is likely to be looked for by, besides its title */
+const LEARN_ARTS=[
+  {t:'How to fall out of a handstand safely', art:'/learn/fall-out-of-a-handstand-safely', k:'fall falling bail bailing cartwheel scared fear safe over'},
+  {t:'Falling, the quick version', art:'/learn/falling-the-quick-version', k:'fall falling bail bailing cartwheel scared fear quick'},
+  {t:'The kick up', art:'/learn/the-kick-up', k:'kick kicking wall bunny hop jump legs entry'},
+  {t:'Chair, wall walks, then the wall', art:'/learn/chair-wall-walks-then-the-wall', k:'chair wall walk walks beginner start chest order first'},
+  {t:'Your wrists carry the whole thing', art:'/learn/wrists', k:'wrist wrists pain hurt hurts sore warm'},
+  {t:'Film yourself, from the side', art:'/learn/film-yourself', k:'film filming video phone record clip angle camera'},
+  {t:'Twice a week is the number', art:'/learn/twice-a-week', k:'often week times session sessions long frequency daily every'},
+  {t:'The false grip', art:'/learn/the-false-grip', k:'false grip muscle rings bar wrist', mu:1},
+  {t:'Why you can\'t muscle up yet', art:'/learn/why-you-cant-muscle-up-yet', k:'muscle pull pullup pullups bar transition', mu:1}];
+function artHits(q, words){
+  return LEARN_ARTS.filter(a=>!a.mu || MU_ON).map(a=>{ const t=a.t.toLowerCase(), hay=t+' '+a.k; let n=hay.indexOf(q)>-1?10:0;
+    words.forEach(w=>{ if(t.indexOf(w)>-1) n+=3; else if(hay.indexOf(w)>-1) n+=2; }); return {a,n}; })
+    .filter(x=>x.n>0).sort((x,y)=>y.n-x.n).slice(0,4);
+}
+let askHitN=0;
+const ASK_COMMON=new Set(['how','the','and','handstand','handstands','what','why','can','does','should','you','your','for','get','with','when','that','this','into','are','not','its','from','have','about']);
 function askMatches(q){
   q=(q||'').trim().toLowerCase();
   if(q.length<3) return '';
-  const words=q.split(/\s+/).filter(w=>w.length>2);
+  /* "handstand" is in nearly every title, so on its own it found everything */
+  const words=q.split(/\s+/).filter(w=>w.length>2 && !ASK_COMMON.has(w));
   const hits=FAQS.map((f,i)=>({f,i,s:exScore(f,q,words)}))
     .filter(x=>x.s>0 && filmed(x.f)).sort((a,b)=>b.s-a.s).slice(0,6);
-  if(!hits.length) return `<div style="margin-top:10px">
+  const arts=artHits(q, words);
+  askHitN=hits.length+arts.length;
+  if(!askHitN) return `<div style="margin-top:10px">
     <p style="margin:0 0 8px;font:500 13.5px/1.45 var(--sans);color:var(--grey)">
-      No video on that one yet.</p>${askElliottRow()}</div>`;
+      Nothing on that yet.</p>${askElliottRow()}</div>`;
   return `<div style="margin-top:10px">
     <p style="margin:2px 0 8px;font:600 10px/1 var(--sans);letter-spacing:.13em;color:var(--grey2)">
-      ${hits.length} VIDEO${hits.length===1?'':'S'}</p>
+      ${askHitN} RESULT${askHitN===1?'':'S'}</p>
     <div style="display:flex;flex-direction:column;gap:7px">
+    ${arts.map(({a})=>`<div onclick="fxReadOpen(${jsq(a.art)},${jsq(a.t)})"
+      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:13px;background:#fff;
+      border:1px solid rgba(0,102,99,.09);cursor:pointer">
+      <span style="width:28px;height:28px;border-radius:9px;background:var(--sand);display:grid;
+        place-items:center;flex:none">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#006663" stroke-width="2.2" stroke-linecap="round"
+          stroke-linejoin="round" aria-hidden="true"><path d="M4 5h11a4 4 0 0 1 4 4v10H8a4 4 0 0 1-4-4z"/><path d="M8 9h7M8 13h5"/></svg></span>
+      <span style="flex:1;font:500 13.5px/1.3 var(--sans)">${esc(a.t)}</span>
+      <span style="font:500 12px/1 var(--sans);color:var(--grey2)">Read</span>
+    </div>`).join('')}
     ${hits.map(({f,i})=>`<div onclick="${explainerOpen(i)?`openExplainer(${i})`
         :`lockedExplainer(${i})`}"
       style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:13px;background:#fff;
@@ -18312,6 +18356,18 @@ function askFilter(v){
   st.q=v; save();
   const box=document.getElementById('askmatches');
   if(box) box.innerHTML=askMatches(v);
+  askLog(v);
+}
+/* the words, counted on the server once typing stops, so the dashboard can
+   say what people look for and what finds nothing (29 Oct 2026) */
+let askLogT=null, askLogged='';
+function askLog(v){
+  clearTimeout(askLogT);
+  const q=String(v||'').trim().toLowerCase();
+  if(q.length<3 || st.preview || PREVIEW) return;
+  askLogT=setTimeout(()=>{ if(q===askLogged) return; askLogged=q;
+    fetch('/api/app/learn-search',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({q, hits:askHitN})}).catch(()=>{}); }, 1800);
 }
 function openExplainer(i){
   st.exOpen=i; st.ovFull=true; openOv('explainer'); setTimeout(applyExSpeed,50);
