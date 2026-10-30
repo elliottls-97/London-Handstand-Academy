@@ -9791,8 +9791,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
 
     const exp = Math.floor(Date.now() / 1000) + 6 * 3600;
+    /* the dashboard plays films as MP4, which Stream only gives a token
+       that says so: without it every locked film there was black, all the
+       Muscle Up ones among them (30 Oct 2026). Coaches only. */
+    const dl = !!body.dl && (preview || coachList().includes(who));
     const tokens = {};
-    for (const uid of uids) tokens[uid] = await signUid(k, uid, exp);
+    for (const uid of uids) tokens[uid] = await signUid(k, uid, exp, dl);
     return json({ tokens, exp: exp * 1000 });
   }
 

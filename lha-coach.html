@@ -10559,7 +10559,7 @@ function filmsHTML(){
         </div>
         <div style="display:grid;grid-template-columns:minmax(150px,200px) 1fr 1fr;gap:14px;margin-top:12px">
           <div>${FV.play===d.uid
-            ?`<video controls autoplay playsinline src="https://${STREAM_SUB}/${csUid(d.uid)}/downloads/default.mp4" style="width:100%;border-radius:12px;background:#000"></video>`
+            ?(csSrc(d.uid,'downloads/default.mp4')?`<video controls autoplay playsinline src="${csSrc(d.uid,'downloads/default.mp4')}" style="width:100%;border-radius:12px;background:#000"></video>`:`<div class="muted" style="font-size:12px;padding:20px 0">Loading the film…</div>`)
             :`<button onclick="FV.play='${d.uid}';draw()" title="Play the film" style="border:0;padding:0;cursor:pointer;width:100%;border-radius:12px;overflow:hidden;background:#0f1a19">
                 <img src="${fxThumb(d.uid)}" alt="" style="width:100%;display:block;aspect-ratio:16/10;object-fit:cover"></button>`}
             ${tx.status==='ready'||tx.status==='silent'?`<button onclick="fvRedo('${d.uid}')" style="border:0;background:none;color:var(--grey2);font:600 11.5px var(--sans);cursor:pointer;margin-top:6px;padding:0;text-decoration:underline">Transcribe again</button>`:''}</div>
@@ -10666,7 +10666,7 @@ function drDelete(v, back){
     });
 }
 /* the drill's film, signed if it is a locked one */
-function drFilm(v){ const u=clipUidOf(libVideo[v]); if(!u) return libVideo[v]||''; csNeed([u]); return `https://${STREAM_SUB}/${csUid(u)}/downloads/default.mp4`; }
+function drFilm(v){ const u=clipUidOf(libVideo[v]); if(!u) return libVideo[v]||''; return csSrc(u,'downloads/default.mp4'); }
 function drEditHTML(v){
   const d=drDraft; if(!d) return '';
   const inp='border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:500 13px/1.4 var(--sans);background:#fff;width:100%';
@@ -11133,15 +11133,21 @@ function fxPickerHTML(){
     </div></div>`;
 }
 
-const fxThumb=uid=>uid?(csNeed([uid]),`https://${STREAM_SUB}/${csUid(uid)}/thumbnails/thumbnail.jpg?time=3s&height=160`):'';
+const fxThumb=uid=>uid?csSrc(uid,'thumbnails/thumbnail.jpg?time=3s&height=160'):'';
 /* ── locked films, signed ──────────────────────────────────────────
    Once the paid library is locked, a drill's still only loads with a token
    in place of its id. This account is given every one: it asks for what the
    screen shows, a batch at a time, and redraws when they arrive. With the
    library open the server has no key and answers with nothing, and the
    plain id goes on working. */
-const csign={t:{},exp:0,asked:new Set(),want:[],timer:0};
+const csign={t:{},exp:0,asked:new Set(),want:[],timer:0,off:false};
 function csUid(uid){ return (csign.exp>Date.now() && csign.t[uid]) ? csign.t[uid] : uid; }
+/* a film's address once it can load: its token, or the plain id when the
+   library is open. Before then nothing, so a locked film is not asked for
+   once with no token (refused) and drawn again later (30 Oct 2026) */
+function csSrc(uid, tail){ csNeed([uid]);
+  const ok = csign.off || (csign.exp>Date.now() && csign.t[uid]);
+  return ok ? `https://${STREAM_SUB}/${csUid(uid)}/${tail}` : ''; }
 function csNeed(uids){
   /* a set runs out after six hours; a dashboard left open asks again */
   if(csign.exp && csign.exp<Date.now()+60000){ csign.asked.clear(); csign.t={}; csign.exp=0; }
@@ -11149,9 +11155,10 @@ function csNeed(uids){
   if(!csign.want.length || csign.timer) return;
   csign.timer=setTimeout(()=>{
     const want=csign.want.splice(0, 400); csign.timer=0;
-    fetch(APP+'/sign',{method:'POST',headers:hdr(),body:JSON.stringify({uids:want})})
+    fetch(APP+'/sign',{method:'POST',headers:hdr(),body:JSON.stringify({uids:want, dl:true})})
       .then(r=>r.ok?r.json():null)
-      .then(d=>{ if(!d || !d.tokens || !Object.keys(d.tokens).length) return;
+      .then(d=>{ if(d && d.off){ csign.off=true; draw(); return; }
+        if(!d || !d.tokens || !Object.keys(d.tokens).length) return;
         Object.assign(csign.t, d.tokens); csign.exp=Number(d.exp)||0; draw(); })
       .catch(()=>{});
   }, 60);
@@ -12878,8 +12885,11 @@ function mfCommentsHTML(uid, canTime){
     <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="mfComment('${uid}')" ${busy?'disabled':''}>${busy?'Saving…':'Add comment'}</button></div>`;
 }
 function mfVideo(f, big){
-  return `<video id="mfv-${f.uid}" src="https://${STREAM_SUB}/${csUid(f.uid)}/downloads/default.mp4" controls playsinline preload="${big?'auto':'metadata'}"
-    poster="https://${STREAM_SUB}/${csUid(f.uid)}/thumbnails/thumbnail.jpg?time=2s&amp;height=${big?900:600}" class="mf-v${big?' big':''}"></video>`;
+  const src=csSrc(f.uid,'downloads/default.mp4');
+  /* signed first: a locked film with no token never played */
+  if(!src) return `<div id="mfv-${f.uid}" class="mf-v${big?' big':''}" style="display:grid;place-items:center;background:#0f1a19;color:#cfe6ec;font:500 12px/1 var(--sans);aspect-ratio:9/16">Loading the film…</div>`;
+  return `<video id="mfv-${f.uid}" src="${src}" controls playsinline preload="${big?'auto':'metadata'}"
+    poster="${csSrc(f.uid,'thumbnails/thumbnail.jpg?time=2s&amp;height='+(big?900:600))}" class="mf-v${big?' big':''}"></video>`;
 }
 /* what is said about one film: its name, the drill it is, the comments */
 function mfDetailHTML(f){
