@@ -2228,7 +2228,19 @@ function trackOpen(){
        and the quiz is out of the way */
     /* first touch only: the account that came from Suryava's reel stays his
        whatever link they open next */
-    const ref=(q.get('ref')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
+    /* the website tags its links ?src= (stats.js), so the app reads that
+       too; it read only ?ref= and most accounts arrived with no source.
+       None at all on a first open: the iPhone app came from the App Store,
+       a browser from wherever sent it (30 Oct 2026). */
+    const REF_ALIAS={ig:'instagram',insta:'instagram',gbp:'maps',gmb:'maps',googlemaps:'maps',fb:'facebook'};
+    let ref=(q.get('ref')||q.get('src')||q.get('utm_source')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
+    ref=REF_ALIAS[ref]||ref;
+    if(!ref && !st.ref && !st.token && !st.quizDone){
+      if(IOS_APP) ref='appstore';
+      else { let h=''; try{ h=document.referrer ? new URL(document.referrer).hostname.replace(/^www\./,'') : ''; }catch(e){}
+        ref = !h ? 'direct' : h===location.hostname.replace(/^www\./,'') ? 'site' : /(^|\.)google\./.test(h) ? 'google'
+          : /instagram\.com$/.test(h) ? 'instagram' : /(facebook\.com|fb\.com)$/.test(h) ? 'facebook' : 'other'; }
+    }
     if(ref && !st.ref){ st.ref=ref; save(); }
     const fxs=(q.get('fix')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
     if(fxs){ st.fixPending=fxs; save(); history.replaceState(null,'',location.pathname); }
@@ -11756,7 +11768,11 @@ function bindPlayer(){
   };
   $('#p-next').onclick=()=>{ clearInterval(tick_); tick_=null; advance(); };
   $('#p-prev').onclick=stepBack;
-  $('#p-skip').onclick=()=>{ clearInterval(tick_); tick_=null; phase='work'; qi++; showStep(); };
+  $('#p-skip').onclick=()=>{
+    /* a drill skipped, not a rest: counted by which, for the dashboard (30 Oct 2026) */
+    if(phase==='work' && !tourBuild){ const it=(Q[qi]||{}).it||{};
+      track('skip', null, String(it.v||it.n||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').slice(0,30)); }
+    clearInterval(tick_); tick_=null; phase='work'; qi++; showStep(); };
   document.querySelectorAll('.p-extend button').forEach(b=>{
     b.onclick=()=>{ left+=+b.dataset.ext; tTotal+=+b.dataset.ext; paintClock(); liveSync(); };
   });

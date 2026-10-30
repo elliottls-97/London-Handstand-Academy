@@ -1203,6 +1203,9 @@ function journeyHTML(){
           :'<div class="muted" style="font-size:13px;margin-top:8px">None closed early yet.</div>'}
         ${(Qt.drills||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">On: ${(Qt.drills||[]).map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n).join(' · ')}</div>`:''}
         ${(Qt.why||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:6px">Why: ${(Qt.why||[]).map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n).join(' · ')}</div>`:''}
+        <div class="kick" style="margin-top:18px">DRILLS SKIPPED IN THE FOLLOW ALONG</div>
+        ${(jr.skips||[]).length?(()=>{ const m=Math.max(1,...jr.skips.map(x=>x.n)); return jr.skips.map(x=>bar(x.key.replace(/-/g,' '),x.n,m,'')).join(''); })()
+          :'<div class="muted" style="font-size:13px;margin-top:8px">None skipped yet. Counting from 30 Oct.</div>'}
       </div>
     </div>
     <div class="kick" style="margin-top:20px">THE LEARN STORIES</div>
@@ -1215,6 +1218,10 @@ function journeyHTML(){
       ${['pv','pvhome','pvclass','pvlearn','pvlinks'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       ${['tobook','workshopbook','workshoppaid','siteapply','sessionbook'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
+    <div class="kick" style="margin-top:20px">WHERE NEW ACCOUNTS CAME FROM</div>
+    ${(()=>{ const sa=((jr.sources||{}).accounts||[]), se=((jr.sources||{}).events||[]), m=Math.max(1,...sa.map(x=>x.n));
+      return (sa.length?sa.map(x=>bar(srcName(x.src),x.n,m,'')).join(''):'<div class="muted" style="font-size:13px;margin-top:8px">No new accounts in this time.</div>')
+        + (se.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">By where they first came from: ${se.map(x=>esc(srcName(x.src))+' '+x.open+' opens, '+x.first1+' first sessions'+(x.subscribed?', '+x.subscribed+' paid':'')).join(' · ')}</div>`:''); })()}
     <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}</div>
     ${errs.length?errs.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
         <div style="display:flex;gap:10px;align-items:baseline"><b style="font:600 13px/1.4 var(--sans);flex:1;min-width:0">${esc(e.m)}</b>
@@ -9237,12 +9244,82 @@ function websiteHTML(){
    for in Learn and asked, and the next class. This reads those and says
    them as sentences, folded to one line so Today stays calm. Each line
    opens the page it came from. */
+/* where an account first came from, in words */
+const srcName=k=>k==='appstore'?'The App Store':k==='unknown'?'Not known (before 30 Oct)':(SRC_NAME[k]||String(k||'?').replace(/-/g,' '));
+/* ── where people get stuck on the check points (30 Oct 2026) ─────────
+   Every Ladder account's readings, without names, against the targets as
+   the app has them (ladder-data.js and this coach's overlay). Reached is
+   judged exactly as the app judges it. */
+let cpS=null, cpSAsked=false;
+function loadCpStats(){
+  if(cpSAsked) return; cpSAsked=true; wkCpsLoad();
+  fetch(API+'/cpstats',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ cpS=d; draw(); } }).catch(()=>{});
+}
+function cpDefsFor(stage){
+  const over=(wkCpsData||{})[stage], base=(CHECKPOINTS[stage]||[]);
+  if(!over) return base;
+  const edits=over.edit||{}, gone=over.off||[], out=[];
+  base.forEach(c=>{ if(gone.indexOf(c.k)<0) out.push(edits[c.k]?Object.assign({},c,edits[c.k]):c); });
+  (over.add||[]).forEach(c=>{ if(c&&c.k&&!out.some(x=>x.k===c.k)) out.push(c); });
+  return out;
+}
+function cpHitV(c,v){
+  if(c.measure) return false;
+  if(c.kind==='face') return v>=2;
+  if(c.kind==='yn') return !!v;
+  const t=Number(c.target); if(!(t>0)) return false;
+  const K=CP_KIND[c.kind]||CP_KIND.count, lower=(c.lower!=null)?c.lower:K.lower;
+  return lower?(v>0&&v<=t):v>=t;
+}
+function cpStatsCalc(){
+  if(!cpS) return null;
+  const people=cpS.people||[], out=[];
+  STAGES.forEach((S,si)=>{
+    const defs=cpDefsFor(si).filter(c=>!c.measure && (c.kind==='face'||c.kind==='yn'||Number(c.target)>0));
+    if(!defs.length) return;
+    const keys=new Set(defs.map(c=>c.k));
+    const tried=people.filter(p=>Object.keys(p).some(k=>keys.has(k)));
+    if(!tried.length) return;
+    const ok=(c,h)=>{ const last=h[h.length-1]; if(!last) return false; if(last[2]==='reached') return true; if(last[2]==='notyet') return false; return cpHitV(c,last[0]); };
+    const cps=defs.map(c=>{ const lg=tried.filter(p=>(p[c.k]||[]).length); return {n:c.n, logged:lg.length, reached:lg.filter(p=>ok(c,p[c.k])).length}; });
+    const days=[];
+    tried.forEach(p=>{
+      if(!defs.every(c=>ok(c,p[c.k]||[]))) return;
+      const start=Math.min(...defs.flatMap(c=>(p[c.k]||[]).map(r=>r[1]).filter(Boolean)));
+      const done=Math.max(...defs.map(c=>{ const r=(p[c.k]||[]).find(r=>r[2]==='reached'||cpHitV(c,r[0])); return r?r[1]:0; }));
+      if(start>0 && done>=start) days.push((done-start)/864e5);
+    });
+    days.sort((a,b)=>a-b);
+    const stuck=cps.filter(x=>tried.length>=3).map(x=>({...x, miss:1-x.reached/tried.length})).sort((a,b)=>b.miss-a.miss)[0]||null;
+    out.push({si, name:S.n, tried:tried.length, cleared:days.length, median:days.length?days[Math.floor(days.length/2)]:null, cps, stuck});
+  });
+  return out;
+}
+function cpStuckHTML(){
+  loadCpStats();
+  const L=cpStatsCalc();
+  if(!L) return `<div class="card"><div class="kick">WHERE PEOPLE GET STUCK</div><div class="muted" style="font-size:13px;margin-top:10px">Adding it up…</div></div>`;
+  const bar=(label,v,of,sub)=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) 70px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">
+    <div style="min-width:0"><div style="font:500 13px/1.35 var(--sans)">${esc(label)}</div>
+      <div style="height:6px;border-radius:3px;background:rgba(0,64,61,.08);margin-top:5px;overflow:hidden"><div style="height:100%;width:${of?Math.round(100*v/of):0}%;background:var(--forest);border-radius:3px"></div></div>
+      ${sub?`<div style="font:400 11.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${sub}</div>`:''}</div>
+    <div style="text-align:right;font:600 13px/1 var(--sans);font-variant-numeric:tabular-nums">${v} of ${of}</div></div>`;
+  return `<div class="card">
+    <div class="kick">WHERE PEOPLE GET STUCK · ${(cpS.people||[]).length} PEOPLE LOGGING</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">Of the people who have logged anything on a stage, how many reached each check point. The lowest bar is the one to film, write or make easier. Coaching clients are left out.</div>
+    ${L.length?L.map(x=>`<div style="margin-top:18px">
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><h5 style="margin:0">${esc(x.name)}</h5>
+        <span class="muted" style="font-size:12px">${x.tried} trying · ${x.cleared} cleared${x.median!=null?` · about ${Math.max(1,Math.round(x.median))} days to clear`:''}</span></div>
+      ${x.cps.map(c=>bar(c.n,c.reached,x.tried,c.logged<x.tried?(x.tried-c.logged)+((x.tried-c.logged)===1?' has':' have')+' not logged it yet':'')).join('')}</div>`).join('')
+      :'<div class="muted" style="font-size:13px;margin-top:10px">Nobody has logged a check point yet.</div>'}
+  </div>`;
+}
 let dg=null, dgAsked=false, dgOpen=false, dgClass=null;
 function loadDigest(){
   if(dgAsked) return; dgAsked=true;
   fetch(API+'/journey?days=7',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ dg=d; draw(); } }).catch(()=>{});
   fetch('/api/app/workshops').then(r=>r.ok?r.json():null).then(d=>{ if(d){ dgClass=d.workshops||[]; draw(); } }).catch(()=>{});
-  loadPaying(); loadLearnSearch();
+  loadPaying(); loadLearnSearch(); loadCpStats();
 }
 function digestHTML(){
   if(!owner) return '';
@@ -9265,10 +9342,16 @@ function digestHTML(){
     <span style="flex:1;min-width:0;font:400 13.5px/1.5 var(--sans)">${html}</span></button>`;
   const L=[];
   L.push(line('↗',`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new accounts, <b>${st_.activeThisPeriod!=null?st_.activeThisPeriod:'?'}</b> people active. The app was opened <b>${g('open').n}</b> times${chg(g('open').n,g('open').prev)}, <b>${g('first1').n}</b> first sessions${chg(g('first1').n,g('first1').prev)} and <b>${g('finish').n}</b> sessions finished${chg(g('finish').n,g('finish').prev)}.`,"setTab='journey';go('settings')"));
+  const srcA=((dg.sources||{}).accounts||[]).filter(x=>x.n);
+  if(srcA.length) L.push(line('◎',`New accounts came from: ${srcA.slice(0,4).map(x=>esc(srcName(x.src))+' <b>'+x.n+'</b>').join(', ')}.`,"setTab='journey';go('settings')"));
   if(worst&&worst.lost>0.2) L.push(line('↓',`Biggest drop is between <b>${esc(String(worst.from).toLowerCase())}</b> and <b>${esc(String(worst.to).toLowerCase())}</b>: ${Math.round(worst.lost*100)}% go no further.`,"setTab='journey';go('settings')"));
   if(paying) L.push(line('£',`<b>${paid.length}</b> paying, <b>${money(mrr)}</b> a month.${fresh.length?` New: ${fresh.map(nm).join(', ')}.`:' Nobody new this week.'}${going.length?` Cancelling: ${going.map(nm).join(', ')}.`:''}${late.length?` <b style="color:#a4503c">Payment failed: ${late.map(nm).join(', ')}.</b>`:''}`,"setTab='people';go('settings')"));
   if(Array.isArray(st_.paidQuiet)&&st_.paidQuiet.length) L.push(line('!',`Paying and quiet for ten days: ${st_.paidQuiet.slice(0,4).map(p=>esc(p.name||p.email.split('@')[0])).join(', ')}. Worth a message.`,"setTab='journey';go('settings')"));
   if(Array.isArray(st_.never)&&st_.never.length) L.push(line('·',`<b>${st_.never.length}</b> signed up and never trained${Array.isArray(st_.once)&&st_.once.length?`, <b>${st_.once.length}</b> trained once and have not been back`:''}.`,"setTab='journey';go('settings')"));
+  const stuck=(cpStatsCalc()||[]).filter(x=>x.stuck).sort((a,b)=>b.tried-a.tried)[0];
+  if(stuck) L.push(line('▲',`Most stuck at ${esc(stuck.name)}: <b>${esc(stuck.stuck.n)}</b>, reached by ${stuck.stuck.reached} of ${stuck.tried} trying.${stuck.median!=null?` Those who clear it take about ${Math.max(1,Math.round(stuck.median))} days.`:''}`,"setTab='journey';go('settings')"));
+  const sk=(dg.skips||[]).slice(0,3);
+  if(sk.length) L.push(line('»',`Most skipped: ${sk.map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n+'×').join(', ')}.`,"setTab='journey';go('settings')"));
   if(asks.length) L.push(line('?',`<b>${asks.length}</b> question${asks.length===1?'':'s'} from the Learn search. Latest: &ldquo;${esc(asks[0].text.slice(0,90))}${asks[0].text.length>90?'…':''}&rdquo;`,"setTab='journey';go('settings')"));
   if(nothing.length) L.push(line('⌕',`Searched, found nothing: ${nothing.map(x=>'&ldquo;'+esc(x.q)+'&rdquo;').join(', ')}. Something to film or write.`,"setTab='journey';go('settings')"));
   if(errs.length) L.push(line('⚠',`<b>${errs.length}</b> thing${errs.length===1?'':'s'} broke, the most: &ldquo;${esc(String(errs[0].m).slice(0,70))}&rdquo; ${errs[0].n}×.`,"setTab='journey';go('settings')"));
@@ -13392,7 +13475,7 @@ function settingsHTML(){
     background:${setTab===k?'var(--forest)':'#fff'};
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
-    setTab==='journey' ? (owner ? journeyHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
+    setTab==='journey' ? (owner ? journeyHTML()+cpStuckHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
   : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${owner?payingHTML():''}${leadsHTML()}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
   : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}

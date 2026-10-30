@@ -746,6 +746,17 @@ async function journeyReport(days, full) {
     .map(e => ({ k: e.k, m: e.m, w: e.w, n: e.n, first: e.first, last: e.last, screens: e.sc || {}, devices: e.dv || {},
       stack: e.stack || '', ...(full ? { who: e.who || [] } : { people: (e.who || []).length }) }));
   const films = top(cur.film, 12);
+  /* drills skipped in the follow along, most first (30 Oct 2026) */
+  const skips = top(cur.skipDrill, 15);
+  /* what each source brought, from the events: opens, first sessions,
+     accounts and payments, by the first touch the app keeps */
+  const bySrc = {};
+  for (const x of rows.slice(0, days)) for (const [src, m] of Object.entries((x.r || {}).by || {})) {
+    const o = bySrc[src] = bySrc[src] || {};
+    for (const [k, v] of Object.entries(m || {})) if (typeof v === 'number') o[k] = (o[k] || 0) + v;
+  }
+  const srcEvents = Object.entries(bySrc).map(([src, m]) => ({ src, open: m.open || 0, first1: m.first1 || 0, signup: m.signup || 0, subscribed: m.subscribed || 0 }))
+    .sort((a, b) => (b.signup - a.signup) || (b.open - a.open)).slice(0, 12);
   /* the Learn stories: visits by the furthest card, and how many reached the end */
   const storyBy = {};
   for (const [k, c] of Object.entries(cur.storyAt || {})) {
@@ -756,7 +767,7 @@ async function journeyReport(days, full) {
   }
   const stories = Object.values(storyBy).sort((a, b) => b.visits - a.visits);
   /* ── accounts that have stalled ── test accounts left out, as the funnel does */
-  let stalled = null;
+  let stalled = null, srcAccounts = [];
   try {
     const accts = (await supa.rows('accounts', 'select=email,name,plus,first_seen,last_seen')) || [];
     const prog = (await supa.rows('progress', 'select=email,sessions')) || [];
@@ -780,6 +791,14 @@ async function journeyReport(days, full) {
       if (p.paid && !p.coached && (!lastAt || now - lastAt > 10 * DAY)) groups.paidQuiet.push(p);
     }
     const tidy = l => l.sort((x, y) => ms(y.joined) - ms(x.joined));
+    /* where this period's new accounts came from, by the source kept on each */
+    try {
+      const refRows = (await supa.rows('settings', `select=key,value&key=like.ref%3A*`)) || [];
+      const refOf = Object.fromEntries(refRows.map(r => [r.key.slice(4), String(r.value || '')]));
+      const nb = {};
+      for (const a of real) if (now - ms(a.first_seen) < days * DAY) { const k = refOf[a.email] || 'unknown'; nb[k] = (nb[k] || 0) + 1; }
+      srcAccounts = Object.entries(nb).map(([src, n]) => ({ src, n })).sort((a, b) => b.n - a.n);
+    } catch {}
     stalled = {
       accounts: real.length,
       newThisPeriod: real.filter(a => now - ms(a.first_seen) < days * DAY).length,
@@ -796,7 +815,8 @@ async function journeyReport(days, full) {
     signup: n(x.r, 'signup'), paywall: n(x.r, 'paywall'), subscribed: n(x.r, 'subscribed'), leave: n(x.r, 'leave'),
     site: pv(x.r), workshoppaid: n(x.r, 'workshoppaid'), sitefitsend: n(x.r, 'sitefitsend') }));
   return { at: new Date(now).toISOString(), days, app, site, leaves, quiz, quit, stories,
-    paywall: top(cur.paywallAt, 10), errs, films, stalled, daily,
+    paywall: top(cur.paywallAt, 10), errs, films, stalled, daily, skips,
+    sources: { accounts: srcAccounts, events: srcEvents },
     /* the screen, step and drill counts start on the day these went live */
     since: '2026-10-16' };
 }
@@ -10997,7 +11017,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                      finished session and a second on another day */
                   'leave', 'quizq', 'quit', 'paywall', 'first1', 'first2',
                   /* why a session was stopped, by the reason picked */
-                  'why'];
+                  'why',
+                  /* a drill skipped in the follow along, by which (30 Oct 2026) */
+                  'skip'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
@@ -11048,6 +11070,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (sl && Number.isInteger(c) && c >= 1 && c <= 30) bump('storyAt', sl + ':' + (body.e ? 'end' : c), 200);
       }
       if (n === 'why') bump('whyBy', scrOf(body.f), 20);
+      if (n === 'skip') bump('skipDrill', scrOf(body.f), 150);
       if (n === 'quizq') { const q = Number(body.s); if (Number.isInteger(q) && q >= 0 && q <= 30) bump('quizqBy', String(q), 31); }
       if (n === 'quit') {
         const d = Number(body.s); if (Number.isInteger(d) && d >= 0 && d <= 10) bump('quitBy', String(d), 11);
@@ -11154,6 +11177,32 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const all = (await getSetting('learnsearch')) || {};
     const searches = Object.entries(all).map(([q, e]) => ({ q, ...e })).sort((x, y) => (y.n - x.n) || ((y.last || 0) - (x.last || 0)));
     return json({ searches, asks: (await getSetting('learnasks')) || [] });
+  }
+
+  /* ── where people get stuck (30 Oct 2026) ─────────────────────────
+     Every real Ladder account's check point readings, without names: the
+     dashboard knows the targets (ladder-data.js and the coach's overlay)
+     and works out who reached what, the check point fewest reach, and how
+     long a stage takes to clear. Coached clients, testers and coaches are
+     left out, as the journey leaves them out. */
+  if (path === '/coach/cpstats') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const marked = (await getSetting('testers')) || {};
+    const coached = clients(), staff = Object.keys(coaches());
+    const rows = (await supa.rows('settings', `select=key,value&key=like.track%3A*`)) || [];
+    const people = [];
+    for (const r of rows) {
+      const e = r.key.slice(6);
+      if (marked[norm(e)] || TEST_EMAIL.test(e) || staff.includes(e) || coached[e]) continue;
+      const cps = (r.value || {}).checkpoints || {}, out = {};
+      for (const [k, h] of Object.entries(cps)) {
+        if (String(k).startsWith('fix:') || !Array.isArray(h) || !h.length) continue;
+        out[k] = h.slice(-20).map(x => [Number(x && x.v) || 0, Number(x && x.at) || 0, (x && !x.undone && x.verdict) || '']);
+      }
+      if (Object.keys(out).length) people.push(out);
+    }
+    return json({ people, at: Date.now() });
   }
 
   /* ── who pays, and for what (Elliott, 29 Oct 2026: "an understanding
