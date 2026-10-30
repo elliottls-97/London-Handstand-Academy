@@ -652,12 +652,20 @@ async function caTell(slug, w) {
     const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : '';
     const cap = Number(w.places) || 0, left = cap ? Math.max(0, cap - wsPlaces((await getSetting(`wsbook:${slug}`)) || []).length) : 0;
     if (cap && !left) return 0;
+    /* every class on sale, this one marked new, so one email shows the lot */
+    const pl = c => c.price ? '£' + (c.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
+    const shows = [];
+    for (const c of Object.values((await getSetting('workshops')) || {}).filter(c => c && c.live && c.when && ms(c.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when)).slice(0, 8)) {
+      const cc = Number(c.places) || 0, cl = cc ? Math.max(0, cc - wsPlaces((await getSetting(`wsbook:${c.slug}`)) || []).length) : 0;
+      shows.push({ title: c.title, when: wsWhenTxt(c), room: caKindOf(c) === 'calisthenics' ? 'Arch 2' : caKindOf(c) === 'handstand' ? 'Arch 1' : '',
+        price: pl(c), left: cl, full: !!cc && !cl, href: wsPageHref(c, 'alert'), isNew: c.slug === slug });
+    }
     for (const [e, x] of Object.entries(all).slice(0, 400)) {
       if (!x || !(x.kinds || []).includes(kind) || !(Number(x.at) < since)) continue;
       if (!(await supa.insertIfAbsent('nudges', { key: `caalert:${slug}:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) continue;
       const off = `${SITE}/api/app/class-alert/off?e=${enc(e)}&t=${await caTok(e)}`;
       const went = await email(e, `New date: ${w.title}`, classAlertEmail({ first: String(x.n || '').split(' ')[0], title: w.title, when: whenTxt,
-        place: w.place, price, left, places: cap, coach: w.coach, href, off }, SITE),
+        place: w.place, price, left, places: cap, all: shows, coach: w.coach, href, off }, SITE),
         undefined, { receipt: true }).catch(() => false);
       if (went) n++;
     }

@@ -812,7 +812,7 @@ const blockHTML = {
           `<td class="col" width="50%" style="padding:0 ${j ? 0 : 10}px 16px ${j ? 10 : 0}px;vertical-align:top"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
             <td style="width:44px;height:44px;border-radius:12px;background:${b.soft ? '#cfe6ec' : '#00403d'};color:${b.soft ? '#00403d' : '#ffffff'};font:600 16px/44px Helvetica,Arial,sans-serif;text-align:center">${p[0]}</td>
             <td style="padding-left:14px;font:600 15px/1.35 ${FS};color:#111111">${p[1]}</td></tr></table></td>`).join('')}${row.length < 2 ? '<td class="col" width="50%"></td>' : ''}</tr>`).join('')
-      }</table><div style="height:1px;background:#e3e8e8;margin:4px 0 22px"></div>` : (b.head || b.hi ? '<div style="height:22px"></div>' : '')}
+      }</table>${(b.greeting || (b.paras || []).length || (b.steps || []).length || b.closer || b.btn) ? '<div style="height:1px;background:#e3e8e8;margin:4px 0 22px"></div>' : ''}` : (b.head || b.hi ? '<div style="height:22px"></div>' : '')}
       ${b.greeting ? P(`Hi ${escH(b.greeting)},`) : ''}
       ${(b.paras || []).slice(0, b.stepsAfter == null ? undefined : b.stepsAfter).map(P).join('')}
       ${b.steps && b.steps.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px">${b.steps.map((s, i) => `<tr>
@@ -955,6 +955,14 @@ export function classAlertEmail(x, site) {
       { t: 'card', points: [one ? ['1', 'With ' + escH(x.coach) + ',<br>a small group'] : ['2', 'Two coaches,<br>a small group'],
           ['&#8597;&#65038;', 'Grouped<br>by level'], ['&#9873;&#65038;', 'OverGravity,<br>wall and mats'],
           [x.price ? escH(x.price) : '&pound;0', 'A place,<br>card or Apple Pay']] },
+      ...((x.all || []).length > 1 ? [{ t: 'card', kicker: 'Every date on sale', paras: [(x.all || []).map(c => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e3e8e8"><tr>
+          <td style="padding:12px 0;vertical-align:top"><div style="font:600 16px/1.3 ${FS};color:#111111">${escH(c.title)}${c.isNew ? ' <span style="font:600 10.5px/1 ' + FS + ';letter-spacing:.12em;color:#006663">NEW</span>' : ''}</div>
+            <div style="font:400 14.5px/1.45 ${FS};color:#5a5a5a;margin-top:2px">${escH(c.when)}${c.room ? ' · ' + escH(c.room) : ''}</div></td>
+          <td style="padding:12px 0 12px 12px;vertical-align:top;text-align:right;white-space:nowrap"><div style="font:600 16px/1.3 ${FS};color:#00403d">${escH(c.price || '')}</div>
+            <a href="${escH(c.href)}" style="font:600 13.5px/1.6 ${FS};color:#006663">${c.full ? 'Waiting list' : 'Book'}</a>${c.left && !c.full ? `<div style="font:400 12px/1.3 ${FS};color:${c.left <= 3 ? '#a4503c' : '#686868'}">${c.left} left</div>` : ''}</td></tr></table>`).join('')] }] : []),
+      { t: 'card', kicker: 'Where', head: '', hi: 'OverGravity, Shadwell', appTone: true,
+        paras: ['Arches 160 to 163, Sutton Street, London E1 0DB. <a href="https://www.google.com/maps/search/?api=1&amp;query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Open in Google Maps</a>.',
+          '<b>Handstands are in Arch 1</b>, the purple room, with soft mats and wall. <b>Calisthenics is in Arch 2</b>, with the bars, rings and parallel bars. There are changing rooms, and a caf&eacute; in Arch 1 to wait in.', 'Nearest stations: Shadwell (Overground and DLR) and Wapping.'] },
       ...(one ? [] : [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }]),
       { t: 'card', paras: [`Can't make this one either? Book a <a href="${escH(x.session || S + '/session?src=alert')}" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${escH(x.app || S + '/lha-app.html?ref=alert')}" style="color:#006663">free app</a> between classes.`,
           `<span style="font-size:13px;color:#8a8d80">No longer interested? <a href="${escH(x.off)}" style="color:#8a8d80">Stop these emails</a>.</span>`] },
