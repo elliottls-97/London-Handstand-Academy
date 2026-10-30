@@ -49,7 +49,7 @@
     /* the app, which keeps the first source as its own (30 Oct 2026): the
        link into it dropped it, so an account from Instagram via the
        homepage was never known as one */
-    var APP = { '/lha-app.html': 1, '/app': 1, '/app.html': 1 };
+    var APP = { '/lha-app.html': 1, '/lha-app': 1, '/app': 1, '/app.html': 1 };
     var page = PAGES[location.pathname] || (/^\/learn(\/|$)/.test(location.pathname) ? 'learn' : '');
     if (!page) return;
     var clean = function (v) { return String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20); };
