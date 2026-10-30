@@ -13519,7 +13519,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         await ensureCustom();
         const slot = String(url.searchParams.get('slot') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 24);
         const saved = await getSetting(`programme:${e}`);
-        let cur = saved || planFile(e) || { days: [] };
+        /* the minis come from the spec when the saved programme has none */
+        const pf = planFile(e);
+        let cur = (saved && !(saved.minis || []).length && pf && (pf.minis || []).length ? Object.assign({}, saved, { minis: pf.minis }) : saved) || pf || { days: [] };
         if (slot) {
           const d = ((await getSetting(`progdrafts:${e}`)) || {})[slot];
           if (d && d.prog) cur = d.prog;

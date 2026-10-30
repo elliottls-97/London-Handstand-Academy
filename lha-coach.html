@@ -8002,6 +8002,34 @@ function focusNote(){ const el=$('#cnote'); if(el){ el.scrollIntoView({block:'ce
    clock on their own Today screen, and nothing here showed it, so the one
    question worth asking, is this block overdue a rewrite, had no answer on
    the screen where you would answer it. */
+/* ── the client's morning minis (Marina, 30 Oct 2026) ─────────────────
+   Short sessions beside the plan, written in the client's spec. Shown here
+   so you can see what she has; they do not change her week. */
+const miniPlan={};
+function minisLoad(email){
+  if(miniPlan[email]!==undefined) return; miniPlan[email]=null;
+  fetch(API+'/programme?email='+encodeURIComponent(email),{headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ miniPlan[email]=((d&&d.plan&&d.plan.minis)||[]); draw(); }).catch(()=>{ miniPlan[email]=[]; });
+}
+function minisCoachHTML(email){
+  minisLoad(email);
+  const L=miniPlan[email]; if(!L || !L.length) return '';
+  const fm=(prog[email]&&prog[email].sessions)||[];
+  const lastOf=label=>{ const x=fm.filter(s=>s && s.name===label).sort((a,b)=>(b.at||0)-(a.at||0))[0]; return x?new Date(x.at).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):''; };
+  return `<div style="margin-top:var(--space-4);padding:14px 15px;border-radius:14px;background:var(--surface);border:1px solid var(--line)">
+    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+      <span style="font:700 9.5px/1.4 var(--sans);letter-spacing:.14em;color:var(--grey2)">MORNING MINIS · ${L.length}</span>
+      <span class="muted" style="font-size:12px">Beside the plan, on her Today screen. They do not change her week.</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin-top:10px">
+      ${L.map(m=>{ const items=(m.groups||[]).flatMap(g=>g.items||[]), last=lastOf(m.label);
+        return `<div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0">
+          <div style="display:flex;gap:8px;align-items:baseline"><b style="font:600 13.5px/1.3 var(--sans);flex:1">${esc(m.label)}</b>
+            <span class="muted" style="font-size:11.5px">${esc(String(m.mins||''))} min${last?' · last '+esc(last):''}</span></div>
+          ${items.map(it=>`<div style="display:flex;gap:8px;align-items:baseline;margin-top:5px;font:400 12.5px/1.4 var(--sans)">
+            <span style="flex:1;min-width:0">${esc(it.n||it.v)}</span><span class="muted" style="flex:none;font-size:11.5px">${esc(it.d||'')}</span></div>`).join('')}
+        </div>`; }).join('')}
+    </div></div>`;
+}
 function blockLineHTML(email){
   const c=cycles[email]; if(!c || !c.start) return '';
   const D=86400000;
@@ -10381,6 +10409,7 @@ function progressPaneHTML(){
       ${coachCalendar(sel)}
     </div>
     ${blockLineHTML(sel)}
+    ${minisCoachHTML(sel)}
     ${saidHTML(sel)}
     <button class="btn ${progMore?'btn-secondary':'btn-primary'}" style="margin-top:var(--space-4)"
       onclick="progMore=${progMore?'false':'true'};draw()">${
