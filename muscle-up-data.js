@@ -119,6 +119,26 @@ const MU_DRILLS=[
  {v:'mu-bar-muscle-up', n:'Bar Muscle Up', kit:'Bar at full hang height', w:30, sets:4, r:180, diff:5,
   desc:'A full muscle up on the bar: swing, pull the bar to the hips, get the chest over and press to straight arms.',
   cues:['Swing, then pull to the hips','Chest over the bar','Press to straight arms']},
+ /* Elliott, 31 Oct 2026: six more of the filmed drills, at the levels he
+    gave. Cues are the ones on each film; doses copy the nearest drill. */
+ {v:'mu-chest-to-bar-pull-ups', n:'Chest to Bar Pull Ups', kit:'Bar at full hang height', w:30, sets:4, r:150, diff:4,
+  desc:'Pull ups that bring the chest all the way to the bar, with a full hang between reps.',
+  cues:['Pull the chest to the bar','Elbows drive down and back','Full hang between reps']},
+ {v:'mu-false-grip-on-rings', n:'False Grip Setup on Rings', kit:'Rings at full hang height', w:10, sets:5, r:30, diff:1,
+  desc:'Set the false grip on the rings and hold the wrist position.',
+  cues:['Ring in the crease of the wrist','Palm over the top, thumb around','Wrist stays bent as you hang']},
+ {v:'mu-high-pulls', n:'High Pulls', kit:'Bar at full hang height', w:30, sets:4, r:120, diff:3,
+  desc:'Fast, explosive pulls that drive the hips to the bar.',
+  cues:['Pull hard and fast','Drive the hips to the bar','Lead with the chest']},
+ {v:'mu-ring-muscle-up-swing', n:'Ring Muscle Up with a Swing', kit:'Rings at full hang height', w:30, sets:4, r:180, diff:5,
+  desc:'A ring muscle up using a controlled swing to build the pull, keeping the false grip on.',
+  cues:['Swing to build the pull','False grip stays on','Pull, turn, then press']},
+ {v:'mu-ring-support-hold-turned-out', n:'Rings Front Support, Turned Out', kit:'Rings', w:30, sets:4, r:90, diff:3,
+  desc:'Hold the top of a dip on the rings with the rings turned out and the arms locked.',
+  cues:['Turn the rings out','Arms locked straight']},
+ {v:'mu-supported-false-grip-hang-rings', n:'Supported False Grip Hang on Rings', kit:'Rings and a box', w:30, sets:4, r:90, diff:2,
+  desc:'A false grip hang on the rings with the feet on a box taking some of the weight.',
+  cues:['Set the grip standing up','Sit back, feet stay down','Wrists stay bent over the rings']},
 ];
 
 /* The film each drill plays, by the name it exports under in Downloads/
@@ -153,6 +173,12 @@ const MU_FILMS={
  'mu-slow-muscle-up-rings':'Slow ring muscle up.mp4',
  'mu-slow-muscle-up-bars':'Slow bar muscle up.mp4',
  'mu-bar-muscle-up':'Bar muscle up.mp4',
+ 'mu-chest-to-bar-pull-ups':'Chest to bar pull ups.mp4',
+ 'mu-false-grip-on-rings':'False grip on the rings.mp4',
+ 'mu-high-pulls':'High pulls.mp4',
+ 'mu-ring-muscle-up-swing':'Ring muscle up with a swing.mp4',
+ 'mu-ring-support-hold-turned-out':'Ring support hold turned out.mp4',
+ 'mu-supported-false-grip-hang-rings':'Supported false grip hang on the rings.mp4',
 };
 const MU_TEACH=[];
 
@@ -182,6 +208,12 @@ const MU_DOSE={
  'mu-swing-to-muscle-up':'4 × 2 to 4',
  'mu-full-ring-muscle-up':'4 × 1 to 3',
  'mu-bar-muscle-up':'4 × 1 to 3',
+ 'mu-chest-to-bar-pull-ups':'4 × 3 to 5',
+ 'mu-false-grip-on-rings':'5 × 10s setups',
+ 'mu-high-pulls':'4 × 4 to 6',
+ 'mu-ring-muscle-up-swing':'4 × 2 to 4',
+ 'mu-ring-support-hold-turned-out':'4 × 15 to 30s hold',
+ 'mu-supported-false-grip-hang-rings':'4 × 15 to 30s hold',
  'mu-slow-muscle-up-rings':'3 × 1 to 2',
  'mu-slow-muscle-up-bars':'3 × 1 to 2',
 };
@@ -215,6 +247,12 @@ const MU_UIDS={
  'mu-swing-to-muscle-up':'fff6d7e0d06837c50e05725e08875637',
  'mu-full-ring-muscle-up':'71c55a6edd1ae28626789b779b8c1450',
  'mu-bar-muscle-up':'5d8fccb8303d45ab4f181e34c0452156',
+ 'mu-chest-to-bar-pull-ups':'ee9fe62cbdf1934d867628b09c2e98a8',
+ 'mu-false-grip-on-rings':'4f47608890bc591afe04757c867ed65d',
+ 'mu-high-pulls':'8429630aafccc041da56b477ba01b29a',
+ 'mu-ring-muscle-up-swing':'b28fa39c4269c95f8f53f1c22a94347d',
+ 'mu-ring-support-hold-turned-out':'827b33ee5653fe78198b09aa1da064cb',
+ 'mu-supported-false-grip-hang-rings':'40eb6695b30de839d6ae2186ec6d1a65',
 };
 
 /* Four stages, as Suryava wrote them (26 Oct 2026). The two warm-up drills
@@ -231,6 +269,9 @@ const MU_POOL={
   {v:'mu-parallel-bars-dips', g:'Pushing', L:1},
   {v:'mu-straight-bar-dips', g:'Pushing', L:3},
   {v:'mu-ring-dips', g:'Pushing', L:4},
+  {v:'mu-false-grip-on-rings', g:'Grip', L:1},
+  {v:'mu-ring-support-hold-turned-out', g:'Support', L:2},
+  {v:'mu-supported-false-grip-hang-rings', g:'Grip', L:1},
  ],
  1:[
   {v:'wrist-circles-mob', g:'Warm-up', L:1},
@@ -240,6 +281,8 @@ const MU_POOL={
   {v:'mu-swings-to-high-pull', g:'Swing', L:3},
   {v:'mu-false-gripped-chest-to-bar-pulls', g:'Pulling', L:4},
   {v:'mu-ring-pull-ups', g:'Pulling', L:3},
+  {v:'mu-chest-to-bar-pull-ups', g:'Pulling', L:4},
+  {v:'mu-high-pulls', g:'Pulling', L:2},
  ],
  2:[
   {v:'wrist-circles-mob', g:'Warm-up', L:1},
@@ -262,6 +305,7 @@ const MU_POOL={
   {v:'mu-slow-muscle-up-rings', g:'Control', L:4},
   {v:'mu-slow-muscle-up-bars', g:'Control', L:4},
   {v:'mu-bar-muscle-up', g:'Muscle up', L:4},
+  {v:'mu-ring-muscle-up-swing', g:'Muscle up', L:4},
  ],
 };
 
