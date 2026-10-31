@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail } from './emails.mjs';
+import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail, interestEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -582,6 +582,7 @@ export default async () => {
   /* payments first of the rest: a buyer left with nothing outranks a nudge */
   await run('payments', () => paymentsCheck(done));
   await run('intent', () => intentMail(done));
+  await run('interest', () => interestMail(done));
   /* new class dates, to the people who asked on the class page: one email
      each with everything new. The sending lives in app.mjs, beside Send now
      in the dashboard, so the two cannot drift (30 Oct 2026) */
@@ -1087,6 +1088,47 @@ async function intentMail(done) {
       done.intents.reminded++; toldNow.add(e);
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
       await supa.upsert('nudges', { key: anyKey, sent_at: new Date().toISOString() }, 'key').catch(() => {});
+    }
+  }
+}
+
+/* ── interested in coaching: days 2, 5 and 9 (31 Oct 2026) ─────────────
+   After the email the moment they say so (app.mjs, /application). One a
+   run at most, the earliest that is due and not sent. They stop once the
+   application is answered in the dashboard (any status but new) or they
+   are on the coaching roster; the email itself also stops for an
+   unsubscribe. */
+const INTEREST_STEPS = [[2, 'interest1'], [5, 'interest2'], [9, 'interest3']];
+async function interestMail(done) {
+  done.interest = { sent: 0 };
+  const now = Date.now();
+  const since = new Date(now - 12 * DAY).toISOString();
+  const rows = (await supa.rows('applications', `created_at=gte.${enc(since)}&select=id,email,name,answers,status,created_at&order=created_at.asc`)) || [];
+  const st = await guardState().catch(() => null);
+  const told = new Set();
+  for (const a of rows) {
+    const e = norm(a.email);
+    if (!e || told.has(e)) continue;
+    if (!/^interested in /i.test(String((a.answers || {}).source || ''))) continue;
+    if (a.status && a.status !== 'new') continue;
+    if (st && st.roster.has(e)) continue;
+    const age = now - ms(a.created_at);
+    for (const [d, key] of INTEREST_STEPS) {
+      if (age < d * DAY) break;
+      const nk = `interest:${a.id}:${key}`;
+      if (await supa.row('nudges', `key=eq.${enc(nk)}&select=key`).catch(() => null)) continue;
+      const plan = String((a.answers || {}).plan || '').replace(/\s*\(.*$/, '').toLowerCase() || 'coaching';
+      const first = String(a.name || '').split(' ')[0];
+      const T = await emailCopy(key, { name: esc(first), plan: esc(plan) });
+      /* switched off in the dashboard: marked, so the next one follows on time */
+      if (!T.off) {
+        const went = await email(e, T.subject, interestEmail(T, { first, call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE));
+        if (!went) { done.held = (done.held || 0) + 1; break; }
+        done.interest.sent++;
+      }
+      await supa.upsert('nudges', { key: nk, sent_at: new Date().toISOString() }, 'key');
+      told.add(e);
+      break;
     }
   }
 }

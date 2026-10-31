@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -9312,12 +9312,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       : { day: new Date(Date.now() + 3 * 864e5).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }), then: wsPounds((Number(w.price) || 2500) + 500) };
     const ebOn = wsEarlyOn(w) || key === 'wsEarly';
     const T = renderEmail(key, { name: esc(me1), title: esc(w.title), when: esc(whenTxt), day: esc(whenTxt.split(', ')[0]), place: w.place ? ', at ' + esc(w.place) : '',
-      price, pair_line: '', link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop`, session_line: '', review_line: '', app_line: '',
+      price, plan: 'weekly coaching', pair_line: '', link: `${SITE}/handstand-class#book`, app_link: `${SITE}/lha-app.html?ref=workshop`, session_line: '', review_line: '', app_line: '',
       then: eb.then, until: eb.day, ends: !eb.at || eb.at === 'midnight' ? 'the end of today' : eb.at + ' today', coach_line: wsCoachLine(w),
       early_line: ebOn ? `It is ${price} until ${eb.by || 'the end of ' + eb.day}, then ${eb.then}.` : '' }, Object.assign({}, saved, { [key]: o }));
     const tip = /^tip(\d+)$/.exec(key);
     let html;
     if (tip) html = tipEmail(Number(tip[1]), T, me1, SITE);
+    else if (/^interest\d$/.test(key)) html = interestEmail(T, { first: me1, call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE);
     else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left, coach: w.coach || '', early: ebOn && wsEarlyOn(w) ? { day: eb.by, then: eb.then } : null }, SITE);
     else if (key === 'wsIntent2') html = intent2Email(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
     else if (key === 'wsEarly') html = earlyEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, then: eb.then, at: eb.at || 'midnight', left }, SITE);
@@ -11695,6 +11696,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         signoff: { name: 'London Handstand Academy' },
       }));
 
+    /* I'm interested on the coaching plans (31 Oct 2026): the call first,
+       starting second, and the daily job follows it up three times */
+    if (/^interested in /i.test(answers.source)) {
+      const plan = answers.plan.replace(/\s*\(.*$/, '').toLowerCase() || 'coaching';
+      const T = await emailCopy('interest0', { name: esc((name || '').split(' ')[0]), plan: esc(plan) });
+      if (!T.off) await email(e, T.subject, interestEmail(T, { first: (name || '').split(' ')[0], call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE));
+      return json({ ok: true, id: row.id });
+    }
     /* tell them it landed, because silence after applying is what makes
        people assume it did not */
     await email(e, 'Your coaching application',

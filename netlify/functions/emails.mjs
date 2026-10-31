@@ -4,6 +4,64 @@
    in. Anything the dashboard has not changed falls through to the
    default here, so an untouched email reads as it always did. */
 export const EMAILS = {
+  /* ── somebody said they are interested in coaching (31 Oct 2026) ──
+     Elliott: "we really want their email if they are interested, then send
+     them emails about it to get them to sign up. Once they have email in
+     they can sign up for 15 min call or sign up." One the moment they send
+     it, then three, and nothing after. Each has the call first and starting
+     second; they stop once the application is answered in the dashboard or
+     they become a client. */
+  "interest0": {
+    "name": "Interested in coaching, straight away",
+    "when": "The moment somebody presses I'm interested on the coaching plans",
+    "vars": ["name", "plan"],
+    "subject": "Your free 15 minute call",
+    "title": "Thanks for getting in touch.",
+    "paras": [
+      "You asked about <b>{plan}</b>. The quickest way to see if it fits is a free 15 minute call: tell me what you are working on, and I will tell you what I would do.",
+      "If you already know, you can start now. I will send your questionnaire straight away."
+    ],
+    "footnote": "You asked about coaching on the London Handstand Academy site. Three short follow ups, then nothing more."
+  },
+  "interest1": {
+    "name": "Interested in coaching, day 2",
+    "when": "Two days after I'm interested, unless they have started or you have answered them",
+    "vars": ["name", "plan"],
+    "subject": "What your first month would look like",
+    "title": "Your first month.",
+    "paras": [
+      "Week one, you film where you are now and answer a short questionnaire, and I write your programme from it.",
+      "From then on it is all in the app, every drill filmed. You train it, film it, and I show you on video what to change.",
+      "If you want to talk it through first, the call is free and takes 15 minutes."
+    ],
+    "footnote": "You asked about coaching on the London Handstand Academy site. Two more of these at most."
+  },
+  "interest2": {
+    "name": "Interested in coaching, day 5",
+    "when": "Five days after I'm interested",
+    "vars": ["name", "plan"],
+    "subject": "Faster than expected",
+    "title": "Faster than expected.",
+    "paras": [
+      "\u201cElliott meets you exactly where you are. He broke my one-arm work into clear, achievable steps and kept me accountable the whole way. The progress has been faster than I expected.\u201d Aman, coaching client.",
+      "That is what coaching is for: the right next step, and someone making sure you take it.",
+      "Book the free call and we will work out yours."
+    ],
+    "footnote": "You asked about coaching on the London Handstand Academy site. One more of these at most."
+  },
+  "interest3": {
+    "name": "Interested in coaching, day 9",
+    "when": "Nine days after I'm interested. The last one",
+    "vars": ["name", "plan"],
+    "subject": "Last one from me about coaching",
+    "title": "Still thinking about it?",
+    "paras": [
+      "This is the last email I will send about coaching, so I do not fill your inbox.",
+      "If now is not the time, the app is free to start and your first form check is on me.",
+      "If it is, book the call or start now. Places are limited, because I review every video myself."
+    ],
+    "footnote": "You asked about coaching on the London Handstand Academy site. This is the last of these."
+  },
   "tip1": {
     "name": "Welcome note, day 1",
     "when": "Day 1 after an account is made, to a free account",
@@ -893,6 +951,18 @@ export function tipEmail(day, T, first, site) {
         btn: L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
     ],
     sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
+
+/* ── interested in coaching: the call first, starting second ──────────
+   ctx: first, call (link to the free call), start (link to the plans) */
+export function interestEmail(T, x, site) {
+  const S = site || SITE;
+  const call = { label: 'Book your free 15 minute call', sub: 'Pick a time that suits you', href: x.call || `${S}/?src=interest#coCall` };
+  return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
+    blocks: [
+      { t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras, btn: call },
+      { t: 'card', kicker: 'Already know?', paras: [`<a href="${escH(x.start || `${S}/?src=interest#plans`)}" style="color:#006663;font-weight:600">Start now on the coaching plans</a>`] },
+    ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 
 /* ── started booking and stopped: the morning after, and three days on ──

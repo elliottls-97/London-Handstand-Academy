@@ -3251,11 +3251,14 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
              after the enquiry link went on 8 Oct. Paying straight away is still
              one tap for the person who is sure. -->
         <a href="#" id="coApply" class="co-btn-primary" onclick="openQuiz(event,'interest')">I&rsquo;m interested →</a>
-        <p class="co-apply-note">Just your name and email. I reply within 48 hours.</p>
-        <a href="https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00" id="coBuy" class="co-btn-ghost" target="_blank" rel="noopener" style="display:block;width:100%;text-align:center;box-sizing:border-box">Start now, £120/mo →</a>
-        <!-- three months up front, 10% off the coaching (22 Oct 2026); shown once the price arrives -->
+        <p class="co-apply-note">Just your name and email.</p>
+        <!-- (31 Oct 2026) two ways from here: the email, or the call. Start
+             now is offered once they have left their email, on the thank you
+             and in the emails after it, so the buttons stay in the code but
+             off the card -->
+        <a href="#coCall" class="co-btn-ghost" onclick="goToCall(event)" style="display:block;width:100%;text-align:center;box-sizing:border-box">Or book a free 15 minute call</a>
+        <a href="https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00" id="coBuy" class="co-btn-ghost" target="_blank" rel="noopener" style="display:none">Start now, £120/mo →</a>
         <a href="#" id="coBuyQ" class="co-call-link" onclick="buyQuarter(event)" hidden></a>
-        <a href="#coCall" class="co-call-link" onclick="goToCall(event)">Or ask first: a free 15 minute call</a>
       </div>
     </div>
 
@@ -3837,8 +3840,9 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
           <div style="font-family:var(--font-disp);font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#A8680F;margin-bottom:10px;" id="doneApplyHead">Application received</div>
           <p id="doneApplyCopy" style="font-size:13.5px;color:rgba(17,17,17,.72);line-height:1.6;margin-bottom:14px;">Weekly coaching is three places, so I read every application myself. If it fits I will come back within 48 hours, and if it does not I will tell you which plan does.</p>
           <a href="https://calendly.com/londonhandstandacademy-info/intro-call" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;background:var(--terra);color:#fff;font-family:var(--font-disp);font-size:14px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:12px 22px;border-radius:12px;text-decoration:none;">Book the call now →</a>
+          <a href="#" id="doneStart" style="display:none;margin-top:12px;font-size:13.5px;font-weight:600;color:#006663;text-decoration:underline;text-underline-offset:3px"></a>
         </div>
-        <div style="margin:20px 0;padding:20px;background:rgba(255,255,255,.07);border-radius:14px;border:1px solid rgba(255,255,255,.12);">
+        <div id="doneCallBox" style="margin:20px 0;padding:20px;background:rgba(255,255,255,.07);border-radius:14px;border:1px solid rgba(255,255,255,.12);">
           <div style="font-family:var(--font-disp);font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#A8680F;margin-bottom:6px;">Can't wait? Book a free intro call</div>
           <p style="font-size:13px;color:rgba(17,17,17,.72);line-height:1.5;margin-bottom:14px;">Jump on a free 15-minute call with Elliott to talk through your goals and next steps, no waiting for an email.</p>
           <a href="https://calendly.com/londonhandstandacademy-info/intro-call" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;background:#0A7B74;color:#fff;font-family:var(--font-disp);font-size:14px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:12px 22px;border-radius:12px;text-decoration:none;box-shadow:0 6px 18px rgba(0,102,99,.4);">Book a Free Intro Call →</a>
@@ -4363,8 +4367,10 @@ const QUIZ_VARIANTS = {
     plan: 'Coaching (£120/mo)',
     notesPh: 'What are you working on? Optional.',
     pay: false,
-    doneHead: 'Got it',
-    applyCopy: "Rather talk it through sooner? Book a free 15 minute call."
+    doneHead: 'Next step',
+    doneLead: "Thanks. The details are on their way to your inbox.",
+    applyCopy: "The quickest next step is a free 15 minute call. Pick a time and we will work out what you need.",
+    start: null
   },
   programme: {
     label: 'The Coaching Programme',
@@ -4451,6 +4457,14 @@ function applyQuizVariant() {
   if (applyCopy && cfg.applyCopy) applyCopy.textContent = cfg.applyCopy;
   const applyHead = document.getElementById('doneApplyHead');
   if (applyHead) applyHead.textContent = cfg.doneHead || 'Application received';
+  /* the interested get the call and then Start now, and not the call twice */
+  const callBox = document.getElementById('doneCallBox');
+  if (callBox) callBox.style.display = cfg.start ? 'none' : '';
+  const startA = document.getElementById('doneStart');
+  if (startA) {
+    startA.style.display = cfg.start ? 'block' : 'none';
+    if (cfg.start) { startA.textContent = cfg.start.label; startA.onclick = function (e) { cfg.start.go(e); }; }
+  }
 }
 
 function openQuiz(e, variant) {
@@ -4610,7 +4624,7 @@ function applyQuizFormatToDone(format) {
      them to "start straight away" would contradict the capped place. */
   if (!quizCfg().pay) {
     var l = document.getElementById('doneLead');
-    if (l) l.textContent = "Thanks, that's everything Elliott needs. He'll read it himself and come back within 48 hours.";
+    if (l) l.textContent = quizCfg().doneLead || "Thanks, that's everything Elliott needs. He'll read it himself and come back within 48 hours.";
     return;
   }
   var f = (format || '').toLowerCase();
@@ -5377,9 +5391,9 @@ function paintQuarter() {
 function coQKey() { return coBase(coKey); }
 /* a plan with no payment link: a checkout made by the server, monthly or
    three months at a time */
-function coCheckout(e, period) {
+function coCheckout(e, period, el) {
   if (e) e.preventDefault();
-  var a = period === 'month' ? document.getElementById('coBuy') : document.getElementById('coBuyQ');
+  var a = el || (period === 'month' ? document.getElementById('coBuy') : document.getElementById('coBuyQ'));
   if (!a || a.dataset.busy) return;
   var was = a.textContent; a.dataset.busy = '1'; a.textContent = 'Opening the payment page\u2026';
   fetch('/api/app/coaching/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: coQKey(), period: period, sessions: coSessN }) })
@@ -5419,6 +5433,11 @@ function pickPlan(key) {
     I.subject = 'Interested in ' + p.tier.toLowerCase();
     I.plan = p.tier + ' (' + coMonth(key) + '/mo' + (coSessN ? ', ' + coSessN + ' London session' + (coSessN > 1 ? 's' : '') + ' a month' : '')
       + (key === 'weekly' ? ', 3 places' : '') + ')';
+    I.start = { label: 'Or start now, ' + coMonth(key) + '/mo \u2192', go: function (ev) {
+      if (ev) ev.preventDefault();
+      if (!p.checkout && !coSessN && p.buy) { window.open(p.buy, '_blank', 'noopener'); return; }
+      coCheckout(null, 'month', document.getElementById('doneStart'));
+    } };
     openQuiz(e, 'interest');
   };
   var picks = document.querySelectorAll('.co-pick');
