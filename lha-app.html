@@ -4428,6 +4428,9 @@ function filmSrc(url){
   return (uid && hlsUse()) ? streamHls(uid) : sig(url);
 }
 const streamThumb = uid => dlHas(uid) ? dlKey(uid,'still')+'?lha=saved'
+  /* a locked Muscle Up film with no pass yet: Stream refuses its thumbnail,
+     so the server's still, in portrait (31 Oct 2026) */
+  : (portraitUid(uid) && sigUid(uid)===uid) ? '/api/app/story/still?uid='+uid+'&p=1'
   : STREAM_CDN+sigUid(uid)+'/thumbnails/thumbnail.jpg?time=3s&height=320';
 /* no extension on this one: /captions/en.vtt is a 404 and /captions/en is
    the file. An hour went into that difference. */
@@ -12969,15 +12972,33 @@ const VB_MUTED='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stro
    drills were still the bare loop. */
 /* lazy leaves the poster on screen and downloads nothing until it is
    played, which is what lets seven check points each show their film */
+/* ── portrait films (31 Oct 2026) ──────────────────────────────────
+   The handstand films are landscape and every box was drawn for them; the
+   Muscle Up films are all portrait, and sat as a narrow strip in a black
+   landscape box. A known portrait film gets a portrait box from the start,
+   and any other video that turns out portrait when it loads (a client's own
+   clip) switches to one then. The follow along player sizes itself already. */
+const PORTRAIT_RATIO='3/4';
+const portraitUid = uid => !!uid && typeof MU_UIDS!=='undefined' && Object.values(MU_UIDS).includes(uid);
+const portraitWrap = 'max-width:min(100%,380px);margin-left:auto;margin-right:auto;';
+document.addEventListener('loadedmetadata', e=>{
+  const v=e.target;
+  if(!v || v.tagName!=='VIDEO' || v.dataset.port || !(v.videoHeight > v.videoWidth*1.1)) return;
+  if(!(v.hasAttribute('data-cc') || v.closest('[data-vb]'))) return;
+  v.dataset.port='1'; v.style.aspectRatio=PORTRAIT_RATIO;
+  const w=v.closest('[data-vb]') || v.parentElement;
+  if(w && w!==document.body){ w.style.maxWidth='min(100%,380px)'; w.style.marginLeft='auto'; w.style.marginRight='auto'; }
+}, true);
 function drillFilm(url, ratio, lazy){
   const uid=uidOfUrl(url);
   if(!uid) return vidBlock(url, ratio, 'contain');
   setTimeout(mountCaptions,0);
+  const port=portraitUid(uid);
   return ccWrap(`<video src="${filmSrc(url)}" controls playsinline loop muted
-    ${lazy?'preload="none"':''} poster="${streamThumb(uid)}" data-cc="${uid}"
-    style="width:100%;aspect-ratio:${ratio||'4/3'};object-fit:contain;
+    ${lazy?'preload="none"':''} poster="${streamThumb(uid)}" data-cc="${uid}" ${port?'data-port="1"':''}
+    style="width:100%;aspect-ratio:${port?PORTRAIT_RATIO:(ratio||'4/3')};object-fit:contain;
     background:#11150f;display:block"></video>`,
-    'border-radius:22px;overflow:hidden;margin-bottom:18px');
+    'border-radius:22px;overflow:hidden;margin-bottom:18px;'+(port?portraitWrap:''));
 }
 function vidBlock(url, ratio, fit){
   return `<div class="vb" data-vb style="position:relative;border-radius:22px;overflow:hidden;
@@ -13126,7 +13147,7 @@ function drawOv(){
        hole at the top of the sheet. The cues are the drill either way, so
        they simply start where the film would have been. */
     body=`${it.url?itemFilm(it,'4/3'):''}
-      <div class="kick2">DOSE</div><div class="h-md" style="margin-top:8px">${esc(it.d||'')}</div>
+      ${(it.d||(typeof FREE_DOSE!=='undefined'&&FREE_DOSE[it.v]))?`<div class="kick2">DOSE</div><div class="h-md" style="margin-top:8px">${esc(it.d||FREE_DOSE[it.v])}</div>`:''}
       ${it.desc?`<div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:16px">${esc(it.desc)}</div>`:''}
       ${(it.cues||[]).length?`<div class="kick2" style="margin-top:22px">COACHING CUES</div>
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">

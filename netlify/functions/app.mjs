@@ -2232,6 +2232,38 @@ const getSetting = async k => {
    webhook, because the account's plus flag is also set by codes and Apple.
    A fortnight is counted in London dates, so one opened on a Friday opens
    again on the Friday two weeks on, from midnight. */
+/* the Muscle Up films (mu-films.json), so their stills can be shown before
+   anybody has paid; add a film's uid here when it is uploaded */
+const MU_STILL_UIDS = new Set([
+  'f4239cba98e33d1cf7a3ce6e66ae8aa3',
+  '954a564b1807055e16ff7b58ca7128f1',
+  'bdb716aaef719eb4b2cba5e75c11ff7d',
+  'cae81b90dafea9340c28d05fea703f09',
+  'ecf744fdb995a46357156ed2391bf4fe',
+  '6f3aaa208e1201d4bc666b9cc40059f7',
+  '59c77778dba35e2e6b2a11b628f2c042',
+  'fab5ccf69ba928d5fb6908a1a5cffbd1',
+  '3df1ca69eaa029e52ea4096fa2c10fb2',
+  '493b8f355015ccd9495ee6d4908b8372',
+  'd5546efa6caf5739581b87294eeb5561',
+  'b54aa8d0c9d304e7a8a56ead0ac252ee',
+  '9db7997dfd79619fa6854d46c57f2d3c',
+  '5395c237fea23a632b0696acb8b6bf9b',
+  '903a23a974c2bf2e754fadaaa28cb974',
+  '42f88d3bd0aede9d086832f0260e81cc',
+  '39328a491e7980c55360fea2a49d7baa',
+  '85edf57173f2b230dcf598125b839fbb',
+  'fff6d7e0d06837c50e05725e08875637',
+  '71c55a6edd1ae28626789b779b8c1450',
+  '92ac886b0e53449858a4c4f140724554',
+  '5d8fccb8303d45ab4f181e34c0452156',
+  'ee9fe62cbdf1934d867628b09c2e98a8',
+  '4f47608890bc591afe04757c867ed65d',
+  '8429630aafccc041da56b477ba01b29a',
+  'b28fa39c4269c95f8f53f1c22a94347d',
+  '827b33ee5653fe78198b09aa1da064cb',
+  '40eb6695b30de839d6ae2186ec6d1a65',
+]);
 const FC_EVERY_DAYS = 14;
 /* up to three clips in one form check (Elliott, 31 Oct 2026): it stayed
    open for any number until answered, so one check could be ten videos.
@@ -10175,12 +10207,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const uid = String(url.searchParams.get('uid') || '').replace(/[^a-f0-9]/g, '');
     const none = () => new Response('', { status: 404, headers: { 'cache-control': 'public, max-age=300' } });
     if (uid.length !== 32) return none();
-    const lib = await libraryNow();
-    if (!Object.values(lib.video || {}).some(u => String(u || '').includes('/' + uid + '/'))) return none();
+    /* the Muscle Up films are not in the handstand library, and are portrait */
+    const mu = MU_STILL_UIDS.has(uid);
+    const lib = mu ? null : await libraryNow();
+    if (!mu && !Object.values(lib.video || {}).some(u => String(u || '').includes('/' + uid + '/'))) return none();
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`still:${ip}`, 3600000)) > 300) return new Response('', { status: 429 });
     let r;
-    try { r = await fetch(`https://customer-pns1oongdltmkjwa.cloudflarestream.com/${await signedSeg(uid)}/thumbnails/thumbnail.jpg?time=3s&width=640&height=360&fit=crop`); }
+    try { r = await fetch(`https://customer-pns1oongdltmkjwa.cloudflarestream.com/${await signedSeg(uid)}/thumbnails/thumbnail.jpg?time=3s&${mu ? 'width=360&height=480' : 'width=640&height=360'}&fit=crop`); }
     catch { return none(); }
     const type = r.headers.get('content-type') || '';
     if (!r.ok || !/^image\//.test(type)) return none();
