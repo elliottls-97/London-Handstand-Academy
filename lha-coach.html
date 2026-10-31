@@ -1736,6 +1736,67 @@ function loadApps(){
     .then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ apps=d.applications||[]; draw(); } })
     .catch(()=>{}).finally(homeStep);
+  wlLoad();
+}
+/* ── warm leads (31 Oct 2026) ──────────────────────────────────────
+   Everybody who pressed I'm interested and has not paid: where they are
+   in the emails, a call they booked here, a start link and whether it was
+   opened. Going quiet (the emails done, nothing sent by hand) comes first:
+   that is when a note from Elliott does the most. */
+let wleads=null, wlForm=null;
+function wlLoad(){
+  fetch(API+'/leads',{headers:hdr()})
+    .then(r=>r.ok?r.json():null)
+    .then(d=>{ if(d){ wleads=d.leads||[]; draw(); } }).catch(()=>{});
+}
+const wlQuiet = l => !l.link && (l.emails>=4 || Date.now()-l.at > 8*864e5);
+function wlHTML(){
+  const L=(wleads||[]).filter(l=>!l.paid && l.status==='new');
+  if(!L.length) return '';
+  L.sort((a,b)=>(wlQuiet(b)-wlQuiet(a)) || (b.at-a.at));
+  const day=l=>Math.max(1, Math.ceil((Date.now()-l.at)/864e5));
+  const chip=(t,c)=>`<span style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;padding:4px 7px;border-radius:5px;background:${c||'var(--mist)'};color:var(--deep)">${t}</span>`;
+  return `<div class="card" style="margin:0 0 var(--space-4)">
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <div class="kick">WARM LEADS · ${L.length}</div>
+      <span class="muted" style="font-size:12.5px">Pressed I'm interested and not started yet</span></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+    ${L.map(l=>{
+      const f=wlForm&&wlForm.email===l.email?wlForm:null;
+      const plan=l.plan.replace(/\s*\(.*$/,'')||'Coaching';
+      return `<div data-k="lead-${esc(l.email)}" style="border:1.5px solid ${wlQuiet(l)?'#f3a949':'var(--line)'};border-radius:14px;padding:13px 15px">
+        <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+          <b style="font:600 14.5px/1.3 var(--sans)">${esc(l.name||l.email.split('@')[0])}</b>
+          <span class="muted" style="font-size:12.5px">${esc(plan)} · day ${day(l)}</span>
+          ${wlQuiet(l)?chip('GOING QUIET','rgba(243,169,73,.22)'):''}
+          ${l.call?chip(l.call>Date.now()?'CALL BOOKED':'HAD A CALL','rgba(0,102,99,.12)'):''}
+        </div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(l.email)} · ${
+          l.link?`start link sent ${since(l.link.at)}${l.link.opened?', opened '+l.link.opened+'×':', not opened yet'}${l.link.reminded?', reminder sent':''}`
+          :`email ${Math.min(4,l.emails)} of 4`}</div>
+        ${l.notes?`<div style="font:400 13px/1.5 var(--sans);margin-top:6px">${esc(l.notes)}</div>`:''}
+        ${f?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:11px">
+          <select onchange="wlForm.plan=this.value" style="height:36px;border-radius:10px;border:1px solid var(--line);padding:0 8px">
+            <option value="online" ${f.plan==='online'?'selected':''}>Custom programme</option>
+            <option value="inneronline" ${f.plan==='inneronline'?'selected':''}>Weekly coaching</option></select>
+          <select onchange="wlForm.sessions=+this.value" style="height:36px;border-radius:10px;border:1px solid var(--line);padding:0 8px">
+            ${[0,1,2,3,4,5].map(n=>`<option value="${n}" ${f.sessions===n?'selected':''}>${n?n+' London session'+(n>1?'s':''):'No London sessions'}</option>`).join('')}</select>
+          <button class="send" style="width:auto;padding:0 14px;font-size:12.5px" onclick="wlSend()">Send the link</button>
+          <button class="ghostlink" onclick="wlForm=null;draw()">Cancel</button></div>`:''}
+        <div style="display:flex;gap:7px;margin-top:11px;flex-wrap:wrap">
+          <button class="send" style="width:auto;padding:0 13px;font-size:12.5px;background:var(--mist);color:var(--ink)" onclick="openClient(${jsq(l.email)})">Write to them</button>
+          ${f?'':`<button class="send" style="width:auto;padding:0 13px;font-size:12.5px" onclick="wlForm={email:${jsq(l.email)},plan:${jsq(/weekly/i.test(l.plan)?'inneronline':'online')},sessions:${(/(\d) London session/.exec(l.plan)||[0,0])[1]}};draw()">${l.link?'Send the link again':'Send start link'}</button>`}
+          <button class="send" style="width:auto;padding:0 13px;font-size:12.5px;background:var(--mist);color:var(--ink)" title="Stops the emails and takes them off this list"
+            onclick="setAppStatus(${jsq(l.id)},'replied');wleads=wleads.map(x=>x.id===${jsq(l.id)}?{...x,status:'replied'}:x);draw()">Done with them</button>
+        </div></div>`;
+    }).join('')}</div></div>`;
+}
+function wlSend(){
+  const f=wlForm; if(!f) return;
+  fetch(API+'/lead/startlink',{method:'POST',headers:hdr(),body:JSON.stringify(f)})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error)))
+    .then(d=>{ wlForm=null; alert(d.sent?'Sent: '+d.price+' a month.':'Saved, but the email did not go. Check their email settings.'); wlLoad(); })
+    .catch(e=>alert(e||'Could not send that.'));
 }
 function setAppStatus(id,status){
   fetch(API+'/application/status',{method:'POST',headers:hdr(),
@@ -9423,6 +9484,7 @@ function todayHTML(){
     <p class="muted" style="font-size:13px;margin:0 0 var(--space-1)">${esc(date)}</p>
     <h1 style="margin:0 0 var(--space-2)">${calm}</h1>
     ${digestHTML()}
+    ${wlHTML()}
     ${(n=>n?`<p style="margin:0 0 var(--space-4)"><button class="ghostlink" onclick="todayClearOld()">Clear ${n} item${n===1?'':'s'} older than two weeks</button></p>`:'<div style="height:var(--space-2)"></div>')(all.filter(r=>Date.now()-(r.at||0)>14*864e5).length)}
     ${sessionsStripHTML()}
     ${pushNudgeHTML()}

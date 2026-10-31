@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail, startLinkEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -6228,6 +6228,39 @@ const handle = async (request) => {
      made here instead, so no new link has to be made in Stripe; like a
      link it needs no sign-in, and the webhook makes the account as it does
      for a link. */
+  /* ── a start link, sent to a lead after the call (31 Oct 2026) ──────
+     The email carries this rather than a Stripe link, because a Stripe
+     checkout lasts a day and the email may be opened in a week. Each click
+     makes a fresh checkout for the plan and sessions the coach agreed, with
+     their email already filled in. */
+  if (path === '/start' && request.method === 'GET') {
+    const t = String(url.searchParams.get('t') || '').replace(/[^a-z0-9]/gi, '').slice(0, 40);
+    const L = t ? await getSetting(`startl:${t}`) : null;
+    const back = Response.redirect(`${url.origin}/?src=startlink#plans`, 302);
+    if (!L || !L.email || !stripeKey()) return back;
+    const base = coachBaseOf(L.plan) || 'online', n = Math.max(0, Math.min(SESS_MAX, Number(L.sessions) || 0));
+    const k = sessKey(base, n), amount = sessPrice(base, n, false);
+    if (!(amount > 0)) return back;
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'subscription',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(amount),
+        'line_items[0][price_data][recurring][interval]': 'month',
+        'line_items[0][price_data][recurring][interval_count]': '1',
+        'line_items[0][price_data][product_data][name]': sessName(base, n),
+        'line_items[0][quantity]': '1',
+        'metadata[plan]': k, 'metadata[period]': 'month', 'metadata[src]': 'startlink', 'metadata[sessions]': String(n),
+        'subscription_data[metadata][plan]': k, 'subscription_data[metadata][period]': 'month', 'subscription_data[metadata][sessions]': String(n),
+        customer_email: L.email, client_reference_id: L.email,
+        'custom_text[submit][message]': 'Renews every month at this price. Cancel any time from inside the app.',
+        success_url: `${url.origin}/lha-app.html?joined=coaching&cs={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${url.origin}/?src=startlink#plans`,
+      });
+      await changeSetting(`startlink:${L.email}`, cur => cur ? Object.assign({}, cur, { opened: (cur.opened || 0) + 1, openedAt: Date.now() }) : cur).catch(() => {});
+      return Response.redirect(sess.url, 303);
+    } catch (err) { console.warn('start link', err && err.message); return back; }
+  }
   if (path === '/coaching/checkout' && request.method === 'POST') {
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`coq:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
@@ -9324,6 +9357,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     let html;
     if (tip) html = tipEmail(Number(tip[1]), T, me1, SITE);
     else if (/^interest\d$/.test(key)) html = interestEmail(T, { first: me1, call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE);
+    else if (/^startLink2?$/.test(key)) html = startLinkEmail(T, { first: me1, href: `${SITE}/#plans`, label: 'Start weekly coaching, £300 a month' }, SITE);
     else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left, coach: w.coach || '', early: ebOn && wsEarlyOn(w) ? { day: eb.by, then: eb.then } : null }, SITE);
     else if (key === 'wsIntent2') html = intent2Email(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
     else if (key === 'wsEarly') html = earlyEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, then: eb.then, at: eb.at || 'midnight', left }, SITE);
@@ -11246,6 +11280,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                      picked, I'm interested opened and sent, and Start now
                      pressed after the email went in */
                   'siteplans', 'siteplanweekly', 'siteinterest', 'siteinterestsent', 'sitestartafter',
+                  /* the same in the app: I'm interested pressed, one tap when signed in */
+                  'appinterest',
                   'siteleave', 'siteleavesend',
                   /* the journey (16 Oct 2026): the screen the app was put down
                      on with the screens seen that visit, a quiz question
@@ -14399,6 +14435,46 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       return json({ ok: true });
     }
 
+    /* ── warm leads: everybody who pressed I'm interested (31 Oct 2026) ──
+       Which emails they have had, a call they booked here, a start link
+       sent and opened, and whether they have paid. */
+    if (path === '/coach/leads') {
+      const since = new Date(Date.now() - 45 * 864e5).toISOString();
+      const rows = (await supa.rows('applications', `created_at=gte.${enc(since)}&select=id,email,name,answers,status,created_at&order=created_at.desc`)) || [];
+      const leads = rows.filter(a => /^interested in /i.test(String((a.answers || {}).source || '')));
+      const sent = new Set(((await supa.rows('nudges', `key=like.${enc('interest:')}*&select=key`).catch(() => [])) || []).map(r => r.key));
+      const calls = (await getSetting('calls')) || [];
+      const seen = new Set(), out = [];
+      for (const a of leads) {
+        const e = norm(a.email); if (!e || seen.has(e)) continue; seen.add(e);
+        const call = calls.filter(x => x && norm(x.email || '') === e && x.status === 'booked').sort((x, y) => ms(y.when) - ms(x.when))[0];
+        const link = await getSetting(`startlink:${e}`);
+        out.push({ id: a.id, email: e, name: a.name || '', plan: String((a.answers || {}).plan || ''), notes: String((a.answers || {}).notes || ''),
+          at: ms(a.created_at), status: a.status || 'new',
+          emails: 1 + ['interest1', 'interest2', 'interest3'].filter(k => sent.has(`interest:${a.id}:${k}`)).length,
+          call: call ? ms(call.when) : 0,
+          link: link ? { at: link.at, plan: link.plan, sessions: link.sessions, opened: link.opened || 0, reminded: !!link.reminded } : null,
+          paid: await isCoached(e) });
+      }
+      return json({ leads: out });
+    }
+    if (path === '/coach/lead/startlink' && request.method === 'POST') {
+      const e = norm(body.email || '');
+      if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ error: 'Which email?' }, 400);
+      const base = coachBaseOf(String(body.plan || '')) || 'online';
+      const n = Math.max(0, Math.min(SESS_MAX, Math.round(Number(body.sessions) || 0)));
+      const amount = sessPrice(base, n, false);
+      if (!(amount > 0)) return json({ error: 'That plan has no price set' }, 400);
+      const token = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+      await setSetting(`startl:${token}`, { email: e, plan: base, sessions: n, at: Date.now() });
+      const acct = (await getAcct(e)) || {};
+      const planWords = sessName(base, n).replace(/^Custom programme/, 'the custom programme').replace(/^Weekly coaching/, 'weekly coaching');
+      const price = '£' + (amount / 100).toFixed(2).replace(/\.00$/, '');
+      await setSetting(`startlink:${e}`, { token, plan: base, sessions: n, price, words: planWords, at: Date.now(), by: await me() });
+      const T = await emailCopy('startLink', { name: esc(String(acct.name || '').split(' ')[0]), plan: esc(planWords), price: esc(price) });
+      const went = T.off ? false : await email(e, T.subject, startLinkEmail(T, { first: String(acct.name || '').split(' ')[0], href: `${SITE}/api/app/start?t=${token}`, label: `Start ${planWords}, ${price} a month` }, SITE));
+      return json({ ok: true, sent: !!went, price });
+    }
     if (path === '/coach/applications') {
       const rows = await supa.rows('applications', 'select=*&order=created_at.desc');
       return json({ applications: (rows || []).map(a => ({

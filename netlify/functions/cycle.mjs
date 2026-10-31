@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail, interestEmail } from './emails.mjs';
+import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail, interestEmail, startLinkEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -583,6 +583,7 @@ export default async () => {
   await run('payments', () => paymentsCheck(done));
   await run('intent', () => intentMail(done));
   await run('interest', () => interestMail(done));
+  await run('startlinks', () => startLinkMail(done));
   /* new class dates, to the people who asked on the class page: one email
      each with everything new. The sending lives in app.mjs, beside Send now
      in the dashboard, so the two cannot drift (30 Oct 2026) */
@@ -1112,6 +1113,8 @@ async function interestMail(done) {
     if (!/^interested in /i.test(String((a.answers || {}).source || ''))) continue;
     if (a.status && a.status !== 'new') continue;
     if (st && st.roster.has(e)) continue;
+    /* a start link sent after the call takes over from these */
+    if (await supa.row('settings', `key=eq.${enc('startlink:' + e)}&select=key`).catch(() => null)) continue;
     const age = now - ms(a.created_at);
     for (const [d, key] of INTEREST_STEPS) {
       if (age < d * DAY) break;
@@ -1130,6 +1133,35 @@ async function interestMail(done) {
       told.add(e);
       break;
     }
+  }
+}
+
+/* ── a start link not used: one reminder two days on (31 Oct 2026) ─────
+   Not for anybody now on the roster or with a coaching plan. */
+async function startLinkMail(done) {
+  done.startLinks = { reminded: 0 };
+  const now = Date.now();
+  const rows = (await supa.rows('settings', `key=like.${enc('startlink:')}*&select=key,value`).catch(() => [])) || [];
+  const st = await guardState().catch(() => null);
+  for (const r of rows) {
+    const L = r.value || {}, e = norm(r.key.slice('startlink:'.length));
+    if (!e || L.reminded || !L.token || now - (Number(L.at) || 0) < 2 * DAY || now - (Number(L.at) || 0) > 14 * DAY) continue;
+    if (st && st.roster.has(e)) continue;
+    const plan = await supa.row('settings', `key=eq.${enc('plan:' + e)}&select=value`).catch(() => null);
+    if (plan && plan.value && ['online', 'inperson', 'inperson2', 'inperson4', 'inner', 'inneronline'].includes(plan.value.plan)) continue;
+    const base = L.plan === 'inneronline' ? 'Weekly coaching' : 'The custom programme';
+    const n = Math.max(0, Math.min(5, Number(L.sessions) || 0));
+    const planWords = (base === 'Weekly coaching' ? 'weekly coaching' : 'the custom programme') + (n ? ` with ${n} London session${n > 1 ? 's' : ''} a month` : '');
+    const acct = await supa.row('accounts', `email=eq.${enc(e)}&select=name`).catch(() => null);
+    const first = String((acct && acct.name) || '').split(' ')[0];
+    const words = L.words || planWords;
+    const T = await emailCopy('startLink2', { name: esc(first), plan: esc(words), price: esc(L.price || '') });
+    if (!T.off) {
+      const went = await email(e, T.subject, startLinkEmail(T, { first, href: `${SITE}/api/app/start?t=${L.token}`, label: 'Start ' + words + (L.price ? ', ' + L.price + ' a month' : '') }, SITE));
+      if (!went) { done.held = (done.held || 0) + 1; continue; }
+      done.startLinks.reminded++;
+    }
+    await supa.upsert('settings', { key: r.key, value: Object.assign({}, L, { reminded: Date.now() }) }, 'key');
   }
 }
 

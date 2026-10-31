@@ -11,6 +11,33 @@ export const EMAILS = {
      it, then three, and nothing after. Each has the call first and starting
      second; they stop once the application is answered in the dashboard or
      they become a client. */
+  /* ── after the call: the start link, and one reminder (31 Oct 2026) ──
+     Sent from the dashboard's warm leads with the plan and sessions agreed
+     on the call; the button makes a fresh checkout whenever it is pressed. */
+  "startLink": {
+    "name": "Start link, after the call",
+    "when": "When you press Send start link on a warm lead",
+    "vars": ["name", "plan", "price"],
+    "subject": "Your coaching, ready when you are",
+    "title": "Good to talk.",
+    "paras": [
+      "As we said on the call, here is <b>{plan}</b>, {price} a month.",
+      "Press the button, pay, and your questionnaire comes straight after. Cancel any time from inside the app."
+    ],
+    "footnote": "Sent because we spoke about coaching. One reminder at most."
+  },
+  "startLink2": {
+    "name": "Start link, reminder",
+    "when": "Two days after a start link, if they have not started",
+    "vars": ["name", "plan", "price"],
+    "subject": "Still keen?",
+    "title": "Whenever you are ready.",
+    "paras": [
+      "Just making sure this did not get buried. <b>{plan}</b> is {price} a month, and the button below still works.",
+      "If something has changed, or you have a question, reply to this and it comes straight to me."
+    ],
+    "footnote": "Sent because we spoke about coaching. This is the last one."
+  },
   "interest0": {
     "name": "Interested in coaching, straight away",
     "when": "The moment somebody presses I'm interested on the coaching plans",
@@ -950,6 +977,14 @@ export function tipEmail(day, T, first, site) {
       { t: 'card', greeting: first, paras: T.paras, points: L.points, steps: L.steps, stepsAfter: L.steps ? 1 : undefined,
         btn: L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
     ],
+    sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
+
+/* ── a start link: one button, the plan and price on it ──────────────
+   ctx: first, href, label */
+export function startLinkEmail(T, x, site) {
+  return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
+    blocks: [{ t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras, btn: { label: x.label, sub: 'Secure payment by Stripe', href: x.href } }],
     sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 

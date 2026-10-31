@@ -13030,7 +13030,7 @@ function drawOv(){
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
   const T={drill:st.ovDrill?st.ovDrill.n:'Drill',test:'Two-week test',adjust:"Can't train?",
            password:'Change password', account:'Your account', emailchange:'Change email', deleteacct:'Delete your account', members:'For members', iap:'The whole Ladder',
-           why:'Why are you stopping?',apply:'Apply for coaching',
+           why:'Why are you stopping?',apply:'Apply for coaching',interest:"I'm interested",
            summary:(lastSum && !lastSum.done)?'Session logged':'Session complete',
            /* a locked stage's sheet sells the Ladder and writes its own heading */
            stage:!S?'Stage':(typeof stageLocked==='function' && stageLocked(st.ovStage||0))?'':S.n,
@@ -14012,6 +14012,17 @@ function drawOv(){
         A number without the clip is a claim I cannot check, so send both if you can.</div>
       <div id="testMsg" style="font:500 12px/1.5 var(--sans);color:var(--forest);text-align:center;min-height:16px"></div>
       <button class="btn" onclick="sendTest()">Send my test</button></div>`;
+  }
+  /* I'm interested, signed out: a name and an email, nothing else */
+  if(st.ov==='interest'){
+    const a=st.applyDraft||{};
+    const inp=(k,ph,type)=>`<input oninput="st.applyDraft=st.applyDraft||{};st.applyDraft['${k}']=this.value;save()" ${type?`type="${type}" inputmode="${type}"`:''}
+      placeholder="${ph}" value="${esc(a[k]||'')}" style="width:100%;margin-top:9px;border:1px solid rgba(28,32,25,.16);
+      border-radius:14px;padding:13px;font:400 14px/1 var(--sans);box-sizing:border-box;outline:none">`;
+    body=`<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey)">Your name and email, and the details come straight to your inbox.</div>
+      ${inp('name','First name')}${inp('email','you@example.com','email')}
+      <div id="interestMsg" style="font:500 12.5px/1.5 var(--sans);color:var(--forest);text-align:center;margin-top:12px;min-height:18px"></div>
+      <button class="btn" style="width:100%;margin-top:4px" onclick="coInterestSend()">Send</button>`;
   }
   if(st.ov==='apply'){
     const a=st.applyDraft||{};
@@ -23128,17 +23139,17 @@ function coPanelHTML(pick){
             : can ? 'Start now, '+coMonthLabel(pick, sess)+'/mo &rarr;'
             : inner ? 'Apply for weekly coaching &rarr;'
             : 'Apply for coaching &rarr;';
-          const q = (!loading && can) ? coQuarter(pick, sess) : null;
-          return `<button onclick="${go}" ${loading?'disabled':''} ${can?`id="buy-${base}"`:''}
+          /* the website's order (Elliott, 31 Oct 2026): I'm interested, which
+             starts the emails, or the free call; Start now under them */
+          const sent = (st.interestSent||{})[pick.k];
+          return `<button onclick="${sent?'':`coInterest('${pick.k}')`}" ${sent?'disabled':''} id="coInterestBtn"
           style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
-          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${label}</button>`
-          + (q ? `<button id="buyq-${base}" onclick="buyPlanQ('${base}',${sess})" style="width:100%;margin-top:8px;min-height:44px;
-                border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;background:transparent;
-                color:var(--on-primary);font:600 13.5px/1 var(--sans)">Or ${esc(q.label)} every three months${q.save>0?', save £'+(q.save/100).toFixed(2).replace(/\.00$/,''):''}</button>` : ''); })()}
-        <button onclick="askAbout('${pick.k}')"
-          style="width:100%;margin-top:8px;min-height:44px;border:1px solid rgba(255,255,255,.35);
-          border-radius:14px;cursor:pointer;background:rgba(255,255,255,.1);color:var(--on-primary);
-          font:600 13.5px/1 var(--sans)">Ask me about this one</button>
+          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${sent?'Sent. The details are in your inbox.':'I&rsquo;m interested &rarr;'}</button>
+          <button onclick="leaveTo('/?src=app#coCall')" style="width:100%;margin-top:8px;min-height:46px;
+            border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;background:transparent;
+            color:var(--on-primary);font:600 14px/1 var(--sans)">Or book a free 15 minute call</button>
+          ${(!loading && can) ? `<button onclick="${go}" ${`id="buy-${base}"`} style="display:block;margin:12px auto 0;background:none;border:0;padding:4px;cursor:pointer;
+            color:var(--on-primary);font:600 13px/1.3 var(--sans);text-decoration:underline;text-underline-offset:3px">Or start now, ${coMonthLabel(pick, sess)}/mo</button>` : ''}`; })()}
 
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.2);
           font:400 12px/1.5 var(--sans);opacity:.86">
@@ -23150,6 +23161,35 @@ function coPanelHTML(pick){
             color:var(--on-primary);font:600 12.5px/1 var(--sans);cursor:pointer;text-decoration:underline">90 min, ${PRICE('session90')}</button>.
           Credited if you join within 14 days.</div>
       </div>`;
+}
+/* I'm interested in the app (31 Oct 2026): one tap when signed in, as the
+   email is known; a name and an email otherwise. It joins the same emails
+   as the website's, the call first and starting second. */
+function coInterestPlan(k){
+  const P=coPlans().find(p=>p.k===k)||coPlans()[0], n=coSessN();
+  return { P, plan: P.who+' ('+coMonthLabel(P,n)+'/mo'+(n?', '+n+' London session'+(n>1?'s':'')+' a month':'')+(k==='inner'?', 3 places':'')+')' };
+}
+function coInterest(k){
+  st.interestK=k; save();
+  if(!st.token || !st.email){ openOv('interest'); return; }
+  const b=document.getElementById('coInterestBtn'); if(b){ b.disabled=true; b.textContent='Sending…'; }
+  coInterestPost(st.email, st.name||'').then(()=>{ const pn=document.getElementById('coPanel');
+    if(pn) pn.innerHTML=coPanelHTML(coPlans().find(p=>p.k===coPickK())||coPlans()[0]); toast('Sent. The details are in your inbox.'); })
+    .catch(e=>{ if(b){ b.disabled=false; b.textContent='Try again'; } toast(String(e||'Could not send that.')); });
+}
+function coInterestPost(email, name){
+  const k=st.interestK||coPickK(), I=coInterestPlan(k);
+  return fetch(AUTH.application,{method:'POST',headers:st.token?authed():{'Content-Type':'application/json'},
+    body:JSON.stringify({email, name, answers:{source:'Interested in '+I.P.who.toLowerCase(), plan:I.plan}})})
+    .then(r=>r.json().catch(()=>({})).then(d=>r.ok?d:Promise.reject(d.error||'Could not send that.')))
+    .then(d=>{ st.interestSent=Object.assign({}, st.interestSent||{}, {[k]:Date.now()}); save(); track('appinterest'); return d; });
+}
+function coInterestSend(){
+  const a=st.applyDraft||{}, em=String(a.email||'').trim(), say=m=>{ const el=$('#interestMsg'); if(el) el.textContent=m; };
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ say('I need an email address to send it to.'); return; }
+  say('Sending…');
+  coInterestPost(em, a.name||'').then(()=>{ closeOv(); render(); toast('Sent. The details are in your inbox.'); })
+    .catch(e=>say(String(e)));
 }
 function coachingPicker(){
   /* a paying client in the ladder view was offered "Start now, £120/mo"
