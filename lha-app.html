@@ -10856,7 +10856,8 @@ function sendApplication(){
   fetch(AUTH.application,{method:'POST',headers:authed(),
     body:JSON.stringify({email:em,name:a.name||'',
       answers:{goal:a.goal,level:a.level,format:a.format||'',days:a.days||'',
-               injuries:a.injuries||'',notes:a.notes||''}})})
+               injuries:a.injuries||'',notes:a.notes||'',
+               plan:coPickK()==='inner'?'Weekly coaching ('+(PRICE('inneronline')||'£300')+'/mo, 3 places)':'Coaching'}})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
     .then(()=>{ st.applyDraft={}; st.applied=Date.now(); save(); closeOv(); render(); })
     .catch(e=>say(String(e)));
@@ -15295,10 +15296,10 @@ function innerOfferHTML(inMenu){
   if(!sells()) return '';
   if(!innerOn()) return '';
   const card=`<div class="card" style="padding:18px 20px;border:1.5px solid rgba(0,102,99,.22)${inMenu?';margin-bottom:16px':''}">
-    <div class="kick2" style="color:var(--forest)">INNER CIRCLE</div>
-    <div style="font:400 21px/1.2 var(--serif);margin-top:7px">Want me checking in every week?</div>
-    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">I check in every week and adjust
-      your plan as we go. Three places, from ${esc(PRICE('inneronline'))} a month.</div>
+    <div class="kick2" style="color:var(--forest)">WEEKLY COACHING</div>
+    <div style="font:400 21px/1.2 var(--serif);margin-top:7px">Want a video reply every week?</div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">Your programme updated and your
+      footage reviewed every week. Three places, ${esc(PRICE('inneronline'))} a month.</div>
     <div style="display:flex;gap:16px;align-items:center;margin-top:13px">
       <button class="btn" style="margin:0;min-height:44px;padding:0 18px;width:auto" onclick="innerAsk()">I&rsquo;m interested</button>
       <button onclick="innerLater()" style="border:0;background:none;cursor:pointer;padding:8px 0;
@@ -15306,7 +15307,7 @@ function innerOfferHTML(inMenu){
     </div></div>`;
   return inMenu ? card : `<div class="pad" style="padding-top:16px">${card}</div>`;
 }
-function innerAsk(){ askDraft='I\'d like to hear about Inner Circle.'; if(menuOpen) closeMenu(); go('ask'); }
+function innerAsk(){ askDraft='I\'d like to hear about weekly coaching.'; if(menuOpen) closeMenu(); go('ask'); }
 function innerLater(){ st.icLater=blockNo(); save(); render(); paintMenu(); }
 /* uncapped: "week 6 of 6" for ever was the old lie, and a block runs until
    the coach starts the next one rather than for a fixed six weeks */
@@ -22914,7 +22915,7 @@ const coBuyable = p => (plansOn||[]).indexOf(coBuyKey(p))>-1;
    somebody deciding on the first. Inner Circle is a line under it that
    opens the chat, and Elliott offers it to clients after a block, when he
    knows who it suits. */
-function coPickK(){ return 'online'; }
+function coPickK(){ return st.coPick==='inner' ? 'inner' : 'online'; }
 const CO_PLANS = [
   { k:'online', who:'Online coaching', price:'online', withSession:'inperson', buy:'online', buySession:'inperson', flag:'Most people',
     line:'Your own programme, form checks every two weeks. Train anywhere.',
@@ -22929,15 +22930,23 @@ const CO_PLANS = [
            'Message me any time, with clips and voice notes',
            'The full ladder app, every stage and fix, included'],
     note:'Cancel any time in the app.' },
-  { k:'inner', who:'Inner Circle', price:'inneronline', withSession:'inner', flag:'3 places',
-    line:'Online coaching, plus a check-in every week. By application.',
-    name:'Chased, every week',
-    for:'For when the plan is not the problem and you want chasing.',
-    feats:['Everything in online coaching',
-           'Chased each week to finish the plan, and it is adjusted weekly',
-           'Clips come back with a voice over and a video reply',
-           'An optional 20 minute call each month'],
-    note:'Three places, by application.' },
+  /* Weekly coaching, £300 (Elliott, 31 Oct 2026): what he thinks it takes
+     to progress, modelled on Ulrik's 1-2-1 (assessment, a call to start,
+     the programme updated and a video reply every week). It was Inner
+     Circle, offered only to clients after a block; it sits beside the £120
+     plan now, so somebody sees both. Online only: the London session is
+     never bundled. The keys stay inner and inneronline. */
+  { k:'inner', who:'Weekly coaching', price:'inneronline', flag:'3 places',
+    line:'Your programme updated and your footage reviewed every week.',
+    name:'Eyes on it every week',
+    for:'',
+    feats:['A questionnaire and a filmed assessment before we start',
+           'A video call to set your goals',
+           'Your programme updated every week',
+           'A video reply on your footage every week',
+           'Message me any time, with clips and voice notes',
+           'The full ladder app, every stage and fix, included'],
+    note:'Three places. Cancel any time.' },
 ];
 /* the London session is an add on to either plan, not a plan of its own.
    Three tiers where one was the second plus a session was confusing. */
@@ -22946,9 +22955,10 @@ const CO_PLANS = [
 const coSessN = () => { const n=Number(st.coSession)||0; return [0,1,2,4].indexOf(n)>-1 ? n : 0; };
 const coSessionOn = () => coSessN()>0;
 const coSessOptions = () => [0,1].concat(PRICE('inperson2')?[2]:[], PRICE('inperson4')?[4]:[]);
+/* weekly coaching is online only, so the sessions only move the £120 plan */
 const coPriceKey = p => { const n=coSessN();
   if(p.k==='online') return ({0:'online',1:'inperson',2:'inperson2',4:'inperson4'})[n]||'online';
-  return n ? 'inner' : 'inneronline'; };
+  return 'inneronline'; };
 const coBuyKey = p => coPriceKey(p);
 function coSessionSet(n){ st.coSession=n; save(); coPaint(); }
 /* Picking one scrolls it to the middle, so a tap and a swipe end up in the
@@ -23062,7 +23072,7 @@ function coPanelHTML(pick){
         ${pick.for?`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(pick.for)}</div>`:''}
         ${pick.feats.map(tickLine).join('')}
         <!-- the add on: sessions in London each month, and the price moves with it -->
-        <div style="margin-top:14px">
+        ${pick.k==='inner' ? '' : `<div style="margin-top:14px">
           <div style="font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--grey2)">Sessions in London each month</div>
           <div style="display:flex;gap:6px;margin-top:8px">
             ${coSessOptions().map(n=>`<button onclick="coSessionSet(${n})" aria-pressed="${sess===n}" style="flex:1;min-height:44px;border-radius:12px;cursor:pointer;
@@ -23071,32 +23081,31 @@ function coPanelHTML(pick){
           </div>
           <div style="font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:7px">
             60 minutes, hands on, ${PRICE('session')} each.</div>
-        </div>
+        </div>`}
       </div>
       <div style="padding:16px 20px 18px;background:linear-gradient(180deg,#0a7a76,#006663);
         color:var(--on-primary)">
         <div style="display:flex;align-items:baseline;gap:6px">
           <span style="font:400 34px/1 var(--serif);letter-spacing:-.02em">${PRICE(coPriceKey(pick))}</span>
-          <span style="font:600 13px/1 var(--sans);opacity:.8">/ month${sess?', '+(sess===1?'session':sess+' sessions')+' included':''}</span>
+          <span style="font:600 13px/1 var(--sans);opacity:.8">/ month${(sess && pick.k!=='inner')?', '+(sess===1?'session':sess+' sessions')+' included':''}</span>
         </div>
         <div style="font:400 12.5px/1.45 var(--sans);opacity:.82;margin-top:6px">${esc(pick.note)}</div>
-        <!-- Inner Circle is three places and by application, so it is
-             Apply whether or not Stripe has a link for it: the link is what
-             Elliott sends once he has said yes. Online is Start now when
-             there is a link, and while the plans are still loading the
-             button says so rather than guessing at Ask. -->
+        <!-- Weekly coaching is Start now once Stripe has a £300 link for
+             it and Apply until then, so it is never sold at the old £250.
+             While the plans are still loading the button says so rather
+             than guessing at Ask. -->
         ${(function(){
           const loading = plansOn===null;
           const inner = pick.k==='inner';
-          const go = inner ? `openOv('apply')` : buyable(pick) ? `buyPlan('${coBuyKey(pick)}')` : `openOv('apply')`;
-          const label = inner ? 'Apply for Inner Circle &rarr;'
-            : loading ? 'One moment&hellip;'
+          const go = buyable(pick) ? `buyPlan('${coBuyKey(pick)}')` : `openOv('apply')`;
+          const label = loading ? 'One moment&hellip;'
             : buyable(pick) ? 'Start now, '+PRICE(coPriceKey(pick))+'/mo &rarr;'
+            : inner ? 'Apply for weekly coaching &rarr;'
             : 'Apply for coaching &rarr;';
-          return `<button onclick="${go}" ${loading?'disabled':''} ${(!inner && buyable(pick))?`id="buy-${coBuyKey(pick)}"`:''}
+          return `<button onclick="${go}" ${loading?'disabled':''} ${buyable(pick)?`id="buy-${coBuyKey(pick)}"`:''}
           style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
           background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${label}</button>`
-          + ((!inner && !loading && buyable(pick) && quarterOf(coBuyKey(pick))) ? (function(){ const q=quarterOf(coBuyKey(pick));
+          + ((!loading && buyable(pick) && quarterOf(coBuyKey(pick))) ? (function(){ const q=quarterOf(coBuyKey(pick));
               return `<button id="buyq-${coBuyKey(pick)}" onclick="buyPlanQ('${coBuyKey(pick)}')" style="width:100%;margin-top:8px;min-height:44px;
                 border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;background:transparent;
                 color:var(--on-primary);font:600 13.5px/1 var(--sans)">Or ${esc(q.label)} every three months${q.save>0?', save £'+(q.save/100).toFixed(2).replace(/\.00$/,''):''}</button>`; })() : ''); })()}
@@ -23129,13 +23138,31 @@ function coachingPicker(){
   if(!sells() || st.in) return '';
   if(plansOn===null) loadPlans();
   const PLANSC = coPlans();
-  const pick = PLANSC.find(p=>p.k==='online') || PLANSC[0];
+  const pick = PLANSC.find(p=>p.k===coPickK()) || PLANSC[0];
   return `<div class="card" data-tour="pricing" style="padding:0;overflow:hidden">
+    <div style="padding:14px 14px 0">${coSegHTML(pick)}</div>
     <div id="coPanel">${coPanelHTML(pick)}</div>
-  </div>
-  <div style="text-align:center;font:400 13px/1.5 var(--sans);color:var(--grey);padding:2px 12px 4px">
-    Want me checking in every week? <button onclick="askAbout('inner')" style="border:0;background:none;padding:0;
-      cursor:pointer;font:600 13px/1.5 var(--sans);color:var(--forest);text-decoration:underline">Ask about Inner Circle</button></div>`;
+  </div>`;
+}
+/* The two plans side by side, each with its price, so the £300 week sits
+   next to the £120 fortnight (Elliott, 31 Oct 2026). Picking one repaints
+   the switch and the panel, nothing else. */
+function coSegHTML(pick){
+  const opt=(k,t)=>{ const on=pick.k===k, P=coPlans().find(p=>p.k===k)||{};
+    return `<button onclick="coSeg('${k}')" aria-pressed="${on}" style="flex:1;min-width:0;border:0;border-radius:11px;cursor:pointer;
+      padding:10px 6px;background:${on?'#fff':'transparent'};color:${on?'var(--deep)':'var(--grey)'};
+      box-shadow:${on?'0 1px 2px rgba(17,17,17,.08)':'none'}">
+      <span style="display:block;font:600 13px/1.2 var(--sans)">${t}</span>
+      <span style="display:block;font:400 18px/1.1 var(--serif);margin-top:3px">${esc(PRICE(P.price||k))}<span
+        style="font:400 11px/1 var(--sans);color:var(--grey2)"> /mo</span></span></button>`; };
+  return `<div id="coSeg" role="group" aria-label="How often" style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08)">
+    ${opt('online','Every fortnight')}${opt('inner','Every week')}</div>`;
+}
+function coSeg(k){
+  st.coPick=k; save();
+  const pick=coPlans().find(p=>p.k===coPickK())||coPlans()[0];
+  const seg=document.getElementById('coSeg'); if(seg) seg.outerHTML=coSegHTML(pick);
+  const panel=document.getElementById('coPanel'); if(panel) panel.innerHTML=coPanelHTML(pick);
 }
 function screenCoaching(){
   /* A coached client in the ladder view keeps the form check and the chat
