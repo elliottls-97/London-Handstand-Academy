@@ -3817,6 +3817,35 @@ const handle = async (request) => {
     const amount = Math.round((3 * month - 3 * coachPart * pct / 100) / 100) * 100;
     return { amount, label: '£' + (amount / 100).toFixed(2).replace(/\.00$/, ''), save: 3 * month - amount };
   };
+  /* ── London sessions, as many as they like (Elliott, 31 Oct 2026: "allow
+     people to book as many sessions in london as they want a month, cap at
+     5") ─────────────────────────────────────────────────────────────
+     Either plan, 0 to 5 sessions a month at the session price on top. The
+     count rides on the checkout's metadata and is kept on the plan record,
+     so renewals put that many on Today. The old fixed keys (inperson,
+     inperson2, inperson4) still work for their payment links. */
+  const SESS_MAX = 5;
+  const sessAmt = () => Number(PRICES.session && PRICES.session.amount) || 7000;
+  const coachBaseOf = k => ['online', 'inperson', 'inperson2', 'inperson4'].includes(k) ? 'online'
+    : ['inner', 'inneronline'].includes(k) ? 'inneronline' : '';
+  /* the plan key a checkout files: the base plan, or its with-sessions key */
+  const sessKey = (base, n) => n > 0 ? (base === 'online' ? 'inperson' : 'inner') : base;
+  const sessPrice = (base, n, quarter) => {
+    const month = Number(PRICES[base] && PRICES[base].amount) || 0;
+    if (!(month > 0)) return 0;
+    if (!quarter) return month + n * sessAmt();
+    const pct = Math.max(0, Math.min(50, Number(PRICES.coachQPct != null ? PRICES.coachQPct : 10) || 0));
+    return Math.round((3 * month * (1 - pct / 100) + 3 * n * sessAmt()) / 100) * 100;
+  };
+  const sessName = (base, n) => (base === 'online' ? 'Custom programme' : 'Weekly coaching')
+    + (n > 0 ? ` with ${n} London session${n > 1 ? 's' : ''} a month` : '');
+  /* how many London sessions a month a payment carries */
+  const londonOf = (variant, o, stored) => {
+    const m = Number(((o && o.metadata) || {}).sessions);
+    if (Number.isFinite(m) && ((o && o.metadata) || {}).sessions !== undefined) return Math.max(0, Math.min(SESS_MAX, m));
+    if (stored && stored.sessions != null) return Math.max(0, Math.min(SESS_MAX, Number(stored.sessions) || 0));
+    return LONDON[variant] || 0;
+  };
   /* what somebody is paying for, in words: the coach was told every
      cancellation was "their £5 subscription", coaching included */
   const planName = async who => {
@@ -4762,12 +4791,13 @@ const handle = async (request) => {
       }
       if (boughtPlan && (isCheckout || !storedPlan || !storedPlan.plan)) await setSetting(`plan:${acct.email}`, { plan: boughtPlan, variant, at: Date.now(),
         ...(quarterly ? { period: 'quarter' } : {}),
+        ...((obj.metadata || {}).sessions !== undefined ? { sessions: londonOf(variant, obj) } : {}),
         ...(isCheckout ? { paid: Number(obj.amount_total) || 0, ...(codeNote(obj) ? { code: codeNote(obj) } : {}) } : {}) });
       /* each month a plan with London sessions renews, that month's go on
          Today, once per invoice */
-      if (ev.type === 'invoice.paid' && obj.billing_reason === 'subscription_cycle' && (LONDON[variant] || 0) > 0
+      if (ev.type === 'invoice.paid' && obj.billing_reason === 'subscription_cycle' && londonOf(variant, null, storedPlan) > 0
           && ['online', 'inner'].includes(boughtPlan)) {
-        const nL = LONDON[variant] * (quarterly ? 3 : 1);
+        const nL = londonOf(variant, null, storedPlan) * (quarterly ? 3 : 1);
         if (await addLondon(acct.email, acct.name || clients()[acct.email] || '', nL, obj.id || ('inv' + Date.now()), variant)) {
           await coachAlert(acct.email, 'business', { title: `London session${nL > 1 ? 's' : ''} to arrange: ${acct.name || acct.email}`,
             body: `Their ${variant === 'inner' ? 'weekly coaching' : 'coaching'} renewed${quarterly ? ' for three months' : ''}. ${nL} on Today, waiting for a time.`, tag: 'london:' + acct.email });
@@ -4982,7 +5012,7 @@ const handle = async (request) => {
         /* the name Stripe has, for an account a subscription event made first */
         const nmStripe = String((obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
         if (!acct.name && nmStripe) { acct.name = nmStripe; try { await saveAcct({ email: e2, name: nmStripe }); } catch {} }
-        const london = (LONDON[variant] || 0) * (quarterly ? 3 : 1);
+        const london = londonOf(variant, obj) * (quarterly ? 3 : 1);
         /* a past client paying for coaching again is a client again, and is
            welcomed as one rather than skipped for being on the roster */
         const pastNow = (await getSetting('pastclients')) || {};
@@ -6196,11 +6226,16 @@ const handle = async (request) => {
   if (path === '/coaching/checkout' && request.method === 'POST') {
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
     if ((await rateHit(`coq:${ip}`, 3600000)) > 20) return json({ error: 'Too many tries' }, 429);
-    const k = String(body.plan || '');
+    let k = String(body.plan || '');
     /* monthly as well, for a plan with no payment link: weekly coaching is
        sold this way from its dashboard price (31 Oct 2026) */
     const monthly = body.period === 'month';
-    const q = !COACH_Q.includes(k) ? { amount: 0 } : monthly ? { amount: Number((PRICES[k] || {}).amount) || 0 } : coachQ(k);
+    /* and with any number of London sessions, 0 to 5 */
+    const sBase = body.sessions !== undefined ? coachBaseOf(k) : '';
+    const sN = sBase ? Math.max(0, Math.min(SESS_MAX, Math.round(Number(body.sessions) || 0))) : -1;
+    if (sBase) k = sessKey(sBase, sN);
+    const q = sBase ? { amount: sessPrice(sBase, sN, !monthly) }
+      : !COACH_Q.includes(k) ? { amount: 0 } : monthly ? { amount: Number((PRICES[k] || {}).amount) || 0 } : coachQ(k);
     if (!(q.amount > 0) || !stripeKey()) return json({ error: 'That one is not switched on yet' }, 503);
     const nameQ = { online: 'Custom programme', inperson: 'Custom programme with a London session', inperson2: 'Coaching with two London sessions',
       inperson4: 'Coaching with four London sessions', inner: 'Weekly coaching with a London session', inneronline: 'Weekly coaching' }[k];
@@ -6211,10 +6246,11 @@ const handle = async (request) => {
         'line_items[0][price_data][unit_amount]': String(q.amount),
         'line_items[0][price_data][recurring][interval]': 'month',
         'line_items[0][price_data][recurring][interval_count]': monthly ? '1' : '3',
-        'line_items[0][price_data][product_data][name]': monthly ? nameQ : nameQ + ', three months at a time',
+        'line_items[0][price_data][product_data][name]': (sBase ? sessName(sBase, sN) : nameQ) + (monthly ? '' : ', three months at a time'),
         'line_items[0][quantity]': '1',
         'metadata[plan]': k, 'metadata[period]': monthly ? 'month' : 'quarter', 'metadata[src]': 'site',
         'subscription_data[metadata][plan]': k, 'subscription_data[metadata][period]': monthly ? 'month' : 'quarter',
+        ...(sBase ? { 'metadata[sessions]': String(sN), 'subscription_data[metadata][sessions]': String(sN) } : {}),
         'custom_text[submit][message]': monthly ? 'Renews every month at this price. Cancel any time from inside the app.'
           : 'Renews every three months at this price. Cancel any time before the next payment; a three months already paid is not refunded part way.',
         success_url: `${url.origin}/lha-app.html?joined=coaching&cs={CHECKOUT_SESSION_ID}`,
@@ -6232,6 +6268,10 @@ const handle = async (request) => {
       return json({ error: 'That one is not switched on yet' }, 503);
     }
     let planKey = Object.prototype.hasOwnProperty.call(PLANS, body.plan) ? body.plan : 'plus';
+    /* coaching with a chosen number of London sessions */
+    const sessBase = body.sessions !== undefined ? coachBaseOf(planKey) : '';
+    const sessN = sessBase ? Math.max(0, Math.min(SESS_MAX, Math.round(Number(body.sessions) || 0))) : -1;
+    if (sessBase) planKey = sessKey(sessBase, sessN);
     /* the ladder, paid quarterly or yearly: its own Stripe price, the same
        entitlement. The app sends the period; the plan stays 'plus'. */
     /* only a period that is on sale: quarterly and yearly were still taken
@@ -6306,7 +6346,8 @@ const handle = async (request) => {
     /* form checks on top of a Ladder already paid for: £25, beside it */
     const addon = planKey === 'checks' && await ladderPaid(who);
     /* three months of coaching is always priced here, never the monthly price id */
-    const pRow = coachQuarter ? { amount: coachQ(planKey).amount } : (addon ? PRICES.checksadd : PRICES[planKey]) || {};
+    const pRow = sessBase ? { amount: sessPrice(sessBase, sessN, coachQuarter) }
+      : coachQuarter ? { amount: coachQ(planKey).amount } : (addon ? PRICES.checksadd : PRICES[planKey]) || {};
     const inline = !(pRow.priceId) && Number(pRow.amount) > 0;
     const INLINE_NAME = { plus: 'The Handstand Ladder', plusq: 'The Handstand Ladder, every three months', plusy: 'The Handstand Ladder, yearly',
       check: 'A form check', checks: 'Form checks, one every fortnight, with the Handstand Ladder',
@@ -6338,13 +6379,15 @@ const handle = async (request) => {
           ...(plan.mode === 'subscription' ? { 'line_items[0][price_data][recurring][interval]': every.interval,
             'line_items[0][price_data][recurring][interval_count]': String(every.n) } : {}),
           'line_items[0][price_data][product_data][name]': addon ? 'Form checks, one every fortnight, added to your Ladder'
-            : (INLINE_NAME[planKey] || 'London Handstand Academy') + (coachQuarter ? ', three months at a time' : ''),
+            : (sessBase ? sessName(sessBase, sessN) : (INLINE_NAME[planKey] || 'London Handstand Academy')) + (coachQuarter ? ', three months at a time' : ''),
         } : { 'line_items[0][price]': plan.price() }),
         'line_items[0][quantity]': '1',
         'metadata[plan]': (planKey === 'plusq' || planKey === 'plusy') ? 'plus' : planKey,
         /* its renewals and changes then name the plan themselves */
         ...(planKey === 'checks' ? { 'subscription_data[metadata][plan]': 'checks' } : {}),
         ...(coachQuarter ? { 'subscription_data[metadata][plan]': planKey, 'subscription_data[metadata][period]': 'quarter' } : {}),
+        ...(sessBase ? { 'metadata[sessions]': String(sessN), 'subscription_data[metadata][plan]': planKey,
+                         'subscription_data[metadata][sessions]': String(sessN) } : {}),
         ...(addon ? { 'metadata[variant]': 'addon', 'subscription_data[metadata][variant]': 'addon' } : {}),
         'metadata[period]': period,
         ...(embedded ? { ui_mode: 'embedded', return_url: `${origin}/lha-app.html?${back}&cs={CHECKOUT_SESSION_ID}` } : {}),

@@ -111,7 +111,7 @@
         "itemOffered": {
           "@type": "Service",
           "name": "A custom handstand programme, online",
-          "description": "Your own programme in the app, rewritten every six weeks, video form checks every two weeks, questions answered within 48 hours, and the full Handstand Ladder app included. Month to month."
+          "description": "Your own programme in the app, rewritten every six weeks, video form checks every two weeks, and the full Handstand Ladder app included. Month to month."
         }
       },
       {
@@ -2070,6 +2070,11 @@ a:hover { color: var(--green); }
 .co-sess[aria-pressed="true"] .co-sess-sw { background:#f3a949; }
 .co-sess[aria-pressed="true"] .co-sess-sw i { left:19px; }
 .co-sess-txt { flex:1; min-width:0; }
+.co-sess--n { flex-wrap:wrap; cursor:default; }
+.co-sn { display:flex; gap:5px; width:100%; }
+.co-sn button { flex:1; min-width:0; height:38px; border-radius:10px; cursor:pointer; border:1px solid rgba(255,255,255,.35);
+  background:transparent; color:#fff; font:600 13px/1 var(--font-body); transition:background .2s, color .2s; }
+.co-sn button[aria-pressed="true"] { background:#fff; color:var(--green2); border-color:#fff; }
 .co-sess-txt b { display:block; font-size:14px; font-weight:700; line-height:1.3; }
 .co-sess-txt small { display:block; font-size:12px; line-height:1.45; color:rgba(255,255,255,.72); margin-top:2px; }
 .co-btn-primary, .co-btn-ghost {
@@ -3199,10 +3204,12 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
         <button type="button" class="co-peek-link" onclick="openPeek(event)">See what a programme looks like →</button>
       </div>
       <div class="co-plan-side">
-        <button type="button" class="co-sess" id="coSess" onclick="toggleSess()" aria-pressed="false">
-          <span class="co-sess-sw"><i></i></span>
-          <span class="co-sess-txt"><b>Add a session in London each month</b><small>60 minutes, hands on. £70 a month on top, drop it any time.</small></span>
-        </button>
+        <!-- London sessions on either plan, none to five a month (Elliott,
+             31 Oct 2026: "as many as they want ... cap at 5") -->
+        <div class="co-sess co-sess--n" id="coSess" role="group" aria-label="London sessions each month">
+          <span class="co-sess-txt"><b>London sessions each month</b><small>60 minutes, hands on, <span data-price="session">&pound;70</span> each on top. Change it any time.</small></span>
+          <div class="co-sn" id="coSn"></div>
+        </div>
         <!-- how many coaching places are open, set in the dashboard (Settings, Money);
              hidden until the number arrives, and when none is set -->
         <p class="co-places" id="coPlaces" hidden></p>
@@ -5272,8 +5279,7 @@ var CO_PLANS = {
       "A questionnaire to see where you are",
       "Your own programme, every drill filmed",
       "Video feedback every two weeks",
-      "Programme adjusted every six weeks",
-      "Questions answered within 48 hours"
+      "Programme adjusted every six weeks"
     ]
   },
   /* weekly coaching: no payment link, so Start now asks the server for a
@@ -5281,7 +5287,7 @@ var CO_PLANS = {
   weekly: {
     tier: "Weekly coaching",
     name: "With you every step",
-    forr: "Everything in the custom programme, and I walk you through it: I go through your training every week, we talk through what I found every month, and I keep you on it.",
+    forr: "Everything in the custom programme, and I walk you through it: I go through your training every week, a video call every month to check progress, and I keep you on it.",
     price: "\u00a3300",
     priceSess: "\u00a3300",
     note: "Three places. Fully online, the full ladder app included. Cancel any time from inside the app.",
@@ -5295,13 +5301,37 @@ var CO_PLANS = {
       "A video assessment and a video call to start",
       "Video feedback every week",
       "Programme adjusted every week",
-      "A call every month to go through my findings",
+      "A video call every month to check progress",
       "I see every session you log, and chase you if a week slips",
       "First pick of London session times"
     ]
   }
 };
-var coKey = 'self', coSessOn = false;
+var coKey = 'self', coSessN = 0;
+/* amounts from the dashboard's prices once they arrive */
+function coAmt(k) { var p = (window.LHA_PRICES || {})[k]; return (p && Number(p.amount)) || ({ online: 12000, inneronline: 30000, session: 7000 })[k] || 0; }
+function coMoney(a) { return '\u00a3' + (a / 100).toFixed(2).replace(/\.00$/, ''); }
+function coBase(key) { return key === 'weekly' ? 'inneronline' : 'online'; }
+function coMonth(key) { return coMoney(coAmt(coBase(key)) + coSessN * coAmt('session')); }
+function setSess(n) {
+  coSessN = Math.max(0, Math.min(5, n | 0));
+  for (var k in CO_PLANS) {
+    var el = document.querySelector('[data-pick-price="' + k + '"]');
+    if (el) el.innerHTML = coMonth(k) + '<small>/mo</small>';
+  }
+  pickPlan(coKey);
+}
+/* the fit check's old on and off switch */
+function toggleSess() { setSess(coSessN ? 0 : 1); }
+(function () {
+  var box = document.getElementById('coSn'); if (!box) return;
+  for (var n = 0; n <= 5; n++) {
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = n ? String(n) : 'None';
+    b.setAttribute('aria-pressed', n === 0 ? 'true' : 'false');
+    b.onclick = (function (m) { return function () { setSess(m); }; })(n);
+    box.appendChild(b);
+  }
+})();
 /* three months up front: the same coaching, 10% off it, renewing every
    three months, through a checkout the server makes (the monthly plans are
    payment links) */
@@ -5310,9 +5340,10 @@ function paintQuarter() {
   var q = ((window.LHA_PRICES || {}).quarter || {})[coQKey()];
   if (!q || !q.amount) { a.hidden = true; return; }
   a.hidden = false;
-  a.textContent = 'Or ' + q.label + ' every three months' + (q.save > 0 ? ', save \u00a3' + (q.save / 100).toFixed(2).replace(/\.00$/, '') : '');
+  /* the sessions go on at full price for the three months */
+  a.textContent = 'Or ' + coMoney(q.amount + 3 * coSessN * coAmt('session')) + ' every three months' + (q.save > 0 ? ', save \u00a3' + (q.save / 100).toFixed(2).replace(/\.00$/, '') : '');
 }
-function coQKey() { return coKey === 'weekly' ? 'inneronline' : coSessOn ? 'inperson' : 'online'; }
+function coQKey() { return coBase(coKey); }
 /* a plan with no payment link: a checkout made by the server, monthly or
    three months at a time */
 function coCheckout(e, period) {
@@ -5320,23 +5351,12 @@ function coCheckout(e, period) {
   var a = period === 'month' ? document.getElementById('coBuy') : document.getElementById('coBuyQ');
   if (!a || a.dataset.busy) return;
   var was = a.textContent; a.dataset.busy = '1'; a.textContent = 'Opening the payment page\u2026';
-  fetch('/api/app/coaching/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: coQKey(), period: period }) })
+  fetch('/api/app/coaching/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: coQKey(), period: period, sessions: coSessN }) })
     .then(function (r) { return r.json().then(function (d) { return r.ok && d.url ? d : Promise.reject(d.error); }); })
     .then(function (d) { try { if (window.LHA && LHA.track) LHA.track('sitecheckout', { period: period, plan: coQKey() }); } catch (x) {} location.href = d.url; })
     .catch(function () { delete a.dataset.busy; a.textContent = 'Could not open the payment page. Tap to try again.'; setTimeout(function(){ a.textContent = was; }, 4000); });
 }
 function buyQuarter(e) { return coCheckout(e, 'quarter'); }
-function toggleSess() {
-  coSessOn = !coSessOn;
-  var sw = document.getElementById('coSess');
-  if (sw) sw.setAttribute('aria-pressed', coSessOn ? 'true' : 'false');
-  /* the prices on the cards move with the switch too */
-  for (var k in CO_PLANS) {
-    var el = document.querySelector('[data-pick-price="' + k + '"]');
-    if (el) el.innerHTML = (coSessOn ? CO_PLANS[k].priceSess : CO_PLANS[k].price) + '<small>/mo</small>';
-  }
-  pickPlan(coKey);
-}
 /* The ask panel is a disclosure, not a modal: it opens under the button it
    belongs to, and closes on the next click anywhere else. */
 function toggleAsk(e, force) {
@@ -5359,17 +5379,15 @@ document.addEventListener('keydown', function (e) {
 function pickPlan(key) {
   var p = CO_PLANS[key]; if (!p) return;
   coKey = key;
-  var sessBtn = document.getElementById('coSess');
-  if (p.noSess && coSessOn) { coSessOn = false; if (sessBtn) sessBtn.setAttribute('aria-pressed', 'false'); }
-  /* .co-sess sets display:flex, which beats the hidden attribute */
-  if (sessBtn) sessBtn.style.display = p.noSess ? 'none' : '';
+  var sn = document.querySelectorAll('#coSn button');
+  for (var si = 0; si < sn.length; si++) sn[si].setAttribute('aria-pressed', si === coSessN ? 'true' : 'false');
   var apply = document.getElementById('coApply');
   if (apply) apply.onclick = function (e) {
     var I = QUIZ_VARIANTS.interest;
     I.label = p.tier;
     I.subject = 'Interested in ' + p.tier.toLowerCase();
-    I.plan = key === 'weekly' ? p.tier + ' (' + p.price + '/mo, 3 places)'
-      : p.tier + ' (' + (coSessOn ? p.priceSess + '/mo with a London session' : p.price + '/mo') + ')';
+    I.plan = p.tier + ' (' + coMonth(key) + '/mo' + (coSessN ? ', ' + coSessN + ' London session' + (coSessN > 1 ? 's' : '') + ' a month' : '')
+      + (key === 'weekly' ? ', 3 places' : '') + ')';
     openQuiz(e, 'interest');
   };
   var picks = document.querySelectorAll('.co-pick');
@@ -5379,16 +5397,17 @@ function pickPlan(key) {
   document.getElementById('coTier').textContent = p.tier;
   document.getElementById('coName').textContent = p.name;
   document.getElementById('coFor').textContent = p.forr;
-  document.getElementById('coPrice').textContent = coSessOn ? p.priceSess : p.price;
+  document.getElementById('coPrice').textContent = coMonth(key);
   var per = document.getElementById('coPer');
-  if (per) per.textContent = coSessOn ? '/ month, session included' : '/ month';
-  document.getElementById('coNote').textContent = coSessOn ? p.noteSess : p.note;
+  if (per) per.textContent = coSessN ? '/ month, ' + (coSessN === 1 ? 'session' : coSessN + ' sessions') + ' included' : '/ month';
+  document.getElementById('coNote').textContent = p.note;
   paintQuarter();
   var buy = document.getElementById('coBuy');
-  buy.href = (coSessOn && p.buySess) ? p.buySess : p.buy;
-  buy.textContent = (coSessOn && p.buyLabelSess) ? p.buyLabelSess : p.buyLabel;
-  /* weekly coaching has no payment link: the server makes the checkout */
-  if (p.checkout) {
+  buy.href = p.buy || '#';
+  buy.textContent = 'Start now, ' + coMonth(key) + '/mo \u2192';
+  /* weekly coaching, or any plan with London sessions, has no payment
+     link: the server makes the checkout for exactly what was picked */
+  if (p.checkout || coSessN > 0) {
     buy.href = '#';
     buy.removeAttribute('target');
     buy.onclick = function(e){ coCheckout(e, 'month'); };
@@ -5480,7 +5499,7 @@ window.addEventListener('resize', function () {
 /* the prices come from the dashboard, so the page reads them rather than
    carrying its own copy; what is written in the HTML is the fallback */
 (function(){ try{ fetch('/api/app/plans').then(function(r){return r.json();}).then(function(d){
-  var p=(d&&d.prices)||{}; window.LHA_PRICES=p; if(window.fitPrices) window.fitPrices(); if(window.paintQuarter) window.paintQuarter();
+  var p=(d&&d.prices)||{}; window.LHA_PRICES=p; if(window.fitPrices) window.fitPrices(); if(window.setSess) window.setSess(window.coSessN||0); if(window.paintQuarter) window.paintQuarter();
   /* the free call books on our own page (call.html) once that is switched on */
   window.LHA_CALL_HERE=!!(d&&d.calls&&d.calls.intro); document.querySelectorAll('[data-price]').forEach(function(el){
     var t=p[el.getAttribute('data-price')]; if(t&&t.label) el.textContent=t.label; });
@@ -5789,7 +5808,7 @@ function homeClasses(list){
       online: { name: 'Custom programme', price: price('online', '£120'), per: '/mo', buy: CO.self.buy, key: 'self', sess: false,
         gets: ['Your own programme in the app, rewritten every six weeks',
                'A video form check every two weeks',
-               'Questions answered within 48 hours'] },
+               'A questionnaire to see where you are first'] },
       sess: { name: 'Custom programme, plus London', price: price('inperson', '£190'), per: '/mo', buy: CO.self.buySess, key: 'self', sess: true,
         gets: ['Everything in the custom programme',
                'A 60 minute session with me in London each month',
@@ -5797,7 +5816,7 @@ function homeClasses(list){
       inner: { name: 'Weekly coaching', price: price('inneronline', '£300'), per: '/mo', key: 'weekly', apply: true,
         note: 'three places, fully online',
         gets: ['Your week reviewed, and the programme adjusted from it',
-               'A call every month to go through what I found',
+               'A video call every month to check progress',
                'Chased if a week slips'] },
       /* in person: the next class if one is on sale, and one to one on its own */
       'class': (function(){ var c = liveClass(); return { name: c ? c.name : 'A class in London', price: c ? c.price : '', per: '',
@@ -6020,7 +6039,7 @@ function homeClasses(list){
       + '</div></div>';
     /* the plans below show the same one, so skipping down agrees with it */
     if (!p.app && !p.inperson && typeof W.pickPlan === 'function'){
-      try { if (typeof W.coSessOn !== 'undefined' && W.coSessOn !== !!p.sess) W.toggleSess(); W.pickPlan(p.key); } catch(e){}
+      try { if (typeof W.setSess === 'function') W.setSess(p.sess ? 1 : 0); W.pickPlan(p.key); } catch(e){}
     }
     if (!quiet) focusHead();
     stickyPaint();
