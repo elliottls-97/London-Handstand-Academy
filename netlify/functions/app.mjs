@@ -2237,6 +2237,12 @@ const FC_EVERY_DAYS = 14;
    open for any number until answered, so one check could be ten videos.
    A photo in the chat counts as one. Coached clients are not gated. */
 const FC_CLIPS = 3;
+/* and a check stays open for its fortnight, so clips left after a reply are
+   still theirs (Elliott, 31 Oct 2026: "keep the check open for the whole
+   fortnight"). It closes when the third clip is answered or the fortnight
+   from its opening is up, whichever is first. */
+const fcExpired = cur => !!(cur && cur.open && Number(cur.openedAt)
+  && londonDayNo(Date.now()) >= londonDayNo(Number(cur.openedAt)) + FC_EVERY_DAYS);
 const fcFull = used => used >= FC_CLIPS
   ? `This form check has its ${FC_CLIPS} clips. Elliott answers them, then your next one opens.`
   : `This form check has room for ${FC_CLIPS - used} more clip${FC_CLIPS - used === 1 ? '' : 's'}. Send ${FC_CLIPS - used === 1 ? 'one' : 'up to ' + (FC_CLIPS - used)} at a time.`;
@@ -2274,7 +2280,12 @@ async function ladderPaid(who) {
 async function fcGate(who, n = 1) {
   const ck = `fccredits:${who}`;
   n = Math.max(1, Math.round(Number(n) || 1));
-  const cur = (await getSetting(ck)) || {};
+  let cur = (await getSetting(ck)) || {};
+  /* its fortnight is up: closed, and the next one may open below */
+  if (fcExpired(cur)) {
+    cur = Object.assign({}, cur, { open: false, closedAt: Date.now(), closedBy: 'fortnight' });
+    await setSetting(ck, cur);
+  }
   if (cur.open) {
     /* counted in one compare-and-set, so two clips at once cannot both
        take the last place */
@@ -2342,8 +2353,13 @@ async function emailT(T, to, subject, html, kind, opts) {
    every later clip went through free (13 Oct 2026). */
 async function closeCheck(e) {
   if (clients()[e]) return;
-  await changeSetting(`fccredits:${e}`, cur => cur && cur.open
-    ? Object.assign({}, cur, { open: false, closedAt: Date.now() }) : undefined).catch(() => {});
+  /* answered: closed only once all three clips are in, or its fortnight is
+     up; otherwise it stays open with the answer noted, for the clips left */
+  await changeSetting(`fccredits:${e}`, cur => {
+    if (!cur || !cur.open) return undefined;
+    if ((Number(cur.clips) || 0) >= FC_CLIPS || fcExpired(cur)) return Object.assign({}, cur, { open: false, closedAt: Date.now() });
+    return Object.assign({}, cur, { answeredAt: Date.now() });
+  }).catch(() => {});
 }
 const setSetting = (k, value) =>
   supa.upsert('settings', { key: k, value, updated_at: nowISO() }, 'key');
@@ -5880,7 +5896,7 @@ const handle = async (request) => {
     const credits = Number(fcc.n) || 0;
     /* a form check that has been opened and not yet closed by the coach:
        clips and check points go in without spending anything more */
-    const checkOpen = !coachedNow && !!fcc.open;
+    const checkOpen = !coachedNow && !!fcc.open && !fcExpired(fcc);
     /* form checks, £35 a month: on, and the day the next one opens */
     const subOn = !coachedNow && await checksOn(who);
     const subNext = subOn ? checksNext(fcc) : 0;
