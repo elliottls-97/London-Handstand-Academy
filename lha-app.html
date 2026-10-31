@@ -2439,6 +2439,9 @@ const IOS_APP = (()=>{ try{
   return sessionStorage.getItem('lha_ios')==='1'; }catch(e){ return false; } })();
 let IOS_SELL=false;
 const sells = () => !IOS_APP || IOS_SELL;
+/* what form checks cost here: the website's price, or Apple's in the
+   iPhone app once StoreKit has answered, else nothing to sell */
+const checksPrice = () => sells() ? PRICE('checks') : (IOS_APP && iapChecks && iapChecks.displayPrice) || '';
 /* The Ladder is the one thing the iPhone app sells, through Apple, once the
    App Store has answered with its product. Coaching, sessions and form
    checks stay off the iPhone app's shelves (sells() above). */
@@ -7110,7 +7113,7 @@ function cpClipHTML(c, sent){
        and telling a person who has just arrived that their free form check
        is used is the worst of the three things this line can say. */
     const line = can ? 'He watches it himself and says whether it counts.'
-      : st.freeCheckUsed ? (sells() ? 'Your free one is used. Form checks are '+esc(PRICE('checks'))+' a month after that.' : 'Your free one is used.')
+      : st.freeCheckUsed ? (checksPrice() ? 'Your free one is used. Form checks are '+esc(checksPrice())+' a month after that.' : 'Your free one is used.')
       : !st.token ? 'One free with an account.'
       : 'One free with your account.';
     return `<button onclick="${send}" class="cpsend" style="width:100%;margin-top:12px;display:flex;align-items:center;
@@ -20981,7 +20984,7 @@ function ladderWholeHTML(o){
       <div style="flex:1;min-width:0">
         <div style="font:400 21px/1.1 var(--serif);color:var(--ink)">Want Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it?</em></div>
         <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:3px">Send a clip, get a form check. ${
-          st.freeCheckUsed?(sells()?esc(PRICE('checks'))+' a month, one every fortnight':'Your free one is used'):'Free once'}.</div>
+          st.freeCheckUsed?(checksPrice()?esc(checksPrice())+' a month, one every fortnight':'Your free one is used'):'Free once'}.</div>
       </div>
       <button class="lw-ghost" style="flex:none;padding:0 16px" onclick="go('coaching')">Book a review</button>
     </div>`;
@@ -23165,7 +23168,7 @@ function screenCoaching(){
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           One clip. A video reply within 48 hours.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          ${sells() ? 'Free with an account. After that, '+PRICE('checks')+' a month for one every fortnight, with the whole Ladder.' : 'Free with an account.'}</div>
+          ${checksPrice() ? 'Free with an account. After that, '+checksPrice()+' a month for one every fortnight, with the whole Ladder.' : 'Free with an account.'}</div>
         <button class="btn" style="width:100%;margin-top:16px"
           onclick="goJoin()">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -23280,7 +23283,7 @@ function screenCoaching(){
           ${esc(PRICE('checks'))} a month. Elliott watches each one himself and sends you a video back within 48 hours,
           and the whole Ladder is included. Cancel any time.</div>
         <button class="btn" id="buy-checks" style="width:100%;margin-top:16px" onclick="buyPlan('checks')">
-          Start form checks, ${esc(PRICE('checks'))} a month</button>`):''}</div>`
+          Start form checks, ${esc(PRICE('checks'))} a month</button>`):iosChecksOfferHTML()}</div>`
     : `<div class="card" style="padding:22px">
         <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}FORM CHECK</div>
         <div class="h-md" style="font-size:24px;margin-top:8px">${
@@ -23291,7 +23294,7 @@ function screenCoaching(){
         ${tick(st.coached ? 'As many as you train'
           : st.checkCredits>0 ? (st.checkCredits===1?'One paid for, ready to send':st.checkCredits+' paid for, ready to send')
           : (st.checks && st.checks.on) ? 'One every fortnight on your form checks'
-          : st.freeCheckUsed ? (sells() ? (st.checksAddon ? PRICE('checksadd')+' a month on your Ladder for one every fortnight' : PRICE('checks')+' a month for one every fortnight') : 'Your free one is used')
+          : st.freeCheckUsed ? (sells() ? (st.checksAddon ? PRICE('checksadd')+' a month on your Ladder for one every fortnight' : PRICE('checks')+' a month for one every fortnight') : checksPrice() ? checksPrice()+' a month for one every fortnight' : 'Your free one is used')
           : 'Your first one is free')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
           Send your clip</button>
@@ -23453,6 +23456,28 @@ function screenCoaching(){
    doesnt show on the form check pages"). On its own beside a form check it
    read as two of them for £120; beside all three ways, the step up buys the
    thing the other two do not, a programme written for you. */
+/* Form checks in the iPhone app, through Apple. Not offered to somebody
+   paying for the Ladder on the website, who would then pay twice, and not
+   signed out: a form check lives on an account. */
+function iosChecksOfferHTML(){
+  if(sells() || !IOS_APP || !iapChecks) return '';
+  const p=esc(iapChecks.displayPrice||''), appleLadder=Number(st.appleUntil)>Date.now();
+  if(st.checksAddon && !appleLadder) return '';
+  if(!st.token) return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight,
+      ${p} a month with the whole Ladder. Form checks live on an account, so make one first.</div>
+    <button class="btn" style="width:100%;margin-top:16px" onclick="goJoin()">Make an account</button>`;
+  return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">${appleLadder
+      ? `One every fortnight. Elliott watches each one himself and sends you a video back within 48 hours. It takes the place of
+        your Ladder subscription at ${p} a month, with the Ladder still included, and Apple adjusts what you have already paid.`
+      : `One every fortnight, ${p} a month. Elliott watches each one himself and sends you a video back within 48 hours,
+        and the whole Ladder is included. Cancel any time.`}</div>
+    <button class="btn" id="iapBuyChecks" style="width:100%;margin-top:16px" onclick="iapBuy(IAP_CHECKS)">${appleLadder
+      ? 'Move up to form checks, '+p+' a month' : 'Start form checks, '+p+' a month'}</button>
+    <div id="iapMsgChecks" role="status" style="font:500 13px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:8px"></div>
+    ${iapTermsHTML(true)}
+    <button onclick="iapRestore()" style="width:100%;background:none;border:0;cursor:pointer;padding:10px;margin-top:4px;
+      color:var(--forest);font:600 13px/1 var(--sans)">Restore purchases</button>`;
+}
 function threeWaysHTML(){
   const ladder=!!st.plus, checks=!!(st.checks && st.checks.on), days=PRICE_TRIAL();
   const yours=`<span style="margin-left:6px;padding:3px 7px;border-radius:999px;background:rgba(0,102,99,.10);
@@ -24811,7 +24836,7 @@ const TOURS = {
          is free, which is neither the offer nor the price any more */
       {t:'formcheck', h:'A form check',
        b:()=>'Film one attempt and I reply on video with the one thing to change. '
-         +(sells() ? 'One is free with an account. After that, '+PRICE('checks')+' a month for one every fortnight, with the whole Ladder.' : 'One is free with an account.')},
+         +(checksPrice() ? 'One is free with an account. After that, '+checksPrice()+' a month for one every fortnight, with the whole Ladder.' : 'One is free with an account.')},
       {t:'pricing', h:'If you want the whole thing',
        b:()=>'Online coaching: your own programme, written and rewritten by me, at '+PRICE('online')+' a month. '
          +'Add a session in London each month if you are nearby. Cancel any time.'},
@@ -25172,7 +25197,10 @@ async function appleSignInOnce(P){
    the date Apple gives. Signed out, a purchase opens the Ladder on this
    phone; signed in, it is on the account and follows them. */
 const IAP_LADDER='com.londonhandstandacademy.app.ladder.monthly';
-let IAPP=null, iapStarted=false;
+/* form checks through Apple (31 Oct 2026): the same group as the Ladder,
+   ranked above it, so a Ladder subscriber upgrades and Apple prorates */
+const IAP_CHECKS='com.londonhandstandacademy.app.checks.monthly';
+let IAPP=null, iapStarted=false, iapChecks=null;
 function iapPlugin(){
   if(!IOS_APP || !window.Capacitor) return null;
   try{ if(!IAPP) IAPP = Capacitor.registerPlugin ? Capacitor.registerPlugin('LadderStore') : ((Capacitor.Plugins||{}).LadderStore||null); }catch(e){ IAPP=null; }
@@ -25181,9 +25209,9 @@ function iapPlugin(){
 /* What Apple asks to be on any screen with a buy button: the price and how
    often, the free days, how it renews and how to cancel, and the terms and
    privacy links. One copy, for the purchase sheet and the stage sheet. */
-function iapTermsHTML(){
-  const p=iapProduct||{}, days=iapTrialDays();
-  return `<div style="font:400 11.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px"><b style="color:var(--grey)">The Handstand Ladder</b>, a monthly subscription.
+function iapTermsHTML(checks){
+  const p=(checks?iapChecks:iapProduct)||{}, days=checks?0:iapTrialDays();
+  return `<div style="font:400 11.5px/1.6 var(--sans);color:var(--grey2);margin-top:16px"><b style="color:var(--grey)">${checks?'Form checks and the Handstand Ladder':'The Handstand Ladder'}</b>, a monthly subscription.
     ${days>0?'Free for '+days+' days, then ':''}${esc(p.displayPrice||'')}
     a month, charged to your Apple ID. It renews every month until you cancel in Settings, then your name, then Subscriptions,
     at least 24 hours before it renews.${st.token?'':' No account is needed; make one to keep your progress on another phone.'}
@@ -25201,10 +25229,12 @@ function iapTrialDays(){
 let iapLoading=false, iapListening=false, iapTries=0, iapLastErr='';
 async function iapInit(){
   const P=iapPlugin(); if(!P || iapLoading || iapProduct) return; iapLoading=true; iapStarted=true;
-  try{ const r=await P.products({ids:[IAP_LADDER]}); iapProduct=((r&&r.products)||[])[0]||null; }catch(e){ iapProduct=null; }
+  try{ const r=await P.products({ids:[IAP_LADDER, IAP_CHECKS]}), ps=(r&&r.products)||[];
+    iapProduct=ps.find(x=>x.id===IAP_LADDER)||null; iapChecks=ps.find(x=>x.id===IAP_CHECKS)||null; }catch(e){ iapProduct=null; }
   if(!iapListening){ iapListening=true;
     /* an Ask to Buy approved while the app is open: the screen opens up with it */
-    try{ P.addListener('transaction', t=>{ if(t && t.jws) iapSend(t.jws).then(v=>{ if(v && v.active){ if(st.ov==='iap'||st.ov==='members') closeOv(); render(); toast('The whole Ladder is open.'); } }); }); }catch(e){} }
+    try{ P.addListener('transaction', t=>{ if(t && t.jws) iapSend(t.jws).then(v=>{ if(v && v.active){ if(st.ov==='iap'||st.ov==='members') closeOv(); render();
+      if(v.productId===IAP_CHECKS){ loadEntitlement(); toast('Form checks are on. Send your clip when you are ready.'); } else toast('The whole Ladder is open.'); } }); }); }catch(e){} }
   await iapSync();
   iapLoading=false;
   if(!iapProduct && iapTries<3){ const wait=[5000,20000,60000][iapTries++]; setTimeout(iapInit, wait); }
@@ -25225,22 +25255,25 @@ async function iapSend(jws){
 async function iapSync(restore){
   const P=iapPlugin(); if(!P) return 0;
   let list=[];
-  try{ const r=await (restore?P.restore():P.entitlements()); list=((r&&r.transactions)||[]).filter(t=>t.productId===IAP_LADDER); }catch(e){ return 0; }
+  try{ const r=await (restore?P.restore():P.entitlements()); list=((r&&r.transactions)||[]).filter(t=>t.productId===IAP_LADDER || t.productId===IAP_CHECKS); }catch(e){ return 0; }
   let on=0; for(const t of list){ const v=await iapSend(t.jws); if(v && v.active) on++; }
   if(!on && !st.token && st.appleUntil){ st.appleUntil=0; st.plus=false; st.appleJws=''; save(); }
   return on;
 }
-async function iapBuy(){
-  const P=iapPlugin(); if(!P || !iapProduct) return;
-  const b=document.getElementById('iapBuy'), say=m=>{ const e=document.getElementById('iapMsg'); if(e) e.textContent=m; };
+async function iapBuy(which){
+  const checks=which===IAP_CHECKS, P=iapPlugin(); if(!P || !(checks?iapChecks:iapProduct)) return;
+  const b=document.getElementById(checks?'iapBuyChecks':'iapBuy'), was=b?b.textContent:'',
+    say=m=>{ const e=document.getElementById(checks?'iapMsgChecks':'iapMsg'); if(e) e.textContent=m; };
   if(b){ b.disabled=true; b.textContent='Opening the App Store…'; }
   let token;
   if(st.token){ try{ token=(await fetch('/api/app/iap/token',{headers:authed()}).then(x=>x.json())).token; }catch(e){} }
   try{
-    const r=await P.purchase(Object.assign({id:IAP_LADDER}, token?{accountToken:token}:{}));
+    const r=await P.purchase(Object.assign({id:checks?IAP_CHECKS:IAP_LADDER}, token?{accountToken:token}:{}));
     if(r.status==='purchased'){
       say('Checking with Apple…');
       const v=await iapSend(r.jws);
+      if(v && v.active && checks){ track('subscribed','checks'); await loadEntitlement(); render();
+        toast('Form checks are on. Send your clip when you are ready.'); return; }
       if(v && v.active){ track('subscribed'); closeOv(); render();
         /* a stage already finished: the move it was bought for, offered */
         if(paidUpHTML(false)) openOv('paid'); else toast('The whole Ladder is open.'); return; }
@@ -25248,13 +25281,13 @@ async function iapBuy(){
     } else if(r.status==='pending') say('Waiting for approval. It opens by itself when it comes through.');
     else say('');
   }catch(e){ say('The App Store did not answer. Try again in a moment.'); }
-  if(b){ b.disabled=false; b.textContent=iapTrialDays()>0?'Start the free week':'Subscribe'; }
+  if(b){ b.disabled=false; b.textContent=checks?was:(iapTrialDays()>0?'Start the free week':'Subscribe'); }
 }
 async function iapRestore(){
   const say=m=>{ const e=document.getElementById('iapMsg'); if(e) e.textContent=m; else toast(m); };
   say('Asking Apple…');
   const n=await iapSync(true);
-  if(n){ closeOv(); render(); toast('Restored. The whole Ladder is open.'); }
+  if(n){ closeOv(); await loadEntitlement(); render(); toast(st.checks&&st.checks.on?'Restored. Form checks and the whole Ladder are open.':'Restored. The whole Ladder is open.'); }
   /* "belongs to another account" was dropped and read as nothing to restore */
   else say(iapLastErr || 'Nothing to restore on this Apple ID.');
 }

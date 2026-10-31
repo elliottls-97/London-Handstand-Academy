@@ -2236,9 +2236,16 @@ const FC_EVERY_DAYS = 14;
 const LONDON_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
 const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = k => +p.find(x => x.type === k).value;
   return Math.round(Date.UTC(g('year'), g('month') - 1, g('day')) / 864e5); };
+/* Form checks through Apple (31 Oct 2026): a second subscription in the
+   Ladder's group, ranked above it, so a Ladder subscriber upgrades and Apple
+   works out the difference. It opens the Ladder too, as the £35 does. */
+const IAP_CHECKS = 'com.londonhandstandacademy.app.checks.monthly';
+const IAP_CHECKS_PRICE = 34.99;
 async function checksOn(who) {
   const r = await getSetting(`checksub:${who}`);
-  return !!(r && ['active', 'trialing', 'past_due'].includes(r.status));
+  if (r && ['active', 'trialing', 'past_due'].includes(r.status)) return true;
+  const iap = await getSetting(`iap:${who}`);
+  return !!(iap && iap.productId === IAP_CHECKS && !iap.revoked && Number(iap.expiresAt) > Date.now());
 }
 /* 0 when the fortnight's check can be opened now, or the day it opens */
 function checksNext(cur) {
@@ -6016,7 +6023,8 @@ const handle = async (request) => {
      itself even if a message from Apple never comes. A purchase made
      signed out opens the Ladder on that phone; signing in links it. */
   const IAP_BUNDLE = 'com.londonhandstandacademy.app';
-  const IAP_LADDER = ['com.londonhandstandacademy.app.ladder.monthly'];
+  const IAP_LADDER = ['com.londonhandstandacademy.app.ladder.monthly', IAP_CHECKS];
+  const iapWhat = id => id === IAP_CHECKS ? 'form checks' : 'Ladder';
   const APPLE_ROOT_FP = String(process.env.APPLE_ROOT_FP || '63343ABFB89A6A03EBB57E9B3F5FA7BE7C4F5C756F3017B3A8C488C3653E9179')
     .replace(/[^0-9a-f]/gi, '').toUpperCase();
   const appleJWS = jws => {
@@ -6127,7 +6135,7 @@ const handle = async (request) => {
     const hadIap = who ? !!(await getSetting(`iap:${who}`)) : true;
     const r = await iapApply(who || '', tx);
     /* bought signed out, or linked later: Apple's SUBSCRIBED found nobody */
-    if (who && !hadIap && r.active && otidV) await iapTell(`iapsub:${otidV}`, 'New Ladder subscriber in the iPhone app', who, 'Billed by Apple.');
+    if (who && !hadIap && r.active && otidV) await iapTell(`iapsub:${otidV}`, `New ${iapWhat(tx.productId)} subscriber in the iPhone app`, who, 'Billed by Apple.');
     return json(Object.assign({ linked: !!who }, r));
   }
   if (path === '/iap/notify' && request.method === 'POST') {
@@ -6151,7 +6159,11 @@ const handle = async (request) => {
     }
     const r = await iapApply(who, tx);
     const otidN = String(tx.originalTransactionId || '');
-    if (who && n.notificationType === 'SUBSCRIBED') await iapTell(`iapsub:${otidN}`, 'New Ladder subscriber in the iPhone app', who, 'Billed by Apple.');
+    if (who && n.notificationType === 'SUBSCRIBED') await iapTell(`iapsub:${otidN}`, `New ${iapWhat(tx.productId)} subscriber in the iPhone app`, who, 'Billed by Apple.');
+    /* a Ladder subscriber who moved up to form checks, or back down */
+    if (who && n.notificationType === 'DID_CHANGE_RENEWAL_PREF' && ['UPGRADE', 'DOWNGRADE'].includes(n.subtype)) await iapTell(`iappref:${tx.transactionId || n.notificationUUID}`,
+      'An iPhone subscriber changed plan', who, n.subtype === 'UPGRADE' ? `Moved up to ${iapWhat(tx.productId)} through Apple, from today.`
+        : 'Moving down a plan through Apple at their next renewal.');
     if (who && ['REFUND', 'REVOKE'].includes(n.notificationType)) await iapTell(`iapref:${tx.transactionId || n.notificationUUID}`, 'Apple refunded a Ladder subscription', who, 'The time it paid for has been taken back.');
     /* renewal switched off, or lapsed: an in-app Stripe cancel told the
        coach, Apple's told nobody */
@@ -11392,8 +11404,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const v = r.value || {}, email = r.key.slice(4);
         if (/sandbox/i.test(v.env || '')) sandbox.add(email);
         if (v.revoked || !(Number(v.expiresAt) > Date.now()) || /sandbox/i.test(v.env || '')) continue;
-        rows.push({ how: 'apple', email, name: roster[email] || '', what: 'The Handstand Ladder (App Store)', coaching: false,
-          status: 'active', cancelling: v.autoRenew === false, pm: 9.99, price: 9.99, every: 'month',
+        const fc = v.productId === IAP_CHECKS;
+        rows.push({ how: 'apple', email, name: roster[email] || '', what: fc ? 'Form checks and the Ladder (App Store)' : 'The Handstand Ladder (App Store)', coaching: false,
+          status: 'active', cancelling: v.autoRenew === false, pm: fc ? IAP_CHECKS_PRICE : 9.99, price: fc ? IAP_CHECKS_PRICE : 9.99, every: 'month',
           since: Number(v.at) || 0, next: Number(v.expiresAt) || 0, trialEnd: 0 });
       }
     } catch (err) { problems.push('Apple: could not read'); }
