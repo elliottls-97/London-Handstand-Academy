@@ -5148,7 +5148,11 @@ const handle = async (request) => {
           signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
       /* and in the app, which reaches somebody whose email does not */
       try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
-        text: 'Your last payment did not go through. Update your card on the website, londonhandstandacademy.com, under Account, and Stripe will try it again.' }); } catch {}
+        /* no website and no link: the chat shows in the iPhone app, where
+           pointing at payment outside Apple is not allowed (31 Oct 2026).
+           The email carries the link. */
+        text: cardSent ? 'Your last payment did not go through. I have emailed you a link to update your card.'
+          : 'Your last payment did not go through. Reply here and I will sort it out with you.' }); } catch {}
       await coachAlert(null, 'business', { title: 'A card was declined', body: clients()[acct.email] || acct.name || acct.email, tag: 'card:' + acct.email });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
         `Card declined: ${clients()[acct.email] || acct.name || acct.email}`,
