@@ -2240,7 +2240,7 @@ const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = 
    Ladder's group, ranked above it, so a Ladder subscriber upgrades and Apple
    works out the difference. It opens the Ladder too, as the £35 does. */
 const IAP_CHECKS = 'com.londonhandstandacademy.app.checks.monthly';
-const IAP_CHECKS_PRICE = 34.99;
+const IAP_CHECKS_PRICE = 39.99;
 async function checksOn(who) {
   const r = await getSetting(`checksub:${who}`);
   if (r && ['active', 'trialing', 'past_due'].includes(r.status)) return true;

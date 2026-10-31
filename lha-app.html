@@ -23247,7 +23247,10 @@ function screenCoaching(){
             color:var(--forest);font:600 13.5px/1 var(--sans)">Read it in the chat</button>
           ${(sells() && !st.in) ? `<div style="border-top:1px solid rgba(0,64,61,.08);margin-top:12px;padding-top:12px;
             font:400 13.5px/1.5 var(--sans);color:var(--grey)">Want a whole programme built around this?
-            <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="seeCoaching()">See coaching</button></div>` : ''}`:''}
+            <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="seeCoaching()">See coaching</button></div>` : ''}
+          ${(!sells() && IOS_APP && iapChecks && st.freeCheckUsed && !st.coached && !(st.checks && st.checks.on)) ? `<div style="border-top:1px solid rgba(0,64,61,.08);margin-top:12px;padding-top:12px;
+            font:400 13.5px/1.5 var(--sans);color:var(--grey)">Want the next one in a fortnight?
+            <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="st.seenReview=st.lastReview;save();render()">See form checks</button></div>` : ''}`:''}
         </div>`;
       })()
     : (!canCheck && st.boughtCheck && Date.now()-st.boughtCheck<15*60000)
@@ -23459,9 +23462,17 @@ function screenCoaching(){
 /* Form checks in the iPhone app, through Apple. Not offered to somebody
    paying for the Ladder on the website, who would then pay twice, and not
    signed out: a form check lives on an account. */
+/* a fortnight's check in the money they think in: £39.99 a month is
+   under £19 a check, 26 a year over 12 months (Elliott, 31 Oct 2026: "think
+   about how we sell it") */
+function iapPerCheck(){
+  if(!iapChecks || !iapChecks.price) return '';
+  const cur=(String(iapChecks.displayPrice||'').match(/^[^\d]*/)||[''])[0] || '£';
+  return cur+Math.ceil(iapChecks.price*12/26);
+}
 function iosChecksOfferHTML(){
   if(sells() || !IOS_APP || !iapChecks) return '';
-  const p=esc(iapChecks.displayPrice||''), appleLadder=Number(st.appleUntil)>Date.now();
+  const p=esc(iapChecks.displayPrice||''), per=esc(iapPerCheck()), appleLadder=Number(st.appleUntil)>Date.now();
   if(st.checksAddon && !appleLadder) return '';
   if(!st.token) return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight,
       ${p} a month with the whole Ladder. Form checks live on an account, so make one first.</div>
@@ -23469,8 +23480,8 @@ function iosChecksOfferHTML(){
   return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">${appleLadder
       ? `One every fortnight. Elliott watches each one himself and sends you a video back within 48 hours. It takes the place of
         your Ladder subscription at ${p} a month, with the Ladder still included, and Apple adjusts what you have already paid.`
-      : `One every fortnight, ${p} a month. Elliott watches each one himself and sends you a video back within 48 hours,
-        and the whole Ladder is included. Cancel any time.`}</div>
+      : `One every fortnight, ${per?'under '+per+' a check, ':''}with the whole Ladder included. Elliott watches each one
+        himself and sends you a video back within 48 hours. Cancel any time.`}</div>
     <button class="btn" id="iapBuyChecks" style="width:100%;margin-top:16px" onclick="iapBuy(IAP_CHECKS)">${appleLadder
       ? 'Move up to form checks, '+p+' a month' : 'Start form checks, '+p+' a month'}</button>
     <div id="iapMsgChecks" role="status" style="font:500 13px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:8px"></div>
