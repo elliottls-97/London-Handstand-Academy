@@ -10870,7 +10870,7 @@ function sendApplication(){
     body:JSON.stringify({email:em,name:a.name||'',
       answers:{goal:a.goal,level:a.level,format:a.format||'',days:a.days||'',
                injuries:a.injuries||'',notes:a.notes||'',
-               plan:coPickK()==='inner'?'Weekly coaching ('+(PRICE('inneronline')||'£300')+'/mo, 3 places)':'Custom programme'}})})
+               plan:coPickK()==='inner'?'Weekly coaching ('+(PRICE('inneronline')||'£300')+'/mo)':'Custom programme'}})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||'Could not send that')))
     .then(()=>{ st.applyDraft={}; st.applied=Date.now(); save(); closeOv(); render(); })
     .catch(e=>say(String(e)));
@@ -15346,7 +15346,7 @@ function innerOfferHTML(inMenu){
     <div class="kick2" style="color:var(--forest)">WEEKLY COACHING</div>
     <div style="font:400 21px/1.2 var(--serif);margin-top:7px">Want a video reply every week?</div>
     <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">Your programme updated and your
-      footage reviewed every week. Three places, ${esc(PRICE('inneronline'))} a month.</div>
+      footage reviewed every week. ${(typeof st.coPlaces==='number'&&st.coPlaces>0)?(st.coPlaces===1?'1 place':st.coPlaces+' places')+' open, ':''}${esc(PRICE('inneronline'))} a month.</div>
     <div style="display:flex;gap:16px;align-items:center;margin-top:13px">
       <button class="btn" style="margin:0;min-height:44px;padding:0 18px;width:auto" onclick="innerAsk()">I&rsquo;m interested</button>
       <button onclick="innerLater()" style="border:0;background:none;cursor:pointer;padding:8px 0;
@@ -22821,6 +22821,8 @@ let plansOn=null;
 function loadPlans(){
   return fetch(AUTH.plans).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ plansOn=d.plans||[]; planLinks=(d&&d.links)||{};
+      /* places on weekly coaching, from the dashboard (31 Oct 2026) */
+      st.coPlaces = (typeof d.places==='number') ? d.places : null;
       if(d.prices){ st.prices=d.prices; save(); }
       if(Array.isArray(d.periods)){ st.periods=d.periods; save(); }
       /* what each tier says it includes, where the dashboard has changed it */
@@ -22992,7 +22994,7 @@ const CO_PLANS = [
      Circle, offered only to clients after a block; it sits beside the £120
      plan now, so somebody sees both. Online only: the London session is
      never bundled. The keys stay inner and inneronline. */
-  { k:'inner', who:'Weekly coaching', price:'inneronline', flag:'3 places',
+  { k:'inner', who:'Weekly coaching', price:'inneronline', flag:'Limited places',
     line:'Everything in the custom programme, and I am with you every step.',
     /* Elliott, 31 Oct 2026: "its basically hand holding them along the
        process". Said as being with them, which reads as care */
@@ -23008,7 +23010,7 @@ const CO_PLANS = [
            'A video call every month to check progress',
            'I chase you if a week slips',
            'First pick of London session times'],
-    note:'Three places. The full ladder app included. Cancel any time.' },
+    note:'The full ladder app included. Cancel any time.' },
 ];
 /* the London session is an add on to either plan, not a plan of its own.
    Three tiers where one was the second plus a session was confusing. */
@@ -23164,6 +23166,9 @@ function coPanelHTML(pick){
           <span style="font:600 13px/1 var(--sans);opacity:.8">/ month${sess?', '+(sess===1?'session':sess+' sessions')+' included':''}</span>
         </div>
         <div style="font:400 12.5px/1.45 var(--sans);opacity:.82;margin-top:6px">${esc(pick.note)}</div>
+        ${(pick.k==='inner' && typeof st.coPlaces==='number')?`<div style="display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:7px 12px;border-radius:999px;
+          background:rgba(255,255,255,.14);font:600 12.5px/1 var(--sans)"><i style="width:7px;height:7px;border-radius:50%;background:var(--amber)"></i>${
+          st.coPlaces>0?(st.coPlaces===1?'1 place':st.coPlaces+' places')+' open':'Full. Book a call for the waiting list'}</div>`:''}
         <!-- Start now goes to a checkout for the plan and the sessions
              chosen; with none, the plan's own link where it has one. While
              the plans are still loading the button says so. -->
@@ -23205,7 +23210,7 @@ function coPanelHTML(pick){
    as the website's, the call first and starting second. */
 function coInterestPlan(k){
   const P=coPlans().find(p=>p.k===k)||coPlans()[0], n=coSessN();
-  return { P, plan: P.who+' ('+coMonthLabel(P,n)+'/mo'+(n?', '+n+' London session'+(n>1?'s':'')+' a month':'')+(k==='inner'?', 3 places':'')+')' };
+  return { P, plan: P.who+' ('+coMonthLabel(P,n)+'/mo'+(n?', '+n+' London session'+(n>1?'s':'')+' a month':'')+')' };
 }
 function coInterest(k){
   st.interestK=k; save();
