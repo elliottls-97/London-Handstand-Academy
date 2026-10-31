@@ -6202,7 +6202,7 @@ const handle = async (request) => {
     const monthly = body.period === 'month';
     const q = !COACH_Q.includes(k) ? { amount: 0 } : monthly ? { amount: Number((PRICES[k] || {}).amount) || 0 } : coachQ(k);
     if (!(q.amount > 0) || !stripeKey()) return json({ error: 'That one is not switched on yet' }, 503);
-    const nameQ = { online: 'Online coaching', inperson: 'Coaching with a London session', inperson2: 'Coaching with two London sessions',
+    const nameQ = { online: 'Custom programme', inperson: 'Custom programme with a London session', inperson2: 'Coaching with two London sessions',
       inperson4: 'Coaching with four London sessions', inner: 'Weekly coaching with a London session', inneronline: 'Weekly coaching' }[k];
     try {
       const sess = await stripe('/checkout/sessions', {
@@ -6310,7 +6310,7 @@ const handle = async (request) => {
     const inline = !(pRow.priceId) && Number(pRow.amount) > 0;
     const INLINE_NAME = { plus: 'The Handstand Ladder', plusq: 'The Handstand Ladder, every three months', plusy: 'The Handstand Ladder, yearly',
       check: 'A form check', checks: 'Form checks, one every fortnight, with the Handstand Ladder',
-      online: 'Online coaching', inperson: 'Coaching with a London session',
+      online: 'Custom programme', inperson: 'Custom programme with a London session',
       inperson2: 'Coaching with two London sessions', inperson4: 'Coaching with four London sessions',
       inner: 'Weekly coaching with a London session', inneronline: 'Weekly coaching' };
     const every = planKey === 'plusy' ? { interval: 'year', n: 1 } : (planKey === 'plusq' || coachQuarter) ? { interval: 'month', n: 3 } : { interval: 'month', n: 1 };
