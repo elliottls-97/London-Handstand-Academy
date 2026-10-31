@@ -2233,6 +2233,13 @@ const getSetting = async k => {
    A fortnight is counted in London dates, so one opened on a Friday opens
    again on the Friday two weeks on, from midnight. */
 const FC_EVERY_DAYS = 14;
+/* up to three clips in one form check (Elliott, 31 Oct 2026): it stayed
+   open for any number until answered, so one check could be ten videos.
+   A photo in the chat counts as one. Coached clients are not gated. */
+const FC_CLIPS = 3;
+const fcFull = used => used >= FC_CLIPS
+  ? `This form check has its ${FC_CLIPS} clips. Elliott answers them, then your next one opens.`
+  : `This form check has room for ${FC_CLIPS - used} more clip${FC_CLIPS - used === 1 ? '' : 's'}. Send ${FC_CLIPS - used === 1 ? 'one' : 'up to ' + (FC_CLIPS - used)} at a time.`;
 const LONDON_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
 const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = k => +p.find(x => x.type === k).value;
   return Math.round(Date.UTC(g('year'), g('month') - 1, g('day')) / 864e5); };
@@ -2264,35 +2271,47 @@ async function ladderPaid(who) {
   const a = (await getAcct(who)) || {}, pl = (await getSetting(`plan:${who}`)) || {};
   return !!(a.plus && a.subscription && ['plus', 'plusq', 'plusy'].includes(pl.plan) && !a.cancel_at);
 }
-async function fcGate(who) {
+async function fcGate(who, n = 1) {
   const ck = `fccredits:${who}`;
+  n = Math.max(1, Math.round(Number(n) || 1));
   const cur = (await getSetting(ck)) || {};
-  if (cur.open) return { ok: true, open: true };
+  if (cur.open) {
+    /* counted in one compare-and-set, so two clips at once cannot both
+       take the last place */
+    let res = null;
+    await changeSetting(ck, c => {
+      const x = Object.assign({}, c || {}), used = Number(x.clips) || 0;
+      if (used + n > FC_CLIPS) { res = { ok: false, full: true, error: fcFull(used) }; return undefined; }
+      x.clips = used + n; res = { ok: true, open: true, clips: x.clips }; return x;
+    });
+    return res || { ok: true, open: true };
+  }
+  if (n > FC_CLIPS) return { ok: false, full: true, error: `Up to ${FC_CLIPS} clips in one form check. Send your ${FC_CLIPS} best.` };
   const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
   /* The free one is claimed before the check is opened, so a write that
      failed in between spent it on nothing: the next try found it used and
      offered to sell them one. It is given back, and the next try wins it. */
   if (won) {
-    try { await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'free' })); }
+    try { await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'free', clips: n })); }
     catch (err) { try { await supa.remove('free_checks', `email=eq.${enc(who)}`); } catch {} throw err; }
     return { ok: true, opened: true };
   }
   /* the fortnight's one, on the subscription */
   const sub = await checksOn(who);
   if (sub && !checksNext(cur)) {
-    await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'sub', subAt: Date.now() }));
+    await setSetting(ck, Object.assign({}, cur, { open: true, openedAt: Date.now(), openedWith: 'sub', subAt: Date.now(), clips: n }));
     return { ok: true, opened: true };
   }
-  const n = Number(cur.n) || 0;
-  if (n <= 0) {
+  const cn = Number(cur.n) || 0;
+  if (cn <= 0) {
     if (sub) {
       const day = new Date(checksNext(cur)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
       return { ok: false, next: checksNext(cur), error: `Your next form check opens on ${day}. Until then, ask anything in the chat.` };
     }
     return { ok: false, error: `That is your free form check used. Elliott watches every one himself, `
-      + `so there is one with an account. After that, form checks are ${checksLabel()} a month: one every fortnight, with the whole Ladder.` };
+      + `so there is one with an account. After that, form checks are ${checksLabel()} a month: up to ${FC_CLIPS} clips reviewed every fortnight, with the whole Ladder.` };
   }
-  await setSetting(ck, Object.assign({}, cur, { n: n - 1, spentAt: Date.now(), open: true, openedAt: Date.now(), openedWith: 'credit' }));
+  await setSetting(ck, Object.assign({}, cur, { n: cn - 1, spentAt: Date.now(), open: true, openedAt: Date.now(), openedWith: 'credit', clips: n }));
   return { ok: true, opened: true };
 }
 /* the words for an automated email, with the dashboard's changes on top */
@@ -4641,10 +4660,10 @@ const handle = async (request) => {
               signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true, noQueue: true });
             if (mailDown) throw new Error('the welcome email did not go: Resend failed');
             try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
-              text: `Thanks${first ? ' ' + first : ''}, form checks are on, added to your Ladder: one every fortnight. Film from the side, whole body in frame, and send the clip here or from the Form check tab.` }); } catch {}
+              text: `Thanks${first ? ' ' + first : ''}, form checks are on, added to your Ladder: up to 3 clips every fortnight. Film from the side, whole body in frame, and send the clip here or from the Form check tab.` }); } catch {}
             const nmA = acct.name || (obj.customer_details && obj.customer_details.name) || acct.email;
             const paidA = Number(obj.amount_total) > 0 ? penceTxt(Number(obj.amount_total)) + ' a month, on top of their Ladder' : 'free on a code';
-            await coachAlert(null, 'business', { title: 'Form checks added: ' + nmA, body: paidA + '. One every fortnight; their clips land in the queue.', tag: 'fcsub:' + acct.email });
+            await coachAlert(null, 'business', { title: 'Form checks added: ' + nmA, body: paidA + '. Up to 3 clips a fortnight; their clips land in the queue.', tag: 'fcsub:' + acct.email });
             if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
               `Form checks added: ${nmA}`,
               `<p style="font:16px/1.6 system-ui">${esc(nmA)} (${esc(acct.email)}) added form checks to their Ladder, ${esc(paidA)}. One every fortnight. Their clips land in the queue.</p>`);
@@ -4927,10 +4946,10 @@ const handle = async (request) => {
             signoff: { name: 'London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true, noQueue: true });
           if (mailDown) throw new Error('the welcome email did not go: Resend failed');
           try { await threadAdd(db, acct.email, { from: 'coach', sub: 'auto', by: primaryCoach(),
-            text: `Thanks${first ? ' ' + first : ''}, your form checks are on: one every fortnight. Film from the side, whole body in frame, and send the clip here or from the Form check tab.` }); } catch {}
+            text: `Thanks${first ? ' ' + first : ''}, your form checks are on: up to 3 clips every fortnight. Film from the side, whole body in frame, and send the clip here or from the Form check tab.` }); } catch {}
           const nmC = acct.name || (obj.customer_details && obj.customer_details.name) || acct.email;
           const paidC = Number(obj.amount_total) > 0 ? penceTxt(Number(obj.amount_total)) + ' a month' : 'free on a code';
-          await coachAlert(null, 'business', { title: 'Form checks started: ' + nmC, body: paidC + '. One every fortnight; their clips land in the queue.', tag: 'fcsub:' + acct.email });
+          await coachAlert(null, 'business', { title: 'Form checks started: ' + nmC, body: paidC + '. Up to 3 clips a fortnight; their clips land in the queue.', tag: 'fcsub:' + acct.email });
           if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
             `Form checks started: ${nmC}`,
             `<p style="font:16px/1.6 system-ui">${esc(nmC)} (${esc(acct.email)}) started form checks, ${esc(paidC)}. One every fortnight, with the whole Ladder. Their clips land in the queue.</p>`);
@@ -5918,7 +5937,7 @@ const handle = async (request) => {
       freeCheckUsed: !coachedNow && usedCheck,
       /* checks bought one at a time and not yet sent */
       checkCredits: credits,
-      checkOpen,
+      checkOpen, checkClips: checkOpen ? (Number(fcc.clips) || 0) : 0, checkMax: FC_CLIPS,
       checks: subOn ? { on: true, next: subNext } : null,
       /* which price form checks are offered at: £25 on top of a Ladder
          already paid for, £35 with the Ladder in them */
@@ -6392,7 +6411,7 @@ const handle = async (request) => {
       : coachQuarter ? { amount: coachQ(planKey).amount } : (addon ? PRICES.checksadd : PRICES[planKey]) || {};
     const inline = !(pRow.priceId) && Number(pRow.amount) > 0;
     const INLINE_NAME = { plus: 'The Handstand Ladder', plusq: 'The Handstand Ladder, every three months', plusy: 'The Handstand Ladder, yearly',
-      check: 'A form check', checks: 'Form checks, one every fortnight, with the Handstand Ladder',
+      check: 'A form check', checks: 'Form checks, up to 3 clips every fortnight, with the Handstand Ladder',
       online: 'Custom programme', inperson: 'Custom programme with a London session',
       inperson2: 'Coaching with two London sessions', inperson4: 'Coaching with four London sessions',
       inner: 'Weekly coaching with a London session', inneronline: 'Weekly coaching' };
@@ -6420,7 +6439,7 @@ const handle = async (request) => {
           'line_items[0][price_data][unit_amount]': String(Math.round(Number(pRow.amount))),
           ...(plan.mode === 'subscription' ? { 'line_items[0][price_data][recurring][interval]': every.interval,
             'line_items[0][price_data][recurring][interval_count]': String(every.n) } : {}),
-          'line_items[0][price_data][product_data][name]': addon ? 'Form checks, one every fortnight, added to your Ladder'
+          'line_items[0][price_data][product_data][name]': addon ? 'Form checks, up to 3 clips every fortnight, added to your Ladder'
             : (sessBase ? sessName(sessBase, sessN) : (INLINE_NAME[planKey] || 'London Handstand Academy')) + (coachQuarter ? ', three months at a time' : ''),
         } : { 'line_items[0][price]': plan.price() }),
         'line_items[0][quantity]': '1',
@@ -11897,8 +11916,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        insertIfAbsent is the claim: whoever wins the row gets the check,
        and a second attempt cannot win it even if both arrive at once. */
     if (!coached) {
-      const gate = await fcGate(who);
-      if (!gate.ok) return json({ error: gate.error, gated: true, usedUp: true }, 402);
+      const nClips = Array.isArray(body.clips) ? body.clips.slice(0, 12).filter(c => c && (c.uid || c.image)).length : 0;
+      const gate = await fcGate(who, nClips || 1);
+      if (!gate.ok) return json({ error: gate.error, gated: true, usedUp: !gate.full, full: !!gate.full }, 402);
     }
     const numbers = (body.numbers && typeof body.numbers === 'object') ? body.numbers : {};
     const clips = Array.isArray(body.clips) ? body.clips.slice(0, 12).map(c => ({
@@ -12780,7 +12800,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
            also its form check, which is the only difference. */
         if (!coached) {
           const gate = await fcGate(who);
-          if (!gate.ok) return json({ error: gate.error, gated: true }, 402);
+          if (!gate.ok) return json({ error: gate.error, gated: true, full: !!gate.full }, 402);
         }
         try {
           const plan = planFile(who);

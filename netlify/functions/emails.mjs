@@ -316,7 +316,7 @@ export const EMAILS = {
     "title": "Your first form check is ready to send.",
     "paras": [
       "{password_line}",
-      "You get one form check every fortnight. Film one attempt, side on with your whole body in frame, and send it from the Form check tab. Elliott watches it himself and sends you a video back within 48 hours.",
+      "You get a form check every fortnight, with up to 3 clips in it. Film side on with your whole body in frame, and send them from the Form check tab. Elliott watches them himself and sends you a video back within 48 hours.",
       "The whole Handstand Ladder is open too: every stage, every film and every check point."
     ]
   },

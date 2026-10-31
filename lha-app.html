@@ -6109,6 +6109,8 @@ function postTrack(body){
         try{ toast(ref.error||'The clip did not go through. Your number is saved.'); }catch(e){}
         try{ if(document.getElementById('cptop-'+ref.k)) repaintCp(ref.k); }catch(e){}
       }
+      /* a check point clip that went into the open check: read the count back */
+      else if(body && body.checkpoint && body.checkpoint.video && st.checkOpen && !coachedView()) setTimeout(()=>{ try{ loadEntitlement(); }catch(e){} }, 800);
       save();
     })
     .catch(()=>{});
@@ -10401,6 +10403,9 @@ function fcAskBody(){
     background:${d.mode===k?'#fff':'transparent'};color:${d.mode===k?'var(--deep)':'var(--grey)'};
     box-shadow:${d.mode===k?'0 1px 2px rgba(0,64,61,.10)':'none'}">${l}</button>`;
   const done=cps.filter(c=>d.clips&&d.clips[c.k]).length;
+  /* up to 3 clips in one form check, fewer if some are already in it;
+     a coached client is not limited (31 Oct 2026) */
+  const lim=coachedView()?99:Math.max(0,(st.checkMax||3)-(st.checkOpen?(st.checkClips||0):0));
   return `<div class="kick2">FORM CHECK</div>
     <div class="h-lg" style="margin-top:8px">What do you want me to look at?</div>
     <div style="display:flex;background:rgba(0,64,61,.07);border-radius:14px;padding:4px;gap:4px;margin-top:16px">
@@ -10415,8 +10420,8 @@ function fcAskBody(){
     <div id="askMsg" style="font:500 12px/1.5 var(--sans);color:var(--forest);text-align:center;margin-top:8px;min-height:16px"></div>`
     : `
     <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:16px">
-      Film each check point for ${esc(S.n||'this stage')} and I tell you which ones you have, which you are close on, and the one thing to change.
-      One attempt each. Send whichever you have filmed.</div>
+      ${lim<99?`Pick up to ${lim} check point${lim===1?'':'s'} for ${esc(S.n||'this stage')} and I tell you which you have, which you are close on, and the one thing to change. One attempt each.`
+        :`Film each check point for ${esc(S.n||'this stage')} and I tell you which ones you have, which you are close on, and the one thing to change. One attempt each. Send whichever you have filmed.`}</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
       ${cps.map(c=>{ const have=d.clips&&d.clips[c.k]; const busy=fcUpBusy===c.k;
         return `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#fff;
@@ -10425,7 +10430,7 @@ function fcAskBody(){
             <span style="display:block;font:600 14px/1.3 var(--sans)">${esc(c.n)}</span>
             <span id="fcup-${esc(c.k)}" style="display:block;font:400 12px/1.4 var(--sans);color:${have?'var(--forest)':'var(--grey2)'};margin-top:2px">${
               have?'Filmed and uploaded':busy?'Uploading…':(c.target!=null&&c.target>0?'Target '+esc(String(c.target))+' '+esc(cpUnit(c)):'')}</span></span>
-          <button class="rt" onclick="fcFilmCp(${jsq(c.k)})" ${busy?'disabled':''}>${have?'Again':'Film'}</button></div>`; }).join('')
+          <button class="rt" onclick="fcFilmCp(${jsq(c.k)})" ${(busy||(!have&&done>=lim))?'disabled style="opacity:.35"':''}>${have?'Again':'Film'}</button></div>`; }).join('')
         || `<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey)">No check points on this stage yet.</div>`}
     </div>
     <textarea placeholder="Anything to add. Optional." oninput="fcSet('q',this.value)"
@@ -10865,9 +10870,14 @@ function sendApplication(){
 
 /* the server is what rations the free form check; the app only reports it */
 function gateCheck(r, key){
-  if(r.ok) return r;
+  /* a clip went into the open check: the count of 3 is the server's, so
+     read it back rather than guess */
+  if(r.ok){ if(st.checkOpen && !coachedView()) setTimeout(()=>{ try{ loadEntitlement(); }catch(e){} }, 1200); return r; }
   return r.json().catch(()=>({})).then(d=>{
-    if(d && d.gated){
+    /* full is the open check's 3 clips: it is still open, so the form
+       check stays offered rather than turning into a purchase */
+    if(d && d.full){ st.checkClips=st.checkMax||3; save(); render(); }
+    else if(d && d.gated){
       st.canCheck=false;
       st.intake=st.intake||{}; st.intake.baseline=st.intake.baseline||Date.now();
       /* The bubble this send added, found by its clip or photo. It popped
@@ -20997,7 +21007,7 @@ function ladderWholeHTML(o){
       <div style="flex:1;min-width:0">
         <div style="font:400 21px/1.1 var(--serif);color:var(--ink)">Want Elliott&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it?</em></div>
         <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:3px">Send a clip, get a form check. ${
-          st.freeCheckUsed?(checksPrice()?esc(checksPrice())+' a month, one every fortnight':'Your free one is used'):'Free once'}.</div>
+          st.freeCheckUsed?(checksPrice()?esc(checksPrice())+' a month, up to 3 clips every fortnight':'Your free one is used'):'Free once'}.</div>
       </div>
       <button class="lw-ghost" style="flex:none;padding:0 16px" onclick="go('coaching')">Book a review</button>
     </div>`;
@@ -21730,6 +21740,8 @@ function loadEntitlement(){
       if(d.token && !st.preview){ st.token=d.token; save(); }
       const was=st.plus, wasIn=st.in, wasFC=st.canCheck, wasTU=!!st.trialUsed, wasCoached=!!st.coached;
       st.plus=!!d.plus; st.canManage=!!d.canManage; st.freeCheckUsed=!!d.freeCheckUsed; st.canCheck=!!d.canCheck;
+      /* how many of the open check's clips are in, up to 3 (31 Oct 2026) */
+      st.checkClips=Number(d.checkClips)||0; st.checkMax=Number(d.checkMax)||3;
       st.trialUsed=!!d.trialUsed; st.trialRefused=!!d.trialRefused; st.trialRefusedWhy=d.trialRefusedWhy||'';
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       /* form checks, £35 a month: on, and the day the next one opens */
@@ -23255,7 +23267,7 @@ function screenCoaching(){
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           One clip. A video reply within 48 hours.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          ${checksPrice() ? 'Free with an account. After that, '+checksPrice()+' a month for one every fortnight, with the whole Ladder.' : 'Free with an account.'}</div>
+          ${checksPrice() ? 'Free with an account. After that, '+checksPrice()+' a month for up to 3 clips reviewed every fortnight, with the whole Ladder.' : 'Free with an account.'}</div>
         <button class="btn" style="width:100%;margin-top:16px"
           onclick="goJoin()">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -23267,18 +23279,24 @@ function screenCoaching(){
            they get to it, or a clip in the chat to follow a question up */
         const cps=cpsFor(curStage())||[];
         const sentK=new Set(((st.subs||[]).flatMap(x=>x.clips||[])).map(c=>c.drill).filter(Boolean));
+        /* up to 3 clips in one check (Elliott, 31 Oct 2026) */
+        const mx=st.checkMax||3, used=Math.min(mx, st.checkClips||0), full=used>=mx;
         return `<div class="card" style="padding:22px;border:1.5px solid var(--forest)">
-          <div class="kick2" style="color:var(--forest)">FORM CHECK OPEN</div>
-          <div class="h-md" style="font-size:22px;margin-top:8px">${awaiting?'With Elliott. Keep adding to it.':'Send whatever you like to it.'}</div>
-          <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">
-            Film each check point as you get to it and it goes in here, or send a clip or a photo in the Chat to follow something up.
-            It stays open until Elliott has answered and closes it.</div>
-          ${cps.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+          <div style="display:flex;align-items:baseline;gap:10px">
+            <div class="kick2" style="flex:1;color:var(--forest)">FORM CHECK OPEN</div>
+            <span style="flex:none;font:600 12px/1 var(--sans);color:${full?'var(--deep)':'var(--grey)'}">${used} of ${mx} clips in</span></div>
+          <div style="display:flex;gap:5px;margin-top:10px">${Array.from({length:mx},(_,i)=>`<i style="flex:1;height:5px;border-radius:99px;
+            background:${i<used?'var(--forest)':'rgba(0,64,61,.12)'}"></i>`).join('')}</div>
+          <div class="h-md" style="font-size:22px;margin-top:12px">${full?'All '+mx+' clips are in.':(awaiting?'With Elliott. ':'')+(used?'Room for '+(mx-used)+' more.':'Up to '+mx+' clips in this one.')}</div>
+          <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">${full
+            ? 'Elliott answers them, then your next one opens. Until then, ask anything in the chat.'
+            : 'Film a check point and it goes in here, or send a clip or a photo in the Chat. It stays open until Elliott has answered and closes it.'}</div>
+          ${(cps.length && !full)?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
             ${cps.map(c=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:14px;background:${sentK.has(c.k)?'rgba(0,102,99,.07)':'var(--mist)'}">
               <span style="flex:1;min-width:0"><span style="display:block;font:600 14px/1.3 var(--sans)">${esc(c.n)}</span>
                 <span id="fcup-${esc(c.k)}" style="display:block;font:400 12px/1.4 var(--sans);color:${sentK.has(c.k)?'var(--forest)':'var(--grey2)'};margin-top:2px">${
                   sentK.has(c.k)?'Sent':(cpAim(c)?'target '+esc(cpAim(c)):'')}</span></span>
-              <button class="rt" onclick="fcFilmOpen(${jsq(c.k)})">${sentK.has(c.k)?'Again':'Film'}</button></div>`).join('')}
+              <button class="rt" ${full?'disabled style="opacity:.35" title="All '+mx+' clips are in"':''} onclick="${full?'':`fcFilmOpen(${jsq(c.k)})`}">${sentK.has(c.k)?'Again':'Film'}</button></div>`).join('')}
           </div>`:''}
           <button class="btn2" style="width:100%;margin-top:14px" onclick="setCoTab('chat')">Ask or send in the chat</button>
         </div>`;
@@ -23352,7 +23370,7 @@ function screenCoaching(){
         <div class="h-md" style="font-size:24px;margin-top:8px">${st.checks.next
           ? 'Your next one opens on '+esc(new Date(st.checks.next).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'}))+'.'
           : 'Your next one is nearly ready.'}</div>
-        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">One every fortnight. Until then, ask anything in the chat.</div>
+        <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:8px">Up to 3 clips every fortnight. Until then, ask anything in the chat.</div>
         <button class="btn2" style="width:100%;margin-top:14px" onclick="setCoTab('chat')">Open the chat</button></div>`
     /* After the free one, form checks are a subscription, £35 a month for
        one every fortnight with the whole Ladder (Elliott, 17 Oct 2026). It
@@ -23364,12 +23382,12 @@ function screenCoaching(){
         <div class="h-md" style="font-size:24px;margin-top:8px">${
           st.freeCheckUsed?'That is your free one used.':'Send a clip, get the one thing to change.'}</div>
         ${sells()?(st.checksAddon
-          ? `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight, added to
+          ? `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Up to 3 clips reviewed every fortnight, added to
           your Ladder for ${esc(PRICE('checksadd'))} a month. Elliott watches each one himself and sends you a video back
           within 48 hours. Cancel any time.</div>
         <button class="btn" id="buy-checks" style="width:100%;margin-top:16px" onclick="buyPlan('checks')">
           Add form checks, ${esc(PRICE('checksadd'))} a month</button>`
-          : `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight,
+          : `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Up to 3 clips reviewed every fortnight,
           ${esc(PRICE('checks'))} a month. Elliott watches each one himself and sends you a video back within 48 hours,
           and the whole Ladder is included. Cancel any time.</div>
         <button class="btn" id="buy-checks" style="width:100%;margin-top:16px" onclick="buyPlan('checks')">
@@ -23383,8 +23401,8 @@ function screenCoaching(){
           Side on, phone upright, whole body in frame, hands included.</div>
         ${tick(st.coached ? 'As many as you train'
           : st.checkCredits>0 ? (st.checkCredits===1?'One paid for, ready to send':st.checkCredits+' paid for, ready to send')
-          : (st.checks && st.checks.on) ? 'One every fortnight on your form checks'
-          : st.freeCheckUsed ? (sells() ? (st.checksAddon ? PRICE('checksadd')+' a month on your Ladder for one every fortnight' : PRICE('checks')+' a month for one every fortnight') : checksPrice() ? checksPrice()+' a month for one every fortnight' : 'Your free one is used')
+          : (st.checks && st.checks.on) ? 'Up to 3 clips every fortnight on your form checks'
+          : st.freeCheckUsed ? (sells() ? (st.checksAddon ? PRICE('checksadd')+' a month on your Ladder for up to 3 clips every fortnight' : PRICE('checks')+' a month for up to 3 clips every fortnight') : checksPrice() ? checksPrice()+' a month for one every fortnight' : 'Your free one is used')
           : 'Your first one is free')}
         <button class="btn" style="width:100%;margin-top:16px" onclick="pickAssessment()">
           Send your clip</button>
@@ -23561,13 +23579,13 @@ function iosChecksOfferHTML(){
   if(sells() || !IOS_APP || !iapChecks) return '';
   const p=esc(iapChecks.displayPrice||''), per=esc(iapPerCheck()), appleLadder=Number(st.appleUntil)>Date.now();
   if(st.checksAddon && !appleLadder) return '';
-  if(!st.token) return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">One every fortnight,
+  if(!st.token) return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Up to 3 clips reviewed every fortnight,
       ${p} a month with the whole Ladder. Form checks live on an account, so make one first.</div>
     <button class="btn" style="width:100%;margin-top:16px" onclick="goJoin()">Make an account</button>`;
   return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">${appleLadder
-      ? `One every fortnight. Elliott watches each one himself and sends you a video back within 48 hours. It takes the place of
+      ? `Up to 3 clips reviewed every fortnight. Elliott watches each one himself and sends you a video back within 48 hours. It takes the place of
         your Ladder subscription at ${p} a month, with the Ladder still included, and Apple adjusts what you have already paid.`
-      : `One every fortnight, ${per?'under '+per+' a check, ':''}with the whole Ladder included. Elliott watches each one
+      : `Up to 3 clips reviewed every fortnight, ${per?'under '+per+' a check, ':''}with the whole Ladder included. Elliott watches each one
         himself and sends you a video back within 48 hours. Cancel any time.`}</div>
     <button class="btn" id="iapBuyChecks" style="width:100%;margin-top:16px" onclick="iapBuy(IAP_CHECKS)">${appleLadder
       ? 'Move up to form checks, '+p+' a month' : 'Start form checks, '+p+' a month'}</button>
@@ -24934,7 +24952,7 @@ const TOURS = {
          is free, which is neither the offer nor the price any more */
       {t:'formcheck', h:'A form check',
        b:()=>'Film one attempt and I reply on video with the one thing to change. '
-         +(checksPrice() ? 'One is free with an account. After that, '+checksPrice()+' a month for one every fortnight, with the whole Ladder.' : 'One is free with an account.')},
+         +(checksPrice() ? 'One is free with an account. After that, '+checksPrice()+' a month for up to 3 clips reviewed every fortnight, with the whole Ladder.' : 'One is free with an account.')},
       {t:'pricing', h:'If you want the whole thing',
        b:()=>'A custom programme, written for you and rewritten as you go, at '+PRICE('online')+' a month, or weekly coaching at '+(PRICE('inneronline')||'£300')+' with me through every week. '
          +'Add a session in London each month if you are nearby. Cancel any time.'},
