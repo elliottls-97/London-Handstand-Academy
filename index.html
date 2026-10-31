@@ -3201,8 +3201,8 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
              not ready for either was ever heard from: no application came in
              after the enquiry link went on 8 Oct. Paying straight away is still
              one tap for the person who is sure. -->
-        <a href="#" id="coApply" class="co-btn-primary" onclick="openQuiz(event,'programme')">Apply for coaching →</a>
-        <p class="co-apply-note">Two minutes. I read every one and reply within 48 hours.</p>
+        <a href="#" id="coApply" class="co-btn-primary" onclick="openQuiz(event,'interest')">I&rsquo;m interested →</a>
+        <p class="co-apply-note">Just your name and email. I reply within 48 hours.</p>
         <a href="https://buy.stripe.com/14A4gzc999Qw4zd3GFefC00" id="coBuy" class="co-btn-ghost" target="_blank" rel="noopener" style="display:block;width:100%;text-align:center;box-sizing:border-box">Start now, £120/mo →</a>
         <!-- three months up front, 10% off the coaching (22 Oct 2026); shown once the price arrives -->
         <a href="#" id="coBuyQ" class="co-call-link" onclick="buyQuarter(event)" hidden></a>
@@ -3785,7 +3785,7 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
              sold on a call and places are capped, so paying first would be
              wrong. Shown instead of #donePayBox by applyQuizVariant(). -->
         <div id="doneApplyBox" style="display:none;margin:20px 0;padding:20px;background:rgba(255,255,255,.09);border-radius:14px;border:1px solid rgba(232,160,122,.35);">
-          <div style="font-family:var(--font-disp);font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#A8680F;margin-bottom:10px;">Application received</div>
+          <div style="font-family:var(--font-disp);font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#A8680F;margin-bottom:10px;" id="doneApplyHead">Application received</div>
           <p id="doneApplyCopy" style="font-size:13.5px;color:rgba(17,17,17,.72);line-height:1.6;margin-bottom:14px;">Weekly coaching is three places, so I read every application myself. If it fits I will come back within 48 hours, and if it does not I will tell you which plan does.</p>
           <a href="https://calendly.com/londonhandstandacademy-info/intro-call" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;background:var(--terra);color:#fff;font-family:var(--font-disp);font-size:14px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:12px 22px;border-radius:12px;text-decoration:none;">Book the call now →</a>
         </div>
@@ -4297,6 +4297,26 @@ const totalSteps = 6;
    `preset` records answers the click already implied, so they still reach
    the inbox without being asked.                                        */
 const QUIZ_VARIANTS = {
+  /* "I'm interested" from the plan card (Elliott, 31 Oct 2026: what they
+     pressed decides the route; interested is quick, the call is the
+     calendar, Start now is the checkout). Name, email and a line, for
+     whichever plan was showing; pickPlan fills in which. The goal, level
+     and filming come after they join, in the app. */
+  interest: {
+    label: 'Coaching',
+    steps: [6],
+    names: { 6:'Contact' },
+    heads: { 6:"I'm interested." },
+    subs:  { 6:"Your name and email, and I will come back within 48 hours with what I would do for you." },
+    preset: {},
+    submitLabel: 'Send \u2192',
+    subject: 'Interested in coaching',
+    plan: 'Coaching (£120/mo)',
+    notesPh: 'What are you working on? Optional.',
+    pay: false,
+    doneHead: 'Got it',
+    applyCopy: "Rather talk it through sooner? Book a free 15 minute call."
+  },
   programme: {
     label: 'The Coaching Programme',
     steps: [1, 2, 3, 4, 5, 6],
@@ -4357,7 +4377,7 @@ function applyQuizVariant() {
     const lab = st.querySelector('.quiz-step-label');
     if (lab) {
       const nm = (cfg.names && cfg.names[n]) || QUIZ_STEP_NAMES_DOM['qStep' + n] || '';
-      lab.textContent = 'Step ' + (i + 1) + ' of ' + seq.length + (nm ? ' · ' + nm : '');
+      lab.textContent = seq.length === 1 ? cfg.label : 'Step ' + (i + 1) + ' of ' + seq.length + (nm ? ' · ' + nm : '');
     }
     const base = QUIZ_COPY_DOM['qStep' + n] || {};
     const h = st.querySelector('h2'), sub = st.querySelector('.quiz-sub');
@@ -4366,6 +4386,13 @@ function applyQuizVariant() {
   });
   const sendBtn = document.querySelector('#qStep6 .btn-quiz-next');
   if (sendBtn) sendBtn.textContent = cfg.submitLabel;
+  const backBtn = document.querySelector('#qStep6 .btn-quiz-back');
+  if (backBtn) backBtn.style.visibility = seq.length === 1 ? 'hidden' : '';
+  const notesEl = document.getElementById('q6notes');
+  if (notesEl) {
+    if (!notesEl.dataset.ph) notesEl.dataset.ph = notesEl.placeholder;
+    notesEl.placeholder = cfg.notesPh || notesEl.dataset.ph;
+  }
   const payBox = document.getElementById('donePayBox');
   const applyBox = document.getElementById('doneApplyBox');
   if (payBox)   payBox.style.display   = cfg.pay ? '' : 'none';
@@ -4373,6 +4400,8 @@ function applyQuizVariant() {
   /* Application tiers confirm in their own terms. */
   const applyCopy = document.getElementById('doneApplyCopy');
   if (applyCopy && cfg.applyCopy) applyCopy.textContent = cfg.applyCopy;
+  const applyHead = document.getElementById('doneApplyHead');
+  if (applyHead) applyHead.textContent = cfg.doneHead || 'Application received';
 }
 
 function openQuiz(e, variant) {
@@ -5323,10 +5352,14 @@ function pickPlan(key) {
   /* .co-sess sets display:flex, which beats the hidden attribute */
   if (sessBtn) sessBtn.style.display = p.noSess ? 'none' : '';
   var apply = document.getElementById('coApply');
-  if (apply) {
-    apply.textContent = p.applyVariant ? 'Apply for weekly coaching \u2192' : 'Apply for coaching \u2192';
-    apply.onclick = function (e) { openQuiz(e, p.applyVariant || 'programme'); };
-  }
+  if (apply) apply.onclick = function (e) {
+    var I = QUIZ_VARIANTS.interest;
+    I.label = p.tier;
+    I.subject = 'Interested in ' + p.tier.toLowerCase();
+    I.plan = key === 'weekly' ? p.tier + ' (' + p.price + '/mo, 3 places)'
+      : p.tier + ' (' + (coSessOn ? p.priceSess + '/mo with a London session' : p.price + '/mo') + ')';
+    openQuiz(e, 'interest');
+  };
   var picks = document.querySelectorAll('.co-pick');
   for (var i = 0; i < picks.length; i++) {
     picks[i].classList.toggle('is-on', picks[i].getAttribute('data-plan') === key);
