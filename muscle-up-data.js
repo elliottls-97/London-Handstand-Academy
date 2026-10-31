@@ -114,6 +114,11 @@ const MU_DRILLS=[
  {v:'mu-slow-muscle-up-bars', n:'Slow Bar Muscle Up', kit:'Bar at full hang height', w:30, sets:3, r:180, diff:5,
   desc:'A strict, slow bar muscle up from a dead hang with no swing.',
   cues:['No swing at all','Pull the bar to the hips','Smooth turnover','Hold the top for two seconds']},
+ /* Elliott, 31 Oct 2026: the bar muscle up film, on The Muscle Up at level 4.
+    The cues are the ones on the film. */
+ {v:'mu-bar-muscle-up', n:'Bar Muscle Up', kit:'Bar at full hang height', w:30, sets:4, r:180, diff:5,
+  desc:'A full muscle up on the bar: swing, pull the bar to the hips, get the chest over and press to straight arms.',
+  cues:['Swing, then pull to the hips','Chest over the bar','Press to straight arms']},
 ];
 
 /* The film each drill plays, by the name it exports under in Downloads/
@@ -147,6 +152,7 @@ const MU_FILMS={
  'mu-full-ring-muscle-up':'Ring muscle up.mp4',
  'mu-slow-muscle-up-rings':'Slow ring muscle up.mp4',
  'mu-slow-muscle-up-bars':'Slow bar muscle up.mp4',
+ 'mu-bar-muscle-up':'Bar muscle up.mp4',
 };
 const MU_TEACH=[];
 
@@ -175,6 +181,7 @@ const MU_DOSE={
  'mu-negative-muscle-up-on-bar':'4 × 2 to 3 slow reps',
  'mu-swing-to-muscle-up':'4 × 2 to 4',
  'mu-full-ring-muscle-up':'4 × 1 to 3',
+ 'mu-bar-muscle-up':'4 × 1 to 3',
  'mu-slow-muscle-up-rings':'3 × 1 to 2',
  'mu-slow-muscle-up-bars':'3 × 1 to 2',
 };
@@ -207,6 +214,7 @@ const MU_UIDS={
  'mu-negative-muscle-up-on-bar':'85edf57173f2b230dcf598125b839fbb',
  'mu-swing-to-muscle-up':'fff6d7e0d06837c50e05725e08875637',
  'mu-full-ring-muscle-up':'71c55a6edd1ae28626789b779b8c1450',
+ 'mu-bar-muscle-up':'5d8fccb8303d45ab4f181e34c0452156',
 };
 
 /* Four stages, as Suryava wrote them (26 Oct 2026). The two warm-up drills
@@ -253,6 +261,7 @@ const MU_POOL={
   {v:'mu-full-ring-muscle-up', g:'Muscle up', L:3},
   {v:'mu-slow-muscle-up-rings', g:'Control', L:4},
   {v:'mu-slow-muscle-up-bars', g:'Control', L:4},
+  {v:'mu-bar-muscle-up', g:'Muscle up', L:4},
  ],
 };
 
