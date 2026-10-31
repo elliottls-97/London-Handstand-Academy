@@ -2239,7 +2239,7 @@ const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = 
 /* Form checks through Apple (31 Oct 2026): a second subscription in the
    Ladder's group, ranked above it, so a Ladder subscriber upgrades and Apple
    works out the difference. It opens the Ladder too, as the £35 does. */
-const IAP_CHECKS = 'com.londonhandstandacademy.app.checks.monthly';
+const IAP_CHECKS = 'com.londonhandstandacademy.app.formchecks.monthly';
 const IAP_CHECKS_PRICE = 39.99;
 async function checksOn(who) {
   const r = await getSetting(`checksub:${who}`);
