@@ -2724,7 +2724,17 @@ h2[style*="uppercase"] { font-family: var(--font-disp) !important; font-weight: 
 .app2-h { font-size: clamp(30px, 4vw, 42px); line-height: 1.02; color: var(--green2); margin: 10px 0 12px; }
 .app2-sub { font-size: 16.5px; line-height: 1.55; color: var(--text-60); }
 .app2-rail { position: relative; max-width: 940px; margin: 0 auto; }
-.app2-film { margin: 0 auto 30px; width: 100%; max-width: 860px; }
+.app2-film { margin: 16px auto 0; width: 100%; max-width: 860px; }
+.app2-film[hidden] { display: none; }
+.app2-watch { display: flex; justify-content: center; margin-top: 18px; }
+.app2-watch-btn { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px 18px 10px 10px;
+  border-radius: 999px; border: 1px solid rgba(0,64,61,.14); background: #fff; color: var(--green2);
+  font: 600 14.5px/1 var(--font-body); box-shadow: 0 1px 2px rgba(0,64,61,.06);
+  transition: border-color .25s, transform .25s cubic-bezier(.2,.8,.2,1); }
+.app2-watch-btn:hover { border-color: rgba(0,64,61,.35); transform: translateY(-1px); }
+.app2-watch-play { width: 28px; height: 28px; border-radius: 50%; background: var(--green); position: relative; flex: none; }
+.app2-watch-play::after { content: ''; position: absolute; left: 11px; top: 8.5px; border-style: solid;
+  border-width: 5.5px 0 5.5px 8px; border-color: transparent transparent transparent #fff; }
 .app2-film video { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 18px; background: #0e1211;
   box-shadow: 0 1px 2px rgba(0,64,61,.08), 0 24px 50px -28px rgba(0,64,61,.55); }
 .app2-film figcaption { margin-top: 10px; text-align: center; font-size: 14px; line-height: 1.5; color: var(--text-45); }
@@ -3023,15 +3033,6 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
       <h2 class="app2-h">Start on your own.</h2>
       <p class="app2-sub">The Handstand Ladder: the path I take my clients down, in an app.</p>
     </div>
-    <!-- how the ladder works, the film the app opens with: nothing loads until it is
-         played, and its captions are in the picture, so there is no track to fetch -->
-    <figure class="app2-film">
-      <video controls playsinline preload="none"
-        poster="https://customer-pns1oongdltmkjwa.cloudflarestream.com/f71dd8d48affa0aa92c1e574c3240100/thumbnails/thumbnail.jpg?time=1s&amp;height=720"
-        src="https://customer-pns1oongdltmkjwa.cloudflarestream.com/f71dd8d48affa0aa92c1e574c3240100/downloads/default.mp4"
-        aria-label="How the Handstand Ladder works, a two minute film with Elliott and Suryava"></video>
-      <figcaption>How the ladder works, in two minutes.</figcaption>
-    </figure>
     <!-- the screenshots under the film: taken out 8 Oct 2026 and put back the same day, Elliott missed them -->
     <div class="app2-rail">
     <button type="button" class="app2-nav app2-prev" aria-label="Previous screens" onclick="appRail(-1)" disabled>&larr;</button>
@@ -3060,6 +3061,19 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
     <button type="button" class="app2-nav app2-next" aria-label="More screens" onclick="appRail(1)">&rarr;</button>
     </div>
     <div class="app2-dots" id="appDots" aria-hidden="true"></div>
+    <!-- the screens first and the film behind a button (Elliott, 31 Oct 2026:
+         "app cards should go above the video and just button to see video") -->
+    <div class="app2-watch"><button type="button" class="app2-watch-btn" id="appFilmBtn" onclick="appFilmOpen()" aria-expanded="false">
+      <span class="app2-watch-play" aria-hidden="true"></span>How the ladder works, 2 minutes</button></div>
+    <!-- how the ladder works, the film the app opens with: nothing loads until it is
+         played, and its captions are in the picture, so there is no track to fetch -->
+    <figure class="app2-film" id="appFilm" hidden>
+      <video controls playsinline preload="none"
+        poster="https://customer-pns1oongdltmkjwa.cloudflarestream.com/f71dd8d48affa0aa92c1e574c3240100/thumbnails/thumbnail.jpg?time=1s&amp;height=720"
+        src="https://customer-pns1oongdltmkjwa.cloudflarestream.com/f71dd8d48affa0aa92c1e574c3240100/downloads/default.mp4"
+        aria-label="How the Handstand Ladder works, a two minute film with Elliott and Suryava"></video>
+      <figcaption>How the ladder works, in two minutes.</figcaption>
+    </figure>
     <!-- the button stays on screen while the app section is (22 Oct 2026), so the
          phones show the whole screen; it settles here at the end. It has to be
          a child of the container itself for that, not of a wrapper -->
@@ -5623,6 +5637,15 @@ function homeClasses(list){
        below the fold; bring the question to the top with them under it */
     if (open) setTimeout(function(){ b.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' }); }, 60);
     if (open) track('doors_open');
+  };
+  /* the film opens under its button and plays; the button closes it again */
+  W.appFilmOpen = function(){
+    var f = document.getElementById('appFilm'), b = document.getElementById('appFilmBtn'); if (!f) return;
+    var v = f.querySelector('video'), open = f.hidden;
+    f.hidden = !open; if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!v) return;
+    if (open) { try { var q = v.play(); if (q && q.catch) q.catch(function(){}); } catch (e) {} }
+    else { try { v.pause(); } catch (e) {} }
   };
   W.appRail = function(dir){
     var r = D.getElementById('appPhones'); if (!r) return;
