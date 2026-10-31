@@ -30,7 +30,7 @@ export const EMAILS = {
     "subject": "What your first month would look like",
     "title": "Your first month.",
     "paras": [
-      "Week one, you film where you are now and answer a short questionnaire, and I write your programme from it.",
+      "Week one, you film where you are now and answer a short questionnaire, and your programme is written from it.",
       "From then on it is all in the app, every drill filmed. You train it, film it, and I show you on video what to change.",
       "If you want to talk it through first, the call is free and takes 15 minutes."
     ],

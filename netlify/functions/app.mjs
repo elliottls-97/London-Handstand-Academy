@@ -3826,6 +3826,11 @@ const handle = async (request) => {
      inperson2, inperson4) still work for their payment links. */
   const SESS_MAX = 5;
   const sessAmt = () => Number(PRICES.session && PRICES.session.amount) || 7000;
+  /* the first session a month at the add on price, every one after it at
+     the full one to one rate (Elliott, 31 Oct 2026: the in person hour is
+     the best rate and the scarcest time, so only one is discounted) */
+  const sessMore = () => Number(PRICES.session60 && PRICES.session60.amount) || 8000;
+  const sessTotal = n => n > 0 ? sessAmt() + (n - 1) * sessMore() : 0;
   const coachBaseOf = k => ['online', 'inperson', 'inperson2', 'inperson4'].includes(k) ? 'online'
     : ['inner', 'inneronline'].includes(k) ? 'inneronline' : '';
   /* the plan key a checkout files: the base plan, or its with-sessions key */
@@ -3833,9 +3838,9 @@ const handle = async (request) => {
   const sessPrice = (base, n, quarter) => {
     const month = Number(PRICES[base] && PRICES[base].amount) || 0;
     if (!(month > 0)) return 0;
-    if (!quarter) return month + n * sessAmt();
+    if (!quarter) return month + sessTotal(n);
     const pct = Math.max(0, Math.min(50, Number(PRICES.coachQPct != null ? PRICES.coachQPct : 10) || 0));
-    return Math.round((3 * month * (1 - pct / 100) + 3 * n * sessAmt()) / 100) * 100;
+    return Math.round((3 * month * (1 - pct / 100) + 3 * sessTotal(n)) / 100) * 100;
   };
   const sessName = (base, n) => (base === 'online' ? 'Custom programme' : 'Weekly coaching')
     + (n > 0 ? ` with ${n} London session${n > 1 ? 's' : ''} a month` : '');
@@ -11237,6 +11242,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'sitecheckout', 'sitecall', 'sitecallbooked', 'sitecallasked',
                   /* an application sent from the Apply quiz */
                   'siteapply',
+                  /* the coaching card (31 Oct 2026): the plans seen, weekly
+                     picked, I'm interested opened and sent, and Start now
+                     pressed after the email went in */
+                  'siteplans', 'siteplanweekly', 'siteinterest', 'siteinterestsent', 'sitestartafter',
                   'siteleave', 'siteleavesend',
                   /* the journey (16 Oct 2026): the screen the app was put down
                      on with the screens seen that visit, a quiz question

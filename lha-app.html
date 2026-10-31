@@ -22970,13 +22970,15 @@ const coSessionOn = () => coSessN()>0;
 const coSessOptions = () => [0,1,2,3,4,5];
 /* the plan a card buys, before sessions: the £120 or the £300 */
 const coBaseK = p => p.k==='inner' ? 'inneronline' : 'online';
-const coAmt = k => Number((((st.prices||{})[k])||{}).amount) || ({online:12000, inneronline:30000, session:7000})[k] || 0;
+const coAmt = k => Number((((st.prices||{})[k])||{}).amount) || ({online:12000, inneronline:30000, session:7000, session60:8000})[k] || 0;
+/* the first London session at the add on price, the rest at the full rate, as the server does */
+const coSessTotal = n => n>0 ? coAmt('session') + (n-1)*coAmt('session60') : 0;
 const money = a => '£'+(a/100).toFixed(2).replace(/\.00$/,'');
 /* the month with n sessions on top, worked out here as the server does */
-const coMonthLabel = (p, n) => n>0 ? money(coAmt(coBaseK(p)) + n*coAmt('session')) : (PRICE(coBaseK(p)) || money(coAmt(coBaseK(p))));
+const coMonthLabel = (p, n) => n>0 ? money(coAmt(coBaseK(p)) + coSessTotal(n)) : (PRICE(coBaseK(p)) || money(coAmt(coBaseK(p))));
 /* three months up front: the plan's own quarter, plus three months of the sessions at full price */
 const coQuarter = (p, n) => { const q=quarterOf(coBaseK(p)); if(!q||!q.amount) return null;
-  const amount=q.amount+3*n*coAmt('session'); return {amount, label:money(amount), save:q.save||0}; };
+  const amount=q.amount+3*coSessTotal(n); return {amount, label:money(amount), save:q.save||0}; };
 /* weekly coaching is online only, so the sessions only move the £120 plan */
 const coPriceKey = p => { const n=coSessN();
   if(p.k==='online') return ({0:'online',1:'inperson',2:'inperson2',4:'inperson4'})[n]||'online';
@@ -23103,7 +23105,7 @@ function coPanelHTML(pick){
               color:${sess===n?'var(--on-primary)':'var(--ink)'};font:600 13px/1 var(--sans)">${n===0?'None':n}</button>`).join('')}
           </div>
           <div style="font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:7px">
-            60 minutes, hands on, ${PRICE('session')} each.</div>
+            60 minutes, hands on. ${PRICE('session')} for the first, ${PRICE('session60')} each after.</div>
         </div>
       </div>
       <div style="padding:16px 20px 18px;background:linear-gradient(180deg,#0a7a76,#006663);
@@ -24894,7 +24896,7 @@ const TOURS = {
        b:()=>'Film one attempt and I reply on video with the one thing to change. '
          +(checksPrice() ? 'One is free with an account. After that, '+checksPrice()+' a month for one every fortnight, with the whole Ladder.' : 'One is free with an account.')},
       {t:'pricing', h:'If you want the whole thing',
-       b:()=>'A custom programme, written and rewritten by me, at '+PRICE('online')+' a month, or weekly coaching at '+(PRICE('inneronline')||'£300')+' with me through every week. '
+       b:()=>'A custom programme, written for you and rewritten as you go, at '+PRICE('online')+' a month, or weekly coaching at '+(PRICE('inneronline')||'£300')+' with me through every week. '
          +'Add a session in London each month if you are nearby. Cancel any time.'},
       {t:'tiers', h:'Free against coached',
        b:'Side by side, what you get free and what changes when someone is building the programme rather than you picking it off a ladder.'}

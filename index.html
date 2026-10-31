@@ -3218,7 +3218,7 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
         <span class="co-pick-line">Video feedback every two weeks, your programme adjusted every six.</span>
         <span class="co-pick-price" data-pick-price="self">&pound;120<small>/mo</small></span>
       </button>
-      <button type="button" class="co-pick" data-plan="weekly" onclick="pickPlan('weekly')">
+      <button type="button" class="co-pick" data-plan="weekly" onclick="pickPlan('weekly');try { if (window.LHA && window.LHA.count) window.LHA.count(&#39;siteplanweekly&#39;); } catch (x) {}">
         <span class="co-pick-flag">3 places</span>
         <span class="co-pick-who">Weekly coaching</span>
         <span class="co-pick-line">Everything in the custom programme, and I am with you every step.</span>
@@ -3238,7 +3238,7 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
         <!-- London sessions on either plan, none to five a month (Elliott,
              31 Oct 2026: "as many as they want ... cap at 5") -->
         <div class="co-sess co-sess--n" id="coSess" role="group" aria-label="London sessions each month">
-          <span class="co-sess-txt"><b>London sessions each month</b><small>60 minutes, hands on, <span data-price="session">&pound;70</span> each on top.<span class="co-sess-any"> Change it any time.</span></small></span>
+          <span class="co-sess-txt"><b>London sessions each month</b><small>60 minutes, hands on. <span data-price="session">&pound;70</span> the first, <span data-price="session60">&pound;80</span> each after.<span class="co-sess-any"> Change it any time.</span></small></span>
           <div class="co-sn" id="coSn"></div>
         </div>
         <!-- how many coaching places are open, set in the dashboard (Settings, Money);
@@ -4471,6 +4471,7 @@ function openQuiz(e, variant) {
   if (e) e.preventDefault();
   if (window.LHA && window.LHA.count) window.LHA.count('sitequiz');
   quizVariant = QUIZ_VARIANTS[variant] ? variant : 'programme';
+  if (quizVariant === 'interest') { try { if (window.LHA && window.LHA.count) window.LHA.count('siteinterest'); } catch (x) {} }
   document.querySelectorAll('.quiz-option.selected').forEach(function (o) { o.classList.remove('selected'); });
   const fork = document.getElementById('q4-fork');
   if (fork) fork.style.display = 'none';
@@ -4601,6 +4602,8 @@ function submitQuiz() {
       /* the Apply quiz is the coaching button since 14 Oct, and nothing
          counted an application going through (16 Oct 2026, review) */
       try { if (window.LHA && window.LHA.count) window.LHA.count('siteapply'); } catch (e) {}
+      /* the coaching card's own funnel (31 Oct 2026): an email left */
+      if (quizVariant === 'interest') { try { if (window.LHA && window.LHA.count) window.LHA.count('siteinterestsent'); } catch (x) {} }
       applyQuizFormatToDone(format);
       showStep('done');
     } else {
@@ -5354,10 +5357,12 @@ var CO_PLANS = {
 };
 var coKey = 'self', coSessN = 0;
 /* amounts from the dashboard's prices once they arrive */
-function coAmt(k) { var p = (window.LHA_PRICES || {})[k]; return (p && Number(p.amount)) || ({ online: 12000, inneronline: 30000, session: 7000 })[k] || 0; }
+function coAmt(k) { var p = (window.LHA_PRICES || {})[k]; return (p && Number(p.amount)) || ({ online: 12000, inneronline: 30000, session: 7000, session60: 8000 })[k] || 0; }
+/* the first London session at the add on price, the rest at the full rate */
+function coSessTotal(n) { return n > 0 ? coAmt('session') + (n - 1) * coAmt('session60') : 0; }
 function coMoney(a) { return '\u00a3' + (a / 100).toFixed(2).replace(/\.00$/, ''); }
 function coBase(key) { return key === 'weekly' ? 'inneronline' : 'online'; }
-function coMonth(key) { return coMoney(coAmt(coBase(key)) + coSessN * coAmt('session')); }
+function coMonth(key) { return coMoney(coAmt(coBase(key)) + coSessTotal(coSessN)); }
 function setSess(n) {
   coSessN = Math.max(0, Math.min(5, n | 0));
   for (var k in CO_PLANS) {
@@ -5386,9 +5391,16 @@ function paintQuarter() {
   if (!q || !q.amount) { a.hidden = true; return; }
   a.hidden = false;
   /* the sessions go on at full price for the three months */
-  a.textContent = 'Or ' + coMoney(q.amount + 3 * coSessN * coAmt('session')) + ' every three months' + (q.save > 0 ? ', save \u00a3' + (q.save / 100).toFixed(2).replace(/\.00$/, '') : '');
+  a.textContent = 'Or ' + coMoney(q.amount + 3 * coSessTotal(coSessN)) + ' every three months' + (q.save > 0 ? ', save \u00a3' + (q.save / 100).toFixed(2).replace(/\.00$/, '') : '');
 }
 function coQKey() { return coBase(coKey); }
+/* the plans scrolled into view, once a visit */
+(function () {
+  var pk = document.getElementById('coPicker'); if (!pk || !('IntersectionObserver' in window)) return;
+  var io = new IntersectionObserver(function (en) {
+    if (en[0].isIntersecting) { try { if (window.LHA && window.LHA.count) window.LHA.count('siteplans'); } catch (x) {} io.disconnect(); } }, { threshold: 0.5 });
+  io.observe(pk);
+})();
 /* a plan with no payment link: a checkout made by the server, monthly or
    three months at a time */
 function coCheckout(e, period, el) {
@@ -5396,6 +5408,7 @@ function coCheckout(e, period, el) {
   var a = el || (period === 'month' ? document.getElementById('coBuy') : document.getElementById('coBuyQ'));
   if (!a || a.dataset.busy) return;
   var was = a.textContent; a.dataset.busy = '1'; a.textContent = 'Opening the payment page\u2026';
+  try { if (window.LHA && window.LHA.count) window.LHA.count('sitecheckout'); } catch (x) {}
   fetch('/api/app/coaching/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: coQKey(), period: period, sessions: coSessN }) })
     .then(function (r) { return r.json().then(function (d) { return r.ok && d.url ? d : Promise.reject(d.error); }); })
     .then(function (d) { try { if (window.LHA && LHA.track) LHA.track('sitecheckout', { period: period, plan: coQKey() }); } catch (x) {} location.href = d.url; })
@@ -5435,6 +5448,7 @@ function pickPlan(key) {
       + (key === 'weekly' ? ', 3 places' : '') + ')';
     I.start = { label: 'Or start now, ' + coMonth(key) + '/mo \u2192', go: function (ev) {
       if (ev) ev.preventDefault();
+      try { if (window.LHA && window.LHA.count) window.LHA.count('sitestartafter'); } catch (x) {}
       if (!p.checkout && !coSessN && p.buy) { window.open(p.buy, '_blank', 'noopener'); return; }
       coCheckout(null, 'month', document.getElementById('doneStart'));
     } };
