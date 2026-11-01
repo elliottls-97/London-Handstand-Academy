@@ -3061,6 +3061,8 @@ async function meetDrop(row) {
   try { await gCal('DELETE', '/' + enc(row.gid) + '?sendUpdates=all'); } catch (e) { console.log('meet drop', row.id, String(e && e.message || e)); }
 }
 /* the link a call is joined on: its own Meet, else the standing one */
+/* something to join on: Google making a Meet, or the standing link */
+const callJoinable = async c => /^https:\/\//.test((c && c.link) || '') || await googleOn();
 const callLinkConf = (row, c) => row && row.meet ? Object.assign({}, c, { link: row.meet, linkName: 'Google Meet' }) : c;
 const callIcsUrl = row => `${SITE}/api/app/call.ics?id=${enc(row.id)}`;
 const callGcal = (row, c) => { const a = ms(row.when), b = a + callLen(row);
@@ -3093,7 +3095,7 @@ async function callTaken(exceptId, gapMin) {
 async function callState(kind, except = {}, preview) {
   const c = await callConf();
   if (!preview && !(kind === 'welcome' ? c.welcomeOn : c.introOn)) return { on: false, why: 'off', conf: c };
-  if (!preview && !/^https:\/\//.test(c.link || '')) return { on: false, why: 'no call link is set', conf: c };
+  if (!preview && !(await callJoinable(c))) return { on: false, why: 'no call link is set and Google is not connected', conf: c };
   const f = await slotFeeds();
   if (f.busyN && !f.busyOk) { if (!preview) await slotDown(f.errs.join('. ')); return { on: false, why: f.errs.join('. ') || 'your calendars could not be read', conf: c }; }
   const taken = await callTaken(except.exceptId, c.gap);
@@ -6139,7 +6141,7 @@ const handle = async (request) => {
                   coplans: await coplansPublic(),
                   places: await placesPublic(),
                   /* the free call booked here (call.html) rather than in Calendly */
-                  calls: await callConf().then(c => ({ intro: !!c.introOn && /^https:\/\//.test(c.link || '') })).catch(() => ({ intro: false })) });
+                  calls: await callConf().then(async c => ({ intro: !!c.introOn && await callJoinable(c) })).catch(() => ({ intro: false })) });
   }
   /* ── coaching places: how many the home page says are open ── */
   if (path === '/coach/places') {
@@ -11212,7 +11214,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || ''),
         ...(await (async () => { const c = await callConf().catch(() => CALL_DEFAULTS);
           const mine = ((await getSetting('calls')) || []).find(x => x && x.kind === 'welcome' && norm(x.email) === who && x.status === 'booked' && ms(x.when) + callLen(x) > Date.now());
-          return { callHere: !!c.welcomeOn && /^https:\/\//.test(c.link || ''), wcall: mine ? await callPublic(mine, c) : null }; })()) } : {}) });
+          return { callHere: !!c.welcomeOn && await callJoinable(c), wcall: mine ? await callPublic(mine, c) : null }; })()) } : {}) });
   }
 
   /* ── tracking: metrics, habits, check-ins ─────────────────────
