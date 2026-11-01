@@ -1106,10 +1106,13 @@ async function interestMail(done) {
   const since = new Date(now - 12 * DAY).toISOString();
   const rows = (await supa.rows('applications', `created_at=gte.${enc(since)}&select=id,email,name,answers,status,created_at&order=created_at.asc`)) || [];
   const st = await guardState().catch(() => null);
+  /* anyone with a call booked, or had, is past these */
+  const callRow = await supa.row('settings', 'key=eq.calls&select=value').catch(() => null);
+  const called = new Set(((callRow && callRow.value) || []).filter(x => x && x.status !== 'cancelled').map(x => norm(x.email)));
   const told = new Set();
   for (const a of rows) {
     const e = norm(a.email);
-    if (!e || told.has(e)) continue;
+    if (!e || told.has(e) || called.has(e)) continue;
     if (!/^interested in /i.test(String((a.answers || {}).source || ''))) continue;
     if (a.status && a.status !== 'new') continue;
     if (st && st.roster.has(e)) continue;

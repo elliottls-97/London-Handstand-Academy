@@ -4382,6 +4382,24 @@ const QUIZ_VARIANTS = {
     applyCopy: "The quickest next step is a free 15 minute call. Pick a time and we will work out what you need.",
     start: null
   },
+  /* the free call (1 Nov 2026, Elliott): their name and email first, kept
+     as a lead in case they never pick a time, then straight to the times
+     with both already filled in */
+  call: {
+    label: 'Free call',
+    steps: [6],
+    names: { 6:'Contact' },
+    heads: { 6:'A free 15 minute call.' },
+    subs:  { 6:'Your name and email, then pick a time that suits you.' },
+    preset: {},
+    submitLabel: 'Pick a time \u2192',
+    subject: 'Interested in a free call',
+    plan: 'A free call',
+    notesPh: 'What are you working on? Optional.',
+    pay: false,
+    toCall: true,
+    start: null
+  },
   programme: {
     label: 'The Coaching Programme',
     steps: [1, 2, 3, 4, 5, 6],
@@ -4457,6 +4475,8 @@ function applyQuizVariant() {
   if (notesEl) {
     if (!notesEl.dataset.ph) notesEl.dataset.ph = notesEl.placeholder;
     notesEl.placeholder = cfg.notesPh || notesEl.dataset.ph;
+    /* the call page asks what they are working on: not asked twice */
+    if (notesEl.parentElement) notesEl.parentElement.style.display = cfg.toCall ? 'none' : '';
   }
   const payBox = document.getElementById('donePayBox');
   const applyBox = document.getElementById('doneApplyBox');
@@ -4616,6 +4636,8 @@ function submitQuiz() {
       if (quizVariant === 'interest') { try { if (window.LHA && window.LHA.count) window.LHA.count('siteinterestsent'); } catch (x) {} }
       /* kept on this device so booking the call does not ask again (1 Nov 2026) */
       try { localStorage.setItem('lha-name', name); localStorage.setItem('lha-email', email); } catch (x) {}
+      if (cfg.toCall) { try { if (window.LHA && window.LHA.count) window.LHA.count('sitecalllead'); } catch (x) {}
+        location.href = window.LHA_CALL_HERE ? '/call.html?from=home' : 'https://calendly.com/londonhandstandacademy-info/intro-call'; return; }
       applyQuizFormatToDone(format);
       showStep('done');
     } else {
@@ -6352,7 +6374,11 @@ function homeClasses(list){
   W.goToCall = function(e){
     if (e && e.preventDefault) e.preventDefault();
     /* booked on our own page now, not Calendly, once that is switched on */
-    if (W.LHA_CALL_HERE) { location.href = '/call.html?from=home'; return; }
+    if (W.LHA_CALL_HERE) {
+      /* name and email first, unless this device already gave them */
+      var knownE = ''; try { knownE = localStorage.getItem('lha-email') || ''; } catch (x) {}
+      if (!knownE && W.openQuiz) { W.openQuiz(null, 'call'); return; }
+      location.href = '/call.html?from=home'; return; }
     var url = CAL + '?hide_gdpr_banner=1&primary_color=006663';
     if (W.Calendly) return W.Calendly.initPopupWidget({ url: url });
     /* a tab opened now is allowed; one opened after waiting may not be */

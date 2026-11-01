@@ -11515,7 +11515,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* the coaching card (31 Oct 2026): the plans seen, weekly
                      picked, I'm interested opened and sent, and Start now
                      pressed after the email went in */
-                  'siteplans', 'siteplanweekly', 'siteinterest', 'siteinterestsent', 'sitestartafter',
+                  'siteplans', 'siteplanweekly', 'siteinterest', 'siteinterestsent', 'sitestartafter', 'sitecalllead',
                   /* the same in the app: I'm interested pressed, one tap when signed in */
                   'appinterest',
                   'siteleave', 'siteleavesend',
@@ -11980,6 +11980,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* I'm interested on the coaching plans (31 Oct 2026): the call first,
        starting second, and the daily job follows it up three times */
     if (/^interested in /i.test(answers.source)) {
+      /* the free call's lead is on its way to the times: no email telling
+         them to book the call they are booking (1 Nov 2026) */
+      if (/free call/i.test(answers.source)) return json({ ok: true, id: row.id });
       const plan = answers.plan.replace(/\s*\(.*$/, '').toLowerCase() || 'coaching';
       const T = await emailCopy('interest0', { name: esc((name || '').split(' ')[0]), plan: esc(plan) });
       if (!T.off) await email(e, T.subject, interestEmail(T, { first: (name || '').split(' ')[0], call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE));
