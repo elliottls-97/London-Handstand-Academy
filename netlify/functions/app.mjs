@@ -3002,7 +3002,41 @@ async function callManageRead(t) { const p = await verify(String(t || '')); retu
 const G_ID = () => String(process.env.GOOGLE_CLIENT_ID || '').trim();
 const G_SECRET = () => String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
 const G_REDIRECT = `${SITE}/api/app/google/callback`;
-const G_SCOPE = 'https://www.googleapis.com/auth/calendar.events openid email';
+const G_SCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/analytics.readonly openid email';
+/* the website's Google Analytics 4 property (G-Q8X7QG1BPE), read for the dashboard */
+const GA_PROPERTY = () => String(process.env.GA_PROPERTY || '561726601').trim();
+let gaCache = { key: '', at: 0, data: null };
+async function gaReport(days) {
+  const key = String(days);
+  if (gaCache.key === key && Date.now() - gaCache.at < 15 * 60e3) return gaCache.data;
+  const g = await gAuth();
+  if (!g) return { on: false, why: 'Google is not connected' };
+  if (!/analytics\.readonly/.test(g.scope || '')) return { on: false, needScope: true, why: 'Google is connected without Analytics. Connect again and tick the Analytics box.' };
+  const tok = await gTok();
+  const run = body => fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${GA_PROPERTY()}:runReport`, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error((d.error && d.error.message) || `Analytics said ${r.status}`); return d; });
+  const now = [{ startDate: `${days}daysAgo`, endDate: 'today' }];
+  const both = now.concat([{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }]);
+  const rows = (d, n = 1) => (d.rows || []).map(r => ({ k: (r.dimensionValues || []).map(x => x.value).join(' · '), v: (r.metricValues || []).slice(0, n).map(x => Number(x.value) || 0) }));
+  const by = (dim, metric, limit) => run({ dateRanges: now, dimensions: [{ name: dim }], metrics: [{ name: metric }], orderBys: [{ metric: { metricName: metric }, desc: true }], limit });
+  const [tot, chan, src, pages, place, ev, daily] = await Promise.all([
+    run({ dateRanges: both, metrics: ['activeUsers', 'sessions', 'screenPageViews', 'engagementRate', 'averageSessionDuration'].map(name => ({ name })) }),
+    by('sessionDefaultChannelGroup', 'sessions', 8), by('sessionSource', 'sessions', 8), by('pagePath', 'screenPageViews', 8),
+    by('city', 'activeUsers', 8), by('eventName', 'eventCount', 25),
+    run({ dateRanges: now, dimensions: [{ name: 'date' }], metrics: [{ name: 'activeUsers' }], orderBys: [{ dimension: { dimensionName: 'date' } }], limit: 400 }),
+  ]);
+  /* with two date ranges each row carries a dateRange dimension, in no set order */
+  const t = {}; for (const r of tot.rows || []) t[((r.dimensionValues || [])[0] || {}).value || 'date_range_0'] = (r.metricValues || []).map(x => Number(x.value) || 0);
+  const cur = t.date_range_0 || [0, 0, 0, 0, 0], prev = t.date_range_1 || [0, 0, 0, 0, 0];
+  const SKIP = new Set(['page_view', 'session_start', 'first_visit', 'user_engagement', 'scroll']);
+  const data = { on: true, days, property: GA_PROPERTY(),
+    totals: { users: cur[0], sessions: cur[1], views: cur[2], engaged: cur[3], avgSecs: cur[4], prev: { users: prev[0], sessions: prev[1], views: prev[2] } },
+    channels: rows(chan), sources: rows(src), pages: rows(pages), places: rows(place),
+    events: rows(ev).filter(x => !SKIP.has(x.k)).slice(0, 12), daily: rows(daily).map(x => ({ d: x.k, n: x.v[0] })) };
+  gaCache = { key, at: Date.now(), data };
+  return data;
+}
 const gAuth = async () => { const g = await getSetting('google:oauth').catch(() => null); return g && g.refresh ? g : null; };
 const googleOn = async () => !!(G_ID() && G_SECRET() && await gAuth());
 let gTokCache = { tok: '', until: 0 };
@@ -8566,6 +8600,12 @@ const handle = async (request) => {
       return json({ error: 'What?' }, 400);
     }
     return json(await state());
+  }
+  /* the website's Google Analytics, read through the same Google connection */
+  if (path === '/coach/ga' && request.method === 'GET') {
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const days = [7, 28, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 28;
+    try { return json(await gaReport(days)); } catch (e) { return json({ on: false, why: String(e && e.message || e) }); }
   }
   if (path === '/coach/callconf') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);

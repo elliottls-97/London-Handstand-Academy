@@ -1144,6 +1144,42 @@ const jrName=k=>{ if(!k) return '?'; if(JR_SCREEN[k]) return JR_SCREEN[k];
 /* the Learn stories by name, for the Journey report */
 const STORY_NAME={'why-you-cant-muscle-up-yet':"Why you can't muscle up yet",'the-false-grip':'The false grip',
   'the-kick-up':'The kick up','falling-the-quick-version':'Falling, the quick version'};
+/* Google Analytics for the website, read through the Google connection
+   (1 Nov 2026). Only visitors who accept cookies are in it, so its counts
+   sit under the journey's own, which count everybody. */
+let ga={d:null, days:28, loading:false, failed:''};
+function gaLoad(){ if(ga.loading) return; ga.loading=true;
+  fetch(API+'/ga?days='+ga.days,{headers:hdr()}).then(r=>r.json()).then(d=>{ ga.d=d; ga.loading=false; ga.failed=''; draw(); })
+    .catch(e=>{ ga.loading=false; ga.failed=String(e); draw(); }); }
+function gaHTML(){
+  if(!ga.d){ if(!ga.loading&&!ga.failed) gaLoad();
+    return `<div class="card"><div class="kick">GOOGLE ANALYTICS</div><p class="muted" style="margin-top:10px">${ga.failed?esc(ga.failed):'Loading…'}</p></div>`; }
+  const d=ga.d, head=`<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">GOOGLE ANALYTICS, THE WEBSITE</div><span style="flex:1"></span>
+    ${[7,28,90].map(n=>`<button class="btn btn-sm ${ga.days===n?'btn-primary':'btn-secondary'}" onclick="ga.days=${n};ga.d=null;draw()">${n} days</button>`).join('')}
+    <a href="https://analytics.google.com/analytics/web/#/p${esc(d.property||'561726601')}/reports/intelligenthome" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Open Analytics</a></div>`;
+  if(!d.on) return `<div class="card">${head}<p style="font:400 13.5px/1.6 var(--sans);margin:10px 0 0">${esc(d.why||'Not available.')}</p>
+    ${d.needScope||/not connected/i.test(d.why||'')?`<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="setTab='calls';go('settings')">Go to Calls to connect Google</button>`:''}</div>`;
+  const T=d.totals, chg=(v,p)=>!p?'':(()=>{ const x=Math.round(100*(v-p)/p); return x===0?'':`<span style="font:600 11px/1 var(--sans);color:${x>0?'var(--forest)':'var(--red,#a4503c)'}">${x>0?'▲':'▼'} ${Math.abs(x)}%</span>`; })();
+  const tile=(n,label,p)=>`<div style="flex:1;min-width:120px;padding:12px 13px;border-radius:13px;background:#fff;border:1px solid var(--line)">
+    <div style="display:flex;align-items:baseline;gap:8px"><span style="font:600 24px/1 var(--sans);font-variant-numeric:tabular-nums">${n}</span>${p!=null?chg(Number(String(n).replace(/[^\d.]/g,'')),p):''}</div>
+    <div style="font:500 12px/1.35 var(--sans);margin-top:6px">${label}</div></div>`;
+  const secs=Math.round(T.avgSecs||0), mmss=Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0');
+  const list=(title,rows)=>{ const max=Math.max(1,...rows.map(r=>r.v[0])); return `<div style="min-width:0"><div class="kick" style="margin-bottom:4px">${title}</div>
+    ${rows.length?rows.map(r=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) 46px;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)">
+      <div style="min-width:0"><div style="font:500 13px/1.35 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.k||'(not set)')}</div>
+      <div style="height:5px;border-radius:3px;background:rgba(0,64,61,.08);margin-top:4px;overflow:hidden"><div style="height:100%;width:${Math.round(100*r.v[0]/max)}%;background:var(--forest)"></div></div></div>
+      <div style="text-align:right;font:600 14px/1 var(--sans);font-variant-numeric:tabular-nums">${r.v[0]}</div></div>`).join(''):'<p class="muted" style="font-size:13px">Nothing yet.</p>'}</div>`; };
+  const dm=Math.max(1,...(d.daily||[]).map(x=>x.n));
+  return `<div class="card">${head}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      ${tile(T.users,'visitors',T.prev.users)}${tile(T.sessions,'visits',T.prev.sessions)}${tile(T.views,'pages viewed',T.prev.views)}
+      ${tile(Math.round(100*(T.engaged||0))+'%','visits that stayed')}${tile(mmss,'average visit')}</div>
+    ${(d.daily||[]).length>1?`<div style="display:flex;align-items:flex-end;gap:2px;height:56px;margin-top:14px" title="Visitors a day">
+      ${d.daily.map(x=>`<div title="${esc(x.d.slice(6)+'/'+x.d.slice(4,6))}: ${x.n}" style="flex:1;min-width:2px;height:${Math.max(2,Math.round(56*x.n/dm))}px;background:var(--forest);border-radius:2px 2px 0 0;opacity:.85"></div>`).join('')}</div>`:''}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin-top:16px">
+      ${list('HOW THEY FOUND YOU',d.channels||[])}${list('FROM WHERE',d.sources||[])}${list('PAGES',d.pages||[])}${list('TOWNS',d.places||[])}${list('WHAT THEY DID',d.events||[])}</div>
+    <p class="muted" style="font-size:12.5px;margin:12px 0 0">Only visitors who accept cookies, on the homepage. The journey below counts everybody.</p></div>`;
+}
 function journeyHTML(){
   loadJourney();
   if(!jr) return `<div class="card"><div class="kick">THE JOURNEY</div><div style="font:400 13.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">Adding it up…</div></div>`;
@@ -13675,7 +13711,7 @@ function settingsHTML(){
     background:${setTab===k?'var(--forest)':'#fff'};
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
-    setTab==='journey' ? (owner ? journeyHTML()+cpStuckHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
+    setTab==='journey' ? (owner ? gaHTML()+journeyHTML()+cpStuckHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
   : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${owner?payingHTML():''}${leadsHTML()}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
   : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
