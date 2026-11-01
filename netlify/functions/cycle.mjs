@@ -1321,11 +1321,11 @@ async function callRemind(done) {
     const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'csm', i: x.id, e: norm(x.email), exp: now + 120 * DAY })));
     const key2 = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
     const manage = `${SITE}/call.html?m=${body}.${b64u(await crypto.subtle.sign('HMAC', key2, new TextEncoder().encode(body)))}`;
-    const kindTxt = x.kind === 'welcome' ? 'welcome call' : 'free call';
+    const kindTxt = x.kind === 'welcome' ? 'welcome call' : 'free call', link = x.meet || c.link;
     const went = await email(x.email, `${today ? 'Today' : 'Tomorrow'}: your ${kindTxt} at ${clock}`, mail({
       title: today ? 'Your call is today.' : 'Your call is tomorrow.', greeting: String(x.name || '').split(' ')[0],
       paras: [`<b>${esc(clock)}</b>${lon && lon !== clock ? ' your time (' + esc(lon) + ' in London)' : ''}, ${Math.round((Number(x.len) || 15))} minutes with Elliott.`,
-              c.link ? `When it is time, <a href="${esc(c.link)}" style="color:#006663;font-weight:600">join the call here</a>.` : '',
+              link ? `When it is time, <a href="${esc(link)}" style="color:#006663;font-weight:600">join the call here</a>${x.meet ? ', on Google Meet' : ''}.` : '',
               `<b>Can't make it?</b> <a href="${manage}" style="color:#006663">Move or cancel it here</a>, no sign in needed.`].filter(Boolean),
       signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
     if (!went) { done.held = (done.held || 0) + 1; continue; }

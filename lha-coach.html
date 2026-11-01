@@ -9267,7 +9267,7 @@ function sessionsStripHTML(){
     <span class="kick" style="flex:none;width:86px">${label}</span>${items.join('')}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 var(--space-4)">
     ${up.length?line('THIS WEEK',up.map(x=>x.call
-      ? `<button onclick="setTab='calls';go('settings')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${x.kind==='welcome'?'welcome call':'free call'}</button>`
+      ? `<button onclick="setTab='calls';go('settings')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${x.kind==='welcome'?'welcome call':'free call'}</button>${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Meet</a>`:''}`
       : chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
     ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · ${gbp(x.ask)}`))):''}
   </div>`;
@@ -12091,6 +12091,19 @@ function ccAct(id, action, extra){
     .catch(e=>{ cc.busy=false; draw(); alert(String(e)); });
 }
 const ccWhen=t=>new Date(t).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
+/* Google: the consent page is Google's own, Elliott signs in there, and
+   comes back to #google=ok (or what went wrong) which routeHash reads */
+function ccGoogle(action){
+  if(action==='disconnect' && !confirm('Disconnect Google? Calls already booked keep their Meet links. New ones use the standing link, or nothing.')) return;
+  cc.busy=true; draw();
+  fetch(API+'/google',{method:'POST',headers:hdr(),body:JSON.stringify({action})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not do that')))
+    .then(d=>{ if(d.url){ location.href=d.url; return; } cc.busy=false; if(cc.d) cc.d.google=d; cc.msg='Google disconnected.'; draw(); })
+    .catch(e=>{ cc.busy=false; cc.msg=String(e); draw(); });
+}
+const CC_GOOGLE_BACK={ok:'Google connected. Every call booked from now on gets its own Meet.', denied:'Google was not connected: you said no on the consent page.',
+  state:'Google sent you back but the link had expired. Try Connect again.', token:'Google would not hand over a token. Try Connect again.',
+  norefresh:'Google gave no lasting token. Remove the app at myaccount.google.com, Security, Third-party access, then Connect again.'};
 function callsSettingsHTML(){
   /* a failed load waits for Try again: drawing used to start the next
      request, so one error became a request per round trip (13 Oct 2026) */
@@ -12110,6 +12123,7 @@ function callsSettingsHTML(){
         <span style="font:500 14px/1.3 var(--sans)">${esc(x.name||x.email)}</span><span class="muted" style="font-size:12.5px">${esc(x.email)}${x.tz&&x.tz!=='Europe/London'?' · '+esc(x.tz):''}</span></div>
       ${x.note?`<div class="muted" style="font-size:13px;margin-top:3px">"${esc(x.note)}"</div>`:''}${aboutBlock(x.about,true)}
       ${x.status==='booked'?`<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font:600 12.5px/1 var(--sans)">
+        ${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="color:var(--forest)">Join on Meet</a>`:''}
         ${new Date(x.when).getTime()<now?`<a href="#" onclick="ccAct(${jsq(x.id)},'done');return false" style="color:var(--deep)">Done</a>
           <a href="#" onclick="ccAct(${jsq(x.id)},'noshow');return false" style="color:var(--deep)">No show</a>`:''}
         <a href="#" onclick="cc.move=cc.move===${jsq(x.id)}?'':${jsq(x.id)};draw();return false" style="color:var(--deep)">Move</a>
@@ -12130,13 +12144,22 @@ function callsSettingsHTML(){
       <label class="radio"><input type="checkbox" ${c.introOn?'checked':''} ${cc.busy||(!d.ready&&!c.introOn)?'disabled':''} onchange="ccSave({introOn:this.checked})">The free intro call books here</label>
       <label class="radio"><input type="checkbox" ${c.welcomeOn?'checked':''} ${cc.busy||(!d.ready&&!c.welcomeOn)?'disabled':''} onchange="ccSave({welcomeOn:this.checked})">The welcome call books here</label>
     </div>
-    ${d.ready?'':'<p style="font:500 13px/1.5 var(--sans);color:var(--terra);margin:8px 0 0">Set the call link and your hours, and save, before switching them on.</p>'}
+    ${d.ready?'':'<p style="font:500 13px/1.5 var(--sans);color:var(--terra);margin:8px 0 0">Connect Google or set a standing link, set your hours, and save, before switching them on.</p>'}
     ${d.busy.n&&!d.busy.ok?`<p style="font:500 13px/1.5 var(--sans);color:var(--terra);margin:8px 0 0">${esc(d.busy.errs.join('. ')||'Your own calendar cannot be read')}. Until it can, calls go to Calendly.</p>`:''}
+    ${(g=>`<div style="margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;max-width:760px">
+      <div class="kick">GOOGLE MEET</div>
+      ${g.on?`<p style="font:400 13px/1.6 var(--sans);margin:6px 0 0">Connected${g.email?' as <b>'+esc(g.email)+'</b>':''}. Every call booked gets its own Meet on that calendar, the booker is a guest and Google sends them the invite from you. Moved, the event moves. Cancelled, it goes.</p>
+        ${g.dead?`<p style="font:500 13px/1.5 var(--sans);color:var(--terra);margin:6px 0 0">Google has stopped accepting the connection (${esc(g.dead)}). Connect again.</p>`:''}
+        <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="btn btn-secondary btn-sm" onclick="ccGoogle('start')" ${cc.busy?'disabled':''}>Connect again</button><button class="btn btn-secondary btn-sm" onclick="ccGoogle('disconnect')" ${cc.busy?'disabled':''}>Disconnect</button></div>`
+      :g.set?`<p style="font:400 13px/1.6 var(--sans);margin:6px 0 0">Not connected. Connect your Google account and every call booked gets its own Meet, with the booker invited by Google and the link in your calendar, in the emails and here.</p>
+        <div style="margin-top:10px"><button class="btn btn-primary btn-sm" onclick="ccGoogle('start')" ${cc.busy?'disabled':''}>Connect Google Calendar</button></div>`
+      :`<p style="font:400 13px/1.6 var(--sans);margin:6px 0 0">Needs <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in Netlify first. Until then, one standing link below does the job.</p>`}
+    </div>`)(d.google||{})}
     <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px;margin-top:14px;max-width:760px">
-      <div class="field"><label>The link everybody joins on</label><input id="ccLink" class="input" value="${esc(c.link||'')}" placeholder="https://teams.microsoft.com/l/meetup-join/…" style="${inp};font:400 12px/1.3 ui-monospace,monospace"></div>
+      <div class="field"><label>${(d.google||{}).on?'A standing link, used if Meet cannot be made':'The link everybody joins on'}</label><input id="ccLink" class="input" value="${esc(c.link||'')}" placeholder="https://teams.microsoft.com/l/meetup-join/…" style="${inp};font:400 12px/1.3 ui-monospace,monospace"></div>
       <div class="field"><label>On</label><input id="ccLinkName" class="input" value="${esc(c.linkName||'')}" placeholder="Microsoft Teams" style="${inp}"></div>
     </div>
-    <div class="muted" style="font-size:12.5px;margin-top:4px">One standing meeting you keep for calls, so nothing has to be made when somebody books. In Teams: Calendar, Meet now or a recurring meeting, Copy link.</div>
+    <div class="muted" style="font-size:12.5px;margin-top:4px">${(d.google||{}).on?'Optional with Google connected.':'One standing meeting you keep for calls, so nothing has to be made when somebody books. In Teams: Calendar, Meet now or a recurring meeting, Copy link.'}</div>
     <div class="field" style="margin-top:14px"><label>The hours you take calls, London time</label>
       <div style="display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 10px;align-items:center;max-width:520px">
         ${SS_DAYS.map(([k,n])=>`<span style="font:500 14px/1 var(--sans)">${n}</span><input id="cch${k}" class="input" value="${esc((c.hours||{})[k]||'')}" placeholder="none, or 12:00-13:00, 18:00-20:00" style="${inp}">`).join('')}
@@ -13573,6 +13596,8 @@ function routeHash(h){
   h=String(h||'').replace(/^#/,''); if(!h) return false;
   const p=new URLSearchParams(h);
   const c=p.get('c'), t=p.get('t')||'thread';
+  if(p.get('google')){ const m=CC_GOOGLE_BACK[p.get('google')]||'Google sent you back.'; history.replaceState(null,'',location.pathname);
+    setTab='calls'; go('settings'); cc.d=null; cc.msg=''; flash(m); return true; }
   if(c && clients.some(x=>x.email===c)){ openClient(c, ['thread','marks','progress','notes','programme','121'].includes(t)?t:'thread'); return true; }
   /* a booking, a cancel or a refund in the coach's email opens here */
   if(h==='bookings'){ go('bookings'); return true; }

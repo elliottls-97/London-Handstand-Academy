@@ -2991,6 +2991,77 @@ async function callManageLink(row) {
   return `${SITE}/call.html?m=${t}`;
 }
 async function callManageRead(t) { const p = await verify(String(t || '')); return p && p.k === 'csm' && p.i && p.e ? p : null; }
+/* ── Google Meet, a fresh meeting for every call (1 Nov 2026) ───────────
+   Elliott connects his Google account once, from the dashboard. Each call
+   booked here is then an event on his calendar with its own Meet link and
+   the booker as a guest: Google sends them the invite from him, our own
+   emails carry the same link, and the dashboard shows it. Moved, the event
+   moves; cancelled, it goes, and Google tells the guest both times. The
+   refresh token lives in settings, never in the repo. Without it, or when
+   Google will not answer, the standing link is used as before. */
+const G_ID = () => String(process.env.GOOGLE_CLIENT_ID || '').trim();
+const G_SECRET = () => String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+const G_REDIRECT = `${SITE}/api/app/google/callback`;
+const G_SCOPE = 'https://www.googleapis.com/auth/calendar.events openid email';
+const gAuth = async () => { const g = await getSetting('google:oauth').catch(() => null); return g && g.refresh ? g : null; };
+const googleOn = async () => !!(G_ID() && G_SECRET() && await gAuth());
+let gTokCache = { tok: '', until: 0 };
+async function gTok() {
+  if (gTokCache.tok && gTokCache.until > Date.now() + 60e3) return gTokCache.tok;
+  const g = await gAuth(); if (!g) throw new Error('Google is not connected');
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: G_ID(), client_secret: G_SECRET(), refresh_token: g.refresh, grant_type: 'refresh_token' }).toString() });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) {
+    /* a token Google has withdrawn (password changed, the app removed, a
+       test app's seven day life) is written on the connection, so the
+       dashboard says so, rather than failing quietly on every booking */
+    if (d.error === 'invalid_grant') await changeSetting('google:oauth', cur => cur ? Object.assign({}, cur, { dead: d.error_description || d.error, deadAt: Date.now() }) : undefined).catch(() => {});
+    throw new Error(d.error_description || d.error || 'Google would not give a token');
+  }
+  gTokCache = { tok: d.access_token, until: Date.now() + (Number(d.expires_in) || 3600) * 1000 };
+  return d.access_token;
+}
+async function gCal(method, p, body) {
+  const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events' + p,
+    { method, headers: { Authorization: 'Bearer ' + await gTok(), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 204) return {};
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((d.error && d.error.message) || `Google Calendar said ${r.status}`);
+  return d;
+}
+const gEventBody = (row, manage) => {
+  const a = ms(row.when), b = a + callLen(row), first = String(row.name || '').split(' ')[0];
+  return { summary: `${first ? first + ' and Elliott: ' : ''}London Handstand Academy ${CALL_NAME[row.kind] || 'call'}`,
+    description: `${callAskTxt(row.kind)}${row.note ? '\n\nYou said: ' + row.note : ''}${manage ? '\n\nMove or cancel: ' + manage : ''}`,
+    start: { dateTime: new Date(a).toISOString(), timeZone: CALL_TZ }, end: { dateTime: new Date(b).toISOString(), timeZone: CALL_TZ },
+    attendees: [{ email: row.email, displayName: row.name || undefined }], guestsCanInviteOthers: false, guestsCanModify: false,
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 10 }] } };
+};
+/* made and written onto the call; nothing thrown, the booking stands either way */
+async function meetMake(row) {
+  if (!(await googleOn())) return null;
+  try {
+    const body = Object.assign(gEventBody(row, await callManageLink(row)),
+      { conferenceData: { createRequest: { requestId: 'lha-' + row.id, conferenceSolutionKey: { type: 'hangoutsMeet' } } } });
+    const ev = await gCal('POST', '?conferenceDataVersion=1&sendUpdates=all', body);
+    const link = ev.hangoutLink || ((ev.conferenceData && ev.conferenceData.entryPoints) || []).map(x => x.uri).find(u => /meet\.google\.com/.test(u || '')) || '';
+    if (!link) throw new Error('the event was made but Google gave no Meet link');
+    await changeSetting('calls', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === row.id); if (!r) return undefined; r.meet = link; r.gid = ev.id; return l; });
+    row.meet = link; row.gid = ev.id; return link;
+  } catch (e) { row.meetErr = String(e && e.message || e); console.log('meet', row.id, row.meetErr); return null; }
+}
+async function meetMove(row) {
+  if (!row.gid || !(await googleOn())) return;
+  try { const b = gEventBody(row); await gCal('PATCH', '/' + enc(row.gid) + '?sendUpdates=all', { start: b.start, end: b.end }); }
+  catch (e) { row.meetErr = String(e && e.message || e); console.log('meet move', row.id, row.meetErr); }
+}
+async function meetDrop(row) {
+  if (!row.gid || !(await googleOn())) return;
+  try { await gCal('DELETE', '/' + enc(row.gid) + '?sendUpdates=all'); } catch (e) { console.log('meet drop', row.id, String(e && e.message || e)); }
+}
+/* the link a call is joined on: its own Meet, else the standing one */
+const callLinkConf = (row, c) => row && row.meet ? Object.assign({}, c, { link: row.meet, linkName: 'Google Meet' }) : c;
 const callIcsUrl = row => `${SITE}/api/app/call.ics?id=${enc(row.id)}`;
 const callGcal = (row, c) => { const a = ms(row.when), b = a + callLen(row);
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(`Call with Elliott, London Handstand Academy`)
@@ -3038,7 +3109,7 @@ async function callState(kind, except = {}, preview) {
 }
 /* a call as its booker may see it */
 async function callPublic(row, c) {
-  c = c || await callConf();
+  c = callLinkConf(row, c || await callConf());
   return { id: row.id, kind: row.kind, when: row.when, len: Math.round(callLen(row) / 60e3), tz: row.tz || '', status: row.status, name: row.name || '',
     link: row.status === 'booked' ? (c.link || '') : '', linkName: c.linkName || '', ics: callIcsUrl(row), gcal: callGcal(row, c), manage: await callManageLink(row) };
 }
@@ -3059,6 +3130,7 @@ const callAskTxt = kind => kind === 'welcome'
   : 'Tell me what you are stuck on. I will tell you which of the ways of training with me you actually need, including if the answer is none of them yet.';
 /* the confirmation: booked, or moved from another time */
 async function callMail(row, c, movedFrom, say) {
+  c = callLinkConf(row, c);
   const pub = await callPublic(row, c), when = callWhen(row.when, row.tz), first = String(row.name || '').split(' ')[0];
   return email(row.email, `${movedFrom ? 'Moved' : 'Booked'}: your ${CALL_NAME[row.kind]}, ${when}`, mail({
     title: movedFrom ? 'Your call has moved.' : 'Your call is booked.', greeting: first,
@@ -3079,7 +3151,9 @@ async function callTell(row, what, extra) {
     mail({ title: `A ${CALL_NAME[row.kind]} ${what}.`,
       paras: [`<b>${esc(row.name || row.email)}</b> (${esc(row.email)}), <b>${esc(when)}</b> London time, ${Math.round(callLen(row) / 60e3)} minutes.`,
               row.note ? `They said: <i>${esc(row.note)}</i>` : '', aboutMailHTML(row.about), row.tz && row.tz !== CALL_TZ ? `They are on ${esc(row.tz)} time.` : '', extra ? esc(extra) : '',
-              'It is in your calendar feed, if you have subscribed to it.'].filter(Boolean),
+              row.meet ? `<a href="${esc(row.meet)}" style="color:#006663;font-weight:600">Join on Google Meet</a>. It is in your Google Calendar, and they have the invite.`
+                : row.meetErr ? `<b style="color:#a4503c">Google Meet could not be made</b> (${esc(row.meetErr)}).${(await callConf()).link ? ' They were sent the standing link instead.' : ' They have no link to join on: send them one.'}`
+                : 'It is in your calendar feed, if you have subscribed to it.'].filter(Boolean),
       cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
 }
 /* Signing the waiver, and photos. Every class place carries the booker's
@@ -3165,6 +3239,7 @@ async function callBook({ kind, slot, name, email: who, note, tz, src, about }) 
   if (mine) return { error: `You already have a call booked: ${callWhen(mine.when, tz || mine.tz)}.`, status: 409, already: true, call: await callPublic(mine, S.conf) };
   if (clash || !row) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
   await callStateOb(row, true);
+  await meetMake(row);
   const mailed = await callMail(row, S.conf);
   await callTell(row, 'booked');
   return { ok: true, call: await callPublic(row, S.conf), mailed };
@@ -3192,6 +3267,7 @@ async function callMove(id, slot, by, say) {
   if (clash) return { error: 'That time has just gone. Pick another.', status: 409, gone: true };
   if (!row) return { error: 'This call has been cancelled or has already happened.', status: 400 };
   await callStateOb(row, true);
+  await meetMove(row);
   const c = await callConf();
   const mailed = await callMail(row, c, was, say);
   await callTell(row, by === 'coach' ? 'moved by you' : 'moved', `From ${callWhen(was, CALL_TZ)}`);
@@ -3208,6 +3284,7 @@ async function callCancel(id, by, say) {
   });
   if (!row) return { ok: true, note: 'already cancelled' };
   await callStateOb(row, false);
+  await meetDrop(row);
   const when = callWhen(row.when, row.tz), first = String(row.name || '').split(' ')[0];
   const again = row.kind === 'welcome' ? `${SITE}/lha-app.html` : `${SITE}/call.html`;
   const mailed = await email(row.email, `Cancelled: your ${CALL_NAME[row.kind]}, ${when}`, mail({
@@ -3271,6 +3348,7 @@ async function callBookAsk(id, when, say) {
   if (clash || !row) return { error: 'Another call is booked then. Pick another time.', status: 409 };
   await changeSetting('callasks', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const x = l.find(y => y && y.id === id);
     if (!x) return undefined; Object.assign(x, { status: 'booked', callId: row.id, doneAt: Date.now() }); return l; });
+  await meetMake(row);
   const mailed = await callMail(row, c, '', say);
   return { ok: true, call: await callPublic(row, c), mailed };
 }
@@ -8317,6 +8395,21 @@ const handle = async (request) => {
 
   /* ── one to one sessions: pay, then arrange ───────────────────────── */
   /* ── calls: booked here, moved and cancelled from the link in the email ── */
+  /* Google's way back, after the consent page */
+  if (path === '/google/callback' && request.method === 'GET') {
+    const back = m => Response.redirect(`${SITE}/lha-coach.html#google=${m}`, 303);
+    const st = await verify(url.searchParams.get('state') || '');
+    if (!st || st.k !== 'goa' || !(st.exp > Date.now()) || !isPrimary(st.e)) return back('state');
+    const code = url.searchParams.get('code'); if (!code) return back('denied');
+    const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: G_ID(), client_secret: G_SECRET(), redirect_uri: G_REDIRECT, grant_type: 'authorization_code' }).toString() });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.refresh_token) return back(d.access_token && !d.refresh_token ? 'norefresh' : 'token');
+    let em = ''; try { em = JSON.parse(Buffer.from(String(d.id_token || '').split('.')[1] || '', 'base64').toString()).email || ''; } catch {}
+    await setSetting('google:oauth', { refresh: d.refresh_token, email: norm(em), at: Date.now(), scope: d.scope || '' });
+    gTokCache = { tok: '', until: 0 };
+    return back('ok');
+  }
   if (path === '/call/slots' && request.method === 'GET') {
     const kind = url.searchParams.get('kind') === 'welcome' ? 'welcome' : 'intro';
     const S = await callState(kind).catch(err => { console.error('call/slots', String(err && err.message || err)); return { on: false }; });
@@ -8373,7 +8466,7 @@ const handle = async (request) => {
   if (path === '/call.ics' && request.method === 'GET') {
     const row = ((await getSetting('calls')) || []).find(x => x.id === String(url.searchParams.get('id') || ''));
     if (!row || row.status !== 'booked') return new Response('Not found', { status: 404 });
-    return new Response(callIcs(row, await callConf(), await callManageLink(row)), { headers: { 'content-type': 'text/calendar; charset=utf-8',
+    return new Response(callIcs(row, callLinkConf(row, await callConf()), await callManageLink(row)), { headers: { 'content-type': 'text/calendar; charset=utf-8',
       'content-disposition': 'attachment; filename="call-with-elliott.ics"', 'cache-control': 'no-store' } });
   }
   /* ── the calls, for the coach: who, when, and moving, cancelling, done ── */
@@ -8406,6 +8499,32 @@ const handle = async (request) => {
     }
     return json({ calls: await list(), asks: await callAsksList() });
   }
+  /* connecting Google: the dashboard asks for the consent page, Elliott
+     signs in there himself, and Google sends him back with a code that
+     becomes the refresh token. Only the owner's account can be connected. */
+  if (path === '/coach/google') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const state = async () => { const g = await getSetting('google:oauth').catch(() => null);
+      return { set: !!(G_ID() && G_SECRET()), on: !!(g && g.refresh), email: (g && g.email) || '', at: (g && g.at) || 0, dead: (g && g.dead) || '' }; };
+    if (request.method === 'POST') {
+      if (!(await isOwner())) return json(ownerOnly, 403);
+      if (body.action === 'disconnect') {
+        const g = await getSetting('google:oauth').catch(() => null);
+        if (g && g.refresh) await fetch('https://oauth2.googleapis.com/revoke?token=' + enc(g.refresh), { method: 'POST' }).catch(() => {});
+        await setSetting('google:oauth', null);
+        gTokCache = { tok: '', until: 0 };
+        return json(await state());
+      }
+      if (body.action === 'start') {
+        if (!(G_ID() && G_SECRET())) return json({ error: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set in Netlify yet.' }, 400);
+        const st = await sign({ k: 'goa', e: norm(await me()), exp: Date.now() + 15 * 60e3 });
+        return json({ url: 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({ client_id: G_ID(), redirect_uri: G_REDIRECT,
+          response_type: 'code', scope: G_SCOPE, access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: st }).toString() });
+      }
+      return json({ error: 'What?' }, 400);
+    }
+    return json(await state());
+  }
   if (path === '/coach/callconf') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     if (request.method === 'POST') {
@@ -8427,14 +8546,16 @@ const handle = async (request) => {
         link, linkName: body.linkName !== undefined ? String(body.linkName || '').trim().slice(0, 40) : cur.linkName,
       };
       /* nothing is offered without hours and a link to join on */
-      const ready = /^https:\/\//.test(next.link) && Object.values(readHours(next.hours)).some(v => v.length);
+      const ready = (/^https:\/\//.test(next.link) || await googleOn()) && Object.values(readHours(next.hours)).some(v => v.length);
       if (!ready) { next.introOn = false; next.welcomeOn = false; }
       await setSetting('callconf', next);
     }
     const c = await callConf();
     const P = await callState('intro', {}, true).catch(() => ({ on: false }));
     const f = await slotFeeds();
-    return json({ conf: Object.assign({}, c, { hours: hoursText(c.hours) }), ready: /^https:\/\//.test(c.link || '') && Object.values(readHours(c.hours)).some(v => v.length),
+    const gg = await getSetting('google:oauth').catch(() => null);
+    return json({ conf: Object.assign({}, c, { hours: hoursText(c.hours) }), ready: (/^https:\/\//.test(c.link || '') || await googleOn()) && Object.values(readHours(c.hours)).some(v => v.length),
+      google: { set: !!(G_ID() && G_SECRET()), on: !!(gg && gg.refresh), email: (gg && gg.email) || '', at: (gg && gg.at) || 0, dead: (gg && gg.dead) || '' },
       busy: { n: f.busyN || 0, ok: f.busyOk !== false, errs: (f.errs || []).filter(x => /^Your own/.test(x)) },
       preview: P.on ? P.slots.filter(x => x.start < Date.now() + 14 * DAY).map(x => new Date(x.start).toISOString()) : [], previewWhy: P.on ? '' : (P.why || ''),
       calls: ((await getSetting('calls')) || []).filter(x => x && x.when && ms(x.when) > Date.now() - 30 * DAY), asks: await callAsksList() });
