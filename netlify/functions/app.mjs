@@ -3002,7 +3002,9 @@ async function callManageRead(t) { const p = await verify(String(t || '')); retu
 const G_ID = () => String(process.env.GOOGLE_CLIENT_ID || '').trim();
 const G_SECRET = () => String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
 const G_REDIRECT = `${SITE}/api/app/google/callback`;
-const G_SCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/analytics.readonly openid email';
+const G_SCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/webmasters.readonly openid email';
+/* the verified Search Console property, for the searches people typed */
+const GSC_SITE = () => String(process.env.GSC_SITE || 'https://londonhandstandacademy.com/').trim();
 /* the website's Google Analytics 4 property (G-Q8X7QG1BPE), read for the dashboard */
 const GA_PROPERTY = () => String(process.env.GA_PROPERTY || '561726601').trim();
 let gaCache = { key: '', at: 0, data: null };
@@ -3027,7 +3029,21 @@ async function gaReport(days) {
     body: JSON.stringify({ dimensions: [{ name: 'unifiedScreenName' }], metrics: [{ name: 'activeUsers' }], limit: 10 }) })
     .then(r => r.json()).then(d => ({ n: (d.rows || []).reduce((a, r) => a + (Number(r.metricValues[0].value) || 0), 0), pages: rows(d) })).catch(() => null);
   const TOT = ['activeUsers', 'newUsers', 'sessions', 'screenPageViews', 'engagementRate', 'averageSessionDuration', 'keyEvents', 'sessionsPerUser'];
-  const [tot, daily, dailyPrev, chan, srcMed, camp, landing, pages, dev, country, city, nvr, ev, week, rt] = await Promise.all([
+  /* Google searches that showed the site, from Search Console: about two
+     days behind, and only with the webmasters permission granted */
+  const gsc = /webmasters/.test(g.scope || '') ? (async () => {
+    const q = (dims, limit, extra) => fetch(`https://www.googleapis.com/webmasters/v3/sites/${enc(GSC_SITE())}/searchAnalytics/query`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'content-type': 'application/json' },
+      body: JSON.stringify(Object.assign({ startDate: new Date(Date.now() - days * DAY).toISOString().slice(0, 10), endDate: new Date().toISOString().slice(0, 10),
+        dimensions: dims, rowLimit: limit }, extra || {})) })
+      .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error((d.error && d.error.message) || `Search Console said ${r.status}`); return d.rows || []; });
+    const shape = rs => rs.map(r => ({ k: (r.keys || []).join(' · '), v: [r.clicks || 0, r.impressions || 0, r.ctr || 0, r.position || 0] }));
+    const [all, queries, pagesS, dev] = await Promise.all([q([], 1), q(['query'], 25), q(['page'], 10), q(['device'], 3)]);
+    const a = all[0] || {};
+    return { clicks: a.clicks || 0, impressions: a.impressions || 0, ctr: a.ctr || 0, position: a.position || 0,
+      queries: shape(queries).sort((x, y) => y.v[1] - x.v[1]), pages: shape(pagesS).map(x => ({ ...x, k: x.k.replace(/^https?:\/\/[^/]+/, '') || '/' })), devices: shape(dev) };
+  })().catch(e => ({ error: String(e && e.message || e) })) : Promise.resolve({ needScope: true });
+  const [tot, daily, dailyPrev, chan, srcMed, camp, landing, pages, dev, country, city, nvr, ev, week, rt, search] = await Promise.all([
     run({ dateRanges: both, metrics: M(TOT) }),
     run({ dateRanges: now, dimensions: [{ name: 'date' }], metrics: M(['activeUsers', 'sessions']), orderBys: [{ dimension: { dimensionName: 'date' } }], limit: 400 }),
     run({ dateRanges: [both[1]], dimensions: [{ name: 'date' }], metrics: M(['activeUsers']), orderBys: [{ dimension: { dimensionName: 'date' } }], limit: 400 }),
@@ -3041,7 +3057,7 @@ async function gaReport(days) {
     by('newVsReturning', ['activeUsers', 'engagementRate'], 3),
     by('eventName', ['eventCount', 'totalUsers'], 40),
     run({ dateRanges: now, dimensions: [{ name: 'dayOfWeek' }, { name: 'hour' }], metrics: M(['activeUsers']), limit: 200 }),
-    realtime,
+    realtime, gsc,
   ]);
   /* with two date ranges each row carries a dateRange dimension, in no set order */
   const t = {}; for (const r of tot.rows || []) t[((r.dimensionValues || [])[0] || {}).value || 'date_range_0'] = (r.metricValues || []).map(x => Number(x.value) || 0);
@@ -3065,7 +3081,7 @@ async function gaReport(days) {
   }
   const o = k => own[k] || 0;
   const data = { on: true, days, property: GA_PROPERTY(),
-    totals: pack(cur), prev: pack(prev), realtime: rt,
+    totals: pack(cur), prev: pack(prev), realtime: rt, search,
     daily: rows(daily).map(x => ({ d: x.k, n: x.v[0], s: x.v[1] })), dailyPrev: rows(dailyPrev).map(x => x.v[0]),
     channels: rows(chan), sourceMedium: rows(srcMed), campaigns: rows(camp).filter(x => x.k && x.k !== '(not set)' && x.k !== '(direct)' && x.k !== '(organic)'),
     landing: rows(landing), pages: rows(pages), devices: rows(dev), countries: rows(country), cities: rows(city), newVsReturning: rows(nvr),
