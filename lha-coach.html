@@ -1151,34 +1151,83 @@ let ga={d:null, days:28, loading:false, failed:''};
 function gaLoad(){ if(ga.loading) return; ga.loading=true;
   fetch(API+'/ga?days='+ga.days,{headers:hdr()}).then(r=>r.json()).then(d=>{ ga.d=d; ga.loading=false; ga.failed=''; draw(); })
     .catch(e=>{ ga.loading=false; ga.failed=String(e); draw(); }); }
+const GA_EV={book_free_call_click:'Pressed a free call button',call_booked:'Booked a call',checkout_click:'Pressed Start now',quiz_open:'Opened a form',quiz_submit_attempt:'Sent a form',quiz_complete:'Finished a form',
+  quiz_abandon:'Left a form part way',quiz_step:'Moved through a form',app_click:'Clicked through to the app',appstore_click:'Clicked the App Store',newsletter_submit:'Joined the newsletter',
+  coach_video_play:'Played the coaching video',section_view:'Saw a section',scroll_depth:'Scrolled far down',page_exit:'Left the page',cookie_consent:'Answered the cookie bar',
+  door_click:'Picked a way in',doors_open:'Opened the ways in',fit_start:'Started the which-plan helper',fit_done:'Finished the which-plan helper',fit_call:'Helper: chose a call',
+  fit_checkout:'Helper: chose to start',book_oneoff_click:'Pressed book a 1-2-1',workshop_page_click:'Clicked through to a class',workshop_chooser_open:'Opened the class picker',
+  try_first_click:'Pressed try first',leave_prompt:'Saw the leaving prompt',click:'Clicked a link out',form_start:'Started a form',form_submit:'Sent a form (Google)',file_download:'Downloaded a file',video_start:'Started a video',video_progress:'Watched part of a video',video_complete:'Watched a video to the end'};
 function gaHTML(){
   if(!ga.d){ if(!ga.loading&&!ga.failed) gaLoad();
     return `<div class="card"><div class="kick">GOOGLE ANALYTICS</div><p class="muted" style="margin-top:10px">${ga.failed?esc(ga.failed):'Loading…'}</p></div>`; }
-  const d=ga.d, head=`<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">GOOGLE ANALYTICS, THE WEBSITE</div><span style="flex:1"></span>
+  const d=ga.d, head=`<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><div class="kick">THE WEBSITE, GOOGLE ANALYTICS</div><span style="flex:1"></span>
     ${[7,28,90].map(n=>`<button class="btn btn-sm ${ga.days===n?'btn-primary':'btn-secondary'}" onclick="ga.days=${n};ga.d=null;draw()">${n} days</button>`).join('')}
+    <button class="btn btn-sm btn-secondary" onclick="ga.d=null;draw()">Refresh</button>
     <a href="https://analytics.google.com/analytics/web/#/p${esc(d.property||'561726601')}/reports/intelligenthome" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Open Analytics</a></div>`;
   if(!d.on) return `<div class="card">${head}<p style="font:400 13.5px/1.6 var(--sans);margin:10px 0 0">${esc(d.why||'Not available.')}</p>
     ${d.needScope||/not connected/i.test(d.why||'')?`<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="setTab='calls';go('settings')">Go to Calls to connect Google</button>`:''}</div>`;
-  const T=d.totals, chg=(v,p)=>!p?'':(()=>{ const x=Math.round(100*(v-p)/p); return x===0?'':`<span style="font:600 11px/1 var(--sans);color:${x>0?'var(--forest)':'var(--red,#a4503c)'}">${x>0?'▲':'▼'} ${Math.abs(x)}%</span>`; })();
-  const tile=(n,label,p)=>`<div style="flex:1;min-width:120px;padding:12px 13px;border-radius:13px;background:#fff;border:1px solid var(--line)">
-    <div style="display:flex;align-items:baseline;gap:8px"><span style="font:600 24px/1 var(--sans);font-variant-numeric:tabular-nums">${n}</span>${p!=null?chg(Number(String(n).replace(/[^\d.]/g,'')),p):''}</div>
+  const T=d.totals||{}, P=d.prev||{};
+  const pc=v=>Math.round(100*(v||0))+'%', mmss=v=>{ const x=Math.round(v||0); return Math.floor(x/60)+':'+String(x%60).padStart(2,'0'); };
+  const chg=(v,p,down)=>{ if(!p) return ''; const x=Math.round(100*(v-p)/p); if(!x) return '<span style="font:600 11px/1 var(--sans);color:var(--grey2)">same</span>';
+    const good=down?x<0:x>0; return `<span style="font:600 11px/1 var(--sans);color:${good?'var(--forest)':'var(--red,#a4503c)'}">${x>0?'▲':'▼'} ${Math.abs(x)}%</span>`; };
+  const tile=(shown,label,v,p)=>`<div style="flex:1;min-width:118px;padding:12px 13px;border-radius:13px;background:#fff;border:1px solid var(--line)">
+    <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span style="font:600 23px/1 var(--sans);font-variant-numeric:tabular-nums">${shown}</span>${v!=null?chg(v,p):''}</div>
     <div style="font:500 12px/1.35 var(--sans);margin-top:6px">${label}</div></div>`;
-  const secs=Math.round(T.avgSecs||0), mmss=Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0');
-  const list=(title,rows)=>{ const max=Math.max(1,...rows.map(r=>r.v[0])); return `<div style="min-width:0"><div class="kick" style="margin-bottom:4px">${title}</div>
-    ${rows.length?rows.map(r=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) 46px;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)">
-      <div style="min-width:0"><div style="font:500 13px/1.35 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.k||'(not set)')}</div>
+  /* a ranked list: the first number is the bar, the rest are columns */
+  const list=(title,rows,cols,fmt)=>{ const max=Math.max(1,...rows.map(r=>r.v[0]));
+    return `<div style="min-width:0"><div style="display:grid;grid-template-columns:minmax(0,1fr) ${cols.map(()=>'54px').join(' ')};gap:8px;align-items:end;margin-bottom:4px">
+      <div class="kick">${title}</div>${cols.map(c=>`<div style="font:600 10px/1.2 var(--sans);letter-spacing:.06em;color:var(--grey);text-align:right">${c}</div>`).join('')}</div>
+    ${rows.length?rows.map(r=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) ${cols.map(()=>'54px').join(' ')};gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)">
+      <div style="min-width:0"><div style="font:500 13px/1.35 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.k)}">${esc(r.k||'(not set)')}</div>
       <div style="height:5px;border-radius:3px;background:rgba(0,64,61,.08);margin-top:4px;overflow:hidden"><div style="height:100%;width:${Math.round(100*r.v[0]/max)}%;background:var(--forest)"></div></div></div>
-      <div style="text-align:right;font:600 14px/1 var(--sans);font-variant-numeric:tabular-nums">${r.v[0]}</div></div>`).join(''):'<p class="muted" style="font-size:13px">Nothing yet.</p>'}</div>`; };
-  const dm=Math.max(1,...(d.daily||[]).map(x=>x.n));
+      ${cols.map((c,i)=>`<div style="text-align:right;font:${i?'500 12.5px':'600 14px'}/1 var(--sans);font-variant-numeric:tabular-nums">${(fmt&&fmt[i]?fmt[i](r.v[i],r):r.v[i])}</div>`).join('')}</div>`).join('')
+      :'<p class="muted" style="font-size:13px">Nothing yet.</p>'}</div>`; };
+  const RT=d.realtime;
+  const dm=Math.max(1,...(d.daily||[]).map(x=>x.n),...(d.dailyPrev||[]));
+  const days=d.daily||[];
+  const chart=days.length>1?`<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font:500 11.5px/1 var(--sans);color:var(--grey)"><span>Visitors a day</span><span><span style="display:inline-block;width:10px;height:2px;background:var(--ink,#111);opacity:.55;vertical-align:middle"></span> the period before</span></div>
+    <div style="position:relative;height:72px;margin-top:6px;display:flex;align-items:flex-end;gap:2px">
+      ${days.map((x,i)=>{ const p=(d.dailyPrev||[])[i]; return `<div title="${esc(x.d.slice(6)+'/'+x.d.slice(4,6))}: ${x.n} visitors, ${x.s} visits${p!=null?', '+p+' the period before':''}" style="position:relative;flex:1;min-width:2px;height:100%;display:flex;align-items:flex-end">
+        <div style="width:100%;height:${Math.max(2,Math.round(72*x.n/dm))}px;background:var(--forest);border-radius:2px 2px 0 0;opacity:.85"></div>
+        ${p!=null?`<div style="position:absolute;left:-1px;right:-1px;bottom:${Math.round(72*p/dm)}px;height:2px;background:var(--ink,#111);opacity:.55;z-index:1"></div>`:''}</div>`; }).join('')}</div></div>`:'';
+  /* when they come: day of the week by hour, darker is busier */
+  const W=d.week||[], wmax=Math.max(1,...W.map(x=>x.n)), DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const heat=W.length?`<div style="min-width:0;overflow-x:auto"><div class="kick" style="margin-bottom:6px">WHEN THEY COME, BY HOUR</div>
+    <div style="display:grid;grid-template-columns:34px repeat(24,minmax(9px,1fr));gap:2px;min-width:300px">
+      <div></div>${Array.from({length:24},(_,h)=>`<div style="font:500 9px/1 var(--sans);color:var(--grey);text-align:center">${h%6===0?h:''}</div>`).join('')}
+      ${[1,2,3,4,5,6,0].map(dd=>`<div style="font:500 10.5px/14px var(--sans);color:var(--grey)">${DN[dd]}</div>`+Array.from({length:24},(_,h)=>{ const c=(W.find(x=>x.d===dd&&x.h===h)||{n:0}).n;
+        return `<div title="${DN[dd]} ${h}:00, ${c}" style="height:14px;border-radius:2px;background:${c?`rgba(0,102,99,${(.12+.88*c/wmax).toFixed(2)})`:'rgba(0,64,61,.05)'}"></div>`; }).join('')).join('')}</div></div>`:'';
+  const F=d.funnel||[], fmax=Math.max(1,...F.map(x=>x.n));
+  const funnel=`<div style="min-width:0"><div class="kick" style="margin-bottom:6px">WHAT CAME OF IT</div>
+    ${F.map(x=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) 54px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)">
+      <div style="min-width:0"><div style="font:500 13px/1.35 var(--sans)">${esc(x.k)} <span class="muted" style="font-size:11px">${esc(x.src)}</span></div>
+      <div style="height:5px;border-radius:3px;background:rgba(0,64,61,.08);margin-top:4px;overflow:hidden"><div style="height:100%;width:${Math.round(100*x.n/fmax)}%;background:${x.src==='your records'?'var(--amber,#f3a949)':'var(--forest)'}"></div></div></div>
+      <div style="text-align:right;font:600 14px/1 var(--sans);font-variant-numeric:tabular-nums">${x.n}</div></div>`).join('')}
+    <p class="muted" style="font-size:11.5px;margin:6px 0 0">Amber is from your own records and counts everybody; Google only counts those who accept cookies.</p></div>`;
+  const avgEng=(v,r)=>r.v[1]?mmss(r.v[2]/r.v[1]):'';
   return `<div class="card">${head}
+    ${RT?`<div style="display:flex;align-items:center;gap:10px;margin-top:12px;font:500 13px/1.4 var(--sans)"><span style="width:9px;height:9px;border-radius:50%;background:${RT.n?'#2e9b5f':'var(--grey2)'}"></span>
+      <b style="font-weight:600">${RT.n} on the site now</b>${RT.pages&&RT.pages.length?`<span class="muted">${RT.pages.slice(0,3).map(p=>esc(p.k)+' '+p.v[0]).join(' · ')}</span>`:''}</div>`:''}
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-      ${tile(T.users,'visitors',T.prev.users)}${tile(T.sessions,'visits',T.prev.sessions)}${tile(T.views,'pages viewed',T.prev.views)}
-      ${tile(Math.round(100*(T.engaged||0))+'%','visits that stayed')}${tile(mmss,'average visit')}</div>
-    ${(d.daily||[]).length>1?`<div style="display:flex;align-items:flex-end;gap:2px;height:56px;margin-top:14px" title="Visitors a day">
-      ${d.daily.map(x=>`<div title="${esc(x.d.slice(6)+'/'+x.d.slice(4,6))}: ${x.n}" style="flex:1;min-width:2px;height:${Math.max(2,Math.round(56*x.n/dm))}px;background:var(--forest);border-radius:2px 2px 0 0;opacity:.85"></div>`).join('')}</div>`:''}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin-top:16px">
-      ${list('HOW THEY FOUND YOU',d.channels||[])}${list('FROM WHERE',d.sources||[])}${list('PAGES',d.pages||[])}${list('TOWNS',d.places||[])}${list('WHAT THEY DID',d.events||[])}</div>
-    <p class="muted" style="font-size:12.5px;margin:12px 0 0">Only visitors who accept cookies, on the homepage. The journey below counts everybody.</p></div>`;
+      ${tile(T.activeUsers,'visitors',T.activeUsers,P.activeUsers)}${tile(T.newUsers,'new visitors',T.newUsers,P.newUsers)}${tile(T.sessions,'visits',T.sessions,P.sessions)}
+      ${tile(T.screenPageViews,'pages viewed',T.screenPageViews,P.screenPageViews)}${tile(pc(T.engagementRate),'visits that stayed',T.engagementRate,P.engagementRate)}
+      ${tile(mmss(T.averageSessionDuration),'average visit',T.averageSessionDuration,P.averageSessionDuration)}${tile(T.keyEvents,'key events',T.keyEvents,P.keyEvents)}</div>
+    ${chart}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:18px">
+      ${funnel}
+      ${list('HOW THEY FOUND YOU',d.channels||[],['VISITS','PEOPLE','STAYED'],[null,null,v=>pc(v)])}
+      ${list('SOURCE / MEDIUM',d.sourceMedium||[],['VISITS','STAYED','KEY'],[null,v=>pc(v),null])}
+      ${list('WHERE THEY LANDED',d.landing||[],['VISITS','STAYED','KEY'],[null,v=>pc(v),null])}
+      ${list('PAGES',d.pages||[],['VIEWS','PEOPLE','TIME ON'],[null,null,avgEng])}
+      ${list('WHAT THEY DID',(d.events||[]).map(r=>({k:GA_EV[r.k]||r.k.replace(/_/g,' '),v:r.v})),['TIMES','PEOPLE'])}
+      ${(d.ownSources||[]).length?list('RESULTS BY SOURCE',d.ownSources,['VISITS','PLANS','EMAILS','START']):''}
+      ${(d.campaigns||[]).length?list('CAMPAIGNS',d.campaigns,['VISITS','KEY']):''}
+      ${list('DEVICES',d.devices||[],['PEOPLE','STAYED'],[null,v=>pc(v)])}
+      ${list('NEW OR BACK',d.newVsReturning||[],['PEOPLE','STAYED'],[null,v=>pc(v)])}
+      ${list('COUNTRIES',d.countries||[],['PEOPLE'])}
+      ${list('TOWNS',d.cities||[],['PEOPLE'])}
+      ${heat}</div>
+    <p class="muted" style="font-size:12.5px;margin:14px 0 0">Google's numbers are visitors who accepted cookies on the homepage. Updated every few minutes.</p></div>`;
 }
 function journeyHTML(){
   loadJourney();

@@ -3008,7 +3008,7 @@ const GA_PROPERTY = () => String(process.env.GA_PROPERTY || '561726601').trim();
 let gaCache = { key: '', at: 0, data: null };
 async function gaReport(days) {
   const key = String(days);
-  if (gaCache.key === key && Date.now() - gaCache.at < 15 * 60e3) return gaCache.data;
+  if (gaCache.key === key && Date.now() - gaCache.at < 5 * 60e3) return gaCache.data;
   const g = await gAuth();
   if (!g) return { on: false, why: 'Google is not connected' };
   if (!/analytics\.readonly/.test(g.scope || '')) return { on: false, needScope: true, why: 'Google is connected without Analytics. Connect again and tick the Analytics box.' };
@@ -3018,22 +3018,70 @@ async function gaReport(days) {
     .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error((d.error && d.error.message) || `Analytics said ${r.status}`); return d; });
   const now = [{ startDate: `${days}daysAgo`, endDate: 'today' }];
   const both = now.concat([{ startDate: `${days * 2}daysAgo`, endDate: `${days + 1}daysAgo` }]);
-  const rows = (d, n = 1) => (d.rows || []).map(r => ({ k: (r.dimensionValues || []).map(x => x.value).join(' · '), v: (r.metricValues || []).slice(0, n).map(x => Number(x.value) || 0) }));
-  const by = (dim, metric, limit) => run({ dateRanges: now, dimensions: [{ name: dim }], metrics: [{ name: metric }], orderBys: [{ metric: { metricName: metric }, desc: true }], limit });
-  const [tot, chan, src, pages, place, ev, daily] = await Promise.all([
-    run({ dateRanges: both, metrics: ['activeUsers', 'sessions', 'screenPageViews', 'engagementRate', 'averageSessionDuration'].map(name => ({ name })) }),
-    by('sessionDefaultChannelGroup', 'sessions', 8), by('sessionSource', 'sessions', 8), by('pagePath', 'screenPageViews', 8),
-    by('city', 'activeUsers', 8), by('eventName', 'eventCount', 25),
-    run({ dateRanges: now, dimensions: [{ name: 'date' }], metrics: [{ name: 'activeUsers' }], orderBys: [{ dimension: { dimensionName: 'date' } }], limit: 400 }),
+  const rows = d => (d.rows || []).map(r => ({ k: (r.dimensionValues || []).map(x => x.value).join(' · '), v: (r.metricValues || []).map(x => Number(x.value) || 0) }));
+  const M = l => l.map(name => ({ name }));
+  const by = (dim, metrics, limit, extra) => run(Object.assign({ dateRanges: now, dimensions: [].concat(dim).map(name => ({ name })), metrics: M(metrics),
+    orderBys: [{ metric: { metricName: metrics[0] }, desc: true }], limit }, extra || {}));
+  const realtime = fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${GA_PROPERTY()}:runRealtimeReport`, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'content-type': 'application/json' },
+    body: JSON.stringify({ dimensions: [{ name: 'unifiedScreenName' }], metrics: [{ name: 'activeUsers' }], limit: 10 }) })
+    .then(r => r.json()).then(d => ({ n: (d.rows || []).reduce((a, r) => a + (Number(r.metricValues[0].value) || 0), 0), pages: rows(d) })).catch(() => null);
+  const TOT = ['activeUsers', 'newUsers', 'sessions', 'screenPageViews', 'engagementRate', 'averageSessionDuration', 'keyEvents', 'sessionsPerUser'];
+  const [tot, daily, dailyPrev, chan, srcMed, camp, landing, pages, dev, country, city, nvr, ev, week, rt] = await Promise.all([
+    run({ dateRanges: both, metrics: M(TOT) }),
+    run({ dateRanges: now, dimensions: [{ name: 'date' }], metrics: M(['activeUsers', 'sessions']), orderBys: [{ dimension: { dimensionName: 'date' } }], limit: 400 }),
+    run({ dateRanges: [both[1]], dimensions: [{ name: 'date' }], metrics: M(['activeUsers']), orderBys: [{ dimension: { dimensionName: 'date' } }], limit: 400 }),
+    by('sessionDefaultChannelGroup', ['sessions', 'activeUsers', 'engagementRate', 'keyEvents'], 10),
+    by('sessionSourceMedium', ['sessions', 'engagementRate', 'keyEvents'], 12),
+    by('sessionCampaignName', ['sessions', 'keyEvents'], 8),
+    by('landingPagePlusQueryString', ['sessions', 'engagementRate', 'keyEvents'], 10),
+    by('pagePath', ['screenPageViews', 'activeUsers', 'userEngagementDuration'], 12),
+    by('deviceCategory', ['activeUsers', 'engagementRate'], 5),
+    by('country', ['activeUsers'], 8), by('city', ['activeUsers'], 10),
+    by('newVsReturning', ['activeUsers', 'engagementRate'], 3),
+    by('eventName', ['eventCount', 'totalUsers'], 40),
+    run({ dateRanges: now, dimensions: [{ name: 'dayOfWeek' }, { name: 'hour' }], metrics: M(['activeUsers']), limit: 200 }),
+    realtime,
   ]);
   /* with two date ranges each row carries a dateRange dimension, in no set order */
   const t = {}; for (const r of tot.rows || []) t[((r.dimensionValues || [])[0] || {}).value || 'date_range_0'] = (r.metricValues || []).map(x => Number(x.value) || 0);
-  const cur = t.date_range_0 || [0, 0, 0, 0, 0], prev = t.date_range_1 || [0, 0, 0, 0, 0];
+  const Z = TOT.map(() => 0), cur = t.date_range_0 || Z, prev = t.date_range_1 || Z;
+  const pack = a => Object.fromEntries(TOT.map((k, i) => [k, a[i]]));
   const SKIP = new Set(['page_view', 'session_start', 'first_visit', 'user_engagement', 'scroll']);
+  const evAll = rows(ev);
+  /* better than Google: what came of the visits, from our own records,
+     which count everybody and not only those who accepted cookies */
+  const since = Date.now() - days * DAY;
+  const callsAll = ((await getSetting('calls').catch(() => null)) || []).filter(x => x && Number(x.at) >= since);
+  const apps = await supa.rows('applications', `created_at=gte.${enc(new Date(since).toISOString())}&select=answers,created_at`).catch(() => []) || [];
+  const appsBy = re => apps.filter(a => re.test(String((a.answers || {}).source || ''))).length;
+  /* the site's own counts (LHA.count), everybody, by day and by where they came from */
+  const evKeys = []; for (let i = 0; i < days; i++) evKeys.push('ev:' + new Date(Date.now() - i * DAY).toISOString().slice(0, 10));
+  const evRows = await settingsMany(evKeys).catch(() => ({}));
+  const own = {}, ownBy = {};
+  for (const r of Object.values(evRows || {})) {
+    for (const [k, v] of Object.entries(r || {})) if (typeof v === 'number') own[k] = (own[k] || 0) + v;
+    for (const [src, e] of Object.entries((r && r.by) || {})) { ownBy[src] = ownBy[src] || {}; for (const [k, v] of Object.entries(e || {})) ownBy[src][k] = (ownBy[src][k] || 0) + v; }
+  }
+  const o = k => own[k] || 0;
   const data = { on: true, days, property: GA_PROPERTY(),
-    totals: { users: cur[0], sessions: cur[1], views: cur[2], engaged: cur[3], avgSecs: cur[4], prev: { users: prev[0], sessions: prev[1], views: prev[2] } },
-    channels: rows(chan), sources: rows(src), pages: rows(pages), places: rows(place),
-    events: rows(ev).filter(x => !SKIP.has(x.k)).slice(0, 12), daily: rows(daily).map(x => ({ d: x.k, n: x.v[0] })) };
+    totals: pack(cur), prev: pack(prev), realtime: rt,
+    daily: rows(daily).map(x => ({ d: x.k, n: x.v[0], s: x.v[1] })), dailyPrev: rows(dailyPrev).map(x => x.v[0]),
+    channels: rows(chan), sourceMedium: rows(srcMed), campaigns: rows(camp).filter(x => x.k && x.k !== '(not set)' && x.k !== '(direct)' && x.k !== '(organic)'),
+    landing: rows(landing), pages: rows(pages), devices: rows(dev), countries: rows(country), cities: rows(city), newVsReturning: rows(nvr),
+    events: evAll.filter(x => !SKIP.has(x.k)).slice(0, 20), week: rows(week).map(x => { const [d, h] = x.k.split(' · '); return { d: Number(d), h: Number(h), n: x.v[0] }; }),
+    funnel: [
+      { k: 'Homepage visits', n: o('site'), src: 'your records' },
+      { k: 'Looked at the coaching plans', n: o('siteplans'), src: 'your records' },
+      { k: 'Opened I\'m interested', n: o('siteinterest'), src: 'your records' },
+      { k: 'Left their email (interested)', n: appsBy(/^interested in (?!a free call)/i), src: 'your records' },
+      { k: 'Left their email (free call)', n: appsBy(/free call/i), src: 'your records' },
+      { k: 'Booked a free call', n: callsAll.filter(x => x.kind === 'intro').length, src: 'your records' },
+      { k: 'Applied for coaching', n: appsBy(/^(?!interested in)/i), src: 'your records' },
+    ],
+    /* which sources turned into something, from the site's own counts */
+    ownSources: Object.entries(ownBy).map(([k, e]) => ({ k, v: [e.site || 0, e.siteplans || 0, (e.siteinterestsent || 0) + (e.sitecalllead || 0), e.sitecheckout || 0] }))
+      .filter(x => x.v[0]).sort((a, b) => b.v[0] - a.v[0]).slice(0, 10) };
   gaCache = { key, at: Date.now(), data };
   return data;
 }
