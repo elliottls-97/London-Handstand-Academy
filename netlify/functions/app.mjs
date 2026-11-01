@@ -3637,11 +3637,22 @@ const IMG_DATA = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
    every message and easy to get out of step. It is two queries now: who
    exists, and what has not been read. */
 async function rosterRows() {
-  const [accounts, msgs, subs] = await Promise.all([
+  const [accounts, msgs, subs, nc, paidRows] = await Promise.all([
     supa.rows('accounts', 'select=email,name,last_seen,first_seen,plus,stage,stripe_customer&order=last_seen.desc'),
     supa.rows('messages', 'select=email,created_at,sender,read_at,body,video,image,submission&order=created_at.desc'),
     supa.rows('submissions', 'select=email'),
+    getSetting('notcounted').catch(() => ({})),
+    supa.rows('settings', `select=key,value&key=like.paidat%3A*`).catch(() => []),
   ]);
+  /* a declined card, from the note the webhook leaves in their thread, until
+     a payment from them comes in (paidat:, written from 1 Nov 2026) */
+  const paidAt = {}; for (const r of (paidRows || [])) paidAt[r.key.slice(7)] = Number(r.value) || 0;
+  const cardFail = {};
+  for (const m of (msgs || [])) if (m.sender === 'coach' && /^Your last payment did not go through/.test(String(m.body || '')))
+    cardFail[m.email] = Math.max(cardFail[m.email] || 0, ms(m.created_at));
+  /* your own devices' accounts, test addresses and the coaches: kept off
+     the client list unless asked for */
+  const mine = e => !!((nc || {})[norm(e)] || TEST_EMAIL.test(e || '') || coaches()[norm(e)]);
 
   /* Signing up is not the same as getting in touch. A free account that
      has never sent anything is a lead for the mailing list, not a row
@@ -3688,6 +3699,10 @@ async function rosterRows() {
   for (const e of Object.keys(clients())) {
     byEmail[e] = byEmail[e] || { email: e, name: clients()[e], last: 0, unread: 0 };
     byEmail[e].name = clients()[e];
+  }
+  for (const [e, r] of Object.entries(byEmail)) {
+    if (cardFail[e] && cardFail[e] > (paidAt[norm(e)] || 0)) r.cardFail = cardFail[e];
+    if (mine(e)) r.mine = true;
   }
   return byEmail;
 }
@@ -4939,6 +4954,8 @@ const handle = async (request) => {
     if (on.includes(ev.type)) {
       /* paused for not paying, and now paid: back on, and the coach hears */
       if (ev.type === 'invoice.paid' && Number(obj.amount_paid) > 0 && acct && acct.email) {
+        /* clears "Card declined" on the dashboard */
+        await setSetting(`paidat:${norm(acct.email)}`, Date.now()).catch(() => {});
         const pk = `clientpause:${norm(acct.email)}`;
         if (await getSetting(pk).catch(() => null)) {
           await supa.remove('settings', `key=eq.${enc(pk)}`).catch(() => {});

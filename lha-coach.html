@@ -183,7 +183,7 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 .dpane{display:flex;flex-direction:column;max-height:60vh;overflow-y:auto;margin-top:var(--space-3);
   padding:6px 14px 14px;border-radius:18px;background:#efece8}
 .cempty{text-align:center;padding:36px 20px;color:var(--grey);font:400 14.5px/1.6 var(--sans)}
-.cday{display:flex;justify-content:center;margin:14px 0 8px;position:sticky;top:6px;z-index:2}
+.cday{display:flex;justify-content:center;margin:14px 0 8px}
 .cday span{font:600 11px/1 var(--sans);color:var(--grey);background:#fff;border-radius:9px;padding:6px 10px;
   box-shadow:0 1px 1px rgba(0,40,38,.08)}
 .crow{display:flex;flex-direction:column;margin-top:2px}
@@ -613,7 +613,7 @@ function load(){
       bootRoute();
       cpushLoad();
     })
-    .catch(e=>gate(e===401?'Sign in again — that session has expired.':'Could not reach the server.'));
+    .catch(e=>gate(e===401?'Sign in again, that session has expired.':'Could not reach the server.'));
 }
 function openThread(email){
   /* nothing from the last person survives the switch */
@@ -2827,7 +2827,7 @@ function sendOK(r){
   if(r.ok) return r;
   return r.json().catch(()=>({})).then(d=>{
     const why=(d && d.error) || ('the server said '+r.status);
-    throw new Error('Not delivered — '+why);
+    throw new Error('Not delivered: '+why);
   });
 }
 function pickCoachClip(){ pickCoachFile('video/*'); }
@@ -3176,7 +3176,7 @@ function heatmap(opens,done){
       const lvl=doneDays.has(k)?2:openDays.has(k)?1:0;
       const fill=lvl===2?'var(--forest)':lvl===1?'#cfe6ec':'var(--mist)';
       const title=new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+
-        (lvl===2?' — session':lvl===1?' — opened':' — nothing');
+        (lvl===2?': session':lvl===1?': opened':': nothing');
       cells+=`<rect x="0" y="${d*13}" width="11" height="11" rx="2.5" fill="${fill}"><title>${title}</title></rect>`;
     }
     cols+=`<g transform="translate(${w*13},0)">${cells}</g>`;
@@ -3375,12 +3375,15 @@ function summarise(email){
   }
 
   const hard=Object.entries(p.flags||{}).filter(([,v])=>v.rate==='hard');
-  if(hard.length) out.push(`Finding ${hard.map(([d])=>d).join(', ')} too hard.`);
+  if(hard.length) out.push(`Finding ${hard.map(([d])=>drillName(d)).join(', ')} too hard.`);
   const easy=Object.entries(p.flags||{}).filter(([,v])=>v.rate==='easy');
-  if(easy.length) out.push(`${easy.map(([d])=>d).join(', ')} marked too easy — room to progress.`);
+  if(easy.length) out.push(`${easy.map(([d])=>drillName(d)).join(', ')} marked too easy, room to progress.`);
 
+  /* a session logged and the app opened are different things: Marina had
+     logged nothing for 18 days and opened the app that morning */
   if(a.sinceLast!==null&&a.sinceLast>6)
-    out.push(`No session for ${a.sinceLast} days.`);
+    out.push(`No session logged for ${a.sinceLast} days${p.lastSeen&&Date.now()-p.lastSeen<a.sinceLast*DAY-DAY
+      ?', though they opened the app '+daysAgo(p.lastSeen):''}.`);
   return out;
 }
 
@@ -3436,6 +3439,7 @@ function since(at){
 let rosterFilter='all';
 let calOff=0;      /* months back from this one */
 let calDay=null;   /* the ISO date being inspected */
+let calFor='';     /* whose calendar calOff was set for */
 
 /* The shared four-week panel is right for a client looking at their own
    habit. A coach needs to go back through the block and ask what happened
@@ -3485,6 +3489,12 @@ function coachCalendar(email){
   const byDay={};
   sess.forEach(x=>{ (byDay[iso(x.at)]=byDay[iso(x.at)]||[]).push(x); });
 
+  /* On the 1st of a month the calendar opened on an empty month. Opening a
+     client lands on the last month with a session in it. */
+  if(calFor!==email){ calFor=email; calDay=null; calOff=0;
+    const lastAt=sess.length?Math.max(...sess.map(x=>x.at)):0;
+    if(lastAt){ const t=new Date(), l=new Date(lastAt);
+      calOff=Math.max(0,(t.getFullYear()*12+t.getMonth())-(l.getFullYear()*12+l.getMonth())); } }
   const now=new Date(); now.setDate(1);
   now.setMonth(now.getMonth()-calOff);
   const y=now.getFullYear(), m=now.getMonth();
@@ -3865,7 +3875,7 @@ function panelWeek(p){
    line is the one that matters: someone declares a bad wrist and the
    coach could not see it. */
 const GOAL_LABEL={learn:'Learn to handstand',hold:'Hold a freestanding handstand',
-  improve:'Improve my handstand',advanced:'Advanced skills — press, one-arm'};
+  improve:'Improve my handstand',advanced:'Advanced skills, press and one-arm'};
 const LEVEL_LABEL=['Never done handstands',"Stuck at the wall",
   'Can briefly balance','Can hold ten seconds or more'];
 /* The quiz asks what they can do now, one skill at a time, and stops at
@@ -3920,7 +3930,9 @@ function blocksDo(email, body, ask){
     .then(d=>{ blocks[email]=d; blocksBusy=''; draw();
       if(body.action==='promote') flash('Live. They see it on their next open.');
       if(body.action==='restore'||body.action==='restorefile') flash('Back on.');
-      if(body.action==='new') flash('Draft started.'); })
+      if(body.action==='new') flash('Draft started.');
+      /* the block number and test clock live on the cycle, which comes with their progress */
+      if(body.action==='advance'){ flash('Block '+(d.block||'')+' started.'); if(sel===email) openThread(email); } })
     .catch(e=>{ blocksBusy=''; draw(); alert(String(e)); });
 }
 /* The next block started from an OK or Cancel question ("OK copies it,
@@ -7112,7 +7124,7 @@ function saveBuilder(){
                if(b){ b.disabled=false; b.textContent='Saved'; setTimeout(()=>{
                  const c=document.getElementById('bSave'); if(c) c.textContent='Save programme'; },1600); } })
     .catch(()=>{ const b=document.getElementById('bSave');
-      if(b){ b.disabled=false; b.textContent='Could not save — try again'; } });
+      if(b){ b.disabled=false; b.textContent='Could not save, try again'; } });
 }
 
 /* ── a drill the coach makes, on the spot ──────────────────────────
@@ -7947,7 +7959,9 @@ function trackHTML(email, only){
              wrist:['Wrist discomfort','/10',true]};
   const day=i=>{ const d=new Date(); d.setDate(d.getDate()-i); return d.toISOString().slice(0,10); };
 
-  const habits=Object.keys(HAB).map(h=>{
+  /* only the habits they have ever ticked: three rows at 0% for a client
+     who never used them told you nothing */
+  const habits=Object.keys(HAB).filter(h=>((t.habits||{})[h]||[]).length).map(h=>{
     const set=new Set((t.habits||{})[h]||[]);
     const days=[...Array(28).keys()].map(i=>set.has(day(27-i)));
     const rate=Math.round(days.filter(Boolean).length/28*100);
@@ -8094,10 +8108,13 @@ function trackHTML(email, only){
       Open Check points from the menu on this client to write the ones you want to measure.</p></div>`;
     return `<div class="glass" style="padding:15px 17px">${cpBlock.replace('margin-top:12px;padding-top:11px;border-top:1px solid var(--line)','')}</div>`;
   }
+  /* the tutorial record left the coaching view (1 Nov 2026): when they read
+     the tour is no help in writing the next block */
+  if(!habits && !mets && !check) return '';
   return `<div class="glass" style="padding:15px 17px;margin-top:11px">
     <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">TRACKING</div>
-    ${habits}${mets?`<div style="margin-top:12px;padding-top:11px;border-top:1px solid var(--line)">${mets}</div>`:''}
-    ${check}${tour}</div>`;
+    ${habits}${mets?`<div style="margin-top:${habits?'12px;padding-top:11px;border-top:1px solid var(--line)':'0'}">${mets}</div>`:''}
+    ${check}</div>`;
 }
 
 function intakeHTML(email){
@@ -8156,7 +8173,7 @@ function readRails(email){
     ${friction.length?rail('Friction', friction.map(esc).join(' '), '#7d3b28','rgba(200,122,86,.14)'):''}
     ${rail('Do next',
       note ? esc(note)
-           : `<span style="color:var(--grey2)">Nothing written yet — this is where your call on
+           : `<span style="color:var(--grey2)">Nothing written yet. This is where your call on
               their next block goes. <button onclick="focusNote()" style="background:none;border:none;
               padding:0;cursor:pointer;font:inherit;color:var(--forest);text-decoration:underline;
               text-underline-offset:2px">Write it</button></span>`,
@@ -8215,6 +8232,13 @@ function blockLineHTML(email){
   const sent=(subs[email]||[]).some(s=>s.status==='submitted'&&s.kind==='test'&&(s.cycle||1)===(c.n||1));
   const late=!sent && due<0;
   const long=wk>=6;
+  /* Writing the next block straight into the live one leaves the clock
+     where it was, so Marina's rewrite on 12 Oct still read as six weeks
+     in and overdue. Say so, and offer to count it. */
+  blocksLoad(email);
+  const ed=((blocks[email]||{}).live||{}).editedAt||0;
+  const day=t=>new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  const rewrote=(late||long) && ed>c.start+3*D && !((blocks[email]||{}).drafts||[]).length;
   return `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:var(--space-4);
     padding:12px 15px;border-radius:14px;
     background:${late||long?'rgba(243,169,73,.14)':'var(--surface)'};
@@ -8225,7 +8249,10 @@ function blockLineHTML(email){
         : due>0 ? 'Test due in '+due+' day'+(due===1?'':'s')+'.'
         : due===0 ? 'Test due today.'
         : 'Test was due '+(-due)+' day'+(-due===1?'':'s')+' ago and nothing has come in.'}${
-        long?' Six weeks in, so this block is due a rewrite.':''}</span>
+        long&&!rewrote?' Six weeks in, so this block is due a rewrite.':''}${
+        rewrote?` You last changed the programme on ${day(ed)}, but the block clock still runs from ${day(c.start)}.`:''}</span>
+    ${rewrote?`<button class="btn btn-secondary btn-sm" ${blocksBusy?'disabled':''}
+      onclick="blocksDo(${jsq(email)},{action:'advance'},'Count what they have now as Block ${(c.n||1)+1}?\\n\\nThe block number moves on, the test clock starts again from today, and they are told their next block is in the app.')">Count it as Block ${(c.n||1)+1}</button>`:''}
     <button class="btn btn-ghost btn-sm" onclick="openBuilder(${jsq(email)})">Edit programme</button>
   </div>`;
 }
@@ -8312,7 +8339,7 @@ function ladderFlagsHTML(p){
     .filter(r=>r.rate||r.note)
     .sort((a,b)=>b.at-a.at);
   if(!rows.length) return '';
-  return `<div class="kick" style="margin-top:22px">ON THE FREE LADDER</div>
+  return `<details style="margin-top:22px"><summary class="kick" style="cursor:pointer">ON THE FREE LADDER · ${rows.length}</summary>
     <div class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:5px">How they found drills in ladder sessions.
       Not about their plan.</div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:9px">
@@ -8323,10 +8350,21 @@ function ladderFlagsHTML(p){
       ${r.note?`<span style="font:italic 400 12.5px/1.4 var(--sans);color:var(--grey)">&ldquo;${esc(r.note)}&rdquo;</span>`:''}
       ${r.at?`<span style="margin-left:auto;font:400 11.5px/1 var(--sans);color:var(--grey2)">${esc(ago(r.at))}</span>`:''}
     </div>`).join('')}
-    </div>`;
+    </div></details>`;
 }
-const drillName=v=>((libIndex||{})[v])
-  || String(v||'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+/* A client's own drills (p-bench-zombies) are in their programme, not the
+   library, so the slug went on screen as "P Bench Zombies". Their sessions
+   recorded the name the app showed them, so it comes from there. */
+let seenNames={}, seenNamesN=-1;
+function seenName(v){
+  const n=Object.values(prog).reduce((t,p)=>t+(((p&&p.sessions)||[]).length),0);
+  if(n!==seenNamesN){ seenNames={}; seenNamesN=n;
+    Object.values(prog).forEach(p=>((p&&p.sessions)||[]).forEach(x=>(x.items||[]).forEach(it=>{
+      if(it&&it.v&&it.n) seenNames[it.v]=it.n; }))); }
+  return seenNames[v];
+}
+const drillName=v=>((libIndex||{})[v]) || seenName(v)
+  || String(v||'').replace(/^p-/,'').replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 /* How the client said a drill went. About right and a note on its own came
    in with the 5 Oct app: hard first, then easy, then the rest. */
 function rateTag(r){
@@ -8403,7 +8441,7 @@ function sessionsHTML(email){
         ${open?sessionDetail(x,flags):''}
       </div>`;}).join('')}
     ${opens.length>list.length?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);padding:4px 2px">
-      Days the app was opened without a session logged do not appear here — they are on the calendar.</div>`:''}
+      Days the app was opened without a session logged do not appear here. They are on the calendar.</div>`:''}
     </div>`;
 }
 
@@ -8411,7 +8449,7 @@ function sessionDetail(x,flags){
   const items=x.items||[];
   if(!items.length) return `<div style="background:var(--mist);border-radius:14px;padding:13px 15px;
     margin-top:6px;font:400 13px/1.6 var(--sans);color:var(--grey)">
-    No drill-by-drill for this one — it predates the app recording it.</div>`;
+    No drill-by-drill for this one. It is from before the app recorded it.</div>`;
   const blocks=[...new Set(items.map(i=>i.grp).filter(Boolean))];
   const stopped=!x.done;
   let hitStop=false;
@@ -8482,7 +8520,7 @@ function testCharts(tests){
         </div>
         ${x.pts.length>1?`<div style="margin-top:8px">${lineChart(x.pts,'')}</div>`
           :`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:5px">
-             One reading so far — a second one draws the line.</div>`}
+             One reading so far. A second one draws the line.</div>`}
       </div>`;}).join('')}
     </div>`;
 }
@@ -8579,7 +8617,7 @@ function metricsHTML(email){
     <div style="display:flex;flex-direction:column;gap:7px;margin-top:10px">
     ${stops.slice(-4).reverse().map(x=>`<div style="font:400 13px/1.5 var(--sans);color:var(--grey)">
       Stopped at <b style="color:var(--ink)">${esc(x.stoppedAt)}</b>${x.block?` in ${esc(x.block)}`:''}
-      — ${x.got}/${x.of} through, ${x.actual||0} min in</div>`).join('')}</div>`:''}
+      · ${x.got}/${x.of} through, ${x.actual||0} min in</div>`).join('')}</div>`:''}
 
   ${a.holds.length>1?`<div class="kick" style="margin-top:26px">HOLD OVER TIME</div>
     <div style="margin-top:12px">${lineChart(a.holds,'s')}</div>`:''}
@@ -8627,9 +8665,9 @@ function metricsHTML(email){
    never sent as-is — a reply that reads as a template is worse than a slow
    one, which is why each one ends mid-sentence. */
 const SNIPPETS=[
-  ['Got it', "Got your clips — watching them today, I'll come back with the one thing to change."],
+  ['Got it', "Got your clips. Watching them today, I'll come back with the one thing to change."],
   ['One change', "One thing to change this block: "],
-  ['Looking better', "This is better than last time — specifically, "],
+  ['Looking better', "This is better than last time. Specifically, "],
   ['Re-film', "I can't see enough to call it. Could you re-film side on, whole body in frame, hands not cropped?"],
   ['Ease off', "Back off the volume this week. "],
 ];
@@ -8660,7 +8698,7 @@ function newClientHTML(){
   return `<div class="glass" style="padding:16px 18px;margin-bottom:14px">
     <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">NEW COACHING CLIENT</div>
     <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:8px">
-      Sets their password and takes them on as a client. They are live straight away —
+      Sets their password and takes them on as a client. They are live straight away,
       no deploy. Write their programme from their thread.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
       <input id="ncEmail" placeholder="them@email.com" style="flex:1;min-width:170px;${bInput}">
@@ -8688,7 +8726,7 @@ function makeClient(){
       .then(r=>r.ok?r.json():Promise.reject(r.status))
       .then(()=>{
         say((d.hadAccount?'Password set on their existing account.':'Account created.')
-          +' They are on the roster — open their thread to write a programme.');
+          +' They are on the roster. Open their thread to write a programme.');
         const c=document.getElementById('ncEmail'); if(c) c.value='';
         const n2=document.getElementById('ncName'); if(n2) n2.value='';
         const w=document.getElementById('ncPw'); if(w) w.value='';
@@ -9718,7 +9756,7 @@ function addToRoster(email){
     .catch(e=>alert(String(e.message||e)));
 }
 function pickToggle(e){ if(rosterPick[e]) delete rosterPick[e]; else rosterPick[e]=true; draw(); }
-function pickAllCoached(){ rosterPick={}; clients.filter(c=>c.coached!==false)
+function pickAllCoached(){ rosterPick={}; clients.filter(c=>c.coached!==false && !c.mine)
   .forEach(c=>rosterPick[c.email]=true); draw(); }
 const pickedList = () => Object.keys(rosterPick).filter(e=>rosterPick[e]);
 
@@ -9729,7 +9767,9 @@ function rosterHTML(){
     .filter(c=>!q||String(c.name||'').toLowerCase().includes(q)||String(c.email||'').toLowerCase().includes(q))
     /* a new account that has only had the welcome is not an enquiry, and
        there are a lot of them: they have their own filter, as in Chats */
-    .filter(c=>f==='all'?(!chatNew(c) && !c.archived):f==='coaching'?c.coached!==false
+    /* your own and test accounts sat among the clients: they have their own filter */
+    .filter(c=>f==='yours'?!!c.mine:!c.mine)
+    .filter(c=>f==='yours'?true:f==='all'?(!chatNew(c) && !c.archived):f==='coaching'?c.coached!==false
       :f==='waiting'?queue.some(x=>x.email===c.email)
       :f==='unread'?!!c.unread:f==='enquiries'?(c.coached===false && !chatNew(c) && !c.archived)
       :f==='new'?chatNew(c):f==='past'?!!c.archived:true)
@@ -9737,7 +9777,8 @@ function rosterHTML(){
       ||((queue.some(x=>x.email===b.email)?1:0)-(queue.some(x=>x.email===a.email)?1:0)));
   const picked=pickedList();
   const defs=[['all','All'],['coaching','Coaching'],['waiting','Waiting'],
-              ['unread','Unread'],['enquiries','Enquiries'],['new','New accounts'],['past','Past clients']];
+              ['unread','Unread'],['enquiries','Enquiries'],['new','New accounts'],['past','Past clients'],
+              ...(clients.some(c=>c.mine)?[['yours','Yours and tests']]:[])];
   const cols='28px minmax(0,2fr) minmax(0,1fr) 92px 92px';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
@@ -9792,7 +9833,7 @@ function rosterHTML(){
         <div onclick="openClient(${jsq(c.email)})" style="cursor:pointer;font:400 14px/1.4 var(--sans)">${
           a?a.adherence+'%':'not yet'}</div>
         <div onclick="openClient(${jsq(c.email)})" style="cursor:pointer;font:400 14px/1.4 var(--sans);
-          color:${w?hrsColor(wh):'var(--grey2)'}">${w?wh+' h':'none'}</div>
+          color:${w?hrsColor(wh):'var(--grey2)'}">${w?waitTxt(wh):'none'}</div>
       </div>`; }).join('')
       || `<p class="muted" style="padding:var(--space-4) 0">${clientsLoaded?'Nobody matches.':'Loading your clients&hellip;'}</p>`}
   </section>`;
@@ -10060,6 +10101,29 @@ function oneOnePaneHTML(){
     ${past.length?`<div class="kick" style="margin-top:24px">BEFORE</div>${past.map(card).join('')}`:''}
   </div>`;
 }
+/* What you want to know before opening a tab: whether they are paying,
+   where they are in the block, when they last trained and last opened the
+   app, and how many check points are done. It was the email and "18 days
+   since last", and a declined card was only in the thread. */
+function factsHTML(c,a,line){
+  const p=prog[sel]||{}, out=[];
+  const day=t=>new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+  if(c.cardFail) out.push(`<b style="color:var(--terra)" title="Stripe declined their card. This clears when a payment from them comes in.">Card declined ${day(c.cardFail)}</b>`);
+  else if(c.plus) out.push('Paying');
+  const cy=cycles[sel];
+  if(cy&&cy.start) out.push(`Block ${cy.n||1}, week ${Math.max(1,Math.floor((Date.now()-cy.start)/(7*DAY))+1)}`);
+  if(line) out.push(line.replace(/^(\d+) days since last$/,'last session $1 days ago'));
+  if(p.lastSeen && (a&&a.sinceLast!==null ? Date.now()-p.lastSeen<a.sinceLast*DAY-DAY : true))
+    out.push('opened the app '+daysAgo(p.lastSeen));
+  const defs=cpDefs[sel]||[];
+  if(defs.length){ const done=defs.filter(k=>{ try{ return cpStand(sel,k).state==='signed'; }catch(e){ return false; } }).length;
+    out.push(`${done} of ${defs.length} check points signed off`); }
+  if(!out.length) return '';
+  return `<div style="display:flex;gap:4px 16px;flex-wrap:wrap;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--ink)">
+    ${out.map(x=>`<span>${x}</span>`).join('')}</div>`;
+}
+/* hours read fine up to two days; "1133 h" is 47 days */
+const waitTxt=h=>h<48?h+' h':Math.round(h/24)+' days';
 function clientScreenHTML(msgs){
   const c=clients.find(x=>x.email===sel)||{};
   if(!sel) return `<section class="glass" style="padding:26px 28px;border-radius:24px">
@@ -10091,12 +10155,13 @@ function clientScreenHTML(msgs){
       <div style="min-width:0;flex:1 1 320px">
         <h1 style="margin:0">${esc(c.name||sel)}</h1>
         <p class="muted" style="font:400 14px/1.5 var(--sans);margin:var(--space-1) 0 0">${
-          esc(sel)}${c.coached===false?' · '+({new:'new account',session:'1-2-1',member:'ladder member',past:'past client'}[chatKind(c)]||'enquiry'):''}${line?' · '+esc(line):''}${c.planOnly?` · <span style="color:var(--terra)">has a programme but is not on your coaching list</span>
+          esc(sel)}${c.coached===false?' · '+({new:'new account',session:'1-2-1',member:'ladder member',past:'past client'}[chatKind(c)]||'enquiry'):''}${line&&bare?' · '+esc(line):''}${c.planOnly?` · <span style="color:var(--terra)">has a programme but is not on your coaching list</span>
             <button class="btn btn-ghost btn-sm" onclick="addToRoster(${jsq(sel)})">Add</button>`:''}</p>
+        ${bare?'':factsHTML(c,a,line)}
         ${bare?'':weekNoteHTML(sel)}
       </div>
       ${w?`<div class="promise" style="text-align:right">
-        <div style="font:400 32px/1 var(--serif);color:${hrsColor(wh)}">${wh} h</div>
+        <div style="font:400 32px/1 var(--serif);color:${hrsColor(wh)}">${waitTxt(wh)}</div>
         <div style="font:400 12px/1.4 var(--sans);margin-top:4px;color:${hrsColor(wh)}">${
           wh>=PROMISE_H?'past the '+PROMISE_H+' you promise':(PROMISE_H-wh)+' h left on the promise'}</div>
       </div>`:''}
@@ -10423,6 +10488,9 @@ function marksPaneHTML(){
     const {hist,last,clip,s0,state,waiting}=S;
     const unit=k.unit||'';
     const numeric=k.kind!=='yn' && k.kind!=='face';
+    /* a face was printed as its index: "Last logged: 2 15 days ago" */
+    const cpShow=v=>k.kind==='face' ? (k.faces||['Not really','Getting there','Yes'])[Math.max(0,Math.min(2,Number(v)||0))]
+      : k.kind==='yn' ? (v?'Yes':'Not yet') : String(v)+unit;
     const tline=cpTargetLine(k,S.tgt,S.lower);
     const sub = clip ? cpSubFor(sel, clip.video) : null;
     const busy=cpVerdictBusy.has(k.k);
@@ -10463,7 +10531,7 @@ function marksPaneHTML(){
           : 'Sign it off when you are happy it is there, whatever the number says.'}</div>
       </div>` : '';
     const recent=hist.slice(-6).map(r=>`<span style="font:400 12px/1.4 var(--sans);color:var(--grey2)">${
-      esc(String(r.v))+esc(unit)}<span style="opacity:.6"> ${esc(ago(r.at))}</span></span>`).join(
+      esc(cpShow(r.v))}<span style="opacity:.6"> ${esc(ago(r.at))}</span></span>`).join(
       `<span style="color:var(--line)">&nbsp;·&nbsp;</span>`);
     return `<div class="card" style="margin-bottom:var(--space-3);
       ${needs?'border:1.5px solid var(--forest)':''}">
@@ -10480,8 +10548,9 @@ function marksPaneHTML(){
         With no number their bar cannot turn green. Add one in Edit check points, or sign it off by eye.</p>`:''}
       ${k.note?`<p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:6px">${esc(k.note)}</p>`:''}
       <div style="margin-top:10px;font:400 13.5px/1.5 var(--sans)">${
-        last ? `Last logged: <b>${esc(String(last.v))}${esc(unit)}</b> ${esc(ago(last.at))}`
+        last ? `Last logged: <b>${esc(cpShow(last.v))}</b>, ${esc(ago(last.at))}`
              : 'Nothing logged yet.'}</div>
+      ${k.measure && !hist.length ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">A record with no target, so nothing to sign off.</p>`:''}
       ${hist.length>1?`<div style="margin-top:6px">${recent}</div>`:''}
       ${clip?`<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
         <div style="flex:0 0 170px;border-radius:12px;overflow:hidden">${clipPoster(clip.video,'3/4','',true)}</div>
