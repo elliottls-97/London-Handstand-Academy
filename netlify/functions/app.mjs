@@ -1225,7 +1225,7 @@ const REPLY_TO = process.env.REPLY_TO || 'info@londonhandstandacademy.com';
    else, and lasts five years. */
 const unsubUrl = async to => `${SITE}/api/app/unsub?t=${await sign({ k: 'unsub', e: norm(to), exp: Date.now() + 5 * 365 * 864e5 })}`;
 const isUnsub = async to => { try { return !!(await getSetting(`unsub:${norm(to)}`)); } catch { return false; } };
-const staffAddr = to => { const t = norm(to); return !!t && (coaches()[t] !== undefined || t === norm(process.env.COACH_EMAIL || '') || t === norm(process.env.FROM_EMAIL || '')); };
+const staffAddr = to => { const t = norm(to); return !!t && (coaches()[t] !== undefined || t === norm(process.env.COACH_EMAIL || '') || t === norm(process.env.FROM_EMAIL || '') || t === norm(REPLY_TO)); };
 const withUnsub = (html, url) => String(html).includes('/api/app/unsub?t=') ? String(html)
   : String(html).includes('<!--UNSUB-->')
   ? String(html).replace('<!--UNSUB-->', ` &nbsp;·&nbsp; <a href="${url}" style="color:#8a8d80">Unsubscribe</a>`)
@@ -3147,7 +3147,10 @@ async function callMail(row, c, movedFrom, say) {
 async function callTell(row, what, extra) {
   const t = `${row.name || row.email}: ${CALL_NAME[row.kind]} ${what}`, when = callWhen(row.when, CALL_TZ);
   await coachAlert(clients()[norm(row.email)] ? row.email : null, 'business', { title: t, body: when + (extra ? '. ' + extra : ''), tag: 'call:' + row.id });
-  await email(clients()[norm(row.email)] ? coachTo(row.email) : (process.env.COACH_EMAIL || process.env.FROM_EMAIL), `Call ${what}: ${row.name || row.email}, ${when}`,
+  /* the coach's address, and info@ always, so every Meet link lands in the
+     business inbox whoever takes the call (1 Nov 2026) */
+  const to = [...new Set([clients()[norm(row.email)] ? coachTo(row.email) : (process.env.COACH_EMAIL || process.env.FROM_EMAIL), REPLY_TO].filter(Boolean).map(norm))];
+  for (const addr of to) await email(addr, `Call ${what}: ${row.name || row.email}, ${when}`,
     mail({ title: `A ${CALL_NAME[row.kind]} ${what}.`,
       paras: [`<b>${esc(row.name || row.email)}</b> (${esc(row.email)}), <b>${esc(when)}</b> London time, ${Math.round(callLen(row) / 60e3)} minutes.`,
               row.note ? `They said: <i>${esc(row.note)}</i>` : '', aboutMailHTML(row.about), row.tz && row.tz !== CALL_TZ ? `They are on ${esc(row.tz)} time.` : '', extra ? esc(extra) : '',
