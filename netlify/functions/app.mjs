@@ -2974,7 +2974,7 @@ function callWhen(t, tz) {
   const lon = f(CALL_TZ, callDay(t) === new Date(t).toLocaleDateString('en-CA', { timeZone: z }) ? {} : { weekday: 'long' });
   return mine === f(CALL_TZ, { weekday: 'long', day: 'numeric', month: 'long' }) ? mine : `${mine} your time (${lon} in London)`;
 }
-const CALL_NAME = { intro: 'free call', welcome: 'welcome call' };
+const CALL_NAME = { intro: 'free call', welcome: 'welcome call', progress: 'progress call', call: 'video call' };
 /* "2026-12-24, 2026-12-27 to 2026-12-31" into the London dates off */
 function callDaysOff(v) {
   const out = new Set();
@@ -3033,7 +3033,7 @@ async function gCal(method, p, body) {
 const gEventBody = (row, manage) => {
   const a = ms(row.when), b = a + callLen(row), first = String(row.name || '').split(' ')[0];
   return { summary: `${first ? first + ' and Elliott: ' : ''}London Handstand Academy ${CALL_NAME[row.kind] || 'call'}`,
-    description: `${callAskTxt(row.kind)}${row.note ? '\n\nYou said: ' + row.note : ''}${manage ? '\n\nMove or cancel: ' + manage : ''}`,
+    description: `${callAskTxt(row.kind) || 'A video call with Elliott.'}${row.note ? '\n\nYou said: ' + row.note : ''}${manage ? '\n\nMove or cancel: ' + manage : ''}`,
     start: { dateTime: new Date(a).toISOString(), timeZone: CALL_TZ }, end: { dateTime: new Date(b).toISOString(), timeZone: CALL_TZ },
     attendees: [{ email: row.email, displayName: row.name || undefined }], guestsCanInviteOthers: false, guestsCanModify: false,
     reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 10 }] } };
@@ -3129,6 +3129,8 @@ async function callStateOb(row, booked) {
 }
 const callAskTxt = kind => kind === 'welcome'
   ? 'We agree what block one works on, so it fits you and your week. If your baseline tests are in by then, even better.'
+  : kind === 'progress' ? 'We look at where you started, where you are now, and what the next block works on.'
+  : kind === 'call' ? ''
   : 'Tell me what you are stuck on. I will tell you which of the ways of training with me you actually need, including if the answer is none of them yet.';
 /* the confirmation: booked, or moved from another time */
 async function callMail(row, c, movedFrom, say) {
@@ -3139,7 +3141,7 @@ async function callMail(row, c, movedFrom, say) {
     paras: [`<b>${esc(when)}</b>. ${pub.len} minutes${c.linkName ? ', on ' + esc(c.linkName) : ''}, with Elliott.${movedFrom ? ' Instead of ' + esc(callWhen(movedFrom, row.tz)) + '.' : ''}`,
             say ? esc(say) : '',
             c.link ? `At that time, <a href="${esc(c.link)}" style="color:#006663;font-weight:600">join the call here</a>. The link is in the calendar entry too.` : '',
-            esc(callAskTxt(row.kind)),
+            callAskTxt(row.kind) ? esc(callAskTxt(row.kind)) : '',
             `<a href="${pub.ics}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${pub.gcal}" style="color:#006663;font-weight:600">Google Calendar</a>`,
             `<b>Need to change it?</b> <a href="${pub.manage}" style="color:#006663">Move or cancel it here</a>, no account or password needed. A reminder comes the day before.`].filter(Boolean),
     cta: c.link ? { href: c.link, label: 'The call link' } : undefined,
@@ -3331,6 +3333,33 @@ async function callAsk({ name, email: who, prefs, tz, about }) {
 }
 /* Elliott books an ask in at the time he found: a call like any other,
    with the confirmation, the link and the calendar file */
+/* Elliott invites somebody himself, from the dashboard: any time he
+   chooses, outside his hours if he likes, as long as no other call is on
+   then. They get the Meet invite from Google and the confirmation from us. */
+async function callInvite({ kind, email: who, name, when, len, say }) {
+  const k = CALL_NAME[kind] ? kind : 'call', at = ms(when), e = norm(who);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { error: 'That email address does not look right.', status: 400 };
+  if (!(at > Date.now())) return { error: 'Pick a time that has not happened yet.', status: 400 };
+  const mins = [10, 15, 20, 30, 45, 60, 90].includes(Number(len)) ? Number(len) : 15;
+  const c = await callConf();
+  let row = null, clash = null;
+  await changeSetting('calls', cur => {
+    row = null; clash = null;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    clash = l.find(x => x && x.status === 'booked' && ms(x.when) < at + mins * 60e3 && ms(x.when) + callLen(x) > at) || null;
+    if (clash) return undefined;
+    row = { id: 'c' + newId(), kind: k, email: e, name: String(name || (clients()[e] && clients()[e].name) || '').trim().slice(0, 60), when: new Date(at).toISOString(), len: mins,
+      tz: CALL_TZ, note: '', at: Date.now(), src: 'invite', status: 'booked' };
+    l.unshift(row); return l.slice(0, 800);
+  });
+  if (clash) return { error: `You already have a call then: ${clash.name || clash.email}, ${callWhen(clash.when, CALL_TZ)}.`, status: 409 };
+  if (!row) return { error: 'Could not save the call.', status: 500 };
+  await callStateOb(row, true);
+  await meetMake(row);
+  const mailed = await callMail(row, c, '', say);
+  await callTell(row, 'booked by you');
+  return { ok: true, call: await callPublic(row, c), mailed, meet: row.meet || '', meetErr: row.meetErr || '' };
+}
 async function callBookAsk(id, when, say) {
   const q = ((await getSetting('callasks')) || []).find(x => x && x.id === id);
   if (!q || q.status !== 'open') return { error: 'That one has been dealt with already.', status: 400 };
@@ -8478,6 +8507,11 @@ const handle = async (request) => {
   if (path === '/coach/calls') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const list = () => getSetting('calls').then(l => (l || []).filter(x => x && x.when && ms(x.when) > Date.now() - 30 * DAY));
+    if (request.method === 'POST' && body.action === 'invite') {
+      const r = await callInvite({ kind: body.kind, email: body.email, name: body.name, when: String(body.when || ''), len: body.len, say: String(body.msg || '').trim().slice(0, 600) });
+      if (r.error) return json(r, r.status);
+      return json(Object.assign({ calls: await list(), asks: await callAsksList() }, r));
+    }
     if (request.method === 'POST' && ['askbook', 'askdone'].includes(body.action)) {
       const id = String(body.id || ''), say = String(body.msg || '').trim().slice(0, 600);
       let r = { ok: true };

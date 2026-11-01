@@ -9267,7 +9267,7 @@ function sessionsStripHTML(){
     <span class="kick" style="flex:none;width:86px">${label}</span>${items.join('')}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 var(--space-4)">
     ${up.length?line('THIS WEEK',up.map(x=>x.call
-      ? `<button onclick="setTab='calls';go('settings')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${x.kind==='welcome'?'welcome call':'free call'}</button>${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Meet</a>`:''}`
+      ? `<button onclick="setTab='calls';go('settings')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${CC_KIND_TXT[x.kind]||'call'}</button>${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Meet</a>`:''}`
       : chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
     ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · ${gbp(x.ask)}`))):''}
   </div>`;
@@ -12090,6 +12090,22 @@ function ccAct(id, action, extra){
       flash(action==='cancel'?'Cancelled. '+(d.mailed?'They have been emailed.':'The email did not go.'):action==='move'?'Moved. '+(d.mailed?'They have been emailed.':'The email did not go.'):action==='done'?'Marked done':action==='noshow'?'Marked as a no show':'Saved'); draw(); })
     .catch(e=>{ cc.busy=false; draw(); alert(String(e)); });
 }
+/* Elliott invites somebody to a call himself: a client, a lead, anyone */
+const CC_KINDS=[['call','Video call'],['progress','Progress call'],['welcome','Welcome call'],['intro','Free call']];
+const CC_KIND_PILL={welcome:'WELCOME',intro:'FREE CALL',progress:'PROGRESS',call:'CALL'};
+const CC_KIND_TXT={welcome:'welcome call',intro:'free call',progress:'progress call',call:'video call'};
+function ccInvite(){
+  const v=id=>((document.getElementById(id)||{}).value||'').trim();
+  const email=v('cciEmail'), d=v('cciDate'), t=v('cciTime');
+  if(!email) return alert('Who is it with? Put their email in.');
+  if(!d||!t) return alert('Pick the date and time.');
+  cc.busy=true; cc.msg=''; draw();
+  fetch(API+'/calls',{method:'POST',headers:hdr(),body:JSON.stringify({action:'invite', email, name:v('cciName'), kind:v('cciKind'), len:v('cciLen'), when:londonISO(d,t), msg:v('cciMsg')})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not send')))
+    .then(d=>{ calls=d.calls||calls; if(cc.d) cc.d.calls=calls; cc.busy=false; cc.invite=false;
+      flash(d.meet?'Invite sent, with its own Meet.':d.meetErr?'Booked and emailed, but Google Meet could not be made: '+d.meetErr:'Booked and emailed.'); draw(); })
+    .catch(e=>{ cc.busy=false; draw(); alert(String(e)); });
+}
 const ccWhen=t=>new Date(t).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
 /* Google: the consent page is Google's own, Elliott signs in there, and
    comes back to #google=ok (or what went wrong) which routeHash reads */
@@ -12118,7 +12134,7 @@ function callsSettingsHTML(){
     return `<div style="padding:10px 0;border-top:1px solid var(--line)">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <b style="font:600 14px/1.3 var(--sans)">${esc(ccWhen(x.when))}</b>
-        ${pill(x.kind==='welcome'?'WELCOME':'FREE CALL', x.kind==='welcome'?'var(--forest)':'var(--deep)')}
+        ${pill(CC_KIND_PILL[x.kind]||'CALL', x.kind==='intro'?'var(--deep)':'var(--forest)')}
         ${x.status!=='booked'?pill(x.status==='done'?'DONE':x.status==='noshow'?'NO SHOW':'CANCELLED','var(--grey2)'):''}
         <span style="font:500 14px/1.3 var(--sans)">${esc(x.name||x.email)}</span><span class="muted" style="font-size:12.5px">${esc(x.email)}${x.tz&&x.tz!=='Europe/London'?' · '+esc(x.tz):''}</span></div>
       ${x.note?`<div class="muted" style="font-size:13px;margin-top:3px">"${esc(x.note)}"</div>`:''}${aboutBlock(x.about,true)}
@@ -12136,6 +12152,25 @@ function callsSettingsHTML(){
   return `<div class="card">
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <div class="kick">CALLS</div><span style="flex:1"></span><span class="muted" style="font-size:12.5px">${esc(cc.msg)}</span></div>
+    <div style="margin-top:12px">
+      ${cc.invite?`<div style="padding:12px 14px;border:1px solid var(--line);border-radius:14px;max-width:760px">
+        <div class="kick">INVITE SOMEBODY TO A CALL</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px">
+          <div class="field"><label>Their email</label><input id="cciEmail" class="input" list="cciPeople" placeholder="name@example.com" style="${inp}"
+            oninput="const c=(clients||[]).find(x=>x.email===this.value.trim().toLowerCase());if(c){const n=document.getElementById('cciName');if(n&&!n.value)n.value=c.name||''}">
+            <datalist id="cciPeople">${(clients||[]).map(c=>`<option value="${esc(c.email)}">${esc(c.name||'')}</option>`).join('')}</datalist></div>
+          <div class="field"><label>Their name</label><input id="cciName" class="input" placeholder="First name is enough" style="${inp}"></div>
+          <div class="field"><label>What it is</label><select id="cciKind" class="input" style="${inp}">${CC_KINDS.map(([k,n])=>`<option value="${k}">${n}</option>`).join('')}</select></div>
+          <div class="field"><label>Date</label><input id="cciDate" type="date" class="input" style="${inp}"></div>
+          <div class="field"><label>Time, London</label><input id="cciTime" type="time" class="input" value="18:00" style="${inp}"></div>
+          <div class="field"><label>Minutes</label>${sel('cciLen',[15,20,30,45,60,90],c.len||15)}</div>
+        </div>
+        <div class="field" style="margin-top:10px"><label>A line for them, optional</label><input id="cciMsg" class="input" placeholder="Bring your last two clips." style="${inp}"></div>
+        <div class="muted" style="font-size:12.5px;margin-top:6px">${(d.google||{}).on?'They get a Google Meet invite from you and our confirmation, info@ gets a copy, and it shows here.':'Google is not connected, so they get the standing link, or none.'} Any time works, inside your hours or not.</div>
+        <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="ccInvite()" ${cc.busy?'disabled':''}>${cc.busy?'Sending…':'Send the invite'}</button>
+          <button class="btn btn-secondary btn-sm" onclick="cc.invite=false;draw()">Cancel</button></div></div>`
+      :`<button class="btn btn-primary btn-sm" onclick="cc.invite=true;draw()">Invite somebody to a call</button>`}
+    </div>
     <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">
       Booked here instead of Calendly. People pick from your free times in their own time zone, get the link and a calendar file by email,
       a reminder the day before, and a link to move or cancel. You hear of every booking, and the calls are in your calendar feed.

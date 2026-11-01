@@ -1321,7 +1321,7 @@ async function callRemind(done) {
     const body = b64u(new TextEncoder().encode(JSON.stringify({ k: 'csm', i: x.id, e: norm(x.email), exp: now + 120 * DAY })));
     const key2 = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
     const manage = `${SITE}/call.html?m=${body}.${b64u(await crypto.subtle.sign('HMAC', key2, new TextEncoder().encode(body)))}`;
-    const kindTxt = x.kind === 'welcome' ? 'welcome call' : 'free call', link = x.meet || c.link;
+    const kindTxt = ({ welcome: 'welcome call', progress: 'progress call', call: 'video call' })[x.kind] || 'free call', link = x.meet || c.link;
     const went = await email(x.email, `${today ? 'Today' : 'Tomorrow'}: your ${kindTxt} at ${clock}`, mail({
       title: today ? 'Your call is today.' : 'Your call is tomorrow.', greeting: String(x.name || '').split(' ')[0],
       paras: [`<b>${esc(clock)}</b>${lon && lon !== clock ? ' your time (' + esc(lon) + ' in London)' : ''}, ${Math.round((Number(x.len) || 15))} minutes with Elliott.`,
