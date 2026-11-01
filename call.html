@@ -146,6 +146,10 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
   /* ── booking the free call ── */
   beacon('sitecall');
   let slots=[], day='', slot='', busy=false, asking=false;
+  /* the name and email typed on the homepage, on this device: shown, not asked again */
+  const known=(()=>{ try{ const n=localStorage.getItem('lha-name')||'', e=localStorage.getItem('lha-email')||'';
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)?{n,e}:null; }catch(x){ return null; } })();
+  let whoEdit=!known||!known.n;
   /* asked when they book, so the fifteen minutes go on them */
   const ABOUT=[['work','What do you want to work on?','Your handstand, press, a skill, or something that keeps going wrong'],
     ['goals','What are your goals?','Where you would like to be in a few months'],
@@ -165,8 +169,11 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
           +(slots.length?'Say what suits you and Elliott will find a time.':'No free times in the next few weeks. Say what suits you and Elliott will find one.')+'</p>'
           +'<label for="pf">Days and times that suit you</label><textarea id="pf" placeholder="Weekday evenings after 6, or Saturday mornings."></textarea>'+zoneLine()+'</div>')
       +'<div class="card">'
-        +'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
-        +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
+        +(whoEdit
+          ?'<label for="nm">Your name</label><input id="nm" autocomplete="name" placeholder="First and last">'
+           +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
+          :'<input id="nm" type="hidden" value="'+esc(known.n)+'"><input id="em" type="hidden" value="'+esc(known.e)+'">'
+           +'<p style="margin:0">Booking as <b>'+esc(known.n)+'</b>, '+esc(known.e)+'. <button class="linkb" id="who" style="display:inline;margin:0">Not you?</button></p>')
         +'<p class="muted" style="font-size:14.5px;margin-top:18px">So the call goes on you. Write as much or as little as you like.</p>'
         +aboutFields()
         +(ask?'<button class="btn" id="go">Ask for a time</button>'
@@ -180,6 +187,7 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
     wire(k=>{ day=k; slot=''; draw(); },t=>{ slot=t; draw(); });
     const none=document.getElementById('none'); if(none) none.onclick=()=>{ asking=true; slot=''; draw(); const p=document.getElementById('pf'); if(p) p.focus(); };
     const bk=document.getElementById('back'); if(bk) bk.onclick=()=>{ asking=false; draw(); };
+    const wh=document.getElementById('who'); if(wh) wh.onclick=()=>{ whoEdit=true; draw(); const n=document.getElementById('nm'); if(n){ n.value=''; n.focus(); } const e=document.getElementById('em'); if(e) e.value=''; };
     const go=document.getElementById('go');
     if(!go) return;
     if(ask){ go.onclick=()=>{
