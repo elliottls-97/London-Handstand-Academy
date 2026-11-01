@@ -8439,6 +8439,9 @@ const handle = async (request) => {
       body: new URLSearchParams({ code, client_id: G_ID(), client_secret: G_SECRET(), redirect_uri: G_REDIRECT, grant_type: 'authorization_code' }).toString() });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.refresh_token) return back(d.access_token && !d.refresh_token ? 'norefresh' : 'token');
+    /* Google's consent page lets each permission be left unticked: without
+       the calendar one, every booking would fail to make its Meet */
+    if (!/calendar\.events/.test(d.scope || '')) { await fetch('https://oauth2.googleapis.com/revoke?token=' + enc(d.refresh_token), { method: 'POST' }).catch(() => {}); return back('noscope'); }
     let em = ''; try { em = JSON.parse(Buffer.from(String(d.id_token || '').split('.')[1] || '', 'base64').toString()).email || ''; } catch {}
     await setSetting('google:oauth', { refresh: d.refresh_token, email: norm(em), at: Date.now(), scope: d.scope || '' });
     gTokCache = { tok: '', until: 0 };
