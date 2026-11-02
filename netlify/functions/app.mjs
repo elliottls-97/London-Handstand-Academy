@@ -1456,7 +1456,7 @@ const NEWS_REVIEWS = [
   { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
   { text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
 ];
-const NEWS_LINKS = { app: ['/lha-app.html?ref=newsletter', 'Open the app'], class: ['/handstand-class?src=newsletter#book', 'Book a class'],
+const NEWS_LINKS = { app: ['/lha-app.html?ref=newsletter', 'Open the app'], appstore: ['https://apps.apple.com/gb/app/london-handstand-academy/id6818646346', 'Get it on the App Store'], class: ['/handstand-class?src=newsletter#book', 'Book a class'],
   coaching: ['/?src=newsletter#coaching', 'See coaching'], session: ['/session?src=newsletter', 'Book a 1-2-1'], call: ['/call', 'Book a free call'] };
 const STREAM_UID = /^[a-f0-9]{32}$/;
 function newsPhoto(x) {
@@ -1466,7 +1466,7 @@ function newsPhoto(x) {
 }
 const filmStillOf = (uid, sec, h = 600) => `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${uid}/thumbnails/thumbnail.jpg?time=${sec}s&height=${h}`;
 const newsBtn = x => { const L = NEWS_LINKS[x && x.link]; if (!L) return undefined;
-  return { label: String((x.label || L[1])).slice(0, 40), sub: String(x.sub || '').slice(0, 50), href: SITE + L[0] }; };
+  return { label: String((x.label || L[1])).slice(0, 40), sub: String(x.sub || '').slice(0, 50), href: /^https:/.test(L[0]) ? L[0] : SITE + L[0] }; };
 const str = (v, n) => String(v == null ? '' : v).slice(0, n);
 async function newsBlocks(list, first, classOf) {
   const out = []; let greeted = false;
