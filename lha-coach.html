@@ -8776,7 +8776,9 @@ const hrsColor = h => h>=PROMISE_H?'var(--terra)':h>=PROMISE_H*0.6?'var(--amber-
 const hrsState = h => h>=PROMISE_H?'overdue':h>=PROMISE_H*0.6?'due soon':'in time';
 
 function headerHTML(){
-  const n=inboxItems().filter(x=>INBOX_TYPE[x.type].act).length;
+  /* people waiting on you, the same number as Today's headline: it
+     counted items, so the badge said 7 over "4 people to answer" */
+  const n=todayPeople().filter(p=>p.act && !p.mine).length;
   const active=(view==='client')?(cameFrom==='chats'?'chats':'clients'):view;
   /* The review tool had no way in of its own after the redesign: you could
      only reach it by finding a clip first, and once you left it there was no
@@ -9201,6 +9203,7 @@ const initial = n => (String(n||'?').trim()[0]||'?').toUpperCase();
 /* inside a card: what they said to you first, then what they sent, then the news */
 const LINE_ORDER=['message','question','point','check','review','said','flag','logged','trained',
   'request','session','hire','callask','application','feedback'];
+function trainQuiet(email){ const a=prog[email]?analysis(email):null; return !!(a && a.sinceLast!==null && a.sinceLast>=10); }
 function trainLine(email){
   const a=prog[email]?analysis(email):null;
   if(!a) return '';
@@ -9218,9 +9221,21 @@ function todayPeople(){
     const act=p.items.filter(x=>INBOX_TYPE[x.type].act);
     const oldest=act.length?Math.min(...act.map(x=>x.at||Date.now())):0;
     const newest=Math.max(...p.items.map(x=>x.at||0));
-    return Object.assign(p,{act:act.length, oldest, newest,
+    const c=p.email?clients.find(x=>x.email===p.email):null;
+    return Object.assign(p,{act:act.length, oldest, newest, name:whoName(p.name,p.email),
+      mine:!!(c&&c.mine), client:!!(c&&c.coached!==false),
       hrs:oldest?Math.round((Date.now()-oldest)/3600000):null});
-  }).sort((a,b)=>((b.act>0)-(a.act>0)) || (a.act ? a.oldest-b.oldest : b.newest-a.newest));
+  /* a coached client waiting comes before somebody who is not one yet:
+     Hannah, paying and 27 days without training, sat last (2 Nov 2026) */
+  }).sort((a,b)=>((b.act>0)-(a.act>0)) || (b.client-a.client) || (a.act ? a.oldest-b.oldest : b.newest-a.newest));
+}
+/* "n7g4kng2rh" and "pb" were the name on a card: the front of an email,
+   or an Apple hidden address, says nothing about who it is */
+function whoName(name, email){
+  const e=String(email||''), local=e.split('@')[0];
+  if(/@privaterelay\.appleid\.com$/i.test(e) && (!name || name===local)) return 'Apple hidden email ('+local.slice(0,4)+')';
+  if(e && (!name || name===local)) return e;
+  return name||e||'Somebody';
 }
 /* what one check point logged means now: hit and waiting on you, or not */
 function cpLogLine(email, x){
@@ -9365,15 +9380,16 @@ function personCardHTML(p, cat){
   const tl=p.email?trainLine(p.email):'';
   const key='p:'+(p.email||p.items[0].id);
   const open=cardOpen.has(key) || lines.some(r=>r.id===inboxRow);
-  const sum=lines.map(r=>{ const n=lineCount(r);
-    return `<span>${esc(INBOX_TYPE[r.type].label)}${n>1?' <i>'+n+'</i>':''}</span>`; }).join('<span aria-hidden="true">&middot;</span>');
+  /* two check point clips read "Check point clip·Check point clip" */
+  const kinds=new Map(); lines.forEach(r=>{ const l=INBOX_TYPE[r.type].label; kinds.set(l,(kinds.get(l)||0)+lineCount(r)); });
+  const sum=[...kinds].map(([l,n])=>`<span>${esc(l)}${n>1?' <i>'+n+'</i>':''}</span>`).join('<span aria-hidden="true">&middot;</span>');
   const chev=`<span class="tcard-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>`;
   if(!open) return `<article class="tcard" data-k="${esc(key)}">
     <header class="tcard-h fold" role="button" aria-expanded="false" onclick="cardToggle(${jsq(key)})">
       <span class="av">${esc(initial(p.name))}</span>
       <div class="tcard-who"><b>${esc(p.name)}</b><span>${
-        c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+esc(tl):'')):'Not signed in'}</span></div>
+        c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+(trainQuiet(p.email)?'<b style="display:inline;font:600 12px/1.4 var(--sans);color:var(--terra)">'+esc(tl)+'</b>':esc(tl)):'')):'Not signed in'}</span></div>
       ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
       ${chev}
@@ -9385,7 +9401,7 @@ function personCardHTML(p, cat){
     <header class="tcard-h fold" role="button" aria-expanded="true" onclick="cardToggle(${jsq(key)})">
       <span class="av">${esc(initial(p.name))}</span>
       <div class="tcard-who"><b>${esc(p.name)}</b><span>${
-        c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+esc(tl):'')):'Not signed in'}</span></div>
+        c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+(trainQuiet(p.email)?'<b style="display:inline;font:600 12px/1.4 var(--sans);color:var(--terra)">'+esc(tl)+'</b>':esc(tl)):'')):'Not signed in'}</span></div>
       ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
       ${chev}
@@ -9606,7 +9622,7 @@ function digestHTML(){
   if(nothing.length) L.push(line('⌕',`Searched, found nothing: ${nothing.map(x=>'&ldquo;'+esc(x.q)+'&rdquo;').join(', ')}. Something to film or write.`,"setTab='journey';go('settings')"));
   if(errs.length) L.push(line('⚠',`<b>${errs.length}</b> thing${errs.length===1?'':'s'} broke, the most: &ldquo;${esc(String(errs[0].m).slice(0,70))}&rdquo; ${errs[0].n}×.`,"setTab='journey';go('settings')"));
   if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"setTab='workshops';go('settings')")); }
-  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first sessions · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c">${errs.length} broke</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
+  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c" title="Errors people hit in the app this week. Open this line for the most common one.">${errs.length} app error${errs.length===1?'':'s'}</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
   return `<div style="margin:0 0 var(--space-4);padding:14px 16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
     <button onclick="dgOpen=!dgOpen;draw()" style="display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;padding:0;cursor:pointer;text-align:left;color:var(--ink)">
       <span class="kick" style="flex:none">THIS WEEK</span>
@@ -9619,13 +9635,14 @@ function todayHTML(){
   if(!TODAY_CATS.some(c=>c[0]===inboxFilter)) inboxFilter='all';
   const people=todayPeople();
   const all=people.flatMap(p=>p.items);
-  const waitingPeople=people.filter(p=>p.act).length;
+  const waitingPeople=people.filter(p=>p.act && !p.mine).length;
   const date=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
   /* Calmer (8 Oct 2026, "I come on and feel overwhelmed"): the numbers went
      to Settings, the chips and the red sentence went, the headline counts
      people rather than items, and only the people waiting on you get a card.
      The rest folds into one line you open when you want it. */
-  const waiting=people.filter(p=>p.act), news=people.filter(p=>!p.act);
+  /* your own and test accounts are not people to answer (2 Nov 2026) */
+  const waiting=people.filter(p=>p.act && !p.mine), news=people.filter(p=>!p.act || p.mine);
   const calm = !homeSettled && !all.length ? 'Checking what came in&hellip;'
     : waitingPeople ? waitingPeople+' '+(waitingPeople===1?'person':'people')+' to answer'
     : 'Nobody waiting on you';
@@ -9646,7 +9663,7 @@ function todayHTML(){
     ${news.length?`<div style="margin-top:var(--space-5)">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <button class="ghostlink" onclick="todayNewsOpen=!todayNewsOpen;draw()">${todayNewsOpen?'Hide':'Also happened'}: ${
-          news.length} ${news.length===1?'person':'people'} trained or logged a check point</button>
+          news.length} ${news.length===1?'person':'people'}, news and your own accounts</button>
         <button class="ghostlink" onclick="news_seenAll()" style="color:var(--grey)">Mark all as seen</button>
       </div>
       ${newsCards.length?`<div class="tlist" style="margin-top:var(--space-3)">${newsCards.join('')}</div>`:''}
