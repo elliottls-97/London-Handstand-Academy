@@ -1450,7 +1450,7 @@ function newsParas(body) {
    are a still from one of the drill films or a photo already on the site,
    never an address typed in. Reviews are the Google ones, word for word. */
 const NEWS_PHOTOS = ['class-group-overgravity.jpg', 'hero-image.jpg', 'workshop-big-group-handstand-pic.jpg', 'coach-elliott-handstand-image.jpg',
-  'latest-workshop-group-handstand-picture.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg'];
+  'latest-workshop-group-handstand-picture.jpg', 'class-upside-down-wide.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg'];
 const NEWS_REVIEWS = [
   { text: 'Really enjoyed the handstand workshop with Elliott and Suryava. The group was small, only 6 or 7 people so had plenty of attention from the two coaches. Learned some new useful techniques to improve my handstands and am looking forward to the next workshop.', by: 'Kate, Google review' },
   { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
@@ -1472,7 +1472,7 @@ async function newsBlocks(list, first, classOf) {
   const out = []; let greeted = false;
   for (const b of (Array.isArray(list) ? list : []).slice(0, 14)) {
     if (!b || typeof b !== 'object') continue;
-    if (b.t === 'hero') out.push({ t: 'hero', img: newsPhoto(b), alt: str(b.alt || b.head, 120), kicker: str(b.kicker, 60), head: str(b.head, 120), btn: newsBtn(b) });
+    if (b.t === 'hero') out.push({ t: 'hero', side: true, img: newsPhoto(b), alt: str(b.alt || b.head, 120), kicker: str(b.kicker, 60), head: str(b.head, 120), btn: newsBtn(b) });
     else if (b.t === 'text' || b.t === 'points' || b.t === 'steps') {
       const c = { t: 'card', kicker: str(b.kicker, 60), head: str(b.head, 120), paras: newsParas(b.body) };
       if (!greeted) { c.greeting = first; greeted = true; }

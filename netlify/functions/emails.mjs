@@ -861,10 +861,10 @@ export function twoTone(head, hi) {
   return m ? { a: m[1], b: m[2] } : { a: '', b: s };
 }
 const kick = (t, c) => t ? `<div style="font:600 11px/1.3 ${FS};letter-spacing:.16em;text-transform:uppercase;color:${c}">${escH(t)}</div>` : '';
-function pill(b, dark) {
+function pill(b, dark, top = 24) {
   if (!b || !b.href) return '';
   const bg = dark ? 'background:#ffffff' : 'background:linear-gradient(180deg,#0a7a76,#006663);background-color:#006663';
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px"><tr>
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:${top}px"><tr>
     <td style="${bg};border-radius:999px;padding:12px 12px 12px 26px"><a href="${escH(b.href)}" style="text-decoration:none;display:block">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
         <td style="padding-right:18px"><div style="font:600 17px/1.2 ${FS};color:${dark ? '#00403d' : '#ffffff'}">${escH(b.label)}</div>
@@ -885,8 +885,11 @@ const blockHTML = {
       ${pill(b.btn, false)}</td></tr>` : `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
     <tr><td class="pad" style="background:#00403d;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:${b.compact ? '18px 30px 22px' : '28px 36px 34px'}">
       ${kick(b.kicker, '#8fbeca')}
-      <div class="h1" style="font:400 ${b.compact ? 32 : 40}px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
-      ${pill(b.btn, true)}</td></tr>`,
+      ${(() => { const h = `<div class="h1" style="font:400 ${b.compact ? 32 : 40}px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>`;
+        /* side: the button beside the headline, under it on a phone (Elliott, 2 Nov 2026) */
+        return b.side && b.btn && b.btn.href ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td class="col" style="vertical-align:bottom">${h}</td>
+          <td class="col sidebtn" align="right" style="vertical-align:bottom;padding-left:16px">${pill(b.btn, true, 0)}</td></tr></table>` : h + pill(b.btn, true); })()}</td></tr>`,
   card: b => `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:34px 36px 20px">
       ${kick(b.kicker, '#006663')}
       ${b.head || b.hi ? `<div class="h2" style="font:400 32px/1.1 ${FD};letter-spacing:-.012em;color:${b.appTone ? '#111111' : '#8a8d8c'};margin:${b.kicker ? 10 : 0}px 0 0">${(() => { const t = twoTone(b.head, b.hi);
@@ -934,7 +937,7 @@ export function richEmail({ title, preheader, blocks = [], sign = 'See you soon,
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Figtree:wght@400;600&display=swap" rel="stylesheet">
 <style>body{margin:0;padding:0;background:#f4f4f5}a{color:#006663}
 @media (max-width:620px){.wrap{width:100%!important}.pad{padding-left:22px!important;padding-right:22px!important}.h1{font-size:34px!important}.h2{font-size:27px!important}
-.col{display:block!important;width:100%!important;padding:0 0 14px!important}.stepph{width:100%!important}.steptxt{padding:12px 0 26px!important}}</style></head>
+.col{display:block!important;width:100%!important;padding:0 0 14px!important}.sidebtn{padding:20px 0 0!important;text-align:left!important}.stepph{width:100%!important}.steptxt{padding:12px 0 26px!important}}</style></head>
 <body style="margin:0;padding:0;background:#f4f4f5">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${escH(preheader || '')}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5"><tr><td align="center" style="padding:24px 12px 40px">
