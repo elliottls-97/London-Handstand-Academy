@@ -14030,7 +14030,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const plain = t => String(t || '').replace(/<[^>]+>/g, '').trim();
         const blockNote = (Array.isArray(next.changed) ? next.changed : [])
           .filter(c => Array.isArray(c) && plain(c[1])).map(c => (plain(c[0]) ? plain(c[0]) + ': ' : '') + plain(c[1]))
-          .concat((Array.isArray(next.read) ? next.read : []).map(plain).filter(Boolean)).slice(0, 12);
+          .concat((Array.isArray(next.read) ? next.read : []).flatMap(p => String(p || '').split(/\n+/)).map(plain).filter(Boolean)).slice(0, 16);
         await email(e, first ? 'Your programme is in the app' : 'Your next block is in the app',
           mail({ title: first ? 'Your programme is ready.' : 'Block ' + nNext + ' is ready.',
             paras: [first
