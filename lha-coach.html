@@ -4306,7 +4306,8 @@ function lengthLine(d){
   const nums=(String(d.mins||'').match(/\d+/g)||[]).map(Number).filter(n=>n>0&&n<=240);
   const lo=nums[0], hi=nums.length>1?nums[nums.length-1]:nums[0];
   const drills=(d.groups||[]).reduce((n,g)=>n+((g.items||[]).length),0);
-  const sets=(d.groups||[]).reduce((n,g)=>n+(g.items||[]).reduce((m,it)=>m+lhaSets(it.d),0),0);
+  /* the sets field, not the words: "2 x 6" left at "4 x 4 to 6" counted four */
+  const sets=(d.groups||[]).reduce((n,g)=>n+(g.items||[]).reduce((m,it)=>m+lhaSetsOf(it),0),0);
   let verdict='', colour='var(--grey2)';
   if(lo){
     /* inside the range counts as right, so a day written as 35 to 40 is not
@@ -4317,7 +4318,7 @@ function lengthLine(d){
     verdict = diff===0 ? 'about right'
       : (diff>0 ? '+'+diff+' min over' : diff+' min under');
   }
-  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:9px;
+  return `<div data-blen style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:9px;
     padding:9px 11px;border-radius:11px;background:rgba(17,17,17,.04)">
     <span style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">LENGTH</span>
     <span style="font:500 12.5px/1 var(--sans);color:var(--grey)">
@@ -6867,7 +6868,9 @@ function bNums(it, grp){
 function bRowLen(it, grp){
   const n=bNums(it, grp);
   const sets=n.warm ? 1 : Math.max(1, n.sets);
-  const secs=sets*(n.w||LHA_OPEN_SECS) + Math.max(0, sets-1)*n.r;
+  /* the rest after the last set counts too, as the app gives it before
+     the next drill: a one set drill's rest changed nothing here (2 Nov 2026) */
+  const secs=sets*(n.w||LHA_OPEN_SECS) + sets*n.r;
   return (n.w?`${sets} × ${n.w}s`:`${sets} × untimed, about ${LHA_OPEN_SECS}s`)
     + ` · ${n.r}s rest · ${Math.round(secs/60*10)/10} min`;
 }
@@ -6923,6 +6926,11 @@ function bItem(i,g,k,f,v){
     const row=document.querySelector('[data-brow="'+i+'-'+g+'-'+k+'"]');
     if(row){ const gname=((bDays()[i].groups[g])||{}).name||'';
       row.textContent=bRowLen(it, gname); }
+    /* and the day's length: it only changed on the next full draw, so
+       adding rest looked like it did nothing */
+    if(f==='sets'||f==='amt'||f==='w'||f==='r'||f==='d'){
+      const len=document.querySelector('[data-blen]'), html=lengthLine(bDays()[i]);
+      if(len && html) len.outerHTML=html; }
   }
 }
 /* ── the client's check points ────────────────────────────────────
