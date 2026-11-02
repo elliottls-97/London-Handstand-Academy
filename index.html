@@ -2932,6 +2932,15 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
 #stickyCta .sc-btn { font-family: var(--font-body) !important; font-weight: 600 !important; text-transform: none !important;
   letter-spacing: 0 !important; font-size: 14px !important; }
 #stickyCta.at-end, #stickyCta.at-app { transform: translateY(110%) !important; }
+/* the phone bar's three choices, for anyone who has not picked one yet */
+#stickyCta .sc-three { display: none; width: 100%; gap: 8px; }
+#stickyCta.is-three .sc-inner { display: none; }
+#stickyCta.is-three .sc-three { display: flex; }
+#stickyCta .sc-pick { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center;
+  padding: 12px 6px; border-radius: 999px; text-decoration: none; white-space: nowrap;
+  font: 600 14px/1 var(--font-body); color: #fff; border: 1px solid rgba(255,255,255,.34); }
+#stickyCta .sc-pick.is-main { background: #fff; color: #00504C; border-color: #fff; }
+
 
 /* ── Before you go ── */
 #leave { position: fixed; inset: 0; z-index: 960; display: none; align-items: center; justify-content: center;
@@ -3132,13 +3141,15 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
     <a class="nav-logo" href="#top" aria-label="London Handstand Academy">
       <img src="/assets/site/full-logo.png" alt="London Handstand Academy" class="nav-logo-img" onerror="this.onerror=null;this.src='https://pub-a41021d2de574a8ab55c29a1e5d7dd88.r2.dev/website-photo/full-logo.png';">
     </a>
+    <!-- The hero's three choices, in its order (2 Nov 2026): it led with
+         coaching while the page leads with the app and a class. -->
     <div class="nav-links">
       <a href="#app">App</a>
-      <a href="/handstand-class" onclick="openWsChoose(event)">Workshops</a>
+      <a href="/handstand-class" onclick="openWsChoose(event)">Classes</a>
       <a href="#coaching">Coaching</a>
-      <a href="#coaches">Team</a>
       <a href="/learn/">Learn</a>
-      <a href="#coaching" onclick="goCoach(event)" class="nav-apply">Start coaching</a>
+      <a href="#story">About</a>
+      <a href="/lha-app.html?ref=site-nav" class="nav-apply">Start free</a>
     </div>
     <div class="nav-tools">
       <div class="hamburger" onclick="openMob()" aria-label="Menu">
@@ -3150,13 +3161,13 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
 <div class="mob-menu" id="mobMenu">
   <button class="mob-close" onclick="closeMob()">×</button>
   <a href="#app" onclick="closeMob()">App</a>
-  <a href="/handstand-class" onclick="closeMob();openWsChoose(event)">Workshops</a>
+  <a href="/handstand-class" onclick="closeMob();openWsChoose(event)">Classes</a>
   <a href="#coaching" onclick="closeMob()">Coaching</a>
-  <a href="#coaches" onclick="closeMob()">Team</a>
   <a href="/learn/">Learn</a>
+  <a href="#story" onclick="closeMob()">About</a>
   <!-- --peach is #CFE6EC, a light teal meant for DARK backgrounds; the mobile
        menu panel is near-white, so this CTA rendered at 1.42:1, invisible. -->
-  <a href="#coaching" onclick="closeMob();goCoach(event)" style="color:#A8680F;">Start coaching →</a>
+  <a href="/lha-app.html?ref=site-menu" style="color:#A8680F;">Start free in the app →</a>
 </div>
 
 <!-- HERO -->
@@ -4972,6 +4983,12 @@ window.dismissPopup = function(){ if (window.closeLeave) window.closeLeave(); };
     <div class="sc-label" id="scLabel">Not sure where to start?<br><a href="#coCall" onclick="goToCall(event)" id="scSub">A free 15 minute call</a></div>
     <a class="sc-btn" href="#coaching" onclick="goCoach(event)" id="scBtn">Start coaching →</a>
   </div>
+  <!-- nothing picked yet: the hero's three choices, kept to hand (2 Nov 2026) -->
+  <div class="sc-three" role="list">
+    <a role="listitem" class="sc-pick is-main" id="scApp" href="/lha-app.html?ref=site-bar">Free app</a>
+    <a role="listitem" class="sc-pick" id="scClass" href="/handstand-class">Class</a>
+    <a role="listitem" class="sc-pick" href="#coaching">Coaching</a>
+  </div>
 </div>
 <!-- the sticky bar is driven from the funnel script at the end of the page -->
 
@@ -5415,7 +5432,7 @@ document.addEventListener('keydown',function(e){
     /* Intent signals */
     if (href === '#tryFirst')                return track('try_first_click');
     if (a.getAttribute('data-door'))         return track('door_click', { door: a.getAttribute('data-door'), where: a.closest('#hero') ? 'hero' : 'end' });
-    if (a.classList.contains('nav-apply'))   return track('nav_build_plan_click');
+    if (a.classList.contains('nav-apply'))   return track('nav_start_free_click');
     if (href.indexOf('workshop-') === 0)     return track('workshop_page_click', { page: href });
     if (href.indexOf('apps.apple.com') > -1) return track('appstore_click', { from: label });
     if (a.getAttribute('data-bridge'))       return track('bridge_click', { from: a.getAttribute('data-bridge') });
@@ -6488,7 +6505,7 @@ function homeClasses(list){
   var bar = D.getElementById('stickyCta'), scLabel = D.getElementById('scLabel'), scBtn = D.getElementById('scBtn');
   function stickyPaint(){
     if (!bar || !scLabel || !scBtn) return;
-    var f = get('lha-fit'), p = path(), P = plans(), c, lab, sub, btn, href, blank = false;
+    var f = get('lha-fit'), p = path(), P = plans(), c, lab, sub, btn, href, blank = false, three = false;
     if (f && fitDone(f.a)){
       var pl = P[f.plan || fitPick(f.a)] || P.online;
       if (pl.inperson){ lab = pl.name + (pl.price ? ' \u00b7 ' + pl.price : ''); sub = [pl.note || '', pl.href]; btn = 'Book \u2192'; href = pl.href; }
@@ -6504,7 +6521,12 @@ function homeClasses(list){
       c = liveClass();
       lab = 'Start free in the app'; sub = [c ? 'Or a class, ' + c.when : 'Or come to a class', c ? c.href : '/handstand-class'];
       btn = 'Open the app →'; href = appHref('site-bar');
+      three = true;
+      var sa = D.getElementById('scApp'), scl = D.getElementById('scClass');
+      if (sa) sa.setAttribute('href', appHref('site-bar'));
+      if (scl){ scl.setAttribute('href', c ? c.href : '/handstand-class'); scl.textContent = c ? 'Class ' + c.when.replace(/^\S+\s/, '') : 'Classes'; }
     }
+    bar.classList.toggle('is-three', three);
     scLabel.innerHTML = esc(lab) + '<br><a href="' + esc(sub[1]) + '">' + esc(sub[0]) + '</a>';
     scBtn.textContent = btn; scBtn.setAttribute('href', href);
     scBtn.removeAttribute('onclick'); scBtn.onclick = null;
@@ -6521,8 +6543,9 @@ function homeClasses(list){
       goTo(D.querySelector(h));
     });
     var shown = false;
+    var heroDoors = D.querySelector('#hero .doors');
     W.addEventListener('scroll', function(){
-      var past = W.pageYOffset > 700;
+      var past = heroDoors ? heroDoors.getBoundingClientRect().bottom < 0 : W.pageYOffset > 700;
       if (past !== shown){ shown = past; bar.classList.toggle('show', past); }
     }, { passive: true });
     if ('IntersectionObserver' in W){
