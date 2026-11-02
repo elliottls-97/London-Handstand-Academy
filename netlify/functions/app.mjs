@@ -3730,6 +3730,7 @@ export default (request, context) => ALERTS.run({ q: [], ctx: context }, async (
 });
 /* one entry in What broke, from a phone, a website page or the server
    itself, counted against the same message and place */
+const ERR_NOISE = /_AutofillCallbackHandler|Java object is gone|webkit\.messageHandlers|iabjs:|navigation_performance_logger/;
 async function errAdd({ k, m, w, sc, dv, who, st }) {
   const id = (k + '|' + m + '|' + (w || '')).slice(0, 300);
   await changeSetting('errs', cur => {
@@ -11747,8 +11748,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* site: a website page (stats.js, 30 Oct 2026) */
     const k = ['js', 'promise', 'api', 'film', 'save', 'site'].includes(body.k) ? body.k : 'js';
     const m = clip(body.m, 220).trim(); if (!m) return json({ ok: true });
+    /* Instagram's and Facebook's own browsers inject scripts that throw on
+       our pages, and each visit's fbclid made the place unique: 80 lines of
+       somebody else's code pushed real faults out of the 150 kept (2 Nov 2026) */
+    if (ERR_NOISE.test(m) || ERR_NOISE.test(String(body.w || '')) || ERR_NOISE.test(String(body.st || ''))) return json({ ok: true });
     let who = ''; try { who = (await me()) || ''; } catch {}
-    await errAdd({ k, m, w: clip(body.w, 120), sc: clip(body.sc, 40).replace(/[^a-z0-9:_ -]/gi, ''), dv: body.dv === 'ios' ? 'ios' : 'web', who, st: body.st ? clip(body.st, 600) : '' });
+    await errAdd({ k, m, w: clip(String(body.w || '').replace(/[?#][^:]*/, ''), 120), sc: clip(body.sc, 40).replace(/[^a-z0-9:_ -]/gi, ''), dv: body.dv === 'ios' ? 'ios' : 'web', who, st: body.st ? clip(body.st, 600) : '' });
     return json({ ok: true });
   }
   /* the list, for the owner; clear one or the lot once it is dealt with */

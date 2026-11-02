@@ -16,9 +16,12 @@
         else fetch('/api/app/err', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
       } catch (e) {}
     };
+    /* what Instagram's and Facebook's in-app browsers throw, not ours */
+    var noise = /_AutofillCallbackHandler|Java object is gone|webkit\.messageHandlers|iabjs:|navigation_performance_logger/;
     window.addEventListener('error', function (e) {
       if (!e || !e.message || /Script error\.?$/.test(e.message)) return;
-      tell('js', e.message, (String(e.filename || '').split('/').pop() || '') + ':' + (e.lineno || 0), e.error && e.error.stack);
+      if (noise.test(e.message) || noise.test(String(e.filename || '')) || noise.test(String((e.error && e.error.stack) || ''))) return;
+      tell('js', e.message, (String(e.filename || '').split('/').pop().split(/[?#]/)[0] || '') + ':' + (e.lineno || 0), e.error && e.error.stack);
     });
     window.addEventListener('unhandledrejection', function (e) {
       var r = e && e.reason; tell('promise', (r && r.message) || String(r), '', r && r.stack);

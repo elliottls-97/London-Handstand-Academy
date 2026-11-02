@@ -2413,9 +2413,12 @@ if(!PREVIEW){
     if(e && e.target && e.target!==window) return;          /* an image or film that did not load is not a script error */
     lhaErr('js', e.message||'Error', ((e.filename||'').split('/').pop()||'')+':'+(e.lineno||0)+':'+(e.colno||0), e.error && e.error.stack);
   });
-  window.addEventListener('unhandledrejection', e=>{ const r=e && e.reason; lhaErr('promise', (r && r.message) || String(r), '', r && r.stack); });
+  /* "Load failed" came 13 times from the iPhone app with nothing to say
+     which request: a failed fetch now carries its address (2 Nov 2026) */
+  window.addEventListener('unhandledrejection', e=>{ const r=e && e.reason; lhaErr('promise', (r && r.message) || String(r), (r && r.lhaUrl) || '', r && r.stack); });
   window.fetch=function(u,o){
-    return realFetchErr(u,o).then(r=>{
+    const at=(()=>{ try{ return String(u&&u.url||u).split('?')[0].replace(/^https?:\/\/[^/]+/,'').slice(0,100); }catch(e){ return ''; } })();
+    return realFetchErr(u,o).catch(err=>{ try{ if(err && typeof err==='object') err.lhaUrl=at; }catch(e){} throw err; }).then(r=>{
       try{ const p=String(u&&u.url||u);
         if(r.status>=500 && p.indexOf('/api/app/')>=0 && p.indexOf('/api/app/err')<0)
           lhaErr('api', r.status+' on '+p.split('?')[0].replace(/^https?:\/\/[^/]+/,''), ''); }catch(e){}
