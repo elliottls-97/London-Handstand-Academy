@@ -14027,11 +14027,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
            "week 3 of 6" are counted from */
         await supa.upsert('cycles', { email: e, n: nNext, started_at: nowISO() }, 'email');
         const nm = clients()[e] || '';
+        const plain = t => String(t || '').replace(/<[^>]+>/g, '').trim();
+        const blockNote = (Array.isArray(next.changed) ? next.changed : [])
+          .filter(c => Array.isArray(c) && plain(c[1])).map(c => (plain(c[0]) ? plain(c[0]) + ': ' : '') + plain(c[1]))
+          .concat((Array.isArray(next.read) ? next.read : []).map(plain).filter(Boolean)).slice(0, 12);
         await email(e, first ? 'Your programme is in the app' : 'Your next block is in the app',
           mail({ title: first ? 'Your programme is ready.' : 'Block ' + nNext + ' is ready.',
             paras: [first
               ? `${esc(nm ? nm.split(' ')[0] : 'Hello')}, block one is in the app now, written from your answers, your tests and our call.`
               : `${esc(nm ? nm.split(' ')[0] : 'Hello')}, the next block is in the app now. Same place, new days.`],
+            /* the coach's note on the block came only in the app, so the
+               email said a block was ready and nothing about why (2 Nov 2026) */
+            ...(blockNote.length ? { box: { title: 'From ' + coachName(coachOf(e) || primaryCoach()).split(' ')[0], items: blockNote } } : {}),
             cta: { href: `${SITE}/lha-app.html`, label: 'Open the app' },
             signoff: { name: coachName(coachOf(e) || primaryCoach()) } }), 'reminders');
         await notify(e, { title: first ? 'Your programme is ready' : 'Block ' + nNext + ' is ready',
