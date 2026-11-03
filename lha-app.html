@@ -191,6 +191,9 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .fr-lbl{font:600 11px/1.4 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest);padding:16px 20px 6px;animation:frIn .6s cubic-bezier(.2,.8,.2,1) both}
 @keyframes frPulse{0%,100%{box-shadow:0 12px 30px rgba(0,102,99,.3)}50%{box-shadow:0 0 0 12px rgba(0,102,99,.16),0 12px 30px rgba(0,102,99,.3)}}
 .fr-pulse{animation:frPulse 1.5s ease-in-out 3}
+#frCal{padding:4px 20px 0;pointer-events:none;display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+#frCal .fr-eg{grid-column:1/-1;font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:center}
+@media (max-width:899px){ #frCal{grid-template-columns:1fr} }
 #frBar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);z-index:1001;
   display:flex;flex-direction:column;align-items:center;gap:10px;width:min(560px,calc(100% - 32px));pointer-events:none}
 #frBar > *{pointer-events:auto}
@@ -26394,17 +26397,48 @@ function render(){
    the session with its check points, and Learn rise in one after another,
    each with a line saying what it is, ending on the Start button. Once. */
 let frTimer=null, frShown=0, frAnimAt=-1;
+/* The real calendar and the real Over time, drawn from a sample month of
+   training rather than their own empty record (Elliott, 3 Nov 2026: "make
+   up some usage on the app, rather than showing one that hasn't been
+   used"). Their state is swapped out for the length of the draw and put
+   back, so nothing of the sample is ever saved. */
+function frSample(fn){
+  const keep={prog:st.prog, track:st.track, calOff:st.calOff, otOpen:st.otOpen};
+  const lm=new Date(); lm.setDate(1); lm.setMonth(lm.getMonth()-1);
+  const y=lm.getFullYear(), m=lm.getMonth(), last=new Date(y,m+1,0).getDate();
+  const sessions=[];
+  for(let dn=1; dn<=last; dn++){
+    const wd=new Date(y,m,dn).getDay();
+    if(!([1,3,6].includes(wd) || (wd===5 && dn%2))) continue;
+    const part = wd===3 && dn%3===0;
+    sessions.push({at:new Date(y,m,dn,18).getTime(), done:!part, kind:part?'some':'all', mins:30, mode:'follow',
+      items:[{of:10, got:part?6:10}]});
+  }
+  const wk=w=>{ const d=new Date(); d.setHours(18,0,0,0); d.setDate(d.getDate()-7*w-2); return d.getTime(); };
+  const climb=(vals,unit)=>vals.map((n,i)=>({at:wk(vals.length-1-i), reps:n, unit}));
+  const repsLog={
+    'chest-to-wall-handstand':climb([8,12,15,20,24,30],'s'),
+    'kick-up-bounces':climb([4,6,7,8,10,12]),
+    'wall-walks':climb([2,3,3,4,5,6]),
+    'wall-scapula-shrugs':climb([6,8,8,10,12,12])
+  };
+  st.prog=Object.assign({}, st.prog||{}, {sessions, repsLog, opens:[]});
+  st.track={checkpoints:{}}; st.calOff=1; st.otOpen=false;
+  try{ return fn(); } finally { st.prog=keep.prog; st.track=keep.track; st.calOff=keep.calOff; st.otOpen=keep.otOpen; }
+}
 function firstRunReveal(){
   if(!st.guideNext || st.tab!=='home' || coachedView()) return;
   const app=$('#app'); if(!app) return;
   const pick=sels=>{ for(const sl of sels){ const el=app.querySelector(sl); if(el) return el; } return null; };
   /* the whole Learn section, heading and search included, not its first row */
   const _lr=pick(['[data-tour="explainers"]']), learn=_lr ? (_lr.closest('section')||_lr) : null;
-  /* the real calendar, theirs, empty until they train, above Learn */
+  /* the real calendar and Over time, over a sample month, above Learn.
+     Looked at, not used: its buttons would act on the sample. */
   let cal=app.querySelector('#frCal');
   if(!cal && learn && learn.parentNode){
-    cal=document.createElement('div'); cal.id='frCal'; cal.style.padding='4px 20px 0';
-    try{ cal.innerHTML=trainingCalendar(true); }catch(e){ cal=null; }
+    cal=document.createElement('div'); cal.id='frCal';
+    try{ cal.innerHTML=frSample(()=>`<div class="fr-cal">${trainingCalendar(true)}</div><div class="fr-ot">${overTimeHTML(true)}</div>`)
+      + '<div class="fr-eg">An example of a month of training. Yours fills in as you go.</div>'; }catch(e){ cal=null; }
     if(cal) learn.parentNode.insertBefore(cal, learn);
   }
   /* Each step is a block of the screen coming in, or the real thing
@@ -26416,7 +26450,7 @@ function firstRunReveal(){
     {el:pick(['.hcap','.startblk','[data-tour="buildsession"]']), l:'Today’s session, built for your stage. Your check points under it.', n:'Next: your session and check points'},
     {go:()=>{ tourLeaveMode(); tourSession(false,false); }, l:'Follow along. The session runs itself: every set counted down, every rest timed, the film playing.', n:'Next: how a session runs'},
     {go:()=>{ tourLeaveMode(); tourSession(false,'work'); }, l:'Or drill by drill. The same session as a list: tick each one off at your own pace.', n:'Next: or drill by drill'},
-    {el:cal, l:'Track your progress. Every session lands on its day here, and Over time shows how far you have come.', n:'Next: track your progress'},
+    {el:cal, l:'Track your progress. Every session lands on its day, and Over time shows how far you have come.', n:'Next: track your progress'},
     {el:learn, l:'Never get stuck. Your questions answered, and a fix for every problem, from wrist pain to being scared of falling.', n:'Next: when you get stuck'}
   ].filter(x=>x.go||x.el);
   if(!steps.length){ delete st.guideNext; save(); return; }
