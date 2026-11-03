@@ -6897,6 +6897,45 @@ function homeClasses(list){
   box-shadow: 0 4px 14px rgba(0,0,0,.25); }
 .aw-x:hover { background: #fff; }
 body.aw-open { overflow: hidden; }
+/* the walkthrough before the questions */
+.awt { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; color: #111;
+  background: radial-gradient(circle at 15% 8%, rgba(0,102,99,.07), transparent 40%),
+    radial-gradient(circle at 90% 30%, rgba(143,190,202,.12), transparent 45%),
+    radial-gradient(circle at 30% 80%, rgba(243,169,73,.05), transparent 40%), #f4f4f5; }
+.awt[hidden] { display: none; }
+.awt-top { padding: 22px 70px 0 28px; }
+.awt-bars { display: flex; gap: 6px; max-width: 320px; }
+.awt-bars i { flex: 1; height: 4px; border-radius: 99px; background: rgba(0,64,61,.12); overflow: hidden; position: relative; }
+.awt-bars i::after { content: ""; position: absolute; inset: 0; width: 0; background: #006663; border-radius: 99px; transition: width .6s cubic-bezier(.2,.8,.2,1); }
+.awt-bars i.on::after { width: 100%; }
+.awt-say { padding: 18px 28px 0; max-width: 760px; }
+.awt-k { font: 600 11px/1 var(--font-body); letter-spacing: .14em; text-transform: uppercase; color: #006663; }
+.awt-h { font: 400 clamp(30px, 3.6vw, 44px)/1.02 var(--font-disp); letter-spacing: -.015em; margin-top: 10px; text-wrap: balance; }
+.awt-h em { font-style: normal; color: #006663; }
+.awt-s { font: 400 16px/1.5 var(--font-body); color: #5a5a5a; margin-top: 10px; max-width: 52ch; }
+.awt-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 18px 28px 6px; }
+.awt-frame { height: 100%; max-height: 100%; aspect-ratio: 16/10; max-width: 100%; border-radius: 20px; overflow: hidden; background: #fff;
+  border: 1px solid rgba(0,64,61,.10); box-shadow: 0 1px 2px rgba(0,64,61,.05), 0 18px 44px rgba(0,64,61,.14); }
+.awt-frame video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.awt-foot { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 12px 28px calc(env(safe-area-inset-bottom, 0px) + 22px); }
+.awt-skip { border: 0; background: none; color: #5a5a5a; font: 600 14px/1 var(--font-body); cursor: pointer; padding: 10px; }
+.awt-next { border: 0; border-radius: 999px; padding: 17px 28px; cursor: pointer; white-space: nowrap;
+  background: linear-gradient(180deg, #0a7a76, #006663); color: #f7f4f1; font: 600 15.5px/1 var(--font-body);
+  box-shadow: 0 12px 30px rgba(0,102,99,.3), inset 0 1px 0 rgba(255,255,255,.35); }
+@keyframes awtIn { from { opacity: 0; transform: translateY(18px) } to { opacity: 1; transform: none } }
+.awt.in .awt-k, .awt.in .awt-h, .awt.in .awt-s { animation: awtIn .6s cubic-bezier(.2,.8,.2,1) both; }
+.awt.in .awt-h { animation-delay: .08s; } .awt.in .awt-s { animation-delay: .16s; }
+.awt.in .awt-frame { animation: awtIn .8s cubic-bezier(.2,.8,.2,1) .2s both; }
+@media (max-width: 860px) {
+  .awt-top { padding: calc(env(safe-area-inset-top, 0px) + 18px) 60px 0 20px; }
+  .awt-say { padding: 14px 20px 0; }
+  .awt-h { font-size: 30px; }
+  .awt-s { font-size: 15px; }
+  .awt-stage { padding: 14px 20px 4px; }
+  .awt-frame { aspect-ratio: 720/1558; border-radius: 22px; }
+  .awt-foot { padding: 10px 20px calc(env(safe-area-inset-bottom, 0px) + 16px); }
+}
+@media (prefers-reduced-motion: reduce) { .awt.in * { animation: none !important; } }
 @media (max-width: 860px) {
   .aw-box { width: 100%; height: 100%; left: 0; top: 0; transform: translateY(24px); border-radius: 0; }
   #appwin.in .aw-box { transform: none; }
@@ -6907,6 +6946,16 @@ body.aw-open { overflow: hidden; }
   <div class="aw-back" onclick="closeAppWin()"></div>
   <div class="aw-box">
     <button class="aw-x" onclick="closeAppWin()" aria-label="Close the app">&times;</button>
+    <!-- Before the questions, what the app does, from recordings of the real
+         app (Elliott, 3 Nov 2026: "on the website this should be shown before
+         the quiz, animated like the post quiz bit", and "not changing the app
+         itself"). Four steps on Next, then Find out your stage loads the app. -->
+    <div id="awTour" class="awt" hidden>
+      <div class="awt-top"><div class="awt-bars"><i></i><i></i><i></i><i></i></div></div>
+      <div class="awt-say"><div class="awt-k"></div><div class="awt-h"></div><div class="awt-s"></div></div>
+      <div class="awt-stage"><div class="awt-frame"><video muted playsinline preload="auto"></video></div></div>
+      <div class="awt-foot"><button type="button" class="awt-skip">Skip</button><button type="button" class="awt-next"></button></div>
+    </div>
     <iframe id="awFrame" title="The free handstand app" allow="fullscreen"></iframe>
   </div>
 </div>
@@ -6921,10 +6970,51 @@ body.aw-open { overflow: hidden; }
     u.searchParams.set('start', 'quiz');
     return u.pathname + u.search;
   }
+  /* ── the walkthrough: recordings of the real app, four steps ── */
+  var T = D.getElementById('awTour'), tv = T.querySelector('video'), ti = 0, pendingSrc = '';
+  var STEPS = [
+    { k: 'The free app', h: 'A session ready for you <em>every day.</em>', s: 'Built for your stage. Open it and press start.', c: ['session'], n: 'Next: how a session runs' },
+    { k: 'Training', h: 'Press start, <em>follow along.</em>', s: 'Every set counted down, every rest timed, the film playing. Or tick it off drill by drill.', c: ['player', 'list'], n: 'Next: track your progress' },
+    { k: 'Progress', h: 'See how far <em>you have come.</em>', s: 'Every session on its day, and every drill you repeat, from your first go to your latest.', c: ['progress'], n: 'Next: when you get stuck' },
+    { k: 'Learn', h: 'Never get <em>stuck.</em>', s: 'Your questions answered, and a fix for every problem, from wrist pain to being scared of falling.', c: ['learn'], n: 'Find out your stage' }
+  ];
+  function clip(name){ var m = W.matchMedia('(max-width: 860px)').matches ? 'phone' : 'desktop'; return '/assets/site/app-tour/' + m + '-' + name; }
+  function playList(list, j){
+    j = j || 0; var name = list[j % list.length];
+    tv.poster = clip(name) + '.jpg'; tv.src = clip(name) + '.mp4';
+    tv.onended = function(){ if(T.hidden) return; playList(list, j + 1); };
+    var p = tv.play(); if(p && p.catch) p.catch(function(){});
+  }
+  function showStep(i){
+    ti = i; var x = STEPS[i];
+    T.querySelector('.awt-k').textContent = (i + 1) + ' of ' + STEPS.length + ' \u00b7 ' + x.k;
+    T.querySelector('.awt-h').innerHTML = x.h;
+    T.querySelector('.awt-s').textContent = x.s;
+    T.querySelector('.awt-next').textContent = x.n;
+    [].forEach.call(T.querySelectorAll('.awt-bars i'), function(b, k){ b.classList.toggle('on', k <= i); });
+    T.classList.remove('in'); void T.offsetWidth; T.classList.add('in');
+    playList(x.c);
+  }
+  function tourDone(){
+    try{ localStorage.setItem('lha-site-tour', '1'); }catch(x){}
+    tv.pause(); tv.removeAttribute('src'); T.hidden = true;
+    if(pendingSrc && fr.getAttribute('src') !== pendingSrc) fr.setAttribute('src', pendingSrc);
+  }
+  T.querySelector('.awt-next').onclick = function(){ if(ti + 1 < STEPS.length) showStep(ti + 1); else tourDone(); };
+  T.querySelector('.awt-skip').onclick = tourDone;
+  /* once, and only for somebody who has not been into the app on this browser */
+  function wantsTour(){
+    try{
+      if(localStorage.getItem('lha-site-tour')) return false;
+      var a = JSON.parse(localStorage.getItem('lha_app') || 'null');
+      return !(a && (a.quizDone || a.token || a.in));
+    }catch(x){ return false; }
+  }
   W.openAppWin = function(e, href){
     if(e && e.preventDefault) e.preventDefault();
     var want = src(href || (e && e.currentTarget && e.currentTarget.getAttribute('href')) || '/lha-app.html');
-    if(fr.getAttribute('src') !== want) fr.setAttribute('src', want);
+    if(wantsTour()){ pendingSrc = want; T.hidden = false; showStep(0); }
+    else if(fr.getAttribute('src') !== want) fr.setAttribute('src', want);
     lastFocus = D.activeElement;
     win.classList.add('on'); D.body.classList.add('aw-open');
     requestAnimationFrame(function(){ win.classList.add('in'); });
@@ -6933,6 +7023,7 @@ body.aw-open { overflow: hidden; }
   };
   W.closeAppWin = function(){
     if(!win.classList.contains('on')) return;
+    try{ tv.pause(); }catch(x){}
     win.classList.remove('in');
     setTimeout(function(){ win.classList.remove('on'); D.body.classList.remove('aw-open'); }, 380);
     if(lastFocus && lastFocus.focus) try{ lastFocus.focus(); }catch(x){}
