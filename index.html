@@ -6151,7 +6151,7 @@ function homeClasses(list){
     if (e && e.preventDefault) e.preventDefault();
     setPath(d);
     count('sitedoor' + d);
-    if (d === 'app') return goTo(D.getElementById('app'));
+    if (d === 'app') return W.openAppWin ? W.openAppWin(null, '/lha-app.html?ref=site-door') : goTo(D.getElementById('app'));
     if (d === 'class'){
       if (!liveClass()) return goTo(D.getElementById('newsletter'), 'center');
       return W.openWsChoose ? W.openWsChoose() : (location.href = liveClass().href);
@@ -6873,6 +6873,91 @@ function homeClasses(list){
 
   classDoorPaint();
   stickyPaint();
+})();
+</script>
+<!-- ── The app, in a window over the site (Elliott, 3 Nov 2026: "open
+     the app in a window on the site"). Every link into the app opens it
+     here instead: the site stays behind, dimmed, and closing the window
+     puts you back where you were. Wide on a desktop, the whole screen on a
+     phone. The app knows it is framed (embed=site) and stays in the window
+     through the quiz and into training; paying still leaves for Stripe. -->
+<style>
+#appwin { position: fixed; inset: 0; z-index: 10000; display: none; }
+#appwin.on { display: block; }
+.aw-back { position: absolute; inset: 0; background: rgba(0,48,46,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity .35s; }
+#appwin.in .aw-back { opacity: 1; }
+.aw-box { position: absolute; left: 50%; top: 50%; width: min(1180px, 94vw); height: min(900px, 92vh); transform: translate(-50%, calc(-50% + 24px)) scale(.985);
+  opacity: 0; border-radius: 26px; overflow: hidden; background: #062522; box-shadow: 0 40px 90px -30px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08);
+  transition: opacity .4s cubic-bezier(.2,.8,.2,1), transform .5s cubic-bezier(.2,.8,.2,1); }
+#appwin.in .aw-box { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.aw-box iframe { display: block; width: 100%; height: 100%; border: 0; background: #062522; }
+.aw-x { position: absolute; top: 12px; right: 12px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(255,255,255,.92); color: #00403D; font: 400 22px/1 var(--font-body); display: grid; place-items: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.aw-x:hover { background: #fff; }
+body.aw-open { overflow: hidden; }
+@media (max-width: 860px) {
+  .aw-box { width: 100%; height: 100%; left: 0; top: 0; transform: translateY(24px); border-radius: 0; }
+  #appwin.in .aw-box { transform: none; }
+  .aw-x { top: calc(env(safe-area-inset-top, 0px) + 10px); right: 10px; width: 34px; height: 34px; font-size: 20px; }
+}
+</style>
+<div id="appwin" role="dialog" aria-label="The free app" aria-modal="true">
+  <div class="aw-back" onclick="closeAppWin()"></div>
+  <div class="aw-box">
+    <button class="aw-x" onclick="closeAppWin()" aria-label="Close the app">&times;</button>
+    <iframe id="awFrame" title="The free handstand app" allow="fullscreen"></iframe>
+  </div>
+</div>
+<script>
+(function(){
+  var W=window, D=document, win=D.getElementById('appwin'), fr=D.getElementById('awFrame'), lastFocus=null;
+  function src(href){
+    var u; try{ u=new URL(href, location.origin); }catch(e){ u=new URL('/lha-app.html', location.origin); }
+    if(!u.searchParams.get('ref')) u.searchParams.set('ref', 'site');
+    u.searchParams.set('embed', 'site');
+    /* a first visit opens on the first question; the app ignores this for anyone already in */
+    u.searchParams.set('start', 'quiz');
+    return u.pathname + u.search;
+  }
+  W.openAppWin = function(e, href){
+    if(e && e.preventDefault) e.preventDefault();
+    var want = src(href || (e && e.currentTarget && e.currentTarget.getAttribute('href')) || '/lha-app.html');
+    if(fr.getAttribute('src') !== want) fr.setAttribute('src', want);
+    lastFocus = D.activeElement;
+    win.classList.add('on'); D.body.classList.add('aw-open');
+    requestAnimationFrame(function(){ win.classList.add('in'); });
+    try{ history.pushState({appwin:1}, '', location.pathname + location.search + '#app-open'); }catch(x){}
+    return false;
+  };
+  W.closeAppWin = function(){
+    if(!win.classList.contains('on')) return;
+    win.classList.remove('in');
+    setTimeout(function(){ win.classList.remove('on'); D.body.classList.remove('aw-open'); }, 380);
+    if(lastFocus && lastFocus.focus) try{ lastFocus.focus(); }catch(x){}
+    if(history.state && history.state.appwin) try{ history.back(); }catch(x){}
+  };
+  /* every link into the app on this page */
+  D.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a[href^="/lha-app.html"], a[href^="lha-app.html"]');
+    if(!a || a.target === '_blank' || e.metaKey || e.ctrlKey) return;
+    W.openAppWin(e, a.getAttribute('href'));
+  });
+  D.addEventListener('keydown', function(e){ if(e.key === 'Escape') W.closeAppWin(); });
+  W.addEventListener('popstate', function(){ if(win.classList.contains('on') && !(history.state && history.state.appwin)){
+    win.classList.remove('in'); setTimeout(function(){ win.classList.remove('on'); D.body.classList.remove('aw-open'); }, 380); } });
+  /* /app.html sends people here with ?app=1 (plus their code and source) */
+  try{
+    var q = new URLSearchParams(location.search);
+    if(q.get('app') === '1'){
+      var u = new URL('/lha-app.html', location.origin);
+      ['ref','code'].forEach(function(k){ if(q.get(k)) u.searchParams.set(k, q.get(k)); });
+      if(!q.get('ref')) u.searchParams.set('ref', 'app-page');
+      history.replaceState(null, '', location.pathname);
+      setTimeout(function(){ W.openAppWin(null, u.pathname + u.search); }, 150);
+    }
+  }catch(x){}
 })();
 </script>
 <script src="stats.js" defer></script>
