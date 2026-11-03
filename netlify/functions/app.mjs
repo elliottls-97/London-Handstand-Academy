@@ -7703,6 +7703,10 @@ const handle = async (request) => {
         const cls = blocks ? (blocks.find(b => b && b.t === 'class' && b.slug) || {}).slug : '';
         const slug = body.slug ? wsSlug(body.slug) : cls ? wsSlug(cls) : '';
         if (!subject || !(text.trim() || (blocks && blocks.length))) return json({ error: 'A subject and some words first.' }, 400);
+        /* a time to send it at, handed to Resend's own scheduler (3 Nov 2026):
+           a minute ahead at least, three days at most */
+        const when = body.at ? Date.parse(String(body.at)) : 0;
+        if (body.at && !(when > Date.now() + 60e3 && when < Date.now() + 3 * 864e5)) return json({ error: 'Pick a time later today, at least a couple of minutes from now.' }, 400);
         const sy = await newsSync();
         if (!sy.ok) return json({ error: sy.why }, 502);
         const { who } = await newsWho(slug);
@@ -7710,7 +7714,7 @@ const handle = async (request) => {
         const seg = await rsApi('/segments', 'POST', { name: `LHA ${new Date().toISOString().slice(0, 10)} ${subject}`.slice(0, 90) });
         if (!seg.ok || !seg.data.id) return json({ error: rsWhy(seg) }, 502);
         rec = { id: 'n' + newId(), at: Date.now(), by: await me(), subject, body: text, blocks: blocks || undefined, slug, seg: seg.data.id,
-          todo: who.map(x => [x.e, x.n, sy.have.has(x.e) ? 1 : 0]), total: who.length, i: 0, fails: [], status: 'adding' };
+          todo: who.map(x => [x.e, x.n, sy.have.has(x.e) ? 1 : 0]), total: who.length, i: 0, fails: [], status: 'adding', ...(when ? { when } : {}) };
         await changeSetting('newssends', cur => [rec].concat(Array.isArray(cur) ? cur : []).slice(0, 30));
         return json({ id: rec.id, status: rec.status, done: 0, total: rec.total });
       }
@@ -7747,12 +7751,13 @@ const handle = async (request) => {
         if (!mine) return json({ id: rec.id, status: 'sending', done: rec.i, total: rec.total });
         const conf = await newsConf();
         const b = await rsApi('/broadcasts', 'POST', { segment_id: rec.seg, from: conf.from, reply_to: REPLY_TO, subject: rec.subject,
-          html: await newsRender(rec), name: rec.subject.slice(0, 60), send: true });
+          html: await newsRender(rec), name: rec.subject.slice(0, 60), send: true,
+          ...(rec.when && rec.when > Date.now() + 30e3 ? { scheduled_at: new Date(rec.when).toISOString() } : {}) });
         const done = b.ok && b.data.id;
         await changeSetting('newssends', cur => (Array.isArray(cur) ? cur : []).map(x => x.id !== rec.id ? x
           : done ? Object.assign({}, x, { status: 'sent', bid: b.data.id, sentAt: Date.now(), todo: [], error: '' })
           : Object.assign({}, x, { status: 'failed', error: rsWhy(b) })));
-        return done ? json({ id: rec.id, status: 'sent', done: rec.total, total: rec.total, fails: (rec.fails || []).length })
+        return done ? json({ id: rec.id, status: 'sent', done: rec.total, total: rec.total, fails: (rec.fails || []).length, when: rec.when || 0 })
           : json({ id: rec.id, status: 'failed', error: rsWhy(b), done: rec.i, total: rec.total }, 502);
       }
       return json({ id: rec.id, status: rec.status, done: rec.i || 0, total: rec.total, error: rec.error || '' });

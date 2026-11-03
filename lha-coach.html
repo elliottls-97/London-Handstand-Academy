@@ -13042,16 +13042,18 @@ async function newsSend(retryId){
   if(!retryId){
     if(!nw.subject.trim()||!(nw.body.trim()||nw.blocks.length)){ newsMsg='A subject and some words first.'; draw(); return; }
     const c=(news.classes||[]).find(x=>x.slug===nw.slug);
-    if(!confirm(`Send "${nw.subject}" to everyone on the list who can be emailed${c?', except anyone already booked on '+c.whenTxt.split(',')[0]:''}?`)) return;
+    if(!confirm(`${nw.at?'At '+nw.at+' today, send':'Send'} "${nw.subject}" to everyone on the list who can be emailed${c?', except anyone already booked on '+c.whenTxt.split(',')[0]:''}?`)) return;
   }
+  /* a time today, turned into the moment it means here */
+  let at=''; if(!retryId && nw.at){ const [h,m]=nw.at.split(':').map(Number), d=new Date(); d.setHours(h,m,0,0); at=d.toISOString(); }
   newsBusy='send'; newsMsg='Getting the list ready…'; draw();
   try{
-    let d=retryId?await newsPost('send',{id:retryId,retry:true}):await newsPost('send',{subject:nw.subject,body:nw.body,slug:nw.blocks.length?'':nw.slug,blocks:nw.blocks.length?nw.blocks:undefined});
+    let d=retryId?await newsPost('send',{id:retryId,retry:true}):await newsPost('send',{subject:nw.subject,body:nw.body,slug:nw.blocks.length?'':nw.slug,blocks:nw.blocks.length?nw.blocks:undefined,at:at||undefined});
     for(let i=0;i<200 && (d.status==='adding'||d.status==='ready');i++){
       newsMsg=`Adding ${d.done} of ${d.total} to the send…`; draw();
       d=await newsPost('send',{id:d.id});
     }
-    if(d.status==='sent'){ newsMsg=`Sent to ${d.total-(d.fails||0)} people.${d.fails?' '+d.fails+' could not be added; the list below says who.':''}`; nw={subject:'',body:'',slug:'',auto:'',blocks:[]}; newsPrev=''; }
+    if(d.status==='sent'){ newsMsg=`${d.when?'Scheduled for '+new Date(d.when).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+' today, to':'Sent to'} ${d.total-(d.fails||0)} people.${d.fails?' '+d.fails+' could not be added; the list below says who.':''}`; nw={subject:'',body:'',slug:'',auto:'',blocks:[]}; newsPrev=''; }
     else if(d.status==='sending') newsMsg='It is already on its way.';
     else newsMsg=d.error||'It did not go. Try again from the list of sends.';
   }catch(e){ newsMsg=e.message; }
@@ -13372,7 +13374,8 @@ function newsHTML(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
       <button class="btn btn-secondary btn-sm" onclick="newsPreview()" ${newsBusy?'disabled':''}>${newsBusy==='prev'?'Loading…':'Preview'}</button>
       <button class="btn btn-secondary btn-sm" onclick="newsTest()" ${newsBusy?'disabled':''}>${newsBusy==='test'?'Sending…':'Send me a test'}</button>
-      ${owner?`<button class="btn btn-primary btn-sm" onclick="newsSend()" ${newsBusy||!news.ready?'disabled':''}>${newsBusy==='send'?'Sending…':'Send to the list'}</button>`:`<span class="muted" style="font-size:12.5px;align-self:center">Sending to the list is Elliott's.</span>`}
+      ${owner?`<label class="muted" style="font-size:12.5px;display:flex;align-items:center;gap:6px">Send at <input type="time" value="${esc(nw.at||'')}" oninput="nw.at=this.value" onchange="nw.at=this.value;draw()" style="height:32px;border-radius:10px;border:1px solid rgba(0,64,61,.14);padding:0 8px;font:inherit"> today</label>
+      <button class="btn btn-primary btn-sm" onclick="newsSend()" ${newsBusy||!news.ready?'disabled':''}>${newsBusy==='send'?'Sending…':nw.at?'Schedule for '+esc(nw.at):'Send to the list'}</button>`:`<span class="muted" style="font-size:12.5px;align-self:center">Sending to the list is Elliott's.</span>`}
     </div>
     ${newsPrev?`<iframe title="Preview" srcdoc="${esc(newsPrev)}" style="margin-top:16px;width:100%;height:620px;border:1px solid rgba(0,64,61,.12);border-radius:16px;background:#f4f4f5"></iframe>`:''}
   </section>`;
