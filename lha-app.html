@@ -2122,6 +2122,9 @@ button.px-step{cursor:pointer}
 <script src="voice.js"></script>
 <script src="vidshrink.js"></script>
 <script>
+/* set from the URL on boot, which runs before the function that reads it
+   is reached, so it is declared first */
+let LANDING=false;
 let DATA={
   /* Deliberately empty. Plans arrive from /api/app/programme, chosen by the
      signed-in client's token. A real plan used to sit here, which meant one
@@ -2312,6 +2315,7 @@ function trackOpen(){
        kept until there is an account to put it on */
     const code=(q.get('code')||'').toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,24);
     if(code){ st.pendingCode=code; save(); history.replaceState(null,'',location.pathname); }
+
     /* a fix, from a reel or its page: opened the moment the fixes have loaded
        and the quiz is out of the way */
     /* first touch only: the account that came from Suryava's reel stays his
@@ -16850,7 +16854,7 @@ function finishIntake(){
      be framed at all. Finishing the quiz is the first real commitment, so
      that is where the frame ends. Same origin, so everything just answered
      is already in storage when the full page opens. */
-  if(inFrame()){ leaveTo(location.pathname + location.search); return; }
+  if(inFrame() && !inLanding()){ leaveTo(location.pathname + location.search); return; }
   render();
   /* not in the frame: the wall opens now rather than on the next boot */
   if(st.openWallFor!=null && STAGES[st.openWallFor]){
@@ -16862,6 +16866,8 @@ function finishIntake(){
 function inFrame(){
   try{ return !!(window.top && window.top !== window.self); }catch(e){ return true; }
 }
+/* framed by the app page: the quiz and the sign up both happen in the frame */
+function inLanding(){ return LANDING && inFrame(); }
 /* the answers are worth having on the coach's side, not just in a browser */
 function sendIntake(){
   if(!st.token) return;
@@ -26111,6 +26117,11 @@ function swapKeepBar(app, html){
   });
 }
 function render(){
+  /* the app page's frame: through the quiz and the account, then out to
+     the real thing, with everything answered already in storage */
+  if(inLanding() && st.quizDone && !['quiz','joinFree','signin','reset','welcomepw'].includes(st.tab)){
+    leaveTo('/lha-app.html'); return;
+  }
   /* a sheet covers the page. Redrawing underneath it costs a flash and buys
      nothing — closeOv renders on the way out. */
   if(st.ov && $('#ov') && $('#ov').classList.contains('on')){ renderPending=true; return; }
@@ -26302,6 +26313,16 @@ function render(){
   if(!st.preview) maybeTour();
 }
 document.addEventListener('DOMContentLoaded',function(){
+  /* The app page (app.html, 3 Nov 2026) runs this app in a phone frame,
+     opening on the first question, and the account is made in that frame
+     too. LANDING is for this load only: the frame ends the moment the
+     person is signed up, signed in or has skipped, and the full page opens
+     with everything they answered already in storage. Read before the
+     first render, which is what shows the question. */
+  try{ const q=new URLSearchParams(location.search);
+    if(q.get('embed')==='landing') LANDING=true;
+    if(q.get('start')==='quiz' && !st.token && !st.in && !st.quizDone){ st.mode='free'; st.tab='quiz'; st.quizStep=0; st.quizAns=[]; save(); }
+  }catch(e){}
   /* cache first so a signed-in client sees their plan instantly, then
      refresh in the background in case it changed since last time */
   if(st.in && st.token) loadCachedProgramme();
