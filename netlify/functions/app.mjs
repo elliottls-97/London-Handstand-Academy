@@ -1472,8 +1472,8 @@ async function newsBlocks(list, first, classOf) {
   const out = []; let greeted = false;
   for (const b of (Array.isArray(list) ? list : []).slice(0, 14)) {
     if (!b || typeof b !== 'object') continue;
-    /* the app's own screens sit on the app's light panel, not the dark one */
-    if (b.t === 'hero') out.push({ t: 'hero', side: true, light: b.photo === 'app-screens-email.jpg', img: newsPhoto(b), alt: str(b.alt || b.head, 120), kicker: str(b.kicker, 60), head: str(b.head, 120), btn: newsBtn(b) });
+    /* light, as the site is now: white panels, ink and teal (3 Nov 2026) */
+    if (b.t === 'hero') out.push({ t: 'hero', side: true, light: true, img: newsPhoto(b), alt: str(b.alt || b.head, 120), kicker: str(b.kicker, 60), head: str(b.head, 120), btn: newsBtn(b) });
     else if (b.t === 'text' || b.t === 'points' || b.t === 'steps') {
       const c = { t: 'card', kicker: str(b.kicker, 60), head: str(b.head, 120), paras: newsParas(b.body) };
       if (!greeted) { c.greeting = first; greeted = true; }
@@ -1495,7 +1495,7 @@ async function newsRender({ subject, body, slug, blocks }, test) {
   const classOf = async sl => {
     const w = sl ? all[String(sl).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24)] : null; if (!w) return null;
     const left = Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length);
-    return { t: 'dark', kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
+    return { t: 'dark', light: true, kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
       card: { kicker: (Number(w.places) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
         line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
       btn: { label: 'Book your place', sub: /all levels/i.test(w.title || '') ? 'All levels · 90 minutes' : '', href: newsClassHref(w, w.slug) } };

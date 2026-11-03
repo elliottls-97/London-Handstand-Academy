@@ -880,9 +880,14 @@ const blockHTML = {
   hero: b => b.light ? `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#ffffff">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
     <tr><td class="pad" style="background:#ffffff;border:1px solid #e3e8e8;border-top:0;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:22px 30px 26px">
       ${kick(b.kicker, '#006663')}
-      <div class="h1" style="font:400 34px/1.05 ${FD};letter-spacing:-.015em;color:#111111;margin-top:10px">${(() => { const h = String(b.head || ''), k = h.trim().lastIndexOf(' ');
-        return k > 0 ? escH(h.slice(0, k)) + ' <span style="color:#006663">' + escH(h.slice(k + 1)) + '</span>' : escH(h); })()}</div>
-      ${pill(b.btn, false)}</td></tr>` : `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
+      ${(() => { const hd = `<div class="h1" style="font:400 ${b.side ? 40 : 34}px/1.05 ${FD};letter-spacing:-.015em;color:#111111;margin-top:10px">${(() => {
+          /* side (the newsletter): two sentences on two lines, the second in teal, as the site's headlines */
+          if (b.side) { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#006663">${escH(t.b)}</span>`; }
+          const h = String(b.head || ''), k = h.trim().lastIndexOf(' ');
+          return k > 0 ? escH(h.slice(0, k)) + ' <span style="color:#006663">' + escH(h.slice(k + 1)) + '</span>' : escH(h); })()}</div>`;
+        return b.side && b.btn && b.btn.href ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td class="col" style="vertical-align:bottom">${hd}</td>
+          <td class="col sidebtn" align="right" style="vertical-align:bottom;padding-left:16px">${pill(b.btn, false, 0)}</td></tr></table>` : hd + pill(b.btn, false); })()}</td></tr>` : `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
     <tr><td class="pad" style="background:#00403d;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:${b.compact ? '18px 30px 22px' : '28px 36px 34px'}">
       ${kick(b.kicker, '#8fbeca')}
       ${(() => { const h = `<div class="h1" style="font:400 ${b.compact ? 32 : 40}px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>`;
@@ -912,7 +917,14 @@ const blockHTML = {
       ${b.stepsAfter == null ? '' : (b.paras || []).slice(b.stepsAfter).map(P).join('')}
       ${b.closer ? `<div style="height:1px;background:#e3e8e8;margin:4px 0 18px"></div><p style="margin:0 0 14px;font:400 18px/1.5 ${FS};color:#111111">${b.closer}</p>` : ''}
       ${pill(b.btn, false)}${b.btn ? '<div style="height:14px"></div>' : ''}</td></tr>`,
-  dark: b => `<tr><td class="pad" style="background:#0f1a19;border-radius:24px;padding:34px 36px">
+  /* light: the class card on white, as the site's class cards (Elliott, 3 Nov 2026) */
+  dark: b => b.light ? `<tr><td class="pad" style="background:#ffffff;border:1px solid #e3e8e8;border-radius:24px;padding:30px 36px">
+      ${kick(b.kicker, '#006663')}
+      <div class="h2" style="font:400 32px/1.08 ${FD};letter-spacing:-.012em;color:#111111;margin-top:10px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#006663">${escH(t.b)}</span>`; })()}</div>
+      ${b.card ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;background:#eef5f6;border-radius:16px"><tr><td style="padding:16px 20px">
+        ${kick(b.card.kicker, '#9a5a0e')}<div style="font:400 22px/1.2 ${FD};color:#111111;margin-top:8px">${escH(b.card.title)}</div>
+        ${b.card.line ? `<div style="font:400 14px/1.5 ${FS};color:#5a5a5a;margin-top:2px">${escH(b.card.line)}</div>` : ''}</td></tr></table>` : ''}
+      ${pill(b.btn, false)}</td></tr>` : `<tr><td class="pad" style="background:#0f1a19;border-radius:24px;padding:34px 36px">
       ${kick(b.kicker, '#8fbeca')}
       <div class="h2" style="font:400 34px/1.08 ${FD};letter-spacing:-.012em;color:#7f8c8a;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
       ${(b.paras || []).map(t => `<p style="margin:16px 0 0;font:400 17px/1.65 ${FS};color:#c9d2d1">${t}</p>`).join('')}
