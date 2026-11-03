@@ -158,6 +158,8 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
    centred, so it paints over whatever body is doing underneath it. The
    gradient was on body and this flat fill sat on top of it, which is why
    the glass never showed. */
+/* the how-it-works film at the size of a film on a desktop, not a phone's sheet */
+@media (min-width:1080px){ #ov[data-ov="intro"] .sheet{max-width:min(980px,92vw)} }
 /* the climb on the landed screen (climbHTML) */
 .climb{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-top:22px}
 .cl{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;opacity:0;animation:clIn .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i)*.55s + .3s)}
@@ -189,6 +191,11 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .fr-lbl{font:600 11px/1.4 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest);padding:16px 20px 6px;animation:frIn .6s cubic-bezier(.2,.8,.2,1) both}
 @keyframes frPulse{0%,100%{box-shadow:0 12px 30px rgba(0,102,99,.3)}50%{box-shadow:0 0 0 12px rgba(0,102,99,.16),0 12px 30px rgba(0,102,99,.3)}}
 .fr-pulse{animation:frPulse 1.5s ease-in-out 3}
+.fr-next{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);z-index:60;
+  border:0;border-radius:999px;padding:16px 26px;cursor:pointer;white-space:nowrap;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;
+  background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 15px/1 var(--sans);
+  box-shadow:0 12px 30px rgba(0,102,99,.35),inset 0 1px 0 rgba(255,255,255,.35)}
+.fr-next-in{animation:frIn .5s cubic-bezier(.2,.8,.2,1) both}
 #app.firstrun .tabbar,#app.firstrun #side{display:none!important}
 #app.firstrun{padding-left:0!important;padding-right:0!important}
 #app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;position:relative;
@@ -12678,6 +12685,7 @@ function openOv(kind){
   /* a fix's article sits above every sheet: it steps aside, and is back
      when the sheet closes and the fix redraws */
   fxArtHide();
+  try{ const _o=document.getElementById('ov'); if(_o) _o.dataset.ov=String(kind||''); }catch(e){}
   if(kind==='summary' && typeof pressDoneNow==='function' && pressDoneNow()) kind='pressdone';
   /* a wide screen has a column standing free beside the page, so a film
      opens in that rather than as a sheet over the thing being read. Not
@@ -17731,7 +17739,7 @@ function screenOriented(){
       <!-- How it works, played like a short film: three slides in turn, left
            to right, each with a moving picture of the thing (Elliott, 30 Oct
            2026: "make it visual, almost like a video") -->
-      ${st.guideNext && !wide() ? '' : howReelHTML(placed, PS)}
+      ${howReelHTML(placed, PS)}
       <!-- the stage in chapters, where Elliott has told it as one: the films
            say what it is about before a single word does -->
       ${/* first run (3 Nov 2026): the reveal and the button, the reading
@@ -26382,30 +26390,41 @@ let frTimer=null;
 function firstRunReveal(){
   if(!st.guideNext || st.tab!=='home' || coachedView() || st.ov) return;
   const app=$('#app'); if(!app || app.classList.contains('firstrun')) return;
+  /* each block, its line, and what the Next button says before it */
   const blocks=[
-    [['[data-tour="stagelist"]'], 'Your ladder. Six stages, yours in amber.'],
-    [['.hcap','.startblk','[data-tour="buildsession"]'], 'Today\u2019s session, built for your stage. Your check points under it.'],
-    [['[data-tour="explainers"]'], 'Learn as you go.']
-  ].map(([sels,l])=>{ let el=null; for(const sl of sels){ el=app.querySelector(sl); if(el) break; } return el?{el,l}:null; }).filter(Boolean);
+    [['[data-tour="stagelist"]'], 'Your ladder. Six stages, yours in amber.', ''],
+    [['.hcap','.startblk','[data-tour="buildsession"]'], 'Today\u2019s session, built for your stage. Your check points under it.', 'Next: your session and check points'],
+    [['[data-tour="explainers"]'], 'Learn as you go: a short film and a read for whatever is in your way.', 'Next: learn as you go']
+  ].map(([sels,l,n])=>{ let el=null; for(const sl of sels){ el=app.querySelector(sl); if(el) break; } return el?{el,l,n}:null; }).filter(Boolean);
   if(!blocks.length){ delete st.guideNext; save(); return; }
   app.classList.add('firstrun');
   blocks.forEach(b=>b.el.classList.add('fr-wait'));
+  /* the one button that moves it on (Elliott, 3 Nov 2026: "how do we get
+     to the next step"), pinned at the foot of the page */
+  const next=document.createElement('button'); next.className='fr-next'; next.type='button';
+  app.appendChild(next);
   let i=0;
   const finish=()=>{
     delete st.guideNext; save();
-    app.classList.remove('firstrun');
+    app.classList.remove('firstrun'); next.remove();
     const start=app.querySelector('[data-tour="buildsession"]');
     if(start){ start.classList.add('fr-pulse'); try{ start.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){} }
   };
-  const step=()=>{
+  const show=()=>{
     const b=blocks[i++]; if(!b || !b.el.isConnected){ finish(); return; }
     const lbl=document.createElement('div'); lbl.className='fr-lbl'; lbl.textContent=b.l;
     b.el.parentNode.insertBefore(lbl, b.el);
     b.el.classList.remove('fr-wait'); b.el.classList.add('fr-in');
     try{ b.el.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){}
-    frTimer=setTimeout(step, 1700);
+    const after=blocks[i];
+    next.textContent = after ? after.n : 'Start your first session';
+    next.classList.remove('fr-next-in'); void next.offsetWidth; next.classList.add('fr-next-in');
   };
-  clearTimeout(frTimer); frTimer=setTimeout(step, 600);
+  next.onclick=()=>{
+    if(i>=blocks.length){ finish(); const st0=app.querySelector('[data-tour="buildsession"]'); if(st0) st0.click(); return; }
+    show();
+  };
+  clearTimeout(frTimer); frTimer=setTimeout(show, 500);
 }
 document.addEventListener('DOMContentLoaded',function(){
   /* /app.html sends people straight in here, on the first question (3 Nov
