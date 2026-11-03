@@ -191,11 +191,18 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .fr-lbl{font:600 11px/1.4 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest);padding:16px 20px 6px;animation:frIn .6s cubic-bezier(.2,.8,.2,1) both}
 @keyframes frPulse{0%,100%{box-shadow:0 12px 30px rgba(0,102,99,.3)}50%{box-shadow:0 0 0 12px rgba(0,102,99,.16),0 12px 30px rgba(0,102,99,.3)}}
 .fr-pulse{animation:frPulse 1.5s ease-in-out 3}
-.fr-next{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);z-index:60;
-  border:0;border-radius:999px;padding:16px 26px;cursor:pointer;white-space:nowrap;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;
+#frBar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);z-index:1001;
+  display:flex;flex-direction:column;align-items:center;gap:10px;width:min(560px,calc(100% - 32px));pointer-events:none}
+#frBar > *{pointer-events:auto}
+#frBar.top{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 64px);flex-direction:column-reverse}
+.fr-say:empty{display:none}
+.fr-say{background:rgba(0,64,61,.92);color:#f7f4f1;border-radius:18px;padding:12px 16px;font:500 14.5px/1.45 var(--sans);text-align:center;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.fr-next{border:0;border-radius:999px;padding:16px 26px;cursor:pointer;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;
   background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 15px/1 var(--sans);
   box-shadow:0 12px 30px rgba(0,102,99,.35),inset 0 1px 0 rgba(255,255,255,.35)}
 .fr-next-in{animation:frIn .5s cubic-bezier(.2,.8,.2,1) both}
+
 #app.firstrun .tabbar,#app.firstrun #side{display:none!important}
 #app.firstrun{padding-left:0!important;padding-right:0!important}
 #app{max-width:520px;margin:0 auto;height:100dvh;display:flex;flex-direction:column;position:relative;
@@ -26386,45 +26393,68 @@ function render(){
    from the quiz, the screen is empty but for the greeting, and the ladder,
    the session with its check points, and Learn rise in one after another,
    each with a line saying what it is, ending on the Start button. Once. */
-let frTimer=null;
+let frTimer=null, frShown=0, frAnimAt=-1;
 function firstRunReveal(){
-  if(!st.guideNext || st.tab!=='home' || coachedView() || st.ov) return;
-  const app=$('#app'); if(!app || app.classList.contains('firstrun')) return;
-  /* each block, its line, and what the Next button says before it */
-  const blocks=[
-    [['[data-tour="stagelist"]'], 'Your ladder. Six stages, yours in amber.', ''],
-    [['.hcap','.startblk','[data-tour="buildsession"]'], 'Today\u2019s session, built for your stage. Your check points under it.', 'Next: your session and check points'],
-    [['[data-tour="explainers"]'], 'Learn as you go: a short film and a read for whatever is in your way.', 'Next: learn as you go']
-  ].map(([sels,l,n])=>{ let el=null; for(const sl of sels){ el=app.querySelector(sl); if(el) break; } return el?{el,l,n}:null; }).filter(Boolean);
-  if(!blocks.length){ delete st.guideNext; save(); return; }
+  if(!st.guideNext || st.tab!=='home' || coachedView()) return;
+  const app=$('#app'); if(!app) return;
+  const pick=sels=>{ for(const sl of sels){ const el=app.querySelector(sl); if(el) return el; } return null; };
+  /* the whole Learn section, heading and search included, not its first row */
+  const _lr=pick(['[data-tour="explainers"]']), learn=_lr ? (_lr.closest('section')||_lr) : null;
+  /* the real calendar, theirs, empty until they train, above Learn */
+  let cal=app.querySelector('#frCal');
+  if(!cal && learn && learn.parentNode){
+    cal=document.createElement('div'); cal.id='frCal'; cal.style.padding='4px 20px 0';
+    try{ cal.innerHTML=trainingCalendar(true); }catch(e){ cal=null; }
+    if(cal) learn.parentNode.insertBefore(cal, learn);
+  }
+  /* Each step is a block of the screen coming in, or the real thing
+     opening: the follow along player and the drill list are the ones the
+     tour has always used (tourSession), built without counting as a
+     session. l is the line, n what the button says before the step. */
+  const steps=[
+    {el:pick(['[data-tour="stagelist"]']), l:'Your ladder. Six stages, yours in amber.'},
+    {el:pick(['.hcap','.startblk','[data-tour="buildsession"]']), l:'Today’s session, built for your stage. Your check points under it.', n:'Next: your session and check points'},
+    {go:()=>{ tourLeaveMode(); tourSession(false,false); }, l:'Follow along. The session runs itself: every set counted down, every rest timed, the film playing.', n:'Next: how a session runs'},
+    {go:()=>{ tourLeaveMode(); tourSession(false,'work'); }, l:'Or drill by drill. The same session as a list: tick each one off at your own pace.', n:'Next: or drill by drill'},
+    {el:cal, l:'Track your progress. Every session lands on its day here, and Over time shows how far you have come.', n:'Next: track your progress'},
+    {el:learn, l:'Never get stuck. Your questions answered, and a fix for every problem, from wrist pain to being scared of falling.', n:'Next: when you get stuck'}
+  ].filter(x=>x.go||x.el);
+  if(!steps.length){ delete st.guideNext; save(); return; }
   app.classList.add('firstrun');
-  blocks.forEach(b=>b.el.classList.add('fr-wait'));
-  /* the one button that moves it on (Elliott, 3 Nov 2026: "how do we get
-     to the next step"), pinned at the foot of the page */
-  const next=document.createElement('button'); next.className='fr-next'; next.type='button';
-  app.appendChild(next);
-  let i=0;
-  const finish=()=>{
-    delete st.guideNext; save();
-    app.classList.remove('firstrun'); next.remove();
-    const start=app.querySelector('[data-tour="buildsession"]');
-    if(start){ start.classList.add('fr-pulse'); try{ start.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){} }
+  /* the same state after any redraw: what has been shown stays shown */
+  steps.forEach((x,k)=>{
+    if(!x.el) return;
+    if(k<frShown){
+      x.el.classList.remove('fr-wait');
+      const prev=x.el.previousElementSibling;
+      if(!(prev && prev.classList.contains('fr-lbl'))){ const lbl=document.createElement('div'); lbl.className='fr-lbl'; lbl.textContent=x.l; x.el.parentNode.insertBefore(lbl, x.el); }
+      if(k===frAnimAt){ x.el.classList.add('fr-in'); try{ x.el.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){} }
+    } else x.el.classList.add('fr-wait');
+  });
+  /* the bar: what this step is, and the way on. Fixed, above the player. */
+  let bar=document.getElementById('frBar');
+  if(!bar){ bar=document.createElement('div'); bar.id='frBar'; bar.innerHTML='<div class="fr-say"></div><button type="button" class="fr-next"></button>'; document.body.appendChild(bar); }
+  const cur=steps[frShown-1], after=steps[frShown];
+  bar.style.display = frShown ? '' : 'none';
+  /* over the real player or list, at the top, clear of their own controls */
+  bar.classList.toggle('top', !!(cur && cur.go));
+  bar.querySelector('.fr-say').textContent = cur && cur.go ? cur.l : '';
+  bar.querySelector('.fr-next').textContent = after ? after.n : 'Start your first session';
+  if(frAnimAt>=0 && steps[frAnimAt] && steps[frAnimAt].go) steps[frAnimAt].go();
+  if(frAnimAt>=0){ bar.classList.remove('fr-next-in'); void bar.offsetWidth; bar.classList.add('fr-next-in'); }
+  frAnimAt=-1;
+  bar.querySelector('.fr-next').onclick=()=>{
+    const was=steps[frShown-1];
+    if(was && was.go) tourLeaveMode();
+    if(frShown>=steps.length){
+      delete st.guideNext; save(); frShown=0;
+      app.classList.remove('firstrun'); bar.remove();
+      const go=app.querySelector('[data-tour="buildsession"]'); if(go) go.click();
+      return;
+    }
+    frShown++; frAnimAt=frShown-1; firstRunReveal();
   };
-  const show=()=>{
-    const b=blocks[i++]; if(!b || !b.el.isConnected){ finish(); return; }
-    const lbl=document.createElement('div'); lbl.className='fr-lbl'; lbl.textContent=b.l;
-    b.el.parentNode.insertBefore(lbl, b.el);
-    b.el.classList.remove('fr-wait'); b.el.classList.add('fr-in');
-    try{ b.el.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){}
-    const after=blocks[i];
-    next.textContent = after ? after.n : 'Start your first session';
-    next.classList.remove('fr-next-in'); void next.offsetWidth; next.classList.add('fr-next-in');
-  };
-  next.onclick=()=>{
-    if(i>=blocks.length){ finish(); const st0=app.querySelector('[data-tour="buildsession"]'); if(st0) st0.click(); return; }
-    show();
-  };
-  clearTimeout(frTimer); frTimer=setTimeout(show, 500);
+  if(!frShown){ clearTimeout(frTimer); frTimer=setTimeout(()=>{ if(!st.guideNext) return; frShown=1; frAnimAt=0; firstRunReveal(); }, 500); }
 }
 document.addEventListener('DOMContentLoaded',function(){
   /* /app.html sends people straight in here, on the first question (3 Nov
