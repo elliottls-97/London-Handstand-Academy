@@ -2722,8 +2722,20 @@ h2[style*="uppercase"] { font-family: var(--font-disp) !important; font-weight: 
 /* the green side was a fixed 330px beside a wide white one, and felt
    squeezed (Elliott, 31 Oct 2026): it takes about two fifths now */
 .co-plan { grid-template-columns: minmax(0, 1fr) clamp(340px, 42%, 480px) !important; }
-.co-plan-side { gap: 9px !important; padding: 32px 34px !important; }
-.co-sess { margin-bottom: 8px !important; padding: 11px 13px !important; }
+/* a computer only: unscoped, these beat every phone rule above and the
+   panel came out taller than a phone screen (3 Nov 2026) */
+@media (min-width: 861px) {
+  .co-plan-side { gap: 9px !important; padding: 32px 34px !important; }
+  .co-sess { margin-bottom: 8px !important; padding: 11px 13px !important; }
+}
+/* a phone: the call is a link under the button rather than a second
+   button, and "just your name and email" goes */
+@media (max-width: 860px) {
+  .co-plan-side { gap: 8px !important; }
+  .co-apply-note { display: none !important; }
+  .co-plan-side .co-btn-ghost { background: none !important; border: 0 !important; box-shadow: none !important;
+    padding: 6px !important; text-decoration: underline; text-underline-offset: 3px; font-weight: 600; }
+}
 .co-peek-link { margin-top: 20px; padding: 0; background: none; border: 0; cursor: pointer; text-align: left;
   font-family: var(--font-body); font-size: 14.5px; font-weight: 600; color: var(--green);
   text-decoration: underline; text-underline-offset: 3px; min-height: 0; }
@@ -5798,9 +5810,15 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') toggleAsk(null, false);
 });
 
+/* which plan the panel last showed: only a change of plan animates. Prices
+   arriving, a session count or a resize repaint the words in place, which
+   was the flashing on load and on every press (3 Nov 2026). */
+var coPainted = '';
 function pickPlan(key) {
   var p = CO_PLANS[key]; if (!p) return;
   coKey = key;
+  var swap = coPainted !== '' && coPainted !== key, fresh = coPainted !== key;
+  coPainted = key;
   coPlacesPaint();
   var sn = document.querySelectorAll('#coSn button');
   for (var si = 0; si < sn.length; si++) sn[si].setAttribute('aria-pressed', si === coSessN ? 'true' : 'false');
@@ -5851,17 +5869,19 @@ function pickPlan(key) {
   }
   var picker = document.getElementById('coPicker');
   var box = document.getElementById('coFeats');
-  box.innerHTML = '';
-  for (var j = 0; j < p.feats.length; j++) {
-    var d = document.createElement('div');
-    d.className = 'co-feat';
-    d.textContent = p.feats[j];
-    d.style.animation = 'cmpUp .4s ' + (j * 0.05) + 's cubic-bezier(.2,.8,.2,1) both';
-    box.appendChild(d);
+  if (fresh) {
+    box.innerHTML = '';
+    for (var j = 0; j < p.feats.length; j++) {
+      var d = document.createElement('div');
+      d.className = 'co-feat';
+      d.textContent = p.feats[j];
+      if (swap) d.style.animation = 'cmpUp .4s ' + (j * 0.05) + 's cubic-bezier(.2,.8,.2,1) both';
+      box.appendChild(d);
+    }
   }
   /* the panel arrives rather than blinking into a new state */
   var panel = document.querySelector('.co-plan');
-  if (panel) {
+  if (panel && swap) {
     panel.classList.remove('is-swapping');
     void panel.offsetWidth;
     panel.classList.add('is-swapping');
@@ -5870,7 +5890,7 @@ function pickPlan(key) {
   /* bring the chosen card into view on the rail */
   var chosen = document.querySelector('.co-pick[data-plan="' + key + '"]');
   var picker = document.getElementById('coPicker');
-  if (chosen && picker && window.matchMedia('(max-width: 860px)').matches) {
+  if (fresh && chosen && picker && window.matchMedia('(max-width: 860px)').matches) {
     picker.scrollTo({
       left: chosen.offsetLeft - (picker.clientWidth - chosen.offsetWidth) / 2,
       behavior: 'smooth'
@@ -5918,9 +5938,12 @@ function openCompare(e) { if (e) e.preventDefault(); var o = document.getElement
 function closeCompare(e) { if (e) e.preventDefault(); var o = document.getElementById('compareOverlay'); if (o) o.classList.remove('open'); document.body.style.overflow = ''; }
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeCompare(); if (window.closePeek) closePeek(); } });
 pickPlan('self');
+/* a phone's address bar showing and hiding is a resize: keep the chosen
+   card centred on the rail, nothing more */
 window.addEventListener('resize', function () {
-  var on = document.querySelector('.co-pick.is-on');
-  if (on) pickPlan(on.getAttribute('data-plan'));
+  var on = document.querySelector('.co-pick.is-on'), picker = document.getElementById('coPicker');
+  if (on && picker && window.matchMedia('(max-width: 860px)').matches)
+    picker.scrollLeft = on.offsetLeft - (picker.clientWidth - on.offsetWidth) / 2;
 });
 </script>
 <!-- Calendly's script is loaded by openCall() in the funnel script, when it is wanted -->
