@@ -10494,6 +10494,29 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      fetches it with its own pass and hands on the picture alone: nothing
      that opens the film ever leaves. Only films in the drill library, one
      frame each, cached at the edge for a week. */
+  /* ── the pushing assessment's films, for anybody ──────────────────
+     You cannot count reps on a push up you cannot watch, and from Pike
+     Press-Ups up the films are on paid stages. The assessment's own films
+     are signed for anyone, signed in or not, an hour at a time; training
+     them in a session is still the paid part (Elliott, 4 Nov 2026). Only
+     these drills, and a limit per address, so it is not a way into the
+     library. */
+  if (path === '/sign/assess' && request.method === 'GET') {
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`assess:${ip}`, 3600000)) > 40) return json({ error: 'Slow down' }, 429);
+    const k = await streamKey();
+    if (!k) return json({ tokens: {}, exp: 0, off: true });
+    const lib = await libraryNow();
+    const ASSESS = ['push-ups-on-knees', 'chaturganga-push-ups', 'p-pike-pushups-knees', 'pike-press-ups',
+      'elevated-pike-push-ups', 'wall-hspu-negatives', 'wall-hspu', 'freestanding-hspu'];
+    const tokens = {}, exp = Math.floor(Date.now() / 1000) + 3600;
+    for (const v of ASSESS) {
+      const m = /\/([a-f0-9]{32})\//.exec(String((lib.video || {})[v] || ''));
+      if (m) tokens[m[1]] = await signUid(k, m[1], exp);
+    }
+    return json({ tokens, exp: exp * 1000 - 120000 });
+  }
+
   if (path === '/story/still' && request.method === 'GET') {
     const uid = String(url.searchParams.get('uid') || '').replace(/[^a-f0-9]/g, '');
     const none = () => new Response('', { status: 404, headers: { 'cache-control': 'public, max-age=300' } });

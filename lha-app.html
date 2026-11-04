@@ -1756,6 +1756,12 @@ button.px-step{cursor:pointer}
 #app .strpg.out{animation:strOut .24s cubic-bezier(.4,0,1,1) both}
 .strstep.f{animation:strF .36s cubic-bezier(.2,.8,.2,1) both}
 .strstep.b{animation:strB .36s cubic-bezier(.2,.8,.2,1) both}
+.strsl{-webkit-appearance:none;appearance:none;width:100%;height:30px;margin:14px 0 0;background:transparent;cursor:pointer}
+.strsl::-webkit-slider-runnable-track{height:8px;border-radius:8px;background:linear-gradient(90deg,var(--forest) var(--f,0%),rgba(0,64,61,.12) var(--f,0%))}
+.strsl::-moz-range-track{height:8px;border-radius:8px;background:linear-gradient(90deg,var(--forest) var(--f,0%),rgba(0,64,61,.12) var(--f,0%))}
+.strsl::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;margin-top:-10px;border-radius:50%;background:#fff;
+  border:1px solid rgba(0,64,61,.18);box-shadow:0 2px 8px rgba(0,64,61,.25)}
+.strsl::-moz-range-thumb{width:28px;height:28px;border-radius:50%;background:#fff;border:1px solid rgba(0,64,61,.18);box-shadow:0 2px 8px rgba(0,64,61,.25)}
 .strth{display:block;width:64px;height:40px;border-radius:10px;object-fit:cover;background:rgba(0,64,61,.08)}
 @keyframes strIn{from{transform:translateX(100%)}to{transform:none}}
 @keyframes strOut{to{transform:translateX(100%);opacity:.6}}
@@ -3094,8 +3100,19 @@ const PUSH_RANK=Object.assign({'p-pike-pushups':4, 'p-pike-pushup-negs':4},
 /* the stage check points that are a push up count, Foundations to
    Freestanding; the press test keeps its own */
 const STR_CPS=['chaturanga','pike-neg','pike-full'];
-let puStep=-1, puN=0, puDir='';
+let puStep=-1, puN=0, puDir='', puLog=false;
 const strengthOn=()=>!isMU() && !coachedView();
+/* from Pike Press-Ups up the films are on paid stages: training one is the
+   full Ladder's, the assessment itself is free */
+const STR_PAID_FROM=4;
+function strSign(){
+  if(isPlus() || ASIGN.exp>Date.now()+600000) return;
+  fetch('/api/app/sign/assess').then(r=>r.ok?r.json():null).then(d=>{
+    if(!d || !d.tokens || !d.exp) return;
+    ASIGN={t:d.tokens, exp:d.exp};
+    if(document.getElementById('pub')) strPaint(true);
+  }).catch(()=>{});
+}
 const strName=v=>{ const d=drillById(v); return (d&&d.n)||v; };
 function strPlan(p){
   p=p||st.pushTest; if(!p || !p.r) return null;
@@ -3105,12 +3122,13 @@ function strPlan(p){
      the first */
   const it = n>0 ? {v:R.v, d:'3 × '+Math.max(1, n-1)}
     : p.r>1 ? {v:STR_RUNGS[p.r-2].v, d:'3 × '+Math.max(2, STR_RUNGS[p.r-2].t-2)} : {v:'plank-pose', d:'3 × 20s'};
-  return Object.assign(it, {r:p.r, n, cv:R.v, t:R.t, k:'push-'+R.v, rank:PUSH_RANK[it.v]||0});
+  const rank=PUSH_RANK[it.v]||0;
+  return Object.assign(it, {r:p.r, n, cv:R.v, t:R.t, k:'push-'+R.v, rank, locked:rank>=STR_PAID_FROM && !isPlus()});
 }
 /* the stage's push check point, made theirs */
 function strCps(list, stage){
   const p=strengthOn() && stage<5 ? strPlan() : null;
-  if(!p || p.clear || !list.some(c=>STR_CPS.indexOf(c.k)>-1)) return list;
+  if(!p || p.clear || p.locked || !list.some(c=>STR_CPS.indexOf(c.k)>-1)) return list;
   let put=false;
   return list.map(c=>{
     if(STR_CPS.indexOf(c.k)<0) return c;
@@ -3122,7 +3140,7 @@ function strCps(list, stage){
 const strUpHere=()=>!!(st.pushTest && (st.pushTest.up||{})[curStage()]);
 /* a log on their push check point: reaching the pass mark moves them up */
 function strLogged(k, v){
-  const p=strPlan(); if(!p || p.clear || k!==p.k || (Number(v)||0)<p.t) return false;
+  const p=strPlan(); if(!p || p.clear || p.locked || k!==p.k || (Number(v)||0)<p.t) return false;
   const r=p.r+1, at=Date.now(), was=st.pushTest;
   st.pushTest=Object.assign({}, was, {r, n:0, at, up:Object.assign({}, was.up||{}, {[curStage()]:at}),
     hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, r, n:0}]).slice(-12)});
@@ -3133,22 +3151,27 @@ function strLogged(k, v){
 function openStrength(){
   puN=0; puDir=''; puStep=(st.pushTest&&st.pushTest.r)?STR_RUNGS.length:-1;
   if(st.tab!=='strength') st.strFrom=st.tab;
-  st.tab='strength'; save(); render(); window.scrollTo(0,0);
+  st.tab='strength'; save(); render(); window.scrollTo(0,0); strSign();
 }
 function strBack(){
   const pg=document.querySelector('.strpg'), to=st.strFrom||'home';
   if(!pg || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)){ go(to); return; }
   pg.classList.add('out'); setTimeout(()=>go(to), 240);
 }
-function strPaint(){
+function strPaint(still){
   const el=document.getElementById('pub'); if(!el){ render(); return; }
-  el.innerHTML=`<div class="strstep ${puDir}">${strHTML()}</div>`;
+  el.innerHTML=`<div class="strstep ${still?'':puDir}">${strHTML()}</div>`;
+  if(still) return;
   window.scrollTo(0,0); const sc=el.closest('.scroll'); if(sc) sc.scrollTop=0;
 }
-function strGo(i){ puDir=i<puStep?'b':'f'; puStep=i; puN=0; strPaint(); }
-function strNum(d){ puN=Math.max(0, Math.min(50, puN+d)); const el=document.getElementById('puN'); if(el) el.textContent=puN;
+function strGo(i){ puDir=i<puStep?'b':'f'; puStep=i; puN=0; puLog=false; strPaint(); }
+/* ticked: they can do the pass mark, so on to the next one */
+function strPass(){ const R=STR_RUNGS[puStep]; if(!R) return; puN=R.t; strNext(); }
+function strNotYet(){ puLog=true; puN=0; strPaint(true); }
+function strSet(v){ puN=Math.max(0, Math.min(50, Number(v)||0)); const el=document.getElementById('puN'); if(el) el.textContent=puN;
+  const sl=document.querySelector('.strsl'); if(sl) sl.style.setProperty('--f', Math.round(puN/(Number(sl.max)||1)*100)+'%');
   const b=document.getElementById('puGo'), t=(STR_RUNGS[puStep]||{}).t;
-  if(b) b.textContent = puN>=t && puStep<STR_RUNGS.length-1 ? 'Passed, next one' : 'That is my number'; }
+  if(b) b.textContent = puN>=t && puStep<STR_RUNGS.length-1 ? 'That is a pass, next one' : 'That is my number'; }
 function strNext(){
   const R=STR_RUNGS[puStep]; if(!R) return;
   if(puN>=R.t && puStep<STR_RUNGS.length-1){ strGo(puStep+1); return; }
@@ -3201,16 +3224,18 @@ function strHTML(){
       <div class="pt-h" style="font-size:30px">${esc(d.n||R.v)}</div>
       ${strThumb(R.v, true)}
       ${d.desc?`<p class="pt-s">${esc(d.desc)}</p>`:''}
-      <div class="pt-card" style="text-align:center">
-        <div class="pt-k" style="color:var(--grey)">Clean reps in one go &middot; ${R.t} to pass</div>
-        <div style="display:flex;align-items:center;justify-content:center;gap:22px;margin-top:10px">
-          <button onclick="strNum(-1)" aria-label="One fewer" style="width:52px;height:52px;border-radius:50%;cursor:pointer;
-            background:#fff;border:1px solid rgba(0,64,61,.18);font:500 26px/1 var(--sans);color:var(--deep)">&minus;</button>
-          <b id="puN" style="min-width:64px;font:400 54px/1 var(--serif);color:var(--ink)">${puN}</b>
-          <button onclick="strNum(1)" aria-label="One more" style="width:52px;height:52px;border-radius:50%;cursor:pointer;
-            background:#fff;border:1px solid rgba(0,64,61,.18);font:500 26px/1 var(--sans);color:var(--deep)">+</button>
-        </div></div>
-      <button class="btn pt-go" id="puGo" style="width:100%;margin-top:14px" onclick="strNext()">That is my number</button>
+      ${puLog ? `<div class="pt-card" style="text-align:center">
+        <div class="pt-k" style="color:var(--grey)">How many clean reps in one go?</div>
+        <b id="puN" style="display:block;margin-top:8px;font:400 54px/1 var(--serif);color:var(--ink)">${puN}</b>
+        <input class="strsl" type="range" min="0" max="${R.t}" step="1" value="${puN}" aria-label="Clean reps"
+          oninput="strSet(this.value)" style="--f:${Math.round(puN/R.t*100)}%">
+        <div style="display:flex;justify-content:space-between;font:400 11.5px/1 var(--sans);color:var(--grey2);margin-top:6px">
+          <span>0</span><span>${R.t}, a pass</span></div></div>
+      <button class="btn pt-go" id="puGo" style="width:100%;margin-top:14px" onclick="strNext()">That is my number</button>`
+      : `<button class="btn pt-go" style="width:100%;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:10px" onclick="strPass()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          I can do ${R.t} clean</button>
+        <button class="btn" style="width:100%;margin-top:10px;background:#fff;color:var(--deep);border:1px solid rgba(0,64,61,.18);box-shadow:none" onclick="strNotYet()">Not yet, log my reps</button>`}
       ${puStep>0?`<button class="pt-link" onclick="strGo(${puStep-1})">Back</button>`:''}
     </div>`;
   }
@@ -3238,6 +3263,16 @@ function strResultHTML(){
     ${rungs}
     <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="strBack()">Done</button>
     <button class="pt-link" onclick="strGo(0)">Take it again</button></div>`;
+  if(p.locked) return `<div class="pt">
+    <div class="pt-k">Your pushing</div>
+    <div class="pt-h">${esc(strName(p.v))} is <em>your level.</em></div>
+    <p class="pt-p">Training it comes with the full Ladder. Until then your sessions keep their own push ups.</p>
+    ${rungs}
+    ${sellsLadder()?`<button class="btn pt-go" style="width:100%;margin-top:16px" onclick="openStage(Math.min(STAGES.length-1, Math.max(FREE_STAGES, curStage()+1)))">${
+      PRICE_TRIAL()>0?'Try every stage free for '+PRICE_TRIAL()+' days':'Unlock the full Ladder'}</button>`:''}
+    <button class="pt-link" onclick="strBack()">Not now</button>
+    <button class="pt-link" style="margin-top:0" onclick="strGo(0)">Take it again</button>
+  </div>`;
   return `<div class="pt">
     <div class="pt-k">Your pushing</div>
     <div class="pt-h">${esc(strName(p.v))}, <em>${esc(p.d)}.</em></div>
@@ -3253,6 +3288,7 @@ function strCardHTML(){
   const p=strPlan(), last=p && !p.clear ? cpLast(p.k) : null, now=last ? Number(last.v)||0 : (p&&p.n)||0;
   const em=t=>`<em style="color:var(--forest);font-style:normal">${t}</em>`;
   const line = !p ? 'How strong is your '+em('push?') : p.clear ? 'All eight '+em('passed.')
+    : p.locked ? esc(strName(p.v))+', '+em('with the full Ladder')
     : esc(strName(p.cv))+', '+em(now+' of '+p.t);
   return `<section class="rise rise-3" style="padding:16px 20px 0">
     <button onclick="openStrength()" style="width:100%;text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;
@@ -3261,7 +3297,7 @@ function strCardHTML(){
       <span style="flex:1;min-width:0">
         <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Your pushing</span>
         <span style="display:block;font:400 19px/1.25 var(--serif);color:var(--ink);margin-top:6px">${line}</span>
-        ${p?(p.clear?'':`<span style="display:block;height:6px;border-radius:6px;background:rgba(0,64,61,.10);margin-top:10px;overflow:hidden">
+        ${p?(p.clear||p.locked?'':`<span style="display:block;height:6px;border-radius:6px;background:rgba(0,64,61,.10);margin-top:10px;overflow:hidden">
           <span style="display:block;height:100%;width:${Math.min(100, Math.round(now/p.t*100))}%;background:var(--forest);border-radius:6px"></span></span>`)
           :`<span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">A two minute assessment. Your sessions then train your level.</span>`}
       </span>
@@ -4501,7 +4537,11 @@ let SIGN={t:{},exp:0};
    tokens with the coach's own app open in the next tab */
 const SIGN_KEY = PREVIEW ? 'lha_sign_preview' : 'lha_sign';
 try{ const s0=JSON.parse(localStorage.getItem(SIGN_KEY)||'null'); if(s0 && s0.exp>Date.now()) SIGN=s0; }catch(e){}
-const sigUid = uid => (SIGN.exp>Date.now() && SIGN.t[uid]) ? SIGN.t[uid] : uid;
+/* the pushing assessment's films, signed for anyone (strSign), kept apart
+   so the account's own set replacing SIGN does not take them away */
+let ASIGN={t:{},exp:0};
+const sigUid = uid => (SIGN.exp>Date.now() && SIGN.t[uid]) ? SIGN.t[uid]
+  : (ASIGN.exp>Date.now() && ASIGN.t[uid]) ? ASIGN.t[uid] : uid;
 const sig = url => { const m=/\/([a-f0-9]{32})\//.exec(String(url||'')); return (m && sigUid(m[1])!==m[1]) ? String(url).replace('/'+m[1]+'/', '/'+sigUid(m[1])+'/') : url; };
 let signTimer=null, signBusy=false, signAgain=false;
 function loadSign(){
@@ -22644,7 +22684,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const grpOf = v => ((rowOf(v)||{}).g)||'';
   const hard  = stageLevel(stage)===3;
   /* their pushing, from the assessment: every push drill is theirs instead */
-  const pp = (!wristDay && strengthOn()) ? strPlan() : null;
+  const sp = (!wristDay && strengthOn()) ? strPlan() : null;
+  /* a level on a paid stage, on a free account: the stage's own push ups */
+  const pp = sp && !sp.locked ? sp : null;
   const pushHard = it => !!pp && !pp.clear && !!PUSH_RANK[it.v];
   const add=it=>{
     /* timed and rested as the strength work it is, whatever the stage */
