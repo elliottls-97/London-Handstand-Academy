@@ -11244,7 +11244,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           cur.pressTest = { scores: sc, limiter: lim, at: Number(pt.at) || Date.now(), base, hist };
         }
         /* the pushing assessment: the level they train on, 1 to 8, or 9 when
-           they passed all eight, their clean reps there, when, the stages they
+           they passed all eight, their clean reps there, when, when they last
+           took the whole test (the retest is four weeks on), the stages they
            moved up a level on, and the last twelve results */
         if (body.pushTest && typeof body.pushTest === 'object') {
           const pu = body.pushTest, r = Number(pu.r), n = Number(pu.n);
@@ -11256,7 +11257,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             for (const [k, v] of Object.entries((pu.up && typeof pu.up === 'object') ? pu.up : {}).slice(0, 12)) {
               if (/^[0-9]$/.test(k) && Number.isFinite(Number(v))) up[k] = Number(v);
             }
-            cur.pushTest = { r, n: Number.isInteger(n) ? Math.max(0, Math.min(50, n)) : 0, at: Number(pu.at) || Date.now(), up, hist };
+            cur.pushTest = { r, n: Number.isInteger(n) ? Math.max(0, Math.min(50, n)) : 0, at: Number(pu.at) || Date.now(),
+              tat: Number(pu.tat) || Number(pu.at) || Date.now(), ...(pu.u ? { u: 1 } : {}), up, hist };
           }
         }
         /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */
