@@ -1750,6 +1750,18 @@ button.px-step{cursor:pointer}
 .px-link{border:0;background:none;font:600 13px/1.4 var(--sans);color:var(--forest);cursor:pointer;padding:6px}
 /* find your limiting factor: the press test and its result */
 .pt{padding:2px 2px 10px}
+/* the pushing assessment's page: in from the right, out the same way */
+.strpg{max-width:640px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 84px) 20px 130px}
+#app:not([data-still="1"]) .strpg{animation:strIn .42s cubic-bezier(.2,.8,.2,1) both}
+#app .strpg.out{animation:strOut .24s cubic-bezier(.4,0,1,1) both}
+.strstep.f{animation:strF .36s cubic-bezier(.2,.8,.2,1) both}
+.strstep.b{animation:strB .36s cubic-bezier(.2,.8,.2,1) both}
+.strth{display:block;width:64px;height:40px;border-radius:10px;object-fit:cover;background:rgba(0,64,61,.08)}
+@keyframes strIn{from{transform:translateX(100%)}to{transform:none}}
+@keyframes strOut{to{transform:translateX(100%);opacity:.6}}
+@keyframes strF{from{transform:translateX(48px);opacity:0}to{transform:none;opacity:1}}
+@keyframes strB{from{transform:translateX(-48px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){#app .strpg,#app .strpg.out,.strstep.f,.strstep.b{animation:none!important}}
 .pt-k{font:600 11px/1.3 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)}
 .pt-h{font:400 32px/1.04 var(--serif);letter-spacing:-.012em;margin-top:9px;color:var(--ink)}
 .pt-h em{font-style:normal;color:var(--forest)}
@@ -3069,7 +3081,9 @@ function repaintWeek(){
    drill the stage had, and the stage's push check point becomes theirs:
    the same drill, its pass mark, their own number climbing. Reaching it
    moves them up a level. The doses in strPlan are first drafts for Elliott.
-   The sheet is drawn once and only its inside repaints, like the press test. */
+   It is a page, not a sheet (Elliott, 4 Nov 2026: "a page we move in or out
+   of"): it slides in from the right, each push up slides across, and Back
+   slides it out again. Only the inside of the page repaints between steps. */
 const STR_RUNGS=[{v:'push-ups-on-knees', t:8}, {v:'chaturganga-push-ups', t:8}, {v:'p-pike-pushups-knees', t:8},
   {v:'pike-press-ups', t:5}, {v:'elevated-pike-push-ups', t:5}, {v:'wall-hspu-negatives', t:5},
   {v:'wall-hspu', t:5}, {v:'freestanding-hspu', t:5}];
@@ -3080,7 +3094,7 @@ const PUSH_RANK=Object.assign({'p-pike-pushups':4, 'p-pike-pushup-negs':4},
 /* the stage check points that are a push up count, Foundations to
    Freestanding; the press test keeps its own */
 const STR_CPS=['chaturanga','pike-neg','pike-full'];
-let puStep=-1, puN=0;
+let puStep=-1, puN=0, puDir='';
 const strengthOn=()=>!isMU() && !coachedView();
 const strName=v=>{ const d=drillById(v); return (d&&d.n)||v; };
 function strPlan(p){
@@ -3116,13 +3130,22 @@ function strLogged(k, v){
   toast(r>STR_RUNGS.length ? 'All eight passed.' : 'Up to '+esc(strName(STR_RUNGS[r-1].v))+'.');
   return true;
 }
-function openStrength(){ puN=0; puStep=(st.pushTest&&st.pushTest.r)?STR_RUNGS.length:-1; openOv('pushtest'); }
-function strPaint(){
-  const el=document.getElementById('pub'); if(!el){ drawOv(); return; }
-  el.innerHTML=strHTML();
-  const sh=el.closest('.sheet'); if(sh) sh.scrollTop=0;
+function openStrength(){
+  puN=0; puDir=''; puStep=(st.pushTest&&st.pushTest.r)?STR_RUNGS.length:-1;
+  if(st.tab!=='strength') st.strFrom=st.tab;
+  st.tab='strength'; save(); render(); window.scrollTo(0,0);
 }
-function strGo(i){ puStep=i; puN=0; strPaint(); }
+function strBack(){
+  const pg=document.querySelector('.strpg'), to=st.strFrom||'home';
+  if(!pg || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)){ go(to); return; }
+  pg.classList.add('out'); setTimeout(()=>go(to), 240);
+}
+function strPaint(){
+  const el=document.getElementById('pub'); if(!el){ render(); return; }
+  el.innerHTML=`<div class="strstep ${puDir}">${strHTML()}</div>`;
+  window.scrollTo(0,0); const sc=el.closest('.scroll'); if(sc) sc.scrollTop=0;
+}
+function strGo(i){ puDir=i<puStep?'b':'f'; puStep=i; puN=0; strPaint(); }
 function strNum(d){ puN=Math.max(0, Math.min(50, puN+d)); const el=document.getElementById('puN'); if(el) el.textContent=puN;
   const b=document.getElementById('puGo'), t=(STR_RUNGS[puStep]||{}).t;
   if(b) b.textContent = puN>=t && puStep<STR_RUNGS.length-1 ? 'Passed, next one' : 'That is my number'; }
@@ -3132,18 +3155,43 @@ function strNext(){
   const r=puN>=R.t ? STR_RUNGS.length+1 : puStep+1, at=Date.now(), was=st.pushTest||{};
   st.pushTest={r, n:puN>=R.t?0:puN, at, up:{}, hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, r, n:puN}]).slice(-12)};
   save(); saveState(); track('pushtest', null, String(r));
+  const got=puN; puDir='f'; puStep=STR_RUNGS.length;
   /* the test is the first reading on their check point */
-  if(r<=STR_RUNGS.length && puN>0) saveCheckpoint('push-'+R.v, puN);
-  puStep=STR_RUNGS.length; strPaint();
+  if(r<=STR_RUNGS.length && got>0) saveCheckpoint('push-'+R.v, got);
+  strPaint();
 }
-function strBody(){ return `<div id="pub">${strHTML()}</div>`; }
+/* the page: Back at the top, then the step */
+function screenStrength(){
+  if(!strengthOn()) return screenHome();
+  if(puStep<0 && st.pushTest && st.pushTest.r) puStep=STR_RUNGS.length;
+  return `<div class="scroll s" style="overflow-x:hidden"><div class="strpg">
+    <button onclick="strBack()" style="background:none;border:0;padding:0;cursor:pointer;
+      font:500 13px/1.4 var(--sans);color:var(--forest)">&larr; Back</button>
+    <div id="pub" style="margin-top:10px"><div class="strstep">${strHTML()}</div></div>
+  </div></div>`;
+}
+/* a film's still, or a tile saying it is coming. A film from a paid stage
+   has no still from Stream without a pass, so the server's still stands in
+   (it signs its own): the still is always there even where the film is not */
+const strStill=uid=>'/api/app/story/still?uid='+uid;
+function strThumb(v, big){
+  const d=drillById(v)||{}, u=(d.url||'').match(/[0-9a-f]{32}/);
+  if(big) return d.url ? `<div style="margin-top:12px;border-radius:16px;overflow:hidden">${
+      u && sigUid(u[0])===u[0] ? drillFilm(d.url,'16/10',true).replace(/poster="[^"]*"/, 'poster="'+strStill(u[0])+'"') : drillFilm(d.url,'16/10',true)}</div>`
+    : `<div style="margin-top:12px;aspect-ratio:16/10;border-radius:16px;background:rgba(0,64,61,.07);display:grid;place-items:center;
+        font:600 11px/1.3 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--grey)">Film coming soon</div>`;
+  return u ? `<img class="strth" src="${esc(streamThumb(u[0]))}" alt="" loading="lazy"
+      onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${strStill(u[0])}'}else this.style.visibility='hidden'">`
+    : `<span class="strth" style="display:grid;place-items:center;font:600 8.5px/1.2 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--grey);text-align:center">Soon</span>`;
+}
 function strHTML(){
   const N=STR_RUNGS.length;
   if(puStep<0) return `<div class="pt">
     <div class="pt-k">Pushing assessment</div>
     <div class="pt-h">How strong is <em>your push?</em></div>
     <p class="pt-p">Up to eight push ups, easiest first. Count your clean reps and stop when one beats you. Your sessions then train that one.</p>
-    <button class="btn pt-go" style="width:100%;margin-top:18px" onclick="strGo(0)">Start</button></div>`;
+    <button class="btn pt-go" style="width:100%;margin-top:18px" onclick="strGo(0)">Start</button>
+    ${strRungsHTML({r:0}, 0)}</div>`;
   if(puStep<N){
     const R=STR_RUNGS[puStep], d=drillById(R.v)||{};
     return `<div class="pt">
@@ -3151,7 +3199,7 @@ function strHTML(){
       <div class="pt-dots">${STR_RUNGS.map((x,i)=>`<button class="${i===puStep?'cur':i<puStep?'done':''}"${
         i<puStep?` onclick="strGo(${i})"`:' disabled'} aria-label="Push up ${i+1}"></button>`).join('')}</div>
       <div class="pt-h" style="font-size:30px">${esc(d.n||R.v)}</div>
-      ${d.url?`<div style="margin-top:12px;border-radius:16px;overflow:hidden">${drillFilm(d.url,'16/10',true)}</div>`:''}
+      ${strThumb(R.v, true)}
       ${d.desc?`<p class="pt-s">${esc(d.desc)}</p>`:''}
       <div class="pt-card" style="text-align:center">
         <div class="pt-k" style="color:var(--grey)">Clean reps in one go &middot; ${R.t} to pass</div>
@@ -3168,29 +3216,34 @@ function strHTML(){
   }
   return strResultHTML();
 }
+/* the eight levels, each with its film's still: theirs lit, passed ticked */
+function strRungsHTML(p, now){
+  return `<div class="pt-card" style="padding:6px 16px">${STR_RUNGS.map((x,i)=>{
+    const n=i+1, on=n===p.r, done=n<p.r, d=drillById(x.v)||{};
+    return `<div${d.url?` onclick="pgDrill(${jsq(x.v)})" style="cursor:pointer;`:' style="'}display:flex;align-items:center;gap:12px;padding:10px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+      <span style="position:relative;flex:none">${strThumb(x.v)}
+        <span style="position:absolute;left:-6px;top:-6px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:600 11px/1 var(--sans);
+          border:2px solid #fff;background:${done?'var(--forest)':on?'var(--amber)':'#e9eeee'};color:${done?'var(--on-primary)':on?'var(--ink)':'var(--grey)'}">${done?'&#10003;':n}</span></span>
+      <b style="flex:1;min-width:0;font:600 15px/1.3 var(--sans);color:${done||on||!p.r?'var(--ink)':'var(--grey)'}">${esc(d.n||x.v)}</b>
+      ${on?`<span class="pt-v mid">${now} of ${x.t}</span>`:''}</div>`; }).join('')}</div>`;
+}
 function strResultHTML(){
   const p=strPlan(); if(!p) return '';
   const last=p.clear ? null : cpLast(p.k), now=last ? Number(last.v)||0 : p.n;
-  const rungs=`<div class="pt-card" style="padding:6px 16px">${STR_RUNGS.map((x,i)=>{
-    const n=i+1, on=n===p.r, done=n<p.r, d=drillById(x.v)||{};
-    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
-      <span style="width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;font:600 12px/1 var(--sans);
-        background:${done?'var(--forest)':on?'var(--amber)':'rgba(0,64,61,.08)'};color:${done?'var(--on-primary)':on?'var(--ink)':'var(--grey)'}">${done?'&#10003;':n}</span>
-      <b style="flex:1;min-width:0;font:600 15px/1.3 var(--sans);color:${done||on?'var(--ink)':'var(--grey)'}">${esc(d.n||x.v)}</b>
-      ${on?`<span class="pt-v mid">${now} of ${x.t}</span>`:d.url?'':`<span class="pt-v" style="color:var(--grey);background:rgba(0,64,61,.06)">Filming soon</span>`}</div>`; }).join('')}</div>`;
+  const rungs=strRungsHTML(p, now);
   if(p.clear) return `<div class="pt">
     <div class="pt-k">Your pushing</div>
     <div class="pt-h">All eight <em>passed.</em></div>
     <p class="pt-p">Pushing is not what holds you back. Your sessions stay as written.</p>
     ${rungs}
-    <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>
+    <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="strBack()">Done</button>
     <button class="pt-link" onclick="strGo(0)">Take it again</button></div>`;
   return `<div class="pt">
     <div class="pt-k">Your pushing</div>
     <div class="pt-h">${esc(strName(p.v))}, <em>${esc(p.d)}.</em></div>
     <p class="pt-p">In every session, in place of the stage's push ups. Get ${p.t} clean ${esc(strName(p.cv))} and you move up a level.</p>
     ${rungs}
-    <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>
+    <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="strBack()">Done</button>
     <button class="pt-link" onclick="strGo(0)">Take it again</button>
   </div>`;
 }
@@ -13306,10 +13359,9 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', cpday:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', pushtest:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='limiter'){ body=limiterBody(); }
-  else if(st.ov==='pushtest'){ body=strBody(); }
   else if(st.ov==='cpday'){ body=cpDayBody(); }
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
@@ -26552,8 +26604,8 @@ function render(){
     ? {classes:screenClasses,bookings:screenBookings,sessions:screenSessions,more:screenMore,fix:screenFix}
     : coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix,press:screenPress}
-    : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress}
-    : {home:screenHome,ladder:screenLadder,classes:screenClasses,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress};
+    : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength}
+    : {home:screenHome,ladder:screenLadder,classes:screenClasses,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength};
   /* coaching paused until they pay (22 Oct 2026): the programme waits
      behind one screen; the chat and More still work */
   if(coached && st.paused) ['today','plan','progress','fix','press'].forEach(k=>{ screens[k]=screenPaused; });
