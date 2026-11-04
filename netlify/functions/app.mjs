@@ -11220,6 +11220,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           const base = Number.isInteger(Number(pt.base)) ? Math.max(0, Math.min(9999, Number(pt.base))) : 0;
           cur.pressTest = { scores: sc, limiter: lim, at: Number(pt.at) || Date.now(), base, hist };
         }
+        /* the push test: the rung they train on, 1 to 4, or 5 when they passed
+           all four, how many reps they got on it (0 to 3, the band picked), when,
+           and the last twelve results for the retest */
+        if (body.pushTest && typeof body.pushTest === 'object') {
+          const pu = body.pushTest, r = Number(pu.r), sc = Number(pu.s);
+          if (Number.isInteger(r) && r >= 1 && r <= 5) {
+            const hist = (Array.isArray(pu.hist) ? pu.hist : []).slice(-12)
+              .filter(h => h && Number.isFinite(Number(h.at)) && Number.isInteger(Number(h.r)) && Number(h.r) >= 1 && Number(h.r) <= 5)
+              .map(h => ({ at: Number(h.at), r: Number(h.r), s: Math.max(0, Math.min(3, Number(h.s) | 0)) }));
+            cur.pushTest = { r, s: Number.isInteger(sc) ? Math.max(0, Math.min(3, sc)) : 0, at: Number(pu.at) || Date.now(), hist };
+          }
+        }
         /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */
         if (body.pressRung && typeof body.pressRung === 'object') {
           const r = Number(body.pressRung.r);
@@ -11373,7 +11385,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       mu: (out.mu && typeof out.mu === 'object') ? out.mu : null, ladder: out.ladder || '',
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
+      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pushTest: out.pushTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
       cues: Array.isArray(out.cues) ? out.cues : [],
       /* the coach's own call link for a new client, where one is set */
       ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || ''),
@@ -11619,6 +11631,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'story',
                   /* the press test taken, by the limiter it named */
                   'presstest',
+                  /* the push test taken, by the rung it found */
+                  'pushtest',
                   /* a film that would not play, by film and where (no person) */
                   'filmfail',
                   /* a workshop page opened, a booking started, a booking paid */

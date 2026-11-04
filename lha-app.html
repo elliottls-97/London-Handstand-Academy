@@ -3058,6 +3058,124 @@ function repaintWeek(){
   if(el) el.outerHTML=streakSheetHTML();
   renderPending=true;
 }
+/* ── how strong is your pushing ─────────────────────────────────────
+   The questions place on skill, and skill and strength do not move
+   together: Ting kicks up well enough for Take-Off and does three knee
+   chaturangas (Elliott, 4 Nov 2026). Four push ups, easiest first, eight
+   clean reps to pass each. The first one they do not pass is theirs. The
+   session builder swaps any harder push drill for it and, when it is below
+   what their stage needs, puts it at the end of every session. PUSH_NEED
+   and the doses in strPlan are first drafts for Elliott to set. The sheet
+   is drawn once and only its inside repaints, like the press test. */
+const PUSH_RUNGS=['push-ups-on-knees','chaturganga-push-ups','p-pike-pushups-knees','pike-press-ups'];
+const PUSH_RANK={'push-ups-on-knees':1,'chaturganga-push-ups':2,'p-pike-pushups-knees':3,
+  'pike-press-ups':4,'p-pike-pushups':4,'p-pike-pushup-negs':4};
+/* the rung each stage should be working on at least, Foundations to Press;
+   5 is all four passed */
+const PUSH_NEED=[1,2,3,4,4,5];
+const PUSH_PASS=8;
+const PUSH_LV=['None yet','1 to 3','4 to 7',PUSH_PASS+' or more'];
+let puStep=-1, puGot=[], puTimer=0;
+const strengthOn=()=>!isMU() && !coachedView();
+function strPlan(p){
+  p=p||st.pushTest; if(!p || !p.r) return null;
+  if(p.r>PUSH_RUNGS.length) return {r:p.r, clear:true, behind:false};
+  const s=p.s|0;
+  /* none at all of theirs: the one below, which they passed, for volume,
+     or a plank under the first */
+  const it = s>0 ? {v:PUSH_RUNGS[p.r-1], d:s===1?'3 × 2':'3 × 5'}
+    : p.r>1 ? {v:PUSH_RUNGS[p.r-2], d:'3 × 6'} : {v:'plank-pose', d:'3 × 20s'};
+  return Object.assign(it, {r:p.r, s, rank:PUSH_RANK[it.v]||0, behind:p.r<(PUSH_NEED[curStage()]||1)});
+}
+const strName=v=>{ const d=drillById(v); return (d&&d.n)||v; };
+function openStrength(){ clearTimeout(puTimer); puGot=[]; puStep=(st.pushTest&&st.pushTest.r)?PUSH_RUNGS.length:-1; openOv('pushtest'); }
+function strPaint(){
+  const el=document.getElementById('pub'); if(!el){ drawOv(); return; }
+  el.innerHTML=strHTML();
+  const sh=el.closest('.sheet'); if(sh) sh.scrollTop=0;
+}
+function strGo(i){ clearTimeout(puTimer); if(i===0) puGot=[]; puStep=i; strPaint(); }
+function strPick(lv){
+  puGot[puStep]=lv; strPaint();
+  clearTimeout(puTimer); puTimer=setTimeout(()=>{
+    if(lv>=3 && puStep<PUSH_RUNGS.length-1){ strGo(puStep+1); return; }
+    const r=lv>=3 ? PUSH_RUNGS.length+1 : puStep+1, at=Date.now(), was=st.pushTest||{};
+    st.pushTest={r, s:lv, at, hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, r, s:lv}]).slice(-12)};
+    save(); saveState(); track('pushtest', null, String(r));
+    puStep=PUSH_RUNGS.length; strPaint();
+  }, 320);
+}
+function strBody(){ return `<div id="pub">${strHTML()}</div>`; }
+function strHTML(){
+  const N=PUSH_RUNGS.length;
+  if(puStep<0) return `<div class="pt">
+    <div class="pt-k">Your pushing</div>
+    <div class="pt-h">How strong is <em>your push?</em></div>
+    <p class="pt-p">Four push ups, easiest first. Count the clean reps, and your sessions get the one that fits you.</p>
+    <button class="btn pt-go" style="width:100%;margin-top:18px" onclick="strGo(0)">Start</button></div>`;
+  if(puStep<N){
+    const v=PUSH_RUNGS[puStep], d=drillById(v)||{}, got=puGot[puStep];
+    return `<div class="pt">
+      <div class="pt-k">Push up ${puStep+1} of ${N}</div>
+      <div class="pt-dots">${PUSH_RUNGS.map((x,i)=>`<button class="${i===puStep?'cur':i<puStep?'done':''}"${
+        i<puStep?` onclick="strGo(${i})"`:' disabled'} aria-label="Push up ${i+1}"></button>`).join('')}</div>
+      <div class="pt-h" style="font-size:30px">${esc(d.n||v)}</div>
+      ${d.url?`<div style="margin-top:12px;border-radius:16px;overflow:hidden">${drillFilm(d.url,'16/10',true)}</div>`:''}
+      ${d.desc?`<p class="pt-s">${esc(d.desc)}</p>`:''}
+      <p class="pt-p" style="font-weight:600">How many clean reps in one go?</p>
+      <div class="pt-lvs">${PUSH_LV.map((l,i)=>`<button class="pt-lv${got===i?' on':''}" onclick="strPick(${i})"><span class="pt-lt"><b>${esc(l)}</b></span>${
+        i===3&&puStep<N-1?`<span class="pt-v ok">Next one</span>`:''}</button>`).join('')}</div>
+      ${puStep>0?`<button class="pt-link" onclick="strGo(${puStep-1})">Back</button>`:''}
+    </div>`;
+  }
+  return strResultHTML();
+}
+function strResultHTML(){
+  const p=strPlan(); if(!p) return '';
+  const S=STAGES[curStage()]||STAGES[0], need=PUSH_NEED[curStage()]||1, N=PUSH_RUNGS.length;
+  const rungs=`<div class="pt-card" style="padding:6px 16px">${PUSH_RUNGS.map((v,i)=>{
+    const n=i+1, on=n===p.r, done=n<p.r;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+      <span style="width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;font:600 12px/1 var(--sans);
+        background:${done?'var(--forest)':on?'var(--amber)':'rgba(0,64,61,.08)'};color:${done?'var(--on-primary)':on?'var(--ink)':'var(--grey)'}">${done?'&#10003;':n}</span>
+      <b style="flex:1;min-width:0;font:600 15px/1.3 var(--sans);color:${done||on?'var(--ink)':'var(--grey)'}">${esc(strName(v))}</b>
+      ${n===need&&!done?`<span class="pt-v mid">${esc(S.n)}</span>`:''}</div>`; }).join('')}</div>`;
+  const head = p.clear
+    ? `<div class="pt-h">All four <em>passed.</em></div>
+       <p class="pt-p">Pushing is not what holds you back. Your sessions stay as written.</p>`
+    : `<div class="pt-h">${esc(strName(p.v))}, <em>${esc(p.d)}.</em></div>
+       <p class="pt-p">${p.behind
+         ? `${esc(S.n)} needs ${need>N?'all four':esc(strName(PUSH_RUNGS[need-1]))}, so this ends every session until you get there.`
+         : 'Any harder push up in your sessions is swapped for this one.'}</p>`;
+  return `<div class="pt">
+    <div class="pt-k">Your pushing</div>
+    ${head}
+    ${rungs}
+    ${p.clear?'':`<p class="pt-s">Test again when you get ${PUSH_PASS} clean reps.</p>`}
+    <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>
+    <button class="pt-link" onclick="strGo(0)">Test again</button>
+  </div>`;
+}
+/* the card under Start: the way in to the test, then what it found */
+function strCardHTML(){
+  if(!strengthOn() || trialPending()) return '';
+  const p=strPlan();
+  const line = !p ? `Test your <em style="color:var(--forest);font-style:normal">push.</em>`
+    : p.clear ? `All four <em style="color:var(--forest);font-style:normal">passed.</em>`
+    : `${esc(strName(p.v))}, <em style="color:var(--forest);font-style:normal">${esc(p.d)}</em>`;
+  return `<section class="rise rise-3" style="padding:16px 20px 0">
+    <button onclick="openStrength()" style="width:100%;text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;
+      background:#fff;border-radius:22px;padding:16px 18px;border:1px solid rgba(0,64,61,.10);
+      box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Your pushing</span>
+        <span style="display:block;font:400 19px/1.25 var(--serif);color:var(--ink);margin-top:6px">${line}</span>
+        ${p?'':`<span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">Two minutes. Your sessions get the push ups that fit you.</span>`}
+      </span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </button></section>`;
+}
 /* ── find your limiting factor ──────────────────────────────────────
    The press masterclass's test, inside the Press stage (10 Oct 2026). Two
    observations, then six physical tests scored 0 to 3. The six put a dot
@@ -10549,7 +10667,7 @@ let stateQueued=null;
    the list held twelve of them, and a call moved or a press test logged on
    another phone was stored and not shown until something else redrew */
 const stateSnap=()=>JSON.stringify([st.ladder,st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,
-  st.ladderDone,st.callBooked,st.callDone,st.callBy,st.callAt,st.callHere,st.wcall,st.welcomeCall,st.youInSeen,st.pressTest,st.pressRung,st.lvl]);
+  st.ladderDone,st.callBooked,st.callDone,st.callBy,st.callAt,st.callHere,st.wcall,st.welcomeCall,st.youInSeen,st.pressTest,st.pushTest,st.pressRung,st.lvl]);
 function loadState(){
   if(!st.token) return Promise.resolve();
   return fetch(AUTH.state,{headers:authed()})
@@ -10582,6 +10700,7 @@ function loadState(){
       if(d.fixDone && typeof d.fixDone==='object') st.fixDone=Object.assign({}, d.fixDone, st.fixDone||{});
       if(d.pressTest && d.pressTest.at && (!st.pressTest || d.pressTest.at>st.pressTest.at)) st.pressTest=d.pressTest;
       if(d.pressRung && d.pressRung.at && (!st.pressRung || d.pressRung.at>st.pressRung.at)) st.pressRung=d.pressRung;
+      if(d.pushTest && d.pushTest.at && (!st.pushTest || d.pushTest.at>st.pushTest.at)) st.pushTest=d.pushTest;
       /* the cues kept from Elliott's replies, from whichever phone kept them */
       if(Array.isArray(d.cues)) st.cues=d.cues;
       /* Where they are on the ladder followed the phone, not the person. It
@@ -10664,6 +10783,7 @@ function saveState(now){
       fixDone:st.fixDone||{},
       ...(st.pressTest?{pressTest:st.pressTest}:{}),
       ...(st.pressRung?{pressRung:st.pressRung}:{}),
+      ...(st.pushTest?{pushTest:st.pushTest}:{}),
       ...(stateIn?{cues:st.cues||[]}:{}),
       ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callBooked&&st.callBy?{callBy:st.callBy, callAt:st.callAt||0}:{}), ...(st.callNo?{callNo:true}:{})}
     })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
@@ -13139,9 +13259,10 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', cpday:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', pushtest:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='limiter'){ body=limiterBody(); }
+  else if(st.ov==='pushtest'){ body=strBody(); }
   else if(st.ov==='cpday'){ body=cpDayBody(); }
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
@@ -19782,6 +19903,8 @@ function screenHome(){
     <!-- the stage's explainers and fixes, where the free week's preview
          showed the placed stage's, so choosing Foundations swaps what is in
          the rails rather than taking the rails away -->
+    <!-- how strong their pushing is, and what that put in their sessions -->
+    ${strCardHTML()}
     <!-- workouts kept for another day, under Start: they are another way in -->
     ${savedHomeHTML()}
     <!-- Save your progress, for everyone without an account, first visit
@@ -22418,8 +22541,12 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const lvlOf = v => ((rowOf(v)||{}).L)||0;
   const grpOf = v => ((rowOf(v)||{}).g)||'';
   const hard  = stageLevel(stage)===3;
+  /* their pushing, from the push test: anything harder than it comes out */
+  const pp = (!wristDay && strengthOn()) ? strPlan() : null;
+  const pushHard = it => !!pp && !pp.clear && (PUSH_RANK[it.v]||0) > pp.rank;
   const add=it=>{
-    const g=grpOf(it.v);
+    /* timed and rested as the strength work it is, whatever the stage */
+    const g=it.push ? 'Strength' : grpOf(it.v);
     /* An untimed set (build to, max hold) has no countdown, and it was
        budgeted at nothing, so a stage full of them ran long: Take-Off came
        to thirty nine minutes whatever was asked for. It still takes time,
@@ -22572,9 +22699,21 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     const backN=Math.max(1, Math.round(wantN*BACK_SHARE));
     picked=backItems.slice(0, backN).concat(picked.slice(0, Math.max(0, wantN-backN)));
   }
+  /* ── their pushing ─────────────────────────────────────────────
+     A push drill harder than the one the push test found is swapped for
+     that one, at their dose, and below what the stage needs it is in every
+     session. It goes last in the list, so a short session's sets land on it. */
+  if(pp && !pp.clear){
+    const before=picked.length, d=drillById(pp.v);
+    picked=picked.filter(it=>!pushHard(it) && it.v!==pp.v);
+    if(d && !asideOn(pp.v) && (pp.behind || picked.length<before))
+      /* the dose is theirs, so the library's own sets and amounts for it go */
+      picked.push(Object.assign({}, d, {d:pp.d, sets:lhaSets(pp.d), amt:null, unit:null, w:null, push:true}));
+  }
   /* the band's own numbers, folded into the drill before it is timed, so a
      drill can be lighter in Easier than in Harder without a second copy */
   picked = picked.map(it=>{
+    if(it.push) return it;
     const b=bandTimingFor(stage, stageLevel(stage), it.v);
     return b ? Object.assign({}, it, b) : it;
   });
@@ -22600,6 +22739,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const orderOf = new Map(picked.map((it,i)=>[it.v, i]));
   const setsWanted = it => {
     if(oneSetOnly && (orderOf.get(it.v) == null || orderOf.get(it.v) < tailFrom)) return 1;
+    /* the push test's dose, not the band's: it was set for this person */
+    if(it.push){ const n=Math.min(lhaSets(it.d)||3, 8); return oneSetOnly ? Math.min(n, 2) : n; }
     const band=bandTimingFor(stage, stageLevel(stage), it.v);
     const bs=Number(band && band.sets);
     if(Number.isFinite(bs) && bs>=1) return Math.min(Math.round(bs), 8);
@@ -22613,9 +22754,14 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   /* one set of each in turn, round and round, so the time that runs out
      takes the last set off the end rather than the last drill */
   let more=true;
+  /* their push drill has its sets first, so the clock running out takes
+     a set off something else rather than the one thing put there for them;
+     the ramp below still puts it at the end */
+  picked.filter(it=>it.push).forEach(it=>{ let k=0; while(k<setsWanted(it) && add(it)) k++; });
+  const round=picked;
   while(more && secs<budget){
     more=false;
-    for(const it of picked){
+    for(const it of round){
       if((done[it.v]||0)>=setsWanted(it)) continue;
       if(add(it)) more=true;
     }
@@ -22627,7 +22773,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      the next drills in the pool come in, their sets and all, until the
      time is used. The ramp below puts them where they belong. */
   if(!oneSetOnly && !wristDay && budget-secs > 5*60){
-    const extra=spin(cands, rot).filter(it=>!picked.some(p=>p.v===it.v));
+    const extra=spin(cands, rot).filter(it=>!picked.some(p=>p.v===it.v) && !pushHard(it) && !(pp && it.v===pp.v));
     for(let it of extra){
       if(budget-secs <= 3*60) break;
       const b=bandTimingFor(stage, stageLevel(stage), it.v);
@@ -22657,7 +22803,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     const warmN=warm.items.length;
     const skill=out.slice(warmN);
     const seen=[]; skill.forEach(q=>{ if(seen.indexOf(q.it.v)<0) seen.push(q.it.v); });
-    skill.sort((a,b)=> ((b.it.back?1:0)-(a.it.back?1:0))
+    skill.sort((a,b)=> ((a.it.push?1:0)-(b.it.push?1:0)) || ((b.it.back?1:0)-(a.it.back?1:0))
       || (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
       || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
       || a.set-b.set);
