@@ -11220,16 +11220,20 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           const base = Number.isInteger(Number(pt.base)) ? Math.max(0, Math.min(9999, Number(pt.base))) : 0;
           cur.pressTest = { scores: sc, limiter: lim, at: Number(pt.at) || Date.now(), base, hist };
         }
-        /* the push test: the rung they train on, 1 to 4, or 5 when they passed
-           all four, how many reps they got on it (0 to 3, the band picked), when,
-           and the last twelve results for the retest */
+        /* the pushing assessment: the level they train on, 1 to 8, or 9 when
+           they passed all eight, their clean reps there, when, the stages they
+           moved up a level on, and the last twelve results */
         if (body.pushTest && typeof body.pushTest === 'object') {
-          const pu = body.pushTest, r = Number(pu.r), sc = Number(pu.s);
-          if (Number.isInteger(r) && r >= 1 && r <= 5) {
+          const pu = body.pushTest, r = Number(pu.r), n = Number(pu.n);
+          if (Number.isInteger(r) && r >= 1 && r <= 9) {
             const hist = (Array.isArray(pu.hist) ? pu.hist : []).slice(-12)
-              .filter(h => h && Number.isFinite(Number(h.at)) && Number.isInteger(Number(h.r)) && Number(h.r) >= 1 && Number(h.r) <= 5)
-              .map(h => ({ at: Number(h.at), r: Number(h.r), s: Math.max(0, Math.min(3, Number(h.s) | 0)) }));
-            cur.pushTest = { r, s: Number.isInteger(sc) ? Math.max(0, Math.min(3, sc)) : 0, at: Number(pu.at) || Date.now(), hist };
+              .filter(h => h && Number.isFinite(Number(h.at)) && Number.isInteger(Number(h.r)) && Number(h.r) >= 1 && Number(h.r) <= 9)
+              .map(h => ({ at: Number(h.at), r: Number(h.r), n: Math.max(0, Math.min(50, Number(h.n) | 0)) }));
+            const up = {};
+            for (const [k, v] of Object.entries((pu.up && typeof pu.up === 'object') ? pu.up : {}).slice(0, 12)) {
+              if (/^[0-9]$/.test(k) && Number.isFinite(Number(v))) up[k] = Number(v);
+            }
+            cur.pushTest = { r, n: Number.isInteger(n) ? Math.max(0, Math.min(50, n)) : 0, at: Number(pu.at) || Date.now(), up, hist };
           }
         }
         /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */

@@ -3058,73 +3058,111 @@ function repaintWeek(){
   if(el) el.outerHTML=streakSheetHTML();
   renderPending=true;
 }
-/* ── how strong is your pushing ─────────────────────────────────────
-   The questions place on skill, and skill and strength do not move
-   together: Ting kicks up well enough for Take-Off and does three knee
-   chaturangas (Elliott, 4 Nov 2026). Four push ups, easiest first, eight
-   clean reps to pass each. The first one they do not pass is theirs. The
-   session builder swaps any harder push drill for it and, when it is below
-   what their stage needs, puts it at the end of every session. PUSH_NEED
-   and the doses in strPlan are first drafts for Elliott to set. The sheet
-   is drawn once and only its inside repaints, like the press test. */
-const PUSH_RUNGS=['push-ups-on-knees','chaturganga-push-ups','p-pike-pushups-knees','pike-press-ups'];
-const PUSH_RANK={'push-ups-on-knees':1,'chaturganga-push-ups':2,'p-pike-pushups-knees':3,
-  'pike-press-ups':4,'p-pike-pushups':4,'p-pike-pushup-negs':4};
-/* the rung each stage should be working on at least, Foundations to Press;
-   5 is all four passed */
-const PUSH_NEED=[1,2,3,4,4,5];
-const PUSH_PASS=8;
-const PUSH_LV=['None yet','1 to 3','4 to 7',PUSH_PASS+' or more'];
-let puStep=-1, puGot=[], puTimer=0;
+/* ── the pushing assessment ────────────────────────────────────────
+   Bent arm pushing strength is its own scale, apart from the stage: Ting
+   kicks up well enough for Take-Off and does three knee chaturangas, and
+   somebody new to handstands on Foundations may already do pike push ups
+   (Elliott, 4 Nov 2026). Eight levels, easiest first; they say how many
+   clean reps they get, and passing a level takes eight on the first three
+   and five from pike push ups up. The first level they do not pass is
+   theirs. Every session then trains that drill in place of whatever push
+   drill the stage had, and the stage's push check point becomes theirs:
+   the same drill, its pass mark, their own number climbing. Reaching it
+   moves them up a level. The doses in strPlan are first drafts for Elliott.
+   The sheet is drawn once and only its inside repaints, like the press test. */
+const STR_RUNGS=[{v:'push-ups-on-knees', t:8}, {v:'chaturganga-push-ups', t:8}, {v:'p-pike-pushups-knees', t:8},
+  {v:'pike-press-ups', t:5}, {v:'elevated-pike-push-ups', t:5}, {v:'wall-hspu-negatives', t:5},
+  {v:'wall-hspu', t:5}, {v:'freestanding-hspu', t:5}];
+/* every push drill the stages use, by the level it belongs to, so any of
+   them in a session is swapped for theirs */
+const PUSH_RANK=Object.assign({'p-pike-pushups':4, 'p-pike-pushup-negs':4},
+  Object.fromEntries(STR_RUNGS.map((x,i)=>[x.v, i+1])));
+/* the stage check points that are a push up count, Foundations to
+   Freestanding; the press test keeps its own */
+const STR_CPS=['chaturanga','pike-neg','pike-full'];
+let puStep=-1, puN=0;
 const strengthOn=()=>!isMU() && !coachedView();
+const strName=v=>{ const d=drillById(v); return (d&&d.n)||v; };
 function strPlan(p){
   p=p||st.pushTest; if(!p || !p.r) return null;
-  if(p.r>PUSH_RUNGS.length) return {r:p.r, clear:true, behind:false};
-  const s=p.s|0;
-  /* none at all of theirs: the one below, which they passed, for volume,
-     or a plank under the first */
-  const it = s>0 ? {v:PUSH_RUNGS[p.r-1], d:s===1?'3 × 2':'3 × 5'}
-    : p.r>1 ? {v:PUSH_RUNGS[p.r-2], d:'3 × 6'} : {v:'plank-pose', d:'3 × 20s'};
-  return Object.assign(it, {r:p.r, s, rank:PUSH_RANK[it.v]||0, behind:p.r<(PUSH_NEED[curStage()]||1)});
+  if(p.r>STR_RUNGS.length) return {r:p.r, clear:true};
+  const R=STR_RUNGS[p.r-1], n=Math.max(0, p.n|0);
+  /* none of theirs yet: the one below, which they passed, or a plank under
+     the first */
+  const it = n>0 ? {v:R.v, d:'3 × '+Math.max(1, n-1)}
+    : p.r>1 ? {v:STR_RUNGS[p.r-2].v, d:'3 × '+Math.max(2, STR_RUNGS[p.r-2].t-2)} : {v:'plank-pose', d:'3 × 20s'};
+  return Object.assign(it, {r:p.r, n, cv:R.v, t:R.t, k:'push-'+R.v, rank:PUSH_RANK[it.v]||0});
 }
-const strName=v=>{ const d=drillById(v); return (d&&d.n)||v; };
-function openStrength(){ clearTimeout(puTimer); puGot=[]; puStep=(st.pushTest&&st.pushTest.r)?PUSH_RUNGS.length:-1; openOv('pushtest'); }
+/* the stage's push check point, made theirs */
+function strCps(list, stage){
+  const p=strengthOn() && stage<5 ? strPlan() : null;
+  if(!p || p.clear || !list.some(c=>STR_CPS.indexOf(c.k)>-1)) return list;
+  let put=false;
+  return list.map(c=>{
+    if(STR_CPS.indexOf(c.k)<0) return c;
+    if(put) return null; put=true;
+    return {k:p.k, n:strName(p.cv), kind:'count', target:p.t, demo:p.cv, mine:true, note:'Your level, from the pushing assessment.'};
+  }).filter(Boolean);
+}
+/* moved up a level while on this stage: its push check point stays reached */
+const strUpHere=()=>!!(st.pushTest && (st.pushTest.up||{})[curStage()]);
+/* a log on their push check point: reaching the pass mark moves them up */
+function strLogged(k, v){
+  const p=strPlan(); if(!p || p.clear || k!==p.k || (Number(v)||0)<p.t) return false;
+  const r=p.r+1, at=Date.now(), was=st.pushTest;
+  st.pushTest=Object.assign({}, was, {r, n:0, at, up:Object.assign({}, was.up||{}, {[curStage()]:at}),
+    hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, r, n:0}]).slice(-12)});
+  save(); saveState();
+  toast(r>STR_RUNGS.length ? 'All eight passed.' : 'Up to '+esc(strName(STR_RUNGS[r-1].v))+'.');
+  return true;
+}
+function openStrength(){ puN=0; puStep=(st.pushTest&&st.pushTest.r)?STR_RUNGS.length:-1; openOv('pushtest'); }
 function strPaint(){
   const el=document.getElementById('pub'); if(!el){ drawOv(); return; }
   el.innerHTML=strHTML();
   const sh=el.closest('.sheet'); if(sh) sh.scrollTop=0;
 }
-function strGo(i){ clearTimeout(puTimer); if(i===0) puGot=[]; puStep=i; strPaint(); }
-function strPick(lv){
-  puGot[puStep]=lv; strPaint();
-  clearTimeout(puTimer); puTimer=setTimeout(()=>{
-    if(lv>=3 && puStep<PUSH_RUNGS.length-1){ strGo(puStep+1); return; }
-    const r=lv>=3 ? PUSH_RUNGS.length+1 : puStep+1, at=Date.now(), was=st.pushTest||{};
-    st.pushTest={r, s:lv, at, hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, r, s:lv}]).slice(-12)};
-    save(); saveState(); track('pushtest', null, String(r));
-    puStep=PUSH_RUNGS.length; strPaint();
-  }, 320);
+function strGo(i){ puStep=i; puN=0; strPaint(); }
+function strNum(d){ puN=Math.max(0, Math.min(50, puN+d)); const el=document.getElementById('puN'); if(el) el.textContent=puN;
+  const b=document.getElementById('puGo'), t=(STR_RUNGS[puStep]||{}).t;
+  if(b) b.textContent = puN>=t && puStep<STR_RUNGS.length-1 ? 'Passed, next one' : 'That is my number'; }
+function strNext(){
+  const R=STR_RUNGS[puStep]; if(!R) return;
+  if(puN>=R.t && puStep<STR_RUNGS.length-1){ strGo(puStep+1); return; }
+  const r=puN>=R.t ? STR_RUNGS.length+1 : puStep+1, at=Date.now(), was=st.pushTest||{};
+  st.pushTest={r, n:puN>=R.t?0:puN, at, up:{}, hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, r, n:puN}]).slice(-12)};
+  save(); saveState(); track('pushtest', null, String(r));
+  /* the test is the first reading on their check point */
+  if(r<=STR_RUNGS.length && puN>0) saveCheckpoint('push-'+R.v, puN);
+  puStep=STR_RUNGS.length; strPaint();
 }
 function strBody(){ return `<div id="pub">${strHTML()}</div>`; }
 function strHTML(){
-  const N=PUSH_RUNGS.length;
+  const N=STR_RUNGS.length;
   if(puStep<0) return `<div class="pt">
-    <div class="pt-k">Your pushing</div>
+    <div class="pt-k">Pushing assessment</div>
     <div class="pt-h">How strong is <em>your push?</em></div>
-    <p class="pt-p">Four push ups, easiest first. Count the clean reps, and your sessions get the one that fits you.</p>
+    <p class="pt-p">Up to eight push ups, easiest first. Count your clean reps and stop when one beats you. Your sessions then train that one.</p>
     <button class="btn pt-go" style="width:100%;margin-top:18px" onclick="strGo(0)">Start</button></div>`;
   if(puStep<N){
-    const v=PUSH_RUNGS[puStep], d=drillById(v)||{}, got=puGot[puStep];
+    const R=STR_RUNGS[puStep], d=drillById(R.v)||{};
     return `<div class="pt">
       <div class="pt-k">Push up ${puStep+1} of ${N}</div>
-      <div class="pt-dots">${PUSH_RUNGS.map((x,i)=>`<button class="${i===puStep?'cur':i<puStep?'done':''}"${
+      <div class="pt-dots">${STR_RUNGS.map((x,i)=>`<button class="${i===puStep?'cur':i<puStep?'done':''}"${
         i<puStep?` onclick="strGo(${i})"`:' disabled'} aria-label="Push up ${i+1}"></button>`).join('')}</div>
-      <div class="pt-h" style="font-size:30px">${esc(d.n||v)}</div>
+      <div class="pt-h" style="font-size:30px">${esc(d.n||R.v)}</div>
       ${d.url?`<div style="margin-top:12px;border-radius:16px;overflow:hidden">${drillFilm(d.url,'16/10',true)}</div>`:''}
       ${d.desc?`<p class="pt-s">${esc(d.desc)}</p>`:''}
-      <p class="pt-p" style="font-weight:600">How many clean reps in one go?</p>
-      <div class="pt-lvs">${PUSH_LV.map((l,i)=>`<button class="pt-lv${got===i?' on':''}" onclick="strPick(${i})"><span class="pt-lt"><b>${esc(l)}</b></span>${
-        i===3&&puStep<N-1?`<span class="pt-v ok">Next one</span>`:''}</button>`).join('')}</div>
+      <div class="pt-card" style="text-align:center">
+        <div class="pt-k" style="color:var(--grey)">Clean reps in one go &middot; ${R.t} to pass</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:22px;margin-top:10px">
+          <button onclick="strNum(-1)" aria-label="One fewer" style="width:52px;height:52px;border-radius:50%;cursor:pointer;
+            background:#fff;border:1px solid rgba(0,64,61,.18);font:500 26px/1 var(--sans);color:var(--deep)">&minus;</button>
+          <b id="puN" style="min-width:64px;font:400 54px/1 var(--serif);color:var(--ink)">${puN}</b>
+          <button onclick="strNum(1)" aria-label="One more" style="width:52px;height:52px;border-radius:50%;cursor:pointer;
+            background:#fff;border:1px solid rgba(0,64,61,.18);font:500 26px/1 var(--sans);color:var(--deep)">+</button>
+        </div></div>
+      <button class="btn pt-go" id="puGo" style="width:100%;margin-top:14px" onclick="strNext()">That is my number</button>
       ${puStep>0?`<button class="pt-link" onclick="strGo(${puStep-1})">Back</button>`:''}
     </div>`;
   }
@@ -3132,37 +3170,37 @@ function strHTML(){
 }
 function strResultHTML(){
   const p=strPlan(); if(!p) return '';
-  const S=STAGES[curStage()]||STAGES[0], need=PUSH_NEED[curStage()]||1, N=PUSH_RUNGS.length;
-  const rungs=`<div class="pt-card" style="padding:6px 16px">${PUSH_RUNGS.map((v,i)=>{
-    const n=i+1, on=n===p.r, done=n<p.r;
-    return `<div style="display:flex;align-items:center;gap:12px;padding:11px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+  const last=p.clear ? null : cpLast(p.k), now=last ? Number(last.v)||0 : p.n;
+  const rungs=`<div class="pt-card" style="padding:6px 16px">${STR_RUNGS.map((x,i)=>{
+    const n=i+1, on=n===p.r, done=n<p.r, d=drillById(x.v)||{};
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
       <span style="width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;font:600 12px/1 var(--sans);
         background:${done?'var(--forest)':on?'var(--amber)':'rgba(0,64,61,.08)'};color:${done?'var(--on-primary)':on?'var(--ink)':'var(--grey)'}">${done?'&#10003;':n}</span>
-      <b style="flex:1;min-width:0;font:600 15px/1.3 var(--sans);color:${done||on?'var(--ink)':'var(--grey)'}">${esc(strName(v))}</b>
-      ${n===need&&!done?`<span class="pt-v mid">${esc(S.n)}</span>`:''}</div>`; }).join('')}</div>`;
-  const head = p.clear
-    ? `<div class="pt-h">All four <em>passed.</em></div>
-       <p class="pt-p">Pushing is not what holds you back. Your sessions stay as written.</p>`
-    : `<div class="pt-h">${esc(strName(p.v))}, <em>${esc(p.d)}.</em></div>
-       <p class="pt-p">${p.behind
-         ? `${esc(S.n)} needs ${need>N?'all four':esc(strName(PUSH_RUNGS[need-1]))}, so this ends every session until you get there.`
-         : 'Any harder push up in your sessions is swapped for this one.'}</p>`;
+      <b style="flex:1;min-width:0;font:600 15px/1.3 var(--sans);color:${done||on?'var(--ink)':'var(--grey)'}">${esc(d.n||x.v)}</b>
+      ${on?`<span class="pt-v mid">${now} of ${x.t}</span>`:d.url?'':`<span class="pt-v" style="color:var(--grey);background:rgba(0,64,61,.06)">Filming soon</span>`}</div>`; }).join('')}</div>`;
+  if(p.clear) return `<div class="pt">
+    <div class="pt-k">Your pushing</div>
+    <div class="pt-h">All eight <em>passed.</em></div>
+    <p class="pt-p">Pushing is not what holds you back. Your sessions stay as written.</p>
+    ${rungs}
+    <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>
+    <button class="pt-link" onclick="strGo(0)">Take it again</button></div>`;
   return `<div class="pt">
     <div class="pt-k">Your pushing</div>
-    ${head}
+    <div class="pt-h">${esc(strName(p.v))}, <em>${esc(p.d)}.</em></div>
+    <p class="pt-p">In every session, in place of the stage's push ups. Get ${p.t} clean ${esc(strName(p.cv))} and you move up a level.</p>
     ${rungs}
-    ${p.clear?'':`<p class="pt-s">Test again when you get ${PUSH_PASS} clean reps.</p>`}
     <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>
-    <button class="pt-link" onclick="strGo(0)">Test again</button>
+    <button class="pt-link" onclick="strGo(0)">Take it again</button>
   </div>`;
 }
-/* the card under Start: the way in to the test, then what it found */
+/* on Train: the way in until it is taken, then their level and number */
 function strCardHTML(){
   if(!strengthOn() || trialPending()) return '';
-  const p=strPlan();
-  const line = !p ? `Test your <em style="color:var(--forest);font-style:normal">push.</em>`
-    : p.clear ? `All four <em style="color:var(--forest);font-style:normal">passed.</em>`
-    : `${esc(strName(p.v))}, <em style="color:var(--forest);font-style:normal">${esc(p.d)}</em>`;
+  const p=strPlan(), last=p && !p.clear ? cpLast(p.k) : null, now=last ? Number(last.v)||0 : (p&&p.n)||0;
+  const em=t=>`<em style="color:var(--forest);font-style:normal">${t}</em>`;
+  const line = !p ? 'How strong is your '+em('push?') : p.clear ? 'All eight '+em('passed.')
+    : esc(strName(p.cv))+', '+em(now+' of '+p.t);
   return `<section class="rise rise-3" style="padding:16px 20px 0">
     <button onclick="openStrength()" style="width:100%;text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;
       background:#fff;border-radius:22px;padding:16px 18px;border:1px solid rgba(0,64,61,.10);
@@ -3170,7 +3208,9 @@ function strCardHTML(){
       <span style="flex:1;min-width:0">
         <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Your pushing</span>
         <span style="display:block;font:400 19px/1.25 var(--serif);color:var(--ink);margin-top:6px">${line}</span>
-        ${p?'':`<span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">Two minutes. Your sessions get the push ups that fit you.</span>`}
+        ${p?(p.clear?'':`<span style="display:block;height:6px;border-radius:6px;background:rgba(0,64,61,.10);margin-top:10px;overflow:hidden">
+          <span style="display:block;height:100%;width:${Math.min(100, Math.round(now/p.t*100))}%;background:var(--forest);border-radius:6px"></span></span>`)
+          :`<span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">A two minute assessment. Your sessions then train your level.</span>`}
       </span>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
@@ -6402,7 +6442,8 @@ const cpFor = i => {
         const n=String(c.n).trim().toLowerCase(), d=LIBRARY.find(x=>x && String(x.n||'').trim().toLowerCase()===n);
         return d ? Object.assign({}, c, {demo:d.v}) : c; });
   }
-  return cpsFor(i==null?curStage():i) || [];
+  const at=i==null?curStage():i;
+  return strCps(cpsFor(at) || [], at);
 };
 /* ones they have not been shown yet, so the app can say so */
 function cpNew(){
@@ -6543,11 +6584,14 @@ function saveCheckpoint(k,v,video){
      you stayed where you were. */
   /* onboarding tests are not the ladder's, whatever their keys */
   const sg = (coachedView()||isFix||awaitingBlock()) ? -1 : stageOfCp(k);
+  /* their push check point reached: up a level, so its card is a new one */
+  const upNow = strLogged(k, v);
   const clearedNow = sg>-1 && sg===curStage() && !wasReady && cpProgress(sg).ready;
   save();
   /* under an open sheet render() bails out, so logging one used to change
      nothing on screen until the sheet was closed */
-  if(document.getElementById('cptop-'+k)) repaintCp(k);
+  if(upNow){ if(document.getElementById('pub')) strPaint(); else if(st.ov) drawOv(); else render(); }
+  else if(document.getElementById('cptop-'+k)) repaintCp(k);
   else if(document.querySelector('.lc[data-use="log"] .lc-r[data-ck="'+k+'"]')) cpRepaintCounts();
   else render();
   if(clearedNow) stageCleared(sg);
@@ -6627,6 +6671,7 @@ function cpSigned(k){
    turns the bar green and Elliott decides: the card says the target is
    hit and that he signs it off, and it counts once he has. */
 function cpState(c){
+  if(c && c.mine && strUpHere()) return 'met';
   const last=cpLast(c.k);
   if(cpAsks(c)) return last ? 'logged' : 'none';
   const s0=cpSigned(c.k);
@@ -6865,6 +6910,8 @@ function cpInput(c){
    have landed. If the next one is behind the paywall nothing moves and the
    sheet offers it instead, because pretending otherwise would be worse. */
 function stageOfCp(k){
+  /* their own push check point sits on whatever stage they are on */
+  if(String(k).startsWith('push-')) return curStage();
   for(let i=0;i<STAGES.length;i++)
     if((cpsFor(i)||[]).some(c=>c.k===k)) return i;
   return -1;
@@ -17353,6 +17400,9 @@ function learnHTML(){
     if(r.art) return {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`fxReadOpen(${jsq(r.art)},${jsq(r.title||r.t)})`};
     return null;
   }).filter(Boolean);
+  /* the pushing assessment, first in Learn on every stage it applies to */
+  if(strengthOn()){ const u=((drillById('push-ups-on-knees')||{}).url||'').match(/[0-9a-f]{32}/);
+    rows.unshift({t:'How strong is your push?', sub:'Assessment &middot; 2 min', img:u?streamThumb(u[0]):'', go:'openStrength()'}); }
   if(!rows.length) return (howBig() && !isMU()) ? howBigHTML() : '';
   /* tighter, and no grey line under the heading: the search says what to
      do (Elliott, 30 Oct 2026: "too much empty space here") */
@@ -22541,9 +22591,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const lvlOf = v => ((rowOf(v)||{}).L)||0;
   const grpOf = v => ((rowOf(v)||{}).g)||'';
   const hard  = stageLevel(stage)===3;
-  /* their pushing, from the push test: anything harder than it comes out */
+  /* their pushing, from the assessment: every push drill is theirs instead */
   const pp = (!wristDay && strengthOn()) ? strPlan() : null;
-  const pushHard = it => !!pp && !pp.clear && (PUSH_RANK[it.v]||0) > pp.rank;
+  const pushHard = it => !!pp && !pp.clear && !!PUSH_RANK[it.v];
   const add=it=>{
     /* timed and rested as the strength work it is, whatever the stage */
     const g=it.push ? 'Strength' : grpOf(it.v);
@@ -22700,13 +22750,13 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     picked=backItems.slice(0, backN).concat(picked.slice(0, Math.max(0, wantN-backN)));
   }
   /* ── their pushing ─────────────────────────────────────────────
-     A push drill harder than the one the push test found is swapped for
-     that one, at their dose, and below what the stage needs it is in every
-     session. It goes last in the list, so a short session's sets land on it. */
+     Whatever push drill the stage picked, easier or harder, is swapped for
+     the one the assessment found, at their dose, and it is in every session
+     whether the stage picked one or not. It goes last in the list. */
   if(pp && !pp.clear){
-    const before=picked.length, d=drillById(pp.v);
+    const d=drillById(pp.v);
     picked=picked.filter(it=>!pushHard(it) && it.v!==pp.v);
-    if(d && !asideOn(pp.v) && (pp.behind || picked.length<before))
+    if(d && !asideOn(pp.v))
       /* the dose is theirs, so the library's own sets and amounts for it go */
       picked.push(Object.assign({}, d, {d:pp.d, sets:lhaSets(pp.d), amt:null, unit:null, w:null, push:true}));
   }

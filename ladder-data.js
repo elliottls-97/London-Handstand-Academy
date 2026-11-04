@@ -550,7 +550,12 @@ const drillAlias=v=>DRILL_ALIAS[v]||v;
    here so it is found whatever library the app has loaded. */
 const DRILL_EXTRA=[{v:'scapula-shrugs', n:'Scapula Shrugs', url:'https://customer-pns1oongdltmkjwa.cloudflarestream.com/9b4fb78a3767e853f1d9834e7ce86485/downloads/default.mp4',
   nt:'Push the floor away at the top.', cues:['Keep elbows straight.','Move only through the shoulders.','Push tall at the top.','Lower with control.'],
-  desc:'Strengthen upward rotation and elevation through the scapula for a more stable overhead shape.'}];
+  desc:'Strengthen upward rotation and elevation through the scapula for a more stable overhead shape.'},
+  /* the top of the pushing assessment (4 Nov 2026), not filmed yet */
+  {v:'elevated-pike-push-ups', n:'Elevated Pike Push Ups', desc:'Pike push ups with the feet up on a box, so more of your weight is over your hands.'},
+  {v:'wall-hspu-negatives', n:'Wall Handstand Push Up Negatives', desc:'Up on the wall, lower slowly until your head touches the floor, then come down.'},
+  {v:'wall-hspu', n:'Wall Handstand Push Ups', desc:'Up on the wall, lower until your head touches the floor and press back up.'},
+  {v:'freestanding-hspu', n:'Freestanding Handstand Push Ups', desc:'Off the wall: lower and press back up while you hold the balance.'}];
 /* Which ladder is showing: 'hs', the Handstand Ladder, or 'mu', the Muscle
    Up Ladder (23 Oct 2026). The app swaps the data below in place when it
    changes; the coach's overlays are keyed by stage, so a Muscle Up stage
