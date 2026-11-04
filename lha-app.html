@@ -3170,8 +3170,13 @@ function strPlan(p){
   /* every set at their number, which is what the counter starts on, and
      one more to try for (Elliott, 4 Nov 2026: "if she can do 5 now, it
      should push her for 6, but by default she does 5 again") */
-  const it = n>0 ? {v:R.v, d:'3 × '+n, aim:Math.min(R.t, n+1)}
-    : (p.u && !last) ? {v:R.v, d:'3 × 1', aim:2}
+  /* with a level below them, two sets of theirs and two of the one below
+     at its pass mark, for the volume (Elliott, 4 Nov 2026: "if they can do
+     4 pike push ups, they will need to do more pike push ups on knees 8,
+     and 2 sets of 3-4 pike push ups") */
+  const B=p.r>1 ? STR_RUNGS[p.r-2] : null, vol=B ? {v:B.v, d:'2 × '+B.t} : null;
+  const it = n>0 ? {v:R.v, d:(B?'2 × ':'3 × ')+n, aim:Math.min(R.t, n+1), vol}
+    : (p.u && !last) ? {v:R.v, d:'2 × 1', aim:2, vol}
     : p.r>1 ? {v:STR_RUNGS[p.r-2].v, d:'3 × '+Math.max(2, STR_RUNGS[p.r-2].t-2)} : {v:'plank-pose', d:'3 × 20s'};
   const rank=PUSH_RANK[it.v]||0;
   return Object.assign(it, {r:p.r, n, cv:R.v, t:R.t, k:'push-'+R.v, rank, locked:rank>=STR_PAID_FROM && !isPlus()});
@@ -3180,7 +3185,7 @@ function strPlan(p){
 function strCps(list, stage){
   const p=strengthOn() && stage<5 ? strPlan() : null;
   if(!p || p.clear || p.locked) return list;
-  const mine={k:p.k, n:strName(p.cv), kind:'count', target:p.t, demo:p.cv, mine:true, note:'Your level, from the pushing assessment.'};
+  const mine={k:p.k, n:strName(p.cv), kind:'count', target:p.t, demo:p.cv, mine:true, note:'Your level, from the pushing assessment. Not needed to move on.', extra:true};
   /* a stage with no push up check point gets theirs on the end: Ting's
      knee chaturangas are a check point on Take-Off (Elliott, 4 Nov 2026) */
   if(!list.some(c=>STR_CPS.indexOf(c.k)>-1)) return list.concat([mine]);
@@ -3211,7 +3216,7 @@ function strFromSession(){
   if(typeof tourBuild!=='undefined' && tourBuild) return;
   const p=strPlan(); if(!p || p.clear || p.locked || !Array.isArray(Q)) return;
   let best=-1, counted=false;
-  Q.forEach((q,i)=>{ if(q && q.it && q.it.push && q.it.v===p.cv){
+  Q.forEach((q,i)=>{ if(q && q.it && q.it.push && !q.it.vol && q.it.v===p.cv){
     const c=(st.reps||{})['q'+i], n=c==null ? p.n : Number(c)||0;
     if(c!=null) counted=true;
     if(n>best) best=n; } });
@@ -3391,7 +3396,7 @@ function strResultHTML(){
     <div class="pt-h">${strHead(strName(p.cv))}</div>
     ${strBigRing(now, p.t)}
     ${p.aim?`<div class="pt-k" style="text-align:center;color:#b56d12;margin-top:14px">Try for ${p.aim} next session</div>`:''}
-    <p class="pt-p" style="text-align:center">Every session ends with ${esc(strName(p.v))}, ${esc(p.d)}. ${p.t} clean moves you up a level.</p>
+    <p class="pt-p" style="text-align:center">Every session ends with ${esc(strName(p.v))}, ${esc(p.d)}${p.vol?`, then ${esc(strName(p.vol.v))}, ${esc(p.vol.d)}`:''}. ${p.t} clean moves you up a level.</p>
     ${due?`<div class="pt-gate" style="background:rgba(243,169,73,.10);border-color:rgba(243,169,73,.4)">
       <p class="pt-p" style="margin:0"><b>Four weeks since your test.</b> Take it again to see where you are now.</p>
       <button class="btn pt-go" style="width:100%;margin-top:12px" onclick="strGo(0)">Take it again</button></div>`:''}
@@ -6350,7 +6355,7 @@ function stageMasteryCard(){
       </div>
       ${bars?`<div style="display:flex;gap:6px;margin-top:11px">${bars}</div>`:''}
       <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:9px">
-        To leave this stage: reach its ${(cpFor(curStage())||[]).length} check points.</div>
+        To leave this stage: reach its ${(cpFor(curStage())||[]).filter(c=>!c.extra).length} check points.</div>
     </div>`;
   }).join('');
 
@@ -6424,7 +6429,7 @@ function freeProgressBody(){
       </div>
       <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:7px">
         ${got} of ${items.length} drills ticked off. To leave, reach this stage's
-        ${(cpFor(curStage())||[]).length} check points.</div>
+        ${(cpFor(curStage())||[]).filter(c=>!c.extra).length} check points.</div>
       <div style="display:flex;gap:6px;margin-top:12px">
         ${secs.map(sec=>{
           const n=(sec.items||[]).length, d=(sec.items||[]).filter(it=>done[it.v]).length;
@@ -17840,7 +17845,7 @@ function storyChapters(si, preview){
    beside this and Elliott chose the sliding one. */
 /* How it works, three slides that play in turn; a tap moves on */
 function howReelHTML(si, PS){
-  const cps=(cpFor(si)||[]).filter(c=>!cpAsks(c)), n=cps.length||7, nx=STAGES[si+1];
+  const cps=(cpFor(si)||[]).filter(c=>!cpAsks(c) && !c.extra), n=cps.length||7, nx=STAGES[si+1];
   /* a locked film's still comes through the server, as the story's do:
      asked for directly it is refused, and the square was left empty */
   const lockedStill=(v,u)=>{ let L=false; try{ L=!!drillLocked(v); }catch(e){} return L ? '/api/app/story/still?uid='+u : streamThumb(u); };
@@ -18329,7 +18334,9 @@ function cpProgress(i){
      coached client's counts were taken from the ladder stage they happen to
      sit on, so four check points were reported as nought of seven. */
   /* the ones that only ask are a record, not something to reach */
-  const list=(cpFor(i)||[]).filter(c=>!cpAsks(c));
+  /* their pushing level is shown with the rest and never holds the stage
+     back (Elliott, 4 Nov 2026: "still there but not required to move on") */
+  const list=(cpFor(i)||[]).filter(c=>!cpAsks(c) && !c.extra);
   const done=list.filter(c=>cpLast(c.k)).length;
   const met=list.filter(c=>cpMet(c)).length;
   /* The counts on screen are the list's: a check point that only asks is
@@ -22993,10 +23000,14 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      whether the stage picked one or not. It goes last in the list. */
   if(pp && !pp.clear){
     const d=drillById(pp.v);
-    picked=picked.filter(it=>!pushHard(it) && it.v!==pp.v);
+    const dv=pp.vol ? drillById(pp.vol.v) : null;
+    picked=picked.filter(it=>!pushHard(it) && it.v!==pp.v && !(pp.vol && it.v===pp.vol.v));
     if(d && !asideOn(pp.v))
       /* the dose is theirs, so the library's own sets and amounts for it go */
       picked.push(Object.assign({}, d, {d:pp.d, sets:lhaSets(pp.d), amt:null, unit:null, w:null, push:true, aim:pp.aim||0}));
+    /* then the level below for volume, which does not change their number */
+    if(dv && !asideOn(pp.vol.v))
+      picked.push(Object.assign({}, dv, {d:pp.vol.d, sets:lhaSets(pp.vol.d), amt:null, unit:null, w:null, push:true, vol:true, aim:0}));
   }
   /* the band's own numbers, folded into the drill before it is timed, so a
      drill can be lighter in Easier than in Harder without a second copy */
@@ -23028,7 +23039,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const setsWanted = it => {
     if(oneSetOnly && (orderOf.get(it.v) == null || orderOf.get(it.v) < tailFrom)) return 1;
     /* the push test's dose, not the band's: it was set for this person */
-    if(it.push){ const n=Math.min(lhaSets(it.d)||3, 8); return oneSetOnly ? Math.min(n, 2) : n; }
+    if(it.push){ const n=Math.min(lhaSets(it.d)||3, 8); return oneSetOnly ? Math.min(n, it.vol ? 1 : 2) : n; }
     const band=bandTimingFor(stage, stageLevel(stage), it.v);
     const bs=Number(band && band.sets);
     if(Number.isFinite(bs) && bs>=1) return Math.min(Math.round(bs), 8);
@@ -23061,7 +23072,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      the next drills in the pool come in, their sets and all, until the
      time is used. The ramp below puts them where they belong. */
   if(!oneSetOnly && !wristDay && budget-secs > 5*60){
-    const extra=spin(cands, rot).filter(it=>!picked.some(p=>p.v===it.v) && !pushHard(it) && !(pp && it.v===pp.v));
+    const extra=spin(cands, rot).filter(it=>!picked.some(p=>p.v===it.v) && !pushHard(it) && !(pp && (it.v===pp.v || (pp.vol && it.v===pp.vol.v))));
     for(let it of extra){
       if(budget-secs <= 3*60) break;
       const b=bandTimingFor(stage, stageLevel(stage), it.v);
@@ -23091,7 +23102,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     const warmN=warm.items.length;
     const skill=out.slice(warmN);
     const seen=[]; skill.forEach(q=>{ if(seen.indexOf(q.it.v)<0) seen.push(q.it.v); });
-    skill.sort((a,b)=> ((a.it.push?1:0)-(b.it.push?1:0)) || ((b.it.back?1:0)-(a.it.back?1:0))
+    skill.sort((a,b)=> ((a.it.push?1:0)-(b.it.push?1:0)) || ((a.it.vol?1:0)-(b.it.vol?1:0)) || ((b.it.back?1:0)-(a.it.back?1:0))
       || (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
       || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
       || a.set-b.set);
@@ -25799,7 +25810,7 @@ function widgetSnap(){
   }catch(e){}
   /* the check points, and the nearest one still to reach */
   try{
-    const list=(cpFor(si)||[]).filter(x=>!cpAsks(x)), p=cpProgress(si)||{};
+    const list=(cpFor(si)||[]).filter(x=>!cpAsks(x) && !x.extra), p=cpProgress(si)||{};
     out.met=p.met||0; out.of=p.of||0;
     out.names={}; list.forEach(x=>{ out.names[x.k]=x.n; });
     /* each one with what it says beside it: the target when reached, the
