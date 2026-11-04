@@ -3145,17 +3145,14 @@ const PUSH_RANK=Object.assign({'p-pike-pushups':4, 'p-pike-pushup-negs':4},
 const STR_CPS=['chaturanga','pike-neg','pike-full'];
 let puStep=-1, puN=0, puDir='', puLog=false;
 const strengthOn=()=>!isMU() && !coachedView();
-/* from Pike Press-Ups up the films are on paid stages: training one is the
-   full Ladder's, the assessment itself is free */
-const STR_PAID_FROM=4;
-function strSign(){
-  if(isPlus() || ASIGN.exp>Date.now()+600000) return;
-  fetch('/api/app/sign/assess').then(r=>r.ok?r.json():null).then(d=>{
-    if(!d || !d.tokens || !d.exp) return;
-    ASIGN={t:d.tokens, exp:d.exp};
-    if(document.getElementById('pub')) strPaint(true);
-  }).catch(()=>{});
-}
+/* The assessment is the full Ladder's, all of it: the test, their level in
+   every session and its check point (Elliott, 4 Nov 2026: "this should be a
+   paid feature in the ladder, we are adding so much complexity around it
+   still being free"). A free account sees it locked on Assessments. Their
+   result stays in st.pushTest when a trial ends and comes back with the
+   Ladder. */
+const strPaid=()=>strengthOn() && isPlus();
+function strUnlock(){ if(sellsLadder()) openStage(Math.min(STAGES.length-1, Math.max(FREE_STAGES, curStage()+1))); }
 const strName=v=>{ const d=drillById(v); return (d&&d.n)||v; };
 function strPlan(p){
   p=p||st.pushTest; if(!p || !p.r) return null;
@@ -3179,20 +3176,16 @@ function strPlan(p){
     : (p.u && !last) ? {v:R.v, d:'2 × 1', aim:2, vol}
     : p.r>1 ? {v:STR_RUNGS[p.r-2].v, d:'3 × '+Math.max(2, STR_RUNGS[p.r-2].t-2)} : {v:'plank-pose', d:'3 × 20s'};
   const rank=PUSH_RANK[it.v]||0;
-  return Object.assign(it, {r:p.r, n, cv:R.v, t:R.t, k:'push-'+R.v, rank, locked:rank>=STR_PAID_FROM && !isPlus()});
+  return Object.assign(it, {r:p.r, n, cv:R.v, t:R.t, k:'push-'+R.v, rank});
 }
 /* the stage's push check point, made theirs */
 function strCps(list, stage){
-  const p=strengthOn() && stage<5 ? strPlan() : null;
+  const p=strPaid() && stage<5 ? strPlan() : null;
   if(!p || p.clear) return list;
   const mine={k:p.k, n:strName(p.cv), kind:'count', target:p.t, demo:p.cv, mine:true, note:'Your level, from the pushing assessment. Not needed to move on.', extra:true};
   /* a stage with no push up check point gets theirs on the end: Ting's
      knee chaturangas are a check point on Take-Off (Elliott, 4 Nov 2026) */
-  /* a level on the full Ladder is still theirs to log on the free one: the
-     sessions keep the stage's own push ups, so its check point stays too and
-     theirs goes on the end (Elliott, 4 Nov 2026, on Elevated Pike Push Ups
-     not updating his) */
-  if(p.locked || !list.some(c=>STR_CPS.indexOf(c.k)>-1)) return list.concat([mine]);
+  if(!list.some(c=>STR_CPS.indexOf(c.k)>-1)) return list.concat([mine]);
   let put=false;
   return list.map(c=>{
     if(STR_CPS.indexOf(c.k)<0) return c;
@@ -3204,7 +3197,7 @@ function strCps(list, stage){
 const strUpHere=()=>!!(st.pushTest && (st.pushTest.up||{})[curStage()]);
 /* a log on their push check point: reaching the pass mark moves them up */
 function strLogged(k, v){
-  const p=strPlan(); if(!p || p.clear || k!==p.k || (Number(v)||0)<p.t) return false;
+  const p=strPaid() && strPlan(); if(!p || p.clear || k!==p.k || (Number(v)||0)<p.t) return false;
   const r=p.r+1, at=Date.now(), was=st.pushTest;
   st.pushTest=Object.assign({}, was, {r, n:0, u:1, at, up:Object.assign({}, was.up||{}, {[curStage()]:at}),
     hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, r, n:0}]).slice(-12)});
@@ -3218,7 +3211,7 @@ function strLogged(k, v){
    bad day when every set was fewer, and reaching the pass mark moves them up. */
 function strFromSession(){
   if(typeof tourBuild!=='undefined' && tourBuild) return;
-  const p=strPlan(); if(!p || p.clear || p.locked || !Array.isArray(Q)) return;
+  const p=strPaid() && strPlan(); if(!p || p.clear || !Array.isArray(Q)) return;
   let best=-1, counted=false;
   Q.forEach((q,i)=>{ if(q && q.it && q.it.push && !q.it.vol && q.it.v===p.cv){
     const c=(st.reps||{})['q'+i], n=c==null ? p.n : Number(c)||0;
@@ -3235,9 +3228,10 @@ const strDue=()=>!!(st.pushTest && st.pushTest.r && st.pushTest.r<=STR_RUNGS.len
 /* from the result, straight into a session with it in */
 function strTrain(){ st.tab='home'; save(); render(); startDay(todayCellIdx(),'full'); }
 function openStrength(){
+  if(!strPaid()){ strUnlock(); return; }
   puN=0; puDir=''; puStep=(st.pushTest&&st.pushTest.r)?STR_RUNGS.length:-1;
   if(st.tab!=='strength') st.strFrom=st.tab;
-  st.tab='strength'; save(); render(); window.scrollTo(0,0); strSign();
+  st.tab='strength'; save(); render(); window.scrollTo(0,0);
 }
 function strBack(){
   const pg=document.querySelector('.strpg'), to=st.strFrom||'home';
@@ -3272,7 +3266,7 @@ function strNext(){
 }
 /* the page: Back at the top, then the step */
 function screenStrength(){
-  if(!strengthOn()) return screenHome();
+  if(!strPaid()) return screenHome();
   if(puStep<0 && st.pushTest && st.pushTest.r) puStep=STR_RUNGS.length;
   return `<div class="scroll s" style="overflow-x:hidden"><div class="strpg">
     <button onclick="strBack()" style="background:none;border:0;padding:0;cursor:pointer;
@@ -3387,14 +3381,6 @@ function strResultHTML(){
     <button class="btn pt-go" style="width:100%;margin-top:16px" onclick="strBack()">Done</button>
     ${strStripHTML({r:N+1})}${again}</div>`;
   const kick=`<div class="pt-k">Your pushing &middot; Level ${p.r} of ${N}</div>`;
-  if(p.locked) return `<div class="pt">${kick}
-    <div class="pt-h">${strHead(strName(p.cv))}</div>
-    ${strBigRing(now, p.t)}
-    <p class="pt-p" style="text-align:center">Your level. Training it comes with the full Ladder; until then your sessions keep their own push ups.</p>
-    ${sellsLadder()?`<button class="btn pt-go" style="width:100%;margin-top:16px" onclick="openStage(Math.min(STAGES.length-1, Math.max(FREE_STAGES, curStage()+1)))">${
-      PRICE_TRIAL()>0?'Try every stage free for '+PRICE_TRIAL()+' days':'Unlock the full Ladder'}</button>`:''}
-    <button class="pt-link" onclick="strBack()">Not now</button>
-    ${strStripHTML(p)}${again}</div>`;
   const due=strDue();
   return `<div class="pt">${kick}
     <div class="pt-h">${strHead(strName(p.cv))}</div>
@@ -3412,6 +3398,19 @@ function strResultHTML(){
 /* their pushing as one card: on Train until they have taken it, and the
    Assessments tab always */
 function strSummaryHTML(big){
+  if(!strPaid()){
+    const tag=sellsLadder() ? 'button onclick="strUnlock()"' : 'div';
+    return `<${tag} class="strcard${big?' big':''}">
+      <span style="flex:none" class="strmini">${STR_RUNGS.map((x,i)=>`<i style="--i:${i}"></i>`).join('')}</span>
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Pushing</span>
+        <span style="display:block;font:400 ${big?21:19}px/1.25 var(--serif);color:var(--ink);margin-top:6px">How strong is your <em style="color:var(--forest);font-style:normal">push?</em></span>
+        <span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">With the full Ladder</span>
+      </span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </${tag.split(' ')[0]}>`;
+  }
   const p=strPlan(), last=p && !p.clear ? cpLast(p.k) : null, now=last ? Number(last.v)||0 : (p&&p.n)||0;
   const em=t=>`<em style="color:var(--forest);font-style:normal">${t}</em>`;
   const line = !p ? 'How strong is your '+em('push?') : p.clear ? 'All eight '+em('passed.')
@@ -3419,7 +3418,6 @@ function strSummaryHTML(big){
   const sub = !p ? '8 levels, 2 minutes. Your sessions then train your level.'
     : strDue() ? '<b style="color:var(--deep)">Four weeks on: time to retest</b>'
     : p.clear ? 'Pushing is not what holds you back.'
-    : p.locked ? 'Level '+p.r+' of 8, with the full Ladder'
     : 'Level '+p.r+' of 8'+(p.aim?' &middot; try for '+p.aim:'');
   const pic = !p ? `<span class="strmini">${STR_RUNGS.map((x,i)=>`<i style="--i:${i}"></i>`).join('')}</span>`
     : strRingHTML(p.clear?8:now, p.clear?8:p.t, big?64:52, true);
@@ -3435,14 +3433,14 @@ function strSummaryHTML(big){
     </button>`;
 }
 function strCardHTML(){
-  if(!strengthOn() || trialPending()) return '';
+  if(!strPaid() || trialPending()) return '';
   return `<section class="rise rise-3" style="padding:16px 20px 0">${strSummaryHTML(false)}</section>`;
 }
 /* ── Assessments, a tab of Progress ───────────────────────────────
    Apart from Learn, which is films and reading (Elliott, 4 Nov 2026): an
    assessment is something you do, and what it finds changes your sessions.
-   Pushing now; shoulders and falling are next, and say so. Open without an
-   account, like the assessment itself. */
+   Pushing now; shoulders and falling are next, and say so. A free account
+   sees pushing locked, with the way to the full Ladder. */
 function assessHTML(){
   const soon=(t)=>`<div class="strcard soon"><span class="strsoonic" aria-hidden="true"></span>
     <span style="flex:1;min-width:0"><span style="display:block;font:400 19px/1.25 var(--serif);color:var(--ink)">${t}</span>
@@ -4689,11 +4687,7 @@ let SIGN={t:{},exp:0};
    tokens with the coach's own app open in the next tab */
 const SIGN_KEY = PREVIEW ? 'lha_sign_preview' : 'lha_sign';
 try{ const s0=JSON.parse(localStorage.getItem(SIGN_KEY)||'null'); if(s0 && s0.exp>Date.now()) SIGN=s0; }catch(e){}
-/* the pushing assessment's films, signed for anyone (strSign), kept apart
-   so the account's own set replacing SIGN does not take them away */
-let ASIGN={t:{},exp:0};
-const sigUid = uid => (SIGN.exp>Date.now() && SIGN.t[uid]) ? SIGN.t[uid]
-  : (ASIGN.exp>Date.now() && ASIGN.t[uid]) ? ASIGN.t[uid] : uid;
+const sigUid = uid => (SIGN.exp>Date.now() && SIGN.t[uid]) ? SIGN.t[uid] : uid;
 const sig = url => { const m=/\/([a-f0-9]{32})\//.exec(String(url||'')); return (m && sigUid(m[1])!==m[1]) ? String(url).replace('/'+m[1]+'/', '/'+sigUid(m[1])+'/') : url; };
 let signTimer=null, signBusy=false, signAgain=false;
 function loadSign(){
@@ -22839,9 +22833,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const grpOf = v => ((rowOf(v)||{}).g)||'';
   const hard  = stageLevel(stage)===3;
   /* their pushing, from the assessment: every push drill is theirs instead */
-  const sp = (!wristDay && strengthOn()) ? strPlan() : null;
+  const sp = (!wristDay && strPaid()) ? strPlan() : null;
   /* a level on a paid stage, on a free account: the stage's own push ups */
-  const pp = sp && !sp.locked ? sp : null;
+  const pp = sp || null;
   const pushHard = it => !!pp && !pp.clear && !!PUSH_RANK[it.v];
   const add=it=>{
     /* timed and rested as the strength work it is, whatever the stage */
