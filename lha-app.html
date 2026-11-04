@@ -3124,8 +3124,11 @@ function strPlan(p){
      the first */
   /* just moved up (u), with no number yet at the new level: the new one,
      one rep a set, so the reps they count in training are its first reading */
-  const it = n>0 ? {v:R.v, d:'3 × '+Math.max(1, n-1)}
-    : (p.u && !last) ? {v:R.v, d:'3 × 1'}
+  /* every set at their number, which is what the counter starts on, and
+     one more to try for (Elliott, 4 Nov 2026: "if she can do 5 now, it
+     should push her for 6, but by default she does 5 again") */
+  const it = n>0 ? {v:R.v, d:'3 × '+n, aim:Math.min(R.t, n+1)}
+    : (p.u && !last) ? {v:R.v, d:'3 × 1', aim:2}
     : p.r>1 ? {v:STR_RUNGS[p.r-2].v, d:'3 × '+Math.max(2, STR_RUNGS[p.r-2].t-2)} : {v:'plank-pose', d:'3 × 20s'};
   const rank=PUSH_RANK[it.v]||0;
   return Object.assign(it, {r:p.r, n, cv:R.v, t:R.t, k:'push-'+R.v, rank, locked:rank>=STR_PAID_FROM && !isPlus()});
@@ -3157,19 +3160,21 @@ function strLogged(k, v){
   toast(r>STR_RUNGS.length ? 'All eight passed.' : 'Up to '+esc(strName(STR_RUNGS[r-1].v))+'.');
   return true;
 }
-/* After a session, the best set they counted of their push up goes on
-   their check point when it beats their number, so training is how the
-   number climbs and reaching the pass mark there moves them up. A set left
-   at what the session asked is not a reading, so only counted ones count. */
+/* After a session, their best set of their push up is their number: a set
+   they did not change counts as their number again, one they counted up or
+   down counts as what they said. So it climbs when they beat it, drops on a
+   bad day when every set was fewer, and reaching the pass mark moves them up. */
 function strFromSession(){
   if(typeof tourBuild!=='undefined' && tourBuild) return;
   const p=strPlan(); if(!p || p.clear || p.locked || !Array.isArray(Q)) return;
-  let best=0;
+  let best=-1, counted=false;
   Q.forEach((q,i)=>{ if(q && q.it && q.it.push && q.it.v===p.cv){
-    const n=Number((st.reps||{})['q'+i]); if(n>best) best=n; } });
-  if(best<=p.n) return;
+    const c=(st.reps||{})['q'+i], n=c==null ? p.n : Number(c)||0;
+    if(c!=null) counted=true;
+    if(n>best) best=n; } });
+  if(!counted || best<0 || best===p.n) return;
   saveCheckpoint(p.k, best);
-  if(best<p.t) toast(esc(strName(p.cv))+': '+best+' of '+p.t+'.');
+  if(best<p.t) toast(esc(strName(p.cv))+': '+best+' of '+p.t+(best>p.n ? '. Next time, try for '+(best+1)+'.' : '.'));
 }
 /* a full retest every four weeks, from the last time they took it */
 const STR_RETEST=28*864e5;
@@ -3306,7 +3311,7 @@ function strResultHTML(){
   return `<div class="pt">
     <div class="pt-k">Your pushing</div>
     <div class="pt-h">${esc(strName(p.v))}, <em>${esc(p.d)}.</em></div>
-    <p class="pt-p">Every session ends with it. Count your reps as you train and your number climbs; ${p.t} clean ${esc(strName(p.cv))} moves you up a level.</p>
+    <p class="pt-p">Every session ends with it.${p.aim?` Each set, try for ${p.aim}.`:''} Count what you do and your number follows it; ${p.t} clean ${esc(strName(p.cv))} moves you up a level.</p>
     ${due?`<div class="pt-gate" style="background:rgba(243,169,73,.10);border-color:rgba(243,169,73,.4)">
       <p class="pt-p" style="margin:0"><b>Four weeks since your test.</b> Take it again to see where you are now.</p>
       <button class="btn pt-go" style="width:100%;margin-top:12px" onclick="strGo(0)">Take it again</button></div>`:''}
@@ -12544,7 +12549,7 @@ function repStepHTML(it){
     <span id="p-repgot" aria-live="polite">${n}${sec?'s':''}</span>
     <button type="button" onclick="pRep(1)" aria-label="${sec?'Five seconds more':'One more'}">${repSvg('<path d="M12 6v12M6 12h12"/>')}</button>
   </div><div class="p-repunit" id="p-repsaid">${v!=null?'counted':sec?'seconds held':'reps done'}</div>${
-    it.push?`<div class="p-repunit">Your best set counts towards ${(strPlan()||{}).t||''}</div>`:''}`;
+    it.push&&it.aim?`<div class="p-repunit" style="color:var(--amber)">Try for ${it.aim}</div>`:''}`;
 }
 function pRep(by){
   const s=Q[qi]; if(!s || phase==='rest') return;
@@ -22891,7 +22896,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     picked=picked.filter(it=>!pushHard(it) && it.v!==pp.v);
     if(d && !asideOn(pp.v))
       /* the dose is theirs, so the library's own sets and amounts for it go */
-      picked.push(Object.assign({}, d, {d:pp.d, sets:lhaSets(pp.d), amt:null, unit:null, w:null, push:true}));
+      picked.push(Object.assign({}, d, {d:pp.d, sets:lhaSets(pp.d), amt:null, unit:null, w:null, push:true, aim:pp.aim||0}));
   }
   /* the band's own numbers, folded into the drill before it is timed, so a
      drill can be lighter in Easier than in Harder without a second copy */
