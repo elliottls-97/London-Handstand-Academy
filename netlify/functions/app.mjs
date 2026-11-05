@@ -7010,9 +7010,13 @@ const handle = async (request) => {
     await ensureCustom();
     const saved = await getSetting(`programme:${email}`);
     /* the minis are written in the spec; a programme saved from the
-       dashboard does not carry them, so they come from the spec beside it */
+       dashboard does not carry them, so they come from the spec beside it.
+       Edited in the builder (5 Nov 2026) they are kept on their own,
+       minis:<email>, beside every block, and those win. */
     const file = planFile(email);
-    const base = saved && !(saved.minis || []).length && file && (file.minis || []).length ? Object.assign({}, saved, { minis: file.minis }) : saved;
+    const own = await getSetting(`minis:${email}`);
+    let base = saved && !(saved.minis || []).length && file && (file.minis || []).length ? Object.assign({}, saved, { minis: file.minis }) : saved;
+    if (Array.isArray(own)) base = Object.assign({}, base || file || { days: [] }, { minis: own });
     return hydratePlan(base || file || null);
   }
 
@@ -14270,10 +14274,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         /* the minis come from the spec when the saved programme has none */
         const pf = planFile(e);
         let cur = (saved && !(saved.minis || []).length && pf && (pf.minis || []).length ? Object.assign({}, saved, { minis: pf.minis }) : saved) || pf || { days: [] };
+        const ownM = await getSetting(`minis:${e}`);
+        const minisNow = Array.isArray(ownM) ? ownM : (cur.minis || []);
         if (slot) {
           const d = ((await getSetting(`progdrafts:${e}`)) || {})[slot];
           if (d && d.prog) cur = d.prog;
         }
+        /* the minis sit beside every block, a draft's included */
+        cur = Object.assign({}, cur, { minis: minisNow });
         return json({
           email: e,
           slot: slot || '',
@@ -14307,6 +14315,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
            written. A draft is the same shape stored under its own name,
            and the dashboard puts one live when it is ready. */
         const slot = String(body.slot || '').replace(/[^a-z0-9-]/gi, '').slice(0, 24);
+        /* the morning minis, when the builder sends them: kept on their own,
+           beside every block, so putting a new block live cannot lose them */
+        if (Array.isArray(body.minis)) {
+          await setSetting(`minis:${e}`, cleanDays(body.minis).slice(0, 8).map((m, i) => Object.assign({}, m, { id: String(m.id || ('m' + (i + 1))).slice(0, 8), noWarm: true })));
+        }
+        /* what is sent back carries the minis as they now are */
+        const withMinis = async p => { const m = await getSetting(`minis:${e}`); return Array.isArray(m) ? Object.assign({}, p, { minis: m }) : p; };
         const drafts = (await getSetting(`progdrafts:${e}`)) || {};
         const live = (await getSetting(`programme:${e}`)) || planFile(e) || {};
         const base = slot ? ((drafts[slot] || {}).prog || live) : live;
@@ -14391,7 +14406,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           drafts[slot] = Object.assign({}, drafts[slot] || {}, { prog: next, at: Date.now() });
           await setSetting(`progdrafts:${e}`, drafts);
           /* nobody is training a draft, so nothing is announced */
-          return json({ ok: true, draft: slot, plan: hydratePlan(next) });
+          return json({ ok: true, draft: slot, plan: hydratePlan(await withMinis(next)) });
         }
         /* Another client's programme copied over this one kept nothing of
            what it replaced: Hannah's went that way. What was live is put
@@ -14428,7 +14443,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             url: '/lha-app.html?go=cps', tag: 'cp-new' }, 'reminders');
         }
         await ensureCustom();
-        return json({ ok: true, plan: hydratePlan(next), notified: fresh.length });
+        return json({ ok: true, plan: hydratePlan(await withMinis(next)), notified: fresh.length });
       }
     }
 

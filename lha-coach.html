@@ -4325,7 +4325,7 @@ function ownClipPanel(v, key){
           :`<button class="btn btn-secondary btn-sm" ${ownBusy?'disabled':''} onclick="ownSet(${jsq(v)},${jsq(x.uid)})">Use this</button>`}</div>`).join('')}</div>`}
   </div>`;
 }
-function openBuilder(email, slot, slotLabel){
+function openBuilder(email, slot, slotLabel, mini){
   ownLoad(email); ownOpen=''; ownMsg='';
   fetch(API+'/programme?email='+encodeURIComponent(email)+(slot?'&slot='+encodeURIComponent(slot):''),
     {headers:hdr()})
@@ -4333,7 +4333,7 @@ function openBuilder(email, slot, slotLabel){
     .then(d=>{
       noteLibrary(d.library);
       dayCopy=null;
-      builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited, day:0, grp:0,
+      builder={email, plan:d.plan||{days:[]}, dirty:false, edited:d.edited, day:0, grp:0, mini:!!mini,
                slot:slot||'', slotLabel:slotLabel||'',
                exLib:d.explainerLib||{}, exOn:(d.explainersOn||[]).slice(), exX:(d.explainersX||[]).slice()};
       exLoad();   /* the phase explainers as edited, and your own */
@@ -4349,8 +4349,11 @@ function closeBuilder(){
   if(e) blocksLoad(e, true);
   draw();
 }
-function bMark(){ builder.dirty=true; }
-function bDays(){ return (builder.plan.days=builder.plan.days||[]); }
+function bMark(){ builder.dirty=true; if(builder.mini) builder.miniDirty=true; }
+/* the morning minis are edited with the same tools as the days (5 Nov
+   2026): the switch at the top points every day action at the minis list */
+function bDays(){ const k=builder.mini?'minis':'days'; return (builder.plan[k]=builder.plan[k]||[]); }
+function bPickList(mini){ builder.mini=!!mini; builder.day=0; builder.grp=0; builder.warm=false; builder.note=false; dayCopy=null; draw(); }
 
 /* Which day and which block are open. The builder was one long column and
    a five day block meant scrolling past everything to reach the end of it. */
@@ -6795,7 +6798,9 @@ function bPickDay(i){ builder.day=i; builder.grp=0; builder.warm=false; builder.
 function bPickGrp(g){ builder.grp=g; draw(); }
 
 function bAddDay(){
-  bDays().push({id:String(bDays().length+1),label:'Day '+(bDays().length+1),
+  if(builder.mini){ const n=bDays().length+1;
+    bDays().push({id:'m'+n,label:'Morning '+n,sub:'',title:'',when:'',mins:'10',noWarm:true,groups:[{name:'Drills',items:[]}]}); }
+  else bDays().push({id:String(bDays().length+1),label:'Day '+(bDays().length+1),
     sub:'',title:'',when:'',mins:'45',groups:[]});
   builder.day=bDays().length-1; builder.grp=0;
   bMark(); draw();
@@ -6826,6 +6831,7 @@ function bCopyDay(li, i){
   const ids=bDays().map(d=>Number(d.id)).filter(Number.isFinite);
   copy.id=String((ids.length?Math.max(...ids):bDays().length)+1);
   copy.label=(x.label||'Day')+' copy';
+  if(builder.mini) copy.noWarm=true;
   bDays().push(copy);
   builder.day=bDays().length-1; builder.grp=0; builder.warm=false; builder.note=false;
   dayCopy=null; bMark(); draw();
@@ -7195,13 +7201,14 @@ function saveBuilder(){
     builder.exMsg='Type the question for the film you uploaded, then save.'; draw(); return; }
   const btn=document.getElementById('bSave'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   fetch(API+'/programme',{method:'POST',headers:hdr(),
-    body:JSON.stringify({email:builder.email, days:bDays(), ...(builder.cpDirty?{checkpoints:bCps()}:{}),
+    body:JSON.stringify({email:builder.email, days:(builder.plan.days||[]), ...(builder.miniDirty?{minis:(builder.plan.minis||[])}:{}), ...(builder.cpDirty?{checkpoints:bCps()}:{}),
                          ...(builder.noteDirty?{read:builder.plan.read||[], changed:bChanged()}:{}),
                          warmup:(builder.plan.warmup && (builder.plan.warmup.items||[]).some(x=>x.v)) ? builder.plan.warmup : null,
                          ...(builder.slot?{slot:builder.slot}:{}),
                          ...bExSave()})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(d=>{ builder.plan=d.plan||builder.plan; builder.dirty=false; builder.cpDirty=false; builder.noteDirty=false; builder.edited=true;
+               if(builder.miniDirty){ builder.miniDirty=false; delete miniPlan[builder.email]; }
                /* A draft saved here was still counted as empty on the Blocks
                   panel until the page was reloaded, so Put it live stayed
                   greyed out on a block that was ready. */
@@ -7869,20 +7876,26 @@ function builderHTML(){
 
   const W=builder.plan.warmup, wn=W&&W.items?W.items.filter(x=>x.v).length:0;
   const nNote=(builder.plan.changed||[]).length+(builder.plan.read||[]).length;
-  const dayTabs=`<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:14px">
-    ${tab(!!builder.note, 'On this block', nNote?'Elliott\u2019s note':'nothing yet', 'bPickNote()', '')}
-    ${tab(!!builder.warm, 'Warm-up', wn?(Math.min(W.n,wn)+' of '+wn+' a day'):'every day', 'bPickWarm()', '')}
-    ${days.map((x,i)=>tab(!builder.warm && !builder.note && i===di, x.label||('Day '+(i+1)), x.sub||'',
+  const nMini=(builder.plan.minis||[]).length, MI=!!builder.mini;
+  const seg=(on,label,click)=>`<button onclick="${click}" style="border:0;border-radius:10px;padding:8px 14px;cursor:pointer;font:600 12.5px/1 var(--sans);
+    background:${on?'#fff':'transparent'};color:${on?'var(--deep)':'var(--grey)'};${on?'box-shadow:0 1px 2px rgba(17,17,17,.08)':''}">${label}</button>`;
+  const listSwitch=`<div style="display:inline-flex;gap:2px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08);margin-top:14px">
+    ${seg(!MI,'The days','bPickList(false)')}${seg(MI,'Morning minis'+(nMini?' · '+nMini:''),'bPickList(true)')}</div>
+    ${MI?`<div class="muted" style="font-size:12.5px;margin-top:8px">Short sessions beside the plan, on her Today screen. Not part of a block: saving changes them straight away, whichever block is open.</div>`:''}`;
+  const dayTabs=`${listSwitch}<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:14px">
+    ${MI?'':tab(!!builder.note, 'On this block', nNote?'Elliott\u2019s note':'nothing yet', 'bPickNote()', '')}
+    ${MI?'':tab(!!builder.warm, 'Warm-up', wn?(Math.min(W.n,wn)+' of '+wn+' a day'):'every day', 'bPickWarm()', '')}
+    ${days.map((x,i)=>tab(!builder.warm && !builder.note && i===di, x.label||((MI?'Mini ':'Day ')+(i+1)), x.sub||'',
         'bPickDay('+i+')', 'bDelDay('+i+')', ['day',i])).join('')}
-    <button onclick="bAddDay()" style="${bGhost}">+ Day</button>
-    <button onclick="bCopyDayOpen()" style="${bGhost}${dayCopy?';border-color:var(--forest);color:var(--forest)':''}">Copy a day</button>
+    <button onclick="bAddDay()" style="${bGhost}">${MI?'+ Mini':'+ Day'}</button>
+    <button onclick="bCopyDayOpen()" style="${bGhost}${dayCopy?';border-color:var(--forest);color:var(--forest)':''}">${MI?'Copy one':'Copy a day'}</button>
   </div>${dayCopyHTML()}`;
 
   const body = builder.note ? `${dayTabs}${noteHTML()}` : builder.warm ? `${dayTabs}${warmHTML()}` : days.length ? `${dayTabs}
     <div class="glass" style="padding:15px 17px;margin-top:12px">
       <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
         <input value="${esc(d.label||'')}" oninput="bField(${di},'label',this.value)"
-          placeholder="Day 1" style="flex:0 0 92px;${bInput}">
+          placeholder="${MI?'Morning 1':'Day 1'}" style="flex:0 0 92px;${bInput}">
         <input value="${esc(d.sub||'')}" oninput="bField(${di},'sub',this.value)"
           placeholder="Strength &amp; balance" style="flex:1;min-width:130px;${bInput}">
         <input value="${esc(d.mins||'')}" oninput="bField(${di},'mins',this.value)"
@@ -7893,7 +7906,7 @@ function builderHTML(){
             aria-label="Move this day later" style="${bGhost};padding:6px 11px;${di<days.length-1?'':'opacity:.35;cursor:default'}">&rarr;</button>`:''}
       </div>
       ${lengthLine(d)}
-      ${wn?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px;
+      ${wn&&!MI?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px;
         font:400 12.5px/1.45 var(--sans);color:var(--grey)">
         <label style="display:inline-flex;gap:8px;align-items:center;cursor:pointer;color:var(--ink)">
           <input type="checkbox"${d.noWarm?'':' checked'} onchange="bField(${di},'noWarm',!this.checked);draw()"
@@ -7906,9 +7919,9 @@ function builderHTML(){
           ?`<span style="color:var(--terra)">This day has its own warm-up block as well.</span>
             <button onclick="bWarmStrip()" style="${bGhost};padding:4px 9px">Take them out</button>`:''}
       </div>`:''}
-      <input value="${esc(d.when||'')}" oninput="bField(${di},'when',this.value)"
+      ${MI?'':`<input value="${esc(d.when||'')}" oninput="bField(${di},'when',this.value)"
         placeholder="What they need. Floor and a chair, nothing else."
-        style="width:100%;margin-top:8px;${bInput}">
+        style="width:100%;margin-top:8px;${bInput}">`}
 
       ${(function(){
         const gs=d.groups||[];
@@ -7998,7 +8011,7 @@ function builderHTML(){
     : `${dayTabs}
        <div class="glass" style="padding:22px;margin-top:12px;text-align:center;
          font:400 13.5px/1.6 var(--sans);color:var(--grey)">
-         No days yet. Add one and start putting blocks in it.</div>`;
+         ${builder.mini?'No morning minis yet. Add one and put a few drills in it.':'No days yet. Add one and start putting blocks in it.'}</div>`;
 
 
   return `<div style="position:fixed;inset:0;z-index:80;background:rgba(0,30,28,.55);
@@ -8307,7 +8320,8 @@ function minisCoachHTML(email){
   return `<div style="margin-top:var(--space-4);padding:14px 15px;border-radius:14px;background:var(--surface);border:1px solid var(--line)">
     <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
       <span style="font:700 9.5px/1.4 var(--sans);letter-spacing:.14em;color:var(--grey2)">MORNING MINIS · ${L.length}</span>
-      <span class="muted" style="font-size:12px">Beside the plan, on her Today screen. They do not change her week.</span></div>
+      <span class="muted" style="font-size:12px;flex:1">Beside the plan, on her Today screen. They do not change her week.</span>
+      <button class="btn btn-secondary" style="font-size:12.5px;padding:6px 12px" onclick="openBuilder(${jsq(email)},'','',true)">Edit them</button></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:10px;margin-top:10px">
       ${L.map(m=>{ const items=(m.groups||[]).flatMap(g=>g.items||[]), last=lastOf(m.label);
         return `<div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0">
