@@ -42,10 +42,10 @@ export const EMAILS = {
     "name": "Interested in coaching, straight away",
     "when": "The moment somebody presses I'm interested on the coaching plans",
     "vars": ["name", "plan"],
-    "subject": "Your free 15 minute call",
+    "subject": "Your next step: apply",
     "title": "Thanks for getting in touch.",
     "paras": [
-      "You asked about <b>{plan}</b>. The quickest way to see if it fits is a free 15 minute call: tell me what you are working on, and I will tell you what I would do.",
+      "You asked about <b>{plan}</b>. The next step is a two minute application with up to three clips of you now. I read it myself, and if it is a fit we have a free 15 minute consultation and agree the plan.",
       "If you already know, you can start now. I will send your questionnaire straight away."
     ],
     "footnote": "You asked about coaching on the London Handstand Academy site. Three short follow ups, then nothing more."
@@ -59,7 +59,7 @@ export const EMAILS = {
     "paras": [
       "Week one, you film where you are now and answer a short questionnaire, and your programme is written from it.",
       "From then on it is all in the app, every drill filmed. You train it, film it, and I show you on video what to change.",
-      "If you want to talk it through first, the call is free and takes 15 minutes."
+      "Apply first and we talk it through on a free 15 minute consultation."
     ],
     "footnote": "You asked about coaching on the London Handstand Academy site. Two more of these at most."
   },
@@ -72,7 +72,7 @@ export const EMAILS = {
     "paras": [
       "\u201cElliott meets you exactly where you are. He broke my one-arm work into clear, achievable steps and kept me accountable the whole way. The progress has been faster than I expected.\u201d Aman, coaching client.",
       "That is what coaching is for: the right next step, and someone making sure you take it.",
-      "Book the free call and we will work out yours."
+      "Apply, and we will work out yours on a free 15 minute consultation."
     ],
     "footnote": "You asked about coaching on the London Handstand Academy site. One more of these at most."
   },
@@ -85,7 +85,7 @@ export const EMAILS = {
     "paras": [
       "This is the last email I will send about coaching, so I do not fill your inbox.",
       "If now is not the time, the app is free to start and your first form check is on me.",
-      "If it is, book the call or start now. Places are limited, because I review every video myself."
+      "If it is, apply or start now. Places are limited, because I review every video myself."
     ],
     "footnote": "You asked about coaching on the London Handstand Academy site. This is the last of these."
   },
@@ -827,16 +827,17 @@ export function nextStepEmail(d) {
     ['Sixty or ninety minutes on your handstand and nothing else.', 'Join coaching within 14 days and it comes off your first month.'],
     [{ href: `${site}/session.html?kind=60`, label: `60 min, ${escH(d.s60)}`, main: true },
      { href: `${site}/session.html?kind=90`, label: `90 min, ${escH(d.s90)}` }]);
-  const call = d.call ? mOffer('Not sure yet?', 'Fifteen minutes, free',
-    ['Tell me what you are stuck on. I will tell you honestly where I would start you, even if the answer is the free app.'],
-    [{ href: d.call, label: 'Book the free call' }]) : '';
+  /* coaching is by application, then a consultation (5 Nov 2026) */
+  const call = d.call ? mOffer('Coaching', 'Apply, then we talk',
+    ['Two minutes and up to three clips of you now. If I can help, we have a free 15 minute consultation; if not yet, I tell you honestly where to start.'],
+    [{ href: d.call, label: 'Apply for coaching' }]) : '';
   const html = mShell(d, mHero(d) + one + call);
   const T = mTextTop(d);
   T.push('A 1-2-1 WITH ELLIOTT, AT OVERGRAVITY',
     `Sixty or ninety minutes on your handstand and nothing else. 60 minutes, ${d.s60}. 90 minutes, ${d.s90}. Join coaching within 14 days and it comes off your first month.`,
     `${site}/session.html`, '');
-  if (d.call) T.push('NOT SURE YET? FIFTEEN MINUTES, FREE',
-    'Tell me what you are stuck on. I will tell you honestly where I would start you, even if the answer is the free app.', d.call, '');
+  if (d.call) T.push('COACHING: APPLY, THEN WE TALK',
+    'Two minutes and up to three clips of you now. If I can help, we have a free 15 minute consultation; if not yet, I tell you honestly where to start.', d.call, '');
   return { html, text: mTextEnd(T, d) };
 }
 
@@ -1007,7 +1008,7 @@ export function startLinkEmail(T, x, site) {
    ctx: first, call (link to the free call), start (link to the plans) */
 export function interestEmail(T, x, site) {
   const S = site || SITE;
-  const call = { label: 'Book your free 15 minute call', sub: 'Pick a time that suits you', href: x.call || `${S}/?src=interest#coCall` };
+  const call = { label: 'Apply for coaching', sub: 'Two minutes, then a 15 minute consultation', href: x.call || `${S}/?src=interest#apply` };
   return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
     blocks: [
       { t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras, btn: call },

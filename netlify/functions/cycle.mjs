@@ -924,10 +924,10 @@ async function workshopMail(done) {
             if (T.off) { done.held = (done.held || 0) + 1; continue; }
             const P = (await afterData()).prices;
             const M = nextStepEmail({ site: SITE, first, title: T.title, paras: T.paras, footnote: T.footnote,
-              kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/call.html`,
+              kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/?src=workshop#apply`,
               photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand at Leadenhall Market' },
               headshot: '/assets/site/coach-elliott-headshot.jpg',
-              preheader: `A 1-2-1 at OverGravity, from ${P.s60}, or a free 15 minute call.` });
+              preheader: `A 1-2-1 at OverGravity, from ${P.s60}, or coaching by application.` });
             await email(e, T.subject, M.html, 'offers', { text: M.text });
             /* a failed send is not marked, so the next run can try; a held
                one (offers off, unsubscribed) is, as before */
@@ -1128,7 +1128,7 @@ async function interestMail(done) {
       const T = await emailCopy(key, { name: esc(first), plan: esc(plan) });
       /* switched off in the dashboard: marked, so the next one follows on time */
       if (!T.off) {
-        const went = await email(e, T.subject, interestEmail(T, { first, call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE));
+        const went = await email(e, T.subject, interestEmail(T, { first, call: `${SITE}/?src=interest#apply`, start: `${SITE}/?src=interest#plans` }, SITE));
         if (!went) { done.held = (done.held || 0) + 1; break; }
         done.interest.sent++;
       }

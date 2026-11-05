@@ -1919,31 +1919,34 @@ let appReply=null, appPlaying={};
 const appClips = A => String((A||{}).clips||'').split(',').filter(x=>/^[a-f0-9]{32}$/.test(x));
 function appDraft(a, kind){
   const A=a.answers||{}, first=String(a.name||'').split(' ')[0]||'there', n=appClips(A).length;
+  const when = A.call ? new Date(A.call).toLocaleString('en-GB',{weekday:'long',day:'numeric',month:'long',hour:'numeric',minute:'2-digit',timeZone:'Europe/London'}) : '';
   const saw = n ? `I have watched your clip${n>1?'s':''}. [CHECK: what you saw, and the one thing you would fix first]`
                 : `[CHECK: what stood out in what you sent, and the one thing you would fix first]`;
   return kind==='notfit'
     ? `Hi ${first},\n\nThanks for applying. [CHECK: why not yet]\n\nThe first stage of the app is free, and it is the work I would start you on anyway. Send me a clip in a month and we will look again.`
-    : `Hi ${first},\n\nThanks for applying. ${saw}\n\nThat is something I can help with, and I can see the way through it. Book a call and we will go through it together, then decide on the plan.`;
+    : when ? `Hi ${first},\n\nThanks for applying. ${saw}\n\nThat is something I can help with, and I can see the way through it. We will go through it on ${when}, then decide on the plan together.`
+    : `Hi ${first},\n\nThanks for applying. ${saw}\n\nThat is something I can help with, and I can see the way through it. Book your consultation and we will go through it together, then decide on the plan.`;
 }
 function appClipsHTML(a){
   const A=a.answers||{}, c=appClips(A), due=Number(A.clipsDue)||0;
-  if(!c.length && !due) return '';
+  const booked = A.call ? `<div style="font:600 12.5px/1.4 var(--sans);color:var(--forest);margin-top:8px">Consultation booked: ${esc(new Date(A.call).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit',timeZone:'Europe/London'}))}</div>` : '';
+  if(!c.length && !due) return booked;
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">${c.map(u=>appPlaying[u]
     ?`<iframe src="${streamEmbed(u)}" style="width:180px;max-width:100%;aspect-ratio:9/16;border:0;border-radius:12px;background:#000" allow="autoplay;fullscreen" allowfullscreen></iframe>`
     :`<button type="button" onclick="appPlaying[${jsq(u)}]=1;draw()" title="Play" style="width:96px;aspect-ratio:9/16;border:0;border-radius:12px;cursor:pointer;
        background:#00403d url(${streamStill(u)}) center/cover;position:relative"><span style="position:absolute;inset:auto 0 8px;font:600 11px/1 var(--sans);color:#fff">Play</span></button>`).join('')}
-    ${c.length<due?`<span class="muted" style="font-size:12.5px;align-self:center">${due-c.length} of ${due} clip${due>1?'s':''} did not arrive</span>`:''}</div>`;
+    ${c.length<due?`<span class="muted" style="font-size:12.5px;align-self:center">${due-c.length} of ${due} clip${due>1?'s':''} did not arrive</span>`:''}</div>${booked}`;
 }
 function appActHTML(a){
   const open=appReply&&appReply.id===a.id;
   return `${open?`<div style="margin-top:12px">
       <textarea id="ar-${esc(a.id)}" class="input" style="width:100%;min-height:180px;font:400 14px/1.55 var(--sans);padding:12px">${esc(appDraft(a,appReply.kind))}</textarea>
-      <div class="muted" style="font-size:12px;margin:6px 0 10px">${appReply.kind==='notfit'?'Goes by email with a button to the free app.':'Goes by email with a Book the call button.'} Write what you saw over the [CHECK] first.</div>
+      <div class="muted" style="font-size:12px;margin:6px 0 10px">${appReply.kind==='notfit'?'Goes by email with a button to the free app.':(a.answers||{}).call?'Goes by email. Their consultation is already booked, so no button.':'Goes by email with a Book your consultation button.'} Write what you saw over the [CHECK] first.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="appReplySend(${jsq(a.id)})" ${appReply.busy?'disabled':''}>${appReply.busy?'Sending…':'Send'}</button>
         <button class="btn btn-ghost" onclick="appReply=null;draw()">Cancel</button></div></div>`
     :`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-      <button class="btn btn-primary" style="font-size:12.5px" onclick="appReply={id:${jsq(a.id)},kind:'fit'};draw()">Reply with a call link</button>
+      <button class="btn btn-primary" style="font-size:12.5px" onclick="appReply={id:${jsq(a.id)},kind:'fit'};draw()">${(a.answers||{}).call?'Reply before the consultation':'Reply with a consultation link'}</button>
       <button class="btn btn-secondary" style="font-size:12.5px" onclick="appReply={id:${jsq(a.id)},kind:'notfit'};draw()">Not a fit yet</button></div>`}`;
 }
 function appReplySend(id){

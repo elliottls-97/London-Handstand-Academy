@@ -12802,6 +12802,17 @@ function sendAndSay(p, okMsg, failMsg){
     .then(ok=>{ toast(ok===false ? bad : okMsg); return ok!==false; })
     .catch(()=>{ toast(bad); return false; });
 }
+/* ── a dead end, with ways on (5 Nov 2026) ──────────────────────────
+   A browser alert said one sentence and left the person where they were,
+   with nothing to press. This sheet says why and offers the next thing. */
+let stuck=null;
+function stuckOpen(o){ stuck=o; openOv('stuck'); }
+function stuckAct(i){ const a=stuck&&stuck.acts&&stuck.acts[i]; closeOv(); if(a&&a.go) setTimeout(a.go, 60); }
+function stuckBringBack(list){
+  const m=Object.assign({}, st.aside||{}); list.forEach(v=>{ delete m[v]; }); st.aside=m; save();
+  try{ saveState(); }catch(e){}
+  toast('Back in this week.');
+}
 function toast(msg){
   let el=document.getElementById('toast');
   if(!el){
@@ -14290,6 +14301,14 @@ function drawOv(){
      tab. On an iPhone the Home Screen app keeps its own storage, apart
      from Safari, so it says so and offers the email first to anyone who
      has not given one: without it their progress stays behind in Safari. */
+  if(st.ov==='stuck' && stuck){
+    body=`<div style="padding:2px 0 6px">
+      <div class="kick2">${esc(stuck.kick||'NOT YET')}</div>
+      <div class="h-lg" style="margin-top:8px">${esc(stuck.h)}</div>
+      <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:8px">${esc(stuck.p)}</div>
+      ${(stuck.acts||[]).map((a,i)=>`<button class="${a.main?'btn':'btn2'}" style="width:100%;margin-top:${i?10:16}px" onclick="stuckAct(${i})">${esc(a.label)}</button>`).join('')}
+    </div>`;
+  }
   if(st.ov==='notify'){
     const c=coachedView(), who=esc(coachLabel());
     body=`<div style="padding:2px 0 6px">
@@ -19776,7 +19795,12 @@ function buildFixSession(slug, listOnly){
   } else warm=warmupFor(budget, f.stage||0, null);
   const used=new Set(warm.items.map(x=>x.v));
   const pool=(f.drills||[]).filter(d=>!used.has(d.v)).map(toIt);
-  if(!pool.length && !f.warmOnly){ alert('Nothing in this fix yet.'); return; }
+  if(!pool.length && !f.warmOnly){
+    stuckOpen({ kick:(f.name||'THIS FIX').toUpperCase(), h:'Still being filmed.',
+      p:'The drills for this fix are not in yet. Train your stage today, or ask '+coachLabel()+' what to work on in the meantime.',
+      acts:[{ label:'Train my stage today', main:1, go:()=>go('home') },
+            { label:'Ask '+coachLabel(), go:()=>{ st.coTab='chat'; save(); go('coaching'); } }] });
+    return; }
   const out=warm.items.map((it,i)=>{
     const nn=warm.items.filter(x=>x.v===it.v).length, k=warm.items.slice(0,i+1).filter(x=>x.v===it.v).length;
     return {it,gi:0,ii:i,set:k,sets:nn,grp:'Warm-up'}; });
@@ -22821,7 +22845,17 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const mk=list=>list.filter(v=>!used.has(v) && !asideOn(v) && (st.drillsOff||[]).indexOf(v)<0).map(drillById).filter(Boolean)
     .map(d=>Object.assign({},d,{d:((st.timing||{})[d.v]||{}).d || d.d || FREE_DOSE[d.v] || '3 × 8'}));
   const focus=mk(ids), pool=focus.concat(mk(spare));
-  if(!pool.length){ alert('Nothing filmed for this stage yet.'); return; }
+  if(!pool.length){
+    const aside=ids.concat(spare).filter(v=>asideOn(v));
+    const again=[wristDay,listOnly,dayIdx,keep];
+    stuckOpen(aside.length
+      ? { kick:'TODAY', h:'Everything is put aside.', p:'You have put aside every drill this session would use, so there is nothing left to build it from. Bring them back, or train another stage.',
+          acts:[{ label:'Bring them back and start', main:1, go:()=>{ stuckBringBack(aside); buildFreeSession.apply(null, again); } },
+                { label:'See the other stages', go:()=>go('ladder') }] }
+      : { kick:'TODAY', h:'Not filmed yet.', p:'This stage has no drills filmed yet. Train the stage before it, or ask '+coachLabel()+' what to do this week.',
+          acts:[{ label:'See the other stages', main:1, go:()=>go('ladder') },
+                { label:'Ask '+coachLabel(), go:()=>{ st.coTab='chat'; save(); go('coaching'); } }] });
+    return; }
 
   /* the warm-up can now run a drill more than once, so the card has to say
      which set this is rather than always "1 of 1" */
@@ -23774,12 +23808,13 @@ function coPanelHTML(pick){
           /* the website's order (Elliott, 31 Oct 2026): I'm interested, which
              starts the emails, or the free call; Start now under them */
           const sent = (st.interestSent||{})[pick.k];
-          return `<button onclick="${sent?'':`coInterest('${pick.k}')`}" ${sent?'disabled':''} id="coInterestBtn"
+          /* Apply, then a consultation (5 Nov 2026): the same application
+             as the website, with up to three clips; the free 15 minute
+             consultation is booked at the end of it */
+          return `<button onclick="leaveTo('/?src=app#apply')" id="coInterestBtn"
           style="width:100%;margin-top:13px;min-height:50px;border:0;border-radius:14px;cursor:pointer;
-          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">${sent?'Sent. The details are in your inbox.':'I&rsquo;m interested &rarr;'}</button>
-          <button onclick="leaveTo('/?src=app#coCall')" style="width:100%;margin-top:8px;min-height:46px;
-            border:1px solid rgba(255,255,255,.45);border-radius:14px;cursor:pointer;background:transparent;
-            color:var(--on-primary);font:600 14px/1 var(--sans)">Or book a free 15 minute call</button>
+          background:var(--bg);color:var(--deep);font:600 15px/1 var(--sans)">Apply for coaching</button>
+          <div style="text-align:center;margin-top:8px;font:400 12.5px/1.4 var(--sans);opacity:.86">Two minutes and up to three clips, then a free 15 minute consultation.</div>
           ${(!loading && can) ? `<button onclick="${go}" ${`id="buy-${base}"`} style="display:block;margin:12px auto 0;background:none;border:0;padding:4px;cursor:pointer;
             color:var(--on-primary);font:600 13px/1.3 var(--sans);text-decoration:underline;text-underline-offset:3px">Or start now, ${coMonthLabel(pick, sess)}/mo</button>` : ''}`; })()}
 

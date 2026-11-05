@@ -63,8 +63,8 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
 </head><body>
 <div class="wrap">
   <a class="brand" href="/">London Handstand Academy</a>
-  <div id="s"><h1>A free 15 minute call with Elliott</h1>
-    <p>Tell Elliott Staley what you are stuck on and he will tell you which kind of training fits: the free app, a class in London, a one to one session, or coaching. A video call, free, no obligation.</p>
+  <div id="s"><h1>A free 15 minute consultation with Elliott</h1>
+    <p>After your coaching application, Elliott Staley goes through what he saw in your clips and you agree the plan together. A video call, free, no obligation.</p>
     <p class="muted">Finding the free times…</p></div>
 </div>
 <script>
@@ -143,11 +143,30 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
     return;
   }
 
-  /* ── booking the free call ── */
+  /* ── the consultation (5 Nov 2026) ──────────────────────────────────
+     It comes after the application: the reply's link and the thank you
+     carry the application's id and key, kept on this device too, so the
+     person booking is known and their answers are not asked for again.
+     Without one, this page sends them to apply first. */
+  const appK=(()=>{ let a=q.get('a')||'', k=q.get('k')||'';
+    try{ if(a&&k) localStorage.setItem('lha-appk', JSON.stringify({a,k}));
+      else { const o=JSON.parse(localStorage.getItem('lha-appk')||'null'); if(o&&o.a&&o.k){ a=o.a; k=o.k; } } }catch(x){}
+    return a&&k?{a,k}:null; })();
+  const gate=()=>{ box.innerHTML='<div class="kick">Consultation · 15 minutes</div><h1>Apply first.</h1>'
+    +'<p>The consultation comes after your coaching application, so the fifteen minutes go on what I have seen in your clips, not on questions you have already answered.</p>'
+    +'<p>Two minutes and up to three clips. Then you pick a time.</p>'
+    +'<a class="btn" href="/#apply" style="max-width:360px">Apply for coaching</a>'
+    +'<p style="margin-top:18px">Not after coaching? <a href="/lha-app.html" style="color:#006663;font-weight:600">The app is free to start</a>, or <a href="/handstand-classes-london" style="color:#006663;font-weight:600">come to a class</a>.</p>'
+    +'<div class="foot">Questions? '+MAIL+'</div>'; };
+  /* a link Elliott hands out himself (?open=1, to a client) skips it */
+  const opened=q.get('open')==='1';
+  if(!appK && !opened){ beacon('sitecallgate'); gate(); return; }
+
+  /* ── booking it ── */
   beacon('sitecall');
   let slots=[], day='', slot='', busy=false, asking=false;
-  /* the name and email typed on the homepage, on this device: shown, not asked again */
-  const known=(()=>{ try{ const n=localStorage.getItem('lha-name')||'', e=localStorage.getItem('lha-email')||'';
+  /* who applied: from the application, shown, not asked again */
+  let known=(()=>{ try{ const n=localStorage.getItem('lha-name')||'', e=localStorage.getItem('lha-email')||'';
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)?{n,e}:null; }catch(x){ return null; } })();
   let whoEdit=!known||!known.n;
   /* asked when they book, so the fifteen minutes go on them */
@@ -161,8 +180,9 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
     const ask=asking||!slots.length;
     if(!slots.some(t=>dayKey(t)===day)) day=slots.length?dayKey(slots[0]):'';
     if(slot&&!slots.includes(slot)) slot='';
-    box.innerHTML='<div class="kick">Free call · 15 minutes</div><h1>Fifteen minutes, free.</h1>'
-      +'<p>Tell me what you are stuck on. I will tell you which way of training with me you actually need, including if the answer is none of them yet.</p>'
+    box.innerHTML='<div class="kick">Consultation · 15 minutes, free</div><h1>Your consultation.</h1>'
+      +(appK?'<p>I go through what I saw in your application and clips, and we agree the plan. If coaching is not the right thing yet, I will tell you what is.</p>'
+        :'<p>Fifteen minutes on a video call with Elliott.</p>')
       +(!ask?'<div class="card"><label>Pick a time</label>'+pickerHTML(slots,day,slot)+zoneLine()
         +'<button class="linkb" id="none">None of these work? Ask for another time</button></div>'
         :'<div class="card"><div class="row"><b>Ask for another time</b></div><p class="muted" style="font-size:14.5px">'
@@ -174,10 +194,10 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
            +'<label for="em">Email</label><input id="em" type="email" autocomplete="email" placeholder="you@example.com">'
           :'<input id="nm" type="hidden" value="'+esc(known.n)+'"><input id="em" type="hidden" value="'+esc(known.e)+'">'
            +'<p style="margin:0">Booking as <b>'+esc(known.n)+'</b>, '+esc(known.e)+'. <button class="linkb" id="who" style="display:inline;margin:0">Not you?</button></p>')
-        +'<p class="muted" style="font-size:14.5px;margin-top:18px">So the call goes on you. Write as much or as little as you like.</p>'
-        +aboutFields()
+        +'<p class="muted" style="font-size:14.5px;margin-top:18px">'+(appK?'Your answers and clips came with your application. Anything else, add it here.':'Anything you want to cover, add it here.')+'</p>'
+        +'<label for="ab-work">Anything else? Optional</label><textarea id="ab-work" placeholder="Something that has changed, or a question for the call"></textarea>'
         +(ask?'<button class="btn" id="go">Ask for a time</button>'
-          :'<button class="btn" id="go"'+(slot?'':' disabled')+'>'+(slot?'Book the call, '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above')+'</button>')
+          :'<button class="btn" id="go"'+(slot?'':' disabled')+'>'+(slot?'Book my consultation, '+esc(dayShort(slot))+', '+esc(clock(slot)):'Pick a time above')+'</button>')
         +'<div class="msg" id="msg"></div>'
         +'<div class="fine">'+(ask?'Elliott comes back with a time within 48 hours, by email, with the link to join. ':'A video call. The link to join comes by email, with a calendar file, and a reminder the day before. ')
         +'How we use your details: <a href="/privacy" target="_blank" rel="noopener">privacy</a>.</div>'
@@ -196,11 +216,11 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       if(!prefs){ msg.textContent='Say which days and times suit you.'; return; }
       if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
       if(busy) return; busy=true; go.disabled=true; go.textContent='Sending…'; msg.textContent='';
-      fetch('/api/app/call/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,prefs,about:aboutRead(),tz:TZ})})
+      fetch('/api/app/call/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,prefs,about:aboutRead(),tz:TZ,app:appK?appK.a:'',key:appK?appK.k:''})})
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
         .then(()=>{ beacon('sitecallasked'); done('Asked.',['Elliott comes back to you with a time within 48 hours.','It comes by email to '+esc(email)+', with the link to join.']); })
         .catch(e=>{ busy=false; if(e&&e.off){ location.replace(CALENDLY); return; }
-          go.disabled=false; go.textContent='Ask for a time'; msg.textContent=String((e&&e.error)||'Something went wrong'); }); };
+          go.disabled=false; go.textContent='Ask for a time'; msg.textContent=String((e&&e.error)||'That did not send. Try again, or email info@londonhandstandacademy.com.'); }); };
       return; }
     go.onclick=()=>{
       const name=(document.getElementById('nm').value||'').trim(), email=(document.getElementById('em').value||'').trim(), about=aboutRead();
@@ -208,28 +228,32 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
       if(!slot){ msg.textContent='Pick a time first.'; return; }
       if(!name||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent='Your name and a real email address, please.'; return; }
       if(busy) return; busy=true; go.disabled=true; go.textContent='Booking…'; msg.textContent='';
-      fetch('/api/app/call/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'intro',slot,name,email,about,tz:TZ,src:q.get('from')||'site'})})
+      fetch('/api/app/call/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'intro',slot,name,email,about,tz:TZ,src:appK?'apply':(q.get('from')||'site'),app:appK?appK.a:'',key:appK?appK.k:''})})
         .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
         .then(d=>{ beacon('sitecallbooked'); const c=d.call;
           box.innerHTML='';
           done('Booked.',['Your call is on <b>'+esc(whenTxt(c.when))+'</b>.','The link to join, and a calendar file, are on their way to '+esc(email)+'.'+(c.link?'':' ')]);
           box.querySelector('.done').insertAdjacentHTML('beforeend','<div style="text-align:center">'+linksHTML(c)+'</div>'); })
         .catch(e=>{ busy=false;
-          if(e&&e.already&&e.call){ box.innerHTML='<div class="kick">Free call</div><h1>You already have one.</h1><div class="when">'+esc(whenTxt(e.call.when))+'</div>'
+          if(e&&e.already&&e.call){ box.innerHTML='<div class="kick">Consultation</div><h1>You already have one.</h1><div class="when">'+esc(whenTxt(e.call.when))+'</div>'
             +'<div class="card">'+linksHTML(e.call)+'<a class="btn" href="'+esc(e.call.manage)+'">Move or cancel it</a></div>'; return; }
           /* the call itself is only ever told to its own inbox */
           if(e&&e.already){ box.innerHTML='';
             done('You already have one.',[esc(String(e.error||'The link to it has been sent to your inbox again.'))]); return; }
           if(e&&e.gone){ slot=''; return load().then(()=>{ const m=document.getElementById('msg'); if(m) m.textContent=String(e.error); }); }
           if(e&&e.off){ location.replace(CALENDLY); return; }
-          go.disabled=false; go.textContent='Book the call, '+dayShort(slot)+', '+clock(slot); msg.textContent=String((e&&e.error)||'Something went wrong'); });
+          go.disabled=false; go.textContent='Book my consultation, '+dayShort(slot)+', '+clock(slot); msg.textContent=String((e&&e.error)||'That did not book. Try again, or email info@londonhandstandacademy.com.'); });
     };
   };
   /* off here, or the calendars unreadable: Calendly, as before */
   const load=()=>fetch('/api/app/call/slots?kind=intro').then(r=>r.json()).then(d=>{
     if(!d||!d.open){ location.replace((d&&d.calendly)||CALENDLY); return; }
     slots=d.slots||[]; draw(); }).catch(()=>{ location.replace(CALENDLY); });
-  load();
+  if(!appK){ load(); return; }
+  fetch('/api/app/application/who',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:appK.a,key:appK.k})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ if(d&&d.email){ known={n:d.name||'',e:d.email}; whoEdit=!known.n; } load(); })
+    .catch(st=>{ if(st===403||st===404){ try{ localStorage.removeItem('lha-appk'); }catch(x){} gate(); return; } load(); });
 })();
 </script>
 <footer style="max-width:640px;margin:36px auto 28px;padding:0 20px;text-align:center;font-size:13px;color:#686868">London Handstand Academy · <a href="/" style="color:inherit">Home</a> · <a href="/terms" style="color:inherit">Terms</a> · <a href="/privacy" style="color:inherit">Privacy</a> · <a href="/support" style="color:inherit">Help</a></footer>

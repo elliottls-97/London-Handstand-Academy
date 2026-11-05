@@ -8591,7 +8591,18 @@ const handle = async (request) => {
       if ((await rateHit(`callb:${ip}`, 3600000)) > 12 || (await rateHit(`callbe:${who}`, 3600000)) > 6) return json({ error: 'Too many tries. Try again in an hour.' }, 429);
     }
     if (!body.slot) return json({ error: 'Pick a time first.' }, 400);
-    const r = await callBook({ kind, slot: String(body.slot), name: nm, email: who, note: body.note, tz: body.tz, src: body.src, about: body.about });
+    /* the consultation, booked from the reply to an application: it says
+       so, and the application keeps the time (5 Nov 2026) */
+    let appRow = null;
+    if (kind === 'intro' && body.app && body.key) {
+      const aid = String(body.app).replace(/[^A-Za-z0-9-]/g, '').slice(0, 64);
+      if (aid && String(body.key) === await hmac('appclip:' + aid))
+        appRow = await supa.row('applications', `id=eq.${enc(aid)}&select=id,answers`).catch(() => null);
+    }
+    const r = await callBook({ kind, slot: String(body.slot), name: nm, email: who,
+      note: appRow ? 'Consultation, after their application. Their answers and clips are on the dashboard.' : body.note,
+      tz: body.tz, src: appRow ? 'apply' : body.src, about: body.about });
+    if (appRow && !r.error) await supa.update('applications', `id=eq.${enc(appRow.id)}`, { answers: { ...(appRow.answers || {}), call: String(body.slot) } }).catch(() => {});
     return json(r, r.error ? r.status : 200);
   }
   if (path === '/call/ask' && request.method === 'POST') {
@@ -9718,7 +9729,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const tip = /^tip(\d+)$/.exec(key);
     let html;
     if (tip) html = tipEmail(Number(tip[1]), T, me1, SITE);
-    else if (/^interest\d$/.test(key)) html = interestEmail(T, { first: me1, call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE);
+    else if (/^interest\d$/.test(key)) html = interestEmail(T, { first: me1, call: `${SITE}/?src=interest#apply`, start: `${SITE}/?src=interest#plans` }, SITE);
     else if (/^startLink2?$/.test(key)) html = startLinkEmail(T, { first: me1, href: `${SITE}/#plans`, label: 'Start weekly coaching, £300 a month' }, SITE);
     else if (key === 'wsIntent') html = intentEmail(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left, coach: w.coach || '', early: ebOn && wsEarlyOn(w) ? { day: eb.by, then: eb.then } : null }, SITE);
     else if (key === 'wsIntent2') html = intent2Email(T, { first: me1, title: w.title, when: whenTxt, place: w.place, price, left }, SITE);
@@ -9730,7 +9741,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         ? afterClassEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, review: `${SITE}/review`,
             photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' }, headshot: '/assets/site/coach-elliott-headshot.jpg',
             preheader: 'Thank you for coming.', dates: [{ day: d0, time: t0.join(', '), place: w.place || '', price, left, href: `${SITE}/handstand-class#book` }] })
-        : nextStepEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/call.html`,
+        : nextStepEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/?src=workshop#apply`,
             photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand' }, headshot: '/assets/site/coach-elliott-headshot.jpg', preheader: '' });
       html = M.html.replace(/(src|href)="\//g, `$1="${SITE}/`);
     } else html = mail({ title: T.title, greeting: me1, paras: T.paras, footnote: T.footnote || undefined, signoff: { name: 'Elliott, London Handstand Academy' } });
@@ -12154,7 +12165,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (/free call/i.test(answers.source)) return json({ ok: true, id: row.id });
       const plan = answers.plan.replace(/\s*\(.*$/, '').toLowerCase() || 'coaching';
       const T = await emailCopy('interest0', { name: esc((name || '').split(' ')[0]), plan: esc(plan) });
-      if (!T.off) await email(e, T.subject, interestEmail(T, { first: (name || '').split(' ')[0], call: `${SITE}/?src=interest#coCall`, start: `${SITE}/?src=interest#plans` }, SITE));
+      if (!T.off) await email(e, T.subject, interestEmail(T, { first: (name || '').split(' ')[0], call: `${SITE}/?src=interest#apply`, start: `${SITE}/?src=interest#plans` }, SITE));
       return json({ ok: true, id: row.id });
     }
     /* tell them it landed, because silence after applying is what makes
@@ -12163,11 +12174,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       mail({
         title: 'Got it.',
         greeting: (name || '').split(' ')[0] || '',
-        paras: ['Your application is with me. I read every one myself and '
-          + 'come back within 48 hours with whether I think it is a fit, '
-          + (/apply/i.test(answers.source) ? 'and if it is, a link to book a call so we can talk it through.' : 'and what I would start you on.'),
+        paras: [/apply/i.test(answers.source)
+          ? 'Your application is with me. I read every one myself, and watch your clips, before we speak. If you have not picked a time for your free 15 minute consultation yet, the button below does it.'
+          : 'Your application is with me. I read every one myself and '
+            + 'come back within 48 hours with whether I think it is a fit, and what I would start you on.',
           answers.clipsDue ? 'Your clips are with it. If any of them did not go, reply to this with them attached.' : '',
           'If anything changes in the meantime, just reply to this.'].filter(Boolean),
+        ...(/apply/i.test(answers.source) && clipKey ? { cta: { href: `${SITE}/call.html?a=${enc(row.id)}&k=${enc(clipKey)}`, label: 'Book your consultation' } } : {}),
         signoff: { name: coachName(coachOf(e)) },
       }));
 
@@ -12178,7 +12191,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      Somebody applying has no account, so /upload will not have them.
      The key from /application opens up to three films for that one
      application and nothing else, three minutes each like a form check. */
-  if ((path === '/application/upload' || path === '/application/clip') && request.method === 'POST') {
+  if ((path === '/application/upload' || path === '/application/clip' || path === '/application/who') && request.method === 'POST') {
     const id = String(body.id || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 64);
     const key = String(body.key || '');
     const want = id ? await hmac('appclip:' + id) : '';
@@ -12187,6 +12200,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!app) return json({ error: 'That application could not be found' }, 404);
     const A = app.answers || {};
     const have = String(A.clips || '').split(',').filter(Boolean);
+    /* the consultation page, from the link in the reply: who is booking,
+       so they are not asked again (5 Nov 2026) */
+    if (path === '/application/who') {
+      const row = await supa.row('applications', `id=eq.${enc(id)}&select=name,email`).catch(() => null);
+      return json({ name: String((row && row.name) || ''), email: norm(app.email), call: A.call || '' });
+    }
     if (path === '/application/clip') {
       const uid = String(body.uid || '').toLowerCase();
       if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That is not a clip' }, 400);
@@ -14984,14 +15003,17 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const text = String(body.text || '').trim().slice(0, 4000);
       if (!id || !text) return json({ error: 'Which application, and what to say?' }, 400);
       if (/\[CHECK/i.test(text)) return json({ error: 'There is still a [CHECK] in it. Write what you saw first.' }, 400);
-      const app = await supa.row('applications', `id=eq.${enc(id)}&select=email,name`);
+      const app = await supa.row('applications', `id=eq.${enc(id)}&select=email,name,answers`);
       if (!app || !app.email) return json({ error: 'That application could not be found' }, 404);
+      /* booked from the thank you already: no button to book it again */
+      const booked = !!((app.answers || {}).call);
       const paras = text.split(/\n\s*\n/).map(p => esc(p.trim()).replace(/\n/g, '<br>')).filter(Boolean);
-      const went = await email(norm(app.email), fit ? 'Your application: let us talk' : 'Your application',
+      const ck = await hmac('appclip:' + id);
+      const went = await email(norm(app.email), fit ? (booked ? 'Your application, before we talk' : 'Your application: book your consultation') : 'Your application',
         mail({ title: fit ? 'Let us talk.' : 'Not yet.',
           paras,
-          cta: fit ? { href: `${SITE}/call.html?from=apply`, label: 'Book the call' }
-                   : { href: `${SITE}/lha-app.html`, label: 'Open the free app' },
+          ...(fit && booked ? {} : { cta: fit ? { href: `${SITE}/call.html?a=${enc(id)}&k=${enc(ck)}`, label: 'Book your consultation' }
+                   : { href: `${SITE}/lha-app.html`, label: 'Open the free app' } }),
           signoff: { name: coachName(asking || primaryCoach()) } }));
       await supa.update('applications', `id=eq.${enc(id)}`, { status: fit ? 'replied' : 'declined' });
       return json({ ok: true, sent: !!went, status: fit ? 'replied' : 'declined' });
