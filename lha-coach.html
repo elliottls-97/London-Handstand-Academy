@@ -9832,6 +9832,11 @@ function rosterHTML(){
               ['unread','Unread'],['enquiries','Enquiries'],['new','New accounts'],['past','Past clients'],
               ...(clients.some(c=>c.mine)?[['yours','Yours and tests']]:[])];
   const cols='28px minmax(0,2fr) minmax(0,1fr) 92px 92px';
+  /* Waiting is what Today counts as waiting on you: the same rule, and
+     cleared items stay cleared. It took the oldest thing in the queue of
+     any kind, so Hannah read "51 days" off September clips long answered
+     and cleared, and Marina "3 h" off a session she had finished (5 Nov 2026). */
+  const tp=new Map(todayPeople().map(p=>[p.email,p]));
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
     ${mailAlertHTML()}
     <h1 style="margin:0 0 var(--space-4)">Clients</h1>
@@ -9855,8 +9860,8 @@ function rosterHTML(){
     </div>
     ${rows.map(c=>{
       const a=prog[c.email]?analysis(c.email):null;
-      const w=queue.find(x=>x.email===c.email);
-      const wh=w?Math.round((Date.now()-(w.at||0))/3600000):0;
+      const w=tp.get(c.email);
+      const wh=w&&w.act?(w.hrs||0):0;
       const line=a?(a.sinceLast===null?'no sessions yet':a.sinceLast===0?'trained today'
         :a.sinceLast===1?'trained yesterday':a.sinceLast+' days since last'):ago(c.last);
       const col=a?(a.tone==='bad'?'var(--terra)':a.tone==='warn'?'var(--amber-d)':'var(--ink)'):'var(--grey)';
@@ -9885,7 +9890,7 @@ function rosterHTML(){
         <div onclick="openClient(${jsq(c.email)})" style="cursor:pointer;font:400 14px/1.4 var(--sans)">${
           a?a.adherence+'%':'not yet'}</div>
         <div onclick="openClient(${jsq(c.email)})" style="cursor:pointer;font:400 14px/1.4 var(--sans);
-          color:${w?hrsColor(wh):'var(--grey2)'}">${w?waitTxt(wh):'none'}</div>
+          color:${wh?hrsColor(wh):'var(--grey2)'}">${wh?waitTxt(wh):'none'}</div>
       </div>`; }).join('')
       || `<p class="muted" style="padding:var(--space-4) 0">${clientsLoaded?'Nobody matches.':'Loading your clients&hellip;'}</p>`}
   </section>`;
