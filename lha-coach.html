@@ -1275,7 +1275,7 @@ function journeyHTML(){
       <b style="min-width:110px;font-weight:600">${esc(p.name||p.email.split('@')[0])}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(p.email)}</span>
       <span class="muted" style="flex:none;font-size:12px">joined ${esc(String(p.joined||'').slice(0,10))} · ${p.finished}/${p.sessions} finished${p.coached?' · coached':''}${p.paid?' · paid':''}</span></div>`).join('')
     :`<div class="muted" style="font-size:13px;padding:6px 0">Nobody. ${why}</div>`;
-  const errs=jr.errs||[];
+  const ET=errThings(jr.errs||[]), errs=ET.things;
   return `<div class="card">
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <div class="kick">THE JOURNEY · ${jrDays===1?'TODAY':'LAST '+jrDays+' DAYS'}</div>
@@ -1323,11 +1323,12 @@ function journeyHTML(){
     ${(()=>{ const sa=((jr.sources||{}).accounts||[]), se=((jr.sources||{}).events||[]), m=Math.max(1,...sa.map(x=>x.n));
       return (sa.length?sa.map(x=>bar(srcName(x.src),x.n,m,'')).join(''):'<div class="muted" style="font-size:13px;margin-top:8px">No new accounts in this time.</div>')
         + (se.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">By where they first came from: ${se.map(x=>esc(srcName(x.src))+' '+x.open+' opens, '+x.first1+' first sessions'+(x.subscribed?', '+x.subscribed+' paid':'')).join(' · ')}</div>`:''); })()}
-    <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}</div>
-    ${errs.length?errs.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
-        <div style="display:flex;gap:10px;align-items:baseline"><b style="font:600 13px/1.4 var(--sans);flex:1;min-width:0">${esc(e.m)}</b>
-          <span style="flex:none;font:600 13px/1 var(--sans);font-variant-numeric:tabular-nums">${e.n}×</span></div>
-        <div class="muted" style="font-size:12px;margin-top:2px">${esc(ERR_KIND[e.k]||e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div></div>`).join('')
+    <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}${ET.hidden?` <span class="muted" style="font-weight:400;letter-spacing:0;text-transform:none">· ${ET.hidden} row${ET.hidden===1?'':'s'} hidden: Instagram's in-app browser and lost signal</span>`:''}</div>
+    ${errs.length?errs.map(t=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+        <div style="font:400 13.5px/1.5 var(--sans)">${errLine(t)}</div>
+        ${t.rows.map(e=>`<div style="display:flex;gap:10px;align-items:baseline;margin-top:4px"><b style="font:600 12.5px/1.4 var(--sans);flex:1;min-width:0;color:var(--grey)">${esc(e.m)}</b>
+          <span style="flex:none;font:600 12.5px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--grey)">${e.n}×</span></div>
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(ERR_KIND[e.k]||e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div>`).join('')}</div>`).join('')
       :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing broke in this time.</div>'}
     ${(jr.films||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">Films that would not play: ${(jr.films||[]).map(x=>esc(x.key)+' '+x.n).join(' · ')}</div>`:''}
     <div class="kick" style="margin-top:20px">ACCOUNTS THAT HAVE STALLED${st_.accounts!=null?` · ${st_.accounts} REAL ACCOUNTS, ${st_.newThisPeriod} NEW, ${st_.activeThisPeriod} ACTIVE`:''}</div>
@@ -9613,6 +9614,40 @@ function loadDigest(){
   fetch('/api/app/workshops').then(r=>r.ok?r.json():null).then(d=>{ if(d){ dgClass=d.workshops||[]; draw(); } }).catch(()=>{});
   loadPaying(); loadLearnSearch(); loadCpStats();
 }
+/* The rows in What broke read as things. The in-app browser's own errors
+   and a phone with no signal are not things, and one film that will not
+   play is one thing however many screens it failed on. "20 app errors"
+   was 14 Instagram browser rows, 1 lost signal row, 1 film and 1 server
+   error (Elliott, 5 Nov 2026: "says a lot but doesn't tell me much"). */
+const ERR_NOISE_RE=/_AutofillCallbackHandler|Java object is gone|webkit\.messageHandlers|iabjs:|navigation_performance_logger/;
+function errThings(errs){
+  const real=(errs||[]).filter(e=>e && !ERR_NOISE_RE.test(String(e.m||'')) && !ERR_NOISE_RE.test(String(e.w||''))
+    && !(e.k==='promise' && /^(TypeError: )?(Load failed|Failed to fetch|NetworkError)/i.test(String(e.m||'')) && !e.w));
+  const by=new Map();
+  real.forEach(e=>{
+    const m=String(e.m||'');
+    const key=e.k==='film' ? 'film:'+m.replace(/\s*\([^)]*\)\s*$/,'') : e.k+':'+m.replace(/\?.*$/,'');
+    const g=by.get(key)||{k:e.k, m:m.replace(/\s*\([^)]*\)\s*$/,''), n:0, who:[], last:0, first:Infinity, rows:[]};
+    g.n+=Number(e.n)||1; (e.who||[]).forEach(w=>{ if(g.who.indexOf(w)<0) g.who.push(w); });
+    g.last=Math.max(g.last,e.last||0); g.first=Math.min(g.first,e.first||e.last||0); g.rows.push(e); by.set(key,g);
+  });
+  return {things:[...by.values()].sort((a,b)=>b.last-a.last), hidden:(errs||[]).length-real.length};
+}
+/* one line a person can act on */
+function errLine(t){
+  const who=t.who.slice(0,3).map(w=>esc(firstName(w)||String(w).split('@')[0])).join(', ');
+  if(t.k==='film') return `<b>${esc(t.m.replace(/^Film would not play:\s*/,''))}</b> film would not play${who?' for '+who:''}, ${t.n}×, last ${esc(ago(t.last))}.`;
+  if(t.k==='api') return `The server failed: <b>${esc(t.m)}</b>, ${t.n}×${who?', '+who:''}, last ${esc(ago(t.last))}.`;
+  return `<b>${esc(t.m.slice(0,80))}</b>, ${t.n}×${who?', '+who:''}, last ${esc(ago(t.last))}.`;
+}
+function errSummary(things){
+  const n=k=>things.filter(t=>t.k===k).length, parts=[];
+  if(n('film')) parts.push(n('film')+' film'+(n('film')===1?'':'s')+' not playing');
+  if(n('api')) parts.push(n('api')+' server error'+(n('api')===1?'':'s'));
+  const other=things.length-n('film')-n('api');
+  if(other) parts.push(other+' app error'+(other===1?'':'s'));
+  return parts.join(' · ');
+}
 function digestHTML(){
   if(!owner) return '';
   loadDigest();
@@ -9625,7 +9660,7 @@ function digestHTML(){
   const paid=rows.filter(r=>r.how!=='comp'), mrr=rows.reduce((t,r)=>t+(Number(r.pm)||0),0);
   const fresh=paid.filter(r=>r.since>=wk), going=paid.filter(r=>r.cancelling), late=paid.filter(r=>r.status==='past_due'||r.status==='unpaid');
   const nothing=(ls.searches||[]).filter(x=>!x.hits && x.last>=wk).slice(0,4), asks=(ls.asks||[]).filter(a=>a.at>=wk);
-  const errs=dg.errs||[];
+  const errs=errThings(dg.errs||[]).things;
   const path=['open','quizq0','quiz','start','finish','first1','first2'];
   let worst=null; for(let i=1;i<path.length;i++){ const a=g(path[i-1]).n, b=g(path[i]).n; if(a>=5){ const lost=1-b/a; if(!worst||lost>worst.lost) worst={from:(A[path[i-1]]||{}).label||path[i-1],to:(A[path[i]]||{}).label||path[i],lost}; } }
   const cls=(dgClass||[]).filter(w=>w&&w.when&&Date.parse(w.when)>Date.now()).sort((a,b)=>Date.parse(a.when)-Date.parse(b.when))[0];
@@ -9646,9 +9681,9 @@ function digestHTML(){
   if(sk.length) L.push(line('»',`Most skipped: ${sk.map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n+'×').join(', ')}.`,"setTab='journey';go('settings')"));
   if(asks.length) L.push(line('?',`<b>${asks.length}</b> question${asks.length===1?'':'s'} from the Learn search. Latest: &ldquo;${esc(asks[0].text.slice(0,90))}${asks[0].text.length>90?'…':''}&rdquo;`,"setTab='journey';go('settings')"));
   if(nothing.length) L.push(line('⌕',`Searched, found nothing: ${nothing.map(x=>'&ldquo;'+esc(x.q)+'&rdquo;').join(', ')}. Something to film or write.`,"setTab='journey';go('settings')"));
-  if(errs.length) L.push(line('⚠',`<b>${errs.length}</b> thing${errs.length===1?'':'s'} broke, the most: &ldquo;${esc(String(errs[0].m).slice(0,70))}&rdquo; ${errs[0].n}×.`,"setTab='journey';go('settings')"));
+  errs.slice(0,3).forEach(t=>L.push(line('⚠',errLine(t),"setTab='journey';go('settings')")));
   if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"setTab='workshops';go('settings')")); }
-  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c" title="Errors people hit in the app this week. Open this line for the most common one.">${errs.length} app error${errs.length===1?'':'s'}</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
+  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c" title="${esc(errs.map(t=>t.m).join(' · '))}">${errSummary(errs)}</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
   return `<div style="margin:0 0 var(--space-4);padding:14px 16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
     <button onclick="dgOpen=!dgOpen;draw()" style="display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;padding:0;cursor:pointer;text-align:left;color:var(--ink)">
       <span class="kick" style="flex:none">THIS WEEK</span>
@@ -10513,11 +10548,11 @@ function cpStand(email, k){
   return {hist,last,clip,s0,tgt,lower,state,waiting,replied};
 }
 function cpTargetLine(k, tgt, lower){
-  const unit=k.unit||'';
-  if(k.kind==='yn') return 'target: yes';
-  if(k.kind==='face') return 'target: the top face';
+  const unit=k.unit||(k.kind==='secs'?'s':'');
+  if(k.kind==='yn') return 'Needs a yes';
+  if(k.kind==='face') return 'Needs &ldquo;'+esc((k.faces||['Not really','Getting there','Yes'])[2]||'Yes')+'&rdquo;';
   if(tgt==null) return '';
-  return 'target: '+esc(String(tgt))+esc(unit)+(lower?' or fewer':'');
+  return 'Target '+esc(String(tgt))+esc(unit)+(lower?' or fewer':'');
 }
 function cpsWaitKeys(email){
   const tr=((tracks[email]||{}).checkpoints)||{};
@@ -10551,7 +10586,8 @@ function marksPaneHTML(){
   const card=k=>{
     const S=cpStand(sel,k);
     const {hist,last,clip,s0,state,waiting}=S;
-    const unit=k.unit||'';
+    /* a hold is seconds even when nobody wrote the unit: "15" read as nothing */
+    const unit=k.unit||(k.kind==='secs'?'s':'');
     const numeric=k.kind!=='yn' && k.kind!=='face';
     /* a face was printed as its index: "Last logged: 2 15 days ago" */
     const cpShow=v=>k.kind==='face' ? (k.faces||['Not really','Getting there','Yes'])[Math.max(0,Math.min(2,Number(v)||0))]
@@ -10559,11 +10595,12 @@ function marksPaneHTML(){
     const tline=cpTargetLine(k,S.tgt,S.lower);
     const sub = clip ? cpSubFor(sel, clip.video) : null;
     const busy=cpVerdictBusy.has(k.k);
-    const TAG={clip:['clip to watch','tag-accent'], hit:['target hit, sign it off','tag-accent'],
+    /* plain words (Elliott, 5 Nov 2026: "it's unclear") */
+    const TAG={clip:['clip to watch','tag-accent'], hit:['at target, sign it off','tag-accent'],
       signed:['signed off','tag-accent'], notyet:['not there yet','tag-accent-2'],
-      going:['in progress','tag-neutral'], none:['nothing yet','tag-neutral'],
-      replied:['answered, verdict open','tag-neutral'],
-      logged:['recording','tag-neutral']}[state];
+      going:['working on it','tag-neutral'], none:['not logged yet','tag-neutral'],
+      replied:['answered, not signed off','tag-neutral'],
+      logged:['record only','tag-neutral']}[state];
     const needs = state==='clip' || state==='hit';
     const when = r => r && r.verdictAt ? ' '+esc(ago(r.verdictAt)) : '';
     /* what you last said, whichever row it is on */
@@ -10592,8 +10629,8 @@ function marksPaneHTML(){
             onclick="cpVerdict(${jsq(sel)},${jsq(k.k)},'','notyet')">Not there yet</button>` : ''}
         </div>
         <div class="muted" style="font:400 11.5px/1.5 var(--sans);margin-top:8px">${
-          state==='hit' ? 'They have logged the target. Signing it off turns it green and counts it.'
-          : state==='none' ? 'Nothing logged yet. Sign it off if you have seen it done, in a session or anywhere else.'
+          state==='hit' ? 'At the target. Sign it off and it goes green in their app.'
+          : state==='none' ? 'Nothing logged. Sign it off if you have seen it done.'
           : 'Sign it off when you are happy it is there, whatever the number says.'}</div>
       </div>` : '';
     const recent=hist.slice(-6).map(r=>`<span style="font:400 12px/1.4 var(--sans);color:var(--grey2)">${
@@ -10605,18 +10642,17 @@ function marksPaneHTML(){
         <span class="tag ${TAG[1]}">${TAG[0]}</span>
         <b style="flex:1;min-width:160px;font:600 15px/1.3 var(--sans)">${esc(k.n||k.k)}</b>
         <span style="font:600 13px/1.4 var(--sans);color:${tline||k.measure?'var(--ink)':'var(--terra)'}">${
-          k.measure ? (k.kind==='secs'?'how long they can hold it':'how many they can do')
-          : tline || (numeric&&!k.stray ? 'no target set' : '')}</span>
+          k.measure ? 'A record, no target'
+          : tline || (numeric&&!k.stray ? 'No target set' : '')}</span>
       </div>
       ${k.measure && hist.length ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">Best so far <b style="color:var(--ink)">${
-        esc(String(S.lower ? Math.min(...hist.map(r=>Number(r.v)||0).filter(x=>x>0)) : Math.max(...hist.map(r=>Number(r.v)||0))))}${esc(unit)}</b>. Nothing to sign off: it is a record.</p>`:''}
+        esc(String(S.lower ? Math.min(...hist.map(r=>Number(r.v)||0).filter(x=>x>0)) : Math.max(...hist.map(r=>Number(r.v)||0))))}${esc(unit)}</b>.</p>`:''}
       ${!tline && numeric && !k.stray && !k.measure ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">
-        With no number their bar cannot turn green. Add one in Edit check points, or sign it off by eye.</p>`:''}
+        No target set, so it cannot go green on its own. Set one in Edit check points, or sign it off by eye.</p>`:''}
       ${k.note?`<p class="muted" style="font:400 13px/1.5 var(--sans);margin-top:6px">${esc(k.note)}</p>`:''}
       <div style="margin-top:10px;font:400 13.5px/1.5 var(--sans)">${
-        last ? `Last logged: <b>${esc(cpShow(last.v))}</b>, ${esc(ago(last.at))}`
+        last ? `Logged <b>${esc(cpShow(last.v))}</b>${numeric&&!k.measure&&S.tgt!=null?' of '+esc(String(S.tgt))+esc(unit):''}, ${esc(ago(last.at))}`
              : 'Nothing logged yet.'}</div>
-      ${k.measure && !hist.length ? `<p class="muted" style="font:400 12.5px/1.5 var(--sans);margin-top:6px">A record with no target, so nothing to sign off.</p>`:''}
       ${hist.length>1?`<div style="margin-top:6px">${recent}</div>`:''}
       ${clip?`<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
         <div style="flex:0 0 170px;border-radius:12px;overflow:hidden">${clipPoster(clip.video,'3/4','',true)}</div>
@@ -10626,8 +10662,7 @@ function marksPaneHTML(){
             <button class="btn btn-ghost btn-sm" style="margin-top:8px"
               onclick="reviewCp(${jsq(sel)},${jsq(clip.video)},${jsq(k.n||k.k)})">Open in the review tool &rarr;</button>`
           : `${clip.replyAt?`<div style="font:600 12.5px/1.4 var(--sans);color:var(--forest);margin-bottom:10px">
-              You sent a recording back ${esc(ago(clip.replyAt))}. It is on this check point in their app.
-              Sign it off or say not yet to close it.</div>`:''}
+              You answered this with a recording ${esc(ago(clip.replyAt))}. Sign it off, or say not there yet, when you want it closed.</div>`:''}
             <div style="font:700 9px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">YOUR VERDICT</div>
             <input id="vnote-cp-${esc(k.k)}" placeholder="One line they will read beside it, optional"
               style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
