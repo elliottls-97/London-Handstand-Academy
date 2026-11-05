@@ -1634,6 +1634,10 @@ body.cookie-pending #stickyCta { display: none !important; }
 .qclip.has { border-style: solid; border-color: var(--terra); background: rgba(192,122,24,.07); }
 .qclip.has .qclip-n { background: var(--terra); color: #fff; }
 .qclip-x { position: relative; z-index: 2; border: 0; background: none; font-size: 20px; line-height: 1; color: rgba(17,17,17,.5); cursor: pointer; padding: 4px 6px; }
+.quiz-legal { font-size: 12px; line-height: 1.5; color: rgba(17,17,17,.6); margin: 4px 0 0; }
+.quiz-legal a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* said in the step, not in a browser alert box (5 Nov 2026) */
+.quiz-msg { font-size: 13.5px; line-height: 1.5; color: #a4503c; font-weight: 600; margin: 10px 0 0; }
 .qclip-note { font-size: 12.5px; color: rgba(17,17,17,.62); line-height: 1.5; margin: 0 0 8px; }
 #doneClips { margin: 16px 0 0; font-size: 13.5px; line-height: 1.6; color: rgba(17,17,17,.72); }
 #doneClips .bar { height: 6px; border-radius: 3px; background: rgba(17,17,17,.08); overflow: hidden; margin-top: 8px; }
@@ -4114,6 +4118,7 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
       <div style="padding:0 28px;">
         <div class="qclips" id="qClips"></div>
         <p class="qclip-note">Three minutes each at most. No clips yet? Skip, and send them when I reply.</p>
+        <p class="quiz-msg" id="q8msg" role="alert" hidden></p>
       </div>
       <div style="padding:0 28px 28px;">
         <div class="quiz-nav">
@@ -4143,6 +4148,8 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
           <label class="quiz-label">Anything else you'd like Elliott to know?</label>
           <textarea class="quiz-textarea" id="q6notes" placeholder="Your background, specific questions, preferred days/times..."></textarea>
         </div>
+        <p class="quiz-legal">By sending this you agree to our <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy policy</a>.</p>
+        <p class="quiz-msg" id="q6msg" role="alert" hidden></p>
       </div>
       <div style="padding:0 28px 28px;">
         <div class="quiz-nav">
@@ -4774,7 +4781,7 @@ const QUIZ_VARIANTS = {
     submitLabel: 'Send my application \u2192',
     subject: 'Coaching application (apply)',
     plan: 'Coaching',
-    notesPh: 'Anything else I should know? Optional.',
+    notesPh: 'Optional.',
     pay: false,
     noCall: true,
     doneHead: 'Application in',
@@ -4896,6 +4903,14 @@ function openQuiz(e, variant) {
   const fork = document.getElementById('q4-fork');
   if (fork) fork.style.display = 'none';
   applyQuizVariant();
+  /* the name and email this browser has already given are not asked for
+     again (5 Nov 2026) */
+  try {
+    var n6 = document.getElementById('q6name'), e6 = document.getElementById('q6email');
+    if (n6 && !n6.value) n6.value = localStorage.getItem('lha-name') || '';
+    if (e6 && !e6.value) e6.value = localStorage.getItem('lha-email') || '';
+    var m6 = document.getElementById('q6msg'); if (m6) m6.hidden = true;
+  } catch (x) {}
   document.getElementById('quiz-overlay').classList.add('open');
   document.body.style.overflow = 'hidden'; document.body.classList.add('quiz-on');
   showStep(quizSeq()[0]);
@@ -4972,7 +4987,9 @@ function qClipsPaint() {
 }
 function qClipPick(inp, i) {
   var f = inp.files && inp.files[0]; if (!f) return;
-  if (f.type && !/^video\//.test(f.type)) { alert('That one is not a video.'); return; }
+  var m8 = document.getElementById('q8msg');
+  if (f.type && !/^video\//.test(f.type)) { if (m8) { m8.textContent = String(f.name).replace(/[<>&"]/g, '') + ' is not a video. Choose a film from your phone.'; m8.hidden = false; } return; }
+  if (m8) m8.hidden = true;
   qClipFiles[i] = f; qClipsPaint();
 }
 function qClipTus(file, d, onPct) {
@@ -5037,7 +5054,10 @@ function qClipsSend(files) {
 function submitQuiz() {
   const name  = document.getElementById('q6name').value.trim();
   const email = document.getElementById('q6email').value.trim();
-  if (!name || !email) { alert('Please fill in your name and email.'); return; }
+  var say6 = function (m) { var el = document.getElementById('q6msg'); if (el) { el.textContent = m; el.hidden = !m; } };
+  if (!name) { say6('Your name, so I know who I am replying to.'); document.getElementById('q6name').focus(); return; }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { say6(email ? 'That email does not look right. Check it for a typo.' : 'Your email, so the reply has somewhere to go.'); document.getElementById('q6email').focus(); return; }
+  say6('');
 
   const injuries = document.getElementById('q5injuries').value.trim() || ' ';
   const daysEl = document.getElementById('q5days');
@@ -5128,7 +5148,8 @@ function submitQuiz() {
     }
   })
   .catch(function(err) {
-    alert("Sorry, your application couldn't be sent (" + err.message + "). Please email info@londonhandstandacademy.com directly.");
+    var el6 = document.getElementById('q6msg');
+    if (el6) { el6.textContent = 'That did not send: ' + String(err.message || 'no answer from the server').replace(/\.$/, '') + '. Try again, or email info@londonhandstandacademy.com.'; el6.hidden = false; }
     if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = quizCfg().submitLabel; }
   });
 }
